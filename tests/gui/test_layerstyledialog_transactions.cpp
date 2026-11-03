@@ -19,6 +19,7 @@
 #include <QLineEdit>
 #include "render/sublayers/resultscalarsublayer.h"
 #include "ui/dialogs/ilayerstylesubject.h"
+#include "ui/dialogs/swmm2dresultsstylepanel.h"
 #include "ui/widgets/classificationeditor.h"
 #include <QTableView>
 #include "render/sublayers/contourbandsublayer.h"
@@ -326,10 +327,14 @@ private slots:
     void invalidClassificationDraftCannotBeAccepted()
     {
         SWMM2DResultsLayer layer;
+        // The depth row presents the depth passes, whose editors its tabs show.
+        QVERIFY(layer.addResultSublayer(QStringLiteral("surface:Mesh2_face_depth")));
         QUndoStack undo;
-        LayerStyleDialog dialog(&layer, {}, nullptr, &undo);
+        LayerStyleDialog dialog(&layer, QStringLiteral("results2d.cellDepthFill"), nullptr, &undo);
         QTableView *table = nullptr;
         for (auto *editor : dialog.findChildren<openswmmvis::ui::ClassificationEditor *>()) {
+            if (!editor->isEnabled())
+                continue;
             auto *candidate = editor->findChild<QTableView *>();
             if (candidate && candidate->model()->rowCount() > 1) {
                 table = candidate;
@@ -347,6 +352,38 @@ private slots:
         QVERIFY(table->model()->setData(index, original));
         dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
         QVERIFY(!dialog.isVisible());
+    }
+    /** @brief An invalid draft on a tab the user is not looking at is brought forward when
+     * OK refuses it: the Symbology tab, then the display tab that holds the editor. */
+    void hiddenInvalidDraftIsRevealedOnAccept()
+    {
+        SWMM2DResultsLayer layer;
+        QVERIFY(layer.addResultSublayer(QStringLiteral("surface:Mesh2_face_depth")));
+        QUndoStack undo;
+        LayerStyleDialog dialog(&layer, QStringLiteral("results2d.bands"), nullptr, &undo);
+        auto *panel = dialog.findChild<openswmmvis::ui::Swmm2DResultsStylePanel *>();
+        QVERIFY(panel);
+        auto *displays = panel->findChild<QTabWidget *>("resultDisplayTabs");
+        QVERIFY(displays && displays->currentWidget()->objectName() == "resultFilledContoursTab");
+        auto *bands = displays->currentWidget()->findChild<openswmmvis::ui::ClassificationEditor *>();
+        auto *table = bands ? bands->findChild<QTableView *>() : nullptr;
+        QVERIFY(table && table->model()->rowCount() > 1);
+        QVERIFY(table->model()->setData(table->model()->index(0, 1), QStringLiteral("nan")));
+        // Look elsewhere: another display tab, and the dialog's first tab.
+        displays->setCurrentIndex(0);
+        QTabWidget *outer = nullptr;
+        for (QWidget *w = panel; w; w = w->parentWidget())
+            if (auto *tabs = qobject_cast<QTabWidget *>(w))
+                outer = tabs;
+        QVERIFY(outer);
+        outer->setCurrentIndex(0);
+        QVERIFY(!outer->currentWidget()->isAncestorOf(panel));
+        dialog.show();
+        dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        QVERIFY(dialog.isVisible());
+        QVERIFY(outer->currentWidget()->isAncestorOf(panel));
+        QCOMPARE(displays->currentWidget()->objectName(), QStringLiteral("resultFilledContoursTab"));
+        QCOMPARE(undo.count(), 0);
     }
     /**
      *

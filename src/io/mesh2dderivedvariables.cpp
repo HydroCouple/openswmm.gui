@@ -8,6 +8,7 @@
  */
 
 #include "io/mesh2dderivedvariables.h"
+#include "io/mesh2dresultvector.h"
 
 #include <algorithm>
 #include <cmath>
@@ -139,13 +140,215 @@ bool computeDerivedGroundwater(const QString &dataset, const std::vector<float> 
     return true;
 }
 
+namespace
+{
+const QString kMoistureDataset = QStringLiteral("gw_theta_unsat_mean");
+const QString kMagnitudePrefix = QStringLiteral("magnitude|");
+
+/** @return Groundwater descriptor for a plain dataset name. */
+V groundwaterInput(const char *dataset, V::Temporal temporal = V::Temporal::Reported)
+{
+    V v;
+    v.dataset = QString::fromLatin1(dataset);
+    v.domain = V::Domain::Groundwater;
+    v.temporal = temporal;
+    return v;
+}
+
+/** @return Sigma water content layer descriptor. */
+V sigmaLayerInput(int layer)
+{
+    V v = groundwaterInput("Mesh2_face_gw_theta_sigma");
+    v.zone = V::Zone::Sigma;
+    v.layer = layer;
+    return v;
+}
+
+/**
+ * @param[in] native Catalog.
+ * @return Column-average descriptor when its inputs exist, else empty dataset.
+ */
+V moistureVariable(const QVector<V> &native)
+{
+    const QString closureKey = groundwaterInput("Mesh2_face_gw_closure").key(),
+                  huKey = groundwaterInput("Mesh2_face_gw_hu").key(),
+                  groundKey = groundInput().key(), tableKey = tableInput().key();
+    const V *table = nullptr;
+    bool closure = false, hu = false, ground = false;
+    QStringList layers;
+    for (const auto &v : native) {
+        if (v.derived)
+            continue;
+        const QString key = v.key();
+        if (v.zone == V::Zone::Sigma && v.dataset == QLatin1String("Mesh2_face_gw_theta_sigma") &&
+            v.species.isEmpty() && v.layer >= 0)
+            layers.append(key);
+        else if (v.zone != V::Zone::None)
+            continue;
+        else if (key == closureKey)
+            closure = true;
+        else if (key == huKey)
+            hu = true;
+        else if (key == groundKey)
+            ground = true;
+        else if (key == tableKey)
+            table = &v;
+    }
+    if (!closure || !table || (!layers.isEmpty() ? false : !(hu && ground)))
+        return {};
+    V out;
+    out.dataset = kMoistureDataset;
+    out.label = QStringLiteral("Groundwater — unsaturated water content, column average (derived)");
+    out.units = QStringLiteral("1");
+    out.unitsKnown = true;
+    out.domain = V::Domain::Groundwater;
+    out.temporal = table->temporal;
+    out.frameCount = table->frameCount;
+    out.derived = true;
+    out.derivedFrom = QStringList{closureKey, groundKey, tableKey, hu ? huKey : QString()} + layers;
+    return out;
+}
+
+/**
+ * @brief Compute the unsaturated column average (see derivedResultVariables()).
+ * @return False when a required input could not be read.
+ */
+bool readMoisture(const V &derived, int timeIdx, const Mesh2DFaceVariableReader &read,
+                  std::vector<float> &values, std::vector<S> &status)
+{
+    std::vector<float> closure, ground, table, hu;
+    std::vector<S> closureStatus, groundStatus, tableStatus, huStatus;
+    if (!read(groundwaterInput("Mesh2_face_gw_closure", V::Temporal::Static), timeIdx, closure,
+              closureStatus))
+        return false;
+    const size_t cells = closure.size();
+    const bool haveHu = derived.derivedFrom.size() > 3 && !derived.derivedFrom[3].isEmpty();
+    // Ground and table give every closure's unsaturated thickness.
+    const bool thick = read(groundInput(), timeIdx, ground, groundStatus) &&
+                       read(tableInput(), timeIdx, table, tableStatus) && ground.size() == cells &&
+                       table.size() == cells && groundStatus.size() == cells &&
+                       tableStatus.size() == cells;
+    const bool bulk = thick && haveHu &&
+                      read(groundwaterInput("Mesh2_face_gw_hu"), timeIdx, hu, huStatus) &&
+                      hu.size() == cells && huStatus.size() == cells;
+    const int layers = std::max(0, int(derived.derivedFrom.size()) - 4);
+    std::vector<double> sum(cells, 0.0);
+    std::vector<S> sigmaStatus(cells, layers > 0 ? S::Valid : S::Missing);
+    std::vector<float> layer;
+    std::vector<S> layerStatus;
+    for (int j = 0; j < layers; ++j) {
+        if (!read(sigmaLayerInput(j), timeIdx, layer, layerStatus) || layer.size() != cells ||
+            layerStatus.size() != cells)
+            return false;
+        for (size_t c = 0; c < cells; ++c) {
+            if (sigmaStatus[c] != S::Valid)
+                continue;
+            if (layerStatus[c] != S::Valid || !std::isfinite(layer[c]))
+                sigmaStatus[c] = layerStatus[c] == S::Valid ? S::Missing : layerStatus[c];
+            else
+                sum[c] += layer[c];
+        }
+    }
+    values.assign(cells, std::numeric_limits<float>::quiet_NaN());
+    status.assign(cells, S::Missing);
+    for (size_t c = 0; c < cells; ++c) {
+        if (closureStatus[c] != S::Valid || !std::isfinite(closure[c]))
+            continue;
+        const bool sigma = closure[c] == 2;
+        if (!sigma && closure[c] != 0 && closure[c] != 1)
+            continue;
+        const bool knownThickness =
+            thick && groundStatus[c] == S::Valid && tableStatus[c] == S::Valid;
+        const double thickness =
+            knownThickness ? double(ground[c]) - double(table[c]) : std::nan("");
+        if (knownThickness && !(thickness > 1e-9)) {
+            status[c] = S::NotApplicable; // saturated to the ground: no unsaturated zone
+            continue;
+        }
+        if (sigma && layers > 0) {
+            status[c] = sigmaStatus[c];
+            if (sigmaStatus[c] == S::Valid)
+                values[c] = float(sum[c] / layers);
+        } else if (bulk && knownThickness && huStatus[c] == S::Valid && std::isfinite(hu[c])) {
+            // Closure A's bulk storage; for a sigma column without its layers
+            // (live runs) hu is the engine's sigma column storage, the same mean.
+            values[c] = float(std::max(0.0, double(hu[c])) / thickness);
+            status[c] = S::Valid;
+        }
+    }
+    return true;
+}
+
+/** @return The |v| descriptor of a vector. */
+V magnitudeVariable(const Mesh2DResultVector &vector)
+{
+    V m;
+    m.dataset = kMagnitudePrefix + vector.x.key() + QLatin1Char('|') + vector.y.key();
+    m.label = vector.label + QStringLiteral(" — magnitude (derived)");
+    m.units = vector.x.unitsKnown ? vector.x.units.trimmed() : QString();
+    m.unitsKnown = vector.x.unitsKnown;
+    m.domain = vector.x.domain;
+    m.temporal = vector.x.temporal;
+    m.frameCount = vector.x.frameCount;
+    m.derived = true;
+    m.derivedFrom = {vector.x.key(), vector.y.key()};
+    return m;
+}
+
+/** @brief Compute |v| from both components; a cell is valid only when both are. */
+bool readMagnitude(const V &derived, int timeIdx, const Mesh2DFaceVariableReader &read,
+                   std::vector<float> &values, std::vector<S> &status)
+{
+    if (derived.derivedFrom.size() != 2)
+        return false;
+    const V x = plainVariableFromKey(derived.derivedFrom[0]),
+            y = plainVariableFromKey(derived.derivedFrom[1]);
+    std::vector<float> vx, vy;
+    std::vector<S> sx, sy;
+    if (x.dataset.isEmpty() || y.dataset.isEmpty() || !read(x, timeIdx, vx, sx) ||
+        !read(y, timeIdx, vy, sy) || vy.size() != vx.size() || sx.size() != vx.size() ||
+        sy.size() != vx.size())
+        return false;
+    values.resize(vx.size());
+    status.resize(vx.size());
+    for (size_t c = 0; c < vx.size(); ++c) {
+        status[c] = sx[c] != S::Valid ? sx[c] : sy[c];
+        const double m = std::hypot(double(vx[c]), double(vy[c]));
+        if (status[c] != S::Valid || !std::isfinite(m)) {
+            values[c] = std::numeric_limits<float>::quiet_NaN();
+            if (status[c] == S::Valid)
+                status[c] = S::Missing;
+        } else
+            values[c] = float(m);
+    }
+    return true;
+}
+} // namespace
+
+QVector<Mesh2DResultVariable> derivedResultVariables(const QVector<Mesh2DResultVariable> &native,
+                                                     QStringList *warnings)
+{
+    auto out = derivedGroundwaterVariables(native, warnings);
+    if (const auto moisture = moistureVariable(native); !moisture.dataset.isEmpty())
+        out.append(moisture);
+    for (const auto &vector : pairResultVectors(native))
+        out.append(magnitudeVariable(vector));
+    return out;
+}
+
 bool readDerivedVariableAt(const Mesh2DResultVariable &derived, int timeIdx,
                            const Mesh2DFaceVariableReader &read, std::vector<float> &values,
                            std::vector<Mesh2DValueStatus> &status)
 {
     values.clear();
     status.clear();
-    if (!derived.derived || !definition(derived.dataset) || !read)
+    if (!derived.derived || !read)
+        return false;
+    if (derived.dataset == kMoistureDataset)
+        return readMoisture(derived, timeIdx, read, values, status);
+    if (derived.dataset.startsWith(kMagnitudePrefix))
+        return readMagnitude(derived, timeIdx, read, values, status);
+    if (!definition(derived.dataset))
         return false;
     std::vector<float> ground, table;
     std::vector<S> groundStatus, tableStatus;

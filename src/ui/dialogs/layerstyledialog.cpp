@@ -73,6 +73,7 @@
 #include <QSpinBox>
 #include <QStyle>
 #include <QTableWidget>
+#include <QScrollArea>
 #include <QTabWidget>
 #include <QToolButton>
 #include <QTreeView>
@@ -1337,6 +1338,17 @@ bool LayerStyleDialog::validClassificationDrafts() const
 {
     for (auto *editor : findChildren<ClassificationEditor *>())
         if (!editor->hasValidDraft()) {
+            // Bring forward every tab (and scroll) the editor sits behind, so
+            // the user sees why OK/Apply is refused.
+            for (QWidget *w = editor; w; w = w->parentWidget()) {
+                QWidget *stack = w->parentWidget();
+                if (auto *tabs = stack ? qobject_cast<QTabWidget *>(stack->parentWidget()) : nullptr;
+                    tabs && tabs->indexOf(w) >= 0)
+                    tabs->setCurrentWidget(w);
+            }
+            for (QWidget *w = editor; w; w = w->parentWidget())
+                if (auto *area = qobject_cast<QScrollArea *>(w))
+                    area->ensureWidgetVisible(editor);
             editor->setFocus(Qt::OtherFocusReason);
             return false;
         }

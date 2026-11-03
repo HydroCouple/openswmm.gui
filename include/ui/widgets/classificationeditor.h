@@ -95,6 +95,13 @@ public:
      */
     [[nodiscard]] bool hasValidDraft() const;
 
+    /*! Set the class-count control's upper bound (64 by default), for schemes whose classes are
+     *  not palette entries, such as contour levels. Call before the user edits; re-reads the
+     *  controls from the binding.
+     * @param[in] count Upper bound, at least 1.
+     */
+    void setMaximumClassCount(int count);
+
 signals:
     /*! Emitted after any edit has been pushed to the binding — hosts that
      *  show a live legend swatch or derived UI can refresh on this. */

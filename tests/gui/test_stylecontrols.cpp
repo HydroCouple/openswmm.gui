@@ -16,7 +16,9 @@
 #include "ui/dialogs/swmm2dresultsstylepanel.h"
 #include "layers/swmm2dresultslayer.h"
 #include "render/sublayers/resultscalarsublayer.h"
-#include <QListWidget>
+#include <QMenu>
+#include <QTabWidget>
+#include <QTreeView>
 #include <QPushButton>
 #include <QCheckBox>
 #include <QComboBox>
@@ -307,18 +309,30 @@ private slots:
         layer.setSource(std::make_unique<PanelVariableSource>());
         auto *sub = layer.addResultSublayer(layer.resultVariables()[0].key());
         Swmm2DResultsStylePanel panel(&layer);
-        QVERIFY(panel.focusResult(sub->id())); // catalog rows are listed first
-        auto *presentation = panel.findChild<QComboBox *>("additionalResultPresentation");
-        QVERIFY(presentation);
-        presentation->setCurrentIndex(1);
+        QVERIFY(panel.focusResult(sub->id())); // the added row
+        // Independent display toggles (unified rendering, 2026-11-01).
+        auto *cellFill = panel.findChild<QCheckBox *>("additionalResultCellFill");
+        auto *filled = panel.findChild<QCheckBox *>("additionalResultFilledContours");
+        auto *isolines = panel.findChild<QCheckBox *>("additionalResultIsolines");
+        auto *labels = panel.findChild<QCheckBox *>("additionalResultCellLabels");
+        QVERIFY(cellFill && filled && isolines && labels);
+        cellFill->setChecked(false);
+        isolines->setChecked(true);
         QCOMPARE(sub->fillStyle()->presentation(),
                  OpenSWMM::Render::ResultScalarStyle::Presentation::Contours);
-        auto *accessible = QAccessible::queryAccessibleInterface(presentation);
+        auto *accessible = QAccessible::queryAccessibleInterface(isolines);
         QVERIFY(accessible);
         QVERIFY(!accessible->text(QAccessible::Name).isEmpty());
-        presentation->setCurrentIndex(2);
+        isolines->setChecked(false);
+        labels->setChecked(true);
         QCOMPARE(sub->fillStyle()->presentation(),
                  OpenSWMM::Render::ResultScalarStyle::Presentation::Labels);
+        // Cell fill, filled contours and labelled isolines together.
+        cellFill->setChecked(true);
+        filled->setChecked(true);
+        isolines->setChecked(true);
+        QVERIFY(sub->fillStyle()->cellFill() && sub->fillStyle()->filledContours() &&
+                sub->fillStyle()->isolines() && sub->fillStyle()->cellLabels());
         QVERIFY(panel.findChild<QPushButton *>("additionalResultGisExport")->isEnabled());
         sub->setVariableKey(layer.resultVariables()[1].key());
         panel.focusResult(sub->id());
@@ -338,27 +352,49 @@ private slots:
         SWMM2DResultsLayer layer;
         layer.setSource(std::make_unique<PanelVariableSource>());
         Swmm2DResultsStylePanel panel(&layer);
-        auto *catalog = panel.findChild<QComboBox *>("additionalResultCatalog");
+        auto *catalog = panel.findChild<QMenu *>("additionalResultCatalog");
         QVERIFY(catalog);
-        QCOMPARE(catalog->count(), 2);
-        auto *add = panel.findChild<QPushButton *>("additionalResultAdd");
-        QVERIFY(add);
-        auto *list = panel.findChild<QListWidget *>("additionalResultList");
-        QVERIFY(list);
-        const int catalogRows = list->count(); // one hidden row per catalog variable
-        QCOMPARE(catalogRows, 2);
-        add->click();
-        add->click();
-        QCOMPARE(list->count(), catalogRows + 2);
+        QList<QAction *> fields;
+        for (auto *action : catalog->actions())
+            if (!action->data().toString().isEmpty())
+                fields << action;
+        QCOMPARE(fields.size(), 2);
+        QVERIFY(panel.findChild<QPushButton *>("additionalResultAdd")->isEnabled());
+        auto *tree = panel.findChild<QTreeView *>("additionalResultList");
+        QVERIFY(tree);
+        const auto rowIds = [&layer] {
+            QStringList ids;
+            for (auto *s : layer.sublayers())
+                if (qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(s))
+                    ids << s->id();
+            return ids;
+        };
+        const QStringList catalogRows = rowIds(); // neither field is a default: no rows yet
+        QVERIFY(catalogRows.isEmpty());
+        fields[0]->trigger();
+        // Look at another display of the first new row: the next new row still opens on Fill.
+        auto *shownTabs = panel.findChild<QTabWidget *>("resultDisplayTabs");
+        QVERIFY(shownTabs);
+        for (int i = 0; i < shownTabs->count(); ++i)
+            if (shownTabs->widget(i)->objectName() == QLatin1String("resultLabelsTab"))
+                shownTabs->setCurrentIndex(i);
+        fields[0]->trigger(); // a second row of the same field
+        QStringList added = rowIds();
+        for (const auto &id : catalogRows)
+            added.removeOne(id);
+        QCOMPARE(added.size(), 2);
         auto *a = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(
-            OpenSWMM::Render::ISublayerHost::findSublayer(
-                layer, list->item(catalogRows)->data(Qt::UserRole).toString()));
+            OpenSWMM::Render::ISublayerHost::findSublayer(layer, added[0]));
         auto *b = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(
-            OpenSWMM::Render::ISublayerHost::findSublayer(
-                layer, list->item(catalogRows + 1)->data(Qt::UserRole).toString()));
+            OpenSWMM::Render::ISublayerHost::findSublayer(layer, added[1]));
         QVERIFY(a);
         QVERIFY(b);
         QVERIFY(a != b);
+        // Add selects the new row, on its first tab.
+        QCOMPARE(tree->currentIndex().data(Qt::UserRole).toString(), b->id());
+        auto *tabs = panel.findChild<QTabWidget *>("resultDisplayTabs");
+        QVERIFY(tabs);
+        QCOMPARE(tabs->currentWidget()->objectName(), QStringLiteral("resultFillTab"));
         auto *opacity = panel.findChild<QDoubleSpinBox *>("additionalResultOpacity");
         QVERIFY(opacity);
         opacity->setValue(35);
@@ -367,11 +403,24 @@ private slots:
         auto *missing = panel.findChild<ColorButton *>("additionalResultMissing");
         QVERIFY(missing);
         missing->setColor(Qt::red);
-        QMetaObject::invokeMethod(missing, "colorChanged", Q_ARG(QColor, QColor(Qt::red)));
         QCOMPARE(b->fillStyle()->missingColor(), QColor(Qt::red));
         QVERIFY(a->fillStyle()->missingColor() != QColor(Qt::red));
+        // Remove selects the neighbouring row: remove a row between two others, whose
+        // neighbour is not the first row (where the selection would fall back to).
+        fields[0]->trigger(); // a third row of the field
+        QModelIndex current = tree->currentIndex();
+        const QModelIndex group = current.parent();
+        QVERIFY(tree->model()->rowCount(group) >= 3);
+        current = tree->model()->index(1, 0, group);
+        const QString removed = current.data(Qt::UserRole).toString();
+        QVERIFY(panel.focusResult(removed));
+        const QString expected = current.siblingAtRow(2).data(Qt::UserRole).toString();
+        QVERIFY(!expected.isEmpty());
+        QVERIFY(expected != tree->model()->index(0, 0, group).data(Qt::UserRole).toString());
         panel.findChild<QPushButton *>("additionalResultRemove")->click();
-        QCOMPARE(list->count(), catalogRows + 1);
+        QVERIFY(!OpenSWMM::Render::ISublayerHost::findSublayer(layer, removed));
+        QCOMPARE(rowIds().size(), 2);
+        QCOMPARE(tree->currentIndex().data(Qt::UserRole).toString(), expected);
     }
     /**
      *
@@ -419,7 +468,7 @@ private slots:
         auto *sub = layer.addResultSublayer(key);
         QVERIFY(sub);
         Swmm2DResultsStylePanel panel(&layer);
-        QVERIFY(panel.focusResult(sub->id())); // catalog rows are listed first
+        QVERIFY(panel.focusResult(sub->id())); // the added row
         auto *selector = panel.findChild<QComboBox *>("additionalResultVariable");
         QVERIFY(selector);
         QCOMPARE(selector->currentData().toString(), key);
@@ -427,6 +476,11 @@ private slots:
         auto *editor = panel.findChild<ClassificationEditor *>("additionalResultClassification");
         QVERIFY(editor);
         QVERIFY(!editor->isEnabled());
+        // The contour-line editor has no range either: it must not block OK/Apply.
+        auto *contour =
+            panel.findChild<ClassificationEditor *>("additionalResultContourClassification");
+        QVERIFY(contour);
+        QVERIFY(!contour->isEnabled() && contour->hasValidDraft());
         auto *exportButton = panel.findChild<QPushButton *>("additionalResultExport");
         QVERIFY(exportButton);
         QVERIFY(!exportButton->isEnabled());
@@ -445,7 +499,7 @@ private slots:
         layer.highlightCells({0, 1});
         auto *sub = layer.addResultSublayer(layer.resultVariables()[0].key());
         Swmm2DResultsStylePanel panel(&layer);
-        QVERIFY(panel.focusResult(sub->id())); // catalog rows are listed first
+        QVERIFY(panel.focusResult(sub->id())); // the added row
         auto *table = panel.findChild<QTableWidget *>("additionalResultInspection");
         QVERIFY(table);
         QCOMPARE(table->rowCount(), 1);
@@ -470,13 +524,14 @@ private slots:
         auto vars = layer.resultVariables();
         auto *sub = layer.addResultSublayer(vars[0].key());
         Swmm2DResultsStylePanel panel(&layer);
-        QVERIFY(panel.focusResult(sub->id())); // catalog rows are listed first
+        QVERIFY(panel.focusResult(sub->id())); // the added row
         auto *table = panel.findChild<QTableWidget *>("additionalResultInspection");
         QVERIFY(table);
         QCOMPARE(table->item(0, 1)->text(), QStringLiteral("Valid"));
         QCOMPARE(table->item(0, 2)->text(), QStringLiteral("0"));
         QVERIFY(panel.findChild<QPushButton *>("additionalResultExport")->isEnabled());
-        QVERIFY(panel.focusResult(layer.sublayers().last()->id()));
+        // The hand-added row (rows no longer paint last: the mesh wireframe is above them).
+        QVERIFY(panel.focusResult(sub->id()));
         panel.resize(940, 860);
         panel.show();
         QTest::qWait(30);
@@ -500,11 +555,24 @@ private slots:
     void resultsPanelInvalidatesWithLayer()
     {
         auto layer = std::make_unique<SWMM2DResultsLayer>();
+        QVERIFY(layer->addResultSublayer(QStringLiteral("surface:Mesh2_face_depth")));
         Swmm2DResultsStylePanel panel(layer.get());
+        QVERIFY(panel.focusResult(QStringLiteral("results2d.cellDepthFill")));
+        QVERIFY(!panel.findChildren<ClassificationEditor *>().isEmpty());
+        // No source, no catalog: nothing to add.
+        QVERIFY(!panel.findChild<QPushButton *>("additionalResultAdd")->isEnabled());
+        auto *tree = panel.findChild<QTreeView *>("additionalResultList");
+        auto *model = qobject_cast<QStandardItemModel *>(tree->model());
+        QVERIFY(model);
         layer.reset();
         QVERIFY(!panel.isEnabled());
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         QVERIFY(panel.findChildren<ClassificationEditor *>().isEmpty());
+        // The tree no longer writes to the deleted layer.
+        const auto row = model->match(model->index(0, 0), Qt::CheckStateRole, Qt::Checked, 1,
+                                      Qt::MatchExactly | Qt::MatchRecursive);
+        QVERIFY(!row.isEmpty());
+        model->setData(row.first(), Qt::Unchecked, Qt::CheckStateRole);
     }
     /**
      *
@@ -515,13 +583,190 @@ private slots:
     void legacyElevationIsNotAnEnabledDeadControl()
     {
         SWMM2DResultsLayer layer;
+        QVERIFY(layer.addResultSublayer(QStringLiteral("surface:Mesh2_face_depth")));
         Swmm2DResultsStylePanel panel(&layer);
+        QVERIFY(panel.focusResult(QStringLiteral("results2d.cellDepthFill")));
         for (auto *combo : panel.findChildren<QComboBox *>()) {
             const int row = combo->findData(QStringLiteral("elevation"));
             if (row >= 0)
                 QVERIFY(
                     !(combo->model()->flags(combo->model()->index(row, 0)) & Qt::ItemIsEnabled));
         }
+    }
+    /** @brief A display tab carries a check while its display is on, whether the toggle is set
+     * on the tab or elsewhere; the Data tab never does. */
+    void displayTabCaptionShowsActiveDisplays()
+    {
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<PanelVariableSource>());
+        auto *sub = layer.addResultSublayer(layer.resultVariables()[0].key());
+        Swmm2DResultsStylePanel panel(&layer);
+        QVERIFY(panel.focusResult(sub->id()));
+        auto *tabs = panel.findChild<QTabWidget *>("resultDisplayTabs");
+        QVERIFY(tabs);
+        const auto icon = [tabs](const char *page) {
+            for (int i = 0; i < tabs->count(); ++i)
+                if (tabs->widget(i)->objectName() == QLatin1String(page))
+                    return !tabs->tabIcon(i).isNull();
+            return false;
+        };
+        QStringList pages;
+        for (int i = 0; i < tabs->count(); ++i)
+            pages << tabs->widget(i)->objectName();
+        QCOMPARE(pages, (QStringList{"resultFillTab", "resultFilledContoursTab",
+                                     "resultContourLinesTab", "resultLabelsTab", "resultDataTab"}));
+        QVERIFY(icon("resultFillTab") && !icon("resultContourLinesTab")); // fill on by default
+        sub->fillStyle()->setIsolines(true); // set elsewhere: the tab follows
+        QVERIFY(icon("resultContourLinesTab"));
+        QVERIFY(panel.findChild<QCheckBox *>("additionalResultIsolines")->isChecked());
+        panel.findChild<QCheckBox *>("additionalResultCellFill")->setChecked(false);
+        QVERIFY(!sub->fillStyle()->cellFill());
+        QVERIFY(!icon("resultFillTab"));
+        QVERIFY(!icon("resultDataTab"));
+    }
+    /** @brief The Fill and Contour lines editors each write their own scheme, whatever displays
+     * are on (the old single editor followed the presentation). */
+    void fillAndContourEditorsEditTheirOwnSchemes()
+    {
+        using OpenSWMM::Render::ClassificationScheme;
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<PanelVariableSource>());
+        auto *sub = layer.addResultSublayer(layer.resultVariables()[0].key());
+        auto *style = sub->fillStyle();
+        const auto manual = [](QVector<double> breaks) {
+            ClassificationScheme scheme;
+            scheme.setMode(ClassificationScheme::ClassMode::Classified);
+            scheme.setUseCustomRange(true);
+            scheme.setRangeMin(0);
+            scheme.setRangeMax(10);
+            scheme.setMethod(OpenSWMM::Render::BinMethod::Manual);
+            scheme.setManualBreaks(breaks);
+            return scheme;
+        };
+        style->setScheme(manual({3, 7}));
+        style->contourStyle()->setScheme(manual({2, 8}));
+        style->setCellFill(false); // contour lines only
+        style->setIsolines(true);
+        Swmm2DResultsStylePanel panel(&layer);
+        QVERIFY(panel.focusResult(sub->id()));
+        const auto edit = [&panel](const char *name, const QString &text) {
+            auto *editor = panel.findChild<ClassificationEditor *>(name);
+            QVERIFY(editor);
+            auto *table = editor->findChild<QTableView *>();
+            QVERIFY(table && table->model()->rowCount() > 1);
+            QVERIFY(table->model()->setData(table->model()->index(0, 1), text));
+            QVERIFY(editor->hasValidDraft());
+        };
+        edit("additionalResultClassification", QStringLiteral("4"));
+        QCOMPARE(style->scheme().manualBreaks(), (QVector<double>{4, 7}));
+        QCOMPARE(style->contourStyle()->scheme().manualBreaks(), (QVector<double>{2, 8}));
+        edit("additionalResultContourClassification", QStringLiteral("1"));
+        QCOMPARE(style->contourStyle()->scheme().manualBreaks(), (QVector<double>{1, 8}));
+        QCOMPARE(style->scheme().manualBreaks(), (QVector<double>{4, 7}));
+    }
+    /** @brief Filled contours take the fill classification's class count, edited from either tab;
+     * the label settings of the Labels and Contour lines tabs are one model, and cell labels use
+     * them even while contour labels are off. */
+    void sharedSettingsFollowAcrossTabs()
+    {
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<PanelVariableSource>());
+        auto *sub = layer.addResultSublayer(layer.resultVariables()[0].key());
+        auto *style = sub->fillStyle();
+        auto classified = style->scheme();
+        classified.setMode(OpenSWMM::Render::ClassificationScheme::ClassMode::Classified);
+        style->setScheme(classified);
+        // A contour scheme saved continuous: its classes stay editable.
+        auto continuous = style->contourStyle()->scheme();
+        continuous.setMode(OpenSWMM::Render::ClassificationScheme::ClassMode::Continuous);
+        style->contourStyle()->setScheme(continuous);
+        Swmm2DResultsStylePanel panel(&layer);
+        QVERIFY(panel.focusResult(sub->id()));
+        auto *bands = panel.findChild<QSpinBox *>("additionalResultBandCount");
+        QVERIFY(bands);
+        bands->setValue(5);
+        QCOMPARE(style->scheme().classCount(), 5);
+        // The Fill tab's editor shows the band count set on Filled contours.
+        auto *fill = panel.findChild<ClassificationEditor *>("additionalResultClassification");
+        QVERIFY(fill);
+        bool fillFollows = false;
+        for (auto *spin : fill->findChildren<QSpinBox *>())
+            fillFollows |= spin->maximum() == 64 && spin->value() == 5;
+        QVERIFY(fillFollows);
+        auto scheme = style->scheme();
+        scheme.setClassCount(7);
+        style->setScheme(scheme);
+        QCOMPARE(bands->value(), 7);
+        QList<QSpinBox *> decimals;
+        for (auto *spin : panel.findChildren<QSpinBox *>())
+            if (spin->accessibleName() == QStringLiteral("Label decimal places"))
+                decimals << spin;
+        QCOMPARE(decimals.size(), 2); // Contour lines and Labels
+        decimals[0]->setValue(4);
+        QCOMPARE(style->contourStyle()->labelDecimals(), 4);
+        QCOMPARE(decimals[1]->value(), 4);
+        style->contourStyle()->setLabels(false);
+        QVERIFY(decimals[0]->isEnabled() && decimals[1]->isEnabled());
+        // Contour lines keep their 1-256 level count on the classification editor.
+        style->contourStyle()->setIsoValueCount(100);
+        auto *contour =
+            panel.findChild<ClassificationEditor *>("additionalResultContourClassification");
+        QVERIFY(contour);
+        contour->refresh();
+        bool counted = false;
+        for (auto *spin : contour->findChildren<QSpinBox *>())
+            counted |= spin->maximum() == 256 && spin->value() == 100 && !spin->isHidden();
+        QVERIFY(counted);
+    }
+    /** @brief The shown display stays in front across rows, and a new frame (live runs emit one
+     * per tick) keeps the page instead of rebuilding it. */
+    void displayTabSurvivesRowSwitchAndRefresh()
+    {
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<PanelVariableSource>());
+        auto *a = layer.addResultSublayer(layer.resultVariables()[0].key());
+        auto *b = layer.addResultSublayer(layer.resultVariables()[0].key());
+        Swmm2DResultsStylePanel panel(&layer);
+        QVERIFY(panel.focusResult(a->id()));
+        const auto tabs = [&panel] { return panel.findChild<QTabWidget *>("resultDisplayTabs"); };
+        for (int i = 0; i < tabs()->count(); ++i)
+            if (tabs()->widget(i)->objectName() == QLatin1String("resultLabelsTab"))
+                tabs()->setCurrentIndex(i);
+        QVERIFY(panel.focusResult(b->id()));
+        QCOMPARE(tabs()->currentWidget()->objectName(), QStringLiteral("resultLabelsTab"));
+        auto *page = tabs();
+        auto *opacity = panel.findChild<QDoubleSpinBox *>("additionalResultOpacity");
+        emit layer.timeRangeChanged(0, 0);
+        QCOMPARE(tabs(), page);
+        QCOMPARE(panel.findChild<QDoubleSpinBox *>("additionalResultOpacity"), opacity);
+    }
+    /** @brief The band method on Filled contours is checked like the Fill editor checks it: an
+     * invalid choice is refused with its reason; manual breaks are shown, not chosen, there. */
+    void bandMethodRefusesAnInvalidClassification()
+    {
+        using BM = OpenSWMM::Render::BinMethod;
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<PanelVariableSource>()); // every value 0
+        auto *sub = layer.addResultSublayer(layer.resultVariables()[0].key());
+        auto *style = sub->fillStyle();
+        auto classified = style->scheme(); // a classified fill: logarithmic needs values > 0
+        classified.setMode(OpenSWMM::Render::ClassificationScheme::ClassMode::Classified);
+        style->setScheme(classified);
+        Swmm2DResultsStylePanel panel(&layer);
+        QVERIFY(panel.focusResult(sub->id()));
+        auto *method = panel.findChild<QComboBox *>("additionalResultBandMethod");
+        auto *refused = panel.findChild<QLabel *>("additionalResultBandError");
+        QVERIFY(method && refused);
+        const auto before = style->scheme().method();
+        method->setCurrentIndex(method->findData(int(BM::Logarithmic)));
+        QCOMPARE(style->scheme().method(), before);
+        QCOMPARE(method->currentData().toInt(), int(before));
+        QVERIFY(!refused->isHidden() && !refused->text().isEmpty());
+        method->setCurrentIndex(method->findData(int(BM::Quantile)));
+        QCOMPARE(style->scheme().method(), BM::Quantile);
+        QVERIFY(refused->isHidden());
+        auto *model = qobject_cast<QStandardItemModel *>(method->model());
+        QVERIFY(model && !model->item(method->findData(int(BM::Manual)))->isEnabled());
     }
     /**
      *

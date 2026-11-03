@@ -915,69 +915,78 @@ public:
             p->drawImage(QPointF(bounds.topLeft()) / dpr, image);
             p->restore();
         };
-        for (auto *sub : layer_->sublayers()) {
-            if (!sub || !sub->isVisible())
-                continue;
-            if (auto *scalar = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub)) {
-                const auto *style = scalar->fillStyle();
-                const auto frame =
-                    layer_->resultFrame(style->attribute(), layer_->currentTimeIndex(),
-                                        !style->rangeScheme().useCustomRange() &&
-                                            style->rangeScheme().rangeMode() ==
-                                                OpenSWMM::Render::RangeMode::FixedOverRun);
-                using Presentation = OpenSWMM::Render::ResultScalarStyle::Presentation;
-                if (style->presentation() != Presentation::Fill) {
-                    const auto *lineStyle = style->contourStyle();
-                    const bool contours = style->presentation() == Presentation::Contours;
-                    const auto levels =
-                        contours
-                            ? style->contourLevels(frame->minimum, frame->maximum, frame->samples)
-                            : std::vector<double>();
-                    const auto geometry = layer_->resultScalarGeometry(frame, levels, !contours);
-                    p->save();
-                    p->setOpacity(p->opacity() * scalar->opacity());
-                    p->setBrush(Qt::NoBrush);
-                    QPen pen(lineStyle->color());
-                    pen.setCosmetic(true);
-                    pen.setStyle(lineStyle->dashPattern());
-                    for (const auto &line : geometry->contours) {
-                        const auto index =
-                            std::lower_bound(levels.begin(), levels.end(), line.level) -
-                            levels.begin();
-                        pen.setWidthF(lineStyle->indexEvery() > 0 &&
-                                              (index + 1) % lineStyle->indexEvery() == 0
-                                          ? lineStyle->indexWidthPx()
-                                          : lineStyle->lineWidthPx());
-                        p->setPen(pen);
-                        p->drawLine(line.a, line.b);
-                    }
-                    if (!contours || lineStyle->labels()) {
-                        QFont font;
-                        font.setPointSizeF(lineStyle->labelFontPt());
-                        font.setBold(true);
-                        const auto transform = p->worldTransform();
-                        const auto viewport =
-                            transform.mapRect(exposed.isNull() ? layer_->m_sceneBBox : exposed);
-                        const auto placed = OpenSWMM::Render::placeResultScalarLabels(
-                            *geometry, transform, viewport, font, lineStyle->labelDecimals(),
-                            frame->descriptor.unitsKnown ? frame->descriptor.units : QString(),
-                            contours);
-                        OpenSWMM::Render::LabelConfig config;
-                        config.font = font;
-                        config.fontSizePt = lineStyle->labelFontPt();
-                        config.color = lineStyle->color();
-                        config.haloEnabled = lineStyle->labelHalo();
-                        config.haloColor = QColor(255, 255, 255, 230);
-                        p->setWorldMatrixEnabled(false);
-                        for (const auto &label : placed)
-                            OpenSWMM::Render::LabelPainter::drawLabel(*p, label.rect.topLeft(),
-                                                                      label.text, config);
-                    }
-                    p->restore();
-                    continue;
-                }
+        // Contour lines and value labels of one scalar row (contours = true for
+        // isolines, false for cell value labels).
+        const auto paintScalarLines = [&](const OpenSWMM::Render::ResultScalarSublayer *scalar,
+                                          const std::shared_ptr<
+                                              const openswmmvis::io::Mesh2DScalarFrame> &frame,
+                                          bool contours) {
+            const auto *style = scalar->fillStyle();
+            const auto *lineStyle = style->contourStyle();
+            const auto levels =
+                contours ? style->contourLevels(frame->minimum, frame->maximum, frame->samples)
+                         : std::vector<double>();
+            const auto geometry = layer_->resultScalarGeometry(frame, levels, !contours);
+            p->save();
+            p->setOpacity(p->opacity() * scalar->opacity());
+            p->setBrush(Qt::NoBrush);
+            QPen pen(lineStyle->color());
+            pen.setCosmetic(true);
+            pen.setStyle(lineStyle->dashPattern());
+            for (const auto &line : geometry->contours) {
+                const auto index =
+                    std::lower_bound(levels.begin(), levels.end(), line.level) - levels.begin();
+                pen.setWidthF(lineStyle->indexEvery() > 0 &&
+                                      (index + 1) % lineStyle->indexEvery() == 0
+                                  ? lineStyle->indexWidthPx()
+                                  : lineStyle->lineWidthPx());
+                p->setPen(pen);
+                p->drawLine(line.a, line.b);
+            }
+            if (!contours || lineStyle->labels()) {
+                QFont font;
+                font.setPointSizeF(lineStyle->labelFontPt());
+                font.setBold(true);
+                const auto transform = p->worldTransform();
+                const auto viewport =
+                    transform.mapRect(exposed.isNull() ? layer_->m_sceneBBox : exposed);
+                const auto placed = OpenSWMM::Render::placeResultScalarLabels(
+                    *geometry, transform, viewport, font, lineStyle->labelDecimals(),
+                    frame->descriptor.unitsKnown ? frame->descriptor.units : QString(), contours);
+                OpenSWMM::Render::LabelConfig config;
+                config.font = font;
+                config.fontSizePt = lineStyle->labelFontPt();
+                config.color = lineStyle->color();
+                config.haloEnabled = lineStyle->labelHalo();
+                config.haloColor = QColor(255, 255, 255, 230);
+                p->setWorldMatrixEnabled(false);
+                for (const auto &label : placed)
+                    OpenSWMM::Render::LabelPainter::drawLabel(*p, label.rect.topLeft(),
+                                                              label.text, config);
+            }
+            p->restore();
+        };
+        // Every display a scalar row has switched on, bottom-up: cell fill
+        // (flat or smooth), filled contours, isolines, cell value labels. The
+        // depth row's fills, contours and isolines are the depth passes below.
+        const auto paintScalarRow = [&](const OpenSWMM::Render::ResultScalarSublayer *scalar,
+                                        bool depthPasses) {
+            const auto *style = scalar->fillStyle();
+            // Isolines read their own frame (paintScalarLines below), so a
+            // whole-run isoline range neither blanks nor rescales the fills.
+            const auto frame = layer_->resultFrame(style->attribute(), layer_->currentTimeIndex(),
+                                                   !depthPasses && style->fillNeedsWholeRunRange());
+            const auto &map = layer_->triCellMap();
+            const auto visibleTri = [&](const SWMM2DResultsLayer::SceneTri &t) {
+                return exposed.isNull() ||
+                       QRectF(QPointF(std::min({t.a.x(), t.b.x(), t.c.x()}),
+                                      std::min({t.a.y(), t.b.y(), t.c.y()})),
+                              QPointF(std::max({t.a.x(), t.b.x(), t.c.x()}),
+                                      std::max({t.a.y(), t.b.y(), t.c.y()})))
+                           .intersects(exposed);
+            };
+            if (!depthPasses && style->cellFill() && !style->smoothFill()) {
                 const auto colors = scalar->cellColors(*frame);
-                const auto &map = layer_->triCellMap();
                 p->save();
                 p->setPen(Qt::NoPen);
                 for (int i = 0; i < tris.size(); ++i) {
@@ -985,15 +994,184 @@ public:
                     if (cell < 0 || cell >= colors.size() || colors[cell].alpha() == 0)
                         continue;
                     const auto &t = tris[i];
-                    const QPointF pts[] = {t.a, t.b, t.c};
-                    const QPolygonF polygon(QVector<QPointF>{t.a, t.b, t.c});
-                    if (!exposed.isNull() && !polygon.boundingRect().intersects(exposed))
+                    if (!visibleTri(t))
                         continue;
+                    const QPointF pts[] = {t.a, t.b, t.c};
                     p->setBrush(colors[cell]);
                     p->drawConvexPolygon(pts, 3);
                 }
                 p->restore();
-            } else if (sub == layer_->cellDepthFillSublayer())
+            }
+            if (!depthPasses && style->cellFill() && style->smoothFill() && frame->error.isEmpty()) {
+                const auto geometry = layer_->resultScalarGeometry(frame, {}, false, {}, true);
+                const auto colors = scalar->valueColors(*frame, geometry->vertexValues);
+                const auto &verts = layer_->triVertexIndices();
+                const auto transform = p->deviceTransform();
+                const QRect bounds =
+                    transform.mapRect(exposed.isNull() ? layer_->m_sceneBBox : exposed)
+                        .toAlignedRect()
+                        .intersected(QRect(0, 0, p->device()->width(), p->device()->height()));
+                QImage image(bounds.size(), QImage::Format_ARGB32_Premultiplied);
+                if (!bounds.isEmpty() && !image.isNull() && colors.size() == layer_->m_sceneVerts.size()) {
+                    image.fill(Qt::transparent);
+                    for (int i = 0; i < tris.size() && size_t(i) < verts.size(); ++i) {
+                        const int cell = i < int(map.size()) ? map[size_t(i)] : i;
+                        if (cell < 0 || size_t(cell) >= frame->status.size() ||
+                            frame->status[size_t(cell)] !=
+                                openswmmvis::io::Mesh2DValueStatus::Valid ||
+                            !visibleTri(tris[i]))
+                            continue;
+                        std::array<OpenSWMM::Render::SmoothFillRaster::Vertex, 3> vertices;
+                        bool ok = true;
+                        const QPointF corners[] = {tris[i].a, tris[i].b, tris[i].c};
+                        for (int k = 0; k < 3 && ok; ++k) {
+                            const int v = verts[size_t(i)][size_t(k)];
+                            ok = v >= 0 && v < colors.size() && colors[v].alpha() > 0;
+                            if (ok)
+                                vertices[size_t(k)] = {transform.map(corners[k]) - bounds.topLeft(),
+                                                       qPremultiply(colors[v].rgba())};
+                        }
+                        if (ok)
+                            OpenSWMM::Render::SmoothFillRaster::triangle(image, vertices);
+                    }
+                    p->save();
+                    p->resetTransform();
+                    const double dpr = p->device()->devicePixelRatioF();
+                    image.setDevicePixelRatio(dpr);
+                    p->drawImage(QPointF(bounds.topLeft()) / dpr, image);
+                    p->restore();
+                }
+            }
+            if (!depthPasses && style->filledContours()) {
+                std::vector<double> levels;
+                QVector<QColor> colors;
+                // Bands for the triangles in view; zoomed far out, each cell
+                // takes its band's colour instead (as the scene graph does).
+                size_t inView = 0;
+                if (scalar->bandStyling(*frame, levels, colors))
+                    for (int i = 0; i < tris.size(); ++i)
+                        inView += visibleTri(tris[i]);
+                if (inView > OpenSWMM::Render::kMaxContouredBandTriangles) {
+                    p->save();
+                    p->setPen(Qt::NoPen);
+                    for (int i = 0; i < tris.size(); ++i) {
+                        const int cell = i < int(map.size()) ? map[size_t(i)] : i;
+                        if (cell < 0 || size_t(cell) >= frame->status.size() ||
+                            frame->status[size_t(cell)] !=
+                                openswmmvis::io::Mesh2DValueStatus::Valid ||
+                            !visibleTri(tris[i]))
+                            continue;
+                        const int band = OpenSWMM::Render::resultBandIndex(
+                            levels, frame->values[size_t(cell)]);
+                        if (band < 0 || band >= colors.size() || colors[band].alpha() == 0)
+                            continue;
+                        const QPointF pts[] = {tris[i].a, tris[i].b, tris[i].c};
+                        p->setBrush(colors[band]);
+                        p->drawConvexPolygon(pts, 3);
+                    }
+                    p->restore();
+                } else if (inView > 0) {
+                    const auto geometry = layer_->resultScalarGeometry(
+                        frame, {}, false, levels, false, exposed.isNull() ? QRectF() : exposed);
+                    p->save();
+                    p->setPen(Qt::NoPen);
+                    for (const auto &band : geometry->bands) {
+                        if (band.verts.size() < 3 || band.bandIndex < 0 ||
+                            band.bandIndex >= colors.size() || colors[band.bandIndex].alpha() == 0)
+                            continue;
+                        p->setBrush(colors[band.bandIndex]);
+                        p->drawConvexPolygon(band.verts.data(), int(band.verts.size()));
+                    }
+                    p->restore();
+                }
+            }
+            if (!depthPasses && style->isolines())
+                if (const auto lines = layer_->resultFrame(style->attribute(),
+                                                           layer_->currentTimeIndex(),
+                                                           style->isolinesNeedWholeRunRange());
+                    lines->error.isEmpty())
+                    paintScalarLines(scalar, lines, true);
+            if (style->cellLabels() && frame->error.isEmpty())
+                paintScalarLines(scalar, frame, false);
+        };
+        const auto paintVectorRow = [&](const OpenSWMM::Render::ResultVectorSublayer *vector) {
+            const QTransform wt = p->worldTransform();
+            const double scale = std::hypot(wt.m11(), wt.m12());
+            const auto geometry = layer_->resultVectorGeometry(
+                vector, exposed.isNull() ? layer_->m_sceneBBox : exposed, scale);
+            const auto *style = vector->vectorStyle();
+            p->save();
+            p->setRenderHint(QPainter::Antialiasing, true);
+            for (const auto &streak : geometry.streaks) {
+                // Fade from the oldest point to the newest: the streak's head.
+                const int n = int(streak.points.size());
+                for (int i = 1; i < n; ++i) {
+                    QColor color = streak.color;
+                    color.setAlphaF(color.alphaF() * (0.25 + 0.75 * double(i) / double(n - 1)));
+                    QPen pen(color, style->streakWidthPx());
+                    pen.setCosmetic(true);
+                    pen.setCapStyle(Qt::RoundCap);
+                    p->setPen(pen);
+                    p->drawLine(streak.points[size_t(i) - 1], streak.points[size_t(i)]);
+                }
+            }
+            const double head = scale > 0 ? style->headSizePx() / scale : 0;
+            for (const auto &arrow : geometry.arrows) {
+                const QLineF axis(arrow.tail, arrow.tip);
+                const double length = axis.length();
+                if (length <= 0)
+                    continue;
+                const QPointF unit = (arrow.tip - arrow.tail) / length;
+                const double headLength = std::min(head, 0.6 * length);
+                const QPointF base = arrow.tip - unit * headLength;
+                const QPointF normal(-unit.y(), unit.x());
+                QPen pen(arrow.color, style->shaftWidthPx());
+                pen.setCosmetic(true);
+                p->setPen(pen);
+                p->drawLine(arrow.tail, base);
+                p->setPen(Qt::NoPen);
+                p->setBrush(arrow.color);
+                const QPointF headPoints[] = {arrow.tip, base + normal * (0.55 * headLength),
+                                              base - normal * (0.55 * headLength)};
+                p->drawConvexPolygon(headPoints, 3);
+            }
+            p->restore();
+        };
+        auto *depthRow = layer_->depthResultSublayer();
+        auto *velocityRow = layer_->velocityResultSublayer();
+        const auto paintDepthPasses = [&] {
+            if (auto *cell = layer_->cellDepthFillSublayer(); cell && cell->isVisible())
+                paintCellFill(cell);
+            if (auto *smooth = layer_->smoothDepthFillSublayer(); smooth && smooth->isVisible())
+                paintSmoothFill(smooth);
+            paintBandPass();
+            paintIsolinePass();
+        };
+        for (auto *sub : layer_->sublayers()) {
+            if (!sub)
+                continue;
+            // The depth and velocity rows paint the internal passes at their
+            // own place in the stack; without those rows the passes keep theirs.
+            const bool depthPass = sub == layer_->cellDepthFillSublayer() ||
+                                   sub == layer_->smoothDepthFillSublayer() || sub == bandSub ||
+                                   sub == isolineSub;
+            if ((depthPass && depthRow) || (sub == layer_->flowStreakSublayer() && velocityRow))
+                continue;
+            if (sub == depthRow) {
+                paintDepthPasses();
+                if (sub->isVisible())
+                    paintScalarRow(depthRow, true);
+                continue;
+            }
+            if (sub == velocityRow && layer_->flowStreakSublayer()->isVisible())
+                layer_->paintFlowStreaks(p, exposed);
+            if (!sub->isVisible())
+                continue;
+            if (auto *scalar = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub))
+                paintScalarRow(scalar, false);
+            else if (auto *vector = qobject_cast<OpenSWMM::Render::ResultVectorSublayer *>(sub))
+                paintVectorRow(vector);
+            else if (sub == layer_->cellDepthFillSublayer())
                 paintCellFill(layer_->cellDepthFillSublayer());
             else if (sub == layer_->smoothDepthFillSublayer())
                 paintSmoothFill(layer_->smoothDepthFillSublayer());
@@ -1571,16 +1749,58 @@ bool EngineMesh2DSource::pushFaceVariables(openswmmvis::io::Mesh2DLiveVariablesP
     return true;
 }
 
+namespace
+{
+/**
+ * @param[in] dataset Saved-file dataset name.
+ * @param[in] label Saved-file long_name.
+ * @param[in] units Saved-file units.
+ * @return Surface descriptor matching what Mesh2DH5Reader reports for the saved dataset.
+ */
+openswmmvis::io::Mesh2DResultVariable liveHydraulicVariable(const char *dataset, const char *label,
+                                                            const char *units)
+{
+    openswmmvis::io::Mesh2DResultVariable v;
+    v.dataset = QString::fromLatin1(dataset);
+    v.label = QStringLiteral("Surface — ") + QString::fromLatin1(label);
+    v.units = QString::fromLatin1(units);
+    v.unitsKnown = true;
+    return v;
+}
+/** @return True for the hydraulic datasets the live feed serves outside live_variables_. */
+bool liveHydraulicDataset(const QString &dataset)
+{
+    return dataset == QLatin1String("Mesh2_face_depth") ||
+           dataset == QLatin1String("Mesh2_face_head") ||
+           dataset == QLatin1String("Mesh2_face_vx") || dataset == QLatin1String("Mesh2_face_vy");
+}
+} // namespace
+
 QVector<openswmmvis::io::Mesh2DResultVariable>
 EngineMesh2DSource::faceVariables(QStringList *warnings) const
 {
     if (warnings)
         *warnings = live_variable_warnings_;
-    auto variables = live_variables_;
+    QVector<openswmmvis::io::Mesh2DResultVariable> variables;
+    for (const auto &v : live_variables_)
+        if (!liveHydraulicDataset(v.dataset) ||
+            v.domain != openswmmvis::io::Mesh2DResultVariable::Domain::Surface)
+            variables.append(v);
+    // The hydraulic fields the live feed carries, under the saved file's names,
+    // so depth and velocity rows exist (and keep their styles) while running.
+    if (!history_.empty()) {
+        variables.append(liveHydraulicVariable("Mesh2_face_depth", "overland flow depth", "m"));
+        if (has_heads_)
+            variables.append(liveHydraulicVariable("Mesh2_face_head", "total hydraulic head", "m"));
+        if (hasFaceField("Mesh2_face_vx")) {
+            variables.append(liveHydraulicVariable("Mesh2_face_vx", "cell velocity X", "m s-1"));
+            variables.append(liveHydraulicVariable("Mesh2_face_vy", "cell velocity Y", "m s-1"));
+        }
+    }
     for (auto &v : variables)
         v.frameCount =
             v.temporal == openswmmvis::io::Mesh2DResultVariable::Temporal::Static ? 0 : timeCount();
-    variables += openswmmvis::io::derivedGroundwaterVariables(variables, warnings);
+    variables += openswmmvis::io::derivedResultVariables(variables, warnings);
     return variables;
 }
 
@@ -1599,6 +1819,23 @@ bool EngineMesh2DSource::readFaceVariableAt(const openswmmvis::io::Mesh2DResultV
                 return readFaceVariableAt(input, time, out, flags);
             },
             values, status);
+    if (variable.domain == openswmmvis::io::Mesh2DResultVariable::Domain::Surface &&
+        variable.species.isEmpty() && variable.layer < 0 &&
+        liveHydraulicDataset(variable.dataset)) {
+        const QByteArray name = variable.dataset.toLatin1();
+        const bool ok = variable.dataset == QLatin1String("Mesh2_face_depth")
+                            ? readDepthsAt(timeIdx, values)
+                            : readFaceFieldAt(name.constData(), timeIdx, values);
+        if (!ok || values.size() != cells_.size()) {
+            values.clear();
+            return false;
+        }
+        status.assign(values.size(), Status::Valid);
+        for (size_t c = 0; c < values.size(); ++c)
+            if (!std::isfinite(values[c]))
+                status[c] = Status::Missing;
+        return true;
+    }
     const openswmmvis::io::Mesh2DResultVariable *known = nullptr;
     for (const auto &v : live_variables_)
         if (v.key() == variable.key() && v.zone == variable.zone) {
@@ -2188,9 +2425,9 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString &name, OpenSWMMVisWorkspace
             graphics_item_->geometryChanged();
         emit repaintRequested();
     });
-    // Every catalog variable becomes a hidden sublayer. A new source (saved
-    // file, live run, live -> saved switch) and live catalog growth all
-    // announce themselves through timeRangeChanged.
+    // The default fields get rows of their own. A new source (saved file, live
+    // run, live -> saved switch) and live catalog growth all announce
+    // themselves through timeRangeChanged.
     connect(this, &SWMM2DResultsLayer::timeRangeChanged, this, [this] { syncResultSublayers_(); });
     surface_pool_.setMaxThreadCount(1);
 }
@@ -2237,7 +2474,15 @@ bool SWMM2DResultsLayer::moveSublayer(int from, int to)
     if (from < 0 || from >= m_sublayerOrder.size() || to < 0 || to >= m_sublayerOrder.size() ||
         from == to)
         return false;
+    const auto *depth = depthResultSublayer();
+    const auto *velocity = velocityResultSublayer();
     m_sublayerOrder.move(from, to);
+    // Without the catalog row, the first depth (velocity) row in paint order drives the passes:
+    // they follow a reorder that changes it (not while a snapshot loads: it restores them).
+    if (!m_engineMigrationPending &&
+        (depth != depthResultSublayer() || velocity != velocityResultSublayer()))
+        syncEngineVisibility_();
+    emit resultSublayersChanged();
     emit repaintRequested();
     return true;
 }
@@ -2247,7 +2492,8 @@ void SWMM2DResultsLayer::dispatchAnimationTick(int period)
     Q_UNUSED(period);
     for (auto *s : sublayers())
         if (s && s->isDynamic() &&
-            (s->isVisible() || !qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(s)))
+            (s->isVisible() || (!qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(s) &&
+                                !qobject_cast<OpenSWMM::Render::ResultVectorSublayer *>(s))))
             s->invalidate();
 }
 
@@ -3395,12 +3641,21 @@ void SWMM2DResultsLayer::setMaxDepth(double d)
 
 bool SWMM2DResultsLayer::velocityVectorsVisible() const
 {
+    if (const auto *row = velocityResultSublayer())
+        return row->isVisible() && row->vectorStyle()->arrows();
     return m_velocityVectorSublayer ? m_velocityVectorSublayer->isVisible() : velocity_visible_;
 }
 
 void SWMM2DResultsLayer::setVelocityVectorsVisible(bool v)
 {
     velocity_visible_ = v;
+    // The velocity vector row owns the arrows when it exists.
+    if (auto *row = velocityResultSublayer()) {
+        row->vectorStyle()->setArrows(v);
+        if (v)
+            row->setVisible(true);
+        return;
+    }
     if (m_velocityVectorSublayer) {
         m_velocityVectorSublayer->setVisible(v);
         return;
@@ -3501,6 +3756,13 @@ bool SWMM2DResultsLayer::filledContours() const
 void SWMM2DResultsLayer::setFilledContours(bool on)
 {
     filled_contours_ = on;
+    // The depth row drives the band pass when it exists.
+    if (auto *row = depthResultSublayer()) {
+        row->fillStyle()->setFilledContours(on);
+        if (on)
+            row->setVisible(true);
+        return;
+    }
     if (m_contourBandSublayer) {
         m_contourBandSublayer->setVisible(on);
         return;
@@ -3553,6 +3815,13 @@ bool SWMM2DResultsLayer::isolines() const
 void SWMM2DResultsLayer::setIsolines(bool on)
 {
     isolines_ = on;
+    // The depth row drives the isoline pass when it exists.
+    if (auto *row = depthResultSublayer()) {
+        row->fillStyle()->setIsolines(on);
+        if (on)
+            row->setVisible(true);
+        return;
+    }
     if (m_isolineSublayer) {
         m_isolineSublayer->setVisible(on);
         return;
@@ -5133,7 +5402,10 @@ QList<OpenSWMM::Render::LegendSymbolItem> SWMM2DResultsLayer::sublayerLegendItem
     // the sublayer so the rows match the painted colour bands exactly.
     if (m_flowStreakSublayer->isVisible())
         out.append(m_flowStreakSublayer->legendSymbolItems());
-    if (velocityVectorsVisible() && have_velocity_) {
+    // The engine's own visibility: a velocity row legends its own arrows and
+    // keeps the engine hidden (velocityVectorsVisible() reports the row).
+    if ((m_velocityVectorSublayer ? m_velocityVectorSublayer->isVisible() : velocity_visible_) &&
+        have_velocity_) {
         if (m_velocityVectorSublayer) {
             out.append(m_velocityVectorSublayer->legendSymbolItems());
         } else {
@@ -5153,17 +5425,30 @@ QList<OpenSWMM::Render::LegendSymbolItem> SWMM2DResultsLayer::sublayerLegendItem
     }
 
     for (auto *sub : sublayers()) {
+        if (auto *vector = qobject_cast<OpenSWMM::Render::ResultVectorSublayer *>(sub);
+            vector && vector->isVisible() &&
+            (vector->vectorStyle()->arrows() ||
+             (vector->vectorStyle()->streaks() && vector != velocityResultSublayer()))) {
+            double lo = 0, hi = 0;
+            QString units;
+            (void)resultVectorGeometry(vector, QRectF(), 1.0, &lo, &hi, &units);
+            out.append(vector->legendSymbolItems(lo, hi, units));
+            continue;
+        }
         auto *scalar = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub);
         if (!scalar || !scalar->isVisible())
+            continue;
+        // The depth passes above carry the depth row's legend; the row adds
+        // only its cell value labels.
+        const bool depthRow = scalar == depthResultSublayer();
+        if (depthRow && !scalar->fillStyle()->cellLabels())
             continue;
         const auto *style = scalar->fillStyle();
         auto frame = qsgOwnsRendering() ? scalar->presentedFrame() : nullptr;
         if (!frame)
             frame = resultFrame(style->attribute(), currentTimeIndex(),
-                                !style->scheme().useCustomRange() &&
-                                    style->scheme().rangeMode() ==
-                                        OpenSWMM::Render::RangeMode::FixedOverRun);
-        out.append(scalar->legendSymbolItems(*frame));
+                                !depthRow && style->needsWholeRunRange());
+        out.append(scalar->legendSymbolItems(*frame, depthRow));
     }
 
     return out;
@@ -5498,7 +5783,8 @@ SWMM2DResultsLayer::styleSubjects()
     add(m_velocityVectorSublayer, sect);
     add(m_flowStreakSublayer, sect);
     for (auto *sub : sublayers())
-        if (qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub))
+        if (qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub) ||
+            qobject_cast<OpenSWMM::Render::ResultVectorSublayer *>(sub))
             add(sub, sect);
 
     return out;

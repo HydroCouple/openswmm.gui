@@ -340,6 +340,17 @@ Mesh2DLiveVariablesPtr captureGroundwaterVariables(SWMM_Engine engine, int expec
     if (waterKnown[0])
         scalar(water[0], "Mesh2_face_gw_hg", "saturated thickness", "m",
                Mesh2DResultVariable::Temporal::Reported);
+    // Inputs of the derived unsaturated water content column average.
+    if (waterKnown[1])
+        scalar(water[1], "Mesh2_face_gw_hu",
+               "closure A unsaturated storage (equivalent depth of water; 0 under closure B)", "m",
+               Mesh2DResultVariable::Temporal::Reported);
+    // Same label and (absent) units as the saved file's static closure mask.
+    if (std::vector<double> closure; read(SWMM_GW2D_VAR_CLOSURE, closure)) {
+        scalar(closure, "Mesh2_face_gw_closure", "resolved unsaturated-zone closure per cell", "",
+               Mesh2DResultVariable::Temporal::Static);
+        frame->variables.last().descriptor.unitsKnown = false;
+    }
     struct Flux {
         int selector;
         const char *dataset, *label, *units;
@@ -367,6 +378,12 @@ Mesh2DLiveVariablesPtr captureGroundwaterVariables(SWMM_Engine engine, int expec
          "conduit seepage delivered into the cell, length-weighted over the conduits crossing it "
          "(last firing, held)",
          "m3 s-1"},
+#ifdef SWMM_GW2D_VAR_QX // engines that publish the cell Darcy velocity
+        {SWMM_GW2D_VAR_QX, "Mesh2_face_gw_qx",
+         "groundwater Darcy velocity, x component (last firing, held)", "m s-1"},
+        {SWMM_GW2D_VAR_QY, "Mesh2_face_gw_qy",
+         "groundwater Darcy velocity, y component (last firing, held)", "m s-1"},
+#endif
     };
     for (const auto &flux : fluxes) {
         std::vector<double> raw;

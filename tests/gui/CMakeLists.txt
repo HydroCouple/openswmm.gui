@@ -4636,6 +4636,7 @@ add_swmmvis_gui_test(test_livesurfacevariables
     test_livesurfacevariables.cpp
     ${CMAKE_SOURCE_DIR}/src/io/mesh2dlivevariables.cpp
     ${CMAKE_SOURCE_DIR}/src/io/mesh2dderivedvariables.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dresultvector.cpp
     ${CMAKE_SOURCE_DIR}/src/io/mesh2dh5reader.cpp
     ${CMAKE_SOURCE_DIR}/include/io/mesh2dh5reader.h)
 target_include_directories(test_livesurfacevariables PRIVATE ${HDF5_INCLUDE_DIRS})
@@ -4757,3 +4758,17 @@ add_swmmvis_gui_test(test_resultsublayers
 swmmvis_link_full_app_deps(test_resultsublayers)
 target_compile_definitions(test_resultsublayers PRIVATE
     SWMMVIS_RESULT_SUBLAYERS_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/result_sublayers_2026-10-31")
+
+# Unified 2D results rendering (2026-11-01, workplans/UNIFIED_2D_RESULTS_RENDERING_PLAN_2026-10-31.md):
+# vector pairing and no component rows, derived magnitude and unsaturated
+# column average, independent scalar displays, defaults, the depth/velocity
+# rows driving the optimized passes, old-project migration, vector geometry
+# and the scene graph drawing every scalar display at once.
+add_swmmvis_gui_test(test_unified2dresults
+    test_unified2dresults.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_unified2dresults)
+target_compile_definitions(test_unified2dresults PRIVATE
+    SWMMVIS_UNIFIED_2D_RESULTS_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/unified_2d_results_2026-11-01")

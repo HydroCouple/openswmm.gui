@@ -60,8 +60,23 @@ bool computeDerivedGroundwater(const QString &dataset, const std::vector<float> 
                                std::vector<float> &values, std::vector<Mesh2DValueStatus> &status);
 
 /**
+ * @brief Every variable the GUI derives from a native catalog: the groundwater depths above,
+ *   the unsaturated water content column average, and |v| of each paired vector result.
+ * @param[in] native Source catalog without derived variables.
+ * @param[out] warnings Optional, appended with reasons a derivation is unavailable.
+ * @return Derived descriptors (derived = true, derivedFrom = input keys), in that order.
+ * @details The column average uses the sigma water content layers where the closure mask is 2
+ *   (equal sigma thickness, so the plain layer mean) and hu / (ground - table) under closures 0
+ *   and 1, and under closure 2 when the layers are not in the catalog (live runs; the engine
+ *   keeps hu equal to the sigma column's storage). A column saturated to the ground (no
+ *   unsaturated thickness) is NotApplicable under every closure.
+ */
+QVector<Mesh2DResultVariable> derivedResultVariables(const QVector<Mesh2DResultVariable> &native,
+                                                     QStringList *warnings = nullptr);
+
+/**
  * @brief Read the inputs of a derived variable through @p read and compute one frame.
- * @param[in] derived A derived descriptor (see derivedGroundwaterVariables()).
+ * @param[in] derived A derived descriptor (see derivedResultVariables()).
  * @param[in] timeIdx Report frame of the time-varying input.
  * @param[in] read The source's native frame reader.
  * @param[out] values,status Replaced with the derived frame; cleared on failure.

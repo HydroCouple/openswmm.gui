@@ -14,7 +14,9 @@
 #include <QRectF>
 #include <QTransform>
 #include <QVector>
+#include <algorithm>
 #include <array>
+#include <cmath>
 namespace OpenSWMM::Render
 {
 struct ResultScalarLabel {
@@ -24,13 +26,21 @@ struct ResultScalarLabel {
 };
 struct ResultScalarGeometry {
     std::vector<OpenSWMM::Contour::IsoLineSegment> contours;
+    /// Filled contour polygons (bandIndex into the requested band levels).
+    std::vector<OpenSWMM::Contour::IsoBandPolygon> bands;
+    /// Area-weighted nodal value per mesh vertex (smooth fill), NaN where no valid cell touches.
+    std::vector<double> vertexValues;
     QVector<ResultScalarLabel> labels;
     QString error;
     /** @brief Estimate payload bytes occupied by active contour segments and cell labels.
      * @return Size-based count excluding vector capacity, error text and allocator overhead. */
     size_t bytes() const
     {
-        return contours.size() * sizeof(OpenSWMM::Contour::IsoLineSegment) +
+        size_t bandBytes = bands.size() * sizeof(OpenSWMM::Contour::IsoBandPolygon);
+        for (const auto &band : bands)
+            bandBytes += band.verts.size() * sizeof(QPointF);
+        return contours.size() * sizeof(OpenSWMM::Contour::IsoLineSegment) + bandBytes +
+               vertexValues.size() * sizeof(double) +
                size_t(labels.size()) * sizeof(ResultScalarLabel);
     }
 };
@@ -52,6 +62,10 @@ struct ResultScalarGeometry {
  * and contour work, while still checking accepted cells for optional labels.
  * @param cellLabels Include one area-centroid label with the original scalar value
  * and native cell index per accepted cell. Concave polygon centroids can lie outside it.
+ * @param bandLevels Filled contour band edges (two or more enable bands, at most 257).
+ * @param vertexValues Also return the nodal values (smooth fill).
+ * @param bandRect When not null, bands are marched only for display triangles whose bounds
+ * touch it (the renderer's view), so their work follows the view, not the mesh.
  * @return Owned display geometry. Contours interpolate area-weighted nodal averages
  * from accepted cells only; original cell data is never replaced. Any reported
  * dimension/geometry/level/work/segment-limit failure returns an error with both
@@ -63,7 +77,25 @@ ResultScalarGeometry buildResultScalarGeometry(const QVector<QPointF> &vertices,
                                                const std::vector<std::array<int, 3>> &triangles,
                                                const std::vector<int> &triangleCells,
                                                const openswmmvis::io::Mesh2DScalarFrame &frame,
-                                               const std::vector<double> &levels, bool cellLabels);
+                                               const std::vector<double> &levels, bool cellLabels,
+                                               const std::vector<double> &bandLevels = {},
+                                               bool vertexValues = false,
+                                               const QRectF &bandRect = QRectF());
+/// Above this many display triangles in view, renderers draw filled contours as each cell in
+/// its band's colour instead of marching bands (cells are about a pixel at that zoom).
+inline constexpr size_t kMaxContouredBandTriangles = 250000;
+/** @param levels Nondecreasing band edges (at least two).
+ *  @param value Cell value.
+ *  @return Band of value within [levels.front(), levels.back()] (the top edge belongs to the
+ *   last band), or -1 outside that range or for a nonfinite value, as marched bands cover it. */
+inline int resultBandIndex(const std::vector<double> &levels, double value)
+{
+    if (levels.size() < 2 || !std::isfinite(value) || value < levels.front() ||
+        value > levels.back())
+        return -1;
+    const auto band = int(std::upper_bound(levels.begin(), levels.end(), value) - levels.begin()) - 1;
+    return std::min(band, int(levels.size()) - 2);
+}
 struct ResultScalarPlacedLabel {
     QString text;
     QRectF rect;

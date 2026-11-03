@@ -155,6 +155,16 @@ public:
      * inventory state that prepareSublayersJsonLoad() reads back; the base adds nothing. */
     virtual void saveSublayersJsonState(QJsonObject &j) const { Q_UNUSED(j); }
 
+    /** @brief Whether the layer tree shows a sublayer as a row.
+     * @param sublayer Borrowed sublayer of this host.
+     * @return True by default. Hosts return false for internal passes another row presents;
+     * unlisted sublayers still paint, persist and keep their position in sublayers(). */
+    [[nodiscard]] virtual bool sublayerListed(const ISublayer *sublayer) const
+    {
+        Q_UNUSED(sublayer);
+        return true;
+    }
+
     /** @brief Ordered headings under which the layer tree nests some sublayers.
      * @return Empty by default: every sublayer is shown directly under its layer. */
     [[nodiscard]] virtual QStringList sublayerGroups() const { return {}; }

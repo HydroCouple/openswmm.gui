@@ -634,7 +634,8 @@ void LayerTreeModel::rebuildSublayerRows()
             for (int g = -1; g < groups.size(); ++g) {
                 const int first = int(storage.size());
                 for (int i = subs.size() - 1; i >= 0; --i) {
-                    if (!subs[i])
+                    // Unlisted sublayers are internal passes another row presents.
+                    if (!subs[i] || !host->sublayerListed(subs[i]))
                         continue;
                     const int group = host->sublayerGroup(subs[i]);
                     if ((group >= 0 && group < groups.size() ? group : -1) != g)
@@ -2461,7 +2462,12 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
             plotObjects->setEnabled(!plotObjects->actions().isEmpty());
         }
         subMenu.addSeparator();
-        if (auto *flow = qobject_cast<OpenSWMM::Render::FlowStreakSublayer *>(sub)) {
+        auto *flow = qobject_cast<OpenSWMM::Render::FlowStreakSublayer *>(sub);
+        // The surface velocity row presents the animated streak pass.
+        if (auto *results = qobject_cast<SWMM2DResultsLayer *>(parentLayer);
+            results && sub == results->velocityResultSublayer())
+            flow = results->flowStreakSublayer();
+        if (flow) {
             auto *action = subMenu.addAction(tr("Animate flow streaks"));
             action->setObjectName("flowMotionAction");
             action->setCheckable(true);

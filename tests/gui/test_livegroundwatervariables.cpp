@@ -12,6 +12,7 @@
 #include "io/mesh2dresultsexport.h"
 #include "layers/swmm2dresultslayer.h"
 #include "simulation/simulationrunner.h"
+#include <openswmm/engine/openswmm_gw2d.h>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
@@ -89,7 +90,7 @@ C1 J1 O1 30.0 0.013 0 0 0
 C1 CIRCULAR 0.5 0 0 0 1
 
 [RAINGAGES]
-RG1 INTENSITY 1:00 1.0 TIMESERIES RAIN
+RG1 INTENSITY 0:10 1.0 TIMESERIES RAIN
 
 [TIMESERIES]
 RAIN 0:00 20.0
@@ -325,9 +326,16 @@ private slots:
         const auto captured = captureGroundwaterVariables(engine.handle, 2, &error);
         QVERIFY2(captured, qPrintable(error));
         QVERIFY(error.isEmpty());
-        // Table, base, ground (cell bed), h_g and eight held fluxes (R3), then
-        // three species in two zones.
-        QCOMPARE(captured->variables.size(), 18);
+        // Table, base, ground (cell bed), h_g, h_u and the closure mask (inputs
+        // of the unsaturated column average), eight held fluxes (R3) plus the
+        // Darcy velocity pair when the engine publishes it, then three species
+        // in two zones.
+#ifdef SWMM_GW2D_VAR_QX
+        constexpr int darcy = 2;
+#else
+        constexpr int darcy = 0;
+#endif
+        QCOMPARE(captured->variables.size(), 20 + darcy);
         const Mesh2DLiveVariable *table = nullptr, *base = nullptr;
         for (const auto &v : captured->variables) {
             if (v.descriptor.dataset == "Mesh2_face_gw_table_elev")

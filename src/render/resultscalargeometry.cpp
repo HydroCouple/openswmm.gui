@@ -9,6 +9,8 @@
 
 #include "render/resultscalargeometry.h"
 #include <QFontMetricsF>
+#include <algorithm>
+#include <iterator>
 #include <cmath>
 #include <limits>
 #include <numeric>
@@ -19,7 +21,9 @@ ResultScalarGeometry buildResultScalarGeometry(const QVector<QPointF> &points,
                                                const std::vector<std::array<int, 3>> &tris,
                                                const std::vector<int> &owners,
                                                const openswmmvis::io::Mesh2DScalarFrame &frame,
-                                               const std::vector<double> &levels, bool labels)
+                                               const std::vector<double> &levels, bool labels,
+                                               const std::vector<double> &bandLevels,
+                                               bool vertexValues, const QRectF &bandRect)
 {
     ResultScalarGeometry out;
     using Status = openswmmvis::io::Mesh2DValueStatus;
@@ -38,6 +42,13 @@ ResultScalarGeometry buildResultScalarGeometry(const QVector<QPointF> &points,
     for (double value : levels)
         if (!std::isfinite(value))
             return fail("A contour level is not finite.");
+    if (bandLevels.size() > 257)
+        return fail("Choose at most 256 filled contour classes.");
+    for (double value : bandLevels)
+        if (!std::isfinite(value))
+            return fail("A filled contour level is not finite.");
+    const bool bands = bandLevels.size() >= 2;
+    const bool nodal = !levels.empty() || bands || vertexValues;
     std::vector<double> sum(size_t(points.size()), 0), weight(size_t(points.size()), 0);
     std::vector<bool> valid(cells.size(), false);
     for (size_t c = 0; c < cells.size(); ++c) {
@@ -62,7 +73,7 @@ ResultScalarGeometry buildResultScalarGeometry(const QVector<QPointF> &points,
             return fail("Scalar cell geometry has no finite area.");
         valid[c] = true;
         const double area = std::abs(twiceArea) * .5;
-        if (!levels.empty())
+        if (nodal)
             for (int k = 0; k < n; ++k) {
                 sum[size_t(ids[k])] += double(frame.values[c]) * area;
                 weight[size_t(ids[k])] += area;
@@ -71,10 +82,12 @@ ResultScalarGeometry buildResultScalarGeometry(const QVector<QPointF> &points,
             out.labels.append({origin + QPointF(cx / (3 * twiceArea), cy / (3 * twiceArea)),
                                frame.values[c], int(c)});
     }
-    if (levels.empty())
+    if (!nodal)
         return out;
     for (size_t v = 0; v < sum.size(); ++v)
         sum[v] = weight[v] > 0 ? sum[v] / weight[v] : std::numeric_limits<double>::quiet_NaN();
+    if (vertexValues)
+        out.vertexValues = sum;
     std::vector<int> selected;
     selected.reserve(tris.size());
     for (size_t t = 0; t < tris.size(); ++t) {
@@ -93,7 +106,7 @@ ResultScalarGeometry buildResultScalarGeometry(const QVector<QPointF> &points,
         return fail(
             "Contour work exceeds 32 million triangle-level pairs; reduce levels or use cell labels.");
     const QPointF origin = points.isEmpty() ? QPointF() : points[0];
-    for (size_t begin = 0; begin < selected.size(); begin += 1024) {
+    for (size_t begin = 0; !levels.empty() && begin < selected.size(); begin += 1024) {
         const auto end = std::min(selected.size(), begin + 1024);
         const std::vector<int> batch(selected.begin() + begin, selected.begin() + end);
         auto segments = OpenSWMM::Contour::marchingTriangles(
@@ -114,6 +127,48 @@ ResultScalarGeometry buildResultScalarGeometry(const QVector<QPointF> &points,
     for (auto &line : out.contours) {
         line.a += origin;
         line.b += origin;
+    }
+    if (bands) {
+        // Only the triangles that touch the view, when the renderer gives one.
+        std::vector<int> inView;
+        if (!bandRect.isNull()) {
+            inView.reserve(selected.size());
+            for (int t : selected) {
+                const auto &v = tris[size_t(t)];
+                const QPointF &a = points[v[0]], &b = points[v[1]], &c = points[v[2]];
+                if (std::max({a.x(), b.x(), c.x()}) >= bandRect.left() &&
+                    std::min({a.x(), b.x(), c.x()}) <= bandRect.right() &&
+                    std::max({a.y(), b.y(), c.y()}) >= bandRect.top() &&
+                    std::min({a.y(), b.y(), c.y()}) <= bandRect.bottom())
+                    inView.push_back(t);
+            }
+        }
+        const auto &banded = bandRect.isNull() ? selected : inView;
+        size_t vertices = 0;
+        for (size_t begin = 0; begin < banded.size(); begin += 1024) {
+            const auto end = std::min(banded.size(), begin + 1024);
+            const std::vector<int> batch(banded.begin() + begin, banded.begin() + end);
+            auto polygons = OpenSWMM::Contour::marchingTrianglesIsobands(
+                batch, bandLevels,
+                [&](int t, QPointF &a, QPointF &b, QPointF &c, double &x, double &y, double &z) {
+                    const auto &v = tris[size_t(t)];
+                    a = points[v[0]] - origin;
+                    b = points[v[1]] - origin;
+                    c = points[v[2]] - origin;
+                    x = sum[size_t(v[0])];
+                    y = sum[size_t(v[1])];
+                    z = sum[size_t(v[2])];
+                });
+            for (auto &polygon : polygons) {
+                vertices += polygon.verts.size();
+                for (auto &point : polygon.verts)
+                    point += origin;
+            }
+            if (vertices > 6000000)
+                return fail("Filled contours exceed 6 million vertices; reduce classes.");
+            out.bands.insert(out.bands.end(), std::make_move_iterator(polygons.begin()),
+                             std::make_move_iterator(polygons.end()));
+        }
     }
     return out;
 }

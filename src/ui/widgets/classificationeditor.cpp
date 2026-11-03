@@ -291,6 +291,12 @@ template <class Fn> void ClassificationEditor::mutateScheme(Fn fn)
         emit edited();
 }
 
+void ClassificationEditor::setMaximumClassCount(int count)
+{
+    m_countSpin->setMaximum(std::max(1, count));
+    refresh();
+}
+
 void ClassificationEditor::refresh()
 {
     if (!m_binding)

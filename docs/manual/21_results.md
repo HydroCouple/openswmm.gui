@@ -49,10 +49,14 @@ There are three routes:
 Results layers appear under **SWMM Results** in the Layers dock and behave like
 any other layer — visibility checkbox, opacity, drag to reorder, right-click for
 **Properties…** and **Zoom to Layer** (see \ref manual_layers). A 2D results
-layer is a *sublayer host*: expanding its row shows the individual visualization
-passes (cell depth fill, smooth depth fill, depth contours, isolines, velocity
-vectors, mesh edges, mesh vertices), each with its own visibility toggle, and
-right-clicking a sublayer row opens the styling dialog on that sublayer's tab.
+layer is a *sublayer host*: expanding its row shows its result fields under
+**Surface water** and **Groundwater** headings (scalar and vector), plus the mesh
+vertices, edges and terrain, each with its own visibility toggle; right-clicking a
+row opens the styling dialog on that field. A run starts with its default fields:
+surface depth (filled contours) and velocity (animated streaks), and groundwater
+water table elevation (labelled contour lines), unsaturated water content (smooth
+fill) and Darcy velocity (arrows). Other fields are added with **Add field** in
+the styling dialog, so the tree lists only the fields you chose.
 
 ### Choosing the active run
 
@@ -169,27 +173,32 @@ then rewinds the selected results and slider.
 
 ### Styling 2D results
 
-A 2D results layer's properties dialog carries a dedicated panel with one tab per
-visualization pass. Each tab starts with a **Show …** checkbox that toggles that
-sublayer, and every control writes straight through to the renderer, so edits
-repaint immediately.
+A 2D results layer's properties dialog lists the layer's result fields on the
+left, grouped as in the layer tree, with a **Layer** group (**Water visibility**,
+**Mesh vertices**, **Mesh edges**) at the bottom. Select a field to style it: its
+**Variable**, **Show** and **Opacity** sit above one tab per way the field can be
+drawn, and several displays may be on at once. Each display tab starts with a
+**Show …** checkbox and carries a check while that display is on. Every control
+writes straight through to the renderer, so edits repaint immediately. The
+list starts with the run's default fields; **Add field** adds a row for any other
+field of the run; **Remove** deletes the selected row (a removed default field
+does not come back unless added again).
 
 | Tab | What it draws | Key controls |
 |-----|---------------|--------------|
-| **Cell Depth Fill** | Flat per-cell scalar fill | **Attribute** (Depth / Elevation); classification editor — continuous ramp or classified bins, method, class count, range |
-| **Smooth Depth Fill** | Gouraud per-vertex fill | Same controls as Cell Depth Fill |
-| **Depth Contours** | Filled contour bands | Class scheme; **Interpolate band boundaries (marching triangles)** — on interpolates boundaries through the triangle, off gives flat per-cell bands |
-| **Depth Isolines** | Stroked iso-depth lines | **Mode** (Fixed count / Fixed interval + base); **Count**; **Method** (Equal interval, Quantile, Natural breaks (Jenks), Standard deviation, Logarithmic, Exponential); **Interval** and **Base level** (contours fall at base + k × interval); colour, width, stroke style; **Index contour every** N with its own width; contour **Labels** with decimals, font size and white halo |
-| **Flow Velocity** | Centroid arrow glyphs | **Length scaling** (Linear / Square root / Logarithmic); **Scale** in px per m/s; **Min**/**Max length**; **Head size**; **Shaft width**; **Colour by magnitude** (with its own class scheme) or a single colour; **Spacing** — minimum on-screen px between arrows, strongest cell per slot wins; **Dry depth cutoff** — suppress arrows in shallower water |
-| **Flow Streaks** | Moving trails over wet areas | **Colour** or **By speed**; **Density** (Sparse / Normal / Dense); **Motion**; **Trail** (Short / Normal / Long). **Advanced** provides exact values, lifetime, width and fading settings |
-| **Mesh Edges** | The triangulation's edges | Edge colour and width |
-| **Mesh Vertices** | Vertex markers | Marker style |
+| **Fill** | Per-cell colour fill, flat or smooth (interpolated) | Classification editor — continuous ramp or classified bins, method, class count, range; colours for cells without a value |
+| **Filled contours** | Filled contour bands | Band count and method, with colours and range from the Fill classification. For depth: the band classes and **Interpolate band boundaries (marching triangles)** — on interpolates boundaries through the triangle, off gives flat per-cell bands |
+| **Contour lines** | Stroked contour lines | **Mode** (level count / fixed interval + base); the level classes (lines = classes − 1) or **Interval** and **Base level** (contours fall at base + k × interval); colour, width, stroke style; **Index contour every** N with its own width; contour labels |
+| **Labels** | Cell value labels | Colour, decimals, font size, halo |
+| **Arrows** | Arrow glyphs (vector fields) | Size by vector magnitude (frame range, or a fixed scale in px per unit), a constant or a scalar field; length scaling (Linear / Square root / Logarithmic); shortest and longest arrow; spacing, head size, shaft width |
+| **Streaks** | Streamlines (vector fields); moving trails for surface velocity | Length, width and spacing; for surface velocity **Colour** or **By speed**, **Density** (Sparse / Normal / Dense / Very dense), **Motion**, **Trail** (Short / Normal / Long) and **Advanced** settings |
+| **Colour** | Arrow and streamline colour (the surface velocity's animated streaks are coloured on **Streaks**) | Constant, by magnitude or by a scalar field, with its own classification |
+| **Data** | — | Scalar fields: availability, the selected cell's raw value, CSV and GIS export. Vector fields: their availability |
 
-Colour for the band and isoline classes comes from either a named **colour ramp**
-(with an **Invert ramp** option) or a **two-colour gradient** between a **Low
-colour** and a **High colour**.
+Surface vector fields also have a **Dry cutoff** next to **Opacity**: no arrows
+or streamlines where the water is shallower.
 
-\fig{21_2d_style_panel_tabs.png, The 2D results styling panel showing the Depth Isolines tab}
+\fig{21_2d_style_panel_tabs.png, The 2D results styling panel with the depth field on its Contour lines tab}
 
 Flow streaks illustrate flow direction. Their motion adjusts to the map zoom,
 and slower movement is boosted so it remains visible. **Normal** uses a 48 px/s

@@ -28,6 +28,19 @@ public:
 private:
     Q_PROPERTY(OpenSWMM::Render::ResultScalarStyle::Presentation presentation READ presentation
                    WRITE setPresentation NOTIFY styleChanged)
+    // Independent displays of the same variable, painted bottom-up in this
+    // order: cell fill (flat, or smooth when smoothFill), filled contours,
+    // isolines, cell value labels. Any combination may be on at once.
+    Q_PROPERTY(bool cellFill READ cellFill WRITE setCellFill NOTIFY styleChanged)
+    Q_PROPERTY(bool smoothFill READ smoothFill WRITE setSmoothFill NOTIFY styleChanged)
+    Q_PROPERTY(bool filledContours READ filledContours WRITE setFilledContours NOTIFY styleChanged)
+    Q_PROPERTY(bool isolines READ isolines WRITE setIsolines NOTIFY styleChanged)
+    Q_PROPERTY(bool cellLabels READ cellLabels WRITE setCellLabels NOTIFY styleChanged)
+    Q_CLASSINFO("group:cellFill", "Display")
+    Q_CLASSINFO("group:smoothFill", "Display")
+    Q_CLASSINFO("group:filledContours", "Display")
+    Q_CLASSINFO("group:isolines", "Display")
+    Q_CLASSINFO("group:cellLabels", "Display")
     Q_PROPERTY(QColor missingColor READ missingColor WRITE setMissingColor NOTIFY styleChanged)
     Q_PROPERTY(
         QColor waterlessColor READ waterlessColor WRITE setWaterlessColor NOTIFY styleChanged)
@@ -42,12 +55,46 @@ public:
      * base depth attribute and uses PerFrameAutoStretch. Child styleChanged forwards
      * to this style's setDirty(); ordinary access occurs on the owning Qt thread. */
     explicit ResultScalarStyle(QObject *parent = nullptr);
-    /** @brief Read the selected rendering presentation.
-     * @return Fill initially, or the last accepted Contours/Labels selection. */
-    Presentation presentation() const { return m_presentation; }
-    /** @brief Select an accepted presentation and notify on a change.
+    /** @brief Compatibility view of the display toggles as one presentation.
+     * @return Contours when isolines are the only display, Labels when cell labels are the only
+     *   display, otherwise Fill. */
+    Presentation presentation() const;
+    /** @brief Compatibility setter: Fill shows only the cell fill, Contours only isolines,
+     *   Labels only cell value labels.
      * @param value Fill, Contours or Labels; unknown enum integers are ignored. */
     void setPresentation(Presentation value);
+    /** @return Flat (or smooth, see smoothFill()) per-cell colour fill shown; initially true. */
+    bool cellFill() const { return m_cellFill; }
+    /** @return The cell fill is the vertex-interpolated (smooth) variant; initially false. */
+    bool smoothFill() const { return m_smoothFill; }
+    /** @return Filled contour bands shown, classes from the fill scheme; initially false. */
+    bool filledContours() const { return m_filledContours; }
+    /** @return Isolines (contourStyle()) shown; initially false. */
+    bool isolines() const { return m_isolines; }
+    /** @return Cell value labels shown; initially false. */
+    bool cellLabels() const { return m_cellLabels; }
+    /** @brief Set a display toggle and notify on change. @param on New state. */
+    void setCellFill(bool on);
+    /** @brief Set a display toggle and notify on change. @param on New state. */
+    void setSmoothFill(bool on);
+    /** @brief Set a display toggle and notify on change. @param on New state. */
+    void setFilledContours(bool on);
+    /** @brief Set a display toggle and notify on change. @param on New state. */
+    void setIsolines(bool on);
+    /** @brief Set a display toggle and notify on change. @param on New state. */
+    void setCellLabels(bool on);
+    /** @return True when any display toggle is on. */
+    bool anyDisplay() const
+    {
+        return m_cellFill || m_filledContours || m_isolines || m_cellLabels;
+    }
+    /** @return True when a shown display classifies over the whole run (FixedOverRun without a
+     *   custom range): the fill scheme for fills/bands, the contour scheme for isolines. */
+    bool needsWholeRunRange() const;
+    /** @return True when the shown cell fill or filled contours classify over the whole run. */
+    bool fillNeedsWholeRunRange() const;
+    /** @return True when shown isolines classify over the whole run (contour scheme). */
+    bool isolinesNeedWholeRunRange() const;
     /** @brief Borrow the owned contour/label style.
      * @return Child pointer valid until this style is destroyed; do not delete/reparent. */
     IsolineStyle *contourStyle() const { return m_contourStyle; }
@@ -56,7 +103,7 @@ public:
      * (including Labels). Replaced by the corresponding style setters/JSON readers. */
     const ClassificationScheme &rangeScheme() const
     {
-        return m_presentation == Presentation::Contours ? m_contourStyle->scheme() : scheme();
+        return presentation() == Presentation::Contours ? m_contourStyle->scheme() : scheme();
     }
     /** @brief Generate contour levels from the contour scheme's effective range.
      * @param minimum Automatic lower bound in the selected variable unit.
@@ -100,7 +147,8 @@ public:
     void fromJson(const QJsonObject &json) override;
 
 private:
-    Presentation m_presentation = Presentation::Fill;
+    bool m_cellFill = true, m_smoothFill = false, m_filledContours = false, m_isolines = false,
+         m_cellLabels = false;
     IsolineStyle *m_contourStyle = nullptr;
     QColor m_missing{145, 145, 145, 150};
     QColor m_waterless{230, 230, 230, 90};
@@ -188,6 +236,21 @@ public:
      * This uses the fill scheme even in Contours/Labels mode and publishes nothing.
      * Read on the owning thread or with an externally synchronized immutable style snapshot. */
     QVector<QColor> cellColors(const openswmmvis::io::Mesh2DScalarFrame &frame) const;
+    /** @brief Filled contour classes of a frame: the fill scheme's level edges and one colour
+     *   per band (class colour when classified, the ramp at the band midpoint otherwise),
+     *   multiplied by local opacity.
+     * @param frame Borrowed frame matching variableKey() without error.
+     * @param[out] levels Nondecreasing band edges, at least two on success.
+     * @param[out] colors levels.size() - 1 colours.
+     * @return False when hidden, unbound, mismatched or the classification is invalid. */
+    bool bandStyling(const openswmmvis::io::Mesh2DScalarFrame &frame, std::vector<double> &levels,
+                     QVector<QColor> &colors) const;
+    /** @brief Colours of interpolated vertex values for the smooth fill, with the fill scheme.
+     * @param frame Borrowed frame supplying the classification range.
+     * @param values Vertex values; nonfinite values get a transparent colour.
+     * @return One colour per value multiplied by local opacity, or empty like cellColors(). */
+    QVector<QColor> valueColors(const openswmmvis::io::Mesh2DScalarFrame &frame,
+                                const std::vector<double> &values) const;
     /** @brief Build legend rows using descriptor metadata and an otherwise empty frame.
      * @return Delegated preview without consulting presentedFrame(); automatic numeric
      * bounds are usually unavailable unless the scheme provides a custom range. */
@@ -200,8 +263,10 @@ public:
      * by Missing, Waterless and Not applicable swatches. Rows carry units, id and local
      * opacity; zero opacity does not suppress the legend. The caller selects the
      * appropriate frame; this method neither loads nor publishes the atomic snapshot. */
-    QList<LegendSymbolItem>
-    legendSymbolItems(const openswmmvis::io::Mesh2DScalarFrame &frame) const;
+    /** @param labelsOnly Return only the cell value labels row (the depth row, whose fills,
+     *   bands and isolines the depth passes legend). */
+    QList<LegendSymbolItem> legendSymbolItems(const openswmmvis::io::Mesh2DScalarFrame &frame,
+                                              bool labelsOnly = false) const;
     /** @brief Preserve an existing node without generating geometry in this hook.
      * @param existing Borrowed node returned unchanged, including null.
      * @par Context
