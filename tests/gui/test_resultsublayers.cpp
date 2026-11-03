@@ -1,15 +1,17 @@
 /**
  * @file      test_resultsublayers.cpp
- * @brief     Every 2D result variable becomes a hidden sublayer, grouped under
- *            Surface / Groundwater headings in the Layers panel (2026-10-31).
+ * @brief     2D result variables as sublayers, grouped under Surface / Groundwater
+ *            headings in the Layers panel (2026-10-31). Since 2026-11-03 only the
+ *            default fields get rows of their own; the others are added by hand
+ *            (the style panel's Add field).
  *
- * Gates (workplans/BELLINGE_GW_QUALITY_RESULT_SUBLAYERS_BRIEF_2026-10-31.md):
- * catalog -> N hidden rows in group order with labels/units; hidden rows read
- * no frames until checked; tree headings with tri-state checks, collapse and
- * drag within a group only; project JSON keeps visibility, order and a user
- * removal while older projects auto-populate; the live -> saved switch keeps a
- * checked variable checked. Fixtures are synthetic and written under
- * tests/output/result_sublayers_2026-10-31/.
+ * Gates (workplans/BELLINGE_GW_QUALITY_RESULT_SUBLAYERS_BRIEF_2026-10-31.md,
+ * workplans/RESULTS_DEFAULT_ROWS_PLAN_2026-11-03.md): default fields -> rows in
+ * group order with labels/units, other fields none; hidden rows read no frames
+ * until checked; tree headings with tri-state checks, collapse and drag within a
+ * group only; project JSON keeps visibility, order and a user removal and offers
+ * new default fields; the live -> saved switch keeps a checked variable checked.
+ * Fixtures are synthetic and written under tests/output/result_sublayers_2026-10-31/.
  *
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -139,6 +141,15 @@ ResultScalarSublayer *rowFor(const SWMM2DResultsLayer &layer, const QString &key
         if (r->variableKey() == key)
             return r;
     return nullptr;
+}
+
+/** @brief Add rows by hand (the style panel's Add field), shown or hidden. */
+void addByHand(SWMM2DResultsLayer &layer, std::initializer_list<Mesh2DResultVariable> vars,
+               bool visible)
+{
+    for (const auto &v : vars)
+        if (auto *row = layer.addResultSublayer(v.key()))
+            row->setVisible(visible);
 }
 
 /** @brief Display labels of a parent's children, top row first. */
@@ -318,31 +329,43 @@ class TestResultSublayers : public QObject
 {
     Q_OBJECT
 private slots:
-    /** @brief N catalog variables become N hidden rows: Surface above Groundwater (derived
-     * included), catalog order within each, labelled "label [units]", no duplicates by key. */
-    void catalogVariablesBecomeHiddenGroupedSublayers()
+    /** @brief Only the default fields get rows (here the water table and depth): Surface above
+     * Groundwater, labelled "label [units]" plus their displays, shown with their defaults
+     * (unified rendering, 2026-11-01): depth as filled contours and the water table as labelled
+     * isolines. The other fields get rows only when added by hand. */
+    void defaultFieldsBecomeGroupedSublayers()
     {
         SWMM2DResultsLayer layer;
         layer.setSource(std::make_unique<CatalogSource>());
         const auto rows = resultRows(layer);
-        QCOMPARE(rows.size(), 5);
+        QCOMPARE(rows.size(), 2);
         QStringList topFirst;
         for (auto it = rows.crbegin(); it != rows.crend(); ++it) {
-            QVERIFY2(!(*it)->isVisible(), qPrintable((*it)->displayName()));
+            QVERIFY2((*it)->isVisible(), qPrintable((*it)->displayName()));
             QVERIFY((*it)->id().startsWith("results2d.variable."));
             topFirst << (*it)->displayName();
         }
-        QCOMPARE(topFirst, (QStringList{"Depth [m]", "Surface TSS [mg/L]", "Groundwater table [m]",
-                                        "Depth to water [m]", "Saturated TSS [mg/L]"}));
-        // The variable rows paint above the builtin hydraulics.
-        QCOMPARE(layer.sublayers().last(), static_cast<ISublayer *>(rows.last()));
-        // Re-announcing the catalog adds nothing; a row added by hand stays.
+        QCOMPARE(topFirst,
+                 (QStringList{"Depth [m] — filled contours", "Groundwater table [m] — contours"}));
+        for (int i : {2, 3, 4})
+            QVERIFY2(!rowFor(layer, fiveVariables()[i].key()), qPrintable(fiveVariables()[i].label));
+        // The variable rows paint above the depth passes and below the mesh wireframe
+        // (unified rendering follow-up, 2026-11-01).
+        QVERIFY(layer.sublayers().indexOf(rows.last()) <
+                layer.sublayers().indexOf(layer.meshEdgeSublayer()));
+        QVERIFY(layer.sublayers().indexOf(rows.first()) >
+                layer.sublayers().indexOf(layer.contourBandSublayer()));
+        // Re-announcing the catalog adds nothing; rows added by hand stay, a second row of a
+        // field included.
         layer.refreshTimeRange();
-        QCOMPARE(resultRows(layer).size(), 5);
-        auto *byHand = layer.addResultSublayer(fiveVariables()[1].key());
+        QCOMPARE(resultRows(layer).size(), 2);
+        const auto vars = fiveVariables();
+        addByHand(layer, {vars[3], vars[2], vars[4]}, true);
+        auto *byHand = layer.addResultSublayer(vars[1].key());
         QVERIFY(byHand && byHand->isVisible());
         layer.refreshTimeRange();
         QCOMPARE(resultRows(layer).size(), 6);
+        QCOMPARE(rowFor(layer, vars[3].key())->displayName(), QStringLiteral("Surface TSS [mg/L]"));
     }
 
     /** @brief Hidden rows read no frames through CPU paint, scene graph or legend; checking one
@@ -353,10 +376,14 @@ private slots:
         auto owned = std::make_unique<CatalogSource>();
         auto *source = owned.get();
         layer.setSource(std::move(owned));
+        const auto vars = fiveVariables();
+        addByHand(layer, {vars[2], vars[3], vars[4]}, false);
         layer.setVisible(true);
         for (auto *s : layer.sublayers())
             if (!qobject_cast<ResultScalarSublayer *>(s))
                 s->setVisible(false); // isolate the variable rows
+        for (auto *r : resultRows(layer))
+            r->setVisible(false); // including the rows shown by default
         layer.setCurrentTimeIndex(1);
         QCOMPARE(resultRows(layer).size(), 5);
         QCOMPARE(paintedPixels(layer), 0);
@@ -372,7 +399,7 @@ private slots:
         QCOMPARE(source->reads, 0);
 
         // Animation ticks leave hidden rows alone; a shown row is invalidated.
-        auto *saturated = rowFor(layer, fiveVariables()[4].key());
+        auto *saturated = rowFor(layer, vars[4].key());
         QVERIFY(saturated);
         QSignalSpy hiddenTicks(saturated, &ISublayer::invalidated);
         layer.dispatchAnimationTick(0);
@@ -389,11 +416,13 @@ private slots:
 
     /** @brief The tree nests variable rows under two headings after the builtin rows; heading
      * checks are tri-state and toggle their rows; collapse survives resets; drags stay inside a
-     * group and are undoable. */
+     * group and are undoable. Besides the defaults, three fields were added by hand (hidden). */
     void treeHeadingsToggleCollapseAndDragWithinGroup()
     {
         SWMM2DResultsLayer layer(QStringLiteral("2D Results"));
         layer.setSource(std::make_unique<CatalogSource>());
+        const auto vars = fiveVariables();
+        addByHand(layer, {vars[3], vars[2], vars[4]}, false); // each on top of its group
         MapCanvas canvas;
         canvas.addLayer(&layer, false);
         LayerTreePanel panel;
@@ -401,7 +430,12 @@ private slots:
         LayerTreeModel *m = panel.model();
         const QModelIndex layerIdx = m->indexForLayer(&layer);
         QVERIFY(layerIdx.isValid());
-        const int builtins = layer.sublayers().size() - 5;
+        // Listed builtins: terrain, edges and vertices. The depth and velocity
+        // passes are displays of their rows, not rows of their own.
+        int builtins = 0;
+        for (auto *s : layer.sublayers())
+            builtins += !qobject_cast<ResultScalarSublayer *>(s) && layer.sublayerListed(s);
+        QCOMPARE(builtins, 3);
         QCOMPARE(m->rowCount(layerIdx), builtins + 2);
         for (int r = 0; r < builtins; ++r) {
             auto *s = m->sublayerForIndex(m->index(r, 0, layerIdx));
@@ -410,25 +444,26 @@ private slots:
         const QModelIndex surface = m->index(builtins, 0, layerIdx);
         const QModelIndex groundwater = m->index(builtins + 1, 0, layerIdx);
         QVERIFY(m->isSublayerGroupIndex(surface) && m->isSublayerGroupIndex(groundwater));
-        QCOMPARE(surface.data().toString(), QStringLiteral("Surface results"));
-        QCOMPARE(groundwater.data().toString(), QStringLiteral("Groundwater results"));
-        QCOMPARE(childLabels(*m, surface), (QStringList{"Depth [m]", "Surface TSS [mg/L]"}));
+        QCOMPARE(surface.data().toString(), QStringLiteral("Surface water — Scalar"));
+        QCOMPARE(groundwater.data().toString(), QStringLiteral("Groundwater — Scalar"));
+        QCOMPARE(childLabels(*m, surface),
+                 (QStringList{"Surface TSS [mg/L]", "Depth [m] — filled contours"}));
         QCOMPARE(childLabels(*m, groundwater),
-                 (QStringList{"Groundwater table [m]", "Depth to water [m]",
-                              "Saturated TSS [mg/L]"}));
+                 (QStringList{"Saturated TSS [mg/L]", "Depth to water [m]",
+                              "Groundwater table [m] — contours"}));
         QCOMPARE(m->parent(m->index(0, 0, groundwater)), groundwater);
         QCOMPARE(m->parent(groundwater), layerIdx);
         QCOMPARE(m->layerForIndex(groundwater), static_cast<OpenSWMMVisLayer *>(&layer));
         QVERIFY(m->flags(groundwater) & Qt::ItemIsUserCheckable);
         QVERIFY(!(m->flags(groundwater) & Qt::ItemIsDragEnabled));
 
-        // Tri-state heading check.
-        QCOMPARE(groundwater.data(Qt::CheckStateRole).toInt(), int(Qt::Unchecked));
+        // Tri-state heading check (the water table shows by default).
+        QCOMPARE(groundwater.data(Qt::CheckStateRole).toInt(), int(Qt::PartiallyChecked));
         QVERIFY(m->setData(groundwater, Qt::Checked, Qt::CheckStateRole));
         for (int r = 0; r < 3; ++r)
             QVERIFY(m->sublayerForIndex(m->index(r, 0, groundwater))->isVisible());
         QCOMPARE(groundwater.data(Qt::CheckStateRole).toInt(), int(Qt::Checked));
-        QCOMPARE(surface.data(Qt::CheckStateRole).toInt(), int(Qt::Unchecked));
+        QCOMPARE(surface.data(Qt::CheckStateRole).toInt(), int(Qt::PartiallyChecked));
         QVERIFY(m->setData(m->index(1, 0, groundwater), Qt::Unchecked, Qt::CheckStateRole));
         QCOMPARE(groundwater.data(Qt::CheckStateRole).toInt(), int(Qt::PartiallyChecked));
         QVERIFY(m->setData(groundwater, Qt::Unchecked, Qt::CheckStateRole));
@@ -454,19 +489,20 @@ private slots:
         // Drag within a group: the top groundwater row dropped between rows 1 and 2.
         QVERIFY(dragDrop(*m, m->index(0, 0, headingAt(1)), 2, headingAt(1)));
         QCOMPARE(childLabels(*m, headingAt(1)),
-                 (QStringList{"Depth to water [m]", "Groundwater table [m]",
-                              "Saturated TSS [mg/L]"}));
+                 (QStringList{"Depth to water [m]", "Saturated TSS [mg/L]",
+                              "Groundwater table [m] — contours"}));
         // ... and onto a sibling row: the bottom row takes the top slot.
         QVERIFY(dragDrop(*m, m->index(2, 0, headingAt(1)), -1, m->index(0, 0, headingAt(1))));
         QCOMPARE(childLabels(*m, headingAt(1)),
-                 (QStringList{"Saturated TSS [mg/L]", "Depth to water [m]",
-                              "Groundwater table [m]"}));
-        QCOMPARE(childLabels(*m, headingAt(0)), (QStringList{"Depth [m]", "Surface TSS [mg/L]"}));
+                 (QStringList{"Groundwater table [m] — contours", "Depth to water [m]",
+                              "Saturated TSS [mg/L]"}));
+        QCOMPARE(childLabels(*m, headingAt(0)),
+                 (QStringList{"Surface TSS [mg/L]", "Depth [m] — filled contours"}));
         canvas.undoStack()->undo();
         canvas.undoStack()->undo();
         QCOMPARE(childLabels(*m, headingAt(1)),
-                 (QStringList{"Groundwater table [m]", "Depth to water [m]",
-                              "Saturated TSS [mg/L]"}));
+                 (QStringList{"Saturated TSS [mg/L]", "Depth to water [m]",
+                              "Groundwater table [m] — contours"}));
 
         // Across groups, or between a group and the builtin rows: refused.
         const QModelIndex surfaceRow = m->index(0, 0, headingAt(0));
@@ -485,19 +521,21 @@ private slots:
         QCOMPARE(m->sublayerSiblings(m->index(1, 0, headingAt(1))).size(), 3);
     }
 
-    /** @brief Project JSON keeps visibility, opacity, order and a user removal, offers variables
-     * new since the save, survives a style round trip; an older project auto-populates. */
-    void projectRoundTripKeepsChoicesAndOldProjectsAutoPopulate()
+    /** @brief Project JSON keeps visibility, opacity, order, rows added by hand and the removal
+     * of a default; offers default fields new since the save (and no others); survives a style
+     * round trip; an older project gets the defaults. */
+    void projectRoundTripKeepsChoicesAndOffersNewDefaults()
     {
         const auto vars = fiveVariables();
         SWMM2DResultsLayer saved;
         saved.setSource(std::make_unique<CatalogSource>());
+        addByHand(saved, {vars[2], vars[4]}, false);
         auto *gwTss = rowFor(saved, vars[4].key());
-        auto *surfaceTss = rowFor(saved, vars[3].key());
-        QVERIFY(gwTss && surfaceTss);
+        QVERIFY(gwTss);
         gwTss->setVisible(true);
         gwTss->setOpacity(.4);
-        QVERIFY(saved.removeResultSublayer(surfaceTss->id())); // the user's removal
+        QVERIFY(saved.removeResultSublayer(rowFor(saved, vars[1].key())->id())); // a default
+        rowFor(saved, vars[0].key())->setVisible(false); // the user hides a default
         const auto order = saved.sublayers();
         QVERIFY(saved.moveSublayer(order.indexOf(rowFor(saved, vars[2].key())),
                                    order.indexOf(rowFor(saved, vars[0].key()))));
@@ -515,39 +553,44 @@ private slots:
         QFile file(path);
         QVERIFY(file.open(QIODevice::ReadOnly));
         const QJsonObject json = QJsonDocument::fromJson(file.readAll()).object();
-        QCOMPARE(json.value("resultCatalogKeys").toArray().size(), 5);
+        QCOMPARE(json.value("resultCatalogKeys").toArray().size(), 2); // the default fields
 
         SWMM2DResultsLayer reopened;
         reopened.setSource(std::make_unique<CatalogSource>());
-        QCOMPARE(resultRows(reopened).size(), 5);
+        QCOMPARE(resultRows(reopened).size(), 2);
         ISublayerHost::loadSublayersFromJson(reopened, json);
         QStringList reopenedIds;
         for (auto *r : resultRows(reopened))
             reopenedIds << r->id();
         QCOMPARE(reopenedIds, ids);
-        QVERIFY(!rowFor(reopened, vars[3].key()));
+        QVERIFY(!rowFor(reopened, vars[1].key()));
         QVERIFY(rowFor(reopened, vars[4].key())->isVisible());
         QCOMPARE(rowFor(reopened, vars[4].key())->opacity(), .4);
         QVERIFY(!rowFor(reopened, vars[0].key())->isVisible());
 
-        // A variable new since the save arrives hidden; the removal still holds.
+        // A default field new since the save arrives with its display, another field does not
+        // arrive at all; the removal still holds.
         auto grown = std::make_unique<CatalogSource>();
         grown->catalog.append(
+            variable("gw_theta_unsat_mean", {}, true, "Soil moisture", "1", true));
+        grown->catalog.append(
             variable("Mesh2_face_gw_hu", {}, true, "Unsaturated thickness", "m"));
-        const QString newKey = grown->catalog.last().key();
+        const QString moistureKey = grown->catalog[5].key(), huKey = grown->catalog[6].key();
+        QCOMPARE(moistureKey, QStringLiteral("derived:gw_theta_unsat_mean"));
         SWMM2DResultsLayer rerun;
         rerun.setSource(std::move(grown));
         ISublayerHost::loadSublayersFromJson(rerun, json);
-        QCOMPARE(resultRows(rerun).size(), 5);
-        QVERIFY(!rowFor(rerun, vars[3].key()));
-        QVERIFY(rowFor(rerun, newKey) && !rowFor(rerun, newKey)->isVisible());
+        QCOMPARE(resultRows(rerun).size(), ids.size() + 1);
+        QVERIFY(!rowFor(rerun, vars[1].key()));
+        QVERIFY(rowFor(rerun, moistureKey) && rowFor(rerun, moistureKey)->isVisible());
+        QVERIFY(!rowFor(rerun, huKey));
 
-        // Style snapshots (dialog undo/redo, style files) replay the removal too.
+        // Style snapshots (dialog undo/redo, style files) replay the rows and the removal too.
         SWMM2DResultsLayer styled;
         styled.setSource(std::make_unique<CatalogSource>());
-        QVERIFY(rowFor(styled, vars[3].key()));
+        QVERIFY(rowFor(styled, vars[1].key()) && !rowFor(styled, vars[4].key()));
         StyleFileIO::applyStyleJson(&styled, StyleFileIO::styleToJson(&saved));
-        QVERIFY(!rowFor(styled, vars[3].key()));
+        QVERIFY(!rowFor(styled, vars[1].key()));
         QVERIFY(rowFor(styled, vars[4].key())->isVisible());
 
         // An older project: builtin rows plus one row added by hand, no record.
@@ -570,18 +613,17 @@ private slots:
         SWMM2DResultsLayer old;
         old.setSource(std::make_unique<CatalogSource>());
         ISublayerHost::loadSublayersFromJson(old, legacy);
-        const auto oldRows = resultRows(old);
-        QCOMPARE(oldRows.size(), 5); // no duplicate of the hand-added depth row
-        for (const auto &v : vars) {
-            auto *r = rowFor(old, v.key());
-            QVERIFY2(r, qPrintable(v.key()));
-            QCOMPARE(r->isVisible(), v.key() == vars[1].key());
-        }
+        QCOMPARE(resultRows(old).size(), 2); // no duplicate of the hand-added depth row
         QCOMPARE(rowFor(old, vars[1].key())->id(), QStringLiteral("results2d.variable.legacy-depth"));
+        QVERIFY(rowFor(old, vars[1].key())->isVisible());   // as saved
+        QVERIFY(rowFor(old, vars[0].key())->isVisible());   // the water table by default
+        for (int i : {2, 3, 4})
+            QVERIFY(!rowFor(old, vars[i].key()));
     }
 
-    /** @brief Live -> saved keeps a checked variable checked with its style, removes a vanished
-     * one and adds new ones hidden; a rerun's live phase keeps rows its catalog lacks. */
+    /** @brief A live catalog that grows gives the default field a row and no other; live ->
+     * saved keeps a checked variable checked with its style and keeps rows added by hand; a
+     * rerun's live phase keeps rows its catalog lacks. */
     void liveToSavedKeepsCheckedVariables()
     {
         const QString h5 = QDir(outputDir()).filePath("saved_results.2d.h5");
@@ -595,13 +637,15 @@ private slots:
         live->pushDepths({0, 0}, start, 0);
         QVERIFY(live->pushFaceVariables(liveFrame(), start, 0));
         layer.refreshTimeRange();
-        QTRY_COMPARE(resultRows(layer).size(), 2);
+        QTRY_COMPARE(resultRows(layer).size(), 1); // live depth; the species are added by hand
         const QString tss = liveSpecies("TSS").key(), other = liveSpecies("Other").key();
-        auto *checked = rowFor(layer, tss);
-        QVERIFY(checked && rowFor(layer, other));
-        checked->setVisible(true);
+        QVERIFY(!rowFor(layer, tss) && !rowFor(layer, other));
+        auto *checked = layer.addResultSublayer(tss);
+        auto *unchecked = layer.addResultSublayer(other);
+        QVERIFY(checked && unchecked);
+        unchecked->setVisible(false);
         checked->fillStyle()->setLowColor(Qt::red);
-        const QString checkedId = checked->id();
+        const QString checkedId = checked->id(), uncheckedId = unchecked->id();
 
         live->markFinished();
         auto saved = std::make_unique<HDF5Mesh2DSource>();
@@ -612,16 +656,14 @@ private slots:
         QCOMPARE(kept->id(), checkedId);
         QVERIFY(kept->isVisible());
         QCOMPARE(kept->fillStyle()->lowColor(), QColor(Qt::red));
-        QVERIFY(!rowFor(layer, other)); // vanished from the saved catalog
-        const auto rows = resultRows(layer);
-        QCOMPARE(rows.size(), layer.resultVariables().size());
-        for (auto *r : rows)
-            QCOMPARE(r->isVisible(), r == kept);
+        // Added by hand: kept though the saved catalog lacks it.
+        QVERIFY(rowFor(layer, other) && rowFor(layer, other)->id() == uncheckedId);
+        QVERIFY(!rowFor(layer, QStringLiteral("groundwater:Mesh2_face_gw_hg"))); // not a default
+        auto *depth = rowFor(layer, QStringLiteral("surface:Mesh2_face_depth"));
+        QVERIFY(depth && depth->isVisible()); // shown by default
+        QCOMPARE(resultRows(layer).size(), 3);
 
         // Rerun into the same layer: the live phase does not drop saved-only rows.
-        auto *depth = rowFor(layer, QStringLiteral("surface:Mesh2_face_depth"));
-        QVERIFY(depth);
-        depth->setVisible(true);
         auto rerun = liveSource();
         auto *rerunLive = rerun.get();
         layer.setSource(std::move(rerun));
@@ -631,11 +673,12 @@ private slots:
         QTRY_VERIFY(rowFor(layer, other));
         QCOMPARE(rowFor(layer, QStringLiteral("surface:Mesh2_face_depth")), depth);
         QVERIFY(depth->isVisible());
+        QCOMPARE(resultRows(layer).size(), 3);
     }
 
     /** @brief Manual check against a real results file (set SWMMVIS_RESULT_SUBLAYERS_H5): rows
-     * for the whole catalog, hidden, grouped, no frame read until one is checked. */
-    void realResultsFileAutoPopulates()
+     * for the default fields it holds, grouped, no frame read until one is checked. */
+    void realResultsFileListsTheDefaults()
     {
         const QString path = qEnvironmentVariable("SWMMVIS_RESULT_SUBLAYERS_H5");
         if (path.isEmpty())
@@ -649,11 +692,21 @@ private slots:
         layer.setSource(std::move(owned));
         const qint64 loadMs = timer.elapsed();
         const auto catalog = layer.resultVariables();
-        QSet<QString> keys;
+        const QSet<QString> defaults{QStringLiteral("surface:Mesh2_face_depth"),
+                                     QStringLiteral("groundwater:Mesh2_face_gw_table_elev"),
+                                     QStringLiteral("derived:gw_theta_unsat_mean")};
+        QSet<QString> keys; // the default scalar fields this file holds
         for (const auto &v : catalog)
-            keys.insert(v.key());
+            if (defaults.contains(v.key()))
+                keys.insert(v.key());
         const auto rows = resultRows(layer);
         QCOMPARE(rows.size(), keys.size());
+        // Rows shown by default (unified rendering) are hidden to count reads from zero.
+        for (auto *r : rows)
+            r->setVisible(false);
+        for (auto *s : layer.sublayers())
+            if (auto *v = qobject_cast<ResultVectorSublayer *>(s))
+                v->setVisible(false);
         layer.setVisible(true);
         Renderer renderer;
         renderer.setWidth(400);

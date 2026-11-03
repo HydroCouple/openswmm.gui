@@ -2851,13 +2851,7 @@ bool MapCanvas::renderVisibleComposition()
         entry->scene->setZ(index + .5);
         if (entry->results) {
             auto *layer = qobject_cast<SWMM2DResultsLayer *>(entry->layer.data());
-            bool cache = layer->highlightedCells().isEmpty(), afterFlow = false;
-            for (auto *sub : layer->sublayers()) {
-                if (sub == layer->flowStreakSublayer())
-                    afterFlow = true;
-                else if (afterFlow && sub->isVisible() && sub->opacity() > 0)
-                    cache = false;
-            }
+            const bool cache = layer->highlightedCells().isEmpty() && layer->staticWaterCacheable();
             // Preserve arbitrary sublayer order and highlight priority. The
             // uncached renderer retains those arrangements without reordering.
             entry->group->setProperty("cacheStaticContent", cache);

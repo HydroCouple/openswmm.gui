@@ -65,6 +65,7 @@ class Mesh2DH5Reader;
 namespace OpenSWMM::Render
 {
 class ResultScalarSublayer;
+class ResultVectorSublayer;
 class IFeatureRenderer;
 class RuleList; // Slice B.5b — see ruleList() override below.
 }
@@ -81,6 +82,8 @@ class RuleList; // Slice B.5b — see ruleList() override below.
 #include "render/sublayers/scalarfillsublayer.h"
 #include "render/sublayers/velocityvectorsublayer.h"
 #include "render/sublayers/flowstreaksublayer.h"
+#include "render/sublayers/resultvectorsublayer.h"
+#include "io/mesh2dresultvector.h"
 #include "render/flowparticlelayercontroller.h"
 
 // ---------------------------------------------------------------------------
@@ -1293,12 +1296,66 @@ public:
     OpenSWMM::Render::ResultScalarSublayer *addResultSublayer(const QString &key,
                                                               const QString &id = {});
     /**
-     * @param[in] id Exact stable ID of a dynamic ResultScalarSublayer.
-     * @return False for missing/non-scalar sublayer. True removes/deletes it immediately and emits
-     *   resultSublayersChanged(),childrenChanged(),repaintRequested(); borrowed pointers become
-     *   invalid. Builtin sublayers are retained.
+     * @param[in] warnings Optional destination replaced with discovery warnings.
+     * @return Vector results paired from resultVariables() (io::pairResultVectors()).
+     */
+    QVector<openswmmvis::io::Mesh2DResultVector>
+    resultVectors(QStringList *warnings = nullptr) const;
+    /**
+     * @param[in] key Vector key "vector:<x key>|<y key>"; unavailable keys are retained.
+     * @param[in] id Optional stable ID beginning results2d.vector.; empty generates one.
+     * @return Borrowed new visible row, or null for an invalid prefix or duplicate ID. Appends to
+     *   the paint order and emits resultSublayersChanged(), childrenChanged(), repaintRequested().
+     */
+    OpenSWMM::Render::ResultVectorSublayer *addResultVectorSublayer(const QString &key,
+                                                                    const QString &id = {});
+    /**
+     * @param[in] id Exact stable ID of a ResultScalarSublayer or ResultVectorSublayer row.
+     * @return False for missing/builtin sublayers. True removes/deletes the row immediately and
+     *   emits resultSublayersChanged(),childrenChanged(),repaintRequested(); borrowed pointers
+     *   become invalid.
      */
     bool removeResultSublayer(const QString &id);
+    /**
+     * @param[in] sub Row of this layer.
+     * @param[in] view Scene rectangle to cover (cull rectangle).
+     * @param[in] pixelsPerScene Positive screen pixels per scene unit.
+     * @param[out] colorMin,colorMax Optional range of the colour-bound value (NaN when unknown).
+     * @param[out] colorUnits Optional units of the colour-bound value.
+     * @param[in] timeIndex Report frame to draw; negative uses currentTimeIndex(). The scene graph
+     *   passes the displayed frame's time so vectors never run ahead of the scalars.
+     * @return Arrows (screen-grid sampled, one per spacing cell, cell values; the grid coarsens
+     *   to fit its cap) and, unless the row presents the surface velocity (animated streak
+     *   engine), streak polylines traced through the vertex-interpolated field. Surface vectors
+     *   skip cells shallower than the style's dry-depth cutoff. Empty with error when a component
+     *   frame is unavailable. Synchronous; reads frames through resultFrame().
+     */
+    OpenSWMM::Render::ResultVectorGeometry
+    resultVectorGeometry(const OpenSWMM::Render::ResultVectorSublayer *sub, const QRectF &view,
+                         double pixelsPerScene, double *colorMin = nullptr,
+                         double *colorMax = nullptr, QString *colorUnits = nullptr,
+                         int timeIndex = -1) const;
+    /** @return Row bound to surface depth, which drives the optimized depth passes (cell and
+     *   smooth fills, contour bands, isolines); null when the catalog has no depth. */
+    OpenSWMM::Render::ResultScalarSublayer *depthResultSublayer() const;
+    /** @return Row bound to the surface velocity vector (Mesh2_face_vx/vy), whose streaks run on
+     *   the animated flow-streak engine; null when absent. */
+    OpenSWMM::Render::ResultVectorSublayer *velocityResultSublayer() const;
+    /** @return True when no visible sublayer paints above the animated flow streaks, which paint
+     *   at the surface velocity row when it exists (else at the flow-streak pass), so the canvas
+     *   may cache everything below them as static water under a separate particle pass. */
+    [[nodiscard]] bool staticWaterCacheable() const;
+    /** @return True for the depth row's key ("surface:Mesh2_face_depth"). */
+    static bool isDepthKey(const QString &key);
+    /** @return True for the surface velocity vector key. */
+    static bool isVelocityKey(const QString &key);
+    /**
+     * @param[in] sublayer Borrowed sublayer of this layer.
+     * @return False for the internal depth and velocity rendering engines (bands, isolines, cell
+     *   and smooth depth fills, velocity vectors, flow streaks): the depth and velocity rows
+     *   present them.
+     */
+    [[nodiscard]] bool sublayerListed(const OpenSWMM::Render::ISublayer *sublayer) const override;
     /**
      * @param[in] j Saved host object with optional sublayers array.
      * @note Missing/non-array sublayers leaves state untouched. Creates missing dynamic result rows
@@ -1311,23 +1368,27 @@ public:
      */
     void prepareSublayersJsonLoad(const QJsonObject &j) override;
     /**
-     * @param[in] j Restored snapshot (unused).
-     * @note Offers catalog variables the snapshot had not seen yet, as hidden rows.
+     * @param[in] j Restored snapshot.
+     * @note A snapshot saved before the default rows (unifiedResults below 2, or absent) retires
+     *   its hidden automatic rows of non-default fields; visible rows, rows added by hand and the
+     *   default fields stay. Then offers the default fields the snapshot had not seen yet.
      */
     void onSublayersJsonLoaded(const QJsonObject &j) override;
     /**
-     * @param[in,out] j Snapshot receiving resultCatalogKeys: the sorted catalog keys already
-     *   offered as rows. An offered key without a row is a row the user removed.
+     * @param[in,out] j Snapshot receiving resultCatalogKeys: the sorted default keys already
+     *   offered as rows (an offered key without a row is a row the user removed), and the
+     *   unifiedResults snapshot version.
      */
     void saveSublayersJsonState(QJsonObject &j) const override;
     /**
-     * @return Layer-tree headings for result variable rows: Surface results, Groundwater results.
+     * @return Layer-tree headings: Surface water — Scalar, Surface water — Vector,
+     *   Groundwater — Scalar, Groundwater — Vector.
      */
     [[nodiscard]] QStringList sublayerGroups() const override;
     /**
      * @param[in] sublayer Borrowed sublayer of this layer.
-     * @return -1 for builtin sublayers; 1 for groundwater and derived variable keys; 0 for other
-     *   variable rows, including unavailable keys.
+     * @return -1 for builtin sublayers; otherwise 2 * domain (0 surface, 1 groundwater, from the
+     *   catalog descriptor, else the key prefix) + (1 for vector rows).
      */
     [[nodiscard]] int sublayerGroup(const OpenSWMM::Render::ISublayer *sublayer) const override;
 
@@ -1344,7 +1405,9 @@ public:
      */
     std::shared_ptr<const OpenSWMM::Render::ResultScalarGeometry>
     resultScalarGeometry(const std::shared_ptr<const openswmmvis::io::Mesh2DScalarFrame> &frame,
-                         const std::vector<double> &levels, bool labels) const;
+                         const std::vector<double> &levels, bool labels,
+                         const std::vector<double> &bandLevels = {},
+                         bool vertexValues = false, const QRectF &bandRect = QRectF()) const;
     // Display-only regional fitting; analysis continues to use full-domain fields.
     // Large/unsupported views retain the full-domain path. The padded coverage
     // includes a 16-edge reconstruction halo and is reused across nearby pans.
@@ -2368,8 +2431,8 @@ signals:
     void sourceChanged();
     void waterDisplayPolicyChanged();
     /**
-     * @brief Dynamic scalar sublayer membership changed; childrenChanged/repaintRequested also
-     *   follow add/remove.
+     * @brief Dynamic scalar sublayer membership or order changed; childrenChanged/repaintRequested
+     *   also follow add/remove.
      */
     void resultSublayersChanged();
     /*! Emitted when `source()->timeCount()` changes (either via setSource or refreshTimeRange).
@@ -2878,11 +2941,20 @@ private:
 
     struct ScalarGeometryCache {
         std::shared_ptr<const openswmmvis::io::Mesh2DScalarFrame> frame;
-        std::vector<double> levels;
-        bool labels = false;
+        std::vector<double> levels, bandLevels;
+        bool labels = false, vertexValues = false;
+        QRectF bandRect;
         quint64 geometry = 0;
         std::shared_ptr<const OpenSWMM::Render::ResultScalarGeometry> output;
     };
+    /// |v| range of a vector row's frames over the cells it draws (resultVectorGeometry()),
+    /// remembered per frame so legend and status refreshes do not rescan every cell.
+    struct VectorRangeCache {
+        std::weak_ptr<const openswmmvis::io::Mesh2DScalarFrame> x, y, depth;
+        double cutoff = -1, lo = 0, hi = 0;
+    };
+    mutable std::array<VectorRangeCache, 4> m_vectorRanges;
+    mutable size_t m_vectorRangeNext = 0;
     mutable QVector<ScalarGeometryCache> m_scalarGeometryCache;
     SWMM2DResultsGraphicsItem *graphics_item_ = nullptr;
     SWMM2DVelocityArrowsItem *arrows_item_ = nullptr;
@@ -2944,8 +3016,8 @@ private:
     mutable QHash<QString, std::shared_ptr<const openswmmvis::io::Mesh2DScalarFrame>>
         m_resultRanges;
     mutable QList<OpenSWMM::Render::ISublayer *> m_sublayerOrder;
-    // Catalog keys already offered as hidden variable rows. An offered key
-    // without a row is one the user removed; it is not offered again.
+    // Default field keys already offered as rows. An offered key without a row
+    // is one the user removed; it is not offered again.
     QSet<QString> m_offeredResultKeys;
     /**
      * @param[in] key Semantic variable key bound to the new row.
@@ -2957,13 +3029,46 @@ private:
     OpenSWMM::Render::ResultScalarSublayer *createResultSublayer_(const QString &key,
                                                                   const QString &id, bool visible);
     /**
-     * @note Gives every catalog variable not yet offered a hidden row (Surface rows above
-     *   Groundwater rows, catalog order within each), skipping keys that already have a row. For
+     * @note Gives each default field (surface depth and velocity, groundwater water table,
+     *   unsaturated water content and Darcy velocity) not yet offered a row with its default
+     *   display (Surface rows above Groundwater rows), skipping keys that already have a row;
+     *   other fields get a row only when added by hand. For
      *   a complete (non-live) catalog, automatic rows whose variable vanished are removed and their
      *   keys may be offered again. An empty catalog changes nothing. Emits the add/remove
      *   notifications once.
      */
     void syncResultSublayers_();
+    /**
+     * @param[in] key Vector key bound to the new row.
+     * @param[in] id Stable results2d.vector. ID; invalid prefix or duplicate rejected.
+     * @param[in] visible Initial visibility.
+     * @return Borrowed new child with descriptor and invalidation wiring, not yet in the paint
+     *   order and not announced, or null.
+     */
+    OpenSWMM::Render::ResultVectorSublayer *
+    createResultVectorSublayer_(const QString &key, const QString &id, bool visible);
+    /**
+     * @brief Set the engines' visibility from their rows: the depth row's visibility and toggles
+     *   drive the cell, smooth, band and isoline depth passes; the velocity row's visibility and
+     *   streak toggle drive the flow-streak engine. The velocity-vector engine is never shown
+     *   (vector rows draw their own arrows). Without a row an engine is left as it is.
+     */
+    void syncEngineVisibility_();
+    /**
+     * @brief Apply the defaults of a newly offered row: depth filled contours, velocity streaks,
+     *   groundwater water table isolines with labels, the unsaturated column average as a
+     *   smooth fill and Darcy velocity arrows. Other rows stay hidden.
+     * @param[in] sub New scalar or vector row.
+     * @return True when the row is shown by default.
+     */
+    bool applyResultRowDefaults_(OpenSWMM::Render::ISublayer *sub) const;
+    /**
+     * @brief Translate the engines' state into the depth and velocity rows, for snapshots saved
+     *   before the rows drove the engines (no "unifiedResults" marker). Pending until both rows
+     *   exist when the catalog is not loaded yet.
+     */
+    void migrateEngineStateToRows_();
+    bool m_engineMigrationPending = false;
 
 public:
     // ----- ISublayerHost interface (Slice S5.6) -----------------------------
@@ -2983,17 +3088,18 @@ public:
     [[nodiscard]] QList<OpenSWMM::Render::ISublayer *> sublayers() const override;
 
     /*! Reorder sublayers in paint order (bottom-up).  Emits
-     *  repaintRequested() on success.  Returns false on out-of-range indices.
+     *  resultSublayersChanged() and repaintRequested() on success.  Returns false on
+     *  out-of-range indices.
      * @param[in] from,to Zero-based positions in current bottom-up list.
-     * @return False for invalid/equal positions, true after move and repaintRequested(); does not
-     *   rebuild geometry or rule-list ordering.
+     * @return False for invalid/equal positions, true after the move; the passes follow a
+     *   changed depth or velocity row. Does not rebuild geometry or rule-list ordering.
      */
     bool moveSublayer(int from, int to) override;
 
     /**
      * @param[in] period New animation period (unused; the renderer reads the current frame).
      * @note Invalidates dynamic sublayers like the base, except hidden result-variable rows:
-     *   they have nothing to redraw, and most catalog rows are hidden.
+     *   they have nothing to redraw.
      */
     void dispatchAnimationTick(int period) override;
 

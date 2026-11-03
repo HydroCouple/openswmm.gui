@@ -34,6 +34,7 @@
 #include "render/sublayers/meshnodesublayer.h"
 #include "render/sublayers/velocityvectorsublayer.h"
 #include "render/sublayers/resultscalarsublayer.h"
+#include "render/sublayers/resultvectorsublayer.h"
 #include <QSet>
 #include <QJsonDocument>
 #include <QSGOpacityNode>
@@ -541,16 +542,21 @@ void appendThickSegColored(std::vector<QSGGeometry::ColoredPoint2D> &out, float 
 
 struct ScalarResultNodes : QSGNode {
     QSGGeometryNode *fill = makeColoredNode();
+    QSGGeometryNode *smooth = makeColoredNode();
+    QSGGeometryNode *bands = makeColoredNode();
     QSGGeometryNode *lines = makeFlatNode(Qt::black);
     QSGOpacityNode *labels = new QSGOpacityNode;
     /**
-     * @brief Attach precreated scalar fill, contour-line and opacity-label nodes in that order.
+     * @brief Attach precreated flat fill, smooth fill, filled contour, contour-line and
+     *   opacity-label nodes in that (bottom-up) order.
      * @note Parent ScalarResultNodes owns descendants; fill/line nodes own geometry/material and
      *   label children may own textures. Render-resource context; no layer binding or publication.
      */
     ScalarResultNodes()
     {
         appendChildNode(fill);
+        appendChildNode(smooth);
+        appendChildNode(bands);
         appendChildNode(lines);
         appendChildNode(labels);
     }
@@ -567,10 +573,21 @@ struct ScalarResultNodes : QSGNode {
         }
     }
 };
+/// Static streaks under arrows of one vector result row.
+struct VectorResultNodes : QSGNode {
+    QSGGeometryNode *streaks = makeColoredNode();
+    QSGGeometryNode *arrows = makeColoredNode();
+    VectorResultNodes()
+    {
+        appendChildNode(streaks);
+        appendChildNode(arrows);
+    }
+};
 struct ResultsRootNode : QSGTransformNode {
     QSGNode *flowNode = nullptr;
     FlowParticleNode *particleNode = nullptr;
     QHash<QString, ScalarResultNodes *> resultScalarNodes;
+    QHash<QString, VectorResultNodes *> resultVectorNodes;
     QSGGeometryNode *cellFillNode = nullptr;
     QSGGeometryNode *smoothFillNode = nullptr;
     QSGGeometryNode *bandNode = nullptr;
@@ -1098,8 +1115,14 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         uploadColoredVerts(bandNode, empty_c);
         for (auto *node : root->resultScalarNodes) {
             uploadColoredVerts(node->fill, empty_c);
+            uploadColoredVerts(node->smooth, empty_c);
+            uploadColoredVerts(node->bands, empty_c);
             uploadFlatVerts(node->lines, empty_p);
             node->clearLabels();
+        }
+        for (auto *node : root->resultVectorNodes) {
+            uploadColoredVerts(node->streaks, empty_c);
+            uploadColoredVerts(node->arrows, empty_c);
         }
         uploadFlatVerts(isoNode, empty_p);
         uploadFlatVerts(isoIndexNode, empty_p);
@@ -1115,24 +1138,32 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
     };
 
     auto syncSublayerOrder = [&]() {
-        QSet<QString> currentResultIds;
+        QSet<QString> currentResultIds, currentVectorIds;
         for (auto *sub : m_layer->sublayers()) {
-            if (!qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub))
-                continue;
-            currentResultIds.insert(sub->id());
-            if (!root->resultScalarNodes.contains(sub->id()))
-                root->resultScalarNodes.insert(sub->id(), new ScalarResultNodes);
-        }
-        for (auto it = root->resultScalarNodes.begin(); it != root->resultScalarNodes.end();) {
-            if (currentResultIds.contains(it.key())) {
-                ++it;
-                continue;
+            if (qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub)) {
+                currentResultIds.insert(sub->id());
+                if (!root->resultScalarNodes.contains(sub->id()))
+                    root->resultScalarNodes.insert(sub->id(), new ScalarResultNodes);
+            } else if (qobject_cast<OpenSWMM::Render::ResultVectorSublayer *>(sub)) {
+                currentVectorIds.insert(sub->id());
+                if (!root->resultVectorNodes.contains(sub->id()))
+                    root->resultVectorNodes.insert(sub->id(), new VectorResultNodes);
             }
-            if (it.value()->parent())
-                it.value()->parent()->removeChildNode(it.value());
-            delete it.value();
-            it = root->resultScalarNodes.erase(it);
         }
+        const auto prune = [](auto &nodes, const QSet<QString> &current) {
+            for (auto it = nodes.begin(); it != nodes.end();) {
+                if (current.contains(it.key())) {
+                    ++it;
+                    continue;
+                }
+                if (it.value()->parent())
+                    it.value()->parent()->removeChildNode(it.value());
+                delete it.value();
+                it = nodes.erase(it);
+            }
+        };
+        prune(root->resultScalarNodes, currentResultIds);
+        prune(root->resultVectorNodes, currentVectorIds);
         std::vector<QSGNode *> desired;
         desired.reserve(size_t(m_layer->sublayers().size()) + 12);
         auto appendNode = [&](QSGNode *node) {
@@ -1194,12 +1225,38 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
             addedVelocity = true;
         };
 
+        // The depth and velocity rows place the depth passes and the animated
+        // streaks at their own position; without those rows the passes keep
+        // theirs.
+        const auto *depthRow = m_layer->depthResultSublayer();
+        const auto *velocityRow = m_layer->velocityResultSublayer();
+        const auto depthPassId = [](const QString &id) {
+            return id == QLatin1String("results2d.cellDepthFill") ||
+                   id == QLatin1String("results2d.smoothDepthFill") ||
+                   id == QLatin1String("results2d.bands") ||
+                   id == QLatin1String("results2d.isolines");
+        };
         for (OpenSWMM::Render::ISublayer *sub : m_layer->sublayers()) {
             if (!sub)
                 continue;
             const QString id = sub->id();
             if (qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub)) {
+                if (sub == depthRow) {
+                    addCell();
+                    addSmooth();
+                    addBand();
+                    addIso();
+                }
                 appendNode(root->resultScalarNodes.value(id));
+            } else if (qobject_cast<OpenSWMM::Render::ResultVectorSublayer *>(sub)) {
+                if (sub == velocityRow && !addedStreaks) {
+                    appendNode(root->flowNode);
+                    addedStreaks = true;
+                }
+                appendNode(root->resultVectorNodes.value(id));
+            } else if ((depthRow && depthPassId(id)) ||
+                       (velocityRow && id == QLatin1String("results2d.flowStreaks"))) {
+                continue;
             } else if (id == QLatin1String("results2d.cellDepthFill")) {
                 addCell();
             } else if (id == QLatin1String("results2d.smoothDepthFill")) {
@@ -1956,52 +2013,143 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                               qint64(smoothVerts.bytes()));
         }
 
-        // Additional cell scalars share CPU classification and availability
-        // colors. Use the displayed hydraulic frame while a newer contour
-        // job is pending, so overlays cannot show different reporting times.
+        // Result rows. Scalars draw every display switched on, bottom-up: cell
+        // fill (flat or smooth), filled contours, isolines, value labels. The
+        // depth row's fills, contours and isolines are the depth passes, so
+        // only its value labels draw here. Vectors draw static streaks under
+        // arrows; the surface velocity row's streaks are the particle pass.
+        // Use the displayed hydraulic frame while a newer contour job is
+        // pending, so overlays cannot show different reporting times.
         if (rebuildFills) {
+            const auto *depthRow = m_layer->depthResultSublayer();
+            const QTransform toScreen(width() / m_extent.width(), 0, 0,
+                                      height() / m_extent.height(),
+                                      -m_extent.xMin() * width() / m_extent.width(),
+                                      m_extent.yMax() * height() / m_extent.height());
+            const auto fromScreen = toScreen.inverted();
+            const auto pushColored = [&](std::vector<QSGGeometry::ColoredPoint2D> &out,
+                                         const QPointF &point, const QColor &color) {
+                const quint8 alpha = quint8(color.alpha());
+                QSGGeometry::ColoredPoint2D vertex;
+                vertex.set(float(point.x() - ox), float(point.y() - oy),
+                           premul(quint8(color.red()), alpha), premul(quint8(color.green()), alpha),
+                           premul(quint8(color.blue()), alpha), alpha);
+                out.push_back(vertex);
+            };
+            const auto inCull = [&](const QPointF &a, const QPointF &b, const QPointF &c) {
+                return std::max({a.x(), b.x(), c.x()}) >= cullRect.left() &&
+                       std::min({a.x(), b.x(), c.x()}) <= cullRect.right() &&
+                       std::max({a.y(), b.y(), c.y()}) >= cullRect.top() &&
+                       std::min({a.y(), b.y(), c.y()}) <= cullRect.bottom();
+            };
             for (auto *base : m_layer->sublayers()) {
+                if (auto *vector = qobject_cast<OpenSWMM::Render::ResultVectorSublayer *>(base)) {
+                    auto *nodes = root->resultVectorNodes.value(vector->id());
+                    if (!nodes)
+                        continue;
+                    std::vector<QSGGeometry::ColoredPoint2D> streakVerts, arrowVerts;
+                    if (vector->isVisible() && vector->opacity() > 0) {
+                        const auto *style = vector->vectorStyle();
+                        // The displayed frame's time, like the scalar rows.
+                        const auto geometry = m_layer->resultVectorGeometry(
+                            vector, cullRect, double(sx_r), nullptr, nullptr, nullptr,
+                            frame.key.time);
+                        const float streakHalf = float(0.5 * style->streakWidthPx()) * invView;
+                        for (const auto &streak : geometry.streaks) {
+                            const size_t n = streak.points.size();
+                            for (size_t i = 1; i < n; ++i) {
+                                // Fade from the oldest point to the head.
+                                QColor color = streak.color;
+                                color.setAlphaF(color.alphaF() *
+                                                (0.25 + 0.75 * double(i) / double(n - 1)));
+                                const quint8 a = quint8(color.alpha());
+                                const auto &p0 = streak.points[i - 1], &p1 = streak.points[i];
+                                appendThickSegColored(
+                                    streakVerts, float(p0.x() - ox), float(p0.y() - oy),
+                                    float(p1.x() - ox), float(p1.y() - oy), streakHalf,
+                                    premul(quint8(color.red()), a),
+                                    premul(quint8(color.green()), a),
+                                    premul(quint8(color.blue()), a), a);
+                            }
+                        }
+                        const float shaftHalf = float(0.5 * style->shaftWidthPx()) * invView;
+                        const double headScene = style->headSizePx() * double(invView);
+                        for (const auto &arrow : geometry.arrows) {
+                            const QPointF axis = arrow.tip - arrow.tail;
+                            const double length = std::hypot(axis.x(), axis.y());
+                            if (length <= 0)
+                                continue;
+                            const QPointF unit = axis / length;
+                            const double headLength = std::min(headScene, 0.6 * length);
+                            const QPointF headBase = arrow.tip - unit * headLength;
+                            const QPointF normal(-unit.y(), unit.x());
+                            const quint8 a = quint8(arrow.color.alpha());
+                            appendThickSegColored(arrowVerts, float(arrow.tail.x() - ox),
+                                                  float(arrow.tail.y() - oy),
+                                                  float(headBase.x() - ox),
+                                                  float(headBase.y() - oy), shaftHalf,
+                                                  premul(quint8(arrow.color.red()), a),
+                                                  premul(quint8(arrow.color.green()), a),
+                                                  premul(quint8(arrow.color.blue()), a), a);
+                            pushColored(arrowVerts, arrow.tip, arrow.color);
+                            pushColored(arrowVerts, headBase + normal * (0.55 * headLength),
+                                        arrow.color);
+                            pushColored(arrowVerts, headBase - normal * (0.55 * headLength),
+                                        arrow.color);
+                        }
+                    }
+                    uploadColoredVerts(nodes->streaks, streakVerts);
+                    uploadColoredVerts(nodes->arrows, arrowVerts);
+                    if (statsOn && !(streakVerts.empty() && arrowVerts.empty()))
+                        stats.addPass(vector->id(), qint64(streakVerts.size() + arrowVerts.size()),
+                                      qint64((streakVerts.size() + arrowVerts.size()) *
+                                             sizeof(QSGGeometry::ColoredPoint2D)));
+                    continue;
+                }
                 auto *sub = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(base);
                 if (!sub)
                     continue;
-                std::vector<QSGGeometry::ColoredPoint2D> vertices;
+                std::vector<QSGGeometry::ColoredPoint2D> vertices, smoothVerts, bandVerts;
                 std::vector<QSGGeometry::Point2D> scalarLines;
                 auto *nodes = root->resultScalarNodes.value(sub->id());
+                if (!nodes)
+                    continue;
                 nodes->clearLabels();
                 nodes->labels->setOpacity(sub->opacity());
                 std::shared_ptr<const openswmmvis::io::Mesh2DScalarFrame> presented;
                 if (sub->isVisible() && sub->opacity() > 0) {
-                    const auto &scheme = sub->fillStyle()->rangeScheme();
-                    const bool wholeRun =
-                        !scheme.useCustomRange() &&
-                        scheme.rangeMode() == OpenSWMM::Render::RangeMode::FixedOverRun;
-                    const auto scalarFrame =
-                        m_layer->resultFrame(sub->variableKey(), frame.key.time, wholeRun);
-                    using Presentation = OpenSWMM::Render::ResultScalarStyle::Presentation;
-                    const bool fill = sub->fillStyle()->presentation() == Presentation::Fill;
-                    const auto colors =
-                        fill && scalarFrame ? sub->cellColors(*scalarFrame) : QVector<QColor>();
-                    if (scalarFrame && scalarFrame->error.isEmpty())
-                        presented = scalarFrame;
-                    if (!fill && presented) {
-                        const auto *style = sub->fillStyle()->contourStyle();
-                        const bool contours =
-                            sub->fillStyle()->presentation() == Presentation::Contours;
+                    const auto *scalarStyle = sub->fillStyle();
+                    const bool depthPasses = sub == depthRow;
+                    // Fills, filled contours and labels share the fill scheme's frame;
+                    // isolines read their own, so a whole-run isoline range neither
+                    // blanks nor rescales the fills. The depth row draws only labels.
+                    using FramePtr = std::shared_ptr<const openswmmvis::io::Mesh2DScalarFrame>;
+                    const bool fills = !depthPasses && (scalarStyle->cellFill() ||
+                                                        scalarStyle->filledContours());
+                    FramePtr scalarFrame, lineFrame;
+                    if (fills || scalarStyle->cellLabels())
+                        scalarFrame = m_layer->resultFrame(
+                            sub->variableKey(), frame.key.time,
+                            !depthPasses && scalarStyle->fillNeedsWholeRunRange());
+                    if (!depthPasses && scalarStyle->isolines())
+                        lineFrame = m_layer->resultFrame(
+                            sub->variableKey(), frame.key.time,
+                            scalarStyle->isolinesNeedWholeRunRange());
+                    const bool fillOk = scalarFrame && scalarFrame->error.isEmpty();
+                    const bool lineOk = lineFrame && lineFrame->error.isEmpty();
+                    presented = fillOk ? scalarFrame : lineOk ? lineFrame : FramePtr();
+                    // Contour lines (contours = true) or cell value labels of a frame.
+                    const auto drawLines = [&](const FramePtr &source, bool contours) {
+                        const auto *style = scalarStyle->contourStyle();
                         const auto levels =
-                            contours ? sub->fillStyle()->contourLevels(scalarFrame->minimum,
-                                                                       scalarFrame->maximum,
-                                                                       scalarFrame->samples)
+                            contours ? scalarStyle->contourLevels(source->minimum,
+                                                                  source->maximum, source->samples)
                                      : std::vector<double>();
                         const auto geometry =
-                            m_layer->resultScalarGeometry(scalarFrame, levels, !contours);
+                            m_layer->resultScalarGeometry(source, levels, !contours);
                         QColor color = style->color();
                         color.setAlphaF(color.alphaF() * sub->opacity());
                         setFlatColor(nodes->lines, color);
-                        const QTransform toScreen(width() / m_extent.width(), 0, 0,
-                                                  height() / m_extent.height(),
-                                                  -m_extent.xMin() * width() / m_extent.width(),
-                                                  m_extent.yMax() * height() / m_extent.height());
-                        const auto fromScreen = toScreen.inverted();
                         for (const auto &line : geometry->contours) {
                             const auto index =
                                 std::lower_bound(levels.begin(), levels.end(), line.level) -
@@ -2047,8 +2195,8 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                             const auto labels = OpenSWMM::Render::placeResultScalarLabels(
                                 *geometry, toScreen, QRectF(0, 0, width(), height()), font,
                                 style->labelDecimals(),
-                                scalarFrame->descriptor.unitsKnown ? scalarFrame->descriptor.units
-                                                                   : QString(),
+                                source->descriptor.unitsKnown ? source->descriptor.units
+                                                              : QString(),
                                 contours);
                             const double dpr = window()->devicePixelRatio();
                             for (const auto &label : labels) {
@@ -2067,34 +2215,123 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                                 nodes->labels->appendChildNode(node);
                             }
                         }
-                    }
-                    if (fill)
+                    };
+                    if (lineOk)
+                        drawLines(lineFrame, true);
+                    if (fillOk && scalarStyle->cellLabels())
+                        drawLines(scalarFrame, false);
+                    // Flat cell fill. Groundwater and chemistry have their own
+                    // availability status; a dry surface is not a clipping criterion.
+                    if (!depthPasses && scalarStyle->cellFill() && !scalarStyle->smoothFill() &&
+                        scalarFrame) {
+                        const auto colors = sub->cellColors(*scalarFrame);
                         vertices.reserve(visibleCells.size() * 3);
-                    for (int triangle : visibleCells) {
-                        const int cell = cellOfTri(triangle);
-                        if (cell < 0 || cell >= colors.size() || colors[cell].alpha() == 0)
-                            continue;
-                        const auto &color = colors[cell];
-                        const quint8 alpha = quint8(color.alpha());
-                        const auto &tri = tris[triangle];
-                        // Groundwater and chemistry have their own availability
-                        // status; a dry surface is not a clipping criterion.
-                        for (const QPointF &point : {tri.a, tri.b, tri.c}) {
-                            QSGGeometry::ColoredPoint2D vertex;
-                            vertex.set(float(point.x() - ox), float(point.y() - oy),
-                                       premul(quint8(color.red()), alpha),
-                                       premul(quint8(color.green()), alpha),
-                                       premul(quint8(color.blue()), alpha), alpha);
-                            vertices.push_back(vertex);
+                        for (int triangle : visibleCells) {
+                            const int cell = cellOfTri(triangle);
+                            if (cell < 0 || cell >= colors.size() || colors[cell].alpha() == 0)
+                                continue;
+                            const auto &tri = tris[triangle];
+                            for (const QPointF &point : {tri.a, tri.b, tri.c})
+                                pushColored(vertices, point, colors[cell]);
+                        }
+                    }
+                    // Smooth fill: per-vertex colours of the nodal reconstruction
+                    // over valid cells.
+                    if (fillOk && !depthPasses && scalarStyle->cellFill() &&
+                        scalarStyle->smoothFill()) {
+                        const auto geometry =
+                            m_layer->resultScalarGeometry(scalarFrame, {}, false, {}, true);
+                        const auto colors = sub->valueColors(*scalarFrame, geometry->vertexValues);
+                        const auto &triVerts = m_layer->triVertexIndices();
+                        smoothVerts.reserve(visibleCells.size() * 3);
+                        for (int triangle : visibleCells) {
+                            const int cell = cellOfTri(triangle);
+                            if (cell < 0 || size_t(cell) >= scalarFrame->status.size() ||
+                                scalarFrame->status[size_t(cell)] !=
+                                    openswmmvis::io::Mesh2DValueStatus::Valid ||
+                                size_t(triangle) >= triVerts.size())
+                                continue;
+                            const auto &ids = triVerts[size_t(triangle)];
+                            bool ok = true;
+                            for (int v : ids)
+                                ok = ok && v >= 0 && v < colors.size() && colors[v].alpha() > 0;
+                            if (!ok)
+                                continue;
+                            const auto &tri = tris[triangle];
+                            pushColored(smoothVerts, tri.a, colors[ids[0]]);
+                            pushColored(smoothVerts, tri.b, colors[ids[1]]);
+                            pushColored(smoothVerts, tri.c, colors[ids[2]]);
+                        }
+                    }
+                    // Filled contours: marching-triangle bands over the nodal
+                    // reconstruction, classes from the fill scheme, for the
+                    // triangles in view. Zoomed far out, each cell takes its
+                    // band's colour instead (cells are about a pixel there).
+                    if (fillOk && !depthPasses && scalarStyle->filledContours()) {
+                        // The cull rect spans more than the screen: compare the
+                        // triangles in view with the on-screen threshold (as the
+                        // painter does) by their share of the cull rect.
+                        const double coverage = std::max(
+                            1.0, (cullRect.width() * cullRect.height()) /
+                                     std::max(1e-300, viewRect.width() * viewRect.height()));
+                        std::vector<double> levels;
+                        QVector<QColor> colors;
+                        if (!sub->bandStyling(*scalarFrame, levels, colors)) {
+                        } else if (double(visibleCells.size()) >
+                                   double(OpenSWMM::Render::kMaxContouredBandTriangles) *
+                                       coverage) {
+                            bandVerts.reserve(visibleCells.size() * 3);
+                            for (int triangle : visibleCells) {
+                                const int cell = cellOfTri(triangle);
+                                if (cell < 0 || size_t(cell) >= scalarFrame->status.size() ||
+                                    scalarFrame->status[size_t(cell)] !=
+                                        openswmmvis::io::Mesh2DValueStatus::Valid)
+                                    continue;
+                                const int band = OpenSWMM::Render::resultBandIndex(
+                                    levels, scalarFrame->values[size_t(cell)]);
+                                if (band < 0 || band >= colors.size() || colors[band].alpha() == 0)
+                                    continue;
+                                const auto &tri = tris[triangle];
+                                for (const QPointF &point : {tri.a, tri.b, tri.c})
+                                    pushColored(bandVerts, point, colors[band]);
+                            }
+                        } else {
+                            const auto geometry = m_layer->resultScalarGeometry(
+                                scalarFrame, {}, false, levels, false, cullRect);
+                            for (const auto &band : geometry->bands) {
+                                if (band.verts.size() < 3 || band.bandIndex < 0 ||
+                                    band.bandIndex >= colors.size() ||
+                                    colors[band.bandIndex].alpha() == 0)
+                                    continue;
+                                const auto &v = band.verts;
+                                QPointF lo = v[0], hi = v[0];
+                                for (const auto &point : v) {
+                                    lo = QPointF(std::min(lo.x(), point.x()),
+                                                 std::min(lo.y(), point.y()));
+                                    hi = QPointF(std::max(hi.x(), point.x()),
+                                                 std::max(hi.y(), point.y()));
+                                }
+                                if (!inCull(lo, hi, lo)) // every vertex counts
+                                    continue;
+                                for (size_t k = 1; k + 1 < v.size(); ++k) {
+                                    pushColored(bandVerts, v[0], colors[band.bandIndex]);
+                                    pushColored(bandVerts, v[k], colors[band.bandIndex]);
+                                    pushColored(bandVerts, v[k + 1], colors[band.bandIndex]);
+                                }
+                            }
                         }
                     }
                 }
                 uploadColoredVerts(nodes->fill, vertices);
+                uploadColoredVerts(nodes->smooth, smoothVerts);
+                uploadColoredVerts(nodes->bands, bandVerts);
                 uploadFlatVerts(nodes->lines, scalarLines);
                 sub->publishPresentedFrame(std::move(presented));
-                if (statsOn && !vertices.empty())
-                    stats.addPass(sub->id(), qint64(vertices.size()),
-                                  qint64(vertices.size() * sizeof(QSGGeometry::ColoredPoint2D)));
+                if (statsOn && !(vertices.empty() && smoothVerts.empty() && bandVerts.empty()))
+                    stats.addPass(sub->id(),
+                                  qint64(vertices.size() + smoothVerts.size() + bandVerts.size()),
+                                  qint64((vertices.size() + smoothVerts.size() + bandVerts.size()) *
+                                         sizeof(QSGGeometry::ColoredPoint2D)));
             }
         }
 

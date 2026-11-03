@@ -268,7 +268,18 @@ private slots:
         auto *host = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(&res);
         QVERIFY(host);
         const QList<OpenSWMM::Render::ISublayer *> before = host->sublayers();
-        const int n = before.size();
+        // The tree shows only listed sublayers; the 2D results layer's depth and
+        // velocity passes are unlisted (unified results, 2026-11-01) and stay
+        // interleaved in the paint order.
+        const auto listedOf = [host](const QList<OpenSWMM::Render::ISublayer *> &subs) {
+            QList<OpenSWMM::Render::ISublayer *> out;
+            for (auto *s : subs)
+                if (host->sublayerListed(s))
+                    out.append(s);
+            return out;
+        };
+        const auto listed = listedOf(before);
+        const int n = listed.size();
         QVERIFY(n >= 3);
 
         LayerTreePanel panel;
@@ -277,33 +288,34 @@ private slots:
         const QModelIndex layerIdx = m->index(0, 0, m->index(0, 0));
         QCOMPARE(m->rowCount(layerIdx), n);
         // Display row 0 is the TOP of the paint stack.
-        QCOMPARE(m->sublayerForIndex(m->index(0, 0, layerIdx)), before.last());
+        QCOMPARE(m->sublayerForIndex(m->index(0, 0, layerIdx)), listed.last());
 
         // Drag the top sub-row and drop BETWEEN rows 1 and 2 (parent = the
         // host layer row, row = 2) → it becomes display row 1.
         QVERIFY(dragDrop(*m, m->index(0, 0, layerIdx), 2, layerIdx));
-        QList<OpenSWMM::Render::ISublayer *> after = host->sublayers();
-        QCOMPARE(after[n - 1], before[n - 2]);
-        QCOMPARE(after[n - 2], before[n - 1]);
-        QCOMPARE(m->sublayerForIndex(m->index(1, 0, layerIdx)), before.last());
+        QList<OpenSWMM::Render::ISublayer *> after = listedOf(host->sublayers());
+        QCOMPARE(after[n - 1], listed[n - 2]);
+        QCOMPARE(after[n - 2], listed[n - 1]);
+        QCOMPARE(m->sublayerForIndex(m->index(1, 0, layerIdx)), listed.last());
 
         // Drop the bottom sub-row ONTO the top sub-row → takes the top slot.
         QVERIFY(dragDrop(*m, m->index(n - 1, 0, layerIdx), -1, m->index(0, 0, layerIdx)));
-        after = host->sublayers();
-        QCOMPARE(after.last(), before.first());
+        after = listedOf(host->sublayers());
+        QCOMPARE(after.last(), listed.first());
 
         // Drop after the last row (row -1, parent = host) → bottom.
         QVERIFY(dragDrop(*m, m->index(0, 0, layerIdx), -1, layerIdx));
-        after = host->sublayers();
-        QCOMPARE(after.first(), before.first());
+        after = listedOf(host->sublayers());
+        QCOMPARE(after.first(), listed.first());
+        QCOMPARE(host->sublayers().size(), before.size()); // unlisted passes kept
 
-        // Undoable: three undos restore the original paint order and the
-        // sub-rows re-derive from it.
+        // Undoable: three undos restore the original paint order (unlisted
+        // passes included) and the sub-rows re-derive from it.
         canvas.undoStack()->undo();
         canvas.undoStack()->undo();
         canvas.undoStack()->undo();
         QCOMPARE(host->sublayers(), before);
-        QCOMPARE(m->sublayerForIndex(m->index(0, 0, layerIdx)), before.last());
+        QCOMPARE(m->sublayerForIndex(m->index(0, 0, layerIdx)), listed.last());
 
         // A sublayer can't be dropped under a different host.
         canvas.addLayer(&other, false);

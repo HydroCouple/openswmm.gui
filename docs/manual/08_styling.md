@@ -329,22 +329,40 @@ colours. The wireframe widths still come from **Mesh Edges**.
 
 ### The 2D results style panel
 
-A 2D results layer gets the same treatment.
+A 2D results layer's panel lists its result fields on the left, grouped as in
+the layer tree (**Surface water — Vector**, **Surface water — Scalar**,
+**Groundwater — Vector**, **Groundwater — Scalar**), followed by a **Layer**
+group: **Water visibility**, **Mesh vertices** and **Mesh edges** (plus **Flow
+streaks** for a run that reports edge fluxes but no cell velocities). The
+checkbox beside an item shows or hides it. Only the default fields have rows to
+begin with (surface depth and velocity; groundwater water table elevation,
+unsaturated water content and Darcy velocity). **Add field** adds a row for any
+field of the run (a field may have several rows); **Remove** deletes the selected
+row. Projects saved before this change drop their hidden rows of other fields
+when opened.
 
-| Tab | Controls |
-|-----|----------|
-| **Cell Depth Fill** | **Attribute** — *Depth* or *Elevation*; a **Colour** group offering **Source** (*Colour ramp* or *Two-colour gradient*), **Ramp**, **Invert ramp**, or **Low colour** / **High colour**; and the classification editor. |
-| **Smooth Depth Fill** | The same controls, applied to the Gouraud-interpolated fill. |
-| **Depth Contours** | Classification editor plus **Interpolate band boundaries (marching triangles)**. |
-| **Depth Isolines** | **Levels** group: **Mode** (*Fixed count* or *Fixed interval + base*), **Count**, **Method** (equal interval, quantile, natural breaks, standard deviation, logarithmic, exponential), **Interval**, **Base level** (contours fall at base + k × interval). **Symbology** group: **Colour**, **Width**, **Stroke style**, **Index contour every** N (*Off* to disable) and **Index width**. **Labels** group: **Label contour values along lines**, **Decimals**, **Font size**, **White halo**. |
-| **Flow Velocity** | **Sizing**: **Length scaling** (*Linear* and the other scaling laws), **Scale** (px per m/s), **Min length**, **Max length**, **Head size**, **Shaft width**. **Colour**: **Colour by magnitude** with a ramp, or a **Single colour**. **Placement & filtering**: **Spacing** (minimum on-screen px between arrows) and **Dry depth cutoff** (suppress arrows below this depth). |
-| **Mesh Edges** | **Colour**, **Width**, **Stroke style** — the wireframe drawn once for the whole layer. |
-| **Mesh Vertices** | **Colour**, **Marker size**, **Outline colour**, **Outline width**. |
+Selecting a field shows its **Variable**, **Show** and **Opacity** above one tab
+per way the field can be drawn. Several displays can be on at once: each display
+tab starts with its own **Show** box, and a check on the tab marks a display that
+is on.
+
+| Field | Tabs |
+|-------|------|
+| Scalar | **Fill** — flat, or **Smooth (interpolated)**; the classification editor; colours for cells without a value. **Filled contours** — band count and method (colours and range come from the Fill classification). **Contour lines** — **Mode** (level count or fixed interval + base), the line classification or **Interval** and **Base level**, line colour, width, stroke style, **Index contour every** N and **Index width**, contour labels. **Labels** — cell value labels: colour, decimals, font size, halo. **Data** — availability, the selected cell's value, CSV and GIS export. |
+| Vector | **Arrows** — size by vector magnitude (frame range or a fixed scale in px per unit), a constant or a scalar field; length scaling; shortest and longest arrow; spacing, head size, shaft width. **Streaks** — length, width and spacing. **Colour** — constant, by magnitude or by a scalar field, with its classification. **Data**. Surface vectors also have a **Dry cutoff** beside **Opacity**. |
+
+The depth row's display tabs edit the depth passes: **Fill** shows the classes of
+the flat or smooth fill being drawn; **Filled contours** the band classes and
+**Interpolate band boundaries (marching triangles)**; **Contour lines** the
+isoline **Levels** (**Mode**, **Count**, **Method**, **Interval**, **Base
+level**), **Symbology** and **Labels**. The surface velocity row's **Streaks**
+tab holds the animated flow streak settings, and its **Colour** tab colours the
+arrows only.
 
 Every control applies straight to its sublayer, so the map repaints
 immediately and the setting survives a project round-trip.
 
-\fig{08_2d_results_style_panel.png, The 2D results style panel on the Depth Isolines tab}
+\fig{08_2d_results_style_panel.png, The 2D results style panel with the depth field on its Contour lines tab}
 
 
 ### Legends

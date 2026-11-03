@@ -288,6 +288,8 @@ set(
         include/render/sublayers/isolinesublayer.h
         include/render/sublayers/contourbandsublayer.h
         include/render/sublayers/resultscalarsublayer.h
+        include/render/sublayers/resultvectorsublayer.h
+        include/io/mesh2dresultvector.h
         include/io/mesh2dscalarframe.h
         include/io/mesh2dresultvariable.h
         include/io/mesh2dlivevariables.h
@@ -1161,6 +1163,7 @@ set(
         src/render/sublayers/isolinesublayer.cpp
         src/render/sublayers/contourbandsublayer.cpp
         src/render/sublayers/resultscalarsublayer.cpp
+        src/render/sublayers/resultvectorsublayer.cpp
         src/layers/swmm2dresultvariables.cpp
         src/io/mesh2dvariableexport.cpp
         include/io/mesh2dvariableexport.h
@@ -1343,6 +1346,7 @@ set(
         src/io/mesh2dh5reader.cpp
         src/io/mesh2dlivevariables.cpp
         src/io/mesh2dderivedvariables.cpp
+        src/io/mesh2dresultvector.cpp
         src/io/lidstates.cpp
         src/io/mesh2dvariablegisexport.cpp
         src/ui/dialogs/resultvariableexportdialog.cpp

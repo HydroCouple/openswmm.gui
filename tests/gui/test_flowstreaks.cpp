@@ -1831,7 +1831,11 @@ private slots:
     void presetsAndAdvancedSettingsStaySynchronized()
     {
         SWMM2DResultsLayer layer, other;
+        // Edge fluxes without cell velocities: the streak pass is an item of its own.
+        layer.setSource(std::make_unique<FlowSource>());
         openswmmvis::ui::Swmm2DResultsStylePanel panel(&layer), second(&layer);
+        QVERIFY(panel.focusResult(QStringLiteral("results2d.flowStreaks")));
+        QVERIFY(second.focusResult(QStringLiteral("results2d.flowStreaks")));
         auto *style = layer.flowStreakSublayer()->streakStyle();
         auto *advanced = panel.findChild<QWidget *>("flowAdvanced");
         QVERIFY(advanced);
@@ -1929,7 +1933,9 @@ private slots:
     void advancedEditorsPreserveExtendedSavedValues()
     {
         SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<FlowSource>());
         openswmmvis::ui::Swmm2DResultsStylePanel panel(&layer);
+        QVERIFY(panel.focusResult(QStringLiteral("results2d.flowStreaks")));
         auto *style = layer.flowStreakSublayer()->streakStyle();
         for (const auto &setting :
              {qMakePair("widthPx", 24.), qMakePair("headWidthPx", 48.),
@@ -1949,6 +1955,7 @@ private slots:
         motion->setValue(240000);
         QCOMPARE(style->speedMultiplier(), 5000.);
         openswmmvis::ui::Swmm2DResultsStylePanel second(&layer);
+        QVERIFY(second.focusResult(QStringLiteral("results2d.flowStreaks")));
         QCOMPARE(second.findChild<QDoubleSpinBox *>("motionPixelsPerSecond")->value(), 240000.);
         FlowStreakStyle reopened;
         reopened.fromJson(style->toJson());
@@ -2010,8 +2017,10 @@ private slots:
         if (!qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE_REVIEW"))
             QSKIP("Requires a native panel capture");
         SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<FlowSource>());
         layer.flowStreakSublayer()->setVisible(true);
         openswmmvis::ui::Swmm2DResultsStylePanel panel(&layer);
+        QVERIFY(panel.focusResult(QStringLiteral("results2d.flowStreaks")));
         panel.resize(600, 680);
         auto *page = panel.findChild<QWidget *>("flowStreakTab");
         QVERIFY(page);
@@ -6069,7 +6078,10 @@ private slots:
     void queuedStyleRefreshSurvivesLayerRemoval()
     {
         auto layer = std::make_unique<SWMM2DResultsLayer>();
+        layer->setSource(std::make_unique<FlowSource>());
         openswmmvis::ui::Swmm2DResultsStylePanel panel(layer.get());
+        QVERIFY(panel.focusResult(QStringLiteral("results2d.flowStreaks")));
+        QVERIFY(panel.findChild<QWidget *>("flowClassification"));
         auto *style = layer->flowStreakSublayer()->streakStyle();
         auto scheme = style->scheme();
         scheme.setRangeMax(4);
