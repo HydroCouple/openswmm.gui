@@ -181,14 +181,16 @@ private slots:
      */
     void onNameEdited_();
     /**
-     * @brief Commit standard scalar/type controls immediately, or reveal the NODE draft page.
-     * @details Suppressed during hydration/unbound state. Sets provider type from the combo,
-     * toggles standard versus NODE tabs, then for standard types copies all fifteen scalar
+     * @brief Change the model type in place and display its corresponding layer editor.
+     */
+    void onTypeEdited_(int type);
+    /**
+     * @brief Commit standard scalar controls immediately.
+     * @details Suppressed during hydration/unbound state. For standard types copies all fifteen scalar
      * controls in stored input units and refreshes the diagram. Depth/thickness use inches or
      * mm, conductivity/seepage inches/hour or mm/hour, slope percent, soil moisture fractions
      * and storage void-to-solid ratio; drain coefficient retains its exponent-dependent input
-     * convention. Values come from rounded/clamped widgets without conversion; NODE returns
-     * after page/diagram update rather than applying ordered layers.
+     * convention. Values come from rounded/clamped widgets without conversion.
      */
     void onFieldEdited_();
     /**
@@ -217,8 +219,8 @@ private:
      * @param[in] p Borrowed nullable registry-owned control; null clears the name and disables
      * detail controls.
      * @details Suppresses field synchronization while copying standard widgets, ordered rows,
-     * compatible retention arrays, flow settings and treatment data. Existing engine controls
-     * keep their type (combo disabled); unmaterialized controls may change type. Clears
+     * compatible retention arrays, flow settings and treatment data. Applied ordered stacks
+     * keep their type. Clears
      * layer-draft dirty state, refreshes treatment/diagram and resets illustration extents.
      * Caller must finish the old draft first when preservation is required.
      */

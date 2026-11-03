@@ -2480,8 +2480,7 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
                 .toUtf8();
         return context.path.isEmpty() ? nullptr : context.path.constData();
     };
-    // Curves and patterns are edited in registries and reach the engine on
-    // editor close; an editor still open at save time has not flushed yet.
+    // Include registry edits from modeless editors that are still open at save time.
     mModelLayer->flushDataObjectRegistries();
     modelWriteStarted = !pluginId.isEmpty();
     const int rc =

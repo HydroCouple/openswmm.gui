@@ -67,11 +67,13 @@ public:
     /**
      * @brief Register and own a new provider when its identifier is available.
      * @param[in] name Nonempty identifier; whitespace is not stripped.
-     * @return Borrowed child provider, or null for empty/case-insensitive duplicate name.
-     * @details Appends the provider, wires notifications, then emits providerAdded().
-     * A cached engine is also asked to add a missing object immediately, using provider defaults; engine add errors do not undo local creation or suppress the added signal.
+     * @param[in] type Standard LID type (0..7) or ordered storage node (8).
+     * @return Registry-owned provider, or null if the name, type, or engine creation failed.
+     * @details A new control is available to engine-backed pickers before providerAdded().
      */
-    LidControlProvider *create(const QString &name);
+    LidControlProvider *create(const QString &name, int type = 0);
+    /** Change a control's type in place. An engine refusal leaves the provider untouched. */
+    bool setType(LidControlProvider *p, int type);
     /**
      * @brief Unregister an owned provider, request engine deletion, and schedule QObject destruction.
      * @param[in] p Registry-owned provider to remove; null or a nonmember is ignored.
@@ -98,7 +100,7 @@ public:
      * @brief Write current authoring providers through a borrowed engine handle.
      * @param[in] engineHandle Valid SWMM_Engine retained for later calls; null is a no-op preserving the previous handle.
      * @return Number of new/dirty controls written; existing untouched controls are skipped.
-     * @details NODE stacks/treatments/flow are configured atomically; failure retains dirty state and a newly added failed NODE is deleted. Standard scalar setter results are ignored and dirty state clears even on setter rejection. Existing engine type is not rewritten. Partial changes across controls are not rolled back.
+     * @details NODE stacks/treatments/flow are configured atomically; failure retains dirty state and a newly added failed NODE is deleted. Standard scalar setter results are ignored and dirty state clears even on scalar setter rejection. Partial changes across controls are not rolled back.
      */
     int saveToEngine(void *engineHandle);
     /**
@@ -137,6 +139,8 @@ signals:
      * @param[in] provider Borrowed provider whose authoring values changed.
      */
     void providerParamsChanged(openswmmvis::lid::LidControlProvider *provider);
+    /** Notify open editors to display the layers for the new type. */
+    void providerTypeChanged(openswmmvis::lid::LidControlProvider *provider);
 
 private:
     /**

@@ -12,18 +12,23 @@
 #include "ui/dialogs/lidcontroleditordialog.h"
 #include "ui/widgets/treatmentexpressionedit.h"
 #include "lid/lidcontrolregistry.h"
+#include "layers/swmmmodellayer.h"
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
+#include <openswmm/engine/openswmm_model.h>
 #include <QApplication>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QSplitter>
 #include <QSpinBox>
 #include <QTableView>
 #include <QTabWidget>
 #include <QPushButton>
 #include <QStyleOptionViewItem>
+#include <QtTest/QTest>
 #include <QDir>
 #include <cmath>
+#include <memory>
 
 /**
  *
@@ -37,6 +42,17 @@ static void check(bool ok, const char *message)
 {
     if (!ok)
         qFatal("%s", message);
+}
+
+// Check the rendered curves themselves. Axes and the parameter-entry prompt also paint pixels.
+static int curvePixels(const QImage &image, const QColor &color)
+{
+    int count = 0;
+    for (int y = 0; y < image.height(); ++y)
+        for (int x = 0; x < image.width(); ++x)
+            if (image.pixelColor(x, y) == color)
+                ++count;
+    return count;
 }
 /**
  *
@@ -70,6 +86,7 @@ int main(int argc, char **argv)
         artifacts.filePath("editor.out").toUtf8().constData(), nullptr);
     if (opened != SWMM_OK)
         qFatal("Open failed: %d %s", opened, swmm_get_last_error_msg(engine));
+    const auto saved = artifacts.filePath("edited-controls.inp").toUtf8();
     {
         openswmmvis::lid::LidControlRegistry registry;
         check(registry.loadFromEngine(engine) == 1, "Registry did not load the control");
@@ -129,7 +146,10 @@ int main(int argc, char **argv)
               "Screenshot failed");
         auto *flow = dialog.findChild<QComboBox *>("lidFlowModel");
         auto *cells = dialog.findChild<QSpinBox *>("lidRichardsCells");
-        check(flow && cells, "Richards controls missing");
+        auto *curves = dialog.findChild<QWidget *>("lidRetentionCurves");
+        auto *splitter = dialog.findChild<QSplitter *>("main");
+        check(flow && cells && curves && splitter, "Richards controls missing");
+        check(!curves->isVisible(), "Existing formulation displayed Richards curves");
         check(flow->currentIndex() == 0, "Existing projects changed flow method");
         flow->setCurrentIndex(1);
         cells->setValue(4);
@@ -138,12 +158,54 @@ int main(int argc, char **argv)
             for (int col = 10; col < 15; ++col)
                 check(layers->model()->setData(layers->model()->index(row, col), values[col - 10]),
                       "Retention edit failed");
+        QWidget *retentionPage = nullptr;
         for (auto *tabs : dialog.findChildren<QTabWidget *>())
             for (int i = 0; i < tabs->count(); ++i)
-                if (tabs->tabText(i) == "Retention and conductivity")
+                if (tabs->tabText(i) == "Retention and conductivity") {
                     tabs->setCurrentIndex(i);
+                    retentionPage = tabs->widget(i);
+                }
         dialog.resize(1180, 920);
         layers->selectRow(1);
+        splitter->setSizes({170, 420, 570});
+        app.processEvents();
+        auto *alpha = dialog.findChild<QDoubleSpinBox *>("lidLayerParameter11");
+        check(retentionPage && retentionPage->isAncestorOf(curves) && alpha &&
+                  retentionPage->isAncestorOf(alpha) && alpha->isVisible() && curves->isVisible(),
+              "Richards curves and inputs must share the active retention tab");
+        check(curves->visibleRegion().contains(curves->rect()) && curves->width() >= 225 &&
+                  alpha->mapTo(retentionPage, QPoint(alpha->width(), 0)).x() <=
+                      curves->mapTo(retentionPage, QPoint()).x(),
+              "The inline retention plot was clipped or displaced from beside the inputs");
+        const QColor water("#287fb8"), conductivity("#c87818");
+        const auto before = curves->grab().toImage();
+        check(curvePixels(before, water) > 100 && curvePixels(before, conductivity) > 100,
+              "Moisture and conductivity curves were not rendered for the selected media");
+        alpha->setValue(0);
+        app.processEvents();
+        check(curvePixels(curves->grab().toImage(), water) == 0,
+              "Invalid material retained the previous layer's curve");
+        alpha->setFocus();
+        alpha->selectAll();
+        QTest::keyClicks(alpha, "12");
+        QTest::keyClick(alpha, Qt::Key_Tab);
+        app.processEvents();
+        const auto edited = curves->grab().toImage();
+        check(alpha->value() == 12 && edited != before && curvePixels(edited, water) > 100 &&
+                  curvePixels(edited, conductivity) > 100,
+              "Editing alpha did not redraw both draft curves before Apply");
+        layers->selectRow(2);
+        app.processEvents();
+        check(alpha->value() == 2 && curvePixels(curves->grab().toImage(), conductivity) > 100,
+              "Aggregate selection did not display its own retention curve");
+        layers->selectRow(0);
+        app.processEvents();
+        check(curvePixels(curves->grab().toImage(), water) == 0,
+              "Surface selection retained a porous layer's curve");
+        layers->selectRow(1);
+        check(alpha->value() == 12, "Switching layers lost the media retention edit");
+        alpha->setValue(2);
+        splitter->setSizes({170, 580, 410});
         app.processEvents();
         check(dialog.grab().save(artifacts.filePath("richards-editor.png")),
               "Richards screenshot failed");
@@ -172,6 +234,73 @@ int main(int argc, char **argv)
     }
     swmm_engine_close(engine);
     swmm_engine_destroy(engine);
-    qInfo(
-        "Layer treatment editor: count, numeric delegate, expression validation, Apply and reload passed");
+    {
+        SWMMModelLayer model(input, nullptr);
+        QList<QString> warnings, errors;
+        check(model.loadModel(warnings, errors), "Could not open LID fixture in the GUI model");
+        using openswmmvis::lid::LidControlRegistry;
+        using openswmmvis::ui::LidControlEditorDialog;
+        auto *registry = qobject_cast<LidControlRegistry *>(model.ensureLidControlRegistry());
+        check(registry, "Missing GUI model registry");
+        std::unique_ptr<LidControlEditorDialog> dialog(
+            LidControlEditorDialog::createNew(registry, &model));
+        dialog->show();
+        app.processEvents();
+        auto *type = dialog->findChild<QComboBox *>("lidControlType");
+        auto *depth = dialog->findChild<QDoubleSpinBox *>("lidSurfaceStorage");
+        check(type && depth, "Standard LID editor fields missing");
+        check(type->isEnabled() && depth->isEnabled(), "New LID fields are disabled");
+        const int standard = swmm_lid_index(model.engine(), "LID2");
+        check(standard >= 0, "New LID missing from engine pickers");
+        LidControlEditorDialog otherEditor(registry, &model);
+        otherEditor.openForLidControl("LID2");
+        type->setCurrentText("Rain Barrel");
+        depth->setValue(1.75);
+        app.processEvents();
+        const auto *otherType = otherEditor.findChild<QComboBox *>("lidControlType");
+        check(otherType && otherType->currentText() == "Rain Barrel",
+              "A second open editor did not follow the type change");
+        int code = -1;
+        check(swmm_lid_get_type(model.engine(), standard, &code) == SWMM_OK && code == 5,
+              "Selecting Rain Barrel did not update the existing control");
+
+        dialog->invokeNew();
+        type->setCurrentText("Storage Node (ordered layers)");
+        auto *layers = dialog->findChild<QTableView *>("lidNodeLayers");
+        check(layers && layers->model()->rowCount() == 4,
+              "Selecting the ordered type did not seed layers");
+        auto *newLayered = dialog->findChild<QPushButton *>("newLayeredLid");
+        check(newLayered, "New layered LID button missing");
+        newLayered->click();
+        check(dialog->currentProvider()->name() == "LID4" && type->currentIndex() == 8,
+              "New layered LID was not selected");
+        check(swmm_lid_get_type(model.engine(), swmm_lid_index(model.engine(), "LID4"), &code) ==
+                      SWMM_OK &&
+                  code == 8,
+              "New layered LID was registered as a standard control");
+        model.flushDataObjectRegistries();
+        check(swmm_model_write(model.engine(), saved.constData()) == SWMM_OK,
+              "Could not save model");
+    }
+    engine = swmm_engine_create();
+    check(engine, "Could not create engine for reopen");
+    if (swmm_engine_open(engine, saved.constData(), artifacts.filePath("reopen.rpt").toUtf8(),
+                         artifacts.filePath("reopen.out").toUtf8(), nullptr) != SWMM_OK)
+        qFatal("Could not reopen saved controls: %s", swmm_get_last_error_msg(engine));
+    {
+        openswmmvis::lid::LidControlRegistry registry;
+        check(registry.loadFromEngine(engine) == 4, "Control count changed on reopen");
+        const auto *standard = registry.findByName("LID2");
+        check(standard && standard->type() == 5 && standard->surfStorage() == 1.75,
+              "Edited type or surface depth changed on reopen");
+        for (const auto *name : {"LID3", "LID4"}) {
+            const auto *node = registry.findByName(name);
+            check(node && node->type() == 8 && node->nodeLayers().size() == 4,
+                  "Ordered type or layer stack changed on reopen");
+        }
+    }
+    swmm_engine_close(engine);
+    swmm_engine_destroy(engine);
+    qInfo("LID editor: type selection, live Richards curves, ordered layers, treatment "
+          "and save/reopen passed");
 }
