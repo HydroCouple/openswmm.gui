@@ -13,6 +13,7 @@
 #include <QTabWidget>
 #include <QStackedWidget>
 #include <QLabel>
+#include <QMainWindow>
 #include <QTabBar>
 
 namespace openswmmvis::ui
@@ -54,6 +55,14 @@ PlotDock::PlotDock(const QString &title, const QString &name, QWidget *parent)
         m_exposed = visible;
         updateActivation();
     });
+    // Choosing the outer dock tab is also a user selection of its plot.
+    // Visibility alone updates activation but does not select its project.
+    if (auto *window = qobject_cast<QMainWindow *>(parent))
+        connect(window, &QMainWindow::tabifiedDockWidgetActivated, this,
+                [this](QDockWidget *dock) {
+                    if (dock == this)
+                        emit viewSelected(qobject_cast<PlotPanelView *>(m_tabs->currentWidget()));
+                });
 }
 
 PlotDock::~PlotDock()

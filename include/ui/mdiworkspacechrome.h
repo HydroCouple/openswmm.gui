@@ -52,6 +52,13 @@ namespace openswmmvis::ui
  * uses, so the welcome looks unchanged — and it is re-read at every paint,
  * so the Appearance switch needs no extra hook here.
  *
+ * In TabbedView, keep only the selected subwindow's content visible. Qt keeps
+ * covered subwindows visible, which otherwise exposes their controls to the
+ * main window's fallback focus traversal during dock-tab changes. Inactive
+ * wrappers also receive NoFocus, restoring their original policy on activation.
+ * Document tabs remain intact; selecting a tab reveals its content.
+ * Null activation and explicitly hidden wrappers do not reveal closed tabs.
+ *
  * Safe to call once per area; a null \a area skips backdrop setup; a null \a welcome skips its background setup.
  * @param[in,out] area Optional MDI area whose backdrop is set from the current theme and subscribed for later theme changes.
  * @param[in,out] welcome Optional widget whose autoFillBackground is enabled independently of area.

@@ -26,6 +26,7 @@
 #include "map/swmm2dresultsqsgrenderer.h"
 #include "layers/swmmresultslayer.h"
 #include "layers/swmm2dmeshlayer.h"
+#include "layers/swmm2dresultslayer.h"
 #include "layers/gisrasterlayer.h"
 #include "mesh/meshresult.h"
 #include "plot/swmmoutrunlayer.h"
@@ -1213,6 +1214,198 @@ private slots:
         QVERIFY(b->close());
         QTRY_COMPARE(dock->tabs()->count(), 0);
         QTRY_VERIFY(third.isNull());
+    }
+
+    /** @brief Real dock clicks retain the selected document; profile tabs can leave Welcome. */
+    void dockTabClicksKeepTheSelectedDocument()
+    {
+        PlotTestWindow app;
+        app.resize(1400, 950);
+        app.show();
+        auto *project = open(app, "first.inp");
+        QVERIFY(project);
+        QVERIFY(terrain(project));
+        auto *area = app.findChild<QMdiArea *>();
+        QVERIFY(area);
+        QMdiSubWindow *welcome = nullptr;
+        for (auto *sub : area->subWindowList())
+            if (sub != project)
+                welcome = sub;
+        QVERIFY(welcome);
+        auto *terrainDock = app.findChild<PlotDock *>("dockWidgetTerrainProfiles");
+        auto *profileDock = app.findChild<PlotDock *>("dockWidgetProfiles1D");
+        QVERIFY(terrainDock && profileDock);
+        emit project->terrainProfileTraced({{1.5, -5.5}, {12.5, -5.5}});
+        emit project->terrainProfileTraced({{1.5, -8.5}, {12.5, -8.5}});
+        QVERIFY(profile(app, project));
+        QVERIFY(profile(app, project));
+        for (auto *dock : {terrainDock, profileDock}) {
+            auto *view = qobject_cast<PlotPanelView *>(dock->tabs()->widget(0));
+            QVERIFY(view);
+            dock->reveal(view);
+            QApplication::processEvents();
+            QCOMPARE(area->currentSubWindow(), project);
+            auto *bar = dock->tabs()->tabBar();
+            for (int i : {1, 0, 1}) {
+                dock->tabs()->currentWidget()->setFocus();
+                QTest::mouseClick(bar, Qt::LeftButton, Qt::NoModifier, bar->tabRect(i).center());
+                QApplication::processEvents();
+                QCOMPARE(area->currentSubWindow(), project);
+            }
+        }
+        // Exercise the QMainWindow's outer dock tabs too, after focusing
+        // content that will be hidden by the switch.
+        const auto bars = app.findChildren<QTabBar *>(QString(), Qt::FindDirectChildrenOnly);
+        bool exercisedDockTabs = false;
+        for (auto *bar : bars) {
+            bool hasTerrain = false;
+            for (int i = 0; i < bar->count(); ++i)
+                hasTerrain |= bar->tabText(i) == terrainDock->windowTitle();
+            if (!hasTerrain)
+                continue;
+            exercisedDockTabs = true;
+            // Both directions matter: hiding focused table/chart content
+            // exercises Qt's fallback focus traversal during dock selection.
+            const QStringList names = {"dockWidgetTerrainProfiles", "dockWidgetProfiles1D",
+                                        "dockWidgetAttributeTable", "dockWidgetSimulationStatus",
+                                        "dockWidgetTimeSeries", "dockWidgetProfiles2D"};
+            for (const auto &name : names) {
+                auto *sourceDock = app.findChild<QDockWidget *>(name);
+                QVERIFY(sourceDock);
+                sourceDock->show();
+                sourceDock->raise();
+                QApplication::processEvents();
+                QWidget *focus = sourceDock->widget();
+                if (auto *chart = sourceDock->findChild<MeshProfilePlotWidget *>())
+                    focus = chart;
+                else
+                    for (auto *child : sourceDock->findChildren<QWidget *>())
+                        if (child->isVisible() && child->focusPolicy() != Qt::NoFocus) {
+                            focus = child;
+                            break;
+                        }
+                for (int i = 0; i < bar->count(); ++i) {
+                    sourceDock->raise();
+                    focus->setFocus();
+                    QApplication::processEvents();
+                    qInfo() << "Dock switch:" << sourceDock->windowTitle() << "to"
+                            << bar->tabText(i);
+                    QTest::mouseClick(bar, Qt::LeftButton, Qt::NoModifier,
+                                       bar->tabRect(i).center());
+                    QApplication::processEvents();
+                    QCOMPARE(area->currentSubWindow(), project);
+                    QVERIFY(project->isMaximized());
+                    auto *front = area->viewport()->childAt(area->viewport()->rect().center());
+                    QVERIFY(front && (front == project || project->isAncestorOf(front)));
+                }
+            }
+        }
+        QVERIFY(exercisedDockTabs);
+        // The cached project deliberately survives Welcome; choosing its
+        // profile must still select the actual document again.
+        area->setActiveSubWindow(welcome);
+        QApplication::processEvents();
+        QCOMPARE(area->currentSubWindow(), welcome);
+        auto *bar = terrainDock->tabs()->tabBar();
+        terrainDock->show();
+        terrainDock->raise();
+        QTest::mouseClick(bar, Qt::LeftButton, Qt::NoModifier,
+                           bar->tabRect(terrainDock->tabs()->currentIndex()).center());
+        QApplication::processEvents();
+        QCOMPARE(area->currentSubWindow(), project);
+
+        // Also select the owning document through the outer dock tab.
+        auto *table = app.findChild<QDockWidget *>("dockWidgetAttributeTable");
+        QVERIFY(table);
+        table->show();
+        table->raise();
+        area->setActiveSubWindow(welcome);
+        QApplication::processEvents();
+        QCOMPARE(area->currentSubWindow(), welcome);
+        for (auto *outer : bars)
+            for (int i = 0; i < outer->count(); ++i)
+                if (outer->tabText(i) == terrainDock->windowTitle()) {
+                    QTest::mouseClick(outer, Qt::LeftButton, Qt::NoModifier,
+                                       outer->tabRect(i).center());
+                    QApplication::processEvents();
+                    QCOMPARE(area->currentSubWindow(), project);
+                }
+    }
+
+    /** @brief Back-and-forth dock clicks must not change the GPU map's document. */
+    void dockTabRoundTripsKeepTheGpuMapDocument()
+    {
+        if (qEnvironmentVariable("QT_QPA_PLATFORM") == "offscreen" ||
+            qEnvironmentVariable("QT_QUICK_BACKEND") == "software")
+            QSKIP("Requires native GPU map composition");
+        class Source : public IMesh2DSource
+        {
+        public:
+            int vertexCount() const override { return 4; }
+            int triangleCount() const override { return 2; }
+            int timeCount() const override { return 1; }
+            bool readMeshGeometry(std::vector<double> &x, std::vector<double> &y,
+                                  std::vector<double> &z,
+                                  std::vector<std::array<int, 3>> &cells) override
+            {
+                x = {0, 20, 20, 0};
+                y = {0, 0, 20, 20};
+                z = {10, 10, 10, 10};
+                cells = {{0, 1, 2}, {0, 2, 3}};
+                return true;
+            }
+            bool readDepthsAt(int, std::vector<float> &values) override
+            {
+                values = {.5f, .5f};
+                return true;
+            }
+        };
+        PlotTestWindow app;
+        app.resize(1400, 950);
+        app.show();
+        auto *project = open(app, "first.inp");
+        QVERIFY(project);
+        QVERIFY(terrain(project));
+        auto *water = new SWMM2DResultsLayer;
+        water->setSource(std::make_unique<Source>());
+        project->canvas()->addLayer(water, true);
+        project->canvas()->setExtent({0, 0, 20, 20}, false);
+        QTRY_VERIFY_WITH_TIMEOUT(project->canvas()->compositionStats().active, 10000);
+        auto *area = app.findChild<QMdiArea *>();
+        auto *dock = app.findChild<PlotDock *>("dockWidgetTerrainProfiles");
+        QVERIFY(area && dock);
+        area->setActiveSubWindow(project);
+        emit project->terrainProfileTraced({{1.5, -5.5}, {12.5, -5.5}});
+        emit project->terrainProfileTraced({{1.5, -8.5}, {12.5, -8.5}});
+        auto *meshDock = app.findChild<PlotDock *>("dockWidgetProfiles2D");
+        QVERIFY(meshDock);
+        meshDock->show();
+        dock->raise();
+        QApplication::processEvents();
+        QTabBar *bar = nullptr;
+        for (auto *candidate : app.findChildren<QTabBar *>(QString(), Qt::FindDirectChildrenOnly))
+            for (int i = 0; i < candidate->count(); ++i)
+                if (candidate->tabText(i) == dock->windowTitle())
+                    bar = candidate;
+        QVERIFY(bar);
+        QList<int> indices;
+        for (const auto &label : {QString("Terrain Profiles"), QString("Attribute Table"),
+                                  QString("2D Profiles"), QString("Terrain Profiles")})
+            for (int i = 0; i < bar->count(); ++i)
+                if (bar->tabText(i) == label)
+                    indices.append(i);
+        QCOMPARE(indices.size(), 4);
+        for (int round = 0; round < 10; ++round)
+            for (int index : indices) {
+                qInfo() << "GPU dock round trip:" << round << bar->tabText(index);
+                QTest::mouseClick(bar, Qt::LeftButton, Qt::NoModifier,
+                                   bar->tabRect(index).center());
+                QTest::qWait(20);
+                QCOMPARE(area->currentSubWindow(), project);
+                QVERIFY(project->isMaximized());
+                auto *front = area->viewport()->childAt(area->viewport()->rect().center());
+                QVERIFY(front && (front == project || project->isAncestorOf(front)));
+            }
     }
 
     /** @brief The new dock participates in the normal saved main-window layout. */

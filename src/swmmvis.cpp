@@ -3461,7 +3461,10 @@ void SWMMVis::initializePlotDocks()
         connect(dock, &PlotDock::viewSelected, this,
                 [this, dock](openswmmvis::ui::PlotPanelView *view) {
                     auto *owner = qobject_cast<SWMMVisProjectWindow *>(dock->contextFor(view));
-                    if (owner && !owner->isClosing() && activeProjectWindow() != owner)
+                    // The cached project survives dock focus and Welcome.
+                    // Compare the document actually selected in the workspace.
+                    if (owner && !owner->isClosing() &&
+                        ui->mdiAreaCentral->currentSubWindow() != owner)
                         ui->mdiAreaCentral->setActiveSubWindow(owner);
                 });
     }
