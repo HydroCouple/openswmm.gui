@@ -40,14 +40,10 @@ void LidControlRegistry::wireProviderSignals_(LidControlProvider *p)
             [this, p]() { emit providerParamsChanged(p); });
 }
 
-LidControlProvider *LidControlRegistry::create(const QString &name)
+LidControlProvider *LidControlRegistry::create(const QString &name, int type)
 {
-    if (name.isEmpty() || hasName(name))
+    if (name.isEmpty() || hasName(name) || type < 0 || type > 8)
         return nullptr;
-    auto *p = new LidControlProvider(name, this);
-    m_providers.push_back(p);
-    m_byLowerName.insert(name.toLower(), p);
-    wireProviderSignals_(p);
     // Reach the engine at creation so the object can be selected where it
     // is referenced (pickers list engine names, setters resolve them there)
     // while its editor is still open. Parameters follow through
@@ -55,12 +51,33 @@ LidControlProvider *LidControlRegistry::create(const QString &name)
     if (m_engineHandle) {
         auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
         const QByteArray id = name.toUtf8();
-        if (swmm_lid_index(eng, id.constData()) < 0)
-            swmm_lid_add(eng, id.constData(), p->type());
+        if (swmm_lid_index(eng, id.constData()) < 0 &&
+            swmm_lid_add(eng, id.constData(), type) != SWMM_OK)
+            return nullptr;
     }
-
+    auto *p = new LidControlProvider(name, this);
+    p->setType(type);
+    m_providers.push_back(p);
+    m_byLowerName.insert(name.toLower(), p);
+    wireProviderSignals_(p);
     emit providerAdded(p);
     return p;
+}
+
+bool LidControlRegistry::setType(LidControlProvider *p, int type)
+{
+    if (!p || !m_providers.contains(p) || type < 0 || type > 8)
+        return false;
+    if (auto eng = static_cast<SWMM_Engine>(m_engineHandle)) {
+        const int idx = swmm_lid_index(eng, p->name().toUtf8().constData());
+        if (swmm_lid_set_type(eng, idx, type) != SWMM_OK)
+            return false;
+    }
+    if (type != p->type()) {
+        p->setType(type);
+        emit providerTypeChanged(p);
+    }
+    return true;
 }
 
 void LidControlRegistry::remove(LidControlProvider *p)
@@ -209,6 +226,11 @@ int LidControlRegistry::saveToEngine(void *engineHandle)
                 continue;
         } else if (!p->dirty()) {
             continue; // existing + untouched — don't clobber
+        } else {
+            int type = -1;
+            if (swmm_lid_get_type(eng, idx, &type) != SWMM_OK ||
+                (type != p->type() && swmm_lid_set_type(eng, idx, p->type()) != SWMM_OK))
+                continue;
         }
         if (p->type() == 8) {
             const auto &rows = p->nodeLayers();

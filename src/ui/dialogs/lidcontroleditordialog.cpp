@@ -49,6 +49,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSplitter>
+#include <QStyle>
 #include <QTabWidget>
 #include <QVBoxLayout>
 
@@ -64,15 +65,16 @@ class RetentionCurves : public QWidget
 public:
     /**
      * @brief Build a small borrowed-material retention/conductivity plot widget.
-     * @param[in] parent Optional Qt owner; sets a 185-pixel minimum height and no engine
-     * ownership.
+     * @param[in] parent Optional Qt owner.
      * @details Caller populates public material/porosity values before requesting repaint.
      */
     explicit RetentionCurves(QWidget *parent) : QWidget(parent)
     {
-        setMinimumHeight(185);
+        setMinimumSize(225, 185);
         setObjectName("lidRetentionCurves");
+        setAccessibleName(tr("Richards retention and conductivity curves"));
     }
+    QString layerLabel;
     SWMM_LidRichardsMaterial material{};
     double porosity = 0;
 
@@ -92,22 +94,34 @@ protected:
         p.setRenderHint(QPainter::Antialiasing);
         p.fillRect(rect(), palette().base());
         p.setPen(palette().text().color());
+        if (layerLabel.isEmpty()) {
+            p.drawText(rect().adjusted(10, 10, -10, -10), Qt::AlignCenter | Qt::TextWordWrap,
+                       tr("Select a MEDIA or AGGREGATE layer to preview its Richards curves."));
+            return;
+        }
+        const int line = fontMetrics().height();
+        p.drawText(QRect(0, 4, width(), line), Qt::AlignCenter, layerLabel);
         if (!(material.alpha > 0 && material.n > 1 && porosity > material.theta_r &&
               material.l >= 0)) {
             p.drawText(
-                rect().adjusted(10, 10, -10, -10), Qt::AlignCenter | Qt::TextWordWrap,
-                tr("Enter retention parameters to preview the moisture and conductivity curves."));
+                rect().adjusted(10, line + 10, -10, -10), Qt::AlignCenter | Qt::TextWordWrap,
+                tr("Set retention alpha above 0, n above 1, and residual water content below "
+                   "the layer porosity to preview its curves."));
             return;
         }
-        QRectF graph(50, 25, width() - 75, height() - 65);
+        const QRectF graph = QRectF(rect()).adjusted(32, 3 * line + 12, -16, -2 * line - 12);
         p.drawLine(graph.bottomLeft(), graph.bottomRight());
         p.drawLine(graph.bottomLeft(), graph.topLeft());
-        p.drawText(QRectF(0, 0, width(), 22), Qt::AlignCenter,
+        p.drawText(QRect(0, line + 6, width(), 2 * line), Qt::AlignCenter | Qt::TextWordWrap,
                    tr("Blue: water content · Orange: relative conductivity"));
-        p.drawText(QRectF(0, height() - 28, width(), 24), Qt::AlignCenter,
-                   tr("Suction head (m), logarithmic: 0.001 → 1,000"));
-        p.drawText(QRectF(0, graph.top(), 43, 20), Qt::AlignRight, "1");
-        p.drawText(QRectF(0, graph.bottom() - 20, 43, 20), Qt::AlignRight, "0");
+        p.drawText(QRectF(graph.left(), graph.bottom() + 2, graph.width(), line), Qt::AlignLeft,
+                   QStringLiteral("0.001"));
+        p.drawText(QRectF(graph.left(), graph.bottom() + 2, graph.width(), line), Qt::AlignRight,
+                   QStringLiteral("1,000"));
+        p.drawText(QRect(0, height() - line - 4, width(), line), Qt::AlignCenter,
+                   tr("Suction head (m, log scale)"));
+        p.drawText(QRectF(0, graph.top() - line / 2., 26, line), Qt::AlignRight, "1");
+        p.drawText(QRectF(0, graph.bottom() - line / 2., 26, line), Qt::AlignRight, "0");
         for (int curve = 0; curve < 2; ++curve) {
             QPainterPath path;
             const double m = 1 - 1 / material.n;
@@ -201,6 +215,15 @@ QDoubleSpinBox *makeSpin(QWidget *parent, double minV, double maxV, double step)
     s->setSingleStep(step);
     return s;
 }
+
+QVector<SWMM_LidNodeLayer> defaultNodeLayers()
+{
+    LidNodeLayerModel defaults;
+    const bool si = UnitSystem::instance() && UnitSystem::instance()->isSI();
+    for (int kind : {0, 1, 2, 3})
+        defaults.append(kind, si);
+    return defaults.layers;
+}
 } // namespace
 
 LidControlEditorDialog::LidControlEditorDialog(LidControlRegistry *registry, SWMMModelLayer *layer,
@@ -214,6 +237,13 @@ LidControlEditorDialog::LidControlEditorDialog(LidControlRegistry *registry, SWM
     if (m_registry) {
         connect(m_registry, &LidControlRegistry::providerRenamed, this,
                 &LidControlEditorDialog::onProviderRenamed_);
+        // A second modeless editor can change the selected control's type.
+        // Rebind after its type and initial ordered layers have both been set.
+        connect(m_registry, &LidControlRegistry::providerTypeChanged, this,
+                [this](LidControlProvider *p) {
+                    if (p == m_current && m_typeCombo->currentIndex() != p->type())
+                        bindProvider_(p);
+                }, Qt::QueuedConnection);
         m_listModel->setRegistry(m_registry);
         if (m_registry->providerCount() > 0)
             selectProviderInList_(m_registry->providers().first());
@@ -285,6 +315,7 @@ void LidControlEditorDialog::buildUi_()
     m_nameEdit = new QLineEdit(rightPane);
     headForm->addRow(tr("N&ame"), m_nameEdit);
     m_typeCombo = new QComboBox(rightPane);
+    m_typeCombo->setObjectName(QStringLiteral("lidControlType"));
     for (const char *t : {"Bio-Retention Cell", "Rain Garden", "Green Roof", "Infiltration Trench",
                           "Permeable Pavement", "Rain Barrel", "Rooftop Disconnection",
                           "Vegetative Swale", "Storage Node (ordered layers)"})
@@ -299,6 +330,7 @@ void LidControlEditorDialog::buildUi_()
     auto *surf = new QWidget;
     auto *surfForm = new QFormLayout(surf);
     m_surfStorage = makeSpin(surf, 0.0, 1.0e6, 0.1);
+    m_surfStorage->setObjectName(QStringLiteral("lidSurfaceStorage"));
     m_surfRough = makeSpin(surf, 0.0, 1.0, 0.01);
     m_surfSlope = makeSpin(surf, 0.0, 100.0, 0.1);
     surfForm->addRow(tr("Sto&rage Depth"), m_surfStorage);
@@ -425,8 +457,10 @@ void LidControlEditorDialog::buildUi_()
     m_layerDetails = details;
     auto *retentionPage = new QWidget(details);
     auto *retentionLayout = new QHBoxLayout(retentionPage);
-    m_retentionFields = new QFormLayout;
-    retentionLayout->addLayout(m_retentionFields);
+    auto *retentionInputs = new QWidget(retentionPage);
+    m_retentionFields = new QFormLayout(retentionInputs);
+    m_retentionFields->setContentsMargins(0, 0, 0, 0);
+    m_retentionFields->setRowWrapPolicy(QFormLayout::WrapLongRows);
     auto *physicalPage = new QWidget(details);
     m_layerFields = new QFormLayout(physicalPage);
     for (int column = 1; column < 15; ++column) {
@@ -444,12 +478,16 @@ void LidControlEditorDialog::buildUi_()
                     m_nodeLayerModel->index(m_nodeLayerTable->currentIndex().row(), column), value);
         });
     }
-    m_retentionCurves = new RetentionCurves(retentionPage);
-    retentionLayout->addWidget(m_retentionCurves, 1);
     details->addTab(OpenSWMM::Ui::wrapInScrollArea(physicalPage, details),
                     tr("Physical properties"));
-    details->addTab(OpenSWMM::Ui::wrapInScrollArea(retentionPage, details),
-                    tr("Retention and conductivity"));
+    // Scroll the fields independently so the complete plot stays beside them as the pane narrows.
+    auto *inputsScroll = OpenSWMM::Ui::wrapInScrollArea(retentionInputs, retentionPage);
+    inputsScroll->setMinimumWidth(retentionInputs->minimumSizeHint().width() +
+                                  inputsScroll->style()->pixelMetric(QStyle::PM_ScrollBarExtent));
+    retentionLayout->addWidget(inputsScroll);
+    m_retentionCurves = new RetentionCurves(retentionPage);
+    retentionLayout->addWidget(m_retentionCurves, 1);
+    details->addTab(retentionPage, tr("Retention and conductivity"));
     auto *treatmentPage = new QWidget(details);
     auto *treatmentLayout = new QVBoxLayout(treatmentPage);
     auto *treatmentHelp = new QLabel(
@@ -499,7 +537,6 @@ void LidControlEditorDialog::buildUi_()
     connect(m_richardsCells, &QSpinBox::valueChanged, this, flowChanged);
     for (auto *field : {m_richardsAtol, m_richardsRtol, m_richardsMaxStep})
         connect(field, &QDoubleSpinBox::valueChanged, this, flowChanged);
-    flowChanged();
     connect(m_treatmentModel, &QStandardItemModel::dataChanged, this,
             [this] { storeTreatmentRows_(); });
     connect(addTreatment, &QPushButton::clicked, this, [this] {
@@ -618,6 +655,7 @@ void LidControlEditorDialog::buildUi_()
     m_diagram = new openswmmvis::sectionview::SectionPreviewWidget(m_splitter);
     m_diagram->setObjectName(QStringLiteral("lidLayerDiagram"));
     m_diagram->setPlaceholderText(tr("Select or create a LID control."));
+    flowChanged();
 
     m_splitter->addWidget(leftPane);
     m_splitter->addWidget(rightPane);
@@ -641,13 +679,7 @@ void LidControlEditorDialog::buildUi_()
     connect(m_delBtn, &QPushButton::clicked, this, &LidControlEditorDialog::onDeleteClicked_);
     connect(m_nameEdit, &QLineEdit::editingFinished, this, &LidControlEditorDialog::onNameEdited_);
     connect(m_typeCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
-            &LidControlEditorDialog::onFieldEdited_);
-    // Changing the LID type swaps the whole layer stack — reset the view with
-    // it, unlike an ordinary field edit.
-    connect(m_typeCombo, qOverload<int>(&QComboBox::currentIndexChanged), this, [this](int) {
-        if (m_diagram)
-            m_diagram->zoomToExtents();
-    });
+            &LidControlEditorDialog::onTypeEdited_);
     // The active tab drives which layer the diagram highlights; it changes no
     // data, so it refreshes the drawing directly rather than via onFieldEdited_.
     connect(tabs, &QTabWidget::currentChanged, this, [this](int) { refreshLayerDiagram_(); });
@@ -700,6 +732,8 @@ bool LidControlEditorDialog::applyLayers_()
     m_current->setNodeFlow(flow, m_nodeLayerModel->retention);
     m_current->clearDirty();
     m_layerDraftDirty = false;
+    m_typeCombo->setEnabled(false);
+    m_typeCombo->setToolTip(tr("This control has an applied ordered layer stack."));
     if (m_layer)
         m_layer->markEdited();
     return true;
@@ -734,7 +768,6 @@ void LidControlEditorDialog::bindProvider_(LidControlProvider *p)
 
     const bool enabled = (p != nullptr);
     m_nameEdit->setEnabled(enabled);
-    m_typeCombo->setEnabled(enabled);
     for (QDoubleSpinBox *s : {m_surfStorage, m_surfRough, m_surfSlope, m_soilThick, m_soilPoro,
                               m_soilFc, m_soilWp, m_soilKsat, m_soilKslope, m_storThick, m_storVoid,
                               m_storKsat, m_drainCoeff, m_drainExpon, m_drainOffset})
@@ -787,9 +820,13 @@ void LidControlEditorDialog::bindProvider_(LidControlProvider *p)
         m_nodeLayerTable->selectRow(0);
     }
     m_nodeLayerPage->setEnabled(node);
-    // Existing controls keep their type; create a new control for a new type.
     const auto eng = m_registry ? static_cast<SWMM_Engine>(m_registry->engineHandle()) : nullptr;
-    m_typeCombo->setEnabled(p && (!eng || swmm_lid_index(eng, p->name().toUtf8().constData()) < 0));
+    const bool appliedStack =
+        node && eng &&
+        swmm_lid_node_layer_count(eng, swmm_lid_index(eng, p->name().toUtf8().constData())) > 0;
+    m_typeCombo->setEnabled(enabled && !appliedStack);
+    m_typeCombo->setToolTip(appliedStack ? tr("This control has an applied ordered layer stack.")
+                                         : QString());
     m_suppressFieldSync = prev;
     m_layerDraftDirty = false;
     refreshTreatmentRows_();
@@ -849,15 +886,10 @@ void LidControlEditorDialog::addLayeredControl_()
 {
     if (!m_registry)
         return;
-    auto *provider = m_registry->create(suggestUniqueName_());
+    auto *provider = m_registry->create(suggestUniqueName_(), 8);
     if (!provider)
         return;
-    provider->setType(8);
-    LidNodeLayerModel defaults;
-    const bool si = UnitSystem::instance() && UnitSystem::instance()->isSI();
-    for (int kind : {0, 1, 2, 3})
-        defaults.append(kind, si);
-    provider->setNodeLayers(defaults.layers);
+    provider->setNodeLayers(defaultNodeLayers());
     selectProviderInList_(provider);
 }
 
@@ -901,12 +933,16 @@ void LidControlEditorDialog::refreshLayerFields_()
     const bool porous =
         row >= 0 && row < m_nodeLayerModel->layers.size() &&
         (m_nodeLayerModel->layers[row].kind == 1 || m_nodeLayerModel->layers[row].kind == 2);
-    curves->setVisible(richards && porous);
+    curves->setVisible(m_current && m_current->type() == 8 && richards);
+    curves->layerLabel.clear();
     if (porous && row < m_nodeLayerModel->retention.size()) {
+        curves->layerLabel = tr("Layer %1 · %2")
+                                 .arg(row + 1)
+                                 .arg(m_nodeLayerModel->index(row, 0).data().toString());
         curves->material = m_nodeLayerModel->retention[row];
         curves->porosity = m_nodeLayerModel->layers[row].params[1];
-        curves->update();
     }
+    curves->update();
     m_syncLayerFields = false;
 }
 
@@ -993,21 +1029,36 @@ void LidControlEditorDialog::onNameEdited_()
     }
 }
 
-void LidControlEditorDialog::onFieldEdited_()
+void LidControlEditorDialog::onTypeEdited_(int type)
 {
-    if (m_suppressFieldSync || !m_current)
+    if (m_suppressFieldSync || !m_current || !m_registry)
         return;
-    m_current->setType(m_typeCombo->currentIndex());
-    const bool node = m_current->type() == 8;
-    m_nodeLayerPage->setEnabled(node);
-    for (int i = 0; i < 4; ++i)
-        m_tabs->setTabVisible(i, !node);
-    m_tabs->setTabVisible(4, node);
-    if (node) {
-        m_tabs->setCurrentIndex(4);
-        refreshLayerDiagram_();
+    if (m_current->type() == 8 && m_layerDraftDirty &&
+        QMessageBox::question(this, tr("Change LID type"),
+                              tr("Discard the unapplied layer edits and change type?"),
+                              QMessageBox::Discard | QMessageBox::Cancel,
+                              QMessageBox::Cancel) != QMessageBox::Discard) {
+        const QSignalBlocker blocker(m_typeCombo);
+        m_typeCombo->setCurrentIndex(m_current->type());
         return;
     }
+    if (!m_registry->setType(m_current, type)) {
+        const QSignalBlocker blocker(m_typeCombo);
+        m_typeCombo->setCurrentIndex(m_current->type());
+        QMessageBox::warning(this, tr("Change LID type"),
+                             tr("The model could not change this LID type. A control in use or "
+                                "with an applied ordered layer stack must keep its type."));
+        return;
+    }
+    if (type == 8 && m_current->nodeLayers().isEmpty())
+        m_current->setNodeLayers(defaultNodeLayers());
+    bindProvider_(m_current);
+}
+
+void LidControlEditorDialog::onFieldEdited_()
+{
+    if (m_suppressFieldSync || !m_current || m_current->type() == 8)
+        return;
     m_current->setSurfStorage(m_surfStorage->value());
     m_current->setSurfRoughness(m_surfRough->value());
     m_current->setSurfSlope(m_surfSlope->value());

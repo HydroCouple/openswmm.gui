@@ -8118,6 +8118,7 @@ void SWMMModelLayer::flushDataObjectRegistries()
     if (!eng)
         return;
     using openswmmvis::curve::CurveRegistry;
+    using openswmmvis::lid::LidControlRegistry;
     using openswmmvis::pattern::PatternRegistry;
     if (auto *curves = qobject_cast<CurveRegistry *>(m_curveRegistry);
         curves && m_curveRegistryEngineHandle == eng)
@@ -8125,6 +8126,9 @@ void SWMMModelLayer::flushDataObjectRegistries()
     if (auto *patterns = qobject_cast<PatternRegistry *>(m_patternRegistry);
         patterns && m_patternRegistryEngineHandle == eng)
         patterns->saveToEngine(eng);
+    if (auto *lids = liveRegistry<LidControlRegistry>(m_lidControlRegistry,
+                                                      m_lidControlRegistryEngineHandle, eng))
+        lids->saveToEngine(eng);
 }
 
 // ---------------------------------------------------------------------------

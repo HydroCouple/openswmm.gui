@@ -3693,12 +3693,12 @@ public:
      */
     QObject *ensureCurveRegistry();
 
-    /*! Push every curve and pattern the registries hold into the engine.
+    /*! Push curves, patterns and LID controls from their registries into the engine.
      *  Called right before the model is written, so a modeless editor that
      *  is still open cannot keep its edits out of the saved .inp. Registries
      *  that were never created are left alone; the flush does not mark the
      *  project edited (see ensureCurveRegistry).
-     * @note Only already-created curve/pattern registries bound to CURRENT engine are flushed;
+     * @note Only already-created registries bound to the current engine are flushed;
      *   never creates them, no-engine no-op. saveToEngine results ignored, so partial/rejected
      *   writes are not surfaced. No timeseries/other registry flush, no direct modelEdited or
      *   persistence here.

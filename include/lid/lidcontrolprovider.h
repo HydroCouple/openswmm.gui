@@ -185,7 +185,7 @@ public:
     /**
      * @brief Set the local formulation code, mark dirty, and notify when changed.
      * @param[in] v Standard type 0..7 or NODE type 8; no validation is performed locally.
-     * @details Existing engine controls are not retyped by registry save; their engine identity was created with its original type.
+     * @details Use the registry's setType() when editing to validate the change in the engine first.
      */
     void setType(int v);
 
