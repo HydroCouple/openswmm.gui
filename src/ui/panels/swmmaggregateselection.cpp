@@ -91,13 +91,15 @@ bool SWMMAggregateSelection::supports(const openswmmvis::ColumnSpec &spec)
     // Structured records and type selectors need a complete record editor.
     const QStringList independentChoices{
         "node_outfall_flap_gate", "link_flap_gate", "link_culvert_code",
-        "link_pump_init_state", "gage_rain_type", "gage_rain_units"};
+        "link_pump_init_state", "gage_rain_type", "gage_rain_units", "link_xsect_shape"};
     return !spec.setter.isEmpty() && spec.key != QLatin1String("Name") &&
         (spec.editor == EditorKind::Numeric || spec.editor == EditorKind::Integer ||
          spec.editor == EditorKind::Interval || spec.editor == EditorKind::LinkEndpoint ||
          (spec.editor == EditorKind::Compound &&
           (spec.setter == QLatin1String("link_pump_curve_ref") ||
-           spec.setter == QLatin1String("node_outfall_route_to_ref"))) ||
+           spec.setter == QLatin1String("node_outfall_route_to_ref") ||
+           spec.setter == QLatin1String("link_xsect_transect_ref") ||
+           spec.setter == QLatin1String("link_xsect_street_ref"))) ||
          (spec.editor == EditorKind::Enum && independentChoices.contains(spec.setter)) ||
          (spec.editor == EditorKind::Text && spec.key == QLatin1String("Tag")));
 }
@@ -149,6 +151,7 @@ SWMMAggregateSelection::Field SWMMAggregateSelection::field(int column) const
     bool first = true;
     const auto spec = m_source->columnSpecs().value(column);
     QSet<int> depthKinds;
+    QSet<int> sectionShapes;
     for (auto group = m_targets.cbegin(); group != m_targets.cend(); ++group) {
         auto *model = m_sources.value(group.key());
         const int col = m_columns.value(group.key()).value(spec.key, -1);
@@ -162,6 +165,14 @@ SWMMAggregateSelection::Field SWMMAggregateSelection::field(int column) const
             const int row = model->rowForName(name);
             if (row < 0) continue;
             const auto index = model->index(row, col);
+            if (spec.setter.startsWith(QLatin1String("link_xsect_geom"))) {
+                int shape = -1;
+                double g[4];
+                const int link = swmm_link_index(model->layer()->engine(), name.toUtf8().constData());
+                if (swmm_link_get_xsect(model->layer()->engine(), link, &shape,
+                                       &g[0], &g[1], &g[2], &g[3]) == SWMM_OK)
+                    sectionShapes.insert(shape);
+            }
             bool applicable = compatible && (index.flags() & Qt::ItemIsEditable);
             if (spec.setter == QLatin1String("node_outfall_stage")) {
                 int type = -1;
@@ -194,6 +205,10 @@ SWMMAggregateSelection::Field SWMMAggregateSelection::field(int column) const
     if (depthKinds.size() > 1) {
         result.editable = 0;
         result.reason = tr("Maximum depth has different meanings for ordinary, virtual and inlet junctions. Select one subtype to edit it.");
+    }
+    if (sectionShapes.size() > 1) {
+        result.editable = 0;
+        result.reason = tr("Choose a common cross-section shape before editing dimensions together.");
     }
     return result;
 }

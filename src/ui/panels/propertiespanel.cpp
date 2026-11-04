@@ -426,6 +426,7 @@ public:
         case kMeshMixedRole:
             return mixed;
         case openswmmvis::kLinkEndpointRole:
+        case openswmmvis::kDisabledEnumValuesRole:
             if constexpr (std::is_same_v<Selection, SWMMAggregateSelection>)
                 return m_selection->editorData(m_column, role);
             return {};

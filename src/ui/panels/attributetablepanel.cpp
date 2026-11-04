@@ -3385,7 +3385,10 @@ void AttributeTablePanel::applyValueToSelectedRows(int column, const QList<int> 
         const auto spec = m_model->columnSpecs().value(column);
         if (spec.editor == openswmmvis::EditorKind::Numeric ||
             spec.editor == openswmmvis::EditorKind::Integer ||
-            (spec.editor == openswmmvis::EditorKind::Text && spec.key == QLatin1String("Tag"))) {
+            (spec.editor == openswmmvis::EditorKind::Text && spec.key == QLatin1String("Tag")) ||
+            spec.setter == QLatin1String("link_xsect_shape") ||
+            spec.setter == QLatin1String("link_xsect_transect_ref") ||
+            spec.setter == QLatin1String("link_xsect_street_ref")) {
             QStringList names;
             for (int row : sourceRows)
                 if (model->flags(model->index(row, column)) & Qt::ItemIsEditable)

@@ -29,6 +29,7 @@
 #include <QAbstractItemView>
 #include <QApplication>
 #include <QComboBox>
+#include <QStandardItemModel>
 #include "ui/properties/linkendpointcombobox.h"
 #include "ui/panels/swmmattributetablemodel.h"
 #include <QDoubleSpinBox>
@@ -227,7 +228,7 @@ EnumDelegate::EnumDelegate(QObject *parent, QVariantList values)
 }
 
 QWidget *EnumDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem & /*opt*/,
-                                    const QModelIndex & /*index*/) const
+                                    const QModelIndex &index) const
 {
     auto *combo = new QComboBox(parent);
     for (const QVariant &v : m_values) {
@@ -236,6 +237,11 @@ QWidget *EnumDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem 
             continue;
         combo->addItem(pair[0].toString(), pair[1]);
     }
+    const auto disabled = index.data(kDisabledEnumValuesRole).toList();
+    if (auto *items = qobject_cast<QStandardItemModel *>(combo->model()))
+        for (int row = 0; row < combo->count(); ++row)
+            if (disabled.contains(combo->itemData(row)))
+                items->item(row)->setEnabled(false);
     return combo;
 }
 
@@ -336,8 +342,13 @@ QWidget *CompoundEditDelegate::createEditor(QWidget *parent, const QStyleOptionV
     const QVariant v = index.data(Qt::EditRole);
     if (v.userType() == qMetaTypeId<LinkCompoundEditRef>())
         return new LinkCompoundEditButton(parent);
-    if (v.userType() == qMetaTypeId<DataObjectRef>())
-        return new DataObjectPickerEditor(parent);
+    if (v.userType() == qMetaTypeId<DataObjectRef>()) {
+        auto *picker = new DataObjectPickerEditor(parent);
+        auto *self = const_cast<CompoundEditDelegate *>(this);
+        connect(picker, &DataObjectPickerEditor::valueChanged, self,
+                [self, picker] { emit self->commitData(picker); });
+        return picker;
+    }
     if (v.userType() == qMetaTypeId<UserFlagsEditRef>())
         return new UserFlagsEditButton(parent);
     if (v.userType() == qMetaTypeId<SubcatchCompoundEditRef>())

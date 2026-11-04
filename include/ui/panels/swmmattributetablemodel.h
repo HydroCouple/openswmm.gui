@@ -72,6 +72,7 @@ enum class EditorKind {
  *  file (ui/util/externalcolumnfile.h readHeaders). */
 inline constexpr int kFileColumnOptionsRole = Qt::UserRole + 21;
 inline constexpr int kLinkEndpointRole = Qt::UserRole + 22;
+inline constexpr int kDisabledEnumValuesRole = Qt::UserRole + 23;
 
 /*! Round-4 follow-up 2026-05-12 — semantic unit class.  Resolves to
  *  a string at render time via `UnitSystem::instance()` so the

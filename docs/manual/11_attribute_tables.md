@@ -82,7 +82,7 @@ Examples of the input block:
 | **Outfalls** | Invert Elevation, outfall type, gated, and the stage data the type needs — fixed stage, tidal curve or stage time series |
 | **Storage Units** | Maximum Depth, storage shape, functional coefficient/exponent/constant, three shape parameters (headers are generic; the per-shape meaning is the cell tooltip), seepage rate and the Green-Ampt exfiltration triple |
 | **Dividers** | The junction set plus divider type |
-| **Conduits** | From/To Node, Vertex Count, Length, roughness, offsets, initial and maximum flow, entry/exit/average loss, seepage rate, barrels, culvert code, Cross-Section and Inlets compound cells |
+| **Conduits** | From/To Node, Vertex Count, Length, roughness, offsets, initial and maximum flow, entry/exit/average loss, seepage rate, cross-section shape, Geom 1–4, barrels, culvert code, Cross-Section and Inlets compound cells |
 | **Subcatchments** | Vertex Count, Area, Width, Slope, % Impervious, % Zero-Impervious, Manning's n (imperv./perv.), depression storage (imperv./perv.), rain gage, outlet, Snow Pack, infiltration model and its parameters, plus the Land Use, LID Usage, Initial Loadings and Groundwater compound cells |
 | **Rain Gages** | Rain format, recording interval, snow catch factor, data source, Station ID, Rain File (path) and Rain File Column |
 
@@ -99,6 +99,22 @@ The same searchable picker appears in the Properties panel. Changes update the
 map immediately and support Undo/Redo; link bends, length and offsets are retained.
 Unknown IDs and connections back to the opposite endpoint are rejected.
 Virtual and inlet junctions keep their fixed conduit connections.
+
+With several conduits selected, choose **Cross-section Shape** in Properties,
+then edit **Geom 1–4** or **Barrels**. Each committed field updates the selection
+immediately as one undo step. Dimensions become editable together after the
+selected conduits share a shape. Undo restores each conduit's original section,
+including its other dimensions and named transect or street reference. The table's
+bulk row action uses the same checked writes. Unused numeric geometry slots retain
+their existing pre-fill behavior.
+
+Choose **Transect Profile** or **Street Profile** to assign the same named section
+to the selected conduits immediately. The corresponding Shape updates with the
+profile. These choices appear disabled in the inline Shape list because they
+need a name. Custom shape-curve replacement uses its existing dedicated editor;
+a loaded custom profile's Shape and profile assignments are read-only in bulk.
+When changing a transect or street section to a numeric shape, its physical full
+depth becomes the starting depth in project units.
 
 Drag the divider between column headers to change a width, including the last
 column. Double-click a divider to fit the column to its contents. Column widths
