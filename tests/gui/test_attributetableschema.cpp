@@ -75,6 +75,7 @@
 #include <openswmm/engine/openswmm_infrastructure.h>
 #include <openswmm/engine/openswmm_initial_quality.h> // Initial-quality UI round
 #include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_xsect.h>
 #include <openswmm/engine/openswmm_model.h> // swmm_options_set
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_pollutants.h> // Initial-quality UI round
@@ -288,11 +289,12 @@ bool applyBulkCell(AttributeTablePanel &panel, QTableView *view, const QModelInd
 }
 
 // A reviewable fixture with three conduit targets, two different pumps and extra endpoints.
-std::unique_ptr<SWMMModelLayer> openBulkNetworkLayer()
+std::unique_ptr<SWMMModelLayer> openBulkNetworkLayer(bool si = false)
 {
     QFile original(QDir(dataDir()).filePath("typed_selection_fixture.inp"));
     if (!original.open(QIODevice::ReadOnly)) return {};
     auto text = original.readAll();
+    if (si) text.replace("FLOW_UNITS           CFS", "FLOW_UNITS           CMS");
     text.replace("\n[OUTFALLS]", "\nJ2 98 10 0 0 0\nJ3 97 10 0 0 0\n[OUTFALLS]");
     text.replace("\n[XSECTIONS]", "\nC2 J2 O1 1000 .014 0 0 0 0\n[XSECTIONS]");
     text.replace("\n[REPORT]", "\nC2 CIRCULAR 1 0 0 0 1\n[REPORT]");
@@ -331,6 +333,21 @@ QString bulkLinkTag(SWMMModelLayer *layer, SWMMModelLayer::Category category, co
     return table.index(table.rowForName(name), colFor(table.columnSpecs(), "Tag")).data().toString();
 }
 
+QVariantList conduitSection(SWMM_Engine engine, const char *name)
+{
+    const int link = swmm_link_index(engine, name);
+    int shape = -1, barrels = 0, culvert = 0;
+    double g[4], up = 0, down = 0, roughness = 0;
+    if (swmm_link_get_xsect(engine, link, &shape, &g[0], &g[1], &g[2], &g[3]) != SWMM_OK ||
+        swmm_link_get_barrels(engine, link, &barrels) != SWMM_OK ||
+        swmm_link_get_offset_up(engine, link, &up) != SWMM_OK ||
+        swmm_link_get_offset_dn(engine, link, &down) != SWMM_OK ||
+        swmm_link_get_roughness(engine, link, &roughness) != SWMM_OK ||
+        swmm_link_get_culvert_code(engine, link, &culvert) != SWMM_OK)
+        return {};
+    return {shape, g[0], g[1], g[2], g[3], barrels, up, down, roughness, culvert};
+}
+
 } // namespace
 
 class TestAttributeTableSchema : public QObject
@@ -338,6 +355,384 @@ class TestAttributeTableSchema : public QObject
     Q_OBJECT
 
 private slots:
+    void bulkCrossSectionsCommitShapeAndDimensions_data()
+    {
+        QTest::addColumn<bool>("si");
+        QTest::newRow("US") << false;
+        QTest::newRow("SI") << true;
+    }
+
+    void bulkCrossSectionsCommitShapeAndDimensions()
+    {
+        QFETCH(bool, si);
+        auto layer = openBulkNetworkLayer(si);
+        QVERIFY(layer);
+        const auto engine = layer->engine();
+        const char *names[] = {"C1", "X1", "C2"};
+        const int shapes[] = {SWMM_XSECT_CIRCULAR, SWMM_XSECT_RECT_CLOSED, SWMM_XSECT_TRAPEZOIDAL};
+        QList<QVariantList> before;
+        for (int i = 0; i < 3; ++i) {
+            const int link = swmm_link_index(engine, names[i]);
+            QCOMPARE(swmm_link_set_xsect(engine, link, shapes[i], 2.123456789 + i,
+                                        1.25 + i, .5 + i, .75 + i), SWMM_OK);
+            QCOMPARE(swmm_link_set_barrels(engine, link, i + 2), SWMM_OK);
+            QCOMPARE(swmm_link_set_offset_up(engine, link, .125 + i), SWMM_OK);
+            QCOMPARE(swmm_link_set_offset_dn(engine, link, .25 + i), SWMM_OK);
+            QCOMPARE(swmm_link_set_culvert_code(engine, link, i + 1), SWMM_OK);
+            before.append(conduitSection(engine, names[i]));
+            QCOMPARE(before.last().size(), 10);
+        }
+        QVERIFY(layer->applyLinkAdd("Control", SWMM_LINK_CONDUIT, "J1", "O1", {}));
+        const auto control = conduitSection(engine, "Control");
+        MapCanvas canvas;
+        PropertiesPanel panel;
+        panel.setProject(layer.get());
+        const QList<SWMMObjectRef> refs{{SWMMObjectRef::Link, "C1"}, {SWMMObjectRef::Link, "X1"},
+                                       {SWMMObjectRef::Link, "C2"}};
+        panel.showSelection(&canvas, refs);
+        panel.resize(700, 900);
+        panel.show();
+        auto *tree = panel.findChild<QTreeView *>();
+        tree->expandAll();
+        const auto shape = bulkProperty(panel, "Cross-section Shape");
+        QVERIFY(shape.isValid());
+        QCOMPARE(shape.data().toString(), QString("Mixed"));
+        QVERIFY(!(bulkProperty(panel, "Geom 1").flags() & Qt::ItemIsEditable));
+        tree->edit(shape);
+        auto *choice = qobject_cast<QComboBox *>(tree->indexWidget(shape));
+        QVERIFY(choice);
+        QVERIFY(!(choice->model()->index(choice->findData(int(SWMM_XSECT_IRREGULAR)), 0).flags() & Qt::ItemIsEnabled));
+        QVERIFY(!(choice->model()->index(choice->findData(int(SWMM_XSECT_CUSTOM)), 0).flags() & Qt::ItemIsEnabled));
+        QTest::keyClick(choice, Qt::Key_Escape);
+        QCOMPARE(canvas.undoStack()->count(), 0);
+        for (int i = 0; i < 3; ++i) QCOMPARE(conduitSection(engine, names[i]), before[i]);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        tree->edit(shape);
+        choice = qobject_cast<QComboBox *>(tree->indexWidget(shape));
+        QVERIFY(choice);
+        choice->showPopup();
+        const auto rect = choice->model()->index(choice->findData(int(SWMM_XSECT_RECT_CLOSED)), 0);
+        choice->view()->scrollTo(rect);
+        QTest::mouseClick(choice->view()->viewport(), Qt::LeftButton, Qt::NoModifier,
+                          choice->view()->visualRect(rect).center());
+        QTRY_COMPARE(canvas.undoStack()->count(), 1);
+        QTRY_VERIFY(bulkProperty(panel, "Geom 1").flags() & Qt::ItemIsEditable);
+        for (int i = 0; i < 3; ++i) {
+            auto expected = before[i];
+            expected[0] = int(SWMM_XSECT_RECT_CLOSED);
+            QCOMPARE(conduitSection(engine, names[i]), expected);
+        }
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        const auto depth = bulkProperty(panel, "Geom 1");
+        tree->edit(depth);
+        auto *spin = qobject_cast<QDoubleSpinBox *>(tree->indexWidget(depth));
+        QVERIFY(spin);
+        spin->setFocus();
+        spin->selectAll();
+        QTest::keyClicks(spin, "5.125");
+        QTest::keyClick(spin, Qt::Key_Return);
+        QTRY_COMPARE(canvas.undoStack()->count(), 2);
+        for (int i = 0; i < 3; ++i) {
+            auto expected = before[i];
+            expected[0] = int(SWMM_XSECT_RECT_CLOSED);
+            expected[1] = 5.125;
+            QCOMPARE(conduitSection(engine, names[i]), expected);
+        }
+        QCOMPARE(conduitSection(engine, "Control"), control);
+        canvas.undoStack()->undo();
+        canvas.undoStack()->undo();
+        for (int i = 0; i < 3; ++i) QCOMPARE(conduitSection(engine, names[i]), before[i]);
+        canvas.undoStack()->redo();
+        canvas.undoStack()->redo();
+        panel.showSelection(&canvas, refs);
+        QCOMPARE(bulkProperty(panel, "Cross-section Shape").data().toString(), QString("RECT_CLOSED"));
+        QCOMPARE(bulkProperty(panel, "Geom 1").data(Qt::EditRole).toDouble(), 5.125);
+        const auto saved = QDir(dataDir()).filePath(si ? "multi_selection/xsections-SI.inp"
+                                                      : "multi_selection/xsections-US.inp");
+        QCOMPARE(swmm_model_write(engine, saved.toUtf8().constData()), SWMM_OK);
+        SWMMModelLayer reopened(saved);
+        QList<QString> warnings, errors;
+        QVERIFY2(reopened.loadModel(warnings, errors), qPrintable(errors.join(' ')));
+        for (const char *name : names)
+            QCOMPARE(conduitSection(reopened.engine(), name), conduitSection(engine, name));
+    }
+
+    void bulkCrossSectionTupleAndTableUseOneUndoStep()
+    {
+        auto layer = openBulkNetworkLayer();
+        QVERIFY(layer);
+        const auto engine = layer->engine();
+        const auto first = conduitSection(engine, "C1"), second = conduitSection(engine, "X1");
+        SWMMAttributeTableModel model;
+        model.setSource(layer.get(), SWMMModelLayer::CatConduits);
+        QUndoStack undo;
+        QString error;
+        QVERIFY2(model.applyScalarEdits({"C1", "X1"},
+                   {{"Shape", int(SWMM_XSECT_RECT_CLOSED)}, {"Geom 1", 3.125}, {"Geom 2", 4.25}},
+                   &undo, &error), qPrintable(error));
+        QCOMPARE(undo.count(), 1);
+        for (const char *name : {"C1", "X1"}) {
+            const auto record = conduitSection(engine, name);
+            QCOMPARE(record[0].toInt(), int(SWMM_XSECT_RECT_CLOSED));
+            QCOMPARE(record[1].toDouble(), 3.125);
+            QCOMPARE(record[2].toDouble(), 4.25);
+        }
+        undo.undo();
+        QCOMPARE(conduitSection(engine, "C1"), first);
+        QCOMPARE(conduitSection(engine, "X1"), second);
+        undo.redo();
+        MapCanvas canvas;
+        SelectionManager selection;
+        AttributeTablePanel panel;
+        panel.setProject(layer.get(), &selection, &canvas);
+        panel.showModelCategory(layer.get(), SWMMModelLayer::CatConduits);
+        auto *view = panel.findChild<QTableView *>();
+        QVERIFY(view);
+        // Copy the first row's shape through the real table row action.
+        QCOMPARE(swmm_link_set_xsect(engine, swmm_link_index(engine, "C1"),
+                                    SWMM_XSECT_CIRCULAR, 2, 1.25, 0, 0), SWMM_OK);
+        emit layer->attributeChanged("C1");
+        selection.select({{SWMMObjectRef::Link, "C1"}, {SWMMObjectRef::Link, "X1"}}, SelectionManager::Replace);
+        QCoreApplication::processEvents();
+        int column = -1, row = -1;
+        for (int c = 0; c < view->model()->columnCount(); ++c)
+            if (view->model()->headerData(c, Qt::Horizontal).toString() == "Cross-section Shape") column = c;
+        for (int r = 0; r < view->model()->rowCount(); ++r)
+            if (view->model()->index(r, 0).data().toString() == "C1") row = r;
+        QVERIFY(applyBulkCell(panel, view, view->model()->index(row, column)));
+        QCOMPARE(canvas.undoStack()->count(), 1);
+        QCOMPARE(conduitSection(engine, "X1")[0].toInt(), int(SWMM_XSECT_CIRCULAR));
+        canvas.undoStack()->undo();
+        QCOMPARE(conduitSection(engine, "X1")[0].toInt(), int(SWMM_XSECT_RECT_CLOSED));
+    }
+
+    void bulkCrossSectionProfileRestoresByName_data()
+    {
+        QTest::addColumn<bool>("street");
+        QTest::newRow("transect") << false;
+        QTest::newRow("street") << true;
+    }
+
+    void bulkCrossSectionProfileRestoresByName()
+    {
+        QFETCH(bool, street);
+        auto layer = openBulkNetworkLayer();
+        QVERIFY(layer);
+        const auto engine = layer->engine();
+        if (street) {
+            QCOMPARE(swmm_street_add(engine, "Profile"), SWMM_OK);
+            QCOMPARE(swmm_street_set_params(engine, 0, 5, .5, 2, .013, .1, 1, 1, 0, 0, .013), SWMM_OK);
+        } else {
+            for (const char *name : {"Unused", "Profile"}) {
+                QCOMPARE(swmm_transect_add(engine, name), SWMM_OK);
+                const int index = swmm_transect_index(engine, name);
+                QCOMPARE(swmm_transect_set_roughness(engine, index, .04, .04, .03), SWMM_OK);
+                QCOMPARE(swmm_transect_add_station(engine, index, 0, 10), SWMM_OK);
+                QCOMPARE(swmm_transect_add_station(engine, index, 5, 5), SWMM_OK);
+                QCOMPARE(swmm_transect_add_station(engine, index, 10, 10), SWMM_OK);
+            }
+        }
+        const int profileShape = street ? SWMM_XSECT_STREET : SWMM_XSECT_IRREGULAR;
+        const int profileIndex = street ? 0 : 1;
+        QCOMPARE(swmm_link_set_xsect(engine, swmm_link_index(engine, "C1"),
+                                    profileShape, profileIndex, 0, 0, 0), SWMM_OK);
+        const auto original = conduitSection(engine, "C1"), other = conduitSection(engine, "X1");
+        MapCanvas canvas;
+        PropertiesPanel properties;
+        properties.setProject(layer.get());
+        properties.showSelection(&canvas, {{SWMMObjectRef::Link, "C1"}, {SWMMObjectRef::Link, "X1"}});
+        properties.resize(700, 900);
+        properties.show();
+        auto *tree = properties.findChild<QTreeView *>();
+        tree->expandAll();
+        const auto profileField = bulkProperty(properties, street ? "Street Profile" : "Transect Profile");
+        QVERIFY(profileField.isValid());
+        QCOMPARE(profileField.data().toString(), QString("Mixed"));
+        tree->edit(profileField);
+        auto *picker = qobject_cast<DataObjectPickerEditor *>(tree->indexWidget(profileField));
+        QVERIFY(picker);
+        auto *choices = picker->findChild<QComboBox *>();
+        QVERIFY(choices && choices->findText("Profile") >= 0);
+        choices->setCurrentIndex(choices->findText("Profile"));
+        QTRY_COMPARE(canvas.undoStack()->count(), 1);
+        QCOMPARE(conduitSection(engine, "X1")[0].toInt(), profileShape);
+        QCOMPARE(conduitSection(engine, "C1"), original);
+        auto wrongKind = picker->value();
+        wrongKind.kind = street ? DataObjectRef::Transect : DataObjectRef::Street;
+        QVERIFY(!tree->model()->setData(profileField, QVariant::fromValue(wrongKind)));
+        auto clear = picker->value();
+        clear.currentName.clear();
+        QVERIFY(!tree->model()->setData(profileField, QVariant::fromValue(clear)));
+        QCOMPARE(canvas.undoStack()->count(), 1);
+        canvas.undoStack()->undo();
+        QCOMPARE(conduitSection(engine, "X1"), other);
+        QCOMPARE(conduitSection(engine, "C1"), original);
+        // The same picker commits a table cell while it still has focus.
+        SelectionManager selection;
+        AttributeTablePanel table;
+        table.setProject(layer.get(), &selection, &canvas);
+        table.showModelCategory(layer.get(), SWMMModelLayer::CatConduits);
+        table.resize(1000, 600);
+        table.show();
+        auto *view = table.findChild<QTableView *>();
+        QVERIFY(view);
+        int row = -1, column = -1;
+        for (int r = 0; r < view->model()->rowCount(); ++r)
+            if (view->model()->index(r, 0).data().toString() == "X1") row = r;
+        for (int c = 0; c < view->model()->columnCount(); ++c)
+            if (view->model()->headerData(c, Qt::Horizontal).toString() ==
+                (street ? "Street Profile" : "Transect Profile")) column = c;
+        const auto cell = view->model()->index(row, column);
+        QVERIFY(cell.isValid());
+        view->scrollTo(cell);
+        view->edit(cell);
+        auto *tablePicker = qobject_cast<DataObjectPickerEditor *>(view->indexWidget(cell));
+        QVERIFY(tablePicker);
+        tablePicker->setFocus();
+        tablePicker->applyPickedName("Profile");
+        QCOMPARE(conduitSection(engine, "X1")[0].toInt(), profileShape);
+        const auto saved = QDir(dataDir()).filePath(street ? "multi_selection/xsections-street.inp"
+                                                          : "multi_selection/xsections-transect.inp");
+        QCOMPARE(swmm_model_write(engine, saved.toUtf8().constData()), SWMM_OK);
+        SWMMModelLayer reopened(saved);
+        QList<QString> warnings, errors;
+        QVERIFY2(reopened.loadModel(warnings, errors), qPrintable(errors.join(' ')));
+        for (const char *name : {"C1", "X1"}) {
+            const auto section = conduitSection(reopened.engine(), name);
+            QCOMPARE(section[0].toInt(), profileShape);
+            const int profile = int(section[1].toDouble());
+            const char *id = street ? swmm_street_id(reopened.engine(), profile)
+                                    : swmm_transect_id(reopened.engine(), profile);
+            QVERIFY(id);
+            QCOMPARE(QString::fromUtf8(id), QString("Profile"));
+        }
+        canvas.undoStack()->undo();
+        QCOMPARE(conduitSection(engine, "X1"), other);
+        SWMMAttributeTableModel model;
+        model.setSource(layer.get(), SWMMModelLayer::CatConduits);
+        QUndoStack undo;
+        QString error;
+        QVERIFY2(model.applyScalarEdits({"C1", "X1"}, {{"Shape", int(SWMM_XSECT_RECT_CLOSED)}},
+                                       &undo, &error), qPrintable(error));
+        QVERIFY(conduitSection(engine, "C1")[1].toDouble() > 0); // Physical depth, not an index.
+        if (!street) QCOMPARE(swmm_transect_remove(engine, 0), SWMM_OK); // Profile moves from index 1 to 0.
+        undo.undo();
+        auto expected = original;
+        expected[1] = 0.0;
+        QCOMPARE(conduitSection(engine, "C1"), expected);
+        QCOMPARE(conduitSection(engine, "X1"), other);
+        undo.redo();
+        QCOMPARE(conduitSection(engine, "C1")[0].toInt(), int(SWMM_XSECT_RECT_CLOSED));
+        if (!street) {
+            QCOMPARE(swmm_transect_remove(engine, 0), SWMM_OK);
+            const auto beforeUndo = conduitSection(engine, "C1");
+            undo.undo(); // A deleted profile cannot redirect the saved reference.
+            QCOMPARE(conduitSection(engine, "C1"), beforeUndo);
+            QCOMPARE(conduitSection(engine, "X1")[0].toInt(), int(SWMM_XSECT_RECT_CLOSED));
+        }
+    }
+
+    void bulkCrossSectionInvalidShapeLeavesEveryTargetUnchanged()
+    {
+        auto layer = openBulkNetworkLayer();
+        QVERIFY(layer);
+        SWMMAttributeTableModel model;
+        model.setSource(layer.get(), SWMMModelLayer::CatConduits);
+        const auto first = conduitSection(layer->engine(), "C1"), second = conduitSection(layer->engine(), "X1");
+        QUndoStack undo;
+        QString error;
+        for (int shape : {-1, 1000, int(SWMM_XSECT_IRREGULAR), int(SWMM_XSECT_STREET), int(SWMM_XSECT_CUSTOM)})
+            QVERIFY(!model.applyScalarEdits({"C1", "X1"}, {{"Shape", shape}}, &undo, &error));
+        QVERIFY(!model.applyScalarEdits({"C1", "X1"}, {{"Geom 2", -1.0}}, &undo, &error));
+        QCOMPARE(undo.count(), 0);
+        QCOMPARE(conduitSection(layer->engine(), "C1"), first);
+        QCOMPARE(conduitSection(layer->engine(), "X1"), second);
+        QVERIFY(model.applyScalarEdits({"C1", "X1"}, {{"Shape", int(SWMM_XSECT_CIRCULAR)}}, &undo, &error));
+        QCOMPARE(undo.count(), 0);
+    }
+
+    void bulkCrossSectionFilledOffsetsSurviveUndo()
+    {
+        auto layer = openBulkNetworkLayer();
+        QVERIFY(layer);
+        const auto engine = layer->engine();
+        const int first = swmm_link_index(engine, "C1");
+        QCOMPARE(swmm_link_set_xsect(engine, first, SWMM_XSECT_FILLED_CIRCULAR, 3, .5, .25, .125), SWMM_OK);
+        QCOMPARE(swmm_link_set_offset_up(engine, first, .25), SWMM_OK);
+        QCOMPARE(swmm_link_set_offset_dn(engine, first, .375), SWMM_OK);
+        const auto original = conduitSection(engine, "C1");
+        SWMMAttributeTableModel model;
+        model.setSource(layer.get(), SWMMModelLayer::CatConduits);
+        QUndoStack undo;
+        QString error;
+        QVERIFY2(model.applyScalarEdits({"C1", "X1"}, {{"Shape", int(SWMM_XSECT_RECT_CLOSED)}},
+                                       &undo, &error), qPrintable(error));
+        QCOMPARE(conduitSection(engine, "C1")[6], original[6]);
+        QCOMPARE(conduitSection(engine, "C1")[7], original[7]);
+        undo.undo();
+        QCOMPARE(conduitSection(engine, "C1"), original);
+        undo.redo();
+        QCOMPARE(conduitSection(engine, "C1")[6], original[6]);
+        QCOMPARE(conduitSection(engine, "C1")[7], original[7]);
+    }
+
+    void bulkCrossSectionCustomProfileStaysProtected()
+    {
+        auto base = openBulkNetworkLayer();
+        QVERIFY(base);
+        QFile input(base->modelFilePath());
+        QVERIFY(input.open(QIODevice::ReadOnly));
+        auto text = input.readAll();
+        const int start = text.indexOf("[XSECTIONS]");
+        const int end = text.indexOf("[REPORT]", start);
+        QVERIFY(start >= 0 && end > start);
+        text.replace(start, end - start,
+                     "[XSECTIONS]\nC1 CUSTOM 2 CustomProfile 0 0 1\n"
+                     "X1 CIRCULAR 1 0 0 0 1\nC2 CIRCULAR 1 0 0 0 1\n");
+        text += "\n[CURVES]\nCustomProfile SHAPE 0 0\nCustomProfile .5 1\nCustomProfile 1 0\n";
+        const auto path = QDir(dataDir()).filePath("multi_selection/xsections-custom.inp");
+        QFile output(path);
+        QVERIFY(output.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        output.write(text);
+        output.close();
+        SWMMModelLayer layer(path);
+        QList<QString> warnings, errors;
+        QVERIFY2(layer.loadModel(warnings, errors), qPrintable(errors.join(' ')));
+        MapCanvas canvas;
+        PropertiesPanel panel;
+        panel.setProject(&layer);
+        panel.showSelection(&canvas, {{SWMMObjectRef::Link, "C1"}, {SWMMObjectRef::Link, "X1"}});
+        const auto first = conduitSection(layer.engine(), "C1"), second = conduitSection(layer.engine(), "X1");
+        QCOMPARE(first[0].toInt(), int(SWMM_XSECT_CUSTOM));
+        auto shape = bulkProperty(panel, "Cross-section Shape");
+        QVERIFY(shape.isValid() && !(shape.flags() & Qt::ItemIsEditable));
+        QVERIFY(!panel.findChild<QTreeView *>()->model()->setData(shape, int(SWMM_XSECT_CIRCULAR)));
+        QCOMPARE(conduitSection(layer.engine(), "C1"), first);
+        QCOMPARE(conduitSection(layer.engine(), "X1"), second);
+        QCOMPARE(canvas.undoStack()->count(), 0);
+        // Barrels remain editable without rebuilding CUSTOM's resolved shape curve.
+        const int link = swmm_link_index(layer.engine(), "C1");
+        SWMM_XSect section = nullptr;
+        QCOMPARE(swmm_link_create_xsect(layer.engine(), link, &section), SWMM_OK);
+        double depth = 0, area = 0;
+        QCOMPARE(swmm_xsect_full_properties(section, &depth, &area, nullptr, nullptr, nullptr, nullptr), SWMM_OK);
+        QCOMPARE(swmm_xsect_free(section), SWMM_OK);
+        auto barrels = bulkProperty(panel, "Barrels");
+        QVERIFY(barrels.isValid() && (barrels.flags() & Qt::ItemIsEditable));
+        QVERIFY(panel.findChild<QTreeView *>()->model()->setData(barrels, 3));
+        QCOMPARE(canvas.undoStack()->count(), 1);
+        for (bool restore : {false, true}) {
+            if (restore) canvas.undoStack()->undo();
+            QCOMPARE(conduitSection(layer.engine(), "C1")[5].toInt(), restore ? first[5].toInt() : 3);
+            QCOMPARE(swmm_link_create_xsect(layer.engine(), link, &section), SWMM_OK);
+            double actualDepth = 0, actualArea = 0;
+            QCOMPARE(swmm_xsect_full_properties(section, &actualDepth, &actualArea, nullptr, nullptr, nullptr, nullptr), SWMM_OK);
+            QCOMPARE(swmm_xsect_free(section), SWMM_OK);
+            QCOMPARE(actualDepth, depth);
+            QCOMPARE(actualArea, area);
+        }
+    }
+
     void mixedLinkPropertiesCommitImmediatelyAndOfferSubtypeScope()
     {
         auto layer = openBulkNetworkLayer();

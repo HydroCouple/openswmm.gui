@@ -78,6 +78,8 @@ struct DataObjectRef {
                             ///  are created on the map.
         PumpCurve = 16,     ///< Curves of type PUMP1..PUMP5 (engine 7..11).
         RatingCurve = 17,   ///< Curves of type RATING (engine 3) — tabular outlets.
+        Transect = 18,      ///< Named irregular conduit cross-section.
+        Street = 19,        ///< Named street conduit cross-section.
     };
 
     SWMM_Engine engine = nullptr;    ///< Engine handle (borrow)

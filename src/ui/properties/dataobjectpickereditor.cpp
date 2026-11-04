@@ -18,6 +18,10 @@
 #include "timeseries/timeseriesregistry.h"
 #include "ui/dialogs/aquifereditordialog.h"
 #include "ui/dialogs/curveeditordialog.h"
+#include "ui/dialogs/transecteditordialog.h"
+#include "ui/dialogs/streeteditordialog.h"
+#include "transect/transectregistry.h"
+#include "street/streetregistry.h"
 #include "ui/dialogs/hydrographgroupeditor.h"
 #include "inlet/inletregistry.h"
 #include "ui/dialogs/inleteditordialog.h"
@@ -74,6 +78,14 @@ void DataObjectPickerEditor::repopulate()
     QStringList items;
     if (m_ref.layer && m_ref.engine) {
         switch (m_ref.kind) {
+        case DataObjectRef::Transect:
+            for (int i = 0; i < swmm_transect_count(m_ref.engine); ++i)
+                if (const char *name = swmm_transect_id(m_ref.engine, i)) items << QString::fromUtf8(name);
+            break;
+        case DataObjectRef::Street:
+            for (int i = 0; i < swmm_street_count(m_ref.engine); ++i)
+                if (const char *name = swmm_street_id(m_ref.engine, i)) items << QString::fromUtf8(name);
+            break;
         case DataObjectRef::TidalCurve:
             // engine table type 6 = CURVE_TIDAL (per openswmm_tables.h comment)
             items = m_ref.layer->tableIdsOfType(6);
@@ -381,6 +393,12 @@ void DataObjectPickerEditor::onPickerClicked()
     case DataObjectRef::TimeSeries:
         dc = SWMMModelLayer::DataTimeSeries;
         break;
+    case DataObjectRef::Transect:
+        dc = SWMMModelLayer::DataTransects;
+        break;
+    case DataObjectRef::Street:
+        dc = SWMMModelLayer::DataStreets;
+        break;
     case DataObjectRef::Pattern:
         dc = SWMMModelLayer::DataPatterns;
         break;
@@ -429,6 +447,20 @@ void DataObjectPickerEditor::onPickerClicked()
     // a `pickCurve` is added (small follow-up).
     QString chosen;
     switch (dc) {
+    case SWMMModelLayer::DataTransects: {
+        auto *registry = qobject_cast<openswmmvis::transect::TransectRegistry *>(m_ref.layer->ensureTransectRegistry());
+        if (!registry) return;
+        chosen = openswmmvis::ui::TransectEditorDialog::pickTransect(
+            registry, m_ref.layer, nullptr, m_ref.currentName, this);
+        break;
+    }
+    case SWMMModelLayer::DataStreets: {
+        auto *registry = qobject_cast<openswmmvis::street::StreetRegistry *>(m_ref.layer->ensureStreetRegistry());
+        if (!registry) return;
+        chosen = openswmmvis::ui::StreetEditorDialog::pickStreet(
+            registry, m_ref.layer, m_ref.currentName, this);
+        break;
+    }
     case SWMMModelLayer::DataHydrographs:
         chosen = HydrographGroupEditor::pickGroup(m_ref.layer, m_ref.currentName, this);
         break;

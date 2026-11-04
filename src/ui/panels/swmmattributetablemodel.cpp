@@ -56,6 +56,7 @@
 #include <openswmm/engine/openswmm_spatial.h>
 #include <openswmm/engine/openswmm_subcatchments.h>
 #include <openswmm/engine/openswmm_tables.h> // pump-curve picker cell
+#include <openswmm/engine/openswmm_xsect.h>
 
 namespace
 {
@@ -232,6 +233,21 @@ ColumnSpec nameCol()
     c.editor = EditorKind::Text;
     c.setter = QStringLiteral("rename");
     return c;
+}
+
+ColumnSpec xsectShapeCol()
+{
+    ColumnSpec spec;
+    spec.key = QStringLiteral("Shape");
+    spec.label = QStringLiteral("Cross-section Shape");
+    spec.setter = QStringLiteral("link_xsect_shape");
+    spec.editor = EditorKind::Enum;
+    for (const auto &shape : openswmmvis::kXsectShapes)
+        spec.enumValues.append(QVariant(QVariantList{QString::fromLatin1(shape.name), shape.engineId}));
+    spec.tooltip = QObject::tr("Choose a numeric cross-section shape, or use Transect Profile or Street Profile "
+                              "to assign a named section. Custom shape replacement uses its dedicated editor. "
+                              "Undo restores each conduit's section.");
+    return spec;
 }
 
 ColumnSpec endpointCol(bool upstream)
@@ -540,6 +556,8 @@ ColumnSpec compoundCol(const QString &key, const QString &label, const QString &
                               "subcatch_rain_gage_ref",    "subcatch_outlet_ref",
                               "subcatch_snowpack_ref",     "subcatch_aquifer_ref"}
                       .contains(setterTag);
+    if (setterTag == QLatin1String("link_xsect_transect_ref") ||
+        setterTag == QLatin1String("link_xsect_street_ref")) c.queryable = true;
     return c;
 }
 
@@ -1062,6 +1080,9 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             // Property Browser opens; lets the user pick a shape +
             // geoms (or a transect, via the new picker) from the
             // attribute table inline.
+            xsectShapeCol(),
+            compoundCol("Transect profile", "Transect Profile", "link_xsect_transect_ref"),
+            compoundCol("Street profile", "Street Profile", "link_xsect_street_ref"),
             compoundCol("XSection", "Cross Section", "link_xsect_ref"),
             // Direct inline geom1..geom4 alongside the XSection editor.
             // Generic labels (meaning varies per shape, surfaced as the
@@ -1556,6 +1577,43 @@ int xsectGeom3Set(SWMM_Engine e, int i, double v)
 int xsectGeom4Set(SWMM_Engine e, int i, double v)
 {
     return xsectGeomSet(e, i, 4, v);
+}
+
+int xsectShapeGet(SWMM_Engine engine, int link, int *shape)
+{
+    double g[4];
+    return swmm_link_get_xsect(engine, link, shape, &g[0], &g[1], &g[2], &g[3]);
+}
+
+bool numericXsectShape(int shape)
+{
+    return !openswmmvis::xsectShapeName(shape).isEmpty() &&
+           shape != SWMM_XSECT_IRREGULAR && shape != SWMM_XSECT_STREET && shape != SWMM_XSECT_CUSTOM;
+}
+
+bool seedNumericXsectGeometry(SWMM_Engine engine, int link, int oldShape, double *geom)
+{
+    if (oldShape != SWMM_XSECT_IRREGULAR && oldShape != SWMM_XSECT_STREET) return true;
+    SWMM_XSect section = nullptr;
+    if (swmm_link_create_xsect(engine, link, &section) != SWMM_OK) return false;
+    double depth = 0;
+    const int result = swmm_xsect_full_properties(section, &depth, nullptr, nullptr, nullptr, nullptr, nullptr);
+    swmm_xsect_free(section);
+    if (result != SWMM_OK || !std::isfinite(depth) || depth <= 0) return false;
+    geom[0] = depth; // Use the profile's physical depth in project units, never its registry index.
+    return true;
+}
+
+int xsectShapeSet(SWMM_Engine engine, int link, int shape)
+{
+    int oldShape = -1;
+    double g[4];
+    const int rc = swmm_link_get_xsect(engine, link, &oldShape, &g[0], &g[1], &g[2], &g[3]);
+    if (rc != SWMM_OK) return rc;
+    if (!numericXsectShape(shape) || oldShape == SWMM_XSECT_CUSTOM)
+        return SWMM_ERR_BADPARAM;
+    if (!seedNumericXsectGeometry(engine, link, oldShape, g)) return SWMM_ERR_BADPARAM;
+    return swmm_link_set_xsect(engine, link, shape, g[0], g[1], g[2], g[3]);
 }
 
 // geom ordinal (1..4) for an inline xsect-geom setter tag, else 0.
@@ -2819,6 +2877,8 @@ SetterEntry setterForUncached(const QString &tag)
     // Inline cross-section geom1..geom4 (read-modify-write over the engine
     // xsect tuple; see xsectGeomGet/Set). flags() greys the geoms that
     // don't apply to a given row's shape.
+    if (tag == QStringLiteral("link_xsect_shape"))
+        return {EntityKind::Link, nullptr, nullptr, &xsectShapeSet, &xsectShapeGet};
     if (tag == QStringLiteral("link_xsect_geom1"))
         return {EntityKind::Link, &xsectGeom1Set, &xsectGeom1Get};
     if (tag == QStringLiteral("link_xsect_geom2"))
@@ -3792,6 +3852,10 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
                                                    data(index, Qt::EditRole).toString()});
     }
 
+    if (role == openswmmvis::kDisabledEnumValuesRole &&
+        m_columnSpecs[col].setter == QLatin1String("link_xsect_shape"))
+        return QVariantList{int(SWMM_XSECT_IRREGULAR), int(SWMM_XSECT_STREET), int(SWMM_XSECT_CUSTOM)};
+
     // FileColumn cells (spec §4 task 4): the delegate asks for the row's
     // available column names via this role. They come from the same header
     // enumeration the timeseries dialog uses (engine detection parity), read
@@ -3967,6 +4031,25 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             // SWMMLinkPropertyAdapter::pumpCurveRef(); the engine
             // write happens in commitValueDirect (the picker editor
             // carries no setter callback by design).
+            if (spec.setter == QLatin1String("link_xsect_transect_ref") ||
+                spec.setter == QLatin1String("link_xsect_street_ref")) {
+                const bool street = spec.setter == QLatin1String("link_xsect_street_ref");
+                DataObjectRef ref;
+                ref.engine = eng;
+                ref.layer = m_layer;
+                ref.kind = street ? DataObjectRef::Street : DataObjectRef::Transect;
+                int shape = -1;
+                double g[4];
+                if (swmm_link_get_xsect(eng, linkIdx, &shape, &g[0], &g[1], &g[2], &g[3]) == SWMM_OK &&
+                    shape == (street ? SWMM_XSECT_STREET : SWMM_XSECT_IRREGULAR) &&
+                    std::isfinite(g[0]) && g[0] >= 0 && g[0] <= std::numeric_limits<int>::max()) {
+                    const int profile = int(std::lround(g[0]));
+                    const char *name = street ? swmm_street_id(eng, profile) : swmm_transect_id(eng, profile);
+                    if (name) ref.currentName = QString::fromUtf8(name);
+                }
+                return role == Qt::EditRole ? QVariant::fromValue(ref)
+                                            : openswmmvis::optionalAttributeName(ref.currentName);
+            }
             if (spec.setter == QStringLiteral("link_pump_curve_ref")) {
                 DataObjectRef dref;
                 dref.engine = eng;
@@ -4459,6 +4542,13 @@ Qt::ItemFlags SWMMAttributeTableModel::flags(const QModelIndex &index) const
                 state == SWMM_STATE_RUNNING)
                 return f; // no ItemIsEditable
         }
+        if (spec.setter == QLatin1String("link_xsect_shape") ||
+            spec.setter == QLatin1String("link_xsect_transect_ref") ||
+            spec.setter == QLatin1String("link_xsect_street_ref")) {
+            const int shape = linkShapeForName(m_layer, objectNameAt(index.row()));
+            if (shape == SWMM_XSECT_CUSTOM || openswmmvis::xsectShapeName(shape).isEmpty())
+                return f;
+        }
         // Inline cross-section geom cells stay editable for every shape —
         // the stored number is real and users need to pre-set a width
         // before switching shape. Only the picker-owned index slots
@@ -4485,12 +4575,54 @@ Qt::ItemFlags SWMMAttributeTableModel::flags(const QModelIndex &index) const
 namespace
 {
 
+// The engine retains all four authored geometry slots. Named profile identities must
+// be resolved again during replay because registry positions can change.
+struct XsectRecord {
+    int shape = -1;
+    double geom[4]{};
+    int barrels = 1;
+    QString profileName;
+};
+
+bool readXsectRecord(SWMM_Engine engine, const QString &name, XsectRecord &record)
+{
+    const int link = swmm_link_index(engine, name.toUtf8().constData());
+    if (link < 0 || swmm_link_get_xsect(engine, link, &record.shape, &record.geom[0],
+        &record.geom[1], &record.geom[2], &record.geom[3]) != SWMM_OK ||
+        swmm_link_get_barrels(engine, link, &record.barrels) != SWMM_OK)
+        return false;
+    record.profileName.clear();
+    if (record.shape == SWMM_XSECT_IRREGULAR || record.shape == SWMM_XSECT_STREET) {
+        if (!std::isfinite(record.geom[0]) || record.geom[0] < 0 ||
+            record.geom[0] > std::numeric_limits<int>::max()) return false;
+        const int index = int(std::lround(record.geom[0]));
+        const char *profile = record.shape == SWMM_XSECT_IRREGULAR
+            ? swmm_transect_id(engine, index) : swmm_street_id(engine, index);
+        if (!profile) return false;
+        record.profileName = QString::fromUtf8(profile);
+    }
+    return !openswmmvis::xsectShapeName(record.shape).isEmpty();
+}
+
+bool resolveXsectProfile(SWMM_Engine engine, XsectRecord &record)
+{
+    if (record.shape != SWMM_XSECT_IRREGULAR && record.shape != SWMM_XSECT_STREET) return true;
+    const auto name = record.profileName.toUtf8();
+    const int index = record.shape == SWMM_XSECT_IRREGULAR
+        ? swmm_transect_index(engine, name.constData()) : swmm_street_index(engine, name.constData());
+    if (index < 0) return false;
+    record.geom[0] = index;
+    return true;
+}
+
 struct ScalarEdit {
     SWMMModelLayer::Category category;
     QString name;
     QString key;
     QVariant before;
     QVariant after;
+    std::optional<XsectRecord> sectionBefore = std::nullopt;
+    std::optional<XsectRecord> sectionAfter = std::nullopt;
 };
 
 QVariant scalarComparable(const QVariant &value)
@@ -4511,6 +4643,29 @@ bool scalarWriteMatches(const QVariant &actual, const QVariant &expected)
                                std::max({1.0, std::abs(a), std::abs(b)}));
     }
     return scalarComparable(actual) == scalarComparable(expected);
+}
+
+bool writeXsectRecord(SWMM_Engine engine, const QString &name, XsectRecord record)
+{
+    if (!resolveXsectProfile(engine, record)) return false;
+    XsectRecord actual;
+    if (!readXsectRecord(engine, name, actual)) return false;
+    bool sectionChanged = actual.shape != record.shape || actual.profileName != record.profileName;
+    for (int i = 0; i < 4; ++i)
+        sectionChanged |= actual.geom[i] != record.geom[i];
+    const int link = swmm_link_index(engine, name.toUtf8().constData());
+    // A barrel-only edit must not rebuild an unchanged named/custom section.
+    if (link < 0 || (sectionChanged &&
+        swmm_link_set_xsect(engine, link, record.shape, record.geom[0], record.geom[1],
+                           record.geom[2], record.geom[3]) != SWMM_OK) ||
+        (actual.barrels != record.barrels && swmm_link_set_barrels(engine, link, record.barrels) != SWMM_OK))
+        return false;
+    if (!readXsectRecord(engine, name, actual) || actual.shape != record.shape ||
+        actual.barrels != record.barrels || actual.profileName != record.profileName)
+        return false;
+    for (int i = 0; i < 4; ++i)
+        if (!scalarWriteMatches(actual.geom[i], record.geom[i])) return false;
+    return true;
 }
 
 // Private category models keep replay independent of the active table and Properties scope.
@@ -4564,6 +4719,8 @@ public:
             if (row < 0 || column < 0) return false;
             const auto index = model->index(row, column);
             if (!(index.flags() & Qt::ItemIsEditable)) return false;
+            auto record = forward ? edit.sectionAfter : edit.sectionBefore;
+            if (record && !resolveXsectProfile(m_layer->engine(), *record)) return false;
             indices.append(index);
         }
         m_layer->beginBulkEdit();
@@ -4571,17 +4728,25 @@ public:
         for (; applied < m_edits.size(); ++applied) {
             const auto &edit = m_edits[applied];
             auto *model = m_models.value(edit.category);
+            const auto record = forward ? edit.sectionAfter : edit.sectionBefore;
             const auto value = forward ? edit.after : edit.before;
-            if (!model->commitValueDirect(indices[applied], value) ||
-                !scalarWriteMatches(model->data(indices[applied], Qt::EditRole), value))
+            if (record) {
+                if (!writeXsectRecord(m_layer->engine(), edit.name, *record)) break;
+            } else if (!model->commitValueDirect(indices[applied], value) ||
+                       !scalarWriteMatches(model->data(indices[applied], Qt::EditRole), value)) {
                 break;
+            }
         }
         const bool success = applied == m_edits.size();
         if (!success) {
             for (int i = applied; i >= 0; --i) {
                 const auto &edit = m_edits[i];
-                m_models.value(edit.category)->commitValueDirect(indices[i],
-                                                               forward ? edit.before : edit.after);
+                const auto record = forward ? edit.sectionBefore : edit.sectionAfter;
+                if (record)
+                    writeXsectRecord(m_layer->engine(), edit.name, *record);
+                else
+                    m_models.value(edit.category)->commitValueDirect(indices[i],
+                                                                   forward ? edit.before : edit.after);
             }
         }
         m_layer->endBulkEdit();
@@ -4750,11 +4915,15 @@ bool SWMMAttributeTableModel::applyScalarEdits(
         return false;
     };
     if (!m_layer || !m_layer->engine()) return fail(tr("The model is closed."));
+    const int prescriptions = int(edits.contains("Shape")) + int(edits.contains("Transect profile")) +
+                              int(edits.contains("Street profile"));
+    if (prescriptions > 1) return fail(tr("Choose one cross-section shape or profile per edit."));
     for (auto group = targets.cbegin(); group != targets.cend(); ++group) {
         SWMMAttributeTableModel model;
         model.setSource(m_layer, group.key());
         const auto specs = model.columnSpecs();
         for (const auto &name : group.value()) {
+            int sectionChange = -1;
             const int row = model.rowForName(name);
             if (row < 0) return fail(tr("%1 no longer exists.").arg(name));
             for (auto it = edits.cbegin(); it != edits.cend(); ++it) {
@@ -4792,6 +4961,21 @@ bool SWMMAttributeTableModel::applyScalarEdits(
                     if (!linkendpoint::allowed(m_layer->engine(), link,
                                                spec.setter == QLatin1String("link_from_node"), node))
                         return fail(tr("%1 is not a valid endpoint for %2.").arg(it.value().toString(), name));
+                } else if (spec.setter == QLatin1String("link_xsect_transect_ref") ||
+                           spec.setter == QLatin1String("link_xsect_street_ref")) {
+                    if (it.value().userType() != qMetaTypeId<DataObjectRef>())
+                        return fail(tr("Choose a named cross-section profile."));
+                    const auto ref = it.value().value<DataObjectRef>();
+                    const bool street = spec.setter == QLatin1String("link_xsect_street_ref");
+                    if (ref.kind != (street ? DataObjectRef::Street : DataObjectRef::Transect) ||
+                        ref.engine != m_layer->engine() || ref.layer != m_layer)
+                        return fail(tr("The profile belongs to a different model or kind."));
+                    if (ref.currentName.isEmpty())
+                        return fail(tr("Choose a numeric shape to remove the named profile."));
+                    const auto name = ref.currentName.toUtf8();
+                    const int profile = street ? swmm_street_index(m_layer->engine(), name.constData())
+                                               : swmm_transect_index(m_layer->engine(), name.constData());
+                    if (profile < 0) return fail(tr("Profile %1 no longer exists.").arg(ref.currentName));
                 } else if (spec.editor == EditorKind::Compound &&
                            (spec.setter == QLatin1String("link_pump_curve_ref") ||
                             spec.setter == QLatin1String("node_outfall_route_to_ref"))) {
@@ -4817,6 +5001,8 @@ bool SWMMAttributeTableModel::applyScalarEdits(
                 } else if (spec.editor != EditorKind::Text || spec.key != QLatin1String("Tag")) {
                     return fail(tr("%1 requires its structured editor.").arg(spec.label));
                 }
+                if (spec.setter == QLatin1String("link_xsect_shape") && !numericXsectShape(it.value().toInt()))
+                    return fail(tr("Choose this profile through its dedicated cross-section picker."));
                 const auto old = model.data(index, Qt::EditRole);
                 auto next = it.value();
                 if (spec.editor == EditorKind::Interval) {
@@ -4824,8 +5010,44 @@ bool SWMMAttributeTableModel::applyScalarEdits(
                     next = QStringLiteral("%1:%2").arg(parts[0].toInt())
                                .arg(parts[1].toInt(), 2, 10, QLatin1Char('0'));
                 }
-                if (scalarComparable(old) != scalarComparable(next))
-                    changes.append({group.key(), name, spec.key, old, next});
+                if (scalarComparable(old) == scalarComparable(next)) continue;
+                ScalarEdit change{group.key(), name, spec.key, old, next};
+                const int ordinal = xsectGeomOrdinalForTag(spec.setter);
+                const bool profileEdit = spec.setter == QLatin1String("link_xsect_transect_ref") ||
+                                         spec.setter == QLatin1String("link_xsect_street_ref");
+                if (group.key() == SWMMModelLayer::CatConduits &&
+                    (ordinal || spec.setter == QLatin1String("link_xsect_shape") ||
+                     spec.setter == QLatin1String("link_barrels") || profileEdit)) {
+                    XsectRecord before;
+                    if (!readXsectRecord(m_layer->engine(), name, before))
+                        return fail(tr("Cannot read the complete cross-section for %1.").arg(name));
+                    auto after = sectionChange < 0 ? before : *changes[sectionChange].sectionAfter;
+                    if (ordinal) after.geom[ordinal - 1] = next.toDouble();
+                    else if (spec.setter == QLatin1String("link_barrels")) after.barrels = next.toInt();
+                    else if (profileEdit) {
+                        const auto ref = next.value<DataObjectRef>();
+                        after.shape = ref.kind == DataObjectRef::Street ? SWMM_XSECT_STREET : SWMM_XSECT_IRREGULAR;
+                        after.profileName = ref.currentName;
+                        std::fill_n(after.geom, 4, 0.0);
+                        if (!resolveXsectProfile(m_layer->engine(), after))
+                            return fail(tr("The named profile no longer exists."));
+                    }
+                    else {
+                        const int link = swmm_link_index(m_layer->engine(), name.toUtf8().constData());
+                        if (!seedNumericXsectGeometry(m_layer->engine(), link, before.shape, after.geom))
+                            return fail(tr("Cannot read the profile depth for %1.").arg(name));
+                        after.shape = next.toInt();
+                        after.profileName.clear();
+                    }
+                    if (sectionChange >= 0) {
+                        changes[sectionChange].sectionAfter = after;
+                        continue;
+                    }
+                    sectionChange = changes.size();
+                    change.sectionBefore = before;
+                    change.sectionAfter = after;
+                }
+                changes.append(change);
             }
         }
     }
@@ -5521,7 +5743,9 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index, const QVariant &
     }
 
     if (spec.setter == QLatin1String("link_pump_curve_ref") ||
-        spec.setter == QLatin1String("node_outfall_route_to_ref")) {
+        spec.setter == QLatin1String("node_outfall_route_to_ref") ||
+        spec.setter == QLatin1String("link_xsect_transect_ref") ||
+        spec.setter == QLatin1String("link_xsect_street_ref")) {
         QString error;
         return applyScalarEdits(QStringList{objectNameAt(row)}, {{spec.key, value}}, m_undoStack, &error);
     }
@@ -5547,7 +5771,8 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index, const QVariant &
 
     // Wrap each numeric/enum commit in an undo command when a stack is attached.
     if (spec.editor == EditorKind::Numeric || spec.editor == EditorKind::Integer ||
-        (spec.editor == EditorKind::Text && spec.key == QLatin1String("Tag"))) {
+        (spec.editor == EditorKind::Text && spec.key == QLatin1String("Tag")) ||
+        spec.setter == QLatin1String("link_xsect_shape")) {
         QString error;
         return applyScalarEdits({objectNameAt(row)}, {{spec.key, value}}, m_undoStack, &error);
     }
