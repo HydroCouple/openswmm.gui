@@ -4306,6 +4306,7 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             sref.engine = eng;
             sref.layer = m_layer;
             sref.subName = name;
+            sref.undoStack = m_undoStack;
             if (spec.setter == QStringLiteral("subcatch_landuse_ref")) {
                 sref.kind = SubcatchCompoundEditRef::LandUse;
                 int assigned = 0;
@@ -6311,6 +6312,12 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index, const QVariant &
             (spec.setter == "node_inflows_ref" || spec.setter == "node_dwf_ref" ||
              spec.setter == "node_rdii_ref" || spec.setter == "node_treatment_ref"))
             return true; // Opening the checked editor is navigation; it owns mutation notifications.
+    }
+    if (value.userType() == qMetaTypeId<SubcatchCompoundEditRef>()) {
+        const auto ref = value.value<SubcatchCompoundEditRef>();
+        if (ref.layer == m_layer && ref.engine == m_layer->engine() &&
+            (spec.setter == "subcatch_landuse_ref" || spec.setter == "subcatch_loadings_ref"))
+            return true;
     }
 
     // Compound columns mutate engine state inside the dialog over

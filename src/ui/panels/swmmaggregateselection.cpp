@@ -15,12 +15,15 @@
 #include "ui/properties/dataobjectref.h"
 #include "ui/properties/linkendpointref.h"
 #include "ui/properties/nodecompoundeditref.h"
+#include "ui/properties/subcatchcompoundeditref.h"
 
 using openswmmvis::EditorKind;
 
 namespace {
 QVariant comparable(const QVariant &value)
 {
+    if (value.userType() == qMetaTypeId<SubcatchCompoundEditRef>())
+        return int(value.value<SubcatchCompoundEditRef>().kind);
     if (value.userType() == qMetaTypeId<NodeCompoundEditRef>())
         return int(value.value<NodeCompoundEditRef>().kind); // Navigation; values are compared inside the row editor.
     if (value.userType() == qMetaTypeId<DataObjectRef>()) {
@@ -103,6 +106,7 @@ bool SWMMAggregateSelection::supports(const openswmmvis::ColumnSpec &spec)
          spec.editor == EditorKind::Interval || spec.editor == EditorKind::LinkEndpoint ||
          (spec.editor == EditorKind::Compound &&
           (spec.setter == "node_inflows_ref" || spec.setter == "node_dwf_ref" ||
+           spec.setter == "subcatch_landuse_ref" || spec.setter == "subcatch_loadings_ref" ||
            spec.setter == "node_rdii_ref" || spec.setter == "node_treatment_ref" ||
            spec.setter == QLatin1String("link_pump_curve_ref") ||
            spec.setter == QLatin1String("node_outfall_route_to_ref") ||
@@ -156,6 +160,14 @@ QVariant SWMMAggregateSelection::editorData(int column, int role) const
             const int row = model->rowForName(name);
             if (row < 0) continue;
             auto value = model->index(row, col).data(role);
+            if (value.userType() == qMetaTypeId<SubcatchCompoundEditRef>()) {
+                auto ref = value.value<SubcatchCompoundEditRef>();
+                for (auto it = m_targets.cbegin(); it != m_targets.cend(); ++it)
+                    ref.subNames.append(it.value());
+                ref.undoStack = m_undo;
+                ref.summary = tr("%1 selected subcatchments").arg(ref.subNames.size());
+                return QVariant::fromValue(ref);
+            }
             if (value.userType() == qMetaTypeId<NodeCompoundEditRef>()) {
                 auto ref = value.value<NodeCompoundEditRef>();
                 for (auto it = m_targets.cbegin(); it != m_targets.cend(); ++it) ref.nodeNames.append(it.value());
@@ -263,6 +275,7 @@ SWMMAggregateSelection::Field SWMMAggregateSelection::field(int column) const
 bool SWMMAggregateSelection::setValue(int column, const QVariant &value)
 {
     if (value.userType() == qMetaTypeId<NodeCompoundEditRef>()) return true; // Navigation; the child model owns writes.
+    if (value.userType() == qMetaTypeId<SubcatchCompoundEditRef>()) return true;
     QString error;
     const bool accepted = stage(column, value) && apply(&error);
     if (!accepted) {

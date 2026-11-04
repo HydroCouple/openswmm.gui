@@ -3672,6 +3672,19 @@ add_swmmvis_gui_test(test_attributetableschema
 )
 swmmvis_link_full_app_deps(test_attributetableschema)
 
+add_swmmvis_gui_test(test_subcatchqualitybulk
+    test_subcatchqualitybulk.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_subcatchqualitybulk)
+
+# The owned coverage/loading dialog now uses the shared layer-aware writer.
+target_sources(test_subcatch_coverage_loadings PRIVATE
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_subcatch_coverage_loadings)
+target_link_libraries(test_subcatch_coverage_loadings PRIVATE swmmvis_build_info)
+
 # Data objects (pollutants / land uses / aquifers / streets / inlets) as
 # Attribute Table sources, and the registry's open-for-object dispatch behind
 # Object Browser "Edit…" / double-click

@@ -19,6 +19,9 @@
 
 #include <QMetaType>
 #include <QString>
+#include <QStringList>
+#include <QPointer>
+#include <QUndoStack>
 
 #include <openswmm/engine/openswmm_callbacks.h> // SWMM_Engine typedef
 
@@ -38,6 +41,8 @@ struct SubcatchCompoundEditRef {
     Kind kind = LandUse;
     QString summary;                 ///< Short text shown in the cell
     SWMMModelLayer *layer = nullptr; ///< Owning layer (borrow) for pickers
+    QStringList subNames; ///< Captured scope; empty means subName only.
+    QPointer<QUndoStack> undoStack;
 
     /**
      * @brief Compare reference identity and every cached display/value field.
@@ -47,7 +52,8 @@ struct SubcatchCompoundEditRef {
     bool operator==(const SubcatchCompoundEditRef &other) const noexcept
     {
         return engine == other.engine && subName == other.subName && kind == other.kind &&
-               summary == other.summary && layer == other.layer;
+               summary == other.summary && layer == other.layer && subNames == other.subNames &&
+               undoStack == other.undoStack;
     }
 };
 

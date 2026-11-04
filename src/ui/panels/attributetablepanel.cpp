@@ -28,6 +28,7 @@
 #include "ui/dialogs/hydrographgroupeditor.h"
 #include "ui/dialogs/linkcompoundeditdialog.h"
 #include "ui/dialogs/nodecompoundeditdialog.h"
+#include "ui/dialogs/subcatchcompoundeditdialog.h"
 #include "ui/dialogs/patterneditordialog.h"
 #include "ui/dialogs/timeserieseditordialog.h"
 #include "curve/curveregistry.h"
@@ -3080,6 +3081,28 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
                 NodeCompoundEditRef updated = ref;
                 updated.summary = dlg.updatedSummary();
                 m_model->setData(sourceIdx, QVariant::fromValue(updated), Qt::EditRole);
+            });
+            addedEditAction = true;
+        }
+    } else if (metaId == qMetaTypeId<SubcatchCompoundEditRef>()) {
+        auto ref = cellValue.value<SubcatchCompoundEditRef>();
+        if (ref.layer && (ref.kind == SubcatchCompoundEditRef::LandUse ||
+                          ref.kind == SubcatchCompoundEditRef::Loadings)) {
+            const auto rows = selectedSourceRows();
+            if (rows.contains(sourceIdx.row()))
+                for (int row : rows)
+                    ref.subNames << m_model->objectNameAt(row);
+            ref.undoStack = m_canvas ? m_canvas->undoStack() : nullptr;
+            auto *action = menu.addAction(
+                tr("Edit %1 for %2 subcatchments…")
+                    .arg(m_model->columnSpecs().value(sourceIdx.column()).label)
+                    .arg(ref.subNames.isEmpty() ? 1 : ref.subNames.size()));
+            connect(action, &QAction::triggered, this, [this, ref] {
+                if (m_model->layer() != ref.layer || ref.layer->engine() != ref.engine)
+                    return;
+                auto *dialog = new SubcatchCompoundEditDialog(ref, window());
+                dialog->setAttribute(Qt::WA_DeleteOnClose);
+                dialog->show();
             });
             addedEditAction = true;
         }

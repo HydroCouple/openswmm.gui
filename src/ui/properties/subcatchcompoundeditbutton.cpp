@@ -12,6 +12,9 @@
 
 #include "ui/dialogs/groundwaterexchangedialog.h"
 #include "ui/dialogs/subcatchcompoundeditdialog.h"
+#include "layers/swmmmodellayer.h"
+#include "map/mapcanvas.h"
+#include "map/mapundostack.h"
 
 #include <QHBoxLayout>
 #include <QPushButton>
@@ -64,6 +67,20 @@ void SubcatchCompoundEditButton::onClicked()
         return;
     }
 
+    if (m_ref.layer && (m_ref.kind == SubcatchCompoundEditRef::LandUse ||
+                        m_ref.kind == SubcatchCompoundEditRef::Loadings)) {
+        auto ref = m_ref;
+        if (!ref.undoStack)
+            for (auto *canvas : window()->findChildren<MapCanvas *>())
+                if (canvas->layers().contains(ref.layer)) {
+                    ref.undoStack = canvas->undoStack();
+                    break;
+                }
+        auto *dialog = new SubcatchCompoundEditDialog(ref, window());
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->show();
+        return;
+    }
     SubcatchCompoundEditDialog dlg(m_ref, this);
     dlg.exec();
 

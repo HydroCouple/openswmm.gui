@@ -43,7 +43,10 @@ public:
      *   invocation if needed.
      * @brief Build all three compound pages and read selected active page without source writes on
      *   construction.
-     * @note Subsequent cell/Add/Remove edits call C API immediately, without undo commands or
+     * @note Owned LandUse/Loadings contexts use the shared selection-aware model with immediate
+     *   checked field edits, layer notifications and the supplied Undo stack. The captured
+     *   subNames scope defaults to subName when empty. The legacy/unowned and LID paths
+     *   call C API immediately, without undo commands or
      *   dialog-level layer markEdited/attribute notifications. Close/reject does not undo writes.
      *   Layer destruction/engineAboutToClose invalidates, geometryChanged verifies current name;
      *   unbound-layer callers invalidate BEFORE engine closure and serialize GUI-thread access. No
