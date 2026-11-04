@@ -15,6 +15,8 @@
 #include <openswmm/engine/openswmm_quality.h>
 #include <openswmm/engine/openswmm_pollutants.h>
 #include <openswmm/engine/openswmm_edit.h>
+#include <openswmm/engine/openswmm_reactions.h>
+#include <QTableWidget>
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDir>
@@ -44,7 +46,7 @@ bool coverage(Kind kind)
 {
     return kind == SubcatchCompoundEditRef::LandUse;
 }
-std::unique_ptr<SWMMModelLayer> fixture(bool si = false)
+std::unique_ptr<SWMMModelLayer> fixture(bool si = false, bool species = false, bool noPollutants = false)
 {
     QFile base(QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA"))
                    .filePath("typed_selection_fixture.inp"));
@@ -64,10 +66,23 @@ std::unique_ptr<SWMMModelLayer> fixture(bool si = false)
         "[POLYGONS]\nS2 -1500 1600\nS2 -1000 1600\nS2 -1000 2100\nS2 -1500 2100\n"
         "S3 -800 1600\nS3 -300 1600\nS3 -300 2100\nS3 -800 2100\n"
         "Control -100 1600\nControl 400 1600\nControl 400 2100\nControl -100 2100\n";
-    QDir().mkpath(auditDir() + "/review");
-    const auto path = QDir(auditDir())
-                          .filePath(si ? "review/subcatch-quality-SI.inp"
-                                       : "review/Subcatch_Quality_Properties_Review.inp");
+    const auto review = species ? QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA"))
+        .absoluteFilePath("../../../workplans/bulk-species-loadings/review") : auditDir() + "/review";
+    QDir().mkpath(review);
+    if (species) {
+        QFile rxn(QDir(review).filePath("species.rxn"));
+        if (!rxn.open(QIODevice::WriteOnly | QIODevice::Truncate)) return {};
+        rxn.write("[REACTION_OPTIONS]\nSOLVER BDF2\nRATE_UNITS HR\n[REACTION_SPECIES]\nBULK UnusedRx MG\nBULK A MG\nBULK U UG\nBULK Q COUNTS\nBULK M MMOL\nWALL W MG\n[REACTION_PIPES]\nRATE A 0\nRATE U 0\nRATE Q 0\nRATE M 0\nRATE W 0\n"); rxn.close();
+        if (noPollutants) {
+            for (const auto &line : text.split('\n'))
+                if (line.startsWith("Unused MG/") || line.startsWith("PA MG/") || line.startsWith("PB UG/") ||
+                    line.contains(" PA ") || line.contains(" PB ")) text.replace(line + '\n', "");
+        }
+        text += "\n[PROCESS_COMPONENTS]\norg.hydrocouple.openswmm.reactions config=\"species.rxn\"\n"
+                "[LOADINGS]\nS1 A 1.2345678901234567\nS2 A 2.345\nControl A 17\nS1 U 9.125\nS2 U 8.25\nS3 U 7.75\nControl U 6.5\n";
+    }
+    const auto path = QDir(review).filePath(species ? QString("Species_Loadings_%1_%2.inp").arg(si ? "SI" : "US").arg(noPollutants ? "only" : "mixed")
+        : si ? "subcatch-quality-SI.inp" : "Subcatch_Quality_Properties_Review.inp");
     QFile file(path);
     if (!file.open(QIODevice::WriteOnly | QIODevice::Truncate))
         return {};
@@ -127,6 +142,23 @@ QModelIndex qualityProperty(QAbstractItemModel *model, const QString &label,
             return child;
     }
     return {};
+}
+QString speciesReview() {
+    return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA")).absoluteFilePath("../../../workplans/bulk-species-loadings/review");
+}
+QVariantMap allLoadings(SWMM_Engine e, const QString &name) {
+    QVariantMap result;
+    const int sub = swmm_subcatch_index(e, name.toUtf8().constData());
+    for (const auto &field : subcatchloadings::fields(e)) {
+        double value = 0;
+        if (swmm_subcatch_get_initial_loading(e, sub, field.index, &value) == SWMM_OK)
+            result[(field.species ? "species:" : "pollutant:") + field.name] = value;
+    }
+    return result;
+}
+int speciesLoadingIndex(SWMM_Engine e, const QString &name) {
+    for (const auto &field : subcatchloadings::fields(e)) if (field.species && field.name == name) return field.index;
+    return -1;
 }
 void writeAudit(SWMMModelLayer *layer)
 {
@@ -350,6 +382,162 @@ private slots:
         QVERIFY(!legacy.setData(cell(&legacy, key), 25.0));
         QCOMPARE(undo.count(), 0);
         QCOMPARE(state(e, kind, "S1").value(key).toDouble(), authored);
+    }
+    void speciesBulkCommitAndPersistence_data() {
+        QTest::addColumn<bool>("si"); QTest::addColumn<bool>("only"); QTest::addColumn<QString>("key");
+        for (bool si : {false, true}) for (bool only : {false, true}) for (auto key : {"A", "U", "Q", "M"})
+            QTest::newRow(qPrintable(QString("%1-%2-%3").arg(key).arg(si).arg(only))) << si << only << QString(key);
+    }
+    void speciesBulkCommitAndPersistence() {
+        QFETCH(bool, si); QFETCH(bool, only); QFETCH(QString, key);
+        auto layer = fixture(si, true, only); QVERIFY(layer); auto e = layer->engine(); QUndoStack undo;
+        QList<QVariantMap> before; for (auto name : {"S1", "S2", "S3"}) before << allLoadings(e, name);
+        const auto control = allLoadings(e, "Control");
+        SubcatchQualityTableModel model(refFor(layer.get(), SubcatchCompoundEditRef::Loadings, &undo));
+        QCOMPARE(model.columnCount(), 3); QCOMPARE(model.rowCount(), swmm_pollutant_count(e) + 6);
+        const QString expectedUnit = (key == "Q" ? "COUNTS" : key == "M" ? "MMOL" : si ? "kg" : "lb") + QString(si ? "/ha" : "/ac");
+        QCOMPARE(cell(&model, key).siblingAtColumn(2).data().toString(), expectedUnit);
+        auto wall = cell(&model, "W"); QVERIFY(wall.isValid()); QVERIFY(!(wall.flags() & Qt::ItemIsEditable));
+        QVERIFY(wall.data(Qt::ToolTipRole).toString().contains("Wall")); QVERIFY(!model.setData(wall, 3));
+        QSignalSpy dirty(layer.get(), &SWMMModelLayer::modelEdited);
+        QVERIFY2(model.setData(cell(&model, key), 42.125), qPrintable(model.lastError()));
+        QCOMPARE(undo.count(), 1); QCOMPARE(dirty.count(), 1);
+        QVERIFY(model.setData(cell(&model, key), 42.125)); QCOMPARE(undo.count(), 1); QCOMPARE(dirty.count(), 1);
+        int n = 0; for (auto name : {"S1", "S2", "S3"}) { auto expected = before[n++]; expected["species:" + key] = 42.125; QCOMPARE(allLoadings(e, name), expected); }
+        QCOMPARE(allLoadings(e, "Control"), control);
+        undo.undo(); n = 0; for (auto name : {"S1", "S2", "S3"}) QCOMPARE(allLoadings(e, name), before[n++]);
+        undo.redo(); QCoreApplication::processEvents();
+        const auto path = QDir(speciesReview()).filePath(QString("saved-%1-%2-%3.inp").arg(key).arg(si).arg(only));
+        QCOMPARE(swmm_model_write(e, path.toUtf8().constData()), SWMM_OK);
+        SWMMModelLayer reopened(path); QList<QString> warnings, errors; QVERIFY2(reopened.loadModel(warnings, errors), qPrintable(errors.join(' ')));
+        for (auto name : {"S1", "S2", "S3", "Control"}) QCOMPARE(allLoadings(reopened.engine(), name), allLoadings(e, name));
+        QVERIFY(model.setData(cell(&model, key), 0));
+        for (auto name : {"S1", "S2", "S3"}) QCOMPARE(allLoadings(e, name).value("species:" + key).toDouble(), 0.0);
+        undo.undo(); for (auto name : {"S1", "S2", "S3"}) QCOMPARE(allLoadings(e, name).value("species:" + key).toDouble(), 42.125);
+        QList<QVariantMap> prepared; for (auto name : {"S1", "S2", "S3", "Control"}) prepared << allLoadings(e, name);
+        QCOMPARE(swmm_engine_initialize(e), SWMM_OK);
+        n = 0; for (auto name : {"S1", "S2", "S3", "Control"}) QCOMPARE(allLoadings(e, name), prepared[n++]);
+        QVERIFY(!model.setData(cell(&model, key), 99));
+    }
+    void speciesPropertiesKeyboardAndOwnedSummary() {
+        auto layer = fixture(false, true); QVERIFY(layer); auto e = layer->engine(); MapCanvas canvas;
+        layer->setEditCanvas(&canvas);
+        PropertiesPanel properties; properties.setProject(layer.get());
+        properties.showSelection(&canvas, {{SWMMObjectRef::Subcatchment, "S1"}, {SWMMObjectRef::Subcatchment, "S2"}, {SWMMObjectRef::Subcatchment, "S3"}});
+        properties.resize(800, 1000); properties.show();
+        auto *tree = properties.findChild<QTreeView *>(); QVERIFY(tree); tree->expandAll();
+        const auto field = qualityProperty(tree->model(), "Initial Loadings"); QVERIFY(field.isValid()); tree->edit(field);
+        auto *button = qobject_cast<SubcatchCompoundEditButton *>(tree->indexWidget(field)); QVERIFY(button);
+        button->findChild<QPushButton *>()->click();
+        auto *dialog = properties.findChild<SubcatchCompoundEditDialog *>(); QVERIFY(dialog);
+        QCOMPARE(dialog->findChild<QDialogButtonBox *>()->standardButtons(), QDialogButtonBox::StandardButtons(QDialogButtonBox::Close));
+        auto *table = dialog->findChild<QTableView *>("subcatchQualityTable"); QVERIFY(table);
+        auto *model = dynamic_cast<SubcatchQualityTableModel *>(table->model()); QVERIFY(model);
+        properties.showSelection(&canvas, {{SWMMObjectRef::Subcatchment, "Control"}});
+        const auto before = allLoadings(e, "S1"), control = allLoadings(e, "Control");
+        for (auto key : {Qt::Key_Tab, Qt::Key_Escape}) {
+            table->edit(cell(model, "A")); auto *line = table->findChild<QLineEdit *>(); QVERIFY(line); line->setFocus();
+            if (key == Qt::Key_Escape) QTest::keyClicks(line, "99");
+            QTest::keyClick(line, key); QCOMPARE(canvas.undoStack()->count(), 0);
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        }
+        table->edit(cell(model, "A")); auto *line = table->findChild<QLineEdit *>(); QVERIFY(line); line->setFocus(); QTest::keyClicks(line, "12.125"); QTest::keyClick(line, Qt::Key_Return);
+        QTRY_COMPARE(canvas.undoStack()->count(), 1);
+        for (auto name : {"S1", "S2", "S3"}) QCOMPARE(allLoadings(e, name).value("species:A").toDouble(), 12.125);
+        QCOMPARE(allLoadings(e, "Control"), control);
+        SWMMSubcatchPropertyAdapter adapter(e, "S1"); adapter.setModelLayer(layer.get());
+        SWMMAttributeTableModel source; source.setSource(layer.get(), SWMMModelLayer::CatSubcatchments);
+        const int loadingColumn = source.columnKeys().indexOf("Loadings"); QVERIFY(loadingColumn >= 0);
+        auto ref = source.index(source.rowForName("S1"), loadingColumn).data(Qt::EditRole).value<SubcatchCompoundEditRef>();
+        QCOMPARE(ref.summary, adapter.loadingsRef().summary); QVERIFY(ref.summary.contains("constituent"));
+        dialog->close(); QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        canvas.undoStack()->undo(); QCOMPARE(allLoadings(e, "S1"), before);
+        auto single = adapter.loadingsRef(); single.undoStack = canvas.undoStack();
+        SubcatchCompoundEditDialog owned(single); owned.show(); table = owned.findChild<QTableView *>("subcatchQualityTable"); QVERIFY(table);
+        model = dynamic_cast<SubcatchQualityTableModel *>(table->model()); QVERIFY(model);
+        QVERIFY(model->setData(cell(model, "Q"), 5.5)); QCOMPARE(allLoadings(e, "S1").value("species:Q").toDouble(), 5.5);
+        QCOMPARE(allLoadings(e, "S2").value("species:Q").toDouble(), 0.0);
+    }
+    void speciesReindexAndDefinitionGuards() {
+        auto layer = fixture(false, true); QVERIFY(layer); auto e = layer->engine(); QUndoStack undo;
+        auto ref = refFor(layer.get(), SubcatchCompoundEditRef::Loadings, &undo);
+        SubcatchQualityTableModel model(ref); const auto before = allLoadings(e, "S1");
+        QVERIFY(model.setData(cell(&model, "A"), 5.5));
+        QCOMPARE(swmm_reaction_species_remove(e, 0), SWMM_OK); emit layer->dataObjectsChanged();
+        QCOMPARE(swmm_pollutant_delete(e, 0, nullptr), SWMM_OK); emit layer->dataObjectsChanged();
+        undo.undo(); QCOMPARE(allLoadings(e, "S1").value("species:A"), before.value("species:A"));
+        undo.redo(); QCOMPARE(allLoadings(e, "S2").value("species:A").toDouble(), 5.5);
+        int species = speciesLoadingIndex(e, "A") - swmm_pollutant_count(e);
+        QCOMPARE(swmm_reaction_species_remove(e, species), SWMM_OK); emit layer->dataObjectsChanged();
+        QCOMPARE(swmm_reaction_species_add(e, "A", 0, "UG", 0, 0), SWMM_OK); emit layer->dataObjectsChanged();
+        undo.undo(); QCOMPARE(allLoadings(e, "S1").value("species:A").toDouble(), 0.0);
+    }
+    void speciesNameCollision() {
+        auto layer = fixture(false, true); QVERIFY(layer); auto e = layer->engine(); QUndoStack undo;
+        auto ref = refFor(layer.get(), SubcatchCompoundEditRef::Loadings, &undo);
+        SubcatchQualityTableModel model(ref); QVERIFY(model.setData(cell(&model, "A"), 5));
+        QCOMPARE(swmm_pollutant_add(e, "A", 0), SWMM_OK); emit layer->dataObjectsChanged();
+        int rows = 0, restricted = 0;
+        for (int row = 0; row < model.rowCount(); ++row) if (model.index(row, 0).data().toString() == "A") {
+            ++rows; auto index = model.index(row, 1);
+            if (index.data(Qt::ToolTipRole).toString().contains("owns this loading name")) {
+                ++restricted; QVERIFY(!(index.flags() & Qt::ItemIsEditable)); QVERIFY(!model.setData(index, 9));
+            }
+        }
+        QCOMPARE(rows, 2); QCOMPARE(restricted, 1);
+        QCOMPARE(swmm_subcatch_set_initial_loading(e, 0, speciesLoadingIndex(e, "A"), 3), SWMM_ERR_BADPARAM);
+        undo.undo(); QCOMPARE(allLoadings(e, "S1").value("species:A").toDouble(), 5.0);
+    }
+    void speciesUnitChangesAndStaleValues() {
+        auto layer = fixture(false, true); QVERIFY(layer); auto e = layer->engine(); QUndoStack undo;
+        auto ref = refFor(layer.get(), SubcatchCompoundEditRef::Loadings, &undo);
+        SubcatchQualityTableModel model(ref); const auto original = allLoadings(e, "S1");
+        QCOMPARE(swmm_subcatch_set_initial_loading(e, swmm_subcatch_index(e, "S2"), speciesLoadingIndex(e, "A"), 99), SWMM_OK);
+        QVERIFY(!model.setData(cell(&model, "A"), 8)); QCOMPARE(allLoadings(e, "S1"), original); QCOMPARE(undo.count(), 0);
+        SubcatchCompoundEditDialog dialog(ref); dialog.show(); auto *table = dialog.findChild<QTableView *>("subcatchQualityTable"); QVERIFY(table);
+        auto *live = dynamic_cast<SubcatchQualityTableModel *>(table->model()); QVERIFY(live);
+        QVERIFY(live->setData(cell(live, "A"), 6)); QCoreApplication::processEvents();
+        table->edit(cell(live, "A")); QPointer<QLineEdit> draft = table->findChild<QLineEdit *>(); QVERIFY(draft);
+        draft->setText("17"); draft->setModified(true);
+        QCOMPARE(swmm_options_set(e, "FLOW_UNITS", "CMS"), SWMM_OK); emit layer->optionsChanged({"FLOW_UNITS"});
+        QCoreApplication::processEvents(); undo.undo();
+        QCOMPARE(allLoadings(e, "S1").value("species:A").toDouble(), 6.0);
+        QCOMPARE(cell(live, "A").siblingAtColumn(2).data().toString(), QString("kg/ha"));
+        if (draft) QMetaObject::invokeMethod(draft, "editingFinished");
+        QCOMPARE(allLoadings(e, "S1").value("species:A").toDouble(), 6.0);
+    }
+    void speciesTargetLifecycleAndInvalidBatch() {
+        auto layer = fixture(false, true); QVERIFY(layer); auto e = layer->engine(); QUndoStack undo;
+        auto ref = refFor(layer.get(), SubcatchCompoundEditRef::Loadings, &undo);
+        auto missing = ref; missing.subNames = {"S1", "Missing"}; SubcatchQualityTableModel invalid(missing);
+        const auto before = allLoadings(e, "S1"), control = allLoadings(e, "Control");
+        QVERIFY(!invalid.setData(cell(&invalid, "A"), 9)); QCOMPARE(allLoadings(e, "S1"), before);
+        SubcatchQualityTableModel model(ref);
+        for (auto value : {QVariant("nan"), QVariant("inf"), QVariant(-1)}) QVERIFY(!model.setData(cell(&model, "A"), value));
+        QCOMPARE(undo.count(), 0); QVERIFY(model.setData(cell(&model, "A"), 9));
+        QVERIFY(layer->applyRename("S1", "Renamed", SWMMModelLayer::kKindCatch));
+        undo.undo(); QCOMPARE(allLoadings(e, "Renamed"), before); undo.redo();
+        QVERIFY(layer->applySubcatchDelete("S2")); QVERIFY(layer->applySubcatchAdd("S2", {{0,0},{10,0},{10,10},{0,0}}));
+        const auto accepted = allLoadings(e, "Renamed"); undo.undo(); QCOMPARE(allLoadings(e, "Renamed"), accepted);
+        QCOMPARE(allLoadings(e, "S2").value("species:A").toDouble(), 0.0); QCOMPARE(allLoadings(e, "Control"), control);
+        QVERIFY(!model.setData(cell(&model, "A"), 11));
+        undo.clear(); ref.subName = "Renamed"; ref.subNames = {"Renamed"};
+        auto closing = std::make_unique<SubcatchQualityTableModel>(ref); QVERIFY(closing->setData(cell(closing.get(), "A"), 12));
+        layer.reset(); undo.undo(); QVERIFY(!closing->setData(cell(closing.get(), "A"), 13));
+    }
+    void standaloneSpeciesAndReviewFixture() {
+        auto layer = fixture(false, true); QVERIFY(layer); auto e = layer->engine();
+        auto ref = refFor(layer.get(), SubcatchCompoundEditRef::Loadings, nullptr); ref.layer = nullptr; ref.subNames.clear();
+        SubcatchCompoundEditDialog dialog(ref); auto tables = dialog.findChildren<QTableWidget *>(); QTableWidget *table = nullptr;
+        for (auto *candidate : tables) if (candidate->horizontalHeaderItem(0)->text() == "Constituent") table = candidate;
+        QVERIFY(table); int a = -1, w = -1;
+        for (int row = 0; row < table->rowCount(); ++row) { if (table->item(row, 0)->text() == "A") a = row; if (table->item(row, 0)->text() == "W") w = row; }
+        QVERIFY(a >= 0 && w >= 0); QVERIFY(!(table->item(w, 1)->flags() & Qt::ItemIsEditable));
+        table->item(a, 1)->setText("6.75"); QCOMPARE(allLoadings(e, "S1").value("species:A").toDouble(), 6.75);
+        const auto path = QDir(speciesReview()).filePath("Species_Loadings_Review_Ready.inp");
+        QCOMPARE(swmm_model_write(e, path.toUtf8().constData()), SWMM_OK);
+        SWMMModelLayer reopened(path); QList<QString> warnings, errors; QVERIFY2(reopened.loadModel(warnings, errors), qPrintable(errors.join(' ')));
+        QCOMPARE(allLoadings(reopened.engine(), "S1"), allLoadings(e, "S1"));
     }
     void definitionReindexAndReuse_data() { validationZeroAndNativeReplay_data(); }
     void definitionReindexAndReuse();

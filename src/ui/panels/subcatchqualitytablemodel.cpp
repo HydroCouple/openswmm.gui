@@ -31,12 +31,12 @@ bool editable(SWMM_Engine engine)
     return engine && swmm_engine_get_state(engine, &state) == SWMM_OK &&
            (state == SWMM_STATE_BUILDING || state == SWMM_STATE_OPENED);
 }
-int definition(SWMM_Engine engine, Kind kind, const QString &name)
+int definition(SWMM_Engine engine, Kind kind, const subcatchloadings::Field &field)
 {
-    return coverage(kind) ? swmm_landuse_index(engine, name.toUtf8().constData())
-                          : swmm_pollutant_index(engine, name.toUtf8().constData());
+    return coverage(kind) ? swmm_landuse_index(engine, field.name.toUtf8().constData())
+                          : subcatchloadings::resolve(engine, field);
 }
-bool read(SWMM_Engine engine, Kind kind, const QString &key, const QStringList &names,
+bool read(SWMM_Engine engine, Kind kind, const subcatchloadings::Field &key, const QStringList &names,
           QVector<double> &values)
 {
     const int item = definition(engine, kind, key);
@@ -55,7 +55,7 @@ bool read(SWMM_Engine engine, Kind kind, const QString &key, const QStringList &
     }
     return true;
 }
-bool write(SWMM_Engine engine, Kind kind, const QString &key, const QString &name, double value)
+bool write(SWMM_Engine engine, Kind kind, const subcatchloadings::Field &key, const QString &name, double value)
 {
     const int sub = swmm_subcatch_index(engine, name.toUtf8().constData());
     const int item = definition(engine, kind, key);
@@ -69,13 +69,13 @@ bool write(SWMM_Engine engine, Kind kind, const QString &key, const QString &nam
 class QualityCommand : public QUndoCommand
 {
 public:
-    QualityCommand(SWMMModelLayer *layer, Kind kind, QString key, QStringList names,
+    QualityCommand(SWMMModelLayer *layer, Kind kind, subcatchloadings::Field key, QStringList names,
                    QVector<double> before, QVector<double> after)
         : m_layer(layer), m_engine(layer->engine()), m_kind(kind), m_key(std::move(key)),
           m_names(std::move(names)), m_before(std::move(before)), m_after(std::move(after)),
           m_count(swmm_subcatch_count(m_engine))
     {
-        setText(QObject::tr("Edit %1 on selected subcatchments").arg(m_key));
+        setText(QObject::tr("Edit %1 on selected subcatchments").arg(m_key.name));
         QObject::connect(layer, &SWMMModelLayer::engineAboutToClose, &m_context,
                          [this] { m_valid = false; });
         QObject::connect(layer, &SWMMModelLayer::objectRenamed, &m_context,
@@ -100,6 +100,11 @@ public:
                 return;
             if (!m_layer || m_layer->engine() != m_engine ||
                 definition(m_engine, m_kind, m_key) < 0)
+                m_valid = false;
+        });
+        QObject::connect(layer, &SWMMModelLayer::optionsChanged, &m_context, [this](const QStringList &keys) {
+            if (!m_valid || !m_layer || m_layer->engine() != m_engine) return;
+            if (!coverage(m_kind) && keys.contains("FLOW_UNITS") && definition(m_engine, m_kind, m_key) < 0)
                 m_valid = false;
         });
     }
@@ -150,7 +155,7 @@ private:
     QPointer<SWMMModelLayer> m_layer;
     SWMM_Engine m_engine;
     Kind m_kind;
-    QString m_key;
+    subcatchloadings::Field m_key;
     QStringList m_names;
     QVector<double> m_before, m_after;
     int m_count;
@@ -247,6 +252,9 @@ SubcatchQualityTableModel::SubcatchQualityTableModel(SubcatchCompoundEditRef ref
                 QTimer::singleShot(0, this, [this] { refresh(); });
         });
         connect(m_layer, &SWMMModelLayer::dataObjectsChanged, this, [this] { refresh(); });
+        connect(m_layer, &SWMMModelLayer::optionsChanged, this, [this](const QStringList &keys) {
+            if (!coverage(m_kind) && (keys.contains("FLOW_UNITS") || keys.contains("REACTIONS") || keys.contains("POLLUTANTS"))) refresh();
+        });
     }
     refresh();
 }
@@ -258,23 +266,23 @@ void SubcatchQualityTableModel::refresh()
 {
     beginResetModel();
     m_keys.clear();
+    m_fields.clear();
     m_values.clear();
     m_errors.clear();
     if (available()) {
-        const int count =
-            coverage(m_kind) ? swmm_landuse_count(m_engine) : swmm_pollutant_count(m_engine);
-        for (int i = 0; i < count; ++i) {
-            const char *id =
-                coverage(m_kind) ? swmm_landuse_id(m_engine, i) : swmm_pollutant_id(m_engine, i);
-            if (!id)
-                continue;
-            const auto key = QString::fromUtf8(id);
+        if (coverage(m_kind)) {
+            for (int i = 0; i < swmm_landuse_count(m_engine); ++i)
+                if (const char *id = swmm_landuse_id(m_engine, i)) {
+                    subcatchloadings::Field field; field.name = QString::fromUtf8(id);
+                    m_fields << field;
+                }
+        } else m_fields = subcatchloadings::fields(m_engine);
+        for (const auto &field : m_fields) {
             QVector<double> values;
-            m_keys << key;
-            m_errors
-                << (read(m_engine, m_kind, key, m_names, values)
-                        ? QString()
-                        : tr("This row cannot be read safely on every captured subcatchment."));
+            m_keys << field.name;
+            m_errors << (!field.reason.isEmpty() ? field.reason :
+                read(m_engine, m_kind, field, m_names, values) ? QString() :
+                tr("This row cannot be read safely on every captured subcatchment."));
             m_values << values;
         }
     }
@@ -286,16 +294,17 @@ int SubcatchQualityTableModel::rowCount(const QModelIndex &parent) const
 }
 int SubcatchQualityTableModel::columnCount(const QModelIndex &parent) const
 {
-    return parent.isValid() ? 0 : 2;
+    return parent.isValid() ? 0 : coverage(m_kind) ? 2 : 3;
 }
 QVariant SubcatchQualityTableModel::headerData(int section, Qt::Orientation orientation,
                                                int role) const
 {
     if (orientation != Qt::Horizontal || role != Qt::DisplayRole)
         return {};
-    return section == 0       ? (coverage(m_kind) ? tr("Land Use") : tr("Pollutant"))
+    if (section == 2) return tr("Units");
+    return section == 0       ? (coverage(m_kind) ? tr("Land Use") : tr("Constituent"))
            : coverage(m_kind) ? tr("Coverage (%)")
-                              : tr("Initial Buildup (project mass/area)");
+                              : tr("Initial Buildup");
 }
 QVariant SubcatchQualityTableModel::data(const QModelIndex &index, int role) const
 {
@@ -304,11 +313,15 @@ QVariant SubcatchQualityTableModel::data(const QModelIndex &index, int role) con
     if (role == Qt::ToolTipRole)
         return !m_errors[index.row()].isEmpty()
                    ? m_errors[index.row()]
-                   : tr("Changes only this named row on the captured subcatchments. Zero clears its effective assignment.");
+                   : coverage(m_kind) ? tr("Changes only this named row on the captured subcatchments. Zero clears its effective assignment.")
+                   : tr("%1 · %2. Changes only this named row; zero clears its effective assignment.")
+                         .arg(m_fields[index.row()].species ? tr("Bulk reaction species") : tr("Pollutant"), m_fields[index.row()].units);
     if (role != Qt::DisplayRole && role != Qt::EditRole)
         return {};
     if (index.column() == 0)
         return m_keys[index.row()];
+    if (index.column() == 2)
+        return m_fields[index.row()].units;
     const auto &values = m_values[index.row()];
     if (!m_errors[index.row()].isEmpty() || values.isEmpty())
         return role == Qt::DisplayRole ? QVariant(tr("Unavailable")) : QVariant();
@@ -341,9 +354,10 @@ bool SubcatchQualityTableModel::setData(const QModelIndex &index, const QVariant
     if (!ok || !std::isfinite(proposed) || proposed < 0 || (coverage(m_kind) && proposed > 100))
         return fail(coverage(m_kind) ? tr("Coverage must be a finite percent between 0 and 100.")
                                      : tr("Initial buildup must be a finite nonnegative number."));
-    const auto key = m_keys.value(index.row());
+    const auto key = m_fields.value(index.row());
     QVector<double> before;
-    if (!read(m_engine, m_kind, key, m_names, before))
+    if (!read(m_engine, m_kind, key, m_names, before) ||
+        (key.species && before != m_values.value(index.row())))
         return fail(
             tr("A captured subcatchment or definition is no longer available. No values changed."));
     const QVector<double> after(before.size(), proposed);
@@ -379,7 +393,7 @@ QString SubcatchQualityTableModel::summary() const
         return tr("The captured model or a target is no longer available. Reopen the editor.");
     if (m_keys.isEmpty())
         return coverage(m_kind) ? tr("Define a land use before assigning coverage.")
-                                : tr("Define a pollutant before assigning initial buildup.");
+                                : tr("Define a pollutant or bulk reaction species before assigning initial buildup.");
     if (!coverage(m_kind))
         return {};
     QStringList excess;
@@ -412,7 +426,7 @@ void buildSubcatchQualityEditor(QWidget *host, const SubcatchCompoundEditRef &re
             ? QObject::tr(
                   "Edit one land-use percentage across the captured subcatchments. Other land uses are preserved; totals above 100% are reported without rescaling them.")
             : QObject::tr(
-                  "Edit one pollutant's initial buildup in the model's mass-per-area units. Other pollutants are preserved. Zero clears the effective assignment."),
+                  "Edit one constituent's initial surface buildup using its displayed units. Other constituents are preserved. Wall species are read-only. Zero clears the effective assignment."),
         host);
     description->setWordWrap(true);
     layout->addWidget(description);

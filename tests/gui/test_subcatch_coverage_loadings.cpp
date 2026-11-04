@@ -138,7 +138,7 @@ private slots:
         QVERIFY(coverageTable->item(0, 1));
         const double shownCoverage = coverageTable->item(0, 1)->text().toDouble();
         SubcatchCompoundEditDialog loadings(makeRef(e, SubcatchCompoundEditRef::Loadings));
-        auto *loadingTable = tableByHeader(loadings, QStringLiteral("Pollutant"));
+        auto *loadingTable = tableByHeader(loadings, QStringLiteral("Constituent"));
         QVERIFY(loadingTable);
         QVERIFY(loadingTable->item(0, 1));
         const double shownLoading = loadingTable->item(0, 1)->text().toDouble();
@@ -168,7 +168,7 @@ private slots:
         SubcatchCompoundEditDialog dlg(makeRef(e, loading ? SubcatchCompoundEditRef::Loadings
                                                           : SubcatchCompoundEditRef::LandUse));
         auto *table =
-            tableByHeader(dlg, loading ? QStringLiteral("Pollutant") : QStringLiteral("Land Use"));
+            tableByHeader(dlg, loading ? QStringLiteral("Constituent") : QStringLiteral("Land Use"));
         QVERIFY(table);
         QTimer::singleShot(0, [] {
             if (auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget()))
@@ -274,7 +274,7 @@ private slots:
         QCOMPARE(swmm_subcatch_set_initial_loading(e, 0, 0, 1.5), SWMM_OK);
 
         SubcatchCompoundEditDialog dlg(makeRef(e, SubcatchCompoundEditRef::Loadings));
-        auto *table = tableByHeader(dlg, QStringLiteral("Pollutant"));
+        auto *table = tableByHeader(dlg, QStringLiteral("Constituent"));
         QVERIFY(table);
         QCOMPARE(table->rowCount(), 2);
         QCOMPARE(table->item(0, 0)->text(), QStringLiteral("TSS"));

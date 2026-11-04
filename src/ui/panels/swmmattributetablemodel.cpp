@@ -26,6 +26,7 @@
 #include "ui/properties/usageeditref.h"
 #include "layers/nodestructureedits.h"
 #include "layers/inheritedpropertyedits.h"
+#include "ui/subcatchloadingfields.h"
 #include "ui/properties/groundwatersummary.h" // Groundwater cell summary text
 #include "ui/properties/rainintervalref.h"    // DA.2 parity — H:MM interval helpers
 #include "ui/properties/linkcompoundeditref.h"
@@ -4440,14 +4441,7 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             } else if (spec.setter == QStringLiteral("subcatch_loadings_ref")) {
                 // [LOADINGS] initial buildup (iteration 4).
                 sref.kind = SubcatchCompoundEditRef::Loadings;
-                int assigned = 0;
-                const int nP = swmm_pollutant_count(eng);
-                for (int p = 0; p < nP; ++p) {
-                    double w = 0.0;
-                    if (swmm_subcatch_get_initial_loading(eng, sIdx, p, &w) == SWMM_OK && w > 0.0)
-                        ++assigned;
-                }
-                sref.summary = assigned > 0 ? tr("%1 pollutant(s)").arg(assigned) : tr("(none)");
+                sref.summary = subcatchloadings::summary(eng, sIdx);
             } else {
                 sref.kind = SubcatchCompoundEditRef::LidUsage;
                 int mine = 0;
