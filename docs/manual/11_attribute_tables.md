@@ -197,16 +197,25 @@ dismisses the editor, and committed changes remain available through Undo.
 
 Subcatchment selections expose **Land Use Coverage** and **Initial Loadings**
 through the same checked editor in Properties and the table. Each row matches
-by land-use or pollutant name, and a completed numeric cell edits only that row
+by land-use or constituent name, and a completed numeric cell edits only that row
 across the listed subcatchments. Other rows and unselected objects keep their
 values. Enter or leaving the cell commits immediately with one Undo step;
 Escape discards an unfinished entry. The scope stays fixed if selection changes.
 Coverage accepts 0–100 percent per land use. Totals above 100% are reported,
-without rescaling other land uses. Initial loadings use the project's mass per
-area units and accept finite nonnegative values. Zero clears the effective
-assignment. The current loading editor lists ordinary pollutants; reaction
-species remain outside this editor. **Close** dismisses it without another
-confirmation step.
+without rescaling other land uses. Initial loadings include ordinary pollutants
+and configured bulk reaction species, including models without pollutants.
+The **Units** column shows each constituent's native input units: MG/UG species
+use project mass per area (`lb/ac` or `kg/ha`); counts, MMOL and other declared
+species units retain their native unit label per project area. These are initial
+surface buildup values, separate from initial water concentration.
+
+Loadings accept finite nonnegative values; zero clears the effective assignment.
+Wall species remain read-only because they cannot build up on a subcatchment
+surface. A reaction species sharing a pollutant's loading name also stays
+read-only; give those definitions distinct names before assigning species buildup.
+Unit-system and definition changes close active field edits safely. Accepted
+species loadings survive initialization and save/reopen. **Close** dismisses the
+editor without another confirmation step; project Undo remains available afterward.
 
 **LID Usage** edits placements across the captured subcatchments by control name.
 A control placed more than once on any target is disabled in bulk; select that

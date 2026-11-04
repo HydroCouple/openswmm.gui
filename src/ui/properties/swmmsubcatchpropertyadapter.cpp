@@ -8,6 +8,7 @@
  */
 
 #include "ui/properties/swmmsubcatchpropertyadapter.h"
+#include "ui/subcatchloadingfields.h"
 
 #include "core/unitsystem.h"
 #include "layers/swmmmodellayer.h"            // USER_FLAGS Phase 4 — ensureUserFlagsModel()
@@ -732,15 +733,6 @@ SubcatchCompoundEditRef SWMMSubcatchPropertyAdapter::loadingsRef() const
     r.subName = m_name;
     r.kind = SubcatchCompoundEditRef::Loadings;
     const int i = idx();
-    int assigned = 0;
-    if (i >= 0) {
-        const int n = swmm_pollutant_count(m_engine);
-        for (int p = 0; p < n; ++p) {
-            double w = 0.0;
-            if (swmm_subcatch_get_initial_loading(m_engine, i, p, &w) == SWMM_OK && w > 0.0)
-                ++assigned;
-        }
-    }
-    r.summary = assigned > 0 ? tr("%1 pollutant(s)").arg(assigned) : tr("(none)");
+    r.summary = subcatchloadings::summary(m_engine, i);
     return r;
 }

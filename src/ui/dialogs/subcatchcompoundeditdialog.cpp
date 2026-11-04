@@ -12,6 +12,7 @@
 #include "ui/dialogs/subcatchcompoundeditdialog.h"
 #include "ui/panels/usagetablemodel.h"
 #include "ui/panels/subcatchqualitytablemodel.h"
+#include "ui/subcatchloadingfields.h"
 #include "core/displaynumber.h"
 #include "ui/uiscrollhelpers.h"
 #include "layers/swmmmodellayer.h"
@@ -211,9 +212,9 @@ void SubcatchCompoundEditDialog::buildLoadingsPage()
     m_loadSummary->setWordWrap(true);
     vlay->addWidget(m_loadSummary);
 
-    m_loadTable = new QTableWidget(0, 2, page);
-    m_loadTable->setAccessibleName(tr("Initial pollutant loadings"));
-    m_loadTable->setHorizontalHeaderLabels({tr("Pollutant"), tr("Initial Buildup (mass/area)")});
+    m_loadTable = new QTableWidget(0, 3, page);
+    m_loadTable->setAccessibleName(tr("Initial constituent loadings"));
+    m_loadTable->setHorizontalHeaderLabels({tr("Constituent"), tr("Initial Buildup"), tr("Units")});
     m_loadTable->horizontalHeader()->setStretchLastSection(false);
     m_loadTable->verticalHeader()->setVisible(false);
     m_loadTable->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -232,7 +233,11 @@ void SubcatchCompoundEditDialog::buildLoadingsPage()
         QTableWidgetItem *name = m_loadTable->item(item->row(), 0);
         if (!name)
             return;
-        const int p = swmm_pollutant_index(m_ref.engine, name->text().toUtf8().constData());
+        subcatchloadings::Field captured;
+        captured.name = name->text();
+        captured.species = name->data(Qt::UserRole).toBool();
+        captured.signature = name->data(Qt::UserRole + 1).toString();
+        const int p = subcatchloadings::resolve(m_ref.engine, captured);
         if (p < 0)
             return;
         bool ok = false;
@@ -400,33 +405,39 @@ void SubcatchCompoundEditDialog::refreshActivePage()
         break;
     }
     case SubcatchCompoundEditRef::Loadings: {
-        // [LOADINGS] — every pollutant gets an editable initial-buildup row.
-        const int nP = swmm_pollutant_count(e);
+        const auto fields = subcatchloadings::fields(e);
         m_loadRefreshing = true;
         m_loadTable->setRowCount(0);
         int assigned = 0;
-        for (int i = 0; i < nP; ++i) {
+        for (const auto &field : fields) {
             double w = 0.0;
-            if (swmm_subcatch_get_initial_loading(e, s, i, &w) != SWMM_OK)
+            if (swmm_subcatch_get_initial_loading(e, s, field.index, &w) != SWMM_OK)
                 continue;
             const int row = m_loadTable->rowCount();
             m_loadTable->insertRow(row);
-            const char *id = swmm_pollutant_id(e, i);
-            auto *nameItem = new QTableWidgetItem(id ? QString::fromUtf8(id) : QString());
+            auto *nameItem = new QTableWidgetItem(field.name);
+            nameItem->setData(Qt::UserRole, field.species);
+            nameItem->setData(Qt::UserRole + 1, field.signature);
             nameItem->setFlags(nameItem->flags() & ~Qt::ItemIsEditable);
             m_loadTable->setItem(row, 0, nameItem);
-            m_loadTable->setItem(row, 1, new QTableWidgetItem(openswmmvis::displayNumber(w)));
+            auto *valueItem = new QTableWidgetItem(QString::number(w, 'g', 17));
+            auto *unitItem = new QTableWidgetItem(field.units);
+            unitItem->setFlags(unitItem->flags() & ~Qt::ItemIsEditable);
+            if (!field.reason.isEmpty()) valueItem->setFlags(valueItem->flags() & ~Qt::ItemIsEditable);
+            for (auto *item : {nameItem, valueItem, unitItem}) item->setToolTip(field.reason);
+            m_loadTable->setItem(row, 1, valueItem);
+            m_loadTable->setItem(row, 2, unitItem);
             if (w > 0.0)
                 ++assigned;
         }
         m_loadRefreshing = false;
         m_loadSummary->setText(
-            tr("<b>%1</b> of %2 pollutant(s) carry an initial buildup at "
+            tr("<b>%1</b> of %2 constituent(s) carry an initial buildup at "
                "simulation start ([LOADINGS]); it overrides the DRY_DAYS-derived "
                "buildup. Edit in place; 0 removes a loading.")
                 .arg(assigned)
-                .arg(nP));
-        m_ref.summary = assigned > 0 ? tr("%1 pollutant(s)").arg(assigned) : tr("(none)");
+                .arg(fields.size()));
+        m_ref.summary = subcatchloadings::summary(e, s);
         break;
     }
     case SubcatchCompoundEditRef::LidUsage: {

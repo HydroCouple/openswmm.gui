@@ -2,6 +2,7 @@
 #define SUBCATCHQUALITYTABLEMODEL_H
 
 #include "ui/properties/subcatchcompoundeditref.h"
+#include "ui/subcatchloadingfields.h"
 #include <QAbstractTableModel>
 #include <QPointer>
 #include <functional>
@@ -30,6 +31,7 @@ private:
     SWMM_Engine m_engine = nullptr;
     SubcatchCompoundEditRef::Kind m_kind;
     QStringList m_names, m_keys;
+    QVector<subcatchloadings::Field> m_fields;
     QList<QVector<double>> m_values;
     QStringList m_errors;
     QString m_error;
