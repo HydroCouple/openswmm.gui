@@ -242,6 +242,9 @@ QWidget *EnumDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem 
         for (int row = 0; row < combo->count(); ++row)
             if (disabled.contains(combo->itemData(row)))
                 items->item(row)->setEnabled(false);
+    auto *self = const_cast<EnumDelegate *>(this);
+    connect(combo, &QComboBox::activated, self,
+            [self, combo] { emit self->commitData(combo); });
     return combo;
 }
 

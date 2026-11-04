@@ -52,6 +52,7 @@
 #include <QAbstractItemModelTester>
 #endif
 #include "ui/properties/xsectshapegeom.h"
+#include "ui/properties/storageshapegeom.h"
 #include "ui/toolbars/mesheditingtoolbar.h"
 #include "street/streetprovider.h"
 #include "street/streetregistry.h"
@@ -75,6 +76,7 @@
 #include <openswmm/engine/openswmm_infrastructure.h>
 #include <openswmm/engine/openswmm_initial_quality.h> // Initial-quality UI round
 #include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_edit.h>
 #include <openswmm/engine/openswmm_xsect.h>
 #include <openswmm/engine/openswmm_model.h> // swmm_options_set
 #include <openswmm/engine/openswmm_nodes.h>
@@ -319,9 +321,11 @@ QModelIndex bulkProperty(PropertiesPanel &panel, const QString &label)
     const auto *model = panel.findChild<QTreeView *>()->model();
     for (int g = 0; g < model->rowCount(); ++g) {
         const auto group = model->index(g, 0);
-        for (int r = 0; r < model->rowCount(group); ++r)
-            if (model->index(r, 0, group).data().toString() == label)
+        for (int r = 0; r < model->rowCount(group); ++r) {
+            const auto name = model->index(r, 0, group).data().toString();
+            if (name == label || name.startsWith(label + " (")) // Unit suffix follows the project.
                 return model->index(r, 1, group);
+        }
     }
     return {};
 }
@@ -348,6 +352,88 @@ QVariantList conduitSection(SWMM_Engine engine, const char *name)
     return {shape, g[0], g[1], g[2], g[3], barrels, up, down, roughness, culvert};
 }
 
+std::unique_ptr<SWMMModelLayer> openBulkNodeLayer(bool si = false)
+{
+    auto base = openBulkNetworkLayer(si);
+    if (!base) return {};
+    QFile input(base->modelFilePath());
+    if (!input.open(QIODevice::ReadOnly)) return {};
+    auto text = input.readAll();
+    text.replace("\n[CONDUITS]", "\nO2 89 FIXED 91 YES S1\nO3 88 TIDAL Tide NO\nOC 87 NORMAL NO\n[CONDUITS]");
+    text.replace("\n[VERTICES]", "\nO2 2500 0\nO3 2500 500\nOC 2500 1000\n"
+                 "ST1 0 1000\nST2 750 1000\nST3 1500 1000\nSTControl 1500 1500\n[VERTICES]");
+    text += "Unused STORAGE 0 1\nUnused 10 1\nArea1 STORAGE 0 10\nArea1 10 20\n"
+            "Area2 STORAGE 0 30\nArea2 10 50\nTide TIDAL 0 90\nTide 24 91\n"
+            "Tide2 TIDAL 0 92\nTide2 24 93\n"
+            "[TIMESERIES]\nStage1 0:00 92\nStage1 2:00 93\nStage2 0:00 94\nStage2 2:00 95\n"
+            "[STORAGE]\nST1 80 10 .5 FUNCTIONAL 3 1 20 0 .1 2 .03 .2\n"
+            "ST2 81 11 .75 TABULAR Area1 0 .2 3 .04 .3\n"
+            "ST3 82 12 1 PYRAMIDAL 3 4 .5 0 .3 4 .05 .4\n"
+            "STControl 83 13 0 FUNCTIONAL 0 0 100 0 0\n";
+    const auto path = QDir(dataDir()).filePath(si ? "multi_selection/node-records-SI.inp"
+                                                : "multi_selection/node-records-US.inp");
+    QFile output(path);
+    if (!output.open(QIODevice::WriteOnly | QIODevice::Truncate)) return {};
+    output.write(text);
+    output.close();
+    auto layer = std::make_unique<SWMMModelLayer>(path);
+    QList<QString> warnings, errors;
+    if (!layer->loadModel(warnings, errors)) return {};
+    return layer;
+}
+
+QVariantList outfallState(SWMM_Engine engine, const char *name)
+{
+    const int node = swmm_node_index(engine, name);
+    int type = -1, gate = 0, route = -1;
+    double stage = 0, invert = 0;
+    if (swmm_node_get_outfall_type(engine, node, &type) != SWMM_OK ||
+        swmm_node_get_outfall_flap_gate(engine, node, &gate) != SWMM_OK ||
+        swmm_node_get_outfall_route_to(engine, node, &route) != SWMM_OK ||
+        swmm_node_get_invert_elev(engine, node, &invert) != SWMM_OK) return {};
+    QVariant parameter;
+    if (type == 2) {
+        if (swmm_node_get_outfall_param(engine, node, &stage) != SWMM_OK) return {};
+        parameter = stage;
+    } else if (type >= 3) {
+        int index = -1;
+        if ((type == 3 ? swmm_node_get_outfall_tidal(engine, node, &index)
+                       : swmm_node_get_outfall_timeseries(engine, node, &index)) != SWMM_OK) return {};
+        const char *id = swmm_table_id(engine, index);
+        if (!id) return {};
+        parameter = QString::fromUtf8(id);
+    }
+    const char *routeId = route < 0 ? nullptr : swmm_subcatch_id(engine, route);
+    return {type, parameter, gate, routeId ? QString::fromUtf8(routeId) : QString(), invert};
+}
+
+QVariantList storageState(SWMM_Engine engine, const char *name)
+{
+    const int node = swmm_node_index(engine, name);
+    int shape = -1;
+    double values[3], invert = 0, depth = 0, seep = 0, exfil[3];
+    if (swmm_node_get_storage_shape(engine, node, &shape) != SWMM_OK ||
+        swmm_node_get_invert_elev(engine, node, &invert) != SWMM_OK ||
+        swmm_node_get_max_depth(engine, node, &depth) != SWMM_OK ||
+        swmm_node_get_storage_seep_rate(engine, node, &seep) != SWMM_OK ||
+        swmm_node_get_exfil_params(engine, node, &exfil[0], &exfil[1], &exfil[2]) != SWMM_OK) return {};
+    QVariant geometry;
+    if (shape == openswmmvis::kStorageTabularId) {
+        int index = -1;
+        if (swmm_node_get_storage_curve(engine, node, &index) != SWMM_OK) return {};
+        const char *id = swmm_table_id(engine, index);
+        if (!id) return {};
+        geometry = QString::fromUtf8(id);
+    } else {
+        const int rc = shape == openswmmvis::kStorageFunctionalId
+            ? swmm_node_get_storage_functional(engine, node, &values[0], &values[1], &values[2])
+            : swmm_node_get_storage_geometry(engine, node, &values[0], &values[1], &values[2]);
+        if (rc != SWMM_OK) return {};
+        geometry = QVariantList{values[0], values[1], values[2]};
+    }
+    return {shape, geometry, invert, depth, seep, exfil[0], exfil[1], exfil[2]};
+}
+
 } // namespace
 
 class TestAttributeTableSchema : public QObject
@@ -355,6 +441,387 @@ class TestAttributeTableSchema : public QObject
     Q_OBJECT
 
 private slots:
+    void bulkOutfallTypeAndStage_data()
+    {
+        QTest::addColumn<bool>("si");
+        QTest::newRow("US") << false;
+        QTest::newRow("SI") << true;
+    }
+
+    void bulkOutfallTypeAndStage()
+    {
+        QFETCH(bool, si);
+        auto layer = openBulkNodeLayer(si);
+        QVERIFY(layer);
+        const auto engine = layer->engine();
+        const char *names[] = {"O1", "O2", "O3"};
+        QList<QVariantList> before;
+        for (auto name : names) { before << outfallState(engine, name); QCOMPARE(before.last().size(), 5); }
+        const auto control = outfallState(engine, "OC");
+        MapCanvas canvas;
+        PropertiesPanel panel;
+        panel.setProject(layer.get());
+        const QList<SWMMObjectRef> refs{{SWMMObjectRef::Node, "O1"}, {SWMMObjectRef::Node, "O2"}, {SWMMObjectRef::Node, "O3"}};
+        panel.showSelection(&canvas, refs);
+        panel.resize(700, 900);
+        panel.show();
+        auto *tree = panel.findChild<QTreeView *>();
+        tree->expandAll();
+        auto type = bulkProperty(panel, "Boundary Type");
+        QVERIFY(type.isValid());
+        QCOMPARE(type.data().toString(), QString("Mixed"));
+        tree->edit(type);
+        auto *combo = qobject_cast<QComboBox *>(tree->indexWidget(type));
+        QVERIFY(combo);
+        QVERIFY(!(combo->model()->index(combo->findData(3), 0).flags() & Qt::ItemIsEnabled));
+        QVERIFY(!(combo->model()->index(combo->findData(4), 0).flags() & Qt::ItemIsEnabled));
+        QTest::keyClick(combo, Qt::Key_Escape);
+        QCOMPARE(canvas.undoStack()->count(), 0);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        tree->edit(type);
+        combo = qobject_cast<QComboBox *>(tree->indexWidget(type));
+        QVERIFY(combo);
+        combo->showPopup();
+        auto fixed = combo->model()->index(combo->findData(2), 0);
+        combo->view()->scrollTo(fixed);
+        QTest::mouseClick(combo->view()->viewport(), Qt::LeftButton, Qt::NoModifier, combo->view()->visualRect(fixed).center());
+        QTRY_COMPARE(canvas.undoStack()->count(), 1);
+        for (int i = 0; i < 3; ++i) {
+            auto expected = before[i];
+            expected[0] = 2;
+            if (i != 1) expected[1] = before[i][4]; // Newly FIXED starts at invert, never a table index.
+            QCOMPARE(outfallState(engine, names[i]), expected);
+        }
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        auto stage = bulkProperty(panel, "Fixed Stage Elevation");
+        QTRY_VERIFY(stage.flags() & Qt::ItemIsEditable);
+        tree->edit(stage);
+        auto *spin = qobject_cast<QDoubleSpinBox *>(tree->indexWidget(stage));
+        QVERIFY(spin);
+        spin->setFocus();
+        spin->selectAll();
+        QTest::keyClicks(spin, "92.125");
+        QTest::keyClick(spin, Qt::Key_Return);
+        QTRY_COMPARE(canvas.undoStack()->count(), 2);
+        for (auto name : names) QCOMPARE(outfallState(engine, name)[1].toDouble(), 92.125);
+        QCOMPARE(outfallState(engine, "OC"), control);
+        canvas.undoStack()->undo();
+        canvas.undoStack()->undo();
+        for (int i = 0; i < 3; ++i) QCOMPARE(outfallState(engine, names[i]), before[i]);
+        canvas.undoStack()->redo();
+        canvas.undoStack()->redo();
+        panel.showSelection(&canvas, refs);
+        QCOMPARE(bulkProperty(panel, "Boundary Type").data().toString(), QString("FIXED"));
+        const auto saved = QDir(dataDir()).filePath(si ? "multi_selection/outfalls-edited-SI.inp" : "multi_selection/outfalls-edited-US.inp");
+        QCOMPARE(swmm_model_write(engine, saved.toUtf8().constData()), SWMM_OK);
+        SWMMModelLayer reopened(saved);
+        QList<QString> warnings, errors;
+        QVERIFY2(reopened.loadModel(warnings, errors), qPrintable(errors.join(' ')));
+        for (auto name : names) QCOMPARE(outfallState(reopened.engine(), name), outfallState(engine, name));
+        QCOMPARE(outfallState(reopened.engine(), "OC"), control);
+    }
+
+    void bulkStorageShapes_data() { bulkOutfallTypeAndStage_data(); }
+
+    void bulkStorageShapes()
+    {
+        QFETCH(bool, si);
+        auto layer = openBulkNodeLayer(si);
+        QVERIFY(layer);
+        const auto engine = layer->engine();
+        const char *names[] = {"ST1", "ST2", "ST3"};
+        QList<QVariantList> before;
+        for (auto name : names) { before << storageState(engine, name); QCOMPARE(before.last().size(), 8); }
+        const auto control = storageState(engine, "STControl");
+        MapCanvas canvas;
+        PropertiesPanel panel;
+        panel.setProject(layer.get());
+        const QList<SWMMObjectRef> refs{{SWMMObjectRef::Node, "ST1"}, {SWMMObjectRef::Node, "ST2"}, {SWMMObjectRef::Node, "ST3"}};
+        panel.showSelection(&canvas, refs);
+        panel.resize(700, 1000);
+        panel.show();
+        auto *tree = panel.findChild<QTreeView *>();
+        tree->expandAll();
+        auto shape = bulkProperty(panel, "Storage Shape");
+        QCOMPARE(shape.data().toString(), QString("Mixed"));
+        QVERIFY(!(bulkProperty(panel, "Shape Parameter 1").flags() & Qt::ItemIsEditable));
+        tree->edit(shape);
+        auto *combo = qobject_cast<QComboBox *>(tree->indexWidget(shape));
+        QVERIFY(combo);
+        QVERIFY(!(combo->model()->index(combo->findData(openswmmvis::kStorageTabularId), 0).flags() & Qt::ItemIsEnabled));
+        combo->setCurrentIndex(combo->findData(openswmmvis::kStorageCylindricalId));
+        QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, combo->currentIndex()));
+        QTRY_COMPARE(canvas.undoStack()->count(), 1);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        auto dimension = bulkProperty(panel, "Shape Parameter 1");
+        QTRY_VERIFY(dimension.flags() & Qt::ItemIsEditable);
+        QVERIFY(!(bulkProperty(panel, "Functional Coefficient (A)").flags() & Qt::ItemIsEditable));
+        tree->edit(dimension);
+        auto *spin = qobject_cast<QDoubleSpinBox *>(tree->indexWidget(dimension));
+        QVERIFY(spin);
+        spin->setFocus();
+        spin->selectAll();
+        QTest::keyClicks(spin, "8.5");
+        QTest::keyClick(spin, Qt::Key_Tab);
+        QTRY_COMPARE(canvas.undoStack()->count(), 2);
+        for (int i = 0; i < 3; ++i) {
+            const auto state = storageState(engine, names[i]);
+            QCOMPARE(state[0].toInt(), openswmmvis::kStorageCylindricalId);
+            QCOMPARE(state[1].toList(), (i == 2 ? QVariantList{8.5, 4.0, .5} : QVariantList{8.5, 1.0, 1.0}));
+            QCOMPARE(state.mid(2), before[i].mid(2));
+        }
+        QCOMPARE(storageState(engine, "STControl"), control);
+        canvas.undoStack()->undo();
+        canvas.undoStack()->undo();
+        for (int i = 0; i < 3; ++i) QCOMPARE(storageState(engine, names[i]), before[i]);
+        canvas.undoStack()->redo();
+        canvas.undoStack()->redo();
+        panel.showSelection(&canvas, refs);
+        QCOMPARE(bulkProperty(panel, "Storage Shape").data().toString(), QString("CYLINDRICAL"));
+        const auto saved = QDir(dataDir()).filePath(si ? "multi_selection/storage-edited-SI.inp" : "multi_selection/storage-edited-US.inp");
+        QCOMPARE(swmm_model_write(engine, saved.toUtf8().constData()), SWMM_OK);
+        SWMMModelLayer reopened(saved);
+        QList<QString> warnings, errors;
+        QVERIFY2(reopened.loadModel(warnings, errors), qPrintable(errors.join(' ')));
+        for (auto name : names) QCOMPARE(storageState(reopened.engine(), name), storageState(engine, name));
+        QCOMPARE(storageState(reopened.engine(), "STControl"), control);
+    }
+
+    void bulkNodeReferenceUndo_data()
+    {
+        QTest::addColumn<int>("kind");
+        QTest::newRow("tidal") << 0;
+        QTest::newRow("stage-series") << 1;
+        QTest::newRow("storage-curve") << 2;
+    }
+
+    void bulkNodeReferenceUndo()
+    {
+        QFETCH(int, kind);
+        auto layer = openBulkNodeLayer();
+        QVERIFY(layer);
+        const auto engine = layer->engine();
+        const bool storage = kind == 2;
+        const auto category = storage ? SWMMModelLayer::CatStorage : SWMMModelLayer::CatOutfalls;
+        const char *first = storage ? "ST1" : "O1", *second = storage ? "ST2" : "O3";
+        if (kind == 1)
+            QCOMPARE(swmm_node_set_outfall_timeseries(engine, swmm_node_index(engine, second), swmm_table_index(engine, "Stage1")), SWMM_OK);
+        const auto state = [=](const char *name) { return storage ? storageState(engine, name) : outfallState(engine, name); };
+        const auto originalFirst = state(first), originalSecond = state(second);
+        const QString label = storage ? "Storage Curve" : kind == 0 ? "Tidal Curve" : "Stage Time Series";
+        const QString key = storage ? "Storage curve" : kind == 0 ? "Tidal curve" : "Stage series";
+        const QString chosen = storage ? "Area2" : kind == 0 ? "Tide2" : "Stage2";
+        MapCanvas canvas;
+        PropertiesPanel properties;
+        properties.setProject(layer.get());
+        properties.showSelection(&canvas, {{SWMMObjectRef::Node, first}, {SWMMObjectRef::Node, second}});
+        properties.resize(700, 900);
+        properties.show();
+        auto *tree = properties.findChild<QTreeView *>();
+        tree->expandAll();
+        const auto field = bulkProperty(properties, label);
+        QVERIFY(field.isValid());
+        tree->edit(field);
+        auto *picker = qobject_cast<DataObjectPickerEditor *>(tree->indexWidget(field));
+        QVERIFY(picker);
+        auto *combo = picker->findChild<QComboBox *>();
+        QVERIFY(combo && combo->findText(chosen) >= 0);
+        combo->setCurrentIndex(combo->findText(chosen));
+        QTRY_COMPARE(canvas.undoStack()->count(), 1);
+        for (auto name : {first, second}) QCOMPARE(state(name)[1].toString(), chosen);
+        auto wrong = picker->value();
+        wrong.currentName = "PC"; // Existing PUMP curve, never a storage/tidal/series reference.
+        QVERIFY(!tree->model()->setData(field, QVariant::fromValue(wrong)));
+        if (!storage) {
+            wrong.currentName.clear();
+            QVERIFY(!tree->model()->setData(field, QVariant::fromValue(wrong)));
+        }
+        QCOMPARE(canvas.undoStack()->count(), 1);
+        canvas.undoStack()->undo();
+        QCOMPARE(state(first), originalFirst);
+        QCOMPARE(state(second), originalSecond);
+        // The same picker commits a table edit while focused, with complete record Undo.
+        SelectionManager selection;
+        AttributeTablePanel table;
+        table.setProject(layer.get(), &selection, &canvas);
+        table.showModelCategory(layer.get(), category);
+        table.resize(1000, 600);
+        table.show();
+        auto *view = table.findChild<QTableView *>();
+        QVERIFY(view);
+        int row = -1, column = -1;
+        for (int r = 0; r < view->model()->rowCount(); ++r)
+            if (view->model()->index(r, 0).data().toString() == second) row = r;
+        for (int c = 0; c < view->model()->columnCount(); ++c)
+            if (view->model()->headerData(c, Qt::Horizontal).toString() == label) column = c;
+        const auto cell = view->model()->index(row, column);
+        QVERIFY(cell.isValid());
+        view->scrollTo(cell);
+        view->edit(cell);
+        auto *tablePicker = qobject_cast<DataObjectPickerEditor *>(view->indexWidget(cell));
+        QVERIFY(tablePicker);
+        tablePicker->setFocus();
+        tablePicker->applyPickedName(chosen);
+        QCOMPARE(state(second)[1].toString(), chosen);
+        selection.select({{SWMMObjectRef::Node, first}, {SWMMObjectRef::Node, second}}, SelectionManager::Replace);
+        QCoreApplication::processEvents();
+        QVERIFY(applyBulkCell(table, view, cell));
+        QCOMPARE(canvas.undoStack()->count(), 2);
+        for (auto name : {first, second}) QCOMPARE(state(name)[1].toString(), chosen);
+        const auto saved = QDir(dataDir()).filePath(QString("multi_selection/node-reference-%1.inp").arg(kind));
+        QCOMPARE(swmm_model_write(engine, saved.toUtf8().constData()), SWMM_OK);
+        SWMMModelLayer reopened(saved);
+        QList<QString> warnings, errors;
+        QVERIFY2(reopened.loadModel(warnings, errors), qPrintable(errors.join(' ')));
+        for (auto name : {first, second})
+            QCOMPARE(storage ? storageState(reopened.engine(), name) : outfallState(reopened.engine(), name), state(name));
+        canvas.undoStack()->undo();
+        QCOMPARE(state(first), originalFirst);
+        canvas.undoStack()->undo();
+        QCOMPARE(state(second), originalSecond);
+        // A table type choice commits before focus leaves the combo, and Undo restores its reference.
+        if (auto *editor = view->indexWidget(cell)) QTest::keyClick(editor, Qt::Key_Escape);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        int typeColumn = -1;
+        for (int c = 0; c < view->model()->columnCount(); ++c)
+            if (view->model()->headerData(c, Qt::Horizontal).toString() ==
+                (storage ? "Storage Shape" : "Boundary Type")) typeColumn = c;
+        const auto typeCell = view->model()->index(row, typeColumn);
+        QVERIFY(typeCell.isValid());
+        view->scrollTo(typeCell);
+        view->edit(typeCell);
+        auto *typeCombo = qobject_cast<QComboBox *>(view->indexWidget(typeCell));
+        QVERIFY(typeCombo);
+        typeCombo->showPopup();
+        const auto option = typeCombo->model()->index(typeCombo->findData(storage ? openswmmvis::kStorageFunctionalId : 0), 0);
+        typeCombo->view()->scrollTo(option);
+        QTest::mouseClick(typeCombo->view()->viewport(), Qt::LeftButton, Qt::NoModifier, typeCombo->view()->visualRect(option).center());
+        QTRY_COMPARE(state(second)[0].toInt(), storage ? openswmmvis::kStorageFunctionalId : 0);
+        QCOMPARE(canvas.undoStack()->count(), 1);
+        canvas.undoStack()->undo();
+        QCOMPARE(state(second), originalSecond);
+        // Detach two different records. Reindex a saved reference, then restore it by name.
+        const int firstNode = swmm_node_index(engine, first);
+        if (storage) QCOMPARE(swmm_node_set_storage_curve(engine, firstNode, swmm_table_index(engine, "Area2")), SWMM_OK);
+        else QCOMPARE(swmm_node_set_outfall_stage(engine, firstNode, 93.25), SWMM_OK);
+        const auto beforeFirst = state(first), beforeSecond = state(second);
+        SWMMAttributeTableModel model;
+        model.setSource(layer.get(), category);
+        QUndoStack undo;
+        QString error;
+        if (storage) {
+            auto clear = model.index(model.rowForName(second), colFor(model.columnSpecs(), key)).data(Qt::EditRole).value<DataObjectRef>();
+            clear.currentName.clear();
+            QUndoStack clearUndo;
+            QVERIFY(model.applyScalarEdits({first, second}, {{key, QVariant::fromValue(clear)}}, &clearUndo, &error));
+            for (auto name : {first, second}) QCOMPARE(state(name)[0].toInt(), openswmmvis::kStorageFunctionalId);
+            clearUndo.undo();
+            QCOMPARE(state(first), beforeFirst);
+            QCOMPARE(state(second), beforeSecond);
+        } else {
+            for (int type : {-1, 3, 4, 99})
+                QVERIFY(!model.applyScalarEdits({first, second}, {{"Outfall type", type}}, &undo, &error));
+            QCOMPARE(undo.count(), 0);
+        }
+        const QString shapeKey = storage ? "Storage shape" : "Outfall type";
+        QVERIFY2(model.applyScalarEdits({first, second}, {{shapeKey, storage ? openswmmvis::kStorageFunctionalId : 0}}, &undo, &error), qPrintable(error));
+        QCOMPARE(swmm_table_delete(engine, swmm_table_index(engine, "Unused"), nullptr), SWMM_OK);
+        undo.undo();
+        QCOMPARE(state(first), beforeFirst);
+        QCOMPARE(state(second), beforeSecond);
+        undo.redo();
+        const auto detachedFirst = state(first), detachedSecond = state(second);
+        const char *oldRef = storage ? "Area1" : kind == 0 ? "Tide" : "Stage1";
+        QCOMPARE(swmm_table_delete(engine, swmm_table_index(engine, oldRef), nullptr), SWMM_OK);
+        undo.undo(); // Preflight every saved reference before touching the first target.
+        QCOMPARE(state(first), detachedFirst);
+        QCOMPARE(state(second), detachedSecond);
+    }
+
+    void bulkStorageRejectsInvalidBatchesAndPreservesCoefficientSiblings()
+    {
+        auto layer = openBulkNodeLayer();
+        QVERIFY(layer);
+        const auto engine = layer->engine();
+        SWMMAttributeTableModel model;
+        model.setSource(layer.get(), SWMMModelLayer::CatStorage);
+        QUndoStack undo;
+        QString error;
+        QVERIFY(model.applyScalarEdits({"ST1", "ST2"}, {{"Storage shape", openswmmvis::kStorageConicalId}}, &undo, &error));
+        const auto first = storageState(engine, "ST1"), second = storageState(engine, "ST2");
+        const int count = undo.count();
+        QVERIFY(!model.applyScalarEdits({"ST1", "ST2"}, {{"Max depth", 21.0}, {"Shape param 1", 0.0}}, &undo, &error));
+        QCOMPARE(storageState(engine, "ST1"), first);
+        QCOMPARE(storageState(engine, "ST2"), second);
+        QCOMPARE(undo.count(), count);
+        QVERIFY(!model.applyScalarEdits({"ST1", "ST2"}, {{"Storage shape", openswmmvis::kStorageTabularId}}, &undo, &error));
+        QVERIFY(!model.applyScalarEdits({"ST1", "ST2"}, {{"Func coeff A", 5.0}}, &undo, &error));
+        QVERIFY(model.applyScalarEdits({"ST1", "ST2"}, {{"Storage shape", openswmmvis::kStorageFunctionalId}}, &undo, &error));
+        const auto a = storageState(engine, "ST1"), b = storageState(engine, "ST2");
+        QVERIFY(model.applyScalarEdits({"ST1", "ST2"}, {{"Func coeff A", 7.25}, {"Func const C", 40.5}}, &undo, &error));
+        for (auto name : {"ST1", "ST2"}) {
+            const auto values = storageState(engine, name)[1].toList();
+            QCOMPARE(values[0].toDouble(), 7.25);
+            QCOMPARE(values[2].toDouble(), 40.5);
+        }
+        undo.undo();
+        QCOMPARE(storageState(engine, "ST1"), a);
+        QCOMPARE(storageState(engine, "ST2"), b);
+        // Dimension meanings disagree even where the numeric value is unchanged on one row.
+        QCOMPARE(swmm_node_set_storage_shape(engine, swmm_node_index(engine, "ST2"), openswmmvis::kStoragePyramidalId), SWMM_OK);
+        QCOMPARE(swmm_node_set_storage_shape(engine, swmm_node_index(engine, "ST1"), openswmmvis::kStorageConicalId), SWMM_OK);
+        QVERIFY(!model.applyScalarEdits({"ST1", "ST2"}, {{"Shape param 1", 1.0}}, &undo, &error));
+    }
+
+    void bulkNodeReferencesKeepCurveAndSeriesNamespacesDistinct()
+    {
+        auto layer = openBulkNodeLayer();
+        QVERIFY(layer);
+        const auto engine = layer->engine();
+        for (auto name : {"Area2", "Tide2"}) {
+            QCOMPARE(swmm_timeseries_add(engine, name), SWMM_OK);
+            const int index = swmm_table_index(engine, name); // Unqualified lookup prefers the new series.
+            int type = -1;
+            QCOMPARE(swmm_table_get_type(engine, index, &type), SWMM_OK);
+            QCOMPARE(type, 0);
+            double x = 0, y = 0;
+            QCOMPARE(swmm_table_get_point(engine, swmm_table_index(engine, "Stage1"), 0, &x, &y), SWMM_OK);
+            QCOMPARE(swmm_table_add_point(engine, index, x, 95), SWMM_OK);
+            QCOMPARE(swmm_table_add_point(engine, index, x + 1, 96), SWMM_OK);
+        }
+        SWMMAttributeTableModel storage, outfall;
+        storage.setSource(layer.get(), SWMMModelLayer::CatStorage);
+        outfall.setSource(layer.get(), SWMMModelLayer::CatOutfalls);
+        auto refFor = [](SWMMAttributeTableModel &model, const char *name, const char *key, const char *chosen) {
+            auto ref = model.index(model.rowForName(name), colFor(model.columnSpecs(), key)).data(Qt::EditRole).value<DataObjectRef>();
+            ref.currentName = chosen;
+            return QVariant::fromValue(ref);
+        };
+        const auto oldStorage = storageState(engine, "ST1"), oldOutfall = outfallState(engine, "O1");
+        QUndoStack undo;
+        QString error;
+        QVERIFY2(storage.applyScalarEdits({"ST1", "ST2"}, {{"Storage curve", refFor(storage, "ST1", "Storage curve", "Area2")}}, &undo, &error), qPrintable(error));
+        QVERIFY2(outfall.applyScalarEdits({"O1", "O2"}, {{"Tidal curve", refFor(outfall, "O1", "Tidal curve", "Tide2")}}, &undo, &error), qPrintable(error));
+        const int node = swmm_node_index(engine, "O1");
+        int index = -1, type = -1;
+        QCOMPARE(swmm_node_get_outfall_tidal(engine, node, &index), SWMM_OK);
+        QCOMPARE(swmm_table_get_type(engine, index, &type), SWMM_OK);
+        QCOMPARE(type, 6);
+        QVERIFY(outfall.applyScalarEdits({"O1", "O2"}, {{"Stage series", refFor(outfall, "O1", "Stage series", "Tide2")}}, &undo, &error));
+        QCOMPARE(swmm_node_get_outfall_timeseries(engine, node, &index), SWMM_OK);
+        QCOMPARE(swmm_table_get_type(engine, index, &type), SWMM_OK);
+        QCOMPARE(type, 0);
+        undo.undo();
+        QCOMPARE(outfallState(engine, "O1")[0].toInt(), 3);
+        QCOMPARE(swmm_node_get_outfall_tidal(engine, node, &index), SWMM_OK);
+        QCOMPARE(swmm_table_get_type(engine, index, &type), SWMM_OK);
+        QCOMPARE(type, 6);
+        undo.undo();
+        undo.undo();
+        QCOMPARE(storageState(engine, "ST1"), oldStorage);
+        QCOMPARE(outfallState(engine, "O1"), oldOutfall);
+    }
+
     void bulkCrossSectionsCommitShapeAndDimensions_data()
     {
         QTest::addColumn<bool>("si");

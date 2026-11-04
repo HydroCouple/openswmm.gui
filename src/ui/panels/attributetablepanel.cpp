@@ -15,6 +15,7 @@
 #include "ui/models/userflagsmodel.h"
 #include "ui/panels/meshattributetablemodel.h"
 #include "ui/panels/swmmattributetablemodel.h"
+#include "ui/panels/swmmaggregateselection.h"
 #include "ui/panels/tabulardatatablemodel.h"
 #include "ui/properties/dataobjectpickereditor.h"
 #include "ui/properties/dataobjectref.h"
@@ -3226,22 +3227,28 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
             const bool simpleEditable =
                 spec.editor == EditorKind::Numeric || spec.editor == EditorKind::Integer ||
                 spec.editor == EditorKind::Enum || spec.editor == EditorKind::Text;
-            if (simpleEditable) {
-                QAction *copyAct = menu.addAction(tr("Apply this \"%1\" value to %2 selected rows")
+            const bool referenceEditable = spec.editor == EditorKind::Compound &&
+                                           SWMMAggregateSelection::supports(spec);
+            if (simpleEditable || referenceEditable) {
+                if (!sourceIdx.data(openswmmvis::kDisabledEnumValuesRole).toList().contains(cellValue)) {
+                    QAction *copyAct = menu.addAction(tr("Apply this \"%1\" value to %2 selected rows")
                                                       .arg(spec.label)
                                                       .arg(selRows.size()));
-                connect(copyAct, &QAction::triggered, this, [this, col, selRows, cellValue]() {
-                    applyValueToSelectedRows(col, selRows, cellValue);
-                });
-                QAction *promptAct = menu.addAction(tr("Apply \"%1\" value to %2 selected rows…")
+                    connect(copyAct, &QAction::triggered, this, [this, col, selRows, cellValue]() {
+                        applyValueToSelectedRows(col, selRows, cellValue);
+                    });
+                }
+                if (simpleEditable) {
+                    QAction *promptAct = menu.addAction(tr("Apply \"%1\" value to %2 selected rows…")
                                                         .arg(spec.label)
                                                         .arg(selRows.size()));
-                connect(promptAct, &QAction::triggered, this, [this, col, selRows, cellValue]() {
-                    bool ok = false;
-                    const QVariant v = promptBulkValue(col, cellValue, &ok);
-                    if (ok)
-                        applyValueToSelectedRows(col, selRows, v);
-                });
+                    connect(promptAct, &QAction::triggered, this, [this, col, selRows, cellValue]() {
+                        bool ok = false;
+                        const QVariant v = promptBulkValue(col, cellValue, &ok);
+                        if (ok)
+                            applyValueToSelectedRows(col, selRows, v);
+                    });
+                }
                 menu.addSeparator();
             }
         }
@@ -3375,6 +3382,7 @@ void AttributeTablePanel::applyValueToSelectedRows(int column, const QList<int> 
                        : dataSourceActive() ? m_dataModel->undoStack()
                                             : (m_model ? m_model->undoStack() : nullptr);
     const int undoBefore = undo ? undo->index() : 0;
+    QString batchError;
     if (undo)
         undo->beginMacro(tr("Apply value to %1 rows").arg(sourceRows.size()));
     if (dataSourceActive()) {
@@ -3383,18 +3391,12 @@ void AttributeTablePanel::applyValueToSelectedRows(int column, const QList<int> 
         m_meshModel->setDataForRows(column, sourceRows, value);
     } else {
         const auto spec = m_model->columnSpecs().value(column);
-        if (spec.editor == openswmmvis::EditorKind::Numeric ||
-            spec.editor == openswmmvis::EditorKind::Integer ||
-            (spec.editor == openswmmvis::EditorKind::Text && spec.key == QLatin1String("Tag")) ||
-            spec.setter == QLatin1String("link_xsect_shape") ||
-            spec.setter == QLatin1String("link_xsect_transect_ref") ||
-            spec.setter == QLatin1String("link_xsect_street_ref")) {
+        if (SWMMAggregateSelection::supports(spec)) {
             QStringList names;
             for (int row : sourceRows)
                 if (model->flags(model->index(row, column)) & Qt::ItemIsEditable)
                     names.append(m_model->objectNameAt(row));
-            QString error;
-            m_model->applyScalarEdits(names, {{spec.key, value}}, undo, &error);
+            m_model->applyScalarEdits(names, {{spec.key, value}}, undo, &batchError);
         } else {
             for (int row : sourceRows) {
                 const QModelIndex idx = model->index(row, column);
@@ -3417,6 +3419,9 @@ void AttributeTablePanel::applyValueToSelectedRows(int column, const QList<int> 
             }
         }
     }
+
+    if (!batchError.isEmpty())
+        QMessageBox::warning(this, tr("Edit selected rows"), batchError);
 
     if (!suppressEditForward && !editedNames.isEmpty()) {
         {
@@ -3500,9 +3505,11 @@ QVariant AttributeTablePanel::promptBulkValue(int column, const QVariant &curren
         // enum data int (what setData/commitValueDirect expect).
         QStringList labels;
         int curIdx = 0;
+        const auto disabled = !meshSourceActive() && !dataSourceActive() && m_model
+            ? m_model->index(0, column).data(openswmmvis::kDisabledEnumValuesRole).toList() : QVariantList{};
         for (const QVariant &pv : spec.enumValues) {
             const QVariantList pair = pv.toList();
-            if (pair.size() != 2)
+            if (pair.size() != 2 || disabled.contains(pair[1]))
                 continue;
             labels << pair[0].toString();
             // Name-valued enums (data-object references) carry QString data;
