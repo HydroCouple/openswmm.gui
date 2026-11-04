@@ -162,6 +162,25 @@ the file picker returns; typing a path commits on Enter or leaving the field.
 The table can copy a configured path or column to its selected rows. Saving
 retains the active source even when another series remains stored on the gage.
 
+Node selections also expose **External Inflows**, **Dry Weather Flow**, **RDII**
+and **Pollutant Treatment**. Open the row's editor to change individual fields
+across the captured nodes, including nodes of different subtypes. Inflow and DWF
+rows match by constituent; treatment rows match by pollutant. Each committed
+cell has one Undo step and preserves the other members and unrelated rows on
+each node. The editor lists its target names and keeps that scope when the map
+selection changes. The table's **Edit … for selected nodes** action uses the same editor.
+
+Editing an unassigned inflow/DWF row creates it with baseline/average 0,
+multiplier/scale 1 and empty references, using FLOW type for FLOW and CONCEN for
+other constituents. Clearing an already empty binding leaves the row unassigned.
+An RDII group choice creates missing assignments with area 0; an area edit needs
+an assignment on every target. An empty treatment expression clears only that
+pollutant. **Remove selected row assignment** removes that keyed row across the
+scope. Duplicate rows or multiple RDII assignments on a node must be resolved
+individually first. **Choose or edit referenced data** opens the full existing
+data-object picker; assignment choices still commit immediately. **Close**
+dismisses the editor, and committed changes remain available through Undo.
+
 Drag the divider between column headers to change a width, including the last
 column. Double-click a divider to fit the column to its contents. Column widths
 are remembered per category (and per mesh element kind) across sessions, and

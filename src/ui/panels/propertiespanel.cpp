@@ -441,10 +441,18 @@ public:
         case Qt::DisplayRole:
             if (staged)
                 return displayFor(m_selection->stagedValue(m_column));
+            if constexpr (std::is_same_v<Selection, SWMMAggregateSelection>) {
+                const auto ref = m_selection->editorData(m_column);
+                if (ref.userType() == qMetaTypeId<NodeCompoundEditRef>()) return ref.template value<NodeCompoundEditRef>().summary;
+            }
             return mixed ? QVariant(PropertiesPanel::tr("Mixed")) : field.display;
         case Qt::EditRole:
             if (staged)
                 return m_selection->stagedValue(m_column);
+            if constexpr (std::is_same_v<Selection, SWMMAggregateSelection>) {
+                const auto ref = m_selection->editorData(m_column);
+                if (ref.userType() == qMetaTypeId<NodeCompoundEditRef>()) return ref;
+            }
             return mixed ? mixedSeed() : field.edit;
         case Qt::FontRole:
             if (staged || mixed) {
@@ -511,6 +519,10 @@ private:
     }
     QString tooltip() const
     {
+        if constexpr (std::is_same_v<Selection, SWMMAggregateSelection>) {
+            if (m_selection->editorData(m_column).userType() == qMetaTypeId<NodeCompoundEditRef>())
+                return PropertiesPanel::tr("Open the editor to change one constituent or pollutant field across these nodes. Other fields and rows are preserved. Each committed field has one Undo step.");
+        }
         const int targets = int(m_selection->rows().size());
         const auto field = m_selection->field(m_column);
         QStringList lines;
@@ -2669,6 +2681,15 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
         if (!picked || picked != actEdit)
             return;
 
+        if (ref.layer && ref.kind <= NodeCompoundEditRef::Treatment) {
+            auto owned = ref;
+            if (!owned.undoStack)
+                for (auto *canvas : window()->findChildren<MapCanvas *>())
+                    if (canvas->layers().contains(ref.layer)) { owned.undoStack = canvas->undoStack(); break; }
+            auto *dialog = new NodeCompoundEditDialog(owned, window());
+            dialog->setAttribute(Qt::WA_DeleteOnClose); dialog->show();
+            return;
+        }
         NodeCompoundEditDialog dlg(ref, m_treeView);
         dlg.exec();
         // Even on Cancel: per NodeCompoundEditButton::onClicked the dialog

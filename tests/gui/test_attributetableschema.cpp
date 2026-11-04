@@ -58,6 +58,11 @@
 #include "street/streetregistry.h"
 
 #include "ui/properties/nodecompoundeditref.h"
+#include "ui/properties/nodecompoundeditbutton.h"
+#include "ui/panels/nodecompoundtablemodel.h"
+#include "ui/dialogs/nodecompoundeditdialog.h"
+#include "ui/widgets/treatmentexpressionedit.h"
+#include <openswmm/engine/openswmm_quality.h>
 #include "ui/properties/swmmsubcatchpropertyadapter.h"
 #include "ui/properties/dataobjectref.h"
 #include "ui/properties/dataobjectpickereditor.h"
@@ -511,11 +516,593 @@ QVariantList rainSourceState(SWMM_Engine engine, const char *name)
 
 } // namespace
 
+std::unique_ptr<SWMMModelLayer> openBulkCompoundLayer(bool si = false)
+{
+    auto layer = openBulkNetworkLayer(si);
+    if (!layer)
+        return {};
+    const auto e = layer->engine();
+    for (auto name : {"PA", "PB"})
+        if (swmm_pollutant_add(e, name, 0) != SWMM_OK)
+            return {};
+    if (swmm_timeseries_add(e, "OtherRain") != SWMM_OK)
+        return {};
+    for (int p = 0; p < 4; ++p) {
+        const auto name = QString("Pattern%1").arg(p).toUtf8();
+        if (swmm_pattern_add(e, name.constData(), p) != SWMM_OK)
+            return {};
+        const double factors[24] = {1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1,
+                                    1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1};
+        if (swmm_pattern_set_factors(e, swmm_pattern_index(e, name.constData()), factors,
+                                     p == 0   ? 12
+                                     : p == 1 ? 7
+                                              : 24) != SWMM_OK)
+            return {};
+    }
+    for (auto group : {"UH1", "UH2"}) {
+        if (swmm_hydrograph_add_gage(e, group, "S1") != SWMM_OK ||
+            swmm_hydrograph_add(e, group, -1, 0, .1, 1, 1, 0, 0, 0) != SWMM_OK)
+            return {};
+    }
+    int n = 0;
+    for (auto name : {"J1", "J2", "O1", "X1"}) {
+        const int node = swmm_node_index(e, name);
+        ++n;
+        if (n != 3) {
+            if (swmm_ext_inflow_add(e, node, "FLOW", "TS1", "FLOW", n + .25, n + .5, n * 2,
+                                    "Pattern2") != SWMM_OK ||
+                swmm_dwf_add(e, node, "FLOW", n * 3, "Pattern0", "Pattern1", "Pattern2",
+                             "Pattern3") != SWMM_OK ||
+                swmm_rdii_add(e, node, n == 2 ? "UH2" : "UH1", n * 4) != SWMM_OK ||
+                swmm_treatment_set(e, node, swmm_pollutant_index(e, "PA"),
+                                   n == 1 ? "R = 0.1" : "R = 0.2") != SWMM_OK)
+                return {};
+        }
+        if (swmm_ext_inflow_add(e, node, "PB", "", "CONCEN", 1, 1, n + .125, "") != SWMM_OK ||
+            swmm_dwf_add(e, node, "PB", n + .375, "", "", "", "") != SWMM_OK ||
+            swmm_treatment_set(e, node, swmm_pollutant_index(e, "PB"), "R = 0.31") != SWMM_OK)
+            return {};
+    }
+    const auto file = QDir(dataDir()).filePath(si ? "multi_selection/node-compounds-SI.inp"
+                                                  : "multi_selection/node-compounds-US.inp");
+    if (swmm_model_write(e, file.toUtf8().constData()) != SWMM_OK)
+        return {};
+    auto saved = std::make_unique<SWMMModelLayer>(file);
+    QList<QString> warnings, errors;
+    if (!saved->loadModel(warnings, errors))
+        return {};
+    return saved;
+}
+
+QVariantList compoundState(SWMM_Engine e, NodeCompoundEditRef::Kind kind, const char *name)
+{
+    const int node = swmm_node_index(e, name);
+    QMap<QString, QVariantList> rows;
+    if (kind == NodeCompoundEditRef::Treatment) {
+        for (int p = 0; p < swmm_pollutant_count(e); ++p) {
+            char expression[8192]{};
+            if (swmm_treatment_get(e, node, p, expression, sizeof(expression)) != SWMM_OK)
+                return {};
+            if (expression[0])
+                rows[QString::fromUtf8(swmm_pollutant_id(e, p))] = {QString::fromUtf8(expression)};
+        }
+    } else {
+        const int count = kind == NodeCompoundEditRef::Inflows ? swmm_ext_inflow_count(e)
+                          : kind == NodeCompoundEditRef::Dwf   ? swmm_dwf_count(e)
+                                                               : swmm_rdii_count(e);
+        for (int i = 0; i < count; ++i) {
+            int owner = -1;
+            char key[4096]{}, a[4096]{}, b[4096]{}, c[4096]{}, d[4096]{};
+            double x = 0, y = 0, z = 0;
+            QVariantList values;
+            if (kind == NodeCompoundEditRef::Inflows) {
+                if (swmm_ext_inflow_get(e, i, &owner, key, sizeof(key), a, sizeof(a), b, sizeof(b),
+                                        &x, &y, &z, c, sizeof(c)) != SWMM_OK)
+                    return {};
+                values = {QString::fromUtf8(a), QString::fromUtf8(b), x, y, z,
+                          QString::fromUtf8(c)};
+            } else if (kind == NodeCompoundEditRef::Dwf) {
+                if (swmm_dwf_get(e, i, &owner, key, sizeof(key), &x, a, sizeof(a), b, sizeof(b), c,
+                                 sizeof(c), d, sizeof(d)) != SWMM_OK)
+                    return {};
+                values = {x, QString::fromUtf8(a), QString::fromUtf8(b), QString::fromUtf8(c),
+                          QString::fromUtf8(d)};
+            } else {
+                if (swmm_rdii_get(e, i, &owner, key, sizeof(key), &x) != SWMM_OK)
+                    return {};
+                values = {x};
+            }
+            if (owner == node)
+                rows[QString::fromUtf8(key)] = values;
+        }
+    }
+    QVariantList result;
+    for (auto it = rows.cbegin(); it != rows.cend(); ++it)
+        result << QVariant(QVariantList{it.key(), it.value()});
+    return result;
+}
+
+QModelIndex compoundCell(NodeCompoundTableModel *model, const QString &key, const QString &field)
+{
+    for (int row = 0; row < model->rowCount(); ++row)
+        if (model->index(row, 0).data(Qt::EditRole).toString() == key)
+            for (int col = 2; col < model->columnCount(); ++col)
+                if (model->fieldKey(col) == field)
+                    return model->index(row, col);
+    return {};
+}
+
 class TestAttributeTableSchema : public QObject
 {
     Q_OBJECT
 
 private slots:
+    void bulkNodeCompoundFields_data()
+    {
+        QTest::addColumn<int>("kind");
+        QTest::addColumn<QString>("label");
+        QTest::addColumn<QString>("field");
+        QTest::addColumn<bool>("si");
+        for (bool si : {false, true}) {
+            const auto suffix = si ? "-SI" : "-US";
+            QTest::newRow(qPrintable(QString("inflow") + suffix))
+                << int(NodeCompoundEditRef::Inflows) << QString("External Inflows")
+                << QString("baseline") << si;
+            QTest::newRow(qPrintable(QString("dwf") + suffix))
+                << int(NodeCompoundEditRef::Dwf) << QString("Dry Weather Flow")
+                << QString("baseline") << si;
+            QTest::newRow(qPrintable(QString("rdii") + suffix))
+                << int(NodeCompoundEditRef::Rdii) << QString("RDII") << QString("group") << si;
+            QTest::newRow(qPrintable(QString("treatment") + suffix))
+                << int(NodeCompoundEditRef::Treatment) << QString("Pollutant Treatment")
+                << QString("expression") << si;
+        }
+    }
+    void bulkNodeCompoundFields()
+    {
+        QFETCH(int, kind);
+        QFETCH(QString, label);
+        QFETCH(QString, field);
+        QFETCH(bool, si);
+        const auto page = static_cast<NodeCompoundEditRef::Kind>(kind);
+        auto layer = openBulkCompoundLayer(si);
+        QVERIFY(layer);
+        const auto engine = layer->engine();
+        const char *names[] = {"J1", "J2", "O1"};
+        QList<QVariantList> before;
+        for (auto name : names)
+            before << compoundState(engine, page, name);
+        const auto control = compoundState(engine, page, "X1");
+        MapCanvas canvas;
+        PropertiesPanel properties;
+        properties.setProject(layer.get());
+        properties.showSelection(&canvas, {{SWMMObjectRef::Node, "J1"},
+                                           {SWMMObjectRef::Node, "J2"},
+                                           {SWMMObjectRef::Node, "O1"}});
+        properties.resize(700, 1000);
+        properties.show();
+        auto *tree = properties.findChild<QTreeView *>();
+        tree->expandAll();
+        const auto property = bulkProperty(properties, label);
+        QVERIFY(property.isValid());
+        tree->edit(property);
+        auto *button = qobject_cast<NodeCompoundEditButton *>(tree->indexWidget(property));
+        QVERIFY(button);
+        QCOMPARE(button->value().nodeNames.size(), 3);
+        QTest::mouseClick(button->findChild<QPushButton *>(), Qt::LeftButton);
+        auto *dialog = properties.findChild<NodeCompoundEditDialog *>();
+        QTRY_VERIFY(dialog);
+        auto *table = dialog->findChild<QTableView *>("nodeCompoundTable");
+        QVERIFY(table);
+        auto *model = dynamic_cast<NodeCompoundTableModel *>(table->model());
+        QVERIFY(model);
+        // A modeless editor retains its captured scope when the Properties selection changes.
+        properties.showSelection(&canvas,
+                                 {{SWMMObjectRef::Node, "X1"}, {SWMMObjectRef::Node, "J3"}});
+        QSignalSpy notifications(layer.get(), &SWMMModelLayer::attributeChanged);
+        const QString key = page == NodeCompoundEditRef::Treatment ? "PA"
+                            : page == NodeCompoundEditRef::Rdii    ? "Assignment"
+                                                                   : "FLOW";
+        const auto cell = compoundCell(model, key, field);
+        QVERIFY(cell.isValid());
+        QCOMPARE(cell.data().toString(), QString("Mixed"));
+        table->edit(cell);
+        if (field == "group") {
+            auto *combo = table->findChild<QComboBox *>();
+            QVERIFY(combo);
+            combo->setCurrentIndex(combo->findData("UH2"));
+            QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, combo->currentIndex()));
+        } else if (field == "expression") {
+            auto *text = table->findChild<openswmmvis::ui::TreatmentExpressionEdit *>();
+            QVERIFY(text);
+            text->setFocus();
+            QTest::keyClicks(text, "R = 0.45");
+            QTest::keyClick(text, Qt::Key_Return);
+        } else {
+            auto *line = table->findChild<QLineEdit *>();
+            QVERIFY(line);
+            line->setFocus();
+            QTest::keyClick(line, Qt::Key_Escape);
+            QCOMPARE(canvas.undoStack()->count(), 0);
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            table->edit(cell);
+            line = table->findChild<QLineEdit *>();
+            QVERIFY(line);
+            line->setFocus();
+            QTest::keyClicks(line, "2.125");
+            QTest::keyClick(line, si ? Qt::Key_Tab : Qt::Key_Return);
+        }
+        QTRY_COMPARE(canvas.undoStack()->count(), 1);
+        QCOMPARE(notifications.count(), 3);
+        QList<QVariantList> after;
+        for (auto name : names)
+            after << compoundState(engine, page, name);
+        QVERIFY(after != before);
+        QCOMPARE(compoundState(engine, page, "X1"), control);
+        const auto entry = [](const QVariantList &state, const QString &key) {
+            for (const auto &value : state) {
+                const auto row = value.toList();
+                if (row[0].toString() == key)
+                    return row[1].toList();
+            }
+            return QVariantList();
+        };
+        for (int n = 0; n < 3; ++n) {
+            if (page == NodeCompoundEditRef::Inflows) {
+                auto expected = entry(before[n], "FLOW");
+                if (expected.isEmpty())
+                    expected = {QString(), QString("FLOW"), 1.0, 1.0, 0.0, QString()};
+                expected[4] = 2.125;
+                QCOMPARE(entry(after[n], "FLOW"), expected);
+            } else if (page == NodeCompoundEditRef::Dwf) {
+                auto expected = entry(before[n], "FLOW");
+                if (expected.isEmpty())
+                    expected = {0.0, QString(), QString(), QString(), QString()};
+                expected[0] = 2.125;
+                QCOMPARE(entry(after[n], "FLOW"), expected);
+            } else if (page == NodeCompoundEditRef::Rdii) {
+                const double area =
+                    before[n].isEmpty() ? 0 : before[n].first().toList()[1].toList()[0].toDouble();
+                QCOMPARE(after[n],
+                         QVariantList{QVariant(QVariantList{QString("UH2"), QVariantList{area}})});
+            } else
+                QCOMPARE(entry(after[n], "PA"), QVariantList{QString("R = 0.45")});
+        }
+        // Unrelated PB rows stay exactly as authored, including on the newly assigned node.
+        if (page != NodeCompoundEditRef::Rdii)
+            for (int n = 0; n < 3; ++n)
+                QCOMPARE(after[n].last(), before[n].last());
+        dialog->close();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        canvas.undoStack()->undo();
+        for (int n = 0; n < 3; ++n)
+            QCOMPARE(compoundState(engine, page, names[n]), before[n]);
+        canvas.undoStack()->redo();
+        for (int n = 0; n < 3; ++n)
+            QCOMPARE(compoundState(engine, page, names[n]), after[n]);
+        const auto file = QDir(dataDir()).filePath(
+            QString("multi_selection/compound-%1-%2.inp").arg(kind).arg(si ? "SI" : "US"));
+        QCOMPARE(swmm_model_write(engine, file.toUtf8().constData()), SWMM_OK);
+        SWMMModelLayer reopened(file);
+        QList<QString> warnings, errors;
+        QVERIFY2(reopened.loadModel(warnings, errors), qPrintable(errors.join(' ')));
+        for (int n = 0; n < 3; ++n)
+            QCOMPARE(compoundState(reopened.engine(), page, names[n]), after[n]);
+    }
+
+    void compoundFieldsPreserveSiblingsAndRejectInvalidBatches()
+    {
+        auto layer = openBulkCompoundLayer();
+        QVERIFY(layer);
+        const auto engine = layer->engine();
+        QUndoStack undo;
+        NodeCompoundEditRef ref;
+        ref.layer = layer.get();
+        ref.engine = engine;
+        ref.nodeName = "J1";
+        ref.nodeNames = {"J1", "J2"};
+        ref.undoStack = &undo;
+        for (auto kind : {NodeCompoundEditRef::Inflows, NodeCompoundEditRef::Dwf,
+                          NodeCompoundEditRef::Rdii, NodeCompoundEditRef::Treatment}) {
+            ref.kind = kind;
+            NodeCompoundTableModel model(ref);
+            const auto a = compoundState(engine, kind, "J1"), b = compoundState(engine, kind, "J2");
+            const QString key = kind == NodeCompoundEditRef::Treatment ? "PA"
+                                : kind == NodeCompoundEditRef::Rdii    ? "Assignment"
+                                                                       : "FLOW";
+            const QString field = kind == NodeCompoundEditRef::Inflows ? "scale"
+                                  : kind == NodeCompoundEditRef::Dwf   ? "p2"
+                                  : kind == NodeCompoundEditRef::Rdii  ? "area"
+                                                                       : "expression";
+            const auto cell = compoundCell(&model, key, field);
+            QVERIFY(cell.isValid());
+            const QVariant value = kind == NodeCompoundEditRef::Dwf         ? QVariant("Pattern2")
+                                   : kind == NodeCompoundEditRef::Treatment ? QVariant("R = 0.55")
+                                                                            : QVariant(7.125);
+            QVERIFY2(model.setData(cell, value), qPrintable(model.lastError()));
+            const int count = undo.count();
+            QVERIFY(model.setData(cell, value));
+            QCOMPARE(undo.count(), count);
+            QVERIFY(model.removeAssignment(cell.row()));
+            undo.undo();
+            undo.undo();
+            QCOMPARE(compoundState(engine, kind, "J1"), a);
+            QCOMPARE(compoundState(engine, kind, "J2"), b);
+            undo.clear();
+            const QVariant invalid = kind == NodeCompoundEditRef::Dwf         ? QVariant("Pattern0")
+                                     : kind == NodeCompoundEditRef::Treatment ? QVariant("R = ???")
+                                                                              : QVariant(-1.0);
+            QVERIFY(!model.setData(
+                compoundCell(&model, key,
+                             kind == NodeCompoundEditRef::Inflows ? "baseline" : field),
+                invalid));
+            QCOMPARE(undo.count(), 0);
+            QCOMPARE(compoundState(engine, kind, "J1"), a);
+            QCOMPARE(compoundState(engine, kind, "J2"), b);
+        }
+        // Proposal ranges must not prevent Undo from restoring an authored native value.
+        ref.kind = NodeCompoundEditRef::Inflows;
+        ref.nodeNames = {"J1"};
+        int flow = -1;
+        for (int i = 0; i < swmm_ext_inflow_count(engine); ++i) {
+            int node = -1;
+            char key[128]{}, series[128]{}, type[128]{}, pattern[128]{};
+            double multiplier = 0, scale = 0, baseline = 0;
+            QCOMPARE(swmm_ext_inflow_get(engine, i, &node, key, sizeof(key), series, sizeof(series),
+                                         type, sizeof(type), &multiplier, &scale, &baseline,
+                                         pattern, sizeof(pattern)),
+                     SWMM_OK);
+            if (node == swmm_node_index(engine, "J1") && QString::fromUtf8(key) == "FLOW")
+                flow = i;
+        }
+        QVERIFY(flow >= 0);
+        QCOMPARE(swmm_ext_inflow_set_baseline(engine, flow, -2.0), SWMM_OK);
+        const auto authored = compoundState(engine, ref.kind, "J1");
+        NodeCompoundTableModel legacy(ref);
+        QVERIFY(legacy.setData(compoundCell(&legacy, "FLOW", "baseline"), 2.5));
+        undo.undo();
+        QCOMPARE(compoundState(engine, ref.kind, "J1"), authored);
+    }
+
+    void compoundNamedReferencesDuplicatesAndMissingAssignments()
+    {
+        auto layer = openBulkCompoundLayer();
+        QVERIFY(layer);
+        const auto e = layer->engine();
+        QUndoStack undo;
+        NodeCompoundEditRef ref;
+        ref.layer = layer.get();
+        ref.engine = e;
+        ref.nodeName = "J1";
+        ref.nodeNames = {"J1", "J2"};
+        ref.undoStack = &undo;
+        NodeCompoundTableModel inflows(ref);
+        const auto first = compoundState(e, ref.kind, "J1"),
+                   second = compoundState(e, ref.kind, "J2");
+        QVERIFY(!inflows.setData(compoundCell(&inflows, "FLOW", "series"),
+                                 "PC")); // Curve names are not time series.
+        QCOMPARE(undo.count(), 0);
+        QCOMPARE(compoundState(e, ref.kind, "J1"), first);
+        QVERIFY(inflows.setData(compoundCell(&inflows, "FLOW", "series"), QString()));
+        QCOMPARE(undo.count(), 1);
+        undo.undo();
+        QCOMPARE(compoundState(e, ref.kind, "J1"), first);
+        QCOMPARE(compoundState(e, ref.kind, "J2"), second);
+        undo.clear();
+        auto missing = ref;
+        missing.nodeNames = {"J1", "O1"};
+        NodeCompoundTableModel clearMissing(missing);
+        QVERIFY(clearMissing.setData(compoundCell(&clearMissing, "FLOW", "series"), QString()));
+        // O1 has an unrelated PB inflow, but clearing its absent FLOW binding must not add one.
+        QCOMPARE(compoundState(e, ref.kind, "O1").size(), 1);
+        undo.undo();
+        QCOMPARE(compoundState(e, ref.kind, "J1"), first);
+        undo.clear();
+        QCOMPARE(swmm_ext_inflow_add(e, swmm_node_index(e, "J2"), "FLOW", "", "FLOW", 1, 1, 99, ""),
+                 SWMM_OK);
+        const int count = swmm_ext_inflow_count(e);
+        QVERIFY(!inflows.setData(compoundCell(&inflows, "FLOW", "baseline"), 8.0));
+        QVERIFY(inflows.lastError().contains("duplicate"));
+        QCOMPARE(undo.count(), 0);
+        QCOMPARE(swmm_ext_inflow_count(e), count);
+        QCOMPARE(compoundState(e, ref.kind, "J1"), first);
+        ref.kind = NodeCompoundEditRef::Rdii;
+        ref.nodeNames = {"J1", "O1"};
+        NodeCompoundTableModel rdii(ref);
+        const auto old = compoundState(e, ref.kind, "J1");
+        QVERIFY(!rdii.setData(compoundCell(&rdii, "Assignment", "area"), 15.0));
+        QCOMPARE(undo.count(), 0);
+        QCOMPARE(compoundState(e, ref.kind, "J1"), old);
+        QVERIFY(compoundState(e, ref.kind, "O1").isEmpty());
+        QVERIFY(rdii.setData(compoundCell(&rdii, "Assignment", "group"), "UH2"));
+        QCOMPARE(undo.count(), 1);
+        undo.undo();
+        QCOMPARE(compoundState(e, ref.kind, "J1"), old);
+        QVERIFY(compoundState(e, ref.kind, "O1").isEmpty());
+    }
+
+    void compoundUndoSurvivesRenameAndRejectsReusedTargets()
+    {
+        auto layer = openBulkCompoundLayer();
+        QVERIFY(layer);
+        const auto e = layer->engine();
+        QUndoStack undo;
+        NodeCompoundEditRef ref;
+        ref.layer = layer.get();
+        ref.engine = e;
+        ref.nodeName = "J1";
+        ref.nodeNames = {"J1", "j1", "J2"};
+        ref.undoStack = &undo;
+        NodeCompoundTableModel model(ref);
+        const auto before = compoundState(e, ref.kind, "J1"),
+                   control = compoundState(e, ref.kind, "X1");
+        QSignalSpy notifications(layer.get(), &SWMMModelLayer::attributeChanged);
+        QVERIFY(model.setData(compoundCell(&model, "FLOW", "baseline"), 12.0));
+        QCOMPARE(notifications.count(), 2);
+        QVERIFY(layer->applyRename("J1", "Renamed", SWMMModelLayer::kKindNode));
+        undo.undo();
+        QCOMPARE(compoundState(e, ref.kind, "Renamed"), before);
+        undo.redo();
+        const auto edited = compoundState(e, ref.kind, "Renamed");
+        QVERIFY(layer->applyNodeDelete("J2"));
+        QVERIFY(layer->applyNodeAdd("J2", SWMM_NODE_JUNCTION, 0, 0));
+        undo.undo();
+        QCOMPARE(compoundState(e, ref.kind, "Renamed"), edited);
+        QVERIFY(compoundState(e, ref.kind, "J2").isEmpty());
+        QVERIFY(!model.setData(compoundCell(&model, "FLOW", "baseline"), 25.0));
+        QCOMPARE(compoundState(e, ref.kind, "X1"), control);
+        undo.clear();
+        ref.nodeNames = {"Renamed"};
+        ref.nodeName = "Renamed";
+        NodeCompoundTableModel closing(ref);
+        QVERIFY(closing.setData(compoundCell(&closing, "FLOW", "scale"), 4.0));
+        const auto retained = compoundState(e, ref.kind, "Renamed");
+        emit layer->engineAboutToClose();
+        undo.undo();
+        QCOMPARE(compoundState(e, ref.kind, "Renamed"), retained);
+        QVERIFY(!closing.setData(compoundCell(&closing, "FLOW", "scale"), 5.0));
+    }
+
+    void compoundTreatmentUndoKeepsLongExpressions()
+    {
+        auto layer = openBulkCompoundLayer();
+        QVERIFY(layer);
+        const auto e = layer->engine();
+        const auto longText = QString("R = 0.1") + QString(" + 0").repeated(400);
+        QCOMPARE(swmm_treatment_set(e, swmm_node_index(e, "J1"), swmm_pollutant_index(e, "PA"),
+                                    longText.toUtf8().constData()),
+                 SWMM_OK);
+        QUndoStack undo;
+        NodeCompoundEditRef ref;
+        ref.layer = layer.get();
+        ref.engine = e;
+        ref.nodeName = "J1";
+        ref.kind = NodeCompoundEditRef::Treatment;
+        ref.undoStack = &undo;
+        NodeCompoundTableModel model(ref);
+        QCOMPARE(compoundCell(&model, "PA", "expression").data(Qt::EditRole).toString(), longText);
+        QVERIFY(model.setData(compoundCell(&model, "PA", "expression"), "R = 0.4"));
+        undo.undo();
+        QCOMPARE(compoundState(e, ref.kind, "J1").first().toList()[1].toList()[0].toString(),
+                 longText);
+        undo.clear();
+        const QString coupled = "R = R_PB * 0.5 + PB * 1e-5";
+        QCOMPARE(swmm_treatment_set(e, swmm_node_index(e, "J2"), swmm_pollutant_index(e, "PA"),
+                                    coupled.toUtf8().constData()),
+                 SWMM_OK);
+        ref.nodeNames = {"J1", "J2"};
+        NodeCompoundTableModel selected(ref);
+        openswmmvis::ui::TreatmentExpressionEdit editor(e);
+        QSignalSpy verdict(&editor, &openswmmvis::ui::TreatmentExpressionEdit::validationChanged);
+        editor.setExpression(coupled);
+        QVERIFY(verdict.last()[0].toBool());
+        QVERIFY(selected.setData(compoundCell(&selected, "PA", "expression"), "R = R_PB * 0.25"));
+        undo.undo();
+        QCOMPARE(compoundState(e, ref.kind, "J1").first().toList()[1].toList()[0].toString(),
+                 longText);
+        QCOMPARE(compoundState(e, ref.kind, "J2").first().toList()[1].toList()[0].toString(),
+                 coupled);
+        editor.setExpression("R = R_Missing * 0.5");
+        QVERIFY(!verdict.last()[0].toBool());
+        NodeCompoundEditDialog dialog(ref);
+        dialog.show();
+        auto *table = dialog.findChild<QTableView *>("nodeCompoundTable");
+        QVERIFY(table);
+        auto *viewModel = dynamic_cast<NodeCompoundTableModel *>(table->model());
+        QVERIFY(viewModel);
+        table->edit(compoundCell(viewModel, "PA", "expression"));
+        QPointer<openswmmvis::ui::TreatmentExpressionEdit> active =
+            table->findChild<openswmmvis::ui::TreatmentExpressionEdit *>();
+        QVERIFY(active);
+        editor.setValidationEngine(nullptr);
+        layer.reset(); // A queued/debounced validation must not touch the released engine.
+        if (active)
+            active->validateNow();
+    }
+
+    void compoundTableContextUsesTheSelectedRowsAndSharedUndo()
+    {
+        auto layer = openBulkCompoundLayer();
+        QVERIFY(layer);
+        const auto e = layer->engine();
+        const auto first = compoundState(e, NodeCompoundEditRef::Inflows, "J1"),
+                   second = compoundState(e, NodeCompoundEditRef::Inflows, "J2"),
+                   control = compoundState(e, NodeCompoundEditRef::Inflows, "X1");
+        MapCanvas canvas;
+        SelectionManager selection;
+        AttributeTablePanel panel;
+        panel.setProject(layer.get(), &selection, &canvas);
+        panel.showModelCategory(layer.get(), SWMMModelLayer::CatJunctions);
+        panel.resize(1400, 650);
+        panel.show();
+        selection.select({{SWMMObjectRef::Node, "J1"}, {SWMMObjectRef::Node, "J2"}},
+                         SelectionManager::Replace);
+        QCoreApplication::processEvents();
+        auto *view = panel.findChild<QTableView *>();
+        QVERIFY(view);
+        QModelIndex clicked;
+        for (int row = 0; row < view->model()->rowCount(); ++row)
+            if (view->model()->index(row, 0).data().toString() == "J1")
+                for (int col = 0; col < view->model()->columnCount(); ++col)
+                    if (view->model()->headerData(col, Qt::Horizontal).toString() ==
+                        "External Inflows")
+                        clicked = view->model()->index(row, col);
+        QVERIFY(clicked.isValid());
+        QSignalSpy dirty(layer.get(), &SWMMModelLayer::modelEdited);
+        QVERIFY(view->model()->setData(clicked, clicked.data(Qt::EditRole), Qt::EditRole));
+        QCOMPARE(dirty.count(), 0); // Finishing a navigation cell must not dirty the model.
+        view->scrollTo(clicked);
+        QCoreApplication::processEvents();
+        bool opened = false;
+        QTimer::singleShot(0, &panel, [&] {
+            auto *menu = panel.findChild<QMenu *>(QString(), Qt::FindDirectChildrenOnly);
+            if (!menu)
+                return;
+            for (auto *action : menu->actions())
+                if (action->text().startsWith("Edit External Inflows for 2")) {
+                    action->trigger();
+                    opened = true;
+                    break;
+                }
+            menu->close();
+        });
+        QVERIFY(QMetaObject::invokeMethod(&panel, "onContextMenuRequested",
+                                          Q_ARG(QPoint, view->visualRect(clicked).center())));
+        QVERIFY(opened);
+        auto *dialog = panel.findChild<NodeCompoundEditDialog *>();
+        QVERIFY(dialog);
+        QCOMPARE(dialog->findChild<QDialogButtonBox *>()->standardButtons(),
+                 QDialogButtonBox::StandardButtons(QDialogButtonBox::Close));
+        auto *table = dialog->findChild<QTableView *>("nodeCompoundTable");
+        QVERIFY(table);
+        auto *model = dynamic_cast<NodeCompoundTableModel *>(table->model());
+        QVERIFY(model);
+        const auto series = compoundCell(model, "FLOW", "series");
+        table->edit(series);
+        auto *combo = table->findChild<QComboBox *>();
+        QVERIFY(combo);
+        combo->setCurrentIndex(combo->findData(QString()));
+        QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, combo->currentIndex()));
+        QTRY_COMPARE(canvas.undoStack()->count(), 1);
+        table->setCurrentIndex(compoundCell(model, "FLOW", "series"));
+        auto *editReference = dialog->findChild<QPushButton *>("editNodeCompoundReference");
+        QVERIFY(editReference);
+        QVERIFY(editReference->isEnabled());
+        QTest::mouseClick(editReference, Qt::LeftButton);
+        auto *picker = dialog->findChild<DataObjectPickerEditor *>();
+        QVERIFY(picker);
+        picker->applyPickedName("TS1");
+        QTRY_COMPARE(canvas.undoStack()->count(), 2);
+        picker->window()->close();
+        dialog->close();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        canvas.undoStack()->undo();
+        canvas.undoStack()->undo();
+        QCOMPARE(compoundState(e, NodeCompoundEditRef::Inflows, "J1"), first);
+        QCOMPARE(compoundState(e, NodeCompoundEditRef::Inflows, "J2"), second);
+        QCOMPARE(compoundState(e, NodeCompoundEditRef::Inflows, "X1"), control);
+    }
+
     void bulkDividerRecords_data() { bulkOutfallTypeAndStage_data(); }
     void bulkDividerRecords()
     {

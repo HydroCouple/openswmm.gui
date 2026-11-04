@@ -9,6 +9,7 @@
  */
 
 #include "ui/dialogs/nodecompoundeditdialog.h"
+#include "ui/panels/nodecompoundtablemodel.h"
 #include "ui/theme/themehelpers.h"
 #include "ui/panels/objectbrowserpanel.h"
 #include "ui/dialogs/hydrographgroupeditor.h"
@@ -59,6 +60,16 @@ NodeCompoundEditDialog::NodeCompoundEditDialog(NodeCompoundEditRef ref, QWidget 
     setObjectName(QStringLiteral("NodeCompoundEditDialog"));
     setWindowTitle(tr("%1 — %2").arg(QString::fromLatin1(titles[m_ref.kind]), m_ref.nodeName));
     resize(560, 380);
+
+    if (m_ref.layer && m_ref.kind >= NodeCompoundEditRef::Inflows && m_ref.kind <= NodeCompoundEditRef::Treatment) {
+        const int count = m_ref.nodeNames.isEmpty() ? 1 : m_ref.nodeNames.size();
+        setWindowTitle(tr("%1 — %2 selected nodes").arg(QString::fromLatin1(titles[m_ref.kind])).arg(count));
+        buildNodeCompoundTableEditor(this, m_ref);
+        connect(m_ref.layer, &SWMMModelLayer::engineAboutToClose, this, &NodeCompoundEditDialog::invalidateContext);
+        connect(m_ref.layer, &QObject::destroyed, this, &NodeCompoundEditDialog::invalidateContext);
+        setAccessibleDescription(tr("Cell edits update the selected nodes immediately. Close dismisses the editor; Undo restores a committed field."));
+        return;
+    }
 
     m_stack = new QStackedWidget(this);
     buildInflowsPage();   // index 0

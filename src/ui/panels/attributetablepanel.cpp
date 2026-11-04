@@ -3057,11 +3057,24 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
     bool addedEditAction = false;
 
     if (metaId == qMetaTypeId<NodeCompoundEditRef>()) {
-        const NodeCompoundEditRef ref = cellValue.value<NodeCompoundEditRef>();
+        NodeCompoundEditRef ref = cellValue.value<NodeCompoundEditRef>();
+        if (ref.layer && ref.kind <= NodeCompoundEditRef::Treatment && m_view->selectionModel()) {
+            const auto rows = selectedSourceRows();
+            if (rows.contains(sourceIdx.row()))
+                for (int row : rows) ref.nodeNames << m_model->objectNameAt(row);
+            ref.undoStack = m_canvas ? m_canvas->undoStack() : nullptr;
+        }
         if (ref.engine && !ref.nodeName.isEmpty()) {
-            QAction *act = menu.addAction(
-                ref.summary.isEmpty() ? tr("Edit…") : tr("Edit \"%1\"…").arg(ref.summary));
+            QAction *act = menu.addAction(ref.nodeNames.size() > 1
+                ? tr("Edit %1 for %2 selected nodes…").arg(m_model->columnSpecs().value(sourceIdx.column()).label).arg(ref.nodeNames.size())
+                : ref.summary.isEmpty() ? tr("Edit…") : tr("Edit \"%1\"…").arg(ref.summary));
             connect(act, &QAction::triggered, this, [this, ref, sourceIdx]() {
+                if (ref.layer && ref.kind <= NodeCompoundEditRef::Treatment) {
+                    if (m_model->layer() != ref.layer || ref.layer->engine() != ref.engine) return;
+                    auto *dialog = new NodeCompoundEditDialog(ref, window());
+                    dialog->setAttribute(Qt::WA_DeleteOnClose); dialog->show();
+                    return;
+                }
                 NodeCompoundEditDialog dlg(ref, this);
                 dlg.exec();
                 NodeCompoundEditRef updated = ref;
@@ -3229,7 +3242,7 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
                 spec.editor == EditorKind::Numeric || spec.editor == EditorKind::Integer ||
                 spec.editor == EditorKind::Enum || spec.editor == EditorKind::Text;
             const bool referenceEditable = spec.editor == EditorKind::Compound &&
-                                           SWMMAggregateSelection::supports(spec);
+                                           cellValue.userType() == qMetaTypeId<DataObjectRef>() && SWMMAggregateSelection::supports(spec);
             const bool fileEditable = spec.editor == EditorKind::FileBrowse || spec.editor == EditorKind::FileColumn;
             if (simpleEditable || referenceEditable || fileEditable) {
                 if (!sourceIdx.data(openswmmvis::kDisabledEnumValuesRole).toList().contains(cellValue)) {
