@@ -1,7 +1,7 @@
 /**
  * @file      meshaggregateselection.h
- * @brief     Several mesh elements of one kind edited together: common values, Mixed, staged
- *            edits and one validated Apply.
+ * @brief     Several mesh elements of one kind edited together: common values, Mixed and
+ *            validated shared field edits.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
@@ -9,11 +9,12 @@
  * Process-aware editing plan, Phase 3 (docs/development/process-aware-spatial-editing.md §7.1,
  * §9). The model side of the Properties aggregate tree. It owns an unfocused
  * MeshAttributeTableModel over the targets' layer and kind, so every read, validation rule and
- * write is the attribute table's own; it adds only the multi-target summary and the staging.
+ * write is the attribute table's own; setValue() commits a field through a staged transaction.
  *
  * Contract:
  *  - Targets are typed MeshObjectRefs captured at construction and resolved to rows at use.
- *  - Mixed is a display/edit state, never a value: nothing is written until apply().
+ *  - Mixed is a display/edit state, never a value: opening an editor does not write anything.
+ *  - setValue() validates and commits one field immediately as one undo step.
  *  - apply() is one undo step. A value the model refuses for any target rolls the whole step
  *    back and leaves no undo entry.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -76,6 +77,9 @@ public:
     /** @return Summary of \p column across the resolved targets (cached). */
     [[nodiscard]] Field field(int column) const;
 
+    /*! Commit one field to all selected elements as one validated undo step. */
+    bool setValue(int column, const QVariant &value);
+
     /** @return True when \p column holds a staged value. */
     [[nodiscard]] bool isStaged(int column) const { return m_staged.contains(column); }
     /** @return Staged value of \p column, or invalid. */
@@ -104,6 +108,8 @@ public:
     [[nodiscard]] static QVariant comparable(const QVariant &value);
 
 signals:
+    /*! Empty on a successful edit; otherwise the reason the edit was refused. */
+    void editFinished(const QString &error);
     /*! The staged set changed. */
     void stagedChanged();
 

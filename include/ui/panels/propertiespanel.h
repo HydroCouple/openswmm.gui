@@ -112,13 +112,12 @@ public:
                         const QString &depthUnit = QStringLiteral("m"));
 
     /*! Show several mesh elements as one aggregate: common values, "Mixed" where they differ,
-     *  staged edits and one Apply (one undo step) or Cancel. Elements of more than one kind or
+     *  immediate shared field edits (one undo step per field). Elements of more than one kind or
      *  mesh show a summary with counts and nothing editable.
      * @param[in] canvas Optional borrowed canvas whose mesh layers resolve the refs and whose undo
-     *   stack receives Apply.
+     *   stack receives the field edits.
      * @param[in] refs Selected refs; non-mesh refs are counted in the summary only.
-     * @note Process-aware editing plan Phase 3 (§7.1). Staged edits are discarded, with a note,
-     *   when the panel shows something else. */
+     * @note Committed field edits are retained when the panel shows something else. */
     void showMeshSelection(MapCanvas *canvas, const QList<SWMMObjectRef> &refs);
     /*! Bind the full selection, offering explicit scopes for different object families. */
     void showSelection(MapCanvas *canvas, const QList<SWMMObjectRef> &refs);
@@ -379,8 +378,9 @@ private:
      * @brief Release the field binding for the previously displayed mesh element.
      */
     void releaseMeshProperties();
-    /** @brief Refresh the aggregate summary line and the Apply/Cancel state. */
-    void updateAggregateBar(const QString &message = {});
+    /** @brief Refresh the aggregate selection summary. */
+    void updateAggregateBar();
+    void showAggregateEditResult(const QString &error);
     /**
      * @param[in] watched Borrowed QObject being filtered; nonwidget/outside property tree forwarded
      *   to dock base.
@@ -484,11 +484,9 @@ private:
     class MeshAggregateSelection *m_meshAggregate = nullptr; ///< Phase 3 aggregate, or null.
     class SWMMAggregateSelection *m_swmmAggregate = nullptr;
     QComboBox *m_selectionScope = nullptr;
-    QWidget *m_aggregateBar = nullptr;       ///< Summary + Apply/Cancel, aggregates only.
+    QWidget *m_aggregateBar = nullptr;       ///< Selection summary, aggregates only.
     class QLabel *m_aggregateSummary = nullptr;
-    QPushButton *m_aggregateApply = nullptr;
-    QPushButton *m_aggregateCancel = nullptr;
-    class QLabel *m_meshNote = nullptr; ///< Says when unapplied aggregate edits were discarded.
+    class QLabel *m_meshNote = nullptr; ///< Reports rejected shared-property edits.
 
     bool m_suppressEditForward = false; ///< Set during onObjectEditedExternally to break loop.
 

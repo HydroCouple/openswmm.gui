@@ -119,6 +119,19 @@ MeshAggregateSelection::Field MeshAggregateSelection::field(int column) const
     return f;
 }
 
+bool MeshAggregateSelection::setValue(int column, const QVariant &value)
+{
+    QString error;
+    const bool accepted = stage(column, value) && apply(&error);
+    if (!accepted) {
+        discard();
+        if (error.isEmpty())
+            error = tr("This field cannot be edited for all selected elements.");
+    }
+    emit editFinished(error);
+    return accepted;
+}
+
 bool MeshAggregateSelection::stage(int column, const QVariant &value)
 {
     if (column < 0 || column >= m_source->columnCount() || !value.isValid())
@@ -205,7 +218,7 @@ bool MeshAggregateSelection::apply(QString *error)
     if (m_staged.isEmpty())
         return true;
     if (!m_source->layer() || m_source->layer()->attrRevision() != m_draftRevision)
-        return fail(tr("The mesh changed while these edits were pending. Cancel and review the selection again."));
+        return fail(tr("The mesh changed while this field was being edited. Select the elements again."));
     const QList<int> targetRows = rows();
     if (const int gone = unresolvedCount())
         return fail(tr("%1 of the selected elements no longer exist. Select them again before "

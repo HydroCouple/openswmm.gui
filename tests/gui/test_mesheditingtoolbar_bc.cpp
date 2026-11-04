@@ -57,6 +57,24 @@ using openswmmvis::ui::RibbonGroup;
 namespace
 {
 
+void chooseBoundaryType(QComboBox *combo, int type)
+{
+    const int index = combo->findData(type);
+    QVERIFY(index >= 0);
+    combo->setCurrentIndex(index);
+    QVERIFY(QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, index)));
+}
+
+void editBoundaryValue(QDialog *dialog, const QString &text)
+{
+    auto *value = dialog->findChild<QLineEdit *>("boundaryValue");
+    QVERIFY(value);
+    value->setText(text);
+    value->setModified(true);
+    QVERIFY(QMetaObject::invokeMethod(value, "editingFinished"));
+}
+
+
 /*! `wide` × 1 strip of unit quads, two triangles each (the
  *  test_meshcommands_vertex_edge fixture). */
 mesh::MeshResult makeStrip(int wide)
@@ -323,8 +341,7 @@ private slots:
     }
 
     /*! A mixed selection does not impersonate a uniform value: the ribbon's
-     *  Boundary Condition… editor opens with no type chosen (OK disabled)
-     *  for mixed types and for one type with different series. */
+     *  Boundary Condition… editor shows mixed types or parameters without writing. */
     void mixedSelectionOpensEditorUndecided()
     {
         Rig rig;
@@ -343,7 +360,7 @@ private slots:
             QCOMPARE(type->currentData().toInt(), int(MeshBCTypes::Type::SpecifiedStageTS));
             QCOMPARE(dialog->findChild<QLineEdit *>(QStringLiteral("boundaryValue"))->text(),
                      QStringLiteral("TS_A"));
-            QVERIFY(dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->isEnabled());
+            QVERIFY(dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Close));
             dialog->reject();
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         }
@@ -357,9 +374,16 @@ private slots:
             QVERIFY(dialog);
             auto *type = dialog->findChild<QComboBox *>(QStringLiteral("boundaryType"));
             QVERIFY(type);
-            QCOMPARE(type->currentIndex(), -1);
+            if (pass == 0)
+                QCOMPARE(type->currentIndex(), -1);
+            else {
+                QCOMPARE(type->currentData().toInt(), int(MeshBCTypes::Type::SpecifiedStageTS));
+                auto *value = dialog->findChild<QLineEdit *>("boundaryValue");
+                QVERIFY(value->text().isEmpty());
+                QCOMPARE(value->placeholderText(), QString("Mixed"));
+            }
             auto *buttons = dialog->findChild<QDialogButtonBox *>();
-            QVERIFY(buttons && !buttons->button(QDialogButtonBox::Ok)->isEnabled());
+            QVERIFY(buttons && !buttons->button(QDialogButtonBox::Ok));
             dialog->reject();
             QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         }
@@ -374,7 +398,7 @@ private slots:
         QCOMPARE(type->currentData().toInt(), int(MeshBCTypes::Type::SpecifiedStageTS));
         QCOMPARE(dialog->findChild<QLineEdit *>(QStringLiteral("boundaryValue"))->text(),
                  QStringLiteral("TS_A"));
-        QVERIFY(dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->isEnabled());
+        QVERIFY(dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Close));
         dialog->reject();
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     }
@@ -464,20 +488,17 @@ private slots:
         QCOMPARE(rig.layer->edgeBCs()[mesh::edgeSlot(bs[2].first, bs[2].second)].tseries,
                  QStringLiteral("TS_C"));
 
-        // The ribbon editor: choose Specified stage, type a stage, OK.
+        // The ribbon editor: choose Specified stage and commit a stage value.
         rig.select({bs[0], bs[1], bs[2]});
         rig.action("actionMeshBoundaryCondition")->trigger();
         QDialog *dialog = rig.boundaryDialog();
         QVERIFY(dialog);
         auto *type = dialog->findChild<QComboBox *>(QStringLiteral("boundaryType"));
-        type->setCurrentIndex(type->findData(int(MeshBCTypes::Type::SpecifiedStageConst)));
-        auto *value = dialog->findChild<QLineEdit *>(QStringLiteral("boundaryValue"));
-        QVERIFY(value && value->isVisibleTo(dialog));
-        value->setText(QStringLiteral("3.25"));
-        // index(), not count(): the push replaces the command undone above.
+        // Each committed field writes immediately, including with redo history present.
         const int beforeEditor = rig.canvas.undoStack()->index();
-        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
-        QCOMPARE(rig.canvas.undoStack()->index(), beforeEditor + 1);
+        chooseBoundaryType(type, int(MeshBCTypes::Type::SpecifiedStageConst));
+        editBoundaryValue(dialog, "3.25");
+        QCOMPARE(rig.canvas.undoStack()->index(), beforeEditor + 2);
         for (const auto &slot : bs) {
             const auto &bc = rig.layer->edgeBCs()[mesh::edgeSlot(slot.first, slot.second)];
             QCOMPARE(bc.type, MeshBCTypes::Type::SpecifiedStageConst);
@@ -496,9 +517,8 @@ private slots:
         QDialog *dialog = rig.boundaryDialog();
         QVERIFY(dialog);
         auto *type = dialog->findChild<QComboBox *>(QStringLiteral("boundaryType"));
-        type->setCurrentIndex(type->findData(int(MeshBCTypes::Type::NormalFlow)));
-        dialog->findChild<QLineEdit *>(QStringLiteral("boundaryValue"))->setText("-0.002");
-        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        chooseBoundaryType(type, int(MeshBCTypes::Type::NormalFlow));
+        editBoundaryValue(dialog, "-0.002");
         const auto &first = rig.layer->edgeBCs()[mesh::edgeSlot(bs[0].first, bs[0].second)];
         QCOMPARE(first.type, MeshBCTypes::Type::NormalFlow);
         QCOMPARE(first.slope, -0.002);

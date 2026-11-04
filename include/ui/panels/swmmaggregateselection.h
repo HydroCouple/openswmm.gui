@@ -1,6 +1,6 @@
 /**
  * @file      swmmaggregateselection.h
- * @brief     Staged shared properties for selected SWMM network objects.
+ * @brief     Shared field edits for selected SWMM network objects.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  * @license   GPL-3.0-or-later
@@ -31,6 +31,7 @@ public:
     QList<int> rows() const;
     int unresolvedCount() const { return m_names.size() - rows().size(); }
     Field field(int column) const;
+    bool setValue(int column, const QVariant &value);
     bool isStaged(int column) const { return m_staged.contains(column); }
     QVariant stagedValue(int column) const { return m_staged.value(column); }
     QList<int> stagedColumns() const { return m_staged.keys(); }
@@ -39,6 +40,7 @@ public:
     bool apply(QString *error);
     static bool supports(const openswmmvis::ColumnSpec &spec);
 signals:
+    void editFinished(const QString &error);
     void stagedChanged();
 private:
     SWMMAttributeTableModel *m_source;

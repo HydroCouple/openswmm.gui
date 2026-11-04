@@ -324,11 +324,11 @@ public:
     bool hasChildren() override { return !m_children.isEmpty(); }
 };
 
-/// Value-column role: true while the field shows "Mixed" (targets differ, nothing staged).
+/// Value-column role: true while the field shows "Mixed" (targets differ).
 constexpr int kMeshMixedRole = Qt::UserRole + 0x4D49;
 
 /*! A field's own delegate, made safe for Mixed fields: opening and leaving the editor without a
- *  choice stages nothing (plan §9: Mixed is never a value or a default). Numeric editors already
+ *  choice writes nothing (plan §9: Mixed is never a value or a default). Numeric editors already
  *  start blank and commit only when edited (NumericDelegate). */
 class MeshAggregateFieldDelegate final : public QStyledItemDelegate
 {
@@ -395,8 +395,7 @@ private:
     QStyledItemDelegate *m_inner;
 };
 
-/*! One field of an aggregate: the common value, "Mixed", or the staged value. Edits stage into
- *  the MeshAggregateSelection; nothing reaches the mesh before Apply. */
+/*! One shared field: a committed editor value updates every captured target immediately. */
 template <typename Selection>
 class AggregateFieldProperty final : public QPropertyItem
 {
@@ -452,7 +451,7 @@ public:
     }
     bool setData(const QVariant &value, Qt::ItemDataRole role) override
     {
-        return role == Qt::EditRole && m_selection->stage(m_column, value);
+        return role == Qt::EditRole && m_selection->setValue(m_column, value);
     }
     Qt::ItemFlags flags() const override
     {
@@ -505,13 +504,9 @@ private:
                                          "cannot be edited for all of them here.")
                          .arg(field.editable)
                          .arg(targets);
-        else if (m_selection->isStaged(m_column))
-            lines << PropertiesPanel::tr("Changed. Apply writes it to all %1 selected elements.")
-                         .arg(targets);
         else if (field.mixed)
-            lines << PropertiesPanel::tr("The %1 selected elements hold different values. A "
-                                         "value entered here replaces them all on Apply.")
-                         .arg(targets);
+            lines << PropertiesPanel::tr("The %1 selected elements hold different values. "
+                                         "Committing a value replaces them all.").arg(targets);
         return lines.join(QLatin1Char('\n'));
     }
 
@@ -590,26 +585,8 @@ QStyledItemDelegate *meshFieldEditor(const QModelIndex &index)
  *  not describe keep the stock editor. */
 class PropertyStepDelegate : public QPropertyItemDelegate
 {
-    Q_OBJECT
 public:
     using QPropertyItemDelegate::QPropertyItemDelegate;
-
-    void commitPendingEdit() const
-    {
-        if (m_activeEditor && m_activeField.isValid())
-            setModelData(m_activeEditor, const_cast<QAbstractItemModel *>(m_activeField.model()),
-                         m_activeField);
-    }
-    void cancelPendingEdit() const
-    {
-        if (m_activeEditor && m_activeField.isValid())
-            setEditorData(m_activeEditor, m_activeField);
-    }
-
-signals:
-    void pendingEditChanged();
-
-public:
 
     /**
      * @param[in] parent Optional QWidget editor owner, forwarded to base; returned widget managed
@@ -628,27 +605,17 @@ public:
     {
         if (auto *editor = meshFieldEditor(index)) {
             QWidget *widget = editor->createEditor(parent, option, index);
-            m_activeEditor = widget;
-            m_activeField = index;
-            auto *delegate = const_cast<PropertyStepDelegate *>(this);
-            QLineEdit *line = qobject_cast<QLineEdit *>(widget);
-            if (!line && widget) line = widget->findChild<QLineEdit *>();
-            if (line)
-                connect(line, &QLineEdit::textEdited, delegate,
-                        [delegate] { emit delegate->pendingEditChanged(); });
             if (auto *combo = qobject_cast<QComboBox *>(widget)) {
                 auto *delegate = const_cast<PropertyStepDelegate *>(this);
                 connect(combo, &QComboBox::activated, delegate, [delegate, widget] {
                     emit delegate->commitData(widget);
                     emit delegate->closeEditor(widget);
                 });
-            }
-            if (auto *spin = qobject_cast<QAbstractSpinBox *>(widget)) {
+            } else if (auto *picker = qobject_cast<DataObjectPickerEditor *>(widget)) {
                 auto *delegate = const_cast<PropertyStepDelegate *>(this);
-                const QPersistentModelIndex field(index);
-                connect(spin, &QAbstractSpinBox::editingFinished, delegate, [delegate, widget, field] {
-                    if (field.isValid())
-                        delegate->setModelData(widget, const_cast<QAbstractItemModel *>(field.model()), field);
+                connect(picker, &DataObjectPickerEditor::valueChanged, delegate, [delegate, picker] {
+                    picker->setProperty("meshAggregateTouched", true);
+                    emit delegate->commitData(picker);
                 });
             }
             return widget;
@@ -716,9 +683,6 @@ public:
             QPropertyItemDelegate::setModelData(widget, model, index);
         }
     }
-private:
-    mutable QPointer<QWidget> m_activeEditor;
-    mutable QPersistentModelIndex m_activeField;
 };
 
 } // namespace
@@ -847,7 +811,7 @@ void PropertiesPanel::setupUi()
     connect(m_statsSourceCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             [this](int) { applyStatsSourceToAdapter(); });
 
-    // Says when unapplied aggregate edits were discarded by a selection change.
+    // Reports a rejected shared-property edit.
     m_meshNote = new QLabel(central);
     m_meshNote->setObjectName(QStringLiteral("meshAggregateNote"));
     m_meshNote->setWordWrap(true);
@@ -864,7 +828,7 @@ void PropertiesPanel::setupUi()
     });
     vlay->addWidget(m_treeView, 1);
 
-    // Aggregate editing (several mesh elements): summary, Apply, Cancel.
+    // Identify which objects a committed field value will update.
     m_aggregateBar = new QWidget(central);
     m_aggregateBar->setObjectName(QStringLiteral("meshAggregateBar"));
     auto *barLayout = new QHBoxLayout(m_aggregateBar);
@@ -873,52 +837,8 @@ void PropertiesPanel::setupUi()
     m_aggregateSummary->setObjectName(QStringLiteral("meshAggregateSummary"));
     m_aggregateSummary->setWordWrap(true);
     barLayout->addWidget(m_aggregateSummary, 1);
-    m_aggregateCancel = new QPushButton(tr("Cancel"), m_aggregateBar);
-    m_aggregateCancel->setFocusPolicy(Qt::TabFocus);
-    m_aggregateCancel->setObjectName(QStringLiteral("meshAggregateCancel"));
-    m_aggregateCancel->setToolTip(tr("Discard the changes made to the selected elements."));
-    m_aggregateApply = new QPushButton(tr("Apply"), m_aggregateBar);
-    // Commit the active editor in clicked(), after the mouse press/release.
-    // A click-focus transfer commits and refreshes the tree during the press,
-    // which can cancel the button click before it reaches the Apply handler.
-    // Tab focus still permits keyboard navigation to either button.
-    m_aggregateApply->setFocusPolicy(Qt::TabFocus);
-    m_aggregateApply->setObjectName(QStringLiteral("meshAggregateApply"));
-    m_aggregateApply->setToolTip(
-        tr("Write the changed fields to every selected element as one undo step."));
-    m_aggregateApply->setDefault(true);
-    barLayout->addWidget(m_aggregateCancel);
-    barLayout->addWidget(m_aggregateApply);
     m_aggregateBar->hide();
     vlay->addWidget(m_aggregateBar);
-    connect(m_aggregateCancel, &QPushButton::clicked, this, [this] {
-#ifdef HAVE_QPROPERTYMODEL
-        if (auto *delegate = dynamic_cast<PropertyStepDelegate *>(m_delegate))
-            delegate->cancelPendingEdit();
-#endif
-        m_treeView->setFocus();
-        if (m_meshAggregate)
-            m_meshAggregate->discard();
-        if (m_swmmAggregate)
-            m_swmmAggregate->discard();
-        updateAggregateBar();
-    });
-    connect(m_aggregateApply, &QPushButton::clicked, this, [this] {
-        if (!m_meshAggregate && !m_swmmAggregate)
-            return;
-#ifdef HAVE_QPROPERTYMODEL
-        if (auto *delegate = dynamic_cast<PropertyStepDelegate *>(m_delegate))
-            delegate->commitPendingEdit();
-#endif
-        m_treeView->setFocus(); // commit an open editor first
-        QString error;
-        const bool applied = m_meshAggregate ? m_meshAggregate->apply(&error)
-                                            : m_swmmAggregate->apply(&error);
-        if (applied)
-            updateAggregateBar(tr("Applied."));
-        else
-            updateAggregateBar(error);
-    });
 
     setWidget(central);
 
@@ -934,13 +854,6 @@ void PropertiesPanel::setupUi()
     m_model = properties;
     auto *delegate = new PropertyStepDelegate(this); // feedback C7
     m_delegate = delegate;
-    connect(delegate, &PropertyStepDelegate::pendingEditChanged, this, [this] {
-        if (m_meshAggregate || m_swmmAggregate) {
-            m_aggregateApply->setEnabled(true);
-            m_aggregateCancel->setEnabled(true);
-        }
-    });
-
     registerLinkEndpointRefConverter();
     delegate->registerCustomTypeEditorCreator(
         static_cast<QMetaType::Type>(qMetaTypeId<LinkEndpointRef>()),
@@ -1096,15 +1009,12 @@ void PropertiesPanel::releaseMeshProperties()
         m_meshFields = nullptr;
         m_treeView->setEditTriggers(QAbstractItemView::AllEditTriggers);
     }
-    int discarded = 0;
     if (m_swmmAggregate) {
-        discarded = m_swmmAggregate->stagedColumns().size();
         m_swmmAggregate->disconnect(this);
         m_swmmAggregate->deleteLater();
         m_swmmAggregate = nullptr;
     }
     if (m_meshAggregate) {
-        discarded = int(m_meshAggregate->stagedColumns().size());
         m_meshAggregate->disconnect(this);
         m_meshAggregate->source()->disconnect(this);
         m_meshAggregate->deleteLater();
@@ -1113,16 +1023,8 @@ void PropertiesPanel::releaseMeshProperties()
     }
     if (m_aggregateBar)
         m_aggregateBar->hide();
-    // Shown until the panel changes again, so a selection change never drops
-    // edits silently (plan §9: cancellation is reported honestly).
-    if (m_meshNote) {
-        m_meshNote->setVisible(discarded > 0);
-        m_meshNote->setText(discarded == 1
-                                ? tr("1 unapplied change to the previous selection was discarded.")
-                                : tr("%1 unapplied changes to the previous selection were "
-                                     "discarded.")
-                                      .arg(discarded));
-    }
+    if (m_meshNote)
+        m_meshNote->hide();
 }
 
 namespace
@@ -1143,32 +1045,25 @@ QString meshCountText(MeshAttributeTableModel::Kind kind, int n)
 }
 } // namespace
 
-void PropertiesPanel::updateAggregateBar(const QString &message)
+void PropertiesPanel::updateAggregateBar()
 {
     if ((!m_meshAggregate && !m_swmmAggregate) || !m_aggregateBar)
         return;
     const int targets = m_meshAggregate ? m_meshAggregate->rows().size() : m_swmmAggregate->rows().size();
     const int gone = m_meshAggregate ? m_meshAggregate->unresolvedCount() : m_swmmAggregate->unresolvedCount();
-    const int staged = m_meshAggregate ? m_meshAggregate->stagedColumns().size()
-                                       : m_swmmAggregate->stagedColumns().size();
     QStringList parts{m_meshAggregate ? meshCountText(m_meshAggregate->kind(), targets)
                                     : tr("%1 objects").arg(targets)};
     if (gone)
         parts << tr("%1 no longer exist").arg(gone);
-    parts << (staged == 0   ? tr("no changes")
-              : staged == 1 ? tr("1 change to apply")
-                            : tr("%1 changes to apply").arg(staged));
-    QString text = parts.join(QStringLiteral(" · "));
-    if (m_meshAggregate && !m_meshAggregate->stagingNotice().isEmpty())
-        text = m_meshAggregate->stagingNotice() + QLatin1Char('\n') + text;
-    if (!message.isEmpty())
-        text = message + QLatin1Char('\n') + text;
-    m_aggregateSummary->setText(text);
-    m_aggregateApply->setVisible(true);
-    m_aggregateCancel->setVisible(true);
-    m_aggregateApply->setEnabled(staged > 0);
-    m_aggregateCancel->setEnabled(staged > 0);
+    parts << tr("Edits update all selected objects immediately");
+    m_aggregateSummary->setText(parts.join(QStringLiteral(" · ")));
     m_aggregateBar->show();
+}
+
+void PropertiesPanel::showAggregateEditResult(const QString &error)
+{
+    m_meshNote->setText(error);
+    m_meshNote->setVisible(!error.isEmpty());
 }
 
 void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef> &refs)
@@ -1259,6 +1154,8 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
                     static_cast<SWMMModelLayer::Category>(scope.category), names,
                     canvas ? canvas->undoStack() : nullptr, this);
                 m_swmmAggregate = aggregate;
+                connect(aggregate, &SWMMAggregateSelection::editFinished, this,
+                        &PropertiesPanel::showAggregateEditResult);
                 setWindowTitle(tr("%1 — %2 selected").arg(scope.title).arg(names.size()));
                 auto *pm = qobject_cast<QPropertyModel *>(m_model);
                 pm->setData(QVariant::fromValue(aggregate));
@@ -1277,8 +1174,6 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
                 clear();
                 setWindowTitle(tr("%1 objects selected").arg(scope.refs.size()));
                 m_aggregateSummary->setText(tr("Select a compatible spatial object group to edit shared attributes."));
-                m_aggregateApply->hide();
-                m_aggregateCancel->hide();
                 m_aggregateBar->show();
             }
         }
@@ -1334,8 +1229,6 @@ void PropertiesPanel::showMeshSelection(MapCanvas *canvas, const QList<SWMMObjec
         m_aggregateSummary->setText(
             tr("%1. Select elements of one kind on one mesh to edit them together.")
                 .arg(parts.join(QStringLiteral(", "))));
-        m_aggregateApply->hide();
-        m_aggregateCancel->hide();
         m_aggregateBar->show();
         return;
     }
@@ -1358,6 +1251,8 @@ void PropertiesPanel::showMeshSelection(MapCanvas *canvas, const QList<SWMMObjec
     auto *aggregate =
         new MeshAggregateSelection(layer, kind, groups.first(), canvas, m_swmmLayer, this);
     m_meshAggregate = aggregate;
+    connect(aggregate, &MeshAggregateSelection::editFinished, this,
+            &PropertiesPanel::showAggregateEditResult);
     setWindowTitle(tr("2D mesh: %1").arg(meshCountText(kind, aggregate->targetCount())));
     m_treeView->setEditTriggers(QAbstractItemView::EditKeyPressed |
                                 QAbstractItemView::AnyKeyPressed);
@@ -1394,19 +1289,8 @@ void PropertiesPanel::showMeshSelection(MapCanvas *canvas, const QList<SWMMObjec
                                       "edges.")
                                        .arg(boundary));
                 connect(button, &QPushButton::clicked, source,
-                        [this, aggregate, source, boundary] {
-                            if (boundary != aggregate->rows().size()) {
-                                source->editBoundaryCondition(aggregate->rows(), this);
-                                return;
-                            }
-                            QMap<int, QVariant> draft;
-                            for (int column : aggregate->stagedColumns())
-                                draft.insert(column, aggregate->stagedValue(column));
-                            source->editBoundaryCondition(aggregate->rows(), this,
-                                [aggregate](const QMap<int, QVariant> &values) {
-                                    for (auto it = values.cbegin(); it != values.cend(); ++it)
-                                        aggregate->stage(it.key(), it.value());
-                                }, draft);
+                        [this, aggregate, source] {
+                            source->editBoundaryCondition(aggregate->rows(), this);
                         });
             } else if (group->name() == tr("Infiltration")) {
                 int editable = 0;

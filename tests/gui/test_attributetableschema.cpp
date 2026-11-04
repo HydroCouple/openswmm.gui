@@ -305,9 +305,20 @@ private slots:
         auto *source = aggregate->source();
         const int depth = colFor(source->columnSpecs(), "Max depth");
         QVERIFY(depth >= 0);
-        QVERIFY(aggregate->stage(depth, 12.5));
-        QString error;
-        QVERIFY2(aggregate->apply(&error), qPrintable(error));
+        auto *tree = panel.findChild<QTreeView *>();
+        QVERIFY(tree);
+        const auto property = [tree](const QString &label) {
+            auto *model = tree->model();
+            for (int g = 0; g < model->rowCount(); ++g) {
+                const auto group = model->index(g, 0);
+                for (int r = 0; r < model->rowCount(group); ++r)
+                    if (model->index(r, 0, group).data().toString() == label)
+                        return model->index(r, 1, group);
+            }
+            return QModelIndex();
+        };
+        QVERIFY(!panel.findChild<QPushButton *>("meshAggregateApply"));
+        QVERIFY(tree->model()->setData(property(source->headerData(depth, Qt::Horizontal).toString()), 12.5));
         QCOMPARE(canvas.undoStack()->count(), 1);
         for (const char *name : {"J1", "X1"}) {
             double value = 0;
@@ -321,8 +332,7 @@ private slots:
         QVERIFY(aggregate);
         const int roughness = colFor(aggregate->source()->columnSpecs(), "Roughness");
         QVERIFY(roughness >= 0);
-        QVERIFY(aggregate->stage(roughness, 0.02));
-        QVERIFY2(aggregate->apply(&error), qPrintable(error));
+        QVERIFY(tree->model()->setData(property(aggregate->source()->headerData(roughness, Qt::Horizontal).toString()), .02));
         QCOMPARE(canvas.undoStack()->count(), 2);
         for (const char *name : {"C1", "X1"}) {
             double value = 0;
