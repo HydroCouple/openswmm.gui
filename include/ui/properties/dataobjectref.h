@@ -80,6 +80,7 @@ struct DataObjectRef {
         RatingCurve = 17,   ///< Curves of type RATING (engine 3) — tabular outlets.
         Transect = 18,      ///< Named irregular conduit cross-section.
         Street = 19,        ///< Named street conduit cross-section.
+        DiversionCurve = 20, ///< Divider flow-diversion curve (engine table type 2).
     };
 
     SWMM_Engine engine = nullptr;    ///< Engine handle (borrow)
@@ -92,6 +93,8 @@ struct DataObjectRef {
      *  after the property grid has closed the cell editor (it does so the
      *  moment the map takes focus). Not part of equality. */
     int hostNodeIdx = -1;
+    enum OutletTarget { Automatic = -1, NodeOutlet = 0, SubcatchmentOutlet = 1 };
+    OutletTarget outletTarget = Automatic; ///< SubcatchOutlet namespace; Automatic preserves legacy node-first input.
 
     /**
      * @brief Compare reference identity and every cached display/value field.
@@ -101,7 +104,7 @@ struct DataObjectRef {
     bool operator==(const DataObjectRef &other) const noexcept
     {
         return engine == other.engine && layer == other.layer && kind == other.kind &&
-               typeLock == other.typeLock && currentName == other.currentName;
+               typeLock == other.typeLock && currentName == other.currentName && outletTarget == other.outletTarget;
     }
 };
 

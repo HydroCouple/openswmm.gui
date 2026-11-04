@@ -11,6 +11,7 @@
 #include <QTimer>
 #include <QSet>
 #include <cmath>
+#include <algorithm>
 #include "ui/properties/dataobjectref.h"
 #include "ui/properties/linkendpointref.h"
 
@@ -21,7 +22,7 @@ QVariant comparable(const QVariant &value)
 {
     if (value.userType() == qMetaTypeId<DataObjectRef>()) {
         const auto ref = value.value<DataObjectRef>();
-        return QVariantList{int(ref.kind), ref.currentName};
+        return QVariantList{int(ref.kind), ref.currentName, int(ref.outletTarget)};
     }
     return value;
 }
@@ -92,7 +93,8 @@ bool SWMMAggregateSelection::supports(const openswmmvis::ColumnSpec &spec)
     const QStringList independentChoices{
         "node_outfall_flap_gate", "link_flap_gate", "link_culvert_code",
         "link_pump_init_state", "gage_rain_type", "gage_rain_units", "link_xsect_shape",
-        "node_outfall_type", "node_storage_shape"};
+        "node_outfall_type", "node_storage_shape", "node_divider_type", "subcatch_infil_model",
+        "gage_data_source", "gage_file_format"};
     return !spec.setter.isEmpty() && spec.key != QLatin1String("Name") &&
         (spec.editor == EditorKind::Numeric || spec.editor == EditorKind::Integer ||
          spec.editor == EditorKind::Interval || spec.editor == EditorKind::LinkEndpoint ||
@@ -102,10 +104,14 @@ bool SWMMAggregateSelection::supports(const openswmmvis::ColumnSpec &spec)
            spec.setter == QLatin1String("node_outfall_tidal_ref") ||
            spec.setter == QLatin1String("node_outfall_timeseries_ref") ||
            spec.setter == QLatin1String("node_storage_curve_ref") ||
+           spec.setter == "node_divider_curve_ref" || spec.setter == "gage_series_ref" ||
+           spec.setter == "subcatch_rain_gage_ref" || spec.setter == "subcatch_outlet_ref" ||
+           spec.setter == "subcatch_snowpack_ref" || spec.setter == "subcatch_aquifer_ref" ||
            spec.setter == QLatin1String("link_xsect_transect_ref") ||
            spec.setter == QLatin1String("link_xsect_street_ref"))) ||
          (spec.editor == EditorKind::Enum && independentChoices.contains(spec.setter)) ||
-         (spec.editor == EditorKind::Text && spec.key == QLatin1String("Tag")));
+         spec.editor == EditorKind::FileBrowse || spec.editor == EditorKind::FileColumn ||
+         (spec.editor == EditorKind::Text && (spec.key == QLatin1String("Tag") || spec.setter == "gage_station_id")));
 }
 
 QList<int> SWMMAggregateSelection::rows() const
@@ -123,6 +129,20 @@ QVariant SWMMAggregateSelection::editorData(int column, int role) const
 {
     const auto specs = m_source->columnSpecs();
     if (column < 0 || column >= specs.size()) return {};
+    if (role == openswmmvis::kFileColumnOptionsRole) {
+        QStringList common;
+        bool first = true;
+        for (auto group = m_targets.cbegin(); group != m_targets.cend(); ++group) {
+            const auto *model = m_sources.value(group.key());
+            const int col = m_columns.value(group.key()).value(specs[column].key, -1);
+            for (const auto &name : group.value()) {
+                const auto choices = model->index(model->rowForName(name), col).data(role).toStringList();
+                if (first) { common = choices; first = false; }
+                else common.erase(std::remove_if(common.begin(), common.end(), [&choices](const QString &v) { return !choices.contains(v); }), common.end());
+            }
+        }
+        return common;
+    }
     for (auto group = m_targets.cbegin(); group != m_targets.cend(); ++group) {
         const auto *model = m_sources.value(group.key());
         const int col = m_columns.value(group.key()).value(specs[column].key, -1);

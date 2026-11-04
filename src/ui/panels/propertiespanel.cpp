@@ -370,6 +370,10 @@ public:
             picker->setProperty("meshAggregateTouched", false);
             QObject::connect(picker, &DataObjectPickerEditor::valueChanged, picker,
                              [picker] { picker->setProperty("meshAggregateTouched", true); });
+        } else if (editor->property("attributeFileBrowse").toBool()) {
+            if (auto *line = editor->findChild<QLineEdit *>()) {
+                line->clear(); line->setPlaceholderText(mixedText); line->setModified(false);
+            }
         }
         // Any other editor never writes a Mixed field (setModelData).
     }
@@ -380,11 +384,14 @@ public:
             if (qobject_cast<LinkEndpointComboBox *>(editor)) {
                 if (!editor->property("meshAggregateTouched").toBool()) return;
             } else if (auto *combo = qobject_cast<QComboBox *>(editor)) {
-                if (combo->currentIndex() < 0)
+                if (combo->currentIndex() < 0 && !(combo->isEditable() && combo->lineEdit()->isModified()))
                     return;
             } else if (auto *line = qobject_cast<QLineEdit *>(editor)) {
                 if (!line->isModified())
                     return;
+            } else if (editor->property("attributeFileBrowse").toBool()) {
+                auto *line = editor->findChild<QLineEdit *>();
+                if (!line || !line->isModified()) return;
             } else if (!qobject_cast<QAbstractSpinBox *>(editor) &&
                        !editor->property("meshAggregateTouched").toBool()) {
                 return;
@@ -427,6 +434,7 @@ public:
             return mixed;
         case openswmmvis::kLinkEndpointRole:
         case openswmmvis::kDisabledEnumValuesRole:
+        case openswmmvis::kFileColumnOptionsRole:
             if constexpr (std::is_same_v<Selection, SWMMAggregateSelection>)
                 return m_selection->editorData(m_column, role);
             return {};
@@ -637,6 +645,10 @@ public:
                     picker->setProperty("meshAggregateTouched", true);
                     emit delegate->commitData(picker);
                 });
+            } else if (widget && widget->property("attributeFileBrowse").toBool()) {
+                auto *delegate = const_cast<PropertyStepDelegate *>(this);
+                if (auto *line = widget->findChild<QLineEdit *>())
+                    connect(line, &QLineEdit::editingFinished, delegate, [delegate, widget] { emit delegate->commitData(widget); });
             }
             return widget;
         }

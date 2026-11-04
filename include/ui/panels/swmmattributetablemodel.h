@@ -490,35 +490,6 @@ private:
      */
     [[nodiscard]] QString rainFileFor(int row) const;
 
-    /*! Commit a rain-file path edit together with the column selector (and the
-     *  file-format flip that a column implies) as ONE undoable step.
-     *
-     *  A column belongs to the file it was picked from, so a path edit that
-     *  leaves a stale column behind writes a model whose run fails, and one
-     *  that leaves a multi-column file unbound writes the standard
-     *  `FILE "path" Station Units` grammar for a file with no station column
-     *  (review R3). Both writes therefore have to happen — and both have to
-     *  undo, which is why this is a QUndoStack macro rather than a second
-     *  engine write inside commitValueDirect: a write made there would sit
-     *  outside the edit command's captured state, so undo would restore the
-     *  path and keep the column.
-     * @param[in] pathIndex Current valid file-path cell in this model; caller validates
-     *   role/source/schema before entry.
-     * @param[in] oldPath Pre-edit path captured by caller, not reread.
-     * @param[in] newPath Raw target path submitted through string setter, no existence/type
-     *   validation here.
-     * @return Always true after attempts, even setter/engine/file-header failures; not an atomic
-     *   success signal.
-     * @note Capture sibling column/format BEFORE write, begin/end one stack macro if available,
-     *   commit path then reconcile selector against resolved new file headers; nonempty new
-     *   selector records USER_CSV before column. If clearing selector, no explicit
-     *   reset-to-standard format step here. Failed path can leave old path used for reconciliation,
-     *   no rollback. Without stack direct writes execute sequentially. Inner commands retain
-     *   current model row/column; host preserves schema/source through notifications.
-     */
-    bool commitRainFilePath(const QModelIndex &pathIndex, const QVariant &oldPath,
-                            const QVariant &newPath);
-
     QPointer<SWMMModelLayer> m_layer;
     QPointer<SWMMResultsLayer> m_resultsSource; ///< Dynamics-column source
     SWMMModelLayer::Category m_category = SWMMModelLayer::CatJunctions;

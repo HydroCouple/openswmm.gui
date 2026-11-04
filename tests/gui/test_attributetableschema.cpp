@@ -434,6 +434,81 @@ QVariantList storageState(SWMM_Engine engine, const char *name)
     return {shape, geometry, invert, depth, seep, exfil[0], exfil[1], exfil[2]};
 }
 
+std::unique_ptr<SWMMModelLayer> openBulkRunoffLayer(bool si = false)
+{
+    auto base = openBulkNetworkLayer(si);
+    if (!base) return {};
+    const auto dir = QDir(dataDir()).filePath("multi_selection/runoff_files");
+    if (!QDir().mkpath(dir)) return {};
+    for (const auto &file : {QString("one.csv"), QString("two.csv")}) {
+        QFile csv(dir + "/" + file);
+        if (!csv.open(QIODevice::WriteOnly | QIODevice::Truncate)) return {};
+        csv.write(file == "one.csv" ? "DateTime,A,B\n2026-01-01 00:00,1,2\n2026-01-01 01:00,0,0\n"
+                                    : "DateTime,B,C\n2026-01-01 00:00,2,3\n2026-01-01 01:00,0,0\n");
+    }
+    QFile source(base->modelFilePath());
+    if (!source.open(QIODevice::ReadOnly)) return {};
+    auto text = source.readAll();
+    text.replace("\n[XSECTIONS]", "\nVL1 D1 O1 100 .013 0 0 0 0\nVL2 D2 O1 100 .013 0 0 0 0\nVL3 D3 O1 100 .013 0 0 0 0\nVLC DC O1 100 .013 0 0 0 0\n[XSECTIONS]");
+    text.replace("\n[REPORT]", "\nVL1 CIRCULAR 1 0 0 0 1\nVL2 CIRCULAR 1 0 0 0 1\nVL3 CIRCULAR 1 0 0 0 1\nVLC CIRCULAR 1 0 0 0 1\n[REPORT]");
+    text.replace("\n[VERTICES]", "\nD1 0 500\nD2 500 1000\nD3 1000 1000\nDC 1500 1000\n[VERTICES]");
+    text += "Div1 DIVERSION 0 0\nDiv1 10 5\nDiv2 DIVERSION 0 0\nDiv2 10 7\n"
+            "[DIVIDERS]\nD1 95 VL1 CUTOFF 2.5 9 .1 .2 3\nD2 96 VL2 TABULAR Div1 10 .2 .3 4\n"
+            "D3 97 VL3 WEIR 3 1.5 1.25 11 .3 .4 5\nDC 98 VLC OVERFLOW 8 0 0 0\n"
+            "[RAINGAGES]\nG2 INTENSITY 1:00 1 TIMESERIES TS1\nGC INTENSITY 1:00 1 TIMESERIES TS1\n";
+    text += "G3 INTENSITY 1:00 1 FILE \"" + (dir + "/one.csv:B").toUtf8() + "\"\n";
+    text += "[SUBCATCHMENTS]\nH2 G2 J1 4 40 400 1 0\nH3 S1 J3 3 30 300 1 0\nHC S1 O1 2 20 200 1 0\nX1 S1 O1 1 10 100 1 0\n"
+            "[SUBAREAS]\nH2 .02 .2 .1 .2 25 OUTLET\nH3 .03 .3 .1 .2 25 OUTLET\nHC .04 .4 .1 .2 25 OUTLET\nX1 .02 .2 .1 .2 25 OUTLET\n"
+            "[INFILTRATION]\nH2 3.5 .4 5 4 .6 MODIFIED_HORTON\nH3 3 .8 .2 GREEN_AMPT\nHC 75 0 7 CURVE_NUMBER\nX1 4 .5 4 7 0 HORTON\n";
+    const auto path = QDir(dataDir()).filePath(si ? "multi_selection/runoff-SI.inp" : "multi_selection/runoff-US.inp");
+    QFile output(path);
+    if (!output.open(QIODevice::WriteOnly | QIODevice::Truncate)) return {};
+    output.write(text); output.close();
+    auto layer = std::make_unique<SWMMModelLayer>(path);
+    QList<QString> warnings, errors;
+    if (!layer->loadModel(warnings, errors)) return {};
+    return layer;
+}
+
+QVariantList dividerState(SWMM_Engine engine, const char *name)
+{
+    const int node = swmm_node_index(engine, name);
+    SWMM_DividerParams record{};
+    double depth = 0, invert = 0;
+    if (swmm_node_get_divider_params(engine, node, &record) != SWMM_OK ||
+        swmm_node_get_max_depth(engine, node, &depth) != SWMM_OK ||
+        swmm_node_get_invert_elev(engine, node, &invert) != SWMM_OK) return {};
+    const char *link = swmm_link_id(engine, record.diversion_link);
+    const char *curve = record.curve < 0 ? nullptr : swmm_table_id(engine, record.curve);
+    return {record.method, link ? QString::fromUtf8(link) : QString(), curve ? QString::fromUtf8(curve) : QString(),
+            record.cutoff_flow, record.weir_height, record.weir_coefficient, depth, invert};
+}
+
+QVariantList infilState(SWMM_Engine engine, const char *name)
+{
+    const int sub = swmm_subcatch_index(engine, name);
+    int method = -1;
+    double p[4];
+    if (swmm_subcatch_get_infil_model(engine, sub, &method) != SWMM_OK ||
+        swmm_subcatch_get_infil_horton(engine, sub, &p[0], &p[1], &p[2], &p[3]) != SWMM_OK) return {};
+    return {method, p[0], p[1], p[2], p[3]};
+}
+
+QVariantList rainSourceState(SWMM_Engine engine, const char *name)
+{
+    const int gage = swmm_gage_index(engine, name);
+    int source = -1, format = -1;
+    char series[4096]{}, path[4096]{}, absolute[4096]{}, column[4096]{}, station[4096]{};
+    if (swmm_gage_get_data_source(engine, gage, &source) != SWMM_OK ||
+        swmm_gage_get_file_format(engine, gage, &format) != SWMM_OK ||
+        swmm_gage_get_timeseries(engine, gage, series, sizeof(series)) != SWMM_OK ||
+        swmm_file_path_get(engine, SWMM_FILE_RAINGAGE_DATA, name, absolute, sizeof(absolute), path, sizeof(path)) != SWMM_OK ||
+        swmm_gage_get_file_column(engine, gage, column, sizeof(column)) != SWMM_OK ||
+        swmm_gage_get_station_id(engine, gage, station, sizeof(station)) != SWMM_OK) return {};
+    return {source, source == 0 ? QString::fromUtf8(series) : QString(), QString::fromUtf8(absolute[0] ? absolute : path), format,
+            QString::fromUtf8(column), QString::fromUtf8(station)};
+}
+
 } // namespace
 
 class TestAttributeTableSchema : public QObject
@@ -441,6 +516,284 @@ class TestAttributeTableSchema : public QObject
     Q_OBJECT
 
 private slots:
+    void bulkDividerRecords_data() { bulkOutfallTypeAndStage_data(); }
+    void bulkDividerRecords()
+    {
+        QFETCH(bool, si);
+        auto layer = openBulkRunoffLayer(si);
+        QVERIFY(layer);
+        const auto engine = layer->engine();
+        const char *names[] = {"D1", "D2", "D3"};
+        QList<QVariantList> before;
+        for (auto name : names) { before << dividerState(engine, name); QCOMPARE(before.last().size(), 8); }
+        const auto control = dividerState(engine, "DC");
+        MapCanvas canvas;
+        PropertiesPanel properties;
+        properties.setProject(layer.get());
+        properties.showSelection(&canvas, {{SWMMObjectRef::Node, "D1"}, {SWMMObjectRef::Node, "D2"}, {SWMMObjectRef::Node, "D3"}});
+        properties.resize(700, 1000); properties.show();
+        auto *tree = properties.findChild<QTreeView *>(); tree->expandAll();
+        const auto method = bulkProperty(properties, "Divider Type");
+        QCOMPARE(method.data().toString(), QString("Mixed"));
+        tree->edit(method);
+        auto *combo = qobject_cast<QComboBox *>(tree->indexWidget(method));
+        QVERIFY(combo);
+        QVERIFY(!(combo->model()->index(combo->findData(2), 0).flags() & Qt::ItemIsEnabled));
+        combo->setCurrentIndex(combo->findData(3));
+        QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, combo->currentIndex()));
+        QTRY_COMPARE(canvas.undoStack()->count(), 1);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        const auto height = bulkProperty(properties, "Weir Height");
+        QVERIFY(height.flags() & Qt::ItemIsEditable);
+        tree->edit(height);
+        auto *spin = qobject_cast<QDoubleSpinBox *>(tree->indexWidget(height));
+        QVERIFY(spin);
+        spin->setFocus(); spin->selectAll(); QTest::keyClicks(spin, "2.125"); QTest::keyClick(spin, Qt::Key_Return);
+        QTRY_COMPARE(canvas.undoStack()->count(), 2);
+        for (int i = 0; i < 3; ++i) {
+            const auto state = dividerState(engine, names[i]);
+            QCOMPARE(state[0].toInt(), 3); QCOMPARE(state[1], before[i][1]);
+            QCOMPARE(state[3], before[i][3]); QCOMPARE(state[4].toDouble(), 2.125);
+            QCOMPARE(state.mid(6), before[i].mid(6));
+        }
+        const auto weirSaved = QDir(dataDir()).filePath(si ? "multi_selection/weirs-edited-SI.inp" : "multi_selection/weirs-edited-US.inp");
+        QCOMPARE(swmm_model_write(engine, weirSaved.toUtf8().constData()), SWMM_OK);
+        SWMMModelLayer weirs(weirSaved); QList<QString> weirWarnings, weirErrors;
+        QVERIFY2(weirs.loadModel(weirWarnings, weirErrors), qPrintable(weirErrors.join(' ')));
+        for (auto name : names) QCOMPARE(dividerState(weirs.engine(), name).mid(3), dividerState(engine, name).mid(3));
+        canvas.undoStack()->undo(); canvas.undoStack()->undo();
+        for (int i = 0; i < 3; ++i) QCOMPARE(dividerState(engine, names[i]), before[i]);
+        QCOMPARE(dividerState(engine, "DC"), control);
+        const auto curve = bulkProperty(properties, "Diversion Curve");
+        tree->edit(curve);
+        auto *picker = qobject_cast<DataObjectPickerEditor *>(tree->indexWidget(curve));
+        QVERIFY(picker); picker->applyPickedName("Div2");
+        QTRY_COMPARE(canvas.undoStack()->index(), 1);
+        for (auto name : names) { QCOMPARE(dividerState(engine, name)[0].toInt(), 2); QCOMPARE(dividerState(engine, name)[2].toString(), QString("Div2")); }
+        const auto saved = QDir(dataDir()).filePath(si ? "multi_selection/dividers-edited-SI.inp" : "multi_selection/dividers-edited-US.inp");
+        QCOMPARE(swmm_model_write(engine, saved.toUtf8().constData()), SWMM_OK);
+        SWMMModelLayer reopened(saved); QList<QString> warnings, errors;
+        QVERIFY2(reopened.loadModel(warnings, errors), qPrintable(errors.join(' ')));
+        for (auto name : names) {
+            const auto current = dividerState(engine, name), persisted = dividerState(reopened.engine(), name);
+            QCOMPARE(persisted[0], current[0]); QCOMPARE(persisted[1], current[1]); QCOMPARE(persisted[2], current[2]);
+            QCOMPARE(persisted.mid(6), current.mid(6));
+        }
+        canvas.undoStack()->undo();
+        for (int i = 0; i < 3; ++i) QCOMPARE(dividerState(engine, names[i]), before[i]);
+    }
+
+    void bulkInfiltrationRecords_data() { bulkOutfallTypeAndStage_data(); }
+    void bulkInfiltrationRecords()
+    {
+        QFETCH(bool, si);
+        auto layer = openBulkRunoffLayer(si); QVERIFY(layer);
+        const auto engine = layer->engine();
+        const char *names[] = {"S1", "H2", "H3"};
+        QList<QVariantList> before;
+        for (auto name : names) { before << infilState(engine, name); QCOMPARE(before.last().size(), 5); }
+        const auto control = infilState(engine, "HC");
+        MapCanvas canvas; PropertiesPanel properties; properties.setProject(layer.get());
+        const QList<SWMMObjectRef> refs{{SWMMObjectRef::Subcatchment, "S1"}, {SWMMObjectRef::Subcatchment, "H2"}, {SWMMObjectRef::Subcatchment, "H3"}};
+        properties.showSelection(&canvas, refs); properties.resize(700, 1000); properties.show();
+        auto *tree = properties.findChild<QTreeView *>(); tree->expandAll();
+        const auto method = bulkProperty(properties, "Infiltration Model");
+        tree->edit(method);
+        auto *combo = qobject_cast<QComboBox *>(tree->indexWidget(method)); QVERIFY(combo);
+        combo->setCurrentIndex(combo->findData(2)); QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, combo->currentIndex()));
+        QTRY_COMPARE(canvas.undoStack()->count(), 1);
+        QCOMPARE(infilState(engine, "H3"), before[2]);
+        QCOMPARE(infilState(engine, "S1")[1].toDouble(), si ? 76.2 : 3.0);
+        QVERIFY(!(bulkProperty(properties, "Max. Infil. Rate").flags() & Qt::ItemIsEditable));
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        const auto conductivity = bulkProperty(properties, "Conductivity");
+        tree->edit(conductivity);
+        auto *spin = qobject_cast<QDoubleSpinBox *>(tree->indexWidget(conductivity)); QVERIFY(spin);
+        spin->setFocus(); spin->selectAll(); QTest::keyClicks(spin, "2.125"); QTest::keyClick(spin, Qt::Key_Tab);
+        QTRY_COMPARE(canvas.undoStack()->count(), 2);
+        for (auto name : names) QCOMPARE(infilState(engine, name)[2].toDouble(), 2.125);
+        canvas.undoStack()->undo(); canvas.undoStack()->undo();
+        for (int i = 0; i < 3; ++i) QCOMPARE(infilState(engine, names[i]), before[i]);
+        QCOMPARE(infilState(engine, "HC"), control);
+        canvas.undoStack()->redo(); canvas.undoStack()->redo();
+        const auto saved = QDir(dataDir()).filePath(si ? "multi_selection/infil-edited-SI.inp" : "multi_selection/infil-edited-US.inp");
+        QCOMPARE(swmm_model_write(engine, saved.toUtf8().constData()), SWMM_OK);
+        SWMMModelLayer reopened(saved); QList<QString> warnings, errors;
+        QVERIFY2(reopened.loadModel(warnings, errors), qPrintable(errors.join(' ')));
+        for (auto name : names) QCOMPARE(infilState(reopened.engine(), name), infilState(engine, name));
+    }
+
+    void bulkRunoffReferences_data()
+    {
+        QTest::addColumn<QString>("key"); QTest::addColumn<QString>("label"); QTest::addColumn<QString>("choice");
+        QTest::newRow("gage") << QString("Rain gage") << QString("Rain Gage") << QString("GC");
+        QTest::newRow("snowpack") << QString("Snow pack") << QString("Snow Pack") << QString("Snow2");
+        QTest::newRow("aquifer") << QString("Aquifer") << QString("Aquifer") << QString("AQ2");
+        QTest::newRow("node-outlet") << QString("Outlet") << QString("Outlet") << QString("Node: J2");
+        QTest::newRow("subcatchment-outlet") << QString("Outlet") << QString("Outlet") << QString("Subcatchment: H3");
+    }
+    void bulkRunoffReferences()
+    {
+        QFETCH(QString, key); QFETCH(QString, label); QFETCH(QString, choice);
+        auto layer = openBulkRunoffLayer(); QVERIFY(layer);
+        const auto engine = layer->engine();
+        for (auto name : {"Snow1", "Snow2"}) QCOMPARE(swmm_snowpack_add(engine, name), SWMM_OK);
+        for (auto name : {"AQ1", "AQ2"}) QCOMPARE(swmm_aquifer_add(engine, name), SWMM_OK);
+        const int s1 = swmm_subcatch_index(engine, "S1"), h2 = swmm_subcatch_index(engine, "H2");
+        QCOMPARE(swmm_subcatch_set_outlet_subcatch(engine, h2, swmm_subcatch_index(engine, "H3")), SWMM_OK);
+        QCOMPARE(swmm_subcatch_set_snowpack(engine, s1, "Snow1"), SWMM_OK);
+        QCOMPARE(swmm_subcatch_set_aquifer(engine, s1, 0), SWMM_OK);
+        for (int sub : {s1, h2}) {
+            QCOMPARE(swmm_subcatch_set_gw_node(engine, sub, swmm_node_index(engine, "J1")), SWMM_OK);
+            QCOMPARE(swmm_subcatch_set_gw_params(engine, sub, 100, 1, 1, .5, 1, 0, 0, 90), SWMM_OK);
+        }
+        SWMMAttributeTableModel model; model.setSource(layer.get(), SWMMModelLayer::CatSubcatchments);
+        const int col = colFor(model.columnSpecs(), key);
+        const auto original1 = model.index(model.rowForName("S1"), col).data(Qt::EditRole).value<DataObjectRef>();
+        const auto original2 = model.index(model.rowForName("H2"), col).data(Qt::EditRole).value<DataObjectRef>();
+        const auto control = model.index(model.rowForName("HC"), col).data(Qt::EditRole).value<DataObjectRef>();
+        MapCanvas canvas; PropertiesPanel properties; properties.setProject(layer.get());
+        properties.showSelection(&canvas, {{SWMMObjectRef::Subcatchment, "S1"}, {SWMMObjectRef::Subcatchment, "H2"}});
+        properties.resize(700, 1000); properties.show(); auto *tree = properties.findChild<QTreeView *>(); tree->expandAll();
+        const auto field = bulkProperty(properties, label); QVERIFY(field.isValid()); tree->edit(field);
+        auto *picker = qobject_cast<DataObjectPickerEditor *>(tree->indexWidget(field)); QVERIFY(picker);
+        picker->applyPickedName(choice); QTRY_COMPARE(canvas.undoStack()->count(), 1);
+        for (auto name : {"S1", "H2"}) {
+            const auto ref = model.index(model.rowForName(name), col).data(Qt::EditRole).value<DataObjectRef>();
+            QCOMPARE(ref.currentName, key == "Outlet" ? choice.mid(choice.indexOf(": ") + 2) : choice);
+            if (key == "Outlet") QCOMPARE(ref.outletTarget, choice.startsWith("Node: ") ? DataObjectRef::NodeOutlet : DataObjectRef::SubcatchmentOutlet);
+        }
+        const auto saved = QDir(dataDir()).filePath("multi_selection/runoff-reference-" + QString(key).replace(' ', '_') + ".inp");
+        QCOMPARE(swmm_model_write(engine, saved.toUtf8().constData()), SWMM_OK);
+        SWMMModelLayer reopened(saved); QList<QString> warnings, errors;
+        QVERIFY2(reopened.loadModel(warnings, errors), qPrintable(errors.join(' ')));
+        SWMMAttributeTableModel reopenedModel; reopenedModel.setSource(&reopened, SWMMModelLayer::CatSubcatchments);
+        for (auto name : {"S1", "H2"}) {
+            const auto actual = reopenedModel.index(reopenedModel.rowForName(name), colFor(reopenedModel.columnSpecs(), key)).data(Qt::EditRole).value<DataObjectRef>();
+            const auto expected = model.index(model.rowForName(name), col).data(Qt::EditRole).value<DataObjectRef>();
+            QCOMPARE(actual.currentName, expected.currentName); QCOMPARE(actual.outletTarget, expected.outletTarget);
+        }
+        canvas.undoStack()->undo();
+        QCOMPARE(model.index(model.rowForName("S1"), col).data(Qt::EditRole).value<DataObjectRef>(), original1);
+        QCOMPARE(model.index(model.rowForName("H2"), col).data(Qt::EditRole).value<DataObjectRef>(), original2);
+        QCOMPARE(model.index(model.rowForName("HC"), col).data(Qt::EditRole).value<DataObjectRef>(), control);
+        if (key == "Outlet") {
+            auto cycle = original1; cycle.currentName = "S1"; cycle.outletTarget = DataObjectRef::SubcatchmentOutlet;
+            QUndoStack undo; QString error;
+            QVERIFY(!model.applyScalarEdits({"H2", "S1"}, {{key, QVariant::fromValue(cycle)}}, &undo, &error));
+            QCOMPARE(undo.count(), 0);
+            for (auto target : {DataObjectRef::NodeOutlet, DataObjectRef::SubcatchmentOutlet}) {
+                auto ambiguous = original1; ambiguous.currentName = "X1"; ambiguous.outletTarget = target;
+                QVERIFY(!model.applyScalarEdits({"H2", "S1"}, {{key, QVariant::fromValue(ambiguous)}}, &undo, &error));
+                QVERIFY(error.contains("names both")); QCOMPARE(undo.count(), 0);
+                QCOMPARE(model.index(model.rowForName("S1"), col).data(Qt::EditRole).value<DataObjectRef>(), original1);
+                QCOMPARE(model.index(model.rowForName("H2"), col).data(Qt::EditRole).value<DataObjectRef>(), original2);
+            }
+        }
+    }
+
+    void bulkRainSourceFilesCommitAndUndoTogether()
+    {
+        auto layer = openBulkRunoffLayer(); QVERIFY(layer);
+        const auto engine = layer->engine();
+        const char *names[] = {"S1", "G2", "G3"}; QList<QVariantList> before;
+        for (auto name : names) { before << rainSourceState(engine, name); QCOMPARE(before.last().size(), 6); }
+        const auto control = rainSourceState(engine, "GC");
+        MapCanvas canvas; PropertiesPanel properties; properties.setProject(layer.get());
+        properties.showSelection(&canvas, {{SWMMObjectRef::RainGage, "S1"}, {SWMMObjectRef::RainGage, "G2"}, {SWMMObjectRef::RainGage, "G3"}});
+        properties.resize(700, 1000); properties.show(); auto *tree = properties.findChild<QTreeView *>(); tree->expandAll();
+        const auto field = bulkProperty(properties, "Rain File (path)"); QVERIFY(field.isValid());
+        tree->edit(field); auto *editor = tree->indexWidget(field); QVERIFY(editor);
+        auto *line = editor->findChild<QLineEdit *>(); QVERIFY(line);
+        QTest::keyClick(line, Qt::Key_Escape); QCOMPARE(canvas.undoStack()->count(), 0);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        tree->edit(field); editor = tree->indexWidget(field); QVERIFY(editor); line = editor->findChild<QLineEdit *>(); QVERIFY(line);
+        const auto file = QDir(dataDir()).filePath("multi_selection/runoff_files/two.csv");
+        line->setFocus(); line->selectAll(); QTest::keyClicks(line, file); QTest::keyClick(line, Qt::Key_Return);
+        QTRY_COMPARE(canvas.undoStack()->count(), 1);
+        for (auto name : names) { QCOMPARE(rainSourceState(engine, name)[0].toInt(), 1); QCOMPARE(rainSourceState(engine, name)[2].toString(), file); }
+        canvas.undoStack()->undo();
+        for (int i = 0; i < 3; ++i) QCOMPARE(rainSourceState(engine, names[i]), before[i]);
+        canvas.undoStack()->redo();
+        SWMMAttributeTableModel model; model.setSource(layer.get(), SWMMModelLayer::CatRainGages);
+        // The same file editor commits a table path while it still has focus.
+        SelectionManager selection; AttributeTablePanel table;
+        table.setProject(layer.get(), &selection, &canvas);
+        table.showModelCategory(layer.get(), SWMMModelLayer::CatRainGages); table.resize(1100, 600); table.show();
+        auto *view = table.findChild<QTableView *>(); QVERIFY(view);
+        int row = -1;
+        for (int r = 0; r < view->model()->rowCount(); ++r)
+            if (view->model()->index(r, 0).data().toString() == "G2") row = r;
+        const auto cell = view->model()->index(row, colFor(model.columnSpecs(), "Rain file"));
+        QVERIFY(cell.isValid()); view->scrollTo(cell); view->edit(cell);
+        auto *fileEditor = view->indexWidget(cell); QVERIFY(fileEditor);
+        auto *fileLine = fileEditor->findChild<QLineEdit *>(); QVERIFY(fileLine);
+        const auto otherFile = QDir(dataDir()).filePath("multi_selection/runoff_files/one.csv");
+        fileLine->setFocus(); fileLine->selectAll(); QTest::keyClicks(fileLine, otherFile); QTest::keyClick(fileLine, Qt::Key_Return);
+        QTRY_COMPARE(canvas.undoStack()->count(), 2);
+        QCOMPARE(rainSourceState(engine, "G2")[2].toString(), otherFile);
+        canvas.undoStack()->undo();
+        QCOMPARE(rainSourceState(engine, "G2")[2].toString(), file);
+        QString error;
+        QVERIFY2(model.applyScalarEdits({"S1", "G2", "G3"}, {{"Rain file format", 6}, {"Rain file column", "B"}}, canvas.undoStack(), &error), qPrintable(error));
+        const int count = canvas.undoStack()->count();
+        QVERIFY(!model.applyScalarEdits({"S1", "G2", "G3"}, {{"Rain file column", "Missing"}}, canvas.undoStack(), &error));
+        QCOMPARE(canvas.undoStack()->count(), count);
+        const auto saved = QDir(dataDir()).filePath("multi_selection/rain-sources-edited.inp");
+        QCOMPARE(swmm_model_write(engine, saved.toUtf8().constData()), SWMM_OK);
+        SWMMModelLayer reopened(saved); QList<QString> warnings, errors;
+        QVERIFY2(reopened.loadModel(warnings, errors), qPrintable(errors.join(' ')));
+        for (auto name : names) QCOMPARE(rainSourceState(reopened.engine(), name), rainSourceState(engine, name));
+        QCOMPARE(rainSourceState(engine, "GC"), control);
+        auto series = model.index(model.rowForName("S1"), colFor(model.columnSpecs(), "Series name")).data(Qt::EditRole).value<DataObjectRef>();
+        series.currentName = "TS1";
+        const auto fileBefore = rainSourceState(engine, "G3");
+        QVERIFY(model.applyScalarEdits({"S1", "G2", "G3"}, {{"Series name", QVariant::fromValue(series)}}, canvas.undoStack(), &error));
+        for (auto name : names) QCOMPARE(rainSourceState(engine, name)[0].toInt(), 0);
+        canvas.undoStack()->undo(); QCOMPARE(rainSourceState(engine, "G3"), fileBefore);
+    }
+
+    void bulkRunoffRollbackAndStaleReferencesLeaveEveryTargetUnchanged()
+    {
+        auto layer = openBulkRunoffLayer(); QVERIFY(layer);
+        const auto engine = layer->engine();
+        SWMMAttributeTableModel model; model.setSource(layer.get(), SWMMModelLayer::CatSubcatchments);
+        QUndoStack undo; QString error;
+        const auto first = infilState(engine, "S1"), second = infilState(engine, "H2");
+        double area = 0;
+        const int sub = swmm_subcatch_index(engine, "S1");
+        QCOMPARE(swmm_subcatch_get_area(engine, sub, &area), SWMM_OK);
+        // Area is written before the invalid coupled Horton record. The batch must restore it.
+        QVERIFY(!model.applyScalarEdits({"S1", "H2"}, {{"Area", 99.0}, {"Max. rate", .1}}, &undo, &error));
+        QCOMPARE(infilState(engine, "S1"), first); QCOMPARE(infilState(engine, "H2"), second);
+        double actual = 0; QCOMPARE(swmm_subcatch_get_area(engine, sub, &actual), SWMM_OK); QCOMPARE(actual, area);
+        QCOMPARE(undo.count(), 0);
+        QCOMPARE(swmm_subcatch_set_gage(engine, swmm_subcatch_index(engine, "H2"), swmm_gage_index(engine, "G3")), SWMM_OK);
+        const int column = colFor(model.columnSpecs(), "Rain gage");
+        auto ref = model.index(model.rowForName("S1"), column).data(Qt::EditRole).value<DataObjectRef>(); ref.currentName = "G2";
+        QVERIFY(model.applyScalarEdits({"H2", "S1"}, {{"Rain gage", QVariant::fromValue(ref)}}, &undo, &error));
+        QCOMPARE(swmm_gage_delete(engine, swmm_gage_index(engine, "GC"), nullptr), SWMM_OK);
+        undo.undo();
+        QCOMPARE(model.index(model.rowForName("H2"), column).data(Qt::EditRole).value<DataObjectRef>().currentName, QString("G3"));
+        undo.redo();
+        QCOMPARE(swmm_gage_delete(engine, swmm_gage_index(engine, "S1"), nullptr), SWMM_OK);
+        undo.undo(); // A missing reference on the last target must be found before changing H2.
+        for (auto name : {"H2", "S1"}) QCOMPARE(model.index(model.rowForName(name), column).data(Qt::EditRole).value<DataObjectRef>().currentName, QString("G2"));
+    }
+
+    void rainSourceUndoRestoresAnOriginallyUnassignedSeries()
+    {
+        auto layer = openBulkRunoffLayer(); QVERIFY(layer);
+        const auto engine = layer->engine();
+        QCOMPARE(swmm_gage_set_timeseries(engine, swmm_gage_index(engine, "G2"), ""), SWMM_OK);
+        const auto before = rainSourceState(engine, "G2");
+        SWMMAttributeTableModel model; model.setSource(layer.get(), SWMMModelLayer::CatRainGages);
+        auto ref = model.index(model.rowForName("G2"), colFor(model.columnSpecs(), "Series name")).data(Qt::EditRole).value<DataObjectRef>(); ref.currentName = "TS1";
+        QUndoStack undo; QString error;
+        QVERIFY(model.applyScalarEdits({"G2"}, {{"Series name", QVariant::fromValue(ref)}}, &undo, &error));
+        undo.undo(); QCOMPARE(rainSourceState(engine, "G2"), before);
+    }
+
     void bulkOutfallTypeAndStage_data()
     {
         QTest::addColumn<bool>("si");

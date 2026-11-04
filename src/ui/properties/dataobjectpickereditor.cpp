@@ -90,6 +90,9 @@ void DataObjectPickerEditor::repopulate()
             // engine table type 6 = CURVE_TIDAL (per openswmm_tables.h comment)
             items = m_ref.layer->tableIdsOfType(6);
             break;
+        case DataObjectRef::DiversionCurve:
+            items = m_ref.layer->tableIdsOfType(2);
+            break;
         case DataObjectRef::AnyCurve:
             items = m_ref.layer->tableIdsOfType(-1);
             break;
@@ -190,12 +193,12 @@ void DataObjectPickerEditor::repopulate()
             for (int i = 0; i < nn; ++i)
                 if (const char *id = swmm_node_id(m_ref.engine, i))
                     if (*id)
-                        items << QString::fromUtf8(id);
+                        items << tr("Node: %1").arg(QString::fromUtf8(id));
             const int ns = swmm_subcatch_count(m_ref.engine);
             for (int i = 0; i < ns; ++i)
                 if (const char *id = swmm_subcatch_id(m_ref.engine, i))
                     if (*id)
-                        items << QString::fromUtf8(id);
+                        items << tr("Subcatchment: %1").arg(QString::fromUtf8(id));
             break;
         }
         case DataObjectRef::LidControl: {
@@ -265,13 +268,23 @@ void DataObjectPickerEditor::repopulate()
 
     QSignalBlocker block(m_combo->combo());
     m_suppressTextChange = true;
-    m_combo->setItems(items, m_ref.currentName);
+    QString selected = m_ref.currentName;
+    if (m_ref.kind == DataObjectRef::SubcatchOutlet && !selected.isEmpty()) {
+        const bool sub = m_ref.outletTarget == DataObjectRef::SubcatchmentOutlet ||
+            (m_ref.outletTarget == DataObjectRef::Automatic &&
+             swmm_node_index(m_ref.engine, selected.toUtf8().constData()) < 0);
+        selected = (sub ? tr("Subcatchment: %1") : tr("Node: %1")).arg(selected);
+    }
+    m_combo->setItems(items, selected);
     m_suppressTextChange = false;
 }
 
 void DataObjectPickerEditor::applyPickedName(const QString &name)
 {
-    m_ref.currentName = name;
+    {
+        const QSignalBlocker block(this);
+        onComboTextChanged(name);
+    }
     repopulate();
     emit valueChanged();
 }
@@ -281,6 +294,16 @@ void DataObjectPickerEditor::onComboTextChanged(const QString &text)
     if (m_suppressTextChange)
         return;
     m_ref.currentName = text;
+    if (m_ref.kind == DataObjectRef::SubcatchOutlet) {
+        m_ref.outletTarget = DataObjectRef::Automatic;
+        if (text.startsWith(tr("Node: "))) {
+            m_ref.outletTarget = DataObjectRef::NodeOutlet;
+            m_ref.currentName = text.mid(tr("Node: ").size());
+        } else if (text.startsWith(tr("Subcatchment: "))) {
+            m_ref.outletTarget = DataObjectRef::SubcatchmentOutlet;
+            m_ref.currentName = text.mid(tr("Subcatchment: ").size());
+        }
+    }
     emit valueChanged();
 }
 
@@ -384,6 +407,7 @@ void DataObjectPickerEditor::onPickerClicked()
     SWMMModelLayer::DataCategory dc = SWMMModelLayer::DataTimeSeries;
     switch (m_ref.kind) {
     case DataObjectRef::TidalCurve:
+    case DataObjectRef::DiversionCurve:
     case DataObjectRef::AnyCurve:
     case DataObjectRef::PumpCurve:
     case DataObjectRef::RatingCurve:

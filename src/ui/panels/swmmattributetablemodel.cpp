@@ -14,6 +14,8 @@
 #include "ui/panels/swmmattributetablemodel.h"
 #include "ui/heatpropertyedit.h"
 #include <memory>
+#include <variant>
+#include <QDir>
 
 #include "core/unitsystem.h"
 #include "layers/gwsourcesummary.h"  // G5 — node Groundwater Sources cell
@@ -1042,6 +1044,11 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             num("Surcharge depth", "Surcharge Depth", "node_surcharge_depth", 0.0, 1e6, 4,
                 UnitKind::Length),
             enumCol("Divider type", "Divider Type", "node_divider_type", dividerTypeValues()),
+            roGet("Diversion link", "Diversion Link", "node_divider_link"),
+            num("Divider cutoff", "Cutoff / Minimum Flow", "node_divider_cutoff", 0.0, 1e9, 4, UnitKind::FlowRate),
+            num("Divider height", "Weir Height", "node_divider_height", 0.0, 1e6, 4, UnitKind::Length),
+            num("Divider coefficient", "Weir Coefficient", "node_divider_coefficient", 0.0, 1e6, 4),
+            compoundCol("Diversion curve", "Diversion Curve", "node_divider_curve_ref"),
             // ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) —
             // browser's SWMMDividerPropertyAdapter exposes ponded area.
             num("Ponded area", "Ponded Area", "node_ponded_area", 0.0, 1e9, 2, UnitKind::Area),
@@ -1726,6 +1733,32 @@ int infilModelGetI(SWMM_Engine e, int idx, int *v)
 int infilModelSetI(SWMM_Engine e, int idx, int v)
 {
     return swmm_subcatch_set_infil_model(e, idx, v);
+}
+
+int infilFamily(int model) { return model < 2 ? 0 : model < 4 ? 2 : 4; }
+
+int infilFieldSlot(const QString &tag)
+{
+    if (tag == "subcatch_horton_f0" || tag == "subcatch_ga_suction" || tag == "subcatch_cn") return 0;
+    if (tag == "subcatch_horton_fmin" || tag == "subcatch_ga_conduct") return 1;
+    if (tag == "subcatch_horton_decay" || tag == "subcatch_ga_deficit" || tag == "subcatch_cn_dry") return 2;
+    if (tag == "subcatch_horton_drytime") return 3;
+    return -1;
+}
+
+bool infilFieldApplies(SWMM_Engine engine, const QString &name, const QString &tag)
+{
+    int model = -1;
+    const int sub = swmm_subcatch_index(engine, name.toUtf8().constData());
+    if (sub < 0 || swmm_subcatch_get_infil_model(engine, sub, &model) != SWMM_OK || model < 0 || model > 4) return false;
+    return tag.startsWith("subcatch_horton_") ? model < 2 :
+           tag.startsWith("subcatch_ga_") ? model == 2 || model == 3 : model == 4;
+}
+
+bool gageSourceField(const QString &tag)
+{
+    return tag == "gage_data_source" || tag == "gage_series_ref" || tag == "gage_file_path" ||
+           tag == "gage_file_format" || tag == "gage_file_column" || tag == "gage_station_id";
 }
 /**
  * @param[in] e Borrowed engine.
@@ -3866,6 +3899,8 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
         return QVariantList{3, 4}; // Named tidal curve / stage series pickers.
     if (role == openswmmvis::kDisabledEnumValuesRole && m_columnSpecs[col].setter == QLatin1String("node_storage_shape"))
         return QVariantList{openswmmvis::kStorageTabularId};
+    if (role == openswmmvis::kDisabledEnumValuesRole && m_columnSpecs[col].setter == "node_divider_type")
+        return QVariantList{2};
 
     // FileColumn cells (spec §4 task 4): the delegate asks for the row's
     // available column names via this role. They come from the same header
@@ -3958,6 +3993,27 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
         return u.isEmpty() ? QVariant() : QVariant(tr("Units: %1").arg(u));
     }
 
+    if (spec.setter.startsWith("node_divider_") && spec.setter != "node_divider_type" && m_layer) {
+        SWMM_DividerParams value{};
+        if (swmm_node_get_divider_params(m_layer->engine(), swmm_node_index(m_layer->engine(), objectNameAt(row).toUtf8().constData()), &value) != SWMM_OK) return {};
+        if (spec.setter == "node_divider_link") {
+            const char *id = value.diversion_link < 0 ? nullptr : swmm_link_id(m_layer->engine(), value.diversion_link);
+            return id ? QVariant(QString::fromUtf8(id)) : QVariant();
+        }
+        if (spec.setter == "node_divider_curve_ref") {
+            DataObjectRef ref;
+            ref.engine = m_layer->engine(); ref.layer = m_layer; ref.kind = DataObjectRef::DiversionCurve;
+            if (value.method == 2 && value.curve >= 0)
+                if (const char *id = swmm_table_id(ref.engine, value.curve)) ref.currentName = QString::fromUtf8(id);
+            return role == Qt::EditRole ? QVariant::fromValue(ref) : openswmmvis::optionalAttributeName(ref.currentName);
+        }
+        if (spec.setter == "node_divider_cutoff") return value.method == 0 || value.method == 3 ? QVariant(value.cutoff_flow) : QVariant();
+        if (value.method != 3) return {};
+        return spec.setter == "node_divider_height" ? value.weir_height : value.weir_coefficient;
+    }
+    if (infilFieldSlot(spec.setter) >= 0 && m_layer &&
+        !infilFieldApplies(m_layer->engine(), objectNameAt(row), spec.setter)) return {};
+
     if (spec.setter.startsWith(QLatin1String("node_2d_")) && m_layer) {
         nodecoupling2d::State state;
         if (!m_layer->nodeCoupling2D(objectNameAt(row), &state))
@@ -4023,7 +4079,9 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             dref.layer = m_layer;
             dref.kind = DataObjectRef::TimeSeries;
             char buf[256] = {};
-            if (swmm_gage_get_timeseries(eng, gIdx, buf, sizeof(buf)) == SWMM_OK)
+            int source = -1;
+            swmm_gage_get_data_source(eng, gIdx, &source);
+            if (source == 0 && swmm_gage_get_timeseries(eng, gIdx, buf, sizeof(buf)) == SWMM_OK)
                 dref.currentName = QString::fromUtf8(buf);
             return role == Qt::EditRole ? QVariant::fromValue(dref)
                                         : openswmmvis::optionalAttributeName(dref.currentName);
@@ -4185,17 +4243,21 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
                 dref.kind = DataObjectRef::SubcatchOutlet;
                 int sc = -1;
                 if (swmm_subcatch_get_outlet_subcatch(eng, sIdx, &sc) == SWMM_OK && sc >= 0) {
+                    dref.outletTarget = DataObjectRef::SubcatchmentOutlet;
                     if (const char *id = swmm_subcatch_id(eng, sc))
                         dref.currentName = QString::fromUtf8(id);
                 } else {
+                    dref.outletTarget = DataObjectRef::NodeOutlet;
                     int nd = -1;
                     if (swmm_subcatch_get_outlet(eng, sIdx, &nd) == SWMM_OK && nd >= 0)
                         if (const char *id = swmm_node_id(eng, nd))
                             dref.currentName = QString::fromUtf8(id);
                 }
             }
-            return role == Qt::EditRole ? QVariant::fromValue(dref)
-                                        : openswmmvis::optionalAttributeName(dref.currentName);
+            if (role == Qt::EditRole) return QVariant::fromValue(dref);
+            if (dref.kind == DataObjectRef::SubcatchOutlet && !dref.currentName.isEmpty())
+                return (dref.outletTarget == DataObjectRef::SubcatchmentOutlet ? tr("Subcatchment: %1") : tr("Node: %1")).arg(dref.currentName);
+            return openswmmvis::optionalAttributeName(dref.currentName);
         }
 
         if (spec.setter == QStringLiteral("subcatch_snowpack_ref")) {
@@ -4564,6 +4626,20 @@ Qt::ItemFlags SWMMAttributeTableModel::flags(const QModelIndex &index) const
                 state == SWMM_STATE_RUNNING)
                 return f; // no ItemIsEditable
         }
+        if (infilFieldSlot(spec.setter) >= 0 &&
+            !infilFieldApplies(m_layer->engine(), objectNameAt(index.row()), spec.setter)) return f;
+        if (spec.setter == "node_divider_cutoff" || spec.setter == "node_divider_height" || spec.setter == "node_divider_coefficient") {
+            int type = -1;
+            swmm_node_get_divider_type(m_layer->engine(), swmm_node_index(m_layer->engine(), objectNameAt(index.row()).toUtf8().constData()), &type);
+            if (type != 3 && (spec.setter != "node_divider_cutoff" || type != 0)) return f;
+        }
+        if (spec.setter == "gage_file_column" || spec.setter == "gage_file_format" || spec.setter == "gage_station_id") {
+            const int gage = swmm_gage_index(m_layer->engine(), objectNameAt(index.row()).toUtf8().constData());
+            int source = -1, format = -1;
+            swmm_gage_get_data_source(m_layer->engine(), gage, &source);
+            swmm_gage_get_file_format(m_layer->engine(), gage, &format);
+            if (source != 1 || (spec.setter == "gage_station_id" && format == kRainFormatUserCsv)) return f;
+        }
         if (spec.setter == QLatin1String("link_xsect_shape") ||
             spec.setter == QLatin1String("link_xsect_transect_ref") ||
             spec.setter == QLatin1String("link_xsect_street_ref")) {
@@ -4727,6 +4803,92 @@ bool resolveStorageCurve(SWMM_Engine engine, const StorageRecord &record)
     return record.shape != openswmmvis::kStorageTabularId || tableOfType(engine, record.curve, 1) >= 0;
 }
 
+struct DividerRecord {
+    SWMM_DividerParams value{};
+    QString link, curve;
+};
+struct InfilRecord { int method = 0; double p[4]{}; };
+struct GageRecord {
+    int source = 0, format = 0;
+    QString series, path, column, station;
+};
+using RunoffRecord = std::variant<DividerRecord, InfilRecord, GageRecord>;
+
+bool readDividerRecord(SWMM_Engine engine, const QString &name, DividerRecord &record)
+{
+    if (swmm_node_get_divider_params(engine, swmm_node_index(engine, name.toUtf8().constData()), &record.value) != SWMM_OK) return false;
+    record.link.clear(); record.curve.clear();
+    if (record.value.diversion_link >= 0) {
+        const char *id = swmm_link_id(engine, record.value.diversion_link);
+        if (!id) return false;
+        record.link = QString::fromUtf8(id);
+    }
+    if (record.value.curve >= 0) {
+        const char *id = swmm_table_id(engine, record.value.curve);
+        if (!id) return false;
+        record.curve = QString::fromUtf8(id);
+    }
+    return true;
+}
+
+bool readInfilRecord(SWMM_Engine engine, const QString &name, InfilRecord &record)
+{
+    const int sub = swmm_subcatch_index(engine, name.toUtf8().constData());
+    return sub >= 0 && swmm_subcatch_get_infil_model(engine, sub, &record.method) == SWMM_OK &&
+        record.method >= 0 && record.method <= 4 &&
+        swmm_subcatch_get_infil_horton(engine, sub, &record.p[0], &record.p[1], &record.p[2], &record.p[3]) == SWMM_OK;
+}
+
+bool readGageRecord(SWMM_Engine engine, const QString &name, GageRecord &record)
+{
+    const int gage = swmm_gage_index(engine, name.toUtf8().constData());
+    char series[4096]{}, path[4096]{}, column[4096]{}, station[4096]{};
+    if (gage < 0 || swmm_gage_get_data_source(engine, gage, &record.source) != SWMM_OK ||
+        swmm_gage_get_file_format(engine, gage, &record.format) != SWMM_OK ||
+        swmm_gage_get_timeseries(engine, gage, series, sizeof(series)) != SWMM_OK ||
+        swmm_gage_get_file_column(engine, gage, column, sizeof(column)) != SWMM_OK ||
+        swmm_gage_get_station_id(engine, gage, station, sizeof(station)) != SWMM_OK) return false;
+    const int pathStatus = gageFilePathGet(engine, gage, path, sizeof(path));
+    if (record.source == 1 && pathStatus != SWMM_OK) return false;
+    record.series = QString::fromUtf8(series); record.path = QString::fromUtf8(path);
+    record.column = QString::fromUtf8(column); record.station = QString::fromUtf8(station);
+    return true;
+}
+
+bool runoffReferenceValid(SWMM_Engine engine, const DataObjectRef &ref, const QString &owner)
+{
+    if (ref.currentName.isEmpty()) return true; // Saved unassigned values may be restored by Undo.
+    const auto name = ref.currentName.toUtf8();
+    if (ref.kind == DataObjectRef::RainGage) return swmm_gage_index(engine, name.constData()) >= 0;
+    if (ref.kind == DataObjectRef::Snowpack) return swmm_snowpack_index(engine, name.constData()) >= 0;
+    if (ref.kind == DataObjectRef::Aquifer) return swmm_aquifer_index(engine, name.constData()) >= 0;
+    if (ref.kind != DataObjectRef::SubcatchOutlet) return true;
+    if (swmm_node_index(engine, name.constData()) >= 0 && swmm_subcatch_index(engine, name.constData()) >= 0) return false;
+    if (ref.outletTarget != DataObjectRef::SubcatchmentOutlet && swmm_node_index(engine, name.constData()) >= 0) return true;
+    if (ref.outletTarget == DataObjectRef::NodeOutlet) return false;
+    const int source = swmm_subcatch_index(engine, owner.toUtf8().constData());
+    int target = swmm_subcatch_index(engine, name.constData());
+    if (target < 0) return false;
+    for (int visited = 0; target >= 0; ++visited) {
+        if (target == source || visited >= swmm_subcatch_count(engine) ||
+            swmm_subcatch_get_outlet_subcatch(engine, target, &target) != SWMM_OK) return false;
+    }
+    return true;
+}
+
+bool resolveRunoffRecord(SWMM_Engine engine, const RunoffRecord &record)
+{
+    return std::visit([engine](const auto &value) {
+        using T = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<T, DividerRecord>)
+            return (value.link.isEmpty() || swmm_link_index(engine, value.link.toUtf8().constData()) >= 0) &&
+                   (value.curve.isEmpty() || tableOfType(engine, value.curve, 2) >= 0);
+        if constexpr (std::is_same_v<T, GageRecord>)
+            return value.source == 0 ? value.series.isEmpty() || tableOfType(engine, value.series, 0) >= 0 : value.source == 1;
+        return true;
+    }, record);
+}
+
 struct ScalarEdit {
     SWMMModelLayer::Category category;
     QString name;
@@ -4739,12 +4901,16 @@ struct ScalarEdit {
     std::optional<OutfallRecord> outfallAfter = std::nullopt;
     std::optional<StorageRecord> storageBefore = std::nullopt;
     std::optional<StorageRecord> storageAfter = std::nullopt;
+    std::optional<RunoffRecord> runoffBefore = std::nullopt;
+    std::optional<RunoffRecord> runoffAfter = std::nullopt;
 };
 
 QVariant scalarComparable(const QVariant &value)
 {
-    if (value.userType() == qMetaTypeId<DataObjectRef>())
-        return value.value<DataObjectRef>().currentName;
+    if (value.userType() == qMetaTypeId<DataObjectRef>()) {
+        const auto ref = value.value<DataObjectRef>();
+        return QVariantList{int(ref.kind), ref.currentName, int(ref.outletTarget)};
+    }
     return value;
 }
 
@@ -4827,6 +4993,50 @@ bool writeStorageRecord(SWMM_Engine engine, const QString &name, const StorageRe
     return true;
 }
 
+bool writeRunoffRecord(SWMM_Engine engine, const QString &name, const RunoffRecord &record)
+{
+    if (!resolveRunoffRecord(engine, record)) return false;
+    return std::visit([engine, &name](const auto &value) {
+        using T = std::decay_t<decltype(value)>;
+        if constexpr (std::is_same_v<T, DividerRecord>) {
+            auto proposed = value.value;
+            proposed.diversion_link = value.link.isEmpty() ? -1 : swmm_link_index(engine, value.link.toUtf8().constData());
+            proposed.curve = value.curve.isEmpty() ? -1 : tableOfType(engine, value.curve, 2);
+            if (swmm_node_set_divider_params(engine, swmm_node_index(engine, name.toUtf8().constData()), &proposed) != SWMM_OK) return false;
+            DividerRecord actual;
+            return readDividerRecord(engine, name, actual) && actual.value.method == proposed.method &&
+                actual.link == value.link && actual.curve == value.curve &&
+                scalarWriteMatches(actual.value.cutoff_flow, proposed.cutoff_flow) &&
+                scalarWriteMatches(actual.value.weir_height, proposed.weir_height) &&
+                scalarWriteMatches(actual.value.weir_coefficient, proposed.weir_coefficient);
+        } else if constexpr (std::is_same_v<T, InfilRecord>) {
+            const auto *p = value.p;
+            const int family = infilFamily(value.method);
+            if (std::any_of(p, p + 4, [](double v) { return !std::isfinite(v) || v < 0; }) ||
+                (family == 0 && p[0] < p[1]) || (family == 2 && p[2] > 1) || (family == 4 && p[0] > 100)) return false;
+            const int sub = swmm_subcatch_index(engine, name.toUtf8().constData());
+            if (swmm_subcatch_set_infil_horton(engine, sub, p[0], p[1], p[2], p[3]) != SWMM_OK ||
+                swmm_subcatch_set_infil_model(engine, sub, value.method) != SWMM_OK) return false;
+            InfilRecord actual;
+            if (!readInfilRecord(engine, name, actual) || actual.method != value.method) return false;
+            for (int i = 0; i < 4; ++i) if (!scalarWriteMatches(actual.p[i], p[i])) return false;
+            return true;
+        } else {
+            const int gage = swmm_gage_index(engine, name.toUtf8().constData());
+            if (gage < 0 || gageFilePathSet(engine, gage, value.path.toUtf8().constData()) != SWMM_OK ||
+                swmm_gage_set_file_format(engine, gage, value.format) != SWMM_OK ||
+                swmm_gage_set_file_column(engine, gage, value.column.toUtf8().constData()) != SWMM_OK ||
+                swmm_gage_set_station_id(engine, gage, value.station.toUtf8().constData()) != SWMM_OK) return false;
+            if (value.source == 0 && swmm_gage_set_timeseries(engine, gage, value.series.toUtf8().constData()) != SWMM_OK) return false;
+            if (swmm_gage_set_data_source(engine, gage, value.source) != SWMM_OK) return false;
+            GageRecord actual;
+            return readGageRecord(engine, name, actual) && actual.source == value.source &&
+                (value.source == 0 ? actual.series == value.series : actual.path == value.path &&
+                 actual.column == value.column && actual.station == value.station && actual.format == value.format);
+        }
+    }, record);
+}
+
 // Private category models keep replay independent of the active table and Properties scope.
 class ScalarBatchCommand : public QUndoCommand
 {
@@ -4884,6 +5094,11 @@ public:
             if (outfall && !resolveOutfallReference(m_layer->engine(), *outfall)) return false;
             const auto storage = forward ? edit.storageAfter : edit.storageBefore;
             if (storage && !resolveStorageCurve(m_layer->engine(), *storage)) return false;
+            const auto runoff = forward ? edit.runoffAfter : edit.runoffBefore;
+            if (runoff && !resolveRunoffRecord(m_layer->engine(), *runoff)) return false;
+            const auto value = forward ? edit.after : edit.before;
+            if (value.userType() == qMetaTypeId<DataObjectRef>() &&
+                !runoffReferenceValid(m_layer->engine(), value.value<DataObjectRef>(), edit.name)) return false;
             indices.append(index);
         }
         m_layer->beginBulkEdit();
@@ -4894,6 +5109,7 @@ public:
             const auto record = forward ? edit.sectionAfter : edit.sectionBefore;
             const auto outfall = forward ? edit.outfallAfter : edit.outfallBefore;
             const auto storage = forward ? edit.storageAfter : edit.storageBefore;
+            const auto runoff = forward ? edit.runoffAfter : edit.runoffBefore;
             const auto value = forward ? edit.after : edit.before;
             if (record) {
                 if (!writeXsectRecord(m_layer->engine(), edit.name, *record)) break;
@@ -4901,6 +5117,8 @@ public:
                 if (!writeOutfallRecord(m_layer->engine(), edit.name, *outfall)) break;
             } else if (storage) {
                 if (!writeStorageRecord(m_layer->engine(), edit.name, *storage)) break;
+            } else if (runoff) {
+                if (!writeRunoffRecord(m_layer->engine(), edit.name, *runoff)) break;
             } else if (!model->commitValueDirect(indices[applied], value) ||
                        !scalarWriteMatches(model->data(indices[applied], Qt::EditRole), value)) {
                 break;
@@ -4913,12 +5131,15 @@ public:
                 const auto record = forward ? edit.sectionBefore : edit.sectionAfter;
                 const auto outfall = forward ? edit.outfallBefore : edit.outfallAfter;
                 const auto storage = forward ? edit.storageBefore : edit.storageAfter;
+                const auto runoff = forward ? edit.runoffBefore : edit.runoffAfter;
                 if (record)
                     writeXsectRecord(m_layer->engine(), edit.name, *record);
                 else if (outfall)
                     writeOutfallRecord(m_layer->engine(), edit.name, *outfall);
                 else if (storage)
                     writeStorageRecord(m_layer->engine(), edit.name, *storage);
+                else if (runoff)
+                    writeRunoffRecord(m_layer->engine(), edit.name, *runoff);
                 else
                     m_models.value(edit.category)->commitValueDirect(indices[i],
                                                                    forward ? edit.before : edit.after);
@@ -5098,6 +5319,8 @@ bool SWMMAttributeTableModel::applyScalarEdits(
         return fail(tr("Choose one boundary type, stage or reference per edit."));
     if (edits.contains("Storage shape") && edits.contains("Storage curve"))
         return fail(tr("Choose one storage shape or curve per edit."));
+    if (edits.contains("Divider type") && edits.contains("Diversion curve"))
+        return fail(tr("Choose one divider method or curve per edit."));
     QSet<int> storageDimensionShapes;
     for (auto group = targets.cbegin(); group != targets.cend(); ++group) {
         SWMMAttributeTableModel model;
@@ -5106,6 +5329,7 @@ bool SWMMAttributeTableModel::applyScalarEdits(
         for (const auto &name : group.value()) {
             int sectionChange = -1;
             int nodeRecordChange = -1;
+            int runoffChange = -1;
             const int row = model.rowForName(name);
             if (row < 0) return fail(tr("%1 no longer exists.").arg(name));
             for (auto it = edits.cbegin(); it != edits.cend(); ++it) {
@@ -5159,17 +5383,35 @@ bool SWMMAttributeTableModel::applyScalarEdits(
                                                : swmm_transect_index(m_layer->engine(), name.constData());
                     if (profile < 0) return fail(tr("Profile %1 no longer exists.").arg(ref.currentName));
                 } else if (spec.editor == EditorKind::Compound &&
+                           (spec.setter == "subcatch_rain_gage_ref" || spec.setter == "subcatch_outlet_ref" ||
+                            spec.setter == "subcatch_snowpack_ref" || spec.setter == "subcatch_aquifer_ref")) {
+                    if (it.value().userType() != qMetaTypeId<DataObjectRef>()) return fail(tr("Choose a named reference."));
+                    const auto ref = it.value().value<DataObjectRef>();
+                    const auto expected = model.data(index, Qt::EditRole).value<DataObjectRef>();
+                    if (ref.kind == DataObjectRef::SubcatchOutlet &&
+                        swmm_node_index(m_layer->engine(), ref.currentName.toUtf8().constData()) >= 0 &&
+                        swmm_subcatch_index(m_layer->engine(), ref.currentName.toUtf8().constData()) >= 0)
+                        return fail(tr("Outlet %1 names both a node and a subcatchment. Rename one before assigning it so saving preserves the target.").arg(ref.currentName));
+                    if (ref.kind != expected.kind || ref.engine != m_layer->engine() || ref.layer != m_layer ||
+                        ((ref.kind == DataObjectRef::RainGage || ref.kind == DataObjectRef::SubcatchOutlet) && ref.currentName.isEmpty()) ||
+                        !runoffReferenceValid(m_layer->engine(), ref, name))
+                        return fail(tr("The reference is invalid for %1, or would create an outlet cycle.").arg(name));
+                } else if (spec.editor == EditorKind::Compound &&
                            (spec.setter == QLatin1String("link_pump_curve_ref") ||
                             spec.setter == QLatin1String("node_outfall_route_to_ref") ||
                             spec.setter == QLatin1String("node_outfall_tidal_ref") ||
                             spec.setter == QLatin1String("node_outfall_timeseries_ref") ||
-                            spec.setter == QLatin1String("node_storage_curve_ref"))) {
+                            spec.setter == QLatin1String("node_storage_curve_ref") ||
+                            spec.setter == "node_divider_curve_ref" || spec.setter == "gage_series_ref")) {
                     if (it.value().userType() != qMetaTypeId<DataObjectRef>())
                         return fail(tr("Choose a reference for %1.").arg(spec.label));
                     const auto expected = model.data(index, Qt::EditRole).value<DataObjectRef>();
                     const auto next = it.value().value<DataObjectRef>();
                     if (next.kind != expected.kind || next.engine != m_layer->engine() || next.layer != m_layer)
                         return fail(tr("The reference belongs to a different model or kind."));
+                    if (next.currentName.isEmpty() &&
+                        (spec.setter == "node_divider_curve_ref" || spec.setter == "gage_series_ref"))
+                        return fail(tr("Choose a named reference for %1.").arg(spec.label));
                     if (next.currentName.isEmpty() &&
                         (spec.setter == QLatin1String("node_outfall_tidal_ref") ||
                          spec.setter == QLatin1String("node_outfall_timeseries_ref")))
@@ -5182,9 +5424,10 @@ bool SWMMAttributeTableModel::applyScalarEdits(
                         } else {
                             const int required = expected.kind == DataObjectRef::StorageCurve ? 1 :
                                 expected.kind == DataObjectRef::TidalCurve ? 6 :
-                                expected.kind == DataObjectRef::TimeSeries ? 0 : 3;
+                                expected.kind == DataObjectRef::TimeSeries ? 0 : expected.kind == DataObjectRef::DiversionCurve ? 2 : 3;
                             const bool typed = expected.kind == DataObjectRef::StorageCurve ||
-                                expected.kind == DataObjectRef::TidalCurve || expected.kind == DataObjectRef::TimeSeries;
+                                expected.kind == DataObjectRef::TidalCurve || expected.kind == DataObjectRef::TimeSeries ||
+                                expected.kind == DataObjectRef::DiversionCurve;
                             const int table = typed ? tableOfType(m_layer->engine(), next.currentName, required)
                                 : swmm_table_index(m_layer->engine(), id.constData());
                             int type = -1;
@@ -5193,6 +5436,9 @@ bool SWMMAttributeTableModel::applyScalarEdits(
                                 return fail(tr("%1 is not a compatible curve.").arg(next.currentName));
                         }
                     }
+                } else if (spec.setter == "gage_file_path" || spec.setter == "gage_file_column" || spec.setter == "gage_station_id") {
+                    if (spec.setter == "gage_file_path" && it.value().toString().trimmed().isEmpty())
+                        return fail(tr("Choose a rain file before changing to a file source."));
                 } else if (spec.editor != EditorKind::Text || spec.key != QLatin1String("Tag")) {
                     return fail(tr("%1 requires its structured editor.").arg(spec.label));
                 }
@@ -5201,10 +5447,19 @@ bool SWMMAttributeTableModel::applyScalarEdits(
                 if ((spec.setter == QLatin1String("node_outfall_type") && it.value().toInt() >= 3) ||
                     (spec.setter == QLatin1String("node_storage_shape") && it.value().toInt() == openswmmvis::kStorageTabularId))
                     return fail(tr("Choose the named curve or time series through its picker."));
+                if (spec.setter == "node_divider_type" && it.value().toInt() == 2)
+                    return fail(tr("Choose Tabular through the Diversion Curve picker."));
                 if (storageParamOrdinalForTag(spec.setter))
                     storageDimensionShapes.insert(storageShapeForName(m_layer, name));
                 const auto old = model.data(index, Qt::EditRole);
                 auto next = it.value();
+                if (next.userType() == qMetaTypeId<DataObjectRef>()) {
+                    auto ref = next.value<DataObjectRef>();
+                    if (ref.kind == DataObjectRef::SubcatchOutlet && ref.outletTarget == DataObjectRef::Automatic)
+                        ref.outletTarget = swmm_node_index(m_layer->engine(), ref.currentName.toUtf8().constData()) >= 0
+                            ? DataObjectRef::NodeOutlet : DataObjectRef::SubcatchmentOutlet;
+                    next = QVariant::fromValue(ref);
+                }
                 if (spec.editor == EditorKind::Interval) {
                     const auto parts = next.toString().split(':');
                     next = QStringLiteral("%1:%2").arg(parts[0].toInt())
@@ -5212,6 +5467,75 @@ bool SWMMAttributeTableModel::applyScalarEdits(
                 }
                 if (scalarComparable(old) == scalarComparable(next)) continue;
                 ScalarEdit change{group.key(), name, spec.key, old, next};
+                if (group.key() == SWMMModelLayer::CatDividers && spec.setter.startsWith("node_divider_")) {
+                    DividerRecord before;
+                    if (!readDividerRecord(m_layer->engine(), name, before)) return fail(tr("Cannot read divider %1.").arg(name));
+                    auto after = runoffChange < 0 ? before : std::get<DividerRecord>(*changes[runoffChange].runoffAfter);
+                    if (spec.setter == "node_divider_type") {
+                        after.value.method = next.toInt();
+                        if (after.value.method == 3) {
+                            if (after.value.weir_height <= 0) after.value.weir_height = 1;
+                            if (after.value.weir_coefficient <= 0) after.value.weir_coefficient = 1;
+                        }
+                    } else if (spec.setter == "node_divider_curve_ref") {
+                        after.value.method = 2;
+                        after.curve = next.value<DataObjectRef>().currentName;
+                    } else if (spec.setter == "node_divider_cutoff") after.value.cutoff_flow = next.toDouble();
+                    else if (spec.setter == "node_divider_height") after.value.weir_height = next.toDouble();
+                    else if (spec.setter == "node_divider_coefficient") after.value.weir_coefficient = next.toDouble();
+                    if (runoffChange >= 0) { changes[runoffChange].runoffAfter = after; continue; }
+                    runoffChange = changes.size(); change.runoffBefore = before; change.runoffAfter = after;
+                } else if (group.key() == SWMMModelLayer::CatSubcatchments &&
+                           (spec.setter == "subcatch_infil_model" || infilFieldSlot(spec.setter) >= 0)) {
+                    InfilRecord before;
+                    if (!readInfilRecord(m_layer->engine(), name, before)) return fail(tr("Cannot read infiltration for %1.").arg(name));
+                    auto after = runoffChange < 0 ? before : std::get<InfilRecord>(*changes[runoffChange].runoffAfter);
+                    if (spec.setter == "subcatch_infil_model") {
+                        after.method = next.toInt();
+                        if (infilFamily(after.method) != infilFamily(before.method)) {
+                            char units[32]{};
+                            swmm_options_get(m_layer->engine(), "FLOW_UNITS", units, sizeof(units));
+                            const bool si = QByteArray(units) == "CMS" || QByteArray(units) == "LPS" || QByteArray(units) == "MLD";
+                            const double scale = si ? 25.4 : 1.0;
+                            after.p[0] = 3 * scale; after.p[1] = .5 * scale;
+                            after.p[2] = infilFamily(after.method) == 0 ? 4 : .3;
+                            after.p[3] = infilFamily(after.method) == 0 ? 7 : 0;
+                            if (after.method == 4) { after.p[0] = 75; after.p[1] = 0; after.p[2] = 7; }
+                        }
+                    } else after.p[infilFieldSlot(spec.setter)] = next.toDouble();
+                    if (runoffChange >= 0) { changes[runoffChange].runoffAfter = after; continue; }
+                    runoffChange = changes.size(); change.runoffBefore = before; change.runoffAfter = after;
+                } else if (group.key() == SWMMModelLayer::CatRainGages && gageSourceField(spec.setter)) {
+                    GageRecord before;
+                    if (!readGageRecord(m_layer->engine(), name, before)) return fail(tr("Cannot read rain source %1.").arg(name));
+                    auto after = runoffChange < 0 ? before : std::get<GageRecord>(*changes[runoffChange].runoffAfter);
+                    if (spec.setter == "gage_data_source") after.source = next.toInt();
+                    else if (spec.setter == "gage_series_ref") {
+                        after.series = next.value<DataObjectRef>().currentName; after.source = 0;
+                    } else if (spec.setter == "gage_file_path") {
+                        after.path = next.toString().trimmed(); after.source = 1;
+                        const QString file = QFileInfo(after.path).isAbsolute() ? after.path :
+                            QFileInfo(m_layer->modelFilePath()).dir().filePath(after.path);
+                        after.column = openswmmvis::ui::reconcileColumnSelector(file, after.column);
+                        if (!after.column.isEmpty()) { after.format = kRainFormatUserCsv; after.station.clear(); }
+                    } else if (spec.setter == "gage_file_column") {
+                        after.column = next.toString().trimmed();
+                        if (!after.column.isEmpty()) {
+                            const QString file = model.rainFileFor(row);
+                            if (openswmmvis::ui::reconcileColumnSelector(file, after.column) != after.column)
+                                return fail(tr("Column %1 is unavailable for %2.").arg(after.column, name));
+                            after.format = kRainFormatUserCsv; after.station.clear();
+                        }
+                    } else if (spec.setter == "gage_file_format") {
+                        after.format = next.toInt();
+                        if (after.format == kRainFormatUserCsv) after.station.clear(); else after.column.clear();
+                    } else after.station = next.toString().trimmed();
+                    if (!resolveRunoffRecord(m_layer->engine(), RunoffRecord(after)) ||
+                        (spec.setter == "gage_data_source" && (after.source == 0 ? after.series.isEmpty() : after.path.isEmpty())))
+                        return fail(tr("%1 needs a valid time series or rain file before switching source.").arg(name));
+                    if (runoffChange >= 0) { changes[runoffChange].runoffAfter = after; continue; }
+                    runoffChange = changes.size(); change.runoffBefore = before; change.runoffAfter = after;
+                }
                 if (group.key() == SWMMModelLayer::CatOutfalls &&
                     (spec.setter == QLatin1String("node_outfall_type") ||
                      spec.setter == QLatin1String("node_outfall_stage") ||
@@ -5549,13 +5873,12 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index, const 
                 return false;
             rc = swmm_gage_set_timeseries(eng, gIdx, dref.currentName.toUtf8().constData());
         } else if (spec.setter == QStringLiteral("subcatch_rain_gage_ref")) {
-            // Mirrors SWMMSubcatchPropertyAdapter::setRainGageRef; gage is
-            // required, so an empty pick is ignored.
+            // New assignments require a gage; replay may restore an unassigned value.
             const int sIdx = swmm_subcatch_index(eng, name.toUtf8().constData());
-            if (sIdx < 0 || dref.currentName.isEmpty())
+            if (sIdx < 0)
                 return false;
-            const int g = swmm_gage_index(eng, dref.currentName.toUtf8().constData());
-            if (g < 0)
+            const int g = dref.currentName.isEmpty() ? -1 : swmm_gage_index(eng, dref.currentName.toUtf8().constData());
+            if (g < 0 && !dref.currentName.isEmpty())
                 return false;
             rc = swmm_subcatch_set_gage(eng, sIdx, g);
         } else if (spec.setter == QStringLiteral("subcatch_snowpack_ref")) {
@@ -5592,20 +5915,24 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index, const 
             }
             rc = swmm_node_set_outfall_route_to(eng, nodeIdx, sub);
         } else if (spec.setter == QStringLiteral("subcatch_outlet_ref")) {
-            // Combined node/subcatch outlet; node takes precedence on a name
-            // collision. Mirrors SWMMSubcatchPropertyAdapter::setOutletRef.
+            // Keep the explicit outlet namespace; legacy untyped input uses node-first lookup.
             const int sIdx = swmm_subcatch_index(eng, name.toUtf8().constData());
-            if (sIdx < 0 || dref.currentName.isEmpty())
+            if (sIdx < 0)
                 return false;
-            const QByteArray nm = dref.currentName.toUtf8();
-            const int nd = swmm_node_index(eng, nm.constData());
-            if (nd >= 0) {
-                rc = swmm_subcatch_set_outlet(eng, sIdx, nd);
+            if (dref.currentName.isEmpty()) {
+                if (swmm_subcatch_set_outlet_subcatch(eng, sIdx, -1) != SWMM_OK) return false;
+                rc = swmm_subcatch_set_outlet(eng, sIdx, -1);
             } else {
-                const int sc = swmm_subcatch_index(eng, nm.constData());
-                if (sc < 0 || sc == sIdx)
-                    return false;
-                rc = swmm_subcatch_set_outlet_subcatch(eng, sIdx, sc);
+                const QByteArray nm = dref.currentName.toUtf8();
+                const int nd = swmm_node_index(eng, nm.constData());
+                if (nd >= 0 && dref.outletTarget != DataObjectRef::SubcatchmentOutlet) {
+                    rc = swmm_subcatch_set_outlet(eng, sIdx, nd);
+                } else {
+                    const int sc = swmm_subcatch_index(eng, nm.constData());
+                    if (dref.outletTarget == DataObjectRef::NodeOutlet || sc < 0 || sc == sIdx)
+                        return false;
+                    rc = swmm_subcatch_set_outlet_subcatch(eng, sIdx, sc);
+                }
             }
         } else {
             return false;
@@ -5833,55 +6160,6 @@ QString SWMMAttributeTableModel::rainFileFor(int row) const
     return QString::fromUtf8(abs[0] != '\0' ? abs : orig);
 }
 
-bool SWMMAttributeTableModel::commitRainFilePath(const QModelIndex &pathIndex,
-                                                 const QVariant &oldPath, const QVariant &newPath)
-{
-    const int row = pathIndex.row();
-    const int pathCol = pathIndex.column();
-    const int colCol = columnForSetter(QStringLiteral("gage_file_column"));
-    const int fmtCol = columnForSetter(QStringLiteral("gage_file_format"));
-
-    // Read the siblings BEFORE the path is written: the column setter's
-    // implicit USER_CSV flip would otherwise be captured as the "old" format.
-    const QVariant oldColumn = (colCol >= 0) ? data(index(row, colCol), Qt::EditRole) : QVariant();
-    const QVariant oldFormat = (fmtCol >= 0) ? data(index(row, fmtCol), Qt::EditRole) : QVariant();
-
-    const auto commit = [&](int col, const QVariant &oldV, const QVariant &newV) {
-        if (col < 0 || oldV == newV)
-            return;
-        if (m_undoStack)
-            m_undoStack->push(
-                new AttributeEditCommand(this, row, col, oldV, newV, m_columnSpecs[col].label));
-        else
-            commitValueDirect(index(row, col), newV);
-    };
-
-    if (m_undoStack)
-        m_undoStack->beginMacro(tr("Set %1").arg(m_columnSpecs[pathCol].label));
-
-    commit(pathCol, oldPath, newPath);
-
-    // The engine now holds the new path, so its resolved form — and therefore
-    // the new file's headers — can be read.
-    if (colCol >= 0) {
-        const QString want =
-            openswmmvis::ui::reconcileColumnSelector(rainFileFor(row), oldColumn.toString());
-        if (want != oldColumn.toString()) {
-            // A non-empty column means the multi-column grammar. The engine
-            // flips the format itself, but that flip is invisible to the undo
-            // stack, so record it as its own command — otherwise undo would
-            // leave the gage USER_CSV with no column and Station ID greyed.
-            if (!want.isEmpty())
-                commit(fmtCol, oldFormat, QVariant(kRainFormatUserCsv));
-            commit(colCol, oldColumn, QVariant(want));
-        }
-    }
-
-    if (m_undoStack)
-        m_undoStack->endMacro();
-    return true;
-}
-
 bool SWMMAttributeTableModel::setData(const QModelIndex &index, const QVariant &value, int role)
 {
     if (!index.isValid() || role != Qt::EditRole)
@@ -6012,7 +6290,10 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index, const QVariant &
         return true;
     }
 
-    if (spec.setter == QLatin1String("link_pump_curve_ref") ||
+    if (gageSourceField(spec.setter) || spec.setter == "node_divider_curve_ref" ||
+        spec.setter == "subcatch_rain_gage_ref" || spec.setter == "subcatch_outlet_ref" ||
+        spec.setter == "subcatch_snowpack_ref" || spec.setter == "subcatch_aquifer_ref" ||
+        spec.setter == QLatin1String("link_pump_curve_ref") ||
         spec.setter == QLatin1String("node_outfall_route_to_ref") ||
         spec.setter == QLatin1String("node_outfall_tidal_ref") ||
         spec.setter == QLatin1String("node_outfall_timeseries_ref") ||
@@ -6033,20 +6314,12 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index, const QVariant &
 
     const QVariant oldValueEarly = data(index, Qt::EditRole);
 
-    // A rain-file path edit reaches two more cells — see commitRainFilePath.
-    // Handled before the single-command path below (and regardless of whether a
-    // stack is attached, so both editors behave the same).
-    if (spec.setter == QStringLiteral("gage_file_path")) {
-        if (oldValueEarly == value)
-            return true; // no-op edit
-        return commitRainFilePath(index, oldValueEarly, value);
-    }
-
     // Wrap each numeric/enum commit in an undo command when a stack is attached.
     if (spec.editor == EditorKind::Numeric || spec.editor == EditorKind::Integer ||
         (spec.editor == EditorKind::Text && spec.key == QLatin1String("Tag")) ||
         spec.setter == QLatin1String("node_outfall_type") ||
         spec.setter == QLatin1String("node_storage_shape") ||
+        spec.setter == "node_divider_type" || spec.setter == "subcatch_infil_model" ||
         spec.setter == QLatin1String("link_xsect_shape")) {
         QString error;
         return applyScalarEdits({objectNameAt(row)}, {{spec.key, value}}, m_undoStack, &error);
