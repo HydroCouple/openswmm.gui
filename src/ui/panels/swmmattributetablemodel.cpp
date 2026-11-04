@@ -422,6 +422,13 @@ ColumnSpec enumCol(const QString &key, const QString &label, const QString &sett
     c.editor = EditorKind::Enum;
     c.setter = setter;
     c.enumValues = values;
+    if (setter == QLatin1String("node_outfall_type"))
+        c.tooltip = QObject::tr("Choose Free, Normal or Fixed. Use Tidal Curve or Stage Time Series "
+                               "for named boundaries. A newly Fixed boundary starts at its invert elevation.");
+    if (setter == QLatin1String("node_storage_shape"))
+        c.tooltip = QObject::tr("Use Storage Curve for a named Tabular shape. Geometric shapes retain valid "
+                               "dimensions, or start at 1 when the existing dimensions are invalid. "
+                               "Undo restores the previous geometry.");
     return c;
 }
 
@@ -3855,6 +3862,10 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
     if (role == openswmmvis::kDisabledEnumValuesRole &&
         m_columnSpecs[col].setter == QLatin1String("link_xsect_shape"))
         return QVariantList{int(SWMM_XSECT_IRREGULAR), int(SWMM_XSECT_STREET), int(SWMM_XSECT_CUSTOM)};
+    if (role == openswmmvis::kDisabledEnumValuesRole && m_columnSpecs[col].setter == QLatin1String("node_outfall_type"))
+        return QVariantList{3, 4}; // Named tidal curve / stage series pickers.
+    if (role == openswmmvis::kDisabledEnumValuesRole && m_columnSpecs[col].setter == QLatin1String("node_storage_shape"))
+        return QVariantList{openswmmvis::kStorageTabularId};
 
     // FileColumn cells (spec §4 task 4): the delegate asks for the row's
     // available column names via this role. They come from the same header
@@ -4424,6 +4435,17 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             if (shape < 0 || !openswmmvis::storageGeomApplies(shape, ord))
                 return {};
         }
+        if ((spec.setter == QLatin1String("node_storage_coeff_a") ||
+             spec.setter == QLatin1String("node_storage_exp_b") ||
+             spec.setter == QLatin1String("node_storage_const_c")) &&
+            storageShapeForName(m_layer, objectNameAt(row)) != openswmmvis::kStorageFunctionalId)
+            return {};
+        if (spec.setter == QLatin1String("node_outfall_stage")) {
+            int type = -1;
+            const int node = swmm_node_index(m_layer->engine(), objectNameAt(row).toUtf8().constData());
+            if (swmm_node_get_outfall_type(m_layer->engine(), node, &type) != SWMM_OK || type != 2)
+                return {};
+        }
         // Post-run dynamics: when an output is bound, the value comes from
         // THAT run's .out file, not the editing engine (which never runs a
         // simulation and so has no statistics at all). Tags with no output
@@ -4567,6 +4589,17 @@ Qt::ItemFlags SWMMAttributeTableModel::flags(const QModelIndex &index) const
             if (shape < 0 || !openswmmvis::storageGeomApplies(shape, ord))
                 return f; // no ItemIsEditable
         }
+        if ((spec.setter == QLatin1String("node_storage_coeff_a") ||
+             spec.setter == QLatin1String("node_storage_exp_b") ||
+             spec.setter == QLatin1String("node_storage_const_c")) &&
+            storageShapeForName(m_layer, objectNameAt(index.row())) != openswmmvis::kStorageFunctionalId)
+            return f;
+        if (spec.setter == QLatin1String("node_outfall_stage")) {
+            int type = -1;
+            const int node = swmm_node_index(m_layer->engine(), objectNameAt(index.row()).toUtf8().constData());
+            if (swmm_node_get_outfall_type(m_layer->engine(), node, &type) != SWMM_OK || type != 2)
+                return f;
+        }
         f |= Qt::ItemIsEditable;
     }
     return f;
@@ -4615,6 +4648,85 @@ bool resolveXsectProfile(SWMM_Engine engine, XsectRecord &record)
     return true;
 }
 
+int tableOfType(SWMM_Engine engine, const QString &name, int type)
+{
+    const int index = swmm_table_index(engine, name.toUtf8().constData());
+    int actual = -1;
+    if (index >= 0 && swmm_table_get_type(engine, index, &actual) == SWMM_OK && actual == type)
+        return index;
+    // The unqualified lookup prefers time series; curves may share their names.
+    for (int i = 0; i < swmm_table_count(engine); ++i) {
+        const char *id = swmm_table_id(engine, i);
+        if (id && name.compare(QString::fromUtf8(id), Qt::CaseInsensitive) == 0 &&
+            swmm_table_get_type(engine, i, &actual) == SWMM_OK && actual == type) return i;
+    }
+    return -1;
+}
+
+struct OutfallRecord {
+    int type = 0;
+    double stage = 0;
+    QString reference;
+};
+
+bool readOutfallRecord(SWMM_Engine engine, const QString &name, OutfallRecord &record)
+{
+    const int node = swmm_node_index(engine, name.toUtf8().constData());
+    if (node < 0 || swmm_node_get_outfall_type(engine, node, &record.type) != SWMM_OK ||
+        record.type < 0 || record.type > 4) return false;
+    record.stage = 0;
+    record.reference.clear();
+    if (record.type == 2)
+        return swmm_node_get_outfall_param(engine, node, &record.stage) == SWMM_OK;
+    if (record.type >= 3) {
+        int index = -1;
+        const int rc = record.type == 3 ? swmm_node_get_outfall_tidal(engine, node, &index)
+                                        : swmm_node_get_outfall_timeseries(engine, node, &index);
+        const char *id = rc == SWMM_OK && index >= 0 ? swmm_table_id(engine, index) : nullptr;
+        if (!id) return false;
+        record.reference = QString::fromUtf8(id);
+        return tableOfType(engine, record.reference, record.type == 3 ? 6 : 0) >= 0;
+    }
+    return true; // FREE / NORMAL have no active parameter.
+}
+
+bool resolveOutfallReference(SWMM_Engine engine, const OutfallRecord &record)
+{
+    return record.type < 3 || tableOfType(engine, record.reference, record.type == 3 ? 6 : 0) >= 0;
+}
+
+struct StorageRecord {
+    int shape = openswmmvis::kStorageFunctionalId;
+    double coeff[3]{};
+    double param[3]{};
+    QString curve;
+};
+
+bool readStorageRecord(SWMM_Engine engine, const QString &name, StorageRecord &record)
+{
+    const int node = swmm_node_index(engine, name.toUtf8().constData());
+    if (node < 0 || swmm_node_get_storage_shape(engine, node, &record.shape) != SWMM_OK ||
+        record.shape < 0 || record.shape > 5 ||
+        swmm_node_get_storage_functional(engine, node, &record.coeff[0], &record.coeff[1], &record.coeff[2]) != SWMM_OK ||
+        swmm_node_get_storage_geometry(engine, node, &record.param[0], &record.param[1], &record.param[2]) != SWMM_OK)
+        return false;
+    record.curve.clear();
+    if (record.shape == openswmmvis::kStorageTabularId) {
+        int index = -1;
+        if (swmm_node_get_storage_curve(engine, node, &index) != SWMM_OK || index < 0) return false;
+        const char *id = swmm_table_id(engine, index);
+        if (!id) return false;
+        record.curve = QString::fromUtf8(id);
+        if (tableOfType(engine, record.curve, 1) < 0) return false;
+    }
+    return true;
+}
+
+bool resolveStorageCurve(SWMM_Engine engine, const StorageRecord &record)
+{
+    return record.shape != openswmmvis::kStorageTabularId || tableOfType(engine, record.curve, 1) >= 0;
+}
+
 struct ScalarEdit {
     SWMMModelLayer::Category category;
     QString name;
@@ -4623,6 +4735,10 @@ struct ScalarEdit {
     QVariant after;
     std::optional<XsectRecord> sectionBefore = std::nullopt;
     std::optional<XsectRecord> sectionAfter = std::nullopt;
+    std::optional<OutfallRecord> outfallBefore = std::nullopt;
+    std::optional<OutfallRecord> outfallAfter = std::nullopt;
+    std::optional<StorageRecord> storageBefore = std::nullopt;
+    std::optional<StorageRecord> storageAfter = std::nullopt;
 };
 
 QVariant scalarComparable(const QVariant &value)
@@ -4665,6 +4781,49 @@ bool writeXsectRecord(SWMM_Engine engine, const QString &name, XsectRecord recor
         return false;
     for (int i = 0; i < 4; ++i)
         if (!scalarWriteMatches(actual.geom[i], record.geom[i])) return false;
+    return true;
+}
+
+bool writeOutfallRecord(SWMM_Engine engine, const QString &name, const OutfallRecord &record)
+{
+    if (!resolveOutfallReference(engine, record)) return false;
+    const int node = swmm_node_index(engine, name.toUtf8().constData());
+    if (node < 0) return false;
+    int rc = SWMM_ERR_BADPARAM;
+    if (record.type == 2) rc = swmm_node_set_outfall_stage(engine, node, record.stage);
+    else if (record.type == 3)
+        rc = swmm_node_set_outfall_tidal(engine, node, tableOfType(engine, record.reference, 6));
+    else if (record.type == 4)
+        rc = swmm_node_set_outfall_timeseries(engine, node, tableOfType(engine, record.reference, 0));
+    else rc = swmm_node_set_outfall_type(engine, node, record.type);
+    OutfallRecord actual;
+    return rc == SWMM_OK && readOutfallRecord(engine, name, actual) && actual.type == record.type &&
+           actual.reference == record.reference && scalarWriteMatches(actual.stage, record.stage);
+}
+
+bool writeStorageRecord(SWMM_Engine engine, const QString &name, const StorageRecord &record)
+{
+    if (!resolveStorageCurve(engine, record)) return false;
+    const int node = swmm_node_index(engine, name.toUtf8().constData());
+    if (node < 0) return false;
+    const bool geometric = openswmmvis::storageShapeIsGeometric(record.shape);
+    if (geometric) {
+        if (swmm_node_set_storage_shape(engine, node, record.shape) != SWMM_OK ||
+            swmm_node_set_storage_geometry(engine, node, record.param[0], record.param[1], record.param[2]) != SWMM_OK)
+            return false;
+    } else {
+        if (swmm_node_set_storage_functional(engine, node, record.coeff[0], record.coeff[1], record.coeff[2]) != SWMM_OK)
+            return false;
+        if (record.shape == openswmmvis::kStorageTabularId &&
+            swmm_node_set_storage_curve(engine, node, tableOfType(engine, record.curve, 1)) != SWMM_OK)
+            return false;
+    }
+    StorageRecord actual;
+    if (!readStorageRecord(engine, name, actual) || actual.shape != record.shape || actual.curve != record.curve)
+        return false;
+    for (int i = 0; i < 3; ++i)
+        if (!scalarWriteMatches(geometric ? actual.param[i] : actual.coeff[i],
+                                geometric ? record.param[i] : record.coeff[i])) return false;
     return true;
 }
 
@@ -4721,6 +4880,10 @@ public:
             if (!(index.flags() & Qt::ItemIsEditable)) return false;
             auto record = forward ? edit.sectionAfter : edit.sectionBefore;
             if (record && !resolveXsectProfile(m_layer->engine(), *record)) return false;
+            const auto outfall = forward ? edit.outfallAfter : edit.outfallBefore;
+            if (outfall && !resolveOutfallReference(m_layer->engine(), *outfall)) return false;
+            const auto storage = forward ? edit.storageAfter : edit.storageBefore;
+            if (storage && !resolveStorageCurve(m_layer->engine(), *storage)) return false;
             indices.append(index);
         }
         m_layer->beginBulkEdit();
@@ -4729,9 +4892,15 @@ public:
             const auto &edit = m_edits[applied];
             auto *model = m_models.value(edit.category);
             const auto record = forward ? edit.sectionAfter : edit.sectionBefore;
+            const auto outfall = forward ? edit.outfallAfter : edit.outfallBefore;
+            const auto storage = forward ? edit.storageAfter : edit.storageBefore;
             const auto value = forward ? edit.after : edit.before;
             if (record) {
                 if (!writeXsectRecord(m_layer->engine(), edit.name, *record)) break;
+            } else if (outfall) {
+                if (!writeOutfallRecord(m_layer->engine(), edit.name, *outfall)) break;
+            } else if (storage) {
+                if (!writeStorageRecord(m_layer->engine(), edit.name, *storage)) break;
             } else if (!model->commitValueDirect(indices[applied], value) ||
                        !scalarWriteMatches(model->data(indices[applied], Qt::EditRole), value)) {
                 break;
@@ -4742,8 +4911,14 @@ public:
             for (int i = applied; i >= 0; --i) {
                 const auto &edit = m_edits[i];
                 const auto record = forward ? edit.sectionBefore : edit.sectionAfter;
+                const auto outfall = forward ? edit.outfallBefore : edit.outfallAfter;
+                const auto storage = forward ? edit.storageBefore : edit.storageAfter;
                 if (record)
                     writeXsectRecord(m_layer->engine(), edit.name, *record);
+                else if (outfall)
+                    writeOutfallRecord(m_layer->engine(), edit.name, *outfall);
+                else if (storage)
+                    writeStorageRecord(m_layer->engine(), edit.name, *storage);
                 else
                     m_models.value(edit.category)->commitValueDirect(indices[i],
                                                                    forward ? edit.before : edit.after);
@@ -4918,12 +5093,19 @@ bool SWMMAttributeTableModel::applyScalarEdits(
     const int prescriptions = int(edits.contains("Shape")) + int(edits.contains("Transect profile")) +
                               int(edits.contains("Street profile"));
     if (prescriptions > 1) return fail(tr("Choose one cross-section shape or profile per edit."));
+    if (int(edits.contains("Outfall type")) + int(edits.contains("Stage elev")) +
+        int(edits.contains("Tidal curve")) + int(edits.contains("Stage series")) > 1)
+        return fail(tr("Choose one boundary type, stage or reference per edit."));
+    if (edits.contains("Storage shape") && edits.contains("Storage curve"))
+        return fail(tr("Choose one storage shape or curve per edit."));
+    QSet<int> storageDimensionShapes;
     for (auto group = targets.cbegin(); group != targets.cend(); ++group) {
         SWMMAttributeTableModel model;
         model.setSource(m_layer, group.key());
         const auto specs = model.columnSpecs();
         for (const auto &name : group.value()) {
             int sectionChange = -1;
+            int nodeRecordChange = -1;
             const int row = model.rowForName(name);
             if (row < 0) return fail(tr("%1 no longer exists.").arg(name));
             for (auto it = edits.cbegin(); it != edits.cend(); ++it) {
@@ -4978,23 +5160,36 @@ bool SWMMAttributeTableModel::applyScalarEdits(
                     if (profile < 0) return fail(tr("Profile %1 no longer exists.").arg(ref.currentName));
                 } else if (spec.editor == EditorKind::Compound &&
                            (spec.setter == QLatin1String("link_pump_curve_ref") ||
-                            spec.setter == QLatin1String("node_outfall_route_to_ref"))) {
+                            spec.setter == QLatin1String("node_outfall_route_to_ref") ||
+                            spec.setter == QLatin1String("node_outfall_tidal_ref") ||
+                            spec.setter == QLatin1String("node_outfall_timeseries_ref") ||
+                            spec.setter == QLatin1String("node_storage_curve_ref"))) {
                     if (it.value().userType() != qMetaTypeId<DataObjectRef>())
                         return fail(tr("Choose a reference for %1.").arg(spec.label));
                     const auto expected = model.data(index, Qt::EditRole).value<DataObjectRef>();
                     const auto next = it.value().value<DataObjectRef>();
                     if (next.kind != expected.kind || next.engine != m_layer->engine() || next.layer != m_layer)
                         return fail(tr("The reference belongs to a different model or kind."));
+                    if (next.currentName.isEmpty() &&
+                        (spec.setter == QLatin1String("node_outfall_tidal_ref") ||
+                         spec.setter == QLatin1String("node_outfall_timeseries_ref")))
+                        return fail(tr("Choose Free, Normal or Fixed to remove the boundary reference."));
                     if (!next.currentName.isEmpty()) {
                         const auto id = next.currentName.toUtf8();
                         if (expected.kind == DataObjectRef::Subcatchment) {
                             if (swmm_subcatch_index(m_layer->engine(), id.constData()) < 0)
                                 return fail(tr("Subcatchment %1 no longer exists.").arg(next.currentName));
                         } else {
-                            const int table = swmm_table_index(m_layer->engine(), id.constData());
+                            const int required = expected.kind == DataObjectRef::StorageCurve ? 1 :
+                                expected.kind == DataObjectRef::TidalCurve ? 6 :
+                                expected.kind == DataObjectRef::TimeSeries ? 0 : 3;
+                            const bool typed = expected.kind == DataObjectRef::StorageCurve ||
+                                expected.kind == DataObjectRef::TidalCurve || expected.kind == DataObjectRef::TimeSeries;
+                            const int table = typed ? tableOfType(m_layer->engine(), next.currentName, required)
+                                : swmm_table_index(m_layer->engine(), id.constData());
                             int type = -1;
                             if (table < 0 || swmm_table_get_type(m_layer->engine(), table, &type) != SWMM_OK ||
-                                (expected.kind == DataObjectRef::PumpCurve ? type < 7 || type > 11 : type != 3))
+                                (expected.kind == DataObjectRef::PumpCurve ? type < 7 || type > 11 : type != required))
                                 return fail(tr("%1 is not a compatible curve.").arg(next.currentName));
                         }
                     }
@@ -5003,6 +5198,11 @@ bool SWMMAttributeTableModel::applyScalarEdits(
                 }
                 if (spec.setter == QLatin1String("link_xsect_shape") && !numericXsectShape(it.value().toInt()))
                     return fail(tr("Choose this profile through its dedicated cross-section picker."));
+                if ((spec.setter == QLatin1String("node_outfall_type") && it.value().toInt() >= 3) ||
+                    (spec.setter == QLatin1String("node_storage_shape") && it.value().toInt() == openswmmvis::kStorageTabularId))
+                    return fail(tr("Choose the named curve or time series through its picker."));
+                if (storageParamOrdinalForTag(spec.setter))
+                    storageDimensionShapes.insert(storageShapeForName(m_layer, name));
                 const auto old = model.data(index, Qt::EditRole);
                 auto next = it.value();
                 if (spec.editor == EditorKind::Interval) {
@@ -5012,6 +5212,74 @@ bool SWMMAttributeTableModel::applyScalarEdits(
                 }
                 if (scalarComparable(old) == scalarComparable(next)) continue;
                 ScalarEdit change{group.key(), name, spec.key, old, next};
+                if (group.key() == SWMMModelLayer::CatOutfalls &&
+                    (spec.setter == QLatin1String("node_outfall_type") ||
+                     spec.setter == QLatin1String("node_outfall_stage") ||
+                     spec.setter == QLatin1String("node_outfall_tidal_ref") ||
+                     spec.setter == QLatin1String("node_outfall_timeseries_ref"))) {
+                    OutfallRecord before;
+                    if (!readOutfallRecord(m_layer->engine(), name, before))
+                        return fail(tr("Cannot read the boundary record for %1.").arg(name));
+                    auto after = before;
+                    if (spec.setter == QLatin1String("node_outfall_type")) {
+                        after.type = next.toInt();
+                        after.reference.clear();
+                        after.stage = 0;
+                        if (after.type == 2) {
+                            const int node = swmm_node_index(m_layer->engine(), name.toUtf8().constData());
+                            if (swmm_node_get_invert_elev(m_layer->engine(), node, &after.stage) != SWMM_OK)
+                                return fail(tr("Cannot read the invert elevation for %1.").arg(name));
+                        }
+                    } else if (spec.setter == QLatin1String("node_outfall_stage")) {
+                        after.stage = next.toDouble();
+                    } else {
+                        after.type = spec.setter == QLatin1String("node_outfall_tidal_ref") ? 3 : 4;
+                        after.stage = 0;
+                        after.reference = next.value<DataObjectRef>().currentName;
+                    }
+                    change.outfallBefore = before;
+                    change.outfallAfter = after;
+                }
+                if (group.key() == SWMMModelLayer::CatStorage &&
+                    (spec.setter == QLatin1String("node_storage_shape") ||
+                     spec.setter == QLatin1String("node_storage_curve_ref") ||
+                     spec.setter == QLatin1String("node_storage_coeff_a") ||
+                     spec.setter == QLatin1String("node_storage_exp_b") ||
+                     spec.setter == QLatin1String("node_storage_const_c") ||
+                     storageParamOrdinalForTag(spec.setter))) {
+                    StorageRecord before;
+                    if (!readStorageRecord(m_layer->engine(), name, before))
+                        return fail(tr("Cannot read the storage geometry for %1.").arg(name));
+                    auto after = nodeRecordChange < 0 ? before : *changes[nodeRecordChange].storageAfter;
+                    if (spec.setter == QLatin1String("node_storage_curve_ref")) {
+                        after.curve = next.value<DataObjectRef>().currentName;
+                        after.shape = after.curve.isEmpty() ? openswmmvis::kStorageFunctionalId : openswmmvis::kStorageTabularId;
+                    } else if (spec.setter == QLatin1String("node_storage_shape")) {
+                        after.shape = next.toInt();
+                        after.curve.clear();
+                        if (openswmmvis::storageShapeIsGeometric(after.shape) &&
+                            (after.param[0] <= 0 || after.param[1] <= 0 || after.param[2] < 0 ||
+                             (after.shape == openswmmvis::kStorageParaboloidId && after.param[2] == 0)))
+                            std::fill_n(after.param, 3, 1.0);
+                    } else if (const int ord = storageParamOrdinalForTag(spec.setter); ord > 0) {
+                        if (!openswmmvis::storageGeomApplies(after.shape, ord))
+                            return fail(tr("Choose the storage shape before editing its dimensions."));
+                        after.param[ord - 1] = next.toDouble();
+                    } else {
+                        if (after.shape != openswmmvis::kStorageFunctionalId)
+                            return fail(tr("Choose Functional before editing its coefficients."));
+                        const int coefficient = spec.setter == QLatin1String("node_storage_coeff_a") ? 0 :
+                            spec.setter == QLatin1String("node_storage_exp_b") ? 1 : 2;
+                        after.coeff[coefficient] = next.toDouble();
+                    }
+                    if (nodeRecordChange >= 0) {
+                        changes[nodeRecordChange].storageAfter = after;
+                        continue;
+                    }
+                    nodeRecordChange = changes.size();
+                    change.storageBefore = before;
+                    change.storageAfter = after;
+                }
                 const int ordinal = xsectGeomOrdinalForTag(spec.setter);
                 const bool profileEdit = spec.setter == QLatin1String("link_xsect_transect_ref") ||
                                          spec.setter == QLatin1String("link_xsect_street_ref");
@@ -5051,6 +5319,8 @@ bool SWMMAttributeTableModel::applyScalarEdits(
             }
         }
     }
+    if (storageDimensionShapes.size() > 1)
+        return fail(tr("Choose a common storage shape before editing dimensions together."));
     if (changes.isEmpty()) return true;
     auto command = std::make_unique<ScalarBatchCommand>(this, changes);
     if (!command->commit(true)) return fail(tr("An object refused the edit. Nothing was changed."));
@@ -5744,6 +6014,9 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index, const QVariant &
 
     if (spec.setter == QLatin1String("link_pump_curve_ref") ||
         spec.setter == QLatin1String("node_outfall_route_to_ref") ||
+        spec.setter == QLatin1String("node_outfall_tidal_ref") ||
+        spec.setter == QLatin1String("node_outfall_timeseries_ref") ||
+        spec.setter == QLatin1String("node_storage_curve_ref") ||
         spec.setter == QLatin1String("link_xsect_transect_ref") ||
         spec.setter == QLatin1String("link_xsect_street_ref")) {
         QString error;
@@ -5772,6 +6045,8 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index, const QVariant &
     // Wrap each numeric/enum commit in an undo command when a stack is attached.
     if (spec.editor == EditorKind::Numeric || spec.editor == EditorKind::Integer ||
         (spec.editor == EditorKind::Text && spec.key == QLatin1String("Tag")) ||
+        spec.setter == QLatin1String("node_outfall_type") ||
+        spec.setter == QLatin1String("node_storage_shape") ||
         spec.setter == QLatin1String("link_xsect_shape")) {
         QString error;
         return applyScalarEdits({objectNameAt(row)}, {{spec.key, value}}, m_undoStack, &error);

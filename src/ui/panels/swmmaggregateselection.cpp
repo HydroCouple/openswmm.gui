@@ -91,13 +91,17 @@ bool SWMMAggregateSelection::supports(const openswmmvis::ColumnSpec &spec)
     // Structured records and type selectors need a complete record editor.
     const QStringList independentChoices{
         "node_outfall_flap_gate", "link_flap_gate", "link_culvert_code",
-        "link_pump_init_state", "gage_rain_type", "gage_rain_units", "link_xsect_shape"};
+        "link_pump_init_state", "gage_rain_type", "gage_rain_units", "link_xsect_shape",
+        "node_outfall_type", "node_storage_shape"};
     return !spec.setter.isEmpty() && spec.key != QLatin1String("Name") &&
         (spec.editor == EditorKind::Numeric || spec.editor == EditorKind::Integer ||
          spec.editor == EditorKind::Interval || spec.editor == EditorKind::LinkEndpoint ||
          (spec.editor == EditorKind::Compound &&
           (spec.setter == QLatin1String("link_pump_curve_ref") ||
            spec.setter == QLatin1String("node_outfall_route_to_ref") ||
+           spec.setter == QLatin1String("node_outfall_tidal_ref") ||
+           spec.setter == QLatin1String("node_outfall_timeseries_ref") ||
+           spec.setter == QLatin1String("node_storage_curve_ref") ||
            spec.setter == QLatin1String("link_xsect_transect_ref") ||
            spec.setter == QLatin1String("link_xsect_street_ref"))) ||
          (spec.editor == EditorKind::Enum && independentChoices.contains(spec.setter)) ||
@@ -152,6 +156,7 @@ SWMMAggregateSelection::Field SWMMAggregateSelection::field(int column) const
     const auto spec = m_source->columnSpecs().value(column);
     QSet<int> depthKinds;
     QSet<int> sectionShapes;
+    QSet<int> storageShapes;
     for (auto group = m_targets.cbegin(); group != m_targets.cend(); ++group) {
         auto *model = m_sources.value(group.key());
         const int col = m_columns.value(group.key()).value(spec.key, -1);
@@ -174,6 +179,12 @@ SWMMAggregateSelection::Field SWMMAggregateSelection::field(int column) const
                     sectionShapes.insert(shape);
             }
             bool applicable = compatible && (index.flags() & Qt::ItemIsEditable);
+            if (spec.setter.startsWith(QLatin1String("node_storage_param"))) {
+                int shape = -1;
+                const int node = swmm_node_index(model->layer()->engine(), name.toUtf8().constData());
+                if (swmm_node_get_storage_shape(model->layer()->engine(), node, &shape) == SWMM_OK)
+                    storageShapes.insert(shape);
+            }
             if (spec.setter == QLatin1String("node_outfall_stage")) {
                 int type = -1;
                 const int node = swmm_node_index(model->layer()->engine(), name.toUtf8().constData());
@@ -209,6 +220,10 @@ SWMMAggregateSelection::Field SWMMAggregateSelection::field(int column) const
     if (sectionShapes.size() > 1) {
         result.editable = 0;
         result.reason = tr("Choose a common cross-section shape before editing dimensions together.");
+    }
+    if (storageShapes.size() > 1) {
+        result.editable = 0;
+        result.reason = tr("Choose a common storage shape before editing dimensions together.");
     }
     return result;
 }

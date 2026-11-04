@@ -116,6 +116,24 @@ a loaded custom profile's Shape and profile assignments are read-only in bulk.
 When changing a transect or street section to a numeric shape, its physical full
 depth becomes the starting depth in project units.
 
+For several outfalls, choose **Boundary Type** to set Free, Normal or Fixed.
+A newly Fixed boundary starts at that outfall's invert elevation; an already
+Fixed boundary retains its stage. Then edit **Fixed Stage Elevation** to give
+the selection a common stage. Choose **Tidal Curve** or **Stage Time Series**
+to prescribe a named boundary directly. These two types appear disabled in the
+type list because they require a name. To remove a named boundary, choose
+Free, Normal or Fixed. Flap gates and routing remain independent.
+
+For several storage units, choose **Storage Shape**, then edit its applicable
+dimensions or functional coefficients. Choose **Storage Curve** to assign a
+Tabular shape; clearing an assigned curve returns to Functional. Geometric
+shapes retain valid dimensions, or start each dimension at 1 if the old set is
+invalid for the new shape. Dimensions require a common shape, and coefficients
+apply to Functional storage. Each field commits immediately as one Undo step,
+restoring the previous active geometry or named curve when undone. The table
+uses the same checked writes, including its selected-row action, and its
+dropdown choices commit before focus leaves the cell.
+
 Drag the divider between column headers to change a width, including the last
 column. Double-click a divider to fit the column to its contents. Column widths
 are remembered per category (and per mesh element kind) across sessions, and
