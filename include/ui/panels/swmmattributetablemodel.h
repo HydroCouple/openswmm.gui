@@ -226,6 +226,9 @@ public:
      *   selection or ownership transfer.
      */
     [[nodiscard]] int rowForName(const QString &name) const;
+    /*! Validate all scalar edits, apply atomically, and record identities independently of views. */
+    bool applyScalarEdits(const QStringList &names, const QMap<QString, QVariant> &edits,
+                          QUndoStack *undo, QString *error);
 
     /*! Column-zero header is always "Name"; column 0 returns the
      *  object's name unmodified.  The remaining columns map to keys

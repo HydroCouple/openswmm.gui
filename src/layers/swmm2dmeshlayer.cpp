@@ -2703,6 +2703,22 @@ bool SWMM2DMeshLayer::applyMeshTriangleMannings(int triIdx, double mannings)
     return true;
 }
 
+bool SWMM2DMeshLayer::clearMeshTriangleParam(int triIdx, const QByteArray &key)
+{
+    if (triIdx < 0 || triIdx >= m_mesh.triangles.size() ||
+        (key != "mannings" && key != "initDepth"))
+        return false;
+    double &value = key == "mannings" ? m_mesh.triangles[triIdx].mannings
+                                       : m_mesh.triangles[triIdx].initDepth;
+    if (std::isnan(value)) return true;
+    value = std::numeric_limits<double>::quiet_NaN();
+    ++m_attrRevision;
+    scheduleLegendInputRefresh();
+    emit attributeChanged(mesh::MeshObjectRef::cell(m_sourcePath, triIdx).name);
+    emit repaintRequested();
+    return true;
+}
+
 bool SWMM2DMeshLayer::applyMeshTriangleInitDepth(int triIdx, double depth)
 {
     if (triIdx < 0 || triIdx >= m_mesh.triangles.size())

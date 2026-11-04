@@ -20,7 +20,6 @@
 #include <cmath>
 
 using openswmmvis::ColumnSpec;
-using openswmmvis::EditorKind;
 
 MeshAggregateSelection::MeshAggregateSelection(SWMM2DMeshLayer *layer, Kind kind,
                                                const QVector<SWMMObjectRef> &targets,
@@ -32,11 +31,14 @@ MeshAggregateSelection::MeshAggregateSelection(SWMM2DMeshLayer *layer, Kind kind
     m_source->setModelLayer(model);
     m_source->setSource(layer, kind);
     QSet<SWMMObjectRef> seen;
-    for (const auto &ref : targets)
-        if (!seen.contains(ref)) {
-            seen.insert(ref);
-            m_targets.append(ref);
+    for (const auto &ref : targets) {
+        const int row = m_source->rowForRef(ref);
+        const auto target = row >= 0 ? m_source->refForRow(row) : ref;
+        if (!seen.contains(target)) {
+            seen.insert(target);
+            m_targets.append(target);
         }
+    }
     // Any edit, from any surface, can change a summary; a reset or layout
     // change can also move the rows the targets resolve to.
     const auto values = [this] { invalidate(); };
@@ -96,7 +98,7 @@ MeshAggregateSelection::Field MeshAggregateSelection::field(int column) const
     bool seenFirst = false;
     for (int row : rows()) {
         const QModelIndex index = m_source->index(row, column);
-        if (m_source->flags(index) & Qt::ItemIsEditable)
+        if (m_source->flagsForDraft(index, m_staged) & Qt::ItemIsEditable)
             ++f.editable;
         const QVariant edit = index.data(Qt::EditRole);
         const QVariant value = comparable(edit);
@@ -132,15 +134,22 @@ bool MeshAggregateSelection::stage(int column, const QVariant &value)
     const auto it = m_staged.constFind(column);
     if (it != m_staged.cend() && comparable(*it) == comparable(value))
         return true;
+    if (m_staged.isEmpty() && m_source->layer())
+        m_draftRevision = m_source->layer()->attrRevision();
     m_staged.insert(column, value);
+    invalidate();
+    pruneInapplicableFields();
     emit stagedChanged();
     return true;
 }
 
 void MeshAggregateSelection::unstage(int column)
 {
-    if (m_staged.remove(column))
+    if (m_staged.remove(column)) {
+        invalidate();
+        pruneInapplicableFields();
         emit stagedChanged();
+    }
 }
 
 void MeshAggregateSelection::discard()
@@ -148,50 +157,41 @@ void MeshAggregateSelection::discard()
     if (m_staged.isEmpty())
         return;
     m_staged.clear();
+    m_stagingNotice.clear();
+    invalidate();
     emit stagedChanged();
+}
+
+void MeshAggregateSelection::pruneInapplicableFields()
+{
+    QStringList removed;
+    const auto columns = m_staged.keys();
+    const auto specs = m_source->columnSpecs();
+    for (int column : columns)
+        if (field(column).editable != rows().size()) {
+            removed.append(specs[column].label);
+            m_staged.remove(column);
+        }
+    invalidate();
+    m_stagingNotice = removed.isEmpty() ? QString()
+        : tr("Removed pending changes to %1 because they no longer apply.").arg(removed.join(", "));
 }
 
 QString MeshAggregateSelection::validate(int column, const QVariant &value,
                                          const QList<int> &targetRows) const
 {
     const ColumnSpec spec = m_source->columnSpecs().value(column);
+    if (const auto error = m_source->validateValue(column, value); !error.isEmpty())
+        return error;
     int refused = 0;
     for (int row : targetRows)
-        if (!(m_source->flags(m_source->index(row, column)) & Qt::ItemIsEditable))
+        if (!(m_source->flagsForDraft(m_source->index(row, column), m_staged) & Qt::ItemIsEditable))
             ++refused;
     if (refused)
         return tr("%1 does not apply to %2 of the %3 selected elements.")
             .arg(spec.label)
             .arg(refused)
             .arg(targetRows.size());
-    switch (spec.editor) {
-    case EditorKind::Numeric:
-    case EditorKind::Integer: {
-        bool ok = false;
-        const double number = value.toDouble(&ok);
-        if (!ok || !std::isfinite(number))
-            return tr("%1 needs a number.").arg(spec.label);
-        if (number < spec.minValue || number > spec.maxValue)
-            return tr("%1 must be between %2 and %3.")
-                .arg(spec.label)
-                .arg(spec.minValue)
-                .arg(spec.maxValue);
-        break;
-    }
-    case EditorKind::Enum: {
-        bool known = false;
-        for (const QVariant &choice : spec.enumValues) {
-            const QVariantList pair = choice.toList();
-            if (pair.size() == 2 && pair[1] == value)
-                known = true;
-        }
-        if (!known)
-            return tr("%1 has no choice %2.").arg(spec.label, value.toString());
-        break;
-    }
-    default:
-        break;
-    }
     return {};
 }
 
@@ -204,6 +204,8 @@ bool MeshAggregateSelection::apply(QString *error)
     };
     if (m_staged.isEmpty())
         return true;
+    if (!m_source->layer() || m_source->layer()->attrRevision() != m_draftRevision)
+        return fail(tr("The mesh changed while these edits were pending. Cancel and review the selection again."));
     const QList<int> targetRows = rows();
     if (const int gone = unresolvedCount())
         return fail(tr("%1 of the selected elements no longer exist. Select them again before "

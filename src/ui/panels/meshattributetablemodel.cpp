@@ -43,6 +43,7 @@
 
 #include <cmath>
 #include <limits>
+#include <openswmm/engine/openswmm_nodes.h>
 
 using openswmmvis::ColumnSpec;
 using openswmmvis::EditorKind;
@@ -305,7 +306,9 @@ private:
         for (int i = 0; i < m_indices.size(); ++i) {
             const double value = undo ? m_old[i] : m_value;
             const int index = m_indices[i];
-            if (m_key == "z")
+            if (undo && std::isnan(value) && (m_key == "mannings" || m_key == "initDepth"))
+                m_layer->clearMeshTriangleParam(index, m_key);
+            else if (m_key == "z")
                 m_layer->applyMeshVertexZ(index, value);
             else if (m_key == "mannings")
                 m_layer->applyMeshTriangleMannings(index, value);
@@ -1060,6 +1063,12 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
 
 Qt::ItemFlags MeshAttributeTableModel::flags(const QModelIndex &index) const
 {
+    return flagsForDraft(index, {});
+}
+
+Qt::ItemFlags MeshAttributeTableModel::flagsForDraft(
+    const QModelIndex &index, const QMap<int, QVariant> &draft) const
+{
     Qt::ItemFlags f = QAbstractTableModel::flags(index);
     if (!index.isValid() || !m_layer)
         return f;
@@ -1076,7 +1085,12 @@ Qt::ItemFlags MeshAttributeTableModel::flags(const QModelIndex &index) const
         if (spec.key == QLatin1String("couplingCd") || spec.key == QLatin1String("couplingArea")) {
             const mesh::MeshResult &m = m_layer->mesh();
             const int row = index.row();
-            if (row < 0 || row >= m.vertices.size() || m.vertices[row].coupledNode.isEmpty())
+            QString node = row >= 0 && row < m.vertices.size() ? m.vertices[row].coupledNode : QString();
+            for (auto it = draft.cbegin(); it != draft.cend(); ++it)
+                if (m_columnSpecs.value(it.key()).key == QLatin1String("coupledNode"))
+                    node = it.value().userType() == qMetaTypeId<DataObjectRef>()
+                        ? it.value().value<DataObjectRef>().currentName : it.value().toString();
+            if (node.isEmpty())
                 return f;
         }
         break;
@@ -1094,7 +1108,11 @@ Qt::ItemFlags MeshAttributeTableModel::flags(const QModelIndex &index) const
             const QVector<mesh::MeshEdgeBC> &bcs = m_layer->edgeBCs();
             if (flat < 0 || flat >= bcs.size())
                 return f;
-            if (!bcFieldApplies(bcs[flat].type, spec.key))
+            auto type = bcs[flat].type;
+            for (auto it = draft.cbegin(); it != draft.cend(); ++it)
+                if (m_columnSpecs.value(it.key()).key == QLatin1String("bcType"))
+                    type = static_cast<BCType>(it.value().toInt());
+            if (!bcFieldApplies(type, spec.key))
                 return f;
         }
         break;
@@ -1104,12 +1122,47 @@ Qt::ItemFlags MeshAttributeTableModel::flags(const QModelIndex &index) const
         // actually reads. Set the method first, then its values — the same
         // order the BC columns above impose.
         const QByteArray key = spec.key.toUtf8();
-        if (key.startsWith("infil.") && !cellInfilParamApplies(index.row(), key))
-            return f;
+        if (key.startsWith("infil.")) {
+            auto method = mesh::resolveInfil(m_layer->mesh(), index.row()).row.method;
+            for (auto it = draft.cbegin(); it != draft.cend(); ++it)
+                if (m_columnSpecs.value(it.key()).key == QLatin1String("infil.method"))
+                    method = static_cast<mesh::InfilMethod>(it.value().toInt());
+            if (!m_layer->surfaceInfiltrationEditable(index.row()) ||
+                (key != "infil.method" && mesh::infilSlotForKey(method, key) < 0))
+                return f;
+        }
         break;
     }
     }
     return f | Qt::ItemIsEditable;
+}
+
+QString MeshAttributeTableModel::validateValue(int column, const QVariant &value) const
+{
+    if (column < 0 || column >= m_columnSpecs.size()) return tr("Unknown field.");
+    const auto &spec = m_columnSpecs[column];
+    if (spec.editor == EditorKind::Numeric || spec.editor == EditorKind::Integer) {
+        bool ok = false;
+        const double number = value.toDouble(&ok);
+        if (!ok || !std::isfinite(number) || number < spec.minValue || number > spec.maxValue)
+            return tr("%1 must be between %2 and %3.").arg(spec.label).arg(spec.minValue).arg(spec.maxValue);
+    }
+    if (spec.editor == EditorKind::Enum) {
+        bool known = false;
+        for (const auto &choice : spec.enumValues)
+            if (choice.toList().value(1) == value) known = true;
+        if (!known) return tr("Choose a valid %1.").arg(spec.label);
+    }
+    const QString id = value.userType() == qMetaTypeId<DataObjectRef>()
+        ? value.value<DataObjectRef>().currentName : value.toString();
+    if ((spec.key == QLatin1String("tseries") || spec.key == QLatin1String("curve")) &&
+        (id.isEmpty() || (canPick() && !m_modelLayer->tableIdsOfType(
+            spec.key == QLatin1String("curve") ? -1 : 0).contains(id, Qt::CaseInsensitive))))
+        return tr("Choose a valid reference for %1.").arg(spec.label);
+    if (spec.key == QLatin1String("coupledNode") && canPick() && !id.isEmpty() &&
+        swmm_node_index(m_modelLayer->engine(), id.toUtf8().constData()) < 0)
+        return tr("Choose an existing coupled node.");
+    return {};
 }
 
 bool MeshAttributeTableModel::setData(const QModelIndex &index, const QVariant &value, int role)
@@ -1117,6 +1170,8 @@ bool MeshAttributeTableModel::setData(const QModelIndex &index, const QVariant &
     if (role != Qt::EditRole || !index.isValid() || !m_layer)
         return false;
     if (!(flags(index) & Qt::ItemIsEditable))
+        return false;
+    if (!validateValue(index.column(), value).isEmpty())
         return false;
     const int row = index.row(), col = index.column();
     if (row < 0 || row >= rowCount() || col < 0 || col >= m_columnSpecs.size())
@@ -1206,7 +1261,9 @@ void MeshAttributeTableModel::editInfiltration(const QList<int> &rows, QWidget *
     dialog->open();
 }
 
-void MeshAttributeTableModel::editBoundaryCondition(const QList<int> &rows, QWidget *parent)
+void MeshAttributeTableModel::editBoundaryCondition(
+    const QList<int> &rows, QWidget *parent,
+    std::function<void(const QMap<int, QVariant> &)> stage, const QMap<int, QVariant> &draft)
 {
     QVector<QPair<int, int>> edges;
     QVector<mesh::MeshEdgeBC> before;
@@ -1254,9 +1311,19 @@ void MeshAttributeTableModel::editBoundaryCondition(const QList<int> &rows, QWid
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
     layout->addWidget(buttons);
 
-    const mesh::MeshEdgeBC first = before.first();
+    mesh::MeshEdgeBC first = before.first();
+    for (auto it = draft.cbegin(); it != draft.cend(); ++it) {
+        const auto key = m_columnSpecs.value(it.key()).key;
+        if (key == QLatin1String("bcType"))
+            first.type = static_cast<BCType>(it.value().toInt());
+        const auto param = boundaryParameter(first.type);
+        if (key == QLatin1String(param.key)) {
+            if (param.number) first.*param.number = it.value().toDouble();
+            if (param.reference) first.*param.reference = it.value().toString();
+        }
+    }
     // Distinct labels and conveyance values are independent of the BC.
-    const bool uniform = std::all_of(before.cbegin(), before.cend(), [&](const auto &bc) {
+    const bool uniform = !draft.isEmpty() || std::all_of(before.cbegin(), before.cend(), [&](const auto &bc) {
         const auto param = boundaryParameter(first.type);
         return bc.type == first.type &&
                (param.number ? bc.*param.number == first.*param.number
@@ -1359,7 +1426,17 @@ void MeshAttributeTableModel::editBoundaryCondition(const QList<int> &rows, QWid
         const bool unchanged = uniform && next.type == first.type &&
                                (param.number ? next.*param.number == first.*param.number
                                              : next.*param.reference == first.*param.reference);
-        if (!unchanged && mesh::pushEdgeBCEdit(m_layer, edges, next, m_canvas) > 0)
+        if (stage) {
+            QMap<int, QVariant> values;
+            for (int col = 0; col < m_columnSpecs.size(); ++col) {
+                const auto key = m_columnSpecs[col].key;
+                if (key == QLatin1String("bcType")) values.insert(col, int(next.type));
+                if (key == QLatin1String(param.key))
+                    values.insert(col, param.number ? QVariant(next.*param.number)
+                                                   : QVariant(next.*param.reference));
+            }
+            stage(values);
+        } else if (!unchanged && mesh::pushEdgeBCEdit(m_layer, edges, next, m_canvas) > 0)
             emit objectEdited(mesh::MeshObjectRef::layerKey(m_layer->sourcePath()));
         dialog->accept();
     });
@@ -1370,6 +1447,8 @@ void MeshAttributeTableModel::setDataForRows(int column, const QList<int> &sourc
                                             const QVariant &value)
 {
     if (!m_layer || column < 0 || column >= m_columnSpecs.size())
+        return;
+    if (!validateValue(column, value).isEmpty())
         return;
     QVector<int> rows;
     rows.reserve(sourceRows.size());
@@ -1408,8 +1487,7 @@ void MeshAttributeTableModel::setDataForRows(int column, const QList<int> &sourc
             if (std::isfinite(before) && before == number)
                 continue;
             indices.append(index);
-            oldValues.append(m_kind == Kind::Cell && !std::isfinite(before)
-                ? mesh::cellParamSpec(key)->defaultValue : before);
+            oldValues.append(before);
         }
         changed = indices.size();
         if (changed) {
@@ -1447,6 +1525,8 @@ void MeshAttributeTableModel::setDataForRows(int column, const QList<int> &sourc
             }
         }
         changed = mesh::pushCellInfilEdits(m_layer, cells, targets, m_canvas);
+    } else {
+        changed = mesh::pushCellParamEdit(m_layer, rows, key, v.toDouble(), m_canvas);
     }
     if (changed > 0)
         emit objectEdited(mesh::MeshObjectRef::layerKey(m_layer->sourcePath()));

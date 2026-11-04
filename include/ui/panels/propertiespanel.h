@@ -120,6 +120,8 @@ public:
      * @note Process-aware editing plan Phase 3 (§7.1). Staged edits are discarded, with a note,
      *   when the panel shows something else. */
     void showMeshSelection(MapCanvas *canvas, const QList<SWMMObjectRef> &refs);
+    /*! Bind the full selection, offering explicit scopes for different object families. */
+    void showSelection(MapCanvas *canvas, const QList<SWMMObjectRef> &refs);
 
     /*!
      * \brief Shows the attribute results from an identify operation.
@@ -480,6 +482,8 @@ private:
     SWMMDataObjectPropertyAdapter *m_dataAdapter = nullptr;
     MeshAttributeTableModel *m_meshFields = nullptr;
     class MeshAggregateSelection *m_meshAggregate = nullptr; ///< Phase 3 aggregate, or null.
+    class SWMMAggregateSelection *m_swmmAggregate = nullptr;
+    QComboBox *m_selectionScope = nullptr;
     QWidget *m_aggregateBar = nullptr;       ///< Summary + Apply/Cancel, aggregates only.
     class QLabel *m_aggregateSummary = nullptr;
     QPushButton *m_aggregateApply = nullptr;

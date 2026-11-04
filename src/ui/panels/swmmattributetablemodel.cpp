@@ -13,6 +13,7 @@
 #include "core/displaynumber.h"
 #include "ui/panels/swmmattributetablemodel.h"
 #include "ui/heatpropertyedit.h"
+#include <memory>
 
 #include "core/unitsystem.h"
 #include "layers/gwsourcesummary.h"  // G5 — node Groundwater Sources cell
@@ -3739,7 +3740,13 @@ int SWMMAttributeTableModel::rowForName(const QString &name) const
     int row = -1;
     if (!m_layer->findObjectLocation(name, &cat, &row))
         return -1;
-    return (cat == m_category) ? row : -1;
+    if (cat == m_category)
+        return row;
+    // Node and link namespaces can contain the same ID.
+    for (int candidate = 0; candidate < rowCount(); ++candidate)
+        if (objectNameAt(candidate) == name)
+            return candidate;
+    return -1;
 }
 
 QVariantMap SWMMAttributeTableModel::rowData(int row) const
@@ -4478,6 +4485,95 @@ Qt::ItemFlags SWMMAttributeTableModel::flags(const QModelIndex &index) const
 namespace
 {
 
+struct ScalarEdit {
+    QString name;
+    QString key;
+    QVariant before;
+    QVariant after;
+};
+
+// This model belongs to the command and never follows a table's category switch.
+class ScalarBatchCommand : public QUndoCommand
+{
+public:
+    ScalarBatchCommand(SWMMAttributeTableModel *view, QList<ScalarEdit> edits)
+        : m_model(std::make_unique<SWMMAttributeTableModel>()), m_view(view), m_edits(std::move(edits))
+    {
+        auto *layer = view->layer();
+        const auto category = view->category();
+        m_model->setSource(layer, category);
+        QObject::connect(layer, &SWMMModelLayer::engineAboutToClose, m_model.get(),
+                         [this] { m_valid = false; });
+        QObject::connect(layer, &SWMMModelLayer::objectRenamed, m_model.get(),
+                         [this, category](const QString &from, const QString &to, int kind) {
+            if (!(kind & SWMMModelLayer::kindBitForCategory(category))) return;
+            for (auto &edit : m_edits)
+                if (edit.name == from) edit.name = to;
+        });
+        QObject::connect(layer, &SWMMModelLayer::geometryChanged, m_model.get(), [this] {
+            for (const auto &edit : m_edits)
+                if (m_model->rowForName(edit.name) < 0) m_valid = false;
+        }, Qt::QueuedConnection);
+        setText(QObject::tr("Edit properties on selected objects"));
+    }
+
+    bool commit(bool forward)
+    {
+        auto *layer = m_model->layer();
+        if (!m_valid || !layer || !layer->engine()) return false;
+        const auto specs = m_model->columnSpecs();
+        QList<QModelIndex> indices;
+        for (const auto &edit : m_edits) {
+            int column = -1;
+            for (int c = 0; c < specs.size(); ++c)
+                if (specs[c].key == edit.key) { column = c; break; }
+            const int row = m_model->rowForName(edit.name);
+            if (row < 0 || column < 0) return false;
+            const auto index = m_model->index(row, column);
+            if (!(index.flags() & Qt::ItemIsEditable)) return false;
+            indices.append(index);
+        }
+        layer->beginBulkEdit();
+        int applied = 0;
+        for (; applied < m_edits.size(); ++applied) {
+            const auto &edit = m_edits[applied];
+            if (!m_model->commitValueDirect(indices[applied], forward ? edit.after : edit.before))
+                break;
+        }
+        const bool success = applied == m_edits.size();
+        if (!success) {
+            // Restore every attempted field, including a setter that failed partway.
+            for (int i = applied; i >= 0; --i)
+                m_model->commitValueDirect(indices[i], forward ? m_edits[i].before : m_edits[i].after);
+        }
+        layer->endBulkEdit();
+        if (success) {
+            QSet<QString> names;
+            for (const auto &edit : m_edits) names.insert(edit.name);
+            for (const auto &name : names) emit layer->attributeChanged(name);
+            layer->markEdited();
+            if (m_view && m_view->layer() == layer && m_view->category() == m_model->category())
+                for (const auto &name : names) {
+                    m_view->refreshObject(name);
+                    emit m_view->objectEdited(name);
+                }
+        }
+        return success;
+    }
+    void redo() override
+    {
+        if (m_first) { m_first = false; return; }
+        if (!commit(true)) setObsolete(true);
+    }
+    void undo() override { if (!commit(false)) setObsolete(true); }
+private:
+    std::unique_ptr<SWMMAttributeTableModel> m_model;
+    QPointer<SWMMAttributeTableModel> m_view;
+    QList<ScalarEdit> m_edits;
+    bool m_valid = true;
+    bool m_first = true;
+};
+
 // One undo command per cell edit.
 class NodeCouplingAttributeCommand : public QUndoCommand
 {
@@ -4506,54 +4602,52 @@ private:
 class AttributeEditCommand : public QUndoCommand
 {
 public:
-    /**
-     * @param[in] model Optional borrowed table guarded by QPointer, not original layer ownership.
-     * @param[in] row Captured display row; replay uses same integer in CURRENT binding/order.
-     * @param[in] col Captured schema column; replay uses current spec at same position.
-     * @param[in] oldVal Moved undo QVariant snapshot.
-     * @param[in] newVal Moved redo QVariant snapshot.
-     * @param[in] columnLabel Copied command caption only, not lookup identity.
-     * @brief Capture one nonmergeable cell command, no write during construction. Stack/caller owns
-     *   command. Host must prevent incompatible source/category/schema/order rebind while command
-     *   remains replayable.
-     */
     AttributeEditCommand(SWMMAttributeTableModel *model, int row, int col, QVariant oldVal,
                          QVariant newVal, const QString &columnLabel)
-        : m_model(model), m_row(row), m_col(col), m_old(std::move(oldVal)), m_new(std::move(newVal))
+        : m_model(std::make_unique<SWMMAttributeTableModel>()),
+          m_name(model->objectNameAt(row)), m_key(model->columnSpecs().value(col).key),
+          m_old(std::move(oldVal)), m_new(std::move(newVal))
     {
+        m_model->setSource(model->layer(), model->category());
+        QObject::connect(m_model.get(), &SWMMAttributeTableModel::objectEdited, model,
+                         [model, layer = model->layer(), category = model->category()](const QString &name) {
+            if (model->layer() != layer || model->category() != category) return;
+            model->refreshObject(name);
+            emit model->objectEdited(name);
+        });
+        QObject::connect(model->layer(), &SWMMModelLayer::engineAboutToClose, m_model.get(),
+                         [this] { m_valid = false; });
+        QObject::connect(model->layer(), &SWMMModelLayer::objectRenamed, m_model.get(),
+                         [this](const QString &from, const QString &to, int kind) {
+            if (kind & SWMMModelLayer::kindBitForCategory(m_model->category()))
+                if (m_name == from) m_name = to;
+        });
+        QObject::connect(model->layer(), &SWMMModelLayer::geometryChanged, m_model.get(), [this] {
+            if (m_model->rowForName(m_name) < 0) m_valid = false;
+        }, Qt::QueuedConnection);
         setText(QObject::tr("Edit %1").arg(columnLabel));
     }
-    /**
-     * @brief Replay stored new value/name through private apply, current model binding.
-     * @note Ignore setter/rename failure, no obsolete marking/rollback. Scalar path can emit
-     *   objectEdited through commitValueDirect; rename path emits Name dataChanged only. Model
-     *   destruction makes no-op.
-     */
     void redo() override { apply(m_new); }
-    /**
-     * @brief Replay stored old value/name through private apply, current model binding.
-     * @note Ignore setter/rename failure, no obsolete marking/rollback. Scalar path can emit
-     *   objectEdited through commitValueDirect; rename path emits Name dataChanged only. Model
-     *   destruction makes no-op.
-     */
     void undo() override { apply(m_old); }
 
 private:
-    /**
-     * @param[in] v Borrowed stored candidate, forwarded unchanged to current model row/column.
-     * @note Null guarded model no-op, otherwise create current index and commitValueDirect ignoring
-     *   result. No flags RUNNING/applicability gate, identity revalidation or source ownership;
-     *   direct-commit notifications/side effects apply.
-     */
     void apply(const QVariant &v)
     {
-        if (!m_model)
+        if (!m_valid || !m_model->layer())
             return;
-        const QModelIndex idx = m_model->index(m_row, m_col);
-        m_model->commitValueDirect(idx, v);
+        const int row = m_model->rowForName(m_name);
+        const int column = m_model->columnKeys().indexOf(m_key);
+        if (row < 0 || column < 0) { setObsolete(true); return; }
+        const QModelIndex idx = m_model->index(row, column);
+        if (m_model->commitValueDirect(idx, v)) {
+            emit m_model->layer()->attributeChanged(m_name);
+            if (m_model->columnSpecs().value(column).editor != EditorKind::LinkEndpoint)
+                m_model->layer()->markEdited();
+        }
     }
-    QPointer<SWMMAttributeTableModel> m_model;
-    int m_row, m_col;
+    std::unique_ptr<SWMMAttributeTableModel> m_model;
+    QString m_name, m_key;
+    bool m_valid = true;
     QVariant m_old, m_new;
 };
 
@@ -4561,64 +4655,97 @@ private:
 class AttributeRenameCommand : public QUndoCommand
 {
 public:
-    /**
-     * @param[in] model Optional borrowed guarded table, replay uses current layer/category.
-     * @param[in] row Captured row for Name dataChanged, not object identity.
-     * @param[in] oldName Moved exact original name.
-     * @param[in] newName Moved requested trimmed name.
-     * @brief Capture rename pair, no validation/write at construction. Caller/stack owns. Existing
-     *   layer/category can differ at replay if host rebinds model; no original source pin.
-     */
     AttributeRenameCommand(SWMMAttributeTableModel *model, int row, QString oldName,
                            QString newName)
-        : m_model(model), m_row(row), m_old(std::move(oldName)), m_new(std::move(newName))
+        : m_model(std::make_unique<SWMMAttributeTableModel>()), m_view(model),
+          m_old(std::move(oldName)), m_new(std::move(newName))
     {
+        Q_UNUSED(row)
+        m_model->setSource(model->layer(), model->category());
+        QObject::connect(model->layer(), &SWMMModelLayer::engineAboutToClose, m_model.get(),
+                         [this] { m_valid = false; });
         setText(QObject::tr("Rename to \"%1\"").arg(m_new));
     }
-    /**
-     * @brief Replay stored new value/name through private apply, current model binding.
-     * @note Ignore setter/rename failure, no obsolete marking/rollback. Scalar path can emit
-     *   objectEdited through commitValueDirect; rename path emits Name dataChanged only. Model
-     *   destruction makes no-op.
-     */
     void redo() override { apply(m_old, m_new); }
-    /**
-     * @brief Replay stored old value/name through private apply, current model binding.
-     * @note Ignore setter/rename failure, no obsolete marking/rollback. Scalar path can emit
-     *   objectEdited through commitValueDirect; rename path emits Name dataChanged only. Model
-     *   destruction makes no-op.
-     */
     void undo() override { apply(m_new, m_old); }
 
 private:
-    /**
-     * @param[in] from Exact source name expected in CURRENT bound layer and category.
-     * @param[in] to Replacement name passed raw to layer applyRename.
-     * @note Missing model/source no-op. Ignore rename result, emit Name dataChanged if captured row
-     *   remains in current count. Does not emit objectEdited or invalidate row/compound caches
-     *   here; no source identity pin or undo failure state.
-     */
     void apply(const QString &from, const QString &to)
     {
-        if (!m_model || !m_model->layer())
+        if (!m_valid || !m_model->layer())
             return;
-        m_model->layer()->applyRename(from, to,
-                                      SWMMModelLayer::kindBitForCategory(m_model->category()));
-        // Refresh the model row so the Name cell re-reads from the engine.
-        if (m_row >= 0 && m_row < m_model->rowCount()) {
-            const QModelIndex nameIdx = m_model->index(m_row, 0);
-            emit m_model->dataChanged(nameIdx, nameIdx,
-                                      {Qt::DisplayRole, Qt::EditRole, Qt::ToolTipRole,
-                                       openswmmvis::kAttributeValueRole,
-                                       openswmmvis::kAttributeSortRole});
+        if (!m_model->layer()->applyRename(from, to,
+                SWMMModelLayer::kindBitForCategory(m_model->category()))) {
+            setObsolete(true);
+            return;
         }
+        m_model->layer()->markEdited();
+        // Refresh the model row so the Name cell re-reads from the engine.
+        if (m_view && m_view->layer() == m_model->layer() &&
+            m_view->category() == m_model->category())
+            m_view->refreshObject(to);
     }
-    QPointer<SWMMAttributeTableModel> m_model;
-    int m_row;
+    std::unique_ptr<SWMMAttributeTableModel> m_model;
+    QPointer<SWMMAttributeTableModel> m_view;
+    bool m_valid = true;
     QString m_old, m_new;
 };
 
 } // anonymous
+
+bool SWMMAttributeTableModel::applyScalarEdits(
+    const QStringList &names, const QMap<QString, QVariant> &edits, QUndoStack *undo, QString *error)
+{
+    QList<ScalarEdit> changes;
+    const auto fail = [error](const QString &reason) {
+        if (error) *error = reason;
+        return false;
+    };
+    for (const auto &name : names) {
+        const int row = rowForName(name);
+        if (row < 0) return fail(tr("%1 no longer exists.").arg(name));
+        for (auto it = edits.cbegin(); it != edits.cend(); ++it) {
+            int column = -1;
+            for (int c = 0; c < m_columnSpecs.size(); ++c)
+                if (m_columnSpecs[c].key == it.key()) { column = c; break; }
+            if (column < 0) return fail(tr("Unknown field %1.").arg(it.key()));
+            const auto &spec = m_columnSpecs[column];
+            const auto index = this->index(row, column);
+            if (!(flags(index) & Qt::ItemIsEditable))
+                return fail(tr("%1 cannot be edited on %2.").arg(spec.label, name));
+            if (spec.editor == EditorKind::Numeric || spec.editor == EditorKind::Integer) {
+                bool ok = false;
+                const double number = it.value().toDouble(&ok);
+                if (!ok || !std::isfinite(number) || number < spec.minValue ||
+                    number > spec.maxValue ||
+                    (spec.editor == EditorKind::Integer && number != std::trunc(number)))
+                    return fail(tr("%1 is invalid for %2.").arg(spec.label, name));
+            } else if (spec.editor == EditorKind::Enum) {
+                bool known = false;
+                for (const auto &choice : spec.enumValues)
+                    if (choice.toList().value(1) == it.value()) known = true;
+                if (!known) return fail(tr("%1 is invalid for %2.").arg(spec.label, name));
+            } else if (spec.editor == EditorKind::Interval) {
+                const auto parts = it.value().toString().split(':');
+                bool hoursOk = false, minutesOk = false;
+                const int hours = parts.value(0).toInt(&hoursOk);
+                const int minutes = parts.value(1).toInt(&minutesOk);
+                if (parts.size() != 2 || !hoursOk || !minutesOk || hours < 0 ||
+                    minutes < 0 || minutes >= 60 || (hours == 0 && minutes == 0))
+                    return fail(tr("%1 needs a positive H:MM interval.").arg(spec.label));
+            } else if (spec.editor != EditorKind::Text || spec.key != QLatin1String("Tag")) {
+                return fail(tr("%1 requires its structured editor.").arg(spec.label));
+            }
+            const auto old = data(index, Qt::EditRole);
+            if (old != it.value()) changes.append({name, spec.key, old, it.value()});
+        }
+    }
+    if (changes.isEmpty()) return true;
+    auto command = std::make_unique<ScalarBatchCommand>(this, changes);
+    if (!command->commit(true)) return fail(tr("An object refused the edit. Nothing was changed."));
+    if (undo) undo->push(command.release());
+    return true;
+}
 
 bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index, const QVariant &value)
 {
@@ -5324,6 +5451,11 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index, const QVariant &
     }
 
     // Wrap each numeric/enum commit in an undo command when a stack is attached.
+    if (spec.editor == EditorKind::Numeric || spec.editor == EditorKind::Integer ||
+        (spec.editor == EditorKind::Text && spec.key == QLatin1String("Tag"))) {
+        QString error;
+        return applyScalarEdits({objectNameAt(row)}, {{spec.key, value}}, m_undoStack, &error);
+    }
     if (!m_undoStack)
         return commitValueDirect(index, value);
 

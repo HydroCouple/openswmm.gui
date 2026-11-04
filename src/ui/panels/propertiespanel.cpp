@@ -15,6 +15,9 @@
 #include "mesh/meshobjectref.h"
 #include "ui/panels/meshattributetablemodel.h"
 #include "ui/panels/meshaggregateselection.h"
+#include "ui/panels/swmmaggregateselection.h"
+#include <type_traits>
+#include "map/mapundostack.h"
 #include "ui/panels/attributedelegates.h"
 #include "map/mapcanvas.h"
 #include "layers/swmmresultslayer.h"    // active-run stats binding
@@ -394,10 +397,11 @@ private:
 
 /*! One field of an aggregate: the common value, "Mixed", or the staged value. Edits stage into
  *  the MeshAggregateSelection; nothing reaches the mesh before Apply. */
-class MeshAggregateFieldProperty final : public QPropertyItem
+template <typename Selection>
+class AggregateFieldProperty final : public QPropertyItem
 {
 public:
-    MeshAggregateFieldProperty(MeshAggregateSelection *selection, int column,
+    AggregateFieldProperty(Selection *selection, int column,
                                const openswmmvis::ColumnSpec &spec, QPropertyItem *parent)
         : QPropertyItem({}, selection->source()->headerData(column, Qt::Horizontal).toString(),
                         parent),
@@ -468,8 +472,10 @@ private:
     // What a Mixed field hands its editor: blank, never a default.
     QVariant mixedSeed() const
     {
-        if (m_spec.editor == openswmmvis::EditorKind::Compound)
-            return m_selection->source()->pickerRef(m_spec.key, QString());
+        if constexpr (std::is_same_v<Selection, MeshAggregateSelection>) {
+            if (m_spec.editor == openswmmvis::EditorKind::Compound)
+                return m_selection->source()->pickerRef(m_spec.key, QString());
+        }
         if (m_spec.editor == openswmmvis::EditorKind::Text)
             return QString();
         return {};
@@ -509,11 +515,13 @@ private:
         return lines.join(QLatin1Char('\n'));
     }
 
-    MeshAggregateSelection *m_selection;
+    Selection *m_selection;
     int m_column;
     openswmmvis::ColumnSpec m_spec;
     QStyledItemDelegate *m_editor = nullptr;
 };
+using MeshAggregateFieldProperty = AggregateFieldProperty<MeshAggregateSelection>;
+using SWMMAggregateFieldProperty = AggregateFieldProperty<SWMMAggregateSelection>;
 
 // Registered for MeshAggregateSelection * like MeshPropertyRoot is for the single-element model.
 class MeshAggregateRoot final : public QVariantPropertyItem
@@ -541,6 +549,25 @@ public:
     bool hasChildren() override { return !m_children.isEmpty(); }
 };
 
+class SWMMAggregateRoot final : public QVariantPropertyItem
+{
+    Q_OBJECT
+public:
+    Q_INVOKABLE SWMMAggregateRoot(const QVariant &value, const QMetaProperty &property,
+                                 QObjectClassPropertyItem *parent)
+        : QVariantPropertyItem(value, property, parent)
+    {
+        auto *selection = value.value<SWMMAggregateSelection *>();
+        auto *group = new MeshPropertyGroup(PropertiesPanel::tr("Shared attributes"), this);
+        m_children.append(group);
+        const auto specs = selection->source()->columnSpecs();
+        for (int column = 0; column < specs.size(); ++column)
+            if (SWMMAggregateSelection::supports(specs[column]))
+                group->add(new SWMMAggregateFieldProperty(selection, column, specs[column], group));
+    }
+    bool hasChildren() override { return !m_children.isEmpty(); }
+};
+
 QStyledItemDelegate *meshFieldEditor(const QModelIndex &index)
 {
     if (index.column() != 1)
@@ -549,6 +576,8 @@ QStyledItemDelegate *meshFieldEditor(const QModelIndex &index)
     if (auto *field = dynamic_cast<MeshFieldProperty *>(item))
         return field->editor();
     if (auto *field = dynamic_cast<MeshAggregateFieldProperty *>(item))
+        return field->editor();
+    if (auto *field = dynamic_cast<SWMMAggregateFieldProperty *>(item))
         return field->editor();
     return nullptr;
 }
@@ -561,8 +590,26 @@ QStyledItemDelegate *meshFieldEditor(const QModelIndex &index)
  *  not describe keep the stock editor. */
 class PropertyStepDelegate : public QPropertyItemDelegate
 {
+    Q_OBJECT
 public:
     using QPropertyItemDelegate::QPropertyItemDelegate;
+
+    void commitPendingEdit() const
+    {
+        if (m_activeEditor && m_activeField.isValid())
+            setModelData(m_activeEditor, const_cast<QAbstractItemModel *>(m_activeField.model()),
+                         m_activeField);
+    }
+    void cancelPendingEdit() const
+    {
+        if (m_activeEditor && m_activeField.isValid())
+            setEditorData(m_activeEditor, m_activeField);
+    }
+
+signals:
+    void pendingEditChanged();
+
+public:
 
     /**
      * @param[in] parent Optional QWidget editor owner, forwarded to base; returned widget managed
@@ -579,8 +626,33 @@ public:
     QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &option,
                           const QModelIndex &index) const override
     {
-        if (auto *editor = meshFieldEditor(index))
-            return editor->createEditor(parent, option, index);
+        if (auto *editor = meshFieldEditor(index)) {
+            QWidget *widget = editor->createEditor(parent, option, index);
+            m_activeEditor = widget;
+            m_activeField = index;
+            auto *delegate = const_cast<PropertyStepDelegate *>(this);
+            QLineEdit *line = qobject_cast<QLineEdit *>(widget);
+            if (!line && widget) line = widget->findChild<QLineEdit *>();
+            if (line)
+                connect(line, &QLineEdit::textEdited, delegate,
+                        [delegate] { emit delegate->pendingEditChanged(); });
+            if (auto *combo = qobject_cast<QComboBox *>(widget)) {
+                auto *delegate = const_cast<PropertyStepDelegate *>(this);
+                connect(combo, &QComboBox::activated, delegate, [delegate, widget] {
+                    emit delegate->commitData(widget);
+                    emit delegate->closeEditor(widget);
+                });
+            }
+            if (auto *spin = qobject_cast<QAbstractSpinBox *>(widget)) {
+                auto *delegate = const_cast<PropertyStepDelegate *>(this);
+                const QPersistentModelIndex field(index);
+                connect(spin, &QAbstractSpinBox::editingFinished, delegate, [delegate, widget, field] {
+                    if (field.isValid())
+                        delegate->setModelData(widget, const_cast<QAbstractItemModel *>(field.model()), field);
+                });
+            }
+            return widget;
+        }
         QWidget *w = QPropertyItemDelegate::createEditor(parent, option, index);
         if (w) {
             if (auto *endpoint = w->findChild<LinkEndpointComboBox *>()) {
@@ -626,6 +698,9 @@ public:
         else
             QPropertyItemDelegate::setModelData(widget, model, index);
     }
+private:
+    mutable QPointer<QWidget> m_activeEditor;
+    mutable QPersistentModelIndex m_activeField;
 };
 
 } // namespace
@@ -695,6 +770,10 @@ void PropertiesPanel::setupUi()
     m_layerCombo = new QComboBox(central);
     hlay->addWidget(m_layerCombo, 1);
     vlay->addLayout(hlay);
+    m_selectionScope = new QComboBox(central);
+    m_selectionScope->setObjectName("propertiesSelectionScope");
+    m_selectionScope->hide();
+    vlay->addWidget(m_selectionScope);
 
     // 2026-05-29 — "Open in <Editor>…" header button. Visible only when
     // the panel is bound to a non-spatial data object (TS, Curve,
@@ -762,7 +841,7 @@ void PropertiesPanel::setupUi()
     m_treeView->setAlternatingRowColors(true);
     m_treeView->setEditTriggers(QAbstractItemView::AllEditTriggers);
     connect(m_treeView, &QTreeView::clicked, this, [this](const QModelIndex &index) {
-        if ((m_meshFields || m_meshAggregate) && index.column() == 1)
+        if ((m_meshFields || m_meshAggregate || m_swmmAggregate) && index.column() == 1)
             openswmmvis::editClickedMeshField(m_treeView, index);
     });
     vlay->addWidget(m_treeView, 1);
@@ -789,15 +868,29 @@ void PropertiesPanel::setupUi()
     m_aggregateBar->hide();
     vlay->addWidget(m_aggregateBar);
     connect(m_aggregateCancel, &QPushButton::clicked, this, [this] {
+#ifdef HAVE_QPROPERTYMODEL
+        if (auto *delegate = dynamic_cast<PropertyStepDelegate *>(m_delegate))
+            delegate->cancelPendingEdit();
+#endif
+        m_treeView->setFocus();
         if (m_meshAggregate)
             m_meshAggregate->discard();
+        if (m_swmmAggregate)
+            m_swmmAggregate->discard();
+        updateAggregateBar();
     });
     connect(m_aggregateApply, &QPushButton::clicked, this, [this] {
-        if (!m_meshAggregate)
+        if (!m_meshAggregate && !m_swmmAggregate)
             return;
+#ifdef HAVE_QPROPERTYMODEL
+        if (auto *delegate = dynamic_cast<PropertyStepDelegate *>(m_delegate))
+            delegate->commitPendingEdit();
+#endif
         m_treeView->setFocus(); // commit an open editor first
         QString error;
-        if (m_meshAggregate->apply(&error))
+        const bool applied = m_meshAggregate ? m_meshAggregate->apply(&error)
+                                            : m_swmmAggregate->apply(&error);
+        if (applied)
             updateAggregateBar(tr("Applied."));
         else
             updateAggregateBar(error);
@@ -808,6 +901,8 @@ void PropertiesPanel::setupUi()
     // Property model / delegate
 #ifdef HAVE_QPROPERTYMODEL
     auto *properties = new QPropertyModel(this);
+    properties->registerCustomPropertyItemType(qMetaTypeId<SWMMAggregateSelection *>(),
+                                                  &SWMMAggregateRoot::staticMetaObject);
     properties->registerCustomPropertyItemType(qMetaTypeId<MeshAttributeTableModel *>(),
                                                &MeshPropertyRoot::staticMetaObject);
     properties->registerCustomPropertyItemType(qMetaTypeId<MeshAggregateSelection *>(),
@@ -815,6 +910,12 @@ void PropertiesPanel::setupUi()
     m_model = properties;
     auto *delegate = new PropertyStepDelegate(this); // feedback C7
     m_delegate = delegate;
+    connect(delegate, &PropertyStepDelegate::pendingEditChanged, this, [this] {
+        if (m_meshAggregate || m_swmmAggregate) {
+            m_aggregateApply->setEnabled(true);
+            m_aggregateCancel->setEnabled(true);
+        }
+    });
 
     registerLinkEndpointRefConverter();
     delegate->registerCustomTypeEditorCreator(
@@ -965,12 +1066,19 @@ void PropertiesPanel::showObject(QObject *object, const QString &title)
 
 void PropertiesPanel::releaseMeshProperties()
 {
+    if (m_selectionScope) m_selectionScope->hide();
     if (m_meshFields) {
         m_meshFields->deleteLater();
         m_meshFields = nullptr;
         m_treeView->setEditTriggers(QAbstractItemView::AllEditTriggers);
     }
     int discarded = 0;
+    if (m_swmmAggregate) {
+        discarded = m_swmmAggregate->stagedColumns().size();
+        m_swmmAggregate->disconnect(this);
+        m_swmmAggregate->deleteLater();
+        m_swmmAggregate = nullptr;
+    }
     if (m_meshAggregate) {
         discarded = int(m_meshAggregate->stagedColumns().size());
         m_meshAggregate->disconnect(this);
@@ -1013,18 +1121,22 @@ QString meshCountText(MeshAttributeTableModel::Kind kind, int n)
 
 void PropertiesPanel::updateAggregateBar(const QString &message)
 {
-    if (!m_meshAggregate || !m_aggregateBar)
+    if ((!m_meshAggregate && !m_swmmAggregate) || !m_aggregateBar)
         return;
-    const int targets = int(m_meshAggregate->rows().size());
-    const int gone = m_meshAggregate->unresolvedCount();
-    const int staged = int(m_meshAggregate->stagedColumns().size());
-    QStringList parts{meshCountText(m_meshAggregate->kind(), targets)};
+    const int targets = m_meshAggregate ? m_meshAggregate->rows().size() : m_swmmAggregate->rows().size();
+    const int gone = m_meshAggregate ? m_meshAggregate->unresolvedCount() : m_swmmAggregate->unresolvedCount();
+    const int staged = m_meshAggregate ? m_meshAggregate->stagedColumns().size()
+                                       : m_swmmAggregate->stagedColumns().size();
+    QStringList parts{m_meshAggregate ? meshCountText(m_meshAggregate->kind(), targets)
+                                    : tr("%1 objects").arg(targets)};
     if (gone)
         parts << tr("%1 no longer exist").arg(gone);
     parts << (staged == 0   ? tr("no changes")
               : staged == 1 ? tr("1 change to apply")
                             : tr("%1 changes to apply").arg(staged));
     QString text = parts.join(QStringLiteral(" · "));
+    if (m_meshAggregate && !m_meshAggregate->stagingNotice().isEmpty())
+        text = m_meshAggregate->stagingNotice() + QLatin1Char('\n') + text;
     if (!message.isEmpty())
         text = message + QLatin1Char('\n') + text;
     m_aggregateSummary->setText(text);
@@ -1033,6 +1145,126 @@ void PropertiesPanel::updateAggregateBar(const QString &message)
     m_aggregateApply->setEnabled(staged > 0);
     m_aggregateCancel->setEnabled(staged > 0);
     m_aggregateBar->show();
+}
+
+void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef> &refs)
+{
+    clear();
+    struct Scope {
+        QString title;
+        QList<SWMMObjectRef> refs;
+        int category = -1;
+    };
+    QMap<QString, Scope> scopes;
+    const QStringList labels{tr("Junctions"), tr("Outfalls"), tr("Storage"), tr("Dividers"),
+                             tr("Conduits"), tr("Pumps"), tr("Orifices"), tr("Weirs"),
+                             tr("Outlets"), tr("Subcatchments"), tr("Rain gages")};
+    for (const auto &ref : refs) {
+        QString meshKey;
+        int element = -1, local = -1;
+        const bool mesh = mesh::MeshObjectRef::parseVertex(ref, &meshKey, &element) ||
+            mesh::MeshObjectRef::parseCell(ref, &meshKey, &element) ||
+            mesh::MeshObjectRef::parseEdge(ref, &meshKey, &element, &local);
+        if (mesh) {
+            const QString key = QStringLiteral("mesh/%1/%2").arg(meshKey).arg(int(ref.objectType));
+            auto &scope = scopes[key];
+            scope.title = ref.objectType == SWMMObjectRef::MeshEdge ? tr("Mesh edges")
+                : ref.objectType == SWMMObjectRef::MeshCell ? tr("Mesh cells") : tr("Mesh vertices");
+            if (canvas)
+                for (auto *layer : canvas->layers())
+                    if (auto *m = qobject_cast<SWMM2DMeshLayer *>(layer);
+                        m && mesh::MeshObjectRef::layerKey(m->sourcePath()) == meshKey)
+                        scope.title += QStringLiteral(" — ") + m->name();
+            if (!scope.refs.contains(ref)) scope.refs.append(ref);
+            continue;
+        }
+        int category = -1;
+        if (m_swmmLayer)
+            for (int c = 0; c < SWMMModelLayer::NumCategories && category < 0; ++c) {
+                const auto cat = static_cast<SWMMModelLayer::Category>(c);
+                if (!(SWMMModelLayer::kindBitForCategory(cat) &
+                      SWMMModelLayer::kindMaskForObjectType(int(ref.objectType)))) continue;
+                for (int row = 0; row < m_swmmLayer->categoryCount(cat); ++row)
+                    if (m_swmmLayer->objectNameAt(cat, row) == ref.name) { category = c; break; }
+            }
+        const QString key = QStringLiteral("objects/%1").arg(category);
+        auto &scope = scopes[key];
+        scope.category = category;
+        scope.title = category >= 0 ? labels.value(category, tr("Objects")) : tr("Other objects");
+        if (!scope.refs.contains(ref)) scope.refs.append(ref);
+    }
+    // Offer the exterior subset explicitly when a box includes interior edges.
+    auto choices = scopes.values();
+    if (canvas)
+        for (const auto &scope : scopes) {
+            if (scope.refs.isEmpty() || scope.refs.first().objectType != SWMMObjectRef::MeshEdge) continue;
+            QList<SWMMObjectRef> exterior;
+            for (const auto &ref : scope.refs) {
+                QString key;
+                int cell = -1, local = -1;
+                mesh::MeshObjectRef::parseEdge(ref, &key, &cell, &local);
+                for (auto *layer : canvas->layers())
+                    if (auto *m = qobject_cast<SWMM2DMeshLayer *>(layer);
+                        m && mesh::MeshObjectRef::layerKey(m->sourcePath()) == key &&
+                        m->isBoundaryEdge(cell, local)) { exterior.append(ref); break; }
+            }
+            if (!exterior.isEmpty() && exterior.size() < scope.refs.size())
+                choices.append({tr("Exterior edges — %1 excluded").arg(scope.refs.size() - exterior.size()),
+                                exterior, -1});
+        }
+    m_selectionScope->disconnect(this);
+    m_selectionScope->clear();
+    m_selectionScope->addItem(tr("%1 objects selected — choose a group to edit").arg(refs.size()));
+    for (const auto &scope : choices)
+        m_selectionScope->addItem(tr("%1 (%2)").arg(scope.title).arg(scope.refs.size()));
+    const auto bind = [this, canvas = QPointer<MapCanvas>(canvas), choices, total = refs.size()](int index) {
+        if (index <= 0 || index > choices.size()) {
+            clear();
+            setWindowTitle(tr("%1 objects selected").arg(total));
+        } else {
+            const auto scope = choices[index - 1];
+            if (scope.refs.first().objectType >= SWMMObjectRef::MeshVertex &&
+                scope.refs.first().objectType <= SWMMObjectRef::MeshCell) {
+                showMeshSelection(canvas, scope.refs);
+            } else if (scope.category >= 0) {
+                clear();
+#ifdef HAVE_QPROPERTYMODEL
+                QStringList names;
+                for (const auto &ref : scope.refs) names.append(ref.name);
+                auto *aggregate = new SWMMAggregateSelection(m_swmmLayer,
+                    static_cast<SWMMModelLayer::Category>(scope.category), names,
+                    canvas ? canvas->undoStack() : nullptr, this);
+                m_swmmAggregate = aggregate;
+                setWindowTitle(tr("%1 — %2 selected").arg(scope.title).arg(names.size()));
+                auto *pm = qobject_cast<QPropertyModel *>(m_model);
+                pm->setData(QVariant::fromValue(aggregate));
+                m_treeView->expandAll();
+                connect(aggregate, &SWMMAggregateSelection::stagedChanged, this, [this, pm, aggregate] {
+                    if (m_swmmAggregate != aggregate) return;
+                    pm->refreshValues();
+                    updateAggregateBar();
+                });
+                connect(m_swmmLayer, &SWMMModelLayer::engineAboutToClose, aggregate, [this, aggregate] {
+                    if (m_swmmAggregate == aggregate) clear();
+                });
+                updateAggregateBar();
+#endif
+            } else {
+                clear();
+                setWindowTitle(tr("%1 objects selected").arg(scope.refs.size()));
+                m_aggregateSummary->setText(tr("Select a compatible spatial object group to edit shared attributes."));
+                m_aggregateApply->hide();
+                m_aggregateCancel->hide();
+                m_aggregateBar->show();
+            }
+        }
+        m_selectionScope->setVisible(choices.size() > 1);
+    };
+    connect(m_selectionScope, qOverload<int>(&QComboBox::currentIndexChanged), this, bind);
+    if (choices.size() == 1 || scopes.size() == 1)
+        m_selectionScope->setCurrentIndex(1);
+    else
+        bind(0);
 }
 
 void PropertiesPanel::showMeshSelection(MapCanvas *canvas, const QList<SWMMObjectRef> &refs)
@@ -1138,8 +1370,19 @@ void PropertiesPanel::showMeshSelection(MapCanvas *canvas, const QList<SWMMObjec
                                       "edges.")
                                        .arg(boundary));
                 connect(button, &QPushButton::clicked, source,
-                        [this, aggregate, source] {
-                            source->editBoundaryCondition(aggregate->rows(), this);
+                        [this, aggregate, source, boundary] {
+                            if (boundary != aggregate->rows().size()) {
+                                source->editBoundaryCondition(aggregate->rows(), this);
+                                return;
+                            }
+                            QMap<int, QVariant> draft;
+                            for (int column : aggregate->stagedColumns())
+                                draft.insert(column, aggregate->stagedValue(column));
+                            source->editBoundaryCondition(aggregate->rows(), this,
+                                [aggregate](const QMap<int, QVariant> &values) {
+                                    for (auto it = values.cbegin(); it != values.cend(); ++it)
+                                        aggregate->stage(it.key(), it.value());
+                                }, draft);
                         });
             } else if (group->name() == tr("Infiltration")) {
                 int editable = 0;
@@ -1473,7 +1716,7 @@ void PropertiesPanel::setProject(SWMMModelLayer *layer)
         QObject::disconnect(m_swmmLayer, &SWMMModelLayer::attributeChanged, this,
                             &PropertiesPanel::onObjectEditedExternally);
 
-    if (m_meshFields)
+    if (m_meshFields || m_meshAggregate || m_swmmAggregate)
         clear();
     m_swmmLayer = layer;
 

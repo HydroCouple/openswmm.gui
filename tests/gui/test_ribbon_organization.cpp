@@ -19,7 +19,10 @@
 #include "layers/swmm2dmeshlayer.h"
 #include "layers/swmmmodellayer.h"
 #include "map/mapcanvas.h"
+#include "map/mapundostack.h"
+#include "map/tools/maptoolmeshselectedge.h"
 #include "mesh/meshobjectref.h"
+#include "mesh/meshcellgeom.h"
 #include "selection/selectionmanager.h"
 #include "ui/panels/propertiespanel.h"
 #include "swmmvis.h"
@@ -42,6 +45,9 @@
 #include <QPointF>
 #include <QPointer>
 #include <QPushButton>
+#include <QComboBox>
+#include <QDoubleSpinBox>
+#include <QTreeView>
 #include <QSet>
 #include <QTabBar>
 #include <QTest>
@@ -427,6 +433,60 @@ private slots:
             SelectionManager::Mode::Replace);
         QTRY_COMPARE(panel->windowTitle(), QStringLiteral("2D Cell 0"));
         QVERIFY(apply->isHidden() || !apply->isVisibleTo(panel));
+
+        // The real map tool's rectangle drives the full Properties route.
+        auto *canvas = project->canvas();
+        canvas->setExtent(MapExtent(-0.2, -0.2, 2.2, 1.2), false);
+        MapToolMeshSelectEdge edgeTool(canvas, project->selectionManager());
+        edgeTool.setBoundaryOnly(true);
+        edgeTool.activate();
+        const auto mouse = [&](QEvent::Type type, double x, double y) {
+            int px = 0, py = 0;
+            edgeTool.toPixelCoords(x, y, px, py);
+            const QPointF point(px, py);
+            QMouseEvent event(type, point, point, Qt::LeftButton,
+                             type == QEvent::MouseButtonRelease ? Qt::NoButton : Qt::LeftButton,
+                             Qt::NoModifier);
+            if (type == QEvent::MouseButtonPress) edgeTool.mousePressEvent(&event);
+            if (type == QEvent::MouseMove) edgeTool.mouseMoveEvent(&event);
+            if (type == QEvent::MouseButtonRelease) edgeTool.mouseReleaseEvent(&event);
+        };
+        mouse(QEvent::MouseButtonPress, -0.1, -0.1);
+        mouse(QEvent::MouseMove, 2.1, 0.1);
+        mouse(QEvent::MouseButtonRelease, 2.1, 0.1);
+        edgeTool.deactivate();
+        QCOMPARE(project->selectionManager()->size(), 2);
+        QTRY_COMPARE(panel->windowTitle(), QStringLiteral("2D mesh: 2 edges"));
+        auto *tree = panel->findChild<QTreeView *>();
+        QVERIFY(tree);
+        const auto field = [tree](const QString &label) {
+            auto *model = tree->model();
+            for (int g = 0; g < model->rowCount(); ++g) {
+                const auto group = model->index(g, 0);
+                for (int r = 0; r < model->rowCount(group); ++r)
+                    if (model->index(r, 0, group).data().toString() == label)
+                        return model->index(r, 1, group);
+            }
+            return QModelIndex();
+        };
+        const auto typeField = field("BC Type");
+        QVERIFY(typeField.isValid());
+        QVERIFY(tree->model()->setData(typeField, int(mesh::MeshBCTypes::Type::NormalFlow)));
+        const auto slopeField = field("Friction Slope");
+        QVERIFY(slopeField.flags() & Qt::ItemIsEditable);
+        QVERIFY(tree->model()->setData(slopeField, 0.005));
+        const auto before = layer->edgeBCs();
+        const int undoBefore = canvas->undoStack()->index();
+        apply->click();
+        QCOMPARE(canvas->undoStack()->index(), undoBefore + 1);
+        for (const auto &ref : project->selectionManager()->selection()) {
+            QString key;
+            int cell = -1, local = -1;
+            QVERIFY(mesh::MeshObjectRef::parseEdge(ref, &key, &cell, &local));
+            QCOMPARE(layer->edgeBCs()[mesh::edgeSlot(cell, local)].slope, 0.005);
+        }
+        canvas->undoStack()->undo();
+        QCOMPARE(layer->edgeBCs(), before);
 
         project->selectionManager()->clear();
         closeProjects();
