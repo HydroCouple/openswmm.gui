@@ -210,6 +210,8 @@ private:
     /*! Snapshots for classifying the layer's catch-all repaintRequested
      *  into Geometry / Selection / Style domains. */
     quint64 m_lastGeomRev = ~quint64(0);
+    quint64 m_lastAttrRev = ~quint64(0);
+    quint64 m_lastBcRev = ~quint64(0);
     QSet<int> m_lastSelVerts;
     QSet<int> m_lastSelEdges;
     QSet<int> m_lastSelTris;

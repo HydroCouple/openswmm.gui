@@ -104,7 +104,7 @@ bool PollutantRegistry::rename(PollutantProvider *p, const QString &newName)
     return true;
 }
 
-int PollutantRegistry::loadFromEngine(void *engineHandle)
+int PollutantRegistry::loadFromEngine(void *engineHandle, const QString &onlyName)
 {
     if (!engineHandle)
         return 0;
@@ -121,10 +121,13 @@ int PollutantRegistry::loadFromEngine(void *engineHandle)
         if (!cid || !*cid)
             continue;
         const QString id = QString::fromUtf8(cid);
-        if (hasName(id))
+        if (!onlyName.isEmpty() && id.compare(onlyName, Qt::CaseInsensitive) != 0)
+            continue;
+        if (onlyName.isEmpty() && hasName(id))
             continue;
 
-        PollutantProvider *p = create(id);
+        PollutantProvider *p = findByName(id);
+        if (!p) p = create(id);
         if (!p)
             continue;
 
@@ -148,6 +151,8 @@ int PollutantRegistry::loadFromEngine(void *engineHandle)
         p->setKDecay(k);
         p->setMwt(mwt);
         p->setSnowOnly(snowOnly != 0);
+        p->setCoPollutant(QString());
+        p->setCoFraction(frac);
         if (coIdx >= 0) {
             const char *coId = swmm_pollutant_id(eng, coIdx);
             if (coId && *coId) {
@@ -165,7 +170,7 @@ int PollutantRegistry::saveToEngine()
     return saveToEngine(m_engineHandle);
 }
 
-int PollutantRegistry::saveToEngine(void *engineHandle)
+int PollutantRegistry::saveToEngine(void *engineHandle, const QString &onlyName)
 {
     if (!engineHandle)
         return 0;
@@ -175,6 +180,8 @@ int PollutantRegistry::saveToEngine(void *engineHandle)
     int written = 0;
     // Pass 1 — ensure existence + scalar properties.
     for (PollutantProvider *p : m_providers) {
+        if (!onlyName.isEmpty() && p->name().compare(onlyName, Qt::CaseInsensitive) != 0)
+            continue;
         const QByteArray idUtf8 = p->name().toUtf8();
         int idx = swmm_pollutant_index(eng, idUtf8.constData());
         if (idx < 0) {
@@ -196,6 +203,8 @@ int PollutantRegistry::saveToEngine(void *engineHandle)
     }
     // Pass 2 — co-pollutant references (all pollutants now exist).
     for (PollutantProvider *p : m_providers) {
+        if (!onlyName.isEmpty() && p->name().compare(onlyName, Qt::CaseInsensitive) != 0)
+            continue;
         const QByteArray idUtf8 = p->name().toUtf8();
         const int idx = swmm_pollutant_index(eng, idUtf8.constData());
         if (idx < 0)

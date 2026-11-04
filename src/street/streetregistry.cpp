@@ -104,7 +104,7 @@ bool StreetRegistry::rename(StreetProvider *p, const QString &newName)
     return true;
 }
 
-int StreetRegistry::loadFromEngine(void *engineHandle)
+int StreetRegistry::loadFromEngine(void *engineHandle, const QString &onlyName)
 {
     if (!engineHandle)
         return 0;
@@ -121,10 +121,13 @@ int StreetRegistry::loadFromEngine(void *engineHandle)
         if (!cid || !*cid)
             continue;
         const QString id = QString::fromUtf8(cid);
-        if (hasName(id))
+        if (!onlyName.isEmpty() && id.compare(onlyName, Qt::CaseInsensitive) != 0)
+            continue;
+        if (onlyName.isEmpty() && hasName(id))
             continue;
 
-        StreetProvider *p = create(id);
+        StreetProvider *p = findByName(id);
+        if (!p) p = create(id);
         if (!p)
             continue;
 
@@ -155,7 +158,7 @@ int StreetRegistry::saveToEngine()
     return saveToEngine(m_engineHandle);
 }
 
-int StreetRegistry::saveToEngine(void *engineHandle)
+int StreetRegistry::saveToEngine(void *engineHandle, const QString &onlyName)
 {
     if (!engineHandle)
         return 0;
@@ -164,6 +167,8 @@ int StreetRegistry::saveToEngine(void *engineHandle)
 
     int written = 0;
     for (StreetProvider *p : m_providers) {
+        if (!onlyName.isEmpty() && p->name().compare(onlyName, Qt::CaseInsensitive) != 0)
+            continue;
         const QByteArray idUtf8 = p->name().toUtf8();
         int idx = swmm_street_index(eng, idUtf8.constData());
         if (idx < 0) {

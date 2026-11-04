@@ -439,16 +439,18 @@ void SWMM2DMeshQSGRenderer::setLayer(SWMM2DMeshLayer *layer)
     }
     m_layer = layer;
     if (m_layer) {
-        // An edge style edit and selection change can arrive in one frame.
+        // A style edit and selection change can arrive in one frame.
         // Keep Style explicit so resolving the selection cannot swallow it.
         for (auto *sub : m_layer->sublayers()) {
-            if (sub != m_layer->meshEdgeSublayer() && sub != m_layer->meshBcSublayer())
-                continue;
             connect(sub, &OpenSWMM::Render::ISublayer::invalidated, this, [this] {
                 m_dirty.noteStyleChanged();
                 noteContentChanged();
             });
         }
+        connect(m_layer, &SWMM2DMeshLayer::attributeChanged, this, [this] {
+            m_dirty.noteStyleChanged();
+            noteContentChanged();
+        });
         // Catch-all invalidation (style edits, selection setters, geometry
         // reloads all funnel here). updatePaintNode classifies it into the
         // narrowest dirty domain by diffing snapshots (geometry revision,
@@ -460,6 +462,8 @@ void SWMM2DMeshQSGRenderer::setLayer(SWMM2DMeshLayer *layer)
     }
     clearLabelTextureCache();
     m_lastGeomRev = ~quint64(0);
+    m_lastAttrRev = ~quint64(0);
+    m_lastBcRev = ~quint64(0);
     m_lastSelVerts.clear();
     m_lastSelEdges.clear();
     m_lastSelTris.clear();
@@ -692,6 +696,10 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
     // Snapshot diffs — ground truth for classifying the layer's catch-all
     // repaintRequested (geometry reload vs selection change vs style edit).
     const bool geomChanged = m_layer->geomRevision() != m_lastGeomRev;
+    // Attribute and boundary edits may arrive in the same frame as selection.
+    // Classify them explicitly so a selection-only update cannot consume them.
+    if (m_layer->attrRevision() != m_lastAttrRev || m_layer->bcRevision() != m_lastBcRev)
+        m_dirty.noteStyleChanged();
     const bool selChanged = m_layer->highlightedVertices() != m_lastSelVerts ||
                             m_layer->highlightedEdges() != m_lastSelEdges ||
                             m_layer->highlightedTriangles() != m_lastSelTris;
@@ -1826,6 +1834,10 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
     }
 
     // ---- Snapshot / key bookkeeping -----------------------------------
+    if (rebuildStatic) {
+        m_lastAttrRev = m_layer->attrRevision();
+        m_lastBcRev = m_layer->bcRevision();
+    }
     if (rebuildStatic || rebuildSel) {
         if (bits & D::Geometry)
             m_lastGeomRev = m_layer->geomRevision();

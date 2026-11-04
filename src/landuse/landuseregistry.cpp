@@ -136,7 +136,7 @@ bool LandUseRegistry::rename(LandUseProvider *p, const QString &newName)
     return true;
 }
 
-int LandUseRegistry::loadFromEngine(void *engineHandle)
+int LandUseRegistry::loadFromEngine(void *engineHandle, const QString &onlyName)
 {
     if (!engineHandle)
         return 0;
@@ -153,10 +153,13 @@ int LandUseRegistry::loadFromEngine(void *engineHandle)
         if (!cid || !*cid)
             continue;
         const QString id = QString::fromUtf8(cid);
-        if (hasName(id))
+        if (!onlyName.isEmpty() && id.compare(onlyName, Qt::CaseInsensitive) != 0)
+            continue;
+        if (onlyName.isEmpty() && hasName(id))
             continue;
 
-        LandUseProvider *p = create(id);
+        LandUseProvider *p = findByName(id);
+        if (!p) p = create(id);
         if (!p)
             continue;
 
@@ -175,7 +178,7 @@ int LandUseRegistry::saveToEngine()
     return saveToEngine(m_engineHandle);
 }
 
-int LandUseRegistry::saveToEngine(void *engineHandle)
+int LandUseRegistry::saveToEngine(void *engineHandle, const QString &onlyName)
 {
     if (!engineHandle)
         return 0;
@@ -184,6 +187,8 @@ int LandUseRegistry::saveToEngine(void *engineHandle)
 
     int written = 0;
     for (LandUseProvider *p : m_providers) {
+        if (!onlyName.isEmpty() && p->name().compare(onlyName, Qt::CaseInsensitive) != 0)
+            continue;
         const QByteArray idUtf8 = p->name().toUtf8();
         int idx = swmm_landuse_index(eng, idUtf8.constData());
         if (idx < 0) {

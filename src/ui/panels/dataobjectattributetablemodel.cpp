@@ -29,11 +29,13 @@
 #include <QCoreApplication>
 #include <QGuiApplication>
 #include <QPalette>
+#include <QSignalBlocker>
 #include <QUndoCommand>
 #include <QUndoStack>
 
 #include <openswmm/engine/openswmm_engine.h>
 
+#include <cmath>
 #include <limits>
 
 using openswmmvis::ColumnSpec;
@@ -193,37 +195,82 @@ QObject *findProvider(QObject *reg, SWMMModelLayer::DataCategory cat, const QStr
     return nullptr;
 }
 
-/*! Same flush the editors run when they close
- *  (comprehensiveeditorregistry.cpp openXxxBrowse).
- * @param[in] reg Optional registry with concrete type matching cat; unchecked static casts after
- *   null guard.
- * @param[in] cat Supported registry category; others no-op.
- * @param[in] layer Optional source supplying engine handle; null no-op, null engine forwarded to
- *   registry handling.
- * @note Flush entire staged registry via its saveToEngine, not merely edited cell/provider. Ignore
- *   result/errors, no local simulation gate, rollback, dialog or objectEdited. Provider/engine
- *   lifecycle governed by registry/source contracts.
- */
-void saveToEngine(QObject *reg, SWMMModelLayer::DataCategory cat, SWMMModelLayer *layer)
+/*! Save the named provider through the same registry path used by its editor. */
+void saveToEngine(QObject *reg, SWMMModelLayer::DataCategory cat, SWMMModelLayer *layer,
+                  const QString &name)
 {
     if (!reg || !layer)
         return;
     void *eng = layer->engine();
     switch (cat) {
     case DC::DataPollutants:
-        static_cast<PollutantRegistry *>(reg)->saveToEngine(eng);
+        static_cast<PollutantRegistry *>(reg)->saveToEngine(eng, name);
         break;
     case DC::DataLandUses:
-        static_cast<LandUseRegistry *>(reg)->saveToEngine(eng);
+        static_cast<LandUseRegistry *>(reg)->saveToEngine(eng, name);
         break;
     case DC::DataAquifers:
-        static_cast<AquiferRegistry *>(reg)->saveToEngine(eng);
+        static_cast<AquiferRegistry *>(reg)->saveToEngine(eng, name);
         break;
     case DC::DataStreets:
-        static_cast<StreetRegistry *>(reg)->saveToEngine(eng);
+        static_cast<StreetRegistry *>(reg)->saveToEngine(eng, name);
         break;
     case DC::DataInlets:
-        static_cast<InletRegistry *>(reg)->saveToEngine(eng);
+        static_cast<InletRegistry *>(reg)->saveToEngine(eng, name);
+        break;
+    default:
+        break;
+    }
+}
+
+void refreshFromEngine(QObject *registry, DC::DataCategory category, SWMMModelLayer *layer,
+                       const QString &name)
+{
+    if (!registry || !layer || !layer->engine() || name.isEmpty())
+        return;
+    switch (category) {
+    case DC::DataPollutants:
+        static_cast<PollutantRegistry *>(registry)->loadFromEngine(layer->engine(), name);
+        break;
+    case DC::DataLandUses:
+        static_cast<LandUseRegistry *>(registry)->loadFromEngine(layer->engine(), name);
+        break;
+    case DC::DataAquifers:
+        static_cast<AquiferRegistry *>(registry)->loadFromEngine(layer->engine(), name);
+        break;
+    case DC::DataStreets:
+        static_cast<StreetRegistry *>(registry)->loadFromEngine(layer->engine(), name);
+        break;
+    case DC::DataInlets:
+        static_cast<InletRegistry *>(registry)->loadFromEngine(layer->engine(), name);
+        break;
+    default:
+        break;
+    }
+}
+
+void notifyProvider(QObject *registry, DC::DataCategory category, QObject *provider)
+{
+    switch (category) {
+    case DC::DataPollutants:
+        emit static_cast<PollutantRegistry *>(registry)->providerParamsChanged(
+            static_cast<PollutantProvider *>(provider));
+        break;
+    case DC::DataLandUses:
+        emit static_cast<LandUseRegistry *>(registry)->providerParamsChanged(
+            static_cast<LandUseProvider *>(provider));
+        break;
+    case DC::DataAquifers:
+        emit static_cast<AquiferRegistry *>(registry)->providerParamsChanged(
+            static_cast<AquiferProvider *>(provider));
+        break;
+    case DC::DataStreets:
+        emit static_cast<StreetRegistry *>(registry)->providerParamsChanged(
+            static_cast<StreetProvider *>(provider));
+        break;
+    case DC::DataInlets:
+        emit static_cast<InletRegistry *>(registry)->providerParamsChanged(
+            static_cast<InletProvider *>(provider));
         break;
     default:
         break;
@@ -351,7 +398,7 @@ QString tr(const char *s)
 /**
  * @param[in] layer Optional reference-name source; names snapshot includes same pollutant, no
  *   self-reference filtering.
- * @return Ten editable pollutant fields excluding Name: units MG/L, UG/L or #/L; concentration
+ * @return Pollutant fields excluding Name: read-only units MG/L, UG/L or #/L; concentration
  *   values in selected pollutant units, decay per day, molecular weight, snow flag, co-pollutant
  *   name/fraction. Numeric editor minima zero, no upper cap including coFraction. Accessors operate
  *   staged provider only; no engine write here.
@@ -364,7 +411,7 @@ QList<Field> pollutantFields(SWMMModelLayer *layer)
         QStringLiteral("units"), tr("Units"),
         pairs({QStringLiteral("MG/L"), QStringLiteral("UG/L"), QStringLiteral("#/L")}, {0, 1, 2}),
         [](QObject *o) { return QVariant(static_cast<P *>(o)->units()); },
-        [](QObject *o, const QVariant &v) { static_cast<P *>(o)->setUnits(v.toInt()); });
+        {}); // Existing pollutant units have no engine setter.
     f << numField<P>(QStringLiteral("rainConc"), tr("Rain Concen."), &P::rainConc, &P::setRainConc,
                      0.0);
     f << numField<P>(QStringLiteral("gwConc"), tr("GW Concen."), &P::gwConc, &P::setGwConc, 0.0);
@@ -500,6 +547,7 @@ QList<Field> streetFields()
     return f;
 }
 
+
 /**
  * @param[in] layer Optional capture-curve name source, snapshot of all curve names without type
  *   filtering.
@@ -507,7 +555,7 @@ QList<Field> streetFields()
  *   InletPropertyBag: grate/curb/slot/custom groups, Generic grate fraction/velocity only, throat
  *   absent for DropCurb. Length/velocity metadata native project units, open fraction editor 0..1,
  *   other numeric minima zero. Callbacks unchecked provider casts, no source writes while building;
- *   static applyValue does not apply this visibility gate.
+ *   static applyValue checks this applicability before writing.
  */
 QList<Field> inletFields(SWMMModelLayer *layer)
 {
@@ -675,6 +723,62 @@ QString enumLabel(const ColumnSpec &spec, const QVariant &v)
     return v.toString();
 }
 
+bool writeValue(SWMMModelLayer *layer, DC::DataCategory cat, const QString &name,
+                const QString &key, const QVariant &value, bool notify)
+{
+    if (!layer || !layer->engine()) return false;
+    int state = 0;
+    if (swmm_engine_get_state(layer->engine(), &state) != SWMM_OK || state == SWMM_STATE_RUNNING)
+        return false;
+    QObject *reg = registryFor(layer, cat);
+    QObject *provider = findProvider(reg, cat, name);
+    if (!provider) return false;
+    QSignalBlocker registrySignals(reg);
+    QSignalBlocker providerSignals(provider);
+    refreshFromEngine(reg, cat, layer, name);
+    for (const Field &field : fieldsFor(layer, cat)) {
+        if (field.spec.key != key || !field.set || (field.applies && !field.applies(provider)))
+            continue;
+        const auto before = field.get(provider);
+        auto candidate = value;
+        if (!candidate.convert(before.metaType())) return false;
+        if (field.spec.editor == EditorKind::Numeric || field.spec.editor == EditorKind::Integer) {
+            bool ok = false;
+            const double number = candidate.toDouble(&ok);
+            if (!ok || !std::isfinite(number) || number < field.spec.minValue ||
+                number > field.spec.maxValue) return false;
+        }
+        if (field.spec.editor == EditorKind::Enum) {
+            bool known = false;
+            for (const auto &choice : field.spec.enumValues)
+                if (choice.toList().value(1) == candidate) known = true;
+            if (!known) return false;
+        }
+        field.set(provider, candidate);
+        saveToEngine(reg, cat, layer, name);
+        refreshFromEngine(reg, cat, layer, name);
+        const auto actual = field.get(provider);
+        const bool accepted = candidate.metaType().id() == QMetaType::Double
+            ? qFuzzyCompare(actual.toDouble(), candidate.toDouble()) : actual == candidate;
+        if (!accepted) {
+            field.set(provider, before);
+            saveToEngine(reg, cat, layer, name);
+            refreshFromEngine(reg, cat, layer, name);
+        }
+        providerSignals.unblock();
+        registrySignals.unblock();
+        if (notify) {
+            notifyProvider(reg, cat, provider);
+            if (accepted) {
+                emit layer->attributeChanged(name);
+                layer->markEdited();
+            }
+        }
+        return accepted;
+    }
+    return false;
+}
+
 // One undo step per cell edit. Keyed by (layer, category, name, column key)
 // rather than by model row/column so it replays correctly however the table
 // has since been re-bound, sorted or filtered.
@@ -690,8 +794,7 @@ public:
      * @param[in] newVal Moved redo candidate, not validated during construction.
      * @param[in] label Copied into translated command caption; not field lookup key.
      * @brief Capture one nonmergeable cell edit without executing or owning providers.
-     * @note Caller/undo stack owns command. Renamed/deleted provider makes replay no-op unless
-     *   another provider now uses same name. No obsolete/error state recorded.
+     * @note Caller/undo stack owns command; replay becomes obsolete when the write is rejected.
      */
     DataObjectFieldEditCommand(SWMMModelLayer *layer, SWMMModelLayer::DataCategory cat,
                                QString name, QString key, QVariant oldVal, QVariant newVal,
@@ -701,25 +804,21 @@ public:
     {
         setText(QObject::tr("Edit %1 of \"%2\"").arg(label, m_name));
     }
-    /**
-     * @brief Apply stored new value to original guarded source/category/name/key through static
-     *   applyValue; ignore failure.
-     * @note No current table required, no model objectEdited emission, flags/applicability/running
-     *   gate or rollback. Registry signals may refresh bound tables.
-     */
+    /** First push follows an already verified write; later replay uses the same checked path. */
     void redo() override
     {
-        DataObjectAttributeTableModel::applyValue(m_layer, m_cat, m_name, m_key, m_new);
+        if (m_first) {
+            m_first = false;
+            return;
+        }
+        if (!DataObjectAttributeTableModel::applyValue(m_layer, m_cat, m_name, m_key, m_new))
+            setObsolete(true);
     }
-    /**
-     * @brief Apply stored old value through original source/category/name/key, ignoring missing
-     *   target/setter/engine-save failure.
-     * @note Does not restore source binding, provider identity/name, reference choices or report
-     *   objectEdited. Command remains in history on unsuccessful replay.
-     */
+    /** Restore the original field, refreshing other views through the layer. */
     void undo() override
     {
-        DataObjectAttributeTableModel::applyValue(m_layer, m_cat, m_name, m_key, m_old);
+        if (!DataObjectAttributeTableModel::applyValue(m_layer, m_cat, m_name, m_key, m_old))
+            setObsolete(true);
     }
 
 private:
@@ -727,10 +826,10 @@ private:
     SWMMModelLayer::DataCategory m_cat;
     QString m_name, m_key;
     QVariant m_old, m_new;
+    bool m_first = true;
 };
 
-// Resolve the field/providers once and flush the registry once on apply,
-// undo and redo; the single-cell command deliberately keeps its existing path.
+// Keep bulk edits on the same checked path as single-cell edits and undo.
 class DataObjectBulkFieldEditCommand : public QUndoCommand
 {
 public:
@@ -743,34 +842,41 @@ public:
     {
     }
 
-    void undo() override { apply(m_old); }
-    void redo() override { apply(m_new); }
-
-private:
-    void apply(const QList<QVariant> &values)
+    void undo() override
     {
-        if (!m_layer)
-            return;
-        auto *registry = registryFor(m_layer, m_category);
-        QHash<QString, QPointer<QObject>> providers;
-        for (auto *provider : providersOf(registry, m_category))
-            providers.insert(nameOf(provider, m_category), provider);
-        for (const auto &field : fieldsFor(m_layer, m_category)) {
-            if (field.spec.key != m_key || !field.set)
-                continue;
-            bool changed = false;
-            for (int i = 0; i < m_names.size(); ++i) {
-                if (auto *provider = providers.value(m_names[i]).data()) {
-                    field.set(provider, values[i]);
-                    changed = true;
-                }
-            }
-            if (changed)
-                saveToEngine(registry, m_category, m_layer);
+        if (!commit(false)) setObsolete(true);
+    }
+    void redo() override
+    {
+        if (m_first) {
+            m_first = false;
             return;
         }
+        if (!commit(true)) setObsolete(true);
     }
 
+    bool commit(bool forward)
+    {
+        const auto &values = forward ? m_new : m_old;
+        const auto &restore = forward ? m_old : m_new;
+        for (int i = 0; i < m_names.size(); ++i) {
+            if (!writeValue(m_layer, m_category, m_names[i], m_key, values[i], false)) {
+                for (int k = i - 1; k >= 0; --k)
+                    writeValue(m_layer, m_category, m_names[k], m_key, restore[k], false);
+                return false;
+            }
+        }
+        auto *registry = registryFor(m_layer, m_category);
+        for (const auto &name : m_names) {
+            notifyProvider(registry, m_category, findProvider(registry, m_category, name));
+            emit m_layer->attributeChanged(name);
+        }
+        m_layer->markEdited();
+        return true;
+    }
+
+private:
+    bool m_first = true;
     QPointer<SWMMModelLayer> m_layer;
     DC::DataCategory m_category;
     QString m_key;
@@ -872,18 +978,18 @@ bool DataObjectAttributeTableModel::applyValue(SWMMModelLayer *layer,
                                                const QString &name, const QString &key,
                                                const QVariant &value)
 {
-    QObject *reg = registryFor(layer, cat);
-    QObject *p = findProvider(reg, cat, name);
-    if (!p)
-        return false;
-    for (const Field &f : fieldsFor(layer, cat)) {
-        if (f.spec.key != key || !f.set)
-            continue;
-        f.set(p, value);
-        saveToEngine(reg, cat, layer);
-        return true;
+    return writeValue(layer, cat, name, key, value, true);
+}
+
+void DataObjectAttributeTableModel::refreshObject(const QString &name)
+{
+    QObject *provider = findProvider(m_registry, m_category, name);
+    if (!provider) return;
+    {
+        const QSignalBlocker providerSignals(provider);
+        refreshFromEngine(m_registry, m_category, m_layer, name);
     }
-    return false;
+    onProviderParamsChanged(provider);
 }
 
 void DataObjectAttributeTableModel::reload()
@@ -1015,6 +1121,8 @@ bool DataObjectAttributeTableModel::setData(const QModelIndex &index, const QVar
 {
     if (role != Qt::EditRole || !(flags(index) & Qt::ItemIsEditable))
         return false;
+    const QString name = objectNameAt(index.row());
+    refreshObject(name);
     QObject *p = m_rows[index.row()].data();
     const Field &f = m_fields[index.column()];
     const QVariant oldVal = f.get(p);
@@ -1024,12 +1132,10 @@ bool DataObjectAttributeTableModel::setData(const QModelIndex &index, const QVar
     if (newVal == oldVal)
         return true;
 
-    const QString name = nameOf(p, m_category);
+    if (!applyValue(m_layer, m_category, name, f.spec.key, newVal)) return false;
     if (m_undoStack) {
         m_undoStack->push(new DataObjectFieldEditCommand(m_layer, m_category, name, f.spec.key,
                                                          oldVal, newVal, f.spec.label));
-    } else {
-        applyValue(m_layer, m_category, name, f.spec.key, newVal);
     }
     emit objectEdited(name);
     return true;
@@ -1047,6 +1153,7 @@ void DataObjectAttributeTableModel::setDataForRows(int column, const QList<int> 
         const auto cell = index(row, column);
         if (!(flags(cell) & Qt::ItemIsEditable))
             continue;
+        refreshObject(objectNameAt(row));
         const auto oldValue = field.get(m_rows[row].data());
         auto newValue = value;
         if (!newValue.convert(oldValue.metaType()) || newValue == oldValue)
@@ -1060,12 +1167,14 @@ void DataObjectAttributeTableModel::setDataForRows(int column, const QList<int> 
     auto *command = new DataObjectBulkFieldEditCommand(m_layer, m_category, field.spec.key,
                                                       names, oldValues, newValues,
                                                       field.spec.label);
+    if (!command->commit(true)) {
+        delete command;
+        return;
+    }
     if (m_undoStack)
         m_undoStack->push(command);
-    else {
-        command->redo();
+    else
         delete command;
-    }
     for (const auto &name : names)
         emit objectEdited(name);
 }

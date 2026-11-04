@@ -101,17 +101,19 @@ public:
     /**
      * @brief Import engine objects whose names are not already registered.
      * @param[in] engineHandle Borrowed valid SWMM_Engine, retained for later synchronization; null is a no-op and preserves the previous cached handle.
-     * @return Number of new providers loaded; zero for null/empty engine data.
-     * @details Existing providers are neither refreshed nor removed. Loading emits providerAdded() and parameter notifications through ordinary setters; getter failures may leave defaults. Call on the registry/engine owning thread.
+     * @return Number of providers loaded or refreshed; zero for null/empty engine data.
+     * @details With an empty onlyName, existing providers are neither refreshed nor removed. Loading emits providerAdded() and parameter notifications through ordinary setters; getter failures may leave defaults. Call on the registry/engine owning thread.
+     * @param[in] onlyName Optional name to refresh in place; empty imports missing providers.
      */
-    int loadFromEngine(void *engineHandle);
+    int loadFromEngine(void *engineHandle, const QString &onlyName = {});
     /**
      * @brief Write current authoring providers through a borrowed engine handle.
      * @param[in] engineHandle Valid SWMM_Engine retained for later calls; null is a no-op preserving the previous handle.
      * @return Number of providers whose engine object was found or added and whose setter calls were attempted; not a count of confirmed setter success.
      * @details Setter return codes are not checked. A counted provider may retain rejected engine parameters and earlier successful changes are not rolled back.
+     * @param[in] onlyName Optional name restricting writes to that provider.
      */
-    int saveToEngine(void *engineHandle);
+    int saveToEngine(void *engineHandle, const QString &onlyName = {});
     /**
      * @brief Synchronize using the most recently cached borrowed engine.
      * @return Same count as saveToEngine(void *), or zero when no handle has been cached.
