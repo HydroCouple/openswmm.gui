@@ -3859,7 +3859,9 @@ void AttributeTablePanel::onObjectEditedExternally(const QString &name)
     const bool wasSuppressed = m_suppressEditForward;
     m_suppressEditForward = true;
 
-    if (m_model->rowForName(name) >= 0) {
+    if (dataSourceActive() && m_dataModel->rowForName(name) >= 0) {
+        m_dataModel->refreshObject(name);
+    } else if (m_model->rowForName(name) >= 0) {
         m_model->refreshObject(name);
     } else if (m_layer) {
         SWMMModelLayer::Category cat;

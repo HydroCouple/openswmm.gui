@@ -135,7 +135,7 @@ bool AquiferRegistry::rename(AquiferProvider *p, const QString &newName)
     return true;
 }
 
-int AquiferRegistry::loadFromEngine(void *engineHandle)
+int AquiferRegistry::loadFromEngine(void *engineHandle, const QString &onlyName)
 {
     if (!engineHandle)
         return 0;
@@ -152,10 +152,13 @@ int AquiferRegistry::loadFromEngine(void *engineHandle)
         if (!cid || !*cid)
             continue;
         const QString id = QString::fromUtf8(cid);
-        if (hasName(id))
+        if (!onlyName.isEmpty() && id.compare(onlyName, Qt::CaseInsensitive) != 0)
+            continue;
+        if (onlyName.isEmpty() && hasName(id))
             continue;
 
-        AquiferProvider *p = create(id);
+        AquiferProvider *p = findByName(id);
+        if (!p) p = create(id);
         if (!p)
             continue;
 
@@ -177,7 +180,7 @@ int AquiferRegistry::saveToEngine()
     return saveToEngine(m_engineHandle);
 }
 
-int AquiferRegistry::saveToEngine(void *engineHandle)
+int AquiferRegistry::saveToEngine(void *engineHandle, const QString &onlyName)
 {
     if (!engineHandle)
         return 0;
@@ -186,6 +189,8 @@ int AquiferRegistry::saveToEngine(void *engineHandle)
 
     int written = 0;
     for (AquiferProvider *p : m_providers) {
+        if (!onlyName.isEmpty() && p->name().compare(onlyName, Qt::CaseInsensitive) != 0)
+            continue;
         const QByteArray idUtf8 = p->name().toUtf8();
         int idx = swmm_aquifer_index(eng, idUtf8.constData());
         if (idx < 0) {

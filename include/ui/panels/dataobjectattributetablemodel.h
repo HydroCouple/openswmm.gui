@@ -14,8 +14,8 @@
  * MVC contract (CLAUDE.md §5.1): the model owns NO object data. Rows are the
  * providers of the layer's project-scoped registry (`ensureXxxRegistry()`),
  * the same staged objects the dedicated editor dialogs bind to. A cell edit
- * is a `QUndoCommand` that writes the provider and flushes the registry to
- * the engine; the registry's `providerParamsChanged` then refreshes this
+ * synchronizes the affected record with the engine before adding a
+ * `QUndoCommand`; the registry's `providerParamsChanged` then refreshes this
  * table and any open editor dialog alike.
  *
  * Columns speak the shared `openswmmvis::ColumnSpec` vocabulary, so the
@@ -106,8 +106,7 @@ public:
 
     /**
      * @return Value copy of current field metadata in displayed order, Name first for supported
-     *   category; enum name choices snapshot at last reload. Bounds/decimals configure editors, not
-     *   enforced again by applyValue. No provider callbacks exposed through copy.
+     *   category; enum name choices snapshot at last reload. Bounds configure editors and are checked again by applyValue. No provider callbacks exposed through copy.
      */
     [[nodiscard]] QList<openswmmvis::ColumnSpec> columnSpecs() const;
 
@@ -131,28 +130,13 @@ public:
      */
     [[nodiscard]] int rowForName(const QString &name) const;
 
-    /*! Write \p value into column \p key of the \p cat object named \p name
-     *  on \p layer, then flush that registry to the engine. The single write
-     *  path behind both setData (headless) and the undo command, so it does
-     *  not depend on any model instance still being bound to that source.
-     *  Returns false when the object, column or registry no longer exists.
-     * @param[in] layer Optional borrowed project source; may lazily ensure supported registry. No
-     *   model instance needed.
-     * @param[in] cat Supported registry/provider category; unsupported yields false.
-     * @param[in] name Exact case-sensitive current provider name, not immutable ID; renamed/deleted
-     *   original cannot be replayed unless same name exists.
-     * @param[in] key Exact ColumnSpec key; read-only Name and unknown keys have no setter.
-     * @param[in] value Candidate forwarded to field setter. Numeric QVariant::toDouble/int
-     *   conversions do not check conversion success here; no local range/enum/name-reference
-     *   validation.
-     * @return True once matching setter called and registry-wide save attempted, NOT confirmation
-     *   of changed value or engine persistence. False for missing provider/unsupported
-     *   field/context.
-     * @note GUI-thread synchronous write; independent of table flags, inlet applicability,
-     *   simulation state and undo. Provider setters may normalize/reject/emit parameters changes;
-     *   saveToEngine flushes registry and its return/status is ignored. No rollback/error
-     *   propagation or objectEdited emitted directly. Source/category must match actual
-     *   registry/provider types.
+    /*! Write one field through the project registry and verify the engine value.
+     *  Refreshes the named provider first so another view's edits are preserved.
+     *  Checks conversion, bounds, choice membership, applicability and run state.
+     *  Saves only this record, reloads it and restores the previous field on rejection.
+     *  Success notifies the registry and layer and marks the project edited.
+     *  Independent of the currently displayed table and its undo stack.
+     * @return False for an unavailable source, target or field, or a rejected write.
      */
     static bool applyValue(SWMMModelLayer *layer, SWMMModelLayer::DataCategory cat,
                            const QString &name, const QString &key, const QVariant &value);
@@ -184,22 +168,12 @@ public:
      *   destruction-to-queued-reload interval must not be used for editable applicability queries.
      */
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
-    /**
-     * @param[in] index Current model cell whose flags include editable; read-only name,
-     *   inapplicable inlet fields and running-engine cells rejected.
-     * @param[in] value Converted to old provider QVariant metatype; failed conversion rejects.
-     *   Metadata ranges/enumerated membership are not enforced here.
-     * @param[in] role Only EditRole accepted.
-     * @return False for rejected role/flags/conversion, true for unchanged converted value or
-     *   submitted edit attempt. True does not guarantee setter acceptance or registry flush
-     *   success: direct applyValue result and undo replay results are ignored.
-     * @note Changed value pushes one nonmergeable name/key command when stack present, otherwise
-     *   direct applyValue. Emits objectEdited after attempt only, no emission for equality.
-     *   Provider notifications update display; no local dataChanged fallback, rollback or error
-     *   dialog. GUI-thread/source lifetime must remain valid through synchronous notifications.
+    /** Commit an editable field before adding its undo command. Rejected edits
+     *  preserve history; objectEdited is emitted only after a successful change.
+     *  Unchanged converted values return true without adding history.
      */
     bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
-    /** Apply a uniform value to editable rows with one registry flush and one undo command. */
+    /** Apply a uniform value to editable rows as one checked, reversible undo command. */
     void setDataForRows(int column, const QList<int> &rows, const QVariant &value);
     /**
      * @param[in] index Expected current model index; invalid returns base flags. Foreign/stale
@@ -226,6 +200,8 @@ public:
                         int role = Qt::DisplayRole) const override;
 
 public slots:
+    /*! Synchronize one engine-backed record and notify its table row. */
+    void refreshObject(const QString &name);
     /*! Re-read the registry's provider list and the reference-column choices,
      *  then reset.
      * @note begin/endResetModel rebuild specs/reference-name choices and guarded provider rows in

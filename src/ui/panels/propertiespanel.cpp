@@ -667,6 +667,13 @@ public:
             spin = w->findChild<QDoubleSpinBox *>();
         if (!spin)
             return w;
+        w->setProperty("propertyNumericTouched", false);
+        spin->setKeyboardTracking(false);
+        connect(spin, &QDoubleSpinBox::valueChanged, w,
+                [w] { w->setProperty("propertyNumericTouched", true); });
+        if (auto *line = spin->findChild<QLineEdit *>())
+            connect(line, &QLineEdit::textEdited, w,
+                    [w] { w->setProperty("propertyNumericTouched", true); });
         // Column 0 shows the adapter's display label ("Length (ft)"), so the
         // raw Q_PROPERTY name comes from the item's meta-property.
         auto *item = static_cast<QPropertyItem *>(index.internalPointer());
@@ -687,16 +694,27 @@ public:
     {
         if (auto *editor = meshFieldEditor(index))
             editor->setEditorData(widget, index);
-        else
+        else {
             QPropertyItemDelegate::setEditorData(widget, index);
+            if (widget->property("propertyNumericTouched").isValid())
+                widget->setProperty("propertyNumericTouched", false);
+        }
     }
     void setModelData(QWidget *widget, QAbstractItemModel *model,
                       const QModelIndex &index) const override
     {
         if (auto *editor = meshFieldEditor(index))
             editor->setModelData(widget, model, index);
-        else
+        else {
+            if (widget->property("propertyNumericTouched").isValid()) {
+                if (!widget->property("propertyNumericTouched").toBool())
+                    return;
+                auto *spin = qobject_cast<QDoubleSpinBox *>(widget);
+                if (!spin) spin = widget->findChild<QDoubleSpinBox *>();
+                if (spin) spin->interpretText();
+            }
             QPropertyItemDelegate::setModelData(widget, model, index);
+        }
     }
 private:
     mutable QPointer<QWidget> m_activeEditor;
@@ -1657,7 +1675,7 @@ void PropertiesPanel::onObjectEditedExternally(const QString &name)
     // bouncing an objectEdited back to the attribute table.
     if (name.isEmpty())
         return;
-    m_suppressEditForward = true;
+    const QScopedValueRollback<bool> guard(m_suppressEditForward, true);
 #ifdef HAVE_QPROPERTYMODEL
     auto *pm = qobject_cast<QPropertyModel *>(m_model);
 
@@ -1674,7 +1692,6 @@ void PropertiesPanel::onObjectEditedExternally(const QString &name)
                 swmm_node_get_type(m_swmmLayer->engine(), idx, &kind);
             if (kind != m_nodeAdapterKind) {
                 onLayerComboIndexChanged(m_layerCombo->currentIndex());
-                m_suppressEditForward = false;
                 return;
             }
         } else if (m_linkAdapter && m_linkAdapter->name() == name) {
@@ -1684,7 +1701,6 @@ void PropertiesPanel::onObjectEditedExternally(const QString &name)
                 swmm_link_get_type(m_swmmLayer->engine(), idx, &kind);
             if (kind != m_linkAdapterKind) {
                 onLayerComboIndexChanged(m_layerCombo->currentIndex());
-                m_suppressEditForward = false;
                 return;
             }
         }
@@ -1692,11 +1708,11 @@ void PropertiesPanel::onObjectEditedExternally(const QString &name)
 
     if (pm && ((m_nodeAdapter && m_nodeAdapter->name() == name) ||
                (m_linkAdapter && m_linkAdapter->name() == name) ||
-               (m_subcatchAdapter && m_subcatchAdapter->name() == name))) {
+               (m_subcatchAdapter && m_subcatchAdapter->name() == name) ||
+               (m_dataAdapter && m_dataAdapter->name() == name))) {
         pm->refreshValues();
     }
 #endif
-    m_suppressEditForward = false;
 }
 
 void PropertiesPanel::onOffsetModeChanged()

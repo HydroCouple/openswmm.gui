@@ -10,8 +10,7 @@
  *   2. DataObjectAttributeTableModel lists exactly the registry's objects.
  *   3. A cell edit writes the staged provider AND the engine, is one undo
  *      step, and undo restores both.
- *   4. A bulk edit wrapped in a macro (the panel's "apply to selected rows")
- *      reverts in one undo.
+ *   4. The panel's bulk write path reverts in one undo after a category switch.
  *   5. Inlet fields the design's type does not use are read-only.
  *   6. Name-reference columns (aquifer evap pattern) round-trip names.
  *
@@ -29,8 +28,13 @@
 #include "street/streetregistry.h"
 #include "ui/editors/comprehensiveeditorregistry.h"
 #include "ui/panels/dataobjectattributetablemodel.h"
+#include "ui/panels/propertiespanel.h"
+#include "ui/properties/swmmpollutantpropertyadapter.h"
+#include <QTreeView>
+#include <QSignalSpy>
 
 #include <openswmm/engine/openswmm_pollutants.h>
+#include <openswmm/engine/openswmm_model.h>
 
 #include <QDir>
 #include <QTest>
@@ -101,7 +105,129 @@ private slots:
     void bulkEditUndoesInOneStep();
     void inletFieldsFollowType();
     void nameReferenceColumnRoundTrips();
+    void propertyAndTableEditsPreserveEachOther();
+    void rejectedEngineWriteLeavesValuesAndHistoryUnchanged();
+    void categoryEditsPersistAndUndo_data();
+    void categoryEditsPersistAndUndo();
 };
+
+void TestDataObjectAttributeTable::categoryEditsPersistAndUndo_data()
+{
+    QTest::addColumn<int>("category");
+    QTest::addColumn<QString>("name");
+    QTest::addColumn<QString>("key");
+    QTest::addColumn<double>("value");
+    QTest::newRow("pollutant") << int(DC::DataPollutants) << QString("TSS") << QString("kDecay") << .125;
+    QTest::newRow("land-use") << int(DC::DataLandUses) << QString("Residential") << QString("sweepInterval") << 3.0;
+    QTest::newRow("aquifer") << int(DC::DataAquifers) << QString("AQ1") << QString("porosity") << .55;
+    QTest::newRow("street") << int(DC::DataStreets) << QString("ST1") << QString("roadRoughness") << .025;
+    QTest::newRow("inlet") << int(DC::DataInlets) << QString("GRATE1") << QString("grateLength") << 3.5;
+}
+
+void TestDataObjectAttributeTable::categoryEditsPersistAndUndo()
+{
+    QFETCH(int, category);
+    QFETCH(QString, name);
+    QFETCH(QString, key);
+    QFETCH(double, value);
+    auto layer = openLayer();
+    QVERIFY(layer);
+    const auto cat = DC::DataCategory(category);
+    DataObjectAttributeTableModel table;
+    QUndoStack undo;
+    table.setUndoStack(&undo);
+    table.setSource(layer.get(), cat);
+    const auto cell = table.index(table.rowForName(name), colFor(table, key));
+    QVERIFY(cell.isValid());
+    const auto before = cell.data(Qt::EditRole);
+    QSignalSpy changed(layer.get(), &SWMMModelLayer::attributeChanged);
+    QVERIFY(table.setData(cell, value));
+    QCOMPARE(cell.data(Qt::EditRole).toDouble(), value);
+    QVERIFY(changed.count() > 0);
+    undo.undo();
+    QCOMPARE(cell.data(Qt::EditRole), before);
+    undo.redo();
+    QCOMPARE(cell.data(Qt::EditRole).toDouble(), value);
+    const QString directory = QDir(dataDir()).filePath("../../../workplans/immediate-mvc-fixtures");
+    QVERIFY(QDir().mkpath(directory));
+    const QString path = QDir(directory).filePath(QString("%1.inp").arg(QTest::currentDataTag()));
+    QCOMPARE(swmm_model_write(layer->engine(), path.toUtf8().constData()), SWMM_OK);
+    SWMMModelLayer reopened(path);
+    QList<QString> warnings, errors;
+    QVERIFY2(reopened.loadModel(warnings, errors), qPrintable(errors.join('\n')));
+    DataObjectAttributeTableModel restored;
+    restored.setSource(&reopened, cat);
+    QCOMPARE(restored.index(restored.rowForName(name), colFor(restored, key)).data(Qt::EditRole).toDouble(), value);
+}
+
+void TestDataObjectAttributeTable::propertyAndTableEditsPreserveEachOther()
+{
+    auto layer = openLayer();
+    QVERIFY(layer);
+    DataObjectAttributeTableModel table;
+    QUndoStack undo;
+    table.setUndoStack(&undo);
+    table.setSource(layer.get(), DC::DataPollutants);
+    PropertiesPanel panel;
+    panel.setProject(layer.get());
+    panel.showDataObject(layer.get(), SWMMObjectRef::Pollutant, "TSS");
+    auto *adapter = panel.findChild<SWMMPollutantPropertyAdapter *>();
+    QVERIFY(adapter);
+    auto *tree = panel.findChild<QTreeView *>();
+    QVERIFY(tree);
+    connect(&table, &DataObjectAttributeTableModel::objectEdited, &panel,
+            &PropertiesPanel::onObjectEditedExternally);
+    adapter->setKDecay(.375);
+    // A different record was also edited directly. This cell must preserve both.
+    QCOMPARE(swmm_pollutant_set_kdecay(layer->engine(), swmm_pollutant_index(layer->engine(), "Lead"), .42), 0);
+    const int row = table.rowForName("TSS");
+    QVERIFY(table.setData(table.index(row, colFor(table, "rainConc")), 2.0));
+    QCOMPARE(engineKDecay(layer.get(), "TSS"), .375);
+    QCOMPARE(engineKDecay(layer.get(), "Lead"), .42);
+    QSignalSpy refreshed(tree->model(), &QAbstractItemModel::dataChanged);
+    QVERIFY(table.setData(table.index(row, colFor(table, "kDecay")), .5));
+    QVERIFY(refreshed.count() > 0);
+    QCOMPARE(adapter->kDecay(), .5);
+    refreshed.clear();
+    undo.undo();
+    QCOMPARE(adapter->kDecay(), .375);
+    QVERIFY(refreshed.count() > 0);
+    QCOMPARE(engineKDecay(layer.get(), "Lead"), .42);
+}
+
+void TestDataObjectAttributeTable::rejectedEngineWriteLeavesValuesAndHistoryUnchanged()
+{
+    auto layer = openLayer();
+    QVERIFY(layer);
+    DataObjectAttributeTableModel table;
+    QUndoStack undo;
+    table.setUndoStack(&undo);
+    table.setSource(layer.get(), DC::DataPollutants);
+    const auto units = table.index(table.rowForName("TSS"), colFor(table, "units"));
+    QVERIFY(!(units.flags() & Qt::ItemIsEditable));
+    QVERIFY(!table.setData(units, 1));
+    QVERIFY(table.setData(table.index(table.rowForName("TSS"), colFor(table, "kDecay")), .5));
+    undo.undo();
+    QVERIFY(undo.canRedo());
+    table.setSource(layer.get(), DC::DataAquifers);
+    const auto porosity = table.index(table.rowForName("AQ1"), colFor(table, "porosity"));
+    QVERIFY(porosity.isValid());
+    const auto before = porosity.data(Qt::EditRole);
+    QVERIFY(!table.setData(porosity, 1.5));
+    QCOMPARE(porosity.data(Qt::EditRole), before);
+    QCOMPARE(undo.index(), 0);
+    QVERIFY(undo.canRedo());
+    // Zero passes the column's numeric bounds but is rejected by the engine.
+    table.setSource(layer.get(), DC::DataInlets);
+    const auto grate = table.index(table.rowForName("GRATE1"), colFor(table, "grateLength"));
+    const auto grateBefore = grate.data(Qt::EditRole);
+    QSignalSpy published(layer.get(), &SWMMModelLayer::attributeChanged);
+    QVERIFY(!table.setData(grate, 0.0));
+    QCOMPARE(grate.data(Qt::EditRole), grateBefore);
+    QCOMPARE(published.count(), 0);
+    QCOMPARE(undo.index(), 0);
+    QVERIFY(undo.canRedo());
+}
 
 /** @brief Verify every category advertising an editor also registers an existing-object dispatch callback. */
 void TestDataObjectAttributeTable::everyEditableCategoryOpensExistingObjects()
@@ -205,18 +331,18 @@ void TestDataObjectAttributeTable::bulkEditUndoesInOneStep()
     const int col = colFor(model, QStringLiteral("roadRoughness"));
     QVERIFY(col >= 0);
 
-    // Same shape as AttributeTablePanel::applyValueToSelectedRows.
-    stack.beginMacro(QStringLiteral("Apply value to 2 rows"));
-    for (int r = 0; r < model.rowCount(); ++r)
-        QVERIFY(model.setData(model.index(r, col), 0.02));
-    stack.endMacro();
+    model.setDataForRows(col, {0, 1}, 0.02);
     QCOMPARE(stack.count(), 1);
     QCOMPARE(reg->findByName(QStringLiteral("ST1"))->roadRoughness(), 0.02);
     QCOMPARE(reg->findByName(QStringLiteral("ST2"))->roadRoughness(), 0.02);
 
+    model.setSource(layer.get(), DC::DataPollutants);
     stack.undo();
     QCOMPARE(reg->findByName(QStringLiteral("ST1"))->roadRoughness(), 0.016);
     QCOMPARE(reg->findByName(QStringLiteral("ST2"))->roadRoughness(), 0.016);
+    stack.redo();
+    QCOMPARE(reg->findByName(QStringLiteral("ST1"))->roadRoughness(), 0.02);
+    QCOMPARE(reg->findByName(QStringLiteral("ST2"))->roadRoughness(), 0.02);
 }
 
 /** @brief Verify grate/curb inlet fields are editable only for the relevant design type and unused cells are null. */

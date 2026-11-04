@@ -94,10 +94,11 @@ public:
      *  it. \returns count added.
      * @brief Import engine objects whose names are not already registered.
      * @param[in] engineHandle Borrowed valid SWMM_Engine, retained for later synchronization; null is a no-op and preserves the previous cached handle.
-     * @return Number of new providers loaded; zero for null/empty engine data.
-     * @details Existing providers are neither refreshed nor removed. Loading emits providerAdded() and parameter notifications through ordinary setters; getter failures may leave defaults. Call on the registry/engine owning thread.
+     * @return Number of providers loaded or refreshed; zero for null/empty engine data.
+     * @details With an empty onlyName, existing providers are neither refreshed nor removed. Loading emits providerAdded() and parameter notifications through ordinary setters; getter failures may leave defaults. Call on the registry/engine owning thread.
+     * @param[in] onlyName Optional name to refresh in place; empty imports missing providers.
      */
-    int loadFromEngine(void *engineHandle);
+    int loadFromEngine(void *engineHandle, const QString &onlyName = {});
 
     /*! \brief Push every provider back to the engine via add (if missing) +
      *  swmm_street_set_params. Caches \p engineHandle.
@@ -105,8 +106,9 @@ public:
      * @param[in] engineHandle Valid SWMM_Engine retained for later calls; null is a no-op preserving the previous handle.
      * @return Number of providers whose engine object was found or added and whose setter calls were attempted; not a count of confirmed setter success.
      * @details The combined engine parameter setter return is ignored; a counted provider may have failed to update and prior changes are not rolled back.
+     * @param[in] onlyName Optional name restricting writes to that provider.
      */
-    int saveToEngine(void *engineHandle);
+    int saveToEngine(void *engineHandle, const QString &onlyName = {});
 
     /*! \brief Flush against the engine handle cached by the most recent
      *  load / save. No-op if neither has been called.

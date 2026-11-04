@@ -19,6 +19,7 @@
 #include "render/sublayers/meshbcsublayer.h"
 #include "render/sublayers/meshfillsublayer.h"
 #include "render/sublayers/meshnodesublayer.h"
+#include "render/sublayers/couplednodesublayer.h"
 #include "map/mapcanvas.h"
 #include "map/scalebarsettings.h"
 #include "map/swmmlayerqsgrenderer.h"
@@ -61,6 +62,9 @@
 #include "ui/panels/objectbrowserpanel.h"
 #include "ui/panels/propertiespanel.h"
 #include "ui/panels/swmmattributetablemodel.h"
+#include "ui/panels/meshattributetablemodel.h"
+#include "mesh/meshobjectref.h"
+#include "mesh/meshcellgeom.h"
 #include "ui/panels/swmmobjecttreemodel.h"
 #include "ui/properties/swmmlinkpropertyadapter.h"
 #include <openswmm/engine/openswmm_gages.h>
@@ -79,6 +83,7 @@
 #include <QSpinBox>
 #include <QStyleOptionViewItem>
 #include <QTreeView>
+#include <QPushButton>
 #include <functional>
 #include <QApplication>
 #include <QAbstractButton>
@@ -1006,6 +1011,125 @@ private slots:
         QVERIFY(qAbs(bottomEdgeWidth(renderMeshEdges(scene), thin) - 4) <= 1);
         layer.depopulateScene(&scene);
     }
+    void propertiesBoundaryApplyUpdatesRenderedEdges_data()
+    {
+        QTest::addColumn<bool>("quad");
+        QTest::addColumn<bool>("pendingSelection");
+        QTest::newRow("triangles-selected") << false << false;
+        QTest::newRow("triangles-selection-pending") << false << true;
+        QTest::newRow("quad-selected") << true << false;
+        QTest::newRow("quad-selection-pending") << true << true;
+    }
+
+    void propertiesBoundaryApplyUpdatesRenderedEdges()
+    {
+        QFETCH(bool, quad);
+        QFETCH(bool, pendingSelection);
+        auto mesh = edgeFixture();
+        if (quad) mesh.triangles = {{0, 1, 3, 2}};
+        SWMM2DMeshLayer layer(mesh, "boundary-render.inp");
+        isolateMeshEdges(layer);
+        layer.meshBcSublayer()->setVisible(true);
+        mesh::MeshEdgeBC existing;
+        existing.type = mesh::MeshBCTypes::Type::NormalFlow;
+        existing.slope = .01;
+        QVERIFY(layer.applyMeshEdgeBC(0, 2, existing));
+        MapCanvas canvas;
+        canvas.addLayer(&layer, false);
+        PropertiesPanel panel;
+        const QList<SWMMObjectRef> refs{
+            mesh::MeshObjectRef::edge(layer.sourcePath(), 0, 0),
+            mesh::MeshObjectRef::edge(layer.sourcePath(), quad ? 0 : 1, quad ? 1 : 0)};
+        const QSet<int> selection{mesh::edgeSlot(0, 0),
+                                  mesh::edgeSlot(quad ? 0 : 1, quad ? 1 : 0)};
+        panel.showMeshSelection(&canvas, refs);
+        auto *tree = panel.findChild<QTreeView *>();
+        QVERIFY(tree);
+        const auto field = [tree](const QString &label) {
+            auto *model = tree->model();
+            for (int g = 0; g < model->rowCount(); ++g) {
+                const auto group = model->index(g, 0);
+                for (int r = 0; r < model->rowCount(group); ++r)
+                    if (model->index(r, 0, group).data().toString() == label)
+                        return model->index(r, 1, group);
+            }
+            return QModelIndex();
+        };
+        if (!pendingSelection) layer.setHighlightedEdges(selection);
+        QCoreApplication::processEvents(); // settle the original legend before warming the cache
+        FeedbackMeshRenderer renderer;
+        renderer.setWidth(360);
+        renderer.setHeight(360);
+        renderer.setLayer(&layer);
+        renderer.setMapExtent(MapExtent(-.1, -.1, 1.1, 1.1));
+        std::unique_ptr<QSGTransformNode> root(
+            static_cast<QSGTransformNode *>(renderer.updatePaintNode(nullptr, nullptr)));
+        QCOMPARE(meshEdgePass(root.get(), 4)->geometry()->vertexCount(), 6);
+        if (pendingSelection) layer.setHighlightedEdges(selection);
+        QVERIFY(tree->model()->setData(field("BC Type"), int(mesh::MeshBCTypes::Type::NormalFlow)));
+        QVERIFY(tree->model()->setData(field("Friction Slope"), .007));
+        panel.findChild<QPushButton *>("meshAggregateApply")->click();
+        for (int slot : selection) {
+            QCOMPARE(layer.edgeBCs()[slot].type, mesh::MeshBCTypes::Type::NormalFlow);
+            QCOMPARE(layer.edgeBCs()[slot].slope, .007);
+        }
+        root.reset(static_cast<QSGTransformNode *>(renderer.updatePaintNode(root.release(), nullptr)));
+        QCOMPARE(meshEdgePass(root.get(), 4)->geometry()->vertexCount(), 18);
+        layer.setHighlightedEdges({});
+        canvas.undoStack()->undo();
+        root.reset(static_cast<QSGTransformNode *>(renderer.updatePaintNode(root.release(), nullptr)));
+        QCOMPARE(meshEdgePass(root.get(), 4)->geometry()->vertexCount(), 6);
+        layer.setHighlightedEdges(selection);
+        canvas.undoStack()->redo();
+        root.reset(static_cast<QSGTransformNode *>(renderer.updatePaintNode(root.release(), nullptr)));
+        QCOMPARE(meshEdgePass(root.get(), 4)->geometry()->vertexCount(), 18);
+    }
+
+    void meshAttributesRenderWithPendingSelection()
+    {
+        auto mesh = edgeFixture();
+        for (auto &cell : mesh.triangles) cell.mannings = .02;
+        SWMM2DMeshLayer layer(mesh, "attribute-render.inp");
+        layer.setActiveMesh(true);
+        layer.coupledNodeSublayer()->setVisible(true);
+        auto *style = layer.meshFillSublayer()->fillStyle();
+        style->setColorByAttribute(OpenSWMM::Render::MeshFillStyle::CellAttribute::Mannings);
+        style->setHillshadeStrength(0);
+        auto scheme = style->scheme();
+        scheme.setUseCustomRange(true);
+        scheme.setRangeMin(.01);
+        scheme.setRangeMax(.1);
+        style->setScheme(scheme);
+        QCoreApplication::processEvents();
+        FeedbackMeshRenderer renderer;
+        renderer.setWidth(360);
+        renderer.setHeight(360);
+        renderer.setLayer(&layer);
+        renderer.setMapExtent(MapExtent(-.1, -.1, 1.1, 1.1));
+        std::unique_ptr<QSGTransformNode> root(
+            static_cast<QSGTransformNode *>(renderer.updatePaintNode(nullptr, nullptr)));
+        const auto color = [&root] {
+            const auto &v = meshEdgePass(root.get(), 0)->geometry()->vertexDataAsColoredPoint2D()[0];
+            return QColor(v.r, v.g, v.b, v.a);
+        };
+        const auto before = color();
+        layer.setHighlightedTriangles({0});
+        QVERIFY(layer.applyMeshTriangleMannings(0, .09));
+        root.reset(static_cast<QSGTransformNode *>(renderer.updatePaintNode(root.release(), nullptr)));
+        QVERIFY(color() != before);
+        // Vertex coupling uses attributeChanged without a per-cell revision.
+        constexpr int coupledPass = 4 + OpenSWMM::Render::MeshBcStyle::kBcTypeCount - 1 + 3;
+        QCOMPARE(meshEdgePass(root.get(), coupledPass)->geometry()->vertexCount(), 0);
+        layer.setHighlightedVertices({0});
+        QVERIFY(layer.applyMeshVertexCoupledNode(0, "J1"));
+        root.reset(static_cast<QSGTransformNode *>(renderer.updatePaintNode(root.release(), nullptr)));
+        QCOMPARE(meshEdgePass(root.get(), coupledPass)->geometry()->vertexCount(), 6);
+        layer.setHighlightedVertices({});
+        QVERIFY(layer.applyMeshVertexCoupledNode(0, {}));
+        root.reset(static_cast<QSGTransformNode *>(renderer.updatePaintNode(root.release(), nullptr)));
+        QCOMPARE(meshEdgePass(root.get(), coupledPass)->geometry()->vertexCount(), 0);
+    }
+
     /** @brief Register active/inactive mesh scene-graph rendering at 360 and 720 pixel view sizes. */
     void gpuMeshEdgesApplyLiveColorAndPixelWidth_data()
     {
@@ -1456,6 +1580,15 @@ private slots:
         QVERIFY(roughSpin);
         QCOMPARE(roughSpin->singleStep(), 0.001);
         QCOMPARE(roughSpin->decimals(), 4);
+        adapter.setRoughness(.123456789);
+        const auto roughValue = roughRow.sibling(roughRow.row(), 1);
+        delegate->setEditorData(roughEditor.get(), roughValue);
+        delegate->setModelData(roughEditor.get(), &properties, roughValue);
+        QCOMPARE(adapter.roughness(), .123456789);
+        roughSpin->selectAll();
+        QTest::keyClicks(roughSpin, "0.025");
+        delegate->setModelData(roughEditor.get(), &properties, roughValue);
+        QCOMPARE(adapter.roughness(), .025);
     }
     /** @brief Verify the pollutant context menu offers Edit without Properties and opens a visible editor for TRACER. */
     void objectBrowserEditOpensPollutantEditor()
