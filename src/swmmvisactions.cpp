@@ -151,8 +151,6 @@ void SWMMVis::registerActions()
         for (const char *id : {"mesh.selectVertices", "mesh.selectEdges", "mesh.autoCouple",
                                "mesh.remap", "mesh.editInTable", "mesh.reviewOwnership"})
             registry->setDisabledReason(QString::fromLatin1(id), needMesh);
-        registry->setDisabledReason(QStringLiteral("mesh.boundaryCondition"),
-                                    tr("Select one or more boundary edges with the Edges tool."));
         registry->setDisabledReason(QStringLiteral("mesh.assignInfiltration"),
                                     tr("Select one or more 2D cells with the Cells tool."));
         registry->setDisabledReason(QStringLiteral("mesh.clearSelection"),

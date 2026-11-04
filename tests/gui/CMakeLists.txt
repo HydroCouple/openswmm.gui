@@ -3443,7 +3443,7 @@ add_swmmvis_gui_test(test_meshcommands_vertex_edge
 )
 swmmvis_link_full_app_deps(test_meshcommands_vertex_edge)
 
-# The mesh-editing toolbar's BC editor — single-edge hydration after a bulk
+# Mesh boundary editing through Properties and the table — single-edge hydration after a bulk
 # assign, mixed-selection placeholders, and the display-refresh-never-writes
 # contract (unblocked combos used to bulk-overwrite the selection on mere
 # selection change). First test to instantiate MeshEditingToolbar.

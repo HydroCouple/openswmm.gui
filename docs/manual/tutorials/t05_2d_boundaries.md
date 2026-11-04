@@ -20,8 +20,8 @@ boundary-condition type the engine accepts**, plus an `[2D_EDGE_CONVEYANCE]`
 - `[2D_VERTEX_NODE_MAP]` and `[2D_TRIANGLE_NODE_MAP]` — 1D↔2D coupling
 - `[2D_OPTIONS]` — `CELL_CLOSURE`, `FACE_RECONSTRUCTION`, `COUPLING_*`,
   `RAINFALL_MODE`, and the CVODE-era keys the engine has retired
-- **Mesh 2D** tab **Edges** and **Vertices** tools, **Boundary Condition…**
-  editor, Properties, mesh attribute table, mesh layer styling
+- **Mesh 2D** tab **Edges** and **Vertices** tools, the surface boundary condition
+  editor in Properties and the mesh attribute table, mesh layer styling
 - 2D mesh profile plot, map animation, flow balance, the status report
 
 ## Files
@@ -72,8 +72,7 @@ edge is left out of the section, and **an unlisted boundary edge defaults to
 `WALL`** — so the plain is walled on three sides.
 
 1. Make the mesh layer active on the **Mesh 2D** ribbon tab (pick it in the
-   **Mesh:** picker of the **Mesh** group), then pick **Surface Flow** in the
-   **Process** group's picker so the **Surface Flow** group shows.
+   **Mesh:** picker of the **Mesh** group).
 2. Activate the **Edges** tool (**Mesh 2D → Select** group, or
    **Model → Mesh → Select Edge**). By default it picks **boundary edges
    only**; press **A** to include interior edges and **B** to go back.
@@ -82,9 +81,9 @@ edge is left out of the section, and **an unlisted boundary edge defaults to
    run between the two is added to the selection. Keep Ctrl-clicking to walk
    the whole face in a few clicks. **Esc** drops a pending anchor; **Esc**
    again clears the selection. (\ref manual_selection has the full rules.)
-4. Click **Boundary Condition** in the **Surface Flow** group (or
-   **Model → Mesh → Boundary Condition…**); it is enabled once at least one
-   boundary edge is selected. The **Surface boundary condition** editor opens
+4. Click **Edit in Table** in the **Select** group, then right-click the selected
+   edge rows and choose **Edit surface boundary condition…**.
+   The **Surface boundary condition** editor opens
    with `10 of 10 selected edges are boundary edges.`, **Type** reading
    **Normal Depth** and **Friction Slope** `0.001`.
 
@@ -106,10 +105,11 @@ one value field that type uses:
 | **Rating Curve** | `RATING_CURVE` | **Rating Curve** | a `RATING` `[CURVES]` name |
 
 The **Time Series** and **Rating Curve** rows are pickers over the model's
-time series or curves (a plain text field when no model is open). **OK** writes the type and
-value to **every** selected boundary edge as one undo step, so a run selection
-is the fast way to build an outflow face. If the selected edges disagree, the
-editor opens with no type chosen and **OK** stays disabled until you pick one.
+time series or curves (a plain text field when no model is open). Each committed field
+updates **every** selected boundary edge as one undo step, so a run selection
+is the fast way to build an outflow face. If the selected edges have different types, the
+editor opens with no type chosen; differing parameters show **Mixed**.
+**Close** dismisses the editor; **Undo** reverts a committed change.
 The same editor opens from **Edit surface boundary condition…** on a single
 edge's **Boundary condition** group in **Properties**, and from the edge
 table's row context menu.
@@ -477,9 +477,9 @@ Row by row, this is what the reference model does:
 | `5 0` | T5 north | `SPECIFIED_STAGE 101.50` | fixed water-surface elevation |
 | — | west face | *(unlisted)* | defaults to `WALL` |
 
-To reproduce any of these in the GUI: pick **Surface Flow** in the
-**Mesh 2D → Process** picker, select the edge with the **Edges** tool, click
-**Boundary Condition**, pick the **Type**, and fill the one value field that
+To reproduce any of these in the GUI: select the edge with the **Edges** tool,
+choose **Edit surface boundary condition…** in **Properties**, pick the **Type**,
+and fill the one value field that
 appears below it — **Friction Slope**, **Stage**, **Flow**, or the **Model
 reference** picker for a time series or rating curve. Named groups are set in
 the attribute table's **Group** column.

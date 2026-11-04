@@ -585,15 +585,14 @@ select. Every command is also under **Model → Mesh →**.
 | Group | Contents |
 | --- | --- |
 | **Mesh** | **Mesh:** the active mesh every other command acts on · **Auto-couple Nodes** · **Remap 1D↔2D** · **Burn Channels**. The elevation under the cursor is shown in the status bar |
-| **Process** | **Surface Flow**, **Infiltration**, **Groundwater**, **Surface Quality**, **Snow** or **Heat**. The next group shows that process's commands. A process that is switched off reads, for example, "Snow — off" (the tooltip says where to switch it on); its commands stay usable so it can be set up first. **Model → Mesh → Process** offers the same choice |
+| **Process** | **Surface Flow**, **Infiltration**, **Groundwater**, **Surface Quality**, **Snow** or **Heat**. The next group shows that process's commands when it has any. Surface Flow values are edited in Properties or the Attribute Table, so it has no command group. A process that is switched off reads, for example, "Snow — off" (the tooltip says where to switch it on); its commands stay usable so it can be set up first. **Model → Mesh → Process** offers the same choice |
 | **Select** | **Cells**, **Edges** and **Vertices** tools · **Clear Selection** · **Edit in Table**, which opens the Attribute Table on the selected element kind |
-| *Process group* | **Surface Flow:** Boundary Condition… · **Infiltration:** Infiltration to Selection…, Review Ownership… · **Groundwater:** Assign Groundwater…, Aquifer Properties…, State…, Edge Boundaries…, Node Beds… · **Surface Quality:** Surface Quality…, Assign Surface Quality… · **Snow:** Assign Snow… · **Heat:** Heat Properties from Raster… |
+| *Process group* | **Infiltration:** Infiltration to Selection…, Review Ownership… · **Groundwater:** Assign Groundwater…, Aquifer Properties…, State…, Edge Boundaries…, Node Beds… · **Surface Quality:** Surface Quality…, Assign Surface Quality… · **Snow:** Assign Snow… · **Heat:** Heat Properties from Raster… |
 | **Cell Data** | **From Raster…**, **From Shapefile…** |
 | **Profile** | **Mesh Profile**, the bed and terrain profile tracer |
 
 Commands that act on a selection are enabled only while it holds what they need:
-**Boundary Condition…** needs at least one boundary edge and **Infiltration to
-Selection…** needs cells. A disabled command's tooltip says what to select.
+**Infiltration to Selection…** needs cells. A disabled command's tooltip says what to select.
 
 **Editing values.** Click one element and edit it in **Properties**; each change
 is written at once. To edit many, use either route:
@@ -719,9 +718,10 @@ successfully, so cancelling mid-run leaves the mesh exactly as it was.
 
 ### Boundary conditions
 
-Select boundary edges with **Edges**, then choose **Boundary Condition…** under
-the **Surface Flow** process, or edit the edge in **Properties** or the
-**Attribute Table**. All three use the same editor; each committed field is one undo step.
+Select boundary edges with **Edges**, then edit them in **Properties** or choose
+**Edit in Table** to open the **Attribute Table**. Both panels offer
+**Edit surface boundary condition…**, which opens the shared editor; each committed field
+is one undo step.
 Boundary edges you never touch default to `WALL` (zero flux).
 
 \figtodo{19_edge_bc.png, Assigning a boundary condition to a selected run of boundary edges}

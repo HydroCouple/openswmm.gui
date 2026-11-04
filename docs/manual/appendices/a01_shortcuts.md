@@ -138,7 +138,7 @@ candidates for your own bindings. The list, by menu path:
 - **Model → Mesh** — Process ▸ (Surface Flow, Infiltration, Groundwater,
   Surface Quality, Snow, Heat); Auto-couple, Remap 1D↔2D, Burn Channels…;
   Select 2D Cells, Select Edge, Select Vertex, Clear Selection, Edit in Table;
-  Boundary Condition…, Assign Infiltration to Selection…, Review Ownership…;
+  Assign Infiltration to Selection…, Review Ownership…;
   Assign Groundwater…, Aquifer…, State & Diagnostics…, Aquifer Edge
   Boundaries…, Aquifer Node Beds…; Surface Quality…, Assign Surface Quality…,
   Assign snow…, Heat Properties from Raster…; From Raster…, From Shapefile…,
@@ -151,8 +151,9 @@ candidates for your own bindings. The list, by menu path:
   (**Animation** ribbon tab)
 
 The **Model → Mesh** commands mirror the **Mesh 2D** ribbon tab. Commands that
-edit the mesh need an active 2D mesh; **Boundary Condition…** also needs
-selected boundary edges and **Assign Infiltration to Selection…** selected cells.
+edit the mesh need an active 2D mesh; **Assign Infiltration to Selection…** also
+needs selected cells. Edit surface boundary conditions in **Properties** or the
+**Attribute Table**.
 The **Process** entries are always available.
 
 ### Map canvas keys

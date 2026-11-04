@@ -20,7 +20,6 @@
 #include "mesh/meshobjectref.h"
 #include "selection/selectionmanager.h"
 #include "ui/dialogs/remap1d2ddialog.h"
-#include "ui/panels/meshattributetablemodel.h"
 #include "ui/toolbars/ribbongroup.h"
 
 #include <QAction>
@@ -217,8 +216,8 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
     m_actEditEdge->setCheckable(true);
     m_actEditEdge->setToolTip(tr("Select edges: click an edge or drag a box to select several; "
                                  "Ctrl/⌘-click two boundary edges to add the whole run between "
-                                 "them. Edit boundary conditions and conveyance in Properties, "
-                                 "the attribute table or Boundary Condition…. Esc clears."));
+                                 "them. Edit boundary conditions and conveyance in Properties "
+                                 "or the attribute table. Esc clears."));
     m_actEditVertex =
         new QAction(QIcon(QStringLiteral(":/swmmvis/SelectTriNode")), tr("Select Vertex"), this);
     m_actEditVertex->setObjectName(QStringLiteral("actionMeshSelectVertex"));
@@ -290,20 +289,6 @@ MeshEditingToolbar::MeshEditingToolbar(const QString &title, QWidget *parent)
         if (m_surfaceOwnershipReview)
             m_surfaceOwnershipReview();
     });
-    // Surface flow's boundary editor is the attribute table's own compound
-    // editor, opened on the selected boundary edges (plan §6.1).
-    m_actBoundaryCondition = new QAction(QIcon(QStringLiteral(":/swmmvis/CellBoundaries")),
-                                         tr("Boundary Condition…"), this);
-    m_actBoundaryCondition->setObjectName(QStringLiteral("actionMeshBoundaryCondition"));
-    m_actBoundaryCondition->setIconText(tr("Boundary\nCondition"));
-    m_actBoundaryCondition->setToolTip(
-        tr("Prescribe the surface boundary condition (wall, normal depth, stage, flow, their "
-           "time series, or a rating curve) on the selected boundary edges as one undo step."));
-    connect(m_actBoundaryCondition, &QAction::triggered, this,
-            &MeshEditingToolbar::onBoundaryCondition);
-    addProcessActions(Process::SurfaceFlow, {m_actBoundaryCondition});
-    setCommandNeeds(m_actBoundaryCondition, Needs::BoundaryEdges);
-
     // ── Cell Data and Profile: filled by the host ──────────────────────────
     m_groupCellData = new RibbonGroup(tr("Cell Data"), this);
     mountGroup(m_groupCellData);
@@ -478,9 +463,6 @@ void MeshEditingToolbar::rebindCanvas(MapCanvas *canvas)
         connect(m_canvas, &MapCanvas::layerRemoved, this, &MeshEditingToolbar::onLayerRemoved);
     }
     m_hover->setCanvas(m_canvas);
-    // The boundary editor's model must not keep a mesh of the previous project.
-    if (m_edgeModel)
-        m_edgeModel->setSource(nullptr, MeshAttributeTableModel::Kind::Edge);
     rebuildMeshCombo();
     refreshProcessStatus();
 }
@@ -872,38 +854,6 @@ void MeshEditingToolbar::onHoverElevation(double z, bool finite)
     emit hoverElevationChanged(z, finite);
 }
 
-void MeshEditingToolbar::onBoundaryCondition()
-{
-    if (!m_activeMesh)
-        return;
-    SWMMModelLayer *model = nullptr;
-    if (m_canvas)
-        for (OpenSWMMVisLayer *l : m_canvas->layers())
-            if ((model = qobject_cast<SWMMModelLayer *>(l)))
-                break;
-    // The attribute table's compound editor, so Properties, the table and
-    // the ribbon prescribe through one dialog, one validation and one undo
-    // command. The model outlives the modeless dialog it opens.
-    if (!m_edgeModel)
-        m_edgeModel = new MeshAttributeTableModel(this);
-    // Drop the previous mesh first: rebinding the model layer while the old
-    // mesh is still the source would re-point that mesh's infiltration
-    // ownership at this project's engine.
-    m_edgeModel->setSource(nullptr, MeshAttributeTableModel::Kind::Edge);
-    m_edgeModel->setCanvas(m_canvas);
-    m_edgeModel->setModelLayer(model);
-    m_edgeModel->setSource(m_activeMesh, MeshAttributeTableModel::Kind::Edge);
-    QList<int> rows;
-    for (const auto &edge : currentSelectedEdges()) {
-        const int row = m_edgeModel->rowForRef(
-            mesh::MeshObjectRef::edge(m_activeMesh->sourcePath(), edge.first, edge.second));
-        if (row >= 0 && !rows.contains(row))
-            rows.append(row);
-    }
-    if (!rows.isEmpty())
-        m_edgeModel->editBoundaryCondition(rows, window());
-}
-
 void MeshEditingToolbar::updateEnabledState()
 {
     const bool haveMesh = m_activeMesh != nullptr;
@@ -915,21 +865,11 @@ void MeshEditingToolbar::updateEnabledState()
     m_actClearSelection->setEnabled(m_selection && !m_selection->isEmpty());
     m_actReviewOwnership->setEnabled(haveMesh && bool(m_surfaceOwnershipReview));
 
-    bool boundaryEdge = false;
-    if (haveMesh)
-        for (const auto &pr : currentSelectedEdges())
-            if (m_activeMesh->isBoundaryEdge(pr.first, pr.second)) {
-                boundaryEdge = true;
-                break;
-            }
     const bool cells = !currentSelectedCells().isEmpty();
     for (auto it = m_needs.cbegin(); it != m_needs.cend(); ++it) {
         switch (it.value()) {
         case Needs::Cells:
             it.key()->setEnabled(cells);
-            break;
-        case Needs::BoundaryEdges:
-            it.key()->setEnabled(boundaryEdge);
             break;
         case Needs::Nothing:
             break;

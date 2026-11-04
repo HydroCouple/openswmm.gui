@@ -166,7 +166,7 @@ is selected. Pick a process to show its commands:
 
 | Process | Commands |
 |---|---|
-| **Surface Flow** | **Boundary Condition…** for the selected boundary edges |
+| **Surface Flow** | Edit boundary conditions in **Properties** or the **Attribute Table**; no process command group is shown |
 | **Infiltration** | **Infiltration to Selection…** for the selected cells · **Review Ownership…** |
 | **Groundwater** | **Assign Groundwater…** · **Aquifer Properties…** · **State…** · **Edge Boundaries…** · **Node Beds…** |
 | **Surface Quality** | **Surface Quality…** · **Assign Surface Quality…** |
@@ -274,7 +274,7 @@ See \ref manual_selection and \ref manual_map_editing.
 | **Generate Mesh…** | Opens the 2D mesh generator. A DTM raster is optional — without one; vertex elevations come from junction rim elevations | \ref manual_2d_mesh |
 | **Burn Channels…** | Burns selected open-channel sections into the active mesh, with undoable network replacement; no DEM is required | \ref manual_2d_mesh |
 | **Set Project CRS…** | Chooses or changes the project's coordinate reference system | \ref manual_crs |
-| **Mesh ▸** | Every Mesh 2D tab command, in tab order: **Process ▸** (the six processes, checkable); Auto-couple, Remap 1D↔2D and Burn Channels…; the selection tools, Clear Selection and Edit in Table; Boundary Condition…, Assign Infiltration to Selection… and Review Ownership…; Assign Groundwater… and the groundwater pages; Surface Quality…, Assign Surface Quality…, Assign snow… and Heat Properties from Raster…; From Raster…, From Shapefile… and Mesh Profile. Burn Channels… and the three Assign commands are also at the top of the Model menu | \ref manual_2d_mesh |
+| **Mesh ▸** | Every Mesh 2D tab command, in tab order: **Process ▸** (the six processes, checkable); Auto-couple, Remap 1D↔2D and Burn Channels…; the selection tools, Clear Selection and Edit in Table; Assign Infiltration to Selection… and Review Ownership…; Assign Groundwater… and the groundwater pages; Surface Quality…, Assign Surface Quality…, Assign snow… and Heat Properties from Raster…; From Raster…, From Shapefile… and Mesh Profile. Burn Channels… and the three Assign commands are also at the top of the Model menu | \ref manual_2d_mesh |
 | **Terrain Profile** | Traces a terrain profile | \ref manual_profile_plots |
 
 **Model → Data Objects ▸** — every entry opens that category's editor in *browse*

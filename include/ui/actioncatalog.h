@@ -327,8 +327,6 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
      "Model/Mesh", Contextual2D},
     {"mesh.editInTable", "actionMeshEditInTable", "Mesh 2D", "", "TableView", "mesh2d",
      "Model/Mesh", Contextual2D},
-    {"mesh.boundaryCondition", "actionMeshBoundaryCondition", "Mesh 2D", "", "CellBoundaries",
-     "mesh2d", "Model/Mesh", Contextual2D},
     {"mesh.assignInfiltration", "actionMeshAssignInfilToSelection", "Mesh 2D", "", "Inundation2D",
      "mesh2d", "Model/Mesh", Contextual2D},
     {"mesh.reviewOwnership", "actionMeshReviewOwnership", "Mesh 2D", "", "Warning", "mesh2d",
