@@ -25,6 +25,7 @@
 #include "mesh/meshcellgeom.h"
 #include "selection/selectionmanager.h"
 #include "ui/panels/propertiespanel.h"
+#include "ui/panels/meshaggregateselection.h"
 #include "swmmvis.h"
 #include "swmmvisprojectwindow.h"
 #include "ui/actioncatalog.h"
@@ -49,6 +50,7 @@
 #include <QDoubleSpinBox>
 #include <QTreeView>
 #include <QSet>
+#include <QSignalSpy>
 #include <QTabBar>
 #include <QTest>
 #include <QTimer>
@@ -434,6 +436,12 @@ private slots:
         QTRY_COMPARE(panel->windowTitle(), QStringLiteral("2D Cell 0"));
         QVERIFY(apply->isHidden() || !apply->isVisibleTo(panel));
 
+        // Exercise a visible dock in the real host, including focus changes
+        // between the property editor and the Apply button.
+        m_win->resize(1600, 1000);
+        m_win->show();
+        panel->show();
+        QTest::qWait(30);
         // The real map tool's rectangle drives the full Properties route.
         auto *canvas = project->canvas();
         canvas->setExtent(MapExtent(-0.2, -0.2, 2.2, 1.2), false);
@@ -469,15 +477,43 @@ private slots:
             }
             return QModelIndex();
         };
+        tree->expandAll();
         const auto typeField = field("BC Type");
         QVERIFY(typeField.isValid());
-        QVERIFY(tree->model()->setData(typeField, int(mesh::MeshBCTypes::Type::NormalFlow)));
+        tree->scrollTo(typeField);
+        QTest::mouseClick(tree->viewport(), Qt::LeftButton, Qt::NoModifier,
+                          tree->visualRect(typeField).center());
+        auto *type = tree->findChild<QComboBox *>();
+        QVERIFY(type);
+        const auto normal = type->model()->index(type->findData(int(mesh::MeshBCTypes::Type::NormalFlow)), 0);
+        type->view()->scrollTo(normal);
+        QTest::mouseClick(type->view()->viewport(), Qt::LeftButton, Qt::NoModifier,
+                          type->view()->visualRect(normal).center());
         const auto slopeField = field("Friction Slope");
         QVERIFY(slopeField.flags() & Qt::ItemIsEditable);
-        QVERIFY(tree->model()->setData(slopeField, 0.005));
+        tree->scrollTo(slopeField);
+        QTest::mouseClick(tree->viewport(), Qt::LeftButton, Qt::NoModifier,
+                          tree->visualRect(slopeField).center());
+        auto *slope = tree->findChild<QDoubleSpinBox *>();
+        QVERIFY(slope);
+        slope->setFocus();
+        slope->selectAll();
+        QTest::keyClicks(slope, "0.005");
         const auto before = layer->edgeBCs();
+        const auto selectedEdges = project->selectionManager()->selection();
         const int undoBefore = canvas->undoStack()->index();
-        apply->click();
+        QVERIFY(apply->isVisible());
+        QVERIFY(apply->isEnabled());
+        auto *aggregate = panel->findChild<MeshAggregateSelection *>();
+        QSignalSpy appliedClick(apply, &QPushButton::clicked);
+        QVERIFY(aggregate);
+        QTest::mousePress(apply, Qt::LeftButton);
+        QTest::qWait(30); // real clicks allow queued focus/refresh work before release
+        QVERIFY(apply->isDown());
+        QTest::mouseRelease(apply, Qt::LeftButton);
+        QCoreApplication::processEvents();
+        QCOMPARE(appliedClick.count(), 1);
+        QVERIFY(aggregate->stagedColumns().isEmpty());
         QCOMPARE(canvas->undoStack()->index(), undoBefore + 1);
         for (const auto &ref : project->selectionManager()->selection()) {
             QString key;
@@ -485,6 +521,13 @@ private slots:
             QVERIFY(mesh::MeshObjectRef::parseEdge(ref, &key, &cell, &local));
             QCOMPARE(layer->edgeBCs()[mesh::edgeSlot(cell, local)].slope, 0.005);
         }
+        // Switching away and selecting one edited edge must read the applied
+        // record from the shared mesh, independently of the aggregate draft.
+        project->selectionManager()->clear();
+        project->selectionManager()->select({*selectedEdges.cbegin()}, SelectionManager::Replace);
+        QCoreApplication::processEvents();
+        QCOMPARE(field("BC Type").data(Qt::EditRole).toInt(), int(mesh::MeshBCTypes::Type::NormalFlow));
+        QCOMPARE(field("Friction Slope").data(Qt::EditRole).toDouble(), .005);
         canvas->undoStack()->undo();
         QCOMPARE(layer->edgeBCs(), before);
 

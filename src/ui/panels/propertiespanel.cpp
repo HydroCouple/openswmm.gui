@@ -874,9 +874,15 @@ void PropertiesPanel::setupUi()
     m_aggregateSummary->setWordWrap(true);
     barLayout->addWidget(m_aggregateSummary, 1);
     m_aggregateCancel = new QPushButton(tr("Cancel"), m_aggregateBar);
+    m_aggregateCancel->setFocusPolicy(Qt::TabFocus);
     m_aggregateCancel->setObjectName(QStringLiteral("meshAggregateCancel"));
     m_aggregateCancel->setToolTip(tr("Discard the changes made to the selected elements."));
     m_aggregateApply = new QPushButton(tr("Apply"), m_aggregateBar);
+    // Commit the active editor in clicked(), after the mouse press/release.
+    // A click-focus transfer commits and refreshes the tree during the press,
+    // which can cancel the button click before it reaches the Apply handler.
+    // Tab focus still permits keyboard navigation to either button.
+    m_aggregateApply->setFocusPolicy(Qt::TabFocus);
     m_aggregateApply->setObjectName(QStringLiteral("meshAggregateApply"));
     m_aggregateApply->setToolTip(
         tr("Write the changed fields to every selected element as one undo step."));
