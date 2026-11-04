@@ -848,6 +848,29 @@ single-cell, selected-row and spreadsheet-block paste.
    after geometry changes or mesh regeneration. Changing a node's structure in
    the attribute table updates hydraulic configuration; it does not relocate a map.
 
+The **Coupled Cells** sublayer highlights direct containing-cell mappings with
+an orange translucent fill and outline. It works for triangles and quads, and
+remains visible independently of the mesh edge and vertex zoom thresholds.
+Several 1D nodes can share a cell; its footprint is highlighted once. Toggle it
+in **Layers**, or change its fill, outline and opacity in the mesh style panel's
+**Coupled Cells** tab. Display settings are saved with the project.
+
+Select a cell and expand **Coupled 1D nodes** in **Properties** to see the node
+count and IDs. **Edit…** opens the shared cell-coupling inspector, listing one
+row per mapping with the cell, node ID, structure, and authored Cd/area overrides.
+The same inspector opens from the cell attribute table: double-click **Coupled
+node count** or **Coupled 1D nodes**, or choose **Inspect coupled 1D nodes…** in
+the row menu. The menu and Properties also support several selected cells.
+Inspecting mappings works without an open 1D model, and the list refreshes after
+remapping or undo/redo. **Edit node structures…** opens the node coupling
+selector with the inspector's selected nodes, or all listed nodes if none are
+selected. Mapping rows are inspected here; use **Remap 1D↔2D** to change spatial
+registration.
+
+These lists show `[2D_TRIANGLE_NODE_MAP]` mappings; coincident vertex mappings
+remain indicated by **Coupled Nodes**. A mapping indicates registration, while
+actual exchange also requires a coupleable node structure.
+
 **Auto-couple** is the simpler vertex-only action: it finds coincident nodes
 within 1e-6 times the mesh bounding-box diagonal (minimum 1e-9), works on selected
 vertices or the whole mesh, and leaves already-coupled vertices alone. It does

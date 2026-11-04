@@ -364,6 +364,9 @@ add_swmmvis_unit_test(test_meshnodemapper
     ${PROJECT_SOURCE_DIR}/src/layers/meshspatialgrid.cpp
 )
 
+# The mapper consumes the extracted mesh data and cell geometry helpers.
+target_link_libraries(test_meshnodemapper PRIVATE meshkit::core_qt)
+
 # Remap's read-only 2D-aquifer preview: node / seeping-conduit / subcatchment
 # shares inside the mesh (INFILTRATION_TO_2D_AQUIFER_AND_REMAP_PLAN Step 2).
 add_swmmvis_unit_test(test_meshgwpreview

@@ -64,6 +64,7 @@ class ContourBandSublayer;
 class IsolineSublayer;
 class MeshBcSublayer;
 class CoupledNodeSublayer;
+class CoupledCellSublayer;
 class GroundwaterMarkerSublayer;
 }
 
@@ -1068,6 +1069,12 @@ public:
         return m_gwMarkerSublayer;
     }
 
+    /*! Cell-coupling footprints, styled and toggled independently of vertex markers. */
+    [[nodiscard]] OpenSWMM::Render::CoupledCellSublayer *coupledCellSublayer() const
+    {
+        return m_coupledCellSublayer;
+    }
+
     /*! \brief R7: re-read the groundwater source and node-bed rows from the model engine
      *  (setInfiltrationModel()'s model) and repaint when they changed. Called on model edits;
      *  callers that edit those rows without a model-edit signal call it directly. */
@@ -1588,6 +1595,7 @@ private:
     OpenSWMM::Render::IsolineSublayer *m_isolineSublayer = nullptr;
     OpenSWMM::Render::MeshBcSublayer *m_meshBcSublayer = nullptr;
     OpenSWMM::Render::CoupledNodeSublayer *m_coupledNodeSublayer = nullptr;
+    OpenSWMM::Render::CoupledCellSublayer *m_coupledCellSublayer = nullptr;
     OpenSWMM::Render::GroundwaterMarkerSublayer *m_gwMarkerSublayer = nullptr;
     // R7: rows read from the model engine by refreshGroundwaterMarkers(), and
     // their scene positions (rebuilt when the geometry or the rows change).

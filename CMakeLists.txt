@@ -302,6 +302,7 @@ set(
         # first-class sublayers.
         include/render/sublayers/meshbcsublayer.h
         include/render/sublayers/couplednodesublayer.h
+        include/render/sublayers/coupledcellsublayer.h
         include/render/sublayers/groundwatermarkersublayer.h
         include/layers/groundwatermapmarkers.h
         # Slice Z.1 — layer-scope Rule + RuleList (Q_OBJECT classes;
@@ -1170,6 +1171,7 @@ set(
         src/render/sublayers/scalarfillsublayer.cpp
         src/render/sublayers/meshbcsublayer.cpp
         src/render/sublayers/couplednodesublayer.cpp
+        src/render/sublayers/coupledcellsublayer.cpp
         src/render/sublayers/groundwatermarkersublayer.cpp
         src/layers/groundwatermapmarkers.cpp
 

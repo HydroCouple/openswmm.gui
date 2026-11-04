@@ -292,7 +292,8 @@ QString meshGroupName(MeshAttributeTableModel::Kind kind, const QString &key)
     if (key.startsWith("snow."))
         return PropertiesPanel::tr("Snow");
     if (key.startsWith("coupl"))
-        return PropertiesPanel::tr("Node coupling");
+        return kind == Kind::Cell ? PropertiesPanel::tr("Coupled 1D nodes")
+                                  : PropertiesPanel::tr("Node coupling");
     if (key == "mannings" || key == "initDepth" || key == "conveyance")
         return PropertiesPanel::tr("Hydraulics");
     if (kind == Kind::Edge && key != "Edge" && key != "Length" && key != "Boundary")
@@ -1377,7 +1378,13 @@ void PropertiesPanel::showMeshSelection(MapCanvas *canvas, const QList<SWMMObjec
             // The group editors act on every selected element, as the ribbon's do.
             QPushButton *button = nullptr;
             const QList<int> rows = aggregate->rows();
-            if (kind == Kind::Edge && group->name() == tr("Boundary condition")) {
+            if (kind == Kind::Cell && group->name() == tr("Coupled 1D nodes")) {
+                button = new QPushButton(tr("Inspect coupled 1D nodes…"), m_treeView);
+                button->setObjectName("editMeshCoupledNodes");
+                connect(button, &QPushButton::clicked, source, [this, source, aggregate] {
+                    source->editCoupledNodes(aggregate->rows(), this);
+                });
+            } else if (kind == Kind::Edge && group->name() == tr("Boundary condition")) {
                 int boundary = 0;
                 for (int row : rows) {
                     int cell = -1, local = -1;
@@ -1533,7 +1540,12 @@ void PropertiesPanel::showMeshObject(MapCanvas *canvas, const SWMMObjectRef &ref
             if (!group)
                 continue;
             QPushButton *button = nullptr;
-            if (kind == Kind::Edge && group->name() == tr("Boundary condition") &&
+            if (kind == Kind::Cell && group->name() == tr("Coupled 1D nodes")) {
+                button = new QPushButton(tr("Inspect coupled 1D nodes…"), m_treeView);
+                button->setObjectName("editMeshCoupledNodes");
+                connect(button, &QPushButton::clicked, source,
+                        [this, source, row] { source->editCoupledNodes({row}, this); });
+            } else if (kind == Kind::Edge && group->name() == tr("Boundary condition") &&
                 layer->isBoundaryEdge(element, local)) {
                 button = new QPushButton(tr("Edit surface boundary condition…"), m_treeView);
                 button->setObjectName("editMeshBoundary");

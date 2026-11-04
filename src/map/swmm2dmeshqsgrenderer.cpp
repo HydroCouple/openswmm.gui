@@ -19,6 +19,7 @@
 #include "mesh/meshcellgeom.h"
 #include "render/sublayers/contourbandsublayer.h"
 #include "render/sublayers/couplednodesublayer.h"
+#include "render/sublayers/coupledcellsublayer.h"
 #include "render/sublayers/groundwatermarkersublayer.h"
 #include "render/sublayers/isolinesublayer.h"
 #include "render/sublayers/meshbcsublayer.h"
@@ -506,6 +507,7 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
     //        m_nodes.contourLabels (Pass 3b: isoline labels)
     //        m_nodes.nodeMark  (Pass 5: vertex markers — MeshNodeSublayer)
     //        m_nodes.coupledMark (Pass 5b: SWMM-coupled markers — CoupledNodeSublayer)
+    //        m_nodes.coupledCellFill/Outline (direct node-to-cell footprints)
     //        m_nodes.gwMark    (Pass 5c: groundwater markers — GroundwaterMarkerSublayer)
     //        m_nodes.selTri/selEdge/selVert (§V selection overlay — cyan)
     //
@@ -544,6 +546,8 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
         m_nodes.contourLabels = new QSGNode(); // parent for QSGSimpleTextureNode labels
         m_nodes.nodeMark = makeColoredNode();
         m_nodes.coupledMark = makeColoredNode();
+        m_nodes.coupledCellFill = makeFlatNode(Qt::transparent);
+        m_nodes.coupledCellOutline = makeFlatNode(Qt::transparent);
         m_nodes.gwMark = makeColoredNode();
         m_nodes.selTri = makeFlatNode(kSelTriColor);
         m_nodes.selEdge = makeFlatNode(kSelEdgeColor);
@@ -558,6 +562,8 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
         root->appendChildNode(m_nodes.contourLabels);
         root->appendChildNode(m_nodes.nodeMark);
         root->appendChildNode(m_nodes.coupledMark);
+        root->appendChildNode(m_nodes.coupledCellFill);
+        root->appendChildNode(m_nodes.coupledCellOutline);
         root->appendChildNode(m_nodes.gwMark);
         root->appendChildNode(m_nodes.selTri);
         root->appendChildNode(m_nodes.selEdge);
@@ -625,6 +631,9 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 delete c;
             }
             uploadColoredVerts(nodeMarkNode, empty_c);
+            uploadColoredVerts(coupledMarkNode, empty_c);
+            uploadFlatVerts(m_nodes.coupledCellFill, empty_p);
+            uploadFlatVerts(m_nodes.coupledCellOutline, empty_p);
             uploadColoredVerts(gwMarkNode, empty_c);
             uploadFlatVerts(selTriNode, empty_p);
             uploadFlatVerts(selEdgeNode, empty_p);
@@ -1695,6 +1704,54 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             uploadColoredVerts(nodeMarkNode, std::vector<QSGGeometry::ColoredPoint2D>{});
             uploadColoredVerts(coupledMarkNode, std::vector<QSGGeometry::ColoredPoint2D>{});
         }
+
+        // Exact cell footprints: sparse O(couplings), never decimated by terrain LOD.
+        std::vector<QSGGeometry::Point2D> coupledCellFill, coupledCellOutline;
+        if (const auto *sub = m_layer->coupledCellSublayer(); sub && sub->isVisible()) {
+            const auto *style = sub->coupledStyle();
+            const auto withOpacity = [sub](QColor color) {
+                color.setAlphaF(color.alphaF() * sub->opacity());
+                return color;
+            };
+            setFlatColor(m_nodes.coupledCellFill, withOpacity(style->fillColor()));
+            setFlatColor(m_nodes.coupledCellOutline, withOpacity(style->outlineColor()));
+            const float halfWidth = float(style->outlineWidthPx()) * 0.5f * invView;
+            QSet<int> drawn;
+            for (const auto &row : m_layer->cellCouplings()) {
+                const int cellIndex = row.tri;
+                if (row.nodeId.isEmpty() || drawn.contains(cellIndex) || cellIndex < 0 ||
+                    cellIndex + 1 >= m_layer->m_cellSceneStart.size())
+                    continue;
+                drawn.insert(cellIndex);
+                const int start = m_layer->m_cellSceneStart[cellIndex];
+                const int end = m_layer->m_cellSceneStart[cellIndex + 1];
+                if (start == end)
+                    continue; // Invalid cells have no scene fan.
+                const auto &cell = m_layer->mesh().triangles[cellIndex];
+                QPolygonF polygon;
+                for (int k = 0; k < cell.vertexCount(); ++k)
+                    polygon.append(m_layer->m_sceneNodes[cell.vertex(k)].pt);
+                if (!cullRect.intersects(polygon.boundingRect()))
+                    continue;
+                for (int i = start; i < end; ++i) {
+                    const auto &tri = m_layer->m_sceneTris[i];
+                    for (const QPointF &point : {tri.a, tri.b, tri.c}) {
+                        QSGGeometry::Point2D vertex;
+                        vertex.set(float(point.x() - ox), float(point.y() - oy));
+                        coupledCellFill.push_back(vertex);
+                    }
+                }
+                // Use the outer cell ring so quads do not show their storage diagonal.
+                for (int k = 0; k < polygon.size(); ++k) {
+                    const QPointF a = polygon[k] - QPointF(ox, oy);
+                    const QPointF b = polygon[(k + 1) % polygon.size()] - QPointF(ox, oy);
+                    appendThickSeg(coupledCellOutline, float(a.x()), float(a.y()),
+                                   float(b.x()), float(b.y()), halfWidth);
+                }
+            }
+        }
+        uploadFlatVerts(m_nodes.coupledCellFill, coupledCellFill);
+        uploadFlatVerts(m_nodes.coupledCellOutline, coupledCellOutline);
 
         // ---- Pass 5c: groundwater sources / aquifer node beds (R7) ------
         // A handful of markers, drawn at every zoom (no vertex LOD gate):

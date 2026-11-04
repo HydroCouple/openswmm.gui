@@ -27,6 +27,10 @@
 
 #include "ui/dialogs/infilassigntoselectiondialog.h"
 #include "ui/properties/dataobjectpickereditor.h"
+#include "ui/widgets/nodecouplingselector.h"
+#include "layers/nodecoupling2d.h"
+#include <QHeaderView>
+#include <QTableWidget>
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -43,6 +47,7 @@
 #include <QLineF>
 #include <QPalette>
 
+#include <algorithm>
 #include <cmath>
 #include <limits>
 #include <openswmm/engine/openswmm_nodes.h>
@@ -438,10 +443,25 @@ void MeshAttributeTableModel::setSource(SWMM2DMeshLayer *layer, Kind kind,
     if (m_layer && !m_focus.isValid())
         m_layer->setInfiltrationModel(m_modelLayer);
     m_kind = kind;
+    rebuildCellCouplingIndex();
     connectLayer(layer);
     rebuildColumns();
     rebuildEdgeRows();
     endResetModel();
+}
+
+void MeshAttributeTableModel::rebuildCellCouplingIndex()
+{
+    m_cellCoupledNodes.clear();
+    if (!m_layer || m_kind != Kind::Cell)
+        return;
+    for (const auto &coupling : m_layer->cellCouplings())
+        if (coupling.tri >= 0 && coupling.tri < m_layer->triangleCount() && !coupling.nodeId.isEmpty())
+            m_cellCoupledNodes[coupling.tri].append(coupling.nodeId);
+    for (auto &nodes : m_cellCoupledNodes) {
+        nodes.removeDuplicates();
+        nodes.sort();
+    }
 }
 
 void MeshAttributeTableModel::connectLayer(SWMM2DMeshLayer *layer)
@@ -453,6 +473,7 @@ void MeshAttributeTableModel::connectLayer(SWMM2DMeshLayer *layer)
     // Bulk mutations carry no single element ref — repaint every row rather
     // than trying to work out which ones moved.
     connect(layer, &SWMM2DMeshLayer::meshEditsChanged, this, [this]() {
+        rebuildCellCouplingIndex();
         const int rows = rowCount(), cols = columnCount();
         if (rows > 0 && cols > 0)
             emit dataChanged(index(0, 0), index(rows - 1, cols - 1));
@@ -468,6 +489,7 @@ void MeshAttributeTableModel::connectLayer(SWMM2DMeshLayer *layer)
 void MeshAttributeTableModel::reload()
 {
     beginResetModel();
+    rebuildCellCouplingIndex();
     rebuildEdgeRows();
     endResetModel();
 }
@@ -572,6 +594,11 @@ void MeshAttributeTableModel::rebuildColumns()
                       << ro(QStringLiteral("Centroid Y"), tr("Centroid Y"))
                       << text(QStringLiteral("tag"), tr("Tag"),
                               tr("Descriptive cell tag ([2D_TRIANGLES] TAG column)."));
+        m_columnSpecs << ro(QStringLiteral("coupledCount"), tr("Coupled node count"), UnitKind::None,
+                            tr("Number of 1D nodes directly mapped to this cell."))
+                      << ro(QStringLiteral("coupledNodes"), tr("Coupled 1D nodes"), UnitKind::None,
+                            tr("Direct cell mappings from [2D_TRIANGLE_NODE_MAP]. Vertex couplings "
+                               "are displayed separately by Coupled Nodes."));
         m_firstCellParamCol = int(m_columnSpecs.size());
         // One column per registry entry, so a new per-cell parameter shows up
         // here the moment it is added to mesh::cellParamSpecs().
@@ -987,6 +1014,12 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
         if (row >= m.triangles.size())
             return {};
         const mesh::MeshTriangle &t = m.triangles[row];
+        if (spec.key == QLatin1String("coupledCount"))
+            return m_cellCoupledNodes.value(row).size();
+        if (spec.key == QLatin1String("coupledNodes")) {
+            const auto nodes = m_cellCoupledNodes.value(row);
+            return nodes.isEmpty() ? tr("None") : nodes.join(QStringLiteral(", "));
+        }
         if (spec.key == QLatin1String("Index"))
             return row;
         if (spec.key == QLatin1String("Vertices"))
@@ -1225,6 +1258,126 @@ bool MeshAttributeTableModel::setData(const QModelIndex &index, const QVariant &
     // objectEdited is the user-edit-only signal other views key off.
     emit objectEdited(refForRow(row).name);
     return true;
+}
+
+void MeshAttributeTableModel::editCoupledNodes(const QList<int> &rows, QWidget *parent)
+{
+    if (!m_layer || m_kind != Kind::Cell)
+        return;
+    QSet<int> cells;
+    for (int row : rows)
+        if (row >= 0 && row < rowCount())
+            cells.insert(row);
+    if (cells.isEmpty())
+        return;
+
+    auto *dialog = new QDialog(parent);
+    dialog->setObjectName("meshCellCouplingDialog");
+    dialog->setWindowTitle(tr("Coupled 1D nodes — %1 cell(s)").arg(cells.size()));
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->resize(760, 420);
+    auto *layout = new QVBoxLayout(dialog);
+    auto *summary = new QLabel(dialog);
+    summary->setWordWrap(true);
+    layout->addWidget(summary);
+    auto *table = new QTableWidget(0, 5, dialog);
+    table->setObjectName("cellCouplingMappings");
+    const QString length = m_layer->meshUnitsSI() ? tr("m") : unitLabel(UnitKind::Length);
+    table->setHorizontalHeaderLabels({tr("Cell"), tr("1D node"), tr("Structure"),
+                                      tr("Cd override"), tr("Area override (%1²)").arg(length)});
+    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    table->setSelectionMode(QAbstractItemView::ExtendedSelection);
+    table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    table->horizontalHeader()->setStretchLastSection(true);
+    layout->addWidget(table, 1);
+    auto *edit = new QPushButton(tr("Edit node structures…"), dialog);
+    edit->setObjectName("editCellCouplingStructures");
+    layout->addWidget(edit);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
+    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+    layout->addWidget(buttons);
+
+    const QPointer<SWMM2DMeshLayer> mesh(m_layer);
+    const QPointer<SWMMModelLayer> model(m_modelLayer);
+    const auto refresh = [mesh, model, cells, table, summary, edit] {
+        if (!mesh)
+            return;
+        QStringList selected;
+        for (const auto &index : table->selectionModel()->selectedRows())
+            selected.append(table->item(index.row(), 1)->text());
+        QVector<mesh::CellCoupling> mappings;
+        for (const auto &row : mesh->cellCouplings())
+            if (cells.contains(row.tri) && !row.nodeId.isEmpty())
+                mappings.append(row);
+        std::stable_sort(mappings.begin(), mappings.end(), [](const auto &a, const auto &b) {
+            return a.tri == b.tri ? a.nodeId < b.nodeId : a.tri < b.tri;
+        });
+        table->clearSelection();
+        table->setRowCount(mappings.size());
+        bool haveEditableNode = false;
+        for (int r = 0; r < mappings.size(); ++r) {
+            const auto &mapping = mappings[r];
+            nodecoupling2d::State state;
+            const bool haveNode = model && model->engine() &&
+                                  nodecoupling2d::read(model->engine(), mapping.nodeId, &state);
+            haveEditableNode |= haveNode;
+            const QStringList values = {
+                QString::number(mapping.tri), mapping.nodeId,
+                haveNode ? nodecoupling2d::typeLabel(state.type) : tr("Unavailable"),
+                mapping.cdSet ? QString::number(mapping.cd, 'g', 10) : tr("From node / defaults"),
+                mapping.areaSet ? QString::number(mapping.area, 'g', 10) : tr("From node / defaults")};
+            for (int c = 0; c < values.size(); ++c)
+                table->setItem(r, c, new QTableWidgetItem(values[c]));
+            if (selected.contains(mapping.nodeId))
+                table->selectionModel()->select(table->model()->index(r, 0),
+                    QItemSelectionModel::Select | QItemSelectionModel::Rows);
+        }
+        summary->setText(mappings.isEmpty()
+            ? tr("No 1D nodes are directly coupled to these cells. Use Remap 1D↔2D to map nodes.")
+            : tr("%1 mapping(s) on %2 selected cell(s). These are direct cell mappings; "
+                 "coincident vertex couplings are shown separately. Select rows to edit those "
+                 "nodes, or leave the selection empty to edit all listed nodes.")
+                  .arg(mappings.size()).arg(cells.size()));
+        edit->setEnabled(haveEditableNode);
+    };
+    refresh();
+    connect(mesh, &SWMM2DMeshLayer::meshEditsChanged, dialog, refresh);
+    connect(edit, &QPushButton::clicked, dialog, [dialog, model, table] {
+        if (!model || !model->engine())
+            return;
+        QStringList nodes;
+        const auto selected = table->selectionModel()->selectedRows();
+        for (int r = 0; r < table->rowCount(); ++r)
+            if (selected.isEmpty() || std::any_of(selected.begin(), selected.end(),
+                                                 [r](const auto &index) { return index.row() == r; }))
+                nodes.append(table->item(r, 1)->text());
+        nodes.removeDuplicates();
+        auto *editor = new NodeCouplingSelectorDialog(model, nodes, dialog);
+        editor->setAttribute(Qt::WA_DeleteOnClose);
+        connect(model, &SWMMModelLayer::engineAboutToClose, editor, &QDialog::reject);
+        connect(model, &QObject::destroyed, editor, &QDialog::reject);
+        if (auto *view = editor->findChild<QTableView *>())
+            for (int r = 0; r < view->model()->rowCount(); ++r)
+                if (nodes.contains(view->model()->index(r, 0).data().toString()))
+                    view->selectionModel()->select(view->model()->index(r, 0),
+                        QItemSelectionModel::Select | QItemSelectionModel::Rows);
+        editor->open();
+    });
+    connect(mesh, &QObject::destroyed, dialog, &QDialog::reject);
+    connect(mesh, &SWMM2DMeshLayer::selectionInvalidated, dialog, &QDialog::reject);
+    connect(this, &QAbstractItemModel::modelAboutToBeReset, dialog, &QDialog::reject);
+    connect(this, &QObject::destroyed, dialog, &QDialog::reject);
+    if (model) {
+        connect(model, &SWMMModelLayer::modelEdited, dialog, refresh);
+        connect(model, &SWMMModelLayer::engineAboutToClose, dialog, &QDialog::reject);
+    }
+    if (m_canvas)
+        connect(m_canvas, &MapCanvas::layerRemoved, dialog, [mesh, dialog](auto *removed) {
+            if (removed == mesh)
+                dialog->reject();
+        });
+    dialog->open();
 }
 
 void MeshAttributeTableModel::editInfiltration(const QList<int> &rows, QWidget *parent)

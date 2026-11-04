@@ -20,6 +20,7 @@
 #include "render/categoricalpalette.h"
 #include "render/sublayers/contourbandsublayer.h"
 #include "render/sublayers/couplednodesublayer.h"
+#include "render/sublayers/coupledcellsublayer.h"
 #include "render/sublayers/groundwatermarkersublayer.h"
 #include "render/sublayers/isolinesublayer.h"
 #include "render/sublayers/meshbcsublayer.h"
@@ -161,6 +162,7 @@ Swmm2DMeshStylePanel::Swmm2DMeshStylePanel(SWMM2DMeshLayer *layer, QWidget *pare
     addTab(buildMeshNodeTab(tabs), tr("Mes&h Vertices"), m_layer->meshNodeSublayer());
     addTab(buildBcTab(tabs), tr("Boundary &Conditions"), m_layer->meshBcSublayer());
     addTab(buildCoupledNodeTab(tabs), tr("Couple&d Nodes"), m_layer->coupledNodeSublayer());
+    addTab(buildCoupledCellTab(tabs), tr("Coupled Cells"), m_layer->coupledCellSublayer());
     addTab(buildGroundwaterMarkerTab(tabs), tr("&Groundwater Markers"),
            m_layer->groundwaterMarkerSublayer());
 }
@@ -666,6 +668,41 @@ QWidget *Swmm2DMeshStylePanel::buildCoupledNodeTab(QWidget *parent)
         connect(size, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
                 [st](double v) { st->setMarkerSizePx(v); });
     }
+    lay->addStretch();
+    return page;
+}
+
+QWidget *Swmm2DMeshStylePanel::buildCoupledCellTab(QWidget *parent)
+{
+    auto *page = new QWidget(parent);
+    auto *lay = new QVBoxLayout(page);
+    auto *sub = m_layer->coupledCellSublayer();
+    lay->addWidget(makeSublayerHeader(page, sub, tr("Show cells coupled to 1D nodes")));
+    if (auto *st = sub ? sub->coupledStyle() : nullptr) {
+        auto *box = new QGroupBox(tr("Symbology"), page);
+        auto *form = new QFormLayout(box);
+        auto *fill = new ColorButton(box);
+        fill->setShowAlpha(true);
+        fill->setColor(st->fillColor());
+        form->addRow(tr("Fill colour:"), fill);
+        auto *outline = new ColorButton(box);
+        outline->setShowAlpha(true);
+        outline->setColor(st->outlineColor());
+        form->addRow(tr("Outline colour:"), outline);
+        auto *width = makeDSpin(box, 0.5, 10.0, 0.5, 1, st->outlineWidthPx(), tr(" px"));
+        form->addRow(tr("Outline width:"), width);
+        connect(fill, &ColorButton::colorChanged, st, &OpenSWMM::Render::CoupledCellStyle::setFillColor);
+        connect(outline, &ColorButton::colorChanged, st, &OpenSWMM::Render::CoupledCellStyle::setOutlineColor);
+        connect(width, qOverload<double>(&QDoubleSpinBox::valueChanged), st,
+                &OpenSWMM::Render::CoupledCellStyle::setOutlineWidthPx);
+        lay->addWidget(box);
+    }
+    auto *note = new QLabel(tr("Highlights cells with a direct 1D node coupling. Several nodes "
+                               "can share a cell. Select a cell and expand Coupled 1D nodes in "
+                               "Properties to inspect them. These footprints remain visible "
+                               "when mesh edges and vertices are hidden."), page);
+    note->setWordWrap(true);
+    lay->addWidget(note);
     lay->addStretch();
     return page;
 }

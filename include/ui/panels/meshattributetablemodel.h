@@ -85,6 +85,8 @@ public:
     void editInfiltration(const QList<int> &rows, QWidget *parent);
     /*! Edit eligible boundary edges immediately through the shared property write path. */
     void editBoundaryCondition(const QList<int> &rows, QWidget *parent);
+    /*! Inspect direct cell-to-node mappings in a shared dialog, with access to node structures. */
+    void editCoupledNodes(const QList<int> &rows, QWidget *parent);
     /*! Applicability against a pending multi-field edit, without writing the layer. */
     [[nodiscard]] Qt::ItemFlags flagsForDraft(const QModelIndex &index,
                                             const QMap<int, QVariant> &draft) const;
@@ -302,6 +304,7 @@ private:
      *   connections before rebinding to avoid duplicate lambda. No ownership transfer.
      */
     void connectLayer(SWMM2DMeshLayer *layer);
+    void rebuildCellCouplingIndex();
 
     /**
      * @param[in] refName Encoded element name; reconstructed with CURRENT kind, then parsed/matched
@@ -364,6 +367,7 @@ private:
 
 
     QPointer<SWMM2DMeshLayer> m_layer;
+    QHash<int, QStringList> m_cellCoupledNodes;
     /// Boundary segment tag by sorted vertex pair, rebuilt when the geometry revision moves.
     mutable QHash<QPair<int, int>, QString> m_segmentTags;
     mutable quint64 m_segmentTagsRevision = 0;

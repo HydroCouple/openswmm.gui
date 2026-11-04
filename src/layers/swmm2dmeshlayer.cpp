@@ -44,6 +44,7 @@
 #include "render/renderers/singlesymbolrenderer.h"
 #include "render/sublayers/contourbandsublayer.h"
 #include "render/sublayers/couplednodesublayer.h"
+#include "render/sublayers/coupledcellsublayer.h"
 #include "render/sublayers/groundwatermarkersublayer.h"
 #include "render/sublayers/isolinesublayer.h"
 #include "render/sublayers/meshbcsublayer.h"
@@ -678,6 +679,34 @@ public:
             }
         }
 
+        // Direct cell couplings stay visible independently of terrain/vertex LOD.
+        if (const auto *sub = m_layer->coupledCellSublayer(); sub && sub->isVisible()) {
+            const auto *style = sub->coupledStyle();
+            QPen outline(withOpacity(style->outlineColor(), sub->opacity()));
+            outline.setCosmetic(true);
+            outline.setWidthF(style->outlineWidthPx());
+            p->setPen(outline);
+            p->setBrush(withOpacity(style->fillColor(), sub->opacity()));
+            QSet<int> drawn;
+            for (const auto &row : m_layer->cellCouplings()) {
+                if (row.nodeId.isEmpty() || drawn.contains(row.tri) || row.tri < 0 ||
+                    row.tri >= m_layer->mesh().triangles.size())
+                    continue;
+                drawn.insert(row.tri);
+                const auto &cell = m_layer->mesh().triangles[row.tri];
+                QPolygonF polygon;
+                for (int k = 0; k < cell.vertexCount(); ++k) {
+                    const int vertex = cell.vertex(k);
+                    if (vertex < 0 || vertex >= m_layer->m_sceneNodes.size())
+                        break;
+                    polygon.append(m_layer->m_sceneNodes[vertex].pt);
+                }
+                if (polygon.size() == cell.vertexCount() &&
+                    (!haveExposed || exposed.intersects(polygon.boundingRect())))
+                    p->drawPolygon(polygon);
+            }
+        }
+
         // ---- Pass 5c: groundwater sources / aquifer node beds (R7) ------------
         // A handful of markers: drawn at every zoom (no vertex LOD gate).
         // Sources are squares, beds diamonds; an EXCHANGE NO bed is grey.
@@ -840,6 +869,8 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult result, const QString &sourceP
         new OpenSWMM::Render::MeshNodeSublayer(QStringLiteral("mesh.vertices"), this);
     m_coupledNodeSublayer =
         new OpenSWMM::Render::CoupledNodeSublayer(QStringLiteral("mesh.coupledNodes"), this);
+    m_coupledCellSublayer =
+        new OpenSWMM::Render::CoupledCellSublayer(QStringLiteral("mesh.coupledCells"), this);
     m_gwMarkerSublayer = new OpenSWMM::Render::GroundwaterMarkerSublayer(
         QStringLiteral("mesh.groundwaterMarkers"), this);
     m_contourBandSublayer =
@@ -887,6 +918,7 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult result, const QString &sourceP
     wire(m_meshBcSublayer);
     wire(m_meshNodeSublayer);
     wire(m_coupledNodeSublayer);
+    wire(m_coupledCellSublayer);
     wire(m_gwMarkerSublayer);
     wire(m_contourBandSublayer);
     wire(m_isolineSublayer);
@@ -2635,6 +2667,7 @@ SWMM2DMeshLayer::applyCellCouplings(const QVector<mesh::CellCoupling> &rows)
         cleaned.append(cc);
     }
     m_mesh.cellCouplings = cleaned;
+    ++m_attrRevision; // Coupling edits must rebuild static overlays even with a selection change.
     emit meshEditsChanged();
     emit repaintRequested();
     return previous;
@@ -3023,14 +3056,15 @@ QList<OpenSWMM::Render::ISublayer *> SWMM2DMeshLayer::sublayers() const
     //   BC indicators         → boundary-condition ring above the wireframe
     //   isolines              → labelled contour lines
     //   vertex markers        → mesh vertex glyphs
-    //   coupled nodes (top)   → SWMM-coupled vertex markers
+    //   coupled nodes         → SWMM-coupled vertex markers
+    //   coupled cells         → direct node-to-cell footprints
     // Slice GUI-2026-05-30 §2 — order is user-customisable and cached in
     // m_sublayerOrder; seeded once from the defaults above.
     if (m_sublayerOrder.isEmpty()) {
         OpenSWMM::Render::ISublayer *defaults[] = {
-            m_meshFillSublayer, m_contourBandSublayer, m_meshEdgeSublayer,    m_meshBcSublayer,
-            m_isolineSublayer,  m_meshNodeSublayer,    m_coupledNodeSublayer,
-            m_gwMarkerSublayer,
+            m_meshFillSublayer, m_contourBandSublayer, m_meshEdgeSublayer, m_meshBcSublayer,
+            m_isolineSublayer, m_meshNodeSublayer, m_coupledNodeSublayer,
+            m_coupledCellSublayer, m_gwMarkerSublayer,
         };
         for (auto *s : defaults)
             if (s)

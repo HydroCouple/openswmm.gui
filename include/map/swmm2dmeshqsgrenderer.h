@@ -142,8 +142,8 @@ protected:
      *   are skipped. No engine writes or completion/failure status is returned for individual
      *   passes.
      * @note Offscreen-bbox path empties ordinary fill/line/label/node/selection passes and
-     *   invalidates built coverage/LOD without consuming pending dirtiness; it does not explicitly
-     *   clear the coupled-marker node. Label texture cache is keyed solely by formatted level text,
+     *   invalidates built coverage/LOD without consuming pending dirtiness. Label texture cache
+     *   is keyed solely by formatted level text,
      *   so colour/DPR changes do not themselves replace an existing text entry.
      */
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
@@ -183,6 +183,8 @@ private:
         QSGNode *contourLabels = nullptr;
         QSGGeometryNode *nodeMark = nullptr;
         QSGGeometryNode *coupledMark = nullptr;
+        QSGGeometryNode *coupledCellFill = nullptr;
+        QSGGeometryNode *coupledCellOutline = nullptr;
         QSGGeometryNode *gwMark = nullptr; // R7 groundwater sources / node beds
         QSGGeometryNode *selTri = nullptr;
         QSGGeometryNode *selEdge = nullptr;
