@@ -14,9 +14,7 @@
  * cell parameter page) left the ribbon so its width no longer changes with the selection.
  *
  * MVC contract: the toolbar is one of N views over `SWMM2DMeshLayer`. The active-mesh combo
- * mirrors the layer's `isActiveMesh` flag; selection lives in the project's SelectionManager;
- * the surface boundary command reuses the attribute-table model's editor, so every route
- * writes through the same commands.
+ * mirrors the layer's `isActiveMesh` flag; selection lives in the project's SelectionManager.
  *
  * Lifecycle: `rebindCanvas(MapCanvas*)` is called by SWMMVis each time the active project
  * window changes — mirrors TerrainToolbar's pattern.
@@ -45,7 +43,6 @@ class RibbonGroup;
 }
 
 class MapCanvas;
-class MeshAttributeTableModel;
 class OpenSWMMVisLayer;
 class SWMM2DMeshLayer;
 
@@ -68,13 +65,13 @@ public:
     /// Processes whose configurators the tab groups. The picker shows one group at a time.
     enum class Process { SurfaceFlow, Infiltration, Groundwater, SurfaceQuality, Snow, Heat };
     /// Selection a command needs before it can act (enables/disables it).
-    enum class Needs { Nothing, Cells, BoundaryEdges };
+    enum class Needs { Nothing, Cells };
 
     /**
      * @param[in] title Display title copied into QToolBar.
      * @param[in] parent Optional QWidget owner, caller owns until parented/hosted.
      * @brief Build the captioned groups, the vertex/edge/cell selection tools, the mesh-wide
-     *   coupling commands, the surface boundary command and the owned hover probe.
+     *   coupling commands and the owned hover probe.
      * @note GUI-thread only. No canvas/model/selection initially; callbacks are injected later
      *   and bound objects stay externally owned.
      */
@@ -193,7 +190,6 @@ private slots:
     void onAutoCoupleClicked(); // couple vertices to coincident SWMM nodes
     void onRemapClicked();      // Remap 1D↔2D: vertex + cell coupling (Plan C.4)
     void onSelectionChanged();
-    void onBoundaryCondition(); // surface BC editor for the selected boundary edges
 
 private:
     void rebuildMeshCombo();
@@ -235,12 +231,8 @@ private:
     QAction *m_actEditInTable = nullptr;
     QAction *m_actAutoCouple = nullptr; // couple vertices to coincident nodes
     QAction *m_actRemap = nullptr;      // Remap 1D↔2D (Plan C.4)
-    QAction *m_actBoundaryCondition = nullptr;
     QAction *m_actReviewOwnership = nullptr;
     QHash<QAction *, Needs> m_needs; ///< Selection-scoped commands.
-
-    /// Edge model behind the Boundary Condition… editor; outlives the modeless dialog.
-    MeshAttributeTableModel *m_edgeModel = nullptr;
 
     NodeLocatorFn m_nodeLocator;
     GwPreviewSourceFn m_gwPreviewSource;

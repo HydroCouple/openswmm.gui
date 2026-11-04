@@ -234,6 +234,8 @@ private slots:
     /** @brief Every registered catalog command is in a menu or has a ribbon face. */
     void everyCatalogCommandIsReachable()
     {
+        QVERIFY(!m_win->findChild<QAction *>(QStringLiteral("actionMeshBoundaryCondition")));
+        QVERIFY(!ActionRegistry::instance()->action(QStringLiteral("mesh.boundaryCondition")));
         QSet<QAction *> reachable;
         for (QAction *top : m_win->menuBar()->actions()) {
             reachable.insert(top);

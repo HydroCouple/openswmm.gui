@@ -8,8 +8,8 @@
  *
  * The Mesh 2D tab used to carry value editors (BC type combo and parameter pages, wall drag,
  * conveyance, vertex Z/tag/coupling, cell parameters) that appeared with the selection. They
- * moved to Properties (one element) and the attribute table (bulk, one undo step), and the
- * ribbon keeps a "Boundary Condition…" command that opens the table's own compound editor.
+ * moved to Properties (one element) and the attribute table (bulk, one undo step), including
+ * the shared boundary-condition editor.
  * Every scenario the old toolbar test pinned is re-run here through those routes:
  * bulk edits are one command and undo per element, displaying a selection never writes,
  * mixed selections do not impersonate a uniform value, Properties shows each edge's own
@@ -184,6 +184,14 @@ struct Rig {
             refs.insert(edgeRef(slot));
         sel.select(refs, SelectionManager::Mode::Replace);
     }
+    /*! Open the attribute table's shared editor for the given edge slots. */
+    void editBoundaryConditions(const QVector<QPair<int, int>> &edgeSlots)
+    {
+        QList<int> rows;
+        for (const auto &slot : edgeSlots)
+            rows.append(row(slot));
+        table.editBoundaryCondition(rows, &props);
+    }
     /*! The Properties value cell for the table column \p key of the shown element. */
     QModelIndex field(const char *key)
     {
@@ -224,7 +232,7 @@ struct Rig {
             if (auto *d = qobject_cast<QDialog *>(w);
                 d && d->objectName() == QLatin1String("meshBoundaryDialog") && d->isVisible())
                 return d;
-        return tb.findChild<QDialog *>(QStringLiteral("meshBoundaryDialog"));
+        return props.findChild<QDialog *>(QStringLiteral("meshBoundaryDialog"));
     }
     QAction *action(const char *name) const { return tb.findChild<QAction *>(QLatin1String(name)); }
 };
@@ -340,19 +348,16 @@ private slots:
         }
     }
 
-    /*! A mixed selection does not impersonate a uniform value: the ribbon's
-     *  Boundary Condition… editor shows mixed types or parameters without writing. */
+    /*! A mixed selection does not impersonate a uniform value: the table's
+     *  boundary-condition editor shows mixed types or parameters without writing. */
     void mixedSelectionOpensEditorUndecided()
     {
         Rig rig;
         const auto bs = boundarySlots(*rig.layer, 2);
         QVERIFY(mesh::pushEdgeBCEdit(rig.layer, {bs[0]}, stageTsBC("TS_A"), nullptr) > 0);
-        auto *command = rig.action("actionMeshBoundaryCondition");
-        QVERIFY(command);
-
         // Positive control: a uniform selection opens with its own record.
         rig.select({bs[0]});
-        command->trigger();
+        rig.editBoundaryConditions({bs[0]});
         {
             QDialog *dialog = rig.boundaryDialog();
             QVERIFY(dialog);
@@ -368,8 +373,7 @@ private slots:
             if (pass == 1) // same type, different series
                 QVERIFY(mesh::pushEdgeBCEdit(rig.layer, {bs[1]}, stageTsBC("TS_B"), nullptr) > 0);
             rig.select({bs[0], bs[1]});
-            QVERIFY(command->isEnabled());
-            command->trigger();
+            rig.editBoundaryConditions({bs[0], bs[1]});
             QDialog *dialog = rig.boundaryDialog();
             QVERIFY(dialog);
             auto *type = dialog->findChild<QComboBox *>(QStringLiteral("boundaryType"));
@@ -391,7 +395,7 @@ private slots:
         // open with their shared record, like one edge does.
         QVERIFY(mesh::pushEdgeBCEdit(rig.layer, {bs[1]}, stageTsBC("TS_A"), nullptr) > 0);
         rig.select({bs[0], bs[1]});
-        command->trigger();
+        rig.editBoundaryConditions({bs[0], bs[1]});
         QDialog *dialog = rig.boundaryDialog();
         QVERIFY(dialog);
         auto *type = dialog->findChild<QComboBox *>(QStringLiteral("boundaryType"));
@@ -488,9 +492,9 @@ private slots:
         QCOMPARE(rig.layer->edgeBCs()[mesh::edgeSlot(bs[2].first, bs[2].second)].tseries,
                  QStringLiteral("TS_C"));
 
-        // The ribbon editor: choose Specified stage and commit a stage value.
+        // The table's editor: choose Specified stage and commit a stage value.
         rig.select({bs[0], bs[1], bs[2]});
-        rig.action("actionMeshBoundaryCondition")->trigger();
+        rig.editBoundaryConditions({bs[0], bs[1], bs[2]});
         QDialog *dialog = rig.boundaryDialog();
         QVERIFY(dialog);
         auto *type = dialog->findChild<QComboBox *>(QStringLiteral("boundaryType"));
@@ -513,7 +517,9 @@ private slots:
         Rig rig;
         const auto bs = boundarySlots(*rig.layer, 2);
         rig.select({bs[0]});
-        rig.action("actionMeshBoundaryCondition")->trigger();
+        auto *edit = rig.props.findChild<QPushButton *>(QStringLiteral("editMeshBoundary"));
+        QVERIFY(edit);
+        edit->click();
         QDialog *dialog = rig.boundaryDialog();
         QVERIFY(dialog);
         auto *type = dialog->findChild<QComboBox *>(QStringLiteral("boundaryType"));
@@ -569,7 +575,7 @@ private slots:
     }
 
     /*! The ribbon holds selectors and commands only, so its width cannot
-     *  change with the selection; the BC command follows the selection. */
+     *  change with the selection; boundary conditions are edited in the panels. */
     void ribbonHoldsNoValueEditors()
     {
         Rig rig;
@@ -592,14 +598,12 @@ private slots:
         rig.tb.resize(2400, 110); // wide enough that no group overflows the bar
         rig.tb.show();
         const int idle = width();
-        auto *command = rig.action("actionMeshBoundaryCondition");
-        QVERIFY(!command->isEnabled());
+        QVERIFY(!rig.action("actionMeshBoundaryCondition"));
         const auto bs = boundarySlots(*rig.layer, 2);
         rig.select({bs[0], bs[1]});
-        QVERIFY(command->isEnabled());
         QCOMPARE(width(), idle);
         rig.select({interiorSlot(*rig.layer)});
-        QVERIFY2(!command->isEnabled(), "an interior edge cannot take a boundary condition");
+        QCOMPARE(width(), idle);
         QSet<SWMMObjectRef> cells{mesh::MeshObjectRef::cell(rig.layer->sourcePath(), 0),
                                   mesh::MeshObjectRef::cell(rig.layer->sourcePath(), 1)};
         rig.sel.select(cells, SelectionManager::Mode::Replace);
@@ -609,11 +613,14 @@ private slots:
         QCOMPARE(width(), idle);
     }
 
-    /*! The picker shows one process group at a time and its status. */
+    /*! The picker shows only the chosen process's populated group and its status. */
     void processPickerShowsOneGroup()
     {
         Rig rig;
-        auto *flow = rig.action("actionMeshBoundaryCondition");
+        RibbonGroup *flow = nullptr;
+        for (auto *group : rig.tb.findChildren<RibbonGroup *>(Qt::FindDirectChildrenOnly))
+            if (group->caption() == QLatin1String("Surface Flow"))
+                flow = group;
         auto *gwAction = new QAction(QStringLiteral("Aquifer"), &rig.tb);
         rig.tb.addProcessActions(MeshEditingToolbar::Process::Groundwater, {gwAction});
         rig.tb.setProcessStatusProvider([](MeshEditingToolbar::Process p) {
@@ -635,12 +642,13 @@ private slots:
                     return slot->isVisible();
             return false;
         };
-        QVERIFY(groupOf(flow) && groupOf(gwAction));
+        QVERIFY(flow && groupOf(gwAction));
+        QVERIFY(flow->groupActions().isEmpty());
         QCOMPARE(rig.tb.currentProcess(), MeshEditingToolbar::Process::SurfaceFlow);
-        QVERIFY(shown(groupOf(flow)));
+        QVERIFY(!shown(flow));
         QVERIFY(!shown(groupOf(gwAction)));
         rig.tb.setCurrentProcess(MeshEditingToolbar::Process::Groundwater);
-        QVERIFY(!shown(groupOf(flow)));
+        QVERIFY(!shown(flow));
         QVERIFY(shown(groupOf(gwAction)));
         auto *picker = rig.tb.findChild<QComboBox *>(QStringLiteral("meshProcessCombo"));
         QVERIFY(picker->itemText(picker->findData(int(MeshEditingToolbar::Process::Snow)))
