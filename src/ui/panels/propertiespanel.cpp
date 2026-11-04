@@ -1983,7 +1983,34 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
                             setRowEditable(pm, a, QString::fromLatin1(r.first), r.second);
                 };
                 connect(a, &SWMMNodePropertyAdapter::changed, pm, applyCouplingRowFlags);
+                connect(m_swmmLayer, &SWMMModelLayer::attributeChanged, pm,
+                        [a, applyCouplingRowFlags](const QString &name) {
+                            if (a->name() == name)
+                                applyCouplingRowFlags();
+                        });
                 applyCouplingRowFlags();
+            }
+
+            auto *structureAdapter = m_nodeAdapter;
+            connect(structureAdapter, &SWMMNodePropertyAdapter::structureRefreshRequested, this,
+                    [this, structureAdapter] {
+                        const QScopedValueRollback<bool> guard(m_suppressEditForward, true);
+                        emit structureAdapter->changed();
+                        onObjectEditedExternally(structureAdapter->name());
+                    });
+            if (m_nodeAdapter->metaObject()->indexOfProperty("lidControl") >= 0) {
+                const auto flags = [pm, structureAdapter] {
+                    const bool assigned = !structureAdapter->lidControlRef().currentName.isEmpty();
+                    setRowEditable(pm, structureAdapter, "lidInitialSaturation", assigned);
+                    setRowEditable(pm, structureAdapter, "lidBottomOwnership", assigned);
+                };
+                connect(structureAdapter, &SWMMNodePropertyAdapter::changed, pm, flags);
+                connect(m_swmmLayer, &SWMMModelLayer::attributeChanged, pm,
+                        [structureAdapter, flags](const QString &name) {
+                            if (structureAdapter->name() == name)
+                                flags();
+                        });
+                flags();
             }
 
             // Read the adapter's CURRENT name: a rename after binding

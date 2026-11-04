@@ -24,6 +24,7 @@
 #include "ui/properties/culvertcodes.h"       // ATTRIBUTE_EDITOR_WIRING Phase 0
 #include "ui/properties/dataobjectref.h"      // pump-curve picker cell
 #include "ui/properties/usageeditref.h"
+#include "layers/nodestructureedits.h"
 #include "ui/properties/groundwatersummary.h" // Groundwater cell summary text
 #include "ui/properties/rainintervalref.h"    // DA.2 parity — H:MM interval helpers
 #include "ui/properties/linkcompoundeditref.h"
@@ -455,6 +456,7 @@ QVariantList yesNoValues();
  *   validation.
  */
 QVariantList coupling2DTypeValues();
+QVariantList makePair(const char *label, int data);
 /**
  * @return New ordered [label,stored-code] choice list: OFF0/ON1. Display labels static Latin-1, not
  *   translated here; no source read/write or membership validation.
@@ -825,6 +827,8 @@ QList<ColumnSpec> nodeCouplingColumns(SWMMModelLayer::Category cat)
     const bool outfall = cat == SWMMModelLayer::CatOutfalls;
     for (int i = types.size() - 1; i >= 0; --i) {
         const int type = types[i].toList()[1].toInt();
+        if (type < 0)
+            continue;
         if ((outfall && type != 0 && type != 5) || (!outfall && type == 5) ||
             (type == 4 && cat != SWMMModelLayer::CatStorage))
             types.removeAt(i);
@@ -998,6 +1002,12 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         cols.append(
             enumCol("Storage shape", "Storage Shape", "node_storage_shape", storageShapeValues()));
         cols.append(compoundCol("Storage curve", "Storage Curve", "node_storage_curve_ref"));
+        cols.append(compoundCol("LID control", "LID Control", "node_lid_control"));
+        cols.append(num("LID saturation", "LID Initial Saturation (%)", "node_lid_saturation", 0,
+                        100, 4, UnitKind::None));
+        cols.append(enumCol("LID bottom", "LID Bottom Ownership", "node_lid_bottom",
+                            {makePair("Keep current behavior", 0), makePair("Sealed", 1),
+                             makePair("Mesh aquifer", 2)}));
         cols.append(num("Func coeff A", "Functional Coefficient (A)", "node_storage_coeff_a", 0.0,
                         1e9, 4, UnitKind::None));
         cols.append(num("Func exp B", "Functional Exponent (B)", "node_storage_exp_b", 0.0, 1e9, 4,
@@ -3219,8 +3229,13 @@ QVariantList outfallTypeValues()
 QVariantList coupling2DTypeValues()
 {
     return {
-        makePair("NONE", 0), makePair("MANHOLE", 1), makePair("GRATE", 2),
-        makePair("CURB", 3), makePair("OPEN", 4),    makePair("OUTFALL", 5),
+        makePair("NONE", 0),
+        makePair("MANHOLE", 1),
+        makePair("GRATE", 2),
+        makePair("CURB", 3),
+        makePair("OPEN", 4),
+        makePair("OUTFALL", 5),
+        makePair("Use class default", -1),
     };
 }
 QVariantList yesNoValues()
@@ -4016,13 +4031,39 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
     if (infilFieldSlot(spec.setter) >= 0 && m_layer &&
         !infilFieldApplies(m_layer->engine(), objectNameAt(row), spec.setter)) return {};
 
+    if (spec.setter.startsWith("node_lid_") && m_layer) {
+        SWMM_StorageLidState state{};
+        if (swmm_storage_lid_get(
+                m_layer->engine(),
+                swmm_node_index(m_layer->engine(), objectNameAt(row).toUtf8().constData()),
+                &state) != SWMM_OK)
+            return {};
+        if (spec.setter == "node_lid_control") {
+            DataObjectRef ref;
+            ref.engine = m_layer->engine();
+            ref.layer = m_layer;
+            ref.kind = DataObjectRef::LidControl;
+            if (state.control >= 0)
+                ref.currentName = QString::fromUtf8(swmm_lid_id(ref.engine, state.control));
+            return QVariant::fromValue(ref);
+        }
+        if (state.control < 0)
+            return {};
+        if (spec.setter == "node_lid_saturation")
+            return state.saturation;
+        if (role == Qt::DisplayRole)
+            return spec.enumValues.value(state.bottom).toList().value(0);
+        return state.bottom;
+    }
     if (spec.setter.startsWith(QLatin1String("node_2d_")) && m_layer) {
         nodecoupling2d::State state;
         if (!m_layer->nodeCoupling2D(objectNameAt(row), &state))
             return {};
         if (spec.setter == QLatin1String("node_2d_coupling_type"))
-            return role == Qt::DisplayRole ? QVariant(nodecoupling2d::typeToken(state.type))
-                                           : QVariant(state.type);
+            return role == Qt::DisplayRole
+                       ? QVariant(state.authored ? nodecoupling2d::typeToken(state.type)
+                                                 : tr("Use class default"))
+                       : QVariant(state.authored ? state.type : -1);
         if (spec.setter == QLatin1String("node_2d_coupleable")) {
             const bool enabled = state.type != nodecoupling2d::None;
             return role == Qt::DisplayRole ? QVariant(enabled ? "YES" : "NO") : QVariant(int(enabled));
@@ -4654,6 +4695,23 @@ Qt::ItemFlags SWMMAttributeTableModel::flags(const QModelIndex &index) const
                 !inlet)
                 return f;
         }
+        if (spec.setter == "node_lid_saturation" || spec.setter == "node_lid_bottom") {
+            int control = -1;
+            double saturation = 0;
+            if (!m_layer ||
+                swmm_node_get_lid(m_layer->engine(),
+                                  swmm_node_index(m_layer->engine(),
+                                                  objectNameAt(index.row()).toUtf8().constData()),
+                                  &control, &saturation) != SWMM_OK ||
+                control < 0)
+                return f;
+        }
+        if (spec.setter.startsWith("node_2d_param_") && m_layer) {
+            nodecoupling2d::State state;
+            if (!m_layer->nodeCoupling2D(objectNameAt(index.row()), &state) ||
+                state.type == nodecoupling2d::None)
+                return f;
+        }
         // Lock edits while a simulation is running.
         if (m_layer && m_layer->engine()) {
             int state = 0;
@@ -5210,30 +5268,6 @@ private:
     bool m_first = true;
 };
 
-// One undo command per cell edit.
-class NodeCouplingAttributeCommand : public QUndoCommand
-{
-public:
-    NodeCouplingAttributeCommand(SWMMModelLayer *layer, nodecoupling2d::State before,
-                                nodecoupling2d::State after)
-        : m_layer(layer), m_before(std::move(before)), m_after(std::move(after))
-    {
-        setText(QObject::tr("Edit 2D Coupling"));
-    }
-    void redo() override
-    {
-        if (m_layer)
-            m_layer->applyNodeCoupling2D(m_after);
-    }
-    void undo() override
-    {
-        if (m_layer)
-            m_layer->applyNodeCoupling2D(m_before);
-    }
-private:
-    QPointer<SWMMModelLayer> m_layer;
-    nodecoupling2d::State m_before, m_after;
-};
 
 class AttributeEditCommand : public QUndoCommand
 {
@@ -5346,6 +5380,64 @@ bool SWMMAttributeTableModel::applyScalarEdits(
         return false;
     };
     if (!m_layer || !m_layer->engine()) return fail(tr("The model is closed."));
+    bool structure = false, unrelated = false;
+    QMap<QString, QVariant> structureFields;
+    QStringList structureNodes;
+    for (auto group = targets.cbegin(); group != targets.cend(); ++group) {
+        SWMMAttributeTableModel source;
+        source.setSource(m_layer, group.key());
+        const auto specs = source.columnSpecs();
+        for (auto it = edits.cbegin(); it != edits.cend(); ++it) {
+            auto spec = std::find_if(specs.cbegin(), specs.cend(),
+                                     [&](const auto &s) { return s.key == it.key(); });
+            if (spec == specs.cend() || !nodestructure::field(spec->setter)) {
+                unrelated = true;
+                continue;
+            }
+            structure = true;
+            auto value = it.value();
+            for (const auto &name : group.value()) {
+                const auto index =
+                    source.index(source.rowForName(name), int(spec - specs.cbegin()));
+                if (!index.isValid() || !(index.flags() & Qt::ItemIsEditable))
+                    return fail(tr("%1 cannot be edited on %2.").arg(spec->label, name));
+            }
+            if (spec->setter == "node_lid_control") {
+                if (value.userType() != qMetaTypeId<DataObjectRef>())
+                    return fail(tr("Choose a LID control reference."));
+                const auto ref = value.value<DataObjectRef>();
+                if (ref.kind != DataObjectRef::LidControl || ref.layer != m_layer ||
+                    ref.engine != m_layer->engine())
+                    return fail(tr("The LID control belongs to another model or kind."));
+                value = ref.currentName;
+            }
+            if (spec->setter == "node_2d_coupling_type") {
+                const auto token = value.toString().trimmed();
+                bool found = false;
+                for (const auto &choice : spec->enumValues) {
+                    const auto pair = choice.toList();
+                    if (pair[1].toString() == token ||
+                        pair[0].toString().compare(token, Qt::CaseInsensitive) == 0) {
+                        value = pair[1];
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found)
+                    return fail(tr("Choose a compatible coupling structure."));
+            }
+            if (structureFields.contains(spec->setter) && structureFields[spec->setter] != value)
+                return fail(tr("The selected field has incompatible meanings."));
+            structureFields[spec->setter] = value;
+        }
+        structureNodes.append(group.value());
+    }
+    if (structure) {
+        if (unrelated)
+            return fail(
+                tr("Edit coupling or storage LID fields separately from unrelated properties."));
+        return nodestructure::applyFields(m_layer, structureNodes, structureFields, undo, error);
+    }
     const int prescriptions = int(edits.contains("Shape")) + int(edits.contains("Transect profile")) +
                               int(edits.contains("Street profile"));
     if (prescriptions > 1) return fail(tr("Choose one cross-section shape or profile per edit."));
@@ -6220,77 +6312,15 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index, const QVariant &
             return false; // Reject invalid paste/calculator edits before creating an undo entry.
     }
 
-    if (spec.setter.startsWith(QLatin1String("node_2d_"))) {
+    if (nodestructure::field(spec.setter)) {
         if (!(flags(index) & Qt::ItemIsEditable))
             return false;
-        nodecoupling2d::State before;
-        if (!m_layer->nodeCoupling2D(objectNameAt(row), &before))
-            return false;
-        auto after = before;
-        QString token = value.toString().trimmed();
-        if (spec.setter == QLatin1String("node_2d_coupleable")) {
-            const QString upper = token.toUpper();
-            if (upper != "YES" && upper != "NO" && upper != "1" && upper != "0" &&
-                upper != "TRUE" && upper != "FALSE")
-                return false;
-            const bool on = upper == "YES" || upper == "1" || upper == "TRUE";
-            if (on == (before.type != nodecoupling2d::None))
-                return true;
-            const int def = nodecoupling2d::defaultType(m_layer->engine(), before.node);
-            after.params.clear();
-            after.type = !on ? nodecoupling2d::None : def == nodecoupling2d::None
-                                                        ? nodecoupling2d::Manhole : def;
-            after.authored = !on || def == nodecoupling2d::None;
-        } else if (spec.setter == QLatin1String("node_2d_coupling_type")) {
-            int type = -1;
-            for (const auto &entry : spec.enumValues) {
-                const auto pair = entry.toList();
-                if (token.compare(pair[0].toString(), Qt::CaseInsensitive) == 0 ||
-                    token == pair[1].toString())
-                    type = pair[1].toInt();
-            }
-            if (!nodecoupling2d::allowedTypes(m_layer->engine(), before.node).contains(type))
-                return false;
-            if (after.type != type)
-                after.params.clear();
-            after.type = type;
-            after.authored = true;
-        } else {
-            const QString key = spec.setter.mid(14);
-            if (before.type == nodecoupling2d::None)
-                return false;
-            if (spec.editor == EditorKind::Enum) {
-                token = token.toUpper();
-                if (token == "(INHERIT)")
-                    token.clear();
-                bool valid = false;
-                for (const auto &entry : spec.enumValues)
-                    valid |= entry.toList()[1].toString() == token;
-                if (!valid)
-                    return false;
-            } else if (!token.isEmpty()) {
-                bool ok = false;
-                const double number = token.toDouble(&ok);
-                const bool zeroAllowed = key == "SPREAD" || key == "TAILWATER_RELAX";
-                if (!ok || !std::isfinite(number) || (zeroAllowed ? number < 0 : number <= 0) ||
-                    (key == "LID_OPEN_FRACTION" && number > 1))
-                    return false;
-            }
-            if (token.isEmpty())
-                after.params.remove(key);
-            else
-                after.params.insert(key, token);
-            after.authored = true;
-        }
-        if (after == before)
-            return true;
-        if (m_undoStack)
-            m_undoStack->push(new NodeCouplingAttributeCommand(m_layer, before, after));
-        else if (!m_layer->applyNodeCoupling2D(after))
-            return false;
-        refreshObject(before.node);
-        emit objectEdited(before.node);
-        return true;
+        QString error;
+        const bool ok =
+            applyScalarEdits({objectNameAt(row)}, {{spec.key, value}}, m_undoStack, &error);
+        if (ok)
+            refreshObject(objectNameAt(row));
+        return ok;
     }
 
     if (const int attr = OpenSWMMVis::heatPropertyIndex(spec.key); attr >= 0) {

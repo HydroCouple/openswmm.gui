@@ -1258,6 +1258,8 @@ set(
         src/layers/wmtslayer.cpp
         src/layers/wfslayer.cpp
         src/layers/swmmmodellayer.cpp
+        src/layers/nodestructureedits.cpp
+        include/layers/nodestructureedits.h
         src/layers/nodecoupling2d.cpp
         src/layers/hydrographmodels.cpp
         src/layers/speciesattributes.cpp

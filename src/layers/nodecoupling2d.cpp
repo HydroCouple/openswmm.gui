@@ -91,8 +91,9 @@ bool read(SWMM_Engine engine, const QString &node, State *out)
     for (const QString &key : paramKeys()) {
         char buf[128] = {};
         if (swmm_node_get_2d_coupling_param(engine, idx, key.toUtf8().constData(), buf,
-                                            sizeof(buf)) == 0 &&
-            buf[0] != '\0')
+                                            sizeof(buf)) != SWMM_OK)
+            return false;
+        if (buf[0] != '\0')
             s.params.insert(key, QString::fromUtf8(buf));
     }
     *out = s;
@@ -125,32 +126,23 @@ bool write(SWMM_Engine engine, const State &s, QString *error)
 {
     if (!engine)
         return false;
-    const int idx = swmm_node_index(engine, s.node.toUtf8().constData());
-    if (idx < 0) {
-        if (error)
-            *error = QCoreApplication::translate("nodecoupling2d", "Unknown node %1").arg(s.node);
-        return false;
+    QList<QByteArray> keys, values;
+    QList<SWMM_NodeCoupling2DParam> params;
+    for (auto it = s.params.cbegin(); it != s.params.cend(); ++it) {
+        keys << it.key().toUtf8();
+        values << it.value().toUtf8();
     }
-    if (!s.authored)
-        return swmm_node_reset_2d_coupling(engine, idx) == 0;
-    if (swmm_node_set_2d_coupling_type(engine, idx, s.type) != 0) {
-        if (error)
-            *error = QCoreApplication::translate("nodecoupling2d", "%1 cannot be a %2")
-                         .arg(s.node, typeLabel(s.type));
-        return false;
-    }
-    for (const QString &key : paramKeys()) {
-        const QByteArray token = s.params.value(key).toUtf8();
-        if (swmm_node_set_2d_coupling_param(engine, idx, key.toUtf8().constData(),
-                                            token.constData()) != 0 &&
-            !token.isEmpty()) {
-            if (error)
-                *error = QCoreApplication::translate("nodecoupling2d", "%1: invalid %2 \"%3\"")
-                             .arg(s.node, key, s.params.value(key));
-            return false;
-        }
-    }
-    return true;
+    for (int i = 0; i < keys.size(); ++i)
+        params << SWMM_NodeCoupling2DParam{keys[i].constData(), values[i].constData()};
+    const int node = swmm_node_index(engine, s.node.toUtf8().constData());
+    const bool ok =
+        node >= 0 && swmm_node_replace_2d_coupling(engine, node, s.authored, s.type,
+                                                   params.constData(), params.size()) == SWMM_OK;
+    if (!ok && error)
+        *error = QCoreApplication::translate("nodecoupling2d",
+                                             "Invalid complete coupling record for %1.")
+                     .arg(s.node);
+    return ok;
 }
 
 } // namespace nodecoupling2d

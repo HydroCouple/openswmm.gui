@@ -217,6 +217,36 @@ Each change is one Undo step, including after closing. Invalid references or
 incompatible inlet designs reject the entire captured batch. Properties and
 the Attribute Table share these writes, and map connectors refresh immediately.
 
+Node selections also expose the **2D Coupling** fields. Change the structure,
+coupleable switch or one optional parameter across the selected nodes. Switching
+structure clears that node's previous structure overrides; choosing **Use class
+default** removes its authored coupling row. Blank parameters restore inheritance,
+while an explicit coefficient preset such as **DEFAULT** remains authored.
+Compatible choices are intersected for mixed node classes. The native rules
+allow explicitly enabling a virtual/inlet junction whose class default is off.
+Each completed field is one Undo step and preserves the other parameters.
+Dimensions retain project units; tailwater relaxation uses seconds. Existing
+mesh-map area/coefficient overrides retain their precedence. Geometry mapping
+remains separate: use **Remap 1D–2D** when the mapping itself needs to change.
+
+Storage selections expose **LID Control**, **LID Initial Saturation (%)** and
+**LID Bottom Ownership**. Assign a control first; newly assigned nodes start
+with zero saturation and current bottom behavior. Existing assignments retain
+their saturation and bottom mode. A control change updates that node's stack
+depth and anchored outlet elevations. Saturation and ownership edits retain
+those geometries. Clearing a control removes its outlet anchors and resets
+saturation/ownership, retaining the current depth and hydraulic offsets.
+Undo restores the complete assignment, original depth, anchors and offsets.
+Nodes sharing the same control retain their own settings.
+
+Bottom ownership changes preserve the bed contacts. **Mesh aquifer** requires
+an enabled mesh aquifer and an authored, enabled bed with positive contact area;
+configure contact geometry through **Bottom Connection** first. Authoring this
+ownership does not qualify a connection for execution. Mesh/contact or control
+stack changes invalidate old dependent edits. Rejected batches change no targets.
+The same checked writes serve individual Properties fields and table edits;
+choices commit on activation and numeric/text fields on Enter or focus-out.
+
 **Groundwater** also opens a shared field editor for the captured subcatchments.
 Choose a receiving node or edit one flow-law parameter or LATERAL/DEEP expression;
 the other fields retain each target's own values. Each completed field commits

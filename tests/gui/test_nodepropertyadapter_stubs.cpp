@@ -142,3 +142,9 @@ QString userFlagsSummaryFor(openswmmvis::ui::UserFlagsModel *model, const QStrin
 {
     return {};
 }
+
+bool SWMMModelLayer::pushStorageLidEdits(const QStringList &, const QMap<QString, QVariant> &,
+                                         QString *)
+{
+    return false;
+}

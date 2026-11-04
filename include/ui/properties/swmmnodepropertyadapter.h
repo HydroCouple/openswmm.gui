@@ -108,6 +108,7 @@ public:
      *  SWMM_NodeCoupling2DType. The enumerator names are what the browser
      *  shows (class-scope unique, hence OUTFALL_2D / OPEN_STORAGE). */
     enum Coupling2DType {
+        USE_CLASS_DEFAULT = -1,
         NOT_COUPLEABLE = 0,
         MANHOLE = 1,
         GRATE = 2,
@@ -165,7 +166,7 @@ public:
      *  back into to create new TS / patterns / UHs. Optional.
      * @param[in] layer Borrowed layer for shared stores, picker flows and layer-mediated edits; nullptr detaches. This raw pointer must outlive adapter use.
      */
-    void setModelLayer(SWMMModelLayer *layer) { m_layer = layer; }
+    void setModelLayer(SWMMModelLayer *layer);
     /**
      * @return Borrowed currently bound model layer, or nullptr; no lifetime extension occurs.
      */
@@ -446,16 +447,21 @@ public:
      * @return Authored initial storage-LID saturation percent, or zero on missing node/read failure.
      */
     [[nodiscard]] double lidInitialSaturation() const;
+    enum LidBottomOwnership { KEEP_CURRENT = 0, SEALED_BOTTOM = 1, MESH_AQUIFER_BOTTOM = 2 };
+    Q_ENUM(LidBottomOwnership)
+    [[nodiscard]] LidBottomOwnership lidBottomOwnership() const;
+    void setLidBottomOwnership(LidBottomOwnership mode);
+
     /**
      * @brief Attach or clear a storage-node LID control while preserving initial saturation.
      * @param[in] r currentName resolves the control; empty clears it and unknown nonempty IDs are ignored.
-     * @details Engine validates the applicable node/control type. Successful write emits changed; failure is silent.
+     * @details Engine validates the applicable node/control type. Owned writes use the checked shared transaction and refresh signal; unowned acceptance emits changed.
      */
     void setLidControlRef(const DataObjectRef &r);
     /**
      * @brief Change initial saturation of an already attached storage-node LID.
      * @param[in] sat Saturation percentage in [0,100], validated by the engine.
-     * @details Requires a readable existing LID attachment; missing attachment/node or rejection produces no signal. Acceptance emits changed.
+     * @details Requires a readable existing LID attachment; missing attachment/node or rejection produces no signal. Owned requests refresh without a duplicate edit notification; unowned acceptance emits changed.
      */
     void setLidInitialSaturation(double sat);
     /**
@@ -753,6 +759,7 @@ public slots:
      * @return Current effective structure type, or NOT_COUPLEABLE if the shared reader fails.
      */
     [[nodiscard]] Coupling2DType couplingType() const;
+    [[nodiscard]] Coupling2DType couplingTypeChoice() const;
     /**
      * @return True when current couplingType() is not NOT_COUPLEABLE.
      */
@@ -1048,7 +1055,11 @@ public slots:
      */
     [[nodiscard]] QUuid statsSourceId() const { return m_statsSourceId; }
 
+private slots:
+    void onModelClosed();
 signals:
+    void
+    structureRefreshRequested(); // Refresh shared-writer fields without announcing a second edit.
     /**
      * @brief Request property-model rereads after accepted writes, refresh calls or edit-dialog round trips.
      * @details Some delegated edit paths also emit after refusal so controls restore effective engine values; this is not a universal write-success signal.
@@ -1117,12 +1128,13 @@ protected:
     /**
      * @brief Submit a complete reviewed coupling-state value.
      * @param[in] s Desired state for this stored node identity.
-     * @details Equal readable states are ignored. Bound layers push an undoable coupling edit; otherwise writes directly. Emits changed after submission even if refused, so the UI restores effective state.
+     * @details Equal readable states are ignored. Bound layers use the checked complete-record writer and a refresh-only signal; unowned writes use the atomic native record API. Refused owned requests reread the effective value without marking an edit.
      */
     void writeCoupling(const nodecoupling2d::State &s);
 
     SWMM_Engine m_engine;
     QString m_name;
+    QMetaObject::Connection m_modelClose, m_modelDestroyed;
     SWMMModelLayer *m_layer = nullptr; ///< DB.4c — for compound-cell pickers
 
     /// Slice QA.2 — stats-source dispatch state. Null UUID = use the
@@ -1146,7 +1158,7 @@ class SWMMJunctionPropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(double pondedArea READ pondedArea WRITE setPondedArea NOTIFY changed)
     // 1D↔2D coupling structure (fine-scale coupling plan §7.1).
     Q_PROPERTY(bool coupleable READ coupleable WRITE setCoupleable NOTIFY changed)
-    Q_PROPERTY(SWMMNodePropertyAdapter::Coupling2DType couplingType READ couplingType WRITE
+    Q_PROPERTY(SWMMNodePropertyAdapter::Coupling2DType couplingType READ couplingTypeChoice WRITE
                    setCouplingType NOTIFY changed)
     Q_PROPERTY(
         QString couplingDiameter READ couplingDiameter WRITE setCouplingDiameter NOTIFY changed)
@@ -1343,6 +1355,8 @@ class SWMMStoragePropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(DataObjectRef lidControl READ lidControlRef WRITE setLidControlRef NOTIFY changed)
     Q_PROPERTY(double lidInitialSaturation READ lidInitialSaturation WRITE setLidInitialSaturation
                    NOTIFY changed)
+    Q_PROPERTY(LidBottomOwnership lidBottomOwnership READ lidBottomOwnership WRITE
+                   setLidBottomOwnership NOTIFY changed)
     Q_PROPERTY(NodeCompoundEditRef lidBottomConnection READ lidBottomConnectionRef WRITE
                    setLidBottomConnectionRef NOTIFY changed)
     Q_PROPERTY(double maxDepth READ maxDepth WRITE setMaxDepth NOTIFY changed)
@@ -1351,7 +1365,7 @@ class SWMMStoragePropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(double seepRate READ seepRate WRITE setSeepRate NOTIFY changed)
     // 1D↔2D coupling structure (fine-scale coupling plan §7.1).
     Q_PROPERTY(bool coupleable READ coupleable WRITE setCoupleable NOTIFY changed)
-    Q_PROPERTY(SWMMNodePropertyAdapter::Coupling2DType couplingType READ couplingType WRITE
+    Q_PROPERTY(SWMMNodePropertyAdapter::Coupling2DType couplingType READ couplingTypeChoice WRITE
                    setCouplingType NOTIFY changed)
     Q_PROPERTY(
         QString couplingDiameter READ couplingDiameter WRITE setCouplingDiameter NOTIFY changed)
@@ -1431,7 +1445,7 @@ class SWMMDividerPropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(double pondedArea READ pondedArea WRITE setPondedArea NOTIFY changed)
     // 1D↔2D coupling structure (fine-scale coupling plan §7.1).
     Q_PROPERTY(bool coupleable READ coupleable WRITE setCoupleable NOTIFY changed)
-    Q_PROPERTY(SWMMNodePropertyAdapter::Coupling2DType couplingType READ couplingType WRITE
+    Q_PROPERTY(SWMMNodePropertyAdapter::Coupling2DType couplingType READ couplingTypeChoice WRITE
                    setCouplingType NOTIFY changed)
     Q_PROPERTY(
         QString couplingDiameter READ couplingDiameter WRITE setCouplingDiameter NOTIFY changed)

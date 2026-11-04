@@ -3009,35 +3009,14 @@ public:
      *   128-byte reads, no GUI conversion.
      */
     bool nodeCoupling2D(const QString &node, nodecoupling2d::State *out) const;
-    /*! \brief Make the engine hold \a state for its node, then emit
-     *         attributeChanged and mark the model edited.
-     * @param[in] state Desired node row: unauthored resets; authored sets type and canonical
-     *   parameter tokens, omitted tokens cleared. Unknown keys ignored.
-     * @param[out] error Optional failure detail under nodecoupling2d:: write semantics; may remain
-     *   unchanged for null/reset/empty-clear failures.
-     * @return Underlying write result; false can leave type/earlier parameters partly changed.
-     *   Regardless of success emits attributeChanged(state.node) and modelEdited; no explicit
-     *   repaint/undo/rollback. Failed empty-token clears are ignored by helper.
-     */
+    /*! Checked full-record writes: preflight, source comparison, readback/rollback and notifications.
+     * apply uses no history; push uses the project's stack when available. No-op writes do not
+     * create history or notifications. Commands follow typed names and reject stale contexts. */
     bool applyNodeCoupling2D(const nodecoupling2d::State &state, QString *error = nullptr);
-    /*! \brief Apply several nodes' coupling states as ONE undoable step
-     *         (SetNodeCoupling2DCommand on the edit canvas's stack; applied
-     *         directly without one). Every state is checked against the
-     *         node's allowed types first — nothing is written when one is
-     *         illegal. Unchanged nodes are skipped.
-     * @param[in] states Ordered desired snapshots, prevalidated for node existence and authored
-     *   allowed class type before any writes; duplicates are not consolidated.
-     * @param[in] text Undo command display label; unused by direct fallback.
-     * @param[out] error Optional prevalidation/direct-write failure detail, not cleared on success.
-     * @return False prevalidation failure without writes; true no actual changes or command pushed.
-     *   Undo-stack true does not certify redo success. Direct fallback applies changed rows in
-     *   input order and stops at first failure with earlier writes retained; no transaction.
-     * @note Exact token snapshot comparison determines changes, so numerically equivalent textual
-     *   tokens can still edit. Each direct attempted write emits attribute/model notifications even
-     *   on failure.
-     */
     bool pushNodeCoupling2DEdits(const QVector<nodecoupling2d::State> &states, const QString &text,
                                  QString *error = nullptr);
+    bool pushStorageLidEdits(const QStringList &nodes, const QMap<QString, QVariant> &fields,
+                             QString *error = nullptr);
 
     /*!
      * \brief Apply interior vertices to a link: engine + cache, rebuilding
