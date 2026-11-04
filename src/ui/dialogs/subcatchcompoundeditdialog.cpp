@@ -10,6 +10,7 @@
  */
 
 #include "ui/dialogs/subcatchcompoundeditdialog.h"
+#include "ui/panels/subcatchqualitytablemodel.h"
 #include "core/displaynumber.h"
 #include "ui/uiscrollhelpers.h"
 #include "layers/swmmmodellayer.h"
@@ -47,6 +48,19 @@ SubcatchCompoundEditDialog::SubcatchCompoundEditDialog(SubcatchCompoundEditRef r
     setObjectName(QStringLiteral("SubcatchCompoundEditDialog"));
     setWindowTitle(tr("%1 — %2").arg(QString::fromLatin1(titles[m_ref.kind]), m_ref.subName));
     resize(560, 420);
+
+    if (m_ref.layer && (m_ref.kind == SubcatchCompoundEditRef::LandUse ||
+                        m_ref.kind == SubcatchCompoundEditRef::Loadings)) {
+        setWindowTitle(tr("%1 — %2 subcatchments")
+                           .arg(QString::fromLatin1(titles[m_ref.kind]))
+                           .arg(m_ref.subNames.isEmpty() ? 1 : m_ref.subNames.size()));
+        buildSubcatchQualityEditor(this, m_ref);
+        connect(m_ref.layer, &SWMMModelLayer::engineAboutToClose, this,
+                &SubcatchCompoundEditDialog::invalidateContext);
+        connect(m_ref.layer, &QObject::destroyed, this,
+                &SubcatchCompoundEditDialog::invalidateContext);
+        return;
+    }
 
     m_stack = new QStackedWidget(this);
     buildLandUsePage();  // index 0

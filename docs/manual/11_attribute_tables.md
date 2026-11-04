@@ -181,6 +181,19 @@ individually first. **Choose or edit referenced data** opens the full existing
 data-object picker; assignment choices still commit immediately. **Close**
 dismisses the editor, and committed changes remain available through Undo.
 
+Subcatchment selections expose **Land Use Coverage** and **Initial Loadings**
+through the same checked editor in Properties and the table. Each row matches
+by land-use or pollutant name, and a completed numeric cell edits only that row
+across the listed subcatchments. Other rows and unselected objects keep their
+values. Enter or leaving the cell commits immediately with one Undo step;
+Escape discards an unfinished entry. The scope stays fixed if selection changes.
+Coverage accepts 0–100 percent per land use. Totals above 100% are reported,
+without rescaling other land uses. Initial loadings use the project's mass per
+area units and accept finite nonnegative values. Zero clears the effective
+assignment. The current loading editor lists ordinary pollutants; reaction
+species remain outside this editor. **Close** dismisses it without another
+confirmation step. Groundwater and LID usage retain their individual editors.
+
 Drag the divider between column headers to change a width, including the last
 column. Double-click a divider to fit the column to its contents. Column widths
 are remembered per category (and per mesh element kind) across sessions, and

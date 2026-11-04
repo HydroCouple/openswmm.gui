@@ -496,9 +496,13 @@ public slots:
     // Compound refs are coordinates only; the dialog performs the writes.
     /**
      * @brief Complete the property-delegate round trip after the editor has applied its own changes.
-     * @details The reference argument is intentionally ignored; emits changed unconditionally and performs no engine write.
+     * @details The reference argument is ignored. Owned navigation emits no change: the shared editor reports accepted writes. Unowned legacy dialogs emit changed; this method performs no engine write.
      */
-    void setLandUseRef(const SubcatchCompoundEditRef &) { emit changed(); }
+    void setLandUseRef(const SubcatchCompoundEditRef &)
+    {
+        if (!m_layer)
+            emit changed();
+    }
     /**
      * @brief Complete the property-delegate round trip after the editor has applied its own changes.
      * @details The reference argument is intentionally ignored; emits changed unconditionally and performs no engine write.
@@ -511,9 +515,13 @@ public slots:
     void setLidUsageRef(const SubcatchCompoundEditRef &) { emit changed(); }
     /**
      * @brief Complete the property-delegate round trip after the editor has applied its own changes.
-     * @details The reference argument is intentionally ignored; emits changed unconditionally and performs no engine write.
+     * @details The reference argument is ignored. Owned navigation emits no change: the shared editor reports accepted writes. Unowned legacy dialogs emit changed; this method performs no engine write.
      */
-    void setLoadingsRef(const SubcatchCompoundEditRef &) { emit changed(); }
+    void setLoadingsRef(const SubcatchCompoundEditRef &)
+    {
+        if (!m_layer)
+            emit changed();
+    }
 
     /**
      * @brief Complete the property-delegate round trip after the editor has applied its own changes.

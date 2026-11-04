@@ -31,6 +31,7 @@
 // Phase 3 — subcatchment-side compound-edit ref + cell editor.
 #include "ui/properties/subcatchcompoundeditbutton.h"
 #include "ui/properties/subcatchcompoundeditref.h"
+#include "ui/dialogs/subcatchcompoundeditdialog.h"
 // Slice SC.1 — link-side compound-edit ref + cell editor.
 #include "ui/dialogs/linkcompoundeditdialog.h"
 #include "ui/properties/linkcompoundeditbutton.h"
@@ -444,6 +445,8 @@ public:
             if constexpr (std::is_same_v<Selection, SWMMAggregateSelection>) {
                 const auto ref = m_selection->editorData(m_column);
                 if (ref.userType() == qMetaTypeId<NodeCompoundEditRef>()) return ref.template value<NodeCompoundEditRef>().summary;
+                if (ref.userType() == qMetaTypeId<SubcatchCompoundEditRef>())
+                    return ref.template value<SubcatchCompoundEditRef>().summary;
             }
             return mixed ? QVariant(PropertiesPanel::tr("Mixed")) : field.display;
         case Qt::EditRole:
@@ -452,6 +455,7 @@ public:
             if constexpr (std::is_same_v<Selection, SWMMAggregateSelection>) {
                 const auto ref = m_selection->editorData(m_column);
                 if (ref.userType() == qMetaTypeId<NodeCompoundEditRef>()) return ref;
+                if (ref.userType() == qMetaTypeId<SubcatchCompoundEditRef>()) return ref;
             }
             return mixed ? mixedSeed() : field.edit;
         case Qt::FontRole:
@@ -522,6 +526,8 @@ private:
         if constexpr (std::is_same_v<Selection, SWMMAggregateSelection>) {
             if (m_selection->editorData(m_column).userType() == qMetaTypeId<NodeCompoundEditRef>())
                 return PropertiesPanel::tr("Open the editor to change one constituent or pollutant field across these nodes. Other fields and rows are preserved. Each committed field has one Undo step.");
+            if (m_selection->editorData(m_column).userType() == qMetaTypeId<SubcatchCompoundEditRef>())
+                return PropertiesPanel::tr("Open the editor to change one named land-use or pollutant row across these subcatchments. Other rows are preserved. Each committed value has one Undo step.");
         }
         const int targets = int(m_selection->rows().size());
         const auto field = m_selection->field(m_column);
@@ -2719,6 +2725,28 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
         return;
     }
 
+    if (metaId == qMetaTypeId<SubcatchCompoundEditRef>()) {
+        auto ref = value.value<SubcatchCompoundEditRef>();
+        if (!ref.layer || (ref.kind != SubcatchCompoundEditRef::LandUse &&
+                           ref.kind != SubcatchCompoundEditRef::Loadings))
+            return;
+        QPointer<SWMMModelLayer> owner = ref.layer;
+        auto *action = menu.addAction(tr("Edit…"));
+        if (menu.exec(m_treeView->viewport()->mapToGlobal(pos)) != action)
+            return;
+        if (!owner || owner->engine() != ref.engine)
+            return;
+        if (!ref.undoStack)
+            for (auto *canvas : window()->findChildren<MapCanvas *>())
+                if (canvas->layers().contains(ref.layer)) {
+                    ref.undoStack = canvas->undoStack();
+                    break;
+                }
+        auto *dialog = new SubcatchCompoundEditDialog(ref, window());
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->show();
+        return;
+    }
     // Plain row — no menu.
 }
 
