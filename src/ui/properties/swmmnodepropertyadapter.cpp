@@ -39,6 +39,29 @@ SWMMNodePropertyAdapter::SWMMNodePropertyAdapter(SWMM_Engine engine, QString nam
     }
 }
 
+void SWMMNodePropertyAdapter::setModelLayer(SWMMModelLayer *layer)
+{
+    disconnect(m_modelClose);
+    disconnect(m_modelDestroyed);
+    m_layer = layer;
+    if (!layer)
+        return;
+    const auto closed = [this, layer] {
+        if (m_layer == layer) {
+            m_engine = nullptr;
+            m_layer = nullptr;
+        }
+    };
+    m_modelClose = connect(layer, SIGNAL(engineAboutToClose()), this, SLOT(onModelClosed()));
+    m_modelDestroyed = connect(layer, &QObject::destroyed, this, closed);
+}
+
+void SWMMNodePropertyAdapter::onModelClosed()
+{
+    m_engine = nullptr;
+    m_layer = nullptr;
+}
+
 QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
 {
     auto *u = UnitSystem::instance();
@@ -48,6 +71,8 @@ QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
 
     if (property == QLatin1String("lidBottomConnection"))
         return tr("Bottom Connection");
+    if (property == QLatin1String("lidBottomOwnership"))
+        return tr("LID Bottom Ownership");
     if (property == QLatin1String("lidControl"))
         return tr("LID Control");
     if (property == QLatin1String("lidInitialSaturation"))
@@ -612,11 +637,11 @@ void SWMMNodePropertyAdapter::writeCoupling(const nodecoupling2d::State &s)
     nodecoupling2d::State now;
     if (nodecoupling2d::read(m_engine, m_name, &now) && now == s)
         return;
-    if (m_layer)
+    if (m_layer) {
         m_layer->pushNodeCoupling2DEdits({s}, tr("Edit 2D Coupling"));
-    else
-        nodecoupling2d::write(m_engine, s);
-    emit changed(); // a refused edit re-reads the engine's value
+        emit structureRefreshRequested();
+    } else if (nodecoupling2d::write(m_engine, s))
+        emit changed();
 }
 
 void SWMMNodePropertyAdapter::setCouplingParam(const QString &key, const QString &token)
@@ -625,9 +650,11 @@ void SWMMNodePropertyAdapter::setCouplingParam(const QString &key, const QString
     if (!nodecoupling2d::read(m_engine, m_name, &s))
         return;
     const QString t = token.trimmed();
-    if (t.isEmpty())
+    if (t.isEmpty()) {
+        if (!s.params.contains(key))
+            return;
         s.params.remove(key);
-    else
+    } else
         s.params.insert(key, t);
     s.authored = true; // a parameter authors the row at the current type
     writeCoupling(s);
@@ -637,6 +664,14 @@ SWMMNodePropertyAdapter::Coupling2DType SWMMNodePropertyAdapter::couplingType() 
 {
     nodecoupling2d::State s;
     return nodecoupling2d::read(m_engine, m_name, &s) ? Coupling2DType(s.type) : NOT_COUPLEABLE;
+}
+
+SWMMNodePropertyAdapter::Coupling2DType SWMMNodePropertyAdapter::couplingTypeChoice() const
+{
+    nodecoupling2d::State state;
+    return nodecoupling2d::read(m_engine, m_name, &state) && state.authored
+               ? Coupling2DType(state.type)
+               : USE_CLASS_DEFAULT;
 }
 
 bool SWMMNodePropertyAdapter::coupleable() const
@@ -649,8 +684,18 @@ void SWMMNodePropertyAdapter::setCouplingType(Coupling2DType v)
     nodecoupling2d::State s;
     if (!nodecoupling2d::read(m_engine, m_name, &s))
         return;
+    if (v == USE_CLASS_DEFAULT) {
+        s.authored = false;
+        s.type = nodecoupling2d::defaultType(m_engine, m_name);
+        s.params.clear();
+        writeCoupling(s);
+        return;
+    }
     if (!nodecoupling2d::allowedTypes(m_engine, m_name).contains(int(v))) {
-        emit changed();
+        if (m_layer)
+            emit structureRefreshRequested();
+        else
+            emit changed();
         return;
     }
     if (s.authored && s.type == int(v))
@@ -1435,7 +1480,11 @@ void SWMMNodePropertyAdapter::setLidControlRef(const DataObjectRef &r)
         r.currentName.isEmpty() ? -1 : swmm_lid_index(m_engine, r.currentName.toUtf8().constData());
     if (!r.currentName.isEmpty() && c < 0)
         return;
-    if (swmm_node_set_lid(m_engine, nodeIdx(), c, lidInitialSaturation()) == SWMM_OK)
+    if (m_layer) {
+        if (r.kind == DataObjectRef::LidControl && r.engine == m_engine && r.layer == m_layer)
+            m_layer->pushStorageLidEdits({m_name}, {{"node_lid_control", r.currentName}});
+        emit structureRefreshRequested();
+    } else if (swmm_node_set_lid(m_engine, nodeIdx(), c, lidInitialSaturation()) == SWMM_OK)
         emit changed();
 }
 void SWMMNodePropertyAdapter::setLidInitialSaturation(double sat)
@@ -1444,8 +1493,28 @@ void SWMMNodePropertyAdapter::setLidInitialSaturation(double sat)
         return;
     int c = -1;
     double old = 0;
-    if (swmm_node_get_lid(m_engine, nodeIdx(), &c, &old) == SWMM_OK && c >= 0 &&
-        swmm_node_set_lid(m_engine, nodeIdx(), c, sat) == SWMM_OK)
+    if (m_layer) {
+        m_layer->pushStorageLidEdits({m_name}, {{"node_lid_saturation", sat}});
+        emit structureRefreshRequested();
+    } else if (swmm_node_get_lid(m_engine, nodeIdx(), &c, &old) == SWMM_OK && c >= 0 &&
+               swmm_node_set_lid(m_engine, nodeIdx(), c, sat) == SWMM_OK)
+        emit changed();
+}
+
+SWMMNodePropertyAdapter::LidBottomOwnership SWMMNodePropertyAdapter::lidBottomOwnership() const
+{
+    int mode = 0;
+    if (nodeIdx() >= 0)
+        swmm_node_get_lid_bottom(m_engine, nodeIdx(), &mode);
+    return LidBottomOwnership(mode);
+}
+void SWMMNodePropertyAdapter::setLidBottomOwnership(LidBottomOwnership mode)
+{
+    if (m_layer) {
+        m_layer->pushStorageLidEdits({m_name}, {{"node_lid_bottom", int(mode)}});
+        emit structureRefreshRequested();
+    } else if (nodeIdx() >= 0 &&
+               swmm_node_set_lid_bottom(m_engine, nodeIdx(), int(mode)) == SWMM_OK)
         emit changed();
 }
 

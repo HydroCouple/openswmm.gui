@@ -3690,6 +3690,13 @@ add_swmmvis_gui_test(test_usagebulk
     ${SWMMVIS_TEST_EXTRA_SOURCES})
 swmmvis_link_full_app_deps(test_usagebulk)
 
+add_swmmvis_gui_test(test_nodestructurebulk
+    test_nodestructurebulk.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_nodestructurebulk)
+
+
 
 # Owned groundwater dialogs now share the layer-aware checked exchange writer.
 target_sources(test_groundwaterexchangedialog PRIVATE

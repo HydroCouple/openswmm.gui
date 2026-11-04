@@ -73,7 +73,7 @@ QString typeLabel(int type);
  * @param[in] engine Borrowed stable engine; null fails. Serialize access with engine edits/simulation.
  * @param[in] node Exact node name resolved by the engine.
  * @param[out] out Required destination assigned only after node/type lookup succeeds; null or lookup/type failure leaves it untouched.
- * @return True with node identity, effective type/authorship and each successfully retrieved nonempty canonical parameter token. Individual parameter-query failures are silently omitted.
+ * @return True with node identity, effective type/authorship and each successfully retrieved nonempty canonical parameter token. Any parameter-query failure rejects the snapshot.
  * @note Tokens retain engine section representation/units with no GUI conversion. A fixed 128-byte buffer is used per key. No source writes or Qt signals occur.
  */
 bool read(SWMM_Engine engine, const QString &node, State *out);
@@ -94,13 +94,12 @@ int defaultType(SWMM_Engine engine, const QString &node);
  */
 QList<int> allowedTypes(SWMM_Engine engine, const QString &node);
 
-/*! Make the engine hold exactly \a s: no row when !authored, otherwise the
- *  type and only the listed parameters. On failure \a error names the
- *  rejected type or key; the node may then be partly written.
- * @param[in] engine Borrowed editable stable engine; null fails without assigning error. Serialize with other engine operations.
- * @param[in] s Snapshot whose node selects the target. Unauthored resets the row; authored sets type then every canonical key, clearing omitted/empty tokens. Unknown map keys are ignored. Tokens pass verbatim to engine validation in section units; no conversion occurs.
- * @param[out] error Optional message set for unknown node, rejected type or rejected nonempty parameter. Reset failure/null engine and failed empty-token clearing have no explanatory assignment; prior text can remain.
- * @return True for successful reset or all nonempty parameter writes accepted. False can leave the type/earlier parameters partly written; failures of empty-token clears are ignored. No rollback or Qt/model-change notification is performed.
+/*! Atomically replace the complete authored row, or remove it for the class default.
+ * @param[in] engine Borrowed editable engine; null fails.
+ * @param[in] s Complete node/type/provenance and canonical key/value map. Unknown, duplicate,
+ * inapplicable or invalid tokens reject the whole record. No unit conversion or mesh-map update.
+ * @param[out] error Optional explanation on refusal.
+ * @return True after complete native acceptance; false changes nothing. No Qt notifications.
  */
 bool write(SWMM_Engine engine, const State &s, QString *error = nullptr);
 

@@ -17,6 +17,7 @@
 #include "ui/properties/nodecompoundeditref.h"
 #include "ui/properties/subcatchcompoundeditref.h"
 #include "ui/properties/usageeditref.h"
+#include "layers/nodestructureedits.h"
 
 using openswmmvis::EditorKind;
 
@@ -106,6 +107,8 @@ bool SWMMAggregateSelection::supports(const openswmmvis::ColumnSpec &spec)
         "link_pump_init_state", "gage_rain_type", "gage_rain_units", "link_xsect_shape",
         "node_outfall_type", "node_storage_shape", "node_divider_type", "subcatch_infil_model",
         "gage_data_source", "gage_file_format"};
+    if (nodestructure::field(spec.setter))
+        return true;
     return !spec.setter.isEmpty() && spec.key != QLatin1String("Name") &&
            (spec.editor == EditorKind::Numeric || spec.editor == EditorKind::Integer ||
             spec.editor == EditorKind::Interval || spec.editor == EditorKind::LinkEndpoint ||
@@ -146,6 +149,22 @@ QVariant SWMMAggregateSelection::editorData(int column, int role) const
 {
     const auto specs = m_source->columnSpecs();
     if (column < 0 || column >= specs.size()) return {};
+    if (role == openswmmvis::kDisabledEnumValuesRole &&
+        specs[column].setter == "node_2d_coupling_type") {
+        QVariantList disabled;
+        for (const auto &choice : specs[column].enumValues) {
+            int type = choice.toList().value(1).toInt();
+            if (type < 0)
+                continue;
+            for (auto group = m_targets.cbegin(); group != m_targets.cend(); ++group)
+                for (const auto &name : group.value())
+                    if (!nodecoupling2d::allowedTypes(m_source->layer()->engine(), name)
+                             .contains(type) &&
+                        !disabled.contains(type))
+                        disabled << type;
+        }
+        return disabled;
+    }
     if (role == openswmmvis::kFileColumnOptionsRole) {
         QStringList common;
         bool first = true;
@@ -232,10 +251,11 @@ SWMMAggregateSelection::Field SWMMAggregateSelection::field(int column) const
         const int col = m_columns.value(group.key()).value(spec.key, -1);
         if (col < 0) continue;
         const auto other = model->columnSpecs()[col];
-        const bool compatible = supports(other) && other.setter == spec.setter &&
-            other.editor == spec.editor && other.unit == spec.unit &&
-            other.enumValues == spec.enumValues && other.minValue == spec.minValue &&
-            other.maxValue == spec.maxValue;
+        const bool compatible =
+            supports(other) && other.setter == spec.setter && other.editor == spec.editor &&
+            other.unit == spec.unit &&
+            (other.enumValues == spec.enumValues || spec.setter == "node_2d_coupling_type") &&
+            other.minValue == spec.minValue && other.maxValue == spec.maxValue;
         for (const auto &name : group.value()) {
             const int row = model->rowForName(name);
             if (row < 0) continue;

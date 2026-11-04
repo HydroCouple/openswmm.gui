@@ -2213,53 +2213,6 @@ private:
     bool m_present = false; ///< true iff the fuse is currently applied
 };
 
-/*!
- * \class SetNodeCoupling2DCommand
- * \brief Records a change to one or more nodes' 1D↔2D coupling structure
- *        ([2D_NODE_COUPLING]) — a property edit, a bulk "set coupleable" or
- *        the remap dialog's node changes — as one undo step.
- * \details The constructor snapshots each node's prior state; redo() writes
- *          the new states (no first-redo skip: push() applies them).
- */
-class SetNodeCoupling2DCommand : public MapCommand
-{
-public:
-    /**
-     * @brief Snapshot each requested named node coupling state before bulk replacement.
-     * @param[in] layer Borrowed raw model pointer, must outlive command and refer to intended
-     *   engine during replay; GUI-thread access.
-     * @param[in] newStates Target State list, names copied with structure/gate/project-unit
-     *   parameters; duplicates retained.
-     * @param[in] text Undo-menu label copied unchanged.
-     * @param[in] canvas Optional borrowed raw canvas; caller keeps it alive during command
-     *   lifetime.
-     * @param[in] parent Optional QUndoCommand owner; otherwise stack owns after push.
-     * @note Each old lookup result ignored and default State appended on failure, so undo may
-     *   attempt empty/default state. Name-based State survives index shifts but raw model lifetime
-     *   still required; no validation/atomicity.
-     * @note Constructor stores/snapshots state without applying. Normal QUndoStack push immediately
-     *   invokes redo; errors do not automatically reverse the stack index.
-     */
-    SetNodeCoupling2DCommand(SWMMModelLayer *layer, QVector<nodecoupling2d::State> newStates,
-                             const QString &text, MapCanvas *canvas,
-                             QUndoCommand *parent = nullptr);
-
-    /**
-     * @brief Apply captured states in reverse order; default states from failed capture are still
-     *   attempted, no rollback/status reporting.
-     */
-    void undo() override;
-    /**
-     * @brief Apply target states in forward order through model; null layer no-op, statuses
-     *   ignored, partial changes possible.
-     */
-    void redo() override;
-
-private:
-    SWMMModelLayer *m_layer = nullptr;
-    QVector<nodecoupling2d::State> m_new;
-    QVector<nodecoupling2d::State> m_old;
-};
 
 /*!
  * \class InsertInletJunctionCommand
