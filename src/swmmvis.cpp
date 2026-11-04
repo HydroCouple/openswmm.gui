@@ -8121,9 +8121,7 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
         // tab switch gets exactly one live connection.
         QObject::disconnect(pw->selectionManager(), &SelectionManager::selectionChanged, this,
                             nullptr);
-        connect(
-            pw->selectionManager(), &SelectionManager::selectionChanged, this,
-            [this, pw](const QSet<SWMMObjectRef> &current, const QSet<SWMMObjectRef> &,
+        const auto showPropertiesSelection = [this, pw](const QSet<SWMMObjectRef> &current, const QSet<SWMMObjectRef> &,
                        const QSet<SWMMObjectRef> &) {
                 if (!mPropertiesPanel || pw != mActiveProjectWindow)
                     return;
@@ -8136,6 +8134,11 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                     // `this` to the manager on each tab switch.
                     if (mSectionViewPanel)
                         mSectionViewPanel->clearSelection();
+                    return;
+                }
+                if (current.size() > 1) {
+                    mPropertiesPanel->showSelection(pw->canvas(), current.values());
+                    if (mSectionViewPanel) mSectionViewPanel->clearSelection();
                     return;
                 }
                 const SWMMObjectRef first = *current.constBegin();
@@ -8215,7 +8218,10 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
                 } else {
                     mPropertiesPanel->clear();
                 }
-            });
+            };
+        connect(pw->selectionManager(), &SelectionManager::selectionChanged, this,
+                showPropertiesSelection);
+        showPropertiesSelection(pw->selectionManager()->selection(), {}, {});
     }
 
     // Slice §V.VB — rebind the Mesh Editing toolbar to the new project's

@@ -40,6 +40,7 @@
 #include "ui/panels/meshattributetablemodel.h"
 #include "ui/panels/attributedelegates.h"
 #include "ui/panels/propertiespanel.h"
+#include "ui/panels/swmmaggregateselection.h"
 #include "ui/panels/swmmattributetablemodel.h"
 #include "ui/properties/swmmlinkpropertyadapter.h"
 #include "ui/properties/linkendpointcombobox.h"
@@ -291,6 +292,95 @@ class TestAttributeTableSchema : public QObject
     Q_OBJECT
 
 private slots:
+    void propertiesEditsSelectedNodesAndLinks()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        MapCanvas canvas;
+        PropertiesPanel panel;
+        panel.setProject(layer.get());
+        panel.showSelection(&canvas, {{SWMMObjectRef::Node, "J1"}, {SWMMObjectRef::Node, "X1"}});
+        auto *aggregate = panel.findChild<SWMMAggregateSelection *>();
+        QVERIFY(aggregate);
+        auto *source = aggregate->source();
+        const int depth = colFor(source->columnSpecs(), "Max depth");
+        QVERIFY(depth >= 0);
+        QVERIFY(aggregate->stage(depth, 12.5));
+        QString error;
+        QVERIFY2(aggregate->apply(&error), qPrintable(error));
+        QCOMPARE(canvas.undoStack()->count(), 1);
+        for (const char *name : {"J1", "X1"}) {
+            double value = 0;
+            QCOMPARE(swmm_node_get_max_depth(layer->engine(), swmm_node_index(layer->engine(), name), &value), 0);
+            QCOMPARE(value, 12.5);
+        }
+        // X1 exists in both namespaces. Resolve it using the selected family.
+        panel.showSelection(&canvas, {{SWMMObjectRef::Link, "C1"}, {SWMMObjectRef::Link, "X1"}});
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        aggregate = panel.findChild<SWMMAggregateSelection *>();
+        QVERIFY(aggregate);
+        const int roughness = colFor(aggregate->source()->columnSpecs(), "Roughness");
+        QVERIFY(roughness >= 0);
+        QVERIFY(aggregate->stage(roughness, 0.02));
+        QVERIFY2(aggregate->apply(&error), qPrintable(error));
+        QCOMPARE(canvas.undoStack()->count(), 2);
+        for (const char *name : {"C1", "X1"}) {
+            double value = 0;
+            QCOMPARE(swmm_link_get_roughness(layer->engine(), swmm_link_index(layer->engine(), name), &value), 0);
+            QCOMPARE(value, 0.02);
+        }
+        // Replay after the original Properties model is destroyed and its family changes.
+        panel.clear();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        canvas.undoStack()->undo();
+        double value = 0;
+        QCOMPARE(swmm_link_get_roughness(layer->engine(), swmm_link_index(layer->engine(), "X1"), &value), 0);
+        QCOMPARE(value, 0.013);
+        canvas.undoStack()->undo();
+        QCOMPARE(swmm_node_get_max_depth(layer->engine(), swmm_node_index(layer->engine(), "X1"), &value), 0);
+        QCOMPARE(value, 10.0);
+        canvas.undoStack()->redo();
+        canvas.undoStack()->redo();
+
+        const QString outDir = QDir(dataDir()).filePath("multi_selection");
+        QVERIFY(QDir().mkpath(outDir));
+        const auto saved = QDir(outDir).filePath("network_batch.inp").toUtf8();
+        QCOMPARE(swmm_model_write(layer->engine(), saved.constData()), 0);
+        SWMM_Engine reopened = swmm_engine_create();
+        QCOMPARE(swmm_engine_open(reopened, saved.constData(), nullptr, nullptr, nullptr), 0);
+        QCOMPARE(swmm_link_get_roughness(reopened, swmm_link_index(reopened, "X1"), &value), 0);
+        QCOMPARE(value, 0.02);
+        QCOMPARE(swmm_node_get_max_depth(reopened, swmm_node_index(reopened, "X1"), &value), 0);
+        QCOMPARE(value, 12.5);
+        swmm_engine_destroy(reopened);
+    }
+
+    void rejectedBatchPreservesRedoAndTableUndoIdentity()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        QUndoStack undo;
+        SWMMAttributeTableModel table;
+        table.setSource(layer.get(), SWMMModelLayer::CatConduits);
+        table.setUndoStack(&undo);
+        const int length = colFor(table.columnSpecs(), "Length");
+        const int row = table.rowForName("C1");
+        QVERIFY(table.setData(table.index(row, length), 987.0));
+        table.setSource(layer.get(), SWMMModelLayer::CatJunctions);
+        undo.undo();
+        double value = 0;
+        QCOMPARE(swmm_link_get_length(layer->engine(), swmm_link_index(layer->engine(), "C1"), &value), 0);
+        QCOMPARE(value, 1000.0);
+        QVERIFY(undo.canRedo());
+        QString error;
+        QVERIFY(!table.applyScalarEdits({"J1", "X1"}, {{"Max depth", -1.0}}, &undo, &error));
+        QVERIFY(undo.canRedo());
+        QCOMPARE(undo.index(), 0);
+        undo.redo();
+        QCOMPARE(swmm_link_get_length(layer->engine(), swmm_link_index(layer->engine(), "C1"), &value), 0);
+        QCOMPARE(value, 987.0);
+    }
+
     void junctionStorageTableEditUndoAndSave()
     {
         auto layer = openLayer();

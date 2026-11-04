@@ -126,6 +126,8 @@ void MeshSetTriangleAttributeCommand::apply(const QVector<double> &values)
         // applyMeshTriangle* would reject and leave the edited value in place).
         if (std::isfinite(v)) {
             applyCellParam(m_layer, m_tris[i], m_key, v);
+        } else if (m_key == "mannings" || m_key == "initDepth") {
+            m_layer->clearMeshTriangleParam(m_tris[i], m_key);
         } else if (const mesh::CellParamSpec *s = mesh::cellParamSpec(m_key)) {
             applyCellParam(m_layer, m_tris[i], m_key, s->defaultValue);
         }

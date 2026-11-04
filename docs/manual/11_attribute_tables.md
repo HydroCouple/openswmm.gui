@@ -379,10 +379,18 @@ Specified Stage type. On a picker column (Coupled Node, Time Series, Rating
 Curve) the prompting flavour opens the same picker as the cell, so "couple
 these twelve vertices to J1" is a single gesture.
 
-For 2D mesh elements, **Properties** offers the same edit for a multi-element
-selection: several fields at once, staged and written by one **Apply**. Unlike
-the table, it does not skip elements: a field that applies to only some of the
-selection is read-only there. See *Editing values* in Chapter 19.
+**Properties** also supports editing several selected objects together. Mesh
+vertices, edges and cells offer their existing field editors. Network nodes,
+links, subcatchments and rain gages offer shared numeric attributes, tags and
+supported choices or recording intervals. Differing values show **Mixed**.
+Enter the fields to change, then use **Apply** for one undo step or **Cancel**
+to discard them. Structured records use their dedicated editors.
+
+For selections containing different object families or meshes, choose a counted
+group above the Properties tree. A field applicable to only some objects in
+the active group is read-only. For mesh boundary conditions, choose the offered
+exterior-edge scope if the selection also contains interior edges. See
+*Editing values* in Chapter 19.
 
 \figtodo{11_apply_value_to_rows.png, The right-click menu offering to apply one roughness value to twelve selected conduits}
 

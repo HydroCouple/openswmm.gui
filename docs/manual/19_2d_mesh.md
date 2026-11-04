@@ -615,11 +615,18 @@ Both routes write the same values through the same edit commands, so they save
 the same file. A field that applies to only some of the selected elements, such
 as a boundary type when an interior edge is selected, is read-only in
 Properties, and its tooltip says how many it applies to. Apply checks every
-value first: a value out of range, or one a staged type change makes
-inapplicable, stops the whole Apply, writes nothing and says why. Selecting
+value before writing. A value out of range stops the whole Apply and reports
+the reason. Choosing a boundary type immediately enables its parameter. For
+example, choose **Normal Depth**, enter **Friction Slope** and press **Apply**
+once to prescribe both on every selected exterior edge. Changing the type
+again removes pending parameters that no longer apply and displays a notice.
+The boundary group's **Edit…** form also stages its prescription until the
+panel's **Apply**. Selecting
 something else discards unapplied changes, and Properties says how many were
-discarded. A selection that mixes kinds or meshes is summarized with counts
-instead; select one kind to edit it.
+discarded. When a selection mixes kinds or meshes, use the counted group
+selector above the tree to choose the objects to edit. The map selection is
+retained. A selection containing interior and exterior edges offers an explicit
+exterior-edge scope for boundary conditions.
 
 | Element | Fields in Properties and the Attribute Table | Writes |
 | --- | --- | --- |

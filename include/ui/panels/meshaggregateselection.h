@@ -82,6 +82,7 @@ public:
     [[nodiscard]] QVariant stagedValue(int column) const { return m_staged.value(column); }
     /** @return Staged columns in column order. */
     [[nodiscard]] QList<int> stagedColumns() const { return m_staged.keys(); }
+    QString stagingNotice() const { return m_stagingNotice; }
 
     /*! Stage \p value for \p column. A value equal to a non-Mixed common value unstages it; an
      *  invalid value or a field not editable on every target is refused.
@@ -108,12 +109,15 @@ signals:
 
 private:
     void invalidate() { m_cache.clear(); }
+    void pruneInapplicableFields();
     [[nodiscard]] QString validate(int column, const QVariant &value,
                                    const QList<int> &rows) const;
 
     MeshAttributeTableModel *m_source;
     QVector<SWMMObjectRef> m_targets;
     QMap<int, QVariant> m_staged; ///< Column order is apply order.
+    QString m_stagingNotice;
+    quint64 m_draftRevision = 0;
     mutable QHash<int, Field> m_cache;
     mutable QList<int> m_rows; ///< Resolved target rows, rebuilt after a reset or layout change.
     mutable int m_unresolved = 0;

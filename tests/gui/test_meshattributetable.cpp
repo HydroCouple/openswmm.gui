@@ -1515,9 +1515,8 @@ private slots:
         QCOMPARE(b.canvas.undoStack()->count(), undoB);
     }
 
-    /** @brief A staged parameter that a staged type change makes inapplicable is refused at
-     *  write time: the whole Apply rolls back and leaves no undo or redo entry. */
-    void aggregateRollsBackARefusedField()
+    /** A new type removes pending fields it cannot use before any records are written. */
+    void aggregateTypeChangeDropsInapplicableDraft()
     {
         AggregateRig rig(makeStrip(2), "rollback.2dm");
         rig.table.setSource(&rig.layer, Kind::Edge);
@@ -1541,12 +1540,163 @@ private slots:
         const int undoBefore = rig.canvas.undoStack()->count();
         QVERIFY(rig.tree()->setData(rig.field("slope"), 0.02));
         QVERIFY(rig.tree()->setData(rig.field("bcType"), int(T::Wall)));
-        rig.apply()->click();
-        QVERIFY2(rig.summary().contains(QStringLiteral("Nothing was changed")),
-                 qPrintable(rig.summary()));
+        QVERIFY(rig.summary().contains("Removed pending changes"));
         QCOMPARE(rig.layer.edgeBCs(), before);
-        QCOMPARE(rig.canvas.undoStack()->count(), undoBefore);
-        QVERIFY(!rig.canvas.undoStack()->canRedo());
+        rig.apply()->click();
+        for (const auto &edge : bs) {
+            const int slot = mesh::edgeSlot(edge.first, edge.second);
+            QCOMPARE(rig.layer.edgeBCs()[slot].type, T::Wall);
+            QCOMPARE(rig.layer.edgeBCs()[slot].slope, before[slot].slope);
+        }
+        QCOMPARE(rig.canvas.undoStack()->count(), undoBefore + 1);
+        rig.canvas.undoStack()->undo();
+        QCOMPARE(rig.layer.edgeBCs(), before);
+    }
+
+    void aggregateNormalDepthTypeAndSlopeApplyTogether()
+    {
+        AggregateRig rig(makeStrip(2), "normal_depth_batch.2dm");
+        const auto edges = boundaryEdges(rig.layer, 4);
+        rig.table.setSource(&rig.layer, Kind::Edge);
+        QList<SWMMObjectRef> refs;
+        for (int i = 0; i < 3; ++i) {
+            refs << mesh::MeshObjectRef::edge(rig.layer.sourcePath(), edges[i].first, edges[i].second);
+            const int row = rig.table.rowForRef(refs.last());
+            QVERIFY(rig.table.setData(rig.table.index(row, colFor(rig.table, "group")),
+                                      QString::number(i)));
+        }
+        const int third = rig.table.rowForRef(refs.last());
+        QVERIFY(rig.table.setData(rig.table.index(third, colFor(rig.table, "bcType")),
+                                  int(mesh::MeshBCTypes::Type::NormalFlow)));
+        QVERIFY(rig.table.setData(rig.table.index(third, colFor(rig.table, "slope")), -0.002));
+        const auto before = rig.layer.edgeBCs();
+        const int undoBefore = rig.canvas.undoStack()->index();
+        rig.show(Kind::Edge, refs);
+        rig.panel.resize(700, 900);
+        rig.panel.show();
+        rig.view()->expandAll();
+        QVERIFY(!(rig.field("slope").flags() & Qt::ItemIsEditable));
+        rig.view()->scrollTo(rig.field("bcType"));
+        QTest::mouseClick(rig.view()->viewport(), Qt::LeftButton, Qt::NoModifier,
+                          rig.view()->visualRect(rig.field("bcType")).center());
+        auto *type = rig.view()->findChild<QComboBox *>();
+        QVERIFY(type);
+        const auto normal = type->model()->index(type->findData(int(mesh::MeshBCTypes::Type::NormalFlow)), 0);
+        type->view()->scrollTo(normal);
+        QTest::mouseClick(type->view()->viewport(), Qt::LeftButton, Qt::NoModifier,
+                          type->view()->visualRect(normal).center());
+        QTRY_VERIFY(rig.field("slope").flags() & Qt::ItemIsEditable);
+        QCOMPARE(rig.layer.edgeBCs(), before);
+
+        // Leave the numeric editor open when Apply is clicked.
+        rig.view()->scrollTo(rig.field("slope"));
+        QTest::mouseClick(rig.view()->viewport(), Qt::LeftButton, Qt::NoModifier,
+                          rig.view()->visualRect(rig.field("slope")).center());
+        auto *spin = rig.view()->findChild<QDoubleSpinBox *>();
+        QVERIFY(spin);
+        spin->setFocus();
+        spin->selectAll();
+        QTest::keyClicks(spin, "0.005");
+        QTest::mouseClick(rig.apply(), Qt::LeftButton);
+        QTRY_COMPARE(rig.canvas.undoStack()->index(), undoBefore + 1);
+        for (int i = 0; i < 3; ++i) {
+            const int slot = mesh::edgeSlot(edges[i].first, edges[i].second);
+            QCOMPARE(rig.layer.edgeBCs()[slot].type, mesh::MeshBCTypes::Type::NormalFlow);
+            QCOMPARE(rig.layer.edgeBCs()[slot].slope, 0.005);
+            QCOMPARE(rig.layer.edgeBCs()[slot].group, before[slot].group);
+            QCOMPARE(rig.layer.edgeBCs()[slot].conveyance, before[slot].conveyance);
+        }
+        const int control = mesh::edgeSlot(edges[3].first, edges[3].second);
+        QCOMPARE(rig.layer.edgeBCs()[control], before[control]);
+        rig.canvas.undoStack()->undo();
+        QCOMPARE(rig.layer.edgeBCs(), before);
+        rig.canvas.undoStack()->redo();
+        const QString dir = QCoreApplication::applicationDirPath() + "/mesh_editor_roundtrip";
+        QVERIFY(QDir().mkpath(dir));
+        const QString path = dir + "/normal_depth_batch.inp";
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        file.write("[TITLE]\nNormal depth batch\n");
+        file.close();
+        QString error;
+        QVERIFY2(mesh::InpMeshWriter::replaceMeshSections(path, rig.layer.mesh(),
+                                                          rig.layer.edgeBCs(), &error, 0.035),
+                 qPrintable(error));
+        const auto reopened = mesh::InpMeshReader::read(path);
+        QVERIFY2(reopened.hasMesh, qPrintable(reopened.errorMsg));
+        QCOMPARE(reopened.edgeBCs, rig.layer.edgeBCs());
+    }
+
+    void aggregateBoundaryFormStagesUntilPanelApply()
+    {
+        AggregateRig rig(makeStrip(2), "boundary_form_draft.2dm");
+        QList<SWMMObjectRef> refs;
+        for (const auto &edge : boundaryEdges(rig.layer, 3))
+            refs << mesh::MeshObjectRef::edge(rig.layer.sourcePath(), edge.first, edge.second);
+        rig.show(Kind::Edge, refs);
+        const auto before = rig.layer.edgeBCs();
+        auto *button = rig.panel.findChild<QPushButton *>("editMeshBoundary");
+        QVERIFY(button);
+        button->click();
+        auto *dialog = rig.panel.findChild<QDialog *>("meshBoundaryDialog");
+        QVERIFY(dialog);
+        auto *type = dialog->findChild<QComboBox *>("boundaryType");
+        type->setCurrentIndex(type->findData(int(mesh::MeshBCTypes::Type::NormalFlow)));
+        dialog->findChild<QLineEdit *>("boundaryValue")->setText("0.004");
+        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        QCOMPARE(rig.layer.edgeBCs(), before);
+        QVERIFY(rig.apply()->isEnabled());
+        rig.cancel()->click();
+        QCOMPARE(rig.layer.edgeBCs(), before);
+        QCOMPARE(rig.canvas.undoStack()->count(), 0);
+    }
+
+    void aggregateNumericOnlyApplyAndCancelWithOpenEditor()
+    {
+        AggregateRig rig(aggregateMesh(), "numeric_only_batch.2dm");
+        rig.show(Kind::Cell, rig.cells({0, 1}));
+        rig.panel.resize(700, 800);
+        rig.panel.show();
+        QVERIFY(!rig.apply()->isEnabled());
+        const auto edit = [&](const QString &value) {
+            rig.view()->scrollTo(rig.field("mannings"));
+            QTest::mouseClick(rig.view()->viewport(), Qt::LeftButton, Qt::NoModifier,
+                              rig.view()->visualRect(rig.field("mannings")).center());
+            auto *spin = rig.view()->findChild<QDoubleSpinBox *>();
+            QVERIFY(spin);
+            spin->selectAll();
+            QTest::keyClicks(spin, value);
+        };
+        edit("0.04");
+        QVERIFY(rig.apply()->isEnabled());
+        QTest::mouseClick(rig.apply(), Qt::LeftButton);
+        QCOMPARE(rig.layer.mesh().triangles[0].mannings, 0.04);
+        QCOMPARE(rig.layer.mesh().triangles[1].mannings, 0.04);
+        QCOMPARE(rig.layer.mesh().triangles[2].mannings, 0.03);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        edit("0.06");
+        QVERIFY(rig.cancel()->isEnabled());
+        QTest::mouseClick(rig.cancel(), Qt::LeftButton);
+        QCOMPARE(rig.layer.mesh().triangles[0].mannings, 0.04);
+        QVERIFY(!rig.apply()->isEnabled());
+        QCOMPARE(rig.canvas.undoStack()->count(), 1);
+    }
+
+    void aggregateUndoRestoresInheritedCellValues()
+    {
+        auto mesh = aggregateMesh();
+        mesh.triangles[0].mannings = std::numeric_limits<double>::quiet_NaN();
+        mesh.triangles[0].initDepth = std::numeric_limits<double>::quiet_NaN();
+        AggregateRig rig(mesh, "inherited_values.2dm");
+        rig.show(Kind::Cell, rig.cells({0, 1}));
+        QVERIFY(rig.tree()->setData(rig.field("mannings"), 0.04));
+        QVERIFY(rig.tree()->setData(rig.field("initDepth"), 0.2));
+        rig.apply()->click();
+        QCOMPARE(rig.layer.mesh().triangles[0].mannings, 0.04);
+        rig.canvas.undoStack()->undo();
+        QVERIFY(std::isnan(rig.layer.mesh().triangles[0].mannings));
+        QVERIFY(std::isnan(rig.layer.mesh().triangles[0].initDepth));
+        QCOMPARE(rig.layer.mesh().triangles[1].mannings, mesh.triangles[1].mannings);
     }
 
     /** @brief Vertices and edges aggregate too; a field that applies to only some targets is

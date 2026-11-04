@@ -3382,14 +3382,23 @@ void AttributeTablePanel::applyValueToSelectedRows(int column, const QList<int> 
     } else if (meshSourceActive()) {
         m_meshModel->setDataForRows(column, sourceRows, value);
     } else {
-        for (int row : sourceRows) {
-            const QModelIndex idx = model->index(row, column);
-            if (!idx.isValid())
-                continue;
-            // Skip running simulations and fields inapplicable to this row.
-            if (!(model->flags(idx) & Qt::ItemIsEditable))
-                continue;
-            model->setData(idx, value, Qt::EditRole);
+        const auto spec = m_model->columnSpecs().value(column);
+        if (spec.editor == openswmmvis::EditorKind::Numeric ||
+            spec.editor == openswmmvis::EditorKind::Integer ||
+            (spec.editor == openswmmvis::EditorKind::Text && spec.key == QLatin1String("Tag"))) {
+            QStringList names;
+            for (int row : sourceRows)
+                if (model->flags(model->index(row, column)) & Qt::ItemIsEditable)
+                    names.append(m_model->objectNameAt(row));
+            QString error;
+            m_model->applyScalarEdits(names, {{spec.key, value}}, undo, &error);
+        } else {
+            for (int row : sourceRows) {
+                const QModelIndex idx = model->index(row, column);
+                if (!idx.isValid() || !(model->flags(idx) & Qt::ItemIsEditable))
+                    continue;
+                model->setData(idx, value, Qt::EditRole);
+            }
         }
     }
     if (undo) {
@@ -3847,6 +3856,7 @@ void AttributeTablePanel::onObjectEditedExternally(const QString &name)
     //     engine, including the just-updated attribute.
     if (!m_model || name.isEmpty())
         return;
+    const bool wasSuppressed = m_suppressEditForward;
     m_suppressEditForward = true;
 
     if (m_model->rowForName(name) >= 0) {
@@ -3865,7 +3875,7 @@ void AttributeTablePanel::onObjectEditedExternally(const QString &name)
         }
     }
 
-    m_suppressEditForward = false;
+    m_suppressEditForward = wasSuppressed;
 }
 
 // ---------------------------------------------------------------------------

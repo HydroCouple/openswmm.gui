@@ -767,6 +767,8 @@ public:
      * @note Effective change bumps attribute revision, queues legend refresh, emits cell attributeChanged()/repaintRequested(). Does not update engine/file or independently set divergence flag.
      */
     bool applyMeshTriangleMannings(int triIdx, double mannings);
+    /*! Restore the absence of a per-cell roughness or initial-depth override on undo. */
+    bool clearMeshTriangleParam(int triIdx, const QByteArray &key);
 
     /*! \brief Set a triangle's initial water depth in m ([2D_TRIANGLES]
      *  INIT_DEPTH column, default 0 = dry). Emits attributeChanged with the
