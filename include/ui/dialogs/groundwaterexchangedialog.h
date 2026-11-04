@@ -14,8 +14,9 @@
  *
  * Modeless top-level dialog opened from the SubcatchCompoundEditButton
  * (property browser + attribute table) for Kind::Groundwater and from the
- * node-side "Groundwater Sources" row. Apply writes straight to the engine
- * and calls SWMMModelLayer::markEdited() like every other compound editor.
+ * node-side "Groundwater Sources" row. Owned contexts share a selection-aware
+ * model with immediate checked field writes and Undo; unowned legacy contexts
+ * retain the Apply form documented below.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -50,12 +51,17 @@ public:
      * layer are borrowed, subName identifies the target, and kind is ignored. A live engine must
      * outlast access or be invalidated before closing.
      * @param[in] parent Optional Qt parent owning the dialog and all controls.
-     * @details Loads a complete optimistic-concurrency snapshot and connects layer
+     * @details Owned layer contexts
+     * use GroundwaterExchangeTableModel for the captured subNames scope (or subName),
+     * immediate commits, layer notifications and Undo; Close only dismisses it. The
+     * following form/Apply methods describe the retained unowned legacy path, which loads a
+     * complete optimistic-concurrency snapshot. Connects layer
      * destruction/engine-close notifications to invalidation. Length fields use the engine's
      * user units with the current UnitSystem label (fallback ft); no numerical unit conversion
      * occurs here. Use only on the GUI thread.
      */
     explicit GroundwaterExchangeDialog(SubcatchCompoundEditRef ref, QWidget *parent = nullptr);
+    ~GroundwaterExchangeDialog() override;
 
     /**
      * @brief Query the current engine-backed groundwater summary for the referenced

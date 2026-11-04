@@ -6316,7 +6316,8 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index, const QVariant &
     if (value.userType() == qMetaTypeId<SubcatchCompoundEditRef>()) {
         const auto ref = value.value<SubcatchCompoundEditRef>();
         if (ref.layer == m_layer && ref.engine == m_layer->engine() &&
-            (spec.setter == "subcatch_landuse_ref" || spec.setter == "subcatch_loadings_ref"))
+            (spec.setter == "subcatch_landuse_ref" || spec.setter == "subcatch_loadings_ref" ||
+             spec.setter == "subcatch_groundwater_ref"))
             return true;
     }
 

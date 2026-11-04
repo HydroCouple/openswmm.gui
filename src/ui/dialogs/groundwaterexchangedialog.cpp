@@ -10,6 +10,7 @@
  */
 
 #include "ui/dialogs/groundwaterexchangedialog.h"
+#include "ui/panels/groundwaterexchangetablemodel.h"
 
 #include "core/unitsystem.h"
 #include "layers/swmmmodellayer.h"
@@ -36,6 +37,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QToolButton>
+#include <QTableView>
 #include <QVBoxLayout>
 
 using openswmmvis::ui::GwfExpressionEdit;
@@ -56,13 +58,28 @@ GroundwaterExchangeDialog::GroundwaterExchangeDialog(SubcatchCompoundEditRef ref
     setWindowTitle(tr("Groundwater Exchange — %1").arg(m_ref.subName));
     resize(600, 620);
 
-    buildUi_();
-    loadFromEngine_();
     if (m_ref.layer) {
+        setWindowTitle(tr("Groundwater Exchange — %1 subcatchments")
+                           .arg(m_ref.subNames.isEmpty() ? 1 : m_ref.subNames.size()));
+        buildGroundwaterExchangeEditor(this, m_ref);
+        connect(m_ref.layer, &SWMMModelLayer::engineAboutToClose, this,
+                &GroundwaterExchangeDialog::invalidateContext);
         connect(m_ref.layer, &QObject::destroyed, this,
                 &GroundwaterExchangeDialog::invalidateContext);
-        connect(m_ref.layer, SIGNAL(engineAboutToClose()), this, SLOT(invalidateContext()));
+        return;
     }
+
+    buildUi_();
+    loadFromEngine_();
+}
+
+GroundwaterExchangeDialog::~GroundwaterExchangeDialog()
+{
+    // QDialog's base destructor hides children and can trigger focus-out commits.
+    // Stop drafts before hiding can notify a partially destroyed parent panel.
+    if (auto *table = findChild<QTableView *>("groundwaterExchangeTable"))
+        if (auto *model = dynamic_cast<GroundwaterExchangeTableModel *>(table->model()))
+            model->invalidateContext();
 }
 
 int GroundwaterExchangeDialog::subIdx() const
@@ -419,9 +436,9 @@ void GroundwaterExchangeDialog::invalidateContext()
     m_ref.engine = nullptr;
     m_ref.layer = nullptr;
     m_loadedOk = false;
-    m_lateral->invalidateEngine();
-    m_deep->invalidateEngine();
-    m_form->setEnabled(false);
+    if (m_lateral) m_lateral->invalidateEngine();
+    if (m_deep) m_deep->invalidateEngine();
+    if (m_form) m_form->setEnabled(false);
     setEnabled(false);
     updateApplyState_();
     reject();

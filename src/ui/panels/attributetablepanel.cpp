@@ -29,6 +29,7 @@
 #include "ui/dialogs/linkcompoundeditdialog.h"
 #include "ui/dialogs/nodecompoundeditdialog.h"
 #include "ui/dialogs/subcatchcompoundeditdialog.h"
+#include "ui/dialogs/groundwaterexchangedialog.h"
 #include "ui/dialogs/patterneditordialog.h"
 #include "ui/dialogs/timeserieseditordialog.h"
 #include "curve/curveregistry.h"
@@ -3087,7 +3088,8 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
     } else if (metaId == qMetaTypeId<SubcatchCompoundEditRef>()) {
         auto ref = cellValue.value<SubcatchCompoundEditRef>();
         if (ref.layer && (ref.kind == SubcatchCompoundEditRef::LandUse ||
-                          ref.kind == SubcatchCompoundEditRef::Loadings)) {
+                          ref.kind == SubcatchCompoundEditRef::Loadings ||
+                          ref.kind == SubcatchCompoundEditRef::Groundwater)) {
             const auto rows = selectedSourceRows();
             if (rows.contains(sourceIdx.row()))
                 for (int row : rows)
@@ -3100,7 +3102,11 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
             connect(action, &QAction::triggered, this, [this, ref] {
                 if (m_model->layer() != ref.layer || ref.layer->engine() != ref.engine)
                     return;
-                auto *dialog = new SubcatchCompoundEditDialog(ref, window());
+                QDialog *dialog = nullptr;
+                if (ref.kind == SubcatchCompoundEditRef::Groundwater)
+                    dialog = new GroundwaterExchangeDialog(ref, window());
+                else
+                    dialog = new SubcatchCompoundEditDialog(ref, window());
                 dialog->setAttribute(Qt::WA_DeleteOnClose);
                 dialog->show();
             });

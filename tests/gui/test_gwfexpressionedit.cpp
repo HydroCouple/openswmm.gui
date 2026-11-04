@@ -16,6 +16,7 @@
 #include <openswmm/engine/openswmm_subcatchments.h>
 
 #include <QCompleter>
+#include <QFocusEvent>
 #include <QObject>
 #include <QSignalSpy>
 #include <QTest>
@@ -108,13 +109,16 @@ private slots:
         QVERIFY(last.at(0).toBool());
         QVERIFY(edit.isValid());
 
-        // Misspelled variable: rejected, column points at the identifier.
+        // Native legacy variable prefixes (Area, Ksat, HGWW) remain valid.
+        edit.setExpression(QStringLiteral("Area + Ksat + HGWW"));
+        QVERIFY(edit.isValid());
+        // An identifier with no native prefix is rejected at its column.
         spy.clear();
-        edit.setExpression(QStringLiteral("2 * HGWW"));
+        edit.setExpression(QStringLiteral("2 * NOT_A_GW_VARIABLE"));
         last = spy.takeLast();
         QVERIFY(!last.at(0).toBool());
         QVERIFY(!edit.isValid());
-        QVERIFY(last.at(1).toString().contains(QStringLiteral("HGWW")));
+        QVERIFY(last.at(1).toString().contains(QStringLiteral("NOT_A_GW_VARIABLE")));
         QCOMPARE(last.at(2).toInt(), 4);
 
         // Unbalanced parenthesis.
@@ -142,6 +146,17 @@ private slots:
      * newline.
      *
      */
+    void focusOutCommitsButCompletionPopupDoesNot()
+    {
+        GwfExpressionEdit edit(nullptr);
+        QSignalSpy done(&edit, &GwfExpressionEdit::editingFinished);
+        QFocusEvent popup(QEvent::FocusOut, Qt::PopupFocusReason);
+        QCoreApplication::sendEvent(&edit, &popup);
+        QCOMPARE(done.count(), 0);
+        QFocusEvent tab(QEvent::FocusOut, Qt::TabFocusReason);
+        QCoreApplication::sendEvent(&edit, &tab);
+        QCOMPARE(done.count(), 1);
+    }
     void insertAtCursorAndEnterCommit()
     {
         SWMM_Engine e = swmm_engine_new();

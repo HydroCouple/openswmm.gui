@@ -3678,6 +3678,19 @@ add_swmmvis_gui_test(test_subcatchqualitybulk
     ${SWMMVIS_TEST_EXTRA_SOURCES})
 swmmvis_link_full_app_deps(test_subcatchqualitybulk)
 
+add_swmmvis_gui_test(test_groundwaterexchangebulk
+    test_groundwaterexchangebulk.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_groundwaterexchangebulk)
+
+# Owned groundwater dialogs now share the layer-aware checked exchange writer.
+target_sources(test_groundwaterexchangedialog PRIVATE
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_groundwaterexchangedialog)
+target_link_libraries(test_groundwaterexchangedialog PRIVATE swmmvis_build_info)
+
 # The owned coverage/loading dialog now uses the shared layer-aware writer.
 target_sources(test_subcatch_coverage_loadings PRIVATE
     ${SWMMVIS_TEST_SOURCES}

@@ -157,7 +157,8 @@ void writeAudit(SWMMModelLayer *layer)
             } else if (SWMMAggregateSelection::supports(spec)) {
                 const bool keyed = QStringList{"node_inflows_ref",     "node_dwf_ref",
                                                "node_rdii_ref",        "node_treatment_ref",
-                                               "subcatch_landuse_ref", "subcatch_loadings_ref"}
+                                               "subcatch_landuse_ref", "subcatch_loadings_ref",
+                                               "subcatch_groundwater_ref"}
                                        .contains(spec.setter);
                 disposition = keyed ? "Keyed structured bulk" : "Inline bulk eligible";
                 reason =
