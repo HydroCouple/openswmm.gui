@@ -11,6 +11,7 @@
 
 #include "ui/dialogs/linkcompoundeditdialog.h"
 #include "layers/swmmmodellayer.h"
+#include <openswmm/engine/openswmm_links.h>
 
 #include <QHBoxLayout>
 #include <QPushButton>
@@ -50,7 +51,10 @@ void LinkCompoundEditButton::onClicked()
     if (m_ref.layer && (!m_owner || m_owner->engine() != m_ref.engine))
         return;
 
-    if (m_ref.layer && m_ref.kind == LinkCompoundEditRef::InletUsage) {
+    int type = -1;
+    swmm_link_get_type(m_ref.engine, swmm_link_index(m_ref.engine, m_ref.linkName.toUtf8().constData()), &type);
+    if (m_ref.layer && (m_ref.kind == LinkCompoundEditRef::InletUsage ||
+        type == SWMM_LINK_ORIFICE || type == SWMM_LINK_WEIR)) {
         auto *dialog = new LinkCompoundEditDialog(m_ref, window());
         dialog->setAttribute(Qt::WA_DeleteOnClose);
         dialog->show();

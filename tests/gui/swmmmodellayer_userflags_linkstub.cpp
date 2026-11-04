@@ -38,3 +38,10 @@ bool SWMMModelLayer::pushLinkEndpointEdit(int, bool, int)
 {
     return false;
 }
+
+// Owned regulator transactions use the real layer in test_regulatorbulk.
+bool SWMMModelLayer::pushLinkStructureEdits(const QString &, const QMap<QString, QVariant> &,
+                                           QString *)
+{
+    return false;
+}

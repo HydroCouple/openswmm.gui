@@ -9,6 +9,8 @@
  */
 
 #include "ui/dialogs/linkcompoundeditdialog.h"
+#include <QKeyEvent>
+#include <QLineEdit>
 #include "ui/panels/usagetablemodel.h"
 #include "ui/theme/themehelpers.h"
 
@@ -146,6 +148,17 @@ LinkCompoundEditDialog::LinkCompoundEditDialog(LinkCompoundEditRef ref, QWidget 
     root->addWidget(m_buttons);
     setAccessibleDescription(
         tr("Changes are applied immediately. Closing this editor does not undo changes."));
+    if (ownedRegulator()) {
+        m_linkCount = swmm_link_count(m_ref.engine);
+        swmm_link_get_type(m_ref.engine, linkIdx(), &m_linkType);
+        connect(m_ref.layer, &SWMMModelLayer::attributeChanged, this,
+                [this](const QString &name) { if (name == m_ref.linkName) reloadRegulatorSection(); });
+        connect(m_ref.layer, &SWMMModelLayer::objectRenamed, this,
+                [this](const QString &from, const QString &to, int kind) {
+                    if ((kind & SWMMModelLayer::kKindLink) && m_ref.linkName == from)
+                        m_ref.linkName = to;
+                });
+    }
     if (m_ref.layer) {
         connect(m_ref.layer, &QObject::destroyed, this, &LinkCompoundEditDialog::invalidateContext);
         connect(m_ref.layer, SIGNAL(engineAboutToClose()), this, SLOT(invalidateContext()));
@@ -163,8 +176,17 @@ void LinkCompoundEditDialog::invalidateContext()
 
 void LinkCompoundEditDialog::checkContext()
 {
-    if (linkIdx() < 0)
+    if (!m_ref.engine) return;
+    if (!m_linkCount) {
+        if (linkIdx() < 0) invalidateContext();
+        return;
+    }
+    const int count = swmm_link_count(m_ref.engine), link = linkIdx();
+    int type = -1;
+    if ((link < 0 && count < m_linkCount) ||
+        (link >= 0 && (swmm_link_get_type(m_ref.engine, link, &type) != SWMM_OK || type != m_linkType)))
         invalidateContext();
+    m_linkCount = count;
 }
 
 LinkCompoundEditDialog::~LinkCompoundEditDialog()
@@ -200,25 +222,8 @@ void LinkCompoundEditDialog::buildXSectionPage()
     // Slice SP.3 — bare integers replaced with the SWMM_XSECT_* constants.
     // The old literals predated the 6.0 renumbering and were the same class of
     // drift XsectShapeRow warns about (see the IRREGULAR fix below).
-    auto shapeAllowed = [linkType](int engineId) {
-        switch (linkType) {
-        case SWMM_LINK_ORIFICE: // legacy objprops.txt:866 — CIRCULAR / RECT_CLOSED.
-            return engineId == SWMM_XSECT_CIRCULAR || engineId == SWMM_XSECT_RECT_CLOSED;
-        case SWMM_LINK_WEIR: // RECT_OPEN, TRAPEZOIDAL, TRIANGULAR cover the legacy
-            // TRANSVERSE / SIDEFLOW / TRAPEZOIDAL / V-NOTCH / ROADWAY set
-            // (ROADWAY uses RECT_OPEN + the roadway sub-form which lands
-            // in Slice SD once the engine accessors do).
-            return engineId == SWMM_XSECT_RECT_OPEN || engineId == SWMM_XSECT_TRAPEZOIDAL ||
-                   engineId == SWMM_XSECT_TRIANGULAR;
-        default: // Conduit / Pump (unreached) / Outlet (unreached) — pumps and
-                 // outlets have no xsection cell wired up in §S.SC, so this
-                 // branch is conduit-only in practice.
-            // CUSTOM is withheld: its geom2 is an index into the shape-curve
-            // list and there is no curve picker yet, so offering it would let
-            // the user select a shape they cannot finish configuring. Surface
-            // it together with that picker.
-            return engineId != SWMM_XSECT_CUSTOM;
-        }
+    auto shapeAllowed = [linkType](int shape) {
+        return openswmmvis::regulatorXsectAllowed(linkType, shape) && shape != SWMM_XSECT_CUSTOM;
     };
 
     // §S.SC.1.a — horizontal QSplitter replaces the single QComboBox.
@@ -281,6 +286,13 @@ void LinkCompoundEditDialog::buildXSectionPage()
         s->setDecimals(4);
         s->setSingleStep(0.1);
     }
+    for (int i = 0; auto *spin : {m_xsGeom1Spin, m_xsGeom2Spin, m_xsGeom3Spin, m_xsGeom4Spin}) {
+        spin->setObjectName(QStringLiteral("xsectGeom%1").arg(++i));
+        if (ownedRegulator()) {
+            spin->setKeyboardTracking(false);
+            spin->findChild<QLineEdit *>()->installEventFilter(this);
+        }
+    }
     m_xsBarrelsSpin = new QSpinBox(paramsPane);
     m_xsBarrelsSpin->setRange(1, 100);
 
@@ -307,6 +319,10 @@ void LinkCompoundEditDialog::buildXSectionPage()
     form->addRow(m_xsStreetLabel, m_xsStreetPicker);
 
     form->addRow(tr("B&arrels"), m_xsBarrelsSpin);
+    if (ownedRegulator()) {
+        m_xsBarrelsSpin->hide();
+        form->labelForField(m_xsBarrelsSpin)->hide();
+    }
 
     m_xsSummaryLabel = new QLabel(paramsPane);
     m_xsSummaryLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
@@ -403,7 +419,9 @@ void LinkCompoundEditDialog::buildXSectionPage()
                 if (m_xsSuppressApply || !cur)
                     return;
                 updateXsectFieldVisibility();
-                applyXsect();
+                if (ownedRegulator())
+                    applyRegulatorField("link_xsect_shape", cur->data(Qt::UserRole));
+                else applyXsect();
                 refreshXsectPreview();
                 // A different shape is a different drawing; geom edits below
                 // deliberately keep whatever zoom the user has set.
@@ -417,7 +435,11 @@ void LinkCompoundEditDialog::buildXSectionPage()
         return [this, ordinal](double) {
             if (m_xsSuppressApply)
                 return;
-            applyXsect();
+            if (ownedRegulator()) {
+                const auto *spin = ordinal == 1 ? m_xsGeom1Spin : ordinal == 2 ? m_xsGeom2Spin :
+                                   ordinal == 3 ? m_xsGeom3Spin : m_xsGeom4Spin;
+                applyRegulatorField(QStringLiteral("link_xsect_geom%1").arg(ordinal), spin->value());
+            } else applyXsect();
             refreshXsectPreview(ordinal);
         };
     };
@@ -746,6 +768,50 @@ QString LinkCompoundEditDialog::computeXsectSummary() const
             .arg(g1, 0, 'g', 4)
             .arg(g2, 0, 'g', 4);
     return tr("%1 (%2)").arg(QString::fromLatin1(row->name)).arg(g1, 0, 'g', 4);
+}
+
+bool LinkCompoundEditDialog::ownedRegulator() const
+{
+    int type = -1;
+    return m_ref.layer && m_ref.engine && linkIdx() >= 0 &&
+           swmm_link_get_type(m_ref.engine, linkIdx(), &type) == SWMM_OK &&
+           (type == SWMM_LINK_ORIFICE || type == SWMM_LINK_WEIR);
+}
+
+void LinkCompoundEditDialog::applyRegulatorField(const QString &key, const QVariant &value)
+{
+    QString error;
+    const bool ok = m_ref.layer && m_ref.layer->pushLinkStructureEdits(m_ref.linkName, {{key, value}}, &error);
+    reloadRegulatorSection();
+    if (!ok && m_xsSummaryLabel) m_xsSummaryLabel->setText(error);
+}
+
+void LinkCompoundEditDialog::reloadRegulatorSection()
+{
+    if (!ownedRegulator()) return;
+    int shape = -1;
+    double g[4];
+    if (swmm_link_get_xsect(m_ref.engine, linkIdx(), &shape, &g[0], &g[1], &g[2], &g[3]) != SWMM_OK) return;
+    m_xsSuppressApply = true;
+    for (int i = 0; i < m_xsShapeList->count(); ++i)
+        if (m_xsShapeList->item(i)->data(Qt::UserRole).toInt() == shape) m_xsShapeList->setCurrentRow(i);
+    int i = 0;
+    for (auto *spin : {m_xsGeom1Spin, m_xsGeom2Spin, m_xsGeom3Spin, m_xsGeom4Spin}) spin->setValue(g[i++]);
+    m_xsSuppressApply = false;
+    updateXsectFieldVisibility();
+    refreshXsectPreview();
+    m_ref.summary = computeXsectSummary();
+    m_xsSummaryLabel->setText(m_ref.summary);
+}
+
+bool LinkCompoundEditDialog::eventFilter(QObject *object, QEvent *event)
+{
+    if (event->type() == QEvent::KeyPress &&
+        static_cast<QKeyEvent *>(event)->key() == Qt::Key_Escape && ownedRegulator()) {
+        reloadRegulatorSection();
+        return true;
+    }
+    return QDialog::eventFilter(object, event);
 }
 
 void LinkCompoundEditDialog::applyXsect()

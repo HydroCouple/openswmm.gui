@@ -160,6 +160,11 @@ private:
      *   callbacks check suppression.
  */
     void applyXsect();
+    // Owned orifice/weir widgets commit only their edited field through project Undo.
+    bool ownedRegulator() const;
+    void applyRegulatorField(const QString &key, const QVariant &value);
+    void reloadRegulatorSection();
+    bool eventFilter(QObject *object, QEvent *event) override;
 
     /*! Slice SP.3 — rebuild the live section preview from the CURRENT WIDGET
      *  values (not from the engine), so the drawing tracks typing even before
@@ -309,6 +314,7 @@ private:
     void onInletDesignPickerClicked();
 
     LinkCompoundEditRef m_ref;
+    int m_linkCount = 0, m_linkType = -1;
 
     // XSection page widgets — §S.SC.1.a (2026-05-25) reworked: the
     // single QComboBox shape picker is replaced by a horizontal

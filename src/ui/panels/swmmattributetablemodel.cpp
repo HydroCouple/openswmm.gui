@@ -239,7 +239,7 @@ ColumnSpec nameCol()
     return c;
 }
 
-ColumnSpec xsectShapeCol()
+ColumnSpec xsectShapeCol(int linkType = SWMM_LINK_CONDUIT)
 {
     ColumnSpec spec;
     spec.key = QStringLiteral("Shape");
@@ -247,10 +247,15 @@ ColumnSpec xsectShapeCol()
     spec.setter = QStringLiteral("link_xsect_shape");
     spec.editor = EditorKind::Enum;
     for (const auto &shape : openswmmvis::kXsectShapes)
-        spec.enumValues.append(QVariant(QVariantList{QString::fromLatin1(shape.name), shape.engineId}));
+        if (openswmmvis::regulatorXsectAllowed(linkType, shape.engineId))
+            spec.enumValues.append(QVariant(QVariantList{QString::fromLatin1(shape.name), shape.engineId}));
     spec.tooltip = QObject::tr("Choose a numeric cross-section shape, or use Transect Profile or Street Profile "
                               "to assign a named section. Custom shape replacement uses its dedicated editor. "
-                              "Undo restores each conduit's section.");
+                              "Undo restores each selected link's section.");
+    if (linkType != SWMM_LINK_CONDUIT)
+        spec.tooltip = QObject::tr("Choose a legal regulator shape. Weir type follows its section. "
+                                  "Other dimensions remain per link; newly required zero dimensions start at 1. "
+                                  "Undo restores each selected link's complete section.");
     return spec;
 }
 
@@ -1172,6 +1177,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             // §S.SC.1.c — XSection compound cell. The dialog filters
             // the shape palette to the legal weir shapes
             // (RECT_OPEN / TRAPEZOIDAL / TRIANGULAR) automatically.
+            xsectShapeCol(SWMM_LINK_WEIR),
             compoundCol("XSection", "Cross Section", "link_xsect_ref"),
             // Direct inline geom1..geom4 (flags() greys inapplicable geoms).
             num("Geom 1", "Geom 1", "link_xsect_geom1", 0.0, 1e9, 4, UnitKind::None),
@@ -1201,6 +1207,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             // §S.SC.1.c — XSection compound cell, restricted to
             // CIRCULAR / RECT_CLOSED for orifices per the dialog's
             // shape allow-list.
+            xsectShapeCol(SWMM_LINK_ORIFICE),
             compoundCol("XSection", "Cross Section", "link_xsect_ref"),
             // Direct inline geom1..geom4 (orifices use CIRCULAR / RECT_CLOSED,
             // so only Geom 1/2 ever apply; the rest grey out).
@@ -3855,9 +3862,7 @@ int SWMMAttributeTableModel::rowForName(const QString &name) const
         return -1;
     SWMMModelLayer::Category cat;
     int row = -1;
-    if (!m_layer->findObjectLocation(name, &cat, &row))
-        return -1;
-    if (cat == m_category)
+    if (m_layer->findObjectLocation(name, &cat, &row) && cat == m_category)
         return row;
     // Node and link namespaces can contain the same ID.
     for (int candidate = 0; candidate < rowCount(); ++candidate)
@@ -3918,6 +3923,15 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
         return QVariantList{openswmmvis::kStorageTabularId};
     if (role == openswmmvis::kDisabledEnumValuesRole && m_columnSpecs[col].setter == "node_divider_type")
         return QVariantList{2};
+
+    if (role == openswmmvis::kDisabledEnumValuesRole &&
+        m_columnSpecs[col].setter == "link_outlet_rating_type") {
+        int curve = -1, type = -1;
+        const int link = swmm_link_index(m_layer->engine(), objectNameAt(row).toUtf8().constData());
+        if (swmm_link_get_pump_curve(m_layer->engine(), link, &curve) != SWMM_OK || curve < 0 ||
+            swmm_table_get_type(m_layer->engine(), curve, &type) != SWMM_OK || type != 3)
+            return QVariantList{2, 3};
+    }
 
     // FileColumn cells (spec §4 task 4): the delegate asks for the row's
     // available column names via this role. They come from the same header
@@ -4187,6 +4201,11 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
                 if (swmm_link_get_pump_curve(eng, linkIdx, &curveIdx) == SWMM_OK && curveIdx >= 0) {
                     if (const char *id = swmm_table_id(eng, curveIdx))
                         dref.currentName = QString::fromUtf8(id);
+                }
+                if (m_category == SWMMModelLayer::CatOutlets) {
+                    int type = -1;
+                    if (swmm_link_get_outlet_rating_type(eng, linkIdx, &type) == SWMM_OK && type < 2)
+                        dref.currentName.clear();
                 }
                 return role == Qt::EditRole ? QVariant::fromValue(dref)
                                             : openswmmvis::optionalAttributeName(dref.currentName);
@@ -4719,6 +4738,14 @@ Qt::ItemFlags SWMMAttributeTableModel::flags(const QModelIndex &index) const
                 state == SWMM_STATE_RUNNING)
                 return f; // no ItemIsEditable
         }
+        if (m_category == SWMMModelLayer::CatOutlets &&
+            (spec.setter == "link_discharge_coeff" || spec.setter == "link_outlet_expon")) {
+            int type = -1;
+            if (swmm_link_get_outlet_rating_type(m_layer->engine(),
+                    swmm_link_index(m_layer->engine(), objectNameAt(index.row()).toUtf8().constData()),
+                    &type) != SWMM_OK || type >= 2)
+                return f;
+        }
         if (infilFieldSlot(spec.setter) >= 0 &&
             !infilFieldApplies(m_layer->engine(), objectNameAt(index.row()), spec.setter)) return f;
         if (spec.setter == "node_divider_cutoff" || spec.setter == "node_divider_height" || spec.setter == "node_divider_coefficient") {
@@ -4780,6 +4807,7 @@ namespace
 // The engine retains all four authored geometry slots. Named profile identities must
 // be resolved again during replay because registry positions can change.
 struct XsectRecord {
+    int linkType = -1, regulatorType = -1;
     int shape = -1;
     double geom[4]{};
     int barrels = 1;
@@ -4792,6 +4820,12 @@ bool readXsectRecord(SWMM_Engine engine, const QString &name, XsectRecord &recor
     if (link < 0 || swmm_link_get_xsect(engine, link, &record.shape, &record.geom[0],
         &record.geom[1], &record.geom[2], &record.geom[3]) != SWMM_OK ||
         swmm_link_get_barrels(engine, link, &record.barrels) != SWMM_OK)
+        return false;
+    if (swmm_link_get_type(engine, link, &record.linkType) != SWMM_OK ||
+        (record.linkType == SWMM_LINK_ORIFICE &&
+         swmm_link_get_orifice_type(engine, link, &record.regulatorType) != SWMM_OK) ||
+        (record.linkType == SWMM_LINK_WEIR &&
+         swmm_link_get_weir_type(engine, link, &record.regulatorType) != SWMM_OK))
         return false;
     record.profileName.clear();
     if (record.shape == SWMM_XSECT_IRREGULAR || record.shape == SWMM_XSECT_STREET) {
@@ -4817,6 +4851,33 @@ bool resolveXsectProfile(SWMM_Engine engine, XsectRecord &record)
     return true;
 }
 
+bool validRegulatorSection(const XsectRecord &record)
+{
+    if (record.linkType == SWMM_LINK_CONDUIT) return true;
+    const auto *g = record.geom;
+    if (!openswmmvis::regulatorXsectAllowed(record.linkType, record.shape) ||
+        std::any_of(g, g + 4, [](double v) { return !std::isfinite(v) || v < 0; }) || g[0] <= 0)
+        return false;
+    if (record.linkType == SWMM_LINK_WEIR &&
+        (record.regulatorType < 0 || record.regulatorType > 4 ||
+         openswmmvis::weirXsectShape(record.regulatorType) != record.shape)) return false;
+    if (record.linkType == SWMM_LINK_ORIFICE &&
+        (record.regulatorType < 0 || record.regulatorType > 1)) return false;
+    if (record.shape == SWMM_XSECT_CIRCULAR) return true;
+    if (record.shape == SWMM_XSECT_TRAPEZOIDAL) return g[1] > 0 || g[2] + g[3] > 0;
+    return g[1] > 0;
+}
+
+void seedRegulatorSection(XsectRecord &record)
+{
+    if (record.geom[0] <= 0) record.geom[0] = 1;
+    if (record.shape == SWMM_XSECT_TRAPEZOIDAL) {
+        if (record.geom[1] <= 0 && record.geom[2] + record.geom[3] <= 0)
+            record.geom[2] = record.geom[3] = 1;
+    } else if (record.shape != SWMM_XSECT_CIRCULAR && record.geom[1] <= 0)
+        record.geom[1] = 1;
+}
+
 int tableOfType(SWMM_Engine engine, const QString &name, int type)
 {
     const int index = swmm_table_index(engine, name.toUtf8().constData());
@@ -4830,6 +4891,38 @@ int tableOfType(SWMM_Engine engine, const QString &name, int type)
             swmm_table_get_type(engine, i, &actual) == SWMM_OK && actual == type) return i;
     }
     return -1;
+}
+
+struct OutletRecord {
+    int type = -1;
+    double coefficient = 0, exponent = 0;
+    QString curve;
+};
+
+bool readOutletRecord(SWMM_Engine engine, const QString &name, OutletRecord &record)
+{
+    int curve = -1;
+    const int link = swmm_link_index(engine, name.toUtf8().constData());
+    if (swmm_link_get_outlet_rating_type(engine, link, &record.type) != SWMM_OK ||
+        swmm_link_get_discharge_coeff(engine, link, &record.coefficient) != SWMM_OK ||
+        swmm_link_get_outlet_expon(engine, link, &record.exponent) != SWMM_OK ||
+        swmm_link_get_pump_curve(engine, link, &curve) != SWMM_OK) return false;
+    record.curve.clear();
+    if (curve >= 0) {
+        const char *id = swmm_table_id(engine, curve);
+        int type = -1;
+        if (!id || swmm_table_get_type(engine, curve, &type) != SWMM_OK || type != 3) return false;
+        record.curve = QString::fromUtf8(id);
+    }
+    return true;
+}
+
+bool resolveOutletRecord(SWMM_Engine engine, const OutletRecord &record)
+{
+    return record.type >= 0 && record.type <= 3 &&
+           (record.type < 2 || !record.curve.isEmpty()) &&
+           (record.curve.isEmpty() || tableOfType(engine, record.curve, 3) >= 0) &&
+           std::isfinite(record.coefficient) && std::isfinite(record.exponent);
 }
 
 struct OutfallRecord {
@@ -4990,6 +5083,8 @@ struct ScalarEdit {
     QVariant after;
     std::optional<XsectRecord> sectionBefore = std::nullopt;
     std::optional<XsectRecord> sectionAfter = std::nullopt;
+    std::optional<OutletRecord> outletBefore = std::nullopt;
+    std::optional<OutletRecord> outletAfter = std::nullopt;
     std::optional<OutfallRecord> outfallBefore = std::nullopt;
     std::optional<OutfallRecord> outfallAfter = std::nullopt;
     std::optional<StorageRecord> storageBefore = std::nullopt;
@@ -5029,6 +5124,11 @@ bool writeXsectRecord(SWMM_Engine engine, const QString &name, XsectRecord recor
     for (int i = 0; i < 4; ++i)
         sectionChanged |= actual.geom[i] != record.geom[i];
     const int link = swmm_link_index(engine, name.toUtf8().constData());
+    if (actual.linkType != record.linkType ||
+        (record.linkType == SWMM_LINK_ORIFICE && actual.regulatorType != record.regulatorType &&
+         swmm_link_set_orifice_type(engine, link, record.regulatorType) != SWMM_OK) ||
+        (record.linkType == SWMM_LINK_WEIR && actual.regulatorType != record.regulatorType &&
+         swmm_link_set_weir_type(engine, link, record.regulatorType) != SWMM_OK)) return false;
     // A barrel-only edit must not rebuild an unchanged named/custom section.
     if (link < 0 || (sectionChanged &&
         swmm_link_set_xsect(engine, link, record.shape, record.geom[0], record.geom[1],
@@ -5036,11 +5136,44 @@ bool writeXsectRecord(SWMM_Engine engine, const QString &name, XsectRecord recor
         (actual.barrels != record.barrels && swmm_link_set_barrels(engine, link, record.barrels) != SWMM_OK))
         return false;
     if (!readXsectRecord(engine, name, actual) || actual.shape != record.shape ||
-        actual.barrels != record.barrels || actual.profileName != record.profileName)
+        actual.barrels != record.barrels || actual.profileName != record.profileName ||
+        actual.regulatorType != record.regulatorType)
         return false;
     for (int i = 0; i < 4; ++i)
         if (!scalarWriteMatches(actual.geom[i], record.geom[i])) return false;
     return true;
+}
+
+bool sameXsectRecord(SWMM_Engine engine, const QString &name, XsectRecord expected)
+{
+    XsectRecord actual;
+    if (!resolveXsectProfile(engine, expected) || !readXsectRecord(engine, name, actual) ||
+        actual.linkType != expected.linkType || actual.regulatorType != expected.regulatorType ||
+        actual.shape != expected.shape || actual.barrels != expected.barrels ||
+        actual.profileName != expected.profileName) return false;
+    for (int i = 0; i < 4; ++i)
+        if (!scalarWriteMatches(actual.geom[i], expected.geom[i])) return false;
+    return true;
+}
+
+bool sameOutletRecord(SWMM_Engine engine, const QString &name, const OutletRecord &expected)
+{
+    OutletRecord actual;
+    return readOutletRecord(engine, name, actual) && actual.type == expected.type &&
+           actual.curve == expected.curve && scalarWriteMatches(actual.coefficient, expected.coefficient) &&
+           scalarWriteMatches(actual.exponent, expected.exponent);
+}
+
+bool writeOutletRecord(SWMM_Engine engine, const QString &name, const OutletRecord &record)
+{
+    if (!resolveOutletRecord(engine, record)) return false;
+    const int link = swmm_link_index(engine, name.toUtf8().constData());
+    return swmm_link_set_pump_curve(engine, link,
+               record.curve.isEmpty() ? -1 : tableOfType(engine, record.curve, 3)) == SWMM_OK &&
+           swmm_link_set_discharge_coeff(engine, link, record.coefficient) == SWMM_OK &&
+           swmm_link_set_outlet_expon(engine, link, record.exponent) == SWMM_OK &&
+           swmm_link_set_outlet_rating_type(engine, link, record.type) == SWMM_OK &&
+           sameOutletRecord(engine, name, record);
 }
 
 bool writeOutfallRecord(SWMM_Engine engine, const QString &name, const OutfallRecord &record)
@@ -5170,6 +5303,9 @@ public:
     bool commit(bool forward)
     {
         if (!m_valid || !m_layer || !m_layer->engine()) return false;
+        int state = -1;
+        if (swmm_engine_get_state(m_layer->engine(), &state) != SWMM_OK ||
+            (state != SWMM_STATE_BUILDING && state != SWMM_STATE_OPENED)) return false;
         QList<QModelIndex> indices;
         for (const auto &edit : m_edits) {
             auto *model = m_models.value(edit.category);
@@ -5180,7 +5316,14 @@ public:
             const int row = model->rowForName(edit.name);
             if (row < 0 || column < 0) return false;
             const auto index = model->index(row, column);
-            if (!(index.flags() & Qt::ItemIsEditable)) return false;
+            if (!(index.flags() & Qt::ItemIsEditable) && !edit.outletBefore) return false;
+            const auto expectedSection = forward ? edit.sectionBefore : edit.sectionAfter;
+            if (expectedSection && expectedSection->linkType != SWMM_LINK_CONDUIT &&
+                !sameXsectRecord(m_layer->engine(), edit.name, *expectedSection)) return false;
+            const auto outlet = forward ? edit.outletAfter : edit.outletBefore;
+            const auto expectedOutlet = forward ? edit.outletBefore : edit.outletAfter;
+            if (outlet && (!resolveOutletRecord(m_layer->engine(), *outlet) ||
+                !sameOutletRecord(m_layer->engine(), edit.name, *expectedOutlet))) return false;
             auto record = forward ? edit.sectionAfter : edit.sectionBefore;
             if (record && !resolveXsectProfile(m_layer->engine(), *record)) return false;
             const auto outfall = forward ? edit.outfallAfter : edit.outfallBefore;
@@ -5200,12 +5343,15 @@ public:
             const auto &edit = m_edits[applied];
             auto *model = m_models.value(edit.category);
             const auto record = forward ? edit.sectionAfter : edit.sectionBefore;
+            const auto outlet = forward ? edit.outletAfter : edit.outletBefore;
             const auto outfall = forward ? edit.outfallAfter : edit.outfallBefore;
             const auto storage = forward ? edit.storageAfter : edit.storageBefore;
             const auto runoff = forward ? edit.runoffAfter : edit.runoffBefore;
             const auto value = forward ? edit.after : edit.before;
             if (record) {
                 if (!writeXsectRecord(m_layer->engine(), edit.name, *record)) break;
+            } else if (outlet) {
+                if (!writeOutletRecord(m_layer->engine(), edit.name, *outlet)) break;
             } else if (outfall) {
                 if (!writeOutfallRecord(m_layer->engine(), edit.name, *outfall)) break;
             } else if (storage) {
@@ -5222,11 +5368,14 @@ public:
             for (int i = applied; i >= 0; --i) {
                 const auto &edit = m_edits[i];
                 const auto record = forward ? edit.sectionBefore : edit.sectionAfter;
+                const auto outlet = forward ? edit.outletBefore : edit.outletAfter;
                 const auto outfall = forward ? edit.outfallBefore : edit.outfallAfter;
                 const auto storage = forward ? edit.storageBefore : edit.storageAfter;
                 const auto runoff = forward ? edit.runoffBefore : edit.runoffAfter;
                 if (record)
                     writeXsectRecord(m_layer->engine(), edit.name, *record);
+                else if (outlet)
+                    writeOutletRecord(m_layer->engine(), edit.name, *outlet);
                 else if (outfall)
                     writeOutfallRecord(m_layer->engine(), edit.name, *outfall);
                 else if (storage)
@@ -5440,15 +5589,18 @@ bool SWMMAttributeTableModel::applyScalarEdits(
     }
     const int prescriptions = int(edits.contains("Shape")) + int(edits.contains("Transect profile")) +
                               int(edits.contains("Street profile"));
-    if (prescriptions > 1) return fail(tr("Choose one cross-section shape or profile per edit."));
+    if (prescriptions + int(edits.contains("Weir type")) + int(edits.contains("Orifice type")) > 1) return fail(tr("Choose one cross-section shape or profile per edit."));
     if (int(edits.contains("Outfall type")) + int(edits.contains("Stage elev")) +
         int(edits.contains("Tidal curve")) + int(edits.contains("Stage series")) > 1)
         return fail(tr("Choose one boundary type, stage or reference per edit."));
+    if (edits.contains("Rating type") && edits.contains("Outlet curve"))
+        return fail(tr("Choose the outlet rating type or named curve separately."));
     if (edits.contains("Storage shape") && edits.contains("Storage curve"))
         return fail(tr("Choose one storage shape or curve per edit."));
     if (edits.contains("Divider type") && edits.contains("Diversion curve"))
         return fail(tr("Choose one divider method or curve per edit."));
-    QSet<int> storageDimensionShapes;
+    QSet<int> storageDimensionShapes, sectionDimensionShapes;
+    bool regulatorDimensions = false;
     for (auto group = targets.cbegin(); group != targets.cend(); ++group) {
         SWMMAttributeTableModel model;
         model.setSource(m_layer, group.key());
@@ -5554,7 +5706,7 @@ bool SWMMAttributeTableModel::applyScalarEdits(
                                 expected.kind == DataObjectRef::TimeSeries ? 0 : expected.kind == DataObjectRef::DiversionCurve ? 2 : 3;
                             const bool typed = expected.kind == DataObjectRef::StorageCurve ||
                                 expected.kind == DataObjectRef::TidalCurve || expected.kind == DataObjectRef::TimeSeries ||
-                                expected.kind == DataObjectRef::DiversionCurve;
+                                expected.kind == DataObjectRef::DiversionCurve || expected.kind == DataObjectRef::RatingCurve;
                             const int table = typed ? tableOfType(m_layer->engine(), next.currentName, required)
                                 : swmm_table_index(m_layer->engine(), id.constData());
                             int type = -1;
@@ -5731,17 +5883,51 @@ bool SWMMAttributeTableModel::applyScalarEdits(
                     change.storageBefore = before;
                     change.storageAfter = after;
                 }
+                if (group.key() == SWMMModelLayer::CatOutlets &&
+                    (spec.setter == "link_outlet_rating_type" || spec.setter == "link_discharge_coeff" ||
+                     spec.setter == "link_outlet_expon" || spec.setter == "link_pump_curve_ref")) {
+                    OutletRecord before;
+                    if (!readOutletRecord(m_layer->engine(), name, before))
+                        return fail(tr("Cannot read the outlet rating for %1.").arg(name));
+                    auto after = sectionChange < 0 ? before : *changes[sectionChange].outletAfter;
+                    if (spec.setter == "link_outlet_rating_type") after.type = next.toInt();
+                    else if (spec.setter == "link_discharge_coeff") after.coefficient = next.toDouble();
+                    else if (spec.setter == "link_outlet_expon") after.exponent = next.toDouble();
+                    else {
+                        after.curve = next.value<DataObjectRef>().currentName;
+                        after.type = (after.type % 2) + (after.curve.isEmpty() ? 0 : 2);
+                    }
+                    if (!resolveOutletRecord(m_layer->engine(), after))
+                        return fail(tr("Choose a named rating curve before selecting a tabular rating for %1.").arg(name));
+                    if (sectionChange >= 0) { changes[sectionChange].outletAfter = after; continue; }
+                    sectionChange = changes.size();
+                    change.outletBefore = before;
+                    change.outletAfter = after;
+                }
                 const int ordinal = xsectGeomOrdinalForTag(spec.setter);
                 const bool profileEdit = spec.setter == QLatin1String("link_xsect_transect_ref") ||
                                          spec.setter == QLatin1String("link_xsect_street_ref");
-                if (group.key() == SWMMModelLayer::CatConduits &&
+                if ((group.key() == SWMMModelLayer::CatConduits ||
+                     group.key() == SWMMModelLayer::CatOrifices || group.key() == SWMMModelLayer::CatWeirs) &&
                     (ordinal || spec.setter == QLatin1String("link_xsect_shape") ||
+                     spec.setter == "link_orifice_type" || spec.setter == "link_weir_type" ||
                      spec.setter == QLatin1String("link_barrels") || profileEdit)) {
                     XsectRecord before;
                     if (!readXsectRecord(m_layer->engine(), name, before))
                         return fail(tr("Cannot read the complete cross-section for %1.").arg(name));
                     auto after = sectionChange < 0 ? before : *changes[sectionChange].sectionAfter;
-                    if (ordinal) after.geom[ordinal - 1] = next.toDouble();
+                    if (spec.setter == "link_orifice_type" || spec.setter == "link_weir_type") {
+                        after.regulatorType = next.toInt();
+                        if (after.linkType == SWMM_LINK_WEIR) {
+                            after.shape = openswmmvis::weirXsectShape(after.regulatorType);
+                            seedRegulatorSection(after);
+                        }
+                    }
+                    else if (ordinal) {
+                        sectionDimensionShapes.insert(before.shape);
+                        regulatorDimensions |= after.linkType != SWMM_LINK_CONDUIT;
+                        after.geom[ordinal - 1] = next.toDouble();
+                    }
                     else if (spec.setter == QLatin1String("link_barrels")) after.barrels = next.toInt();
                     else if (profileEdit) {
                         const auto ref = next.value<DataObjectRef>();
@@ -5757,6 +5943,13 @@ bool SWMMAttributeTableModel::applyScalarEdits(
                             return fail(tr("Cannot read the profile depth for %1.").arg(name));
                         after.shape = next.toInt();
                         after.profileName.clear();
+                        if (after.linkType == SWMM_LINK_WEIR) {
+                            after.regulatorType = after.shape == SWMM_XSECT_TRIANGULAR ? 2 :
+                                after.shape == SWMM_XSECT_TRAPEZOIDAL ? 3 :
+                                (before.regulatorType == 0 || before.regulatorType == 1 || before.regulatorType == 4)
+                                    ? before.regulatorType : 0;
+                        }
+                        if (after.linkType != SWMM_LINK_CONDUIT) seedRegulatorSection(after);
                     }
                     if (sectionChange >= 0) {
                         changes[sectionChange].sectionAfter = after;
@@ -5770,6 +5963,11 @@ bool SWMMAttributeTableModel::applyScalarEdits(
             }
         }
     }
+    for (const auto &change : changes)
+        if (change.sectionAfter && !validRegulatorSection(*change.sectionAfter))
+            return fail(tr("The section dimensions or type are incompatible for %1.").arg(change.name));
+    if (regulatorDimensions && sectionDimensionShapes.size() > 1)
+        return fail(tr("Choose a common cross-section shape before editing dimensions together."));
     if (storageDimensionShapes.size() > 1)
         return fail(tr("Choose a common storage shape before editing dimensions together."));
     if (changes.isEmpty()) return true;
@@ -6378,7 +6576,9 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index, const QVariant &
     if (value.userType() == qMetaTypeId<LinkCompoundEditRef>()) {
         const auto ref = value.value<LinkCompoundEditRef>();
         if (ref.layer == m_layer && ref.engine == m_layer->engine() &&
-            spec.setter == "link_inlet_usage_ref")
+            (spec.setter == "link_inlet_usage_ref" ||
+             (spec.setter == "link_xsect_ref" &&
+              (m_category == SWMMModelLayer::CatOrifices || m_category == SWMMModelLayer::CatWeirs))))
             return true;
     }
     if (value.userType() == qMetaTypeId<NodeCompoundEditRef>()) {
@@ -6412,6 +6612,8 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index, const QVariant &
         spec.setter == QLatin1String("node_outfall_type") ||
         spec.setter == QLatin1String("node_storage_shape") ||
         spec.setter == "node_divider_type" || spec.setter == "subcatch_infil_model" ||
+        spec.setter == "link_orifice_type" || spec.setter == "link_weir_type" ||
+        spec.setter == "link_outlet_rating_type" ||
         spec.setter == QLatin1String("link_xsect_shape")) {
         QString error;
         return applyScalarEdits({objectNameAt(row)}, {{spec.key, value}}, m_undoStack, &error);
