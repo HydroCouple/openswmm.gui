@@ -98,6 +98,23 @@ inline constexpr XsectShapeRow kXsectShapes[] = {
     {"DUMMY", SWMM_XSECT_DUMMY, "", "", "", ""},
 };
 
+// Regulator palettes and the checked writer share the same legal shapes.
+inline bool regulatorXsectAllowed(int linkType, int shape)
+{
+    if (linkType == SWMM_LINK_ORIFICE)
+        return shape == SWMM_XSECT_CIRCULAR || shape == SWMM_XSECT_RECT_CLOSED;
+    if (linkType == SWMM_LINK_WEIR)
+        return shape == SWMM_XSECT_RECT_OPEN || shape == SWMM_XSECT_TRAPEZOIDAL ||
+               shape == SWMM_XSECT_TRIANGULAR;
+    return linkType == SWMM_LINK_CONDUIT;
+}
+
+inline int weirXsectShape(int type)
+{
+    return type == 2 ? SWMM_XSECT_TRIANGULAR :
+           type == 3 ? SWMM_XSECT_TRAPEZOIDAL : SWMM_XSECT_RECT_OPEN;
+}
+
 //! Look up a shape row by engine id; falls back to the first row
 //! (CIRCULAR) for an unknown id so callers never get nullptr.
 /**

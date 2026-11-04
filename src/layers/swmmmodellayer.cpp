@@ -43,6 +43,7 @@
 #include "map/mapundostack.h"
 #include "ui/panels/usagetablemodel.h"
 #include "layers/nodestructureedits.h"
+#include "ui/panels/swmmattributetablemodel.h"
 #include "render/ifeaturerenderer.h"
 #include "render/multikindrenderer.h"
 #include "render/renderers/categorizedrenderer.h"
@@ -5795,18 +5796,41 @@ bool SWMMModelLayer::applyLinkLength(int linkIdx, double length)
 // cache so any capacity-styled map symbology rerenders on the next
 // paint tick — the `attributeChanged` signal is what kicks it.
 //
-// Unlike `applyLinkLength`, these are NOT gated on `isConduit` because:
-//   * Cross-sections are valid for orifices (CIRCULAR / RECT_CLOSED) and
-//     weirs (TRANSVERSE / SIDEFLOW / TRAPEZOIDAL / V-NOTCH); the engine
-//     setter rejects illegal shape/type combinations on its own.
-//   * Barrels and culvert codes are conduit-only in SWMM today, but the
-//     engine setters perform the check internally. The GUI rejecting
-//     here would just duplicate that check.
+// Regulator section edits use the shared checked record writer; legacy conduit
+// section/barrel/culvert facades retain their established paths.
+bool SWMMModelLayer::pushLinkStructureEdits(const QString &name,
+                                              const QMap<QString, QVariant> &fields, QString *error)
+{
+    const int link = m_engine ? swmm_link_index(m_engine, name.toUtf8().constData()) : -1;
+    int type = -1;
+    if (link < 0 || swmm_link_get_type(m_engine, link, &type) != SWMM_OK ||
+        (type != SWMM_LINK_ORIFICE && type != SWMM_LINK_WEIR && type != SWMM_LINK_OUTLET))
+        return false;
+    SWMMAttributeTableModel source;
+    source.setSource(this, type == SWMM_LINK_ORIFICE ? CatOrifices :
+                           type == SWMM_LINK_WEIR ? CatWeirs : CatOutlets);
+    QMap<QString, QVariant> edits;
+    for (auto it = fields.cbegin(); it != fields.cend(); ++it) {
+        bool found = false;
+        for (const auto &spec : source.columnSpecs())
+            if (spec.setter == it.key()) { edits[spec.key] = it.value(); found = true; break; }
+        if (!found) return false;
+    }
+    return source.applyScalarEdits({name}, edits,
+                                  m_editCanvas ? m_editCanvas->undoStack() : nullptr, error);
+}
+
 bool SWMMModelLayer::applyLinkXsect(int linkIdx, int shape, double g1, double g2, double g3,
                                     double g4)
 {
     if (!m_engine || linkIdx < 0 || linkIdx >= m_links.size())
         return false;
+    int type = -1;
+    if (swmm_link_get_type(m_engine, linkIdx, &type) != SWMM_OK) return false;
+    if (type == SWMM_LINK_ORIFICE || type == SWMM_LINK_WEIR)
+        return pushLinkStructureEdits(m_links[linkIdx].name,
+            {{"link_xsect_shape", shape}, {"link_xsect_geom1", g1}, {"link_xsect_geom2", g2},
+             {"link_xsect_geom3", g3}, {"link_xsect_geom4", g4}});
     if (swmm_link_set_xsect(m_engine, linkIdx, shape, g1, g2, g3, g4) != 0)
         return false;
     emit attributeChanged(m_links[linkIdx].name);

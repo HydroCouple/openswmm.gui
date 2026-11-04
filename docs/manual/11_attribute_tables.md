@@ -116,6 +116,20 @@ a loaded custom profile's Shape and profile assignments are read-only in bulk.
 When changing a transect or street section to a numeric shape, its physical full
 depth becomes the starting depth in project units.
 
+Regulator selections support immediate orifice/weir type and cross-section
+shape edits. Orifices allow Circular or Rectangular Closed; weir types set the
+matching rectangular, triangular or trapezoidal section. Shape changes preserve
+other authored dimensions and seed newly required zero dimensions to 1 project
+length unit (or side slopes of 1 for an otherwise degenerate trapezoid). Choose
+a common shape before prescribing dimensions across mixed sections. Each
+accepted field is one Undo step, including the individual regulator section palette.
+
+For outlets, assigning a named rating curve enters Tabular mode while retaining
+each outlet’s Head/Depth basis. Tabular type choices require a compatible bound
+curve. Clearing the curve restores the corresponding Functional mode; coefficient
+and exponent editing requires Functional mode. Undo retains each outlet’s complete
+rating record, including inactive members. Saved INP files contain the active rating form.
+
 For several outfalls, choose **Boundary Type** to set Free, Normal or Fixed.
 A newly Fixed boundary starts at that outfall's invert elevation; an already
 Fixed boundary retains its stage. Then edit **Fixed Stage Elevation** to give

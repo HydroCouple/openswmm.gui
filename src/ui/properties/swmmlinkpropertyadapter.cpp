@@ -31,6 +31,35 @@ SWMMLinkPropertyAdapter::SWMMLinkPropertyAdapter(SWMM_Engine engine, QString nam
     }
 }
 
+void SWMMLinkPropertyAdapter::setModelLayer(SWMMModelLayer *layer)
+{
+    disconnect(m_modelClose);
+    disconnect(m_modelDestroyed);
+    m_layer = layer;
+    if (!layer) return;
+    m_modelClose = connect(layer, SIGNAL(engineAboutToClose()), this, SLOT(onModelClosed()));
+    m_modelDestroyed = connect(layer, &QObject::destroyed, this, &SWMMLinkPropertyAdapter::onModelClosed);
+}
+
+void SWMMLinkPropertyAdapter::onModelClosed()
+{
+    m_engine = nullptr;
+    m_layer = nullptr;
+}
+
+bool SWMMLinkPropertyAdapter::ownedRegulatorEdit(const QString &setter, const QVariant &value)
+{
+    if (!m_layer) return false;
+    int type = -1;
+    const int link = linkIdx();
+    if (link < 0 || swmm_link_get_type(m_engine, link, &type) != SWMM_OK ||
+        (type != SWMM_LINK_ORIFICE && type != SWMM_LINK_WEIR && type != SWMM_LINK_OUTLET))
+        return false;
+    m_layer->pushLinkStructureEdits(m_name, {{setter, value}});
+    emit structureRefreshRequested();
+    return true;
+}
+
 void SWMMLinkPropertyAdapter::setFromNodeRef(const LinkEndpointRef &ref)
 {
     if (ref.engine != m_engine || ref.linkName != m_name || !ref.upstream)
@@ -120,7 +149,7 @@ QString SWMMLinkPropertyAdapter::displayLabelFor(const QString &property) const
     if (property == QLatin1String("expon"))
         return tr("Exponent");
     if (property == QLatin1String("outletCurve"))
-        return tr("Rating Curve");
+        return tr("Tabular Curve");
     if (property == QLatin1String("startupDepth"))
         return tr("Startup Depth (%1)").arg(L);
     if (property == QLatin1String("shutoffDepth"))
@@ -595,11 +624,13 @@ DataObjectRef SWMMLinkPropertyAdapter::pumpCurveRef() const
         swmm_link_get_type(m_engine, linkIdx, &linkType);
     r.kind = linkType == SWMM_LINK_OUTLET ? DataObjectRef::RatingCurve : DataObjectRef::PumpCurve;
     r.currentName = pumpCurveName();
+    if (linkType == SWMM_LINK_OUTLET && int(outletRatingType()) < 2) r.currentName.clear();
     return r;
 }
 
 void SWMMLinkPropertyAdapter::setPumpCurveRef(const DataObjectRef &ref)
 {
+    if (ownedRegulatorEdit("link_pump_curve_ref", QVariant::fromValue(ref))) return;
     const int idx = linkIdx();
     if (idx < 0)
         return;
@@ -719,7 +750,12 @@ SETTER_D(setRoughness, swmm_link_set_roughness)
 SETTER_D(setOffsetUp, linkoffsetdisplay::setOffsetUp)
 SETTER_D(setOffsetDn, linkoffsetdisplay::setOffsetDn)
 SETTER_D(setCrestHeight, linkoffsetdisplay::setCrestHeight)
-SETTER_D(setDischargeCoeff, swmm_link_set_discharge_coeff)
+void SWMMLinkPropertyAdapter::setDischargeCoeff(double v)
+{
+    if (ownedRegulatorEdit("link_discharge_coeff", v)) return;
+    const int idx = linkIdx();
+    if (idx >= 0 && swmm_link_set_discharge_coeff(m_engine, idx, v) == SWMM_OK) emit changed();
+}
 SETTER_D(setEndContractions, swmm_link_set_end_contractions)
 // Slice SB — scalar setters. Init / max flow + seepage round-trip
 // through their dedicated single-double setters.
@@ -785,6 +821,7 @@ void SWMMLinkPropertyAdapter::setBarrels(int v)
 // shape curve. Kept in lock-step with the Attribute Table's xsectGeomSet.
 void SWMMLinkPropertyAdapter::writeXsectGeom(int ordinal, double v)
 {
+    if (ownedRegulatorEdit(QStringLiteral("link_xsect_geom%1").arg(ordinal), v)) return;
     const int idx = linkIdx();
     if (idx < 0)
         return;
@@ -872,6 +909,7 @@ void SWMMLinkPropertyAdapter::setPumpInitState(PumpInitState v)
 // gate on the SWMM_OK return.
 void SWMMLinkPropertyAdapter::setOrificeType(OrificeType v)
 {
+    if (ownedRegulatorEdit("link_orifice_type", int(v))) return;
     const int idx = linkIdx();
     if (idx < 0)
         return;
@@ -881,6 +919,7 @@ void SWMMLinkPropertyAdapter::setOrificeType(OrificeType v)
 
 void SWMMLinkPropertyAdapter::setWeirType(WeirType v)
 {
+    if (ownedRegulatorEdit("link_weir_type", int(v))) return;
     const int idx = linkIdx();
     if (idx < 0)
         return;
@@ -890,6 +929,7 @@ void SWMMLinkPropertyAdapter::setWeirType(WeirType v)
 
 void SWMMLinkPropertyAdapter::setOutletRatingType(OutletRatingType v)
 {
+    if (ownedRegulatorEdit("link_outlet_rating_type", int(v))) return;
     const int idx = linkIdx();
     if (idx < 0)
         return;
@@ -899,6 +939,7 @@ void SWMMLinkPropertyAdapter::setOutletRatingType(OutletRatingType v)
 
 void SWMMLinkPropertyAdapter::setOutletExpon(double v)
 {
+    if (ownedRegulatorEdit("link_outlet_expon", v)) return;
     const int idx = linkIdx();
     if (idx < 0)
         return;

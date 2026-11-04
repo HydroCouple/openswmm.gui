@@ -141,7 +141,7 @@ public:
      *  `SWMMNodePropertyAdapter::setModelLayer`.
      * @param[in] layer Borrowed layer for shared stores, picker flows and layer-mediated edits; nullptr detaches. This raw pointer must outlive adapter use.
      */
-    void setModelLayer(SWMMModelLayer *layer) { m_layer = layer; }
+    void setModelLayer(SWMMModelLayer *layer);
     /**
      * @return Borrowed currently bound model layer, or nullptr; no lifetime extension occurs.
      */
@@ -701,6 +701,7 @@ signals:
      * @details Some delegated edit paths also emit after refusal so controls restore effective engine values; this is not a universal write-success signal.
      */
     void changed();
+    void structureRefreshRequested();
     /**
      * @param[in] oldName Stored engine ID before the proposed rename.
      * @param[in] newName Nonempty trimmed proposed ID; the receiving layer validates uniqueness and lifecycle.
@@ -726,6 +727,11 @@ protected:
      * @details Successful read is required; picker-index slots are refused and sibling values/shape are preserved. Emits changed only after the engine accepts the complete tuple.
      */
     void writeXsectGeom(int ordinal, double v);
+    bool ownedRegulatorEdit(const QString &setter, const QVariant &value);
+private slots:
+    void onModelClosed();
+protected:
+    QMetaObject::Connection m_modelClose, m_modelDestroyed;
     SWMM_Engine m_engine;
     QString m_name;
     SWMMModelLayer *m_layer = nullptr; ///< Bound via setModelLayer.

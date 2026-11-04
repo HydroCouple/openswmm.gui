@@ -1757,7 +1757,7 @@ void PropertiesPanel::setProject(SWMMModelLayer *layer)
             Qt::UniqueConnection);
 }
 
-void PropertiesPanel::onObjectRenamed(const QString &oldName, const QString &newName, int)
+void PropertiesPanel::onObjectRenamed(const QString &oldName, const QString &newName, int kind)
 {
     // A rename from ANY view (this panel, the Attribute Table, the map) must
     // re-key the bound adapter and the cached identify result, or every later
@@ -1770,7 +1770,7 @@ void PropertiesPanel::onObjectRenamed(const QString &oldName, const QString &new
         m_nodeAdapter->updateStoredName(newName);
         touched = true;
     }
-    if (m_linkAdapter && m_linkAdapter->name() == oldName) {
+    if ((kind & SWMMModelLayer::kKindLink) && m_linkAdapter && m_linkAdapter->name() == oldName) {
         m_linkAdapter->updateStoredName(newName);
         touched = true;
     }
@@ -1784,7 +1784,9 @@ void PropertiesPanel::onObjectRenamed(const QString &oldName, const QString &new
     }
     for (auto &result : m_lastResults)
         for (auto &feature : result.features)
-            if (feature.value(QStringLiteral("Name")).toString() == oldName)
+            if (feature.value(QStringLiteral("Name")).toString() == oldName &&
+                (feature.value(QStringLiteral("Type")).toString() != "Link" ||
+                 (kind & SWMMModelLayer::kKindLink)))
                 feature.insert(QStringLiteral("Name"), newName);
 #ifdef HAVE_QPROPERTYMODEL
     if (touched) {
@@ -2115,18 +2117,33 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
                                                     : QStringLiteral("toNode"),
                                        editable);
                     }
+                    const bool functional = int(m_linkAdapter->outletRatingType()) < 2;
+                    setRowEditable(pm, m_linkAdapter, "coefficient", functional);
+                    setRowEditable(pm, m_linkAdapter, "expon", functional);
                     const int shape = m_linkAdapter->xsectShapeId();
                     for (int k = 1; k <= 4; ++k)
                         setRowEditable(pm, m_linkAdapter, QStringLiteral("geom%1").arg(k),
                                        !openswmmvis::xsectGeomIsPickerIndex(shape, k));
                 };
                 connect(m_linkAdapter, &SWMMLinkPropertyAdapter::changed, pm, applyGeomRowFlags);
+                auto *adapter = m_linkAdapter;
+                connect(m_swmmLayer, &SWMMModelLayer::attributeChanged, adapter,
+                        [this, adapter, applyGeomRowFlags](const QString &name) {
+                            if (m_linkAdapter == adapter && adapter->name() == name) applyGeomRowFlags();
+                        });
                 applyGeomRowFlags();
             }
 
             // Read the adapter's CURRENT name: a rename after binding
             // re-keys the adapter, and a captured name would keep pointing
             // the other views at an object that no longer exists.
+            auto *structureAdapter = m_linkAdapter;
+            connect(structureAdapter, &SWMMLinkPropertyAdapter::structureRefreshRequested, this,
+                    [this, structureAdapter] {
+                        const QScopedValueRollback<bool> guard(m_suppressEditForward, true);
+                        emit structureAdapter->changed();
+                        onObjectEditedExternally(structureAdapter->name());
+                    });
             connect(m_linkAdapter, &SWMMLinkPropertyAdapter::changed, this, [this]() {
                 if (!m_suppressEditForward && m_linkAdapter)
                     emit objectEdited(m_linkAdapter->name());
@@ -2791,7 +2808,11 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
         if (!picked || picked != actEdit)
             return;
 
-        if (ref.layer && ref.kind == LinkCompoundEditRef::InletUsage) {
+        if (ref.layer && (!owner || owner->engine() != ref.engine)) return;
+        int type = -1;
+        swmm_link_get_type(ref.engine, swmm_link_index(ref.engine, ref.linkName.toUtf8().constData()), &type);
+        if (ref.layer && (ref.kind == LinkCompoundEditRef::InletUsage ||
+            type == SWMM_LINK_ORIFICE || type == SWMM_LINK_WEIR)) {
             if (!owner || owner->engine() != ref.engine)
                 return;
             auto *dialog = new LinkCompoundEditDialog(ref, window());

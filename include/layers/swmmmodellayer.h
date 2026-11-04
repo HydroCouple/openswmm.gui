@@ -2577,7 +2577,7 @@ public:
      *        Browser refresh in one tick. Returns false on engine error
      *        (e.g., bad shape code or geom param out of range).
      * @param[in] linkIdx Global engine/cached link index.
-     * @param[in] shape SWMM_XSectShape code; legal shape/link combinations checked by engine.
+     * @param[in] shape SWMM_XSectShape code; regulator palettes/types are checked by the shared writer.
      * @param[in] g1 Primary shape parameter: usually full depth/diameter in project length units;
      *   STREET/IRREGULAR use referenced store index instead.
      * @param[in] g2 Shape-specific secondary parameter, usually width in project length units;
@@ -2585,12 +2585,15 @@ public:
      * @param[in] g3 Shape-specific third parameter, such as side-slope/radius; dimensions depend on
      *   shape.
      * @param[in] g4 Shape-specific fourth parameter; unused slots still forwarded.
-     * @return True after engine acceptance and attributeChanged(linkName), false no engine/invalid
-     *   index/rejection. Some engine reference failures occur after raw shape fields mutate, so
-     *   false is not a universal rollback guarantee. No geometry/source cache rebuild, modelEdited
-     *   or undo here.
+     * @return True after acceptance and attributeChanged(linkName). Regulator records use checked
+     *   snapshots, modelEdited and project Undo; rejected regulator batches leave all targets unchanged.
+     *   The legacy conduit path writes directly, with no Undo or modelEdited here, and some named
+     *   profile failures may occur after raw fields mutate.
      */
     bool applyLinkXsect(int linkIdx, int shape, double g1, double g2, double g3, double g4);
+    // Checked regulator records shared by individual Properties and the section palette.
+    bool pushLinkStructureEdits(const QString &name, const QMap<QString, QVariant> &fields,
+                                QString *error = nullptr);
 
     /*!
      * \brief Slice SC.1 — Write the parallel-barrels count. Emits
