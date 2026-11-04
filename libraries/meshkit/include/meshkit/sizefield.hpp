@@ -49,6 +49,8 @@
 #ifndef MESHKIT_NATIVE_SIZEFIELD_HPP
 #define MESHKIT_NATIVE_SIZEFIELD_HPP
 
+#include <functional>
+
 namespace meshkit::plan
 {
 
