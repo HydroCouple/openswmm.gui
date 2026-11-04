@@ -9,6 +9,7 @@
 
 #include <QMetaType>
 #include <QString>
+#include <QStringList>
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
@@ -18,6 +19,7 @@ struct LinkEndpointRef {
     QString linkName;
     bool upstream = true;
     QString nodeName;
+    QStringList linkNames; ///< Optional bulk targets. Candidates must be legal for every link.
     bool operator==(const LinkEndpointRef &) const = default;
 };
 Q_DECLARE_METATYPE(LinkEndpointRef)

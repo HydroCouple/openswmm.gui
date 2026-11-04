@@ -4486,77 +4486,114 @@ namespace
 {
 
 struct ScalarEdit {
+    SWMMModelLayer::Category category;
     QString name;
     QString key;
     QVariant before;
     QVariant after;
 };
 
-// This model belongs to the command and never follows a table's category switch.
+QVariant scalarComparable(const QVariant &value)
+{
+    if (value.userType() == qMetaTypeId<DataObjectRef>())
+        return value.value<DataObjectRef>().currentName;
+    return value;
+}
+
+bool scalarWriteMatches(const QVariant &actual, const QVariant &expected)
+{
+    if (actual.metaType().id() == QMetaType::Double && expected.metaType().id() == QMetaType::Double) {
+        const double a = actual.toDouble(), b = expected.toDouble();
+        if (std::isnan(a) && std::isnan(b)) return true;
+        // Project-unit conversion can differ by a few floating-point bits on readback.
+        return a == b || (std::isfinite(a) && std::isfinite(b) &&
+            std::abs(a - b) <= 8 * std::numeric_limits<double>::epsilon() *
+                               std::max({1.0, std::abs(a), std::abs(b)}));
+    }
+    return scalarComparable(actual) == scalarComparable(expected);
+}
+
+// Private category models keep replay independent of the active table and Properties scope.
 class ScalarBatchCommand : public QUndoCommand
 {
 public:
     ScalarBatchCommand(SWMMAttributeTableModel *view, QList<ScalarEdit> edits)
-        : m_model(std::make_unique<SWMMAttributeTableModel>()), m_view(view), m_edits(std::move(edits))
+        : m_layer(view->layer()), m_view(view), m_edits(std::move(edits))
     {
-        auto *layer = view->layer();
-        const auto category = view->category();
-        m_model->setSource(layer, category);
-        QObject::connect(layer, &SWMMModelLayer::engineAboutToClose, m_model.get(),
+        for (const auto &edit : m_edits) {
+            if (m_models.contains(edit.category)) continue;
+            auto *model = new SWMMAttributeTableModel(&m_context);
+            model->setSource(m_layer, edit.category);
+            m_models.insert(edit.category, model);
+            m_counts.insert(edit.category, model->rowCount());
+        }
+        QObject::connect(m_layer, &SWMMModelLayer::engineAboutToClose, &m_context,
                          [this] { m_valid = false; });
-        QObject::connect(layer, &SWMMModelLayer::objectRenamed, m_model.get(),
-                         [this, category](const QString &from, const QString &to, int kind) {
-            if (!(kind & SWMMModelLayer::kindBitForCategory(category))) return;
+        QObject::connect(m_layer, &SWMMModelLayer::objectRenamed, &m_context,
+                         [this](const QString &from, const QString &to, int kind) {
             for (auto &edit : m_edits)
-                if (edit.name == from) edit.name = to;
+                if ((kind & SWMMModelLayer::kindBitForCategory(edit.category)) && edit.name == from)
+                    edit.name = to;
         });
-        QObject::connect(layer, &SWMMModelLayer::geometryChanged, m_model.get(), [this] {
-            for (const auto &edit : m_edits)
-                if (m_model->rowForName(edit.name) < 0) m_valid = false;
-        }, Qt::QueuedConnection);
+        QObject::connect(m_layer, &SWMMModelLayer::geometryChanged, &m_context, [this] {
+            // Observe removal synchronously, before an ID can be reused. A rename emits
+            // geometryChanged before objectRenamed, but keeps the category count.
+            for (auto it = m_models.cbegin(); it != m_models.cend(); ++it) {
+                const int count = m_layer->categoryCount(it.key());
+                if (count < m_counts.value(it.key()))
+                    for (const auto &edit : m_edits)
+                        if (edit.category == it.key() && it.value()->rowForName(edit.name) < 0)
+                            m_valid = false;
+                m_counts[it.key()] = count;
+            }
+        });
         setText(QObject::tr("Edit properties on selected objects"));
     }
 
     bool commit(bool forward)
     {
-        auto *layer = m_model->layer();
-        if (!m_valid || !layer || !layer->engine()) return false;
-        const auto specs = m_model->columnSpecs();
+        if (!m_valid || !m_layer || !m_layer->engine()) return false;
         QList<QModelIndex> indices;
         for (const auto &edit : m_edits) {
+            auto *model = m_models.value(edit.category);
+            const auto specs = model->columnSpecs();
             int column = -1;
             for (int c = 0; c < specs.size(); ++c)
                 if (specs[c].key == edit.key) { column = c; break; }
-            const int row = m_model->rowForName(edit.name);
+            const int row = model->rowForName(edit.name);
             if (row < 0 || column < 0) return false;
-            const auto index = m_model->index(row, column);
+            const auto index = model->index(row, column);
             if (!(index.flags() & Qt::ItemIsEditable)) return false;
             indices.append(index);
         }
-        layer->beginBulkEdit();
+        m_layer->beginBulkEdit();
         int applied = 0;
         for (; applied < m_edits.size(); ++applied) {
             const auto &edit = m_edits[applied];
-            if (!m_model->commitValueDirect(indices[applied], forward ? edit.after : edit.before))
+            auto *model = m_models.value(edit.category);
+            const auto value = forward ? edit.after : edit.before;
+            if (!model->commitValueDirect(indices[applied], value) ||
+                !scalarWriteMatches(model->data(indices[applied], Qt::EditRole), value))
                 break;
         }
         const bool success = applied == m_edits.size();
         if (!success) {
-            // Restore every attempted field, including a setter that failed partway.
-            for (int i = applied; i >= 0; --i)
-                m_model->commitValueDirect(indices[i], forward ? m_edits[i].before : m_edits[i].after);
+            for (int i = applied; i >= 0; --i) {
+                const auto &edit = m_edits[i];
+                m_models.value(edit.category)->commitValueDirect(indices[i],
+                                                               forward ? edit.before : edit.after);
+            }
         }
-        layer->endBulkEdit();
+        m_layer->endBulkEdit();
         if (success) {
-            QSet<QString> names;
-            for (const auto &edit : m_edits) names.insert(edit.name);
-            for (const auto &name : names) emit layer->attributeChanged(name);
-            layer->markEdited();
-            if (m_view && m_view->layer() == layer && m_view->category() == m_model->category())
-                for (const auto &name : names) {
-                    m_view->refreshObject(name);
-                    emit m_view->objectEdited(name);
+            for (const auto &edit : m_edits) {
+                emit m_layer->attributeChanged(edit.name);
+                if (m_view && m_view->layer() == m_layer && m_view->category() == edit.category) {
+                    m_view->refreshObject(edit.name);
+                    emit m_view->objectEdited(edit.name);
                 }
+            }
+            m_layer->markEdited();
         }
         return success;
     }
@@ -4567,7 +4604,10 @@ public:
     }
     void undo() override { if (!commit(false)) setObsolete(true); }
 private:
-    std::unique_ptr<SWMMAttributeTableModel> m_model;
+    QObject m_context;
+    QPointer<SWMMModelLayer> m_layer;
+    QMap<SWMMModelLayer::Category, SWMMAttributeTableModel *> m_models;
+    QMap<SWMMModelLayer::Category, int> m_counts;
     QPointer<SWMMAttributeTableModel> m_view;
     QList<ScalarEdit> m_edits;
     bool m_valid = true;
@@ -4696,48 +4736,97 @@ private:
 bool SWMMAttributeTableModel::applyScalarEdits(
     const QStringList &names, const QMap<QString, QVariant> &edits, QUndoStack *undo, QString *error)
 {
+    return applyScalarEdits(QMap<SWMMModelLayer::Category, QStringList>{{m_category, names}},
+                            edits, undo, error);
+}
+
+bool SWMMAttributeTableModel::applyScalarEdits(
+    const QMap<SWMMModelLayer::Category, QStringList> &targets,
+    const QMap<QString, QVariant> &edits, QUndoStack *undo, QString *error)
+{
     QList<ScalarEdit> changes;
     const auto fail = [error](const QString &reason) {
         if (error) *error = reason;
         return false;
     };
-    for (const auto &name : names) {
-        const int row = rowForName(name);
-        if (row < 0) return fail(tr("%1 no longer exists.").arg(name));
-        for (auto it = edits.cbegin(); it != edits.cend(); ++it) {
-            int column = -1;
-            for (int c = 0; c < m_columnSpecs.size(); ++c)
-                if (m_columnSpecs[c].key == it.key()) { column = c; break; }
-            if (column < 0) return fail(tr("Unknown field %1.").arg(it.key()));
-            const auto &spec = m_columnSpecs[column];
-            const auto index = this->index(row, column);
-            if (!(flags(index) & Qt::ItemIsEditable))
-                return fail(tr("%1 cannot be edited on %2.").arg(spec.label, name));
-            if (spec.editor == EditorKind::Numeric || spec.editor == EditorKind::Integer) {
-                bool ok = false;
-                const double number = it.value().toDouble(&ok);
-                if (!ok || !std::isfinite(number) || number < spec.minValue ||
-                    number > spec.maxValue ||
-                    (spec.editor == EditorKind::Integer && number != std::trunc(number)))
-                    return fail(tr("%1 is invalid for %2.").arg(spec.label, name));
-            } else if (spec.editor == EditorKind::Enum) {
-                bool known = false;
-                for (const auto &choice : spec.enumValues)
-                    if (choice.toList().value(1) == it.value()) known = true;
-                if (!known) return fail(tr("%1 is invalid for %2.").arg(spec.label, name));
-            } else if (spec.editor == EditorKind::Interval) {
-                const auto parts = it.value().toString().split(':');
-                bool hoursOk = false, minutesOk = false;
-                const int hours = parts.value(0).toInt(&hoursOk);
-                const int minutes = parts.value(1).toInt(&minutesOk);
-                if (parts.size() != 2 || !hoursOk || !minutesOk || hours < 0 ||
-                    minutes < 0 || minutes >= 60 || (hours == 0 && minutes == 0))
-                    return fail(tr("%1 needs a positive H:MM interval.").arg(spec.label));
-            } else if (spec.editor != EditorKind::Text || spec.key != QLatin1String("Tag")) {
-                return fail(tr("%1 requires its structured editor.").arg(spec.label));
+    if (!m_layer || !m_layer->engine()) return fail(tr("The model is closed."));
+    for (auto group = targets.cbegin(); group != targets.cend(); ++group) {
+        SWMMAttributeTableModel model;
+        model.setSource(m_layer, group.key());
+        const auto specs = model.columnSpecs();
+        for (const auto &name : group.value()) {
+            const int row = model.rowForName(name);
+            if (row < 0) return fail(tr("%1 no longer exists.").arg(name));
+            for (auto it = edits.cbegin(); it != edits.cend(); ++it) {
+                int column = -1;
+                for (int c = 0; c < specs.size(); ++c)
+                    if (specs[c].key == it.key()) { column = c; break; }
+                if (column < 0) return fail(tr("Unknown field %1.").arg(it.key()));
+                const auto &spec = specs[column];
+                const auto index = model.index(row, column);
+                if (!(model.flags(index) & Qt::ItemIsEditable))
+                    return fail(tr("%1 cannot be edited on %2.").arg(spec.label, name));
+                if (spec.editor == EditorKind::Numeric || spec.editor == EditorKind::Integer) {
+                    bool ok = false;
+                    const double number = it.value().toDouble(&ok);
+                    if (!ok || !std::isfinite(number) || number < spec.minValue ||
+                        number > spec.maxValue ||
+                        (spec.editor == EditorKind::Integer && number != std::trunc(number)))
+                        return fail(tr("%1 is invalid for %2.").arg(spec.label, name));
+                } else if (spec.editor == EditorKind::Enum) {
+                    bool known = false;
+                    for (const auto &choice : spec.enumValues)
+                        if (choice.toList().value(1) == it.value()) known = true;
+                    if (!known) return fail(tr("%1 is invalid for %2.").arg(spec.label, name));
+                } else if (spec.editor == EditorKind::Interval) {
+                    const auto parts = it.value().toString().split(':');
+                    bool hoursOk = false, minutesOk = false;
+                    const int hours = parts.value(0).toInt(&hoursOk);
+                    const int minutes = parts.value(1).toInt(&minutesOk);
+                    if (parts.size() != 2 || !hoursOk || !minutesOk || hours < 0 ||
+                        minutes < 0 || minutes >= 60 || (hours == 0 && minutes == 0))
+                        return fail(tr("%1 needs a positive H:MM interval.").arg(spec.label));
+                } else if (spec.editor == EditorKind::LinkEndpoint) {
+                    const int link = swmm_link_index(m_layer->engine(), name.toUtf8().constData());
+                    const int node = swmm_node_index(m_layer->engine(), it.value().toString().toUtf8().constData());
+                    if (!linkendpoint::allowed(m_layer->engine(), link,
+                                               spec.setter == QLatin1String("link_from_node"), node))
+                        return fail(tr("%1 is not a valid endpoint for %2.").arg(it.value().toString(), name));
+                } else if (spec.editor == EditorKind::Compound &&
+                           (spec.setter == QLatin1String("link_pump_curve_ref") ||
+                            spec.setter == QLatin1String("node_outfall_route_to_ref"))) {
+                    if (it.value().userType() != qMetaTypeId<DataObjectRef>())
+                        return fail(tr("Choose a reference for %1.").arg(spec.label));
+                    const auto expected = model.data(index, Qt::EditRole).value<DataObjectRef>();
+                    const auto next = it.value().value<DataObjectRef>();
+                    if (next.kind != expected.kind || next.engine != m_layer->engine() || next.layer != m_layer)
+                        return fail(tr("The reference belongs to a different model or kind."));
+                    if (!next.currentName.isEmpty()) {
+                        const auto id = next.currentName.toUtf8();
+                        if (expected.kind == DataObjectRef::Subcatchment) {
+                            if (swmm_subcatch_index(m_layer->engine(), id.constData()) < 0)
+                                return fail(tr("Subcatchment %1 no longer exists.").arg(next.currentName));
+                        } else {
+                            const int table = swmm_table_index(m_layer->engine(), id.constData());
+                            int type = -1;
+                            if (table < 0 || swmm_table_get_type(m_layer->engine(), table, &type) != SWMM_OK ||
+                                (expected.kind == DataObjectRef::PumpCurve ? type < 7 || type > 11 : type != 3))
+                                return fail(tr("%1 is not a compatible curve.").arg(next.currentName));
+                        }
+                    }
+                } else if (spec.editor != EditorKind::Text || spec.key != QLatin1String("Tag")) {
+                    return fail(tr("%1 requires its structured editor.").arg(spec.label));
+                }
+                const auto old = model.data(index, Qt::EditRole);
+                auto next = it.value();
+                if (spec.editor == EditorKind::Interval) {
+                    const auto parts = next.toString().split(':');
+                    next = QStringLiteral("%1:%2").arg(parts[0].toInt())
+                               .arg(parts[1].toInt(), 2, 10, QLatin1Char('0'));
+                }
+                if (scalarComparable(old) != scalarComparable(next))
+                    changes.append({group.key(), name, spec.key, old, next});
             }
-            const auto old = data(index, Qt::EditRole);
-            if (old != it.value()) changes.append({name, spec.key, old, it.value()});
         }
     }
     if (changes.isEmpty()) return true;
@@ -5429,6 +5518,12 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index, const QVariant &
         // Push an undo command; commitValueDirect will be called inside it.
         m_undoStack->push(new AttributeRenameCommand(this, row, oldName, newName));
         return true;
+    }
+
+    if (spec.setter == QLatin1String("link_pump_curve_ref") ||
+        spec.setter == QLatin1String("node_outfall_route_to_ref")) {
+        QString error;
+        return applyScalarEdits(QStringList{objectNameAt(row)}, {{spec.key, value}}, m_undoStack, &error);
     }
 
     // Compound columns mutate engine state inside the dialog over

@@ -41,10 +41,15 @@ void LinkEndpointComboBox::setValue(const LinkEndpointRef &ref)
     const int link =
         ref.engine ? swmm_link_index(ref.engine, ref.linkName.toUtf8().constData()) : -1;
     const int count = ref.engine ? swmm_node_count(ref.engine) : 0;
+    const auto links = ref.linkNames.isEmpty() ? QStringList{ref.linkName} : ref.linkNames;
     if (link >= 0 && count > 0) {
         nodes.reserve(count);
         for (int node = 0; node < count; ++node) {
-            if (linkendpoint::allowed(ref.engine, link, ref.upstream, node))
+            const bool allowed = std::all_of(links.cbegin(), links.cend(), [&](const QString &name) {
+                return linkendpoint::allowed(ref.engine, swmm_link_index(ref.engine, name.toUtf8().constData()),
+                                             ref.upstream, node);
+            });
+            if (allowed)
                 nodes.append(QString::fromUtf8(swmm_node_id(ref.engine, node)));
         }
     }
@@ -62,10 +67,12 @@ LinkEndpointRef LinkEndpointComboBox::value() const
 {
     auto ref = m_ref;
     const QByteArray text = currentText().trimmed().toUtf8();
-    const int link =
-        ref.engine ? swmm_link_index(ref.engine, ref.linkName.toUtf8().constData()) : -1;
     const int node = ref.engine ? swmm_node_index(ref.engine, text.constData()) : -1;
-    if (linkendpoint::allowed(ref.engine, link, ref.upstream, node))
+    const auto links = ref.linkNames.isEmpty() ? QStringList{ref.linkName} : ref.linkNames;
+    if (std::all_of(links.cbegin(), links.cend(), [&](const QString &name) {
+            return linkendpoint::allowed(ref.engine, swmm_link_index(ref.engine, name.toUtf8().constData()),
+                                         ref.upstream, node);
+        }))
         ref.nodeName = QString::fromUtf8(swmm_node_id(ref.engine, node));
     return ref; // An incomplete or invalid ID never becomes a commit candidate.
 }

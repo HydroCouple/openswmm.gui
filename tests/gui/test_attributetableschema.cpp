@@ -59,6 +59,8 @@
 #include "ui/properties/nodecompoundeditref.h"
 #include "ui/properties/swmmsubcatchpropertyadapter.h"
 #include "ui/properties/dataobjectref.h"
+#include "ui/properties/dataobjectpickereditor.h"
+#include <openswmm/engine/openswmm_tables.h>
 #include "ui/dialogs/snowpackeditordialog.h"
 #include "snowpack/snowpackregistry.h"
 #include <QTimer>
@@ -285,6 +287,50 @@ bool applyBulkCell(AttributeTablePanel &panel, QTableView *view, const QModelInd
            applied;
 }
 
+// A reviewable fixture with three conduit targets, two different pumps and extra endpoints.
+std::unique_ptr<SWMMModelLayer> openBulkNetworkLayer()
+{
+    QFile original(QDir(dataDir()).filePath("typed_selection_fixture.inp"));
+    if (!original.open(QIODevice::ReadOnly)) return {};
+    auto text = original.readAll();
+    text.replace("\n[OUTFALLS]", "\nJ2 98 10 0 0 0\nJ3 97 10 0 0 0\n[OUTFALLS]");
+    text.replace("\n[XSECTIONS]", "\nC2 J2 O1 1000 .014 0 0 0 0\n[XSECTIONS]");
+    text.replace("\n[REPORT]", "\nC2 CIRCULAR 1 0 0 0 1\n[REPORT]");
+    text.replace("\n[VERTICES]", "\nJ2 500 500\nJ3 1500 500\n[VERTICES]");
+    text += "\n[PUMPS]\nP1 J1 O1 PC ON 0 0\nP2 J2 O1 PC2 ON 0 0\n"
+            "[CURVES]\nPC PUMP3 0 10\nPC 10 0\nPC2 PUMP3 0 20\nPC2 10 0\nPC3 PUMP3 0 30\nPC3 10 0\n";
+    const QString dir = QDir(dataDir()).filePath("multi_selection");
+    if (!QDir().mkpath(dir)) return {};
+    const QString path = dir + "/network-bulk-checkpoint.inp";
+    QFile out(path);
+    if (!out.open(QIODevice::WriteOnly | QIODevice::Truncate)) return {};
+    out.write(text);
+    out.close();
+    auto layer = std::make_unique<SWMMModelLayer>(path, nullptr);
+    QList<QString> warnings, errors;
+    if (!layer->loadModel(warnings, errors)) return {};
+    return layer;
+}
+
+QModelIndex bulkProperty(PropertiesPanel &panel, const QString &label)
+{
+    const auto *model = panel.findChild<QTreeView *>()->model();
+    for (int g = 0; g < model->rowCount(); ++g) {
+        const auto group = model->index(g, 0);
+        for (int r = 0; r < model->rowCount(group); ++r)
+            if (model->index(r, 0, group).data().toString() == label)
+                return model->index(r, 1, group);
+    }
+    return {};
+}
+
+QString bulkLinkTag(SWMMModelLayer *layer, SWMMModelLayer::Category category, const QString &name)
+{
+    SWMMAttributeTableModel table;
+    table.setSource(layer, category);
+    return table.index(table.rowForName(name), colFor(table.columnSpecs(), "Tag")).data().toString();
+}
+
 } // namespace
 
 class TestAttributeTableSchema : public QObject
@@ -292,6 +338,267 @@ class TestAttributeTableSchema : public QObject
     Q_OBJECT
 
 private slots:
+    void mixedLinkPropertiesCommitImmediatelyAndOfferSubtypeScope()
+    {
+        auto layer = openBulkNetworkLayer();
+        QVERIFY(layer);
+        MapCanvas canvas;
+        PropertiesPanel panel;
+        panel.setProject(layer.get());
+        const QList<SWMMObjectRef> refs{{SWMMObjectRef::Link, "C1"}, {SWMMObjectRef::Link, "X1"},
+                                       {SWMMObjectRef::Link, "C2"}, {SWMMObjectRef::Link, "P1"}};
+        panel.showSelection(&canvas, refs);
+        QVERIFY(panel.windowTitle().contains("Links"));
+        auto *tree = panel.findChild<QTreeView *>();
+        panel.resize(700, 800);
+        panel.show();
+        tree->expandAll();
+        auto tag = bulkProperty(panel, "Tag");
+        QVERIFY(tag.isValid() && (tag.flags() & Qt::ItemIsEditable));
+        auto roughness = bulkProperty(panel, "Manning's n");
+        QVERIFY(roughness.isValid() && !(roughness.flags() & Qt::ItemIsEditable));
+        tree->edit(tag);
+        auto *line = qobject_cast<QLineEdit *>(tree->indexWidget(tag));
+        QVERIFY(line);
+        QTest::keyClicks(line, "shared");
+        QTest::keyClick(line, Qt::Key_Return);
+        QTRY_COMPARE(canvas.undoStack()->count(), 1);
+        for (const auto &name : {"C1", "X1", "C2"})
+            QCOMPARE(bulkLinkTag(layer.get(), SWMMModelLayer::CatConduits, name), QString("shared"));
+        QCOMPARE(bulkLinkTag(layer.get(), SWMMModelLayer::CatPumps, "P1"), QString("shared"));
+        QCOMPARE(bulkLinkTag(layer.get(), SWMMModelLayer::CatPumps, "P2"), QString());
+        canvas.undoStack()->undo();
+        QCOMPARE(bulkLinkTag(layer.get(), SWMMModelLayer::CatPumps, "P1"), QString());
+        canvas.undoStack()->redo();
+        auto *scope = panel.findChild<QComboBox *>("propertiesSelectionScope");
+        QVERIFY(scope);
+        const int conduits = scope->findText("Conduits (3)");
+        QVERIFY(conduits > 0);
+        scope->setCurrentIndex(conduits);
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        roughness = bulkProperty(panel, "Manning's n");
+        QVERIFY(roughness.flags() & Qt::ItemIsEditable);
+        tree->edit(roughness);
+        auto *spin = qobject_cast<QDoubleSpinBox *>(tree->indexWidget(roughness));
+        QVERIFY(spin);
+        spin->selectAll();
+        QTest::keyClicks(spin, "0.025");
+        QTest::keyClick(spin, Qt::Key_Tab);
+        QTRY_COMPARE(canvas.undoStack()->count(), 2);
+        for (const auto &name : {"C1", "X1", "C2"}) {
+            double value = 0;
+            QCOMPARE(swmm_link_get_roughness(layer->engine(), swmm_link_index(layer->engine(), name), &value), 0);
+            QCOMPARE(value, .025);
+        }
+        panel.showSelection(&canvas, refs);
+        QCOMPARE(bulkProperty(panel, "Tag").data().toString(), QString("shared"));
+        const auto saved = QDir(dataDir()).filePath("multi_selection/network-bulk-saved.inp");
+        QCOMPARE(swmm_model_write(layer->engine(), saved.toUtf8().constData()), SWMM_OK);
+        SWMMModelLayer reopened(saved);
+        QList<QString> warnings, errors;
+        QVERIFY(reopened.loadModel(warnings, errors));
+        QCOMPARE(bulkLinkTag(&reopened, SWMMModelLayer::CatPumps, "P1"), QString("shared"));
+        double value = 0;
+        QCOMPARE(swmm_link_get_roughness(reopened.engine(), swmm_link_index(reopened.engine(), "C2"), &value), 0);
+        QCOMPARE(value, .025);
+    }
+
+    void mixedNodesUseCommonFieldsAndKeepTypedIdentity()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        MapCanvas canvas;
+        PropertiesPanel panel;
+        panel.setProject(layer.get());
+        panel.showSelection(&canvas, {{SWMMObjectRef::Node, "J1"}, {SWMMObjectRef::Node, "O1"}});
+        auto *tree = panel.findChild<QTreeView *>();
+        const auto invert = bulkProperty(panel, "Invert Elevation (ft)");
+        QVERIFY(invert.isValid() && (invert.flags() & Qt::ItemIsEditable));
+        QVERIFY(tree->model()->setData(invert, 85.0));
+        QCOMPARE(canvas.undoStack()->count(), 1);
+        for (const char *name : {"J1", "O1"}) {
+            double value = 0;
+            QCOMPARE(swmm_node_get_invert_elev(layer->engine(), swmm_node_index(layer->engine(), name), &value), 0);
+            QCOMPARE(value, 85.0);
+        }
+        canvas.undoStack()->undo();
+        double value = 0;
+        QCOMPARE(swmm_node_get_invert_elev(layer->engine(), swmm_node_index(layer->engine(), "J1"), &value), 0);
+        QCOMPARE(value, 100.0);
+        QCOMPARE(swmm_node_get_invert_elev(layer->engine(), swmm_node_index(layer->engine(), "O1"), &value), 0);
+        QCOMPARE(value, 90.0);
+    }
+
+    void bulkEndpointPickerChecksEveryLinkAndUpdatesGeometry()
+    {
+        auto layer = openBulkNetworkLayer();
+        QVERIFY(layer);
+        MapCanvas canvas;
+        PropertiesPanel panel;
+        panel.setProject(layer.get());
+        panel.showSelection(&canvas, {{SWMMObjectRef::Link, "C1"}, {SWMMObjectRef::Link, "X1"}});
+        panel.resize(700, 800);
+        panel.show();
+        auto *tree = panel.findChild<QTreeView *>();
+        tree->expandAll();
+        const auto from = bulkProperty(panel, "From Node");
+        QVERIFY(from.isValid());
+        QVERIFY(!tree->model()->setData(from, "O1")); // The second link would connect to itself.
+        QCOMPARE(canvas.undoStack()->count(), 0);
+        tree->edit(from);
+        auto *picker = qobject_cast<LinkEndpointComboBox *>(tree->indexWidget(from));
+        QVERIFY(picker);
+        QVERIFY(picker->findText("O1") < 0);
+        QVERIFY(picker->findText("X1") < 0);
+        QVERIFY(picker->findText("J2") >= 0);
+        picker->setFocus();
+        picker->lineEdit()->selectAll();
+        QTest::keyClicks(picker->lineEdit(), "J2");
+        QTest::keyClick(picker->lineEdit(), Qt::Key_Return);
+        QTRY_COMPARE(canvas.undoStack()->count(), 1);
+        for (const char *name : {"C1", "X1"}) {
+            const int link = swmm_link_index(layer->engine(), name);
+            int node = -1;
+            QCOMPARE(swmm_link_get_from_node(layer->engine(), link, &node), 0);
+            QCOMPARE(QString::fromUtf8(swmm_node_id(layer->engine(), node)), QString("J2"));
+            QCOMPARE(layer->cachedLinkPolyline(link).first(), QPointF(500, 500));
+        }
+        canvas.undoStack()->undo();
+        int node = -1;
+        QCOMPARE(swmm_link_get_from_node(layer->engine(), swmm_link_index(layer->engine(), "C1"), &node), 0);
+        QCOMPARE(QString::fromUtf8(swmm_node_id(layer->engine(), node)), QString("J1"));
+        canvas.undoStack()->redo();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        tree->edit(from);
+        picker = qobject_cast<LinkEndpointComboBox *>(tree->indexWidget(from));
+        QVERIFY(picker);
+        picker->setFocus();
+        picker->lineEdit()->selectAll();
+        QTest::keyClicks(picker->lineEdit(), "J3");
+        QTest::keyClick(picker->lineEdit(), Qt::Key_Escape);
+        QCoreApplication::processEvents();
+        QCOMPARE(swmm_link_get_from_node(layer->engine(), swmm_link_index(layer->engine(), "C1"), &node), 0);
+        QCOMPARE(QString::fromUtf8(swmm_node_id(layer->engine(), node)), QString("J2"));
+        QCOMPARE(canvas.undoStack()->count(), 1);
+    }
+
+    void bulkPumpCurvePickerCommitsOnChoiceAndChecksReferenceKind()
+    {
+        auto layer = openBulkNetworkLayer();
+        QVERIFY(layer);
+        MapCanvas canvas;
+        PropertiesPanel panel;
+        panel.setProject(layer.get());
+        panel.showSelection(&canvas, {{SWMMObjectRef::Link, "P1"}, {SWMMObjectRef::Link, "P2"}});
+        panel.resize(700, 800);
+        panel.show();
+        auto *tree = panel.findChild<QTreeView *>();
+        tree->expandAll();
+        const auto curve = bulkProperty(panel, "Pump Curve");
+        QVERIFY(curve.isValid());
+        QCOMPARE(curve.data().toString(), QString("Mixed"));
+        tree->edit(curve);
+        auto *picker = qobject_cast<DataObjectPickerEditor *>(tree->indexWidget(curve));
+        QVERIFY(picker);
+        picker->applyPickedName("PC3");
+        QTRY_COMPARE(canvas.undoStack()->count(), 1);
+        picker->applyPickedName("PC3"); // Re-choosing the stored value has no undo entry.
+        QCOMPARE(canvas.undoStack()->count(), 1);
+        for (const char *name : {"P1", "P2"}) {
+            int table = -1;
+            QCOMPARE(swmm_link_get_pump_curve(layer->engine(), swmm_link_index(layer->engine(), name), &table), 0);
+            QCOMPARE(QString::fromUtf8(swmm_table_id(layer->engine(), table)), QString("PC3"));
+        }
+        auto invalid = picker->value();
+        invalid.currentName = "TS1";
+        QVERIFY(!tree->model()->setData(curve, QVariant::fromValue(invalid)));
+        QCOMPARE(canvas.undoStack()->count(), 1);
+        canvas.undoStack()->undo();
+        QCOMPARE(curve.data().toString(), QString("Mixed"));
+        int table = -1;
+        QCOMPARE(swmm_link_get_pump_curve(layer->engine(), swmm_link_index(layer->engine(), "P1"), &table), 0);
+        QCOMPARE(QString::fromUtf8(swmm_table_id(layer->engine(), table)), QString("PC"));
+        QCOMPARE(swmm_link_get_pump_curve(layer->engine(), swmm_link_index(layer->engine(), "P2"), &table), 0);
+        QCOMPARE(QString::fromUtf8(swmm_table_id(layer->engine(), table)), QString("PC2"));
+    }
+
+    void bulkUndoFollowsRenameAndRejectsReusedTargetId()
+    {
+        auto layer = openBulkNetworkLayer();
+        QVERIFY(layer);
+        MapCanvas canvas;
+        PropertiesPanel panel;
+        panel.setProject(layer.get());
+        panel.showSelection(&canvas, {{SWMMObjectRef::Link, "C1"}, {SWMMObjectRef::Link, "P1"}});
+        auto *tree = panel.findChild<QTreeView *>();
+        QVERIFY(tree->model()->setData(bulkProperty(panel, "Tag"), "batch"));
+        QVERIFY(layer->applyRename("C1", "Renamed", SWMMModelLayer::kKindLink));
+        canvas.undoStack()->undo();
+        QCOMPARE(bulkLinkTag(layer.get(), SWMMModelLayer::CatConduits, "Renamed"), QString());
+        canvas.undoStack()->redo();
+        QVERIFY(layer->applyLinkDelete("P1"));
+        QVERIFY(layer->applyLinkAdd("P1", SWMM_LINK_PUMP, "J1", "O1", {}));
+        canvas.undoStack()->undo();
+        QCOMPARE(bulkLinkTag(layer.get(), SWMMModelLayer::CatPumps, "P1"), QString());
+        QCOMPARE(bulkLinkTag(layer.get(), SWMMModelLayer::CatConduits, "Renamed"), QString("batch"));
+        QVERIFY(!tree->model()->setData(bulkProperty(panel, "Tag"), "stale"));
+    }
+
+    void bulkOutfallRoutingUsesTheSubcatchmentNamespace()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        QVERIFY(layer->applyNodeAdd("O2", SWMM_NODE_OUTFALL, 2000, 500));
+        MapCanvas canvas;
+        PropertiesPanel panel;
+        panel.setProject(layer.get());
+        panel.showSelection(&canvas, {{SWMMObjectRef::Node, "O1"}, {SWMMObjectRef::Node, "O2"}});
+        auto *aggregate = panel.findChild<SWMMAggregateSelection *>();
+        QVERIFY(aggregate);
+        const int col = colFor(aggregate->source()->columnSpecs(), "Route to");
+        auto ref = aggregate->editorData(col).value<DataObjectRef>();
+        QCOMPARE(ref.kind, DataObjectRef::Subcatchment);
+        ref.currentName = "S1"; // A rain gage also has this ID.
+        auto *tree = panel.findChild<QTreeView *>();
+        const auto route = bulkProperty(panel, "Route To Subcatchment");
+        QVERIFY(route.isValid());
+        QVERIFY(tree->model()->setData(route, QVariant::fromValue(ref)));
+        QCOMPARE(canvas.undoStack()->count(), 1);
+        for (const char *name : {"O1", "O2"}) {
+            int target = -1;
+            QCOMPARE(swmm_node_get_outfall_route_to(layer->engine(), swmm_node_index(layer->engine(), name), &target), 0);
+            QCOMPARE(QString::fromUtf8(swmm_subcatch_id(layer->engine(), target)), QString("S1"));
+        }
+        ref.kind = DataObjectRef::RainGage;
+        QVERIFY(!tree->model()->setData(route, QVariant::fromValue(ref)));
+        QCOMPARE(canvas.undoStack()->count(), 1);
+        canvas.undoStack()->undo();
+        for (const char *name : {"O1", "O2"}) {
+            int target = -2;
+            QCOMPARE(swmm_node_get_outfall_route_to(layer->engine(), swmm_node_index(layer->engine(), name), &target), 0);
+            QCOMPARE(target, -1);
+        }
+    }
+
+    void mixedVirtualNodeDepthDoesNotCombineDifferentMeanings()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        int node = -1, link = -1;
+        QString error;
+        QVERIFY2(layer->applyInsertVirtualJunction("C1", .5, "VBulk", "CSplit", &node, &link, &error),
+                 qPrintable(error));
+        MapCanvas canvas;
+        PropertiesPanel panel;
+        panel.setProject(layer.get());
+        panel.showSelection(&canvas, {{SWMMObjectRef::Node, "J1"}, {SWMMObjectRef::Node, "VBulk"}});
+        const auto depth = bulkProperty(panel, "Maximum Depth (ft)");
+        QVERIFY(depth.isValid());
+        QVERIFY(!(depth.flags() & Qt::ItemIsEditable));
+        QVERIFY(depth.data(Qt::ToolTipRole).toString().contains("different meanings"));
+        QVERIFY(bulkProperty(panel, "Tag").flags() & Qt::ItemIsEditable);
+    }
+
     void propertiesEditsSelectedNodesAndLinks()
     {
         auto layer = openLayer();
