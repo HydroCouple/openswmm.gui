@@ -134,6 +134,34 @@ restoring the previous active geometry or named curve when undone. The table
 uses the same checked writes, including its selected-row action, and its
 dropdown choices commit before focus leaves the cell.
 
+For several dividers, choose **Divider Type** to set Cutoff, Overflow or Weir.
+**Diversion Curve** assigns a named Tabular curve. Edit the applicable cutoff or
+minimum flow, weir height and coefficient without changing each divider's own
+diversion link. A new Weir starts missing height/coefficient values at 1. The
+diversion link is shown read-only in bulk because it belongs to that node.
+
+Subcatchment selections support common **Rain Gage**, **Outlet**, **Snow Pack**
+and **Aquifer** assignments. Outlet choices distinguish **Node:** from
+**Subcatchment:**. A name shared by both types is rejected because SWMM files
+cannot retain the distinction; rename one object before assigning that outlet.
+Cycles are rejected for the whole batch. Empty snowpack/aquifer choices clear those optional assignments.
+Infiltration fields apply only to their method family. Switching between ordinary
+and modified variants retains the parameters; changing families starts with
+editable defaults, and Undo restores the prior method and values. Defaults are
+Horton rates 3/0.5 in/hr, decay 4/hr and drying 7 days; Green-Ampt suction 3 in,
+conductivity 0.5 in/hr and deficit 0.3; Curve Number 75 and drying 7 days.
+Rainfall lengths and rates use the equivalent values in SI projects.
+
+For rain gages, choosing **Series Name** or **Rain File (path)** changes the
+active source immediately. A direct **Data Source** choice requires that source
+to be configured already. Path edits reconcile each gage's column selector;
+the bulk column list shows common headers. File format, column and station
+settings follow the applicable file grammar. Each source/file edit is one Undo
+step that restores the related fields together. Choosing a file commits when
+the file picker returns; typing a path commits on Enter or leaving the field.
+The table can copy a configured path or column to its selected rows. Saving
+retains the active source even when another series remains stored on the gage.
+
 Drag the divider between column headers to change a width, including the last
 column. Double-click a divider to fit the column to its contents. Column widths
 are remembered per category (and per mesh element kind) across sessions, and

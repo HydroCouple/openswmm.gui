@@ -3097,6 +3097,7 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
             case DataObjectRef::PumpCurve:
             case DataObjectRef::RatingCurve:
             case DataObjectRef::StorageCurve:
+            case DataObjectRef::DiversionCurve:
                 dc = SWMMModelLayer::DataCurves;
                 break;
             case DataObjectRef::TimeSeries:
@@ -3229,7 +3230,8 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
                 spec.editor == EditorKind::Enum || spec.editor == EditorKind::Text;
             const bool referenceEditable = spec.editor == EditorKind::Compound &&
                                            SWMMAggregateSelection::supports(spec);
-            if (simpleEditable || referenceEditable) {
+            const bool fileEditable = spec.editor == EditorKind::FileBrowse || spec.editor == EditorKind::FileColumn;
+            if (simpleEditable || referenceEditable || fileEditable) {
                 if (!sourceIdx.data(openswmmvis::kDisabledEnumValuesRole).toList().contains(cellValue)) {
                     QAction *copyAct = menu.addAction(tr("Apply this \"%1\" value to %2 selected rows")
                                                       .arg(spec.label)

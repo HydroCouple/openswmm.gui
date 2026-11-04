@@ -461,6 +461,7 @@ public:
     FileBrowseEditor(QWidget *parent, const QString &nameFilter)
         : QWidget(parent), m_edit(new QLineEdit(this))
     {
+        setProperty("attributeFileBrowse", true);
         auto *lay = new QHBoxLayout(this);
         lay->setContentsMargins(0, 0, 0, 0);
         lay->setSpacing(0);
@@ -476,8 +477,11 @@ public:
                 openswmmvis::ui::FileOpenDialog::typeForFilter(nameFilter), window(),
                 QObject::tr("Choose data file"),
                 start.isEmpty() ? QString() : QFileInfo(start).absolutePath(), nameFilter);
-            if (!path.isEmpty())
+            if (!path.isEmpty()) {
                 m_edit->setText(path);
+                m_edit->setModified(true);
+                QMetaObject::invokeMethod(m_edit, "editingFinished");
+            }
         });
     }
 
@@ -501,20 +505,28 @@ FileBrowseDelegate::FileBrowseDelegate(QObject *parent, QString nameFilter)
 QWidget *FileBrowseDelegate::createEditor(QWidget *parent, const QStyleOptionViewItem & /*opt*/,
                                           const QModelIndex & /*index*/) const
 {
-    return new FileBrowseEditor(parent, m_nameFilter);
+    auto *editor = new FileBrowseEditor(parent, m_nameFilter);
+    auto *self = const_cast<FileBrowseDelegate *>(this);
+    connect(editor->lineEdit(), &QLineEdit::editingFinished, self, [self, editor] {
+        if (editor->lineEdit()->isModified()) emit self->commitData(editor);
+    });
+    return editor;
 }
 
 void FileBrowseDelegate::setEditorData(QWidget *editor, const QModelIndex &index) const
 {
-    if (auto *fb = static_cast<FileBrowseEditor *>(editor))
+    if (auto *fb = static_cast<FileBrowseEditor *>(editor)) {
         fb->lineEdit()->setText(index.data(Qt::EditRole).toString());
+        fb->lineEdit()->setModified(false);
+    }
 }
 
 void FileBrowseDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
                                       const QModelIndex &index) const
 {
     if (auto *fb = static_cast<FileBrowseEditor *>(editor))
-        model->setData(index, fb->lineEdit()->text().trimmed(), Qt::EditRole);
+        if (fb->lineEdit()->isModified() && model->setData(index, fb->lineEdit()->text().trimmed(), Qt::EditRole))
+            fb->lineEdit()->setModified(false);
 }
 
 // ---------------------------------------------------------------------------
@@ -533,6 +545,11 @@ QWidget *FileColumnDelegate::createEditor(QWidget *parent, const QStyleOptionVie
     combo->setEditable(true); // typable when the file is unreadable
     combo->setInsertPolicy(QComboBox::NoInsert);
     combo->addItems(index.data(m_optionsRole).toStringList());
+    auto *self = const_cast<FileColumnDelegate *>(this);
+    connect(combo, &QComboBox::activated, self, [self, combo] { emit self->commitData(combo); });
+    connect(combo->lineEdit(), &QLineEdit::editingFinished, self, [self, combo] {
+        if (combo->lineEdit()->isModified()) emit self->commitData(combo);
+    });
     return combo;
 }
 
@@ -542,6 +559,7 @@ void FileColumnDelegate::setEditorData(QWidget *editor, const QModelIndex &index
     if (!combo)
         return;
     combo->setCurrentText(index.data(Qt::EditRole).toString());
+    combo->lineEdit()->setModified(false);
 }
 
 void FileColumnDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,

@@ -345,9 +345,11 @@ DataObjectRef SWMMSubcatchPropertyAdapter::outletRef() const
         // returns -1 when the subcatch drains to a node instead.
         int sc = -1;
         if (swmm_subcatch_get_outlet_subcatch(m_engine, i, &sc) == SWMM_OK && sc >= 0) {
+            r.outletTarget = DataObjectRef::SubcatchmentOutlet;
             if (const char *id = swmm_subcatch_id(m_engine, sc))
                 r.currentName = QString::fromUtf8(id);
         } else {
+            r.outletTarget = DataObjectRef::NodeOutlet;
             int nd = -1;
             if (swmm_subcatch_get_outlet(m_engine, i, &nd) == SWMM_OK && nd >= 0)
                 if (const char *id = swmm_node_id(m_engine, nd))
@@ -366,11 +368,12 @@ void SWMMSubcatchPropertyAdapter::setOutletRef(const DataObjectRef &r)
     // Nodes take precedence on a name collision. set_outlet and
     // set_outlet_subcatch are mutually exclusive in the engine.
     const int nd = swmm_node_index(m_engine, nm.constData());
-    if (nd >= 0) {
+    if (nd >= 0 && r.outletTarget != DataObjectRef::SubcatchmentOutlet) {
         if (swmm_subcatch_set_outlet(m_engine, i, nd) == SWMM_OK)
             emit changed();
         return;
     }
+    if (r.outletTarget == DataObjectRef::NodeOutlet) return;
     const int sc = swmm_subcatch_index(m_engine, nm.constData());
     if (sc >= 0 && sc != i) {
         if (swmm_subcatch_set_outlet_subcatch(m_engine, i, sc) == SWMM_OK)
