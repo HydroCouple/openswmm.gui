@@ -32,6 +32,7 @@
 #include "ui/properties/subcatchcompoundeditbutton.h"
 #include "ui/properties/subcatchcompoundeditref.h"
 #include "ui/dialogs/subcatchcompoundeditdialog.h"
+#include "ui/dialogs/groundwaterexchangedialog.h"
 // Slice SC.1 — link-side compound-edit ref + cell editor.
 #include "ui/dialogs/linkcompoundeditdialog.h"
 #include "ui/properties/linkcompoundeditbutton.h"
@@ -527,7 +528,7 @@ private:
             if (m_selection->editorData(m_column).userType() == qMetaTypeId<NodeCompoundEditRef>())
                 return PropertiesPanel::tr("Open the editor to change one constituent or pollutant field across these nodes. Other fields and rows are preserved. Each committed field has one Undo step.");
             if (m_selection->editorData(m_column).userType() == qMetaTypeId<SubcatchCompoundEditRef>())
-                return PropertiesPanel::tr("Open the editor to change one named land-use or pollutant row across these subcatchments. Other rows are preserved. Each committed value has one Undo step.");
+                return PropertiesPanel::tr("Open the editor to change one field across these subcatchments. Other fields and rows are preserved. Each committed value has one Undo step.");
         }
         const int targets = int(m_selection->rows().size());
         const auto field = m_selection->field(m_column);
@@ -2728,7 +2729,8 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
     if (metaId == qMetaTypeId<SubcatchCompoundEditRef>()) {
         auto ref = value.value<SubcatchCompoundEditRef>();
         if (!ref.layer || (ref.kind != SubcatchCompoundEditRef::LandUse &&
-                           ref.kind != SubcatchCompoundEditRef::Loadings))
+                           ref.kind != SubcatchCompoundEditRef::Loadings &&
+                           ref.kind != SubcatchCompoundEditRef::Groundwater))
             return;
         QPointer<SWMMModelLayer> owner = ref.layer;
         auto *action = menu.addAction(tr("Edit…"));
@@ -2742,7 +2744,11 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
                     ref.undoStack = canvas->undoStack();
                     break;
                 }
-        auto *dialog = new SubcatchCompoundEditDialog(ref, window());
+        QDialog *dialog = nullptr;
+        if (ref.kind == SubcatchCompoundEditRef::Groundwater)
+            dialog = new GroundwaterExchangeDialog(ref, window());
+        else
+            dialog = new SubcatchCompoundEditDialog(ref, window());
         dialog->setAttribute(Qt::WA_DeleteOnClose);
         dialog->show();
         return;

@@ -329,6 +329,13 @@ void GwfExpressionEdit::focusInEvent(QFocusEvent *e)
     QTextEdit::focusInEvent(e);
 }
 
+void GwfExpressionEdit::focusOutEvent(QFocusEvent *e)
+{
+    QTextEdit::focusOutEvent(e);
+    if (e->reason() != Qt::PopupFocusReason)
+        emit editingFinished();
+}
+
 void GwfExpressionEdit::keyPressEvent(QKeyEvent *e)
 {
     QAbstractItemView *pop = m_completer ? m_completer->popup() : nullptr;

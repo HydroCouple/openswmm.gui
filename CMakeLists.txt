@@ -1551,6 +1551,8 @@ set(
         include/ui/panels/nodecompoundtablemodel.h
         src/ui/panels/subcatchqualitytablemodel.cpp
         include/ui/panels/subcatchqualitytablemodel.h
+        src/ui/panels/groundwaterexchangetablemodel.cpp
+        include/ui/panels/groundwaterexchangetablemodel.h
         src/ui/panels/swmmattributetablemodel.cpp
         src/ui/panels/swmmobjecttreemodel.cpp
         src/ui/panels/curvepointtablemodel.cpp

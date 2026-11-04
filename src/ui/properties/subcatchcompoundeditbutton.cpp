@@ -58,11 +58,12 @@ void SubcatchCompoundEditButton::onClicked()
     if (m_ref.kind == SubcatchCompoundEditRef::Groundwater) {
         auto *dlg = new GroundwaterExchangeDialog(m_ref, window());
         dlg->setAttribute(Qt::WA_DeleteOnClose);
-        connect(dlg, &GroundwaterExchangeDialog::applied, this, [this, dlg]() {
-            m_ref.summary = dlg->updatedSummary();
-            refreshLabel();
-            emit valueChanged();
-        });
+        if (!m_ref.layer)
+            connect(dlg, &GroundwaterExchangeDialog::applied, this, [this, dlg]() {
+                m_ref.summary = dlg->updatedSummary();
+                refreshLabel();
+                emit valueChanged();
+            });
         dlg->show();
         return;
     }

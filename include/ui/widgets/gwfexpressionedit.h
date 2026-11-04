@@ -151,7 +151,7 @@ signals:
      * @param[in] col Zero-based engine-reported error column, or -1 when not attributable.
      */
     void validationChanged(bool ok, const QString &msg, int col);
-    void editingFinished(); ///< Enter/Return pressed (single-line commit)
+    void editingFinished(); ///< Enter/Return or focus leaving the editor; popup focus is excluded.
 
 protected:
     /**
@@ -164,6 +164,7 @@ protected:
      * @param[in] e Required Qt focus event forwarded to QTextEdit.
      */
     void focusInEvent(QFocusEvent *e) override;
+    void focusOutEvent(QFocusEvent *e) override;
 
 private:
     /**

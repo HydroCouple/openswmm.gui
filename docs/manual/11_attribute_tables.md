@@ -192,7 +192,24 @@ without rescaling other land uses. Initial loadings use the project's mass per
 area units and accept finite nonnegative values. Zero clears the effective
 assignment. The current loading editor lists ordinary pollutants; reaction
 species remain outside this editor. **Close** dismisses it without another
-confirmation step. Groundwater and LID usage retain their individual editors.
+confirmation step. LID usage retains its individual editor.
+
+**Groundwater** also opens a shared field editor for the captured subcatchments.
+Choose a receiving node or edit one flow-law parameter or LATERAL/DEEP expression;
+the other fields retain each target's own values. Each completed field commits
+immediately with one Undo step, and **Close** dismisses the editor. Lengths and
+coefficients retain project groundwater input units. Dsw zero uses the receiving
+node's live depth; Egwt `*` follows its invert, while `-99` is a literal elevation.
+Empty expression text clears only that expression. Native expression validation
+and completion use the engine's groundwater vocabulary.
+
+Every target needs an assigned aquifer. Choose a receiver first if a record has
+none; other exchange edits require a receiver so the records can be saved.
+Aquifer assignment remains in the existing Properties picker. Aquifer bindings
+and optional Ebot/Wgw/Umc initial-condition overrides are preserved. The latter
+and runtime groundwater state are not edited by this page. A removed target or
+reference invalidates the captured context; reopen the editor after an aquifer
+definition rename. Subcatchment and receiving-node renames follow their objects.
 
 Drag the divider between column headers to change a width, including the last
 column. Double-click a divider to fit the column to its contents. Column widths

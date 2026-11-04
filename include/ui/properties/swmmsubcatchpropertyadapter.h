@@ -505,9 +505,13 @@ public slots:
     }
     /**
      * @brief Complete the property-delegate round trip after the editor has applied its own changes.
-     * @details The reference argument is intentionally ignored; emits changed unconditionally and performs no engine write.
+     * @details The reference argument is ignored. Owned navigation emits no change: the shared editor reports accepted writes. Unowned legacy dialogs emit changed; this method performs no engine write.
      */
-    void setGroundwaterRef(const SubcatchCompoundEditRef &) { emit changed(); }
+    void setGroundwaterRef(const SubcatchCompoundEditRef &)
+    {
+        if (!m_layer)
+            emit changed();
+    }
     /**
      * @brief Complete the property-delegate round trip after the editor has applied its own changes.
      * @details The reference argument is intentionally ignored; emits changed unconditionally and performs no engine write.

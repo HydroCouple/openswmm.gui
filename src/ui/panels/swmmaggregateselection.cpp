@@ -107,6 +107,7 @@ bool SWMMAggregateSelection::supports(const openswmmvis::ColumnSpec &spec)
          (spec.editor == EditorKind::Compound &&
           (spec.setter == "node_inflows_ref" || spec.setter == "node_dwf_ref" ||
            spec.setter == "subcatch_landuse_ref" || spec.setter == "subcatch_loadings_ref" ||
+           spec.setter == "subcatch_groundwater_ref" ||
            spec.setter == "node_rdii_ref" || spec.setter == "node_treatment_ref" ||
            spec.setter == QLatin1String("link_pump_curve_ref") ||
            spec.setter == QLatin1String("node_outfall_route_to_ref") ||

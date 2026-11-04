@@ -386,7 +386,7 @@ private slots:
         auto *lateral = dlg.findChild<GwfExpressionEdit *>(QStringLiteral("gwLateral"));
         QVERIFY(apply && lateral);
 
-        lateral->setExpression(QStringLiteral("0.001*(HGWW-10)"));
+        lateral->setExpression(QStringLiteral("0.001*(NOT_A_GW_VARIABLE-10)"));
         QVERIFY(!dlg.canApply());
         QVERIFY(!apply->isEnabled());
         QVERIFY(!apply->toolTip().isEmpty());
