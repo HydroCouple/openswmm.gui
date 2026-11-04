@@ -387,9 +387,11 @@ Choose a value, or enter text or a number and press **Enter** or leave the field
 Each committed field updates all selected objects immediately as one undo step.
 **Escape** discards unfinished input. Structured records use their dedicated editors.
 
-For selections containing different object families or meshes, choose a counted
-group above the Properties tree. A field applicable to only some objects in
-the active group is read-only. For mesh boundary conditions, choose the offered
+For mixed node or link subtypes, Properties offers their common properties and
+counted subtype groups. A shared Tag can update selected conduits and pumps
+together; choose **Conduits** to edit their Manning’s n. For selections containing
+different object families or meshes, choose a counted group above the Properties
+tree. A field applicable to only some objects in the active group is read-only. For mesh boundary conditions, choose the offered
 exterior-edge scope if the selection also contains interior edges. See
 *Editing values* in Chapter 19.
 

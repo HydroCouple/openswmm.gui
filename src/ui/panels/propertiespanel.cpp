@@ -377,7 +377,9 @@ public:
                       const QModelIndex &index) const override
     {
         if (editor->property("meshAggregateMixed").toBool()) {
-            if (auto *combo = qobject_cast<QComboBox *>(editor)) {
+            if (qobject_cast<LinkEndpointComboBox *>(editor)) {
+                if (!editor->property("meshAggregateTouched").toBool()) return;
+            } else if (auto *combo = qobject_cast<QComboBox *>(editor)) {
                 if (combo->currentIndex() < 0)
                     return;
             } else if (auto *line = qobject_cast<QLineEdit *>(editor)) {
@@ -423,6 +425,10 @@ public:
         switch (int(role)) {
         case kMeshMixedRole:
             return mixed;
+        case openswmmvis::kLinkEndpointRole:
+            if constexpr (std::is_same_v<Selection, SWMMAggregateSelection>)
+                return m_selection->editorData(m_column, role);
+            return {};
         case Qt::DisplayRole:
             if (staged)
                 return displayFor(m_selection->stagedValue(m_column));
@@ -475,6 +481,10 @@ private:
             if (m_spec.editor == openswmmvis::EditorKind::Compound)
                 return m_selection->source()->pickerRef(m_spec.key, QString());
         }
+        if constexpr (std::is_same_v<Selection, SWMMAggregateSelection>) {
+            if (m_spec.editor == openswmmvis::EditorKind::Compound)
+                return m_selection->editorData(m_column);
+        }
         if (m_spec.editor == openswmmvis::EditorKind::Text)
             return QString();
         return {};
@@ -495,6 +505,9 @@ private:
         const int targets = int(m_selection->rows().size());
         const auto field = m_selection->field(m_column);
         QStringList lines;
+        if constexpr (std::is_same_v<Selection, SWMMAggregateSelection>) {
+            if (!field.reason.isEmpty()) lines << field.reason;
+        }
         const QString header =
             m_selection->source()->headerData(m_column, Qt::Horizontal, Qt::ToolTipRole).toString();
         if (!header.isEmpty())
@@ -605,7 +618,13 @@ public:
     {
         if (auto *editor = meshFieldEditor(index)) {
             QWidget *widget = editor->createEditor(parent, option, index);
-            if (auto *combo = qobject_cast<QComboBox *>(widget)) {
+            if (auto *endpoint = qobject_cast<LinkEndpointComboBox *>(widget)) {
+                auto *delegate = const_cast<PropertyStepDelegate *>(this);
+                connect(endpoint, &LinkEndpointComboBox::valueChanged, delegate, [delegate, endpoint] {
+                    endpoint->setProperty("meshAggregateTouched", true);
+                    emit delegate->commitData(endpoint);
+                });
+            } else if (auto *combo = qobject_cast<QComboBox *>(widget)) {
                 auto *delegate = const_cast<PropertyStepDelegate *>(this);
                 connect(combo, &QComboBox::activated, delegate, [delegate, widget] {
                     emit delegate->commitData(widget);
@@ -1073,12 +1092,26 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
         QString title;
         QList<SWMMObjectRef> refs;
         int category = -1;
+        QMap<SWMMModelLayer::Category, QStringList> targets;
     };
     QMap<QString, Scope> scopes;
     const QStringList labels{tr("Junctions"), tr("Outfalls"), tr("Storage"), tr("Dividers"),
                              tr("Conduits"), tr("Pumps"), tr("Orifices"), tr("Weirs"),
                              tr("Outlets"), tr("Subcatchments"), tr("Rain gages")};
+    QMap<int, QHash<QString, int>> categories;
+    if (m_swmmLayer)
+        for (int c = 0; c < SWMMModelLayer::NumCategories; ++c) {
+            const auto category = static_cast<SWMMModelLayer::Category>(c);
+            for (int kind : {int(SWMMObjectRef::Node), int(SWMMObjectRef::Link),
+                             int(SWMMObjectRef::Subcatchment), int(SWMMObjectRef::RainGage)})
+                if (SWMMModelLayer::kindBitForCategory(category) & SWMMModelLayer::kindMaskForObjectType(kind))
+                    for (int row = 0; row < m_swmmLayer->categoryCount(category); ++row)
+                        categories[kind].insert(m_swmmLayer->objectNameAt(category, row), c);
+        }
+    QSet<SWMMObjectRef> seen;
     for (const auto &ref : refs) {
+        if (seen.contains(ref)) continue;
+        seen.insert(ref);
         QString meshKey;
         int element = -1, local = -1;
         const bool mesh = mesh::MeshObjectRef::parseVertex(ref, &meshKey, &element) ||
@@ -1094,26 +1127,32 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
                     if (auto *m = qobject_cast<SWMM2DMeshLayer *>(layer);
                         m && mesh::MeshObjectRef::layerKey(m->sourcePath()) == meshKey)
                         scope.title += QStringLiteral(" — ") + m->name();
-            if (!scope.refs.contains(ref)) scope.refs.append(ref);
+            scope.refs.append(ref);
             continue;
         }
-        int category = -1;
-        if (m_swmmLayer)
-            for (int c = 0; c < SWMMModelLayer::NumCategories && category < 0; ++c) {
-                const auto cat = static_cast<SWMMModelLayer::Category>(c);
-                if (!(SWMMModelLayer::kindBitForCategory(cat) &
-                      SWMMModelLayer::kindMaskForObjectType(int(ref.objectType)))) continue;
-                for (int row = 0; row < m_swmmLayer->categoryCount(cat); ++row)
-                    if (m_swmmLayer->objectNameAt(cat, row) == ref.name) { category = c; break; }
-            }
+        const int category = categories.value(int(ref.objectType)).value(ref.name, -1);
         const QString key = QStringLiteral("objects/%1").arg(category);
         auto &scope = scopes[key];
         scope.category = category;
         scope.title = category >= 0 ? labels.value(category, tr("Objects")) : tr("Other objects");
-        if (!scope.refs.contains(ref)) scope.refs.append(ref);
+        scope.refs.append(ref);
+        if (category >= 0)
+            scope.targets[static_cast<SWMMModelLayer::Category>(category)].append(ref.name);
+    }
+    QList<Scope> commonScopes;
+    for (const auto kind : {SWMMObjectRef::Node, SWMMObjectRef::Link}) {
+        Scope common;
+        common.title = kind == SWMMObjectRef::Node ? tr("Nodes — common properties") : tr("Links — common properties");
+        for (const auto &scope : scopes)
+            if (!scope.refs.isEmpty() && scope.refs.first().objectType == kind && scope.category >= 0) {
+                common.refs.append(scope.refs);
+                common.targets.insert(static_cast<SWMMModelLayer::Category>(scope.category),
+                                      scope.targets.value(static_cast<SWMMModelLayer::Category>(scope.category)));
+            }
+        if (common.targets.size() > 1) commonScopes.append(common);
     }
     // Offer the exterior subset explicitly when a box includes interior edges.
-    auto choices = scopes.values();
+    auto choices = commonScopes + scopes.values();
     if (canvas)
         for (const auto &scope : scopes) {
             if (scope.refs.isEmpty() || scope.refs.first().objectType != SWMMObjectRef::MeshEdge) continue;
@@ -1145,18 +1184,15 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
             if (scope.refs.first().objectType >= SWMMObjectRef::MeshVertex &&
                 scope.refs.first().objectType <= SWMMObjectRef::MeshCell) {
                 showMeshSelection(canvas, scope.refs);
-            } else if (scope.category >= 0) {
+            } else if (!scope.targets.isEmpty()) {
                 clear();
 #ifdef HAVE_QPROPERTYMODEL
-                QStringList names;
-                for (const auto &ref : scope.refs) names.append(ref.name);
-                auto *aggregate = new SWMMAggregateSelection(m_swmmLayer,
-                    static_cast<SWMMModelLayer::Category>(scope.category), names,
+                auto *aggregate = new SWMMAggregateSelection(m_swmmLayer, scope.targets,
                     canvas ? canvas->undoStack() : nullptr, this);
                 m_swmmAggregate = aggregate;
                 connect(aggregate, &SWMMAggregateSelection::editFinished, this,
                         &PropertiesPanel::showAggregateEditResult);
-                setWindowTitle(tr("%1 — %2 selected").arg(scope.title).arg(names.size()));
+                setWindowTitle(tr("%1 — %2 selected").arg(scope.title).arg(scope.refs.size()));
                 auto *pm = qobject_cast<QPropertyModel *>(m_model);
                 pm->setData(QVariant::fromValue(aggregate));
                 m_treeView->expandAll();
@@ -1180,7 +1216,8 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
         m_selectionScope->setVisible(choices.size() > 1);
     };
     connect(m_selectionScope, qOverload<int>(&QComboBox::currentIndexChanged), this, bind);
-    if (choices.size() == 1 || scopes.size() == 1)
+    const bool wholeFamily = !commonScopes.isEmpty() && commonScopes.first().refs.size() == refs.size();
+    if (choices.size() == 1 || scopes.size() == 1 || wholeFamily)
         m_selectionScope->setCurrentIndex(1);
     else
         bind(0);

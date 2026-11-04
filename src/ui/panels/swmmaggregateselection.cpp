@@ -1,6 +1,6 @@
 /**
  * @file      swmmaggregateselection.cpp
- * @brief     Staged shared properties for selected SWMM network objects.
+ * @brief     Shared properties for selected SWMM network objects.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  * @license   GPL-3.0-or-later
@@ -9,26 +9,79 @@
 #include "ui/panels/swmmaggregateselection.h"
 #include <QUndoStack>
 #include <QTimer>
+#include <QSet>
 #include <cmath>
+#include "ui/properties/dataobjectref.h"
+#include "ui/properties/linkendpointref.h"
 
 using openswmmvis::EditorKind;
+
+namespace {
+QVariant comparable(const QVariant &value)
+{
+    if (value.userType() == qMetaTypeId<DataObjectRef>()) {
+        const auto ref = value.value<DataObjectRef>();
+        return QVariantList{int(ref.kind), ref.currentName};
+    }
+    return value;
+}
+}
 
 SWMMAggregateSelection::SWMMAggregateSelection(
     SWMMModelLayer *layer, SWMMModelLayer::Category category, const QStringList &names,
     QUndoStack *undo, QObject *parent)
-    : QObject(parent), m_source(new SWMMAttributeTableModel(this)), m_names(names), m_undo(undo)
+    : SWMMAggregateSelection(layer, {{category, names}}, undo, parent)
 {
-    m_names.removeDuplicates();
-    m_source->setSource(layer, category);
-    connect(layer, &SWMMModelLayer::attributeChanged, m_source,
-            &SWMMAttributeTableModel::refreshObject);
-    connect(layer, &SWMMModelLayer::geometryChanged, m_source,
-            &SWMMAttributeTableModel::reload);
+}
+
+SWMMAggregateSelection::SWMMAggregateSelection(
+    SWMMModelLayer *layer, const QMap<SWMMModelLayer::Category, QStringList> &targets,
+    QUndoStack *undo, QObject *parent)
+    : QObject(parent), m_source(nullptr), m_targets(targets), m_undo(undo)
+{
     auto *refresh = new QTimer(this);
     refresh->setSingleShot(true);
-    connect(m_source, &QAbstractItemModel::dataChanged, refresh, [refresh] {
-        if (!refresh->isActive())
-            refresh->start(0);
+    for (auto it = m_targets.begin(); it != m_targets.end(); ++it) {
+        it.value().removeDuplicates();
+        m_targetCount += it.value().size();
+        auto *source = new SWMMAttributeTableModel(this);
+        source->setSource(layer, it.key());
+        m_sources.insert(it.key(), source);
+        m_counts.insert(it.key(), source->rowCount());
+        if (!m_source) m_source = source;
+        const auto specs = source->columnSpecs();
+        for (int col = 0; col < specs.size(); ++col)
+            m_columns[it.key()].insert(specs[col].key, col);
+        connect(layer, &SWMMModelLayer::attributeChanged, source,
+                &SWMMAttributeTableModel::refreshObject);
+        connect(layer, &SWMMModelLayer::geometryChanged, source, &SWMMAttributeTableModel::reload);
+        connect(source, &QAbstractItemModel::modelReset, this, [this, source, category = it.key()] {
+            auto &columns = m_columns[category];
+            columns.clear();
+            const auto specs = source->columnSpecs();
+            for (int col = 0; col < specs.size(); ++col) columns.insert(specs[col].key, col);
+            emit stagedChanged();
+        });
+        connect(source, &QAbstractItemModel::dataChanged, refresh, [refresh] {
+            if (!refresh->isActive()) refresh->start(0);
+        });
+    }
+    connect(layer, &SWMMModelLayer::objectRenamed, this,
+            [this](const QString &from, const QString &to, int kind) {
+        for (auto it = m_targets.begin(); it != m_targets.end(); ++it)
+            if (kind & SWMMModelLayer::kindBitForCategory(it.key()))
+                for (auto &name : it.value())
+                    if (name == from) name = to;
+    });
+    connect(layer, &SWMMModelLayer::engineAboutToClose, this, [this] { m_valid = false; });
+    connect(layer, &SWMMModelLayer::geometryChanged, this, [this, layer] {
+        for (auto group = m_targets.cbegin(); group != m_targets.cend(); ++group) {
+            const int count = layer->categoryCount(group.key());
+            if (count < m_counts.value(group.key()))
+                for (const auto &name : group.value())
+                    if (m_sources.value(group.key())->rowForName(name) < 0) m_valid = false;
+            m_counts[group.key()] = count;
+        }
     });
     connect(refresh, &QTimer::timeout, this, &SWMMAggregateSelection::stagedChanged);
 }
@@ -41,7 +94,10 @@ bool SWMMAggregateSelection::supports(const openswmmvis::ColumnSpec &spec)
         "link_pump_init_state", "gage_rain_type", "gage_rain_units"};
     return !spec.setter.isEmpty() && spec.key != QLatin1String("Name") &&
         (spec.editor == EditorKind::Numeric || spec.editor == EditorKind::Integer ||
-         spec.editor == EditorKind::Interval ||
+         spec.editor == EditorKind::Interval || spec.editor == EditorKind::LinkEndpoint ||
+         (spec.editor == EditorKind::Compound &&
+          (spec.setter == QLatin1String("link_pump_curve_ref") ||
+           spec.setter == QLatin1String("node_outfall_route_to_ref"))) ||
          (spec.editor == EditorKind::Enum && independentChoices.contains(spec.setter)) ||
          (spec.editor == EditorKind::Text && spec.key == QLatin1String("Tag")));
 }
@@ -49,35 +105,95 @@ bool SWMMAggregateSelection::supports(const openswmmvis::ColumnSpec &spec)
 QList<int> SWMMAggregateSelection::rows() const
 {
     QList<int> result;
-    for (const auto &name : m_names) {
-        const int row = m_source->rowForName(name);
-        if (row >= 0)
-            result.append(row);
-    }
+    for (auto group = m_targets.cbegin(); group != m_targets.cend(); ++group)
+        for (const auto &name : group.value()) {
+            const int row = m_sources.value(group.key())->rowForName(name);
+            if (row >= 0) result.append(row);
+        }
     return result;
+}
+
+QVariant SWMMAggregateSelection::editorData(int column, int role) const
+{
+    const auto specs = m_source->columnSpecs();
+    if (column < 0 || column >= specs.size()) return {};
+    for (auto group = m_targets.cbegin(); group != m_targets.cend(); ++group) {
+        const auto *model = m_sources.value(group.key());
+        const int col = m_columns.value(group.key()).value(specs[column].key, -1);
+        if (col < 0) continue;
+        for (const auto &name : group.value()) {
+            const int row = model->rowForName(name);
+            if (row < 0) continue;
+            auto value = model->index(row, col).data(role);
+            if (role == openswmmvis::kLinkEndpointRole) {
+                auto ref = value.value<LinkEndpointRef>();
+                for (auto it = m_targets.cbegin(); it != m_targets.cend(); ++it)
+                    ref.linkNames.append(it.value());
+                if (field(column).mixed) ref.nodeName.clear();
+                return QVariant::fromValue(ref);
+            }
+            if (value.userType() == qMetaTypeId<DataObjectRef>()) {
+                auto ref = value.value<DataObjectRef>();
+                ref.currentName.clear();
+                return QVariant::fromValue(ref);
+            }
+            return value;
+        }
+    }
+    return {};
 }
 
 SWMMAggregateSelection::Field SWMMAggregateSelection::field(int column) const
 {
     Field result;
     bool first = true;
-    const bool editable = supports(m_source->columnSpecs().value(column));
-    for (int row : rows()) {
-        const auto index = m_source->index(row, column);
-        if (editable && (index.flags() & Qt::ItemIsEditable))
-            ++result.editable;
-        const auto value = index.data(Qt::EditRole);
-        if (first) {
-            result.edit = value;
-            result.display = index.data();
-            first = false;
-        } else if (result.edit != value) {
-            result.mixed = true;
+    const auto spec = m_source->columnSpecs().value(column);
+    QSet<int> depthKinds;
+    for (auto group = m_targets.cbegin(); group != m_targets.cend(); ++group) {
+        auto *model = m_sources.value(group.key());
+        const int col = m_columns.value(group.key()).value(spec.key, -1);
+        if (col < 0) continue;
+        const auto other = model->columnSpecs()[col];
+        const bool compatible = supports(other) && other.setter == spec.setter &&
+            other.editor == spec.editor && other.unit == spec.unit &&
+            other.enumValues == spec.enumValues && other.minValue == spec.minValue &&
+            other.maxValue == spec.maxValue;
+        for (const auto &name : group.value()) {
+            const int row = model->rowForName(name);
+            if (row < 0) continue;
+            const auto index = model->index(row, col);
+            bool applicable = compatible && (index.flags() & Qt::ItemIsEditable);
+            if (spec.setter == QLatin1String("node_outfall_stage")) {
+                int type = -1;
+                const int node = swmm_node_index(model->layer()->engine(), name.toUtf8().constData());
+                swmm_node_get_outfall_type(model->layer()->engine(), node, &type);
+                applicable = applicable && type == 2; // FIXED; other types need their complete boundary record.
+            }
+            if (spec.setter == QLatin1String("node_max_depth")) {
+                const int node = swmm_node_index(model->layer()->engine(), name.toUtf8().constData());
+                int isVirtual = 0, isInlet = 0;
+                swmm_node_is_virtual(model->layer()->engine(), node, &isVirtual);
+                swmm_node_is_inlet(model->layer()->engine(), node, &isInlet);
+                depthKinds.insert(isInlet ? 2 : isVirtual ? 1 : 0);
+            }
+            if (applicable) ++result.editable;
+            const auto value = index.data(Qt::EditRole);
+            if (first) {
+                result.edit = value;
+                result.display = index.data();
+                first = false;
+            } else if (comparable(result.edit) != comparable(value)) {
+                result.mixed = true;
+            }
         }
     }
     if (result.mixed) {
         result.edit = {};
         result.display = {};
+    }
+    if (depthKinds.size() > 1) {
+        result.editable = 0;
+        result.reason = tr("Maximum depth has different meanings for ordinary, virtual and inlet junctions. Select one subtype to edit it.");
     }
     return result;
 }
@@ -100,14 +216,19 @@ bool SWMMAggregateSelection::stage(int column, const QVariant &value)
     if (!value.isValid() || rows().isEmpty() || field(column).editable != rows().size())
         return false;
     const auto stored = field(column);
-    if (!stored.mixed && stored.edit == value) {
+    if (!stored.mixed && comparable(stored.edit) == comparable(value)) {
         m_staged.remove(column);
         m_original.remove(column);
     } else {
         if (!m_staged.contains(column)) {
             QList<QVariant> before;
-            for (int row : rows())
-                before.append(m_source->index(row, column).data(Qt::EditRole));
+            const auto key = m_source->columnSpecs()[column].key;
+            for (auto group = m_targets.cbegin(); group != m_targets.cend(); ++group)
+                for (const auto &name : group.value()) {
+                    auto *source = m_sources.value(group.key());
+                    const int col = m_columns.value(group.key()).value(key, -1);
+                    before.append(comparable(source->index(source->rowForName(name), col).data(Qt::EditRole)));
+                }
             m_original.insert(column, before);
         }
         m_staged.insert(column, value);
@@ -125,7 +246,7 @@ void SWMMAggregateSelection::discard()
 
 bool SWMMAggregateSelection::apply(QString *error)
 {
-    if (unresolvedCount()) {
+    if (!m_valid || unresolvedCount()) {
         if (error) *error = tr("Selected objects have changed. Select them again.");
         return false;
     }
@@ -133,8 +254,13 @@ bool SWMMAggregateSelection::apply(QString *error)
     const auto specs = m_source->columnSpecs();
     for (auto it = m_staged.cbegin(); it != m_staged.cend(); ++it) {
         QList<QVariant> current;
-        for (int row : rows())
-            current.append(m_source->index(row, it.key()).data(Qt::EditRole));
+        const auto key = specs[it.key()].key;
+        for (auto group = m_targets.cbegin(); group != m_targets.cend(); ++group)
+            for (const auto &name : group.value()) {
+                auto *source = m_sources.value(group.key());
+                const int col = m_columns.value(group.key()).value(key, -1);
+                current.append(comparable(source->index(source->rowForName(name), col).data(Qt::EditRole)));
+            }
         if (current != m_original.value(it.key())) {
             if (error) *error = tr("%1 changed while this field was being edited. Select the objects again.")
                          .arg(specs[it.key()].label);
@@ -142,7 +268,7 @@ bool SWMMAggregateSelection::apply(QString *error)
         }
         edits.insert(specs[it.key()].key, it.value());
     }
-    if (!m_source->applyScalarEdits(m_names, edits, m_undo, error))
+    if (!m_source->applyScalarEdits(m_targets, edits, m_undo, error))
         return false;
     discard();
     return true;
