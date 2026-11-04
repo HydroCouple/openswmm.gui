@@ -40,7 +40,8 @@
 #include "map/spatialreferencesystem.h"
 #include "map/mapextent.h"
 #include "map/mapcanvas.h"    // setEditCanvas() — undo host for mediated edits
-#include "map/mapundostack.h" // SetInletUsageCommand
+#include "map/mapundostack.h"
+#include "ui/panels/usagetablemodel.h"
 #include "render/ifeaturerenderer.h"
 #include "render/multikindrenderer.h"
 #include "render/renderers/categorizedrenderer.h"
@@ -6718,12 +6719,8 @@ MapCanvas *SWMMModelLayer::editCanvas() const
 
 bool SWMMModelLayer::pushInletUsageEdit(const SWMM_InletUsage &usage)
 {
-    if (m_editCanvas && m_editCanvas->undoStack()) {
-        m_editCanvas->undoStack()->push(
-            new SetInletUsageCommand(this, usage, /*removing=*/false, m_editCanvas));
-        return true;
-    }
-    return applySetInletUsage(usage);
+    return applyInletUsageBatch(this, {usage}, false,
+                                m_editCanvas ? m_editCanvas->undoStack() : nullptr);
 }
 
 bool SWMMModelLayer::nodeCoupling2D(const QString &node, nodecoupling2d::State *out) const
@@ -6773,15 +6770,11 @@ bool SWMMModelLayer::pushNodeCoupling2DEdits(const QVector<nodecoupling2d::State
 
 bool SWMMModelLayer::pushInletUsageRemoval(int hostKind, int hostIdx)
 {
-    if (m_editCanvas && m_editCanvas->undoStack()) {
-        SWMM_InletUsage u{};
-        u.host_kind = hostKind;
-        u.host_idx = hostIdx;
-        m_editCanvas->undoStack()->push(
-            new SetInletUsageCommand(this, u, /*removing=*/true, m_editCanvas));
-        return true;
-    }
-    return applyRemoveInletUsage(hostKind, hostIdx);
+    SWMM_InletUsage usage{};
+    usage.host_kind = hostKind;
+    usage.host_idx = hostIdx;
+    return applyInletUsageBatch(this, {usage}, true,
+                                m_editCanvas ? m_editCanvas->undoStack() : nullptr);
 }
 
 const QVector<SWMMModelLayer::InletConnector> &SWMMModelLayer::inletConnectors() const

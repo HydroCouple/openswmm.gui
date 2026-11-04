@@ -65,6 +65,7 @@ public:
      *   closure. No general running-state/read-only UI gate or source ownership.
      */
     explicit LinkCompoundEditDialog(LinkCompoundEditRef ref, QWidget *parent = nullptr);
+    ~LinkCompoundEditDialog() override;
 
     /*! Refreshed summary string after the dialog closes. Equal to the
      *  constructor's `ref.summary` until a summary-changing apply/read.

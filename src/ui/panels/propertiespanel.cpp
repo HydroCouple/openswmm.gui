@@ -33,6 +33,8 @@
 #include "ui/properties/subcatchcompoundeditref.h"
 #include "ui/dialogs/subcatchcompoundeditdialog.h"
 #include "ui/dialogs/groundwaterexchangedialog.h"
+#include "ui/properties/usageeditbutton.h"
+#include "ui/panels/usagetablemodel.h"
 // Slice SC.1 — link-side compound-edit ref + cell editor.
 #include "ui/dialogs/linkcompoundeditdialog.h"
 #include "ui/properties/linkcompoundeditbutton.h"
@@ -446,6 +448,10 @@ public:
             if constexpr (std::is_same_v<Selection, SWMMAggregateSelection>) {
                 const auto ref = m_selection->editorData(m_column);
                 if (ref.userType() == qMetaTypeId<NodeCompoundEditRef>()) return ref.template value<NodeCompoundEditRef>().summary;
+                if (ref.userType() == qMetaTypeId<UsageEditRef>())
+                    return ref.template value<UsageEditRef>().summary;
+                if (ref.userType() == qMetaTypeId<LinkCompoundEditRef>())
+                    return ref.template value<LinkCompoundEditRef>().summary;
                 if (ref.userType() == qMetaTypeId<SubcatchCompoundEditRef>())
                     return ref.template value<SubcatchCompoundEditRef>().summary;
             }
@@ -456,6 +462,9 @@ public:
             if constexpr (std::is_same_v<Selection, SWMMAggregateSelection>) {
                 const auto ref = m_selection->editorData(m_column);
                 if (ref.userType() == qMetaTypeId<NodeCompoundEditRef>()) return ref;
+                if (ref.userType() == qMetaTypeId<UsageEditRef>() ||
+                    ref.userType() == qMetaTypeId<LinkCompoundEditRef>())
+                    return ref;
                 if (ref.userType() == qMetaTypeId<SubcatchCompoundEditRef>()) return ref;
             }
             return mixed ? mixedSeed() : field.edit;
@@ -924,6 +933,10 @@ void PropertiesPanel::setupUi()
 
     // Phase 3 — same dance for the subcatchment-side compound-edit ref
     // (land-use coverage / groundwater / LID usage cells).
+    qRegisterMetaType<UsageEditRef>("UsageEditRef");
+    registerUsageEditRefConverter();
+    delegate->registerCustomTypeEditorCreator(QMetaType::Type(qMetaTypeId<UsageEditRef>()),
+                                              new QStandardItemEditorCreator<UsageEditButton>());
     qRegisterMetaType<SubcatchCompoundEditRef>("SubcatchCompoundEditRef");
     registerSubcatchCompoundEditRefConverter();
     delegate->registerCustomTypeEditorCreator(
@@ -1185,6 +1198,29 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
     }
     // Offer the exterior subset explicitly when a box includes interior edges.
     auto choices = commonScopes + scopes.values();
+    if (m_swmmLayer && m_swmmLayer->engine())
+        for (const auto &scope : scopes) {
+            if (scope.category != SWMMModelLayer::CatJunctions)
+                continue;
+            Scope inlet;
+            inlet.category = SWMMModelLayer::CatJunctions;
+            for (const auto &ref : scope.refs) {
+                int flag = 0;
+                swmm_node_is_inlet(
+                    m_swmmLayer->engine(),
+                    swmm_node_index(m_swmmLayer->engine(), ref.name.toUtf8().constData()), &flag);
+                if (flag) {
+                    inlet.refs.append(ref);
+                    inlet.targets[SWMMModelLayer::CatJunctions].append(ref.name);
+                }
+            }
+            if (!inlet.refs.isEmpty() && inlet.refs.size() < scope.refs.size()) {
+                inlet.title =
+                    tr("Inlet junctions — %1 excluded").arg(scope.refs.size() - inlet.refs.size());
+                choices.append(inlet);
+            }
+        }
+
     if (canvas)
         for (const auto &scope : scopes) {
             if (scope.refs.isEmpty() || scope.refs.first().objectType != SWMMObjectRef::MeshEdge) continue;
@@ -2673,6 +2709,15 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
         return;
     }
 
+    if (metaId == qMetaTypeId<UsageEditRef>()) {
+        auto ref = value.value<UsageEditRef>();
+        QPointer<SWMMModelLayer> owner = ref.layer;
+        auto *edit = menu.addAction(tr("Edit assignments…"));
+        if (menu.exec(m_treeView->viewport()->mapToGlobal(pos)) == edit && owner &&
+            owner->engine() == ref.engine)
+            openUsageEditor(ref, window());
+        return;
+    }
     if (metaId == qMetaTypeId<NodeCompoundEditRef>()) {
         const NodeCompoundEditRef ref = value.value<NodeCompoundEditRef>();
         if (!ref.engine || ref.nodeName.isEmpty())
@@ -2710,6 +2755,7 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
     // Slice SC.1 — same right-click dispatch for link-side compound cells.
     if (metaId == qMetaTypeId<LinkCompoundEditRef>()) {
         const LinkCompoundEditRef ref = value.value<LinkCompoundEditRef>();
+        QPointer<SWMMModelLayer> owner = ref.layer;
         if (!ref.engine || ref.linkName.isEmpty())
             return;
 
@@ -2718,6 +2764,14 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
         if (!picked || picked != actEdit)
             return;
 
+        if (ref.layer && ref.kind == LinkCompoundEditRef::InletUsage) {
+            if (!owner || owner->engine() != ref.engine)
+                return;
+            auto *dialog = new LinkCompoundEditDialog(ref, window());
+            dialog->setAttribute(Qt::WA_DeleteOnClose);
+            dialog->show();
+            return;
+        }
         LinkCompoundEditDialog dlg(ref, m_treeView);
         dlg.exec();
         LinkCompoundEditRef updated = ref;
@@ -2730,7 +2784,8 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
         auto ref = value.value<SubcatchCompoundEditRef>();
         if (!ref.layer || (ref.kind != SubcatchCompoundEditRef::LandUse &&
                            ref.kind != SubcatchCompoundEditRef::Loadings &&
-                           ref.kind != SubcatchCompoundEditRef::Groundwater))
+                           ref.kind != SubcatchCompoundEditRef::Groundwater &&
+                           ref.kind != SubcatchCompoundEditRef::LidUsage))
             return;
         QPointer<SWMMModelLayer> owner = ref.layer;
         auto *action = menu.addAction(tr("Edit…"));

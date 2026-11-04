@@ -10,6 +10,7 @@
 #include "ui/properties/linkcompoundeditbutton.h"
 
 #include "ui/dialogs/linkcompoundeditdialog.h"
+#include "layers/swmmmodellayer.h"
 
 #include <QHBoxLayout>
 #include <QPushButton>
@@ -30,6 +31,7 @@ LinkCompoundEditButton::LinkCompoundEditButton(QWidget *parent)
 void LinkCompoundEditButton::setValue(const LinkCompoundEditRef &ref)
 {
     m_ref = ref;
+    m_owner = ref.layer;
     refreshLabel();
 }
 
@@ -45,7 +47,15 @@ void LinkCompoundEditButton::onClicked()
 {
     if (!m_ref.engine || m_ref.linkName.isEmpty())
         return;
+    if (m_ref.layer && (!m_owner || m_owner->engine() != m_ref.engine))
+        return;
 
+    if (m_ref.layer && m_ref.kind == LinkCompoundEditRef::InletUsage) {
+        auto *dialog = new LinkCompoundEditDialog(m_ref, window());
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->show();
+        return;
+    }
     LinkCompoundEditDialog dlg(m_ref, this);
     dlg.exec();
 

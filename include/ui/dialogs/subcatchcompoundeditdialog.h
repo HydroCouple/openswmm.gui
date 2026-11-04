@@ -53,6 +53,7 @@ public:
      *   source-change synchronization beyond those checks.
      */
     explicit SubcatchCompoundEditDialog(SubcatchCompoundEditRef ref, QWidget *parent = nullptr);
+    ~SubcatchCompoundEditDialog() override;
 
     /**
      * @return Copied cached active-page summary updated by constructor/explicit refresh, including

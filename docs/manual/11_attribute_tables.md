@@ -192,7 +192,30 @@ without rescaling other land uses. Initial loadings use the project's mass per
 area units and accept finite nonnegative values. Zero clears the effective
 assignment. The current loading editor lists ordinary pollutants; reaction
 species remain outside this editor. **Close** dismisses it without another
-confirmation step. LID usage retains its individual editor.
+confirmation step.
+
+**LID Usage** edits placements across the captured subcatchments by control name.
+A control placed more than once on any target is disabled in bulk; select that
+subcatchment alone to edit its ordered occurrences. Entering a positive **Area**
+creates missing placements with one unit and zero/empty defaults. Other fields
+require a placement on every target. Each completed cell preserves the other
+placements, routing settings and report-file path anchors. **Remove selected
+assignment** removes only the displayed control or individual occurrence.
+
+Conduits expose **Inlet Usage**; inlet junctions expose **Inlet Assignment**.
+Edit the design, capture node, count, clogging, flow limit, depression or placement
+across the listed hosts. **Add missing inlet assignments** opens two choices:
+completing both design and capture node immediately creates missing rows with
+one inlet, no clogging/limit/depression and automatic placement. Existing rows
+retain their settings. Removing an assignment preserves inlet-junction roles
+and conduit connections. Mixed Junctions selections offer an explicit inlet-only
+scope and show how many ordinary junctions are excluded.
+
+Both editors commit choices immediately and numbers/text on Enter or leaving
+the cell. Escape discards an unfinished entry; **Close** dismisses the editor.
+Each change is one Undo step, including after closing. Invalid references or
+incompatible inlet designs reject the entire captured batch. Properties and
+the Attribute Table share these writes, and map connectors refresh immediately.
 
 **Groundwater** also opens a shared field editor for the captured subcatchments.
 Choose a receiving node or edit one flow-law parameter or LATERAL/DEEP expression;

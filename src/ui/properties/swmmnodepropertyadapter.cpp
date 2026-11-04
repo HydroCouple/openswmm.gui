@@ -188,6 +188,8 @@ QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
 
     // Inlet junction (§3.4). Depression height/width are the LOCAL gutter
     // depression at this inlet, distinct from the street's own gutter.
+    if (property == QLatin1String("inletAssignment"))
+        return tr("Inlet Assignment");
     if (property == QLatin1String("inletDesign"))
         return tr("Inlet Design");
     if (property == QLatin1String("captureNode"))
@@ -312,8 +314,19 @@ void SWMMNodePropertyAdapter::writeInletUsage(const std::function<bool(SWMM_Inle
     if (u.design_idx < 0 || u.capture_node_idx < 0)
         return;
 
-    m_layer->pushInletUsageEdit(u);
-    emit changed();
+    if (m_layer->pushInletUsageEdit(u))
+        emit changed();
+}
+
+UsageEditRef SWMMNodePropertyAdapter::inletUsageEditRef() const
+{
+    UsageEditRef ref;
+    ref.family = UsageEditRef::Inlet;
+    ref.layer = m_layer;
+    ref.engine = m_engine;
+    ref.targets = {{UsageTarget::Node, m_name}};
+    ref.summary = tr("Edit inlet assignment");
+    return ref;
 }
 
 DataObjectRef SWMMNodePropertyAdapter::inletDesignRef() const
@@ -383,7 +396,9 @@ int SWMMNodePropertyAdapter::numInlets() const
 
 void SWMMNodePropertyAdapter::setNumInlets(int v)
 {
-    const int n = qBound(1, v, 5);
+    if (v < 1)
+        return;
+    const int n = v;
     writeInletUsage([n](SWMM_InletUsage &u) {
         if (u.num_inlets == n)
             return false;

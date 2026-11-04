@@ -1551,6 +1551,11 @@ set(
         include/ui/panels/nodecompoundtablemodel.h
         src/ui/panels/subcatchqualitytablemodel.cpp
         include/ui/panels/subcatchqualitytablemodel.h
+        src/ui/panels/usagetablemodel.cpp
+        include/ui/panels/usagetablemodel.h
+        include/ui/properties/usageeditref.h
+        include/ui/properties/usageeditbutton.h
+        src/ui/properties/usageeditbutton.cpp
         src/ui/panels/groundwaterexchangetablemodel.cpp
         include/ui/panels/groundwaterexchangetablemodel.h
         src/ui/panels/swmmattributetablemodel.cpp

@@ -155,11 +155,13 @@ void writeAudit(SWMMModelLayer *layer)
                 disposition = "Owner navigation";
                 reason = "Records belong to receiving subcatchments";
             } else if (SWMMAggregateSelection::supports(spec)) {
-                const bool keyed = QStringList{"node_inflows_ref",     "node_dwf_ref",
-                                               "node_rdii_ref",        "node_treatment_ref",
-                                               "subcatch_landuse_ref", "subcatch_loadings_ref",
-                                               "subcatch_groundwater_ref"}
-                                       .contains(spec.setter);
+                const bool keyed =
+                    QStringList{
+                        "node_inflows_ref",         "node_dwf_ref",         "node_rdii_ref",
+                        "node_treatment_ref",       "subcatch_landuse_ref", "subcatch_loadings_ref",
+                        "subcatch_groundwater_ref", "subcatch_lid_ref",     "link_inlet_usage_ref",
+                        "node_inlet_usage_ref"}
+                        .contains(spec.setter);
                 disposition = keyed ? "Keyed structured bulk" : "Inline bulk eligible";
                 reason =
                     keyed
