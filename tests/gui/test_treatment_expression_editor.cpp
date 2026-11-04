@@ -83,12 +83,15 @@ private slots:
         QVERIFY(items.contains(QStringLiteral("HRT")));
         QVERIFY(items.contains(QStringLiteral("exp")));
         QVERIFY(items.contains(QStringLiteral("AREA")));
+        QVERIFY(items.contains(QStringLiteral("FLOW")));
+        QVERIFY(items.contains(QStringLiteral("DEPTH")));
         swmm_engine_destroy(e);
     }
 
     /**
      *
-     * @brief Require valid removal syntax, rejected FLOW with zero-based column four, rejected X
+     * @brief Require valid removal syntax and legacy FLOW/DEPTH variables, an unknown variable
+     * rejected at zero-based column four, rejected X
      * assignment and valid empty-clear status signals.
      *
      */
@@ -106,8 +109,18 @@ private slots:
         spy.clear();
         edit.setExpression(QStringLiteral("C = FLOW * 2"));
         last = spy.takeLast();
+        QVERIFY(last.at(0).toBool());
+
+        spy.clear();
+        edit.setExpression(QStringLiteral("C = DEPTH * 2"));
+        last = spy.takeLast();
+        QVERIFY(last.at(0).toBool());
+
+        spy.clear();
+        edit.setExpression(QStringLiteral("C = UNKNOWN_VARIABLE * 2"));
+        last = spy.takeLast();
         QVERIFY(!last.at(0).toBool());
-        QVERIFY(last.at(1).toString().contains(QStringLiteral("FLOW")));
+        QVERIFY(last.at(1).toString().contains(QStringLiteral("UNKNOWN_VARIABLE")));
         QCOMPARE(last.at(2).toInt(), 4);
 
         spy.clear();

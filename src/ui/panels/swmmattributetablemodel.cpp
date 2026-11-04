@@ -4354,6 +4354,7 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
         ref.engine = eng;
         ref.nodeName = name;
         ref.layer = m_layer;
+        ref.undoStack = m_undoStack;
 
         ensureCompoundCacheBuilt();
 
@@ -6302,6 +6303,14 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index, const QVariant &
         spec.setter == QLatin1String("link_xsect_street_ref")) {
         QString error;
         return applyScalarEdits(QStringList{objectNameAt(row)}, {{spec.key, value}}, m_undoStack, &error);
+    }
+
+    if (value.userType() == qMetaTypeId<NodeCompoundEditRef>()) {
+        const auto ref = value.value<NodeCompoundEditRef>();
+        if (ref.layer == m_layer && ref.engine == m_layer->engine() &&
+            (spec.setter == "node_inflows_ref" || spec.setter == "node_dwf_ref" ||
+             spec.setter == "node_rdii_ref" || spec.setter == "node_treatment_ref"))
+            return true; // Opening the checked editor is navigation; it owns mutation notifications.
     }
 
     // Compound columns mutate engine state inside the dialog over

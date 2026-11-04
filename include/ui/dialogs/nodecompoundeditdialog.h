@@ -49,7 +49,10 @@ public:
      *   exec.
      * @brief Build all four page controls, show chosen page and refresh its current engine
      *   entries/summary.
-     * @note Changes apply immediately through C API, without undo commands, dialog-level model
+     * @note With an owning layer, uses the selection-aware table model: immediate per-field
+     *   transactions, stable constituent/pollutant keys, shared layer notifications and the
+     *   supplied Undo stack. nodeNames selects several nodes; empty selects nodeName only.
+     *   The legacy context without a layer applies immediately through C API, without undo commands, dialog-level model
      *   markEdited/attribute signals or transactional Cancel rollback. Layer
      *   destroy/engineAboutToClose invalidates; geometryChanged rechecks node by name. Without
      *   layer, caller invalidates BEFORE engine closure; raw handle is not lifetime-guarded.

@@ -13,6 +13,7 @@
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_quality.h>
+#include <openswmm/engine/openswmm_pollutants.h>
 
 #include <QAbstractItemView>
 #include <QCompleter>
@@ -20,11 +21,55 @@
 #include <QKeyEvent>
 #include <QScrollBar>
 #include <QSet>
+#include <QRegularExpression>
 #include <QStringListModel>
 #include <QTimer>
 
 namespace openswmmvis::ui
 {
+
+bool validateTreatmentExpression(void *engine, const QString &expression, QString &message,
+                                 int &column)
+{
+    message.clear();
+    column = -1;
+    if (!engine || expression.trimmed().isEmpty())
+        return true;
+    const auto check = [&](const QString &text) {
+        char buffer[4096]{};
+        const int status = swmm_treatment_validate_expression(engine, text.toUtf8().constData(),
+                                                              buffer, sizeof(buffer), &column);
+        message = QString::fromUtf8(buffer);
+        return status == SWMM_OK;
+    };
+    if (check(expression))
+        return true;
+    // The grammar-only API cannot resolve model pollutant names. Substitute known
+    // operands for syntax checking, keeping their byte offsets; never rewrite authored text.
+    QString normalized = expression;
+    const auto keywords = TreatmentSyntaxHighlighter::allKeywords();
+    const int equal = expression.indexOf('=');
+    const QRegularExpression identifiers(QStringLiteral("[A-Za-z_][A-Za-z0-9_]*"));
+    auto matches = identifiers.globalMatch(expression);
+    while (matches.hasNext()) {
+        const auto match = matches.next();
+        const int pos = match.capturedStart();
+        if (pos <= equal ||
+            (pos > 0 && (expression[pos - 1].isLetterOrNumber() || expression[pos - 1] == '.')))
+            continue;
+        const auto word = match.captured();
+        if (keywords.contains(word, Qt::CaseInsensitive))
+            continue;
+        QString name = word;
+        if (word.startsWith("R_", Qt::CaseInsensitive) ||
+            word.startsWith("C_", Qt::CaseInsensitive))
+            name = word.mid(2);
+        if (swmm_pollutant_index(engine, name.toUtf8().constData()) >= 0)
+            normalized.replace(pos, word.size(),
+                               QStringLiteral("C") + QString(word.size() - 1, ' '));
+    }
+    return normalized != expression && check(normalized);
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Highlighter
@@ -33,7 +78,8 @@ namespace openswmmvis::ui
 QStringList TreatmentSyntaxHighlighter::variableNames()
 {
     return {QStringLiteral("C"), QStringLiteral("R"), QStringLiteral("DT"), QStringLiteral("HRT"),
-            QStringLiteral("Q"), QStringLiteral("V"), QStringLiteral("D"),  QStringLiteral("AREA")};
+            QStringLiteral("Q"), QStringLiteral("V"), QStringLiteral("D"),  QStringLiteral("AREA"),
+            QStringLiteral("FLOW"), QStringLiteral("DEPTH")};
 }
 
 QStringList TreatmentSyntaxHighlighter::functionNames()
@@ -219,12 +265,10 @@ void TreatmentExpressionEdit::validateNow()
         emit validationChanged(true, QString(), -1);
         return;
     }
-    char errbuf[512] = {};
-    int col = -1;
-    const int rc =
-        swmm_treatment_validate_expression(static_cast<SWMM_Engine>(m_engine),
-                                           expr.toUtf8().constData(), errbuf, sizeof(errbuf), &col);
-    emit validationChanged(rc == SWMM_OK, QString::fromUtf8(errbuf), col);
+    QString message;
+    int column = -1;
+    const bool valid = validateTreatmentExpression(m_engine, expr, message, column);
+    emit validationChanged(valid, message, column);
 }
 
 QString TreatmentExpressionEdit::textUnderCursor_() const

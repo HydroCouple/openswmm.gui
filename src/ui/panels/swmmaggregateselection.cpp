@@ -14,12 +14,15 @@
 #include <algorithm>
 #include "ui/properties/dataobjectref.h"
 #include "ui/properties/linkendpointref.h"
+#include "ui/properties/nodecompoundeditref.h"
 
 using openswmmvis::EditorKind;
 
 namespace {
 QVariant comparable(const QVariant &value)
 {
+    if (value.userType() == qMetaTypeId<NodeCompoundEditRef>())
+        return int(value.value<NodeCompoundEditRef>().kind); // Navigation; values are compared inside the row editor.
     if (value.userType() == qMetaTypeId<DataObjectRef>()) {
         const auto ref = value.value<DataObjectRef>();
         return QVariantList{int(ref.kind), ref.currentName, int(ref.outletTarget)};
@@ -99,7 +102,9 @@ bool SWMMAggregateSelection::supports(const openswmmvis::ColumnSpec &spec)
         (spec.editor == EditorKind::Numeric || spec.editor == EditorKind::Integer ||
          spec.editor == EditorKind::Interval || spec.editor == EditorKind::LinkEndpoint ||
          (spec.editor == EditorKind::Compound &&
-          (spec.setter == QLatin1String("link_pump_curve_ref") ||
+          (spec.setter == "node_inflows_ref" || spec.setter == "node_dwf_ref" ||
+           spec.setter == "node_rdii_ref" || spec.setter == "node_treatment_ref" ||
+           spec.setter == QLatin1String("link_pump_curve_ref") ||
            spec.setter == QLatin1String("node_outfall_route_to_ref") ||
            spec.setter == QLatin1String("node_outfall_tidal_ref") ||
            spec.setter == QLatin1String("node_outfall_timeseries_ref") ||
@@ -151,6 +156,13 @@ QVariant SWMMAggregateSelection::editorData(int column, int role) const
             const int row = model->rowForName(name);
             if (row < 0) continue;
             auto value = model->index(row, col).data(role);
+            if (value.userType() == qMetaTypeId<NodeCompoundEditRef>()) {
+                auto ref = value.value<NodeCompoundEditRef>();
+                for (auto it = m_targets.cbegin(); it != m_targets.cend(); ++it) ref.nodeNames.append(it.value());
+                ref.undoStack = m_undo;
+                ref.summary = tr("%1 selected nodes").arg(ref.nodeNames.size());
+                return QVariant::fromValue(ref);
+            }
             if (role == openswmmvis::kLinkEndpointRole) {
                 auto ref = value.value<LinkEndpointRef>();
                 for (auto it = m_targets.cbegin(); it != m_targets.cend(); ++it)
@@ -250,6 +262,7 @@ SWMMAggregateSelection::Field SWMMAggregateSelection::field(int column) const
 
 bool SWMMAggregateSelection::setValue(int column, const QVariant &value)
 {
+    if (value.userType() == qMetaTypeId<NodeCompoundEditRef>()) return true; // Navigation; the child model owns writes.
     QString error;
     const bool accepted = stage(column, value) && apply(&error);
     if (!accepted) {

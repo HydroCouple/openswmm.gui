@@ -24,6 +24,9 @@
 
 #include <QMetaType>
 #include <QString>
+#include <QStringList>
+#include <QPointer>
+#include <QUndoStack>
 
 #include <openswmm/engine/openswmm_callbacks.h> // SWMM_Engine typedef
 
@@ -57,6 +60,8 @@ struct NodeCompoundEditRef {
      *  null when constructed in test contexts; pickers handle null
      *  gracefully by disabling the "..." button. */
     SWMMModelLayer *layer = nullptr;
+    QStringList nodeNames; ///< Captured selection; empty means the single nodeName.
+    QPointer<QUndoStack> undoStack;
 
     /**
      * @brief Compare reference identity and every cached display/value field.
@@ -66,7 +71,7 @@ struct NodeCompoundEditRef {
     bool operator==(const NodeCompoundEditRef &other) const noexcept
     {
         return engine == other.engine && nodeName == other.nodeName && kind == other.kind &&
-               summary == other.summary && layer == other.layer;
+               summary == other.summary && layer == other.layer && nodeNames == other.nodeNames && undoStack == other.undoStack;
     }
 };
 

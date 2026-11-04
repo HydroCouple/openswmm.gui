@@ -10,7 +10,7 @@
  *
  * VOCAB DRIFT GUARD: the variable/function lists mirror the engine
  * treatment grammar (openswmm.engine src/engine/quality/Treatment.cpp
- * var_map/func_map — variables C R DT HRT Q V D AREA, functions exp log
+ * var_map/func_map — variables C R DT HRT Q V D AREA FLOW DEPTH, functions exp log
  * ln sqrt min max abs sgn step). The authoritative accept/reject verdict
  * comes from swmm_treatment_validate_expression, so highlighting can lag
  * the grammar without ever mis-validating — but keep the lists in sync
@@ -32,6 +32,11 @@ class QCompleter;
 
 namespace openswmmvis::ui
 {
+
+// Validate with the native grammar, resolving named pollutant operands from the model.
+// The native setter remains authoritative for compiling the original expression.
+bool validateTreatmentExpression(void *engine, const QString &expression, QString &message,
+                                 int &column);
 
 /// Palette-driven highlighter for one treatment expression line.
 class TreatmentSyntaxHighlighter : public QSyntaxHighlighter
@@ -116,6 +121,7 @@ public:
      * @param[in] text Draft text, including empty or multiline content. QTextEdit textChanged may also schedule a later debounced validation.
      */
     void setExpression(const QString &text);
+    void setValidationEngine(void *engine) { m_engine = engine; }
 
     /*! Run validation immediately (also runs debounced on every edit).
      * @note Trims the draft before calling the engine validator. Empty text or a null engine emits success with an empty diagnostic and column -1; success with no engine means validation was skipped. No model assignment occurs.

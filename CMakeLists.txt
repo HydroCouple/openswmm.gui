@@ -1547,6 +1547,8 @@ set(
         src/ui/panels/meshaggregateselection.cpp
         src/ui/panels/swmmaggregateselection.cpp
         include/ui/panels/swmmaggregateselection.h
+        src/ui/panels/nodecompoundtablemodel.cpp
+        include/ui/panels/nodecompoundtablemodel.h
         src/ui/panels/swmmattributetablemodel.cpp
         src/ui/panels/swmmobjecttreemodel.cpp
         src/ui/panels/curvepointtablemodel.cpp

@@ -145,6 +145,17 @@ void NodeCompoundEditButton::onClicked()
         return;
     }
 
+    if (m_ref.layer) {
+        auto ref = m_ref;
+        if (!ref.undoStack)
+            for (auto *canvas : window()->findChildren<MapCanvas *>())
+                if (canvas->layers().contains(ref.layer)) { ref.undoStack = canvas->undoStack(); break; }
+        auto *dialog = new NodeCompoundEditDialog(ref, window());
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->show();
+        return;
+    }
+
     NodeCompoundEditDialog dlg(m_ref, this);
     dlg.exec();
 
