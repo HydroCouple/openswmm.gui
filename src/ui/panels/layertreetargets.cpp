@@ -32,7 +32,7 @@ int meshTableForSublayer(const QString &id)
         return static_cast<int>(MeshTable::Vertices);
     if (id == QLatin1String("mesh.edges") || id == QLatin1String("mesh.bc"))
         return static_cast<int>(MeshTable::Edges);
-    if (id == QLatin1String("mesh.fill"))
+    if (id == QLatin1String("mesh.fill") || id == QLatin1String("mesh.coupledCells"))
         return static_cast<int>(MeshTable::Cells);
     return -1; // mesh.coupledNodes, mesh.contourBands, mesh.isolines
 }

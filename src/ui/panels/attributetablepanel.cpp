@@ -1359,6 +1359,14 @@ void AttributeTablePanel::buildUi()
         if (meshSourceActive())
             openswmmvis::editClickedMeshField(m_view, index);
     });
+    connect(m_view, &QTableView::doubleClicked, this, [this](const QModelIndex &index) {
+        if (!meshSourceActive() || m_meshModel->kind() != MeshAttributeTableModel::Kind::Cell)
+            return;
+        const auto source = m_proxy->mapToSource(index);
+        const auto key = m_meshModel->columnSpecs().value(source.column()).key;
+        if (source.isValid() && (key == "coupledNodes" || key == "coupledCount"))
+            m_meshModel->editCoupledNodes({source.row()}, this);
+    });
     m_view->setSortingEnabled(true);
     connect(m_proxy, &QAbstractItemModel::modelReset, this,
             &AttributeTablePanel::updateQueryFields);
@@ -2919,6 +2927,10 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
         connect(m_meshModel, &QAbstractItemModel::modelAboutToBeReset, &meshMenu, &QMenu::close);
         if (m_meshModel->kind() == MeshAttributeTableModel::Kind::Cell) {
             auto *mesh = m_meshModel->layer();
+            auto *coupled = meshMenu.addAction(tr("Inspect coupled 1D nodes…"));
+            coupled->setObjectName("inspectCellCoupledNodes");
+            connect(coupled, &QAction::triggered, this,
+                    [this, targets] { m_meshModel->editCoupledNodes(targets, this); });
             auto *infil = meshMenu.addAction(tr("Edit surface infiltration…"));
             infil->setEnabled(mesh &&
                               std::any_of(targets.cbegin(), targets.cend(), [mesh](int row) {

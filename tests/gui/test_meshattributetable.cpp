@@ -17,6 +17,19 @@
  */
 
 #include "layers/swmm2dmeshlayer.h"
+#include "map/swmm2dmeshqsgrenderer.h"
+#include "map/meshcommands.h"
+#include "map/mapundostack.h"
+#include "mesh/meshnodemapper.h"
+#include "render/sublayers/coupledcellsublayer.h"
+#include "render/isublayerhost.h"
+#include "ui/widgets/nodecouplingselector.h"
+#include <QTemporaryDir>
+#include <QGraphicsScene>
+#include <QJsonArray>
+#include <QPainter>
+#include <QSGGeometryNode>
+#include <QSGFlatColorMaterial>
 #include "mesh/meshbctype.h"
 #include "mesh/meshcellgeom.h"
 #include "mesh/meshcellparams.h"
@@ -235,6 +248,288 @@ class TestMeshAttributeTable : public QObject
 {
     Q_OBJECT
 private slots:
+
+    void noncoincidentMappingsAppearInCellPropertiesAndUndo()
+    {
+        auto mesh = makeStrip(1);
+        const auto mapping = mesh::mapNodesToMesh(
+            mesh,
+            {{"AT_VERTEX", {0, 0}}, {"B", {0.8, 0.2}}, {"A", {0.7, 0.1}}, {"OUTSIDE", {2, 2}}});
+        QCOMPARE(mapping.vertexMatches.size(), 1);
+        QCOMPARE(mapping.cellMatches.size(), 2);
+        QCOMPARE(mapping.sharedCells, 1);
+        QCOMPARE(mapping.unmatched, QStringList{"OUTSIDE"});
+        AggregateRig rig(mesh, "coupled-cells.2dm");
+        rig.table.setSource(&rig.layer, Kind::Cell);
+        const int count = colFor(rig.table, "coupledCount");
+        const int nodes = colFor(rig.table, "coupledNodes");
+        QVERIFY(count >= 0 && nodes >= 0);
+        QCOMPARE(rig.table.index(0, count).data().toInt(), 0);
+        rig.panel.showMeshObject(&rig.canvas, mesh::MeshObjectRef::cell(rig.layer.sourcePath(), 0));
+        QAbstractItemModelTester tester(rig.tree(),
+                                        QAbstractItemModelTester::FailureReportingMode::QtTest);
+        rig.canvas.undoStack()->push(new MeshSetCellCouplingsCommand(
+            &rig.layer, mapping.cellMatches, {}, "Set cell couplings", &rig.canvas));
+        QCOMPARE(rig.table.index(0, count).data().toInt(), 2);
+        QCOMPARE(rig.table.index(0, nodes).data().toString(), QString("A, B"));
+        QCOMPARE(rig.table.index(1, count).data().toInt(), 0);
+        QVERIFY(!(rig.table.index(0, nodes).flags() & Qt::ItemIsEditable));
+        QCOMPARE(rig.field("coupledNodes").data().toString(), QString("A, B"));
+        const auto group = rig.field("coupledNodes").parent();
+        QCOMPARE(group.data().toString(), QString("Coupled 1D nodes"));
+        QVERIFY(!rig.view()->isExpanded(group));
+        rig.view()->expand(group);
+        QVERIFY(rig.view()->isExpanded(group));
+        QVERIFY(rig.panel.findChild<QPushButton *>("editMeshCoupledNodes"));
+        if (const auto preview = qEnvironmentVariable("SWMMVIS_COUPLED_CELLS_PREVIEW");
+            !preview.isEmpty()) {
+            rig.panel.resize(480, 500);
+            rig.panel.show();
+            QCoreApplication::processEvents();
+            QVERIFY(rig.panel.grab().save(preview + "-properties.png"));
+        }
+        rig.canvas.undoStack()->undo();
+        QCOMPARE(rig.field("coupledCount").data().toInt(), 0);
+        QCOMPARE(rig.field("coupledNodes").data().toString(), QString("None"));
+        rig.canvas.undoStack()->redo();
+        QCOMPARE(rig.field("coupledNodes").data().toString(), QString("A, B"));
+    }
+
+    void coupledCellEditorSelectsItsConnectedNodes()
+    {
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        const auto path = directory.filePath("cell-node-editor.inp");
+        QVERIFY(QFile::copy(QFINDTESTDATA("data/mini_2d.inp"), path));
+        SWMMModelLayer model(path);
+        QList<QString> warnings, errors;
+        QVERIFY2(model.loadModel(warnings, errors), qPrintable(errors.join(' ')));
+        auto mesh = makeStrip(1);
+        mesh.cellCouplings = {{0, "J1"}, {1, "O1"}};
+        AggregateRig rig(mesh, "cell-node-editor.2dm");
+        rig.panel.setProject(&model);
+        rig.panel.showMeshObject(&rig.canvas, mesh::MeshObjectRef::cell(rig.layer.sourcePath(), 0));
+        auto *button = rig.panel.findChild<QPushButton *>("editMeshCoupledNodes");
+        QVERIFY(button && button->isEnabled());
+        button->click();
+        auto *mappings = rig.panel.findChild<QDialog *>("meshCellCouplingDialog");
+        QVERIFY(mappings && mappings->isVisible());
+        auto *mappingTable = mappings->findChild<QTableWidget *>("cellCouplingMappings");
+        QVERIFY(mappingTable);
+        QCOMPARE(mappingTable->rowCount(), 1);
+        QCOMPARE(mappingTable->item(0, 1)->text(), QString("J1"));
+        auto *structures = mappings->findChild<QPushButton *>("editCellCouplingStructures");
+        QVERIFY(structures && structures->isEnabled());
+        QStringList selected;
+        bool opened = false;
+        QTimer::singleShot(0, &rig.panel, [&] {
+            if (auto *dialog = rig.panel.findChild<NodeCouplingSelectorDialog *>()) {
+                opened = true;
+                if (auto *table = dialog->findChild<QTableView *>())
+                    for (const auto &index : table->selectionModel()->selectedRows())
+                        selected.append(index.data().toString());
+                dialog->reject();
+            }
+        });
+        structures->click();
+        QCoreApplication::processEvents();
+        QVERIFY(opened);
+        QCOMPARE(selected, QStringList{"J1"});
+        mappings->reject();
+    }
+
+    void coupledCellInspectorFromSortedTableAndAggregateProperties()
+    {
+        auto mesh = makeStrip(2);
+        mesh.cellCouplings = {{0, "B"}, {0, "A"}, {1, "OTHER"}};
+        mesh.cellCouplings[1].cdSet = mesh.cellCouplings[1].areaSet = false;
+        AggregateRig rig(mesh, "cell-inspector.2dm");
+        SelectionManager selection;
+        AttributeTablePanel panel;
+        panel.setProject(nullptr, &selection, &rig.canvas);
+        panel.showMeshTable(&rig.layer, 2);
+        panel.resize(950, 650);
+        panel.show();
+        auto *model = panel.findChild<MeshAttributeTableModel *>();
+        auto *view = panel.findChild<QTableView *>();
+        QVERIFY(model && view);
+        auto *proxy = qobject_cast<QSortFilterProxyModel *>(view->model());
+        QVERIFY(proxy);
+        view->sortByColumn(0, Qt::DescendingOrder);
+        const auto index = proxy->mapFromSource(model->index(0, colFor(*model, "coupledNodes")));
+        QVERIFY(index.isValid());
+        QVERIFY(QMetaObject::invokeMethod(view, "doubleClicked", Q_ARG(QModelIndex, index)));
+        auto *dialog = panel.findChild<QDialog *>("meshCellCouplingDialog");
+        QVERIFY(dialog && dialog->isVisible());
+        auto *table = dialog->findChild<QTableWidget *>("cellCouplingMappings");
+        QVERIFY(table);
+        QCOMPARE(table->rowCount(), 2);
+        QCOMPARE(table->item(0, 0)->text(), QString("0"));
+        QCOMPARE(table->item(0, 1)->text(), QString("A"));
+        QCOMPARE(table->item(1, 1)->text(), QString("B"));
+        QCOMPARE(table->item(0, 3)->text(), QString("From node / defaults"));
+        QVERIFY(!dialog->findChild<QPushButton *>("editCellCouplingStructures")->isEnabled());
+        view->sortByColumn(0, Qt::AscendingOrder);
+        rig.layer.applyCellCouplings({{0, "UPDATED"}, {1, "OTHER"}});
+        QCOMPARE(table->rowCount(), 1);
+        QCOMPARE(table->item(0, 1)->text(), QString("UPDATED"));
+        dialog->reject();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+
+        // The row menu opens the same dialog and captures the clicked source row.
+        const auto row = proxy->mapFromSource(model->index(1, 0));
+        view->scrollTo(row);
+        QCoreApplication::processEvents();
+        const auto position = view->visualRect(row).center();
+        QTimer::singleShot(0, &panel, [&] {
+            if (auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget())) {
+                for (auto *action : menu->actions())
+                    if (action->objectName() == "inspectCellCoupledNodes") {
+                        action->trigger();
+                        menu->close();
+                        return;
+                    }
+                menu->close();
+            }
+        });
+        QVERIFY(QMetaObject::invokeMethod(&panel, "onContextMenuRequested", Qt::DirectConnection,
+                                          Q_ARG(QPoint, position)));
+        dialog = panel.findChild<QDialog *>("meshCellCouplingDialog");
+        QVERIFY(dialog);
+        table = dialog->findChild<QTableWidget *>("cellCouplingMappings");
+        QCOMPARE(table->rowCount(), 1);
+        QCOMPARE(table->item(0, 1)->text(), QString("OTHER"));
+        dialog->reject();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+
+        rig.show(Kind::Cell, rig.cells({0, 1}));
+        auto *button = rig.panel.findChild<QPushButton *>("editMeshCoupledNodes");
+        QVERIFY(button && button->isEnabled());
+        button->click();
+        dialog = rig.panel.findChild<QDialog *>("meshCellCouplingDialog");
+        QVERIFY(dialog);
+        table = dialog->findChild<QTableWidget *>("cellCouplingMappings");
+        QCOMPARE(table->rowCount(), 2);
+        rig.layer.applyCellCouplings({});
+        QCOMPARE(table->rowCount(), 0);
+        dialog->reject();
+    }
+
+    void coupledCellOverlayRendersExactTriAndQuadFootprints()
+    {
+        auto mesh = makeStrip(1);
+        mesh::MeshTriangle quad;
+        quad.v0 = 0;
+        quad.v1 = 2;
+        quad.v2 = 3;
+        quad.v3 = 1;
+        mesh.triangles.append(quad);
+        mesh.cellCouplings = {{0, "A"}, {0, "B"}, {2, "Q"}};
+        SWMM2DMeshLayer layer(mesh, "coupled-footprints.2dm");
+        for (auto *sub : layer.sublayers())
+            sub->setVisible(false);
+        auto *coupled = layer.coupledCellSublayer();
+        coupled->setVisible(true);
+        const QColor fill(210, 20, 160, 100), outline(180, 10, 140, 255);
+        coupled->coupledStyle()->setFillColor(fill);
+        coupled->coupledStyle()->setOutlineColor(outline);
+
+        class Renderer : public SWMM2DMeshQSGRenderer
+        {
+        public:
+            QSGNode *sync(QSGNode *node = nullptr) { return updatePaintNode(node, nullptr); }
+        } renderer;
+        renderer.setWidth(100);
+        renderer.setHeight(100);
+        // Far enough that normal mesh markers and edges are LOD-suppressed.
+        renderer.setMapExtent(MapExtent(-10, -10, 10, 10));
+        renderer.setLayer(&layer);
+        std::unique_ptr<QSGNode> root(renderer.sync());
+        QVERIFY(root);
+        const auto verticesOfColor = [&](const QColor &color) {
+            int count = 0;
+            for (auto *node = root->firstChild(); node; node = node->nextSibling())
+                if (node->type() == QSGNode::GeometryNodeType) {
+                    auto *geometry = static_cast<QSGGeometryNode *>(node);
+                    if (auto *material = dynamic_cast<QSGFlatColorMaterial *>(geometry->material());
+                        material && material->color() == color)
+                        count += geometry->geometry()->vertexCount();
+                }
+            return count;
+        };
+        QCOMPARE(verticesOfColor(fill), 9);     // One triangle + one quad, shared cell drawn once.
+        QCOMPARE(verticesOfColor(outline), 42); // (3 + 4) outer edges × 6, no quad diagonal.
+        // Coupling and selection changes in the same frame must refresh both passes.
+        layer.setHighlightedTriangles({1});
+        layer.applyCellCouplings({{1, "C"}});
+        root.reset(renderer.sync(root.release()));
+        QCOMPARE(verticesOfColor(fill), 3);
+        QCOMPARE(verticesOfColor(outline), 18);
+        renderer.setMapExtent(MapExtent(100, 100, 101, 101));
+        root.reset(renderer.sync(root.release()));
+        QCOMPARE(verticesOfColor(fill), 0);
+        renderer.setMapExtent(MapExtent(-10, -10, 10, 10));
+        root.reset(renderer.sync(root.release()));
+        QCOMPARE(verticesOfColor(fill), 3);
+        coupled->setVisible(false);
+        root.reset(renderer.sync(root.release()));
+        QCOMPARE(verticesOfColor(fill), 0);
+
+        // The QPainter fallback obeys the same independent visibility control.
+        layer.setHighlightedTriangles({});
+        layer.applyCellCouplings({{2, "Q"}});
+        coupled->setVisible(true);
+        QGraphicsScene scene;
+        layer.populateScene(&scene, MapExtent(0, 0, 1, 1), nullptr);
+        const auto paint = [&] {
+            QImage image(240, 240, QImage::Format_ARGB32_Premultiplied);
+            image.fill(Qt::white);
+            QPainter painter(&image);
+            scene.render(&painter, QRectF(0, 0, 240, 240), QRectF(0, -1, 1, 1));
+            return image;
+        };
+        const auto shown = paint();
+        QVERIFY(shown.pixelColor(120, 120) != QColor(Qt::white));
+        if (const auto preview = qEnvironmentVariable("SWMMVIS_COUPLED_CELLS_PREVIEW");
+            !preview.isEmpty())
+            QVERIFY(shown.save(preview + "-map.png"));
+        coupled->setVisible(false);
+        QCOMPARE(paint().pixelColor(120, 120), QColor(Qt::white));
+        layer.depopulateScene(&scene);
+    }
+
+    void coupledCellStyleSurvivesProjectSerialization()
+    {
+        using OpenSWMM::Render::ISublayerHost;
+        SWMM2DMeshLayer layer(makeStrip(1), "coupled-style.2dm");
+        auto *sub = layer.coupledCellSublayer();
+        QVERIFY(sub->isVisible());
+        QVERIFY(!sub->isDynamic());
+        QCOMPARE(sub->legendSymbolItems().first().sublayerId, QString("mesh.coupledCells"));
+        sub->setVisible(false);
+        sub->setOpacity(0.35);
+        sub->coupledStyle()->setFillColor(QColor(30, 80, 190, 70));
+        sub->coupledStyle()->setOutlineColor(Qt::blue);
+        sub->coupledStyle()->setOutlineWidthPx(3.5);
+        SWMM2DMeshLayer restored(makeStrip(1), "restored-style.2dm");
+        ISublayerHost::loadSublayersFromJson(restored, ISublayerHost::saveSublayersToJson(layer));
+        auto *copy = restored.coupledCellSublayer();
+        QVERIFY(!copy->isVisible());
+        QCOMPARE(copy->opacity(), 0.35);
+        QCOMPARE(copy->coupledStyle()->toJson(), sub->coupledStyle()->toJson());
+        // Projects saved before this sublayer existed retain its visible default.
+        auto legacy = ISublayerHost::saveSublayersToJson(layer);
+        auto rows = legacy.value("sublayers").toArray();
+        for (int i = 0; i < rows.size(); ++i)
+            if (rows[i].toObject().value("id").toString() == "mesh.coupledCells") {
+                rows.removeAt(i);
+                break;
+            }
+        legacy["sublayers"] = rows;
+        SWMM2DMeshLayer oldProject(makeStrip(1), "legacy-style.2dm");
+        ISublayerHost::loadSublayersFromJson(oldProject, legacy);
+        QVERIFY(oldProject.coupledCellSublayer()->isVisible());
+    }
 
     void meshPropertiesRemainVisibleAndEditable()
     {
