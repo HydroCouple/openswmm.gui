@@ -50,7 +50,6 @@
 #include <QDoubleSpinBox>
 #include <QTreeView>
 #include <QSet>
-#include <QSignalSpy>
 #include <QTabBar>
 #include <QTest>
 #include <QTimer>
@@ -427,17 +426,16 @@ private slots:
             cells.insert(mesh::MeshObjectRef::cell(layer->sourcePath(), t));
         project->selectionManager()->select(cells, SelectionManager::Mode::Replace);
         QTRY_COMPARE(panel->windowTitle(), QStringLiteral("2D mesh: 3 cells"));
-        auto *apply = panel->findChild<QPushButton *>(QStringLiteral("meshAggregateApply"));
-        QVERIFY(apply && !apply->isHidden());
+        QVERIFY(!panel->findChild<QPushButton *>(QStringLiteral("meshAggregateApply")));
+        QVERIFY(!panel->findChild<QPushButton *>(QStringLiteral("meshAggregateCancel")));
 
         project->selectionManager()->select(
             QSet<SWMMObjectRef>{mesh::MeshObjectRef::cell(layer->sourcePath(), 0)},
             SelectionManager::Mode::Replace);
         QTRY_COMPARE(panel->windowTitle(), QStringLiteral("2D Cell 0"));
-        QVERIFY(apply->isHidden() || !apply->isVisibleTo(panel));
 
         // Exercise a visible dock in the real host, including focus changes
-        // between the property editor and the Apply button.
+        // while committing directly from the field editor.
         m_win->resize(1600, 1000);
         m_win->show();
         panel->show();
@@ -477,6 +475,9 @@ private slots:
             }
             return QModelIndex();
         };
+        const auto before = layer->edgeBCs();
+        const auto selectedEdges = project->selectionManager()->selection();
+        const int undoBefore = canvas->undoStack()->index();
         tree->expandAll();
         const auto typeField = field("BC Type");
         QVERIFY(typeField.isValid());
@@ -499,22 +500,11 @@ private slots:
         slope->setFocus();
         slope->selectAll();
         QTest::keyClicks(slope, "0.005");
-        const auto before = layer->edgeBCs();
-        const auto selectedEdges = project->selectionManager()->selection();
-        const int undoBefore = canvas->undoStack()->index();
-        QVERIFY(apply->isVisible());
-        QVERIFY(apply->isEnabled());
+        QTest::keyClick(slope, Qt::Key_Return);
+        QTRY_COMPARE(canvas->undoStack()->index(), undoBefore + 2);
         auto *aggregate = panel->findChild<MeshAggregateSelection *>();
-        QSignalSpy appliedClick(apply, &QPushButton::clicked);
         QVERIFY(aggregate);
-        QTest::mousePress(apply, Qt::LeftButton);
-        QTest::qWait(30); // real clicks allow queued focus/refresh work before release
-        QVERIFY(apply->isDown());
-        QTest::mouseRelease(apply, Qt::LeftButton);
-        QCoreApplication::processEvents();
-        QCOMPARE(appliedClick.count(), 1);
         QVERIFY(aggregate->stagedColumns().isEmpty());
-        QCOMPARE(canvas->undoStack()->index(), undoBefore + 1);
         for (const auto &ref : project->selectionManager()->selection()) {
             QString key;
             int cell = -1, local = -1;
@@ -528,6 +518,7 @@ private slots:
         QCoreApplication::processEvents();
         QCOMPARE(field("BC Type").data(Qt::EditRole).toInt(), int(mesh::MeshBCTypes::Type::NormalFlow));
         QCOMPARE(field("Friction Slope").data(Qt::EditRole).toDouble(), .005);
+        canvas->undoStack()->undo();
         canvas->undoStack()->undo();
         QCOMPARE(layer->edgeBCs(), before);
 

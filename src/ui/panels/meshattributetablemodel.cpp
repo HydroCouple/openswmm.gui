@@ -10,6 +10,7 @@
 
 #include "core/attributevalue.h"
 #include "ui/panels/meshattributetablemodel.h"
+#include "ui/panels/meshaggregateselection.h"
 
 #include "core/unitsystem.h"
 #include "layers/swmm2dmeshlayer.h"
@@ -33,6 +34,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QVBoxLayout>
 #include <QBrush>
 #include <QCoreApplication>
@@ -1261,32 +1263,46 @@ void MeshAttributeTableModel::editInfiltration(const QList<int> &rows, QWidget *
     dialog->open();
 }
 
-void MeshAttributeTableModel::editBoundaryCondition(
-    const QList<int> &rows, QWidget *parent,
-    std::function<void(const QMap<int, QVariant> &)> stage, const QMap<int, QVariant> &draft)
+void MeshAttributeTableModel::editBoundaryCondition(const QList<int> &rows, QWidget *parent)
 {
-    QVector<QPair<int, int>> edges;
-    QVector<mesh::MeshEdgeBC> before;
-    for (int row : rows) {
-        if (!rowIsBoundaryEdge(row))
-            continue;
-        const int slot = slotForRow(row);
-        if (slot >= m_layer->edgeBCs().size())
-            continue;
-        edges.append({mesh::slotCell(slot), mesh::slotLocal(slot)});
-        before.append(m_layer->edgeBCs()[slot]);
-    }
-    if (edges.isEmpty())
+    QVector<SWMMObjectRef> targets;
+    for (int row : rows)
+        if (rowIsBoundaryEdge(row))
+            targets.append(refForRow(row));
+    if (targets.isEmpty())
         return;
 
-    auto *dialog = new QDialog(parent);
+    class BoundaryDialog final : public QDialog
+    {
+    public:
+        using QDialog::QDialog;
+        void reject() override
+        {
+            // Escape or a source invalidation discards the current uncommitted text.
+            if (auto *edit = findChild<QLineEdit *>("boundaryValue"))
+                edit->setModified(false);
+            QDialog::reject();
+        }
+    };
+    auto *dialog = new BoundaryDialog(parent);
     dialog->setAttribute(Qt::WA_DeleteOnClose);
     dialog->setWindowTitle(tr("Surface boundary condition"));
     dialog->setObjectName("meshBoundaryDialog");
+    auto *aggregate = new MeshAggregateSelection(m_layer, Kind::Edge, targets, m_canvas,
+                                                 m_modelLayer, dialog);
+    auto *source = aggregate->source();
+    const auto column = [source](const QString &key) {
+        const auto specs = source->columnSpecs();
+        for (int col = 0; col < specs.size(); ++col)
+            if (specs[col].key == key)
+                return col;
+        return -1;
+    };
+    const int typeColumn = column(QStringLiteral("bcType"));
     auto *layout = new QVBoxLayout(dialog);
     layout->addWidget(new QLabel(
-        tr("%1 of %2 selected edges are boundary edges.").arg(edges.size()).arg(rows.size()),
-        dialog));
+        tr("%1 of %2 selected edges are boundary edges. Edits update them immediately; "
+           "use Undo to revert changes.").arg(targets.size()).arg(rows.size()), dialog));
     auto *form = new QFormLayout;
     layout->addLayout(form);
     auto *type = new QComboBox(dialog);
@@ -1295,74 +1311,89 @@ void MeshAttributeTableModel::editBoundaryCondition(
         const auto pair = entry.toList();
         type->addItem(pair.first().toString(), pair.last());
     }
+    type->setPlaceholderText(tr("Mixed — choose a boundary type"));
     auto *label = new QLabel(dialog);
     auto *value = new QLineEdit(dialog);
     value->setObjectName("boundaryValue");
     auto *picker = new DataObjectPickerEditor(dialog);
+    auto *pickerLabel = new QLabel(dialog);
     form->addRow(tr("Type"), type);
     form->addRow(label, value);
-    // Both value rows carry the field's own name ("Time Series", "Rating
-    // Curve"), so the picker and the no-model text field read the same.
-    auto *pickerLabel = new QLabel(dialog);
     form->addRow(pickerLabel, picker);
     auto *message = new QLabel(dialog);
     message->setWordWrap(true);
     layout->addWidget(message);
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dialog);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
+    auto *close = buttons->button(QDialogButtonBox::Close);
+    close->setAutoDefault(false);
+    close->setFocusPolicy(Qt::TabFocus);
     layout->addWidget(buttons);
 
-    mesh::MeshEdgeBC first = before.first();
-    for (auto it = draft.cbegin(); it != draft.cend(); ++it) {
-        const auto key = m_columnSpecs.value(it.key()).key;
-        if (key == QLatin1String("bcType"))
-            first.type = static_cast<BCType>(it.value().toInt());
-        const auto param = boundaryParameter(first.type);
-        if (key == QLatin1String(param.key)) {
-            if (param.number) first.*param.number = it.value().toDouble();
-            if (param.reference) first.*param.reference = it.value().toString();
-        }
-    }
-    // Distinct labels and conveyance values are independent of the BC.
-    const bool uniform = !draft.isEmpty() || std::all_of(before.cbegin(), before.cend(), [&](const auto &bc) {
-        const auto param = boundaryParameter(first.type);
-        return bc.type == first.type &&
-               (param.number ? bc.*param.number == first.*param.number
-                             : param.reference && bc.*param.reference == first.*param.reference);
-    });
-    type->setPlaceholderText(tr("Choose a boundary type"));
-    type->setCurrentIndex(uniform ? type->findData(int(first.type)) : -1);
-    const auto refresh = [=, this] {
+    const auto refresh = [=] {
+        const QSignalBlocker typeSignals(type), valueSignals(value), pickerSignals(picker);
+        const auto typeField = aggregate->field(typeColumn);
+        type->setCurrentIndex(typeField.mixed ? -1 : type->findData(typeField.edit));
         const bool active = type->currentIndex() >= 0;
         const auto selected = static_cast<BCType>(type->currentData().toInt());
         const auto param = boundaryParameter(selected);
-        const bool usePicker = active && param.reference && canPick();
+        const int col = column(QString::fromLatin1(param.key));
+        const bool usePicker = active && param.reference && source->canPick();
         form->setRowVisible(value, active && !usePicker);
         form->setRowVisible(picker, usePicker);
-        buttons->button(QDialogButtonBox::Ok)->setEnabled(active);
-        message->clear();
-        if (!active)
+        if (!active || col < 0)
             return;
-        for (int col = 0; col < m_columnSpecs.size(); ++col) {
-            if (m_columnSpecs[col].key == QLatin1String(param.key)) {
-                label->setText(headerData(col, Qt::Horizontal).toString());
-                pickerLabel->setText(label->text());
-                value->setToolTip(m_columnSpecs[col].tooltip);
-                break;
-            }
-        }
-        const bool useOriginal = uniform && selected == first.type;
-        const mesh::MeshEdgeBC draft = useOriginal ? first : mesh::MeshEdgeBC{};
-        if (param.number)
-            value->setText(QString::number(draft.*param.number, 'g', QLocale::FloatingPointShortest));
-        else if (usePicker)
-            picker->setValue(pickerRef(QString::fromLatin1(param.key), draft.*param.reference)
+        label->setText(source->headerData(col, Qt::Horizontal).toString());
+        pickerLabel->setText(label->text());
+        value->setToolTip(source->columnSpecs()[col].tooltip);
+        const auto field = aggregate->field(col);
+        const auto stored = MeshAggregateSelection::comparable(field.edit);
+        value->setPlaceholderText(field.mixed ? tr("Mixed") : QString());
+        value->setText(field.mixed ? QString() : param.number
+            ? QString::number(stored.toDouble(), 'g', QLocale::FloatingPointShortest)
+            : stored.toString());
+        value->setModified(false);
+        if (usePicker)
+            picker->setValue(source->pickerRef(QString::fromLatin1(param.key),
+                                               field.mixed ? QString() : stored.toString())
                                  .value<DataObjectRef>());
-        else
-            value->setText(draft.*param.reference);
     };
-    connect(type, &QComboBox::currentIndexChanged, dialog, refresh);
-    refresh();
-    connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
+    const auto commitValue = [=] {
+        if (!value->isModified() || type->currentIndex() < 0)
+            return;
+        const auto param = boundaryParameter(static_cast<BCType>(type->currentData().toInt()));
+        const int col = column(QString::fromLatin1(param.key));
+        QVariant next = value->text().trimmed();
+        if (param.number) {
+            bool ok = false;
+            const double number = next.toString().toDouble(&ok);
+            if (!ok || !std::isfinite(number)) {
+                message->setText(tr("Enter a finite number."));
+                return;
+            }
+            next = number;
+        }
+        value->setModified(false);
+        aggregate->setValue(col, next);
+    };
+    connect(type, &QComboBox::activated, dialog, [=] {
+        aggregate->setValue(typeColumn, type->currentData());
+    });
+    connect(value, &QLineEdit::editingFinished, dialog, commitValue);
+    connect(picker, &DataObjectPickerEditor::valueChanged, dialog, [=] {
+        if (type->currentIndex() < 0)
+            return;
+        const auto param = boundaryParameter(static_cast<BCType>(type->currentData().toInt()));
+        if (param.reference)
+            aggregate->setValue(column(QString::fromLatin1(param.key)),
+                                QVariant::fromValue(picker->value()));
+    });
+    connect(aggregate, &MeshAggregateSelection::editFinished, dialog,
+            [=](const QString &error) { refresh(); message->setText(error); });
+    connect(source, &QAbstractItemModel::dataChanged, dialog, refresh);
+    connect(buttons, &QDialogButtonBox::rejected, dialog, [=] {
+        commitValue();
+        dialog->reject();
+    });
     connect(this, &QAbstractItemModel::modelReset, dialog,
             [this, dialog, mesh = m_layer, model = m_modelLayer, canvas = m_canvas] {
                 if (m_layer != mesh || m_modelLayer != model || m_canvas != canvas ||
@@ -1380,67 +1411,8 @@ void MeshAttributeTableModel::editBoundaryCondition(
                     if (removed == layer)
                         dialog->reject();
                 });
-    const auto geometryRevision = m_layer->geomRevision();
-    connect(buttons, &QDialogButtonBox::accepted, dialog, [=, this] {
-        if (!dialog->isVisible() || !m_layer || type->currentIndex() < 0)
-            return;
-        for (int i = 0; i < edges.size(); ++i) {
-            const auto [cell, local] = edges[i];
-            const int slot = mesh::edgeSlot(cell, local);
-            if (m_layer->geomRevision() != geometryRevision || !m_layer->isBoundaryEdge(cell, local) ||
-                slot >= m_layer->edgeBCs().size() ||
-                m_layer->edgeBCs()[slot] != before[i]) {
-                message->setText(tr("These edges have changed. Reopen the editor to review them."));
-                return;
-            }
-        }
-        const auto selected = static_cast<BCType>(type->currentData().toInt());
-        const auto param = boundaryParameter(selected);
-        // Retain dormant fields when editing a single existing prescription.
-        mesh::MeshEdgeBC next = selected == first.type ? first : mesh::MeshEdgeBC{};
-        next.type = selected;
-        if (param.number) {
-            bool ok = false;
-            const double n = value->text().toDouble(&ok);
-            for (const auto &spec : m_columnSpecs) {
-                if (spec.key == QLatin1String(param.key) &&
-                    (!ok || !std::isfinite(n) || n < spec.minValue || n > spec.maxValue)) {
-                    message->setText(tr("Enter a value between %1 and %2.")
-                                         .arg(spec.minValue)
-                                         .arg(spec.maxValue));
-                    return;
-                }
-            }
-            next.*param.number = n;
-        } else {
-            const QString id = canPick() ? picker->value().currentName : value->text().trimmed();
-            if (id.isEmpty() ||
-                (canPick() &&
-                 !m_modelLayer->tableIdsOfType(selected == BCType::RatingCurve ? -1 : 0)
-                      .contains(id, Qt::CaseInsensitive))) {
-                message->setText(tr("Choose a valid reference for this boundary condition."));
-                return;
-            }
-            next.*param.reference = id;
-        }
-        const bool unchanged = uniform && next.type == first.type &&
-                               (param.number ? next.*param.number == first.*param.number
-                                             : next.*param.reference == first.*param.reference);
-        if (stage) {
-            QMap<int, QVariant> values;
-            for (int col = 0; col < m_columnSpecs.size(); ++col) {
-                const auto key = m_columnSpecs[col].key;
-                if (key == QLatin1String("bcType")) values.insert(col, int(next.type));
-                if (key == QLatin1String(param.key))
-                    values.insert(col, param.number ? QVariant(next.*param.number)
-                                                   : QVariant(next.*param.reference));
-            }
-            stage(values);
-        } else if (!unchanged && mesh::pushEdgeBCEdit(m_layer, edges, next, m_canvas) > 0)
-            emit objectEdited(mesh::MeshObjectRef::layerKey(m_layer->sourcePath()));
-        dialog->accept();
-    });
-    dialog->open();
+    refresh();
+    dialog->show(); // Keep the map and its Undo command accessible during immediate editing.
 }
 
 void MeshAttributeTableModel::setDataForRows(int column, const QList<int> &sourceRows,

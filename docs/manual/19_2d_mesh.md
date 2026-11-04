@@ -601,10 +601,10 @@ is written at once. To edit many, use either route:
 - **Properties with several elements selected.** Select cells, edges or vertices
   of one kind on one mesh. Properties lists them together: a value they share
   shows as that value, and a value that differs shows **Mixed** in grey
-  italics. Change any fields you like. Changed fields turn bold and nothing is
-  written yet. The line under the tree counts the selection and the changes.
-  **Apply** writes every changed field to every selected element as one undo
-  step, and **Cancel** discards the changes. Fields you did not change keep each
+  italics. Choosing a value updates every selected element immediately. For
+  text and numbers, press **Enter** or leave the field to commit; **Escape**
+  discards unfinished input. Each committed field is one undo step. The line
+  under the tree counts the selection. Fields you did not change keep each
   element's own value, so a **Mixed** field stays mixed. Opening a **Mixed**
   field and leaving it without choosing a value changes nothing.
 - **The Attribute Table.** Choose **Edit in Table**, select the rows, right-click
@@ -614,16 +614,14 @@ is written at once. To edit many, use either route:
 Both routes write the same values through the same edit commands, so they save
 the same file. A field that applies to only some of the selected elements, such
 as a boundary type when an interior edge is selected, is read-only in
-Properties, and its tooltip says how many it applies to. Apply checks every
-value before writing. A value out of range stops the whole Apply and reports
-the reason. Choosing a boundary type immediately enables its parameter. For
-example, choose **Normal Depth**, enter **Friction Slope** and press **Apply**
-once to prescribe both on every selected exterior edge. Changing the type
-again removes pending parameters that no longer apply and displays a notice.
-The boundary group's **Edit…** form also stages its prescription until the
-panel's **Apply**. Selecting
-something else discards unapplied changes, and Properties says how many were
-discarded. When a selection mixes kinds or meshes, use the counted group
+Properties, and its tooltip says how many it applies to. Each edit is checked
+before writing; an invalid value leaves all selected elements unchanged and
+reports the reason. Choosing a boundary type immediately enables its parameter.
+For example, choose **Normal Depth**, enter **Friction Slope** and press **Enter**
+to prescribe the slope on every selected exterior edge. Type and slope are
+separate undo steps. The boundary group's **Edit…** form follows the same immediate
+editing behavior and has a **Close** button. Selecting something else retains
+committed changes. When a selection mixes kinds or meshes, use the counted group
 selector above the tree to choose the objects to edit. The map selection is
 retained. A selection containing interior and exterior edges offers an explicit
 exterior-edge scope for boundary conditions.
@@ -723,7 +721,7 @@ successfully, so cancelling mid-run leaves the mesh exactly as it was.
 
 Select boundary edges with **Edges**, then choose **Boundary Condition…** under
 the **Surface Flow** process, or edit the edge in **Properties** or the
-**Attribute Table**. All three use the same editor and write one undo step.
+**Attribute Table**. All three use the same editor; each committed field is one undo step.
 Boundary edges you never touch default to `WALL` (zero flux).
 
 \figtodo{19_edge_bc.png, Assigning a boundary condition to a selected run of boundary edges}
@@ -740,8 +738,10 @@ Boundary edges you never touch default to `WALL` (zero flux).
 
 The time-series and curve fields offer the project's data objects to pick from
 (\ref manual_data_objects). When the selected edges disagree, **Boundary
-Condition…** opens with no type chosen, so nothing is written until you pick one;
-**OK** then applies it to every selected boundary edge.
+Condition…** opens with no type chosen, so nothing is written until you pick one.
+The chosen type updates every selected boundary edge immediately. Enter its
+parameter and press **Enter** or leave the field to update it. **Close** dismisses
+the editor; use **Undo** to revert committed changes.
 
 Edges can also carry a **group** name, which the `.inp` writes in the GROUP
 column so a run of edges reads as one named boundary.

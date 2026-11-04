@@ -383,8 +383,9 @@ these twelve vertices to J1" is a single gesture.
 vertices, edges and cells offer their existing field editors. Network nodes,
 links, subcatchments and rain gages offer shared numeric attributes, tags and
 supported choices or recording intervals. Differing values show **Mixed**.
-Enter the fields to change, then use **Apply** for one undo step or **Cancel**
-to discard them. Structured records use their dedicated editors.
+Choose a value, or enter text or a number and press **Enter** or leave the field.
+Each committed field updates all selected objects immediately as one undo step.
+**Escape** discards unfinished input. Structured records use their dedicated editors.
 
 For selections containing different object families or meshes, choose a counted
 group above the Properties tree. A field applicable to only some objects in
@@ -498,7 +499,7 @@ enter the boundary data and press Enter to apply it.
 | Specified Flow (time series) | Time Series |
 | Rating Curve | Rating Curve |
 
-Right-click an edge and choose **Edit surface boundary condition…** to set the type and its parameter together. The dialog counts eligible boundary edges. **OK** applies one undoable edit, preserving the group and conveyance on each edge. In Properties, choose **Edit…** beside **Boundary condition** for a picked boundary edge, including the fourth edge of a quad.
+Right-click an edge and choose **Edit surface boundary condition…** to edit its type and parameter. The dialog counts eligible boundary edges. Each committed field updates those edges immediately as one undo step, preserving the group and conveyance on each edge. **Close** dismisses the editor; use **Undo** to revert a committed change. In Properties, choose **Edit…** beside **Boundary condition** for a picked boundary edge, including the fourth edge of a quad.
 
 **Group** is independent of the type and stays available on any boundary edge.
 A value typed under a previous type is kept but hidden, so flipping back brings

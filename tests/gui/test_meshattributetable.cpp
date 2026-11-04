@@ -70,6 +70,24 @@ using Kind = MeshAttributeTableModel::Kind;
 namespace
 {
 
+void chooseBoundaryType(QComboBox *combo, int type)
+{
+    const int index = combo->findData(type);
+    QVERIFY(index >= 0);
+    combo->setCurrentIndex(index);
+    QVERIFY(QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, index)));
+}
+
+void editBoundaryValue(QDialog *dialog, const QString &text)
+{
+    auto *value = dialog->findChild<QLineEdit *>("boundaryValue");
+    QVERIFY(value);
+    value->setText(text);
+    value->setModified(true);
+    QVERIFY(QMetaObject::invokeMethod(value, "editingFinished"));
+}
+
+
 /*! `wide` × 1 strip of unit quads, each split into two triangles. Every quad
  *  contributes one interior (diagonal) edge, so the de-duplication has
  *  something to collapse. Unique edges = 3·T − interior. */
@@ -186,8 +204,6 @@ struct AggregateRig {
             fields += tree()->rowCount(tree()->index(i, 0));
         return fields;
     }
-    QPushButton *apply() { return panel.findChild<QPushButton *>("meshAggregateApply"); }
-    QPushButton *cancel() { return panel.findChild<QPushButton *>("meshAggregateCancel"); }
     QString summary() { return panel.findChild<QLabel *>("meshAggregateSummary")->text(); }
     /*! Open \p key's editor through the tree's delegate, let \p touch act on it, commit. */
     template <typename Touch> void edit(const char *key, Touch touch)
@@ -296,13 +312,15 @@ private slots:
         auto *dialog = panel.findChild<QDialog *>("meshBoundaryDialog");
         QVERIFY(dialog && dialog->isVisible());
         auto *type = dialog->findChild<QComboBox *>("boundaryType");
-        type->setCurrentIndex(type->findData(int(mesh::MeshBCTypes::Type::SpecifiedFlowConst)));
-        dialog->findChild<QLineEdit *>("boundaryValue")->setText("1.25");
-        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        chooseBoundaryType(type, int(mesh::MeshBCTypes::Type::SpecifiedFlowConst));
+        editBoundaryValue(dialog, "1.25");
+        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Close)->click();
         QCOMPARE(field("flow").data().toDouble(), 1.25);
         QVERIFY(field("flow").flags() & Qt::ItemIsEditable);
         canvas.undoStack()->undo();
+        canvas.undoStack()->undo();
         QVERIFY(!(field("flow").flags() & Qt::ItemIsEditable));
+        canvas.undoStack()->redo();
         canvas.undoStack()->redo();
 
         const QString dir = QCoreApplication::applicationDirPath() + "/mesh_editor_roundtrip";
@@ -475,11 +493,11 @@ private slots:
         auto *dialog = panel.findChild<QDialog *>("meshBoundaryDialog");
         QVERIFY(dialog && dialog->isVisible());
         auto *type = dialog->findChild<QComboBox *>("boundaryType");
-        type->setCurrentIndex(type->findData(int(mesh::MeshBCTypes::Type::SpecifiedStageConst)));
-        dialog->findChild<QLineEdit *>("boundaryValue")->setText("4.75");
-        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        chooseBoundaryType(type, int(mesh::MeshBCTypes::Type::SpecifiedStageConst));
+        editBoundaryValue(dialog, "4.75");
         QCOMPARE(layer.edgeBCs()[mesh::edgeSlot(0, 2)].head, 4.75);
-        QCOMPARE(canvas.undoStack()->count(), 1);
+        QCOMPARE(canvas.undoStack()->count(), 2);
+        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Close)->click();
     }
 
     void wholeBoundaryRecordTypes_data()
@@ -532,11 +550,10 @@ private slots:
         dialog = open();
         QVERIFY(dialog);
         auto *combo = dialog->findChild<QComboBox *>("boundaryType");
-        combo->setCurrentIndex(combo->findData(type));
-        dialog->findChild<QLineEdit *>("boundaryValue")->setText(input);
-        const int count = canvas.undoStack()->count();
-        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
-        QCOMPARE(canvas.undoStack()->count(), count + 1);
+        const int count = canvas.undoStack()->index();
+        chooseBoundaryType(combo, type);
+        editBoundaryValue(dialog, input);
+        QCOMPARE(canvas.undoStack()->index(), count + (type == int(mesh::MeshBCTypes::Type::Wall) ? 1 : 2));
         for (int r : rows) {
             const auto bcType = edges.index(r, colFor(edges, "bcType"));
             if (!(bcType.flags() & Qt::ItemIsEditable))
@@ -547,14 +564,16 @@ private slots:
         }
         QCOMPARE(layer.edgeBCs()[0].group, QString("Coast"));
         QCOMPARE(layer.edgeBCs()[0].conveyance, .75);
-        // Reopening shows the record just written: type and value hydrate.
+        // Closing is not required for the edit; reopening reads the stored values.
+        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Close)->click();
         dialog = open();
         QVERIFY(dialog);
         combo = dialog->findChild<QComboBox *>("boundaryType");
         QCOMPARE(combo->currentData().toInt(), type);
         QCOMPARE(dialog->findChild<QLineEdit *>("boundaryValue")->text(), input);
         dialog->reject();
-        canvas.undoStack()->undo();
+        while (canvas.undoStack()->index() > count)
+            canvas.undoStack()->undo();
         QCOMPARE(layer.edgeBCs(), before);
     }
 
@@ -594,7 +613,7 @@ private slots:
                      {T::SpecifiedFlowTS, "tseries"},
                      {T::RatingCurve, "curve"}};
         for (const auto &c : cases) {
-            combo->setCurrentIndex(combo->findData(int(c.type)));
+            chooseBoundaryType(combo, int(c.type));
             QVERIFY(picker->isVisibleTo(dialog));
             QVERIFY(!value->isVisibleTo(dialog));
             auto *label = qobject_cast<QLabel *>(form->labelForField(picker));
@@ -1278,52 +1297,40 @@ private slots:
         QVERIFY(rig.field("initDepth").flags() & Qt::ItemIsEditable);
         QVERIFY(rig.field("initDepth").data(Qt::ToolTipRole).toString().contains("different"));
         QVERIFY(!(rig.field("Area").flags() & Qt::ItemIsEditable));
-        QVERIFY(rig.apply()->isVisible() || !rig.panel.isVisible());
-        QVERIFY(!rig.apply()->isEnabled());
-        QVERIFY(rig.summary().contains(QStringLiteral("3 cells · no changes")));
+        QVERIFY(!rig.panel.findChild<QPushButton *>("meshAggregateApply"));
+        QVERIFY(!rig.panel.findChild<QPushButton *>("meshAggregateCancel"));
+        QVERIFY(rig.summary().contains(QStringLiteral("3 cells")));
     }
 
-    /** @brief Gate: a multi-field edit writes only the staged fields, to every target, as one
-     *  undo step; Mixed fields keep each element's own value; nothing is written before Apply. */
-    void aggregateMultiFieldEditLeavesUntouchedFieldsAlone()
+    /** @brief Each committed field updates every target in one undo step; untouched Mixed
+     *  fields retain each element's own value. */
+    void aggregateEachFieldCommitsImmediately()
     {
         AggregateRig rig(aggregateMesh(), "agg.2dm");
         rig.show(Kind::Cell, rig.cells({0, 1, 2}));
         const int undoBefore = rig.canvas.undoStack()->count();
         QVERIFY(rig.tree()->setData(rig.field("mannings"), 0.05));
         QVERIFY(rig.tree()->setData(rig.field("tag"), QStringLiteral("pond")));
-        QCOMPARE(rig.field("mannings").data().toDouble(), 0.05);
-        QVERIFY(rig.field("mannings").data(Qt::FontRole).value<QFont>().bold());
-        QCOMPARE(rig.layer.mesh().triangles[0].mannings, 0.03); // staged, not written
-        QVERIFY(rig.summary().contains(QStringLiteral("2 changes to apply")));
-        QVERIFY(rig.apply()->isEnabled());
-        rig.apply()->click();
-
         const auto &tris = rig.layer.mesh().triangles;
         for (int t = 0; t < 3; ++t) {
             QCOMPARE(tris[t].mannings, 0.05);
             QCOMPARE(tris[t].tag, QStringLiteral("pond"));
-            QCOMPARE(tris[t].initDepth, 0.1 * t); // Mixed and untouched
+            QCOMPARE(tris[t].initDepth, 0.1 * t);
         }
-        QCOMPARE(tris[3].mannings, 0.03); // not selected
+        QCOMPARE(tris[3].mannings, 0.03);
         QCOMPARE(tris[3].tag, QStringLiteral("south"));
-        QCOMPARE(rig.canvas.undoStack()->count(), undoBefore + 1);
-        QVERIFY(!rig.field("mannings").data(Qt::FontRole).value<QFont>().bold());
-        QCOMPARE(rig.field("tag").data().toString(), QStringLiteral("pond"));
-        QCOMPARE(rig.field("initDepth").data().toString(), QStringLiteral("Mixed"));
-        QVERIFY(!rig.apply()->isEnabled());
-
+        QCOMPARE(rig.canvas.undoStack()->count(), undoBefore + 2);
         rig.canvas.undoStack()->undo();
-        for (int t = 0; t < 3; ++t) {
-            QCOMPARE(tris[t].mannings, 0.03);
-            QCOMPARE(tris[t].tag, t < 2 ? QStringLiteral("north") : QStringLiteral("south"));
-        }
+        QCOMPARE(tris[0].mannings, 0.05);
         QCOMPARE(rig.field("tag").data().toString(), QStringLiteral("Mixed"));
+        rig.canvas.undoStack()->undo();
+        for (int t = 0; t < 3; ++t)
+            QCOMPARE(tris[t].mannings, 0.03);
     }
 
-    /** @brief Opening and leaving a Mixed field's editor stages nothing (numeric, text, enum,
-     *  picker); a deliberate entry stages, including the value an untouched editor would hold. */
-    void openingMixedEditorsStagesNothing()
+    /** @brief Opening and leaving a Mixed field's editor writes nothing (numeric, text, enum,
+     *  picker); a deliberate entry commits, including the value an untouched editor would hold. */
+    void openingMixedEditorsWritesNothing()
     {
         // Cells: numeric and text.
         AggregateRig rig(aggregateMesh(), "agg.2dm");
@@ -1332,7 +1339,7 @@ private slots:
         rig.edit("tag", [](QWidget *) {});
         QCOMPARE(rig.field("initDepth").data().toString(), QStringLiteral("Mixed"));
         QCOMPARE(rig.field("tag").data().toString(), QStringLiteral("Mixed"));
-        QVERIFY(!rig.apply()->isEnabled());
+        QVERIFY(!rig.panel.findChild<QPushButton *>("meshAggregateApply"));
         // Typing 0 into the blank numeric editor is a real choice (0 starts a cell dry).
         rig.edit("initDepth", [](QWidget *editor) {
             auto *line = editor->findChild<QLineEdit *>();
@@ -1345,10 +1352,11 @@ private slots:
         });
         QCOMPARE(rig.field("initDepth").data().toDouble(), 0.0);
         QCOMPARE(rig.field("tag").data().toString(), QStringLiteral("pond"));
-        QVERIFY(rig.summary().contains(QStringLiteral("2 changes")));
-        rig.cancel()->click();
+        QCOMPARE(rig.canvas.undoStack()->count(), 2);
+        rig.canvas.undoStack()->undo();
+        rig.canvas.undoStack()->undo();
         QCOMPARE(rig.field("initDepth").data().toString(), QStringLiteral("Mixed"));
-        QVERIFY(!rig.apply()->isEnabled());
+        QVERIFY(!rig.panel.findChild<QPushButton *>("meshAggregateApply"));
 
         // Edges: the BC type enum.
         AggregateRig edges(makeStrip(2), "edges.2dm");
@@ -1399,18 +1407,28 @@ private slots:
             QVERIFY(qobject_cast<DataObjectPickerEditor *>(editor));
         });
         QCOMPARE(verts.field("coupledNode").data().toString(), QStringLiteral("Mixed"));
-        QVERIFY(!verts.apply()->isEnabled());
+        QVERIFY(!verts.panel.findChild<QPushButton *>("meshAggregateApply"));
+        // Use a view-owned editor so valueChanged follows the real commitData route.
+        verts.panel.resize(700, 800);
+        verts.panel.show();
+        verts.view()->expandAll();
+        const auto nodeField = verts.field("coupledNode");
+        verts.view()->edit(nodeField);
+        auto *picker = qobject_cast<DataObjectPickerEditor *>(verts.view()->indexWidget(nodeField));
+        QVERIFY(picker);
+        picker->setFocus();
+        auto *combo = picker->findChild<QComboBox *>();
+        QVERIFY(combo);
         QString chosen;
-        verts.edit("coupledNode", [&chosen](QWidget *editor) {
-            auto *combo = editor->findChild<QComboBox *>();
-            QVERIFY(combo);
-            for (int i = 0; i < combo->count() && chosen.isEmpty(); ++i)
-                if (!combo->itemText(i).isEmpty() && combo->itemText(i) != combo->currentText()) {
-                    chosen = combo->itemText(i);
-                    combo->setCurrentIndex(i); // a user choice of a model node
-                }
-            QVERIFY(!chosen.isEmpty());
-        });
+        for (int i = 0; i < combo->count() && chosen.isEmpty(); ++i)
+            if (!combo->itemText(i).isEmpty() && combo->itemText(i) != combo->currentText()) {
+                chosen = combo->itemText(i);
+                combo->setCurrentIndex(i);
+            }
+        QVERIFY(!chosen.isEmpty());
+        // The choice commits while the picker still owns focus.
+        QTRY_COMPARE(verts.layer.mesh().vertices[0].coupledNode, chosen);
+        QCOMPARE(verts.layer.mesh().vertices[1].coupledNode, chosen);
         QCOMPARE(verts.field("coupledNode").data().toString(), chosen);
     }
 
@@ -1428,7 +1446,6 @@ private slots:
         a.show(Kind::Cell, a.cells(rows));
         for (const auto &e : edits)
             QVERIFY(a.tree()->setData(a.field(e.first), e.second));
-        a.apply()->click();
 
         // The table route: one "Apply value to N selected rows" per field.
         b.table.setSource(&b.layer, Kind::Cell);
@@ -1481,14 +1498,16 @@ private slots:
         QCOMPARE(saved[0], saved[1]);
         QVERIFY(same(reread[0], reread[1]));
 
-        a.canvas.undoStack()->undo();
-        for (int i = 0; i < int(edits.size()); ++i)
+        for (int i = 0; i < int(edits.size()); ++i) {
+            a.canvas.undoStack()->undo();
             b.canvas.undoStack()->undo();
+        }
         QVERIFY(same(a.layer.mesh(), aggregateMesh()));
         QVERIFY(same(b.layer.mesh(), aggregateMesh()));
-        a.canvas.undoStack()->redo();
-        for (int i = 0; i < int(edits.size()); ++i)
+        for (int i = 0; i < int(edits.size()); ++i) {
+            a.canvas.undoStack()->redo();
             b.canvas.undoStack()->redo();
+        }
         QVERIFY(same(a.layer.mesh(), b.layer.mesh()));
     }
 
@@ -1501,12 +1520,10 @@ private slots:
         const QList<int> rows{0, 1, 2};
         a.show(Kind::Cell, a.cells(rows));
         const int undoA = a.canvas.undoStack()->count();
-        QVERIFY(a.tree()->setData(a.field("mannings"), 0.0)); // staged; Apply validates
-        a.apply()->click();
-        QVERIFY(a.summary().contains(QStringLiteral("must be between")));
+        QVERIFY(!a.tree()->setData(a.field("mannings"), 0.0));
+        QVERIFY(a.panel.findChild<QLabel *>("meshAggregateNote")->text().contains("must be between"));
         QCOMPARE(a.layer.mesh().triangles[0].mannings, 0.03);
         QCOMPARE(a.canvas.undoStack()->count(), undoA);
-        QVERIFY(a.apply()->isEnabled()); // the staged value stays for correction
 
         b.table.setSource(&b.layer, Kind::Cell);
         const int undoB = b.canvas.undoStack()->count();
@@ -1516,7 +1533,7 @@ private slots:
     }
 
     /** A new type removes pending fields it cannot use before any records are written. */
-    void aggregateTypeChangeDropsInapplicableDraft()
+    void aggregateTypeChangeUpdatesApplicabilityImmediately()
     {
         AggregateRig rig(makeStrip(2), "rollback.2dm");
         rig.table.setSource(&rig.layer, Kind::Edge);
@@ -1540,20 +1557,19 @@ private slots:
         const int undoBefore = rig.canvas.undoStack()->count();
         QVERIFY(rig.tree()->setData(rig.field("slope"), 0.02));
         QVERIFY(rig.tree()->setData(rig.field("bcType"), int(T::Wall)));
-        QVERIFY(rig.summary().contains("Removed pending changes"));
-        QCOMPARE(rig.layer.edgeBCs(), before);
-        rig.apply()->click();
+        QVERIFY(!(rig.field("slope").flags() & Qt::ItemIsEditable));
         for (const auto &edge : bs) {
             const int slot = mesh::edgeSlot(edge.first, edge.second);
             QCOMPARE(rig.layer.edgeBCs()[slot].type, T::Wall);
-            QCOMPARE(rig.layer.edgeBCs()[slot].slope, before[slot].slope);
+            QCOMPARE(rig.layer.edgeBCs()[slot].slope, .02);
         }
-        QCOMPARE(rig.canvas.undoStack()->count(), undoBefore + 1);
+        QCOMPARE(rig.canvas.undoStack()->count(), undoBefore + 2);
+        rig.canvas.undoStack()->undo();
         rig.canvas.undoStack()->undo();
         QCOMPARE(rig.layer.edgeBCs(), before);
     }
 
-    void aggregateNormalDepthTypeAndSlopeApplyTogether()
+    void aggregateNormalDepthTypeAndSlopeCommitImmediately()
     {
         AggregateRig rig(makeStrip(2), "normal_depth_batch.2dm");
         const auto edges = boundaryEdges(rig.layer, 4);
@@ -1586,9 +1602,11 @@ private slots:
         QTest::mouseClick(type->view()->viewport(), Qt::LeftButton, Qt::NoModifier,
                           type->view()->visualRect(normal).center());
         QTRY_VERIFY(rig.field("slope").flags() & Qt::ItemIsEditable);
-        QCOMPARE(rig.layer.edgeBCs(), before);
+        for (int i = 0; i < 3; ++i)
+            QCOMPARE(rig.layer.edgeBCs()[mesh::edgeSlot(edges[i].first, edges[i].second)].type,
+                     mesh::MeshBCTypes::Type::NormalFlow);
 
-        // Leave the numeric editor open when Apply is clicked.
+        // Enter commits the value without another button.
         rig.view()->scrollTo(rig.field("slope"));
         QTest::mouseClick(rig.view()->viewport(), Qt::LeftButton, Qt::NoModifier,
                           rig.view()->visualRect(rig.field("slope")).center());
@@ -1597,8 +1615,8 @@ private slots:
         spin->setFocus();
         spin->selectAll();
         QTest::keyClicks(spin, "0.005");
-        QTest::mouseClick(rig.apply(), Qt::LeftButton);
-        QTRY_COMPARE(rig.canvas.undoStack()->index(), undoBefore + 1);
+        QTest::keyClick(spin, Qt::Key_Return);
+        QTRY_COMPARE(rig.canvas.undoStack()->index(), undoBefore + 2);
         for (int i = 0; i < 3; ++i) {
             const int slot = mesh::edgeSlot(edges[i].first, edges[i].second);
             QCOMPARE(rig.layer.edgeBCs()[slot].type, mesh::MeshBCTypes::Type::NormalFlow);
@@ -1609,7 +1627,9 @@ private slots:
         const int control = mesh::edgeSlot(edges[3].first, edges[3].second);
         QCOMPARE(rig.layer.edgeBCs()[control], before[control]);
         rig.canvas.undoStack()->undo();
+        rig.canvas.undoStack()->undo();
         QCOMPARE(rig.layer.edgeBCs(), before);
+        rig.canvas.undoStack()->redo();
         rig.canvas.undoStack()->redo();
         const QString dir = QCoreApplication::applicationDirPath() + "/mesh_editor_roundtrip";
         QVERIFY(QDir().mkpath(dir));
@@ -1627,9 +1647,9 @@ private slots:
         QCOMPARE(reopened.edgeBCs, rig.layer.edgeBCs());
     }
 
-    void aggregateBoundaryFormStagesUntilPanelApply()
+    void aggregateBoundaryFormCommitsWithoutConfirmation()
     {
-        AggregateRig rig(makeStrip(2), "boundary_form_draft.2dm");
+        AggregateRig rig(makeStrip(2), "boundary_form_immediate.2dm");
         QList<SWMMObjectRef> refs;
         for (const auto &edge : boundaryEdges(rig.layer, 3))
             refs << mesh::MeshObjectRef::edge(rig.layer.sourcePath(), edge.first, edge.second);
@@ -1640,46 +1660,88 @@ private slots:
         button->click();
         auto *dialog = rig.panel.findChild<QDialog *>("meshBoundaryDialog");
         QVERIFY(dialog);
+        QVERIFY(!dialog->isModal());
+        auto *buttons = dialog->findChild<QDialogButtonBox *>();
+        QVERIFY(!buttons->button(QDialogButtonBox::Ok));
+        QVERIFY(!buttons->button(QDialogButtonBox::Cancel));
         auto *type = dialog->findChild<QComboBox *>("boundaryType");
-        type->setCurrentIndex(type->findData(int(mesh::MeshBCTypes::Type::NormalFlow)));
-        dialog->findChild<QLineEdit *>("boundaryValue")->setText("0.004");
-        dialog->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok)->click();
+        const int index = type->findData(int(mesh::MeshBCTypes::Type::NormalFlow));
+        type->setCurrentIndex(index);
+        QMetaObject::invokeMethod(type, "activated", Q_ARG(int, index));
+        auto *value = dialog->findChild<QLineEdit *>("boundaryValue");
+        value->setText("not a number");
+        value->setModified(true);
+        QMetaObject::invokeMethod(value, "editingFinished");
+        QCOMPARE(rig.canvas.undoStack()->count(), 1);
+        for (const auto &bc : rig.layer.edgeBCs())
+            QCOMPARE(bc.slope, 0.0);
+        value->setFocus();
+        value->selectAll();
+        QTest::keyClicks(value, "0.004");
+        QTest::keyClick(value, Qt::Key_Return);
+        for (const auto &ref : refs) {
+            QString key;
+            int cell = -1, local = -1;
+            QVERIFY(mesh::MeshObjectRef::parseEdge(ref, &key, &cell, &local));
+            const auto &bc = rig.layer.edgeBCs()[mesh::edgeSlot(cell, local)];
+            QCOMPARE(bc.type, mesh::MeshBCTypes::Type::NormalFlow);
+            QCOMPARE(bc.slope, .004);
+        }
+        QVERIFY(dialog->isVisible());
+        QCOMPARE(rig.canvas.undoStack()->count(), 2);
+        // Undo refreshes the open editor, and Escape discards only unfinished text.
+        rig.canvas.undoStack()->undo();
+        QCOMPARE(value->text().toDouble(), 0.0);
+        rig.canvas.undoStack()->redo();
+        QCOMPARE(value->text().toDouble(), .004);
+        value->setFocus();
+        value->selectAll();
+        QTest::keyClicks(value, "0.009");
+        QTest::keyClick(value, Qt::Key_Escape);
+        QVERIFY(!dialog->isVisible());
+        QCOMPARE(rig.canvas.undoStack()->count(), 2);
+        rig.canvas.undoStack()->undo();
+        rig.canvas.undoStack()->undo();
         QCOMPARE(rig.layer.edgeBCs(), before);
-        QVERIFY(rig.apply()->isEnabled());
-        rig.cancel()->click();
-        QCOMPARE(rig.layer.edgeBCs(), before);
-        QCOMPARE(rig.canvas.undoStack()->count(), 0);
     }
 
-    void aggregateNumericOnlyApplyAndCancelWithOpenEditor()
+    void aggregateNumericEditorCommitsOnEnterAndFocusOut()
     {
-        AggregateRig rig(aggregateMesh(), "numeric_only_batch.2dm");
+        AggregateRig rig(aggregateMesh(), "numeric_immediate_batch.2dm");
         rig.show(Kind::Cell, rig.cells({0, 1}));
         rig.panel.resize(700, 800);
         rig.panel.show();
-        QVERIFY(!rig.apply()->isEnabled());
         const auto edit = [&](const QString &value) {
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
             rig.view()->scrollTo(rig.field("mannings"));
             QTest::mouseClick(rig.view()->viewport(), Qt::LeftButton, Qt::NoModifier,
                               rig.view()->visualRect(rig.field("mannings")).center());
             auto *spin = rig.view()->findChild<QDoubleSpinBox *>();
-            QVERIFY(spin);
-            spin->selectAll();
-            QTest::keyClicks(spin, value);
+            if (spin) {
+                spin->setFocus();
+                spin->selectAll();
+                QTest::keyClicks(spin, value);
+            }
+            return spin;
         };
-        edit("0.04");
-        QVERIFY(rig.apply()->isEnabled());
-        QTest::mouseClick(rig.apply(), Qt::LeftButton);
-        QCOMPARE(rig.layer.mesh().triangles[0].mannings, 0.04);
-        QCOMPARE(rig.layer.mesh().triangles[1].mannings, 0.04);
-        QCOMPARE(rig.layer.mesh().triangles[2].mannings, 0.03);
-        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
-        edit("0.06");
-        QVERIFY(rig.cancel()->isEnabled());
-        QTest::mouseClick(rig.cancel(), Qt::LeftButton);
-        QCOMPARE(rig.layer.mesh().triangles[0].mannings, 0.04);
-        QVERIFY(!rig.apply()->isEnabled());
+        auto *spin = edit("0.04");
+        QVERIFY(spin);
+        QCOMPARE(rig.layer.mesh().triangles[0].mannings, .03);
+        QTest::keyClick(spin, Qt::Key_Return);
+        QTRY_COMPARE(rig.layer.mesh().triangles[0].mannings, .04);
+        QCOMPARE(rig.layer.mesh().triangles[1].mannings, .04);
+        QCOMPARE(rig.layer.mesh().triangles[2].mannings, .03);
+        spin = edit("0.06");
+        QVERIFY(spin);
+        QTest::keyClick(spin, Qt::Key_Escape);
+        QCoreApplication::processEvents();
+        QCOMPARE(rig.layer.mesh().triangles[0].mannings, .04);
         QCOMPARE(rig.canvas.undoStack()->count(), 1);
+        spin = edit("0.07");
+        QVERIFY(spin);
+        rig.view()->setFocus();
+        QTRY_COMPARE(rig.layer.mesh().triangles[0].mannings, .07);
+        QCOMPARE(rig.canvas.undoStack()->count(), 2);
     }
 
     void aggregateUndoRestoresInheritedCellValues()
@@ -1691,8 +1753,8 @@ private slots:
         rig.show(Kind::Cell, rig.cells({0, 1}));
         QVERIFY(rig.tree()->setData(rig.field("mannings"), 0.04));
         QVERIFY(rig.tree()->setData(rig.field("initDepth"), 0.2));
-        rig.apply()->click();
         QCOMPARE(rig.layer.mesh().triangles[0].mannings, 0.04);
+        rig.canvas.undoStack()->undo();
         rig.canvas.undoStack()->undo();
         QVERIFY(std::isnan(rig.layer.mesh().triangles[0].mannings));
         QVERIFY(std::isnan(rig.layer.mesh().triangles[0].initDepth));
@@ -1715,7 +1777,6 @@ private slots:
         QCOMPARE(rig.panel.windowTitle(), QStringLiteral("2D mesh: 3 vertices"));
         QCOMPARE(rig.field("z").data().toString(), QStringLiteral("Mixed"));
         QVERIFY(rig.tree()->setData(rig.field("z"), 2.0));
-        rig.apply()->click();
         for (int v = 0; v < 3; ++v)
             QCOMPARE(rig.layer.mesh().vertices[v].z, 2.0);
         QCOMPARE(rig.layer.mesh().vertices[3].z, m.vertices[3].z);
@@ -1758,40 +1819,35 @@ private slots:
         QCOMPARE(rig.summary(), QStringLiteral("2 cells, 1 edge. Select elements of one kind on "
                                                "one mesh to edit them together."));
         QCOMPARE(rig.tree()->rowCount(), 0);
-        QVERIFY(rig.apply()->isHidden());
+        QVERIFY(!rig.panel.findChild<QPushButton *>("meshAggregateApply"));
     }
 
     /** @brief Staged edits are discarded with a note when the panel moves on, and a remesh or
      *  a vanished target never writes. */
-    void aggregateDiscardsAndReportsStaleTargets()
+    void aggregateRetainsCommittedValuesAndRejectsStaleTargets()
     {
         AggregateRig rig(aggregateMesh(), "stale.2dm");
         const QString path = rig.layer.sourcePath();
         auto *note = rig.panel.findChild<QLabel *>("meshAggregateNote");
         QVERIFY(note);
         rig.show(Kind::Cell, rig.cells({0, 1}));
-        QVERIFY(rig.tree()->setData(rig.field("mannings"), 0.07));
+        QVERIFY(rig.tree()->setData(rig.field("mannings"), .07));
         rig.panel.showMeshObject(&rig.canvas, mesh::MeshObjectRef::cell(path, 3));
-        QVERIFY(!note->isHidden());
-        QCOMPARE(note->text(),
-                 QStringLiteral("1 unapplied change to the previous selection was discarded."));
-        QCOMPARE(rig.layer.mesh().triangles[0].mannings, 0.03);
-        rig.show(Kind::Cell, rig.cells({0, 1}));
         QVERIFY(note->isHidden());
-
-        QVERIFY(rig.tree()->setData(rig.field("mannings"), 0.07));
-        emit rig.layer.selectionInvalidated(); // what a remesh announces
+        QCOMPARE(rig.layer.mesh().triangles[0].mannings, .07);
+        rig.show(Kind::Cell, rig.cells({0, 1}));
+        emit rig.layer.selectionInvalidated();
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
         QCOMPARE(rig.tree()->rowCount(), 0);
-        QCOMPARE(rig.layer.mesh().triangles[0].mannings, 0.03);
-
+        QCOMPARE(rig.layer.mesh().triangles[0].mannings, .07);
         rig.show(Kind::Cell, {mesh::MeshObjectRef::cell(path, 0),
                               mesh::MeshObjectRef::cell(path, 99)});
         QVERIFY(rig.summary().contains(QStringLiteral("1 no longer exist")));
-        QVERIFY(rig.tree()->setData(rig.field("mannings"), 0.07));
-        rig.apply()->click();
-        QVERIFY(rig.summary().contains(QStringLiteral("no longer exist. Select them again")));
-        QCOMPARE(rig.layer.mesh().triangles[0].mannings, 0.03);
+        const int before = rig.canvas.undoStack()->index();
+        QVERIFY(!rig.tree()->setData(rig.field("mannings"), .09));
+        QVERIFY(note->text().contains("no longer exist. Select them again"));
+        QCOMPARE(rig.layer.mesh().triangles[0].mannings, .07);
+        QCOMPARE(rig.canvas.undoStack()->index(), before);
     }
 
     /** @brief Parity matrix (plan §7.3): for every mesh field of every kind, the aggregate is
@@ -1877,10 +1933,9 @@ private slots:
         qInfo().noquote() << "aggregate of" << refs.size() << "cells, every field read:"
                           << qRound(cpuMs) << "ms CPU," << timer.elapsed() << "ms wall";
         QVERIFY2(cpuMs < 10000, qPrintable(QString::number(cpuMs)));
-        QVERIFY(rig.tree()->setData(rig.field("mannings"), 0.05));
         timer.restart();
-        rig.apply()->click();
-        qInfo().noquote() << "apply to" << refs.size() << "cells:" << timer.elapsed() << "ms";
+        QVERIFY(rig.tree()->setData(rig.field("mannings"), 0.05));
+        qInfo().noquote() << "commit to" << refs.size() << "cells:" << timer.elapsed() << "ms";
         QCOMPARE(rig.layer.mesh().triangles.last().mannings, 0.05);
     }
 
@@ -1897,9 +1952,6 @@ private slots:
         rig.show(Kind::Cell, rig.cells({0, 1, 2}));
         QVERIFY(rig.tree()->setData(rig.field("mannings"), 0.05));
         QVERIFY(rig.tree()->setData(rig.field("tag"), QStringLiteral("pond")));
-        QCoreApplication::processEvents();
-        QVERIFY(rig.panel.grab().save(dir + "/aggregate-cells-staged.png"));
-        rig.apply()->click();
         QCoreApplication::processEvents();
         QVERIFY(rig.panel.grab().save(dir + "/aggregate-cells-applied.png"));
         const QString path = rig.layer.sourcePath();

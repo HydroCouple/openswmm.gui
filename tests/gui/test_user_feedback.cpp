@@ -1068,7 +1068,7 @@ private slots:
         if (pendingSelection) layer.setHighlightedEdges(selection);
         QVERIFY(tree->model()->setData(field("BC Type"), int(mesh::MeshBCTypes::Type::NormalFlow)));
         QVERIFY(tree->model()->setData(field("Friction Slope"), .007));
-        panel.findChild<QPushButton *>("meshAggregateApply")->click();
+        QVERIFY(!panel.findChild<QPushButton *>("meshAggregateApply"));
         for (int slot : selection) {
             QCOMPARE(layer.edgeBCs()[slot].type, mesh::MeshBCTypes::Type::NormalFlow);
             QCOMPARE(layer.edgeBCs()[slot].slope, .007);
@@ -1077,9 +1077,11 @@ private slots:
         QCOMPARE(meshEdgePass(root.get(), 4)->geometry()->vertexCount(), 18);
         layer.setHighlightedEdges({});
         canvas.undoStack()->undo();
+        canvas.undoStack()->undo();
         root.reset(static_cast<QSGTransformNode *>(renderer.updatePaintNode(root.release(), nullptr)));
         QCOMPARE(meshEdgePass(root.get(), 4)->geometry()->vertexCount(), 6);
         layer.setHighlightedEdges(selection);
+        canvas.undoStack()->redo();
         canvas.undoStack()->redo();
         root.reset(static_cast<QSGTransformNode *>(renderer.updatePaintNode(root.release(), nullptr)));
         QCOMPARE(meshEdgePass(root.get(), 4)->geometry()->vertexCount(), 18);

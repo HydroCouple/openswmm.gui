@@ -82,6 +82,19 @@ SWMMAggregateSelection::Field SWMMAggregateSelection::field(int column) const
     return result;
 }
 
+bool SWMMAggregateSelection::setValue(int column, const QVariant &value)
+{
+    QString error;
+    const bool accepted = stage(column, value) && apply(&error);
+    if (!accepted) {
+        discard();
+        if (error.isEmpty())
+            error = tr("This field cannot be edited for all selected objects.");
+    }
+    emit editFinished(error);
+    return accepted;
+}
+
 bool SWMMAggregateSelection::stage(int column, const QVariant &value)
 {
     if (!value.isValid() || rows().isEmpty() || field(column).editable != rows().size())
@@ -123,7 +136,7 @@ bool SWMMAggregateSelection::apply(QString *error)
         for (int row : rows())
             current.append(m_source->index(row, it.key()).data(Qt::EditRole));
         if (current != m_original.value(it.key())) {
-            if (error) *error = tr("%1 changed while these edits were pending. Cancel and review the selection again.")
+            if (error) *error = tr("%1 changed while this field was being edited. Select the objects again.")
                          .arg(specs[it.key()].label);
             return false;
         }

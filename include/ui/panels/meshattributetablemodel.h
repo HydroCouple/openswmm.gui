@@ -44,7 +44,6 @@
 #include <QPointer>
 #include <QRectF>
 #include <QVector>
-#include <functional>
 
 class MapCanvas;
 class SWMM2DMeshLayer;
@@ -84,10 +83,8 @@ public:
 
     /*! Open the whole-row form for eligible cells in a snapshot of the invoking rows. */
     void editInfiltration(const QList<int> &rows, QWidget *parent);
-    /*! Stage one complete surface boundary prescription for eligible source rows. */
-    void editBoundaryCondition(const QList<int> &rows, QWidget *parent,
-                               std::function<void(const QMap<int, QVariant> &)> stage = {},
-                               const QMap<int, QVariant> &draft = {});
+    /*! Edit eligible boundary edges immediately through the shared property write path. */
+    void editBoundaryCondition(const QList<int> &rows, QWidget *parent);
     /*! Applicability against a pending multi-field edit, without writing the layer. */
     [[nodiscard]] Qt::ItemFlags flagsForDraft(const QModelIndex &index,
                                             const QMap<int, QVariant> &draft) const;
