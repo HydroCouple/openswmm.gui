@@ -26,6 +26,7 @@
 #include <QAbstractTableModel>
 #include <QPointer>
 #include <QStringList>
+#include <QSet>
 #include <QVariantMap>
 
 #include <optional>
@@ -538,6 +539,7 @@ private:
     // engine-wide scan so per-cell paints don't rescan the row store.
     // Invalidated together with the compound caches.
     mutable QHash<int, QHash<QString, double>> m_initQualityByElem;
+    mutable QHash<int, QSet<QString>> m_initQualityFileFields;
     mutable bool m_initQualityCacheBuilt = false;
     /**
      * @note Lazily scan full store once, node/link scope from current category, constituent names

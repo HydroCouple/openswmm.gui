@@ -422,6 +422,8 @@ void SWMMRainGagePropertyAdapter::setFileFormat(int v)
 UserFlagsEditRef SWMMRainGagePropertyAdapter::userFlagsRef() const
 {
     UserFlagsEditRef r;
+    r.layer = modelLayer();
+    r.engine = m_engine;
     r.objectType = QStringLiteral("GAGE");
     r.objectName = name();
     r.model = modelLayer() ? modelLayer()->ensureUserFlagsModel() : nullptr;

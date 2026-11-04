@@ -21,7 +21,12 @@
 #define USERFLAGSEDITREF_H
 
 #include <QMetaType>
+#include <openswmm/engine/openswmm_callbacks.h>
 #include <QString>
+#include <QPointer>
+#include <QUndoStack>
+#include "selection/selectionmanager.h"
+class SWMMModelLayer;
 
 namespace openswmmvis::ui
 {
@@ -35,6 +40,10 @@ struct UserFlagsEditRef {
      *  in test contexts; the button disables gracefully. */
     openswmmvis::ui::UserFlagsModel *model = nullptr;
 
+    SWMMModelLayer *layer = nullptr;
+    SWMM_Engine engine = nullptr;
+    QList<SWMMObjectRef> targets;
+    QPointer<QUndoStack> undoStack;
     QString objectType; ///< [USER_FLAG_VALUES] token: NODE / LINK / SUBCATCHMENT / GAGE
     QString objectName; ///< Owning object id (case-preserved)
     QString summary;    ///< Short text shown in the cell
@@ -46,7 +55,7 @@ struct UserFlagsEditRef {
      */
     bool operator==(const UserFlagsEditRef &other) const noexcept
     {
-        return model == other.model && objectType == other.objectType &&
+        return engine == other.engine && layer == other.layer && undoStack == other.undoStack && targets == other.targets && model == other.model && objectType == other.objectType &&
                objectName == other.objectName && summary == other.summary;
     }
 };

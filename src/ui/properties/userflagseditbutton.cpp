@@ -9,6 +9,8 @@
  */
 
 #include "ui/properties/userflagseditbutton.h"
+#include "ui/dialogs/inheritedpropertiesdialog.h"
+#include "layers/swmmmodellayer.h"
 
 #include "ui/dialogs/userflagvaluesdialog.h"
 
@@ -31,6 +33,7 @@ UserFlagsEditButton::UserFlagsEditButton(QWidget *parent)
 void UserFlagsEditButton::setValue(const UserFlagsEditRef &ref)
 {
     m_ref = ref;
+    m_owner = ref.layer;
     refreshLabel();
     // Nothing to edit without a bound store or before flags exist.
     m_btn->setEnabled(m_ref.model != nullptr && !m_ref.objectName.isEmpty());
@@ -46,6 +49,15 @@ void UserFlagsEditButton::refreshLabel()
 
 void UserFlagsEditButton::onClicked()
 {
+    if (m_ref.layer) {
+        if (!m_owner || !m_owner->engine() || m_owner->engine() != m_ref.engine) return;
+        auto targets = m_ref.targets;
+        if (targets.isEmpty()) targets.append({m_ref.objectType == "NODE" ? SWMMObjectRef::Node :
+            m_ref.objectType == "LINK" ? SWMMObjectRef::Link : m_ref.objectType == "SUBCATCHMENT" ? SWMMObjectRef::Subcatchment : SWMMObjectRef::RainGage, m_ref.objectName});
+        openInheritedPropertiesDialog(m_owner, targets, false, window(), m_ref.undoStack);
+        return;
+    }
+
     if (!m_ref.model || m_ref.objectName.isEmpty())
         return;
 

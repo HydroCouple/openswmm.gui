@@ -719,6 +719,8 @@ LinkCompoundEditRef SWMMLinkPropertyAdapter::inletUsageRef() const
 UserFlagsEditRef SWMMLinkPropertyAdapter::userFlagsRef() const
 {
     UserFlagsEditRef r;
+    r.layer = m_layer;
+    r.engine = m_engine;
     r.objectType = QStringLiteral("LINK");
     r.objectName = m_name;
     r.model = m_layer ? m_layer->ensureUserFlagsModel() : nullptr;
@@ -729,6 +731,7 @@ UserFlagsEditRef SWMMLinkPropertyAdapter::userFlagsRef() const
 InitialQualityEditRef SWMMLinkPropertyAdapter::initialQualityRef() const
 {
     InitialQualityEditRef r;
+    r.layer = m_layer;
     r.engine = m_engine;
     r.isLink = 1;
     r.elementName = m_name;

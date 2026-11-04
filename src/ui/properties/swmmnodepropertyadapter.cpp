@@ -1092,6 +1092,8 @@ NodeCompoundEditRef SWMMNodePropertyAdapter::groundwaterSourcesRef() const
 UserFlagsEditRef SWMMNodePropertyAdapter::userFlagsRef() const
 {
     UserFlagsEditRef r;
+    r.layer = m_layer;
+    r.engine = m_engine;
     r.objectType = QStringLiteral("NODE");
     r.objectName = m_name;
     r.model = m_layer ? m_layer->ensureUserFlagsModel() : nullptr;
@@ -1102,6 +1104,7 @@ UserFlagsEditRef SWMMNodePropertyAdapter::userFlagsRef() const
 InitialQualityEditRef SWMMNodePropertyAdapter::initialQualityRef() const
 {
     InitialQualityEditRef r;
+    r.layer = m_layer;
     r.engine = m_engine;
     r.isLink = 0;
     r.elementName = m_name;

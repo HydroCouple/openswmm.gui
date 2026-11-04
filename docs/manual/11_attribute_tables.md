@@ -278,6 +278,27 @@ and runtime groundwater state are not edited by this page. A removed target or
 reference invalidates the captured context; reopen the editor after an aquifer
 definition rename. Subcatchment and receiving-node renames follow their objects.
 
+**Initial Quality**, network **Heat** fields and per-object **User Flags** also
+support immediate bulk edits. Mixed spatial selections offer **Model objects —
+common properties** for compatible fields, including flags shared by nodes,
+links, subcatchments and rain gages. Other counted scopes remain available.
+Choices commit when selected; numbers and text commit on Enter or leaving the
+cell. Each field creates one Undo step and refreshes the other views.
+
+Initial Quality includes pollutants, configured reaction species, and Water Age
+or Temperature while their process option is enabled. Blank removes the selected
+override; zero remains explicit. File-supplied initial values retain their source
+owner and are read-only here. Heat overrides retain global/tag inheritance when
+cleared. Their labels show SI units in both US and SI projects; conduit bed fields
+are unavailable on other link types.
+
+Boolean flags distinguish **Unset**, **NO** and **YES**. Numeric zero and authored
+empty string values remain distinct from missing assignments. Blank text or
+**Clear selected override** removes an assignment. Owned **Initial Quality** and
+**User Flags** editors use the same immediate field operations; **Close** dismisses
+them and Undo remains available afterward. Flag definitions stay in their global
+editor. Reopen a captured selection after changing definitions or process options.
+
 Drag the divider between column headers to change a width, including the last
 column. Double-click a divider to fit the column to its contents. Column widths
 are remembered per category (and per mesh element kind) across sessions, and

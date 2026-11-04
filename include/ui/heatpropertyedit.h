@@ -9,6 +9,7 @@
 
 #pragma once
 #include "ui/heatproperties.h"
+#include "layers/inheritedpropertyedits.h"
 #include "ui/heatconfigurationundo.h"
 #include "ui/hydrothermalconfiguration.h"
 #include "ui/dialogs/heatconfigdialog.h"
@@ -44,7 +45,10 @@ inline QVariant authoredHeatProperty(SWMM_Engine engine, int attr, int scope, co
         double value = 0;
         char id[1024]{};
         if (swmm_heat_get_element_override(engine, i, &a, &s, id, sizeof id, &value) == SWMM_OK &&
-            a == attr && s == scope && QString::fromUtf8(id) == name)
+            a == attr && s == scope &&
+            ((scope == SWMM_HEAT_SCOPE_NODE || scope == SWMM_HEAT_SCOPE_LINK)
+                 ? QString::fromUtf8(id).compare(name, Qt::CaseInsensitive) == 0
+                 : QString::fromUtf8(id) == name))
             return value;
     }
     return {};
@@ -68,6 +72,17 @@ inline bool applyHeatPropertyEdits(SWMMModelLayer *layer, const QVector<HeatProp
         if (error)
             *error = QObject::tr("The model was closed.");
         return false;
+    }
+    bool network = !edits.isEmpty();
+    for (const auto &edit : edits)
+        network &= edit.attr >= 0 && edit.attr < 14 &&
+                   (edit.scope == SWMM_HEAT_SCOPE_NODE || edit.scope == SWMM_HEAT_SCOPE_LINK);
+    if (network) {
+        QVector<inheritedproperties::Edit> fields;
+        for (const auto &edit : edits)
+            fields.append({{edit.scope == SWMM_HEAT_SCOPE_LINK ? SWMMObjectRef::Link : SWMMObjectRef::Node, edit.name},
+                           "heat." + QString::fromLatin1(heatProperties()[edit.attr].key), edit.value});
+        return inheritedproperties::apply(layer, fields, stack, error);
     }
     const auto engine = layer->engine();
     QVector<HeatPropertyEdit> changed;

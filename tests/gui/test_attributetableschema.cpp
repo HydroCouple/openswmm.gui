@@ -4301,7 +4301,7 @@ private slots:
      * @brief Require a junction TSS override to upsert/read/clear through the engine and table.
      * Checks blank unset display, exact row identity/TSS/value12.5, EditRole text and count
      * retention after garbage/negative refusals. Clearing removes the override and a second
-     * clear returns false. Does not compare post-refusal value separately or save/reopen.
+     * clear succeeds without a mutation. Does not save/reopen.
      *
      */
     void initialQualityCellRoundTripsThroughEngine()
@@ -4346,7 +4346,10 @@ private slots:
         QVERIFY(model.commitValueDirect(idx, QString()));
         QCOMPARE(swmm_init_quality_count(eng), 0);
         QVERIFY(!model.data(idx, Qt::DisplayRole).isValid());
-        QVERIFY(!model.commitValueDirect(idx, QString()));
+        QSignalSpy dirty(layer.get(), &SWMMModelLayer::modelEdited);
+        QVERIFY(model.commitValueDirect(idx, QString()));
+        QCOMPARE(swmm_init_quality_count(eng), 0);
+        QCOMPARE(dirty.count(), 0);
     }
 };
 
