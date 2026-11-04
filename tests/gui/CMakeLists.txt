@@ -3758,6 +3758,13 @@ add_swmmvis_gui_test(test_processes_hub
 )
 swmmvis_link_full_app_deps(test_processes_hub)
 
+add_swmmvis_gui_test(test_processcomponentsmodel
+    test_processcomponentsmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/processcomponentsmodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/processcomponentsmodel.h)
+target_compile_definitions(test_processcomponentsmodel PRIVATE
+    GUI_TEST_DATA_DIR="${GUI_TEST_DATA_DIR}")
+
 # U5 (2026-09-07) — the 2D page Groundwater group: [2D_OPTIONS] GROUNDWATER /
 # GW_ET round-trip, the infiltration-destination lock the engine's D-I4
 # exclusion implies, and the [GW_*] authored-row summary.

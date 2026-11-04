@@ -190,6 +190,13 @@ bool FilesPage::validate(QString *warn)
 bool FilesPage::validateFilesTab(QString *warn)
 {
     bool anyInvalid = false;
+    if (m_componentsModel) {
+        const auto error = m_componentsModel->validationError();
+        if (!error.isEmpty()) {
+            anyInvalid = true;
+            if (warn) warn->append(error + QLatin1Char('\n'));
+        }
+    }
 
     // ── [PLUGINS] table: empty id rejected ─────────────────────────────
     //
@@ -985,11 +992,10 @@ void FilesPage::buildUi()
     auto *compGroup = new QGroupBox(tr("Process components ([PROCESS_COMPONENTS])"), pluginsPage);
     auto *compLay = new QVBoxLayout(compGroup);
     auto *compIntro =
-        new QLabel(tr("Transport / reaction components bound to this model and the "
-                      "config file each reads (relative to the model file). The "
-                      "reactions component is registered automatically by the Reaction "
-                      "System editor's first save; other ids are listed from the "
-                      "engine's catalogue."),
+        new QLabel(tr("Built-in process settings and external components used by this model. "
+                      "For an external component, enter an instance name, component type, "
+                      "library and configuration file. Paths are relative to the model file. "
+                      "The Reaction System editor registers its component automatically."),
                    compGroup);
     compIntro->setWordWrap(true);
     compLay->addWidget(compIntro);
@@ -998,7 +1004,7 @@ void FilesPage::buildUi()
     m_componentsIdDel = new ProcessComponentIdDelegate(this);
     m_componentsPathDel = new PathBrowseDelegate(
         PathBrowseDelegate::OpenFile, tr("Choose Component Config File"),
-        tr("Component config (*.rxn *.ard *.lard *.heat *.age *.i2d *.txt);;All Files (*)"),
+        tr("Component config (*.json *.rxn *.ard *.lard *.heat *.age *.i2d *.txt);;All Files (*)"),
         tr("config file, relative to the model"), this);
     m_componentsView = new QTableView(compGroup);
     m_componentsView->setObjectName(QStringLiteral("processComponentsView"));
@@ -1006,6 +1012,10 @@ void FilesPage::buildUi()
     m_componentsView->setItemDelegateForColumn(ProcessComponentsModel::ColId, m_componentsIdDel);
     m_componentsView->setItemDelegateForColumn(ProcessComponentsModel::ColConfig,
                                                m_componentsPathDel);
+    m_componentsView->setItemDelegateForColumn(ProcessComponentsModel::ColLibrary,
+        new PathBrowseDelegate(PathBrowseDelegate::OpenFile, tr("Choose Component Library"),
+            tr("Component libraries (*.so *.dylib *.dll);;All Files (*)"),
+            tr("library path, relative to the model"), this));
     m_componentsView->verticalHeader()->setVisible(false);
     m_componentsView->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_componentsView->setSelectionMode(QAbstractItemView::SingleSelection);
@@ -1016,6 +1026,9 @@ void FilesPage::buildUi()
         hdr->setStretchLastSection(false);
         hdr->resizeSection(ProcessComponentsModel::ColId, 300);
         hdr->resizeSection(ProcessComponentsModel::ColConfig, 240);
+        hdr->resizeSection(ProcessComponentsModel::ColComponent, 220);
+        hdr->resizeSection(ProcessComponentsModel::ColLibrary, 240);
+        hdr->resizeSection(ProcessComponentsModel::ColStatus, 180);
     }
     compLay->addWidget(m_componentsView, 1);
 
@@ -1063,7 +1076,12 @@ int FilesPage::writeProcessComponentsToEngine()
 {
     if (!m_componentsModel || !ctx_.engine())
         return 0;
-    return m_componentsModel->commit(ctx_.engine());
+    const int writes = m_componentsModel->commit(ctx_.engine());
+    if (writes < 0) {
+        QMessageBox::warning(this, tr("Process components"), m_componentsModel->errorString());
+        return 0;
+    }
+    return writes;
 }
 
 void FilesPage::readPluginsFromEngine()

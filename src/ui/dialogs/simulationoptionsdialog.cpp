@@ -770,9 +770,11 @@ bool SimulationOptionsDialog::confirmBeforeWrite()
         if (p->validate(&warn))
             continue;
         QMessageBox::warning(this, tr("Invalid entry on %1").arg(p->title()),
-                             tr("One or more rows on %1 are missing a required value or are "
-                                "out of order. Fix the highlighted rows first.")
-                                 .arg(p->title()));
+                             warn.isEmpty()
+                                 ? tr("One or more rows on %1 are missing a required value or are "
+                                      "out of order. Fix the highlighted rows first.")
+                                       .arg(p->title())
+                                 : warn);
         return false;
     }
     if (!warn.isEmpty()) {

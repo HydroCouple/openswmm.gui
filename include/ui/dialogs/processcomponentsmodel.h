@@ -15,9 +15,8 @@
  * config file" registers straight into the engine; a dialog that re-loads
  * on show sees it.
  *
- * The Id column offers the engine's built-in catalogue
- * (swmm_process_component_known_*) and still accepts a free-form id, so a
- * component library id (PROG stream D, later) can be typed today.
+ * The Id column offers the engine's built-in catalogue. Foreign rows use a
+ * stable instance ID plus explicit component type and library columns.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -35,7 +34,7 @@ class ProcessComponentsModel : public QAbstractTableModel
 {
     Q_OBJECT
 public:
-    enum Column { ColId = 0, ColConfig = 1, ColStatus = 2, ColCount };
+    enum Column { ColId = 0, ColConfig = 1, ColComponent = 2, ColLibrary = 3, ColStatus = 4, ColCount };
 
     struct KnownId {
         QString id;
@@ -68,9 +67,9 @@ public:
      */
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;
     /**
-     * @brief Count the component ID/config/status columns.
+     * @brief Count the instance/config/type/library/status columns.
      * @param parent Valid parents have no child columns.
-     * @return Three at root, otherwise zero.
+     * @return Five at root, otherwise zero.
      */
     int columnCount(const QModelIndex &parent = QModelIndex()) const override;
     /**
@@ -92,7 +91,7 @@ public:
      * @param role Must be EditRole.
      * @return True only for a real accepted ID/config change; false for unchanged
      * text, unsupported role/column or invalid/past-end row. Emits dataChanged across
-     * all three columns on change. Does not validate IDs/duplicates/path contents,
+     * all columns on change. Does not validate IDs/duplicates/path contents,
      * refresh resolved provenance or apply an engine edit.
      */
     bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
@@ -132,8 +131,8 @@ public:
      * @param modelDir Copied directory used to resolve relative config paths for
      * status; an empty directory leaves paths relative to the process working directory.
      * Resets the model, discards pending edits and skips failed getters. Copies IDs
-     * and configured/resolved paths through 160/1024/1024-byte buffers; no error result
-     * is exposed and no component config file is opened.
+     * and configured/resolved paths and extra arguments through growing UTF-8
+     * buffers, bounded at 64 MiB. No component config file is opened.
      */
     void load(SWMM_Engine engine, const QString &modelDir);
     //! Apply staged edits to the engine. Returns the number of engine writes.
@@ -141,19 +140,17 @@ public:
      * @brief Apply the staged registration difference and reload actual engine state.
      * @param engine Borrowed mutable engine in an API-permitted editing state; null
      * is a no-op. Caller coordinates model lifetime and concurrent/external edits.
-     * @return Count of successful remove/register calls, zero for null/clean model.
-     * Removes current engine rows absent as exact ID/config pairs in the draft, then
-     * registers nonblank IDs not found in the engine. Failed getters/writes are
-     * ignored; no rollback or per-row error is returned. Duplicate staged IDs may
-     * collapse, and external registrations absent from the draft can be removed.
-     * Always reloads after a dirty non-null attempt, discarding rejected draft rows
-     * and resetting the baseline even after partial failure. Does not write input files.
+     * @return Count of successful mutations, zero for null/clean model, or -1 with
+     * errorString() on failure. Duplicate IDs and incomplete foreign rows fail before
+     * mutation. Replaced registrations retain every extra argument. A successful
+     * write reloads the baseline. API failures preserve the draft; no rollback is
+     * provided for mutations completed before an API failure. Does not write files.
      */
     int commit(SWMM_Engine engine);
     //! True when the rows differ from what load() read.
     /**
      * @brief Compare staged rows with the last loaded baseline.
-     * @return True on size/order/exact ID or config differences. Resolved-path metadata
+     * @return True on size/order/exact ID, config or argument differences. Resolved-path metadata
      * is ignored; a dirty draft does not prove any engine change has occurred.
      */
     bool isDirty() const;
@@ -178,13 +175,18 @@ public:
      * @return Owned path or empty for an invalid row; a valid row may also have no path.
      */
     QString configAt(int row) const;
+    QString errorString() const { return m_error; }
+    //! Validate identities and the foreign library/type pair without loading code.
+    QString validationError() const;
 
 private:
     struct Row {
         QString id;
         QString config;
         QString resolved; //!< path the engine read the file from (may be empty)
+        QList<QPair<QString, QString>> arguments;
     };
+    static bool readRow(SWMM_Engine engine, int index, Row &row);
     /**
      * @brief Describe catalogue recognition/implementation and config-path existence.
      * @param r Borrowed staged row with copied ID/config/provenance.
@@ -198,6 +200,7 @@ private:
     QList<Row> m_rows;
     QList<Row> m_loaded;
     QString m_modelDir;
+    QString m_error;
 };
 
 //! Combo editor over the built-in catalogue, editable for free-form ids.
