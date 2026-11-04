@@ -1954,42 +1954,6 @@ void FuseVirtualJunctionCommand::undo()
 }
 
 // ===========================================================================
-// SetInletUsageCommand
-// ===========================================================================
-
-SetInletUsageCommand::SetInletUsageCommand(SWMMModelLayer *layer, const SWMM_InletUsage &newUsage,
-                                           bool removing, MapCanvas *canvas, QUndoCommand *parent)
-    : MapCommand(removing ? QObject::tr("Remove Inlet") : QObject::tr("Edit Inlet"), canvas,
-                 parent),
-      m_layer(layer), m_new(newUsage), m_removing(removing)
-{
-    // Snapshot the host's prior row so undo can put it back verbatim; its
-    // absence is equally meaningful (undo then removes).
-    if (m_layer)
-        m_hadOld = m_layer->inletUsageFor(m_new.host_kind, m_new.host_idx, &m_old);
-}
-
-void SetInletUsageCommand::redo()
-{
-    if (!m_layer)
-        return;
-    if (m_removing)
-        m_layer->applyRemoveInletUsage(m_new.host_kind, m_new.host_idx);
-    else
-        m_layer->applySetInletUsage(m_new);
-}
-
-void SetInletUsageCommand::undo()
-{
-    if (!m_layer)
-        return;
-    if (m_hadOld)
-        m_layer->applySetInletUsage(m_old);
-    else
-        m_layer->applyRemoveInletUsage(m_new.host_kind, m_new.host_idx);
-}
-
-// ===========================================================================
 // SetNodeCoupling2DCommand
 // ===========================================================================
 

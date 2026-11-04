@@ -69,6 +69,7 @@ private:
     void refreshLabel();
 
     SubcatchCompoundEditRef m_ref;
+    QPointer<SWMMModelLayer> m_owner;
     QPushButton *m_btn = nullptr;
 };
 

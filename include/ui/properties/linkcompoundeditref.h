@@ -27,6 +27,9 @@
 
 #include <QMetaType>
 #include <QString>
+#include <QStringList>
+#include <QPointer>
+#include <QUndoStack>
 
 #include <openswmm/engine/openswmm_callbacks.h> // SWMM_Engine typedef
 
@@ -39,7 +42,7 @@ struct LinkCompoundEditRef {
      *  `SWMM-GUI/Epaswmm5/objprops.txt` (Shape, Inlets). */
     enum Kind {
         XSection = 0, ///< `[XSECTIONS]` per-link shape + geom1..4 + barrels
-        InletUsage,   ///< `[INLETS]` per-conduit usage rows (placeholder)
+        InletUsage,   ///< `[INLET_USAGE]` per-conduit assignments
     };
 
     SWMM_Engine engine = nullptr; ///< Engine handle (borrow, not owned)
@@ -51,6 +54,8 @@ struct LinkCompoundEditRef {
      *  `applyLinkCulvertCode` so the Map + Attribute Table refresh via
      *  `attributeChanged(linkName)` without a second source of truth. */
     SWMMModelLayer *layer = nullptr;
+    QStringList linkNames; ///< Captured inlet host scope; empty uses linkName.
+    QPointer<QUndoStack> undoStack;
 
     /**
      * @brief Compare reference identity and every cached display/value field.
@@ -60,7 +65,8 @@ struct LinkCompoundEditRef {
     bool operator==(const LinkCompoundEditRef &other) const noexcept
     {
         return engine == other.engine && linkName == other.linkName && kind == other.kind &&
-               summary == other.summary && layer == other.layer;
+               summary == other.summary && layer == other.layer && linkNames == other.linkNames &&
+               undoStack == other.undoStack;
     }
 };
 

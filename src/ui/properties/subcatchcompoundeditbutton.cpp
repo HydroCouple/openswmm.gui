@@ -35,6 +35,7 @@ SubcatchCompoundEditButton::SubcatchCompoundEditButton(QWidget *parent)
 void SubcatchCompoundEditButton::setValue(const SubcatchCompoundEditRef &ref)
 {
     m_ref = ref;
+    m_owner = ref.layer;
     refreshLabel();
 }
 
@@ -49,6 +50,8 @@ void SubcatchCompoundEditButton::refreshLabel()
 void SubcatchCompoundEditButton::onClicked()
 {
     if (!m_ref.engine || m_ref.subName.isEmpty())
+        return;
+    if (m_ref.layer && (!m_owner || m_owner->engine() != m_ref.engine))
         return;
 
     // Groundwater has its own modeless editor (AQUIFER_GROUNDWATER_EXCHANGE
@@ -69,7 +72,8 @@ void SubcatchCompoundEditButton::onClicked()
     }
 
     if (m_ref.layer && (m_ref.kind == SubcatchCompoundEditRef::LandUse ||
-                        m_ref.kind == SubcatchCompoundEditRef::Loadings)) {
+                        m_ref.kind == SubcatchCompoundEditRef::Loadings ||
+                        m_ref.kind == SubcatchCompoundEditRef::LidUsage)) {
         auto ref = m_ref;
         if (!ref.undoStack)
             for (auto *canvas : window()->findChildren<MapCanvas *>())

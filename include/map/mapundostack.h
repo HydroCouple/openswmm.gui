@@ -2214,62 +2214,6 @@ private:
 };
 
 /*!
- * \class SetInletUsageCommand
- * \brief Records a change to one inlet-usage row (conduit host or inlet
- *        junction host — the same command serves both, per §2.4/§3.4 of
- *        workplans/INLET_EDITOR_AND_INLET_JUNCTION_GUI_PLAN_2026-09-05.md).
- * \details The constructor snapshots the host's PRIOR row (or its absence),
- *          so undo restores the previous design / capture node / counts, or
- *          removes the row again when there was none. redo() applies the new
- *          row; passing an "absent" new state makes this a removal command.
- */
-class SetInletUsageCommand : public MapCommand
-{
-public:
-    /*! \param newUsage   Row to install on redo.
-     *  \param removing   true to REMOVE the host's row instead of setting it
-     *                    (only newUsage.host_kind / host_idx are then read).
-     * @brief Snapshot existing host usage row or its absence before set/removal.
-     * @param[in] layer Borrowed raw model pointer, must outlive command and refer to intended
-     *   engine during replay; GUI-thread access.
-     * @param[in] canvas Optional borrowed raw canvas; caller keeps it alive during command
-     *   lifetime.
-     * @param[in] parent Optional QUndoCommand owner; otherwise stack owns after push.
-     * @note Raw SWMM_InletUsage numeric indices copied unchanged, not name-resolved after topology
-     *   repacking. Caller must preserve host/design/capture index identities for replay;
-     *   constructor getter failure is indistinguishable from absent row. No first-redo skip.
-     * @note Constructor stores/snapshots state without applying. Normal QUndoStack push immediately
-     *   invokes redo; errors do not automatically reverse the stack index.
-     */
-    SetInletUsageCommand(SWMMModelLayer *layer, const SWMM_InletUsage &newUsage, bool removing,
-                         MapCanvas *canvas, QUndoCommand *parent = nullptr);
-
-    /**
-     * @brief Restore prior whole usage if captured, otherwise remove selected new host. Numeric
-     *   indices must remain coherent; statuses ignored.
-     */
-    void undo() override;
-    /**
-     * @brief Apply new usage or remove selected host according to stored removing flag; null layer
-     *   no-op, mutation statuses ignored.
-     */
-    void redo() override;
-    /**
-     * @return Constant command-family ID 24 used by Qt merge dispatch; no state mutation. Only
-     *   classes with explicit mergeWith implement merging, and callers must not pass another
-     *   concrete class solely because IDs collide.
-     */
-    int id() const override { return 24; }
-
-private:
-    SWMMModelLayer *m_layer = nullptr;
-    SWMM_InletUsage m_new{};
-    SWMM_InletUsage m_old{};
-    bool m_removing = false; ///< redo removes rather than sets
-    bool m_hadOld = false;   ///< a row existed before this command
-};
-
-/*!
  * \class SetNodeCoupling2DCommand
  * \brief Records a change to one or more nodes' 1D↔2D coupling structure
  *        ([2D_NODE_COUPLING]) — a property edit, a bulk "set coupleable" or

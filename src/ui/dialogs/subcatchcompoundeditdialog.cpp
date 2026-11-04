@@ -10,6 +10,7 @@
  */
 
 #include "ui/dialogs/subcatchcompoundeditdialog.h"
+#include "ui/panels/usagetablemodel.h"
 #include "ui/panels/subcatchqualitytablemodel.h"
 #include "core/displaynumber.h"
 #include "ui/uiscrollhelpers.h"
@@ -62,6 +63,15 @@ SubcatchCompoundEditDialog::SubcatchCompoundEditDialog(SubcatchCompoundEditRef r
         return;
     }
 
+    if (m_ref.layer && m_ref.kind == SubcatchCompoundEditRef::LidUsage) {
+        buildUsageEditor(this, usageRef(m_ref));
+        connect(m_ref.layer, &SWMMModelLayer::engineAboutToClose, this,
+                &SubcatchCompoundEditDialog::invalidateContext);
+        connect(m_ref.layer, &QObject::destroyed, this,
+                &SubcatchCompoundEditDialog::invalidateContext);
+        return;
+    }
+
     m_stack = new QStackedWidget(this);
     buildLandUsePage();  // index 0
     buildLidUsagePage(); // index 1
@@ -85,6 +95,11 @@ SubcatchCompoundEditDialog::SubcatchCompoundEditDialog(SubcatchCompoundEditRef r
         connect(m_ref.layer, SIGNAL(engineAboutToClose()), this, SLOT(invalidateContext()));
         connect(m_ref.layer, SIGNAL(geometryChanged()), this, SLOT(checkContext()));
     }
+}
+
+SubcatchCompoundEditDialog::~SubcatchCompoundEditDialog()
+{
+    invalidateUsageEditor(this);
 }
 
 int SubcatchCompoundEditDialog::pageIndexFor(SubcatchCompoundEditRef::Kind kind)

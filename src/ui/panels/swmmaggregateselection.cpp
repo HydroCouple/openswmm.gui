@@ -16,12 +16,17 @@
 #include "ui/properties/linkendpointref.h"
 #include "ui/properties/nodecompoundeditref.h"
 #include "ui/properties/subcatchcompoundeditref.h"
+#include "ui/properties/usageeditref.h"
 
 using openswmmvis::EditorKind;
 
 namespace {
 QVariant comparable(const QVariant &value)
 {
+    if (value.userType() == qMetaTypeId<UsageEditRef>())
+        return int(value.value<UsageEditRef>().family);
+    if (value.userType() == qMetaTypeId<LinkCompoundEditRef>())
+        return int(value.value<LinkCompoundEditRef>().kind);
     if (value.userType() == qMetaTypeId<SubcatchCompoundEditRef>())
         return int(value.value<SubcatchCompoundEditRef>().kind);
     if (value.userType() == qMetaTypeId<NodeCompoundEditRef>())
@@ -102,26 +107,28 @@ bool SWMMAggregateSelection::supports(const openswmmvis::ColumnSpec &spec)
         "node_outfall_type", "node_storage_shape", "node_divider_type", "subcatch_infil_model",
         "gage_data_source", "gage_file_format"};
     return !spec.setter.isEmpty() && spec.key != QLatin1String("Name") &&
-        (spec.editor == EditorKind::Numeric || spec.editor == EditorKind::Integer ||
-         spec.editor == EditorKind::Interval || spec.editor == EditorKind::LinkEndpoint ||
-         (spec.editor == EditorKind::Compound &&
-          (spec.setter == "node_inflows_ref" || spec.setter == "node_dwf_ref" ||
-           spec.setter == "subcatch_landuse_ref" || spec.setter == "subcatch_loadings_ref" ||
-           spec.setter == "subcatch_groundwater_ref" ||
-           spec.setter == "node_rdii_ref" || spec.setter == "node_treatment_ref" ||
-           spec.setter == QLatin1String("link_pump_curve_ref") ||
-           spec.setter == QLatin1String("node_outfall_route_to_ref") ||
-           spec.setter == QLatin1String("node_outfall_tidal_ref") ||
-           spec.setter == QLatin1String("node_outfall_timeseries_ref") ||
-           spec.setter == QLatin1String("node_storage_curve_ref") ||
-           spec.setter == "node_divider_curve_ref" || spec.setter == "gage_series_ref" ||
-           spec.setter == "subcatch_rain_gage_ref" || spec.setter == "subcatch_outlet_ref" ||
-           spec.setter == "subcatch_snowpack_ref" || spec.setter == "subcatch_aquifer_ref" ||
-           spec.setter == QLatin1String("link_xsect_transect_ref") ||
-           spec.setter == QLatin1String("link_xsect_street_ref"))) ||
-         (spec.editor == EditorKind::Enum && independentChoices.contains(spec.setter)) ||
-         spec.editor == EditorKind::FileBrowse || spec.editor == EditorKind::FileColumn ||
-         (spec.editor == EditorKind::Text && (spec.key == QLatin1String("Tag") || spec.setter == "gage_station_id")));
+           (spec.editor == EditorKind::Numeric || spec.editor == EditorKind::Integer ||
+            spec.editor == EditorKind::Interval || spec.editor == EditorKind::LinkEndpoint ||
+            (spec.editor == EditorKind::Compound &&
+             (spec.setter == "node_inflows_ref" || spec.setter == "node_dwf_ref" ||
+              spec.setter == "subcatch_landuse_ref" || spec.setter == "subcatch_loadings_ref" ||
+              spec.setter == "subcatch_groundwater_ref" || spec.setter == "subcatch_lid_ref" ||
+              spec.setter == "link_inlet_usage_ref" || spec.setter == "node_inlet_usage_ref" ||
+              spec.setter == "node_rdii_ref" || spec.setter == "node_treatment_ref" ||
+              spec.setter == QLatin1String("link_pump_curve_ref") ||
+              spec.setter == QLatin1String("node_outfall_route_to_ref") ||
+              spec.setter == QLatin1String("node_outfall_tidal_ref") ||
+              spec.setter == QLatin1String("node_outfall_timeseries_ref") ||
+              spec.setter == QLatin1String("node_storage_curve_ref") ||
+              spec.setter == "node_divider_curve_ref" || spec.setter == "gage_series_ref" ||
+              spec.setter == "subcatch_rain_gage_ref" || spec.setter == "subcatch_outlet_ref" ||
+              spec.setter == "subcatch_snowpack_ref" || spec.setter == "subcatch_aquifer_ref" ||
+              spec.setter == QLatin1String("link_xsect_transect_ref") ||
+              spec.setter == QLatin1String("link_xsect_street_ref"))) ||
+            (spec.editor == EditorKind::Enum && independentChoices.contains(spec.setter)) ||
+            spec.editor == EditorKind::FileBrowse || spec.editor == EditorKind::FileColumn ||
+            (spec.editor == EditorKind::Text &&
+             (spec.key == QLatin1String("Tag") || spec.setter == "gage_station_id")));
 }
 
 QList<int> SWMMAggregateSelection::rows() const
@@ -161,6 +168,24 @@ QVariant SWMMAggregateSelection::editorData(int column, int role) const
             const int row = model->rowForName(name);
             if (row < 0) continue;
             auto value = model->index(row, col).data(role);
+            if (value.userType() == qMetaTypeId<UsageEditRef>()) {
+                auto ref = value.value<UsageEditRef>();
+                ref.targets.clear();
+                for (auto it = m_targets.cbegin(); it != m_targets.cend(); ++it)
+                    for (const auto &name : it.value())
+                        ref.targets.append({UsageTarget::Node, name});
+                ref.undoStack = m_undo;
+                ref.summary = tr("%1 selected inlet hosts").arg(ref.targets.size());
+                return QVariant::fromValue(ref);
+            }
+            if (value.userType() == qMetaTypeId<LinkCompoundEditRef>()) {
+                auto ref = value.value<LinkCompoundEditRef>();
+                for (auto it = m_targets.cbegin(); it != m_targets.cend(); ++it)
+                    ref.linkNames.append(it.value());
+                ref.undoStack = m_undo;
+                ref.summary = tr("%1 selected conduits").arg(ref.linkNames.size());
+                return QVariant::fromValue(ref);
+            }
             if (value.userType() == qMetaTypeId<SubcatchCompoundEditRef>()) {
                 auto ref = value.value<SubcatchCompoundEditRef>();
                 for (auto it = m_targets.cbegin(); it != m_targets.cend(); ++it)
@@ -275,6 +300,9 @@ SWMMAggregateSelection::Field SWMMAggregateSelection::field(int column) const
 
 bool SWMMAggregateSelection::setValue(int column, const QVariant &value)
 {
+    if (value.userType() == qMetaTypeId<UsageEditRef>() ||
+        value.userType() == qMetaTypeId<LinkCompoundEditRef>())
+        return true;
     if (value.userType() == qMetaTypeId<NodeCompoundEditRef>()) return true; // Navigation; the child model owns writes.
     if (value.userType() == qMetaTypeId<SubcatchCompoundEditRef>()) return true;
     QString error;

@@ -30,6 +30,7 @@
 #include "ui/dialogs/nodecompoundeditdialog.h"
 #include "ui/dialogs/subcatchcompoundeditdialog.h"
 #include "ui/dialogs/groundwaterexchangedialog.h"
+#include "ui/panels/usagetablemodel.h"
 #include "ui/dialogs/patterneditordialog.h"
 #include "ui/dialogs/timeserieseditordialog.h"
 #include "curve/curveregistry.h"
@@ -3085,11 +3086,33 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
             });
             addedEditAction = true;
         }
+    } else if (metaId == qMetaTypeId<UsageEditRef>()) {
+        auto ref = cellValue.value<UsageEditRef>();
+        const auto rows = selectedSourceRows();
+        const auto scope = rows.contains(sourceIdx.row()) ? rows : QList<int>{sourceIdx.row()};
+        ref.targets.clear();
+        for (int row : scope)
+            if (m_model->flags(m_model->index(row, sourceIdx.column())) & Qt::ItemIsEditable)
+                ref.targets.append({UsageTarget::Node, m_model->objectNameAt(row)});
+        ref.undoStack = m_canvas ? m_canvas->undoStack() : nullptr;
+        if (!ref.targets.isEmpty()) {
+            auto label =
+                tr("Edit inlet assignments for %1 inlet junctions").arg(ref.targets.size());
+            if (ref.targets.size() < scope.size())
+                label += tr(" — %1 excluded").arg(scope.size() - ref.targets.size());
+            auto *action = menu.addAction(label + QStringLiteral("…"));
+            connect(action, &QAction::triggered, this, [this, ref] {
+                if (m_model->layer() == ref.layer && ref.layer->engine() == ref.engine)
+                    openUsageEditor(ref, window());
+            });
+            addedEditAction = true;
+        }
     } else if (metaId == qMetaTypeId<SubcatchCompoundEditRef>()) {
         auto ref = cellValue.value<SubcatchCompoundEditRef>();
         if (ref.layer && (ref.kind == SubcatchCompoundEditRef::LandUse ||
                           ref.kind == SubcatchCompoundEditRef::Loadings ||
-                          ref.kind == SubcatchCompoundEditRef::Groundwater)) {
+                          ref.kind == SubcatchCompoundEditRef::Groundwater ||
+                          ref.kind == SubcatchCompoundEditRef::LidUsage)) {
             const auto rows = selectedSourceRows();
             if (rows.contains(sourceIdx.row()))
                 for (int row : rows)
@@ -3113,11 +3136,29 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
             addedEditAction = true;
         }
     } else if (metaId == qMetaTypeId<LinkCompoundEditRef>()) {
-        const LinkCompoundEditRef ref = cellValue.value<LinkCompoundEditRef>();
+        auto ref = cellValue.value<LinkCompoundEditRef>();
+        if (ref.layer && ref.kind == LinkCompoundEditRef::InletUsage) {
+            const auto rows = selectedSourceRows();
+            if (rows.contains(sourceIdx.row()))
+                for (int row : rows)
+                    ref.linkNames.append(m_model->objectNameAt(row));
+            ref.undoStack = m_canvas ? m_canvas->undoStack() : nullptr;
+        }
         if (ref.engine && !ref.linkName.isEmpty()) {
             QAction *act = menu.addAction(
-                ref.summary.isEmpty() ? tr("Edit…") : tr("Edit \"%1\"…").arg(ref.summary));
+                ref.kind == LinkCompoundEditRef::InletUsage
+                    ? tr("Edit Inlet Usage for %1 conduits…")
+                          .arg(ref.linkNames.isEmpty() ? 1 : ref.linkNames.size())
+                    : (ref.summary.isEmpty() ? tr("Edit…") : tr("Edit \"%1\"…").arg(ref.summary)));
             connect(act, &QAction::triggered, this, [this, ref, sourceIdx]() {
+                if (ref.layer && ref.kind == LinkCompoundEditRef::InletUsage) {
+                    if (m_model->layer() != ref.layer || ref.layer->engine() != ref.engine)
+                        return;
+                    auto *dialog = new LinkCompoundEditDialog(ref, window());
+                    dialog->setAttribute(Qt::WA_DeleteOnClose);
+                    dialog->show();
+                    return;
+                }
                 LinkCompoundEditDialog dlg(ref, this);
                 dlg.exec();
                 LinkCompoundEditRef updated = ref;

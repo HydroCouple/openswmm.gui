@@ -659,9 +659,13 @@ public slots:
     void setCulvertCodeRef(const CulvertCodeRef &) { emit changed(); }
     /**
      * @brief Complete the property-delegate round trip after the editor has applied its own changes.
-     * @details The reference argument is intentionally ignored; emits changed unconditionally and performs no engine write.
+     * @details Owned navigation performs no write or change notification; the shared editor reports accepted edits. Unowned legacy editors emit changed.
      */
-    void setInletUsageRef(const LinkCompoundEditRef &) { emit changed(); }
+    void setInletUsageRef(const LinkCompoundEditRef &)
+    {
+        if (!m_layer)
+            emit changed();
+    }
 
     /*! Round-4 follow-up — see SWMMNodePropertyAdapter::refresh.
      * @details Emits changed unconditionally to reread live properties; no engine input is written.

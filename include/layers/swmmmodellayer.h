@@ -2981,14 +2981,13 @@ public:
     [[nodiscard]] MapCanvas *editCanvas() const;
 
     /*! \brief Apply one inlet-usage row as a single undoable step. Pushes a
-     *         SetInletUsageCommand on the edit canvas's stack when one is
-     *         bound; falls back to applySetInletUsage() otherwise.
+     *         checked named-identity command on the edit canvas's stack when one is
+     *         bound; uses the same checked writer without a history otherwise.
      * @param[in] usage Complete engine-unit row copied into undo command or passed to direct
      *   setter.
-     * @return True when command pushed to bound undo stack, regardless of command redo failure;
-     *   without usable stack returns actual applySetInletUsage result. Push invokes redo
-     *   immediately under Qt stack convention; caller must inspect command/UI diagnostics for
-     *   rejected edits.
+     * @return True only after preflight, verified mutation and optional Undo push. Rejected edits
+     *   are rolled back before returning false. Unchanged values do not create a command.
+     *   Without an edit canvas the same checked writer applies without an Undo history.
      */
     bool pushInletUsageEdit(const SWMM_InletUsage &usage);
     /*! \brief Undoable counterpart of applyRemoveInletUsage().

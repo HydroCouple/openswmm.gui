@@ -33,6 +33,7 @@
 #include <openswmm/engine/openswmm_infrastructure.h> // SWMM_InletUsage
 
 #include "layers/nodecoupling2d.h" // 1D↔2D coupling state
+#include "ui/properties/usageeditref.h"
 #include "ui/properties/dataobjectref.h"
 #include "ui/properties/initialqualityeditref.h"
 #include "ui/properties/nodecompoundeditref.h"
@@ -401,6 +402,8 @@ public:
      * @return Inlet picker coordinate locked to STREET-compatible designs for an inlet junction; current name is empty when no usage row exists.
      */
     [[nodiscard]] DataObjectRef inletDesignRef() const;
+    [[nodiscard]] UsageEditRef inletUsageEditRef() const;
+    void setInletUsageEditRef(const UsageEditRef &) {} // Navigation; the shared model owns writes.
     /**
      * @return CaptureNode picker coordinate with host node index and the current receiving node ID, empty when unavailable.
      */
@@ -1248,6 +1251,8 @@ class SWMMInletJunctionPropertyAdapter : public SWMMVirtualJunctionPropertyAdapt
     // from the whole metaObject, so a redeclaration would render the row
     // twice. rimDepth's inlet-specific label ("Street Max Depth") comes from
     // displayLabelFor(), which branches on nodeKind().
+    Q_PROPERTY(UsageEditRef inletAssignment READ inletUsageEditRef WRITE setInletUsageEditRef NOTIFY
+                   changed)
     Q_PROPERTY(DataObjectRef inletDesign READ inletDesignRef WRITE setInletDesignRef NOTIFY changed)
     Q_PROPERTY(DataObjectRef captureNode READ captureNodeRef WRITE setCaptureNodeRef NOTIFY changed)
     Q_PROPERTY(int numInlets READ numInlets WRITE setNumInlets NOTIFY changed)

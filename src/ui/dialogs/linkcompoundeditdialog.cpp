@@ -9,6 +9,7 @@
  */
 
 #include "ui/dialogs/linkcompoundeditdialog.h"
+#include "ui/panels/usagetablemodel.h"
 #include "ui/theme/themehelpers.h"
 
 #include "layers/swmmmodellayer.h"
@@ -115,6 +116,14 @@ LinkCompoundEditDialog::LinkCompoundEditDialog(LinkCompoundEditRef ref, QWidget 
     setObjectName(QStringLiteral("LinkCompoundEditDialog"));
     setWindowTitle(tr("Edit Link Attribute — %1").arg(m_ref.linkName));
 
+    if (m_ref.layer && m_ref.kind == LinkCompoundEditRef::InletUsage) {
+        buildUsageEditor(this, usageRef(m_ref));
+        connect(m_ref.layer, &SWMMModelLayer::engineAboutToClose, this,
+                &LinkCompoundEditDialog::invalidateContext);
+        connect(m_ref.layer, &QObject::destroyed, this, &LinkCompoundEditDialog::invalidateContext);
+        return;
+    }
+
     m_stack = new QStackedWidget(this);
     buildXSectionPage();
     buildInletUsagePage();
@@ -156,6 +165,11 @@ void LinkCompoundEditDialog::checkContext()
 {
     if (linkIdx() < 0)
         invalidateContext();
+}
+
+LinkCompoundEditDialog::~LinkCompoundEditDialog()
+{
+    invalidateUsageEditor(this);
 }
 
 int LinkCompoundEditDialog::linkIdx() const

@@ -9,6 +9,7 @@
  */
 
 #include "ui/panels/attributedelegates.h"
+#include "ui/properties/usageeditbutton.h"
 
 #include "ui/properties/linkcompoundeditbutton.h"
 #include "ui/properties/linkcompoundeditref.h"
@@ -333,6 +334,8 @@ QString CompoundEditDelegate::displayText(const QVariant &value, const QLocale &
         const auto ref = value.value<SubcatchCompoundEditRef>();
         return ref.summary.isEmpty() ? tr("Edit…") : tr("%1 — Edit…").arg(ref.summary);
     }
+    if (value.userType() == qMetaTypeId<UsageEditRef>())
+        return value.value<UsageEditRef>().summary;
     return value.toString();
 }
 
@@ -343,6 +346,8 @@ QWidget *CompoundEditDelegate::createEditor(QWidget *parent, const QStyleOptionV
     // we build. The button's dialog is the source of truth for the
     // compound edit; the delegate only marshals values in/out.
     const QVariant v = index.data(Qt::EditRole);
+    if (v.userType() == qMetaTypeId<UsageEditRef>())
+        return new UsageEditButton(parent);
     if (v.userType() == qMetaTypeId<LinkCompoundEditRef>())
         return new LinkCompoundEditButton(parent);
     if (v.userType() == qMetaTypeId<DataObjectRef>()) {
@@ -362,6 +367,10 @@ QWidget *CompoundEditDelegate::createEditor(QWidget *parent, const QStyleOptionV
 void CompoundEditDelegate::setEditorData(QWidget *editor, const QModelIndex &index) const
 {
     const QVariant v = index.data(Qt::EditRole);
+    if (auto *button = qobject_cast<UsageEditButton *>(editor)) {
+        button->setValue(v.value<UsageEditRef>());
+        return;
+    }
     if (auto *nb = qobject_cast<NodeCompoundEditButton *>(editor)) {
         if (v.userType() == qMetaTypeId<NodeCompoundEditRef>())
             nb->setValue(v.value<NodeCompoundEditRef>());
@@ -392,6 +401,10 @@ void CompoundEditDelegate::setEditorData(QWidget *editor, const QModelIndex &ind
 void CompoundEditDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
                                         const QModelIndex &index) const
 {
+    if (auto *button = qobject_cast<UsageEditButton *>(editor)) {
+        model->setData(index, QVariant::fromValue(button->value()), Qt::EditRole);
+        return;
+    }
     // After the dialog closes, the button holds a refreshed ref with
     // an updated summary. The model's commitValueDirect() path uses
     // this only as a trigger to invalidate the row cache + emit

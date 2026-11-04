@@ -23,6 +23,7 @@
 #include "ui/models/userflagsmodel.h"
 #include "ui/properties/culvertcodes.h"       // ATTRIBUTE_EDITOR_WIRING Phase 0
 #include "ui/properties/dataobjectref.h"      // pump-curve picker cell
+#include "ui/properties/usageeditref.h"
 #include "ui/properties/groundwatersummary.h" // Groundwater cell summary text
 #include "ui/properties/rainintervalref.h"    // DA.2 parity — H:MM interval helpers
 #include "ui/properties/linkcompoundeditref.h"
@@ -925,6 +926,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
         // Edit…" button that opens NodeCompoundEditDialog at the right
         // page. Same widget the Property Browser uses, so editing from
         // either view round-trips identically.
+        cols.append(compoundCol("Inlet assignment", "Inlet Assignment", "node_inlet_usage_ref"));
         cols.append(compoundCol("Inflows", "External Inflows", "node_inflows_ref"));
         cols.append(compoundCol("DWF", "Dry Weather Flow", "node_dwf_ref"));
         cols.append(compoundCol("RDII", "RDII", "node_rdii_ref"));
@@ -4054,6 +4056,19 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
         if (!eng || name.isEmpty())
             return {};
 
+        if (spec.setter == "node_inlet_usage_ref") {
+            UsageEditRef ref;
+            ref.family = UsageEditRef::Inlet;
+            ref.layer = m_layer;
+            ref.engine = eng;
+            ref.undoStack = m_undoStack;
+            ref.targets = {{UsageTarget::Node, name}};
+            int node = swmm_node_index(eng, name.toUtf8().constData()), inlet = 0;
+            swmm_node_is_inlet(eng, node, &inlet);
+            ref.summary = inlet ? tr("Edit inlet assignment") : tr("Inlet junctions only");
+            return QVariant::fromValue(ref);
+        }
+
         // ATTRIBUTE_EDITOR_WIRING follow-up (2026-06-04) — per-object
         // "User Flags" cell, Property Browser parity. Mirrors
         // SWMM*PropertyAdapter::userFlagsRef(); the button's dialog
@@ -4140,6 +4155,7 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             lref.engine = eng;
             lref.linkName = name;
             lref.layer = m_layer;
+            lref.undoStack = m_undoStack;
             if (spec.setter == QStringLiteral("link_xsect_ref")) {
                 lref.kind = LinkCompoundEditRef::XSection;
                 lref.summary = xsectSummaryFor(eng, linkIdx);
@@ -4147,7 +4163,14 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
                 // Parity pass — placeholder summary mirrors
                 // SWMMLinkPropertyAdapter::inletUsageRef (BN-LINK-11).
                 lref.kind = LinkCompoundEditRef::InletUsage;
-                lref.summary = tr("(engine API pending — Slice BO 6.5.8)");
+                SWMM_InletUsage usage{};
+                const int row = swmm_inlet_usage_find_link(eng, linkIdx);
+                if (row >= 0 && swmm_inlet_usage_get(eng, row, &usage) == SWMM_OK)
+                    lref.summary = tr("%1 → %2").arg(
+                        QString::fromUtf8(swmm_inlet_id(eng, usage.design_idx)),
+                        QString::fromUtf8(swmm_node_id(eng, usage.capture_node_idx)));
+                else
+                    lref.summary = tr("(none)");
             }
             return QVariant::fromValue(lref);
         }
@@ -4619,6 +4642,16 @@ Qt::ItemFlags SWMMAttributeTableModel::flags(const QModelIndex &index) const
             if (rc != SWMM_OK ||
                 (current >= 0 &&
                  (swmm_node_is_virtual(engine, current, &isVirtual) != SWMM_OK || isVirtual)))
+                return f;
+        }
+        if (spec.setter == "node_inlet_usage_ref") {
+            int inlet = 0;
+            if (!m_layer || !m_layer->engine() ||
+                swmm_node_is_inlet(m_layer->engine(),
+                                   swmm_node_index(m_layer->engine(),
+                                                   objectNameAt(index.row()).toUtf8().constData()),
+                                   &inlet) != SWMM_OK ||
+                !inlet)
                 return f;
         }
         // Lock edits while a simulation is running.
@@ -6306,6 +6339,18 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index, const QVariant &
         return applyScalarEdits(QStringList{objectNameAt(row)}, {{spec.key, value}}, m_undoStack, &error);
     }
 
+    if (value.userType() == qMetaTypeId<UsageEditRef>()) {
+        const auto ref = value.value<UsageEditRef>();
+        if (ref.layer == m_layer && ref.engine == m_layer->engine() &&
+            spec.setter == "node_inlet_usage_ref")
+            return true;
+    }
+    if (value.userType() == qMetaTypeId<LinkCompoundEditRef>()) {
+        const auto ref = value.value<LinkCompoundEditRef>();
+        if (ref.layer == m_layer && ref.engine == m_layer->engine() &&
+            spec.setter == "link_inlet_usage_ref")
+            return true;
+    }
     if (value.userType() == qMetaTypeId<NodeCompoundEditRef>()) {
         const auto ref = value.value<NodeCompoundEditRef>();
         if (ref.layer == m_layer && ref.engine == m_layer->engine() &&
@@ -6317,7 +6362,7 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index, const QVariant &
         const auto ref = value.value<SubcatchCompoundEditRef>();
         if (ref.layer == m_layer && ref.engine == m_layer->engine() &&
             (spec.setter == "subcatch_landuse_ref" || spec.setter == "subcatch_loadings_ref" ||
-             spec.setter == "subcatch_groundwater_ref"))
+             spec.setter == "subcatch_groundwater_ref" || spec.setter == "subcatch_lid_ref"))
             return true;
     }
 
