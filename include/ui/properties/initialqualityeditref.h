@@ -22,11 +22,13 @@
 
 #include <QMetaType>
 #include <QString>
+class SWMMModelLayer;
 
 #include <openswmm/engine/openswmm_callbacks.h> // SWMM_Engine typedef
 
 /*! Identifies the [INITIAL_QUALITY] overrides of a single node or link. */
 struct InitialQualityEditRef {
+    SWMMModelLayer *layer = nullptr;
     SWMM_Engine engine = nullptr; ///< Engine handle (borrow, not owned)
     int isLink = 0;               ///< 0 = node scope, 1 = link scope
     QString elementName;          ///< Owning element id (case-preserved)
@@ -40,7 +42,7 @@ struct InitialQualityEditRef {
      */
     bool operator==(const InitialQualityEditRef &other) const noexcept
     {
-        return engine == other.engine && isLink == other.isLink &&
+        return layer == other.layer && engine == other.engine && isLink == other.isLink &&
                elementName == other.elementName && summary == other.summary &&
                wroteChanges == other.wroteChanges;
     }

@@ -18,12 +18,16 @@
 #include "ui/properties/subcatchcompoundeditref.h"
 #include "ui/properties/usageeditref.h"
 #include "layers/nodestructureedits.h"
+#include "layers/inheritedpropertyedits.h"
+#include "ui/models/userflagsmodel.h"
+#include "ui/properties/userflagseditref.h"
 
 using openswmmvis::EditorKind;
 
 namespace {
 QVariant comparable(const QVariant &value)
 {
+    if (value.userType() == qMetaTypeId<UserFlagsEditRef>()) return QStringLiteral("userflags");
     if (value.userType() == qMetaTypeId<UsageEditRef>())
         return int(value.value<UsageEditRef>().family);
     if (value.userType() == qMetaTypeId<LinkCompoundEditRef>())
@@ -38,6 +42,14 @@ QVariant comparable(const QVariant &value)
     }
     return value;
 }
+QVariant comparableField(const SWMMAttributeTableModel *model, const QModelIndex &index)
+{
+    const auto value = comparable(index.data(Qt::EditRole));
+    if (inheritedproperties::field(model->columnSpecs().value(index.column()).key))
+        return QVariantList{index.data(Qt::DisplayRole).isValid(), value};
+    return value;
+}
+
 }
 
 SWMMAggregateSelection::SWMMAggregateSelection(
@@ -96,6 +108,15 @@ SWMMAggregateSelection::SWMMAggregateSelection(
             m_counts[group.key()] = count;
         }
     });
+    if (auto *flags = layer->ensureUserFlagsModel())
+        connect(flags, &openswmmvis::ui::UserFlagsModel::defsChanged, this, [this] {
+            m_valid = false; emit stagedChanged();
+        });
+    connect(layer, &SWMMModelLayer::optionsChanged, this, [this](const QStringList &keys) {
+        if (keys.contains("WATER_AGE") || keys.contains("HEAT_TRANSPORT") || keys.contains("POLLUTANTS") || keys.contains("REACTIONS")) {
+            m_valid = false; emit stagedChanged();
+        }
+    });
     connect(refresh, &QTimer::timeout, this, &SWMMAggregateSelection::stagedChanged);
 }
 
@@ -108,6 +129,7 @@ bool SWMMAggregateSelection::supports(const openswmmvis::ColumnSpec &spec)
         "node_outfall_type", "node_storage_shape", "node_divider_type", "subcatch_infil_model",
         "gage_data_source", "gage_file_format", "link_orifice_type", "link_weir_type",
         "link_outlet_rating_type"};
+    if (inheritedproperties::field(spec.key) || spec.setter == "userflags_ref") return true;
     if (nodestructure::field(spec.setter))
         return true;
     return !spec.setter.isEmpty() && spec.key != QLatin1String("Name") &&
@@ -207,6 +229,20 @@ QVariant SWMMAggregateSelection::editorData(int column, int role) const
             const int row = model->rowForName(name);
             if (row < 0) continue;
             auto value = model->index(row, col).data(role);
+            if (value.userType() == qMetaTypeId<UserFlagsEditRef>()) {
+                auto ref = value.value<UserFlagsEditRef>();
+                ref.undoStack = m_undo;
+                ref.targets.clear();
+                for (auto it = m_targets.cbegin(); it != m_targets.cend(); ++it) {
+                    const int kind = SWMMModelLayer::kindBitForCategory(it.key());
+                    for (const auto &name : it.value()) ref.targets.append({
+                        kind == SWMMModelLayer::kKindNode ? SWMMObjectRef::Node :
+                        kind == SWMMModelLayer::kKindLink ? SWMMObjectRef::Link :
+                        kind == SWMMModelLayer::kKindCatch ? SWMMObjectRef::Subcatchment : SWMMObjectRef::RainGage, name});
+                }
+                ref.summary = tr("%1 selected objects").arg(ref.targets.size());
+                return QVariant::fromValue(ref);
+            }
             if (value.userType() == qMetaTypeId<UsageEditRef>()) {
                 auto ref = value.value<UsageEditRef>();
                 ref.targets.clear();
@@ -261,6 +297,8 @@ QVariant SWMMAggregateSelection::editorData(int column, int role) const
 SWMMAggregateSelection::Field SWMMAggregateSelection::field(int column) const
 {
     Field result;
+    if (!m_valid) { result.reason = tr("Definitions or selected objects changed. Select the objects again."); return result; }
+    QVariant firstValue;
     bool first = true;
     const auto spec = m_source->columnSpecs().value(column);
     QSet<int> depthKinds;
@@ -313,9 +351,10 @@ SWMMAggregateSelection::Field SWMMAggregateSelection::field(int column) const
             const auto value = index.data(Qt::EditRole);
             if (first) {
                 result.edit = value;
+                firstValue = comparableField(model, index);
                 result.display = index.data();
                 first = false;
-            } else if (comparable(result.edit) != comparable(value)) {
+            } else if (firstValue != comparableField(model, index)) {
                 result.mixed = true;
             }
         }
@@ -341,6 +380,7 @@ SWMMAggregateSelection::Field SWMMAggregateSelection::field(int column) const
 
 bool SWMMAggregateSelection::setValue(int column, const QVariant &value)
 {
+    if (value.userType() == qMetaTypeId<UserFlagsEditRef>()) return true;
     if (value.userType() == qMetaTypeId<UsageEditRef>() ||
         value.userType() == qMetaTypeId<LinkCompoundEditRef>())
         return true;
@@ -362,7 +402,10 @@ bool SWMMAggregateSelection::stage(int column, const QVariant &value)
     if (!value.isValid() || rows().isEmpty() || field(column).editable != rows().size())
         return false;
     const auto stored = field(column);
-    if (!stored.mixed && comparable(stored.edit) == comparable(value)) {
+    const auto spec = m_source->columnSpecs()[column];
+    const bool clearEmptyFlag = spec.setter == "userflag" && spec.editor == EditorKind::Text &&
+                                value.toString().trimmed().isEmpty() && stored.display.isValid();
+    if (!stored.mixed && comparable(stored.edit) == comparable(value) && !clearEmptyFlag) {
         m_staged.remove(column);
         m_original.remove(column);
     } else {
@@ -373,7 +416,7 @@ bool SWMMAggregateSelection::stage(int column, const QVariant &value)
                 for (const auto &name : group.value()) {
                     auto *source = m_sources.value(group.key());
                     const int col = m_columns.value(group.key()).value(key, -1);
-                    before.append(comparable(source->index(source->rowForName(name), col).data(Qt::EditRole)));
+                    before.append(comparableField(source, source->index(source->rowForName(name), col)));
                 }
             m_original.insert(column, before);
         }
@@ -405,7 +448,7 @@ bool SWMMAggregateSelection::apply(QString *error)
             for (const auto &name : group.value()) {
                 auto *source = m_sources.value(group.key());
                 const int col = m_columns.value(group.key()).value(key, -1);
-                current.append(comparable(source->index(source->rowForName(name), col).data(Qt::EditRole)));
+                current.append(comparableField(source, source->index(source->rowForName(name), col)));
             }
         if (current != m_original.value(it.key())) {
             if (error) *error = tr("%1 changed while this field was being edited. Select the objects again.")

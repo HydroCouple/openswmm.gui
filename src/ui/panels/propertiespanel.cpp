@@ -448,6 +448,7 @@ public:
                 return displayFor(m_selection->stagedValue(m_column));
             if constexpr (std::is_same_v<Selection, SWMMAggregateSelection>) {
                 const auto ref = m_selection->editorData(m_column);
+                if (ref.userType() == qMetaTypeId<UserFlagsEditRef>()) return ref.template value<UserFlagsEditRef>().summary;
                 if (ref.userType() == qMetaTypeId<NodeCompoundEditRef>()) return ref.template value<NodeCompoundEditRef>().summary;
                 if (ref.userType() == qMetaTypeId<UsageEditRef>())
                     return ref.template value<UsageEditRef>().summary;
@@ -462,6 +463,7 @@ public:
                 return m_selection->stagedValue(m_column);
             if constexpr (std::is_same_v<Selection, SWMMAggregateSelection>) {
                 const auto ref = m_selection->editorData(m_column);
+                if (ref.userType() == qMetaTypeId<UserFlagsEditRef>()) return ref;
                 if (ref.userType() == qMetaTypeId<NodeCompoundEditRef>()) return ref;
                 if (ref.userType() == qMetaTypeId<UsageEditRef>() ||
                     ref.userType() == qMetaTypeId<LinkCompoundEditRef>())
@@ -1186,6 +1188,17 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
             scope.targets[static_cast<SWMMModelLayer::Category>(category)].append(ref.name);
     }
     QList<Scope> commonScopes;
+    Scope spatial;
+    spatial.title = tr("Model objects — common properties");
+    QSet<int> spatialKinds;
+    for (const auto &scope : scopes) if (scope.category >= 0) {
+        spatial.refs.append(scope.refs);
+        for (auto it = scope.targets.cbegin(); it != scope.targets.cend(); ++it) {
+            spatial.targets.insert(it.key(), it.value());
+            spatialKinds.insert(SWMMModelLayer::kindBitForCategory(it.key()));
+        }
+    }
+    if (spatialKinds.size() > 1) commonScopes.append(spatial);
     for (const auto kind : {SWMMObjectRef::Node, SWMMObjectRef::Link}) {
         Scope common;
         common.title = kind == SWMMObjectRef::Node ? tr("Nodes — common properties") : tr("Links — common properties");

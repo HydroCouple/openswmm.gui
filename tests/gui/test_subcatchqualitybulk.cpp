@@ -160,7 +160,7 @@ void writeAudit(SWMMModelLayer *layer)
                         "node_inflows_ref",         "node_dwf_ref",         "node_rdii_ref",
                         "node_treatment_ref",       "subcatch_landuse_ref", "subcatch_loadings_ref",
                         "subcatch_groundwater_ref", "subcatch_lid_ref",     "link_inlet_usage_ref",
-                        "node_inlet_usage_ref"}
+                        "node_inlet_usage_ref",      "userflags_ref"}
                         .contains(spec.setter);
                 disposition = keyed ? "Keyed structured bulk" : "Inline bulk eligible";
                 reason =

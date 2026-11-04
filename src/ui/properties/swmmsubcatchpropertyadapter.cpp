@@ -221,6 +221,8 @@ void SWMMSubcatchPropertyAdapter::setTag(const QString &t)
 UserFlagsEditRef SWMMSubcatchPropertyAdapter::userFlagsRef() const
 {
     UserFlagsEditRef r;
+    r.layer = m_layer;
+    r.engine = m_engine;
     r.objectType = QStringLiteral("SUBCATCHMENT");
     r.objectName = m_name;
     r.model = m_layer ? m_layer->ensureUserFlagsModel() : nullptr;

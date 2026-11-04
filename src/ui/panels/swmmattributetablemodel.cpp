@@ -25,6 +25,7 @@
 #include "ui/properties/dataobjectref.h"      // pump-curve picker cell
 #include "ui/properties/usageeditref.h"
 #include "layers/nodestructureedits.h"
+#include "layers/inheritedpropertyedits.h"
 #include "ui/properties/groundwatersummary.h" // Groundwater cell summary text
 #include "ui/properties/rainintervalref.h"    // DA.2 parity — H:MM interval helpers
 #include "ui/properties/linkcompoundeditref.h"
@@ -51,6 +52,7 @@
 #include <openswmm/engine/openswmm_infrastructure.h>
 #include <openswmm/engine/openswmm_inflows.h>
 #include <openswmm/engine/openswmm_initial_quality.h>
+#include <openswmm/engine/openswmm_reactions.h>
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_model.h> // gage data-file path registry
 #include "ui/linkoffsetdisplay.h"           // mode-aware offset accessors
@@ -160,6 +162,14 @@ int engineIndexFor(SWMMModelLayer *layer, SWMMModelLayer::Category cat, int row,
 // and category → [USER_FLAG_VALUES] ObjectType token mapping for the
 // per-flag columns. Categories without a token (none today) get no
 // flag columns.
+SWMMObjectRef overrideTarget(SWMMModelLayer::Category category, const QString &name)
+{
+    const int kind = SWMMModelLayer::kindBitForCategory(category);
+    return {kind == SWMMModelLayer::kKindNode ? SWMMObjectRef::Node :
+            kind == SWMMModelLayer::kKindLink ? SWMMObjectRef::Link :
+            kind == SWMMModelLayer::kKindCatch ? SWMMObjectRef::Subcatchment : SWMMObjectRef::RainGage, name};
+}
+
 const QString kUserFlagKeyPrefix = QStringLiteral("userflag:");
 
 // Initial-quality UI round — column-key prefix for the per-constituent
@@ -3455,6 +3465,9 @@ SWMMAttributeTableModel::SWMMAttributeTableModel(QObject *parent) : QAbstractTab
 void SWMMAttributeTableModel::setSource(SWMMModelLayer *layer, SWMMModelLayer::Category category)
 {
     if (m_layer)
+        disconnect(m_layer, &SWMMModelLayer::attributeChanged, this,
+                   &SWMMAttributeTableModel::invalidateCompoundCache);
+    if (m_layer)
         disconnect(m_layer, &SWMMModelLayer::extensionAttributesChanged, this, nullptr);
     if (m_layer)
         disconnect(m_layer, &SWMMModelLayer::optionsChanged, this, nullptr);
@@ -3467,6 +3480,9 @@ void SWMMAttributeTableModel::setSource(SWMMModelLayer *layer, SWMMModelLayer::C
     m_rowCacheValid.assign(n, false);
     invalidateCompoundCache();
     endResetModel();
+    if (m_layer)
+        connect(m_layer, &SWMMModelLayer::attributeChanged, this,
+                &SWMMAttributeTableModel::invalidateCompoundCache);
     if (m_layer)
         connect(m_layer, &SWMMModelLayer::extensionAttributesChanged, this, [this](bool schema) {
             if (schema) {
@@ -3606,6 +3622,7 @@ void SWMMAttributeTableModel::appendInitialQualityColumns()
         ColumnSpec spec;
         spec.key = kInitQualityKeyPrefix + cons;
         spec.label = label;
+        spec.scalarType = QMetaType::Double;
         spec.editor = EditorKind::Text;              // blank commit clears the override
         spec.setter = QStringLiteral("initquality"); // marks editable;
                                                      // commit dispatches
@@ -3620,12 +3637,23 @@ void SWMMAttributeTableModel::appendInitialQualityColumns()
         if (!id)
             continue;
         const QString cons = QString::fromUtf8(id);
+        if (cons == "__WATER_AGE__" || cons == "__TEMPERATURE__") continue;
         m_columnSpecs.append(
             makeCol(cons, tr("Init. %1").arg(cons),
                     tr("[INITIAL_QUALITY] override — the element starts the run at "
                        "this %1 concentration instead of the pollutant's global "
                        "initial value. Blank = no override.")
                         .arg(cons)));
+    }
+    for (int i = 0; i < swmm_reaction_species_count(eng); ++i) {
+        char name[1024]{}, units[256]{}; int wall = 0; double a = 0, b = 0;
+        if (swmm_reaction_species_get(eng, i, name, sizeof(name), &wall, units, sizeof(units), &a, &b) != SWMM_OK || !name[0] ||
+            QByteArray(name) == "__WATER_AGE__" || QByteArray(name) == "__TEMPERATURE__" ||
+            swmm_pollutant_index(eng, name) >= 0) continue;
+        const auto cons = QString::fromUtf8(name);
+        m_columnSpecs.append(makeCol(cons, tr("Init. %1 (%2)").arg(cons, QString::fromUtf8(units)),
+            tr("Configured %1 species initial value in %2. Blank inherits; file-sourced values retain their source owner.")
+                .arg(wall ? tr("wall") : tr("bulk"), QString::fromUtf8(units))));
     }
     // Reserved species, offered only while their option is on — a value
     // for an off species would be stored-but-inert (the engine warns), so
@@ -3701,6 +3729,7 @@ void SWMMAttributeTableModel::invalidateCompoundCache()
     m_compoundPollutantCount = 0;
     m_compoundCacheBuilt = false;
     m_initQualityByElem.clear();
+    m_initQualityFileFields.clear();
     m_initQualityCacheBuilt = false;
 }
 
@@ -3710,6 +3739,7 @@ void SWMMAttributeTableModel::ensureInitQualityCacheBuilt() const
         return;
     m_initQualityCacheBuilt = true;
     m_initQualityByElem.clear();
+    m_initQualityFileFields.clear();
     if (!m_layer)
         return;
     SWMM_Engine eng = m_layer->engine();
@@ -3720,13 +3750,14 @@ void SWMMAttributeTableModel::ensureInitQualityCacheBuilt() const
     const int total = swmm_init_quality_count(eng);
     for (int i = 0; i < total; ++i) {
         int is_link = 0, elem = -1;
-        char cons[128] = {0};
+        char cons[4096] = {0};
         double value = 0.0;
         if (swmm_init_quality_get(eng, i, &is_link, &elem, cons, sizeof(cons), &value) != SWMM_OK)
             continue;
         if (is_link != wantLink)
             continue;
         m_initQualityByElem[elem].insert(QString::fromUtf8(cons), value);
+        if (swmm_init_quality_is_file(eng, i)) m_initQualityFileFields[elem].insert(QString::fromUtf8(cons));
     }
 }
 
@@ -4132,6 +4163,9 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             UserFlagsEditRef ref;
             ref.objectType = userFlagObjectType(m_category);
             ref.objectName = name;
+            ref.layer = m_layer;
+            ref.engine = m_layer->engine();
+            ref.undoStack = m_undoStack;
             ref.model = m_layer->ensureUserFlagsModel();
             ref.summary = userFlagsSummaryFor(ref.model, ref.objectType, ref.objectName);
             return QVariant::fromValue(ref);
@@ -4730,6 +4764,19 @@ Qt::ItemFlags SWMMAttributeTableModel::flags(const QModelIndex &index) const
             if (!m_layer->nodeCoupling2D(objectNameAt(index.row()), &state) ||
                 state.type == nodecoupling2d::None)
                 return f;
+        }
+        if (inheritedproperties::field(spec.key)) {
+            int state = -1;
+            if (!m_layer || swmm_engine_get_state(m_layer->engine(), &state) != SWMM_OK ||
+                (state != SWMM_STATE_BUILDING && state != SWMM_STATE_OPENED)) return f;
+            if (spec.key.startsWith(kInitQualityKeyPrefix)) {
+                if ((spec.key == "initq:__WATER_AGE__" && !optionYes(m_layer->engine(), "WATER_AGE")) ||
+                    (spec.key == "initq:__TEMPERATURE__" && !optionYes(m_layer->engine(), "HEAT_TRANSPORT"))) return f;
+                ensureInitQualityCacheBuilt();
+                const auto name = objectNameAt(index.row()).toUtf8();
+                const int element = userFlagObjectType(m_category) == "LINK" ? swmm_link_index(m_layer->engine(), name.constData()) : swmm_node_index(m_layer->engine(), name.constData());
+                if (m_initQualityFileFields.value(element).contains(spec.key.mid(6))) return f;
+            }
         }
         // Lock edits while a simulation is running.
         if (m_layer && m_layer->engine()) {
@@ -5529,6 +5576,28 @@ bool SWMMAttributeTableModel::applyScalarEdits(
         return false;
     };
     if (!m_layer || !m_layer->engine()) return fail(tr("The model is closed."));
+    bool inherited = false, other = false;
+    for (auto it = edits.cbegin(); it != edits.cend(); ++it)
+        (inheritedproperties::field(it.key()) ? inherited : other) = true;
+    if (inherited) {
+        if (other) return fail(tr("Edit inherited properties separately from unrelated fields."));
+        QVector<inheritedproperties::Edit> fields;
+        for (auto group = targets.cbegin(); group != targets.cend(); ++group) {
+            SWMMAttributeTableModel source;
+            source.setSource(m_layer, group.key());
+            for (const auto &name : group.value()) for (auto it = edits.cbegin(); it != edits.cend(); ++it) {
+                const int column = source.columnKeys().indexOf(it.key());
+                const auto index = source.index(source.rowForName(name), column);
+                if (!index.isValid() || !(index.flags() & Qt::ItemIsEditable))
+                    return fail(tr("%1 cannot be edited on %2. Check its process or source owner.").arg(it.key(), name));
+                const auto spec = source.columnSpecs()[column];
+                const int flagType = spec.setter != "userflag" ? -1 : spec.editor == EditorKind::Enum ? 0 :
+                    spec.scalarType == QMetaType::LongLong ? 1 : spec.scalarType == QMetaType::Double ? 2 : 3;
+                fields.append({overrideTarget(group.key(), name), it.key(), it.value(), flagType});
+            }
+        }
+        return inheritedproperties::apply(m_layer, fields, undo, error);
+    }
     bool structure = false, unrelated = false;
     QMap<QString, QVariant> structureFields;
     QStringList structureNodes;
@@ -6019,117 +6088,9 @@ bool SWMMAttributeTableModel::commitValueDirect(const QModelIndex &index, const 
         return true;
     }
 
-    if (const int attr = OpenSWMMVis::heatPropertyIndex(spec.key); attr >= 0) {
+    if (inheritedproperties::field(spec.key)) {
         QString error;
-        const auto name = objectNameAt(row);
-        const bool result = OpenSWMMVis::applyHeatPropertyEdits(
-            m_layer,
-            {{attr,
-              userFlagObjectType(m_category) == "LINK" ? SWMM_HEAT_SCOPE_LINK
-                                                       : SWMM_HEAT_SCOPE_NODE,
-              name, value}},
-            nullptr, tr("Edit heat property"), &error);
-        if (result) {
-            emit dataChanged(index, index);
-            emit objectEdited(name);
-        }
-        return result;
-    }
-
-    // User-flag columns (Phase 3, docs/USER_FLAGS_UI_PLAN_2026-06-03.md).
-    // Boolean combos commit -1 / 0 / 1 ((unset) / NO / YES); text columns
-    // commit strings where blank clears the assignment. All writes route
-    // through UserFlagsModel so the Attribute Panel and any other observer
-    // see the same valueChanged() notification.
-    if (spec.key.startsWith(kUserFlagKeyPrefix)) {
-        auto *ufm = m_layer->ensureUserFlagsModel();
-        if (!ufm)
-            return false;
-        const QString flagName = spec.key.mid(kUserFlagKeyPrefix.size());
-        const QString objType = userFlagObjectType(m_category);
-        const QString name = objectNameAt(row);
-        if (objType.isEmpty() || name.isEmpty())
-            return false;
-
-        bool ok = false;
-        if (spec.editor == EditorKind::Enum) { // Boolean flag
-            const int iv = value.toInt();
-            ok = (iv < 0) ? ufm->clearValue(objType, name, flagName)
-                          : ufm->setValue(objType, name, flagName,
-                                          iv ? QStringLiteral("YES") : QStringLiteral("NO"));
-        } else {
-            const QString s = value.toString().trimmed();
-            ok = s.isEmpty() ? ufm->clearValue(objType, name, flagName)
-                             : ufm->setValue(objType, name, flagName, s);
-        }
-        if (!ok)
-            return false;
-
-        emit dataChanged(index, index,
-                         {Qt::DisplayRole, Qt::EditRole, Qt::ToolTipRole,
-                          openswmmvis::kAttributeValueRole, openswmmvis::kAttributeSortRole});
-        emit objectEdited(name);
-        return true;
-    }
-
-    // Initial-quality columns (initial-quality UI round). A numeric commit
-    // upserts the element's [INITIAL_QUALITY] row for the column's
-    // constituent; a blank commit removes it (back to "no override"). The
-    // engine setter validates the value (e.g. rejects a negative pollutant
-    // concentration), so a bad keystroke leaves the store untouched.
-    if (spec.key.startsWith(kInitQualityKeyPrefix)) {
-        SWMM_Engine eng = m_layer->engine();
-        const QString name = objectNameAt(row);
-        if (!eng || name.isEmpty())
-            return false;
-        const bool link = userFlagObjectType(m_category) == QStringLiteral("LINK");
-        const int isLink = link ? 1 : 0;
-        const int elemIdx = link ? swmm_link_index(eng, name.toUtf8().constData())
-                                 : swmm_node_index(eng, name.toUtf8().constData());
-        if (elemIdx < 0)
-            return false;
-        const QString cons = spec.key.mid(kInitQualityKeyPrefix.size());
-        const QString s = value.toString().trimmed();
-
-        if (s.isEmpty()) {
-            // Find the element's row for this constituent and remove it.
-            // No row → nothing changed, refuse the commit (keeps the undo
-            // stack free of no-op commands).
-            const int total = swmm_init_quality_count(eng);
-            for (int i = 0; i < total; ++i) {
-                int rowIsLink = 0, rowElem = -1;
-                char rowCons[128] = {0};
-                double rowValue = 0.0;
-                if (swmm_init_quality_get(eng, i, &rowIsLink, &rowElem, rowCons, sizeof(rowCons),
-                                          &rowValue) != SWMM_OK)
-                    continue;
-                if (rowIsLink != isLink || rowElem != elemIdx || QString::fromUtf8(rowCons) != cons)
-                    continue;
-                if (swmm_init_quality_remove(eng, i) != SWMM_OK)
-                    return false;
-                invalidateCompoundCache();
-                emit dataChanged(index, index,
-                                 {Qt::DisplayRole, Qt::EditRole, Qt::ToolTipRole,
-                                  openswmmvis::kAttributeValueRole,
-                                  openswmmvis::kAttributeSortRole});
-                emit objectEdited(name);
-                return true;
-            }
-            return false;
-        }
-
-        bool numeric = false;
-        const double v = s.toDouble(&numeric);
-        if (!numeric)
-            return false;
-        if (swmm_init_quality_set(eng, isLink, elemIdx, cons.toUtf8().constData(), v) != SWMM_OK)
-            return false;
-        invalidateCompoundCache();
-        emit dataChanged(index, index,
-                         {Qt::DisplayRole, Qt::EditRole, Qt::ToolTipRole,
-                          openswmmvis::kAttributeValueRole, openswmmvis::kAttributeSortRole});
-        emit objectEdited(name);
-        return true;
+        return applyScalarEdits({objectNameAt(row)}, {{spec.key, value}}, nullptr, &error);
     }
 
     // ATTRIBUTE_EDITOR_WIRING (2026-06-04) — picker cells
@@ -6521,21 +6482,9 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index, const QVariant &
         return ok;
     }
 
-    if (const int attr = OpenSWMMVis::heatPropertyIndex(spec.key); attr >= 0) {
+    if (inheritedproperties::field(spec.key)) {
         QString error;
-        const auto name = objectNameAt(row);
-        const bool result = OpenSWMMVis::applyHeatPropertyEdits(
-            m_layer,
-            {{attr,
-              userFlagObjectType(m_category) == "LINK" ? SWMM_HEAT_SCOPE_LINK
-                                                       : SWMM_HEAT_SCOPE_NODE,
-              name, value}},
-            m_undoStack, tr("Edit %1").arg(spec.label), &error);
-        if (result) {
-            emit dataChanged(index, index);
-            emit objectEdited(name);
-        }
-        return result;
+        return applyScalarEdits({objectNameAt(row)}, {{spec.key, value}}, m_undoStack, &error);
     }
 
     // Name column rename — duplicate-name check happens inside applyRename().
@@ -6567,6 +6516,8 @@ bool SWMMAttributeTableModel::setData(const QModelIndex &index, const QVariant &
         return applyScalarEdits(QStringList{objectNameAt(row)}, {{spec.key, value}}, m_undoStack, &error);
     }
 
+    if (value.userType() == qMetaTypeId<UserFlagsEditRef>() &&
+        value.value<UserFlagsEditRef>().layer == m_layer && spec.setter == "userflags_ref") return true;
     if (value.userType() == qMetaTypeId<UsageEditRef>()) {
         const auto ref = value.value<UsageEditRef>();
         if (ref.layer == m_layer && ref.engine == m_layer->engine() &&

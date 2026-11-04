@@ -20,6 +20,8 @@
 #define INITIALQUALITYEDITBUTTON_H
 
 #include <QWidget>
+#include <QPointer>
+class SWMMModelLayer;
 
 #include "ui/properties/initialqualityeditref.h"
 
@@ -67,6 +69,7 @@ private slots:
     void onClicked();
 
 private:
+    QPointer<SWMMModelLayer> m_owner;
     /**
      * @brief Set the button text from the cached summary, falling back to Edit when empty.
      * @details Does not query the engine or modify model state.

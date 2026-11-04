@@ -1790,6 +1790,7 @@ add_swmmvis_gui_test(test_heatconfigdialog
 # engine, so the dialog's wiring has an automated observer.
 add_swmmvis_gui_test(test_initialqualitydialog
     test_initialqualitydialog.cpp
+    inheritededitor_linkstub.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/initialqualitydialog.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/initialqualitydialog.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/properties/initialqualityeditbutton.cpp
@@ -3689,6 +3690,12 @@ add_swmmvis_gui_test(test_usagebulk
     ${SWMMVIS_TEST_SOURCES}
     ${SWMMVIS_TEST_EXTRA_SOURCES})
 swmmvis_link_full_app_deps(test_usagebulk)
+
+add_swmmvis_gui_test(test_inheritedpropertybulk
+    test_inheritedpropertybulk.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_inheritedpropertybulk)
 
 add_swmmvis_gui_test(test_regulatorbulk
     test_regulatorbulk.cpp

@@ -9,6 +9,8 @@
  */
 
 #include "ui/properties/initialqualityeditbutton.h"
+#include "ui/dialogs/inheritedpropertiesdialog.h"
+#include "layers/swmmmodellayer.h"
 
 #include "ui/dialogs/initialqualitydialog.h"
 
@@ -31,6 +33,7 @@ InitialQualityEditButton::InitialQualityEditButton(QWidget *parent)
 void InitialQualityEditButton::setValue(const InitialQualityEditRef &ref)
 {
     m_ref = ref;
+    m_owner = ref.layer;
     refreshLabel();
     // Nothing to edit without an engine or before the element exists.
     m_btn->setEnabled(m_ref.engine != nullptr && !m_ref.elementName.isEmpty());
@@ -46,6 +49,12 @@ void InitialQualityEditButton::refreshLabel()
 
 void InitialQualityEditButton::onClicked()
 {
+    if (m_ref.layer) {
+        if (!m_owner || m_owner->engine() != m_ref.engine) return;
+        openInheritedPropertiesDialog(m_owner, {{m_ref.isLink ? SWMMObjectRef::Link : SWMMObjectRef::Node, m_ref.elementName}}, true, window());
+        return;
+    }
+
     if (!m_ref.engine || m_ref.elementName.isEmpty())
         return;
 

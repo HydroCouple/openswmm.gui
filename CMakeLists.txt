@@ -1260,6 +1260,10 @@ set(
         src/layers/wmtslayer.cpp
         src/layers/wfslayer.cpp
         src/layers/swmmmodellayer.cpp
+        src/ui/dialogs/inheritedpropertiesdialog.cpp
+        include/ui/dialogs/inheritedpropertiesdialog.h
+        src/layers/inheritedpropertyedits.cpp
+        include/layers/inheritedpropertyedits.h
         src/layers/nodestructureedits.cpp
         include/layers/nodestructureedits.h
         src/layers/nodecoupling2d.cpp
