@@ -15,12 +15,54 @@
 #include <QComboBox>
 #include <QDir>
 #include <QFileInfo>
+#include <QSet>
+#include <cstring>
+#include <vector>
 
 #include <openswmm/engine/openswmm_process_components.h>
 
 // ---------------------------------------------------------------------------
 // Model
 // ---------------------------------------------------------------------------
+namespace {
+QString argumentValue(const QList<QPair<QString, QString>> &arguments, const QString &name)
+{
+    for (const auto &argument : arguments)
+        if (argument.first == name) return argument.second;
+    return {};
+}
+}
+
+bool ProcessComponentsModel::readRow(SWMM_Engine engine, int index, Row &row)
+{
+    for (int size = 256;; size *= 2) {
+        if (size > 64 * 1024 * 1024) return false;
+        std::vector<char> id(size), config(size), resolved(size);
+        if (swmm_process_component_get(engine, index, id.data(), size, config.data(), size,
+                                       resolved.data(), size) != SWMM_OK) return false;
+        if (std::strlen(id.data()) == size_t(size - 1) || std::strlen(config.data()) == size_t(size - 1) ||
+            std::strlen(resolved.data()) == size_t(size - 1)) continue;
+        row.id = QString::fromUtf8(id.data());
+        row.config = QString::fromUtf8(config.data());
+        row.resolved = QString::fromUtf8(resolved.data());
+        break;
+    }
+    row.arguments.clear();
+    const int count = swmm_process_component_argument_count(engine, index);
+    if (count < 0) return false;
+    for (int argument = 0; argument < count; ++argument) {
+        for (int size = 256;; size *= 2) {
+            if (size > 64 * 1024 * 1024) return false;
+            std::vector<char> key(size), value(size);
+            if (swmm_process_component_argument_get(engine, index, argument, key.data(), size,
+                                                    value.data(), size) != SWMM_OK) return false;
+            if (std::strlen(key.data()) == size_t(size - 1) || std::strlen(value.data()) == size_t(size - 1)) continue;
+            row.arguments.append({QString::fromUtf8(key.data()), QString::fromUtf8(value.data())});
+            break;
+        }
+    }
+    return true;
+}
 
 ProcessComponentsModel::ProcessComponentsModel(QObject *parent) : QAbstractTableModel(parent) {}
 
@@ -72,7 +114,13 @@ QString ProcessComponentsModel::statusFor(const Row &r) const
         }
     }
     QString status;
-    if (!known)
+    const auto library = argumentValue(r.arguments, QStringLiteral("library"));
+    if (!library.isEmpty()) {
+        const auto path = QFileInfo(library).isRelative() ? QDir(m_modelDir).filePath(library) : library;
+        status = argumentValue(r.arguments, QStringLiteral("component")).isEmpty()
+            ? tr("component type missing")
+            : QFileInfo::exists(path) ? tr("external component, library found") : tr("external component, library missing");
+    } else if (!known)
         status = tr("unknown id");
     else if (!implemented)
         status = tr("planned");
@@ -103,6 +151,10 @@ QVariant ProcessComponentsModel::data(const QModelIndex &index, int role) const
             return r.id;
         case ColConfig:
             return r.config;
+        case ColComponent:
+            return argumentValue(r.arguments, QStringLiteral("component"));
+        case ColLibrary:
+            return argumentValue(r.arguments, QStringLiteral("library"));
         case ColStatus:
             return statusFor(r);
         default:
@@ -113,8 +165,8 @@ QVariant ProcessComponentsModel::data(const QModelIndex &index, int role) const
             for (const KnownId &k : knownIds())
                 if (k.id.compare(r.id, Qt::CaseInsensitive) == 0)
                     return k.description;
-            return tr("Not in the engine's built-in catalogue — the engine "
-                      "diagnoses an unknown id at open.");
+            return tr("Use a unique instance name for an external component, with its "
+                      "type and library, or choose a built-in process id.");
         }
         if (index.column() == ColConfig)
             return r.resolved.isEmpty() ? tr("Config file path as written in [PROCESS_COMPONENTS] "
@@ -143,6 +195,15 @@ bool ProcessComponentsModel::setData(const QModelIndex &index, const QVariant &v
             return false;
         r.config = v;
         break;
+    case ColComponent:
+    case ColLibrary: {
+        const auto key = index.column() == ColComponent ? QStringLiteral("component") : QStringLiteral("library");
+        if (argumentValue(r.arguments, key) == v) return false;
+        for (auto it = r.arguments.begin(); it != r.arguments.end();)
+            if (it->first == key) it = r.arguments.erase(it); else ++it;
+        if (!v.isEmpty()) r.arguments.append({key, v});
+        break;
+    }
     default:
         return false;
     }
@@ -157,11 +218,15 @@ QVariant ProcessComponentsModel::headerData(int section, Qt::Orientation orienta
         return {};
     switch (section) {
     case ColId:
-        return tr("Component id");
+        return tr("Instance / built-in id");
     case ColConfig:
         return tr("Config file");
     case ColStatus:
         return tr("Status");
+    case ColComponent:
+        return tr("Component type");
+    case ColLibrary:
+        return tr("Library");
     default:
         return {};
     }
@@ -192,18 +257,13 @@ void ProcessComponentsModel::load(SWMM_Engine engine, const QString &modelDir)
 {
     beginResetModel();
     m_rows.clear();
+    m_error.clear();
     m_modelDir = modelDir;
     if (engine) {
         const int n = swmm_process_component_count(engine);
         for (int i = 0; i < n; ++i) {
-            char id[160] = {}, cfg[1024] = {}, res[1024] = {};
-            if (swmm_process_component_get(engine, i, id, sizeof id, cfg, sizeof cfg, res,
-                                           sizeof res) != SWMM_OK)
-                continue;
             Row r;
-            r.id = QString::fromUtf8(id);
-            r.config = QString::fromUtf8(cfg);
-            r.resolved = QString::fromUtf8(res);
+            if (!readRow(engine, i, r)) continue;
             m_rows.append(r);
         }
     }
@@ -216,15 +276,34 @@ bool ProcessComponentsModel::isDirty() const
     if (m_rows.size() != m_loaded.size())
         return true;
     for (int i = 0; i < m_rows.size(); ++i)
-        if (m_rows[i].id != m_loaded[i].id || m_rows[i].config != m_loaded[i].config)
+        if (m_rows[i].id != m_loaded[i].id || m_rows[i].config != m_loaded[i].config ||
+            m_rows[i].arguments != m_loaded[i].arguments)
             return true;
     return false;
+}
+
+QString ProcessComponentsModel::validationError() const
+{
+    QSet<QString> identities;
+    for (const auto &row : m_rows) {
+        if (row.id.trimmed().isEmpty()) continue;
+        if (identities.contains(row.id))
+            return tr("Each component instance needs a unique id: %1").arg(row.id);
+        identities.insert(row.id);
+        const bool library = !argumentValue(row.arguments, QStringLiteral("library")).isEmpty();
+        const bool type = !argumentValue(row.arguments, QStringLiteral("component")).isEmpty();
+        if (library != type)
+            return tr("Component %1 needs both a library and a component type.").arg(row.id);
+    }
+    return {};
 }
 
 int ProcessComponentsModel::commit(SWMM_Engine engine)
 {
     if (!engine || !isDirty())
         return 0;
+    m_error = validationError();
+    if (!m_error.isEmpty()) return -1;
     int writes = 0;
     // Remove every engine registration that is not present unchanged in the
     // staged rows (by id + config), then register the staged rows that are
@@ -232,20 +311,24 @@ int ProcessComponentsModel::commit(SWMM_Engine engine)
     // changed is a remove + register.
     // Borrow id/cfg during this synchronous lookup; compare exact copied pairs
     // against the owned draft and return membership without changing any row.
-    auto stagedHas = [this](const QString &id, const QString &cfg) {
+    auto stagedHas = [this](const Row &current) {
         for (const Row &r : m_rows)
-            if (r.id == id && r.config == cfg)
+            if (r.id == current.id && r.config == current.config && r.arguments == current.arguments)
                 return true;
         return false;
     };
     for (int i = swmm_process_component_count(engine) - 1; i >= 0; --i) {
-        char id[160] = {}, cfg[1024] = {}, res[1024] = {};
-        if (swmm_process_component_get(engine, i, id, sizeof id, cfg, sizeof cfg, res,
-                                       sizeof res) != SWMM_OK)
-            continue;
-        if (!stagedHas(QString::fromUtf8(id), QString::fromUtf8(cfg))) {
-            if (swmm_process_component_remove(engine, i) == SWMM_OK)
-                ++writes;
+        Row current;
+        if (!readRow(engine, i, current)) {
+            m_error = tr("Cannot read the current component registrations.");
+            return -1;
+        }
+        if (!stagedHas(current)) {
+            if (swmm_process_component_remove(engine, i) != SWMM_OK) {
+                m_error = tr("Cannot edit components while this model is running.");
+                return -1;
+            }
+            ++writes;
         }
     }
     for (const Row &r : m_rows) {
@@ -254,8 +337,20 @@ int ProcessComponentsModel::commit(SWMM_Engine engine)
         if (swmm_process_component_find(engine, r.id.toUtf8().constData()) >= 0)
             continue; // unchanged row kept above
         if (swmm_process_component_register(engine, r.id.toUtf8().constData(),
-                                            r.config.toUtf8().constData()) == SWMM_OK)
+                                            r.config.toUtf8().constData()) != SWMM_OK) {
+            m_error = tr("Cannot register component %1.").arg(r.id);
+            return -1;
+        }
+        ++writes;
+        const int index = swmm_process_component_find(engine, r.id.toUtf8().constData());
+        for (const auto &argument : r.arguments) {
+            if (swmm_process_component_argument_set(engine, index, argument.first.toUtf8().constData(),
+                                                    argument.second.toUtf8().constData()) != SWMM_OK) {
+                m_error = tr("Cannot save argument %1 for component %2.").arg(argument.first, r.id);
+                return -1;
+            }
             ++writes;
+        }
     }
     load(engine, m_modelDir);
     return writes;
