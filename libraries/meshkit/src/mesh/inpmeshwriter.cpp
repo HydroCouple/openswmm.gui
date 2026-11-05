@@ -269,8 +269,10 @@ QString formatTriangleNodeMap(const MeshResult &mesh, const CouplingMap &couplin
         if (cc.nodeId.isEmpty())
             continue;
         s << cc.tri << "      " << cc.nodeId;
-        if (cc.cdSet || cc.areaSet)
+        if (cc.cdSet)
             s << "  " << cc.cd;
+        else if (cc.areaSet)
+            s << "  *"; // Preserve an inherited Cd while authoring the positional AREA token.
         if (cc.areaSet)
             s << "  " << cc.area;
         s << "\n";

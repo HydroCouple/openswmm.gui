@@ -31,6 +31,7 @@
 #include "layers/nodecoupling2d.h"
 #include <QHeaderView>
 #include <QTableWidget>
+#include <QStyledItemDelegate>
 #include <QComboBox>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -50,6 +51,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <memory>
 #include <openswmm/engine/openswmm_nodes.h>
 
 using openswmmvis::ColumnSpec;
@@ -58,6 +60,32 @@ using openswmmvis::UnitKind;
 
 namespace
 {
+
+// Display inherited overrides as text, but open an empty numeric entry so
+// clearing a value can restore its unauthored state.
+class CouplingOverrideDelegate final : public QStyledItemDelegate
+{
+public:
+    using QStyledItemDelegate::QStyledItemDelegate;
+    QWidget *createEditor(QWidget *parent, const QStyleOptionViewItem &,
+                          const QModelIndex &) const override
+    {
+        auto *editor = new QLineEdit(parent);
+        editor->setPlaceholderText(tr("From node / defaults"));
+        return editor;
+    }
+    void setEditorData(QWidget *editor, const QModelIndex &index) const override
+    {
+        static_cast<QLineEdit *>(editor)->setText(index.data(Qt::UserRole).toString());
+    }
+    void setModelData(QWidget *editor, QAbstractItemModel *model,
+                      const QModelIndex &index) const override
+    {
+        const QString text = static_cast<QLineEdit *>(editor)->text().trimmed();
+        model->setData(index, text, Qt::UserRole);
+        model->setData(index, text.isEmpty() ? tr("From node / defaults") : text, Qt::EditRole);
+    }
+};
 
 /*! Resolve the semantic unit to a display string for the active flow-units
  *  system. Mirrors the private helper in swmmattributetablemodel.cpp; only the
@@ -1271,6 +1299,16 @@ void MeshAttributeTableModel::editCoupledNodes(const QList<int> &rows, QWidget *
     if (cells.isEmpty())
         return;
 
+    struct Draft {
+        QVector<mesh::CellCoupling> original;
+        QVector<int> sourceRows;
+        bool dirty = false;
+        bool applying = false;
+    };
+    const auto draft = std::make_shared<Draft>();
+    const auto rawOverride = [](double value, bool authored) {
+        return authored ? QString::number(value, 'g', 17) : QString();
+    };
     auto *dialog = new QDialog(parent);
     dialog->setObjectName("meshCellCouplingDialog");
     dialog->setWindowTitle(tr("Coupled 1D nodes — %1 cell(s)").arg(cells.size()));
@@ -1284,40 +1322,62 @@ void MeshAttributeTableModel::editCoupledNodes(const QList<int> &rows, QWidget *
     table->setObjectName("cellCouplingMappings");
     const QString length = m_layer->meshUnitsSI() ? tr("m") : unitLabel(UnitKind::Length);
     table->setHorizontalHeaderLabels({tr("Cell"), tr("1D node"), tr("Structure"),
-                                      tr("Cd override"), tr("Area override (%1²)").arg(length)});
-    table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+                                      tr("Orifice coefficient (Cd)"),
+                                      tr("Coupling area (%1²)").arg(length)});
+    table->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::EditKeyPressed |
+                           QAbstractItemView::AnyKeyPressed);
+    table->setItemDelegateForColumn(3, new CouplingOverrideDelegate(table));
+    table->setItemDelegateForColumn(4, new CouplingOverrideDelegate(table));
     table->setSelectionBehavior(QAbstractItemView::SelectRows);
     table->setSelectionMode(QAbstractItemView::ExtendedSelection);
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     table->horizontalHeader()->setStretchLastSection(true);
     layout->addWidget(table, 1);
+    auto *error = new QLabel(dialog);
+    error->setObjectName("cellCouplingEditError");
+    error->setWordWrap(true);
+    layout->addWidget(error);
     auto *edit = new QPushButton(tr("Edit node structures…"), dialog);
     edit->setObjectName("editCellCouplingStructures");
     layout->addWidget(edit);
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, dialog);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Apply |
+                                             QDialogButtonBox::Cancel | QDialogButtonBox::Reset,
+                                         dialog);
+    auto *applyButton = buttons->button(QDialogButtonBox::Apply);
+    buttons->button(QDialogButtonBox::Reset)->setText(tr("Reload"));
+    buttons->button(QDialogButtonBox::Reset)
+        ->setToolTip(tr("Discard pending changes and reload current mappings."));
     connect(buttons, &QDialogButtonBox::rejected, dialog, &QDialog::reject);
     layout->addWidget(buttons);
 
     const QPointer<SWMM2DMeshLayer> mesh(m_layer);
     const QPointer<SWMMModelLayer> model(m_modelLayer);
-    const auto refresh = [mesh, model, cells, table, summary, edit] {
-        if (!mesh)
-            return;
+    const QPointer<MapCanvas> canvas(m_canvas);
+    const auto refresh = [mesh, model, cells, table, summary, edit, error, applyButton, draft,
+                          rawOverride] {
+        if (!mesh || (draft->dirty && !draft->applying))
+            return; // Keep the user's pending values; Apply checks for conflicting edits.
+        const QSignalBlocker block(table);
         QStringList selected;
         for (const auto &index : table->selectionModel()->selectedRows())
             selected.append(table->item(index.row(), 1)->text());
-        QVector<mesh::CellCoupling> mappings;
-        for (const auto &row : mesh->cellCouplings())
-            if (cells.contains(row.tri) && !row.nodeId.isEmpty())
-                mappings.append(row);
-        std::stable_sort(mappings.begin(), mappings.end(), [](const auto &a, const auto &b) {
-            return a.tri == b.tri ? a.nodeId < b.nodeId : a.tri < b.tri;
+        QVector<int> indices;
+        const auto &current = mesh->cellCouplings();
+        for (int i = 0; i < current.size(); ++i)
+            if (cells.contains(current[i].tri) && !current[i].nodeId.isEmpty())
+                indices.append(i);
+        std::stable_sort(indices.begin(), indices.end(), [&current](int a, int b) {
+            return current[a].tri == current[b].tri ? current[a].nodeId < current[b].nodeId
+                                                    : current[a].tri < current[b].tri;
         });
+        draft->sourceRows = indices;
+        draft->original.clear();
         table->clearSelection();
-        table->setRowCount(mappings.size());
+        table->setRowCount(indices.size());
         bool haveEditableNode = false;
-        for (int r = 0; r < mappings.size(); ++r) {
-            const auto &mapping = mappings[r];
+        for (int r = 0; r < indices.size(); ++r) {
+            const auto &mapping = current[indices[r]];
+            draft->original.append(mapping);
             nodecoupling2d::State state;
             const bool haveNode = model && model->engine() &&
                                   nodecoupling2d::read(model->engine(), mapping.nodeId, &state);
@@ -1325,32 +1385,153 @@ void MeshAttributeTableModel::editCoupledNodes(const QList<int> &rows, QWidget *
             const QStringList values = {
                 QString::number(mapping.tri), mapping.nodeId,
                 haveNode ? nodecoupling2d::typeLabel(state.type) : tr("Unavailable"),
-                mapping.cdSet ? QString::number(mapping.cd, 'g', 10) : tr("From node / defaults"),
-                mapping.areaSet ? QString::number(mapping.area, 'g', 10) : tr("From node / defaults")};
-            for (int c = 0; c < values.size(); ++c)
-                table->setItem(r, c, new QTableWidgetItem(values[c]));
+                rawOverride(mapping.cd, mapping.cdSet), rawOverride(mapping.area, mapping.areaSet)};
+            for (int c = 0; c < values.size(); ++c) {
+                auto *item = new QTableWidgetItem(
+                    c >= 3 && values[c].isEmpty() ? tr("From node / defaults") : values[c]);
+                item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable |
+                               (c >= 3 ? Qt::ItemIsEditable : Qt::NoItemFlags));
+                if (c >= 3) {
+                    item->setData(Qt::UserRole, values[c]);
+                    item->setToolTip(tr("Enter a finite number greater than zero. Clear the value "
+                                        "to use the node/default setting."));
+                }
+                table->setItem(r, c, item);
+            }
             if (selected.contains(mapping.nodeId))
                 table->selectionModel()->select(table->model()->index(r, 0),
-                    QItemSelectionModel::Select | QItemSelectionModel::Rows);
+                                                QItemSelectionModel::Select |
+                                                    QItemSelectionModel::Rows);
         }
-        summary->setText(mappings.isEmpty()
-            ? tr("No 1D nodes are directly coupled to these cells. Use Remap 1D↔2D to map nodes.")
-            : tr("%1 mapping(s) on %2 selected cell(s). These are direct cell mappings; "
-                 "coincident vertex couplings are shown separately. Select rows to edit those "
-                 "nodes, or leave the selection empty to edit all listed nodes.")
-                  .arg(mappings.size()).arg(cells.size()));
+        summary->setText(
+            indices.isEmpty()
+                ? tr("No 1D nodes are directly coupled to these cells. Use Remap 1D↔2D to map nodes.")
+                : tr("%1 mapping(s) on %2 selected cell(s). Double-click Cd or coupling area to edit; "
+                     "a blank value uses the node/default setting. Apply or OK saves these changes. "
+                     "Select rows to edit their node structures, or leave the selection empty to edit "
+                     "all listed nodes.")
+                      .arg(indices.size())
+                      .arg(cells.size()));
+        draft->dirty = false;
+        error->clear();
+        applyButton->setEnabled(false);
         edit->setEnabled(haveEditableNode);
     };
     refresh();
+    connect(table, &QTableWidget::itemChanged, dialog,
+            [draft, applyButton, edit, error](QTableWidgetItem *item) {
+                if (item->column() < 3)
+                    return;
+                draft->dirty = true;
+                applyButton->setEnabled(true);
+                edit->setEnabled(false);
+                error->clear();
+            });
     connect(mesh, &SWMM2DMeshLayer::meshEditsChanged, dialog, refresh);
+    connect(buttons->button(QDialogButtonBox::Reset), &QPushButton::clicked, dialog,
+            [draft, refresh] {
+                draft->dirty = false;
+                refresh();
+            });
+    const auto apply = [this, mesh, canvas, draft, table, error, refresh]() -> bool {
+        if (!mesh)
+            return false;
+        if (!draft->dirty)
+            return true;
+        auto updated = mesh->cellCouplings();
+        const auto previous = updated;
+        QSet<int> changedCells;
+        for (int r = 0; r < draft->original.size(); ++r) {
+            const auto &original = draft->original[r];
+            auto edited = original;
+            const auto parse = [table, r, error, &original](int column, double &value,
+                                                            bool &authored) {
+                const QString text =
+                    table->item(r, column)->data(Qt::UserRole).toString().trimmed();
+                authored = !text.isEmpty();
+                if (!authored)
+                    return true;
+                bool ok = false;
+                const double number = text.toDouble(&ok);
+                if (!ok || !std::isfinite(number) || number <= 0.0) {
+                    error->setText(tr("Cell %1, node %2: %3 must be a finite number greater than "
+                                      "zero, or blank to use the node/default setting.")
+                                       .arg(original.tri)
+                                       .arg(original.nodeId)
+                                       .arg(column == 3 ? tr("Cd") : tr("coupling area")));
+                    return false;
+                }
+                value = number;
+                return true;
+            };
+            if (!parse(3, edited.cd, edited.cdSet) || !parse(4, edited.area, edited.areaSet))
+                return false;
+            const auto sameCd = [](const auto &a, const auto &b) {
+                return a.cdSet == b.cdSet && (!a.cdSet || a.cd == b.cd);
+            };
+            const auto sameArea = [](const auto &a, const auto &b) {
+                return a.areaSet == b.areaSet && (!a.areaSet || a.area == b.area);
+            };
+            const bool cdChanged = !sameCd(original, edited);
+            const bool areaChanged = !sameArea(original, edited);
+            if (!cdChanged && !areaChanged)
+                continue;
+            const int index = draft->sourceRows[r];
+            if (index < 0 || index >= updated.size() || updated[index].tri != original.tri ||
+                updated[index].nodeId != original.nodeId ||
+                (cdChanged && !sameCd(updated[index], original) &&
+                 !sameCd(updated[index], edited)) ||
+                (areaChanged && !sameArea(updated[index], original) &&
+                 !sameArea(updated[index], edited))) {
+                error->setText(tr("This mapping changed outside the dialog. Reload the mappings "
+                                  "before applying edits to cell %1, node %2.")
+                                   .arg(original.tri)
+                                   .arg(original.nodeId));
+                return false;
+            }
+            auto &target = updated[index];
+            const bool changed = (cdChanged && !sameCd(target, edited)) ||
+                                 (areaChanged && !sameArea(target, edited));
+            if (cdChanged) {
+                target.cd = edited.cd;
+                target.cdSet = edited.cdSet;
+            }
+            if (areaChanged) {
+                target.area = edited.area;
+                target.areaSet = edited.areaSet;
+            }
+            if (changed)
+                changedCells.insert(original.tri);
+        }
+        draft->applying = true;
+        if (!changedCells.isEmpty()) {
+            if (canvas && canvas->undoStack())
+                canvas->undoStack()->push(new MeshSetCellCouplingsCommand(
+                    mesh, updated, previous, tr("Edit Cell Coupling Coefficients and Areas"),
+                    canvas));
+            else
+                mesh->applyCellCouplings(updated);
+            for (int cell : changedCells)
+                emit objectEdited(mesh::MeshObjectRef::cell(mesh->sourcePath(), cell).name);
+        }
+        refresh();
+        draft->applying = false;
+        return true;
+    };
+    connect(applyButton, &QPushButton::clicked, dialog, [apply] { apply(); });
+    connect(buttons, &QDialogButtonBox::accepted, dialog, [dialog, apply] {
+        if (apply())
+            dialog->accept();
+    });
     connect(edit, &QPushButton::clicked, dialog, [dialog, model, table] {
         if (!model || !model->engine())
             return;
         QStringList nodes;
         const auto selected = table->selectionModel()->selectedRows();
         for (int r = 0; r < table->rowCount(); ++r)
-            if (selected.isEmpty() || std::any_of(selected.begin(), selected.end(),
-                                                 [r](const auto &index) { return index.row() == r; }))
+            if (selected.isEmpty() ||
+                std::any_of(selected.begin(), selected.end(),
+                            [r](const auto &index) { return index.row() == r; }))
                 nodes.append(table->item(r, 1)->text());
         nodes.removeDuplicates();
         auto *editor = new NodeCouplingSelectorDialog(model, nodes, dialog);
@@ -1361,7 +1542,8 @@ void MeshAttributeTableModel::editCoupledNodes(const QList<int> &rows, QWidget *
             for (int r = 0; r < view->model()->rowCount(); ++r)
                 if (nodes.contains(view->model()->index(r, 0).data().toString()))
                     view->selectionModel()->select(view->model()->index(r, 0),
-                        QItemSelectionModel::Select | QItemSelectionModel::Rows);
+                                                   QItemSelectionModel::Select |
+                                                       QItemSelectionModel::Rows);
         editor->open();
     });
     connect(mesh, &QObject::destroyed, dialog, &QDialog::reject);

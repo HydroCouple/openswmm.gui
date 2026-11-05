@@ -864,8 +864,12 @@ the row menu. The menu and Properties also support several selected cells.
 Inspecting mappings works without an open 1D model, and the list refreshes after
 remapping or undo/redo. **Edit node structures…** opens the node coupling
 selector with the inspector's selected nodes, or all listed nodes if none are
-selected. Mapping rows are inspected here; use **Remap 1D↔2D** to change spatial
-registration.
+selected. Double-click **Orifice coefficient (Cd)** or **Coupling area** to edit
+an override. Enter a finite number greater than zero, or clear it to use the
+node/default setting. **Apply** saves the pending edits as one undo step;
+**OK** saves and closes, **Cancel** discards pending edits, and **Reload**
+discards pending edits and reads the current mappings again. Changes to other
+cells are preserved. Use **Remap 1D↔2D** to change spatial registration.
 
 These lists show `[2D_TRIANGLE_NODE_MAP]` mappings; coincident vertex mappings
 remain indicated by **Coupled Nodes**. A mapping indicates registration, while

@@ -101,6 +101,20 @@ void editBoundaryValue(QDialog *dialog, const QString &text)
 }
 
 
+void editCouplingValue(QTableWidget *table, int row, int column, const QString &text)
+{
+    const auto index = table->model()->index(row, column);
+    QVERIFY(index.flags() & Qt::ItemIsEditable);
+    auto *delegate = table->itemDelegateForColumn(column);
+    std::unique_ptr<QWidget> editor(delegate->createEditor(table->viewport(), {}, index));
+    QVERIFY(editor);
+    delegate->setEditorData(editor.get(), index);
+    auto *line = qobject_cast<QLineEdit *>(editor.get());
+    QVERIFY(line);
+    line->setText(text);
+    delegate->setModelData(editor.get(), table->model(), index);
+}
+
 /*! `wide` × 1 strip of unit quads, each split into two triangles. Every quad
  *  contributes one interior (diagonal) edge, so the de-duplication has
  *  something to collapse. Unique edges = 3·T − interior. */
@@ -413,6 +427,157 @@ private slots:
         rig.layer.applyCellCouplings({});
         QCOMPARE(table->rowCount(), 0);
         dialog->reject();
+    }
+
+    void coupledCellCoefficientsAndAreasApplyUndoAndPersist()
+    {
+        auto mesh = makeStrip(1);
+        mesh.cellCouplings = {{0, "J1"}, {0, "O1"}, {1, "J1"}};
+        mesh.cellCouplings[0].cdSet = mesh.cellCouplings[0].areaSet = false;
+        AggregateRig rig(mesh, "coupling-values.2dm");
+        rig.panel.showMeshObject(&rig.canvas, mesh::MeshObjectRef::cell(rig.layer.sourcePath(), 0));
+        auto *open = rig.panel.findChild<QPushButton *>("editMeshCoupledNodes");
+        QVERIFY(open);
+        open->click();
+        auto *dialog = rig.panel.findChild<QDialog *>("meshCellCouplingDialog");
+        QVERIFY(dialog);
+        auto *table = dialog->findChild<QTableWidget *>("cellCouplingMappings");
+        auto *buttons = dialog->findChild<QDialogButtonBox *>();
+        QVERIFY(table && buttons);
+        QVERIFY(!(table->item(0, 1)->flags() & Qt::ItemIsEditable));
+        QVERIFY(!buttons->button(QDialogButtonBox::Apply)->isEnabled());
+        editCouplingValue(table, 0, 3, "0.72");
+        editCouplingValue(table, 0, 4, "12.5");
+        editCouplingValue(table, 1, 3, "0.31");
+        editCouplingValue(table, 1, 4, "9.75");
+        QCOMPARE(rig.layer.cellCouplings()[0].cd, 0.65); // Draft values do not write early.
+        QCOMPARE(rig.canvas.undoStack()->count(), 0);
+        QSignalSpy edited(&rig.layer, &SWMM2DMeshLayer::meshEditsChanged);
+        buttons->button(QDialogButtonBox::Apply)->click();
+        QCOMPARE(edited.count(), 1);
+        QCOMPARE(rig.canvas.undoStack()->count(), 1);
+        QCOMPARE(rig.layer.cellCouplings()[0].cd, 0.72);
+        QCOMPARE(rig.layer.cellCouplings()[0].area, 12.5);
+        QVERIFY(rig.layer.cellCouplings()[0].cdSet && rig.layer.cellCouplings()[0].areaSet);
+        QCOMPARE(rig.layer.cellCouplings()[1].cd, 0.31);
+        QCOMPARE(rig.layer.cellCouplings()[1].area, 9.75);
+        QCOMPARE(rig.layer.cellCouplings()[2].area, 2.0);
+        rig.canvas.undoStack()->undo();
+        QVERIFY(!rig.layer.cellCouplings()[0].cdSet && !rig.layer.cellCouplings()[0].areaSet);
+        QCOMPARE(table->item(0, 3)->data(Qt::UserRole).toString(), QString());
+        rig.canvas.undoStack()->redo();
+        QCOMPARE(rig.layer.cellCouplings()[0].area, 12.5);
+
+        // Clearing Cd alone must retain an authored area across save/reopen.
+        editCouplingValue(table, 0, 3, "");
+        buttons->button(QDialogButtonBox::Apply)->click();
+        QVERIFY(!rig.layer.cellCouplings()[0].cdSet);
+        QVERIFY(rig.layer.cellCouplings()[0].areaSet);
+        QTemporaryDir directory;
+        QVERIFY(directory.isValid());
+        for (bool external : {false, true}) {
+            const auto path = directory.filePath(external ? "external.inp" : "inline.inp");
+            QVERIFY(QFile::copy(QFINDTESTDATA("data/mini_2d.inp"), path));
+            QString error;
+            const mesh::CouplingMap coupling;
+            const bool saved =
+                external ? mesh::InpMeshWriter::writeExternal(path, directory.filePath("mesh.2dm"),
+                                                              rig.layer.mesh(), coupling,
+                                                              rig.layer.edgeBCs(), 0.035, &error)
+                         : mesh::InpMeshWriter::writeInline(path, rig.layer.mesh(), coupling,
+                                                            rig.layer.edgeBCs(), 0.035, &error);
+            QVERIFY2(saved, qPrintable(error));
+            const auto read = mesh::InpMeshReader::read(path);
+            QVERIFY2(read.hasMesh, qPrintable(read.errorMsg));
+            QCOMPARE(read.mesh.cellCouplings.size(), 3);
+            QVERIFY(!read.mesh.cellCouplings[0].cdSet);
+            QVERIFY(read.mesh.cellCouplings[0].areaSet);
+            QCOMPARE(read.mesh.cellCouplings[0].area, 12.5);
+            QCOMPARE(read.mesh.cellCouplings[1].cd, 0.31);
+            QCOMPARE(read.mesh.cellCouplings[1].area, 9.75);
+            // The engine must also accept the default-Cd placeholder.
+            SWMMModelLayer reopened(path);
+            QList<QString> warnings, errors;
+            QVERIFY2(reopened.loadModel(warnings, errors), qPrintable(errors.join(' ')));
+        }
+        editCouplingValue(table, 0, 4, "");
+        buttons->button(QDialogButtonBox::Ok)->click();
+        QVERIFY(!rig.layer.cellCouplings()[0].cdSet && !rig.layer.cellCouplings()[0].areaSet);
+        rig.canvas.undoStack()->undo();
+        QVERIFY(!rig.layer.cellCouplings()[0].cdSet && rig.layer.cellCouplings()[0].areaSet);
+    }
+
+    void coupledCellCoefficientValidationIsAtomic()
+    {
+        auto mesh = makeStrip(1);
+        mesh.cellCouplings = {{0, "A"}, {0, "B"}};
+        AggregateRig rig(mesh, "coupling-validation.2dm");
+        rig.table.setSource(&rig.layer, Kind::Cell);
+        rig.table.editCoupledNodes({0}, &rig.panel);
+        auto *dialog = rig.panel.findChild<QDialog *>("meshCellCouplingDialog");
+        QVERIFY(dialog);
+        auto *table = dialog->findChild<QTableWidget *>("cellCouplingMappings");
+        auto *buttons = dialog->findChild<QDialogButtonBox *>();
+        auto *error = dialog->findChild<QLabel *>("cellCouplingEditError");
+        QVERIFY(table && buttons && error);
+        editCouplingValue(table, 0, 3, "0.9");
+        for (int column : {3, 4}) {
+            for (const auto &invalid : {"0", "-1", "nan", "inf", "1e309", "not a number"}) {
+                editCouplingValue(table, 1, column, invalid);
+                buttons->button(QDialogButtonBox::Apply)->click();
+                QVERIFY(!error->text().isEmpty());
+                QCOMPARE(rig.canvas.undoStack()->count(), 0);
+                QCOMPARE(rig.layer.cellCouplings()[0].cd, 0.65);
+                QCOMPARE(rig.layer.cellCouplings()[1].area, 2.0);
+            }
+            editCouplingValue(table, 1, column, column == 3 ? "0.65" : "2");
+        }
+        editCouplingValue(table, 1, 4, "5e-4");
+        buttons->button(QDialogButtonBox::Apply)->click();
+        QVERIFY(error->text().isEmpty());
+        QCOMPARE(rig.layer.cellCouplings()[0].cd, 0.9);
+        QCOMPARE(rig.layer.cellCouplings()[1].area, 5e-4);
+        QCOMPARE(rig.canvas.undoStack()->count(), 1);
+        dialog->reject();
+    }
+
+    void coupledCellPendingEditsPreserveExternalChangesAndCancel()
+    {
+        auto mesh = makeStrip(2);
+        mesh.cellCouplings = {{0, "A"}, {1, "B"}, {2, "C"}};
+        AggregateRig rig(mesh, "coupling-conflicts.2dm");
+        rig.table.setSource(&rig.layer, Kind::Cell);
+        rig.table.editCoupledNodes({0, 1}, &rig.panel);
+        auto *dialog = rig.panel.findChild<QDialog *>("meshCellCouplingDialog");
+        QVERIFY(dialog);
+        auto *table = dialog->findChild<QTableWidget *>("cellCouplingMappings");
+        auto *buttons = dialog->findChild<QDialogButtonBox *>();
+        auto *error = dialog->findChild<QLabel *>("cellCouplingEditError");
+        QVERIFY(table && buttons && error);
+        editCouplingValue(table, 0, 3, "0.8");
+        auto external = rig.layer.cellCouplings();
+        external[1].area = 44;
+        external[2].cd = 0.95;
+        rig.layer.applyCellCouplings(external);
+        buttons->button(QDialogButtonBox::Apply)->click();
+        QCOMPARE(rig.layer.cellCouplings()[0].cd, 0.8);
+        QCOMPARE(rig.layer.cellCouplings()[1].area, 44.0);
+        QCOMPARE(rig.layer.cellCouplings()[2].cd, 0.95);
+        editCouplingValue(table, 0, 4, "11");
+        external = rig.layer.cellCouplings();
+        external[0].area = 12;
+        rig.layer.applyCellCouplings(external);
+        buttons->button(QDialogButtonBox::Apply)->click();
+        QVERIFY(!error->text().isEmpty());
+        QCOMPARE(rig.layer.cellCouplings()[0].area, 12.0);
+        QCOMPARE(rig.canvas.undoStack()->count(), 1);
+        buttons->button(QDialogButtonBox::Reset)->click();
+        QCOMPARE(table->item(0, 4)->data(Qt::UserRole).toString(), QString("12"));
+        QVERIFY(error->text().isEmpty());
+        editCouplingValue(table, 0, 3, "0.21");
+        buttons->button(QDialogButtonBox::Cancel)->click();
+        QCOMPARE(rig.layer.cellCouplings()[0].cd, 0.8);
+        QCOMPARE(rig.canvas.undoStack()->count(), 1);
     }
 
     void coupledCellOverlayRendersExactTriAndQuadFootprints()

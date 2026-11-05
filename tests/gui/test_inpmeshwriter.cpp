@@ -515,6 +515,7 @@ private slots:
         QCOMPARE(rowOf("J2")[2].toDouble(), 0.7);
         QCOMPARE(rowOf("J3").size(), 2);
         QCOMPARE(rowOf("J4").size(), 4);
+        QCOMPARE(rowOf("J4")[2], QStringLiteral("*"));
 
         QVector<MeshEdgeBC> bcs(edgeSlotCount(m.triangles.size()));
         QString err;
@@ -527,6 +528,7 @@ private slots:
         QCOMPARE(back.mesh.vertices[1].couplingCd, 0.7);
         QCOMPARE(back.mesh.cellCouplings.size(), 2);
         QVERIFY(!back.mesh.cellCouplings[0].cdSet && !back.mesh.cellCouplings[0].areaSet);
+        QVERIFY(!back.mesh.cellCouplings[1].cdSet);
         QVERIFY(back.mesh.cellCouplings[1].areaSet);
         QCOMPARE(back.mesh.cellCouplings[1].area, 3.5);
     }

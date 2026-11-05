@@ -85,7 +85,7 @@ public:
     void editInfiltration(const QList<int> &rows, QWidget *parent);
     /*! Edit eligible boundary edges immediately through the shared property write path. */
     void editBoundaryCondition(const QList<int> &rows, QWidget *parent);
-    /*! Inspect direct cell-to-node mappings in a shared dialog, with access to node structures. */
+    /*! Edit cell-coupling Cd/area overrides with validation and undo; inspect node structures. */
     void editCoupledNodes(const QList<int> &rows, QWidget *parent);
     /*! Applicability against a pending multi-field edit, without writing the layer. */
     [[nodiscard]] Qt::ItemFlags flagsForDraft(const QModelIndex &index,
