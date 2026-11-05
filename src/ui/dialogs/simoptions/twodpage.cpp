@@ -909,8 +909,9 @@ void TwoDPage::buildUi()
          "Mesh2_face_infil_rate / Mesh2_face_infil_cum — infiltration-rate "
          "and cumulative-loss plots and colour ramps."},
         {"COUPLING", "1D↔2D exchange (per cell)",
-         "Mesh2_face_coupling_flux / Mesh2_face_net_source — diagnostic "
-         "exchange and net-source fields (no GUI consumer today)."},
+         "Mesh2_face_coupling_flux / Mesh2_face_net_source — signed exchange "
+         "and net-source rates (m/s), positive into the mesh. Native junction "
+         "exchange is averaged over the last completed surface interval."},
         {"GRADIENTS", "Reconstruction gradients (diagnostic)",
          "Mesh2_face_grad_* (4 fields) — solver diagnostics only."},
         {"TURBULENCE", "Turbulent viscosity and strain",
