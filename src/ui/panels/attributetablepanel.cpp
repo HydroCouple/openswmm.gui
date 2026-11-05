@@ -1,3 +1,5 @@
+#include "ui/panels/featureaggregateselection.h"
+#include "ui/properties/datarecordsref.h"
 /**
  * @file      attributetablepanel.cpp
  * @brief     Attribute Tables dock.
@@ -500,30 +502,16 @@ public:
         if (!fl || !m_canvas || !m_canvas->undoStack())
             return false;
 
-        const long long fid = fidForRow(index.row());
-        if (fid < 0)
-            return false;
-        openswmmvis::feature::Feature feat;
-        if (!fl->feature(static_cast<openswmmvis::feature::FeatureId>(fid), feat))
-            return false;
-
-        const openswmmvis::feature::Schema schema = fl->schema();
-        const int fieldIdx = index.column() - 1; // column 0 is the FID
-        if (fieldIdx < 0 || fieldIdx >= schema.count())
-            return false;
-        const openswmmvis::feature::FieldDef fd = schema.at(fieldIdx);
-
-        QVariantMap next = feat.attributes;
-        next.insert(fd.name, openswmmvis::feature::coerceToFieldType(value, fd.type));
-        if (next == feat.attributes)
-            return false;
-
-        auto *cmd = new openswmmvis::map::EditFeatureAttributesCommand(fl, feat.id, feat.attributes,
-                                                                       next, m_canvas.data());
-        m_canvas->undoStack()->push(cmd);
-        // featuresChanged → reload() repaints the row with the STORED value,
-        // which may differ from what was typed once coercion has run.
-        return cmd->lastError().isEmpty();
+        return setDataForRows(index.column(), {index.row()}, value);
+    }
+    bool setDataForRows(int column, const QList<int> &rows, const QVariant &value, QString *error=nullptr)
+    {
+        auto *fl=editableFeatureLayer();
+        if (!fl || column<=0 || column>fl->schema().count()) return false;
+        const auto schema=fl->schema();
+        QVector<qint64> ids;
+        for(int row:rows){const auto fid=fidForRow(row);if(fid<0)return false;ids<<fid;}
+        return applyFeatureAttributeValues(fl, ids, schema.at(column-1).name, value, m_canvas, error);
     }
 
 private:
@@ -716,9 +704,10 @@ public:
     {
         // Rebuild membership as a whole: incrementally removing millions of
         // alternating rows repeatedly shifts Qt's source/proxy mapping arrays.
-        if (m_predicate.isValid())
-            invalidate();
+        // Enabling dynamic mode performs its own resort; invalidate once while it is
+        // already enabled so filtering/sorting share a single Qt layout transition.
         setDynamicSortFilter(true);
+        if (m_predicate.isValid()) invalidateFilter();
     }
 
     /**
@@ -1018,6 +1007,10 @@ QString dataWidthsKey(int dataCategory)
 const char *dataCategoryLabel(SWMMModelLayer::DataCategory dc)
 {
     switch (dc) {
+    case SWMMModelLayer::DataCurves:return "Curves";
+    case SWMMModelLayer::DataTimeSeries:return "Model Time Series";
+    case SWMMModelLayer::DataHydrographs:return "Hydrographs";
+    case SWMMModelLayer::DataControls:return "Control Rules";
     case SWMMModelLayer::DataLIDControls:
         return "LID Controls";
     case SWMMModelLayer::DataSnowpacks:
@@ -1696,7 +1689,7 @@ void AttributeTablePanel::refresh()
                     Qt::UniqueConnection);
         }
     }
-    int idx = m_categoryCombo->findText(currentText);
+    int idx = currentText.isEmpty() ? -1 : m_categoryCombo->findText(currentText);
     if (idx < 0)
         idx = 0;
     m_categoryCombo->setCurrentIndex(idx);
@@ -2916,6 +2909,19 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
     if (!proxyIdx.isValid())
         return;
 
+    if(gisSourceActive()) {
+        QMenu menu(this);
+        auto *copy=menu.addAction(tr("Copy (Ctrl+C)"));
+        connect(copy,&QAction::triggered,this,&AttributeTablePanel::copySelectionToClipboard);
+        const auto source=m_proxy->mapToSource(proxyIdx);
+        const auto rows=selectedSourceRows();
+        if(source.isValid() && rows.size()>1 && rows.contains(source.row()) && (source.flags()&Qt::ItemIsEditable)) {
+            const auto value=source.data(Qt::EditRole);const int column=source.column();
+            auto *apply=menu.addAction(tr("Apply this value to selected rows"));
+            connect(apply,&QAction::triggered,this,[this,rows,value,column]{applyValueToSelectedRows(column,rows,value);});
+        }
+        menu.exec(m_view->viewport()->mapToGlobal(pos));return;
+    }
     // Mesh source: Copy + bulk apply + Zoom. Change Type and Delete are SWMM
     // object operations with no mesh equivalent — a mesh element cannot be
     // deleted individually, and there is no type to convert.
@@ -3155,6 +3161,13 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
             });
             addedEditAction = true;
         }
+    } else if(metaId==qMetaTypeId<DataRecordsRef>()) {
+        auto ref=cellValue.value<DataRecordsRef>();QStringList names;
+        const auto rows=selectedSourceRows();for(int row:rows)names<<m_dataModel->objectNameAt(row);
+        if(!rows.contains(sourceIdx.row()))names={m_dataModel->objectNameAt(sourceIdx.row())};
+        ref=dataRecordsRef(m_dataModel->layer(),m_dataModel->category(),names,m_dataModel->undoStack());
+        auto *action=menu.addAction(tr("Edit keyed records for %1 objects…").arg(names.size()));
+        connect(action,&QAction::triggered,this,[this,ref]{openDataRecords(ref,window());});addedEditAction=true;
     } else if (metaId == qMetaTypeId<LinkCompoundEditRef>()) {
         auto ref = cellValue.value<LinkCompoundEditRef>();
         if (ref.layer && ref.kind == LinkCompoundEditRef::InletUsage) {
@@ -3429,6 +3442,12 @@ void AttributeTablePanel::applyValueToSelectedRows(int column, const QList<int> 
 {
     if (column < 0 || sourceRows.isEmpty())
         return;
+    if(gisSourceActive()) {
+        QString error;
+        m_gisModel->setDataForRows(column,sourceRows,value,&error);
+        if(!error.isEmpty())QMessageBox::information(this,tr("Edit attributes"),error);
+        return;
+    }
     // Whichever source is bound — SWMM objects, mesh elements or data
     // objects — each source retains its validation and shared undo stack.
     QAbstractItemModel *model = meshSourceActive() ? static_cast<QAbstractItemModel *>(m_meshModel)

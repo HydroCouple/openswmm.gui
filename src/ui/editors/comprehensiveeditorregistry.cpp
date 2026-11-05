@@ -1,3 +1,4 @@
+#include "ui/properties/datarecordsref.h"
 /**
  * @file      comprehensiveeditorregistry.cpp
  * @brief     Single source of truth mapping each non-spatial data category to its comprehensive
@@ -77,8 +78,7 @@ using openswmmvis::ui::TransectEditorDialog;
  * @brief Ensure typed Timeseries registry and invoke createNew factory, returning silently on null
  *   result. New dialog is WA_DeleteOnClose and shown modeless; this launcher does not reuse
  *   existing windows.
- * @note finished saves registry to engine using registry-held binding, guarded only by registry
- *   QPointer; errors ignored, including rejected close.
+ * @note Edits publish immediately through the bound registry; closing does not publish other drafts.
  * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
@@ -94,12 +94,6 @@ void openTimeseriesCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *
     if (!dlg)
         return;
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    // Phase 6.7.3.7 — auto-flush newly-created provider to engine on close.
-    QPointer<TimeseriesRegistry> regPtr(reg);
-    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr]() {
-        if (regPtr)
-            regPtr->saveToEngine();
-    });
     dlg->show();
 }
 
@@ -119,8 +113,7 @@ void openTimeseriesCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *
  * @brief Ensure typed Timeseries registry and construct list editor without deliberately creating a
  *   new entry. New dialog is WA_DeleteOnClose and shown modeless; this launcher does not reuse
  *   existing windows.
- * @note finished saves registry to engine using registry-held binding, guarded only by registry
- *   QPointer; errors ignored, including rejected close.
+ * @note Edits publish immediately through the bound registry; closing does not publish other drafts.
  * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
@@ -135,11 +128,6 @@ void openTimeseriesBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *par
     auto *dlg = new TimeseriesEditorDialog(reg, stack,
                                            /*initialSelection=*/nullptr, parent);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    QPointer<TimeseriesRegistry> regPtr(reg);
-    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr]() {
-        if (regPtr)
-            regPtr->saveToEngine();
-    });
     dlg->show();
 }
 
@@ -954,14 +942,10 @@ void openControlsBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *paren
  * @note GUI-thread only; registry ensure can initialize model state. Borrowed model/stack must
  *   outlive dialog use; no direct notification/undo command in this wrapper.
  */
-void openHydrographForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/, const QString &name,
+void openHydrographForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
                              QWidget *parent)
 {
-    if (!layer)
-        return;
-    if (!sHydrographEditor)
-        sHydrographEditor = new HydrographGroupEditor(layer, parent);
-    sHydrographEditor->openForGroup(name);
+    if(layer)openDataRecords(dataRecordsRef(layer,SWMMModelLayer::DataHydrographs,{name},stack),parent);
 }
 
 /**
@@ -981,15 +965,7 @@ void openHydrographForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/, cons
 void openCurveForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
                         QWidget *parent)
 {
-    if (!layer)
-        return;
-    auto *reg = qobject_cast<CurveRegistry *>(layer->ensureCurveRegistry());
-    if (!reg)
-        return;
-    static QPointer<CurveEditorDialog> editor;
-    if (!editor)
-        editor = new CurveEditorDialog(reg, stack, parent);
-    editor->openForCurve(name);
+    if(layer)openDataRecords(dataRecordsRef(layer,SWMMModelLayer::DataCurves,{name},stack),parent);
 }
 
 /**
@@ -1092,13 +1068,7 @@ void openInletForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString 
 void openControlForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
                           QWidget *parent)
 {
-    if (!layer)
-        return;
-    if (!sRulesEditor) {
-        sRulesEditor = new RulesEditorDialog(layer, stack, parent);
-        sRulesEditor->setAttribute(Qt::WA_DeleteOnClose);
-    }
-    sRulesEditor->openForRule(name);
+    if(layer)openDataRecords(dataRecordsRef(layer,SWMMModelLayer::DataControls,{name},stack),parent);
 }
 
 /**
@@ -1118,28 +1088,7 @@ void openControlForObject(SWMMModelLayer *layer, QUndoStack *stack, const QStrin
 void openTimeseriesForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
                              QWidget *parent)
 {
-    using openswmmvis::timeseries::TimeseriesProvider;
-    if (!layer)
-        return;
-    auto *reg = qobject_cast<TimeseriesRegistry *>(layer->ensureTimeseriesRegistry());
-    if (!reg)
-        return;
-    TimeseriesProvider *p = reg->findByName(name);
-    if (!p) {
-        // Engine has it but registry didn't load — recreate empty so the
-        // editor at least opens and the user can see the rejection state.
-        p = reg->create(name);
-        if (!p)
-            return;
-    }
-    auto *dlg = new TimeseriesEditorDialog(reg, stack, p, parent);
-    dlg->setAttribute(Qt::WA_DeleteOnClose);
-    QPointer<TimeseriesRegistry> regPtr(reg);
-    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr]() {
-        if (regPtr)
-            regPtr->saveToEngine();
-    });
-    dlg->show();
+    if(layer)openDataRecords(dataRecordsRef(layer,SWMMModelLayer::DataTimeSeries,{name},stack),parent);
 }
 
 /*! Shared body for the registry-backed list editors (pollutant, land use,

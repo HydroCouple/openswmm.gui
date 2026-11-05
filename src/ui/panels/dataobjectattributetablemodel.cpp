@@ -43,6 +43,25 @@
 #include <openswmm/engine/openswmm_reactions.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_links.h>
+#include "timeseries/timeseriesregistry.h"
+#include "timeseries/timeseriesprovider.h"
+#include "controls/controlruleregistry.h"
+#include "controls/controlruleprovider.h"
+#include "core/swmmdatetime.h"
+#include "ui/properties/datarecordsref.h"
+#include "ui/util/externalcolumnfile.h"
+#include "ui/util/externalcolumnfilecore.h"
+#include <openswmm/engine/openswmm_controls.h>
+#include <openswmm/engine/openswmm_inflows.h>
+#include <openswmm/engine/openswmm_model.h>
+#include <QDir>
+#include <QFileInfo>
+#include <QFile>
+#include <QTextStream>
+#include <algorithm>
+#include <QDateTime>
+#include <QTimeZone>
+#include <QRegularExpression>
 #include <QSet>
 #include <QUuid>
 #include <memory>
@@ -97,6 +116,8 @@ bool metric(SWMMModelLayer *layer) {
     const QByteArray units(text);
     return units == "CMS" || units == "LPS" || units == "MLD";
 }
+int nativeFlowUnits(SWMM_Engine engine){int value=-1;swmm_get_flow_units(engine,&value);return value;}
+QString nativeTimeAnchor(SWMM_Engine engine){char date[64]{},time[64]{};swmm_options_get(engine,"START_DATE",date,sizeof(date));swmm_options_get(engine,"START_TIME",time,sizeof(time));return QString::fromUtf8(date)+" "+QString::fromUtf8(time);}
 QString unitLabel(UnitKind kind, SWMMModelLayer *layer) {
     const bool si = metric(layer);
     switch (kind) {
@@ -109,6 +130,11 @@ QString unitLabel(UnitKind kind, SWMMModelLayer *layer) {
     }
 }
 
+QObject *hydroRegistry(SWMMModelLayer *);
+QList<QObject *> hydroProviders(QObject *);
+bool remainingCategory(DC::DataCategory);
+QVariantMap remainingRecord(SWMMModelLayer *,DC::DataCategory,const QString &);
+void refreshRemaining(SWMMModelLayer *,DC::DataCategory,QObject *,const QString &);
 // ── Registry access ────────────────────────────────────────────────────────
 
 /**
@@ -124,6 +150,9 @@ QObject *registryFor(SWMMModelLayer *layer, SWMMModelLayer::DataCategory cat)
         return nullptr;
     switch (cat) {
     case DC::DataCurves: return layer->ensureCurveRegistry();
+    case DC::DataTimeSeries: return layer->ensureTimeseriesRegistry();
+    case DC::DataControls: return layer->ensureControlRuleRegistry();
+    case DC::DataHydrographs: return hydroRegistry(layer);
     case DC::DataPatterns: return layer->ensurePatternRegistry();
     case DC::DataTransects: return layer->ensureTransectRegistry();
     case DC::DataLIDControls: return layer->ensureLidControlRegistry();
@@ -167,6 +196,9 @@ QList<QObject *> providersOf(QObject *reg, SWMMModelLayer::DataCategory cat)
 {
     switch (cat) {
     case DC::DataCurves: return providersOf<openswmmvis::curve::CurveRegistry>(reg);
+    case DC::DataTimeSeries: return providersOf<openswmmvis::timeseries::TimeseriesRegistry>(reg);
+    case DC::DataControls: return providersOf<openswmmvis::controls::ControlRuleRegistry>(reg);
+    case DC::DataHydrographs: return hydroProviders(reg);
     case DC::DataPatterns: return providersOf<openswmmvis::pattern::PatternRegistry>(reg);
     case DC::DataTransects: return providersOf<TransectRegistry>(reg);
     case DC::DataLIDControls: return providersOf<LidControlRegistry>(reg);
@@ -199,6 +231,9 @@ QString nameOf(QObject *p, SWMMModelLayer::DataCategory cat)
         return {};
     switch (cat) {
     case DC::DataCurves: return static_cast<openswmmvis::curve::CurveProvider *>(p)->name();
+    case DC::DataTimeSeries: return static_cast<openswmmvis::timeseries::TimeseriesProvider *>(p)->name();
+    case DC::DataControls: return static_cast<openswmmvis::controls::ControlRuleProvider *>(p)->name();
+    case DC::DataHydrographs: return p->property("name").toString();
     case DC::DataPatterns: return static_cast<openswmmvis::pattern::PatternProvider *>(p)->name();
     case DC::DataTransects: return static_cast<TransectProvider *>(p)->name();
     case DC::DataLIDControls: return static_cast<LidControlProvider *>(p)->name();
@@ -459,6 +494,10 @@ void refreshFromEngine(QObject *registry, DC::DataCategory category, SWMMModelLa
 {
     if (!registry || !layer || !layer->engine() || name.isEmpty())
         return;
+    if (remainingCategory(category)) {
+        if (auto *p=findProvider(registry,category,name)) refreshRemaining(layer,category,p,name);
+        return;
+    }
     switch (category) {
     case DC::DataLIDControls: {
         using P = LidControlProvider;
@@ -553,6 +592,9 @@ void refreshFromEngine(QObject *registry, DC::DataCategory category, SWMMModelLa
 void notifyProvider(QObject *, DC::DataCategory category, QObject *provider) {
     if (!provider) return;
     switch (category) {
+    case DC::DataCurves: {auto *p=static_cast<openswmmvis::curve::CurveProvider *>(provider);emit p->pointsChanged(0,p->pointCount());break;}
+    case DC::DataTimeSeries: {auto *p=static_cast<openswmmvis::timeseries::TimeseriesProvider *>(provider);emit p->pointsChanged(0,p->pointCount());break;}
+    case DC::DataControls: {auto *p=static_cast<openswmmvis::controls::ControlRuleProvider *>(provider);emit p->bodyChanged();break;}
     case DC::DataLIDControls: emit static_cast<LidControlProvider *>(provider)->paramsChanged(); break;
     case DC::DataSnowpacks: emit static_cast<SnowpackProvider *>(provider)->paramsChanged(); break;
     case DC::DataPatterns: emit static_cast<PatternProvider *>(provider)->factorsChanged(); break;
@@ -1275,6 +1317,8 @@ QList<Field> inletFields(SWMMModelLayer *layer)
     return f;
 }
 
+#include "datarecords_p.h"
+
 /*! Every column of \p cat, Name first. Empty for unsupported categories.
  * @param[in] layer Optional source for reference-choice snapshots, not captured/owned by resulting
  *   accessor lambdas.
@@ -1287,6 +1331,8 @@ QList<Field> fieldsFor(SWMMModelLayer *layer, SWMMModelLayer::DataCategory cat)
 {
     QList<Field> f;
     switch (cat) {
+    case DC::DataCurves: case DC::DataTimeSeries: case DC::DataHydrographs: case DC::DataControls:
+        f = remainingFields(layer,cat); break;
     case DC::DataLIDControls:
         f = lidFields(layer);
         break;
@@ -1303,7 +1349,7 @@ QList<Field> fieldsFor(SWMMModelLayer *layer, SWMMModelLayer::DataCategory cat)
         f = pollutantFields(layer);
         break;
     case DC::DataLandUses:
-        f = landUseFields();
+        f = landUseFields() + remainingFields(layer,cat);
         break;
     case DC::DataAquifers:
         f = aquiferFields(layer);
@@ -1316,6 +1362,10 @@ QList<Field> fieldsFor(SWMMModelLayer *layer, SWMMModelLayer::DataCategory cat)
         break;
     default:
         return f;
+    }
+    if (layer && remainingCategory(cat)) {
+        auto *reg=registryFor(layer,cat);
+        for (auto *p:providersOf(reg,cat)) {const QSignalBlocker ps(p),rs(reg);refreshRemaining(layer,cat,p,nameOf(p,cat));}
     }
     Field name = nameField();
     name.get = [cat](QObject *o) { return QVariant(nameOf(o, cat)); };
@@ -1343,6 +1393,12 @@ int nativeIndex(SWMM_Engine e, DC::DataCategory cat, const QString &name)
 {
     const auto id = name.toUtf8();
     switch (cat) {
+    case DC::DataTimeSeries:
+        for(int i=0;i<swmm_table_count(e);++i) {int type=-1;swmm_table_get_type(e,i,&type);if(type==0 && name.compare(QString::fromUtf8(swmm_table_id(e,i)),Qt::CaseInsensitive)==0)return i;}return -1;
+    case DC::DataControls:
+        for(int i=0;i<swmm_control_count(e);++i) {char id[4096]{};if(swmm_control_get_id(e,i,id,sizeof(id))==SWMM_OK && name.compare(QString::fromUtf8(id),Qt::CaseInsensitive)==0)return i;}return -1;
+    case DC::DataHydrographs:
+        for(int i=0;i<swmm_hydrograph_group_count(e);++i) {char id[4096]{};if(swmm_hydrograph_group_id(e,i,id,sizeof(id))==SWMM_OK && name.compare(QString::fromUtf8(id),Qt::CaseInsensitive)==0)return i;}return -1;
     case DC::DataLIDControls:
         return swmm_lid_index(e, id.constData());
     case DC::DataSnowpacks:
@@ -1419,6 +1475,7 @@ QVariantMap readRecord(SWMMModelLayer *layer, DC::DataCategory cat, QObject *pro
     if (!editable(layer) || !provider ||
         nativeIndex(layer->engine(), cat, nameOf(provider, cat)) < 0)
         return {};
+    if (remainingCategory(cat)) return remainingRecord(layer,cat,nameOf(provider,cat));
     if (cat == DC::DataLIDControls)
         return lidRecord(layer, nameOf(provider, cat));
     if (cat == DC::DataSnowpacks)
@@ -1456,7 +1513,8 @@ bool writeRecord(SWMMModelLayer *layer, DC::DataCategory cat, QObject *provider,
     auto *reg = registryFor(layer, cat);
     const QSignalBlocker p(provider), r(reg);
     bool written = false;
-    if (cat == DC::DataLIDControls) {
+    if (remainingCategory(cat)) written=writeRemaining(layer,cat,name,record);
+    else if (cat == DC::DataLIDControls) {
         written = writeLidRecord(layer, name, record);
     } else if (cat == DC::DataSnowpacks) {
         written = writeSnowRecord(layer->engine(), name, record);
@@ -1487,6 +1545,7 @@ bool writeRecord(SWMMModelLayer *layer, DC::DataCategory cat, QObject *provider,
 }
 DC::DataCategory referenceCategory(const QString &key)
 {
+    if(key.endsWith("/series"))return DC::DataTimeSeries;
     return key == "coPollutant"   ? DC::DataPollutants
            : key == "evapPattern" ? DC::DataPatterns
            : key == "curveId"     ? DC::DataCurves
@@ -1504,6 +1563,7 @@ int referenceType(SWMM_Engine e, DC::DataCategory cat, const QString &name)
         swmm_table_get_type(e, idx, &type);
     if (cat == DC::DataPatterns)
         swmm_pattern_get_type(e, idx, &type);
+    if (cat == DC::DataTimeSeries) type=0;
     return type;
 }
 bool referenceValid(SWMM_Engine e, const QString &key, const QString &name)
@@ -1519,6 +1579,7 @@ bool referenceValid(SWMM_Engine e, const QString &key, const QString &name)
 bool memberValid(SWMMModelLayer *layer, DC::DataCategory category, const QString &key, const QVariantMap &record, const QString &name)
 {
     const auto engine = layer->engine();
+    if (remainingCategory(category)) return remainingValid(layer,category,name,record);
     if (category == DC::DataLIDControls) {
         const int index = swmm_lid_index(engine, name.toUtf8().constData());
         if (record["type"].toInt() == 8)
@@ -1587,6 +1648,7 @@ bool propose(SWMMModelLayer *layer, DC::DataCategory cat, QObject *provider, con
             *error = message;
         return false;
     };
+    if (remainingCategory(cat)) return proposeRemaining(layer,cat,nameOf(provider,cat),key,input,before,after,error);
     if (cat == DC::DataLIDControls && key == "_nodeProfile") {
         const auto envelope = input.toMap();
         after = envelope["after"].toMap();
@@ -1708,17 +1770,29 @@ public:
     DataObjectBatchCommand(SWMMModelLayer *layer, DC::DataCategory category, QString key,
                            QVector<TargetEdit> targets)
         : layer(layer), engine(layer->engine()), category(category), key(std::move(key)),
-          targets(std::move(targets)), units(metric(layer)), snowModel(snowDefault(engine)), subcatchCount(swmm_subcatch_count(engine))
+          targets(std::move(targets)), units(metric(layer)), flowUnitCode(nativeFlowUnits(engine)), timeAnchor(nativeTimeAnchor(engine)), snowModel(snowDefault(engine)), subcatchCount(swmm_subcatch_count(engine))
     {
         setText(tr("Edit %1 on %2 data objects").arg(this->key).arg(this->targets.size()));
         QObject::connect(layer, &SWMMModelLayer::engineAboutToClose, &context,
                          [this] { valid = false; });
         for (auto &target : this->targets) {
+            for(const auto &record:{target.before,target.after}) {
+                if(category==DC::DataHydrographs && !record["gage"].toString().isEmpty())
+                    authoredReferences.append({SWMMObjectRef::RainGage,record["gage"].toString()});
+                if(category==DC::DataControls) {
+                    const QRegularExpression references("\\b(NODE|LINK|CONDUIT|PUMP|ORIFICE|WEIR|OUTLET|GAGE)\\s+(\\S+)",QRegularExpression::CaseInsensitiveOption);
+                    auto matches=references.globalMatch(record["body"].toString());
+                    while(matches.hasNext()){const auto hit=matches.next();const auto kind=hit.captured(1).toUpper();authoredReferences.append({kind=="NODE"?SWMMObjectRef::Node:kind=="GAGE"?SWMMObjectRef::RainGage:SWMMObjectRef::Link,hit.captured(2)});}
+                }
+            }
             target.beforeRevision = target.provider->property("lidStructureRevision");
             target.afterRevision = category == DC::DataLIDControls && this->key == "_nodeProfile"
                 ? QVariant(QUuid::createUuid().toString()) : target.beforeRevision;
             QObject::connect(target.provider, &QObject::destroyed, &context,
                              [this] { valid = false; });
+            if(category==DC::DataLandUses)for(const auto &row:target.before["_catalog"].toList()) {
+                if(auto *p=row.toList().value(3).value<QObject *>())QObject::connect(p,&QObject::destroyed,&context,[this]{valid=false;});
+            }
             if (category == DC::DataLIDControls)
                 for (const auto &object : target.before["_pollutants"].toList()) {
                     auto *p = object.value<QObject *>();
@@ -1738,7 +1812,7 @@ public:
                     if (referenceCategory(it.key()) == DC::NumDataCategories ||
                         it.value().toString().isEmpty())
                         continue;
-                    if (!fullRecord() && it.key() != this->key)
+                    if (!fullRecord() && it.key() != this->key && !ownedKeys(target).contains(it.key()))
                         continue;
                     const auto cat = referenceCategory(it.key());
                     auto *p = findProvider(registryFor(layer, cat), cat, it.value().toString());
@@ -1767,6 +1841,11 @@ public:
             });
         QObject::connect(layer, &SWMMModelLayer::geometryChanged, &context, [this] {
             if (!valid || !this->layer || this->layer->engine() != engine) return;
+            for(const auto &reference:authoredReferences) {
+                const auto id=reference.second.toUtf8();
+                const int index=reference.first==SWMMObjectRef::Node?swmm_node_index(engine,id):reference.first==SWMMObjectRef::Link?swmm_link_index(engine,id):swmm_gage_index(engine,id);
+                if(index<0)valid=false;
+            }
             const int count = swmm_subcatch_count(engine);
             if (count < subcatchCount)
                 for (const auto &ref : spatialReferences)
@@ -1781,6 +1860,7 @@ public:
     }
     QStringList ownedKeys(const TargetEdit &target) const
     {
+        if (remainingCategory(category)) return remainingOwnedKeys(category,key,target.before,target.after);
         if (fullRecord()) {
             auto keys = target.before.keys();
             for (const auto &member : target.after.keys()) if (!keys.contains(member)) keys << member;
@@ -1816,10 +1896,10 @@ public:
     bool commit(bool forward)
     {
         if (!valid || !layer || layer->engine() != engine || !editable(layer) ||
-            metric(layer) != units || (category == DC::DataSnowpacks && snowDefault(engine) != snowModel))
+            metric(layer) != units || nativeFlowUnits(engine)!=flowUnitCode || (category==DC::DataTimeSeries && nativeTimeAnchor(engine)!=timeAnchor) || (category == DC::DataSnowpacks && snowDefault(engine) != snowModel))
             return false;
         for (const auto &r : references)
-            if (!r.provider ||
+            if (!r.provider || findProvider(registryFor(layer,r.category),r.category,nameOf(r.provider,r.category))!=r.provider ||
                 referenceType(engine, r.category, nameOf(r.provider, r.category)) != r.type)
                 return false;
         for (const auto &ref : spatialReferences)
@@ -1832,6 +1912,13 @@ public:
             const auto expected = resolveReferences(forward ? target.before : target.after);
             const auto desired = resolveReferences(forward ? target.after : target.before);
             if (current.isEmpty()) return false;
+            if (remainingCategory(category)) {
+                if(current["_catalog"]!=expected["_catalog"] || (category==DC::DataCurves && current["type"]!=expected["type"]))return false;
+                if(category==DC::DataTimeSeries && key!="fileToken" && key!="timeMode" &&
+                    (current["fileToken"]!=expected["fileToken"] || current["relativeCount"]!=expected["relativeCount"] || current["anchor"]!=expected["anchor"]))return false;
+                if((key.startsWith("buildup/") || key.startsWith("washoff/")) && !key.endsWith("/type") && !key.endsWith("/series") && current[recordPrefix(key)+"type"]!=expected[recordPrefix(key)+"type"])return false;
+                if((key.startsWith("rtk/") || key.startsWith("decay/")) && !key.endsWith("/present") && current[recordPrefix(key)+"present"]!=expected[recordPrefix(key)+"present"])return false;
+            }
             if (category == DC::DataLIDControls) {
                 if (target.provider->property("lidStructureRevision") != (forward ? target.beforeRevision : target.afterRevision)) return false;
                 if (current["_pollutants"] != expected["_pollutants"] || current["_species"] != expected["_species"] ||
@@ -1862,6 +1949,11 @@ public:
             previous << current;
             next << updated;
         }
+        if(category==DC::DataControls) {
+            auto program=controlProgram(engine);
+            for(int i=0;i<targets.size();++i)program[nativeIndex(engine,category,nameOf(targets[i].provider,category))]=next[i]["body"].toString();
+            if(!writeProgram(engine,program,false))return false;
+        }
         int attempted = 0;
         for (; attempted < targets.size(); ++attempted)
             if (!writeRecord(layer, category, targets[attempted].provider, next[attempted]))
@@ -1886,6 +1978,8 @@ public:
         }
         for (const auto &target : targets) {
             emit layer->attributeChanged(nameOf(target.provider, category));
+            if(category==DC::DataHydrographs) emit layer->hydrographChanged(nameOf(target.provider,category));
+            if(category==DC::DataControls) emit layer->controlRulesChanged(nameOf(target.provider,category));
             if (category == DC::DataTransects)
                 emit layer->transectChanged(nameOf(target.provider, category));
         }
@@ -1933,8 +2027,11 @@ private:
     QString key;
     QVector<TargetEdit> targets;
     QVector<Reference> references;
+    QVector<QPair<int,QString>> authoredReferences;
     QVector<QPair<QString, QString>> spatialReferences; // original/current typed subcatchment IDs
     bool units, valid = true, first = true;
+    int flowUnitCode;
+    QString timeAnchor;
     int snowModel, subcatchCount;
 };
 
@@ -1961,7 +2058,7 @@ bool applyDataObjectValues(SWMMModelLayer *layer, DC::DataCategory category,
     const auto fields = fieldsFor(layer, category);
     QSet<QObject *> seen;
     QVector<TargetEdit> targets;
-    QSet<int> concentrationUnits;
+    QSet<int> concentrationUnits,curveTypes;
     const bool concentration =
         category == DC::DataPollutants &&
         QStringList{"rainConc", "gwConc", "rdiiConc", "initConc"}.contains(key);
@@ -1977,6 +2074,7 @@ bool applyDataObjectValues(SWMMModelLayer *layer, DC::DataCategory category,
         const auto before = readRecord(layer, category, provider);
         if (before.isEmpty())
             return fail(tr("%1 cannot be read from the current model.").arg(name));
+        if(category==DC::DataCurves){curveTypes.insert(before["type"].toInt());if(curveTypes.size()>1)return fail(tr("Curve axes differ. Choose curves of the same type."));}
         if (concentration) {
             concentrationUnits.insert(before.value("units").toInt());
             if (concentrationUnits.size() > 1)
@@ -2022,6 +2120,7 @@ DataObjectAttributeTableModel::~DataObjectAttributeTableModel() = default;
 bool DataObjectAttributeTableModel::supportsCategory(SWMMModelLayer::DataCategory cat)
 {
     switch (cat) {
+    case DC::DataCurves: case DC::DataTimeSeries: case DC::DataHydrographs: case DC::DataControls:
     case DC::DataLIDControls:
     case DC::DataSnowpacks:
     case DC::DataPatterns:
@@ -2051,6 +2150,8 @@ void DataObjectAttributeTableModel::setSource(SWMMModelLayer *layer,
     m_registry = registryFor(m_layer, cat);
     connectRegistry();
     if (m_layer) {
+        if(cat==DC::DataHydrographs)connect(m_layer,&DC::hydrographChanged,this,[this](const QString &name){if(name.isEmpty())reload();else refreshObject(name);});
+        if(cat==DC::DataControls)connect(m_layer,&DC::controlRulesChanged,this,[this](const QString &name){if(name.isEmpty())reload();else refreshObject(name);});
         connect(m_layer, &SWMMModelLayer::attributeChanged, this, &DataObjectAttributeTableModel::refreshObject);
         connect(m_layer, &SWMMModelLayer::dataObjectsChanged, this, &DataObjectAttributeTableModel::reload, Qt::QueuedConnection);
         connect(m_layer, &SWMMModelLayer::engineAboutToClose, this, [this] { setSource(nullptr, m_category); });
@@ -2092,6 +2193,10 @@ QList<ColumnSpec> DataObjectAttributeTableModel::columnSpecs() const
 SWMMObjectRef::ObjectType DataObjectAttributeTableModel::objectType() const
 {
     switch (m_category) {
+    case DC::DataCurves: return SWMMObjectRef::Curve;
+    case DC::DataTimeSeries: return SWMMObjectRef::TimeSeries;
+    case DC::DataHydrographs: return SWMMObjectRef::Hydrograph;
+    case DC::DataControls: return SWMMObjectRef::Control;
     case DC::DataLIDControls:
         return SWMMObjectRef::LIDControl;
     case DC::DataSnowpacks:
@@ -2238,9 +2343,62 @@ bool DataObjectAttributeTableModel::initializeLidDesign(SWMMModelLayer *layer, c
     return true;
 }
 
+QVariantMap DataObjectAttributeTableModel::dataRecord(SWMMModelLayer *layer,DC::DataCategory cat,const QString &name)
+{ return editable(layer) && remainingCategory(cat) ? remainingRecord(layer,cat,name) : QVariantMap{}; }
+QList<DataObjectAttributeTableModel::RecordField> DataObjectAttributeTableModel::recordFields(SWMMModelLayer *layer,DC::DataCategory cat,const QStringList &names)
+{
+    QList<RecordField> out;
+    auto add=[&](QString key,QString label,EditorKind editor=EditorKind::Numeric,double min=0,double max=kInf,QVariantList choices=QVariantList{}) {
+        RecordField f;f.spec.key=key;f.spec.label=label;f.spec.editor=editor;f.spec.minValue=min;f.spec.maxValue=max;f.spec.decimals=10;f.spec.enumValues=choices;out<<f;
+    };
+    if(cat==DC::DataCurves || cat==DC::DataTimeSeries) {
+        QSet<double> xs;QSet<int> types;
+        for(const auto &name:names) {auto r=dataRecord(layer,cat,name);for(double x:tableXs(r))xs.insert(x);types.insert(r["type"].toInt());}
+        auto sorted=xs.values();std::sort(sorted.begin(),sorted.end());
+        for(double x:sorted) {QString label;
+            if(cat==DC::DataTimeSeries)label=openswmmvis::core::swmmDateTimeToQDateTime(x).toString("yyyy-MM-dd HH:mm:ss");
+            else label=openswmmvis::curve::CurveProvider::xLabel(static_cast<openswmmvis::curve::CurveType>(types.isEmpty()?1:*types.begin()))+" = "+numberKey(x);
+            add("point/"+numberKey(x),label,EditorKind::Numeric,-kInf,kInf);
+            if(types.size()>1) {out.last().editable=false;out.last().reason=tr("Curve axes differ. Choose a common curve-type scope.");}
+        }
+    } else if(cat==DC::DataControls) add("body",tr("Conditions, actions and priority"),EditorKind::Text);
+    else if(cat==DC::DataHydrographs) {
+        const QStringList months{tr("All months"),"JAN","FEB","MAR","APR","MAY","JUN","JUL","AUG","SEP","OCT","NOV","DEC"};
+        const QStringList responses{tr("Short"),tr("Medium"),tr("Long")}, fields{tr("R (fraction)"),tr("T (hours)"),tr("K"),tr("Maximum abstraction"),tr("Recovery per day"),tr("Initial abstraction")};
+        for(int m=-1;m<12;++m)for(int response=0;response<3;++response) {
+            const auto p=QString("rtk/%1/%2/").arg(m).arg(response),title=months[m+1]+" / "+responses[response]+" — ";
+            add(p+"present",title+tr("Enabled"),EditorKind::Enum,0,1,pairs({tr("No"),tr("Yes")},{0,1}));
+            for(int i=0;i<6;++i)add(p+QString::number(i),title+fields[i]+(i>=3?(metric(layer)?" (mm)":" (in)"):QString()),EditorKind::Numeric,0,i==0?1.:kInf);
+        }
+        const QStringList fields2{tr("Depletion (1/input depth)"),tr("Base recovery (1/hr)"),tr("Thermal recovery (1/hr)"),tr("Reference temperature (°C)"),tr("Temperature sensitivity (1/°C)"),tr("Freeze temperature (°C)"),tr("Snow temperature (°C)"),tr("Snow melt factor")};
+        for(int response=0;response<3;++response) {const auto p=QString("decay/%1/").arg(response),title=tr("Exponential IA")+" / "+responses[response]+" — ";
+            add(p+"present",title+tr("Enabled"),EditorKind::Enum,0,1,pairs({tr("No"),tr("Yes")},{0,1}));
+            for(int i=0;i<8;++i)add(p+QString::number(i),title+fields2[i],EditorKind::Numeric,i==3 || i==4 || i==5 || i==6?-kInf:0,kInf);
+            add(p+"snow",title+tr("Snow enabled"),EditorKind::Enum,0,1,pairs({tr("No"),tr("Yes")},{0,1}));
+        }
+    } else if(cat==DC::DataLandUses) for(const auto &c:surfaceConstituents(layer)) {
+        const bool readonly=c.wall || (!c.provider && swmm_pollutant_index(layer->engine(),c.name.toUtf8())>=0);
+        const int first=out.size(); auto p="buildup/"+c.key+"/",title=c.name+" / "+tr("Buildup")+" — ";
+        add(p+"type",title+tr("Function"),EditorKind::Enum,0,4,pairs({"None","Power","Exponential","Saturation","External"},{0,1,2,3,4}));
+        add(p+"normalizer",title+tr("Normalizer"),EditorKind::Enum,0,1,pairs({"Area","Curb"},{0,1}));
+        for(int i=0;i<3;++i)add(p+QString::number(i),title+tr("Coefficient %1 (native function units)").arg(i+1));
+        QStringList series{tr("(none)")};QVariantList values{QString()};for(auto *o:providersOf(layer->ensureTimeseriesRegistry(),DC::DataTimeSeries)){auto n=nameOf(o,DC::DataTimeSeries);series<<n;values<<n;}
+        add(p+"series",title+tr("External series"),EditorKind::Enum,0,kInf,pairs(series,values));
+        p="washoff/"+c.key+"/";title=c.name+" / "+tr("Washoff")+" — ";
+        add(p+"type",title+tr("Function"),EditorKind::Enum,0,3,pairs({"None","Exponential","Rating","EMC"},{0,1,2,3}));
+        for(int i=0;i<4;++i)add(p+QString::number(i),title+QStringList{tr("Coefficient"),tr("Exponent"),tr("Sweeping efficiency (%)"),tr("BMP efficiency (%)")}[i],EditorKind::Numeric,0,i>=2?100.:kInf);
+        if(readonly)for(int i=first;i<out.size();++i){out[i].editable=false;out[i].reason=tr("Wall or ambiguous species has no writable surface-water row.");}
+    }
+    return out;
+}
+
 DC::DataCategory DataObjectAttributeTableModel::categoryForType(SWMMObjectRef::ObjectType type)
 {
     switch (type) {
+    case SWMMObjectRef::Curve:return DC::DataCurves;
+    case SWMMObjectRef::TimeSeries:return DC::DataTimeSeries;
+    case SWMMObjectRef::Hydrograph:return DC::DataHydrographs;
+    case SWMMObjectRef::Control:return DC::DataControls;
     case SWMMObjectRef::LIDControl:
         return DC::DataLIDControls;
     case SWMMObjectRef::Snowpack:
@@ -2305,6 +2463,24 @@ void DataObjectAttributeTableModel::connectRegistry()
                 [this](QObject *p) { onProviderParamsChanged(p); });
     };
     switch (m_category) {
+    case DC::DataCurves: {
+        auto *r=static_cast<openswmmvis::curve::CurveRegistry *>(m_registry.data());
+        auto watch=[this](openswmmvis::curve::CurveProvider *p) {connect(p,&openswmmvis::curve::CurveProvider::pointsChanged,this,[this,p]{onProviderParamsChanged(p);});connect(p,&openswmmvis::curve::CurveProvider::typeChanged,this,[this,p]{onProviderParamsChanged(p);});};
+        connect(r,&openswmmvis::curve::CurveRegistry::providerAdded,this,[this,watch](auto *p){watch(p);reload();});
+        connect(r,&openswmmvis::curve::CurveRegistry::providerAboutToBeRemoved,this,&DataObjectAttributeTableModel::reload,Qt::QueuedConnection);
+        connect(r,&openswmmvis::curve::CurveRegistry::providerRenamed,this,&DataObjectAttributeTableModel::reload,Qt::QueuedConnection);for(auto *p:r->providers())watch(p);break; }
+    case DC::DataTimeSeries: {
+        auto *r=static_cast<openswmmvis::timeseries::TimeseriesRegistry *>(m_registry.data());
+        auto watch=[this](openswmmvis::timeseries::TimeseriesProvider *p){connect(p,&openswmmvis::timeseries::TimeseriesProvider::pointsChanged,this,[this,p]{onProviderParamsChanged(p);});connect(p,&openswmmvis::timeseries::TimeseriesProvider::sourceModeChanged,this,[this,p]{onProviderParamsChanged(p);});};
+        connect(r,&openswmmvis::timeseries::TimeseriesRegistry::providerAdded,this,[this,watch](auto *p){watch(p);reload();});
+        connect(r,&openswmmvis::timeseries::TimeseriesRegistry::providerAboutToBeRemoved,this,&DataObjectAttributeTableModel::reload,Qt::QueuedConnection);
+        connect(r,&openswmmvis::timeseries::TimeseriesRegistry::providerRenamed,this,&DataObjectAttributeTableModel::reload,Qt::QueuedConnection);for(auto *p:r->providers())watch(p);break; }
+    case DC::DataControls: {
+        auto *r=static_cast<openswmmvis::controls::ControlRuleRegistry *>(m_registry.data());
+        connect(r,&openswmmvis::controls::ControlRuleRegistry::providerAdded,this,&DataObjectAttributeTableModel::reload,Qt::QueuedConnection);
+        connect(r,&openswmmvis::controls::ControlRuleRegistry::providerAboutToBeRemoved,this,&DataObjectAttributeTableModel::reload,Qt::QueuedConnection);
+        connect(r,&openswmmvis::controls::ControlRuleRegistry::providerRenamed,this,&DataObjectAttributeTableModel::reload,Qt::QueuedConnection);break; }
+    case DC::DataHydrographs: break;
     case DC::DataLIDControls:
         hook(static_cast<LidControlRegistry *>(m_registry.data()));
         break;
@@ -2411,6 +2587,7 @@ QVariant DataObjectAttributeTableModel::data(const QModelIndex &index, int role)
         if (!applies)
             return {};
         const QVariant v = f.get ? f.get(p) : QVariant();
+        if(f.spec.key=="records")return tr("Edit detailed properties…");
         // These enum editors contain optional object names, not enum states.
         if ((f.spec.key == QLatin1String("coPollutant") ||
              f.spec.key == QLatin1String("evapPattern") ||
@@ -2421,6 +2598,7 @@ QVariant DataObjectAttributeTableModel::data(const QModelIndex &index, int role)
         return f.spec.editor == EditorKind::Enum ? QVariant(enumLabel(f.spec, v)) : v;
     }
     case Qt::EditRole:
+        if(f.spec.key=="records" && f.get) {auto ref=f.get(p).value<DataRecordsRef>();ref.undo=m_undoStack;return QVariant::fromValue(ref);}
         return applies && f.get ? f.get(p) : QVariant();
     case Qt::ToolTipRole:
         if (m_category == DC::DataLIDControls && static_cast<LidControlProvider *>(p)->dirty())

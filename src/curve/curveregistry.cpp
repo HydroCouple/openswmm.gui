@@ -1,3 +1,4 @@
+#include <QSignalBlocker>
 /**
  * @file      curveregistry.cpp
  * @brief     CurveProvider instances.
@@ -102,11 +103,12 @@ void CurveRegistry::pushPoints(CurveProvider *p)
         return;
     auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
     const int idx = curveTableIndex(eng, p->name());
-    if (idx < 0 || swmm_table_clear(eng, idx) != SWMM_OK)
-        return;
-    for (const auto &pt : p->points())
-        if (swmm_table_add_point(eng, idx, pt.x, pt.y) != SWMM_OK)
-            return;
+    if(idx<0)return;
+    QVector<double> xs,ys;for(const auto &point:p->points()){xs<<point.x;ys<<point.y;}
+    if(swmm_table_replace_points(eng,idx,xs.constData(),ys.constData(),xs.size(),0,0,nullptr)!=SWMM_OK){
+        const QSignalBlocker block(p);QVector<CurvePoint> points;int n=0;swmm_table_get_point_count(eng,idx,&n);
+        for(int i=0;i<n;++i){double x=0,y=0;swmm_table_get_point(eng,idx,i,&x,&y);points<<CurvePoint{x,y};}p->setAllPoints(points);
+    }
 }
 
 void CurveRegistry::remove(CurveProvider *p)

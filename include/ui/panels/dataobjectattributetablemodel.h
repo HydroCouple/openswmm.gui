@@ -164,6 +164,9 @@ public:
     QObject *providerAt(int row) const { return row >= 0 && row < m_rows.size() ? m_rows[row].data() : nullptr; }
 
 
+    struct RecordField { openswmmvis::ColumnSpec spec; bool editable=true; QString reason; };
+    static QVariantMap dataRecord(SWMMModelLayer *layer,SWMMModelLayer::DataCategory category,const QString &name);
+    static QList<RecordField> recordFields(SWMMModelLayer *layer,SWMMModelLayer::DataCategory category,const QStringList &names);
     // QAbstractTableModel ----------------------------------------------------
     /**
      * @param[in] parent Flat-table parent; valid returns zero.

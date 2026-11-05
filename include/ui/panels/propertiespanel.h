@@ -485,6 +485,8 @@ private:
     MeshAttributeTableModel *m_meshFields = nullptr;
     class MeshAggregateSelection *m_meshAggregate = nullptr; ///< Phase 3 aggregate, or null.
     class DataObjectAggregateSelection *m_dataAggregate = nullptr;
+    class FeatureAggregateSelection *m_featureAggregate = nullptr;
+    QWidget *m_sourceRelationships = nullptr;
     class SWMMAggregateSelection *m_swmmAggregate = nullptr;
     QComboBox *m_selectionScope = nullptr;
     QWidget *m_aggregateBar = nullptr;       ///< Selection summary, aggregates only.

@@ -1,3 +1,6 @@
+#include "ui/panels/dataobjectattributetablemodel.h"
+#include "map/mapcanvas.h"
+#include "map/mapundostack.h"
 /**
  * @file      swmmhydrographpropertyadapter.cpp
  * @brief     Property-tree adapter for [HYDROGRAPHS] groups.
@@ -59,6 +62,11 @@ void SWMMHydrographPropertyAdapter::setGageNameRef(const DataObjectRef &ref)
 {
     if (!m_engine || m_name.isEmpty())
         return;
+    if(m_layer){
+        if(ref.layer!=m_layer || ref.engine!=m_engine)return;
+        if(DataObjectAttributeTableModel::applyValues(m_layer,SWMMModelLayer::DataHydrographs,{m_name},"gage",ref.currentName,m_layer->editCanvas()?m_layer->editCanvas()->undoStack():nullptr))emit changed();
+        return;
+    }
     // Empty currentName clears the assignment (engine accepts NULL).
     const QByteArray uh = m_name.toUtf8();
     const QByteArray gage = ref.currentName.toUtf8();

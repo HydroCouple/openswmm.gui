@@ -81,18 +81,25 @@ SWMMAggregateSelection::SWMMAggregateSelection(
                 &SWMMAttributeTableModel::refreshObject);
         connect(layer, &SWMMModelLayer::geometryChanged, source, &SWMMAttributeTableModel::reload);
         connect(source, &QAbstractItemModel::modelReset, this, [this, source, category = it.key()] {
+            m_fieldCache.clear();
             auto &columns = m_columns[category];
             columns.clear();
             const auto specs = source->columnSpecs();
             for (int col = 0; col < specs.size(); ++col) columns.insert(specs[col].key, col);
             emit stagedChanged();
         });
-        connect(source, &QAbstractItemModel::dataChanged, refresh, [refresh] {
+        connect(source, &QAbstractItemModel::dataChanged, refresh, [this, refresh] {
+            m_fieldCache.clear();
+            if (!refresh->isActive()) refresh->start(0);
+        });
+        connect(source, &QAbstractItemModel::headerDataChanged, refresh, [this, refresh] {
+            m_fieldCache.clear();
             if (!refresh->isActive()) refresh->start(0);
         });
     }
     connect(layer, &SWMMModelLayer::objectRenamed, this,
             [this](const QString &from, const QString &to, int kind) {
+        m_fieldCache.clear();
         for (auto it = m_targets.begin(); it != m_targets.end(); ++it)
             if (kind & SWMMModelLayer::kindBitForCategory(it.key()))
                 for (auto &name : it.value())
@@ -298,6 +305,8 @@ SWMMAggregateSelection::Field SWMMAggregateSelection::field(int column) const
 {
     Field result;
     if (!m_valid) { result.reason = tr("Definitions or selected objects changed. Select the objects again."); return result; }
+    if (const auto cached = m_fieldCache.constFind(column); cached != m_fieldCache.cend())
+        return cached.value();
     QVariant firstValue;
     bool first = true;
     const auto spec = m_source->columnSpecs().value(column);
@@ -375,6 +384,7 @@ SWMMAggregateSelection::Field SWMMAggregateSelection::field(int column) const
         result.editable = 0;
         result.reason = tr("Choose a common storage shape before editing dimensions together.");
     }
+    m_fieldCache.insert(column, result);
     return result;
 }
 

@@ -28,6 +28,8 @@
 #include <QVector>
 #include <QStyledItemDelegate>
 
+class SWMMModelLayer;
+#include <QPointer>
 namespace openswmmvis::ui
 {
 
@@ -50,6 +52,7 @@ public:
      * @note Resets the model and enumerates pollutants then non-wall reaction species. Failed reaction-species reads are omitted.
      */
     void bind(void *engineHandle, int luIndex);
+    void setProjectContext(SWMMModelLayer *layer);
     /**
      * @brief Reset/re-enumerate pollutants and bulk reaction species using the current engine/land-use binding.
      */
@@ -89,6 +92,8 @@ protected:
      */
     int constituentIndex(int row) const;
 
+    QPointer<SWMMModelLayer> m_layer;
+    bool applyShared(const QString &group,int row,const QString &member,const QVariant &value);
     void *m_engine = nullptr;
     int m_luIndex = -1;
     int m_rows = 0;

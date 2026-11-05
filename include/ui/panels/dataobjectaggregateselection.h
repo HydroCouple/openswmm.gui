@@ -22,6 +22,7 @@ public:
     QStringList names() const;
     Field field(int column) const;
     bool setValue(int column, const QVariant &value);
+    QVariant editorData(int column) const;
     bool isStaged(int column) const { return m_staged.contains(column); }
     QVariant stagedValue(int column) const { return m_staged.value(column); }
     QList<int> stagedColumns() const { return m_staged.keys(); }

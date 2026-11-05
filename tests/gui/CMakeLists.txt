@@ -1218,30 +1218,7 @@ add_swmmvis_gui_test(test_subcatch_coverage_loadings
 
 # Iteration 4 — the unified Land Use editor (tabbed detail, engine-bound
 # Buildup/Washoff grids, impact-aware delete, engine-backed rename).
-add_swmmvis_gui_test(test_landuse_unified_editor
-    test_landuse_unified_editor.cpp
-    ${CMAKE_SOURCE_DIR}/include/landuse/landuseprovider.h
-    ${CMAKE_SOURCE_DIR}/include/landuse/landuseregistry.h
-    ${CMAKE_SOURCE_DIR}/include/pollutant/pollutantprovider.h
-    ${CMAKE_SOURCE_DIR}/include/pollutant/pollutantregistry.h
-    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/landuseeditordialog.h
-    ${CMAKE_SOURCE_DIR}/include/ui/models/landuselistmodel.h
-    ${CMAKE_SOURCE_DIR}/include/ui/models/qualityfunctiontablemodels.h
-    ${CMAKE_SOURCE_DIR}/src/landuse/landuseprovider.cpp
-    ${CMAKE_SOURCE_DIR}/src/landuse/landuseregistry.cpp
-    ${CMAKE_SOURCE_DIR}/src/pollutant/pollutantprovider.cpp
-    ${CMAKE_SOURCE_DIR}/src/pollutant/pollutantregistry.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/landuseeditordialog.cpp
-    ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/models/landuselistmodel.cpp
-    ${CMAKE_SOURCE_DIR}/src/ui/models/qualityfunctiontablemodels.cpp
-    # Dialog buttons go through IconFactory (themed SVG icons).
-    ${CMAKE_SOURCE_DIR}/include/ui/theme/iconfactory.h
-    ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
-    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
-    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
-)
-target_link_libraries(test_landuse_unified_editor PRIVATE Qt6::Svg)
+# Registered below with the shared model/Undo dependencies.
 
 # AQUIFER_GROUNDWATER_EXCHANGE G2 — the rebuilt Aquifer editor (grouped form,
 # evap-pattern combo, soft validation, live two-zone diagram, impact-aware
@@ -3703,6 +3680,18 @@ add_swmmvis_gui_test(test_patterntransectbulk
     ${SWMMVIS_TEST_SOURCES}
     ${SWMMVIS_TEST_EXTRA_SOURCES})
 swmmvis_link_full_app_deps(test_patterntransectbulk)
+
+add_swmmvis_gui_test(test_landuse_unified_editor
+    test_landuse_unified_editor.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_landuse_unified_editor)
+
+add_swmmvis_gui_test(test_remainingdatabulk
+    test_remainingdatabulk.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_remainingdatabulk)
 
 add_swmmvis_gui_test(test_lidsnowpackbulk
     test_lidsnowpackbulk.cpp

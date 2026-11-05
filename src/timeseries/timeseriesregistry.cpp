@@ -296,9 +296,6 @@ bool TimeseriesRegistry::writeProvider(void *engineHandle, TimeseriesProvider *p
         idx = seriesTableIndex(eng, p->name());
         if (idx < 0)
             return false;
-    } else if (!fileBacked) {
-        // Existing — wipe before re-add so deleted points don't linger.
-        swmm_table_clear(eng, idx);
     }
 
     // Read the slot's current token so an unchanged reference is left
@@ -322,44 +319,15 @@ bool TimeseriesRegistry::writeProvider(void *engineHandle, TimeseriesProvider *p
             openswmmvis::ui::extcol::splitPathColumn(absBuf, aPath, aCol);
             same = (oCol == wantCol && oPath == wantPath) || (aCol == wantCol && aPath == wantPath);
         }
-        if (same ||
-            swmm_file_path_set(
-                eng, SWMM_FILE_TIMESERIES_DATA, idUtf8.constData(),
-                openswmmvis::ui::extcol::composePathColumn(wantPath, wantCol).c_str()) == SWMM_OK)
-            return true;
-        return false;
+        QVector<double> xs,ys;for(const auto &pt:p->points()){xs<<openswmmvis::core::qDateTimeToSwmmDateTime(pt.time);ys<<pt.value;}
+        const auto token=same?std::string(origBuf):openswmmvis::ui::extcol::composePathColumn(wantPath,wantCol);
+        return swmm_table_replace_points(eng,idx,xs.constData(),ys.constData(),xs.size(),0,0,token.c_str())==SWMM_OK;
     }
 
-    // Inline — clear any stale FILE token first (a series Detached to
-    // Inline would otherwise still write as FILE and drop its points).
-    if (haveSlot && origBuf[0] != '\0')
-        swmm_file_path_set(eng, SWMM_FILE_TIMESERIES_DATA, idUtf8.constData(), "");
-
-    bool allOk = true;
-    for (const TimeseriesPoint &pt : p->points()) {
-        const double x = openswmmvis::core::qDateTimeToSwmmDateTime(pt.time);
-        if (swmm_table_add_point(eng, idx, x, pt.value) != SWMM_OK) {
-            allOk = false;
-            break;
-        }
-    }
-    if (allOk) {
-        // Re-declare the time-only prefix AFTER the clear + re-add above
-        // (swmm_table_clear resets it). NaN guard: an invalid anchor
-        // would serialize as NaN and poison the writer's elapsed-time
-        // subtraction, so such a series downgrades to Absolute — not
-        // reachable through the UI, which requires a valid simulation
-        // start to enter Relative mode.
-        int nRel = p->relativeCount();
-        double anchorOA = 0.0;
-        if (nRel > 0 && p->relativeAnchor().isValid())
-            anchorOA = openswmmvis::core::qDateTimeToSwmmDateTime(p->relativeAnchor());
-        else
-            nRel = 0;
-        swmm_timeseries_set_relative_info(eng, idx, nRel, anchorOA);
-        return true;
-    }
-    return false;
+    QVector<double> xs,ys;for(const auto &pt:p->points()){xs<<openswmmvis::core::qDateTimeToSwmmDateTime(pt.time);ys<<pt.value;}
+    int nRel=p->relativeCount();double anchor=0;
+    if(nRel>0 && p->relativeAnchor().isValid())anchor=openswmmvis::core::qDateTimeToSwmmDateTime(p->relativeAnchor());else nRel=0;
+    return swmm_table_replace_points(eng,idx,xs.constData(),ys.constData(),xs.size(),nRel,anchor,"")==SWMM_OK;
 }
 
 } // namespace openswmmvis::timeseries
