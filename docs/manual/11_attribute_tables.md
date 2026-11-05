@@ -868,12 +868,15 @@ dismisses the editor; project **Undo** reverses the last committed field for the
 whole selection.
 
 - Curve values match the exact X value within one curve type. Time-series values
-  match timestamps. **Add** and **Remove** explicitly change that key on every
-  selected object; a missing key refuses the whole operation.
+  match timestamps. Selecting a point fills its X/time and value below the table,
+  preserving the exact coordinate. **Add point** and **Remove point** explicitly
+  change that point on every selected object; a missing point refuses the whole
+  operation. You can also type a coordinate, including scientific notation.
 - A time-series external-file/column change validates and loads the complete
   source column. Clear the binding to retain the accepted samples as inline
-  data before editing them. Absolute/Relative time modes preserve resolved
-  timestamps and record the simulation-start anchor.
+  data before editing them. Leaving a binding or time mode unchanged preserves
+  the accepted samples without reloading the source. Absolute/Relative time modes
+  preserve resolved timestamps and record the simulation-start anchor.
 - Hydrograph values match month and Short/Medium/Long response. **Enabled**
   explicitly creates or removes a row. Exponential abstraction retains the
   inactive linear abstraction values.
@@ -897,8 +900,9 @@ selection all work.
 Application feature layers support bulk attribute editing during their active
 edit session. Select features from one layer/schema and edit Properties, or
 right-click a table value to apply it to selected rows. Each field is one Undo
-step. Closing the edit session disables new edits; existing Undo remains
-available while that layer and schema exist. Feature IDs remain read-only.
+step. Optional choice fields include **(none)** to clear the selected values.
+Closing the edit session disables new edits; existing Undo remains available
+while that layer and schema exist. Feature IDs remain read-only.
 
 Observed collection series retain source-owned metadata and samples. Their
 Properties selection offers the existing **Attach to selected feature** and

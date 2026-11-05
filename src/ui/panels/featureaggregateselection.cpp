@@ -140,7 +140,9 @@ bool applyFeatureAttributeValues(FeatureLayer *layer, const QVector<qint64> &inp
         coerced = value.toBool();
     } else
         coerced = value.toString();
-    if (!ok || (field.hasFixedChoices() && field.choiceIndex(coerced.toString()) < 0))
+    const bool emptyChoice = !field.required && coerced.toString().isEmpty();
+    if (!ok ||
+        (field.hasFixedChoices() && !emptyChoice && field.choiceIndex(coerced.toString()) < 0))
         return fail(QObject::tr("The value does not match this field's type or choices."));
     QVector<qint64> ids;
     QList<QVariant> before, after;
@@ -222,6 +224,9 @@ QList<ColumnSpec> FeatureAttributeModel::columnSpecs() const
         }
         if (f.hasFixedChoices()) {
             s.editor = EditorKind::Enum;
+            s.enumValues.clear();
+            if (!f.required)
+                s.enumValues << QVariant(QVariantList{tr("(none)"), QString()});
             for (const auto &c : f.choices)
                 s.enumValues << QVariant(QVariantList{c.displayLabel(), c.value});
         }

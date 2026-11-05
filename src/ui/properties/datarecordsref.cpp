@@ -23,6 +23,8 @@
 #include <QSortFilterProxyModel>
 #include <QTimer>
 #include <QRegularExpression>
+#include <QDoubleValidator>
+#include <limits>
 using Model = DataObjectAttributeTableModel;
 using DC = SWMMModelLayer;
 namespace
@@ -109,10 +111,12 @@ public:
             return {};
         const auto &f = fields[i.row()];
         const auto key = f.spec.key;
-        if (role == Qt::ToolTipRole)
-            return f.reason.isEmpty()
+        if (role == Qt::ToolTipRole) {
+            const auto reason = editReason(i.row());
+            return reason.isEmpty()
                        ? tr("Changes this exact key for every captured object; other records are preserved.")
-                       : f.reason;
+                       : reason;
+        }
         if (i.column() == 0)
             return role == Qt::DisplayRole ? f.spec.label : QVariant();
         if (role != Qt::DisplayRole && role != Qt::EditRole)
@@ -134,30 +138,49 @@ public:
                    ? QVariant(n == 0 ? tr("Property") : tr("Value"))
                    : QVariant();
     }
-    Qt::ItemFlags flags(const QModelIndex &i) const override
+    QString editReason(int row) const
     {
-        auto f = QAbstractTableModel::flags(i);
-        if (!i.isValid() || i.column() != 1 || !active() || !fields[i.row()].editable ||
-            records.size() != ref.providers.size())
-            return f;
-        const auto k = fields[i.row()].spec.key;
+        if (!active() || records.size() != ref.providers.size())
+            return tr("The captured objects or source changed. Select the current objects again.");
+        if (row < 0 || row >= fields.size())
+            return tr("This property is no longer available.");
+        if (!fields[row].editable)
+            return fields[row].reason.isEmpty() ? tr("This property is read-only.")
+                                                : fields[row].reason;
+        const auto k = fields[row].spec.key;
         for (const auto &r : records) {
-            if (k.startsWith("point/") && (!r.contains(k) || !r["fileToken"].toString().isEmpty()))
-                return f;
+            if (k.startsWith("point/")) {
+                if (!r.contains(k))
+                    return tr(
+                        "This point is missing from at least one selected object. Add it explicitly before editing.");
+                if (!r["fileToken"].toString().isEmpty())
+                    return tr(
+                        "These samples belong to an external file. Detach the series to inline before editing them.");
+            }
             const auto p = k.left(k.lastIndexOf('/') + 1);
             if ((k.startsWith("rtk/") || k.startsWith("decay/")) && !k.endsWith("/present") &&
                 !r[p + "present"].toInt())
-                return f;
+                return tr(
+                    "Enable this month/response row on every selected hydrograph before editing its values.");
             if (k.startsWith("rtk/") && k.section('/', -1).toInt() >= 3 &&
                 r["decay/" + k.section('/', 2, 2) + "/present"].toInt())
-                return f;
+                return tr(
+                    "Linear abstraction is inactive while exponential abstraction is enabled for this response.");
             if ((k.startsWith("buildup/") || k.startsWith("washoff/")) && !k.endsWith("/type") &&
                 !k.endsWith("/series") && r[p + "type"].toInt() == 0)
-                return f;
+                return tr("Choose a buildup or washoff function before editing its parameters.");
             if (k.startsWith("buildup/") && k.endsWith("/2") && r[p + "type"].toInt() == 4)
-                return f;
+                return tr(
+                    "External buildup uses the named series field instead of a numeric third coefficient.");
         }
-        return f | Qt::ItemIsEditable;
+        return {};
+    }
+    Qt::ItemFlags flags(const QModelIndex &i) const override
+    {
+        auto f = QAbstractTableModel::flags(i);
+        if (i.isValid() && i.column() == 1 && editReason(i.row()).isEmpty())
+            f |= Qt::ItemIsEditable;
+        return f;
     }
     void capture(int row)
     {
@@ -412,10 +435,12 @@ public:
         }
         if (ref.category == DC::DataCurves || ref.category == DC::DataTimeSeries) {
             auto *row = new QHBoxLayout;
-            auto *x = new QDoubleSpinBox(this);
+            auto *x = new QLineEdit(QStringLiteral("0"), this);
             x->setObjectName("dataPointX");
-            x->setRange(-1.e12, 1.e12);
-            x->setDecimals(10);
+            auto *validator = new QDoubleValidator(-std::numeric_limits<double>::max(),
+                                                   std::numeric_limits<double>::max(), 323, x);
+            validator->setLocale(QLocale::c());
+            x->setValidator(validator);
             auto *time = new QDateTimeEdit(QDateTime::currentDateTimeUtc(), this);
             time->setDisplayFormat("yyyy-MM-dd HH:mm:ss");
             time->setObjectName("dataPointTime");
@@ -436,20 +461,41 @@ public:
             row->addWidget(add);
             row->addWidget(remove);
             layout->addLayout(row);
-            connect(add, &QPushButton::clicked, this, [this, x, y, time, ref] {
-                model->point(true,
-                             ref.category == DC::DataTimeSeries
-                                 ? openswmmvis::core::qDateTimeToSwmmDateTime(time->dateTime())
-                                 : x->value(),
-                             y->value());
-            });
-            connect(remove, &QPushButton::clicked, this, [this, x, time, ref] {
-                model->point(false,
-                             ref.category == DC::DataTimeSeries
-                                 ? openswmmvis::core::qDateTimeToSwmmDateTime(time->dateTime())
-                                 : x->value(),
-                             0);
-            });
+            connect(time, &QDateTimeEdit::dateTimeChanged, time,
+                    [time] { time->setProperty("exactPointKey", QVariant()); });
+            connect(table->selectionModel(), &QItemSelectionModel::currentChanged, this,
+                    [this, proxy, x, y, time](const QModelIndex &current) {
+                        const auto source = proxy->mapToSource(current);
+                        if (!source.isValid())
+                            return;
+                        const auto key = model->fields.value(source.row()).spec.key;
+                        if (!key.startsWith("point/"))
+                            return;
+                        const double value = key.mid(6).toDouble();
+                        x->setText(QString::number(value, 'g', 17));
+                        time->setDateTime(openswmmvis::core::swmmDateTimeToQDateTime(value));
+                        time->setProperty("exactPointKey", value);
+                        const auto stored = model->index(source.row(), 1).data(Qt::EditRole);
+                        if (stored.isValid())
+                            y->setValue(stored.toDouble());
+                        else
+                            y->clear();
+                    });
+            const auto pointX = [x, time, ref] {
+                if (ref.category == DC::DataTimeSeries) {
+                    const auto key = time->property("exactPointKey");
+                    return key.isValid()
+                               ? key.toDouble()
+                               : openswmmvis::core::qDateTimeToSwmmDateTime(time->dateTime());
+                }
+                bool ok = false;
+                const double value = x->text().toDouble(&ok);
+                return ok ? value : std::numeric_limits<double>::quiet_NaN();
+            };
+            connect(add, &QPushButton::clicked, this,
+                    [this, y, pointX] { model->point(true, pointX(), y->value()); });
+            connect(remove, &QPushButton::clicked, this,
+                    [this, pointX] { model->point(false, pointX(), 0); });
         }
         layout->addWidget(status);
         auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
