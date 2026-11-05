@@ -3704,6 +3704,12 @@ add_swmmvis_gui_test(test_patterntransectbulk
     ${SWMMVIS_TEST_EXTRA_SOURCES})
 swmmvis_link_full_app_deps(test_patterntransectbulk)
 
+add_swmmvis_gui_test(test_lidsnowpackbulk
+    test_lidsnowpackbulk.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_lidsnowpackbulk)
+
 add_swmmvis_gui_test(test_inheritedpropertybulk
     test_inheritedpropertybulk.cpp
     ${SWMMVIS_TEST_SOURCES}

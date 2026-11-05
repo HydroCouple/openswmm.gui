@@ -1,14 +1,14 @@
 /**
  * @file      dataobjectattributetablemodel.h
  * @brief     Tabular model over one category of non-spatial data objects — pollutants, land uses,
- *            aquifers, streets, inlets, time patterns or transects — so the Attribute Table dock can list and bulk-edit them
+ *            aquifers, streets, inlets, time patterns, transects, LID controls or snowpacks — so the Attribute Table dock can list and bulk-edit them
  *            the same way it lists SWMM objects.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
  *
  * Tabular model over one category of non-spatial data objects — pollutants,
- * land uses, aquifers, streets, inlets, time patterns or transects — so the Attribute Table dock can
+ * land uses, aquifers, streets, inlets, time patterns, transects, LID controls or snowpacks — so the Attribute Table dock can
  * list and bulk-edit them the same way it lists SWMM objects.
  *
  * MVC contract (CLAUDE.md §5.1): the model owns NO object data. Rows are the
@@ -59,9 +59,9 @@ public:
     ~DataObjectAttributeTableModel() override;
 
     /*! True for the categories this model can list: pollutants, land uses,
-     *  aquifers, streets, inlets, time patterns and transects.
+     *  aquifers, streets, inlets, time patterns, transects, LID controls and snowpacks.
      * @param[in] cat Any DataCategory, including sentinel/unsupported categories.
-     * @return True only for pollutants, land uses, aquifers, streets, inlets, time patterns and transects; pure
+     * @return True only for pollutants, land uses, aquifers, streets, inlets, time patterns, transects, LID controls and snowpacks; pure
      *   classification, independent of source/project availability.
      */
     [[nodiscard]] static bool supportsCategory(SWMMModelLayer::DataCategory cat);

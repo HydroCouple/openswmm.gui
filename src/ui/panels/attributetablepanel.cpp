@@ -1018,6 +1018,10 @@ QString dataWidthsKey(int dataCategory)
 const char *dataCategoryLabel(SWMMModelLayer::DataCategory dc)
 {
     switch (dc) {
+    case SWMMModelLayer::DataLIDControls:
+        return "LID Controls";
+    case SWMMModelLayer::DataSnowpacks:
+        return "Snowpacks";
     case SWMMModelLayer::DataPatterns:
         return "Time Patterns";
     case SWMMModelLayer::DataTransects:
