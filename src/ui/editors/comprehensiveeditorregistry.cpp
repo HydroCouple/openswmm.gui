@@ -9,6 +9,7 @@
  */
 
 #include "ui/editors/comprehensiveeditorregistry.h"
+#include <type_traits>
 
 #include "aquifer/aquiferregistry.h"
 #include "curve/curveregistry.h"
@@ -687,9 +688,8 @@ void openLandUsesBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *
  * @brief Ensure typed Snowpacks registry and invoke createNew factory, returning silently on null
  *   result. New dialog is WA_DeleteOnClose and shown modeless; this launcher does not reuse
  *   existing windows.
- * @note Dialog finished queues synchronous registry saveToEngine(layer->engine()) in dialog
- *   context, guarded by QPointers to both layer/registry; errors ignored. It runs on accepted or
- *   rejected close, not just successful edits.
+ * @note Project-owned snowpack fields commit through the shared checked writer. Closing the
+ *   dialog does not flush unrelated registry drafts.
  * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
@@ -705,12 +705,6 @@ void openSnowpacksCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidg
     if (!dlg)
         return;
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    QPointer<SnowpackRegistry> regPtr(reg);
-    QPointer<SWMMModelLayer> layerPtr(layer);
-    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
-        if (regPtr && layerPtr)
-            regPtr->saveToEngine(layerPtr->engine());
-    });
     dlg->show();
 }
 
@@ -723,9 +717,8 @@ void openSnowpacksCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidg
  * @brief Ensure typed Snowpacks registry and construct list editor without deliberately creating a
  *   new entry. New dialog is WA_DeleteOnClose and shown modeless; this launcher does not reuse
  *   existing windows.
- * @note Dialog finished queues synchronous registry saveToEngine(layer->engine()) in dialog
- *   context, guarded by QPointers to both layer/registry; errors ignored. It runs on accepted or
- *   rejected close, not just successful edits.
+ * @note Project-owned snowpack fields commit through the shared checked writer. Closing the
+ *   dialog does not flush unrelated registry drafts.
  * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
@@ -739,12 +732,6 @@ void openSnowpacksBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget 
         return;
     auto *dlg = new SnowpackEditorDialog(reg, layer, parent);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    QPointer<SnowpackRegistry> regPtr(reg);
-    QPointer<SWMMModelLayer> layerPtr(layer);
-    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
-        if (regPtr && layerPtr)
-            regPtr->saveToEngine(layerPtr->engine());
-    });
     dlg->show();
 }
 
@@ -1172,7 +1159,8 @@ void openTimeseriesForObject(SWMMModelLayer *layer, QUndoStack *stack, const QSt
 /*! Shared body for the registry-backed list editors (pollutant, land use,
  *  aquifer, snowpack, LID control, street). Reuses one window per kind while
  *  it is bound to the same registry; a project switch (new registry) closes
- *  the stale window first. The engine flush on close mirrors openXxxBrowse.
+ *  the stale window first. Snowpack fields commit immediately; other editor owners retain
+ *  their close-time registry synchronization.
  * @tparam Dlg Dialog constructible from registry, layer and parent, with finished/open member
  *   support.
  * @tparam Reg QObject registry providing saveToEngine(engine).
@@ -1205,12 +1193,14 @@ void openRegistryEditorFor(QPointer<Dlg> &slot, QPointer<Reg> &slotReg, Reg *reg
         slot = new Dlg(reg, layer, parent);
         slot->setAttribute(Qt::WA_DeleteOnClose);
         slotReg = reg;
-        QPointer<Reg> regPtr(reg);
-        QPointer<SWMMModelLayer> layerPtr(layer);
-        QObject::connect(slot.data(), &QDialog::finished, slot.data(), [regPtr, layerPtr]() {
-            if (regPtr && layerPtr)
-                regPtr->saveToEngine(layerPtr->engine());
-        });
+        if constexpr (!std::is_same_v<Dlg, SnowpackEditorDialog>) {
+            QPointer<Reg> regPtr(reg);
+            QPointer<SWMMModelLayer> layerPtr(layer);
+            QObject::connect(slot.data(), &QDialog::finished, slot.data(), [regPtr, layerPtr]() {
+                if (regPtr && layerPtr)
+                    regPtr->saveToEngine(layerPtr->engine());
+            });
+        }
     }
     (slot.data()->*openFn)(name);
 }

@@ -3,6 +3,7 @@
 #include <QSet>
 #include <QTimer>
 #include <QUndoStack>
+#include <openswmm/engine/openswmm_snow.h>
 
 DataObjectAggregateSelection::DataObjectAggregateSelection(SWMMModelLayer *layer,
                                                            SWMMModelLayer::DataCategory category,
@@ -37,8 +38,12 @@ DataObjectAggregateSelection::DataObjectAggregateSelection(SWMMModelLayer *layer
         m_valid = false;
         emit stagedChanged();
     });
-    connect(layer, &SWMMModelLayer::optionsChanged, this, [this](const QStringList &keys) {
-        if (keys.contains("FLOW_UNITS")) {
+    int snowModel = -1;
+    if (category == SWMMModelLayer::DataSnowpacks && layer && layer->engine()) swmm_snow_get_model(layer->engine(), &snowModel);
+    connect(layer, &SWMMModelLayer::optionsChanged, this, [this, snowModel, source = QPointer<SWMMModelLayer>(layer)](const QStringList &keys) {
+        int current = snowModel;
+        if (snowModel >= 0 && source && source->engine()) swmm_snow_get_model(source->engine(), &current);
+        if (keys.contains("FLOW_UNITS") || current != snowModel) {
             m_valid = false;
             emit stagedChanged();
         }

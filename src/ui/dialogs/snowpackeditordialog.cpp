@@ -13,6 +13,11 @@
 #include "layers/swmmmodellayer.h" // complete type for QPointer<SWMMModelLayer>
 #include "snowpack/snowpackprovider.h"
 #include "snowpack/snowpackregistry.h"
+#include "ui/panels/dataobjectattributetablemodel.h"
+#include "map/mapcanvas.h"
+#include "map/mapundostack.h"
+#include <QScopedValueRollback>
+#include <QToolTip>
 #include "ui/models/snowpacklistmodel.h"
 #include "ui/theme/iconfactory.h"
 #include <openswmm/engine/openswmm_snow.h>
@@ -110,7 +115,32 @@ SnowpackEditorDialog::SnowpackEditorDialog(SnowpackRegistry *registry, SWMMModel
     resize(700, 620);
     buildUi_();
 
+    if (m_layer) {
+        connect(m_layer, &SWMMModelLayer::engineAboutToClose, this, [this] {
+            m_current = nullptr; m_registry = nullptr; bindProvider_(nullptr); setEnabled(false);
+        });
+        connect(m_layer, &SWMMModelLayer::optionsChanged, this, [this] {
+            if (!m_current || !m_layer || !m_layer->engine()) return;
+            const QScopedValueRollback<bool> syncing(m_suppressFieldSync, true);
+            DataObjectAttributeTableModel source;
+            source.setSource(m_layer, SWMMModelLayer::DataSnowpacks);
+            source.refreshObject(m_current->name());
+            bindProvider_(m_current);
+        });
+        connect(m_layer, &SWMMModelLayer::objectRenamed, this, [this](const QString &, const QString &, int kind) {
+            if (!(kind & SWMMModelLayer::kKindCatch) || !m_current || !m_layer || !m_layer->engine()) return;
+            const QScopedValueRollback<bool> syncing(m_suppressFieldSync, true);
+            DataObjectAttributeTableModel source;
+            source.setSource(m_layer, SWMMModelLayer::DataSnowpacks);
+            source.refreshObject(m_current->name());
+            bindProvider_(m_current);
+        });
+    }
+
     if (m_registry) {
+        connect(m_registry, &SnowpackRegistry::providerParamsChanged, this, [this](SnowpackProvider *p) {
+            if (p == m_current && !m_suppressFieldSync) bindProvider_(p);
+        });
         connect(m_registry, &SnowpackRegistry::providerRenamed, this,
                 &SnowpackEditorDialog::onProviderRenamed_);
         m_listModel->setRegistry(m_registry);
@@ -141,7 +171,7 @@ SnowpackEditorDialog::~SnowpackEditorDialog() = default;
 
 void SnowpackEditorDialog::accept()
 {
-    if (m_registry && m_registry->saveToEngine() < 0) {
+    if (!m_layer && m_registry && m_registry->saveToEngine() < 0) {
         QMessageBox::warning(this, tr("Snowpack validation"), m_registry->lastSaveError());
         return;
     }
@@ -226,6 +256,7 @@ void SnowpackEditorDialog::buildUi_()
             s->setRange(fs.min, fs.max);
             s->setDecimals(fs.decimals);
             s->setSingleStep(fs.step);
+            s->setKeyboardTracking(false);
             boxForm->addRow(tr(fs.label), s);
             m_spins[k] = s;
             connect(s, &QDoubleSpinBox::valueChanged, this, &SnowpackEditorDialog::onFieldEdited_);
@@ -315,6 +346,18 @@ void SnowpackEditorDialog::onModelEdited_()
 {
     if (m_suppressFieldSync || !m_current)
         return;
+    if (m_layer) {
+        QString error;
+        {
+            const QScopedValueRollback<bool> syncing(m_suppressFieldSync, true);
+            DataObjectAttributeTableModel::applyValues(m_layer, SWMMModelLayer::DataSnowpacks,
+                {m_current->name()}, "modelKind", m_modelKind->currentData(),
+                m_layer->editCanvas() ? m_layer->editCanvas()->undoStack() : nullptr, &error);
+        }
+        bindProvider_(m_current);
+        if (!error.isEmpty()) QToolTip::showText(m_modelKind->mapToGlobal(QPoint()), error, m_modelKind);
+        return;
+    }
     m_current->setModelKind(m_modelKind->currentData().toInt());
     updateModelFields_();
 }
@@ -401,6 +444,22 @@ void SnowpackEditorDialog::onFieldEdited_()
 {
     if (m_suppressFieldSync || !m_current)
         return;
+    if (m_layer) {
+        auto *spin = qobject_cast<QDoubleSpinBox *>(sender());
+        const int index = m_spins.indexOf(spin);
+        if (index < 0) return;
+        QString error;
+        {
+            const QScopedValueRollback<bool> syncing(m_suppressFieldSync, true);
+            DataObjectAttributeTableModel::applyValues(m_layer, SWMMModelLayer::DataSnowpacks,
+                {m_current->name()}, QString("snow/%1").arg(index), spin->value(),
+                m_layer->editCanvas() ? m_layer->editCanvas()->undoStack() : nullptr, &error);
+        }
+        bindProvider_(m_current);
+        if (!error.isEmpty()) QToolTip::showText(spin->mapToGlobal(QPoint()), error, spin);
+        return;
+    }
+    const QScopedValueRollback<bool> syncing(m_suppressFieldSync, true);
     if (m_current->modelKind() < 0 && m_current->effectiveModel() == 1) {
         for (int k = SnowpackProvider::UebForest; k < m_spins.size(); ++k) {
             if (m_current->param(k) != m_spins[k]->value()) {
@@ -418,6 +477,18 @@ void SnowpackEditorDialog::onRemovalSubcatchEdited_()
 {
     if (m_suppressFieldSync || !m_current)
         return;
+    if (m_layer) {
+        QString error;
+        {
+            const QScopedValueRollback<bool> syncing(m_suppressFieldSync, true);
+            DataObjectAttributeTableModel::applyValues(m_layer, SWMMModelLayer::DataSnowpacks,
+                {m_current->name()}, "removalSubcatch", m_removalSubcatchEdit->text().trimmed(),
+                m_layer->editCanvas() ? m_layer->editCanvas()->undoStack() : nullptr, &error);
+        }
+        bindProvider_(m_current);
+        if (!error.isEmpty()) QToolTip::showText(m_removalSubcatchEdit->mapToGlobal(QPoint()), error, m_removalSubcatchEdit);
+        return;
+    }
     m_current->setRemovalSubcatch(m_removalSubcatchEdit->text().trimmed());
 }
 

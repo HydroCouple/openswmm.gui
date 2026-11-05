@@ -34,6 +34,7 @@
 #include <openswmm/engine/openswmm_quality.h>
 #include <openswmm/engine/openswmm_pollutants.h>
 #include <QSignalBlocker>
+#include <QScopedValueRollback>
 #include <limits>
 #include <QHeaderView>
 #include <QComboBox>
@@ -234,7 +235,18 @@ LidControlEditorDialog::LidControlEditorDialog(LidControlRegistry *registry, SWM
     resize(1180, 760);
     buildUi_();
 
+    if (m_layer)
+        connect(m_layer, &SWMMModelLayer::engineAboutToClose, this, [this] {
+            m_layerDraftDirty = false; m_current = nullptr; m_registry = nullptr;
+            bindProvider_(nullptr); setEnabled(false);
+        });
+
     if (m_registry) {
+        connect(m_registry, &LidControlRegistry::providerParamsChanged, this,
+                [this](LidControlProvider *p) {
+                    if (p == m_current && !m_suppressFieldSync && !m_layerDraftDirty)
+                        bindProvider_(p);
+                });
         connect(m_registry, &LidControlRegistry::providerRenamed, this,
                 &LidControlEditorDialog::onProviderRenamed_);
         // A second modeless editor can change the selected control's type.
@@ -359,10 +371,10 @@ void LidControlEditorDialog::buildUi_()
     auto *stor = new QWidget;
     auto *storForm = new QFormLayout(stor);
     m_storThick = makeSpin(stor, 0.0, 1.0e6, 0.1);
-    m_storVoid = makeSpin(stor, 0.0, 1.0, 0.01);
+    m_storVoid = makeSpin(stor, 0.0, 1.0e6, 0.01);
     m_storKsat = makeSpin(stor, 0.0, 1.0e6, 0.1);
     storForm->addRow(tr("Thic&kness"), m_storThick);
-    storForm->addRow(tr("&Void Fraction"), m_storVoid);
+    storForm->addRow(tr("&Void Ratio"), m_storVoid);
     storForm->addRow(tr("S&eepage Rate"), m_storKsat);
     tabs->addTab(OpenSWMM::Ui::wrapInScrollArea(stor, tabs), tr("S&torage"));
 
@@ -1059,6 +1071,7 @@ void LidControlEditorDialog::onFieldEdited_()
 {
     if (m_suppressFieldSync || !m_current || m_current->type() == 8)
         return;
+    const QScopedValueRollback<bool> syncing(m_suppressFieldSync, true);
     m_current->setSurfStorage(m_surfStorage->value());
     m_current->setSurfRoughness(m_surfRough->value());
     m_current->setSurfSlope(m_surfSlope->value());

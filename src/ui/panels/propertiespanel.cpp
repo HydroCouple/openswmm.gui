@@ -91,6 +91,7 @@
 #include <openswmm/engine/openswmm_gages.h> // swmm_gage_index (X/Y move route)
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_tables.h>
+#include <openswmm/engine/openswmm_snow.h>
 #include <openswmm/engine/openswmm_nodes.h>
 
 // QPropertyModel library
@@ -1265,6 +1266,8 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
             auto &scope = scopes[QString("data/%1").arg(int(dataCategory))];
             scope.dataCategory = dataCategory;
             switch (dataCategory) {
+            case SWMMModelLayer::DataLIDControls: scope.title = tr("LID controls"); break;
+            case SWMMModelLayer::DataSnowpacks: scope.title = tr("Snowpacks"); break;
             case SWMMModelLayer::DataPatterns: scope.title = tr("Time patterns"); break;
             case SWMMModelLayer::DataTransects: scope.title = tr("Transects"); break;
             case SWMMModelLayer::DataPollutants: scope.title = tr("Pollutants"); break;
@@ -1277,8 +1280,7 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
             scope.refs << ref; continue;
         }
         const QMap<int, QString> pendingData{{SWMMObjectRef::Curve, tr("Curves")}, {SWMMObjectRef::TimeSeries, tr("Model time series")},
-            {SWMMObjectRef::LIDControl, tr("LID controls")},
-            {SWMMObjectRef::Snowpack, tr("Snowpacks")}, {SWMMObjectRef::Control, tr("Control rules")},
+            {SWMMObjectRef::Control, tr("Control rules")},
             {SWMMObjectRef::Hydrograph, tr("Hydrographs")}};
         if (pendingData.contains(ref.objectType)) {
             auto &scope = scopes[QString("pending-data/%1").arg(int(ref.objectType))];
@@ -1317,7 +1319,7 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
         if (common.targets.size() > 1) commonScopes.append(common);
     }
     QList<Scope> dataSubsets;
-    for (const auto &scope : scopes) if (m_swmmLayer && (scope.dataCategory == SWMMModelLayer::DataInlets || scope.dataCategory == SWMMModelLayer::DataPollutants || scope.dataCategory == SWMMModelLayer::DataPatterns)) {
+    for (const auto &scope : scopes) if (m_swmmLayer && (scope.dataCategory == SWMMModelLayer::DataInlets || scope.dataCategory == SWMMModelLayer::DataPollutants || scope.dataCategory == SWMMModelLayer::DataPatterns || scope.dataCategory == SWMMModelLayer::DataLIDControls || scope.dataCategory == SWMMModelLayer::DataSnowpacks)) {
         QMap<int, Scope> groups; Scope generic; generic.dataCategory = scope.dataCategory; generic.title = tr("Inlet designs — Generic grates");
         for (const auto &ref : scope.refs) {
             int kind = -1; QString label;
@@ -1326,6 +1328,15 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
                 if (swmm_inlet_get_design(m_swmmLayer->engine(), swmm_inlet_index(m_swmmLayer->engine(), ref.name.toUtf8().constData()), &design) != SWMM_OK) continue;
                 kind = design.type; label = openswmmvis::inlet::inletTypeLabel(openswmmvis::inlet::InletType(kind));
                 if ((kind == SWMM_INLET_GRATE || kind == SWMM_INLET_DROP_GRATE || kind == SWMM_INLET_COMBO) && design.grate_type == SWMM_GRATE_GENERIC) generic.refs << ref;
+            } else if (scope.dataCategory == SWMMModelLayer::DataLIDControls) {
+                if (swmm_lid_get_type(m_swmmLayer->engine(), swmm_lid_index(m_swmmLayer->engine(), ref.name.toUtf8().constData()), &kind) != SWMM_OK) continue;
+                label = QStringList{tr("Bio-Retention Cell"), tr("Rain Garden"), tr("Green Roof"), tr("Infiltration Trench"), tr("Permeable Pavement"), tr("Rain Barrel"), tr("Rooftop Disconnection"), tr("Vegetative Swale"), tr("Storage Node (ordered layers)")}.value(kind);
+            } else if (scope.dataCategory == SWMMModelLayer::DataSnowpacks) {
+                SWMM_UebSnowpack site{};
+                if (swmm_snowpack_get_ueb(m_swmmLayer->engine(), swmm_snowpack_index(m_swmmLayer->engine(), ref.name.toUtf8().constData()), &site) != SWMM_OK) continue;
+                kind = site.model;
+                if (kind < 0) swmm_snow_get_model(m_swmmLayer->engine(), &kind);
+                label = kind == 1 ? tr("UEB energy balance") : tr("Degree day");
             } else if (scope.dataCategory == SWMMModelLayer::DataPatterns) {
                 if (swmm_pattern_get_type(m_swmmLayer->engine(), swmm_pattern_index(m_swmmLayer->engine(), ref.name.toUtf8().constData()), &kind) != SWMM_OK) continue;
                 label = QStringList{tr("Monthly"), tr("Daily"), tr("Hourly"), tr("Weekend")}.value(kind);

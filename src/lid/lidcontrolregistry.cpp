@@ -248,6 +248,7 @@ int LidControlRegistry::saveToEngine(void *engineHandle)
                                                  ? p->retention.constData()
                                                  : nullptr) == SWMM_OK) {
                 p->clearDirty();
+                emit p->paramsChanged();
                 ++written;
             } else if (isNew) {
                 swmm_lid_delete(eng, idx, nullptr);
@@ -260,6 +261,7 @@ int LidControlRegistry::saveToEngine(void *engineHandle)
         swmm_lid_set_storage(eng, idx, p->storThick(), p->storVoidFrac(), p->storKsat());
         swmm_lid_set_drain(eng, idx, p->drainCoeff(), p->drainExpon(), p->drainOffset());
         p->clearDirty();
+        emit p->paramsChanged();
         ++written;
     }
     return written;

@@ -52,11 +52,10 @@ public:
      * registry-owned.
      * @param[in] layer Borrowed optional model context, stored through QPointer; not owned.
      * @param[in] parent Optional Qt owner of the dialog and child controls/models.
-     * @details Binds the first provider when available and edits provider values immediately on
-     * the GUI thread. Caller maintains a live engine context through all operations/nested
-     * confirmations; this dialog does not subscribe to engine-close invalidation. Acceptance
-     * validates/saves registry state, but rejection does not undo earlier provider or registry
-     * changes.
+     * @details Binds the first provider. With a layer, completed field edits use the shared
+     * checked writer and its canvas Undo stack; Close only dismisses accepted edits. Engine
+     * close invalidates the editor. Without a layer, retains standalone provider drafting and
+     * registry validation on acceptance. Rejection does not undo accepted changes.
      */
     SnowpackEditorDialog(openswmmvis::snowpack::SnowpackRegistry *registry, SWMMModelLayer *layer,
                          QWidget *parent = nullptr);
@@ -87,7 +86,8 @@ public:
      * dialog. It and its engine must remain valid throughout editing.
      * @param[in] layer Optional borrowed model layer, never owned by this entry point.
      * @return Copied current provider name when exec() returns Accepted and a provider remains,
-     * otherwise empty. Acceptance goes through validation/save; cancellation does not roll back
+     * otherwise empty. Project-owned fields validate immediately; standalone acceptance validates
+     * and saves. Cancellation does not roll back
      * already-live provider edits.
      */
     static QString pickSnowpack(openswmmvis::snowpack::SnowpackRegistry *registry,
@@ -130,9 +130,9 @@ public:
      */
     void invokeNew();
     /**
-     * @brief Save/validate registry state before accepting the dialog.
-     * @details A negative saveToEngine() result shows lastSaveError() and keeps the editor open.
-     * A nonnegative result, or absent registry, delegates to QDialog::accept(). Does not provide
+     * @brief Dismiss the project-owned immediate editor, or validate a standalone registry draft.
+     * @details Without a layer, a negative saveToEngine() result shows lastSaveError() and
+     * keeps the editor open. Otherwise delegates to QDialog::accept(). Does not provide
      * rollback for previous live provider/registry mutations.
      */
     void accept() override;
@@ -176,25 +176,25 @@ private slots:
      */
     void onNameEdited_();
     /**
-     * @brief Copy all displayed numeric parameters into the current provider on a field edit.
-     * @details Suppressed during hydration or without a provider; writes every spin value,
-     * including rounded/clamped inactive fields, rather than only the sender. If an inherited
-     * project model resolves to UEB and a UEB site value differs, sets an explicit UEB model
-     * first. Legacy snow depths/rates/temperature retain inch-or-mm, hour and F-or-C
-     * conventions; site heat/energy/depth fields retain W/m², kJ/m² and metres. No conversion or
-     * local undo occurs.
+     * @brief Commit the completed parameter when project-owned, or update a standalone draft.
+     * @details Hydration/unbound calls do nothing. Project-owned edits change only the sender's
+     * member through the shared checked writer and canvas Undo stack, preserving inactive values.
+     * Standalone drafts copy the form and promote inherited UEB site edits to an explicit model.
+     * Depth/rate/temperature use input in-or-mm, hours and F-or-C; UEB site heat, energy and
+     * extinction depth use W/m², kJ/m² and metres. No unit conversion occurs.
      */
     void onFieldEdited_();
     /**
-     * @brief Set provider model override from the combo and refresh field enablement.
-     * @details Uses -1 for project default, zero degree-day or one UEB; hydration/unbound calls
-     * do nothing. Retains inactive numerical values.
+     * @brief Commit the model choice and refresh applicable fields.
+     * @details Uses -1 for project default, zero degree-day or one UEB. Project default clears
+     * the native site override as one Undo operation; standalone drafting retains old behavior.
+     * Hydration/unbound calls do nothing.
      */
     void onModelEdited_();
     /**
-     * @brief Copy the trimmed removal-destination subcatchment ID into the provider.
-     * @details Suppressed during hydration or without a provider; no name lookup/engine
-     * validation occurs in this callback and no reference is retained to the widget text.
+     * @brief Commit a trimmed destination through the typed checked writer when project-owned.
+     * @details Standalone drafting copies the provider string. Suppressed during hydration or
+     * without a provider; no widget-text reference is retained.
      */
     void onRemovalSubcatchEdited_();
     /**
@@ -212,8 +212,8 @@ private:
      * @brief Create the owned list and grouped 32-parameter snowpack form once.
      * @details Builds 27 legacy plowable/impervious/pervious/removal fields plus five UEB site
      * fields from ordered specs, using labeled native units and per-field range/precision. Adds
-     * a separate removal ID and model selector; Close uses accept(), including registry
-     * validation. Requires uninitialized child-control pointers.
+     * a separate removal ID and model selector; Close uses accept(). Standalone drafts also
+     * receive registry validation. Requires uninitialized child-control pointers.
      */
     void buildUi_();
     /**

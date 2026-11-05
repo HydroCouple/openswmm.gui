@@ -253,9 +253,10 @@ void TestRegistryRename::snowpackParametersRoundTrip()
         auto *p = writer.create(QStringLiteral("SP1"));
         QVERIFY(p);
         p->setParam(SnowpackProvider::PlowableCmin, 0.01);
+        p->setParam(SnowpackProvider::PlowableCmax, 0.02);
         p->setParam(SnowpackProvider::PerviousLast, 4.0);
         p->setParam(SnowpackProvider::RemovalFOut, 0.25);
-        writer.saveToEngine(m_engine);
+        QCOMPARE(writer.saveToEngine(m_engine), 1);
     }
 
     // A second registry over the same engine must see the values — this is the

@@ -17,7 +17,7 @@ tables.
 | **Analysis → Tabular View** (`Ctrl+Shift+A`) | Raises the dock and focuses it |
 | **View → Panels → Attribute Table** (`Ctrl+Alt+4`) | Toggles the dock |
 | Layer tree → right-click a layer → **Open Attribute Table** | Jumps straight to that layer's table |
-| Object Browser → right-click a *Pollutants*, *Land Uses*, *Aquifers*, *Streets*, *Inlets*, *Time Patterns* or *Transects* category → **Open in Attribute Table** | Jumps to that data-object table |
+| Object Browser → right-click a *Pollutants*, *Land Uses*, *Aquifers*, *Streets*, *Inlets*, *Time Patterns*, *Transects*, *LID Controls* or *Snowpacks* category → **Open in Attribute Table** | Jumps to that data-object table |
 
 The dock binds to the active project tab and re-binds on every tab switch.
 
@@ -31,7 +31,7 @@ The **Category:** combo at the top is the source picker. It lists, in order:
    `Storage Units`, `Dividers`, `Conduits`, `Pumps`, `Orifices`, `Weirs`,
    `Outlets`, `Subcatchments`, `Rain Gages`;
 2. after a separator, the data objects that have simple per-object fields —
-   `◇ Data: Pollutants`, `Land Uses`, `Aquifers`, `Streets`, `Inlets`, `Time Patterns`, `Transects`
+   `◇ Data: Pollutants`, `Land Uses`, `Aquifers`, `Streets`, `Inlets`, `Time Patterns`, `Transects`, `LID Controls`, `Snowpacks`
    (each listed only when the model has at least one);
 3. after a separator, any loaded delimited-text layer as
    `▾ Table: <name> (<rows>)`;
@@ -308,7 +308,7 @@ empty string values remain distinct from missing assignments. Blank text or
 them and Undo remains available afterward. Flag definitions stay in their global
 editor. Reopen a captured selection after changing definitions or process options.
 
-Pollutants, land uses, aquifers, streets, inlet designs, time patterns and transects also support immediate
+Pollutants, land uses, aquifers, streets, inlet designs, time patterns, transects, standard LID layer fields and snowpacks also support immediate
 Properties edits. Select several objects in the Object Browser or attribute
 table, then choose their counted group in Properties. A committed field updates
 every object in that group with one Undo step. Untouched **Mixed** fields retain
@@ -323,6 +323,23 @@ count and meaning. Transects share description, roughness, bank and encroachment
 stations, and modifiers. Editing one member preserves its sibling values and
 the complete station/elevation list. Left stations cannot exceed right stations.
 Open the transect editor to change its ordered station list.
+
+Standard LID controls share surface, soil, storage, drain, pavement and drainage-mat
+fields where their types use those layers. Counted type groups help with mixed
+selections. A change preserves other layer members, including values outside the
+shared fields. Soil porosity must exceed field capacity, which must exceed wilting
+point. Storage uses a **void-to-solid ratio**, which can exceed one. LID type and
+ordered NODE layers remain with the complete-design editor. That existing editor
+still owns its design drafts; accepted bulk edits refresh its controls and diagram.
+
+Snowpacks share their named surface members, removal fields, snow model and UEB
+site values. Removal fractions must total at most one; transferring snow to a
+subcatchment requires a destination. Degree-day melt parameters are inactive under
+UEB, and UEB site fields are inactive under degree-day. A UEB site edit on an
+inherited UEB pack creates an explicit override. Choosing **Project default**
+removes that entire site override; Undo restores it while preserving other
+surfaces and removal fields. The project-owned snowpack editor uses the same
+immediate writes, and **Close** dismisses it.
 
 Names remain individual identities; use the dedicated editor to rename one
 object. Existing pollutant units are read-only. Concentration fields require
@@ -815,7 +832,7 @@ attribute table and the region-defaults table follow.
 
 ### Data-object tables
 
-Pollutants, land uses, aquifers, streets, inlets, time patterns and transects each get a table with one
+Pollutants, land uses, aquifers, streets, inlets, time patterns, transects, LID controls and snowpacks each get a table with one
 row per object, so you can set a value on many of them at once — for example,
 the decay coefficient of every pollutant, or the road roughness of every street
 section — with **Applying one value to many rows** above.
@@ -840,8 +857,10 @@ Pattern tables show the fixed calendar/hour factors, with unused type columns
 disabled. Transect tables expose scalar properties and a read-only station
 count; their ordered station lists remain in the transect editor.
 
-Curves, time series, unit hydrographs, control rules, snowpacks and LID controls
-retain their own structured editors (\ref manual_data_objects).
+LID and snowpack tables disable fields that the control type or effective snow
+model does not use. Ordered NODE layers and remaining complete LID design members
+retain their structured owner. Curves, time series, unit hydrographs and control
+rules retain their own structured editors (\ref manual_data_objects).
 
 ### GIS feature layers
 
