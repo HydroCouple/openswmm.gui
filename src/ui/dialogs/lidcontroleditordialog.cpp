@@ -23,6 +23,12 @@
 #include "ui/theme/iconfactory.h"
 
 #include "ui/models/lidnodelayermodel.h"
+#include "ui/panels/propertiespanel.h"
+#include "ui/panels/dataobjectattributetablemodel.h"
+#include "map/mapcanvas.h"
+#include "map/mapundostack.h"
+#include <QListWidget>
+#include <QTimer>
 #include <QPainter>
 #include <QPainterPath>
 #include <cmath>
@@ -233,7 +239,7 @@ LidControlEditorDialog::LidControlEditorDialog(LidControlRegistry *registry, SWM
 {
     setWindowTitle(tr("LID Controls"));
     resize(1180, 760);
-    buildUi_();
+    if (m_layer) buildLiveUi_(); else buildUi_();
 
     if (m_layer)
         connect(m_layer, &SWMMModelLayer::engineAboutToClose, this, [this] {
@@ -244,8 +250,10 @@ LidControlEditorDialog::LidControlEditorDialog(LidControlRegistry *registry, SWM
     if (m_registry) {
         connect(m_registry, &LidControlRegistry::providerParamsChanged, this,
                 [this](LidControlProvider *p) {
-                    if (p == m_current && !m_suppressFieldSync && !m_layerDraftDirty)
-                        bindProvider_(p);
+                    if (p == m_current && !m_suppressFieldSync && !m_layerDraftDirty) {
+                        if (m_liveProperties) QTimer::singleShot(0, this, [this] { bindProvider_(m_current); });
+                        else bindProvider_(p);
+                    }
                 });
         connect(m_registry, &LidControlRegistry::providerRenamed, this,
                 &LidControlEditorDialog::onProviderRenamed_);
@@ -253,7 +261,7 @@ LidControlEditorDialog::LidControlEditorDialog(LidControlRegistry *registry, SWM
         // Rebind after its type and initial ordered layers have both been set.
         connect(m_registry, &LidControlRegistry::providerTypeChanged, this,
                 [this](LidControlProvider *p) {
-                    if (p == m_current && m_typeCombo->currentIndex() != p->type())
+                    if (p == m_current && (!m_typeCombo || m_typeCombo->currentIndex() != p->type()))
                         bindProvider_(p);
                 }, Qt::QueuedConnection);
         m_listModel->setRegistry(m_registry);
@@ -280,6 +288,137 @@ void LidControlEditorDialog::openForLidControl(const QString &name)
 LidControlProvider *LidControlEditorDialog::currentProvider() const noexcept
 {
     return m_current.data();
+}
+
+void LidControlEditorDialog::buildLiveUi_()
+{
+    setObjectName("LidControlEditorDialog");
+    auto *outer = new QVBoxLayout(this);
+    auto *notice = new QLabel(tr("Edits take effect immediately. Press Enter or leave a field to commit a value; use Undo to reverse it. New controls start with example dimensions that should be reviewed."), this);
+    notice->setWordWrap(true); outer->addWidget(notice);
+    m_splitter = new QSplitter(this); m_splitter->setObjectName("main");
+    m_splitter->setChildrenCollapsible(false); outer->addWidget(m_splitter, 1);
+    auto *left = new QWidget(m_splitter); auto *leftLayout = new QVBoxLayout(left);
+    m_listView = new QListView(left); m_listModel = new LidControlListModel(this);
+    m_listView->setModel(m_listModel); leftLayout->addWidget(m_listView, 1);
+    m_addBtn = new QPushButton(tr("New standard LID"), left);
+    m_delBtn = new QPushButton(tr("Delete"), left);
+    auto *layered = new QPushButton(tr("New layered LID"), left); layered->setObjectName("newLayeredLid");
+    leftLayout->addWidget(m_addBtn); leftLayout->addWidget(layered); leftLayout->addWidget(m_delBtn);
+    auto *middle = new QWidget(m_splitter); auto *middleLayout = new QVBoxLayout(middle);
+    m_nameEdit = new QLineEdit(middle); m_nameEdit->setObjectName("lidControlName");
+    auto *nameLayout = new QFormLayout; nameLayout->addRow(tr("Name"), m_nameEdit); middleLayout->addLayout(nameLayout);
+    m_liveProperties = new PropertiesPanel(middle); m_liveProperties->setObjectName("lidLiveProperties");
+    m_liveProperties->setTitleBarWidget(new QWidget(m_liveProperties));
+    m_liveProperties->setFeatures(QDockWidget::NoDockWidgetFeatures);
+    m_liveProperties->setProject(m_layer);
+    m_liveProperties->findChild<QComboBox *>("propertiesLayerSelector")->hide();
+    m_liveProperties->findChild<QLabel *>("propertiesLayerLabel")->hide();
+    middleLayout->addWidget(m_liveProperties, 1);
+    auto *right = new QWidget(m_splitter); auto *rightLayout = new QVBoxLayout(right);
+    m_liveLayers = new QListWidget(right); m_liveLayers->setObjectName("lidLiveLayerOrder");
+    rightLayout->addWidget(new QLabel(tr("Ordered layers (top to bottom)"), right)); rightLayout->addWidget(m_liveLayers);
+    auto *kind = new QComboBox(right); kind->setObjectName("lidInsertKind");
+    kind->addItems({"SURFACE", "MEDIA", "AGGREGATE", "BOTTOM"}); rightLayout->addWidget(kind);
+    auto operation = [this](const QString &op, int row, int kind) {
+        if (!m_layer || !m_current) return;
+        QString error;
+        auto *undo = m_layer->editCanvas() ? m_layer->editCanvas()->undoStack() : nullptr;
+        const bool ok = DataObjectAttributeTableModel::editLidProfile(m_layer, m_current->name(), op, row, kind, undo, &error);
+        m_liveStatus->setText(ok ? tr("Updated") : (error.isEmpty() ? tr("This layer operation is unavailable.") : error));
+        if (ok) bindLiveProvider_(m_current);
+    };
+    auto *actions = new QHBoxLayout;
+    for (const auto &item : QList<QPair<QString, QString>>{{tr("Insert"), "insert"}, {tr("Remove"), "remove"}, {tr("Up"), "up"}, {tr("Down"), "down"}}) {
+        auto *button = new QPushButton(item.first, right); button->setObjectName("lidLayer_" + item.second); actions->addWidget(button);
+        if (item.second == "insert") button->setToolTip(tr("Insert a starter layer before the selected row. Under Richards, a porous layer also receives the example material values stated by Initialize materials."));
+        connect(button, &QPushButton::clicked, this, [this, kind, operation, op = item.second] {
+            int row = m_liveLayers->currentRow();
+            if (op == "insert" && row < 0) row = m_liveLayers->count();
+            operation(op, row, kind->currentIndex());
+        });
+    }
+    rightLayout->addLayout(actions);
+    auto *materials = new QPushButton(tr("Initialize materials"), right); materials->setObjectName("lidInitializeMaterials");
+    materials->setToolTip(tr("Set every porous layer to residual water 0.02, alpha 1/m, n 1.6, connectivity 0.5 and specific storage 0.0001/m. This is one reversible design operation."));
+    rightLayout->addWidget(materials);
+    connect(materials, &QPushButton::clicked, this, [operation] { operation("materials", 0, 0); });
+    m_liveStatus = new QLabel(right); m_liveStatus->setWordWrap(true); rightLayout->addWidget(m_liveStatus);
+    m_diagram = new openswmmvis::sectionview::SectionPreviewWidget(right); rightLayout->addWidget(m_diagram, 2);
+    m_retentionCurves = new RetentionCurves(right); rightLayout->addWidget(m_retentionCurves, 1);
+    connect(m_liveLayers, &QListWidget::currentRowChanged, this, [this] { refreshLivePreview_(); });
+    m_splitter->setSizes({190, 570, 420});
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
+    if (auto *canvas = m_layer->editCanvas()) {
+        auto *undo = buttons->addButton(tr("Undo"), QDialogButtonBox::ActionRole);
+        auto *redo = buttons->addButton(tr("Redo"), QDialogButtonBox::ActionRole);
+        connect(undo, &QPushButton::clicked, canvas->undoStack(), &QUndoStack::undo);
+        connect(redo, &QPushButton::clicked, canvas->undoStack(), &QUndoStack::redo);
+        undo->setEnabled(canvas->undoStack()->canUndo()); redo->setEnabled(canvas->undoStack()->canRedo());
+        connect(canvas->undoStack(), &QUndoStack::canUndoChanged, undo, &QPushButton::setEnabled);
+        connect(canvas->undoStack(), &QUndoStack::canRedoChanged, redo, &QPushButton::setEnabled);
+    }
+    outer->addWidget(buttons); connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::close);
+    connect(m_listView->selectionModel(), &QItemSelectionModel::currentChanged, this, &LidControlEditorDialog::onListSelectionChanged_);
+    connect(m_addBtn, &QPushButton::clicked, this, &LidControlEditorDialog::onAddClicked_);
+    connect(layered, &QPushButton::clicked, this, &LidControlEditorDialog::addLayeredControl_);
+    connect(m_delBtn, &QPushButton::clicked, this, &LidControlEditorDialog::onDeleteClicked_);
+    connect(m_nameEdit, &QLineEdit::editingFinished, this, &LidControlEditorDialog::onNameEdited_);
+    connect(m_layer, &SWMMModelLayer::attributeChanged, this, [this](const QString &name) {
+        if (m_current && m_current->name() == name) QTimer::singleShot(0, this, [this] { bindProvider_(m_current); });
+    });
+}
+
+void LidControlEditorDialog::bindLiveProvider_(LidControlProvider *p)
+{
+    const QSignalBlocker nameSignals(m_nameEdit), rows(m_liveLayers);
+    const int selected = m_liveLayers->currentRow();
+    m_nameEdit->setEnabled(p); m_nameEdit->setText(p ? p->name() : QString());
+    m_liveLayers->clear();
+    if (p && m_layer) {
+        DataObjectAttributeTableModel source; source.setSource(m_layer, SWMMModelLayer::DataLIDControls);
+        source.refreshObject(p->name());
+        m_liveProperties->showDataObject(m_layer, int(SWMMObjectRef::LIDControl), p->name());
+        for (auto *button : m_liveProperties->findChildren<QPushButton *>())
+            if (button->text().startsWith(tr("Open "))) button->hide();
+        QHash<int, int> count;
+        for (const auto &row : p->nodeLayers())
+            m_liveLayers->addItem(QStringList{"SURFACE", "MEDIA", "AGGREGATE", "BOTTOM"}[row.kind] + " " + QString::number(++count[row.kind]));
+        m_liveLayers->setCurrentRow(qBound(0, selected, m_liveLayers->count() - 1));
+    } else m_liveProperties->clear();
+    const bool node = p && p->type() == 8;
+    m_liveLayers->setEnabled(node);
+    for (auto *button : findChildren<QPushButton *>())
+        if (button->objectName().startsWith("lidLayer_") || button->objectName() == "lidInitializeMaterials") button->setEnabled(node);
+    refreshLivePreview_();
+}
+
+void LidControlEditorDialog::refreshLivePreview_()
+{
+    namespace sv = openswmmvis::sectionview;
+    auto *curves = static_cast<RetentionCurves *>(m_retentionCurves);
+    curves->layerLabel.clear(); curves->material = {}; curves->porosity = 0;
+    if (!m_current || !m_layer) { m_diagram->setModel({}); curves->update(); return; }
+    const auto r = DataObjectAttributeTableModel::lidProfile(m_layer, m_current->name());
+    sv::LidDiagramInput in; in.name = m_current->name(); in.type = static_cast<sv::LidType>(m_current->type());
+    int units = 0; swmm_get_flow_units(m_layer->engine(), &units); in.lengthLabel = units >= 3 ? "mm" : "in";
+    if (m_current->type() == 8) {
+        for (const auto &row : m_current->nodeLayers()) if (row.kind != 3)
+            in.orderedLayers << sv::LidDiagramInput::OrderedLayer{row.kind == 0 ? sv::LidLayer::Surface : row.kind == 1 ? sv::LidLayer::Soil : sv::LidLayer::Storage,
+                row.params[0], row.kind == 0 ? 1-row.params[1] : row.params[1], row.kind == 1 ? row.params[4] : row.kind == 2 ? row.params[2] : 0.};
+        const int row = m_liveLayers->currentRow();
+        if (row >= 0 && row < m_current->retention.size() && (m_current->nodeLayers()[row].kind == 1 || m_current->nodeLayers()[row].kind == 2)) {
+            curves->layerLabel = m_liveLayers->currentItem()->text(); curves->material = m_current->retention[row]; curves->porosity = m_current->nodeLayers()[row].params[1];
+        }
+    } else {
+        in.surfaceStorage = r["surfStorage"].toDouble(); in.surfaceRoughness = r["surfRoughness"].toDouble(); in.surfaceSlope = r["surfSlope"].toDouble();
+        in.soilThickness = r["soilThick"].toDouble(); in.soilPorosity = r["soilPorosity"].toDouble(); in.soilConductivity = r["soilKsat"].toDouble();
+        in.storageThickness = r["storThick"].toDouble(); in.storageVoidFrac = r["storVoidFrac"].toDouble(); in.storageSeepage = r["storKsat"].toDouble();
+        in.drainCoeff = r["drainCoeff"].toDouble(); in.drainExponent = r["drainExpon"].toDouble(); in.drainOffset = r["drainOffset"].toDouble();
+        in.pavementThickness = r["paveThick"].toDouble(); in.drainmatThickness = r["matThick"].toDouble();
+    }
+    m_diagram->setModel(sv::buildLidLayerDiagram(in));
+    curves->setVisible(m_current->type() == 8 && r["flowModel"].toInt() == 1); curves->update();
 }
 
 void LidControlEditorDialog::buildUi_()
@@ -767,13 +906,14 @@ bool LidControlEditorDialog::finishLayerDraft_()
 }
 void LidControlEditorDialog::done(int result)
 {
-    if (finishLayerDraft_())
+    if (m_liveProperties || finishLayerDraft_())
         QDialog::done(result);
 }
 
 void LidControlEditorDialog::bindProvider_(LidControlProvider *p)
 {
     m_current = p;
+    if (m_liveProperties) { bindLiveProvider_(p); return; }
 
     const bool prev = m_suppressFieldSync;
     m_suppressFieldSync = true;
@@ -876,7 +1016,7 @@ QString LidControlEditorDialog::suggestUniqueName_() const
 
 void LidControlEditorDialog::onListSelectionChanged_()
 {
-    if (!finishLayerDraft_()) {
+    if (!m_liveProperties && !finishLayerDraft_()) {
         QSignalBlocker blocker(m_listView->selectionModel());
         selectProviderInList_(m_current);
         return;
@@ -890,8 +1030,10 @@ void LidControlEditorDialog::onAddClicked_()
     if (!m_registry)
         return;
     LidControlProvider *p = m_registry->create(suggestUniqueName_());
-    if (p)
+    if (p) {
+        if (m_layer) { p->clearDirty(); DataObjectAttributeTableModel::initializeLidDesign(m_layer, p->name()); }
         selectProviderInList_(p);
+    }
 }
 
 void LidControlEditorDialog::addLayeredControl_()
@@ -901,7 +1043,12 @@ void LidControlEditorDialog::addLayeredControl_()
     auto *provider = m_registry->create(suggestUniqueName_(), 8);
     if (!provider)
         return;
-    provider->setNodeLayers(defaultNodeLayers());
+    if (m_layer) {
+        provider->clearDirty();
+        if (!DataObjectAttributeTableModel::initializeLidDesign(m_layer, provider->name())) {
+            m_registry->remove(provider); return;
+        }
+    } else provider->setNodeLayers(defaultNodeLayers());
     selectProviderInList_(provider);
 }
 

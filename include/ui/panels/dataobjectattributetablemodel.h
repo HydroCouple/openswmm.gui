@@ -149,8 +149,18 @@ public:
     static bool applyValues(SWMMModelLayer *layer, SWMMModelLayer::DataCategory cat,
                             const QStringList &names, const QString &key, const QVariant &value,
                             QUndoStack *undo, QString *error = nullptr);
+    /** Current accepted native LID record; process-local constituent identities never persist. */
+    static QVariantMap lidProfile(SWMMModelLayer *layer, const QString &name);
+    /** Single-control ordered profile operation (insert/remove/up/down/materials/initialize).
+     * Validates the complete stack and outlet anchors before mutation; one Undo when supplied.
+     */
+    static bool editLidProfile(SWMMModelLayer *layer, const QString &name,
+                              const QString &operation, int row, int kind,
+                              QUndoStack *undo, QString *error = nullptr);
+    /** Seed a newly created, empty design with documented complete starter layers. */
+    static bool initializeLidDesign(SWMMModelLayer *layer, const QString &name);
     static SWMMModelLayer::DataCategory categoryForType(SWMMObjectRef::ObjectType type);
-    int rowForProvider(QObject *provider) const { return m_providerRows.value(provider, -1); }
+    int rowForProvider(QObject *provider) const;
     QObject *providerAt(int row) const { return row >= 0 && row < m_rows.size() ? m_rows[row].data() : nullptr; }
 
 
@@ -246,6 +256,7 @@ public:
     [[nodiscard]] bool cellApplies(int row, int col) const;
 
 private:
+    bool m_lidSchemaPending = false;
     /**
      * @brief Connect current typed registry structural changes to queued reload and parameter
      *   changes to synchronous row notification.

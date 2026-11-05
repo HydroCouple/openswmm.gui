@@ -816,9 +816,8 @@ void openInletsBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
  * @brief Ensure typed LidControls registry and invoke createNew factory, returning silently on null
  *   result. New dialog is WA_DeleteOnClose and shown modeless; this launcher does not reuse
  *   existing windows.
- * @note Dialog finished queues synchronous registry saveToEngine(layer->engine()) in dialog
- *   context, guarded by QPointers to both layer/registry; errors ignored. It runs on accepted or
- *   rejected close, not just successful edits.
+ * @note Project-owned fields commit immediately through the shared checked writer. Closing
+ *   dismisses the editor without flushing unrelated registry drafts.
  * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
@@ -834,12 +833,6 @@ void openLidControlsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWi
     if (!dlg)
         return;
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    QPointer<LidControlRegistry> regPtr(reg);
-    QPointer<SWMMModelLayer> layerPtr(layer);
-    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
-        if (regPtr && layerPtr)
-            regPtr->saveToEngine(layerPtr->engine());
-    });
     dlg->show();
 }
 
@@ -852,9 +845,8 @@ void openLidControlsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWi
  * @brief Ensure typed LidControls registry and construct list editor without deliberately creating
  *   a new entry. New dialog is WA_DeleteOnClose and shown modeless; this launcher does not reuse
  *   existing windows.
- * @note Dialog finished queues synchronous registry saveToEngine(layer->engine()) in dialog
- *   context, guarded by QPointers to both layer/registry; errors ignored. It runs on accepted or
- *   rejected close, not just successful edits.
+ * @note Project-owned fields commit immediately through the shared checked writer. Closing
+ *   dismisses the editor without flushing unrelated registry drafts.
  * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
@@ -868,12 +860,6 @@ void openLidControlsBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidge
         return;
     auto *dlg = new LidControlEditorDialog(reg, layer, parent);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    QPointer<LidControlRegistry> regPtr(reg);
-    QPointer<SWMMModelLayer> layerPtr(layer);
-    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
-        if (regPtr && layerPtr)
-            regPtr->saveToEngine(layerPtr->engine());
-    });
     dlg->show();
 }
 
@@ -1193,7 +1179,7 @@ void openRegistryEditorFor(QPointer<Dlg> &slot, QPointer<Reg> &slotReg, Reg *reg
         slot = new Dlg(reg, layer, parent);
         slot->setAttribute(Qt::WA_DeleteOnClose);
         slotReg = reg;
-        if constexpr (!std::is_same_v<Dlg, SnowpackEditorDialog>) {
+        if constexpr (!std::is_same_v<Dlg, SnowpackEditorDialog> && !std::is_same_v<Dlg, LidControlEditorDialog>) {
             QPointer<Reg> regPtr(reg);
             QPointer<SWMMModelLayer> layerPtr(layer);
             QObject::connect(slot.data(), &QDialog::finished, slot.data(), [regPtr, layerPtr]() {

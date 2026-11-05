@@ -22,6 +22,7 @@ DataObjectAggregateSelection::DataObjectAggregateSelection(SWMMModelLayer *layer
             seen.insert(provider);
         m_targets << provider;
         m_originalNames << name;
+        m_schemas << (category == SWMMModelLayer::DataLIDControls && provider ? provider->property("lidAcceptedSchema") : QVariant());
     }
     auto *refresh = new QTimer(this);
     refresh->setSingleShot(true);
@@ -77,7 +78,7 @@ QStringList DataObjectAggregateSelection::names() const
 DataObjectAggregateSelection::Field DataObjectAggregateSelection::field(int column) const
 {
     Field result;
-    if (!m_valid) {
+    if (!schemaValid()) {
         result.reason = tr("The model or units changed. Select these objects again.");
         return result;
     }
@@ -120,6 +121,7 @@ bool DataObjectAggregateSelection::stage(int column, const QVariant &value)
 {
     if (!value.isValid() || m_targets.isEmpty() || field(column).editable != m_targets.size())
         return false;
+    m_stagedKey = m_source->columnSpecs().value(column).key;
     m_staged[column] = value;
     m_before[column].clear();
     for (int row : rows())
@@ -128,7 +130,7 @@ bool DataObjectAggregateSelection::stage(int column, const QVariant &value)
 }
 bool DataObjectAggregateSelection::apply(QString *error)
 {
-    if (m_staged.size() != 1 || !m_valid || unresolvedCount()) {
+    if (m_staged.size() != 1 || !schemaValid() || unresolvedCount()) {
         if (error)
             *error = tr("The captured selection is no longer editable. Select the objects again.");
         return false;
@@ -136,6 +138,10 @@ bool DataObjectAggregateSelection::apply(QString *error)
     const int column = m_staged.firstKey();
     for (const auto &name : names())
         m_source->refreshObject(name);
+    if (!schemaValid() || m_source->columnSpecs().value(column).key != m_stagedKey) {
+        if (error) *error = tr("The layer order or constituent definitions changed. Select the controls again.");
+        return false;
+    }
     QList<QVariant> current;
     for (int row : rows())
         current << m_source->index(row, column).data(Qt::EditRole);
@@ -163,7 +169,19 @@ bool DataObjectAggregateSelection::setValue(int column, const QVariant &value)
     if (!accepted && error.isEmpty())
         error =
             tr("The field cannot be edited for every captured object. Choose a compatible group.");
+    if (accepted && m_source->category() == SWMMModelLayer::DataLIDControls)
+        for (int i = 0; i < m_targets.size(); ++i)
+            if (m_targets[i]) m_schemas[i] = m_targets[i]->property("lidAcceptedSchema");
     discard();
     emit editFinished(error);
     return accepted;
+}
+
+bool DataObjectAggregateSelection::schemaValid() const
+{
+    if (!m_valid) return false;
+    if (m_source->category() == SWMMModelLayer::DataLIDControls)
+        for (int i = 0; i < m_targets.size(); ++i)
+            if (!m_targets[i] || m_targets[i]->property("lidAcceptedSchema") != m_schemas[i]) return false;
+    return true;
 }

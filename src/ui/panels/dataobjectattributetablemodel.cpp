@@ -40,7 +40,11 @@
 #include <openswmm/engine/openswmm_infrastructure.h>
 #include <openswmm/engine/openswmm_tables.h>
 #include <openswmm/engine/openswmm_snow.h>
+#include <openswmm/engine/openswmm_reactions.h>
+#include <openswmm/engine/openswmm_nodes.h>
+#include <openswmm/engine/openswmm_links.h>
 #include <QSet>
+#include <QUuid>
 #include <memory>
 
 #include <QBrush>
@@ -262,6 +266,10 @@ const QStringList lidKeys[] = {
     {"drainCoeff", "drainExpon", "drainOffset"},
     {"paveThick", "paveVoidRatio", "paveImpervious", "paveKsat", "paveClogFactor", "paveRegenDays"},
     {"matThick", "matVoidFrac", "matRoughness"}};
+const QStringList lidExtraKeys{"surfVegetation", "surfSideSlope", "soilSuction", "storClogging", "drainDelay", "drainOpen", "drainClose"};
+const int lidExtraGroups[]{0, 0, 1, 2, 3, 3, 3};
+
+#include "lidnoderecord_p.h"
 
 bool lidApplies(int type, int group)
 {
@@ -291,8 +299,9 @@ QVariantList lidGroup(SWMM_Engine engine, int index, int group)
         for (int i = 0; i < lidKeys[group].size(); ++i) values << v[i];
     return values;
 }
-QVariantMap lidRecord(SWMM_Engine engine, const QString &name)
+QVariantMap lidRecord(SWMMModelLayer *layer, const QString &name)
 {
+    const auto engine = layer->engine();
     const int index = swmm_lid_index(engine, name.toUtf8().constData());
     int type = -1;
     if (swmm_lid_get_type(engine, index, &type) != SWMM_OK) return {};
@@ -302,13 +311,25 @@ QVariantMap lidRecord(SWMM_Engine engine, const QString &name)
         if (values.size() != lidKeys[group].size()) return {};
         for (int i = 0; i < values.size(); ++i) record[lidKeys[group][i]] = values[i];
     }
+    for (int field = 0; field < 7; ++field) {
+        double value = 0;
+        if (swmm_lid_get_extra(engine, index, field, &value) != SWMM_OK) return {};
+        record[lidExtraKeys[field]] = value;
+    }
+    record["drainCurve"] = QString::fromUtf8(swmm_lid_get_drain_curve(engine, index));
+    if (!readLidConstituents(layer, index, record)) return {};
+    if (type == 8 && !readLidNode(layer, index, record)) return {};
     return record;
 }
-bool writeLidRecord(SWMM_Engine engine, const QString &name, const QVariantMap &record)
+bool writeLidRecord(SWMMModelLayer *layer, const QString &name, const QVariantMap &record)
 {
+    const auto engine = layer->engine();
     const int index = swmm_lid_index(engine, name.toUtf8().constData());
-    const auto current = lidRecord(engine, name);
-    if (current.isEmpty() || current["type"] != record["type"]) return false;
+    const auto current = lidRecord(layer, name);
+    if (current.isEmpty()) return false;
+    if (record["type"].toInt() == 8)
+        return writeLidNode(layer, index, record, false);
+    if (current["type"] != record["type"] && swmm_lid_set_type(engine, index, record["type"].toInt()) != SWMM_OK) return false;
     // Only the changed group is submitted: unused groups may be unconfigured,
     // and the narrower native setters preserve omitted vegetation/suction/etc.
     for (int group = 0; group < 6; ++group) {
@@ -329,6 +350,10 @@ bool writeLidRecord(SWMM_Engine engine, const QString &name, const QVariantMap &
         }
         if (result != SWMM_OK) return false;
     }
+    for (int field = 0; field < 7; ++field)
+        if (current[lidExtraKeys[field]] != record[lidExtraKeys[field]] &&
+            swmm_lid_set_extra(engine, index, field, record[lidExtraKeys[field]].toDouble()) != SWMM_OK) return false;
+    if (!writeLidRemovals(layer, index, current, record)) return false;
     return true;
 }
 QString snowKey(int index) { return QStringLiteral("snow/%1").arg(index); }
@@ -438,17 +463,37 @@ void refreshFromEngine(QObject *registry, DC::DataCategory category, SWMMModelLa
     case DC::DataLIDControls: {
         using P = LidControlProvider;
         auto *p = static_cast<LidControlRegistry *>(registry)->findByName(name);
-        const auto v = lidRecord(layer->engine(), name);
+        const auto v = lidRecord(layer, name);
         if (!p || v.isEmpty()) break;
         if (p->dirty()) break; // The complete-design editor owns this uncommitted draft.
         p->setType(v["type"].toInt());
-        if (p->type() == 8) break; // Ordered layers and their draft remain with their owner.
-        const decltype(&P::setSurfStorage) setters[]{&P::setSurfStorage, &P::setSurfRoughness, &P::setSurfSlope,
+        if (p->type() == 8) {
+            QVector<SWMM_LidNodeLayer> rows; QVector<SWMM_LidRichardsMaterial> materials;
+            QHash<int, int> occurrences; p->treatments.clear();
+            for (const auto &kind : v["_kinds"].toList()) {
+                SWMM_LidNodeLayer row{}; row.kind = kind.toInt(); const auto prefix = lidNodePrefix(row.kind, ++occurrences[row.kind]);
+                for (int i = 0; i < lidNodeParamCounts[row.kind]; ++i) row.params[i] = v[prefix + "p/" + QString::number(i)].toDouble();
+                rows << row;
+                materials << SWMM_LidRichardsMaterial{v[prefix + "r/0"].toDouble(), v[prefix + "r/1"].toDouble(), v[prefix + "r/2"].toDouble(), v[prefix + "r/3"].toDouble(), v[prefix + "r/4"].toDouble()};
+                for (auto *pollutant : lidPollutants(layer)) {
+                    const auto key = prefix + "t/" + lidPollToken(pollutant) + "/";
+                    if (v[key + "present"].toInt()) p->treatments << openswmmvis::lid::LidLayerTreatment{int(rows.size()), pollutant->name(), v[key + "removal"].toDouble(), v[key + "decay"].toDouble(), v[key + "expression"].toString()};
+                }
+            }
+            p->setNodeLayers(rows);
+            p->setNodeFlow({v["flowModel"].toInt(), v["flowCells"].toInt(), v["flowAtol"].toDouble(), v["flowRtol"].toDouble(), v["flowMaxStep"].toDouble()}, materials);
+        } else {
+            const decltype(&P::setSurfStorage) setters[]{&P::setSurfStorage, &P::setSurfRoughness, &P::setSurfSlope,
             &P::setSoilThick, &P::setSoilPorosity, &P::setSoilFc, &P::setSoilWp, &P::setSoilKsat, &P::setSoilKslope,
             &P::setStorThick, &P::setStorVoidFrac, &P::setStorKsat, &P::setDrainCoeff, &P::setDrainExpon, &P::setDrainOffset};
-        int i = 0;
-        for (int group = 0; group < 4; ++group)
-            for (const auto &key : lidKeys[group]) (p->*setters[i++])(v[key].toDouble());
+            int i = 0;
+            for (int group = 0; group < 4; ++group)
+                for (const auto &key : lidKeys[group]) (p->*setters[i++])(v[key].toDouble());
+        }
+        p->setProperty("lidAcceptedValues", v);
+        QVariantList unitKinds;
+        for (auto *pollutant : lidPollutants(layer)) unitKinds << v["_unit/" + lidPollToken(pollutant)];
+        p->setProperty("lidAcceptedSchema", QVariantList{v["type"], v["_kinds"], v["_pollutants"], v["_species"], unitKinds, p->property("lidStructureRevision")});
         p->clearDirty();
         break;
     }
@@ -661,12 +706,18 @@ QString tr(const char *s)
 
 QList<Field> lidFields(SWMMModelLayer *layer)
 {
+    if (layer)
+        if (auto *reg = qobject_cast<LidControlRegistry *>(layer->ensureLidControlRegistry()))
+            for (auto *p : reg->providers()) {
+                const QSignalBlocker ps(p), rs(reg);
+                refreshFromEngine(reg, DC::DataLIDControls, layer, p->name());
+            }
     const QStringList types{tr("Bio-Retention Cell"), tr("Rain Garden"), tr("Green Roof"),
         tr("Infiltration Trench"), tr("Permeable Pavement"), tr("Rain Barrel"),
         tr("Rooftop Disconnection"), tr("Vegetative Swale"), tr("Storage Node (ordered layers)")};
     auto type = enumField("type", tr("LID Type"), pairs(types, {0,1,2,3,4,5,6,7,8}),
-                         [](QObject *o) { return static_cast<LidControlProvider *>(o)->type(); }, {});
-    type.spec.tooltip = tr("Changing LID type requires a complete design and assignment review in its dedicated editor.");
+                         [](QObject *o) { return static_cast<LidControlProvider *>(o)->type(); }, [](QObject *, const QVariant &) {});
+    type.spec.tooltip = tr("Unassigned standard designs can change type while retaining their layer records. Assigned controls and applied NODE profiles retain their native type restrictions. Create a new layered control for NODE.");
     QList<Field> fields{type};
     const QStringList labels[]{
         {tr("Surface — Storage Depth"), tr("Surface — Roughness"), tr("Surface — Slope")},
@@ -682,6 +733,23 @@ QList<Field> lidFields(SWMMModelLayer *layer)
         {UnitKind::Depression, UnitKind::None, UnitKind::None, UnitKind::Rate, UnitKind::None, UnitKind::None},
         {UnitKind::Depression, UnitKind::None, UnitKind::None}};
     const QPointer<SWMMModelLayer> source(layer);
+    auto add = [&](const QString &key, const QString &label, UnitKind unit, double maximum,
+                   std::function<bool(QObject *)> applies, openswmmvis::EditorKind editor = EditorKind::Numeric) {
+        Field f; f.spec.key = key; f.spec.label = label; f.spec.editor = editor; f.spec.setter = key;
+        f.spec.minValue = 0; f.spec.maxValue = maximum; f.spec.decimals = 6; f.spec.unit = unit;
+        f.applies = std::move(applies);
+        f.get = [key](QObject *o) -> QVariant {
+            const auto record = o->property("lidAcceptedValues").toMap();
+            if (key.contains("/t/") && !key.endsWith("/present")) {
+                const auto prefix = key.left(key.lastIndexOf('/') + 1);
+                if (!record[prefix + "present"].toInt()) return {};
+            }
+            return record.value(key);
+        };
+        f.set = [](QObject *, const QVariant &) {};
+        f.spec.tooltip = tr("Changes this field for every captured control. Other layer members and records are preserved.");
+        fields << f;
+    };
     for (int group = 0; group < 6; ++group)
         for (int i = 0; i < lidKeys[group].size(); ++i) {
             Field f; f.spec.key = lidKeys[group][i]; f.spec.label = labels[group][i];
@@ -698,9 +766,93 @@ QList<Field> lidFields(SWMMModelLayer *layer)
             f.set = [](QObject *, const QVariant &) {}; // Checked native group writer below.
             fields << f;
         }
+    const QStringList extras{tr("Surface — Vegetation Fraction"), tr("Surface — Side Slope"), tr("Soil — Suction"), tr("Storage — Clogging Factor"), tr("Drain — Delay (hours)"), tr("Drain — Opening Depth"), tr("Drain — Closing Depth")};
+    for (int i = 0; i < 7; ++i) {
+        const auto unit = i == 2 || i >= 5 ? UnitKind::Depression : UnitKind::None;
+        add(lidExtraKeys[i], extras[i], unit, i == 0 ? 1. : kInf,
+            [group = lidExtraGroups[i]](QObject *o) { return lidApplies(static_cast<LidControlProvider *>(o)->type(), group); });
+    }
+    Field curve; curve.spec.key = "drainCurve"; curve.spec.label = tr("Drain — Retained Curve");
+    curve.spec.tooltip = tr("The native engine stores this token for persistence but does not yet evaluate a drain-curve law. It is read-only here.");
+    curve.get = [](QObject *o) { return o->property("lidAcceptedValues").toMap().value("drainCurve"); };
+    curve.applies = [](QObject *o) { return lidApplies(static_cast<LidControlProvider *>(o)->type(), 3); }; fields << curve;
+    if (layer) {
+        for (auto *p : lidPollutants(layer)) {
+            add("removal/p/" + lidPollToken(p), tr("Drain Removal — %1").arg(p->name()), UnitKind::Percent, 100,
+                [](QObject *o) { return lidApplies(static_cast<LidControlProvider *>(o)->type(), 3); });
+        }
+        QVariantList species;
+        if (layer->dataObjectCount(DC::DataLIDControls)) {
+            const auto r = lidRecord(layer, layer->dataObjectNameAt(DC::DataLIDControls, 0)); species = r["_species"].toList();
+        }
+        for (const auto &definition : species) {
+            const auto row = definition.toList(); const auto name = row.value(0).toString();
+            const auto key = QString("removal/s/") + QString::fromLatin1(name.toUtf8().toPercentEncoding());
+            add(key, tr("Drain Removal — %1 (reaction species)").arg(name), UnitKind::Percent, 100,
+                [](QObject *o) { return lidApplies(static_cast<LidControlProvider *>(o)->type(), 3); });
+            if (row.value(1).toInt() || swmm_pollutant_index(layer->engine(), name.toUtf8().constData()) >= 0) {
+                fields.last().set = {};
+                fields.last().spec.tooltip = tr("Wall species do not leave in underdrain water; a species sharing a pollutant token also lacks an unambiguous persisted removal row.");
+            }
+        }
+    }
+    QHash<int, int> maxima;
+    if (layer)
+        for (QObject *o : providersOf(layer->ensureLidControlRegistry(), DC::DataLIDControls)) {
+            QHash<int, int> counts;
+            for (const auto &kind : o->property("lidAcceptedValues").toMap()["_kinds"].toList()) ++counts[kind.toInt()];
+            for (auto it = counts.cbegin(); it != counts.cend(); ++it) maxima[it.key()] = qMax(maxima[it.key()], it.value());
+        }
+    const auto isNode = [](QObject *o) { return static_cast<LidControlProvider *>(o)->type() == 8; };
+    auto flow = enumField("flowModel", tr("NODE Flow — Model"), pairs({tr("Gravity/backwater"), tr("Richards")}, {0, 1}),
+        [](QObject *o) { return o->property("lidAcceptedValues").toMap().value("flowModel"); }, [](QObject *, const QVariant &) {});
+    flow.applies = isNode; flow.spec.tooltip = tr("Richards requires complete valid material records. Switching to gravity resets inactive numerical settings to native defaults and retains materials."); fields << flow;
+    const QStringList flowLabels{tr("NODE Flow — Cells per Layer"), tr("NODE Flow — Absolute Tolerance"), tr("NODE Flow — Relative Tolerance"), tr("NODE Flow — Maximum Step (s)")};
+    for (int i = 1; i < 5; ++i) {
+        add(lidFlowKeys[i], flowLabels[i - 1], UnitKind::None, i == 1 ? 256. : kInf,
+            [](QObject *o) { return o->property("lidAcceptedValues").toMap().value("flowModel").toInt() == 1; },
+            i == 1 ? EditorKind::Integer : EditorKind::Numeric);
+        fields.last().spec.minValue = i == 1 ? 1 : 1.e-12; fields.last().spec.decimals = 12;
+    }
+    const QStringList physicalLabels[]{
+        {tr("Thickness"), tr("Vegetation Fraction")},
+        {tr("Thickness"), tr("Porosity"), tr("Field Capacity"), tr("Wilting Point"), tr("Conductivity"), tr("Conductivity Slope"), tr("Suction")},
+        {tr("Thickness"), tr("Porosity"), tr("Conductivity")}, {tr("Seepage"), tr("Clogging")}};
+    const QStringList retentionLabels{tr("Residual Water"), tr("Retention Alpha (1/m)"), tr("Retention n"), tr("Pore Connectivity"), tr("Specific Storage (1/m)")};
+    for (int kind = 0; kind < 4; ++kind)
+        for (int occurrence = 1; occurrence <= maxima.value(kind); ++occurrence) {
+            const auto prefix = lidNodePrefix(kind, occurrence);
+            const auto title = QStringList{"SURFACE", "MEDIA", "AGGREGATE", "BOTTOM"}[kind] + " " + QString::number(occurrence);
+            auto available = [prefix](QObject *o) { return o->property("lidAcceptedValues").toMap().contains(prefix + "p/0"); };
+            for (int i = 0; i < lidNodeParamCounts[kind]; ++i) {
+                const auto unit = (kind != 3 && i == 0) || (kind == 1 && i == 6) ? UnitKind::Depression
+                    : (kind == 1 && i == 4) || (kind == 2 && i == 2) || (kind == 3 && i == 0) ? UnitKind::Rate : UnitKind::None;
+                add(prefix + "p/" + QString::number(i), title + " — " + physicalLabels[kind][i], unit, kInf, available);
+                fields.last().spec.tooltip = tr("Matches %1 by kind and occurrence counted from the top within that kind. Missing occurrences refuse the whole batch; other layers are preserved.").arg(title);
+            }
+            if (kind == 1 || kind == 2)
+                for (int i = 0; i < 5; ++i) {
+                    add(prefix + "r/" + QString::number(i), title + " — " + retentionLabels[i], UnitKind::None, kInf,
+                        [prefix](QObject *o) { return lidMaterialValid(o->property("lidAcceptedValues").toMap(), prefix); });
+                    fields.last().spec.decimals = 12;
+                    fields.last().spec.tooltip = tr("Edit a complete valid material. Use Initialize materials in the design editor for an unconfigured profile. Alpha and specific storage are inverse metres in both unit systems.");
+                }
+            if (kind == 3 || !layer) continue;
+            for (auto *p : lidPollutants(layer)) {
+                const auto key = prefix + "t/" + lidPollToken(p) + "/";
+                const auto treatmentTitle = title + " / " + p->name();
+                auto present = enumField(key + "present", treatmentTitle + " — Treatment", pairs({tr("Not set"), tr("Enabled")}, {0, 1}),
+                    [key](QObject *o) { return o->property("lidAcceptedValues").toMap().value(key + "present"); }, [](QObject *, const QVariant &) {});
+                present.applies = available; fields << present;
+                auto enabled = [key](QObject *o) { return o->property("lidAcceptedValues").toMap()[key + "present"].toInt() == 1; };
+                add(key + "removal", treatmentTitle + " — Removal", UnitKind::Percent, 100, enabled);
+                add(key + "decay", treatmentTitle + " — Decay (1/day)", UnitKind::None, kInf, enabled);
+                add(key + "expression", treatmentTitle + " — Expression", UnitKind::None, kInf, enabled, EditorKind::Text);
+            }
+        }
     Field node;
     node.spec.key = "nodeLayers"; node.spec.label = tr("Ordered NODE Layers");
-    node.spec.tooltip = tr("Ordered NODE layers, Richards materials and treatments retain their dedicated editor until cross-object row matching is reviewed.");
+    node.spec.tooltip = tr("Shared layer fields match explicit kind/occurrence labels. Insert, remove and move layers in the single-control design editor.");
     node.applies = [](QObject *o) { return static_cast<LidControlProvider *>(o)->type() == 8; };
     node.get = [](QObject *o) { return static_cast<LidControlProvider *>(o)->nodeLayers().size(); };
     fields << node;
@@ -1268,7 +1420,7 @@ QVariantMap readRecord(SWMMModelLayer *layer, DC::DataCategory cat, QObject *pro
         nativeIndex(layer->engine(), cat, nameOf(provider, cat)) < 0)
         return {};
     if (cat == DC::DataLIDControls)
-        return lidRecord(layer->engine(), nameOf(provider, cat));
+        return lidRecord(layer, nameOf(provider, cat));
     if (cat == DC::DataSnowpacks)
         return snowRecord(layer->engine(), nameOf(provider, cat));
     if (cat == DC::DataPatterns)
@@ -1305,7 +1457,7 @@ bool writeRecord(SWMMModelLayer *layer, DC::DataCategory cat, QObject *provider,
     const QSignalBlocker p(provider), r(reg);
     bool written = false;
     if (cat == DC::DataLIDControls) {
-        written = writeLidRecord(layer->engine(), name, record);
+        written = writeLidRecord(layer, name, record);
     } else if (cat == DC::DataSnowpacks) {
         written = writeSnowRecord(layer->engine(), name, record);
     } else if (cat == DC::DataPatterns) {
@@ -1364,9 +1516,23 @@ bool referenceValid(SWMM_Engine e, const QString &key, const QString &name)
            : category == DC::DataCurves ? type == 2 || type == 3
                                         : type >= 0;
 }
-bool memberValid(SWMM_Engine engine, DC::DataCategory category, const QString &key, const QVariantMap &record)
+bool memberValid(SWMMModelLayer *layer, DC::DataCategory category, const QString &key, const QVariantMap &record, const QString &name)
 {
+    const auto engine = layer->engine();
     if (category == DC::DataLIDControls) {
+        const int index = swmm_lid_index(engine, name.toUtf8().constData());
+        if (record["type"].toInt() == 8)
+            return writeLidNode(layer, index, record, true);
+        if (key == "type")
+            return record[key].toInt() < 8 && swmm_lid_validate_type(engine, index, record[key].toInt()) == SWMM_OK;
+        if (lidExtraKeys.contains(key)) {
+            const double v = record[key].toDouble();
+            return std::isfinite(v) && v >= 0 && (key != "surfVegetation" || v < 1);
+        }
+        if (key.startsWith("removal/")) {
+            const double v = record[key].toDouble();
+            return std::isfinite(v) && v >= 0 && v <= 100;
+        }
         for (int group = 0; group < 6; ++group) {
             if (!lidKeys[group].contains(key)) continue;
             for (const auto &member : lidKeys[group]) {
@@ -1413,14 +1579,25 @@ bool memberValid(SWMM_Engine engine, DC::DataCategory category, const QString &k
     return true;
 }
 bool propose(SWMMModelLayer *layer, DC::DataCategory cat, QObject *provider, const QString &key,
-             const QVariant &input, const QVariantMap &before, QVariantMap &after, QString *error)
+             const QVariant &input, const QVariantMap &before, QVariantMap &after, QString *error,
+             const QList<Field> &fields)
 {
     auto fail = [&](const QString &message) {
         if (error)
             *error = message;
         return false;
     };
-    for (const auto &f : fieldsFor(layer, cat)) {
+    if (cat == DC::DataLIDControls && key == "_nodeProfile") {
+        const auto envelope = input.toMap();
+        after = envelope["after"].toMap();
+        if (envelope["before"].toMap() != before || before["type"].toInt() != 8 ||
+            after["type"].toInt() != 8 || after["_pollutants"] != before["_pollutants"] ||
+            after["_species"] != before["_species"] ||
+            !memberValid(layer, cat, key, after, nameOf(provider, cat)))
+            return fail(tr("The layer profile changed or is invalid. Review the current design and try again."));
+        return true;
+    }
+    for (const auto &f : fields) {
         if (f.spec.key != key)
             continue;
         if (!f.set || (f.applies && !f.applies(provider)))
@@ -1447,7 +1624,7 @@ bool propose(SWMMModelLayer *layer, DC::DataCategory cat, QObject *provider, con
             bool ok = false;
             const double number = input.toDouble(&ok);
             if (!ok || !std::isfinite(number) || number < f.spec.minValue ||
-                number > f.spec.maxValue)
+                number > f.spec.maxValue || (f.spec.editor == EditorKind::Integer && number != value.toLongLong()))
                 return fail(tr("%1 is outside its valid range.").arg(f.spec.label));
         }
         if (f.spec.editor == EditorKind::Enum) {
@@ -1461,6 +1638,20 @@ bool propose(SWMMModelLayer *layer, DC::DataCategory cat, QObject *provider, con
         }
         after = before;
         after[key] = value;
+        if (cat == DC::DataLIDControls) {
+            if (key.endsWith("/expression") && (value.toString().contains(QChar::Null) || value.toString().contains('\n') || value.toString().contains('\r')))
+                return fail(tr("A treatment expression must fit on one input line."));
+            if (key == "type" && (before["type"].toInt() == 8 || value.toInt() == 8))
+                return fail(tr("Create a new layered control to change between standard and NODE designs."));
+            if (key == "flowModel" && value.toInt() == 0) {
+                after["flowCells"] = 8; after["flowAtol"] = 1.e-7;
+                after["flowRtol"] = 1.e-5; after["flowMaxStep"] = 30.;
+            }
+            if (key.contains("/t/") && key.endsWith("/present")) {
+                const auto prefix = key.left(key.lastIndexOf('/') + 1);
+                if (!value.toInt()) { after[prefix + "removal"] = 0.; after[prefix + "decay"] = 0.; after[prefix + "expression"] = QString(); }
+            }
+        }
         if (cat == DC::DataSnowpacks) {
             if (snowSiteKeys.contains(key) && before["modelKind"].toInt() < 0) after["modelKind"] = 1;
             if (key == "modelKind" && value.toInt() < 0) {
@@ -1469,7 +1660,7 @@ bool propose(SWMMModelLayer *layer, DC::DataCategory cat, QObject *provider, con
             }
             after["effectiveModel"] = after["modelKind"].toInt() < 0 ? snowDefault(layer->engine()) : after["modelKind"].toInt();
         }
-        if (!memberValid(layer->engine(), cat, key, after)) {
+        if (!memberValid(layer, cat, key, after, nameOf(provider, cat))) {
             const auto reason = cat == DC::DataLIDControls ? tr("A complete valid layer is required: porosity > field capacity > wilting point, positive storage void ratio, and valid nonnegative layer values.")
                 : cat == DC::DataSnowpacks ? tr("Check melt minimum/maximum, fractions totalling at most one, a destination for transferred snow, and positive UEB extinction depth.")
                                          : tr("Left stations must not exceed right stations; descriptions cannot contain null characters.");
@@ -1503,6 +1694,7 @@ bool propose(SWMMModelLayer *layer, DC::DataCategory cat, QObject *provider, con
 struct TargetEdit {
     QPointer<QObject> provider;
     QVariantMap before, after;
+    QVariant beforeRevision, afterRevision;
 };
 struct Reference {
     DC::DataCategory category;
@@ -1521,9 +1713,18 @@ public:
         setText(tr("Edit %1 on %2 data objects").arg(this->key).arg(this->targets.size()));
         QObject::connect(layer, &SWMMModelLayer::engineAboutToClose, &context,
                          [this] { valid = false; });
-        for (const auto &target : this->targets) {
+        for (auto &target : this->targets) {
+            target.beforeRevision = target.provider->property("lidStructureRevision");
+            target.afterRevision = category == DC::DataLIDControls && this->key == "_nodeProfile"
+                ? QVariant(QUuid::createUuid().toString()) : target.beforeRevision;
             QObject::connect(target.provider, &QObject::destroyed, &context,
                              [this] { valid = false; });
+            if (category == DC::DataLIDControls)
+                for (const auto &object : target.before["_pollutants"].toList()) {
+                    auto *p = object.value<QObject *>();
+                    if (!p) valid = false;
+                    else QObject::connect(p, &QObject::destroyed, &context, [this] { valid = false; });
+                }
             if (category == DC::DataSnowpacks &&
                 (this->key == "removalSubcatch" || QStringList{snowKey(21), snowKey(22), snowKey(23), snowKey(24), snowKey(25), snowKey(26)}.contains(this->key))) {
                 for (const auto &record : {target.before, target.after}) {
@@ -1575,11 +1776,24 @@ public:
     }
     bool fullRecord() const
     {
-        return category == DC::DataInlets && (key == "type" || key == "curveId");
+        return (category == DC::DataInlets && (key == "type" || key == "curveId")) ||
+            (category == DC::DataLIDControls && key == "_nodeProfile");
     }
     QStringList ownedKeys(const TargetEdit &target) const
     {
-        if (fullRecord()) return target.before.keys();
+        if (fullRecord()) {
+            auto keys = target.before.keys();
+            for (const auto &member : target.after.keys()) if (!keys.contains(member)) keys << member;
+            return keys;
+        }
+        if (category == DC::DataLIDControls) {
+            if (key == "flowModel") return lidFlowKeys;
+            if (key.contains("/t/") && key.endsWith("/present")) {
+                QStringList result; const auto prefix = key.left(key.lastIndexOf('/') + 1);
+                for (const auto &member : lidTreatmentMembers) result << prefix + member;
+                return result;
+            }
+        }
         if (category == DC::DataSnowpacks && (key == "modelKind" || target.before["modelKind"] != target.after["modelKind"]))
             return snowSiteKeys + QStringList{"modelKind", "effectiveModel"};
         return {key};
@@ -1612,10 +1826,23 @@ public:
             if (swmm_subcatch_index(engine, ref.second.toUtf8().constData()) < 0) return false;
         QList<QVariantMap> previous, next;
         for (const auto &target : targets) {
+            if (!target.provider || findProvider(registryFor(layer, category), category,
+                    nameOf(target.provider, category)) != target.provider) return false;
             const auto current = readRecord(layer, category, target.provider);
             const auto expected = resolveReferences(forward ? target.before : target.after);
             const auto desired = resolveReferences(forward ? target.after : target.before);
             if (current.isEmpty()) return false;
+            if (category == DC::DataLIDControls) {
+                if (target.provider->property("lidStructureRevision") != (forward ? target.beforeRevision : target.afterRevision)) return false;
+                if (current["_pollutants"] != expected["_pollutants"] || current["_species"] != expected["_species"] ||
+                    current["_kinds"] != expected["_kinds"]) return false;
+                for (auto *p : lidPollutants(layer))
+                    if (current["_unit/" + lidPollToken(p)] != expected["_unit/" + lidPollToken(p)]) return false;
+                if (key.contains("/t/") && !key.endsWith("/present")) {
+                    const auto prefix = key.left(key.lastIndexOf('/') + 1);
+                    if (current[prefix + "present"] != expected[prefix + "present"]) return false;
+                }
+            }
             const auto members = ownedKeys(target);
             for (const auto &member : members)
                 if (current.value(member) != expected.value(member)) return false;
@@ -1627,8 +1854,10 @@ public:
             if (!fullRecord() && changedKind)
                 return false;
             auto updated = current;
-            for (const auto &member : members) updated[member] = desired[member];
-            if (!memberValid(engine, category, key, updated))
+            for (const auto &member : members) {
+                if (desired.contains(member)) updated[member] = desired[member]; else updated.remove(member);
+            }
+            if (!memberValid(layer, category, key, updated, nameOf(target.provider, category)))
                 return false;
             previous << current;
             next << updated;
@@ -1642,6 +1871,14 @@ public:
                 writeRecord(layer, category, targets[i].provider, previous[i]);
             return false;
         }
+        if (category == DC::DataLIDControls && key == "_nodeProfile")
+            for (const auto &target : targets) {
+                // Kind/occurrence alone cannot detect two equal-kind rows exchanging places.
+                // Invalidate pending editors after every explicit complete-profile action.
+                target.provider->setProperty("lidStructureRevision", forward ? target.afterRevision : target.beforeRevision);
+                const QSignalBlocker p(target.provider), r(registryFor(layer, category));
+                refreshFromEngine(registryFor(layer, category), category, layer, nameOf(target.provider, category));
+            }
         {
             const QSignalBlocker dirtyBridge(layer);
             for (const auto &target : targets)
@@ -1652,7 +1889,27 @@ public:
             if (category == DC::DataTransects)
                 emit layer->transectChanged(nameOf(target.provider, category));
         }
+        if (category == DC::DataLIDControls) {
+            QSet<int> controls, assignedNodes;
+            for (const auto &target : targets) controls.insert(nativeIndex(engine, category, nameOf(target.provider, category)));
+            for (int i = 0; i < swmm_node_count(engine); ++i) {
+                const auto name = QString::fromUtf8(swmm_node_id(engine, i));
+                SWMM_StorageLidState state{};
+                if (swmm_storage_lid_get(engine, swmm_node_index(engine, name.toUtf8().constData()), &state) == SWMM_OK && controls.contains(state.control))
+                    { assignedNodes.insert(i); emit layer->attributeChanged(name); }
+            }
+            for (int i = 0; i < swmm_link_count(engine); ++i) {
+                const auto name = QString::fromUtf8(swmm_link_id(engine, i));
+                SWMM_StorageLidAnchor anchor{};
+                int from = -1, to = -1;
+                swmm_link_get_from_node(engine, i, &from); swmm_link_get_to_node(engine, i, &to);
+                if ((assignedNodes.contains(from) || assignedNodes.contains(to)) &&
+                    swmm_storage_lid_anchor_get(engine, i, &anchor) == SWMM_OK && anchor.layer > 0)
+                    emit layer->attributeChanged(name);
+            }
+        }
         layer->markEdited();
+        if (category == DC::DataLIDControls) emit layer->repaintRequested();
         return true;
     }
     void redo() override
@@ -1696,9 +1953,12 @@ bool applyDataObjectValues(SWMMModelLayer *layer, DC::DataCategory category,
         return fail(tr("The model is closed or initialized. Reopen the current selection."));
     if (names.isEmpty())
         return fail(tr("No data objects were captured."));
+    if (key == "_nodeProfile" && names.size() != 1)
+        return fail(tr("Layer structure changes require one control."));
     auto *registry = registryFor(layer, category);
     if (!registry)
         return fail(tr("This data category has no shared field writer."));
+    const auto fields = fieldsFor(layer, category);
     QSet<QObject *> seen;
     QVector<TargetEdit> targets;
     QSet<int> concentrationUnits;
@@ -1729,7 +1989,7 @@ bool applyDataObjectValues(SWMMModelLayer *layer, DC::DataCategory category,
             refreshFromEngine(registry, category, layer, nameOf(provider, category));
         }
         QVariantMap after;
-        if (!propose(layer, category, provider, key, value, before, after, error))
+        if (!propose(layer, category, provider, key, value, before, after, error, fields))
             return false;
         if (before != after)
             targets.append({provider, before, after});
@@ -1870,6 +2130,14 @@ int DataObjectAttributeTableModel::rowForName(const QString &name) const
     return -1;
 }
 
+int DataObjectAttributeTableModel::rowForProvider(QObject *provider) const
+{
+    const int row = m_providerRows.value(provider, -1);
+    // A registry can remove/recreate a name before its queued table reset runs.
+    return row >= 0 && provider && m_registry &&
+        findProvider(m_registry, m_category, nameOf(provider, m_category)) == provider ? row : -1;
+}
+
 bool DataObjectAttributeTableModel::applyValue(SWMMModelLayer *layer,
                                                SWMMModelLayer::DataCategory cat,
                                                const QString &name, const QString &key,
@@ -1884,6 +2152,90 @@ bool DataObjectAttributeTableModel::applyValues(SWMMModelLayer *layer, DC::DataC
                                                 QString *error)
 {
     return applyDataObjectValues(layer, category, names, key, value, undo, error, nullptr);
+}
+
+QVariantMap DataObjectAttributeTableModel::lidProfile(SWMMModelLayer *layer, const QString &name)
+{
+    return editable(layer) ? lidRecord(layer, name) : QVariantMap{};
+}
+
+bool DataObjectAttributeTableModel::editLidProfile(SWMMModelLayer *layer, const QString &name,
+                                                  const QString &operation, int row, int kind,
+                                                  QUndoStack *undo, QString *error)
+{
+    const auto before = lidProfile(layer, name);
+    if (before.isEmpty() || before["type"].toInt() != 8) return false;
+    auto after = before;
+    QVariantList kinds = before["_kinds"].toList();
+    QList<QVariantMap> rows; QHash<int, int> counts;
+    for (const auto &k : kinds) {
+        const auto prefix = lidNodePrefix(k.toInt(), ++counts[k.toInt()]); QVariantMap values;
+        for (auto it = before.cbegin(); it != before.cend(); ++it)
+            if (it.key().startsWith(prefix)) values[it.key().mid(prefix.size())] = it.value();
+        rows << values;
+    }
+    auto starter = [&](int k) {
+        const double depth = metric(layer) ? 25.4 : 1.;
+        const double rate = metric(layer) ? 25.4 : 1.;
+        const QList<QVariantList> values{{depth, .2}, {10*depth, .5, .25, .1, .2*rate, 10., 2*depth}, {6*depth, .4, .2*rate}, {0., 0.}};
+        QVariantMap valuesByKey;
+        for (int i = 0; i < values[k].size(); ++i) valuesByKey["p/" + QString::number(i)] = values[k][i];
+        if (k == 1 || k == 2) {
+            const double richardsDefaults[]{.02, 1., 1.6, .5, 1.e-4};
+            for (int i = 0; i < 5; ++i)
+                valuesByKey["r/" + QString::number(i)] = before["flowModel"].toInt() == 1 ? richardsDefaults[i] : (i == 3 ? .5 : 0.);
+        }
+        if (k != 3) for (auto *p : lidPollutants(layer)) {
+            const auto key = "t/" + lidPollToken(p) + "/";
+            valuesByKey[key + "present"] = 0; valuesByKey[key + "removal"] = 0.;
+            valuesByKey[key + "decay"] = 0.; valuesByKey[key + "expression"] = QString();
+        }
+        return valuesByKey;
+    };
+    if (operation == "initialize" && kinds.isEmpty()) {
+        for (int k = 0; k < 4; ++k) { kinds << k; rows << starter(k); }
+    } else if (operation == "materials") {
+        for (int i = 0; i < rows.size(); ++i) if (kinds[i].toInt() == 1 || kinds[i].toInt() == 2) {
+            const double values[]{.02, 1., 1.6, .5, 1.e-4};
+            for (int j = 0; j < 5; ++j) rows[i]["r/" + QString::number(j)] = values[j];
+        }
+    } else if (operation == "insert" && kind >= 0 && kind <= 3 && row >= 0 && row <= rows.size()) {
+        kinds.insert(row, kind); rows.insert(row, starter(kind));
+    } else if (operation == "remove" && row >= 0 && row < rows.size()) {
+        kinds.removeAt(row); rows.removeAt(row);
+    } else if ((operation == "up" || operation == "down") && row >= 0 && row < rows.size()) {
+        const int other = row + (operation == "up" ? -1 : 1);
+        if (other < 0 || other >= rows.size()) return false;
+        kinds.swapItemsAt(row, other); rows.swapItemsAt(row, other);
+    } else return false;
+    for (auto it = after.begin(); it != after.end();) {
+        if (it.key().startsWith("node/")) it = after.erase(it); else ++it;
+    }
+    counts.clear(); after["_kinds"] = kinds;
+    for (int i = 0; i < kinds.size(); ++i) {
+        const int k = kinds[i].toInt(); const auto prefix = lidNodePrefix(k, ++counts[k]);
+        for (auto it = rows[i].cbegin(); it != rows[i].cend(); ++it) after[prefix + it.key()] = it.value();
+    }
+    return applyValues(layer, DC::DataLIDControls, {name}, "_nodeProfile",
+                       QVariantMap{{"before", before}, {"after", after}}, undo, error);
+}
+
+bool DataObjectAttributeTableModel::initializeLidDesign(SWMMModelLayer *layer, const QString &name)
+{
+    auto *reg = qobject_cast<LidControlRegistry *>(registryFor(layer, DC::DataLIDControls));
+    auto *p = reg ? reg->findByName(name) : nullptr;
+    auto record = lidProfile(layer, name);
+    if (!p || record.isEmpty()) return false;
+    p->clearDirty();
+    if (record["type"].toInt() == 8) return editLidProfile(layer, name, "initialize", 0, 0, nullptr);
+    for (const auto &keys : lidKeys) for (const auto &key : keys) if (record[key].toDouble() != 0) return false;
+    const double d = metric(layer) ? 25.4 : 1.;
+    const QList<QVariantList> groups{{d, .1, 1.}, {10*d, .5, .25, .1, .2*d, 10.}, {6*d, .7, .1*d}, {.4, .5, d}, {5*d, .4, .1, .2*d, 0., 7.}, {d, .4, .1}};
+    for (int g = 0; g < 6; ++g) for (int i = 0; i < lidKeys[g].size(); ++i) record[lidKeys[g][i]] = groups[g][i];
+    if (!writeRecord(layer, DC::DataLIDControls, p, record)) return false;
+    { const QSignalBlocker dirtyBridge(layer); notifyProvider(reg, DC::DataLIDControls, p); }
+    emit layer->attributeChanged(name); layer->markEdited();
+    return true;
 }
 
 DC::DataCategory DataObjectAttributeTableModel::categoryForType(SWMMObjectRef::ObjectType type)
@@ -2006,6 +2358,18 @@ void DataObjectAttributeTableModel::onProviderParamsChanged(QObject *provider)
 {
     const int r = m_providerRows.value(provider, -1);
     if (r >= 0) {
+        if (m_category == DC::DataLIDControls && !m_lidSchemaPending) {
+            m_lidSchemaPending = true;
+            QMetaObject::invokeMethod(this, [this] {
+                m_lidSchemaPending = false;
+                if (m_category != DC::DataLIDControls) return;
+                const auto fields = fieldsFor(m_layer, m_category);
+                bool changed = fields.size() != m_fields.size();
+                for (int i = 0; !changed && i < fields.size(); ++i)
+                    changed = fields[i].spec.key != m_fields[i].spec.key || fields[i].spec.label != m_fields[i].spec.label;
+                if (changed) reload();
+            }, Qt::QueuedConnection);
+        }
         // Whole row: an inlet type change flips which cells apply.
         emit dataChanged(index(r, 0), index(r, columnCount() - 1));
     }
@@ -2116,9 +2480,10 @@ Qt::ItemFlags DataObjectAttributeTableModel::flags(const QModelIndex &index) con
         return fl;
     const Field &f = m_fields[index.column()];
     if (!f.set || !cellApplies(index.row(), index.column()) || !m_rows[index.row()] ||
-        !editable(m_layer))
+        rowForProvider(m_rows[index.row()]) != index.row() || !editable(m_layer))
         return fl;
-    if (m_category == DC::DataLIDControls && static_cast<LidControlProvider *>(m_rows[index.row()].data())->dirty())
+    if (m_category == DC::DataLIDControls && (static_cast<LidControlProvider *>(m_rows[index.row()].data())->dirty() ||
+        (f.spec.key == "type" && static_cast<LidControlProvider *>(m_rows[index.row()].data())->type() == 8)))
         return fl;
     return fl | Qt::ItemIsEditable;
 }
