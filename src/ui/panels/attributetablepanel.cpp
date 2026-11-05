@@ -3480,10 +3480,10 @@ void AttributeTablePanel::applyValueToSelectedRows(int column, const QList<int> 
                                             : (m_model ? m_model->undoStack() : nullptr);
     const int undoBefore = undo ? undo->index() : 0;
     QString batchError;
-    if (undo)
+    if (undo && !dataSourceActive())
         undo->beginMacro(tr("Apply value to %1 rows").arg(sourceRows.size()));
     if (dataSourceActive()) {
-        m_dataModel->setDataForRows(column, sourceRows, value);
+        m_dataModel->setDataForRows(column, sourceRows, value, &batchError);
     } else if (meshSourceActive()) {
         m_meshModel->setDataForRows(column, sourceRows, value);
     } else {
@@ -3503,7 +3503,7 @@ void AttributeTablePanel::applyValueToSelectedRows(int column, const QList<int> 
             }
         }
     }
-    if (undo) {
+    if (undo && !dataSourceActive()) {
         undo->endMacro();
         // QUndoStack keeps an empty macro: when no row changed (every row
         // already held the value, or every write was refused) that would be
@@ -3526,7 +3526,7 @@ void AttributeTablePanel::applyValueToSelectedRows(int column, const QList<int> 
             for (const auto &name : editedNames)
                 emit objectEdited(name);
         }
-        if (m_layer)
+        if (m_layer && !dataSourceActive())
             m_layer->markEdited();
     }
     meshSignals.unblock();

@@ -1262,6 +1262,8 @@ set(
         src/layers/swmmmodellayer.cpp
         src/ui/dialogs/inheritedpropertiesdialog.cpp
         include/ui/dialogs/inheritedpropertiesdialog.h
+        src/ui/panels/dataobjectaggregateselection.cpp
+        include/ui/panels/dataobjectaggregateselection.h
         src/layers/inheritedpropertyedits.cpp
         include/layers/inheritedpropertyedits.h
         src/layers/nodestructureedits.cpp

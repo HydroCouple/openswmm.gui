@@ -1259,6 +1259,7 @@ add_swmmvis_gui_test(test_aquifer_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/aquifer/aquiferprovider.cpp
     ${CMAKE_SOURCE_DIR}/src/aquifer/aquiferregistry.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/aquifereditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/models/aquiferlistmodel.cpp
     # qobject_cast<PatternRegistry*> needs the pattern metaobjects.
     ${CMAKE_SOURCE_DIR}/include/pattern/patternprovider.h
@@ -3690,6 +3691,12 @@ add_swmmvis_gui_test(test_usagebulk
     ${SWMMVIS_TEST_SOURCES}
     ${SWMMVIS_TEST_EXTRA_SOURCES})
 swmmvis_link_full_app_deps(test_usagebulk)
+
+add_swmmvis_gui_test(test_datafamilybulk
+    test_datafamilybulk.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_datafamilybulk)
 
 add_swmmvis_gui_test(test_inheritedpropertybulk
     test_inheritedpropertybulk.cpp

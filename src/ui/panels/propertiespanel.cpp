@@ -16,6 +16,7 @@
 #include "ui/panels/meshattributetablemodel.h"
 #include "ui/panels/meshaggregateselection.h"
 #include "ui/panels/swmmaggregateselection.h"
+#include "ui/panels/dataobjectaggregateselection.h"
 #include <type_traits>
 #include "map/mapundostack.h"
 #include "ui/panels/attributedelegates.h"
@@ -61,6 +62,7 @@
 #include "ui/dialogs/timeserieseditordialog.h"
 #include "ui/dialogs/transecteditordialog.h"
 #include "curve/curveregistry.h"
+#include "inlet/inletprovider.h"
 #include "pattern/patternregistry.h"
 #include "timeseries/timeseriesregistry.h"
 #include "transect/transectregistry.h"
@@ -545,7 +547,7 @@ private:
         const int targets = int(m_selection->rows().size());
         const auto field = m_selection->field(m_column);
         QStringList lines;
-        if constexpr (std::is_same_v<Selection, SWMMAggregateSelection>) {
+        if constexpr (std::is_same_v<Selection, SWMMAggregateSelection> || std::is_same_v<Selection, DataObjectAggregateSelection>) {
             if (!field.reason.isEmpty()) lines << field.reason;
         }
         const QString header =
@@ -570,6 +572,7 @@ private:
 };
 using MeshAggregateFieldProperty = AggregateFieldProperty<MeshAggregateSelection>;
 using SWMMAggregateFieldProperty = AggregateFieldProperty<SWMMAggregateSelection>;
+using DataAggregateFieldProperty = AggregateFieldProperty<DataObjectAggregateSelection>;
 
 // Registered for MeshAggregateSelection * like MeshPropertyRoot is for the single-element model.
 class MeshAggregateRoot final : public QVariantPropertyItem
@@ -616,6 +619,25 @@ public:
     bool hasChildren() override { return !m_children.isEmpty(); }
 };
 
+class DataAggregateRoot final : public QVariantPropertyItem
+{
+    Q_OBJECT
+public:
+    Q_INVOKABLE DataAggregateRoot(const QVariant &value, const QMetaProperty &property,
+                                 QObjectClassPropertyItem *parent)
+        : QVariantPropertyItem(value, property, parent)
+    {
+        auto *selection = value.value<DataObjectAggregateSelection *>();
+        auto *group = new MeshPropertyGroup(PropertiesPanel::tr("Shared attributes"), this);
+        m_children.append(group);
+        const auto specs = selection->source()->columnSpecs();
+        for (int column = 0; column < specs.size(); ++column)
+            if (DataObjectAggregateSelection::supports(specs[column]))
+                group->add(new DataAggregateFieldProperty(selection, column, specs[column], group));
+    }
+    bool hasChildren() override { return !m_children.isEmpty(); }
+};
+
 QStyledItemDelegate *meshFieldEditor(const QModelIndex &index)
 {
     if (index.column() != 1)
@@ -627,6 +649,7 @@ QStyledItemDelegate *meshFieldEditor(const QModelIndex &index)
         return field->editor();
     if (auto *field = dynamic_cast<SWMMAggregateFieldProperty *>(item))
         return field->editor();
+    if (auto *field = dynamic_cast<DataAggregateFieldProperty *>(item)) return field->editor();
     return nullptr;
 }
 
@@ -787,7 +810,7 @@ bool PropertiesPanel::eventFilter(QObject *watched, QEvent *event)
         }
     }
 
-    if (!m_meshFields && !m_meshAggregate && event->type() == QEvent::KeyPress) {
+    if (!m_meshFields && !m_meshAggregate && !m_dataAggregate && event->type() == QEvent::KeyPress) {
         auto *key = static_cast<QKeyEvent *>(event);
         if (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter) {
             // Let delegates commit first, then restore focus to the tree.
@@ -886,7 +909,7 @@ void PropertiesPanel::setupUi()
     m_treeView->setAlternatingRowColors(true);
     m_treeView->setEditTriggers(QAbstractItemView::AllEditTriggers);
     connect(m_treeView, &QTreeView::clicked, this, [this](const QModelIndex &index) {
-        if ((m_meshFields || m_meshAggregate || m_swmmAggregate) && index.column() == 1)
+        if ((m_meshFields || m_meshAggregate || m_swmmAggregate || m_dataAggregate) && index.column() == 1)
             openswmmvis::editClickedMeshField(m_treeView, index);
     });
     vlay->addWidget(m_treeView, 1);
@@ -908,6 +931,7 @@ void PropertiesPanel::setupUi()
     // Property model / delegate
 #ifdef HAVE_QPROPERTYMODEL
     auto *properties = new QPropertyModel(this);
+    properties->registerCustomPropertyItemType(qMetaTypeId<DataObjectAggregateSelection *>(), &DataAggregateRoot::staticMetaObject);
     properties->registerCustomPropertyItemType(qMetaTypeId<SWMMAggregateSelection *>(),
                                                   &SWMMAggregateRoot::staticMetaObject);
     properties->registerCustomPropertyItemType(qMetaTypeId<MeshAttributeTableModel *>(),
@@ -1070,6 +1094,7 @@ void PropertiesPanel::showObject(QObject *object, const QString &title)
 
 void PropertiesPanel::releaseMeshProperties()
 {
+    if (m_dataAggregate) { m_dataAggregate->invalidate(); m_dataAggregate->disconnect(this); m_dataAggregate->deleteLater(); m_dataAggregate = nullptr; }
     if (m_selectionScope) m_selectionScope->hide();
     if (m_meshFields) {
         m_meshFields->deleteLater();
@@ -1114,10 +1139,10 @@ QString meshCountText(MeshAttributeTableModel::Kind kind, int n)
 
 void PropertiesPanel::updateAggregateBar()
 {
-    if ((!m_meshAggregate && !m_swmmAggregate) || !m_aggregateBar)
+    if ((!m_meshAggregate && !m_swmmAggregate && !m_dataAggregate) || !m_aggregateBar)
         return;
-    const int targets = m_meshAggregate ? m_meshAggregate->rows().size() : m_swmmAggregate->rows().size();
-    const int gone = m_meshAggregate ? m_meshAggregate->unresolvedCount() : m_swmmAggregate->unresolvedCount();
+    const int targets = m_meshAggregate ? m_meshAggregate->rows().size() : m_dataAggregate ? m_dataAggregate->rows().size() : m_swmmAggregate->rows().size();
+    const int gone = m_meshAggregate ? m_meshAggregate->unresolvedCount() : m_dataAggregate ? m_dataAggregate->unresolvedCount() : m_swmmAggregate->unresolvedCount();
     QStringList parts{m_meshAggregate ? meshCountText(m_meshAggregate->kind(), targets)
                                     : tr("%1 objects").arg(targets)};
     if (gone)
@@ -1133,6 +1158,53 @@ void PropertiesPanel::showAggregateEditResult(const QString &error)
     m_meshNote->setVisible(!error.isEmpty());
 }
 
+void PropertiesPanel::bindDataAggregate(SWMMModelLayer *layer, int category,
+                                        const QStringList &names, QUndoStack *undo)
+{
+#ifdef HAVE_QPROPERTYMODEL
+    if (m_dataAggregate) {
+        m_dataAggregate->invalidate();
+        m_dataAggregate->deleteLater();
+    }
+    auto *aggregate = new DataObjectAggregateSelection(
+        layer, SWMMModelLayer::DataCategory(category), names, undo, this);
+    m_dataAggregate = aggregate;
+    auto *pm = qobject_cast<QPropertyModel *>(m_model);
+    pm->setData(QVariant::fromValue(aggregate));
+    m_treeView->expandAll();
+    connect(aggregate, &DataObjectAggregateSelection::editFinished, this,
+            &PropertiesPanel::showAggregateEditResult);
+    connect(aggregate, &DataObjectAggregateSelection::stagedChanged, this, [this, aggregate, pm] {
+        if (m_dataAggregate == aggregate) {
+            if (m_dataAdapter && m_dataObjectCategory == aggregate->source()->category() &&
+                aggregate->names().size() == 1) {
+                const auto name = aggregate->names().first();
+                m_dataAdapter->updateStoredName(name);
+                setWindowTitle(tr("Properties — %1").arg(name));
+                if (m_openEditorButton) {
+                    const auto title =
+                        ComprehensiveEditorRegistry::instance().editorTitle(m_dataObjectCategory);
+                    m_openEditorButton->setText(
+                        tr("Open \"%1\" in %2…").arg(name, title.isEmpty() ? tr("Editor") : title));
+                }
+            }
+            pm->refreshValues();
+            updateAggregateBar();
+        }
+    });
+    connect(layer, &SWMMModelLayer::engineAboutToClose, aggregate, [this, aggregate] {
+        if (m_dataAggregate == aggregate)
+            clear();
+    });
+    updateAggregateBar();
+#else
+    Q_UNUSED(layer);
+    Q_UNUSED(category);
+    Q_UNUSED(names);
+    Q_UNUSED(undo);
+#endif
+}
+
 void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef> &refs)
 {
     clear();
@@ -1140,6 +1212,7 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
         QString title;
         QList<SWMMObjectRef> refs;
         int category = -1;
+        int dataCategory = -1;
         QMap<SWMMModelLayer::Category, QStringList> targets;
     };
     QMap<QString, Scope> scopes;
@@ -1178,6 +1251,28 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
             scope.refs.append(ref);
             continue;
         }
+        const auto dataCategory = DataObjectAttributeTableModel::categoryForType(ref.objectType);
+        if (dataCategory != SWMMModelLayer::NumDataCategories) {
+            auto &scope = scopes[QString("data/%1").arg(int(dataCategory))];
+            scope.dataCategory = dataCategory;
+            switch (dataCategory) {
+            case SWMMModelLayer::DataPollutants: scope.title = tr("Pollutants"); break;
+            case SWMMModelLayer::DataLandUses: scope.title = tr("Land uses"); break;
+            case SWMMModelLayer::DataAquifers: scope.title = tr("Aquifers"); break;
+            case SWMMModelLayer::DataStreets: scope.title = tr("Streets"); break;
+            case SWMMModelLayer::DataInlets: scope.title = tr("Inlet designs"); break;
+            default: break;
+            }
+            scope.refs << ref; continue;
+        }
+        const QMap<int, QString> pendingData{{SWMMObjectRef::Curve, tr("Curves")}, {SWMMObjectRef::TimeSeries, tr("Model time series")},
+            {SWMMObjectRef::TimePattern, tr("Time patterns")}, {SWMMObjectRef::LIDControl, tr("LID controls")},
+            {SWMMObjectRef::Snowpack, tr("Snowpacks")}, {SWMMObjectRef::Control, tr("Control rules")},
+            {SWMMObjectRef::Transect, tr("Transects")}, {SWMMObjectRef::Hydrograph, tr("Hydrographs")}};
+        if (pendingData.contains(ref.objectType)) {
+            auto &scope = scopes[QString("pending-data/%1").arg(int(ref.objectType))];
+            scope.title = pendingData.value(ref.objectType); scope.refs << ref; continue;
+        }
         const int category = categories.value(int(ref.objectType)).value(ref.name, -1);
         const QString key = QStringLiteral("objects/%1").arg(category);
         auto &scope = scopes[key];
@@ -1210,8 +1305,28 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
             }
         if (common.targets.size() > 1) commonScopes.append(common);
     }
+    QList<Scope> dataSubsets;
+    for (const auto &scope : scopes) if (m_swmmLayer && (scope.dataCategory == SWMMModelLayer::DataInlets || scope.dataCategory == SWMMModelLayer::DataPollutants)) {
+        QMap<int, Scope> groups; Scope generic; generic.dataCategory = scope.dataCategory; generic.title = tr("Inlet designs — Generic grates");
+        for (const auto &ref : scope.refs) {
+            int kind = -1; QString label;
+            if (scope.dataCategory == SWMMModelLayer::DataInlets) {
+                SWMM_InletDesign design{};
+                if (swmm_inlet_get_design(m_swmmLayer->engine(), swmm_inlet_index(m_swmmLayer->engine(), ref.name.toUtf8().constData()), &design) != SWMM_OK) continue;
+                kind = design.type; label = openswmmvis::inlet::inletTypeLabel(openswmmvis::inlet::InletType(kind));
+                if ((kind == SWMM_INLET_GRATE || kind == SWMM_INLET_DROP_GRATE || kind == SWMM_INLET_COMBO) && design.grate_type == SWMM_GRATE_GENERIC) generic.refs << ref;
+            } else {
+                if (swmm_pollutant_get_units(m_swmmLayer->engine(), swmm_pollutant_index(m_swmmLayer->engine(), ref.name.toUtf8().constData()), &kind) != SWMM_OK) continue;
+                label = QStringList{"MG/L", "UG/L", "#/L"}.value(kind);
+            }
+            auto &subset = groups[kind]; subset.dataCategory = scope.dataCategory;
+            subset.title = tr("%1 — %2").arg(scope.title, label); subset.refs << ref;
+        }
+        if (groups.size() > 1) dataSubsets.append(groups.values());
+        if (!generic.refs.isEmpty() && generic.refs.size() < scope.refs.size()) dataSubsets << generic;
+    }
     // Offer the exterior subset explicitly when a box includes interior edges.
-    auto choices = commonScopes + scopes.values();
+    auto choices = commonScopes + scopes.values() + dataSubsets;
     if (m_swmmLayer && m_swmmLayer->engine())
         for (const auto &scope : scopes) {
             if (scope.category != SWMMModelLayer::CatJunctions)
@@ -1266,6 +1381,10 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
             if (scope.refs.first().objectType >= SWMMObjectRef::MeshVertex &&
                 scope.refs.first().objectType <= SWMMObjectRef::MeshCell) {
                 showMeshSelection(canvas, scope.refs);
+            } else if (scope.dataCategory >= 0) {
+                clear(); QStringList names; for (const auto &ref : scope.refs) names << ref.name;
+                bindDataAggregate(m_swmmLayer, scope.dataCategory, names, canvas ? canvas->undoStack() : nullptr);
+                setWindowTitle(tr("%1 — %2 selected").arg(scope.title).arg(scope.refs.size()));
             } else if (!scope.targets.isEmpty()) {
                 clear();
 #ifdef HAVE_QPROPERTYMODEL
@@ -1291,7 +1410,7 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
             } else {
                 clear();
                 setWindowTitle(tr("%1 objects selected").arg(scope.refs.size()));
-                m_aggregateSummary->setText(tr("Select a compatible spatial object group to edit shared attributes."));
+                m_aggregateSummary->setText(tr("This group retains its individual editor. Select a supported object family to edit shared attributes."));
                 m_aggregateBar->show();
             }
         }
@@ -1752,7 +1871,7 @@ void PropertiesPanel::setProject(SWMMModelLayer *layer)
         QObject::disconnect(m_swmmLayer, &SWMMModelLayer::attributeChanged, this,
                             &PropertiesPanel::onObjectEditedExternally);
 
-    if (m_meshFields || m_meshAggregate || m_swmmAggregate)
+    if (m_meshFields || m_meshAggregate || m_swmmAggregate || m_dataAggregate)
         clear();
     m_swmmLayer = layer;
 
@@ -1803,7 +1922,7 @@ void PropertiesPanel::onObjectRenamed(const QString &oldName, const QString &new
         m_subcatchAdapter->updateStoredName(newName);
         touched = true;
     }
-    if (m_dataAdapter && m_dataAdapter->name() == oldName) {
+    if (!m_dataAggregate && m_dataAdapter && m_dataAdapter->name() == oldName) {
         m_dataAdapter->updateStoredName(newName);
         touched = true;
     }
@@ -2432,6 +2551,16 @@ void PropertiesPanel::showDataObject(SWMMModelLayer *layer, int objectKind, cons
 
     if (auto *pm = qobject_cast<QPropertyModel *>(m_model))
         pm->setData(QVariant::fromValue<QObject *>(m_dataAdapter));
+    if (DataObjectAttributeTableModel::supportsCategory(m_dataObjectCategory)) {
+        bindDataAggregate(layer, m_dataObjectCategory, {name}, layer->editCanvas() ? layer->editCanvas()->undoStack() : nullptr);
+        m_dataAdapter->setCommitHandler([selection = QPointer<DataObjectAggregateSelection>(m_dataAggregate)](const QString &key, const QVariant &value) {
+            if (!selection || !selection->active()) return false;
+            const auto specs = selection->source()->columnSpecs();
+            for (int column = 0; column < specs.size(); ++column)
+                if (specs[column].key == key) return selection->setValue(column, value);
+            return false;
+        });
+    }
 
     connect(m_dataAdapter, &SWMMDataObjectPropertyAdapter::changed, this, [this]() {
         if (!m_suppressEditForward && m_dataAdapter)

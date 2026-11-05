@@ -106,25 +106,27 @@ double SWMMPollutantPropertyAdapter::coPollutantFrac() const
     return f;
 }
 
-#define S(method, engineSet, ctype)                                                                \
+#define S(method, engineSet, ctype, key)                                                                \
     void SWMMPollutantPropertyAdapter::method(ctype v)                                             \
     {                                                                                              \
+        if (m_commit) { m_commit(key, QVariant::fromValue(v)); return; }                             \
         const int i = idx();                                                                       \
         if (i < 0)                                                                                 \
             return;                                                                                \
         if (engineSet(m_engine, i, v) == SWMM_OK)                                                  \
             emit changed();                                                                        \
     }
-S(setRainConc, swmm_pollutant_set_rain_conc, double)
-S(setGwConc, swmm_pollutant_set_gw_conc, double)
-S(setInitConc, swmm_pollutant_set_init_conc, double)
-S(setRdiiConc, swmm_pollutant_set_rdii_conc, double)
-S(setKDecay, swmm_pollutant_set_kdecay, double)
-S(setMwt, swmm_pollutant_set_mwt, double)
+S(setRainConc, swmm_pollutant_set_rain_conc, double, "rainConc")
+S(setGwConc, swmm_pollutant_set_gw_conc, double, "gwConc")
+S(setInitConc, swmm_pollutant_set_init_conc, double, "initConc")
+S(setRdiiConc, swmm_pollutant_set_rdii_conc, double, "rdiiConc")
+S(setKDecay, swmm_pollutant_set_kdecay, double, "kDecay")
+S(setMwt, swmm_pollutant_set_mwt, double, "mwt")
 #undef S
 
 void SWMMPollutantPropertyAdapter::setSnowOnly(bool v)
 {
+    if (m_commit) { m_commit("snowOnly", v ? 1 : 0); return; }
     const int i = idx();
     if (i < 0)
         return;
@@ -134,6 +136,7 @@ void SWMMPollutantPropertyAdapter::setSnowOnly(bool v)
 
 void SWMMPollutantPropertyAdapter::setCoPollutant(const QString &poll)
 {
+    if (m_commit) { m_commit("coPollutant", poll); return; }
     const int i = idx();
     if (i < 0)
         return;
@@ -159,11 +162,13 @@ DataObjectRef SWMMPollutantPropertyAdapter::coPollutantRef() const
 
 void SWMMPollutantPropertyAdapter::setCoPollutantRef(const DataObjectRef &ref)
 {
+    if (m_commit && (ref.kind != DataObjectRef::Pollutant || ref.layer != m_layer || ref.engine != m_engine)) return;
     setCoPollutant(ref.currentName);
 }
 
 void SWMMPollutantPropertyAdapter::setCoPollutantFrac(double v)
 {
+    if (m_commit) { m_commit("coFraction", v); return; }
     const int i = idx();
     if (i < 0)
         return;

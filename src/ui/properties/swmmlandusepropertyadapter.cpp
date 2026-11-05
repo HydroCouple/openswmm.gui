@@ -51,6 +51,7 @@ double SWMMLandUsePropertyAdapter::sweepRemoval() const
 
 void SWMMLandUsePropertyAdapter::setSweepInterval(double v)
 {
+    if (m_commit) { m_commit("sweepInterval", v); return; }
     const int i = idx();
     if (i < 0)
         return;
@@ -60,6 +61,7 @@ void SWMMLandUsePropertyAdapter::setSweepInterval(double v)
 
 void SWMMLandUsePropertyAdapter::setSweepRemoval(double v)
 {
+    if (m_commit) { m_commit("sweepRemoval", v); return; }
     const int i = idx();
     if (i < 0)
         return;

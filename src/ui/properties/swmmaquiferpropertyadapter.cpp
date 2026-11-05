@@ -32,6 +32,11 @@ double SWMMAquiferPropertyAdapter::param(int code) const
 
 void SWMMAquiferPropertyAdapter::setParam(int code, double v)
 {
+    if (m_commit) {
+        const QStringList keys{"porosity", "wiltingPoint", "fieldCapacity", "conductivity", "conductSlope", "tensionSlope", "upperEvapFrac", "lowerEvapDepth", "lowerLossCoeff", "bottomElev", "waterTableElev", "upperMoisture"};
+        if (code >= 0 && code < keys.size()) m_commit(keys[code], v);
+        return;
+    }
     const int i = idx();
     if (i < 0)
         return;
@@ -140,6 +145,7 @@ DataObjectRef SWMMAquiferPropertyAdapter::evapPatternRef() const
 
 void SWMMAquiferPropertyAdapter::setEvapPattern(const QString &pattern)
 {
+    if (m_commit) { m_commit("evapPattern", pattern); return; }
     const int i = idx();
     if (i < 0)
         return;
@@ -151,5 +157,6 @@ void SWMMAquiferPropertyAdapter::setEvapPattern(const QString &pattern)
 
 void SWMMAquiferPropertyAdapter::setEvapPatternRef(const DataObjectRef &ref)
 {
+    if (m_commit && (ref.kind != DataObjectRef::Pattern || ref.layer != m_layer || ref.engine != m_engine)) return;
     setEvapPattern(ref.currentName);
 }

@@ -2776,8 +2776,18 @@ private slots:
             return roughness;
         };
         QSignalSpy edits(&model, &DataObjectAttributeTableModel::objectEdited);
-        model.setDataForRows(column, {0, 1, -1, model.rowCount()}, 0.02);
+        QSignalSpy dirty(layer.get(), &SWMMModelLayer::modelEdited);
+        QString error;
+        QVERIFY(!model.setDataForRows(column, {0, 1, -1, model.rowCount()}, 0.02, &error));
+        QVERIFY(!error.isEmpty());
+        QCOMPARE(edits.count(), 0);
+        QCOMPARE(dirty.count(), 0);
+        QCOMPARE(undo.count(), 0);
+        QCOMPARE(engineRoughness("ST1"), 0.016);
+        QCOMPARE(engineRoughness("ST2"), 0.016);
+        QVERIFY(model.setDataForRows(column, {0, 1}, 0.02));
         QCOMPARE(edits.count(), 2);
+        QCOMPARE(dirty.count(), 1);
         QCOMPARE(undo.count(), 1);
         for (int row = 0; row < model.rowCount(); ++row)
             QCOMPARE(model.index(row, column).data(Qt::EditRole).toDouble(), 0.02);
@@ -2788,6 +2798,7 @@ private slots:
         model.setDataForRows(0, {0, 1}, QStringLiteral("read-only name"));
         QCOMPARE(undo.count(), 1);
         QCOMPARE(edits.count(), 2);
+        QCOMPARE(dirty.count(), 1);
         // Replay remains tied to the original category after rebinding the view.
         model.setSource(layer.get(), SWMMModelLayer::DataPollutants);
         undo.undo();

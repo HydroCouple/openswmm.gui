@@ -20,6 +20,7 @@
 
 class SWMM2DMeshLayer;
 class QTreeView;
+class QUndoStack;
 class MeshAttributeTableModel;
 class QComboBox;
 class QPushButton;
@@ -379,6 +380,7 @@ private:
      */
     void releaseMeshProperties();
     /** @brief Refresh the aggregate selection summary. */
+    void bindDataAggregate(SWMMModelLayer *layer, int category, const QStringList &names, QUndoStack *undo);
     void updateAggregateBar();
     void showAggregateEditResult(const QString &error);
     /**
@@ -482,6 +484,7 @@ private:
     SWMMDataObjectPropertyAdapter *m_dataAdapter = nullptr;
     MeshAttributeTableModel *m_meshFields = nullptr;
     class MeshAggregateSelection *m_meshAggregate = nullptr; ///< Phase 3 aggregate, or null.
+    class DataObjectAggregateSelection *m_dataAggregate = nullptr;
     class SWMMAggregateSelection *m_swmmAggregate = nullptr;
     QComboBox *m_selectionScope = nullptr;
     QWidget *m_aggregateBar = nullptr;       ///< Selection summary, aggregates only.
