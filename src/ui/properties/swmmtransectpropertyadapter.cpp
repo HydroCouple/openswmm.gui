@@ -64,6 +64,7 @@ QString SWMMTransectPropertyAdapter::comments() const
 
 void SWMMTransectPropertyAdapter::setComments(const QString &v)
 {
+    if (m_commit) { m_commit("comments", v); return; }
     const int i = idx();
     if (i < 0)
         return;
@@ -161,6 +162,7 @@ double SWMMTransectPropertyAdapter::nChannel() const
 
 void SWMMTransectPropertyAdapter::setNLeftBank(double v)
 {
+    if (m_commit) { m_commit("nLeftBank", v); return; }
     const int i = idx();
     double nL, nR, nCh;
     if (!readRoughness(m_engine, i, nL, nR, nCh))
@@ -173,6 +175,7 @@ void SWMMTransectPropertyAdapter::setNLeftBank(double v)
 
 void SWMMTransectPropertyAdapter::setNRightBank(double v)
 {
+    if (m_commit) { m_commit("nRightBank", v); return; }
     const int i = idx();
     double nL, nR, nCh;
     if (!readRoughness(m_engine, i, nL, nR, nCh))
@@ -185,6 +188,7 @@ void SWMMTransectPropertyAdapter::setNRightBank(double v)
 
 void SWMMTransectPropertyAdapter::setNChannel(double v)
 {
+    if (m_commit) { m_commit("nChannel", v); return; }
     const int i = idx();
     double nL, nR, nCh;
     if (!readRoughness(m_engine, i, nL, nR, nCh))
@@ -212,6 +216,7 @@ double SWMMTransectPropertyAdapter::xRightBank() const
 
 void SWMMTransectPropertyAdapter::setXLeftBank(double v)
 {
+    if (m_commit) { m_commit("xLeftBank", v); return; }
     const int i = idx();
     double xL, xR;
     if (!readBank(m_engine, i, xL, xR))
@@ -224,6 +229,7 @@ void SWMMTransectPropertyAdapter::setXLeftBank(double v)
 
 void SWMMTransectPropertyAdapter::setXRightBank(double v)
 {
+    if (m_commit) { m_commit("xRightBank", v); return; }
     const int i = idx();
     double xL, xR;
     if (!readBank(m_engine, i, xL, xR))
@@ -251,6 +257,7 @@ double SWMMTransectPropertyAdapter::xRightEncroachment() const
 
 void SWMMTransectPropertyAdapter::setXLeftEncroachment(double v)
 {
+    if (m_commit) { m_commit("xLeftEncroachment", v); return; }
     const int i = idx();
     double xL, xR;
     if (!readEncroach(m_engine, i, xL, xR))
@@ -263,6 +270,7 @@ void SWMMTransectPropertyAdapter::setXLeftEncroachment(double v)
 
 void SWMMTransectPropertyAdapter::setXRightEncroachment(double v)
 {
+    if (m_commit) { m_commit("xRightEncroachment", v); return; }
     const int i = idx();
     double xL, xR;
     if (!readEncroach(m_engine, i, xL, xR))
@@ -296,6 +304,7 @@ double SWMMTransectPropertyAdapter::meanderFactor() const
 
 void SWMMTransectPropertyAdapter::setStationMultiplier(double v)
 {
+    if (m_commit) { m_commit("stationMultiplier", v); return; }
     const int i = idx();
     double xF, yF, lF;
     if (!readModifiers(m_engine, i, xF, yF, lF))
@@ -308,6 +317,7 @@ void SWMMTransectPropertyAdapter::setStationMultiplier(double v)
 
 void SWMMTransectPropertyAdapter::setElevationOffset(double v)
 {
+    if (m_commit) { m_commit("elevationOffset", v); return; }
     const int i = idx();
     double xF, yF, lF;
     if (!readModifiers(m_engine, i, xF, yF, lF))
@@ -320,6 +330,7 @@ void SWMMTransectPropertyAdapter::setElevationOffset(double v)
 
 void SWMMTransectPropertyAdapter::setMeanderFactor(double v)
 {
+    if (m_commit) { m_commit("meanderFactor", v); return; }
     const int i = idx();
     double xF, yF, lF;
     if (!readModifiers(m_engine, i, xF, yF, lF))

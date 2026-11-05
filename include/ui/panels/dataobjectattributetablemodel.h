@@ -1,14 +1,14 @@
 /**
  * @file      dataobjectattributetablemodel.h
  * @brief     Tabular model over one category of non-spatial data objects — pollutants, land uses,
- *            aquifers, streets or inlets — so the Attribute Table dock can list and bulk-edit them
+ *            aquifers, streets, inlets, time patterns or transects — so the Attribute Table dock can list and bulk-edit them
  *            the same way it lists SWMM objects.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
  *
  * Tabular model over one category of non-spatial data objects — pollutants,
- * land uses, aquifers, streets or inlets — so the Attribute Table dock can
+ * land uses, aquifers, streets, inlets, time patterns or transects — so the Attribute Table dock can
  * list and bulk-edit them the same way it lists SWMM objects.
  *
  * MVC contract (CLAUDE.md §5.1): the model owns NO object data. Rows are the
@@ -59,9 +59,9 @@ public:
     ~DataObjectAttributeTableModel() override;
 
     /*! True for the categories this model can list: pollutants, land uses,
-     *  aquifers, streets and inlets.
+     *  aquifers, streets, inlets, time patterns and transects.
      * @param[in] cat Any DataCategory, including sentinel/unsupported categories.
-     * @return True only for pollutants, land uses, aquifers, streets and inlets; pure
+     * @return True only for pollutants, land uses, aquifers, streets, inlets, time patterns and transects; pure
      *   classification, independent of source/project availability.
      */
     [[nodiscard]] static bool supportsCategory(SWMMModelLayer::DataCategory cat);
@@ -237,6 +237,14 @@ public:
         std::function<bool(QObject *)> applies; ///< null ⇒ always
     };
 
+    /**
+     * @param[in] row Zero-based cached row; out-of-range false.
+     * @param[in] col Zero-based cached field; out-of-range false.
+     * @return True with no applicability callback, otherwise synchronous callback result for row
+     *   provider. Deleted providers return false. No flags/selection/source mutation.
+     */
+    [[nodiscard]] bool cellApplies(int row, int col) const;
+
 private:
     /**
      * @brief Connect current typed registry structural changes to queued reload and parameter
@@ -255,13 +263,7 @@ private:
      *   write.
      */
     void onProviderParamsChanged(QObject *provider);
-    /**
-     * @param[in] row Zero-based cached row; out-of-range false.
-     * @param[in] col Zero-based cached field; out-of-range false.
-     * @return True with no applicability callback, otherwise synchronous callback result for row
-     *   provider. Deleted providers return false. No flags/selection/source mutation.
-     */
-    [[nodiscard]] bool cellApplies(int row, int col) const;
+
 
     QPointer<SWMMModelLayer> m_layer;
     QPointer<QObject> m_registry;

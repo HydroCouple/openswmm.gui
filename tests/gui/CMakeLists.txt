@@ -3698,6 +3698,12 @@ add_swmmvis_gui_test(test_datafamilybulk
     ${SWMMVIS_TEST_EXTRA_SOURCES})
 swmmvis_link_full_app_deps(test_datafamilybulk)
 
+add_swmmvis_gui_test(test_patterntransectbulk
+    test_patterntransectbulk.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_patterntransectbulk)
+
 add_swmmvis_gui_test(test_inheritedpropertybulk
     test_inheritedpropertybulk.cpp
     ${SWMMVIS_TEST_SOURCES}

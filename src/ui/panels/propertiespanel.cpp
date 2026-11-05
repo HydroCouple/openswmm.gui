@@ -90,6 +90,7 @@
 
 #include <openswmm/engine/openswmm_gages.h> // swmm_gage_index (X/Y move route)
 #include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_tables.h>
 #include <openswmm/engine/openswmm_nodes.h>
 
 // QPropertyModel library
@@ -632,8 +633,16 @@ public:
         m_children.append(group);
         const auto specs = selection->source()->columnSpecs();
         for (int column = 0; column < specs.size(); ++column)
-            if (DataObjectAggregateSelection::supports(specs[column]))
+            if (DataObjectAggregateSelection::supports(specs[column])) {
+                if (selection->source()->category() == SWMMModelLayer::DataPatterns &&
+                    specs[column].key.startsWith("factor/")) {
+                    bool applies = false;
+                    for (int row : selection->rows())
+                        applies |= selection->source()->cellApplies(row, column);
+                    if (!applies) continue;
+                }
                 group->add(new DataAggregateFieldProperty(selection, column, specs[column], group));
+            }
     }
     bool hasChildren() override { return !m_children.isEmpty(); }
 };
@@ -1256,6 +1265,8 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
             auto &scope = scopes[QString("data/%1").arg(int(dataCategory))];
             scope.dataCategory = dataCategory;
             switch (dataCategory) {
+            case SWMMModelLayer::DataPatterns: scope.title = tr("Time patterns"); break;
+            case SWMMModelLayer::DataTransects: scope.title = tr("Transects"); break;
             case SWMMModelLayer::DataPollutants: scope.title = tr("Pollutants"); break;
             case SWMMModelLayer::DataLandUses: scope.title = tr("Land uses"); break;
             case SWMMModelLayer::DataAquifers: scope.title = tr("Aquifers"); break;
@@ -1266,9 +1277,9 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
             scope.refs << ref; continue;
         }
         const QMap<int, QString> pendingData{{SWMMObjectRef::Curve, tr("Curves")}, {SWMMObjectRef::TimeSeries, tr("Model time series")},
-            {SWMMObjectRef::TimePattern, tr("Time patterns")}, {SWMMObjectRef::LIDControl, tr("LID controls")},
+            {SWMMObjectRef::LIDControl, tr("LID controls")},
             {SWMMObjectRef::Snowpack, tr("Snowpacks")}, {SWMMObjectRef::Control, tr("Control rules")},
-            {SWMMObjectRef::Transect, tr("Transects")}, {SWMMObjectRef::Hydrograph, tr("Hydrographs")}};
+            {SWMMObjectRef::Hydrograph, tr("Hydrographs")}};
         if (pendingData.contains(ref.objectType)) {
             auto &scope = scopes[QString("pending-data/%1").arg(int(ref.objectType))];
             scope.title = pendingData.value(ref.objectType); scope.refs << ref; continue;
@@ -1306,7 +1317,7 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
         if (common.targets.size() > 1) commonScopes.append(common);
     }
     QList<Scope> dataSubsets;
-    for (const auto &scope : scopes) if (m_swmmLayer && (scope.dataCategory == SWMMModelLayer::DataInlets || scope.dataCategory == SWMMModelLayer::DataPollutants)) {
+    for (const auto &scope : scopes) if (m_swmmLayer && (scope.dataCategory == SWMMModelLayer::DataInlets || scope.dataCategory == SWMMModelLayer::DataPollutants || scope.dataCategory == SWMMModelLayer::DataPatterns)) {
         QMap<int, Scope> groups; Scope generic; generic.dataCategory = scope.dataCategory; generic.title = tr("Inlet designs — Generic grates");
         for (const auto &ref : scope.refs) {
             int kind = -1; QString label;
@@ -1315,6 +1326,9 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
                 if (swmm_inlet_get_design(m_swmmLayer->engine(), swmm_inlet_index(m_swmmLayer->engine(), ref.name.toUtf8().constData()), &design) != SWMM_OK) continue;
                 kind = design.type; label = openswmmvis::inlet::inletTypeLabel(openswmmvis::inlet::InletType(kind));
                 if ((kind == SWMM_INLET_GRATE || kind == SWMM_INLET_DROP_GRATE || kind == SWMM_INLET_COMBO) && design.grate_type == SWMM_GRATE_GENERIC) generic.refs << ref;
+            } else if (scope.dataCategory == SWMMModelLayer::DataPatterns) {
+                if (swmm_pattern_get_type(m_swmmLayer->engine(), swmm_pattern_index(m_swmmLayer->engine(), ref.name.toUtf8().constData()), &kind) != SWMM_OK) continue;
+                label = QStringList{tr("Monthly"), tr("Daily"), tr("Hourly"), tr("Weekend")}.value(kind);
             } else {
                 if (swmm_pollutant_get_units(m_swmmLayer->engine(), swmm_pollutant_index(m_swmmLayer->engine(), ref.name.toUtf8().constData()), &kind) != SWMM_OK) continue;
                 label = QStringList{"MG/L", "UG/L", "#/L"}.value(kind);
