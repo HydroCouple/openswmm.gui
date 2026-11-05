@@ -27,6 +27,8 @@
 #include "curve/curveprovider.h"
 #include "pattern/patternregistry.h"
 #include "pattern/patternprovider.h"
+#include "transect/transectregistry.h"
+#include "transect/transectprovider.h"
 #include "ui/properties/dataobjectref.h"
 #include <openswmm/engine/openswmm_pollutants.h>
 #include <openswmm/engine/openswmm_quality.h>
@@ -68,6 +70,10 @@ using openswmmvis::pollutant::PollutantProvider;
 using openswmmvis::pollutant::PollutantRegistry;
 using openswmmvis::street::StreetProvider;
 using openswmmvis::street::StreetRegistry;
+using openswmmvis::pattern::PatternProvider;
+using openswmmvis::pattern::PatternRegistry;
+using openswmmvis::transect::TransectProvider;
+using openswmmvis::transect::TransectRegistry;
 
 constexpr double kInf = std::numeric_limits<double>::infinity();
 
@@ -106,6 +112,7 @@ QObject *registryFor(SWMMModelLayer *layer, SWMMModelLayer::DataCategory cat)
     switch (cat) {
     case DC::DataCurves: return layer->ensureCurveRegistry();
     case DC::DataPatterns: return layer->ensurePatternRegistry();
+    case DC::DataTransects: return layer->ensureTransectRegistry();
     case DC::DataPollutants:
         return layer->ensurePollutantRegistry();
     case DC::DataLandUses:
@@ -146,6 +153,7 @@ QList<QObject *> providersOf(QObject *reg, SWMMModelLayer::DataCategory cat)
     switch (cat) {
     case DC::DataCurves: return providersOf<openswmmvis::curve::CurveRegistry>(reg);
     case DC::DataPatterns: return providersOf<openswmmvis::pattern::PatternRegistry>(reg);
+    case DC::DataTransects: return providersOf<TransectRegistry>(reg);
     case DC::DataPollutants:
         return providersOf<PollutantRegistry>(reg);
     case DC::DataLandUses:
@@ -175,6 +183,7 @@ QString nameOf(QObject *p, SWMMModelLayer::DataCategory cat)
     switch (cat) {
     case DC::DataCurves: return static_cast<openswmmvis::curve::CurveProvider *>(p)->name();
     case DC::DataPatterns: return static_cast<openswmmvis::pattern::PatternProvider *>(p)->name();
+    case DC::DataTransects: return static_cast<TransectProvider *>(p)->name();
     case DC::DataPollutants:
         return static_cast<PollutantProvider *>(p)->name();
     case DC::DataLandUses:
@@ -231,12 +240,87 @@ int saveToEngine(QObject *reg, SWMMModelLayer::DataCategory cat, SWMMModelLayer 
     }
 }
 
+QString factorKey(int type, int index)
+{
+    return QStringLiteral("factor/%1/%2").arg(type).arg(index);
+}
+
+// Read native values directly: these registries' load methods only add missing
+// providers, and their save methods flush every object, including unrelated drafts.
+QVariantMap patternRecord(SWMM_Engine engine, const QString &name)
+{
+    const int idx = swmm_pattern_index(engine, name.toUtf8().constData());
+    int type = -1, count = 0;
+    if (swmm_pattern_get_type(engine, idx, &type) != SWMM_OK ||
+        swmm_pattern_get_factor_count(engine, idx, &count) != SWMM_OK || count <= 0 ||
+        count != PatternProvider::factorCountFor(openswmmvis::pattern::PatternType(type)))
+        return {};
+    QVariantMap result{{"type", type}, {"factorCount", count}};
+    for (int i = 0; i < count; ++i) {
+        double value = 0;
+        if (swmm_pattern_get_factor(engine, idx, i, &value) != SWMM_OK)
+            return {};
+        result[factorKey(type, i)] = value;
+    }
+    return result;
+}
+
+QVariantMap transectRecord(SWMM_Engine engine, const QString &name)
+{
+    const int idx = swmm_transect_index(engine, name.toUtf8().constData());
+    double nl, nr, nc, bl, br, el, er, x, y, length;
+    const int count = swmm_transect_get_station_count(engine, idx);
+    if (count < 0 || swmm_transect_get_roughness(engine, idx, &nl, &nr, &nc) != SWMM_OK ||
+        swmm_transect_get_bank_stations(engine, idx, &bl, &br) != SWMM_OK ||
+        swmm_transect_get_encroachment_stations(engine, idx, &el, &er) != SWMM_OK ||
+        swmm_transect_get_modifiers(engine, idx, &x, &y, &length) != SWMM_OK)
+        return {};
+    // This getter truncates without reporting the required length. Grow until
+    // the whole comment fits, so editing a number never truncates its description.
+    QByteArray comment(1024, '\0');
+    for (;;) {
+        if (swmm_transect_get_comments(engine, idx, comment.data(), comment.size()) != SWMM_OK)
+            return {};
+        if (qstrlen(comment.constData()) < comment.size() - 1)
+            break;
+        comment.resize(comment.size() * 2);
+    }
+    return {{"nLeftBank", nl}, {"nRightBank", nr}, {"nChannel", nc},
+            {"xLeftBank", bl}, {"xRightBank", br}, {"xLeftEncroachment", el},
+            {"xRightEncroachment", er}, {"stationMultiplier", x},
+            {"elevationOffset", y}, {"meanderFactor", length},
+            {"comments", QString::fromUtf8(comment.constData())}, {"stationCount", count}};
+}
+
 void refreshFromEngine(QObject *registry, DC::DataCategory category, SWMMModelLayer *layer,
                        const QString &name)
 {
     if (!registry || !layer || !layer->engine() || name.isEmpty())
         return;
     switch (category) {
+    case DC::DataPatterns: {
+        const auto record = patternRecord(layer->engine(), name);
+        auto *p = static_cast<PatternRegistry *>(registry)->findByName(name);
+        if (record.isEmpty() || !p) break;
+        const int type = record["type"].toInt();
+        p->setType(openswmmvis::pattern::PatternType(type));
+        QVector<double> factors;
+        for (int i = 0; i < record["factorCount"].toInt(); ++i)
+            factors << record[factorKey(type, i)].toDouble();
+        p->setAllFactors(factors);
+        break;
+    }
+    case DC::DataTransects: {
+        const auto v = transectRecord(layer->engine(), name);
+        auto *p = static_cast<TransectRegistry *>(registry)->findByName(name);
+        if (v.isEmpty() || !p) break;
+        p->setRoughness(v["nLeftBank"].toDouble(), v["nRightBank"].toDouble(), v["nChannel"].toDouble());
+        p->setBankStations(v["xLeftBank"].toDouble(), v["xRightBank"].toDouble());
+        p->setEncroachmentStations(v["xLeftEncroachment"].toDouble(), v["xRightEncroachment"].toDouble());
+        p->setModifiers(v["stationMultiplier"].toDouble(), v["elevationOffset"].toDouble(), v["meanderFactor"].toDouble());
+        p->setComments(v["comments"].toString());
+        break;
+    }
     case DC::DataPollutants:
         static_cast<PollutantRegistry *>(registry)->loadFromEngine(layer->engine(), name);
         break;
@@ -260,6 +344,16 @@ void refreshFromEngine(QObject *registry, DC::DataCategory category, SWMMModelLa
 void notifyProvider(QObject *, DC::DataCategory category, QObject *provider) {
     if (!provider) return;
     switch (category) {
+    case DC::DataPatterns: emit static_cast<PatternProvider *>(provider)->factorsChanged(); break;
+    case DC::DataTransects: {
+        auto *p = static_cast<TransectProvider *>(provider);
+        emit p->roughnessChanged();
+        emit p->bankStationsChanged();
+        emit p->encroachmentStationsChanged();
+        emit p->modifiersChanged();
+        emit p->commentsChanged();
+        break;
+    }
     case DC::DataPollutants: emit static_cast<PollutantProvider *>(provider)->paramsChanged(); break;
     case DC::DataLandUses: emit static_cast<LandUseProvider *>(provider)->paramsChanged(); break;
     case DC::DataAquifers: emit static_cast<AquiferProvider *>(provider)->paramsChanged(); break;
@@ -453,6 +547,92 @@ QList<Field> landUseFields()
     f << numField<P>(QStringLiteral("sweepRemoval"), tr("Fraction Available"), &P::sweepRemoval,
                      &P::setSweepRemoval, 0.0, 1.0);
     return f;
+}
+
+QList<Field> patternFields()
+{
+    using T = openswmmvis::pattern::PatternType;
+    const QStringList labels{tr("Monthly"), tr("Daily"), tr("Hourly"), tr("Weekend")};
+    QList<Field> fields;
+    auto type = enumField("type", tr("Pattern Type"), pairs(labels, {0, 1, 2, 3}),
+                          [](QObject *o) { return int(static_cast<PatternProvider *>(o)->type()); }, {});
+    type.spec.tooltip = tr("Pattern type determines the meaning and count of factors and is chosen when creating a pattern in its editor.");
+    fields << type;
+    for (int t = 0; t < 4; ++t)
+        for (int i = 0; i < PatternProvider::factorCountFor(T(t)); ++i) {
+            Field f;
+            f.spec.key = factorKey(t, i);
+            f.spec.label = labels[t] + QStringLiteral(" — ") + PatternProvider::rowLabel(T(t), i);
+            f.spec.editor = EditorKind::Numeric;
+            f.spec.setter = f.spec.key;
+            f.spec.minValue = 0;
+            f.spec.decimals = 6;
+            f.spec.tooltip = tr("A dimensionless factor matched by pattern type and calendar/hour position. Other factors are preserved.");
+            f.applies = [t](QObject *o) { return int(static_cast<PatternProvider *>(o)->type()) == t; };
+            f.get = [t, i](QObject *o) -> QVariant {
+                auto *p = static_cast<PatternProvider *>(o);
+                return int(p->type()) == t ? QVariant(p->factor(i)) : QVariant();
+            };
+            f.set = [i](QObject *o, const QVariant &v) { static_cast<PatternProvider *>(o)->setFactor(i, v.toDouble()); };
+            fields << f;
+        }
+    return fields;
+}
+
+QList<Field> transectFields()
+{
+    using P = TransectProvider;
+    QList<Field> fields;
+    // Each accessor changes one member of a native tuple and retains its siblings.
+    auto add = [&](const char *key, const char *label, auto get, auto set,
+                   double min = -kInf, UnitKind unit = UnitKind::None) {
+        Field f;
+        f.spec.key = QString::fromLatin1(key);
+        f.spec.label = tr(label);
+        f.spec.editor = EditorKind::Numeric;
+        f.spec.setter = f.spec.key;
+        f.spec.minValue = min;
+        f.spec.unit = unit;
+        f.spec.decimals = 6;
+        f.get = [get](QObject *o) { return QVariant((static_cast<P *>(o)->*get)()); };
+        f.set = [set](QObject *o, const QVariant &v) { set(static_cast<P *>(o), v.toDouble()); };
+        fields << f;
+    };
+    add("nLeftBank", "Roughness — Left Bank n", &P::nLeftBank,
+        [](P *p, double v) { p->setRoughness(v, p->nRightBank(), p->nChannel()); }, 0);
+    add("nRightBank", "Roughness — Right Bank n", &P::nRightBank,
+        [](P *p, double v) { p->setRoughness(p->nLeftBank(), v, p->nChannel()); }, 0);
+    add("nChannel", "Roughness — Channel n", &P::nChannel,
+        [](P *p, double v) { p->setRoughness(p->nLeftBank(), p->nRightBank(), v); }, 0);
+    add("xLeftBank", "Bank Stations — Left", &P::xLeftBank,
+        [](P *p, double v) { p->setBankStations(v, p->xRightBank()); }, -kInf, UnitKind::Length);
+    add("xRightBank", "Bank Stations — Right", &P::xRightBank,
+        [](P *p, double v) { p->setBankStations(p->xLeftBank(), v); }, -kInf, UnitKind::Length);
+    add("xLeftEncroachment", "Encroachment Stations — Left", &P::xLeftEncroachment,
+        [](P *p, double v) { p->setEncroachmentStations(v, p->xRightEncroachment()); }, -kInf, UnitKind::Length);
+    add("xRightEncroachment", "Encroachment Stations — Right", &P::xRightEncroachment,
+        [](P *p, double v) { p->setEncroachmentStations(p->xLeftEncroachment(), v); }, -kInf, UnitKind::Length);
+    add("stationMultiplier", "Modifiers — Stations Multiplier", &P::stationMultiplier,
+        [](P *p, double v) { p->setModifiers(v, p->elevationOffset(), p->meanderFactor()); }, 0);
+    add("elevationOffset", "Modifiers — Elevations Offset", &P::elevationOffset,
+        [](P *p, double v) { p->setModifiers(p->stationMultiplier(), v, p->meanderFactor()); }, -kInf, UnitKind::Length);
+    add("meanderFactor", "Modifiers — Meander Factor", &P::meanderFactor,
+        [](P *p, double v) { p->setModifiers(p->stationMultiplier(), p->elevationOffset(), v); }, 0);
+    Field comments;
+    comments.spec.key = "comments";
+    comments.spec.label = tr("Description");
+    comments.spec.editor = EditorKind::Text;
+    comments.spec.setter = "comments";
+    comments.get = [](QObject *o) { return static_cast<P *>(o)->comments(); };
+    comments.set = [](QObject *o, const QVariant &v) { static_cast<P *>(o)->setComments(v.toString()); };
+    fields << comments;
+    Field count;
+    count.spec.key = "stationCount";
+    count.spec.label = tr("Station Count");
+    count.spec.tooltip = tr("Ordered station/elevation lists retain their individual transect editor.");
+    count.get = [](QObject *o) { return static_cast<P *>(o)->pointCount(); };
+    fields << count;
+    return fields;
 }
 
 /**
@@ -687,6 +867,12 @@ QList<Field> fieldsFor(SWMMModelLayer *layer, SWMMModelLayer::DataCategory cat)
 {
     QList<Field> f;
     switch (cat) {
+    case DC::DataPatterns:
+        f = patternFields();
+        break;
+    case DC::DataTransects:
+        f = transectFields();
+        break;
     case DC::DataPollutants:
         f = pollutantFields(layer);
         break;
@@ -743,6 +929,8 @@ int nativeIndex(SWMM_Engine e, DC::DataCategory cat, const QString &name)
         return swmm_inlet_index(e, id.constData());
     case DC::DataPatterns:
         return swmm_pattern_index(e, id.constData());
+    case DC::DataTransects:
+        return swmm_transect_index(e, id.constData());
     case DC::DataCurves:
         for (int i = 0; i < swmm_table_count(e); ++i) {
             int type = 0;
@@ -801,6 +989,10 @@ QVariantMap readRecord(SWMMModelLayer *layer, DC::DataCategory cat, QObject *pro
     if (!editable(layer) || !provider ||
         nativeIndex(layer->engine(), cat, nameOf(provider, cat)) < 0)
         return {};
+    if (cat == DC::DataPatterns)
+        return patternRecord(layer->engine(), nameOf(provider, cat));
+    if (cat == DC::DataTransects)
+        return transectRecord(layer->engine(), nameOf(provider, cat));
     if (cat == DC::DataInlets) {
         SWMM_InletDesign d{};
         if (swmm_inlet_get_design(layer->engine(),
@@ -830,7 +1022,20 @@ bool writeRecord(SWMMModelLayer *layer, DC::DataCategory cat, QObject *provider,
     auto *reg = registryFor(layer, cat);
     const QSignalBlocker p(provider), r(reg);
     bool written = false;
-    if (cat == DC::DataInlets) {
+    if (cat == DC::DataPatterns) {
+        const int type = record["type"].toInt();
+        QVector<double> factors;
+        for (int i = 0; i < record["factorCount"].toInt(); ++i)
+            factors << record[factorKey(type, i)].toDouble();
+        written = swmm_pattern_set_factors(layer->engine(), idx, factors.constData(), factors.size()) == SWMM_OK;
+    } else if (cat == DC::DataTransects) {
+        const auto e = layer->engine();
+        written = swmm_transect_set_roughness(e, idx, record["nLeftBank"].toDouble(), record["nRightBank"].toDouble(), record["nChannel"].toDouble()) == SWMM_OK &&
+            swmm_transect_set_bank_stations(e, idx, record["xLeftBank"].toDouble(), record["xRightBank"].toDouble()) == SWMM_OK &&
+            swmm_transect_set_encroachment_stations(e, idx, record["xLeftEncroachment"].toDouble(), record["xRightEncroachment"].toDouble()) == SWMM_OK &&
+            swmm_transect_set_modifiers(e, idx, record["stationMultiplier"].toDouble(), record["elevationOffset"].toDouble(), record["meanderFactor"].toDouble()) == SWMM_OK &&
+            swmm_transect_set_comments(e, idx, record["comments"].toString().toUtf8().constData()) == SWMM_OK;
+    } else if (cat == DC::DataInlets) {
         const auto design = inletDesign(record);
         written = swmm_inlet_set_design(layer->engine(), idx, &design) == SWMM_OK;
     } else {
@@ -872,6 +1077,18 @@ bool referenceValid(SWMM_Engine e, const QString &key, const QString &name)
     return category == DC::DataPatterns ? type == 0
            : category == DC::DataCurves ? type == 2 || type == 3
                                         : type >= 0;
+}
+bool memberValid(DC::DataCategory category, const QString &key, const QVariantMap &record)
+{
+    if (category != DC::DataTransects)
+        return true;
+    if (key == "comments")
+        return !record[key].toString().contains(QChar::Null);
+    if (key == "xLeftBank" || key == "xRightBank")
+        return record["xLeftBank"].toDouble() <= record["xRightBank"].toDouble();
+    if (key == "xLeftEncroachment" || key == "xRightEncroachment")
+        return record["xLeftEncroachment"].toDouble() <= record["xRightEncroachment"].toDouble();
+    return true;
 }
 bool propose(SWMMModelLayer *layer, DC::DataCategory cat, QObject *provider, const QString &key,
              const QVariant &input, const QVariantMap &before, QVariantMap &after, QString *error)
@@ -917,6 +1134,8 @@ bool propose(SWMMModelLayer *layer, DC::DataCategory cat, QObject *provider, con
         }
         after = before;
         after[key] = value;
+        if (!memberValid(cat, key, after))
+            return fail(tr("%1 needs left stations no greater than right stations and description text without null characters.").arg(nameOf(provider, cat)));
         if (referenceCategory(key) != DC::NumDataCategories &&
             !referenceValid(layer->engine(), key, value.toString()))
             return fail(tr("The referenced definition is missing or has an incompatible type."));
@@ -1026,16 +1245,17 @@ public:
             if (current.isEmpty() ||
                 (fullRecord() ? current != expected : current.value(key) != expected.value(key)))
                 return false;
-            if (!fullRecord() && ((category == DC::DataPollutants &&
-                                   current.value("units") != expected.value("units")) ||
-                                  (category == DC::DataInlets &&
-                                   (current.value("type") != expected.value("type") ||
-                                    ((key == "openArea" || key == "splashVeloc") &&
-                                     current.value("grateType") != expected.value("grateType"))))))
+            const bool changedKind =
+                (category == DC::DataPollutants && current.value("units") != expected.value("units")) ||
+                ((category == DC::DataInlets || category == DC::DataPatterns) && current.value("type") != expected.value("type")) ||
+                (category == DC::DataInlets && (key == "openArea" || key == "splashVeloc") && current.value("grateType") != expected.value("grateType"));
+            if (!fullRecord() && changedKind)
                 return false;
             auto updated = fullRecord() ? desired : current;
             if (!fullRecord())
                 updated[key] = desired[key];
+            if (!memberValid(category, key, updated))
+                return false;
             previous << current;
             next << updated;
         }
@@ -1053,8 +1273,11 @@ public:
             for (const auto &target : targets)
                 notifyProvider(registryFor(layer, category), category, target.provider);
         }
-        for (const auto &target : targets)
+        for (const auto &target : targets) {
             emit layer->attributeChanged(nameOf(target.provider, category));
+            if (category == DC::DataTransects)
+                emit layer->transectChanged(nameOf(target.provider, category));
+        }
         layer->markEdited();
         return true;
     }
@@ -1161,6 +1384,8 @@ DataObjectAttributeTableModel::~DataObjectAttributeTableModel() = default;
 bool DataObjectAttributeTableModel::supportsCategory(SWMMModelLayer::DataCategory cat)
 {
     switch (cat) {
+    case DC::DataPatterns:
+    case DC::DataTransects:
     case DC::DataPollutants:
     case DC::DataLandUses:
     case DC::DataAquifers:
@@ -1175,6 +1400,9 @@ bool DataObjectAttributeTableModel::supportsCategory(SWMMModelLayer::DataCategor
 void DataObjectAttributeTableModel::setSource(SWMMModelLayer *layer,
                                               SWMMModelLayer::DataCategory cat)
 {
+    if (m_category == DC::DataPatterns)
+        for (const auto &p : m_rows)
+            if (p) disconnect(p, nullptr, this, nullptr);
     if (m_registry)
         disconnect(m_registry, nullptr, this, nullptr);
     if (m_layer) disconnect(m_layer, nullptr, this, nullptr);
@@ -1213,6 +1441,10 @@ QList<ColumnSpec> DataObjectAttributeTableModel::columnSpecs() const
 SWMMObjectRef::ObjectType DataObjectAttributeTableModel::objectType() const
 {
     switch (m_category) {
+    case DC::DataPatterns:
+        return SWMMObjectRef::TimePattern;
+    case DC::DataTransects:
+        return SWMMObjectRef::Transect;
     case DC::DataPollutants:
         return SWMMObjectRef::Pollutant;
     case DC::DataLandUses:
@@ -1262,6 +1494,10 @@ bool DataObjectAttributeTableModel::applyValues(SWMMModelLayer *layer, DC::DataC
 DC::DataCategory DataObjectAttributeTableModel::categoryForType(SWMMObjectRef::ObjectType type)
 {
     switch (type) {
+    case SWMMObjectRef::TimePattern:
+        return DC::DataPatterns;
+    case SWMMObjectRef::Transect:
+        return DC::DataTransects;
     case SWMMObjectRef::Pollutant:
         return DC::DataPollutants;
     case SWMMObjectRef::LandUse:
@@ -1318,6 +1554,29 @@ void DataObjectAttributeTableModel::connectRegistry()
                 [this](QObject *p) { onProviderParamsChanged(p); });
     };
     switch (m_category) {
+    case DC::DataPatterns: {
+        auto *reg = static_cast<PatternRegistry *>(m_registry.data());
+        connect(reg, &PatternRegistry::providerAdded, this, &DataObjectAttributeTableModel::reload, queued);
+        connect(reg, &PatternRegistry::providerAboutToBeRemoved, this, &DataObjectAttributeTableModel::reload, queued);
+        connect(reg, &PatternRegistry::providerRenamed, this, &DataObjectAttributeTableModel::reload, queued);
+        auto watch = [this](PatternProvider *p) {
+            connect(p, &PatternProvider::factorChanged, this, [this, p] { onProviderParamsChanged(p); });
+            connect(p, &PatternProvider::factorsChanged, this, [this, p] { onProviderParamsChanged(p); });
+            connect(p, &PatternProvider::typeChanged, this, [this, p] { onProviderParamsChanged(p); });
+        };
+        connect(reg, &PatternRegistry::providerAdded, this, watch);
+        for (auto *p : reg->providers()) watch(p);
+        break;
+    }
+    case DC::DataTransects: {
+        auto *reg = static_cast<TransectRegistry *>(m_registry.data());
+        connect(reg, &TransectRegistry::providerAdded, this, &DataObjectAttributeTableModel::reload, queued);
+        connect(reg, &TransectRegistry::providerAboutToBeRemoved, this, &DataObjectAttributeTableModel::reload, queued);
+        connect(reg, &TransectRegistry::providerRenamed, this, &DataObjectAttributeTableModel::reload, queued);
+        connect(reg, &TransectRegistry::providerMetadataChanged, this, [this](QObject *p) { onProviderParamsChanged(p); });
+        connect(reg, &TransectRegistry::providerPointsChanged, this, [this](QObject *p) { onProviderParamsChanged(p); });
+        break;
+    }
     case DC::DataPollutants:
         hook(static_cast<PollutantRegistry *>(m_registry.data()));
         break;
@@ -1397,7 +1656,7 @@ QVariant DataObjectAttributeTableModel::data(const QModelIndex &index, int role)
         if (f.spec.key == "Name") return tr("Unique identity. Rename an individual object in its dedicated editor.");
         if (!f.set && m_category == DC::DataPollutants && f.spec.key == "units") return tr("Concentration units remain read-only here; changing them reinterprets existing concentrations.");
         if (!f.spec.tooltip.isEmpty()) return f.spec.tooltip;
-        return applies ? QVariant() : QVariant(tr("Not used by this inlet design. Choose a compatible counted group."));
+        return applies ? QVariant() : QVariant(tr("Not used by this object type. Choose a compatible counted group."));
     case Qt::ForegroundRole:
         if (!applies)
             return QGuiApplication::palette().brush(QPalette::Disabled, QPalette::Text);
