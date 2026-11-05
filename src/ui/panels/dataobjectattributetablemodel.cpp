@@ -14,7 +14,6 @@
 
 #include "aquifer/aquiferprovider.h"
 #include "aquifer/aquiferregistry.h"
-#include "core/unitsystem.h"
 #include "inlet/inletprovider.h"
 #include "inlet/inletregistry.h"
 #include "landuse/landuseprovider.h"
@@ -24,6 +23,18 @@
 #include "street/streetprovider.h"
 #include "street/streetregistry.h"
 #include "ui/dialogs/inletpropertybag.h"
+#include "curve/curveregistry.h"
+#include "curve/curveprovider.h"
+#include "pattern/patternregistry.h"
+#include "pattern/patternprovider.h"
+#include "ui/properties/dataobjectref.h"
+#include <openswmm/engine/openswmm_pollutants.h>
+#include <openswmm/engine/openswmm_quality.h>
+#include <openswmm/engine/openswmm_subcatchments.h>
+#include <openswmm/engine/openswmm_infrastructure.h>
+#include <openswmm/engine/openswmm_tables.h>
+#include <QSet>
+#include <memory>
 
 #include <QBrush>
 #include <QCoreApplication>
@@ -60,30 +71,22 @@ using openswmmvis::street::StreetRegistry;
 
 constexpr double kInf = std::numeric_limits<double>::infinity();
 
-/*! Header unit suffix for the active flow-units system. Mirrors the private
- *  helpers in swmmattributetablemodel.cpp / meshattributetablemodel.cpp; only
- *  the kinds this model uses are distinguished.
- * @param[in] kind Requested unit metadata; only Length/Velocity/Depression/Percent/Rate recognized.
- * @return Active global UnitSystem label, US fallback without singleton; empty for other kinds.
- *   Presentation only, no numeric conversion or source-project lookup.
- */
-QString unitLabel(UnitKind kind)
-{
-    auto *us = UnitSystem::instance();
-    const bool si = us && us->isSI();
+/*! Source-project input units, independent of the active MDI project's display settings. */
+bool metric(SWMMModelLayer *layer) {
+    char text[32]{};
+    if (layer && layer->engine()) swmm_options_get(layer->engine(), "FLOW_UNITS", text, sizeof(text));
+    const QByteArray units(text);
+    return units == "CMS" || units == "LPS" || units == "MLD";
+}
+QString unitLabel(UnitKind kind, SWMMModelLayer *layer) {
+    const bool si = metric(layer);
     switch (kind) {
-    case UnitKind::Length:
-        return us ? us->lengthLabel() : QStringLiteral("ft");
-    case UnitKind::Velocity:
-        return us ? us->velocityLabel() : QStringLiteral("ft/s");
-    case UnitKind::Depression:
-        return si ? QStringLiteral("mm") : QStringLiteral("in");
-    case UnitKind::Percent:
-        return QStringLiteral("%");
-    case UnitKind::Rate:
-        return si ? QStringLiteral("mm/hr") : QStringLiteral("in/hr");
-    default:
-        return {};
+    case UnitKind::Length: return si ? "m" : "ft";
+    case UnitKind::Velocity: return si ? "m/s" : "ft/s";
+    case UnitKind::Depression: return si ? "mm" : "in";
+    case UnitKind::Rate: return si ? "mm/hr" : "in/hr";
+    case UnitKind::Percent: return "%";
+    default: return {};
     }
 }
 
@@ -101,6 +104,8 @@ QObject *registryFor(SWMMModelLayer *layer, SWMMModelLayer::DataCategory cat)
     if (!layer)
         return nullptr;
     switch (cat) {
+    case DC::DataCurves: return layer->ensureCurveRegistry();
+    case DC::DataPatterns: return layer->ensurePatternRegistry();
     case DC::DataPollutants:
         return layer->ensurePollutantRegistry();
     case DC::DataLandUses:
@@ -139,6 +144,8 @@ template <class Reg> QList<QObject *> providersOf(QObject *r)
 QList<QObject *> providersOf(QObject *reg, SWMMModelLayer::DataCategory cat)
 {
     switch (cat) {
+    case DC::DataCurves: return providersOf<openswmmvis::curve::CurveRegistry>(reg);
+    case DC::DataPatterns: return providersOf<openswmmvis::pattern::PatternRegistry>(reg);
     case DC::DataPollutants:
         return providersOf<PollutantRegistry>(reg);
     case DC::DataLandUses:
@@ -166,6 +173,8 @@ QString nameOf(QObject *p, SWMMModelLayer::DataCategory cat)
     if (!p)
         return {};
     switch (cat) {
+    case DC::DataCurves: return static_cast<openswmmvis::curve::CurveProvider *>(p)->name();
+    case DC::DataPatterns: return static_cast<openswmmvis::pattern::PatternProvider *>(p)->name();
     case DC::DataPollutants:
         return static_cast<PollutantProvider *>(p)->name();
     case DC::DataLandUses:
@@ -190,36 +199,35 @@ QString nameOf(QObject *p, SWMMModelLayer::DataCategory cat)
 QObject *findProvider(QObject *reg, SWMMModelLayer::DataCategory cat, const QString &name)
 {
     for (QObject *p : providersOf(reg, cat))
-        if (nameOf(p, cat) == name)
+        if (nameOf(p, cat).compare(name, Qt::CaseInsensitive) == 0)
             return p;
     return nullptr;
 }
 
 /*! Save the named provider through the same registry path used by its editor. */
-void saveToEngine(QObject *reg, SWMMModelLayer::DataCategory cat, SWMMModelLayer *layer,
+int saveToEngine(QObject *reg, SWMMModelLayer::DataCategory cat, SWMMModelLayer *layer,
                   const QString &name)
 {
     if (!reg || !layer)
-        return;
+        return 0;
     void *eng = layer->engine();
     switch (cat) {
     case DC::DataPollutants:
-        static_cast<PollutantRegistry *>(reg)->saveToEngine(eng, name);
-        break;
+        return static_cast<PollutantRegistry *>(reg)->saveToEngine(eng, name);
+
     case DC::DataLandUses:
-        static_cast<LandUseRegistry *>(reg)->saveToEngine(eng, name);
-        break;
+        return static_cast<LandUseRegistry *>(reg)->saveToEngine(eng, name);
+
     case DC::DataAquifers:
-        static_cast<AquiferRegistry *>(reg)->saveToEngine(eng, name);
-        break;
+        return static_cast<AquiferRegistry *>(reg)->saveToEngine(eng, name);
+
     case DC::DataStreets:
-        static_cast<StreetRegistry *>(reg)->saveToEngine(eng, name);
-        break;
+        return static_cast<StreetRegistry *>(reg)->saveToEngine(eng, name);
+
     case DC::DataInlets:
-        static_cast<InletRegistry *>(reg)->saveToEngine(eng, name);
-        break;
-    default:
-        break;
+        return static_cast<InletRegistry *>(reg)->saveToEngine(eng, name);
+
+    default: return 0;
     }
 }
 
@@ -249,31 +257,15 @@ void refreshFromEngine(QObject *registry, DC::DataCategory category, SWMMModelLa
     }
 }
 
-void notifyProvider(QObject *registry, DC::DataCategory category, QObject *provider)
-{
+void notifyProvider(QObject *, DC::DataCategory category, QObject *provider) {
+    if (!provider) return;
     switch (category) {
-    case DC::DataPollutants:
-        emit static_cast<PollutantRegistry *>(registry)->providerParamsChanged(
-            static_cast<PollutantProvider *>(provider));
-        break;
-    case DC::DataLandUses:
-        emit static_cast<LandUseRegistry *>(registry)->providerParamsChanged(
-            static_cast<LandUseProvider *>(provider));
-        break;
-    case DC::DataAquifers:
-        emit static_cast<AquiferRegistry *>(registry)->providerParamsChanged(
-            static_cast<AquiferProvider *>(provider));
-        break;
-    case DC::DataStreets:
-        emit static_cast<StreetRegistry *>(registry)->providerParamsChanged(
-            static_cast<StreetProvider *>(provider));
-        break;
-    case DC::DataInlets:
-        emit static_cast<InletRegistry *>(registry)->providerParamsChanged(
-            static_cast<InletProvider *>(provider));
-        break;
-    default:
-        break;
+    case DC::DataPollutants: emit static_cast<PollutantProvider *>(provider)->paramsChanged(); break;
+    case DC::DataLandUses: emit static_cast<LandUseProvider *>(provider)->paramsChanged(); break;
+    case DC::DataAquifers: emit static_cast<AquiferProvider *>(provider)->paramsChanged(); break;
+    case DC::DataStreets: emit static_cast<StreetProvider *>(provider)->paramsChanged(); break;
+    case DC::DataInlets: emit static_cast<InletProvider *>(provider)->paramsChanged(); break;
+    default: break;
     }
 }
 
@@ -311,6 +303,18 @@ QVariantList nameChoices(SWMMModelLayer *layer, SWMMModelLayer::DataCategory cat
         const int n = layer->dataObjectCount(cat);
         for (int i = 0; i < n; ++i) {
             const QString name = layer->dataObjectNameAt(cat, i);
+            if (cat == DC::DataPatterns) {
+                int type = -1; const int item = swmm_pattern_index(layer->engine(), name.toUtf8().constData());
+                if (swmm_pattern_get_type(layer->engine(), item, &type) != SWMM_OK || type != 0) continue;
+            }
+            if (cat == DC::DataCurves) {
+                bool compatible = false;
+                for (int item = 0; item < swmm_table_count(layer->engine()); ++item) {
+                    int type = -1; const char *id = swmm_table_id(layer->engine(), item);
+                    if (id && QString::fromUtf8(id) == name && swmm_table_get_type(layer->engine(), item, &type) == SWMM_OK && (type == 2 || type == 3)) compatible = true;
+                }
+                if (!compatible) continue;
+            }
             labels << name;
             data << name;
         }
@@ -411,7 +415,7 @@ QList<Field> pollutantFields(SWMMModelLayer *layer)
         QStringLiteral("units"), tr("Units"),
         pairs({QStringLiteral("MG/L"), QStringLiteral("UG/L"), QStringLiteral("#/L")}, {0, 1, 2}),
         [](QObject *o) { return QVariant(static_cast<P *>(o)->units()); },
-        {}); // Existing pollutant units have no engine setter.
+        {}); // Unit changes reinterpret concentrations; retain their individual owner.
     f << numField<P>(QStringLiteral("rainConc"), tr("Rain Concen."), &P::rainConc, &P::setRainConc,
                      0.0);
     f << numField<P>(QStringLiteral("gwConc"), tr("GW Concen."), &P::gwConc, &P::setGwConc, 0.0);
@@ -476,7 +480,7 @@ QList<Field> aquiferFields(SWMMModelLayer *layer)
         {P::FieldCapacity, "fieldCapacity", "Field Capacity", 0.0, 1.0, UnitKind::None},
         {P::Conductivity, "conductivity", "Conductivity", 0.0, kInf, UnitKind::Rate},
         {P::ConductSlope, "conductSlope", "Conductivity Slope", 0.0, kInf, UnitKind::None},
-        {P::TensionSlope, "tensionSlope", "Tension Slope", 0.0, kInf, UnitKind::None},
+        {P::TensionSlope, "tensionSlope", "Tension Slope", 0.0, kInf, UnitKind::Depression},
         {P::UpperEvapFrac, "upperEvapFrac", "Upper Evap. Fraction", 0.0, 1.0, UnitKind::None},
         {P::LowerEvapDepth, "lowerEvapDepth", "Lower Evap. Depth", 0.0, kInf, UnitKind::Length},
         {P::LowerLossCoeff, "lowerLossCoeff", "Lower GW Loss Rate", 0.0, kInf, UnitKind::Rate},
@@ -549,8 +553,7 @@ QList<Field> streetFields()
 
 
 /**
- * @param[in] layer Optional capture-curve name source, snapshot of all curve names without type
- *   filtering.
+ * @param[in] layer Optional source of compatible DIVERSION/RATING capture-curve choices.
  * @return Thirteen inlet fields excluding Name, type-dependent applicability matching
  *   InletPropertyBag: grate/curb/slot/custom groups, Generic grate fraction/velocity only, throat
  *   absent for DropCurb. Length/velocity metadata native project units, open fraction editor 0..1,
@@ -657,8 +660,7 @@ QList<Field> inletFields(SWMMModelLayer *layer)
         QStringLiteral("curveId"), tr("Capture Curve"), nameChoices(layer, DC::DataCurves),
         [](QObject *o) { return QVariant(static_cast<P *>(o)->curveId()); },
         [](QObject *o, const QVariant &v) { static_cast<P *>(o)->setCurveId(v.toString()); });
-    c.applies = inGroup(Bag::CustomGroup);
-    f << c;
+    f << c; // A capture-curve choice enters CUSTOM for any complete target.
     c = enumField(
         QStringLiteral("curveKind"), tr("Capture Curve Type"),
         pairs({tr("NONE"), tr("DIVERSION"), tr("RATING")}, {0, 1, 2}),
@@ -667,6 +669,8 @@ QList<Field> inletFields(SWMMModelLayer *layer)
             static_cast<P *>(o)->setCurveKind(in::InletCurveKind(v.toInt()));
         });
     c.applies = inGroup(Bag::CustomGroup);
+    c.set = {}; c.spec.editor = EditorKind::ReadOnly; c.spec.setter.clear();
+    c.spec.tooltip = tr("Derived from the selected capture curve.");
     f << c;
     return f;
 }
@@ -723,166 +727,425 @@ QString enumLabel(const ColumnSpec &spec, const QVariant &v)
     return v.toString();
 }
 
-bool writeValue(SWMMModelLayer *layer, DC::DataCategory cat, const QString &name,
-                const QString &key, const QVariant &value, bool notify)
+int nativeIndex(SWMM_Engine e, DC::DataCategory cat, const QString &name)
 {
-    if (!layer || !layer->engine()) return false;
-    int state = 0;
-    if (swmm_engine_get_state(layer->engine(), &state) != SWMM_OK || state == SWMM_STATE_RUNNING)
-        return false;
-    QObject *reg = registryFor(layer, cat);
-    QObject *provider = findProvider(reg, cat, name);
-    if (!provider) return false;
-    QSignalBlocker registrySignals(reg);
-    QSignalBlocker providerSignals(provider);
-    refreshFromEngine(reg, cat, layer, name);
-    for (const Field &field : fieldsFor(layer, cat)) {
-        if (field.spec.key != key || !field.set || (field.applies && !field.applies(provider)))
-            continue;
-        const auto before = field.get(provider);
-        auto candidate = value;
-        if (!candidate.convert(before.metaType())) return false;
-        if (field.spec.editor == EditorKind::Numeric || field.spec.editor == EditorKind::Integer) {
-            bool ok = false;
-            const double number = candidate.toDouble(&ok);
-            if (!ok || !std::isfinite(number) || number < field.spec.minValue ||
-                number > field.spec.maxValue) return false;
+    const auto id = name.toUtf8();
+    switch (cat) {
+    case DC::DataPollutants:
+        return swmm_pollutant_index(e, id.constData());
+    case DC::DataLandUses:
+        return swmm_landuse_index(e, id.constData());
+    case DC::DataAquifers:
+        return swmm_aquifer_index(e, id.constData());
+    case DC::DataStreets:
+        return swmm_street_index(e, id.constData());
+    case DC::DataInlets:
+        return swmm_inlet_index(e, id.constData());
+    case DC::DataPatterns:
+        return swmm_pattern_index(e, id.constData());
+    case DC::DataCurves:
+        for (int i = 0; i < swmm_table_count(e); ++i) {
+            int type = 0;
+            const char *value = swmm_table_id(e, i);
+            if (value && name.compare(QString::fromUtf8(value), Qt::CaseInsensitive) == 0 &&
+                swmm_table_get_type(e, i, &type) == SWMM_OK && type > 0)
+                return i;
         }
-        if (field.spec.editor == EditorKind::Enum) {
-            bool known = false;
-            for (const auto &choice : field.spec.enumValues)
-                if (choice.toList().value(1) == candidate) known = true;
-            if (!known) return false;
-        }
-        field.set(provider, candidate);
-        saveToEngine(reg, cat, layer, name);
-        refreshFromEngine(reg, cat, layer, name);
-        const auto actual = field.get(provider);
-        const bool accepted = candidate.metaType().id() == QMetaType::Double
-            ? qFuzzyCompare(actual.toDouble(), candidate.toDouble()) : actual == candidate;
-        if (!accepted) {
-            field.set(provider, before);
-            saveToEngine(reg, cat, layer, name);
-            refreshFromEngine(reg, cat, layer, name);
-        }
-        providerSignals.unblock();
-        registrySignals.unblock();
-        if (notify) {
-            notifyProvider(reg, cat, provider);
-            if (accepted) {
-                emit layer->attributeChanged(name);
-                layer->markEdited();
-            }
-        }
-        return accepted;
+        return -1;
+    default:
+        return -1;
     }
-    return false;
 }
-
-// One undo step per cell edit. Keyed by (layer, category, name, column key)
-// rather than by model row/column so it replays correctly however the table
-// has since been re-bound, sorted or filtered.
-class DataObjectFieldEditCommand : public QUndoCommand
+bool editable(SWMMModelLayer *layer)
 {
-public:
-    /**
-     * @param[in] layer Optional borrowed source stored in QPointer, not model/view owner.
-     * @param[in] cat Original provider category, preserved across table rebinding.
-     * @param[in] name Moved exact provider name, replay resolves current provider with this name.
-     * @param[in] key Moved exact mutable column key.
-     * @param[in] oldVal Moved undo candidate, not validated during construction.
-     * @param[in] newVal Moved redo candidate, not validated during construction.
-     * @param[in] label Copied into translated command caption; not field lookup key.
-     * @brief Capture one nonmergeable cell edit without executing or owning providers.
-     * @note Caller/undo stack owns command; replay becomes obsolete when the write is rejected.
-     */
-    DataObjectFieldEditCommand(SWMMModelLayer *layer, SWMMModelLayer::DataCategory cat,
-                               QString name, QString key, QVariant oldVal, QVariant newVal,
-                               const QString &label)
-        : m_layer(layer), m_cat(cat), m_name(std::move(name)), m_key(std::move(key)),
-          m_old(std::move(oldVal)), m_new(std::move(newVal))
-    {
-        setText(QObject::tr("Edit %1 of \"%2\"").arg(label, m_name));
-    }
-    /** First push follows an already verified write; later replay uses the same checked path. */
-    void redo() override
-    {
-        if (m_first) {
-            m_first = false;
-            return;
-        }
-        if (!DataObjectAttributeTableModel::applyValue(m_layer, m_cat, m_name, m_key, m_new))
-            setObsolete(true);
-    }
-    /** Restore the original field, refreshing other views through the layer. */
-    void undo() override
-    {
-        if (!DataObjectAttributeTableModel::applyValue(m_layer, m_cat, m_name, m_key, m_old))
-            setObsolete(true);
-    }
-
-private:
-    QPointer<SWMMModelLayer> m_layer;
-    SWMMModelLayer::DataCategory m_cat;
-    QString m_name, m_key;
-    QVariant m_old, m_new;
-    bool m_first = true;
-};
-
-// Keep bulk edits on the same checked path as single-cell edits and undo.
-class DataObjectBulkFieldEditCommand : public QUndoCommand
+    int state = -1;
+    return layer && layer->engine() && swmm_engine_get_state(layer->engine(), &state) == SWMM_OK &&
+           (state == SWMM_STATE_BUILDING || state == SWMM_STATE_OPENED);
+}
+QVariantMap inletValues(const SWMM_InletDesign &d)
 {
-public:
-    DataObjectBulkFieldEditCommand(SWMMModelLayer *layer, DC::DataCategory category,
-                                  QString key, QStringList names, QList<QVariant> oldValues,
-                                  QList<QVariant> newValues, const QString &label)
-        : QUndoCommand(QObject::tr("Apply %1 to %2 rows").arg(label).arg(names.size())),
-          m_layer(layer), m_category(category), m_key(std::move(key)),
-          m_names(std::move(names)), m_old(std::move(oldValues)), m_new(std::move(newValues))
-    {
+    return {{"type", d.type},
+            {"grateLength", d.grate_length},
+            {"grateWidth", d.grate_width},
+            {"grateType", d.grate_type},
+            {"openArea", d.open_area},
+            {"splashVeloc", d.splash_veloc},
+            {"curbLength", d.curb_length},
+            {"curbHeight", d.curb_height},
+            {"throat", d.throat},
+            {"slotLength", d.slot_length},
+            {"slotWidth", d.slot_width},
+            {"curveId", QString::fromUtf8(d.curve_id)},
+            {"curveKind", d.curve_kind}};
+}
+SWMM_InletDesign inletDesign(const QVariantMap &v)
+{
+    SWMM_InletDesign d{};
+    d.type = v["type"].toInt();
+    d.grate_type = v["grateType"].toInt();
+    d.throat = v["throat"].toInt();
+    d.curve_kind = v["curveKind"].toInt();
+    d.grate_length = v["grateLength"].toDouble();
+    d.grate_width = v["grateWidth"].toDouble();
+    d.open_area = v["openArea"].toDouble();
+    d.splash_veloc = v["splashVeloc"].toDouble();
+    d.curb_length = v["curbLength"].toDouble();
+    d.curb_height = v["curbHeight"].toDouble();
+    d.slot_length = v["slotLength"].toDouble();
+    d.slot_width = v["slotWidth"].toDouble();
+    qstrncpy(d.curve_id, v["curveId"].toString().toUtf8().constData(), sizeof(d.curve_id));
+    return d;
+}
+QVariantMap readRecord(SWMMModelLayer *layer, DC::DataCategory cat, QObject *provider)
+{
+    if (!editable(layer) || !provider ||
+        nativeIndex(layer->engine(), cat, nameOf(provider, cat)) < 0)
+        return {};
+    if (cat == DC::DataInlets) {
+        SWMM_InletDesign d{};
+        if (swmm_inlet_get_design(layer->engine(),
+                                  nativeIndex(layer->engine(), cat, nameOf(provider, cat)),
+                                  &d) != SWMM_OK)
+            return {};
+        return inletValues(d);
     }
-
-    void undo() override
-    {
-        if (!commit(false)) setObsolete(true);
+    auto *reg = registryFor(layer, cat);
+    const QSignalBlocker p(provider), r(reg);
+    refreshFromEngine(reg, cat, layer, nameOf(provider, cat));
+    QVariantMap result;
+    for (const auto &f : fieldsFor(layer, cat))
+        if (f.get && f.spec.key != "Name")
+            result[f.spec.key] = f.get(provider);
+    return result;
+}
+bool writeRecord(SWMMModelLayer *layer, DC::DataCategory cat, QObject *provider,
+                 const QVariantMap &record)
+{
+    if (!editable(layer) || !provider)
+        return false;
+    const auto name = nameOf(provider, cat);
+    const int idx = nativeIndex(layer->engine(), cat, name);
+    if (idx < 0)
+        return false; // A stale provider must never recreate a deleted engine record.
+    auto *reg = registryFor(layer, cat);
+    const QSignalBlocker p(provider), r(reg);
+    bool written = false;
+    if (cat == DC::DataInlets) {
+        const auto design = inletDesign(record);
+        written = swmm_inlet_set_design(layer->engine(), idx, &design) == SWMM_OK;
+    } else {
+        for (const auto &f : fieldsFor(layer, cat))
+            if (f.set && record.contains(f.spec.key))
+                f.set(provider, record[f.spec.key]);
+        written = saveToEngine(reg, cat, layer, name) == 1;
     }
-    void redo() override
-    {
-        if (m_first) {
-            m_first = false;
-            return;
+    refreshFromEngine(reg, cat, layer, name);
+    return written && readRecord(layer, cat, provider) == record;
+}
+DC::DataCategory referenceCategory(const QString &key)
+{
+    return key == "coPollutant"   ? DC::DataPollutants
+           : key == "evapPattern" ? DC::DataPatterns
+           : key == "curveId"     ? DC::DataCurves
+                                  : DC::NumDataCategories;
+}
+int referenceType(SWMM_Engine e, DC::DataCategory cat, const QString &name)
+{
+    int type = -1;
+    const int idx = nativeIndex(e, cat, name);
+    if (idx < 0)
+        return -1;
+    if (cat == DC::DataPollutants)
+        swmm_pollutant_get_units(e, idx, &type);
+    if (cat == DC::DataCurves)
+        swmm_table_get_type(e, idx, &type);
+    if (cat == DC::DataPatterns)
+        swmm_pattern_get_type(e, idx, &type);
+    return type;
+}
+bool referenceValid(SWMM_Engine e, const QString &key, const QString &name)
+{
+    if (name.isEmpty())
+        return true;
+    const auto category = referenceCategory(key);
+    const int type = referenceType(e, category, name);
+    return category == DC::DataPatterns ? type == 0
+           : category == DC::DataCurves ? type == 2 || type == 3
+                                        : type >= 0;
+}
+bool propose(SWMMModelLayer *layer, DC::DataCategory cat, QObject *provider, const QString &key,
+             const QVariant &input, const QVariantMap &before, QVariantMap &after, QString *error)
+{
+    auto fail = [&](const QString &message) {
+        if (error)
+            *error = message;
+        return false;
+    };
+    for (const auto &f : fieldsFor(layer, cat)) {
+        if (f.spec.key != key)
+            continue;
+        if (!f.set || (f.applies && !f.applies(provider)))
+            return fail(tr("This field does not apply to %1.").arg(nameOf(provider, cat)));
+        auto value = input;
+        if (input.userType() == qMetaTypeId<DataObjectRef>()) {
+            const auto ref = input.value<DataObjectRef>();
+            const auto expected = key == "coPollutant"   ? DataObjectRef::Pollutant
+                                  : key == "evapPattern" ? DataObjectRef::Pattern
+                                                         : DataObjectRef::AnyCurve;
+            if (referenceCategory(key) == DC::NumDataCategories || ref.layer != layer ||
+                ref.engine != layer->engine() || ref.kind != expected)
+                return fail(tr("The reference belongs to another project or object kind."));
+            value = ref.currentName;
         }
-        if (!commit(true)) setObsolete(true);
-    }
-
-    bool commit(bool forward)
-    {
-        const auto &values = forward ? m_new : m_old;
-        const auto &restore = forward ? m_old : m_new;
-        for (int i = 0; i < m_names.size(); ++i) {
-            if (!writeValue(m_layer, m_category, m_names[i], m_key, values[i], false)) {
-                for (int k = i - 1; k >= 0; --k)
-                    writeValue(m_layer, m_category, m_names[k], m_key, restore[k], false);
-                return false;
+        if (!value.convert(before.value(key).metaType()))
+            return fail(tr("Invalid value for %1.").arg(f.spec.label));
+        if (f.spec.editor == EditorKind::Numeric || f.spec.editor == EditorKind::Integer) {
+            bool ok = false;
+            const double number = input.toDouble(&ok);
+            if (!ok || !std::isfinite(number) || number < f.spec.minValue ||
+                number > f.spec.maxValue)
+                return fail(tr("%1 is outside its valid range.").arg(f.spec.label));
+        }
+        if (f.spec.editor == EditorKind::Enum) {
+            bool known = false;
+            for (const auto &choice : f.spec.enumValues)
+                if (choice.toList().value(1) == value)
+                    known = true;
+            if (!known ||
+                (value.metaType().id() == QMetaType::Int && input.toDouble() != value.toInt()))
+                return fail(tr("Choose a current %1 value.").arg(f.spec.label));
+        }
+        after = before;
+        after[key] = value;
+        if (referenceCategory(key) != DC::NumDataCategories &&
+            !referenceValid(layer->engine(), key, value.toString()))
+            return fail(tr("The referenced definition is missing or has an incompatible type."));
+        if (cat == DC::DataInlets) {
+            if (key == "curveId" && !value.toString().isEmpty()) {
+                if (value.toString().toUtf8().size() >= 64)
+                    return fail(tr("The native capture-curve name is too long."));
+                after["type"] = SWMM_INLET_CUSTOM;
+                after["curveKind"] =
+                    referenceType(layer->engine(), DC::DataCurves, value.toString()) == 2
+                        ? SWMM_INLET_CURVE_DIVERSION
+                        : SWMM_INLET_CURVE_RATING;
             }
+            const auto draft = inletDesign(after);
+            SWMM_InletDesign normalized{};
+            if (swmm_inlet_validate_design(layer->engine(), &draft, &normalized) != SWMM_OK)
+                return fail(
+                    tr("%1 needs a complete valid inlet design. Configure its required dimensions or capture curve in the inlet editor first.")
+                        .arg(nameOf(provider, cat)));
+            after = inletValues(normalized);
         }
-        auto *registry = registryFor(m_layer, m_category);
-        for (const auto &name : m_names) {
-            notifyProvider(registry, m_category, findProvider(registry, m_category, name));
-            emit m_layer->attributeChanged(name);
-        }
-        m_layer->markEdited();
         return true;
     }
+    return fail(tr("The field is read-only or no longer available."));
+}
+struct TargetEdit {
+    QPointer<QObject> provider;
+    QVariantMap before, after;
+};
+struct Reference {
+    DC::DataCategory category;
+    QPointer<QObject> provider;
+    QString original;
+    int type;
+};
+class DataObjectBatchCommand final : public QUndoCommand
+{
+public:
+    DataObjectBatchCommand(SWMMModelLayer *layer, DC::DataCategory category, QString key,
+                           QVector<TargetEdit> targets)
+        : layer(layer), engine(layer->engine()), category(category), key(std::move(key)),
+          targets(std::move(targets)), units(metric(layer))
+    {
+        setText(tr("Edit %1 on %2 data objects").arg(this->key).arg(this->targets.size()));
+        QObject::connect(layer, &SWMMModelLayer::engineAboutToClose, &context,
+                         [this] { valid = false; });
+        for (const auto &target : this->targets) {
+            QObject::connect(target.provider, &QObject::destroyed, &context,
+                             [this] { valid = false; });
+            for (const auto &record : {target.before, target.after})
+                for (auto it = record.cbegin(); it != record.cend(); ++it) {
+                    if (referenceCategory(it.key()) == DC::NumDataCategories ||
+                        it.value().toString().isEmpty())
+                        continue;
+                    if (!fullRecord() && it.key() != this->key)
+                        continue;
+                    const auto cat = referenceCategory(it.key());
+                    auto *p = findProvider(registryFor(layer, cat), cat, it.value().toString());
+                    if (!p || !referenceValid(engine, it.key(), it.value().toString())) {
+                        valid = false;
+                        continue;
+                    }
+                    references.append({cat, p, it.value().toString(),
+                                       referenceType(engine, cat, it.value().toString())});
+                    QObject::connect(p, &QObject::destroyed, &context, [this] { valid = false; });
+                }
+        }
+        QObject::connect(layer, &SWMMModelLayer::dataObjectsChanged, &context, [this] {
+            if (!valid || !this->layer || this->layer->engine() != engine)
+                return;
+            for (const auto &t : this->targets)
+                if (!t.provider ||
+                    nativeIndex(engine, this->category, nameOf(t.provider, this->category)) < 0)
+                    valid = false;
+        });
+    }
+    bool fullRecord() const
+    {
+        return category == DC::DataInlets && (key == "type" || key == "curveId");
+    }
+    QVariantMap resolveReferences(QVariantMap record) const
+    {
+        for (auto it = record.begin(); it != record.end(); ++it) {
+            const auto original = it.value().toString();
+            for (const auto &ref : references)
+                if (referenceCategory(it.key()) == ref.category && original == ref.original) {
+                    it.value() = nameOf(ref.provider, ref.category);
+                    break;
+                }
+        }
+        return record;
+    }
+    bool commit(bool forward)
+    {
+        if (!valid || !layer || layer->engine() != engine || !editable(layer) ||
+            metric(layer) != units)
+            return false;
+        for (const auto &r : references)
+            if (!r.provider ||
+                referenceType(engine, r.category, nameOf(r.provider, r.category)) != r.type)
+                return false;
+        QList<QVariantMap> previous, next;
+        for (const auto &target : targets) {
+            const auto current = readRecord(layer, category, target.provider);
+            const auto expected = resolveReferences(forward ? target.before : target.after);
+            const auto desired = resolveReferences(forward ? target.after : target.before);
+            if (current.isEmpty() ||
+                (fullRecord() ? current != expected : current.value(key) != expected.value(key)))
+                return false;
+            if (!fullRecord() && ((category == DC::DataPollutants &&
+                                   current.value("units") != expected.value("units")) ||
+                                  (category == DC::DataInlets &&
+                                   (current.value("type") != expected.value("type") ||
+                                    ((key == "openArea" || key == "splashVeloc") &&
+                                     current.value("grateType") != expected.value("grateType"))))))
+                return false;
+            auto updated = fullRecord() ? desired : current;
+            if (!fullRecord())
+                updated[key] = desired[key];
+            previous << current;
+            next << updated;
+        }
+        int attempted = 0;
+        for (; attempted < targets.size(); ++attempted)
+            if (!writeRecord(layer, category, targets[attempted].provider, next[attempted]))
+                break;
+        if (attempted != targets.size()) {
+            for (int i = attempted; i >= 0; --i)
+                writeRecord(layer, category, targets[i].provider, previous[i]);
+            return false;
+        }
+        {
+            const QSignalBlocker dirtyBridge(layer);
+            for (const auto &target : targets)
+                notifyProvider(registryFor(layer, category), category, target.provider);
+        }
+        for (const auto &target : targets)
+            emit layer->attributeChanged(nameOf(target.provider, category));
+        layer->markEdited();
+        return true;
+    }
+    void redo() override
+    {
+        if (first)
+            first = false;
+        else if (!commit(true))
+            setObsolete(true);
+    }
+    void undo() override
+    {
+        if (!commit(false))
+            setObsolete(true);
+    }
 
 private:
-    bool m_first = true;
-    QPointer<SWMMModelLayer> m_layer;
-    DC::DataCategory m_category;
-    QString m_key;
-    QStringList m_names;
-    QList<QVariant> m_old, m_new;
+    QObject context;
+    QPointer<SWMMModelLayer> layer;
+    SWMM_Engine engine;
+    DC::DataCategory category;
+    QString key;
+    QVector<TargetEdit> targets;
+    QVector<Reference> references;
+    bool units, valid = true, first = true;
 };
+
+bool applyDataObjectValues(SWMMModelLayer *layer, DC::DataCategory category,
+                           const QStringList &names, const QString &key, const QVariant &value,
+                           QUndoStack *undo, QString *error, QStringList *changedNames)
+{
+    if (changedNames)
+        changedNames->clear();
+    auto fail = [&](const QString &text) {
+        if (error)
+            *error = text;
+        return false;
+    };
+    if (!editable(layer))
+        return fail(tr("The model is closed or initialized. Reopen the current selection."));
+    if (names.isEmpty())
+        return fail(tr("No data objects were captured."));
+    auto *registry = registryFor(layer, category);
+    if (!registry)
+        return fail(tr("This data category has no shared field writer."));
+    QSet<QObject *> seen;
+    QVector<TargetEdit> targets;
+    QSet<int> concentrationUnits;
+    const bool concentration =
+        category == DC::DataPollutants &&
+        QStringList{"rainConc", "gwConc", "rdiiConc", "initConc"}.contains(key);
+    for (const auto &name : names) {
+        auto *provider = findProvider(registry, category, name);
+        if (!provider)
+            return fail(tr("%1 is no longer available. No objects changed.").arg(name));
+        if (seen.contains(provider))
+            continue;
+        seen.insert(provider);
+        const auto before = readRecord(layer, category, provider);
+        if (before.isEmpty())
+            return fail(tr("%1 cannot be read from the current model.").arg(name));
+        if (concentration) {
+            concentrationUnits.insert(before.value("units").toInt());
+            if (concentrationUnits.size() > 1)
+                return fail(tr(
+                    "Concentration units differ. Choose pollutants with the same units before editing a concentration."));
+        }
+        // Refresh staged provider applicability without publishing a draft.
+        {
+            const QSignalBlocker p(provider), r(registry);
+            refreshFromEngine(registry, category, layer, nameOf(provider, category));
+        }
+        QVariantMap after;
+        if (!propose(layer, category, provider, key, value, before, after, error))
+            return false;
+        if (before != after)
+            targets.append({provider, before, after});
+    }
+    if (targets.isEmpty())
+        return true;
+    auto command = std::make_unique<DataObjectBatchCommand>(layer, category, key, targets);
+    if (!command->commit(true))
+        return fail(
+            tr("A selected record refused the edit or changed. Previous values were restored."));
+    if (changedNames)
+        for (const auto &target : targets)
+            changedNames->append(nameOf(target.provider, category));
+    if (undo)
+        undo->push(command.release());
+    return true;
+}
 
 } // anonymous namespace
 
@@ -914,10 +1177,17 @@ void DataObjectAttributeTableModel::setSource(SWMMModelLayer *layer,
 {
     if (m_registry)
         disconnect(m_registry, nullptr, this, nullptr);
+    if (m_layer) disconnect(m_layer, nullptr, this, nullptr);
     m_layer = supportsCategory(cat) ? layer : nullptr;
     m_category = cat;
     m_registry = registryFor(m_layer, cat);
     connectRegistry();
+    if (m_layer) {
+        connect(m_layer, &SWMMModelLayer::attributeChanged, this, &DataObjectAttributeTableModel::refreshObject);
+        connect(m_layer, &SWMMModelLayer::dataObjectsChanged, this, &DataObjectAttributeTableModel::reload, Qt::QueuedConnection);
+        connect(m_layer, &SWMMModelLayer::engineAboutToClose, this, [this] { setSource(nullptr, m_category); });
+        connect(m_layer, &SWMMModelLayer::optionsChanged, this, [this](const QStringList &keys) { if (keys.contains("FLOW_UNITS")) emit headerDataChanged(Qt::Horizontal, 0, columnCount()-1); });
+    }
     reload();
 }
 
@@ -968,7 +1238,7 @@ QString DataObjectAttributeTableModel::objectNameAt(int row) const
 int DataObjectAttributeTableModel::rowForName(const QString &name) const
 {
     for (int r = 0; r < m_rows.size(); ++r)
-        if (nameOf(m_rows[r].data(), m_category) == name)
+        if (nameOf(m_rows[r].data(), m_category).compare(name, Qt::CaseInsensitive) == 0)
             return r;
     return -1;
 }
@@ -978,7 +1248,33 @@ bool DataObjectAttributeTableModel::applyValue(SWMMModelLayer *layer,
                                                const QString &name, const QString &key,
                                                const QVariant &value)
 {
-    return writeValue(layer, cat, name, key, value, true);
+    return applyValues(layer, cat, {name}, key, value, nullptr);
+}
+
+bool DataObjectAttributeTableModel::applyValues(SWMMModelLayer *layer, DC::DataCategory category,
+                                                const QStringList &names, const QString &key,
+                                                const QVariant &value, QUndoStack *undo,
+                                                QString *error)
+{
+    return applyDataObjectValues(layer, category, names, key, value, undo, error, nullptr);
+}
+
+DC::DataCategory DataObjectAttributeTableModel::categoryForType(SWMMObjectRef::ObjectType type)
+{
+    switch (type) {
+    case SWMMObjectRef::Pollutant:
+        return DC::DataPollutants;
+    case SWMMObjectRef::LandUse:
+        return DC::DataLandUses;
+    case SWMMObjectRef::Aquifer:
+        return DC::DataAquifers;
+    case SWMMObjectRef::Street:
+        return DC::DataStreets;
+    case SWMMObjectRef::Inlet:
+        return DC::DataInlets;
+    default:
+        return DC::NumDataCategories;
+    }
 }
 
 void DataObjectAttributeTableModel::refreshObject(const QString &name)
@@ -1056,17 +1352,9 @@ bool DataObjectAttributeTableModel::cellApplies(int row, int col) const
     if (row < 0 || row >= m_rows.size() || col < 0 || col >= m_fields.size())
         return false;
     const Field &f = m_fields[col];
-    return !f.applies || f.applies(m_rows[row].data());
+    return m_rows[row] && (!f.applies || f.applies(m_rows[row].data()));
 }
 
-bool DataObjectAttributeTableModel::simulationRunning() const
-{
-    if (!m_layer || !m_layer->engine())
-        return false;
-    int state = 0;
-    return swmm_engine_get_state(m_layer->engine(), &state) == SWMM_OK &&
-           state == SWMM_STATE_RUNNING;
-}
 
 int DataObjectAttributeTableModel::rowCount(const QModelIndex &parent) const
 {
@@ -1106,7 +1394,10 @@ QVariant DataObjectAttributeTableModel::data(const QModelIndex &index, int role)
     case Qt::EditRole:
         return applies && f.get ? f.get(p) : QVariant();
     case Qt::ToolTipRole:
-        return applies ? QVariant() : QVariant(tr("Not used by this inlet design."));
+        if (f.spec.key == "Name") return tr("Unique identity. Rename an individual object in its dedicated editor.");
+        if (!f.set && m_category == DC::DataPollutants && f.spec.key == "units") return tr("Concentration units remain read-only here; changing them reinterprets existing concentrations.");
+        if (!f.spec.tooltip.isEmpty()) return f.spec.tooltip;
+        return applies ? QVariant() : QVariant(tr("Not used by this inlet design. Choose a compatible counted group."));
     case Qt::ForegroundRole:
         if (!applies)
             return QGuiApplication::palette().brush(QPalette::Disabled, QPalette::Text);
@@ -1121,62 +1412,34 @@ bool DataObjectAttributeTableModel::setData(const QModelIndex &index, const QVar
 {
     if (role != Qt::EditRole || !(flags(index) & Qt::ItemIsEditable))
         return false;
-    const QString name = objectNameAt(index.row());
-    refreshObject(name);
-    QObject *p = m_rows[index.row()].data();
-    const Field &f = m_fields[index.column()];
-    const QVariant oldVal = f.get(p);
-    QVariant newVal = value;
-    if (!newVal.convert(oldVal.metaType()))
-        return false;
-    if (newVal == oldVal)
-        return true;
-
-    if (!applyValue(m_layer, m_category, name, f.spec.key, newVal)) return false;
-    if (m_undoStack) {
-        m_undoStack->push(new DataObjectFieldEditCommand(m_layer, m_category, name, f.spec.key,
-                                                         oldVal, newVal, f.spec.label));
-    }
-    emit objectEdited(name);
-    return true;
+    return setDataForRows(index.column(), {index.row()}, value);
 }
 
-void DataObjectAttributeTableModel::setDataForRows(int column, const QList<int> &rows,
-                                                  const QVariant &value)
+bool DataObjectAttributeTableModel::setDataForRows(int column, const QList<int> &rows,
+                                                   const QVariant &value, QString *error)
 {
     if (column < 0 || column >= m_fields.size())
-        return;
-    const auto &field = m_fields[column];
+        return false;
     QStringList names;
-    QList<QVariant> oldValues, newValues;
     for (int row : rows) {
-        const auto cell = index(row, column);
-        if (!(flags(cell) & Qt::ItemIsEditable))
-            continue;
-        refreshObject(objectNameAt(row));
-        const auto oldValue = field.get(m_rows[row].data());
-        auto newValue = value;
-        if (!newValue.convert(oldValue.metaType()) || newValue == oldValue)
-            continue;
-        names.append(objectNameAt(row));
-        oldValues.append(oldValue);
-        newValues.append(newValue);
+        if (row < 0 || row >= rowCount() || !(flags(index(row, column)) & Qt::ItemIsEditable)) {
+            if (error)
+                *error = tr(
+                    "The field is unavailable for at least one selected row. Choose a compatible group.");
+            return false;
+        }
+        names << objectNameAt(row);
     }
-    if (names.isEmpty())
-        return;
-    auto *command = new DataObjectBulkFieldEditCommand(m_layer, m_category, field.spec.key,
-                                                      names, oldValues, newValues,
-                                                      field.spec.label);
-    if (!command->commit(true)) {
-        delete command;
-        return;
-    }
-    if (m_undoStack)
-        m_undoStack->push(command);
-    else
-        delete command;
-    for (const auto &name : names)
+    QStringList changedNames;
+    if (!applyDataObjectValues(m_layer, m_category, names, m_fields[column].spec.key, value,
+                               m_undoStack, error, &changedNames))
+        return false;
+    // Retain the table's edit hook. The writer already published one dirty
+    // update; forwarding listeners must not publish a duplicate through the layer.
+    const QSignalBlocker dirtyBridge(m_layer);
+    for (const auto &name : changedNames)
         emit objectEdited(name);
+    return true;
 }
 
 Qt::ItemFlags DataObjectAttributeTableModel::flags(const QModelIndex &index) const
@@ -1186,7 +1449,7 @@ Qt::ItemFlags DataObjectAttributeTableModel::flags(const QModelIndex &index) con
         return fl;
     const Field &f = m_fields[index.column()];
     if (!f.set || !cellApplies(index.row(), index.column()) || !m_rows[index.row()] ||
-        simulationRunning())
+        !editable(m_layer))
         return fl;
     return fl | Qt::ItemIsEditable;
 }
@@ -1196,7 +1459,7 @@ QVariant DataObjectAttributeTableModel::headerData(int section, Qt::Orientation 
 {
     if (orientation == Qt::Horizontal && section >= 0 && section < m_fields.size()) {
         const ColumnSpec &spec = m_fields[section].spec;
-        const QString u = unitLabel(spec.unit);
+        const QString u = unitLabel(spec.unit, m_layer);
         if (role == Qt::ToolTipRole)
             return u.isEmpty() ? QVariant() : QVariant(tr("Units: %1").arg(u));
         if (role == Qt::DisplayRole)

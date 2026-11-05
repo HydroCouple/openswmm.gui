@@ -238,10 +238,13 @@ void TestAquiferEditorDialog::addAndRenameThroughDialog()
     const QString suggested = dlg.currentProvider()->name();
     QVERIFY(suggested.startsWith(QStringLiteral("Aquifer")));
     QCOMPARE(dlg.nameEdit()->text(), suggested);
-    // New aquifer → nothing in the engine until saveToEngine.
-    QCOMPARE(swmm_aquifer_index(fx.engine, suggested.toUtf8().constData()), -1);
+    // Creation publishes the identity immediately so reference pickers can
+    // select it. Saving parameters must retain that identity without duplication.
+    const int created = swmm_aquifer_index(fx.engine, suggested.toUtf8().constData());
+    QVERIFY(created >= 0);
+    QCOMPARE(swmm_aquifer_count(fx.engine), 3);
     reg.saveToEngine(fx.engine);
-    QVERIFY(swmm_aquifer_index(fx.engine, suggested.toUtf8().constData()) >= 0);
+    QCOMPARE(swmm_aquifer_index(fx.engine, suggested.toUtf8().constData()), created);
 
     // Rename via the name field; the registry renames engine-side too.
     dlg.nameEdit()->setText(QStringLiteral("AQ_NEW"));

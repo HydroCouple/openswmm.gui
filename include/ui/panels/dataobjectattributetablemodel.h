@@ -124,7 +124,7 @@ public:
     [[nodiscard]] QString objectNameAt(int row) const;
 
     /*! Row of the object named \p name, or -1.
-     * @param[in] name Exact case-sensitive name; no trim/canonicalization.
+     * @param[in] name Case-insensitive engine identity; no trimming.
      * @return First matching provider row or -1; deleted providers name as empty, so empty lookup
      *   can match a stale guarded row before queued reset. No sorting/proxy mapping.
      */
@@ -140,6 +140,19 @@ public:
      */
     static bool applyValue(SWMMModelLayer *layer, SWMMModelLayer::DataCategory cat,
                            const QString &name, const QString &key, const QVariant &value);
+    /** Preflight every captured target, commit and verify the batch, then publish
+     *  provider/layer notifications and one dirty change. A changed batch adds one
+     *  Undo command; no-op/refused batches preserve history. Failure rolls back
+     *  attempted records. Replay follows typed provider identities through renames,
+     *  preserves independent scalar fields and rejects stale or closed contexts.
+     */
+    static bool applyValues(SWMMModelLayer *layer, SWMMModelLayer::DataCategory cat,
+                            const QStringList &names, const QString &key, const QVariant &value,
+                            QUndoStack *undo, QString *error = nullptr);
+    static SWMMModelLayer::DataCategory categoryForType(SWMMObjectRef::ObjectType type);
+    int rowForProvider(QObject *provider) const { return m_providerRows.value(provider, -1); }
+    QObject *providerAt(int row) const { return row >= 0 && row < m_rows.size() ? m_rows[row].data() : nullptr; }
+
 
     // QAbstractTableModel ----------------------------------------------------
     /**
@@ -169,20 +182,17 @@ public:
      */
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     /** Commit an editable field before adding its undo command. Rejected edits
-     *  preserve history; objectEdited is emitted only after a successful change.
+     *  preserve history; accepted changes publish through the source layer.
      *  Unchanged converted values return true without adding history.
      */
     bool setData(const QModelIndex &index, const QVariant &value, int role = Qt::EditRole) override;
     /** Apply a uniform value to editable rows as one checked, reversible undo command. */
-    void setDataForRows(int column, const QList<int> &rows, const QVariant &value);
+    bool setDataForRows(int column, const QList<int> &rows, const QVariant &value, QString *error = nullptr);
     /**
      * @param[in] index Expected current model index; invalid returns base flags. Foreign/stale
      *   indexes not supported.
-     * @return Base flags plus editable only for setter-backed applicable live provider and engine
-     *   not reported RUNNING. Engine query failure/missing engine is treated not running.
-     * @note Applicability may dereference provider before later QPointer null test, so host must
-     *   complete queued structural reload before querying a deleted inlet provider row. Does not
-     *   check editor min/max or mutate selection.
+     * @return Base flags plus editable only for a setter-backed applicable live provider and
+     *   an engine in BUILDING/OPENED state. Does not check editor bounds or mutate selection.
      */
     Qt::ItemFlags flags(const QModelIndex &index) const override;
     /**
@@ -192,9 +202,8 @@ public:
      *   numbering only.
      * @param[in] role Horizontal DisplayRole appends unit suffix; ToolTipRole gives Units text only
      *   when suffix exists; other roles invalid.
-     * @return Current global UnitSystem label, default US ft/ft/s/in/in/hr when singleton absent;
-     *   percent always %. No model-value conversion, provider-unit verification or automatic
-     *   header-change subscription.
+     * @return Source-project input-unit label, US fallback without an engine; percent always %.
+     *   No model-value conversion. FLOW_UNITS changes notify the headers.
      */
     QVariant headerData(int section, Qt::Orientation orientation,
                         int role = Qt::DisplayRole) const override;
@@ -212,13 +221,9 @@ public slots:
     void reload();
 
 signals:
-    /*! Emitted after a user-initiated cell edit commits — the same convention
-     *  `SWMMAttributeTableModel::objectEdited` follows.
-     * @param[in] name Exact provider name captured before changed cell edit attempt; borrowed
-     *   signal value, no immutable provider identity.
-     * @note Emitted by setData after command push/direct apply, even if underlying setter or engine
-     *   save fails silently; not emitted for equality, applyValue called externally, undo or redo.
-     *   Receiver determines project dirty/refresh handling.
+    /*! One notification per changed provider after a committed table edit.
+     *  The writer already published the dirty update; this is a view hook only.
+     *  Undo/Redo publish authoritative provider/layer notifications directly.
      */
     void objectEdited(const QString &name);
 
@@ -254,16 +259,9 @@ private:
      * @param[in] row Zero-based cached row; out-of-range false.
      * @param[in] col Zero-based cached field; out-of-range false.
      * @return True with no applicability callback, otherwise synchronous callback result for row
-     *   provider. Caller must preserve live correctly typed provider for callback; null QPointer
-     *   not independently rejected here. No flags/selection/source mutation.
+     *   provider. Deleted providers return false. No flags/selection/source mutation.
      */
     [[nodiscard]] bool cellApplies(int row, int col) const;
-    /**
-     * @return True only when live source engine get_state succeeds and state equals RUNNING;
-     *   missing context, error or every other state false. No simulation transition, lock or
-     *   guarantee state remains unchanged during following write.
-     */
-    [[nodiscard]] bool simulationRunning() const;
 
     QPointer<SWMMModelLayer> m_layer;
     QPointer<QObject> m_registry;

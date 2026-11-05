@@ -308,6 +308,25 @@ empty string values remain distinct from missing assignments. Blank text or
 them and Undo remains available afterward. Flag definitions stay in their global
 editor. Reopen a captured selection after changing definitions or process options.
 
+Pollutants, land uses, aquifers, streets and inlet designs also support immediate
+Properties edits. Select several objects in the Object Browser or attribute
+table, then choose their counted group in Properties. A committed field updates
+every object in that group with one Undo step. Untouched **Mixed** fields retain
+each object's value. The same checked writes serve single-object Properties and
+table cells, and use the source project's input units.
+
+Names remain individual identities; use the dedicated editor to rename one
+object. Existing pollutant units are read-only. Concentration fields require
+pollutants with common units; mixed selections offer counted unit groups.
+Aquifer evaporation patterns are limited to monthly patterns. Inlet fields show
+their type applicability, with counted type and Generic-grate subsets available.
+Choosing a compatible **Capture Curve** enters Custom mode and derives its curve
+type. Inlet type changes require a complete valid design; configure missing
+dimensions in the inlet editor first. A missing or incompatible target refuses
+the entire edit and displays the reason. Curves, model time series, patterns,
+LID controls, snowpacks, control rules, transects and hydrographs retain their
+individual editors while their bulk operations are reviewed.
+
 Drag the divider between column headers to change a width, including the last
 column. Double-click a divider to fit the column to its contents. Column widths
 are remembered per category (and per mesh element kind) across sessions, and

@@ -22,6 +22,8 @@
 
 #include <QObject>
 #include <QString>
+#include <QVariant>
+#include <functional>
 
 #include <openswmm/engine/openswmm_engine.h>
 
@@ -78,6 +80,8 @@ public:
      */
     [[nodiscard]] SWMMModelLayer *modelLayer() const { return m_layer; }
 
+    void setCommitHandler(std::function<bool(const QString &, const QVariant &)> handler) { m_commit = std::move(handler); }
+
 public slots:
     /*! Emits renameRequested(oldName, newName); the layer-side handler
      *  decides whether the rename can be applied (uniqueness check) and
@@ -120,6 +124,7 @@ signals:
     void displayLabelsChanged();
 
 protected:
+    std::function<bool(const QString &, const QVariant &)> m_commit;
     SWMM_Engine m_engine;
     QString m_name;
     SWMMModelLayer *m_layer = nullptr; ///< Bound via setModelLayer.
