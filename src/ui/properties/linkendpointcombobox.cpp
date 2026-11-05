@@ -9,6 +9,7 @@
 #include <QCompleter>
 #include <QLineEdit>
 #include <QSignalBlocker>
+#include <QScopedValueRollback>
 #include <QStringListModel>
 #include <algorithm>
 
@@ -36,7 +37,18 @@ LinkEndpointComboBox::LinkEndpointComboBox(QWidget *parent) : QComboBox(parent)
 void LinkEndpointComboBox::setValue(const LinkEndpointRef &ref)
 {
     const QSignalBlocker blocker(this);
+    // A commit can synchronously refresh this editor while QComboBox or
+    // QCompleter is still emitting a signal. Keep their indices alive during
+    // that re-entrant refresh. External refreshes rebuild the list: the
+    // opposite endpoint or the available nodes may have changed (e.g. undo).
+    const bool sameScope = ref.engine && ref.engine == m_ref.engine &&
+                           ref.linkName == m_ref.linkName && ref.upstream == m_ref.upstream &&
+                           ref.linkNames == m_ref.linkNames;
     m_ref = ref;
+    if (sameScope && m_committing) {
+        setEditText(ref.nodeName);
+        return;
+    }
     QStringList nodes;
     const int link =
         ref.engine ? swmm_link_index(ref.engine, ref.linkName.toUtf8().constData()) : -1;
@@ -53,7 +65,7 @@ void LinkEndpointComboBox::setValue(const LinkEndpointRef &ref)
                 nodes.append(QString::fromUtf8(swmm_node_id(ref.engine, node)));
         }
     }
-    // One model reset per editing session; the completer uses binary prefix
+    // The completer uses binary prefix
     // lookup instead of enumerating the engine's nodes on each keystroke.
     std::sort(nodes.begin(), nodes.end(), [](const QString &a, const QString &b) {
         return a.compare(b, Qt::CaseInsensitive) < 0;
@@ -83,6 +95,8 @@ void LinkEndpointComboBox::finishEditing()
     const bool changed = next.nodeName != m_ref.nodeName;
     m_ref = next;
     setEditText(m_ref.nodeName);
-    if (changed)
+    if (changed) {
+        const QScopedValueRollback<bool> committing(m_committing, true);
         emit valueChanged();
+    }
 }

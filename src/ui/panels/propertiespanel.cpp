@@ -1868,6 +1868,9 @@ void PropertiesPanel::showIdentifyResults(const QList<IdentifyResult> &results)
 {
     releaseMeshProperties();
     m_lastResults = results;
+    // Populate once, then bind explicitly below. addItem() otherwise emits
+    // currentIndexChanged for the first item and creates a duplicate adapter.
+    const QSignalBlocker blocker(m_layerCombo);
     m_layerCombo->clear();
     // 2026-05-29 — identify results route to spatial / SWMM-feature
     // adapters, never to the non-spatial data-object surface; hide the
@@ -2248,9 +2251,9 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
                             setRowEditable(pm, a, QString::fromLatin1(r.first), r.second);
                 };
                 connect(a, &SWMMNodePropertyAdapter::changed, pm, applyCouplingRowFlags);
-                connect(m_swmmLayer, &SWMMModelLayer::attributeChanged, pm,
-                        [a, applyCouplingRowFlags](const QString &name) {
-                            if (a->name() == name)
+                connect(m_swmmLayer, &SWMMModelLayer::attributeChanged, a,
+                        [this, a, applyCouplingRowFlags](const QString &name) {
+                            if (m_nodeAdapter == a && a->name() == name)
                                 applyCouplingRowFlags();
                         });
                 applyCouplingRowFlags();
@@ -2270,9 +2273,9 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
                     setRowEditable(pm, structureAdapter, "lidBottomOwnership", assigned);
                 };
                 connect(structureAdapter, &SWMMNodePropertyAdapter::changed, pm, flags);
-                connect(m_swmmLayer, &SWMMModelLayer::attributeChanged, pm,
-                        [structureAdapter, flags](const QString &name) {
-                            if (structureAdapter->name() == name)
+                connect(m_swmmLayer, &SWMMModelLayer::attributeChanged, structureAdapter,
+                        [this, structureAdapter, flags](const QString &name) {
+                            if (m_nodeAdapter == structureAdapter && structureAdapter->name() == name)
                                 flags();
                         });
                 flags();

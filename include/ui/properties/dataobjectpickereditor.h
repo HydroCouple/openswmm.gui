@@ -89,6 +89,9 @@ private:
      * @details Uses the bound layer/engine to enumerate kind/type-filtered IDs; keeps assigned pump/rating curves visible even when their current type is incompatible. Blocks combo signals while replacing items.
      */
     void repopulate();
+    /*! Combo label for `m_ref.currentName` — the bare id, or the
+     *  "Node: …" / "Subcatchment: …" form the SubcatchOutlet list uses. */
+    [[nodiscard]] QString selectedLabel() const;
 
     DataObjectRef m_ref;
     LabeledPickerCombo *m_combo = nullptr;
@@ -96,6 +99,7 @@ private:
      *  combo text programmatically, `currentTextChanged` fires — we
      *  bail in that case so the model doesn't see a phantom user edit. */
     bool m_suppressTextChange = false;
+    bool m_committing = false;
 };
 
 #endif // DATAOBJECTPICKEREDITOR_H
