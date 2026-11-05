@@ -2,6 +2,11 @@
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
 #include "lid/lidcontrolregistry.h"
+#include "pollutant/pollutantregistry.h"
+#include <openswmm/engine/openswmm_pollutants.h>
+#include <openswmm/engine/openswmm_reactions.h>
+#include <QListWidget>
+#include <QPushButton>
 #include "snowpack/snowpackregistry.h"
 #include "ui/dialogs/lidcontroleditordialog.h"
 #include "ui/dialogs/snowpackeditordialog.h"
@@ -35,7 +40,7 @@ const QStringList lidKeys[]{
     {"paveThick", "paveVoidRatio", "paveImpervious", "paveKsat", "paveClogFactor", "paveRegenDays"},
     {"matThick", "matVoidFrac", "matRoughness"}};
 QString snowKey(int i) { return QString("snow/%1").arg(i); }
-QString folder() { return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA")).absoluteFilePath("../../../workplans/bulk-lid-snowpack/review"); }
+QString folder() { return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA")).absoluteFilePath("../../../workplans/bulk-lid-completion/review"); }
 QStringList targets(const QString &prefix) { return {prefix + "_A", prefix + "_B", prefix + "_C"}; }
 std::unique_ptr<DC> fixture(bool si = false)
 {
@@ -119,7 +124,11 @@ QVariantMap state(DC *layer, DC::DataCategory cat, const QString &name)
         if (cat == DC::DataSnowpacks && key.startsWith("snow/"))
             value = static_cast<openswmmvis::snowpack::SnowpackProvider *>(model.providerAt(row))->param(key.mid(5).toInt());
         if (cat == DC::DataLIDControls && !value.isValid()) continue;
-        result[key] = value;
+        auto stableKey = key;
+        if (cat == DC::DataLIDControls)
+            if (auto *reg = qobject_cast<openswmmvis::pollutant::PollutantRegistry *>(layer->ensurePollutantRegistry()))
+                for (auto *p : reg->providers()) stableKey.replace(QString::number(reinterpret_cast<quintptr>(p), 16), p->name());
+        result[stableKey] = value;
     }
     return result;
 }
@@ -165,6 +174,9 @@ private slots:
                     QTest::newRow(qPrintable(QString("lid-%1-%2").arg(key).arg(si)))
                         << int(DC::DataLIDControls) << QString(group == 4 ? "PP" : group == 5 ? "GR" : "BC") << key << QVariant(value) << si;
                 }
+            for (const auto &key : QStringList{"surfVegetation", "surfSideSlope", "soilSuction", "storClogging", "drainDelay", "drainOpen", "drainClose"})
+                QTest::newRow(qPrintable(QString("lid-extra-%1-%2").arg(key).arg(si)))
+                    << int(DC::DataLIDControls) << QString("BC") << key << QVariant(key == "surfVegetation" ? .4 : 1.25) << si;
             for (int i = 0; i < 32; ++i) {
                 double value = .025;
                 if (i < 21) value = i % 7 == 0 ? .015 : i % 7 == 1 ? .15 : i % 7 == 2 ? -1.25 : i % 7 == 3 ? .25 : i == 6 ? .5 : 2.25;
@@ -202,10 +214,10 @@ private slots:
             for (auto it = hidden.cbegin(); it != hidden.cend(); ++it) {
                 auto expected = it.value();
                 int position = -1;
-                if (it.key() == "SURFACE") position = QStringList{"surfStorage", "", "surfRoughness", "surfSlope"}.indexOf(key);
-                if (it.key() == "SOIL") position = lidKeys[1].indexOf(key);
-                if (it.key() == "STORAGE") position = lidKeys[2].indexOf(key);
-                if (it.key() == "DRAIN") position = lidKeys[3].indexOf(key);
+                if (it.key() == "SURFACE") position = QStringList{"surfStorage", "surfVegetation", "surfRoughness", "surfSlope", "surfSideSlope"}.indexOf(key);
+                if (it.key() == "SOIL") position = (lidKeys[1] + QStringList{"soilSuction"}).indexOf(key);
+                if (it.key() == "STORAGE") position = (lidKeys[2] + QStringList{"storClogging"}).indexOf(key);
+                if (it.key() == "DRAIN") position = (lidKeys[3] + QStringList{"drainDelay", "drainOpen", "drainClose"}).indexOf(key);
                 if (it.key() == "PAVEMENT") position = lidKeys[4].indexOf(key);
                 if (it.key() == "DRAINMAT") position = lidKeys[5].indexOf(key);
                 if (position >= 0) expected[position] = afterRows[it.key()].value(position);
@@ -220,6 +232,196 @@ private slots:
         DC reopened(path); QList<QString> warnings, errors; QVERIFY2(reopened.loadModel(warnings, errors), qPrintable(errors.join(' ')));
         for (const auto &id : ids) QCOMPARE(state(&reopened, cat, id), state(layer.get(), cat, id));
         QCOMPARE(state(&reopened, cat, prefix + "_Control"), control);
+    }
+    void nodeFields_data()
+    {
+        QTest::addColumn<QString>("key"); QTest::addColumn<QVariant>("value"); QTest::addColumn<bool>("si");
+        for (bool si : {false, true}) {
+            for (int kind = 0; kind < 4; ++kind) {
+                const int count[]{2,7,3,2};
+                for (int i = 0; i < count[kind]; ++i) {
+                    const QString key = QString("node/%1/1/p/%2").arg(kind).arg(i);
+                    const double v = kind == 0 && i == 1 ? .3 : kind == 1 && i == 1 ? .6 : kind == 1 && i == 2 ? .3 : kind == 1 && i == 3 ? .06 : kind == 2 && i == 1 ? .55 : .8;
+                    QTest::newRow(qPrintable(key + QString::number(si))) << key << QVariant(v) << si;
+                }
+                if (kind == 1 || kind == 2) {
+                    const double values[]{.03,1.25,1.8,.6,.0002};
+                    for (int i = 0; i < 5; ++i) {
+                        const auto key = QString("node/%1/1/r/%2").arg(kind).arg(i);
+                        QTest::newRow(qPrintable(key + QString::number(si))) << key << QVariant(values[i]) << si;
+                    }
+                }
+            }
+            const QList<QPair<QString,QVariant>> other{{"flowModel",0}, {"flowCells",12}, {"flowAtol",2.e-7}, {"flowRtol",2.e-5}, {"flowMaxStep",20.},
+                {"node/1/1/t/TSS/present",0}, {"node/1/1/t/TSS/removal",35.}, {"node/1/1/t/TSS/decay",1.25}, {"node/1/1/t/TSS/expression","R = 0.35"}};
+            for (const auto &field : other)
+                QTest::newRow(qPrintable(field.first + QString::number(si))) << field.first << field.second << si;
+        }
+    }
+    void nodeFields()
+    {
+        QFETCH(QString,key); QFETCH(QVariant,value); QFETCH(bool,si);
+        auto layer = fixture(si); QVERIFY(layer); const auto ids = targets("NODE");
+        auto *polls = qobject_cast<openswmmvis::pollutant::PollutantRegistry *>(layer->ensurePollutantRegistry());
+        const auto token = QString::number(reinterpret_cast<quintptr>(polls->findByName("TSS")),16);
+        key.replace("/TSS/", "/" + token + "/"); const auto treatment = "node/1/1/t/" + token + "/";
+        for (const auto &id : ids) QVERIFY(Model::editLidProfile(layer.get(),id,"materials",0,0,nullptr));
+        QVERIFY(Model::applyValues(layer.get(),DC::DataLIDControls,ids,"flowModel",1,nullptr));
+        QVERIFY(Model::applyValues(layer.get(),DC::DataLIDControls,ids,treatment+"present",1,nullptr));
+        QList<QVariantMap> before; for (const auto &id : ids) before << Model::lidProfile(layer.get(),id);
+        const auto control = Model::lidProfile(layer.get(),"BC_Control");
+        QUndoStack undo; QSignalSpy dirty(layer.get(),&DC::modelEdited); QString error;
+        QVERIFY2(Model::applyValues(layer.get(),DC::DataLIDControls,ids,key,value,&undo,&error),qPrintable(error));
+        QCOMPARE(undo.count(),1); QCOMPARE(dirty.count(),1);
+        for (int i = 0; i < ids.size(); ++i) {
+            auto expected = before[i]; expected[key] = value;
+            if (key == "flowModel") { expected["flowCells"] = 8; expected["flowAtol"] = 1.e-7; expected["flowRtol"] = 1.e-5; expected["flowMaxStep"] = 30.; }
+            if (key.endsWith("/present")) { expected[treatment+"removal"] = 0.; expected[treatment+"decay"] = 0.; expected[treatment+"expression"] = QString(); }
+            QCOMPARE(Model::lidProfile(layer.get(),ids[i]),expected);
+        }
+        QCOMPARE(Model::lidProfile(layer.get(),"BC_Control"),control);
+        QVERIFY(Model::applyValues(layer.get(),DC::DataLIDControls,ids,key,value,&undo)); QCOMPARE(undo.count(),1);
+        undo.undo(); for (int i = 0; i < ids.size(); ++i) QCOMPARE(Model::lidProfile(layer.get(),ids[i]),before[i]);
+        undo.redo();
+        const auto path = QDir(folder()).filePath(QString("node-%1-%2.inp").arg(QString(key).replace('/','-')).arg(si));
+        QCOMPARE(swmm_model_write(layer->engine(),path.toUtf8()),SWMM_OK);
+        DC reopened(path); QList<QString>warnings,errors; QVERIFY2(reopened.loadModel(warnings,errors),qPrintable(errors.join(' ')));
+        for (const auto &id : ids) QCOMPARE(state(&reopened,DC::DataLIDControls,id),state(layer.get(),DC::DataLIDControls,id));
+    }
+    void nodeDependentReplayDefinitionsAndAssignedGeometry()
+    {
+        const auto path=QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA")).filePath("lid_treatment_editor.inp");
+        DC layer(path); QList<QString>warnings,errors; QVERIFY(layer.loadModel(warnings,errors));
+        MapCanvas canvas; layer.setEditCanvas(&canvas); QSignalSpy changed(&layer,&DC::attributeChanged);
+        SWMM_StorageLidState before{},after{}; QCOMPARE(swmm_storage_lid_get(layer.engine(),0,&before),SWMM_OK);
+        QString detail; QVERIFY2(Model::applyValues(&layer,DC::DataLIDControls,{"Stack"},"node/1/1/p/0",24.,canvas.undoStack(),&detail),qPrintable(detail));
+        QCOMPARE(swmm_storage_lid_get(layer.engine(),0,&after),SWMM_OK); QVERIFY(after.max_depth_ft>before.max_depth_ft);
+        QStringList names; for(const auto &args:changed) names<<args[0].toString(); QVERIFY(names.contains("S")); QVERIFY(names.contains("D")); QVERIFY(names.contains("Stack"));
+        canvas.undoStack()->undo(); QCOMPARE(swmm_storage_lid_get(layer.engine(),0,&after),SWMM_OK); QCOMPARE(after.max_depth_ft,before.max_depth_ft);
+        auto *polls=qobject_cast<openswmmvis::pollutant::PollutantRegistry *>(layer.ensurePollutantRegistry());
+        auto *poll=polls->findByName("TSS"); const auto prefix="node/1/1/t/"+QString::number(reinterpret_cast<quintptr>(poll),16)+"/";
+        const auto record=Model::lidProfile(&layer,"Stack");
+        QVERIFY(!Model::applyValues(&layer,DC::DataLIDControls,{"Stack"},prefix+"expression","R = undefined_token",canvas.undoStack()));
+        QVERIFY(!Model::applyValues(&layer,DC::DataLIDControls,{"Stack"},prefix+"expression","R = .2\nR = .4",canvas.undoStack()));
+        QCOMPARE(Model::lidProfile(&layer,"Stack"),record);
+        QVERIFY(Model::applyValues(&layer,DC::DataLIDControls,{"Stack"},prefix+"present",0,canvas.undoStack()));
+        QVERIFY(Model::applyValues(&layer,DC::DataLIDControls,{"Stack"},"node/1/1/p/6",4.,nullptr));
+        canvas.undoStack()->undo(); QCOMPARE(Model::lidProfile(&layer,"Stack")[prefix+"expression"],record[prefix+"expression"]);
+        QCOMPARE(Model::lidProfile(&layer,"Stack")["node/1/1/p/6"].toDouble(),4.);
+        DataObjectAggregateSelection scope(&layer,DC::DataLIDControls,{"Stack"},canvas.undoStack());
+        QVERIFY(scope.stage(column(*scope.source(),prefix+"removal"),25.));
+        QCOMPARE(swmm_pollutant_set_units(layer.engine(),0,1),SWMM_OK); QString error; QVERIFY(!scope.apply(&error));
+        QVERIFY(!scope.active());
+    }
+    void reactionRemovalDispositionAndStaleDefinitions()
+    {
+        auto layer=fixture(); QVERIFY(layer); auto e=layer->engine(); QUndoStack undo;
+        QCOMPARE(swmm_reaction_species_add(e,"Tracer",0,"mg/L",1.e-6,1.e-3),SWMM_OK);
+        QCOMPARE(swmm_reaction_species_add(e,"Wall",1,"mg/m2",1.e-6,1.e-3),SWMM_OK);
+        QCOMPARE(swmm_reaction_species_add(e,"TSS",0,"mg/L",1.e-6,1.e-3),SWMM_ERR_BADPARAM);
+        Model source; source.setSource(layer.get(),DC::DataLIDControls); const auto row=source.rowForName("BC_A");
+        QVERIFY(source.index(row,column(source,"removal/s/Tracer")).flags()&Qt::ItemIsEditable);
+        QVERIFY(!(source.index(row,column(source,"removal/s/Wall")).flags()&Qt::ItemIsEditable));
+        QVERIFY(Model::applyValues(layer.get(),DC::DataLIDControls,targets("BC"),"removal/s/Tracer",30.,&undo));
+        double value=-1; QCOMPARE(swmm_lid_get_removal(e,swmm_lid_index(e,"BC_A"),swmm_pollutant_count(e),&value),SWMM_OK); QCOMPARE(value,30.);
+        // Adding a new definition invalidates historical catalogue assumptions instead of redirecting a row.
+        QCOMPARE(swmm_reaction_species_add(e,"Later",0,"mg/L",1.e-6,1.e-3),SWMM_OK); undo.undo();
+        QCOMPARE(undo.count(),0); QCOMPARE(swmm_lid_get_removal(e,swmm_lid_index(e,"BC_A"),swmm_pollutant_count(e),&value),SWMM_OK); QCOMPARE(value,30.);
+    }
+    void occurrenceMatchingValidationAndSchemaGuards()
+    {
+        auto layer=fixture(); QVERIFY(layer); QUndoStack undo; const auto ids=targets("NODE"); QString error;
+        QVERIFY2(Model::editLidProfile(layer.get(),ids[0],"insert",2,1,nullptr,&error),qPrintable(error));
+        QVERIFY(Model::editLidProfile(layer.get(),ids[1],"insert",3,1,nullptr));
+        const auto before=Model::lidProfile(layer.get(),ids[0]);
+        QVERIFY(!Model::applyValues(layer.get(),DC::DataLIDControls,ids,"node/1/2/p/0",17.,&undo,&error));
+        QCOMPARE(Model::lidProfile(layer.get(),ids[0]),before); QCOMPARE(undo.count(),0);
+        QVERIFY(Model::applyValues(layer.get(),DC::DataLIDControls,ids.mid(0,2),"node/1/2/p/0",17.,&undo));
+        for(const auto &id:ids.mid(0,2)) QCOMPARE(Model::lidProfile(layer.get(),id)["node/1/2/p/0"].toDouble(),17.);
+        QCOMPARE(Model::lidProfile(layer.get(),ids[0])["node/1/1/p/0"],before["node/1/1/p/0"]);
+        DataObjectAggregateSelection scope(layer.get(),DC::DataLIDControls,ids.mid(0,2),&undo);
+        const int col=column(*scope.source(),"node/1/2/p/0"); QVERIFY(scope.stage(col,18.));
+        QVERIFY(Model::editLidProfile(layer.get(),ids[0],"up",2,0,nullptr));
+        QVERIFY(!scope.apply(&error)); QVERIFY(!scope.active());
+        const auto current=Model::lidProfile(layer.get(),ids[1]);
+        for(const auto &field:QList<QPair<QString,QVariant>>{{"node/1/1/p/1",.1},{"node/1/1/p/0",-1.},{"flowModel",1}})
+            QVERIFY(!Model::applyValues(layer.get(),DC::DataLIDControls,{ids[1]},field.first,field.second,&undo));
+        QCOMPARE(Model::lidProfile(layer.get(),ids[1]),current);
+        QUndoStack history;
+        const auto original=Model::lidProfile(layer.get(),ids[2]);
+        QVERIFY(Model::applyValues(layer.get(),DC::DataLIDControls,{ids[2]},"node/1/1/p/4",.123,&history));
+        QVERIFY(Model::editLidProfile(layer.get(),ids[2],"insert",2,1,&history));
+        history.undo(); history.undo(); QCOMPARE(Model::lidProfile(layer.get(),ids[2]),original);
+        history.redo(); history.redo(); QCOMPARE(Model::lidProfile(layer.get(),ids[2])["_kinds"].toList().size(),5);
+    }
+    void typeRemovalAndTypedPollutantReplay()
+    {
+        auto layer=fixture(); QVERIFY(layer); QUndoStack undo; const auto ids=targets("BC");
+        auto *polls=qobject_cast<openswmmvis::pollutant::PollutantRegistry *>(layer->ensurePollutantRegistry());
+        auto *p=polls->findByName("TSS"); const auto key="removal/p/"+QString::number(reinterpret_cast<quintptr>(p),16);
+        const auto before=Model::lidProfile(layer.get(),ids[0]);
+        QVERIFY(Model::applyValues(layer.get(),DC::DataLIDControls,ids,key,35.,&undo));
+        QVERIFY(polls->rename(p,"Solids")); undo.undo();
+        double removal=-1; QCOMPARE(swmm_lid_get_removal(layer->engine(),swmm_lid_index(layer->engine(),"BC_A"),swmm_pollutant_index(layer->engine(),"Solids"),&removal),SWMM_OK); QCOMPARE(removal,0.);
+        undo.redo(); QCOMPARE(Model::lidProfile(layer.get(),ids[0])[key].toDouble(),35.);
+        QVERIFY(Model::applyValues(layer.get(),DC::DataLIDControls,ids,"type",4,&undo));
+        auto expected=before; expected[key]=35.; expected["type"]=4;
+        QCOMPARE(Model::lidProfile(layer.get(),ids[0]),expected);
+        undo.undo(); QCOMPARE(Model::lidProfile(layer.get(),ids[0])["type"].toInt(),0);
+        const auto saved=QDir(folder()).filePath("renamed-removals.inp");
+        QCOMPARE(swmm_model_write(layer->engine(),saved.toUtf8()),SWMM_OK);
+        DC restored(saved); QList<QString>warnings,errors; QVERIFY(restored.loadModel(warnings,errors));
+        QCOMPARE(state(&restored,DC::DataLIDControls,ids[0]),state(layer.get(),DC::DataLIDControls,ids[0]));
+        polls->remove(p); QCoreApplication::sendPostedEvents(nullptr,QEvent::DeferredDelete);
+        auto *replacement=polls->create("Solids"); QVERIFY(replacement); undo.undo();
+        QCOMPARE(Model::lidProfile(layer.get(),ids[0])["type"].toInt(),0);
+        QVERIFY(undo.count()<2);
+        QUndoStack removalHistory;
+        QVERIFY(Model::applyValues(layer.get(),DC::DataLIDControls,{"BC_B"},"surfStorage",3.,&removalHistory));
+        auto *controls=qobject_cast<openswmmvis::lid::LidControlRegistry *>(layer->ensureLidControlRegistry());
+        DataObjectAggregateSelection held(layer.get(),DC::DataLIDControls,{"BC_B"},&removalHistory);
+        QVERIFY(held.stage(column(*held.source(),"surfStorage"),4.));
+        Model stale; stale.setSource(layer.get(),DC::DataLIDControls);
+        const auto staleCell=stale.index(stale.rowForName("BC_B"),column(stale,"surfStorage"));
+        controls->remove(controls->findByName("BC_B"));
+        QVERIFY(controls->create("BC_B")); QVERIFY(Model::initializeLidDesign(layer.get(),"BC_B"));
+        QVERIFY(Model::applyValues(layer.get(),DC::DataLIDControls,{"BC_B"},"surfStorage",3.,nullptr));
+        QVERIFY(!held.apply(nullptr)); QVERIFY(!held.active());
+        QVERIFY(!stale.setData(staleCell,4.));
+        // Deferred QObject destruction must not let old history target this reused native name.
+        removalHistory.undo(); QCOMPARE(removalHistory.count(),0);
+        QCOMPARE(Model::lidProfile(layer.get(),"BC_B")["surfStorage"].toDouble(),3.);
+    }
+    void immediateOwnedEditorStructureAndRendering()
+    {
+        auto layer=fixture(); QVERIFY(layer); MapCanvas canvas; layer->setEditCanvas(&canvas);
+        auto *reg=qobject_cast<openswmmvis::lid::LidControlRegistry *>(layer->ensureLidControlRegistry());
+        openswmmvis::ui::LidControlEditorDialog editor(reg,layer.get()); editor.openForLidControl("NODE_A"); QCoreApplication::processEvents();
+        for(auto *button:editor.findChildren<QPushButton *>()) QVERIFY(!button->text().contains("Apply"));
+        auto *layers=editor.findChild<QListWidget *>("lidLiveLayerOrder"); QVERIFY(layers); QCOMPARE(layers->count(),4);
+        auto *materials=editor.findChild<QPushButton *>("lidInitializeMaterials"); QVERIFY(materials); materials->click(); QCoreApplication::processEvents();
+        QCOMPARE(Model::lidProfile(layer.get(),"NODE_A")["node/1/1/r/1"].toDouble(),1.); QCOMPARE(canvas.undoStack()->count(),1);
+        auto *panel=editor.findChild<PropertiesPanel *>("lidLiveProperties"); QVERIFY(panel); auto *tree=panel->findChild<QTreeView *>(); QVERIFY(tree);
+        QVERIFY(tree->model()->setData(findProperty(tree->model(),"NODE Flow — Model"),1,Qt::EditRole));
+        QCoreApplication::processEvents();
+        QVERIFY(findProperty(tree->model(),"NODE Flow — Cells per Layer").isValid());
+        QVERIFY(!Model::applyValues(layer.get(),DC::DataLIDControls,{"NODE_A"},"flowCells",1.5,nullptr));
+        const auto physical=findProperty(tree->model(),"MEDIA 1 — Thickness"); QVERIFY(physical.isValid());
+        const auto image=editor.grab().toImage(); tree->scrollTo(physical); tree->edit(physical);
+        auto *spin=tree->findChild<QDoubleSpinBox *>(); QVERIFY(spin); spin->setFocus(); spin->selectAll();
+        QTest::keyClicks(spin,"15"); QTest::keyClick(spin,Qt::Key_Return);
+        QTRY_COMPARE(Model::lidProfile(layer.get(),"NODE_A")["node/1/1/p/0"].toDouble(),15.);
+        QCoreApplication::processEvents(); QVERIFY(editor.grab().toImage()!=image);
+        canvas.undoStack()->undo(); QCoreApplication::processEvents(); QCOMPARE(Model::lidProfile(layer.get(),"NODE_A")["node/1/1/p/0"].toDouble(),10.);
+        const auto beforeInsert=Model::lidProfile(layer.get(),"NODE_A");
+        QVERIFY(Model::editLidProfile(layer.get(),"NODE_A","insert",2,1,canvas.undoStack()));
+        QCOMPARE(Model::lidProfile(layer.get(),"NODE_A")["node/1/2/r/1"].toDouble(),1.);
+        canvas.undoStack()->undo(); QCOMPARE(Model::lidProfile(layer.get(),"NODE_A"),beforeInsert);
+        QCoreApplication::processEvents();
+        QVERIFY(editor.grab().save(QDir(folder()).filePath("immediate-lid-editor.png")));
+        const auto review=QDir(folder()).filePath("LID_Complete_Properties_Review.inp");
+        QCOMPARE(swmm_model_write(layer->engine(),review.toUtf8()),SWMM_OK);
+        editor.close(); QCOMPARE(Model::lidProfile(layer.get(),"NODE_A")["node/1/1/p/0"].toDouble(),10.);
     }
     void validationAndIndependentReplay()
     {
@@ -343,7 +545,8 @@ private slots:
         Model model; model.setSource(layer.get(), DC::DataLIDControls);
         const int nodeRow = model.rowForName("NODE_A");
         QCOMPARE(model.index(nodeRow, column(model, "nodeLayers")).data(Qt::EditRole).toInt(), 4);
-        for (int c = 0; c < model.columnCount(); ++c) QVERIFY(!(model.index(nodeRow, c).flags() & Qt::ItemIsEditable));
+        QVERIFY(!(model.index(nodeRow, column(model, "type")).flags() & Qt::ItemIsEditable));
+        QVERIFY(model.index(nodeRow, column(model, "node/1/1/p/0")).flags() & Qt::ItemIsEditable);
         QWidget host;
         QVERIFY(ComprehensiveEditorRegistry::instance().openForObject(DC::DataSnowpacks, layer.get(), canvas.undoStack(), "DD_A", &host));
         auto *editor = host.findChild<openswmmvis::ui::SnowpackEditorDialog *>(); QVERIFY(editor);

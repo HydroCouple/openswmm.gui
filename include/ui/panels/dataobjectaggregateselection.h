@@ -28,7 +28,7 @@ public:
     bool stage(int column, const QVariant &value);
     void discard();
     void invalidate() { m_valid = false; }
-    bool active() const { return m_valid && unresolvedCount() == 0; }
+    bool active() const { return schemaValid() && unresolvedCount() == 0; }
     bool apply(QString *error);
     static bool supports(const openswmmvis::ColumnSpec &) { return true; }
 signals:
@@ -40,7 +40,10 @@ private:
     QList<QPointer<QObject>> m_targets;
     QStringList m_originalNames;
     QMap<int, QVariant> m_staged;
+    QString m_stagedKey;
     QMap<int, QList<QVariant>> m_before;
     QPointer<QUndoStack> m_undo;
+    QList<QVariant> m_schemas;
+    bool schemaValid() const;
     bool m_valid = true;
 };

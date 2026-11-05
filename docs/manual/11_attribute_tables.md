@@ -884,6 +884,35 @@ These layers are how observed series reach the calibration and comparison
 plots — see \ref manual_time_series_plots.
 
 
+### LID complete designs and ordered layers
+
+Standard LID fields include vegetation, side slope, soil suction, storage clogging,
+and drain delay/opening/closing depths, plus underdrain removal percentages for
+ordinary pollutants and bulk reaction species. A standard control's type can
+change while unassigned; native assignment restrictions still apply. The retained
+drain-curve token is read-only because the engine does not yet evaluate that law.
+Wall species and species sharing a pollutant name have explicit read-only reasons.
+
+NODE layer labels identify the kind and its occurrence counted from the top, for
+example **MEDIA 2 — Thickness**. Bulk edits match that occurrence on every captured
+control, preserving its other layers. A missing occurrence refuses the whole edit.
+Physical values, complete Richards materials, flow options and per-layer pollutant
+treatment use the same immediate commit and Undo path as other properties.
+Treatment must be enabled before editing its rates or expression. Richards needs
+complete valid materials; switching to gravity resets inactive numerical settings
+and retains the material records.
+
+The project-owned LID editor commits fields immediately. **Close** dismisses it;
+**Undo** reverses a committed edit. Its single-control layer list provides explicit
+Insert, Remove, Up and Down actions, each validated against the complete stack and
+existing outlet anchors. **Initialize materials** replaces porous-layer materials
+with the defaults stated in its tooltip as one reversible action. Review these
+example values and the starter dimensions of newly created controls for the model.
+Inserting a porous layer under Richards gives that new layer the stated example
+material values while preserving existing layers' materials.
+Layer structure is never replaced implicitly across a bulk selection. Select the
+controls again after their layer order or constituent definitions change.
+
 ## Tips and gotchas
 
 - Selecting rows **replaces** the whole selection. Switching between two tables

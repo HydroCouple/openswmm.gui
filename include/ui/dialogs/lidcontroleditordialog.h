@@ -6,8 +6,8 @@
  * @brief     CRUD editor for SWMM LID controls ([LID_CONTROLS]).
  *
  * List pane and property tabs for standard LID controls, with an ordered
- * layer editor for NODE controls. Physical parameters and per-layer pollutant
- * rates/expressions share the current control selection and Apply workflow.
+ * layer editor for NODE controls. Project-owned edits commit immediately through
+ * the shared checked writer and Undo stack. Standalone callers retain a local draft.
  * Existing definitions are loaded through the registry's engine getters.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
@@ -19,6 +19,8 @@
 #include <QPointer>
 
 class QComboBox;
+class QListWidget;
+class PropertiesPanel;
 class QDoubleSpinBox;
 class QLineEdit;
 class QListView;
@@ -58,17 +60,13 @@ public:
     Q_ENUM(Mode)
 
     /**
-     * @brief Build a live standard-LID editor with a separate ordered NODE-layer draft.
-     * @param[in] registry Borrowed nullable registry guarded by QPointer; providers and cached
-     * engine remain registry-owned.
-     * @param[in] layer Borrowed optional model context guarded by QPointer, used for edited
-     * notification.
-     * @param[in] parent Optional Qt owner of the dialog and child controls/models.
-     * @details GUI-thread editor initially selects the first provider. Standard scalar/type/name
-     * changes affect providers immediately; ordered layers, retention, flow numerics and
-     * treatment rows remain a local draft until applyLayers_(). Caller keeps registry/engine
-     * context valid through operations and nested dialogs; no explicit engine-close invalidation
-     * is installed here.
+     * @brief Build the project-owned immediate editor, or a standalone draft without a layer.
+     * @param[in] registry Borrowed project/standalone registry guarded by QPointer.
+     * @param[in] layer Optional borrowed project. Its close invalidates the dialog.
+     * @param[in] parent Optional Qt owner.
+     * @details Project fields share Properties/table validation, notifications and canvas Undo.
+     * Ordered structure/material actions validate a complete profile before publication. Close
+     * only dismisses. With no project layer, legacy callers explicitly apply their local draft.
      */
     LidControlEditorDialog(openswmmvis::lid::LidControlRegistry *registry, SWMMModelLayer *layer,
                            QWidget *parent = nullptr);
@@ -141,13 +139,8 @@ public:
 
 protected:
     /**
-     * @brief Resolve a pending NODE draft before completing the dialog with the requested
-     * result.
-     * @param[in] result QDialog result passed unchanged to the base done() only if
-     * finishLayerDraft_() succeeds.
-     * @details Apply/Discard/Cancel prompting occurs even for a rejected result. Cancel or
-     * failed application leaves the dialog open; standard live provider edits are not rolled
-     * back.
+     * @brief Dismiss the project-owned editor; standalone callers first resolve a NODE draft.
+     * @param[in] result Result forwarded to QDialog. Project-owned accepted edits remain live.
      */
     void done(int result) override;
 
@@ -311,6 +304,12 @@ private:
      * following bind/close consumes them. Does not undo standard live edits.
      */
     bool finishLayerDraft_();
+    void buildLiveUi_();
+    void bindLiveProvider_(openswmmvis::lid::LidControlProvider *provider);
+    void refreshLivePreview_();
+    PropertiesPanel *m_liveProperties = nullptr;
+    QListWidget *m_liveLayers = nullptr;
+    QLabel *m_liveStatus = nullptr;
     bool m_layerDraftDirty = false;
 
     QPointer<openswmmvis::lid::LidControlRegistry> m_registry;

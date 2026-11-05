@@ -495,6 +495,11 @@ public:
     }
     bool setData(const QVariant &value, Qt::ItemDataRole role) override
     {
+        if constexpr (std::is_same_v<Selection, DataObjectAggregateSelection>) {
+            // A queued schema rebuild must never redirect an old editor to a new column.
+            const auto specs = m_selection->source()->columnSpecs();
+            if (m_column >= specs.size() || specs[m_column].key != m_spec.key) return false;
+        }
         return role == Qt::EditRole && m_selection->setValue(m_column, value);
     }
     Qt::ItemFlags flags() const override
@@ -630,20 +635,22 @@ public:
         : QVariantPropertyItem(value, property, parent)
     {
         auto *selection = value.value<DataObjectAggregateSelection *>();
-        auto *group = new MeshPropertyGroup(PropertiesPanel::tr("Shared attributes"), this);
-        m_children.append(group);
+        QMap<QString, MeshPropertyGroup *> groups;
         const auto specs = selection->source()->columnSpecs();
-        for (int column = 0; column < specs.size(); ++column)
-            if (DataObjectAggregateSelection::supports(specs[column])) {
-                if (selection->source()->category() == SWMMModelLayer::DataPatterns &&
-                    specs[column].key.startsWith("factor/")) {
-                    bool applies = false;
-                    for (int row : selection->rows())
-                        applies |= selection->source()->cellApplies(row, column);
-                    if (!applies) continue;
-                }
-                group->add(new DataAggregateFieldProperty(selection, column, specs[column], group));
+        for (int column = 0; column < specs.size(); ++column) {
+            if (!DataObjectAggregateSelection::supports(specs[column])) continue;
+            const bool lid = selection->source()->category() == SWMMModelLayer::DataLIDControls;
+            if (lid || (selection->source()->category() == SWMMModelLayer::DataPatterns && specs[column].key.startsWith("factor/"))) {
+                bool applies = false;
+                for (int row : selection->rows()) applies |= selection->source()->cellApplies(row, column);
+                if (!applies) continue;
             }
+            const auto name = lid && specs[column].label.contains(" — ")
+                ? specs[column].label.section(" — ", 0, 0) : PropertiesPanel::tr("Shared attributes");
+            auto *group = groups.value(name);
+            if (!group) { group = new MeshPropertyGroup(name, this); groups.insert(name, group); m_children.append(group); }
+            group->add(new DataAggregateFieldProperty(selection, column, specs[column], group));
+        }
     }
     bool hasChildren() override { return !m_children.isEmpty(); }
 };
@@ -844,8 +851,11 @@ void PropertiesPanel::setupUi()
 
     // Layer selector row
     auto *hlay = new QHBoxLayout;
-    hlay->addWidget(new QLabel(tr("Layer:"), central));
+    auto *layerLabel = new QLabel(tr("Layer:"), central);
+    layerLabel->setObjectName("propertiesLayerLabel");
+    hlay->addWidget(layerLabel);
     m_layerCombo = new QComboBox(central);
+    m_layerCombo->setObjectName("propertiesLayerSelector");
     hlay->addWidget(m_layerCombo, 1);
     vlay->addLayout(hlay);
     m_selectionScope = new QComboBox(central);
@@ -1184,6 +1194,17 @@ void PropertiesPanel::bindDataAggregate(SWMMModelLayer *layer, int category,
     m_treeView->expandAll();
     connect(aggregate, &DataObjectAggregateSelection::editFinished, this,
             &PropertiesPanel::showAggregateEditResult);
+    if (category == SWMMModelLayer::DataLIDControls)
+        connect(aggregate, &DataObjectAggregateSelection::stagedChanged, aggregate, [this, aggregate, pm] {
+            if (m_dataAggregate != aggregate) return;
+            pm->setData(QVariant::fromValue(aggregate));
+            m_treeView->expandAll();
+        }, Qt::QueuedConnection);
+    connect(aggregate->source(), &QAbstractItemModel::modelReset, aggregate, [this, aggregate, pm] {
+        if (m_dataAggregate != aggregate) return;
+        pm->setData(QVariant::fromValue(aggregate));
+        m_treeView->expandAll();
+    }, Qt::QueuedConnection);
     connect(aggregate, &DataObjectAggregateSelection::stagedChanged, this, [this, aggregate, pm] {
         if (m_dataAggregate == aggregate) {
             if (m_dataAdapter && m_dataObjectCategory == aggregate->source()->category() &&

@@ -10,6 +10,9 @@
  */
 
 #include "ui/dialogs/lidcontroleditordialog.h"
+#include "ui/panels/propertiespanel.h"
+#include <QTreeView>
+#include <QListWidget>
 #include "ui/widgets/treatmentexpressionedit.h"
 #include "lid/lidcontrolregistry.h"
 #include "layers/swmmmodellayer.h"
@@ -54,6 +57,16 @@ static int curvePixels(const QImage &image, const QColor &color)
                 ++count;
     return count;
 }
+static QModelIndex property(QAbstractItemModel *model, const QString &label, const QModelIndex &parent = {})
+{
+    for (int r=0; r<model->rowCount(parent); ++r) {
+        const auto index=model->index(r,0,parent);
+        if(index.data().toString()==label || index.data().toString().startsWith(label+" (")) return index.siblingAtColumn(1);
+        const auto child=property(model,label,index); if(child.isValid()) return child;
+    }
+    return {};
+}
+
 /**
  *
  * @brief Run the standalone LID layer/treatment/Richards editor integration and screenshot
@@ -246,38 +259,37 @@ int main(int argc, char **argv)
             LidControlEditorDialog::createNew(registry, &model));
         dialog->show();
         app.processEvents();
-        auto *type = dialog->findChild<QComboBox *>("lidControlType");
-        auto *depth = dialog->findChild<QDoubleSpinBox *>("lidSurfaceStorage");
-        check(type && depth, "Standard LID editor fields missing");
-        check(type->isEnabled() && depth->isEnabled(), "New LID fields are disabled");
+        auto *panel = dialog->findChild<PropertiesPanel *>("lidLiveProperties");
+        auto *tree = panel ? panel->findChild<QTreeView *>() : nullptr;
+        check(tree, "Immediate standard LID editor missing");
         const int standard = swmm_lid_index(model.engine(), "LID2");
         check(standard >= 0, "New LID missing from engine pickers");
         LidControlEditorDialog otherEditor(registry, &model);
         otherEditor.openForLidControl("LID2");
-        type->setCurrentText("Rain Barrel");
-        depth->setValue(1.75);
+        check(tree->model()->setData(property(tree->model(), "Surface — Storage Depth"), 1.75, Qt::EditRole), "Depth did not commit");
         app.processEvents();
-        const auto *otherType = otherEditor.findChild<QComboBox *>("lidControlType");
-        check(otherType && otherType->currentText() == "Rain Barrel",
+        check(tree->model()->setData(property(tree->model(), "LID Type"), 5, Qt::EditRole), "Type did not commit");
+        app.processEvents();
+        auto *otherTree = otherEditor.findChild<QTreeView *>();
+        check(otherTree && property(otherTree->model(), "LID Type").data().toString() == "Rain Barrel",
               "A second open editor did not follow the type change");
         int code = -1;
         check(swmm_lid_get_type(model.engine(), standard, &code) == SWMM_OK && code == 5,
               "Selecting Rain Barrel did not update the existing control");
-
         dialog->invokeNew();
-        type->setCurrentText("Storage Node (ordered layers)");
-        auto *layers = dialog->findChild<QTableView *>("lidNodeLayers");
-        check(layers && layers->model()->rowCount() == 4,
-              "Selecting the ordered type did not seed layers");
+        app.processEvents();
         auto *newLayered = dialog->findChild<QPushButton *>("newLayeredLid");
         check(newLayered, "New layered LID button missing");
         newLayered->click();
-        check(dialog->currentProvider()->name() == "LID4" && type->currentIndex() == 8,
-              "New layered LID was not selected");
-        check(swmm_lid_get_type(model.engine(), swmm_lid_index(model.engine(), "LID4"), &code) ==
-                      SWMM_OK &&
-                  code == 8,
+        app.processEvents();
+        auto *layers = dialog->findChild<QListWidget *>("lidLiveLayerOrder");
+        check(dialog->currentProvider()->name() == "LID4" && layers && layers->count() == 4,
+              "New layered LID was not selected with complete layers");
+        check(swmm_lid_get_type(model.engine(), swmm_lid_index(model.engine(), "LID4"), &code) == SWMM_OK && code == 8,
               "New layered LID was registered as a standard control");
+        for (auto *button : dialog->findChildren<QPushButton *>())
+            check(!button->text().contains("Apply"), "Project-owned editor retained an Apply button");
+        check(dialog->grab().save(artifacts.filePath("project-owned-immediate-editor.png")), "Immediate editor screenshot failed");
         model.flushDataObjectRegistries();
         check(swmm_model_write(model.engine(), saved.constData()) == SWMM_OK,
               "Could not save model");
@@ -293,7 +305,7 @@ int main(int argc, char **argv)
         const auto *standard = registry.findByName("LID2");
         check(standard && standard->type() == 5 && standard->surfStorage() == 1.75,
               "Edited type or surface depth changed on reopen");
-        for (const auto *name : {"LID3", "LID4"}) {
+        for (const auto *name : {"LID4"}) {
             const auto *node = registry.findByName(name);
             check(node && node->type() == 8 && node->nodeLayers().size() == 4,
                   "Ordered type or layer stack changed on reopen");
