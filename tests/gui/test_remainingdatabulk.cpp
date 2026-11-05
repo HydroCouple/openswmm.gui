@@ -32,6 +32,9 @@
 #include <QDoubleSpinBox>
 #include <QPlainTextEdit>
 #include <QDialog>
+#include <QPushButton>
+#include <QLineEdit>
+#include <QLabel>
 using DC = SWMMModelLayer;
 using Model = DataObjectAttributeTableModel;
 namespace
@@ -394,6 +397,189 @@ private slots:
         QVERIFY(!scope.editorData(3).isValid());
         const auto path = QDir(folder()).filePath("All_Object_Bulk_Review.inp");
         QCOMPARE(swmm_model_write(l->engine(), path.toUtf8()), SWMM_OK);
+    }
+    void acceptanceOptionalFeatureChoiceCanBeCleared()
+    {
+        using namespace openswmmvis::feature;
+        const auto gpkg = QDir(folder()).filePath("acceptance-choice.gpkg");
+        QFile::remove(gpkg);
+        Schema schema;
+        FieldDef choice;
+        choice.name = "choice";
+        choice.choiceSource = ChoiceSource::Fixed;
+        choice.choices = {{"a", "First"}, {"b", "Second"}};
+        schema.append(choice);
+        QString error;
+        auto *layer = FeatureLayer::create(gpkg, "Choices", GeometryType::Point, ZPolicy{}, schema,
+                                           QString(), FeatureLayerRole::General, &error, nullptr);
+        QVERIFY2(layer, qPrintable(error));
+        MapCanvas canvas;
+        canvas.addLayer(layer, false);
+        QVector<qint64> ids;
+        for (int i = 0; i < 3; ++i) {
+            Feature f;
+            f.geometry = FeatureGeometry(GeometryType::Point);
+            Part p;
+            p.exterior.pts << QPointF(i, 0);
+            f.geometry.parts() << p;
+            f.attributes = {{"choice", i == 1 ? "b" : "a"}};
+            ids << layer->addFeature(f);
+        }
+        layer->setEditing(true);
+        PropertiesPanel panel;
+        panel.showSelection(&canvas, {GisObjectRef::feature(layer->layerId(), ids[0]),
+                                      GisObjectRef::feature(layer->layerId(), ids[1])});
+        panel.show();
+        auto *tree = panel.findChild<QTreeView *>();
+        QVERIFY(tree);
+        auto cell = findProperty(tree->model(), "choice");
+        QVERIFY(cell.isValid());
+        tree->edit(cell);
+        auto *combo = tree->findChild<QComboBox *>();
+        QVERIFY(combo);
+        const int none = combo->findData(QString());
+        QVERIFY(none >= 0);
+        combo->setCurrentIndex(none);
+        QVERIFY(QMetaObject::invokeMethod(combo, "activated", Q_ARG(int, none)));
+        QCOMPARE(canvas.undoStack()->count(), 1);
+        Feature f;
+        QVERIFY(layer->feature(ids[0], f));
+        QVERIFY(f.attributes["choice"].toString().isEmpty());
+        QVERIFY(layer->feature(ids[2], f));
+        QCOMPARE(f.attributes["choice"].toString(), QString("a"));
+        canvas.undoStack()->undo();
+        QVERIFY(layer->feature(ids[1], f));
+        QCOMPARE(f.attributes["choice"].toString(), QString("b"));
+        canvas.undoStack()->redo();
+        QVERIFY(!applyFeatureAttributeValues(layer, ids.mid(0, 2), "choice", QString("unknown"),
+                                             &canvas, &error));
+        QCOMPARE(canvas.undoStack()->count(), 1);
+    }
+    void acceptanceBoundSeriesUnchangedBindingIsNoOp()
+    {
+        auto layer = fixture();
+        QVERIFY(layer);
+        QUndoStack undo;
+        QString error;
+        QFile file(QDir(folder()).filePath("acceptance-binding.csv"));
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        file.write("Date,Flow\n01/01/2026 00:00,1\n01/01/2026 01:00,2\n");
+        file.close();
+        const auto ids = targets("TS");
+        const auto binding = file.fileName() + ":Flow";
+        QVERIFY2(Model::applyValues(layer.get(), DC::DataTimeSeries, ids, "fileToken", binding,
+                                    &undo, &error),
+                 qPrintable(error));
+        const auto before = Model::dataRecord(layer.get(), DC::DataTimeSeries, ids.first());
+        // A source can disappear while the accepted samples remain usable. Leaving
+        // an unchanged binding must neither reread it nor turn a no-op into an error.
+        QVERIFY(file.remove());
+        QVERIFY2(Model::applyValues(layer.get(), DC::DataTimeSeries, ids, "fileToken", binding,
+                                    &undo, &error),
+                 qPrintable(error));
+        QCOMPARE(undo.count(), 1);
+        auto after = Model::dataRecord(layer.get(), DC::DataTimeSeries, ids.first());
+        auto expected = before;
+        expected["_fileStamp"] = after["_fileStamp"];
+        QCOMPARE(after, expected);
+    }
+    void acceptanceRetainedMixedTimeModeIsNoOp()
+    {
+        auto layer = fixture();
+        QVERIFY(layer);
+        QUndoStack undo;
+        QString error;
+        for (const auto &name : targets("TS")) {
+            auto record = Model::dataRecord(layer.get(), DC::DataTimeSeries, name);
+            QVector<double> x, y;
+            for (auto it = record.cbegin(); it != record.cend(); ++it)
+                if (it.key().startsWith("point/")) {
+                    x << it.key().mid(6).toDouble();
+                    y << it.value().toDouble();
+                }
+            const auto index = swmm_table_index(layer->engine(), name.toUtf8());
+            QCOMPARE(swmm_table_replace_points(layer->engine(), index, x.data(), y.data(), x.size(),
+                                               1, x.first(), ""),
+                     SWMM_OK);
+        }
+        const auto before = Model::dataRecord(layer.get(), DC::DataTimeSeries, "TS_A");
+        QVERIFY2(Model::applyValues(layer.get(), DC::DataTimeSeries, targets("TS"), "timeMode", 2,
+                                    &undo, &error),
+                 qPrintable(error));
+        QCOMPARE(undo.count(), 0);
+        QCOMPARE(Model::dataRecord(layer.get(), DC::DataTimeSeries, "TS_A"), before);
+    }
+    void acceptanceSelectedPointUsesExactKey_data()
+    {
+        QTest::addColumn<double>("precise");
+        QTest::newRow("full-double-precision") << .123456789012345;
+        QTest::newRow("small-coordinate") << 1.e-23;
+    }
+    void acceptanceSelectedPointUsesExactKey()
+    {
+        auto layer = fixture();
+        QVERIFY(layer);
+        QUndoStack undo;
+        QString error;
+        QFETCH(double, precise);
+        QVERIFY(Model::applyValues(layer.get(), DC::DataCurves, targets("C3"), "_pointAdd",
+                                   QVariantList{precise, 8.}, nullptr));
+        QWidget host;
+        openDataRecords(dataRecordsRef(layer.get(), DC::DataCurves, targets("C3"), &undo), &host);
+        auto *dialog = host.findChild<QDialog *>("DataRecordsDialog");
+        QVERIFY(dialog);
+        auto *table = dialog->findChild<QTableView *>("dataRecordsTable");
+        QVERIFY(table);
+        QModelIndex point;
+        for (int row = 0; row < table->model()->rowCount(); ++row)
+            if (table->model()->index(row, 1).data().toDouble() == 8.)
+                point = table->model()->index(row, 1);
+        QVERIFY(point.isValid());
+        table->setCurrentIndex(point);
+        QCoreApplication::processEvents();
+        auto *x = dialog->findChild<QLineEdit *>("dataPointX");
+        QVERIFY(x);
+        QCOMPARE(x->text().toDouble(), precise);
+        QPushButton *remove = nullptr;
+        for (auto *b : dialog->findChildren<QPushButton *>())
+            if (b->text() == "Remove point")
+                remove = b;
+        QVERIFY(remove);
+        remove->click();
+        const auto key = "point/" + QString::number(precise, 'g', 17);
+        QTRY_VERIFY(!Model::dataRecord(layer.get(), DC::DataCurves, "C3_A").contains(key));
+        QCOMPARE(undo.count(), 1);
+        undo.undo();
+        QCOMPARE(Model::dataRecord(layer.get(), DC::DataCurves, "C3_C")[key].toDouble(), 8.);
+        QTRY_COMPARE(table->model()->rowCount(), 4);
+        bool restored = false;
+        for (int row = 0; row < table->model()->rowCount(); ++row)
+            restored |= table->model()->index(row, 1).data().toDouble() == 8.;
+        QVERIFY(restored);
+        const auto saved = QDir(folder()).filePath("acceptance-precise-curve.inp");
+        QCOMPARE(swmm_model_write(layer->engine(), saved.toUtf8()), SWMM_OK);
+        DC reopened(saved);
+        QList<QString> w, e;
+        QVERIFY2(reopened.loadModel(w, e), qPrintable(e.join(' ')));
+        QCOMPARE(stable(&reopened, DC::DataCurves, "C3_C"),
+                 stable(layer.get(), DC::DataCurves, "C3_C"));
+        QVERIFY(dialog->grab().save(QDir(folder()).filePath("acceptance-precise-point.png")));
+    }
+    void acceptanceDisabledPointExplainsOwnership()
+    {
+        auto layer = fixture();
+        QVERIFY(layer);
+        QUndoStack undo;
+        QVERIFY(Model::applyValues(layer.get(), DC::DataCurves, {"C3_C"}, "_pointRemove",
+                                   QVariantList{1.}, nullptr));
+        QWidget host;
+        openDataRecords(dataRecordsRef(layer.get(), DC::DataCurves, targets("C3"), &undo), &host);
+        auto *table = host.findChild<QTableView *>("dataRecordsTable");
+        QVERIFY(table);
+        const auto cell = table->model()->index(1, 1);
+        QVERIFY(!(cell.flags() & Qt::ItemIsEditable));
+        QVERIFY2(cell.data(Qt::ToolTipRole).toString().contains("missing", Qt::CaseInsensitive),
+                 qPrintable(cell.data(Qt::ToolTipRole).toString()));
     }
     void removedReferenceDoesNotRedirectHistory()
     {

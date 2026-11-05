@@ -649,6 +649,8 @@ bool proposeRemaining(SWMMModelLayer *layer, DC::DataCategory cat, const QString
             if (token.contains('\n') || token.contains('\r') || token.contains(QChar::Null) ||
                 token.contains('"'))
                 return fail(tr("Invalid file binding."));
+            if (token == before[key].toString())
+                return true; // Leaving the binding unchanged does not reload its source.
             after[key] = token;
             if (token.isEmpty()) {
                 after["_fileStamp"] = QVariantList{};
@@ -696,10 +698,18 @@ bool proposeRemaining(SWMMModelLayer *layer, DC::DataCategory cat, const QString
                 after["anchor"] = 0.;
             }
         } else if (key == "timeMode") {
+            bool validMode = false;
+            const int mode = value.toInt(&validMode);
+            const int count = tableXs(before).size(), relative = before["relativeCount"].toInt();
+            const int currentMode = relative == 0 ? 0 : relative == count ? 1 : 2;
+            if (!validMode || mode < 0 || mode > 2)
+                return fail(
+                    tr("Choose Absolute or Relative; Mixed is retained from authored data."));
+            if (mode == currentMode)
+                return true;
             if (!before["fileToken"].toString().isEmpty())
                 return fail(tr("Detach the series to inline before changing time mode."));
-            const int mode = value.toInt();
-            if (mode < 0 || mode > 1)
+            if (mode == 2)
                 return fail(
                     tr("Choose Absolute or Relative; Mixed is retained from authored data."));
             after["relativeCount"] = mode ? tableXs(before).size() : 0;
