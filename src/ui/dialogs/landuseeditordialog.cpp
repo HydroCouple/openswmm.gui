@@ -9,6 +9,9 @@
 
 #include "ui/dialogs/landuseeditordialog.h"
 #include "core/swmmidentifier.h"
+#include "ui/panels/dataobjectattributetablemodel.h"
+#include "map/mapcanvas.h"
+#include "map/mapundostack.h"
 
 #include "landuse/landuseprovider.h"
 #include "landuse/landuseregistry.h"
@@ -60,6 +63,13 @@ LandUseEditorDialog::LandUseEditorDialog(LandUseRegistry *registry, SWMMModelLay
         else
             bindProvider_(nullptr);
     }
+    if(m_layer)connect(m_layer,&SWMMModelLayer::attributeChanged,this,[this](const QString &name){
+        if(!m_current || m_current->name()!=name)return;
+        const QSignalBlocker a(m_intervalSpin),b(m_removalSpin);
+        m_intervalSpin->setValue(m_current->sweepInterval());
+        m_removalSpin->setValue(m_current->sweepRemoval());
+        refreshPollutants();
+    });
 }
 
 void LandUseEditorDialog::trackPollutantRegistry(
@@ -169,11 +179,11 @@ void LandUseEditorDialog::buildUi_()
         view->setSelectionMode(QAbstractItemView::SingleSelection);
         return view;
     };
-    m_buildupModel = new BuildupTableModel(this);
+    m_buildupModel = new BuildupTableModel(this);m_buildupModel->setProjectContext(m_layer);
     m_buildupView = makeGrid(m_buildupModel);
     m_tabs->addTab(m_buildupView, tr("Buildup"));
 
-    m_washoffModel = new WashoffTableModel(this);
+    m_washoffModel = new WashoffTableModel(this);m_washoffModel->setProjectContext(m_layer);
     m_washoffView = makeGrid(m_washoffModel);
     m_tabs->addTab(m_washoffView, tr("Washoff"));
 
@@ -337,8 +347,22 @@ void LandUseEditorDialog::onFieldEdited_()
 {
     if (m_suppressFieldSync || !m_current)
         return;
-    m_current->setSweepInterval(m_intervalSpin->value());
-    m_current->setSweepRemoval(m_removalSpin->value());
+    if (m_layer) {
+        const auto key = sender() == m_removalSpin ? QStringLiteral("sweepRemoval") : QStringLiteral("sweepInterval");
+        const auto value = key == "sweepRemoval" ? m_removalSpin->value() : m_intervalSpin->value();
+        QString error;
+        auto *canvas = m_layer->editCanvas();
+        if (!DataObjectAttributeTableModel::applyValues(m_layer, SWMMModelLayer::DataLandUses,
+                {m_current->name()}, key, value, canvas ? canvas->undoStack() : nullptr, &error)) {
+            const QSignalBlocker a(m_intervalSpin), b(m_removalSpin);
+            m_intervalSpin->setValue(m_current->sweepInterval());
+            m_removalSpin->setValue(m_current->sweepRemoval());
+            setToolTip(error);
+        }
+    } else {
+        m_current->setSweepInterval(m_intervalSpin->value());
+        m_current->setSweepRemoval(m_removalSpin->value());
+    }
 }
 
 void LandUseEditorDialog::onProviderRenamed_(LandUseProvider *p, const QString &,

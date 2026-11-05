@@ -1,3 +1,8 @@
+#include "ui/panels/dataobjectattributetablemodel.h"
+#include "layers/swmmmodellayer.h"
+#include "map/mapcanvas.h"
+#include "map/mapundostack.h"
+#include "pollutant/pollutantregistry.h"
 /**
  * @file      qualityfunctiontablemodels.cpp
  * @brief     Washoff tabs (iteration 4).
@@ -35,6 +40,15 @@ inline SWMM_Engine eng(void *h)
 // ─────────────────────────────────────────────────────────────────────────────
 // Base
 // ─────────────────────────────────────────────────────────────────────────────
+
+void QualityFunctionTableModel::setProjectContext(SWMMModelLayer *layer){m_layer=layer;}
+bool QualityFunctionTableModel::applyShared(const QString &group,int row,const QString &member,const QVariant &value) {
+    if(!m_layer)return false;QString token;
+    if(row<m_npollut) {auto *reg=qobject_cast<openswmmvis::pollutant::PollutantRegistry *>(m_layer->ensurePollutantRegistry());auto *p=reg?reg->findByName(pollutantName(row)):nullptr;if(!p)return false;token="p/"+QString::number(reinterpret_cast<quintptr>(p),16);}
+    else token="s/"+QString::fromLatin1(pollutantName(row).toUtf8().toPercentEncoding());
+    const auto name=QString::fromUtf8(swmm_landuse_id(eng(m_engine),m_luIndex));
+    return DataObjectAttributeTableModel::applyValues(m_layer,SWMMModelLayer::DataLandUses,{name},group+"/"+token+"/"+member,value,m_layer->editCanvas()?m_layer->editCanvas()->undoStack():nullptr);
+}
 
 void QualityFunctionTableModel::bind(void *engineHandle, int luIndex)
 {
@@ -222,6 +236,11 @@ bool BuildupTableModel::setData(const QModelIndex &index, const QVariant &value,
         return false;
     }
 
+    if(m_layer) {
+        const QStringList members{"","type","0","1","2","normalizer"};
+        QVariant v=value;if(index.column()==ColFunction)v=ft;if(index.column()==ColNormalizer)v=norm;
+        return applyShared("buildup",index.row(),members.value(index.column()),v);
+    }
     if (swmm_buildup_set(eng(m_engine), m_luIndex, constituentIndex(index.row()), ft, c1, c2, c3,
                          norm) != SWMM_OK)
         return false;
@@ -349,6 +368,10 @@ bool WashoffTableModel::setData(const QModelIndex &index, const QVariant &value,
         return false;
     }
 
+    if(m_layer) {
+        const QStringList members{"","type","0","1","2","3"};QVariant v=value;if(index.column()==ColFunction)v=ft;
+        return applyShared("washoff",index.row(),members.value(index.column()),v);
+    }
     if (swmm_washoff_set(eng(m_engine), m_luIndex, constituentIndex(index.row()), ft, coeff, expon,
                          sweep, bmp) != SWMM_OK)
         return false;

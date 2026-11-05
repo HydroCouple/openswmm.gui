@@ -859,8 +859,33 @@ count; their ordered station lists remain in the transect editor.
 
 LID and snowpack tables disable fields that the control type or effective snow
 model does not use. Ordered NODE layers and remaining complete LID design members
-retain their structured owner. Curves, time series, unit hydrographs and control
-rules retain their own structured editors (\ref manual_data_objects).
+use the same immediate structured editor as their bulk Properties selection.
+
+Curves, model time series, unit hydrographs, control rules and land-use functions
+have a **Detailed properties** field. Select the objects, open that field, and edit a
+value. It commits on Enter, leaving the cell, or choosing an item. **Close**
+dismisses the editor; project **Undo** reverses the last committed field for the
+whole selection.
+
+- Curve values match the exact X value within one curve type. Time-series values
+  match timestamps. **Add** and **Remove** explicitly change that key on every
+  selected object; a missing key refuses the whole operation.
+- A time-series external-file/column change validates and loads the complete
+  source column. Clear the binding to retain the accepted samples as inline
+  data before editing them. Absolute/Relative time modes preserve resolved
+  timestamps and record the simulation-start anchor.
+- Hydrograph values match month and Short/Medium/Long response. **Enabled**
+  explicitly creates or removes a row. Exponential abstraction retains the
+  inactive linear abstraction values.
+- Land-use buildup and washoff match the constituent and function member.
+  Choosing an external buildup series changes its complete function record.
+- A control-rule template replaces conditions/actions/priority while preserving
+  each selected RULE name and its declarations. The entire final program must
+  validate before any rule changes.
+
+Curve types, unique names, pollutant units and unsupported source fields retain
+their individual owner or show a read-only reason. No unrelated editor draft is
+published when a keyed-record dialog closes.
 
 ### GIS feature layers
 
@@ -868,6 +893,17 @@ An imported vector layer's table lists its OGR features, keyed by feature id.
 It is **read-only** — a shapefile is not part of the model, so there is
 nothing to write to — but sorting, the query bar, copy, export and two-way
 selection all work.
+
+Application feature layers support bulk attribute editing during their active
+edit session. Select features from one layer/schema and edit Properties, or
+right-click a table value to apply it to selected rows. Each field is one Undo
+step. Closing the edit session disables new edits; existing Undo remains
+available while that layer and schema exist. Feature IDs remain read-only.
+
+Observed collection series retain source-owned metadata and samples. Their
+Properties selection offers the existing **Attach to selected feature** and
+**Detach features** project relationships with Undo; those actions do not alter
+the observation source.
 
 To turn features into SWMM objects, use **Model → Import Feature Layer…**; see
 \ref manual_map_editing.

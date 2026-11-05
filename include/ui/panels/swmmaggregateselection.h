@@ -58,6 +58,7 @@ private:
     QPointer<QUndoStack> m_undo;
     QMap<int, QVariant> m_staged;
     QMap<int, QList<QVariant>> m_original;
+    mutable QHash<int, Field> m_fieldCache;
 };
 
 #endif

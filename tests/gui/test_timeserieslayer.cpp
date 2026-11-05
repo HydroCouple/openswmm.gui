@@ -30,6 +30,8 @@
 #include "ui/panels/layertreepanel.h"
 #include "ui/panels/timeserieslayerbrowser.h"
 #include "ui/panels/attributetablepanel.h"
+#include "ui/panels/propertiespanel.h"
+#include <QCryptographicHash>
 #include <QAction>
 #include <QComboBox>
 #include <QFile>
@@ -398,6 +400,22 @@ private slots:
         QCOMPARE(retained.size(), 1);
         QCOMPARE(retained.first().toObject()["datasetId"].toString(), layer->datasetId());
         QVERIFY(missing->openTimeSeries(m_package, missing->datasetId(), &error));
+    }
+    void propertiesBulkRelationships()
+    {
+        std::unique_ptr<OpenSWMMVisWorkspace> workspace(OpenSWMMVisWorkspace::newInstance({},nullptr));
+        SWMMVisProjectWindow window(workspace.get(),{});QVERIFY(initialize(window));
+        const auto path=m_dir+"/bulk-linked-feature.geojson";
+        QVERIFY(write(path,R"({"type":"FeatureCollection","features":[{"type":"Feature","properties":{"id":"bulk-site"},"geometry":{"type":"Point","coordinates":[-76,38]}}]})"));
+        auto *feature=new GISVectorLayer(path);feature->setParent(&window);window.canvas()->addLayer(feature,false);
+        auto *layer=new TimeSeriesLayer;layer->setParent(&window);QVERIFY(layer->openTimeSeries(m_package));window.canvas()->addLayer(layer,false);
+        feature->ogrLayer()->ResetReading();auto *f=feature->ogrLayer()->GetNextFeature();QVERIFY(f);const auto fid=f->GetFID();OGRFeature::DestroyFeature(f);
+        window.selectionManager()->select(GisObjectRef::feature(feature->layerId(),fid));
+        const auto sourceHash=[&]{QFile source(m_package);if(!source.open(QIODevice::ReadOnly))return QByteArray();return QCryptographicHash::hash(source.readAll(),QCryptographicHash::Sha256);};const auto before=sourceHash();QVERIFY(!before.isEmpty());
+        PropertiesPanel panel;panel.showSelection(window.canvas(),{layer->seriesRef(m_primary),layer->seriesRef(m_secondary)});
+        QPushButton *attach=nullptr,*detach=nullptr;for(auto *b:panel.findChildren<QPushButton *>()){if(b->text()=="Attach to selected feature")attach=b;if(b->text()=="Detach features")detach=b;}QVERIFY(attach && detach);
+        auto *undo=window.canvas()->undoStack();const int previous=undo->index();attach->click();QCOMPARE(undo->index(),previous+1);QCOMPARE(layer->associationStatus(m_primary),QString("Linked"));QCOMPARE(layer->associationStatus(m_secondary),QString("Linked"));QCOMPARE(sourceHash(),before);
+        undo->undo();QCOMPARE(layer->associationStatus(m_secondary),QString("Not linked"));undo->redo();detach->click();QCOMPARE(layer->associationStatus(m_primary),QString("Not linked"));undo->undo();QCOMPARE(layer->associationStatus(m_primary),QString("Linked"));QCOMPARE(sourceHash(),before);
     }
     /** @brief A durable GIS link is undoable; removed source leaves observations and own marker plot usable. */
     void stableFeatureLinkAndUndo()

@@ -1,3 +1,7 @@
+#include "layers/timeserieslayer.h"
+#include "ui/panels/featureaggregateselection.h"
+#include "layers/gisobjectref.h"
+#include "ui/properties/datarecordsref.h"
 /**
  * @file      propertiespanel.cpp
  * @brief     A dock widget that displays and edits object attributes using QPropertyModel.
@@ -435,6 +439,9 @@ public:
     {
         if (column != Value)
             return role == Qt::ToolTipRole ? tooltip() : QPropertyItem::data(column, role);
+        if constexpr(std::is_same_v<Selection,DataObjectAggregateSelection>) {
+            if(m_spec.key=="records") {if(role==Qt::EditRole)return m_selection->editorData(m_column);if(role==Qt::DisplayRole)return PropertiesPanel::tr("Edit keyed records…");}
+        }
         const auto field = m_selection->field(m_column);
         const bool staged = m_selection->isStaged(m_column);
         const bool mixed = field.mixed && !staged;
@@ -554,7 +561,7 @@ private:
         const int targets = int(m_selection->rows().size());
         const auto field = m_selection->field(m_column);
         QStringList lines;
-        if constexpr (std::is_same_v<Selection, SWMMAggregateSelection> || std::is_same_v<Selection, DataObjectAggregateSelection>) {
+        if constexpr (std::is_same_v<Selection, SWMMAggregateSelection> || std::is_same_v<Selection, DataObjectAggregateSelection> || std::is_same_v<Selection, FeatureAggregateSelection>) {
             if (!field.reason.isEmpty()) lines << field.reason;
         }
         const QString header =
@@ -577,6 +584,7 @@ private:
     openswmmvis::ColumnSpec m_spec;
     QStyledItemDelegate *m_editor = nullptr;
 };
+using FeatureAggregateFieldProperty = AggregateFieldProperty<FeatureAggregateSelection>;
 using MeshAggregateFieldProperty = AggregateFieldProperty<MeshAggregateSelection>;
 using SWMMAggregateFieldProperty = AggregateFieldProperty<SWMMAggregateSelection>;
 using DataAggregateFieldProperty = AggregateFieldProperty<DataObjectAggregateSelection>;
@@ -655,6 +663,16 @@ public:
     bool hasChildren() override { return !m_children.isEmpty(); }
 };
 
+class FeatureAggregateRoot final:public QVariantPropertyItem {
+    Q_OBJECT
+public:
+    Q_INVOKABLE FeatureAggregateRoot(const QVariant &value,const QMetaProperty &property,QObjectClassPropertyItem *parent):QVariantPropertyItem(value,property,parent) {
+        auto *selection=value.value<FeatureAggregateSelection *>();auto *group=new MeshPropertyGroup(PropertiesPanel::tr("Feature attributes"),this);m_children.append(group);
+        const auto specs=selection->source()->columnSpecs();for(int c=0;c<specs.size();++c)group->add(new FeatureAggregateFieldProperty(selection,c,specs[c],group));
+    }
+    bool hasChildren()override{return !m_children.isEmpty();}
+};
+
 QStyledItemDelegate *meshFieldEditor(const QModelIndex &index)
 {
     if (index.column() != 1)
@@ -666,6 +684,7 @@ QStyledItemDelegate *meshFieldEditor(const QModelIndex &index)
         return field->editor();
     if (auto *field = dynamic_cast<SWMMAggregateFieldProperty *>(item))
         return field->editor();
+    if(auto *field=dynamic_cast<FeatureAggregateFieldProperty *>(item))return field->editor();
     if (auto *field = dynamic_cast<DataAggregateFieldProperty *>(item)) return field->editor();
     return nullptr;
 }
@@ -827,7 +846,7 @@ bool PropertiesPanel::eventFilter(QObject *watched, QEvent *event)
         }
     }
 
-    if (!m_meshFields && !m_meshAggregate && !m_dataAggregate && event->type() == QEvent::KeyPress) {
+    if (!m_meshFields && !m_meshAggregate && !m_dataAggregate && !m_featureAggregate && event->type() == QEvent::KeyPress) {
         auto *key = static_cast<QKeyEvent *>(event);
         if (key->key() == Qt::Key_Return || key->key() == Qt::Key_Enter) {
             // Let delegates commit first, then restore focus to the tree.
@@ -929,7 +948,7 @@ void PropertiesPanel::setupUi()
     m_treeView->setAlternatingRowColors(true);
     m_treeView->setEditTriggers(QAbstractItemView::AllEditTriggers);
     connect(m_treeView, &QTreeView::clicked, this, [this](const QModelIndex &index) {
-        if ((m_meshFields || m_meshAggregate || m_swmmAggregate || m_dataAggregate) && index.column() == 1)
+        if ((m_meshFields || m_meshAggregate || m_swmmAggregate || m_dataAggregate || m_featureAggregate) && index.column() == 1)
             openswmmvis::editClickedMeshField(m_treeView, index);
     });
     vlay->addWidget(m_treeView, 1);
@@ -952,6 +971,7 @@ void PropertiesPanel::setupUi()
 #ifdef HAVE_QPROPERTYMODEL
     auto *properties = new QPropertyModel(this);
     properties->registerCustomPropertyItemType(qMetaTypeId<DataObjectAggregateSelection *>(), &DataAggregateRoot::staticMetaObject);
+    properties->registerCustomPropertyItemType(qMetaTypeId<FeatureAggregateSelection *>(), &FeatureAggregateRoot::staticMetaObject);
     properties->registerCustomPropertyItemType(qMetaTypeId<SWMMAggregateSelection *>(),
                                                   &SWMMAggregateRoot::staticMetaObject);
     properties->registerCustomPropertyItemType(qMetaTypeId<MeshAttributeTableModel *>(),
@@ -1114,6 +1134,8 @@ void PropertiesPanel::showObject(QObject *object, const QString &title)
 
 void PropertiesPanel::releaseMeshProperties()
 {
+    if(m_sourceRelationships){m_sourceRelationships->deleteLater();m_sourceRelationships=nullptr;}
+    if(m_featureAggregate){m_featureAggregate->source()->valid=false;m_featureAggregate->deleteLater();m_featureAggregate=nullptr;}
     if (m_dataAggregate) { m_dataAggregate->invalidate(); m_dataAggregate->disconnect(this); m_dataAggregate->deleteLater(); m_dataAggregate = nullptr; }
     if (m_selectionScope) m_selectionScope->hide();
     if (m_meshFields) {
@@ -1245,6 +1267,10 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
         int category = -1;
         int dataCategory = -1;
         QMap<SWMMModelLayer::Category, QStringList> targets;
+        QPointer<FeatureLayer> featureLayer;
+        QVector<qint64> featureIds;
+        QPointer<TimeSeriesLayer> observedLayer;
+        QStringList observedIds;
     };
     QMap<QString, Scope> scopes;
     const QStringList labels{tr("Junctions"), tr("Outfalls"), tr("Storage"), tr("Dividers"),
@@ -1282,11 +1308,27 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
             scope.refs.append(ref);
             continue;
         }
+        QString featureLayerId;long long featureId=-1;
+        if(GisObjectRef::parseFeature(ref,&featureLayerId,&featureId)) {
+            auto &scope=scopes["features/"+featureLayerId];scope.title=tr("Feature attributes");scope.refs<<ref;scope.featureIds<<featureId;
+            if(canvas)for(auto *layer:canvas->layers())if(layer->layerId()==featureLayerId) {scope.title+=QString(" — %1").arg(layer->name());scope.featureLayer=qobject_cast<FeatureLayer *>(layer);break;}
+            continue;
+        }
+        if(ref.objectType==SWMMObjectRef::ObservedSeries) {
+            bool found=false;if(canvas)for(auto *l:canvas->layers())if(auto *observed=qobject_cast<TimeSeriesLayer *>(l)) {
+                const auto id=observed->seriesIdForRef(ref);if(id.isEmpty())continue;auto &scope=scopes["observed/"+observed->layerId()];scope.title=tr("Observed series — %1").arg(observed->name());scope.refs<<ref;scope.observedLayer=observed;scope.observedIds<<id;found=true;break;
+            }
+            if(!found){auto &scope=scopes["observed-missing"];scope.title=tr("Unavailable observed series");scope.refs<<ref;}continue;
+        }
         const auto dataCategory = DataObjectAttributeTableModel::categoryForType(ref.objectType);
         if (dataCategory != SWMMModelLayer::NumDataCategories) {
             auto &scope = scopes[QString("data/%1").arg(int(dataCategory))];
             scope.dataCategory = dataCategory;
             switch (dataCategory) {
+            case SWMMModelLayer::DataCurves:scope.title=tr("Curves");break;
+            case SWMMModelLayer::DataTimeSeries:scope.title=tr("Model time series");break;
+            case SWMMModelLayer::DataHydrographs:scope.title=tr("Hydrographs");break;
+            case SWMMModelLayer::DataControls:scope.title=tr("Control rules");break;
             case SWMMModelLayer::DataLIDControls: scope.title = tr("LID controls"); break;
             case SWMMModelLayer::DataSnowpacks: scope.title = tr("Snowpacks"); break;
             case SWMMModelLayer::DataPatterns: scope.title = tr("Time patterns"); break;
@@ -1340,7 +1382,7 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
         if (common.targets.size() > 1) commonScopes.append(common);
     }
     QList<Scope> dataSubsets;
-    for (const auto &scope : scopes) if (m_swmmLayer && (scope.dataCategory == SWMMModelLayer::DataInlets || scope.dataCategory == SWMMModelLayer::DataPollutants || scope.dataCategory == SWMMModelLayer::DataPatterns || scope.dataCategory == SWMMModelLayer::DataLIDControls || scope.dataCategory == SWMMModelLayer::DataSnowpacks)) {
+    for (const auto &scope : scopes) if (m_swmmLayer && (scope.dataCategory == SWMMModelLayer::DataInlets || scope.dataCategory == SWMMModelLayer::DataPollutants || scope.dataCategory == SWMMModelLayer::DataCurves || scope.dataCategory == SWMMModelLayer::DataPatterns || scope.dataCategory == SWMMModelLayer::DataLIDControls || scope.dataCategory == SWMMModelLayer::DataSnowpacks)) {
         QMap<int, Scope> groups; Scope generic; generic.dataCategory = scope.dataCategory; generic.title = tr("Inlet designs — Generic grates");
         for (const auto &ref : scope.refs) {
             int kind = -1; QString label;
@@ -1358,6 +1400,8 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
                 kind = site.model;
                 if (kind < 0) swmm_snow_get_model(m_swmmLayer->engine(), &kind);
                 label = kind == 1 ? tr("UEB energy balance") : tr("Degree day");
+            } else if(scope.dataCategory==SWMMModelLayer::DataCurves) {
+                const auto r=DataObjectAttributeTableModel::dataRecord(m_swmmLayer,SWMMModelLayer::DataCategory(scope.dataCategory),ref.name);kind=r["type"].toInt();label=openswmmvis::curve::CurveProvider::typeLabel(static_cast<openswmmvis::curve::CurveType>(kind));
             } else if (scope.dataCategory == SWMMModelLayer::DataPatterns) {
                 if (swmm_pattern_get_type(m_swmmLayer->engine(), swmm_pattern_index(m_swmmLayer->engine(), ref.name.toUtf8().constData()), &kind) != SWMM_OK) continue;
                 label = QStringList{tr("Monthly"), tr("Daily"), tr("Hourly"), tr("Weekend")}.value(kind);
@@ -1427,6 +1471,33 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
             if (scope.refs.first().objectType >= SWMMObjectRef::MeshVertex &&
                 scope.refs.first().objectType <= SWMMObjectRef::MeshCell) {
                 showMeshSelection(canvas, scope.refs);
+            } else if(scope.observedLayer) {
+                clear();auto layer=scope.observedLayer;const auto ids=scope.observedIds;const auto dataset=layer->datasetId();
+                auto *buttons=new QWidget(m_aggregateBar);m_sourceRelationships=buttons;auto *row=new QHBoxLayout(buttons);row->setContentsMargins(0,0,0,0);
+                auto *attach=new QPushButton(tr("Attach to selected feature"),buttons),*detach=new QPushButton(tr("Detach features"),buttons),*browse=new QPushButton(tr("Open source series…"),buttons);
+                row->addWidget(attach);row->addWidget(detach);row->addWidget(browse);m_aggregateBar->layout()->addWidget(buttons);
+                auto refresh=[this,layer,ids,buttons]{if(m_sourceRelationships!=buttons || !layer)return;
+#ifdef HAVE_QPROPERTYMODEL
+                    QVariantMap info{{tr("Samples"),tr("Immutable source observations; project relationships are editable below.")}};
+                    for(const auto &id:ids)info.insert(layer->seriesCaption(id),layer->associationStatus(id));qobject_cast<QPropertyModel *>(m_model)->setData(info);m_treeView->expandAll();
+#endif
+                };
+                auto valid=[layer,ids,dataset]{if(!layer || layer->datasetId()!=dataset)return false;for(const auto &id:ids)if(!layer->seriesIds().contains(id))return false;return true;};
+                connect(attach,&QPushButton::clicked,this,[this,layer,ids,valid,refresh]{QString error;if(!valid())error=tr("The captured collection changed. Select its series again.");else layer->attachToSelectedFeature(ids,&error);showAggregateEditResult(error);refresh();});
+                connect(detach,&QPushButton::clicked,this,[this,layer,ids,valid,refresh]{if(!valid()){showAggregateEditResult(tr("The captured collection changed. Select its series again."));return;}layer->detachFeatures(ids);refresh();});
+                connect(browse,&QPushButton::clicked,this,[this,layer,ids,valid]{if(valid())layer->showData(this,ids.value(0));});
+                if(canvas && canvas->undoStack())connect(canvas->undoStack(),&QUndoStack::indexChanged,buttons,[refresh]{refresh();});
+                m_aggregateSummary->setText(tr("%1 source series · Relationship actions use project Undo; source samples stay immutable.").arg(ids.size()));m_aggregateBar->show();refresh();
+            } else if(scope.featureLayer) {
+                clear();
+#ifdef HAVE_QPROPERTYMODEL
+                auto *aggregate=new FeatureAggregateSelection(scope.featureLayer,scope.featureIds,canvas,this);m_featureAggregate=aggregate;
+                auto *pm=qobject_cast<QPropertyModel *>(m_model);pm->setData(QVariant::fromValue(aggregate));m_treeView->expandAll();
+                aggregate->finished=[this](const QString &error){showAggregateEditResult(error);};
+                connect(aggregate->source(),&QAbstractItemModel::dataChanged,this,[this,aggregate,pm]{if(m_featureAggregate==aggregate)pm->refreshValues();});
+                m_aggregateSummary->setText(tr("%1 features · Edits require an active feature edit session; each field is one Undo.").arg(scope.featureIds.size()));m_aggregateBar->show();
+#endif
+                setWindowTitle(tr("%1 — %2 selected").arg(scope.title).arg(scope.refs.size()));
             } else if (scope.dataCategory >= 0) {
                 clear(); QStringList names; for (const auto &ref : scope.refs) names << ref.name;
                 bindDataAggregate(m_swmmLayer, scope.dataCategory, names, canvas ? canvas->undoStack() : nullptr);
@@ -1456,7 +1527,9 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
             } else {
                 clear();
                 setWindowTitle(tr("%1 objects selected").arg(scope.refs.size()));
-                m_aggregateSummary->setText(tr("This group retains its individual editor. Select a supported object family to edit shared attributes."));
+                m_aggregateSummary->setText(scope.refs.first().objectType==SWMMObjectRef::ObservedSeries
+                    ?tr("Observed samples and source metadata are immutable here. Use the collection's existing relationship editor for project/model mappings.")
+                    :tr("This source has no editable attribute session. Imported attributes and computed results are read-only."));
                 m_aggregateBar->show();
             }
         }
@@ -2962,6 +3035,7 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
             openUsageEditor(ref, window());
         return;
     }
+    if(metaId==qMetaTypeId<DataRecordsRef>()) {openDataRecords(value.value<DataRecordsRef>(),m_treeView);return;}
     if (metaId == qMetaTypeId<NodeCompoundEditRef>()) {
         const NodeCompoundEditRef ref = value.value<NodeCompoundEditRef>();
         if (!ref.engine || ref.nodeName.isEmpty())

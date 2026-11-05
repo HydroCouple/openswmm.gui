@@ -107,14 +107,7 @@ CurveEditorDialog::CurveEditorDialog(CurveRegistry *registry, QUndoStack *undoSt
         connect(m_registry, &CurveRegistry::providerRenamed, this,
                 &CurveEditorDialog::onProviderRenamed_);
     }
-    // Every entry point (ribbon, Object Browser, modal picker) closes through
-    // here, so this is the one seam that gets curves authored in the editor
-    // out of the registry and into the engine the .inp writer reads. Without
-    // it a new curve was visible in the GUI and absent from the saved model.
-    connect(this, &QDialog::finished, this, [this] {
-        if (m_registry)
-            m_registry->saveToEngine();
-    });
+    // Registry point/type changes publish immediately; closing has no write side effects.
     // Axis titles carry project units; follow a units change (project
     // switch, Simulation Options flow units).
     connect(UnitSystem::instance(), &UnitSystem::unitsChanged, this, [this] { refreshChart_(); });

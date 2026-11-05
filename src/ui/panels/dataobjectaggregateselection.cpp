@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "ui/panels/dataobjectaggregateselection.h"
 #include <QSet>
+#include "ui/properties/datarecordsref.h"
 #include <QTimer>
 #include <QUndoStack>
 #include <openswmm/engine/openswmm_snow.h>
@@ -11,7 +12,7 @@ DataObjectAggregateSelection::DataObjectAggregateSelection(SWMMModelLayer *layer
                                                            QUndoStack *undo, QObject *parent)
     : QObject(parent), m_source(new DataObjectAttributeTableModel(this)), m_undo(undo)
 {
-    m_source->setSource(layer, category);
+    m_source->setSource(layer, category);m_source->setUndoStack(undo);
     QSet<QObject *> seen;
     for (const auto &name : names) {
         m_source->refreshObject(name);
@@ -44,7 +45,7 @@ DataObjectAggregateSelection::DataObjectAggregateSelection(SWMMModelLayer *layer
     connect(layer, &SWMMModelLayer::optionsChanged, this, [this, snowModel, source = QPointer<SWMMModelLayer>(layer)](const QStringList &keys) {
         int current = snowModel;
         if (snowModel >= 0 && source && source->engine()) swmm_snow_get_model(source->engine(), &current);
-        if (keys.contains("FLOW_UNITS") || current != snowModel) {
+        if (keys.contains("FLOW_UNITS") || (m_source->category()==SWMMModelLayer::DataTimeSeries && (keys.contains("START_DATE") || keys.contains("START_TIME"))) || current != snowModel) {
             m_valid = false;
             emit stagedChanged();
         }
@@ -184,4 +185,10 @@ bool DataObjectAggregateSelection::schemaValid() const
         for (int i = 0; i < m_targets.size(); ++i)
             if (!m_targets[i] || m_targets[i]->property("lidAcceptedSchema") != m_schemas[i]) return false;
     return true;
+}
+
+QVariant DataObjectAggregateSelection::editorData(int column) const
+{
+    if(m_source->columnSpecs().value(column).key!="records" || !active())return {};
+    DataRecordsRef ref;ref.layer=m_source->layer();ref.engine=ref.layer?ref.layer->engine():nullptr;ref.category=m_source->category();ref.names=names();ref.providers=m_targets;ref.undo=m_undo;return QVariant::fromValue(ref);
 }

@@ -1552,6 +1552,8 @@ set(
         src/ui/panels/layertreetargets.cpp
         src/ui/panels/objectbrowserpanel.cpp
         src/ui/panels/overviewmappanel.cpp
+        src/ui/panels/featureaggregateselection.cpp
+        src/ui/properties/datarecordsref.cpp
         src/ui/panels/dataobjectattributetablemodel.cpp
         src/ui/panels/meshattributetablemodel.cpp
         src/ui/panels/meshaggregateselection.cpp

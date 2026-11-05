@@ -1,3 +1,5 @@
+#include "ui/panels/dataobjectattributetablemodel.h"
+#include <QApplication>
 /**
  * @file      ruleseditordialog.cpp
  * @brief     SWMM control rules.
@@ -291,6 +293,9 @@ void RulesEditorDialog::buildUi_()
     // happens on every text change via the debounce timer in the
     // validator's flushed handler — see onCodeEditorTextChanged_.)
 
+    connect(qApp,&QApplication::focusChanged,this,[this](QWidget *old,QWidget *now){
+        if(old && (old==m_codeEditor || m_codeEditor->isAncestorOf(old)) && now && now!=m_codeEditor && !m_codeEditor->isAncestorOf(now))onCodeEditorFocusOut_();
+    });
     // ── Close row ───────────────────────────────────────────────────────
     // Wired to close() rather than accept()/reject(): on Qt >= 6.3 done()
     // bypasses closeEvent(), which is where flushPendingEdit() commits the
@@ -464,7 +469,7 @@ void RulesEditorDialog::flushPendingEdit()
         return;
     }
     QString err;
-    if (!m_layer->applyControlRuleReplace(m_current->name(), newBody, &err)) {
+    if (!DataObjectAttributeTableModel::applyValues(m_layer,SWMMModelLayer::DataControls,{m_current->name()},"body",newBody,m_undoStack,&err)) {
         QMessageBox::warning(this, tr("Save Failed"),
                              err.isEmpty() ? tr("Could not save rule.") : err);
         return;

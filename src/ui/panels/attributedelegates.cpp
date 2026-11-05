@@ -1,3 +1,4 @@
+#include "ui/properties/datarecordsref.h"
 /**
  * @file      attributedelegates.cpp
  * @brief     Shared edit delegates used by both the Attribute Table (Slice Z.1) and the Property
@@ -314,6 +315,7 @@ QString CompoundEditDelegate::displayText(const QVariant &value, const QLocale &
     // §S.SC.1.c — Same delegate handles both node-side and link-side
     // compound cells. Dispatch on userType so each variant renders its
     // summary correctly without losing the "%1 — Edit…" affordance.
+    if(value.userType()==qMetaTypeId<DataRecordsRef>())return tr("Edit keyed records…");
     if (value.userType() == qMetaTypeId<NodeCompoundEditRef>()) {
         const auto ref = value.value<NodeCompoundEditRef>();
         return ref.summary.isEmpty() ? tr("Edit…") : tr("%1 — Edit…").arg(ref.summary);
@@ -346,6 +348,7 @@ QWidget *CompoundEditDelegate::createEditor(QWidget *parent, const QStyleOptionV
     // we build. The button's dialog is the source of truth for the
     // compound edit; the delegate only marshals values in/out.
     const QVariant v = index.data(Qt::EditRole);
+    if(v.userType()==qMetaTypeId<DataRecordsRef>())return new DataRecordsButton(parent);
     if (v.userType() == qMetaTypeId<UsageEditRef>())
         return new UsageEditButton(parent);
     if (v.userType() == qMetaTypeId<LinkCompoundEditRef>())
@@ -367,6 +370,7 @@ QWidget *CompoundEditDelegate::createEditor(QWidget *parent, const QStyleOptionV
 void CompoundEditDelegate::setEditorData(QWidget *editor, const QModelIndex &index) const
 {
     const QVariant v = index.data(Qt::EditRole);
+    if(auto *button=dynamic_cast<DataRecordsButton *>(editor)){button->setValue(v.value<DataRecordsRef>());return;}
     if (auto *button = qobject_cast<UsageEditButton *>(editor)) {
         button->setValue(v.value<UsageEditRef>());
         return;
@@ -401,6 +405,7 @@ void CompoundEditDelegate::setEditorData(QWidget *editor, const QModelIndex &ind
 void CompoundEditDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
                                         const QModelIndex &index) const
 {
+    if(dynamic_cast<DataRecordsButton *>(editor))return;
     if (auto *button = qobject_cast<UsageEditButton *>(editor)) {
         model->setData(index, QVariant::fromValue(button->value()), Qt::EditRole);
         return;

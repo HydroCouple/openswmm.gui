@@ -131,7 +131,7 @@ QVariantMap state(DC *layer, DC::DataCategory cat, const QString &name)
     const int row = model.rowForName(name);
     const auto fields = model.columnSpecs();
     for (int c = 1; c < fields.size(); ++c)
-        result[fields[c].key] = model.index(row, c).data(Qt::EditRole);
+        if(fields[c].key!="records")result[fields[c].key] = model.index(row, c).data(Qt::EditRole);
     if (cat == DC::DataInlets) {
         SWMM_InletDesign d{};
         swmm_inlet_get_design(layer->engine(),

@@ -1,3 +1,6 @@
+#include "ui/panels/dataobjectattributetablemodel.h"
+#include "map/mapcanvas.h"
+#include "map/mapundostack.h"
 /**
  * @file      hydrographmodels.cpp
  * @brief     Slice BS Phase 6.9.2 — hydrograph MVC layer implementation.
@@ -304,7 +307,7 @@ bool HydrographRtkTableModel::setData(const QModelIndex &index, const QVariant &
     else if (col == ColK)
         k = v;
 
-    return m_layer->applyHydrographSetRtk(m_name, m_month, row, r, t, k);
+    return DataObjectAttributeTableModel::applyValues(m_layer,SWMMModelLayer::DataHydrographs,{m_name},QString("rtk/%1/%2/%3").arg(m_month).arg(row).arg(col-1),v,m_layer->editCanvas()?m_layer->editCanvas()->undoStack():nullptr);
 }
 
 Qt::ItemFlags HydrographRtkTableModel::flags(const QModelIndex &index) const
@@ -444,7 +447,7 @@ bool HydrographIaTableModel::setData(const QModelIndex &index, const QVariant &v
     else if (col == ColDo)
         dinit = v;
 
-    return m_layer->applyHydrographSetIa(m_name, m_month, row, dmax, drecov, dinit);
+    return DataObjectAttributeTableModel::applyValues(m_layer,SWMMModelLayer::DataHydrographs,{m_name},QString("rtk/%1/%2/%3").arg(m_month).arg(row).arg(col+2),v,m_layer->editCanvas()?m_layer->editCanvas()->undoStack():nullptr);
 }
 
 Qt::ItemFlags HydrographIaTableModel::flags(const QModelIndex &index) const
@@ -596,28 +599,9 @@ bool HydrographDecayTableModel::setData(const QModelIndex &index, const QVariant
     if (idx >= 0)
         readDecayRow(m_layer->engine(), idx, cur);
 
-    if (col == ColActive) {
-        if (role != Qt::CheckStateRole)
-            return false;
-        const bool checked = (value.toInt() == Qt::Checked);
-        if (checked) {
-            // Seed defaults: T_ref = 10 deg C, others zero (matches the
-            // engine struct defaults at InflowData.hpp and the editor
-            // contract documented in GUI_IMPLEMENTATION_PLAN.md).
-            return m_layer->applyRdiiDecaySet(m_name, row, 0.0, 0.0, 0.0, 10.0, 0.0, 0.0);
-        }
-        return m_layer->applyRdiiDecayRemove(m_name, row);
-    }
-
-    if (col == ColSnow) {
-        if (role != Qt::CheckStateRole || idx < 0)
-            return false;
-        const bool checked = (value.toInt() == Qt::Checked);
-        return m_layer->applyRdiiDecaySet(m_name, row, cur.k_dep, cur.k_0, cur.k_T, cur.T_ref,
-                                          cur.theta, cur.T_freeze, checked, cur.snow_T,
-                                          cur.snow_ddf);
-    }
-
+    auto apply=[&](const QString &member,const QVariant &v){return DataObjectAttributeTableModel::applyValues(m_layer,SWMMModelLayer::DataHydrographs,{m_name},QString("decay/%1/").arg(row)+member,v,m_layer->editCanvas()?m_layer->editCanvas()->undoStack():nullptr);};
+    if(col==ColActive) return role==Qt::CheckStateRole && apply("present",value.toInt()==Qt::Checked?1:0);
+    if(col==ColSnow)return role==Qt::CheckStateRole && apply("snow",value.toInt()==Qt::Checked?1:0);
     if (role != Qt::EditRole)
         return false;
     bool ok = false;
@@ -625,35 +609,8 @@ bool HydrographDecayTableModel::setData(const QModelIndex &index, const QVariant
     if (!ok)
         return false;
 
-    switch (col) {
-    case ColKdep:
-        cur.k_dep = v;
-        break;
-    case ColK0:
-        cur.k_0 = v;
-        break;
-    case ColKT:
-        cur.k_T = v;
-        break;
-    case ColTref:
-        cur.T_ref = v;
-        break;
-    case ColTheta:
-        cur.theta = v;
-        break;
-    case ColTfreeze:
-        cur.T_freeze = v;
-        break;
-    case ColSnowT:
-        cur.snow_T = v;
-        break;
-    case ColSnowDdf:
-        cur.snow_ddf = v;
-        break;
-    }
-    return m_layer->applyRdiiDecaySet(m_name, row, cur.k_dep, cur.k_0, cur.k_T, cur.T_ref,
-                                      cur.theta, cur.T_freeze, cur.snowOn, cur.snow_T,
-                                      cur.snow_ddf);
+    const QMap<int,QString> members{{ColKdep,"0"},{ColK0,"1"},{ColKT,"2"},{ColTref,"3"},{ColTheta,"4"},{ColTfreeze,"5"},{ColSnowT,"6"},{ColSnowDdf,"7"}};
+    return members.contains(col) && apply(members.value(col),v);
 }
 
 Qt::ItemFlags HydrographDecayTableModel::flags(const QModelIndex &index) const
