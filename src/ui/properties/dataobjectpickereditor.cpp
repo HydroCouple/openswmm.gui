@@ -41,6 +41,7 @@
 #include <QMessageBox>
 #include <QPointer>
 #include <QSignalBlocker>
+#include <QScopedValueRollback>
 #include <QToolButton>
 
 #include <openswmm/engine/openswmm_gages.h>
@@ -66,8 +67,40 @@ DataObjectPickerEditor::DataObjectPickerEditor(QWidget *parent)
 
 void DataObjectPickerEditor::setValue(const DataObjectRef &ref)
 {
+    // Same re-entrancy as LinkEndpointComboBox::setValue: the view re-applies
+    // the value from inside this editor's own currentTextChanged commit (the
+    // engine write emits attributeChanged, the Properties dock refreshes, and
+    // the view calls setEditorData on the open editor). When the list scope is
+    // unchanged and the name is already offered, move the selection instead of
+    // clearing and refilling the combo while its signal is still being emitted.
+    // Outside that commit, rebuild so external additions/removals are visible.
+    const bool sameScope = m_combo && m_ref.engine && ref.engine == m_ref.engine &&
+                           ref.layer == m_ref.layer && ref.kind == m_ref.kind &&
+                           ref.typeLock == m_ref.typeLock && m_combo->combo()->count() > 0;
     m_ref = ref;
+    if (sameScope && m_committing) {
+        const QString selected = selectedLabel();
+        if (selected.isEmpty() || m_combo->combo()->findText(selected) >= 0) {
+            const QSignalBlocker block(m_combo->combo());
+            m_suppressTextChange = true;
+            m_combo->setCurrentText(selected);
+            m_suppressTextChange = false;
+            return;
+        }
+    }
     repopulate();
+}
+
+QString DataObjectPickerEditor::selectedLabel() const
+{
+    QString selected = m_ref.currentName;
+    if (m_ref.kind == DataObjectRef::SubcatchOutlet && !selected.isEmpty()) {
+        const bool sub = m_ref.outletTarget == DataObjectRef::SubcatchmentOutlet ||
+            (m_ref.outletTarget == DataObjectRef::Automatic &&
+             swmm_node_index(m_ref.engine, selected.toUtf8().constData()) < 0);
+        selected = (sub ? tr("Subcatchment: %1") : tr("Node: %1")).arg(selected);
+    }
+    return selected;
 }
 
 void DataObjectPickerEditor::repopulate()
@@ -268,14 +301,7 @@ void DataObjectPickerEditor::repopulate()
 
     QSignalBlocker block(m_combo->combo());
     m_suppressTextChange = true;
-    QString selected = m_ref.currentName;
-    if (m_ref.kind == DataObjectRef::SubcatchOutlet && !selected.isEmpty()) {
-        const bool sub = m_ref.outletTarget == DataObjectRef::SubcatchmentOutlet ||
-            (m_ref.outletTarget == DataObjectRef::Automatic &&
-             swmm_node_index(m_ref.engine, selected.toUtf8().constData()) < 0);
-        selected = (sub ? tr("Subcatchment: %1") : tr("Node: %1")).arg(selected);
-    }
-    m_combo->setItems(items, selected);
+    m_combo->setItems(items, selectedLabel());
     m_suppressTextChange = false;
 }
 
@@ -304,6 +330,7 @@ void DataObjectPickerEditor::onComboTextChanged(const QString &text)
             m_ref.currentName = text.mid(tr("Subcatchment: ").size());
         }
     }
+    const QScopedValueRollback<bool> committing(m_committing, true);
     emit valueChanged();
 }
 

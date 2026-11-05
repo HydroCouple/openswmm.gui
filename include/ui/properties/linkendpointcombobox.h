@@ -24,6 +24,7 @@ signals:
 
 private:
     LinkEndpointRef m_ref;
+    bool m_committing = false;
     void finishEditing();
 };
 

@@ -3651,6 +3651,17 @@ add_swmmvis_gui_test(test_attributetableschema
 )
 swmmvis_link_full_app_deps(test_attributetableschema)
 
+# Link endpoint (From/To Node) edits made from the Properties dock with the
+# Attribute Table, Object Browser, Section View, SelectionManager, undo stack
+# and QSG renderer attached the way SWMMVis attaches them — the synchronous
+# fan-out a bare-panel test never exercises.
+add_swmmvis_gui_test(test_linkendpointproperties
+    test_linkendpointproperties.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_linkendpointproperties)
+
 add_swmmvis_gui_test(test_subcatchqualitybulk
     test_subcatchqualitybulk.cpp
     ${SWMMVIS_TEST_SOURCES}
