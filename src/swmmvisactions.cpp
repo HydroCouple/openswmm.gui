@@ -402,12 +402,12 @@ void SWMMVis::initializeCompactToolbar()
         // tools, so they take stack rows too; Climate keeps its split face.
         auto *group = addGroup(mToolBarModel, tr("Catchment"), {});
         addStacks(group, {{"actionAddSubcatchment", "actionRainGauge", "actionAssignRainGages"}});
+        addStacks(group, {{"actionNewSnowpack", "actionNewUnitHydrograph"}});
         // R4 — last-used split-button family: the face is the last-used
         // member (persisted per family id) and mirrors its checked state.
         group->addFamily(QStringLiteral("climate"),
                          resolve({"actionTemperature", "actionWind", "actionSnow",
                                   "actionEvaporation", "actionSolarRadiation"}));
-        addStacks(group, {{"actionNewSnowpack", "actionNewUnitHydrograph"}});
     }
     addStacks(addGroup(mToolBarModel, tr("Data Objects"), {}),
               {{"actionNewTimeSeries", "actionNewCurve", "actionNewPattern"},
