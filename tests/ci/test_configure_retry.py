@@ -36,6 +36,9 @@ if outcome == "dns":
     print("error: curl: (6) Could not resolve host: github.com", file=sys.stderr)
     print("CMake Error: CMAKE_CXX_COMPILER not set, after EnableLanguage", file=sys.stderr)
     sys.exit(1)
+if outcome.startswith("http"):
+    print("curl: (22) The requested URL returned error: " + outcome[4:], file=sys.stderr)
+    sys.exit(1)
 if outcome == "cmake":
     print("CMake Error: Required package is missing", file=sys.stderr)
     sys.exit(23)
@@ -65,6 +68,26 @@ sys.exit(0)
     def test_persistent_dns_failure_stops_after_three_attempts(self):
         result, attempts, delays = self.run_configure(["dns", "dns", "dns"])
         self.assertEqual((result.returncode, attempts, delays), (1, 3, ["20", "40"]))
+
+    def test_transient_http_download_failures_recover(self):
+        for status in (408, 429, 500, 502, 503, 504):
+            with self.subTest(status=status):
+                result, attempts, delays = self.run_configure([f"http{status}", "ok"])
+                self.assertEqual((result.returncode, attempts, delays), (0, 2, ["20"]))
+
+    def test_persistent_gateway_failure_stops_after_three_attempts(self):
+        result, attempts, delays = self.run_configure(["http504"] * 3)
+        self.assertEqual((result.returncode, attempts, delays), (1, 3, ["20", "40"]))
+
+    def test_permanent_http_errors_fail_immediately(self):
+        for status in (400, 401, 403, 404, 501):
+            with self.subTest(status=status):
+                result, attempts, delays = self.run_configure([f"http{status}"])
+                self.assertEqual((result.returncode, attempts, delays), (1, 1, []))
+
+    def test_old_gateway_output_does_not_retry_a_new_configuration_error(self):
+        result, attempts, delays = self.run_configure(["http504", "cmake"])
+        self.assertEqual((result.returncode, attempts, delays), (23, 2, ["20"]))
 
     def test_configuration_error_fails_immediately(self):
         result, attempts, delays = self.run_configure(["cmake"])
