@@ -1,26 +1,29 @@
-/*!
- * \file   seriespairing.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Timestep nearest-match sample pairing for the Comparison Plot's
+/**
+ * @file      seriespairing.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Timestep nearest-match sample pairing for the Comparison Plot's
  *         1v1 scatter column.
  *
  * Extracted from ComparisonPlotDialog::rebuildCharts so the pairing walk
  * is unit-testable (the dialog itself can't link into the self-contained
  * GUI tests). Pure function — no Qt widget dependencies.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_PLOT_SERIESPAIRING_H
 #define OPENSWMMVIS_PLOT_SERIESPAIRING_H
 
 #include <vector>
 
-namespace openswmmvis::plot {
+namespace openswmmvis::plot
+{
 
 /*! \brief Paired (x, y) sample values produced by pairSamplesNearest. */
 struct PairedSamples {
-    std::vector<double> x;   ///< Baseline values.
-    std::vector<double> y;   ///< Comparison values.
+    std::vector<double> x; ///< Baseline values.
+    std::vector<double> y; ///< Comparison values.
 };
 
 /*! \brief Pair two time series by nearest timestamp.
@@ -37,11 +40,11 @@ struct PairedSamples {
  * \param bv  baseline values (parallel to \p bt)
  * \param ct  comparison times (Julian, ascending)
  * \param cv  comparison values (parallel to \p ct)
+ * @return Equal-length baseline/comparison vectors in encounter order, empty for empty times or a time/value size mismatch. Each accepted timestamp consumes both samples, including pairs discarded for nonfinite values.
+ * @note Times must be finite and ascending; this is a greedy tolerance walk rather than a search for the globally closest match. Nonmonotonic times are not validated or sorted. No interpolation, resampling or unit conversion occurs.
  */
-PairedSamples pairSamplesNearest(const std::vector<double>& bt,
-                                 const std::vector<double>& bv,
-                                 const std::vector<double>& ct,
-                                 const std::vector<double>& cv);
+PairedSamples pairSamplesNearest(const std::vector<double> &bt, const std::vector<double> &bv,
+                                 const std::vector<double> &ct, const std::vector<double> &cv);
 
 } // namespace openswmmvis::plot
 

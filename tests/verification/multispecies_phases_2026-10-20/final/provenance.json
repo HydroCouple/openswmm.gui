@@ -1,0 +1,118 @@
+{
+  "openswmm.engine": {
+    "head_before_commit": "beb666fc2ca868126e053f7b9048cd979275e64d",
+    "working_sha256": {
+      "docs/manuals/application/sections/Chapter9-MultispeciesReactions.md": "0eae490141766c9647f24260b4d10f52693aca1f8fdfb9f354540e7598fcb763",
+      "docs/manuals/reference/quality/sections/Chapter8-MultiSpeciesReactions.md": "d6fca84012dc3777edd25740286e6b7e7703dbe61780b09aec78ffa81216b712",
+      "examples/reactions/README.md": "97273365b96d26d3fd6327ddcc09af76c6aea623828a8548ceb207fbb047cd19",
+      "python/openswmm/engine/_reactions.pyx": "cb54d81126e2d8a3110218cb427a3711c21bdeb1a5625bfa56287f764157209a",
+      "src/engine/core/SWMMEngine.cpp": "975e22f73acb407835ebaaf90f5c0213ef42cd8676980cb22200bf4aeab944ff",
+      "src/engine/core/openswmm_reactions_impl.cpp": "66de23060f8dd7bdd7b9d8221f9f2f306dca6d27073e120f72d849df8850ec62",
+      "src/engine/data/ReactionData.hpp": "29f886c3e350a240c6d9c57495def73682268eaad62762af4a51c16888afb0c6",
+      "src/engine/quality/MsxSurfaceQuality.cpp": "aee51dae86357294dfa3f3b24b9df5bd94de7ff91141f0f3c459697ecdbb34c1",
+      "src/engine/quality/MsxSurfaceQuality.hpp": "252b5e4c0619a145035f87ba831735e35706290e2e8730feb9d154c5ae0050a0",
+      "src/engine/transport/components/ReactionModule/MsxLegacyTransport.cpp": "b998b7d25ea88749689abdd37b071d0b9cc425b2442bdc74e149a820fa51baa5",
+      "src/engine/transport/components/ReactionModule/MsxLegacyTransport.hpp": "cbe4e177d590fdfe6ddc5af076de2118155c524ec2d19e3a4064ab00190009b2",
+      "src/engine/transport/components/ReactionModule/ReactionArdBinding.cpp": "3e79d9fe194b8e1c625e138081209a9c169ab8ec613e2c0654d5b88b0a3b9480",
+      "src/engine/transport/components/ReactionModule/ReactionExpression.cpp": "09701cb281dfe4f254c87beedc95873422b777ce98b6bb252ab786edf29c4a20",
+      "src/engine/transport/components/ReactionModule/ReactionExpression.hpp": "39e9455ca22dd7486ee83b5145da26f279233d67557e83d318784b85296fbae7",
+      "src/engine/transport/components/ReactionModule/ReactionLegacyBinding.cpp": "f17b97c76ea2aaf2f9edec803e7d026d0b4c9a84a49037ff26a14cdaabe185d5",
+      "src/engine/transport/components/ReactionModule/ReactionsComponent.cpp": "b439c45d6e28594e51a13c2b7d561c4df673b01c7b8eb1348a6611d7f22e4203",
+      "src/engine/transport/components/ReactionModule/ReactionsWriter.cpp": "4d9a6f69d49963d59ff908fdc2483cb65cb1ef930998411b2c076ca78e6acab4",
+      "tests/unit/engine/test_msx_buildup_washoff.cpp": "6396104b7b8cc338fa1352e73c6049bd6cae383c0b9e1931fa275c466e5ece23",
+      "tests/unit/engine/test_reactions_config.cpp": "1fe66eebd36aa496c35f58e25fc811136d8c458cbb6dfa1061d9ff02d9e73f9f"
+    },
+    "implementation_commit": "c5ca4cfdaf682bf8f9cb259ec3cb35c3edb049ce",
+    "committed_source_sha256": {
+      "ROADMAP.md": "6d722db06e9bf50e00116e6643cbb8cb2ee4fa2d14b369c3447142b0ea007115",
+      "docs/manuals/application/sections/Chapter9-MultispeciesReactions.md": "0eae490141766c9647f24260b4d10f52693aca1f8fdfb9f354540e7598fcb763",
+      "docs/manuals/engine/sections/Chapter2-InputFileReference.md": "f538abd46ec57178b74af2a43713858ca4e03277a9d58121774fbde89634a255",
+      "docs/manuals/reference/quality/sections/Chapter8-MultiSpeciesReactions.md": "d6fca84012dc3777edd25740286e6b7e7703dbe61780b09aec78ffa81216b712",
+      "examples/reactions/README.md": "97273365b96d26d3fd6327ddcc09af76c6aea623828a8548ceb207fbb047cd19",
+      "examples/reactions/dry_buildup.inp": "6ae44a1976f8053035960553de82b045a9b10237d949b57c55fe06333884a05b",
+      "examples/reactions/dry_buildup.rxn": "5f3bb4ae3bbcfd5dc5c122f0831c8352eec08faf32853f95fb6f78ae1c02cc0c",
+      "examples/reactions/lid_layers.inp": "4f9b51ab270973637345a9c5625401a6ae1427becff44784b9ead6c94fac0115",
+      "examples/reactions/lid_layers.rxn": "0a23bdea6c14a90c12a32319006ae4bfc2b23b145bb5c1974fb5e86b94c14a16",
+      "examples/reactions/setpoint.inp": "8c99173ebb97e1196d386a419e1e11da51ac186f2f1fd9f73be790d448fbe783",
+      "examples/reactions/setpoint.rxn": "c20a1019d6491508bea96cc12bb3d1e17458b30306ccbbd9a8a43f1774f73cae",
+      "examples/reactions/wall_geometry.inp": "cba17f19a4934211ee646b44f2d6aa8222f4cdba9e9856ad4c1caf24b9d8be8e",
+      "examples/reactions/wall_geometry.rxn": "4192083f196029a3bde71831bcb2ff3ce7f02d58243f9a9262e6a7bb78c5ec54",
+      "python/openswmm/engine/_reactions.pyx": "cb54d81126e2d8a3110218cb427a3711c21bdeb1a5625bfa56287f764157209a",
+      "src/engine/core/HotStartManager.cpp": "021b792d740f58134519700058a7bcff2daa9f765f26324b96f8354ef445567c",
+      "src/engine/core/ReactionCheckpoint.hpp": "bbab55b487c63adf1f9d39f4a16219a8ca51b58ed433023d392cf7501463a7c9",
+      "src/engine/core/SWMMEngine.cpp": "975e22f73acb407835ebaaf90f5c0213ef42cd8676980cb22200bf4aeab944ff",
+      "src/engine/core/SWMMEngineCheckpoint.cpp": "3a6b4086f12519adb738d8834b227244c4e74e4d9aa00687dc0f653ad98bfefb",
+      "src/engine/core/SWMMEngineCheckpointSession.cpp": "f22737223a5c9be939a2abd6e19451615e948af5fe9499df36a90809e73c4500",
+      "src/engine/core/openswmm_reactions_impl.cpp": "66de23060f8dd7bdd7b9d8221f9f2f306dca6d27073e120f72d849df8850ec62",
+      "src/engine/data/ReactionData.hpp": "29f886c3e350a240c6d9c57495def73682268eaad62762af4a51c16888afb0c6",
+      "src/engine/edit/ObjectDeleter.cpp": "a2cb24234f15b9d3f71f8d8414972a70a604d47737d31f0067e41d3634eb1443",
+      "src/engine/hydrology/Inflow.cpp": "3e1c23814a1b96c6d11f295743e5ceb8d724921d73d17c31bec9c0c2806eb518",
+      "src/engine/hydrology/LidNode.cpp": "771674b7cde9d976a3c2e7a775b2bf791eef4c5af21e9212900a2f906105d944",
+      "src/engine/plugins/DefaultReportPlugin.cpp": "8e42f2b7abc2825db0b57556853b321fa44cc7058fb5eefa2c444720fae93843",
+      "src/engine/quality/MsxLidReactions.cpp": "cecda28b4efcab87c54edd96bb88de98240af7c69359be1e37633940816f24c1",
+      "src/engine/quality/MsxLidReactions.hpp": "51f98d660531fe83f5f091663e9d812af692ae15d13b0e430415397f9dc7643c",
+      "src/engine/quality/MsxLidUnits.cpp": "ba46e83de7373bf81744a28bc9fdb32f4c344395f62bd9dd096ce111281321b5",
+      "src/engine/quality/MsxSurfaceQuality.cpp": "aee51dae86357294dfa3f3b24b9df5bd94de7ff91141f0f3c459697ecdbb34c1",
+      "src/engine/quality/MsxSurfaceQuality.hpp": "252b5e4c0619a145035f87ba831735e35706290e2e8730feb9d154c5ae0050a0",
+      "src/engine/quality/QualityRouting.cpp": "5d0d8aa879deef000db4176348ef03137ac1bf7460dc1e2f5d619fcce4a841d2",
+      "src/engine/quality/SurfaceSpeciesKernel.cpp": "a68991fea2d721a31edde6e7d453ee9f7a66fa66e127f82b915af955de9a772a",
+      "src/engine/quality/SurfaceSpeciesKernel.hpp": "1ca7c9a3cf6c19b3087de2ad041e06345af8d06205033f37e39b245201481f62",
+      "src/engine/quality/lard/LagrangianSolver.hpp": "559ea8dd39045523c1ecab473c3c4b391e4c5f749792fc5ff3b805495b0dc48a",
+      "src/engine/quality/lard/RwptDispersion.hpp": "718ce84b52fe1c99f4ac32b60099418ec913ea57f2607324a74cf1d1803f03b3",
+      "src/engine/quality/lard/SegmentStore.hpp": "40eb3e1aca2baeb55705be466d6fd50f31b279caf2445ee9d0bb5c53276ae2d6",
+      "src/engine/transport/components/EulerianArdComponent/ArdEngine.cpp": "b87e41c7cecfc5e09f3e0771f9044d824d7f3fc84d6a4e5e8ad557f522bc0cf5",
+      "src/engine/transport/components/EulerianArdComponent/ArdEngine.hpp": "8f96809b74413a00fb770f839066c2b9244155f9e0a7124d7b417a77c4c8a024",
+      "src/engine/transport/components/ReactionModule/MsxLegacyTransport.cpp": "b998b7d25ea88749689abdd37b071d0b9cc425b2442bdc74e149a820fa51baa5",
+      "src/engine/transport/components/ReactionModule/MsxLegacyTransport.hpp": "cbe4e177d590fdfe6ddc5af076de2118155c524ec2d19e3a4064ab00190009b2",
+      "src/engine/transport/components/ReactionModule/ReactionArdBinding.cpp": "3e79d9fe194b8e1c625e138081209a9c169ab8ec613e2c0654d5b88b0a3b9480",
+      "src/engine/transport/components/ReactionModule/ReactionExpression.cpp": "09701cb281dfe4f254c87beedc95873422b777ce98b6bb252ab786edf29c4a20",
+      "src/engine/transport/components/ReactionModule/ReactionExpression.hpp": "39e9455ca22dd7486ee83b5145da26f279233d67557e83d318784b85296fbae7",
+      "src/engine/transport/components/ReactionModule/ReactionGeometry.hpp": "f0ebdec3311f32662375df01ecae7f6ad80a04ea518fb72265a5e3d9a5b40ffa",
+      "src/engine/transport/components/ReactionModule/ReactionLegacyBinding.cpp": "f17b97c76ea2aaf2f9edec803e7d026d0b4c9a84a49037ff26a14cdaabe185d5",
+      "src/engine/transport/components/ReactionModule/ReactionSources.hpp": "38aab7f12fc24f91858da277cc5078d41a2ad6e2222e6f8322fa5bbbca2b4cfa",
+      "src/engine/transport/components/ReactionModule/ReactionsComponent.cpp": "b439c45d6e28594e51a13c2b7d561c4df673b01c7b8eb1348a6611d7f22e4203",
+      "src/engine/transport/components/ReactionModule/ReactionsWriter.cpp": "4d9a6f69d49963d59ff908fdc2483cb65cb1ef930998411b2c076ca78e6acab4",
+      "tests/unit/engine/test_msx_buildup_washoff.cpp": "6396104b7b8cc338fa1352e73c6049bd6cae383c0b9e1931fa275c466e5ece23",
+      "tests/unit/engine/test_reactions_config.cpp": "1fe66eebd36aa496c35f58e25fc811136d8c458cbb6dfa1061d9ff02d9e73f9f"
+    }
+  },
+  "openswmm.gui": {
+    "head_before_commit": "6bfc26defe962f6d5576277f40c2d5c20546d56c",
+    "working_sha256": {
+      "src/ui/dialogs/reactionsystemeditordialog.cpp": "8d1190069453544462251bdcc9abdbd0bcb7343a100142d6816fdc0e29b69ca1",
+      "include/ui/dialogs/reactionsystemeditordialog.h": "3b650f0621842eefbbb6e8d545ce18746f40be9492f01f0e2e9c49d77cead5ef",
+      "tests/gui/test_reactionsystemeditor.cpp": "5217d469b7f4b7daa8e73ecff002257cac30381661a8c787d214758bdded67d7",
+      "docs/manual/16_water_quality.md": "f14fd031770ef5a2b21fbd3d6b7fb7b8e43b405680280e4b769d0578766b5885",
+      "docs/manual/appendices/a02_file_formats.md": "74aea1bfb822c0fb0a58e74735780c25a985d543035b06a2a5ed05bb3cccd81b"
+    }
+  },
+  "openswmm.engine.benchmarks": {
+    "head_before_commit": "eba21ef75456cf18b513b8e898c55b05c8cdd48d",
+    "working_sha256": {
+      "suites/quality/reactions/README.md": "3f1b451e2763ed479e77271072a409c1cbd32d00ae71950a2bfbaf05edb942f9",
+      "suites/quality/reactions/suite.py": "e030a7fff20ecc534465861f3e20e428d5eec1685b3adb904488771a6e5b6339"
+    },
+    "implementation_commit": "6c1cb2a9f6ead4d16221a3c17cad49f1f3e415fa",
+    "committed_source_sha256": {
+      "suites/quality/reactions/README.md": "3f1b451e2763ed479e77271072a409c1cbd32d00ae71950a2bfbaf05edb942f9",
+      "suites/quality/reactions/dry_buildup.inp": "6ae44a1976f8053035960553de82b045a9b10237d949b57c55fe06333884a05b",
+      "suites/quality/reactions/dry_buildup.rxn": "5f3bb4ae3bbcfd5dc5c122f0831c8352eec08faf32853f95fb6f78ae1c02cc0c",
+      "suites/quality/reactions/lid_layers.inp": "4f9b51ab270973637345a9c5625401a6ae1427becff44784b9ead6c94fac0115",
+      "suites/quality/reactions/lid_layers.rxn": "0a23bdea6c14a90c12a32319006ae4bfc2b23b145bb5c1974fb5e86b94c14a16",
+      "suites/quality/reactions/setpoint.inp": "8c99173ebb97e1196d386a419e1e11da51ac186f2f1fd9f73be790d448fbe783",
+      "suites/quality/reactions/setpoint.rxn": "c20a1019d6491508bea96cc12bb3d1e17458b30306ccbbd9a8a43f1774f73cae",
+      "suites/quality/reactions/suite.py": "ca4bafe95c86e4353a4e216d18e77a76f2ae0ce8dad86d0d0d1d0ec32760baef",
+      "suites/quality/reactions/test_suite.py": "ef18d4899169f032299211e11cd873c3fb63d07d781705053d9c26f2bfbe3654",
+      "suites/quality/reactions/wall_geometry.inp": "cba17f19a4934211ee646b44f2d6aa8222f4cdba9e9856ad4c1caf24b9d8be8e",
+      "suites/quality/reactions/wall_geometry.rxn": "4192083f196029a3bde71831bcb2ff3ce7f02d58243f9a9262e6a7bb78c5ec54"
+    }
+  },
+  "engine_cli": {
+    "path": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/build/component-catalogue-20261016/src/cli/openswmm",
+    "sha256": "160de391a520222b1da8315bac6cca71c107b2501a90965aa5e9aa467385cf30"
+  },
+  "engine_library": {
+    "path": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/build/component-catalogue-20261016/src/engine/libopenswmm.engine.6.0.0.dylib",
+    "sha256": "bdda3f9ffeca887afeb4a7315b50b531aa7893fbe5fae32b962ca7d93c4903fa"
+  }
+}

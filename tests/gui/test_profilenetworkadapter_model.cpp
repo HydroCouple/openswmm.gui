@@ -1,6 +1,6 @@
-/*!
- * \file   test_profilenetworkadapter_model.cpp
- * \brief  Regression guard for the link-offset normalisation contract that
+/**
+ * @file      test_profilenetworkadapter_model.cpp
+ * @brief     Regression guard for the link-offset normalisation contract that
  *         `profilenetworkadapter_model.cpp` relies on.
  *
  * What is being pinned
@@ -33,6 +33,10 @@
  * (under tests/gui/data/profile_offset/ at the source tree) so a reader
  * can inspect them after a run — per the workspace's CLAUDE.md
  * "Transparent File IO" rule.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "plot/profilenetworkadapter.h"
@@ -51,7 +55,8 @@
 #include <QTest>
 #include <QTextStream>
 
-namespace {
+namespace
+{
 
 // Fixture content — both models describe the same physical conduit.
 //
@@ -122,6 +127,16 @@ constexpr const char *kElevInp =
     ";;Link    Shape       Geom1    Geom2    Geom3    Geom4    Barrels\n"
     "C1        CIRCULAR    1.0      0        0        0        1\n";
 
+/**
+ *
+ * @brief Create the fixture directory and overwrite one text INP file.
+ * @param fixtureDir Borrowed directory path; mkpath failure is not checked directly.
+ * @param name Borrowed relative filename concatenated with a slash, not sanitized.
+ * @param contents Borrowed null-terminated fixture text streamed synchronously.
+ * @return Joined path after attempted write, or empty on open failure. Text-stream
+ * write/close errors are unchecked; creates/truncates the file and leaves evidence.
+ *
+ */
 QString writeFixture(const QString &fixtureDir, const QString &name, const char *contents)
 {
     QDir().mkpath(fixtureDir);
@@ -178,36 +193,46 @@ constexpr const char *kVirtualJunctionInp =
 struct LoadedOffsets {
     double offsetUp = 0.0;
     double offsetDn = 0.0;
-    int    linkType = -1;
+    int linkType = -1;
 };
 
+/**
+ *
+ * @brief Open a single-link engine fixture and copy its native offset/type fields.
+ * @param inpPath Borrowed readable INP path; report/output paths use its adjacent
+ * complete-base-name stem and may create/truncate evidence there.
+ * @param out Nonnull borrowed LoadedOffsets output, required once open succeeds
+ * and the single-link count is verified. Receives API link type and upstream/
+ * downstream offsets (feet for these CFS fixtures), with no conversion.
+ * @return False on allocation/open/wrong link count; true after three unchecked
+ * getter calls, which can partially update out. Destroys the engine on every normal
+ * path, logs open errors and never simulates the model.
+ *
+ */
 bool loadAndQuery(const QString &inpPath, LoadedOffsets *out)
 {
     // `swmm_engine_create` returns a CREATED-state engine suitable for
     // `swmm_engine_open` against a file (vs. `swmm_engine_new` which yields
     // BUILDING state for programmatic construction).
     SWMM_Engine e = swmm_engine_create();
-    if (e == nullptr) return false;
+    if (e == nullptr)
+        return false;
 
     // .rpt / .out land next to the .inp so a reader can inspect them after
     // the run; binary output is not required for the contract assertion but
     // the engine demands a path.
     const QFileInfo inpInfo(inpPath);
-    const QString stem = inpInfo.absolutePath() + QStringLiteral("/")
-                         + inpInfo.completeBaseName();
+    const QString stem = inpInfo.absolutePath() + QStringLiteral("/") + inpInfo.completeBaseName();
     const QByteArray inpUtf8 = inpPath.toUtf8();
     const QByteArray rptUtf8 = (stem + QStringLiteral(".rpt")).toUtf8();
     const QByteArray outUtf8 = (stem + QStringLiteral(".out")).toUtf8();
 
-    const int rc = swmm_engine_open(e,
-                                    inpUtf8.constData(),
-                                    rptUtf8.constData(),
-                                    outUtf8.constData(),
-                                    nullptr);
+    const int rc =
+        swmm_engine_open(e, inpUtf8.constData(), rptUtf8.constData(), outUtf8.constData(), nullptr);
     if (rc != 0) {
         const int lastErr = swmm_get_last_error(e);
-        qWarning("swmm_engine_open(%s) failed: rc=%d last_error=%d",
-                 qUtf8Printable(inpPath), rc, lastErr);
+        qWarning("swmm_engine_open(%s) failed: rc=%d last_error=%d", qUtf8Printable(inpPath), rc,
+                 lastErr);
         swmm_engine_destroy(e);
         return false;
     }
@@ -230,20 +255,24 @@ bool loadAndQuery(const QString &inpPath, LoadedOffsets *out)
 
 } // namespace
 
-
 class TestProfileNetworkAdapterModel : public QObject
 {
     Q_OBJECT
 
 private:
+    /**
+     *
+     * @brief Choose the profile-offset artifact directory without creating it.
+     * @return Nonempty SWMMVIS_GUI_TEST_DATA or absolute current directory, plus
+     * /profile_offset. Empty environment values deliberately use the current path.
+     *
+     */
     QString fixtureDir() const
     {
         // Prefer the env-injected SWMMVIS_GUI_TEST_DATA (set by add_swmmvis_gui_test);
         // fall back to the cwd so a manual run still produces visible artifacts.
         const QByteArray env = qgetenv("SWMMVIS_GUI_TEST_DATA");
-        const QString base = env.isEmpty()
-                                 ? QDir::currentPath()
-                                 : QString::fromLocal8Bit(env);
+        const QString base = env.isEmpty() ? QDir::currentPath() : QString::fromLocal8Bit(env);
         return base + QStringLiteral("/profile_offset");
     }
 
@@ -256,27 +285,27 @@ private slots:
     {
         const QString dir = fixtureDir();
         const QString depthInp = writeFixture(dir, QStringLiteral("depth_mode.inp"), kDepthInp);
-        const QString elevInp  = writeFixture(dir, QStringLiteral("elevation_mode.inp"), kElevInp);
+        const QString elevInp = writeFixture(dir, QStringLiteral("elevation_mode.inp"), kElevInp);
         QVERIFY2(!depthInp.isEmpty(), "Could not write depth_mode.inp fixture");
-        QVERIFY2(!elevInp.isEmpty(),  "Could not write elevation_mode.inp fixture");
+        QVERIFY2(!elevInp.isEmpty(), "Could not write elevation_mode.inp fixture");
 
         LoadedOffsets depthVals;
         LoadedOffsets elevVals;
         QVERIFY2(loadAndQuery(depthInp, &depthVals),
                  "Engine failed to open the DEPTH-mode fixture");
-        QVERIFY2(loadAndQuery(elevInp,  &elevVals),
+        QVERIFY2(loadAndQuery(elevInp, &elevVals),
                  "Engine failed to open the ELEVATION-mode fixture");
 
         // Engine reports both links as type 0 (conduit).
         QCOMPARE(depthVals.linkType, 0);
-        QCOMPARE(elevVals.linkType,  0);
+        QCOMPARE(elevVals.linkType, 0);
 
         // Both fixtures describe the same physical conduit; after engine
         // normalisation the API surface must return the same depths.
         QCOMPARE(depthVals.offsetUp, 0.5);
         QCOMPARE(depthVals.offsetDn, 1.5);
-        QCOMPARE(elevVals.offsetUp,  0.5);
-        QCOMPARE(elevVals.offsetDn,  1.5);
+        QCOMPARE(elevVals.offsetUp, 0.5);
+        QCOMPARE(elevVals.offsetDn, 1.5);
     }
 
     /*! Sanity guard: the fixtures must actually exercise the offset path,
@@ -301,12 +330,12 @@ private slots:
     {
         using K = ProfileBuilder::NodeKind;
         QCOMPARE(ProfileNetworkAdapter::toNodeKind(0, false), K::Junction);
-        QCOMPARE(ProfileNetworkAdapter::toNodeKind(0, true),  K::VirtualJunction);
+        QCOMPARE(ProfileNetworkAdapter::toNodeKind(0, true), K::VirtualJunction);
         QCOMPARE(ProfileNetworkAdapter::toNodeKind(1, false), K::Outfall);
         QCOMPARE(ProfileNetworkAdapter::toNodeKind(2, false), K::Storage);
         QCOMPARE(ProfileNetworkAdapter::toNodeKind(3, false), K::Divider);
         // The flag only means anything on a junction-typed node.
-        QCOMPARE(ProfileNetworkAdapter::toNodeKind(1, true),  K::Outfall);
+        QCOMPARE(ProfileNetworkAdapter::toNodeKind(1, true), K::Outfall);
         QCOMPARE(ProfileNetworkAdapter::toNodeKind(9, false), K::Junction);
     }
 
@@ -317,9 +346,9 @@ private slots:
     {
         using ProfileNetworkAdapter::renderRimDepth;
         // Virtual junction with a declared ground surface -> that surface.
-        QCOMPARE(renderRimDepth(true,  1.0, 8.0), 8.0);
+        QCOMPARE(renderRimDepth(true, 1.0, 8.0), 8.0);
         // Virtual junction with none (0 = unset) -> the crown, as before.
-        QCOMPARE(renderRimDepth(true,  1.0, 0.0), 1.0);
+        QCOMPARE(renderRimDepth(true, 1.0, 0.0), 1.0);
         // A real node ignores the field even if something set it.
         QCOMPARE(renderRimDepth(false, 6.0, 8.0), 6.0);
         QCOMPARE(renderRimDepth(false, 6.0, 0.0), 6.0);
@@ -330,21 +359,20 @@ private slots:
      *  swmm_node_get_max_depth keeps reporting the derived pipe crown. */
     void virtual_junction_rim_depth_reaches_the_abi()
     {
-        const QString inp = writeFixture(fixtureDir(),
-                                         QStringLiteral("virtual_junction_rim.inp"),
+        const QString inp = writeFixture(fixtureDir(), QStringLiteral("virtual_junction_rim.inp"),
                                          kVirtualJunctionInp);
         QVERIFY2(!inp.isEmpty(), "Could not write virtual_junction_rim.inp fixture");
 
         SWMM_Engine e = swmm_engine_create();
         QVERIFY(e != nullptr);
         const QFileInfo info(inp);
-        const QString stem = info.absolutePath() + QStringLiteral("/")
-                             + info.completeBaseName();
+        const QString stem = info.absolutePath() + QStringLiteral("/") + info.completeBaseName();
         const QByteArray inpUtf8 = inp.toUtf8();
         const QByteArray rptUtf8 = (stem + QStringLiteral(".rpt")).toUtf8();
         const QByteArray outUtf8 = (stem + QStringLiteral(".out")).toUtf8();
-        QCOMPARE(swmm_engine_open(e, inpUtf8.constData(), rptUtf8.constData(),
-                                  outUtf8.constData(), nullptr), 0);
+        QCOMPARE(swmm_engine_open(e, inpUtf8.constData(), rptUtf8.constData(), outUtf8.constData(),
+                                  nullptr),
+                 0);
 
         const int mid = swmm_node_index(e, "MID");
         QVERIFY(mid >= 0);
@@ -357,14 +385,14 @@ private slots:
         QCOMPARE(swmm_node_get_invert_elev(e, mid, &invert), 0);
 
         QCOMPARE(isVirtual, 1);
-        QCOMPARE(nodeType, 0);              // still JUNCTION-typed
-        QCOMPARE(maxDepth, 1.0);            // derived pipe crown
-        QCOMPARE(rimDepth, 8.0);            // declared ground surface
+        QCOMPARE(nodeType, 0);   // still JUNCTION-typed
+        QCOMPARE(maxDepth, 1.0); // derived pipe crown
+        QCOMPARE(rimDepth, 8.0); // declared ground surface
 
         // What the profile actually draws the ground at: 97.5 + 8 = 105.5,
         // not the 98.5 the crown would give.
-        QCOMPARE(invert + ProfileNetworkAdapter::renderRimDepth(
-                     isVirtual != 0, maxDepth, rimDepth), 105.5);
+        QCOMPARE(invert + ProfileNetworkAdapter::renderRimDepth(isVirtual != 0, maxDepth, rimDepth),
+                 105.5);
 
         // A plain junction in the same model is unaffected.
         const int j1 = swmm_node_index(e, "J1");

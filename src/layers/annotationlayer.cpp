@@ -1,195 +1,23 @@
-/*!
- * \file   annotationlayer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      annotationlayer.cpp
+ * @brief     Map layer for editable text annotations and their presentation.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/annotationlayer.h"
 #include "layers/annotationtextitem.h"
-
+#include "layers/annotationfeatures.h"
+#include "map/spatialreferencesystem.h"
 #include <QFontMetricsF>
-#include <QGraphicsItem>
-#include <QGraphicsScene>
-#include <QJsonObject>
-#include <QPainter>
 #include <QPainterPath>
-#include <QPainterPathStroker>
-#include <QPointF>
-#include <QRectF>
-#include <QStyleOptionGraphicsItem>
-
-namespace {
-
-constexpr double kAnnotationZ = 8500.0;  ///< Above features, below transient overlays.
-
-/*!
- * \brief Scene-space Y convention.
- *
- * MapCanvas applies a transform of `(s, 0, 0, s, dx, dy)` — both axes
- * positive. The data convention is therefore "scene_y = -map_y" so that
- * top-of-extent (highest map_y) lands at the smallest scene_y (which is
- * widget y == 0 after the transform). Every (map_x, map_y) sample we add
- * to the scene must be flipped on the Y axis.
- */
-QPointF mapToScenePoint(double mapX, double mapY) noexcept
-{
-    return { mapX, -mapY };
-}
-
-} // anonymous
-
-// ===========================================================================
-// AnnotationGraphicsItem — non-QObject QGraphicsItem that renders one
-// AnnotationTextItem. Lives in the scene; the layer owns the lifetime.
-// Reads style directly from the data item on each paint, so any property
-// change followed by `update()` produces a live repaint.
-// ===========================================================================
-
-class AnnotationGraphicsItem : public QGraphicsItem
-{
-public:
-    explicit AnnotationGraphicsItem(AnnotationTextItem *data)
-        : m_data(data)
-    {
-        setFlag(QGraphicsItem::ItemIgnoresTransformations, true);
-        setZValue(kAnnotationZ);
-        // Annotations are anchored at the map point; the painter draws around
-        // the local origin. ItemIgnoresTransformations keeps the text size
-        // constant in screen pixels under zoom (same convention as the
-        // existing node-label pass in SWMMLayerItem).
-    }
-
-    /*! Direct pointer to the data model (non-owning). */
-    [[nodiscard]] AnnotationTextItem *data() const { return m_data; }
-
-    /*! Public wrapper around the protected QGraphicsItem::prepareGeometryChange
-     *  so the owning layer can notify the scene's spatial index when the
-     *  data item's geometry-affecting fields change. */
-    void notifyGeometryChange() { prepareGeometryChange(); }
-
-    QRectF boundingRect() const override
-    {
-        if (!m_data) return {};
-        const QRectF text = textRect();
-        QRectF r = text;
-        // Background padding extends the rect.
-        if (m_data->backgroundEnabled()) {
-            const double pad = m_data->backgroundPadding()
-                             + 0.5 * m_data->backgroundOutlineWidth();
-            r = r.adjusted(-pad, -pad, pad, pad);
-        }
-        // Halo + outline strokes extend a bit further.
-        double extra = 1.0;
-        if (m_data->haloEnabled())    extra = std::max(extra, m_data->haloRadius() + 1.0);
-        if (m_data->outlineEnabled()) extra = std::max(extra, 0.5 * m_data->outlineWidth() + 1.0);
-        r = r.adjusted(-extra, -extra, extra, extra);
-        // Rotation: expand to the rotated bounding box of the (already
-        // padded) rect so partial repaints don't clip the edges.
-        const double rot = m_data->rotation();
-        if (rot != 0.0) {
-            QTransform t;
-            t.rotate(-rot);
-            r = t.mapRect(r);
-        }
-        return r;
-    }
-
-    void paint(QPainter *p, const QStyleOptionGraphicsItem *, QWidget *) override
-    {
-        if (!m_data) return;
-        const QString text = m_data->text();
-        if (text.isEmpty()) return;
-
-        p->save();
-        p->setRenderHint(QPainter::Antialiasing, true);
-        p->setRenderHint(QPainter::TextAntialiasing, true);
-
-        // Negative rotation in Qt's Y-down view space rotates CCW visually,
-        // matching the "rotation angle CCW" convention exposed in the UI.
-        const double rot = m_data->rotation();
-        if (rot != 0.0)
-            p->rotate(-rot);
-
-        const QFont font = m_data->font();
-        const QFontMetricsF fm(font);
-        const QRectF text_r = textRect();   // baseline-anchored local rect
-
-        // ---- Background box ------------------------------------------------
-        if (m_data->backgroundEnabled()) {
-            const double pad = m_data->backgroundPadding();
-            const QRectF bg = text_r.adjusted(-pad, -pad, pad, pad);
-            QPen pen(m_data->backgroundOutlineColor(),
-                     m_data->backgroundOutlineWidth());
-            pen.setJoinStyle(Qt::MiterJoin);
-            if (m_data->backgroundOutlineWidth() <= 0.0)
-                pen = Qt::NoPen;
-            p->setPen(pen);
-            p->setBrush(m_data->backgroundFillColor());
-            const double radius = m_data->backgroundCornerRadius();
-            if (radius > 0.0)
-                p->drawRoundedRect(bg, radius, radius);
-            else
-                p->drawRect(bg);
-        }
-
-        // The text path is anchored at the baseline (0, 0). QPainterPath::addText
-        // expects the baseline point; the resulting path's bounding rect is what
-        // we use in textRect() for layout math.
-        QPainterPath textPath;
-        textPath.addText(QPointF(0.0, 0.0), font, text);
-
-        // ---- Halo (drawn first, behind everything) -------------------------
-        if (m_data->haloEnabled() && m_data->haloRadius() > 0.0) {
-            QPainterPathStroker stroker;
-            stroker.setWidth(2.0 * m_data->haloRadius());
-            stroker.setJoinStyle(Qt::RoundJoin);
-            stroker.setCapStyle(Qt::RoundCap);
-            const QPainterPath halo = stroker.createStroke(textPath);
-            p->setPen(Qt::NoPen);
-            p->setBrush(m_data->haloColor());
-            p->drawPath(halo);
-        }
-
-        // ---- Glyph outline (drawn before fill so fill sits on top) ---------
-        if (m_data->outlineEnabled() && m_data->outlineWidth() > 0.0) {
-            QPen pen(m_data->outlineColor(), m_data->outlineWidth());
-            pen.setJoinStyle(Qt::RoundJoin);
-            pen.setCapStyle(Qt::RoundCap);
-            p->setPen(pen);
-            p->setBrush(Qt::NoBrush);
-            p->drawPath(textPath);
-        }
-
-        // ---- Fill (text body) ----------------------------------------------
-        p->setPen(Qt::NoPen);
-        p->setBrush(m_data->fillColor());
-        p->drawPath(textPath);
-
-        p->restore();
-    }
-
-private:
-    /*!\brief Text bounds in local item coords, anchored at the baseline (0,0).
-     *
-     * Computed via QPainterPath so the rect matches the path we draw later;
-     * QFontMetrics::tightBoundingRect doesn't include the same descent
-     * conventions and led to background boxes that clipped glyph stems. */
-    QRectF textRect() const
-    {
-        if (!m_data) return {};
-        const QString text = m_data->text();
-        if (text.isEmpty()) return {};
-        QPainterPath path;
-        path.addText(QPointF(0.0, 0.0), m_data->font(), text);
-        return path.boundingRect();
-    }
-
-    AnnotationTextItem *m_data;
-};
-
-// ===========================================================================
-// OpenSWMMVisAnnotationLayer
-// ===========================================================================
+#include <QJsonObject>
+#include <QSignalBlocker>
+#include <algorithm>
+#include <cmath>
+#include <memory>
+#include <ogrsf_frmts.h>
 
 OpenSWMMVisAnnotationLayer::OpenSWMMVisAnnotationLayer(const QString &name,
                                                        OpenSWMMVisWorkspace *parent)
@@ -197,221 +25,366 @@ OpenSWMMVisAnnotationLayer::OpenSWMMVisAnnotationLayer(const QString &name,
 {
     setLayerType(SWMMAnnotationLayer);
 }
-
-OpenSWMMVisAnnotationLayer::~OpenSWMMVisAnnotationLayer()
-{
-    if (m_scene)
-        depopulateScene(m_scene);
-    // m_items deleted via QObject parent chain.
-}
-
 bool OpenSWMMVisAnnotationLayer::addAnnotation(AnnotationTextItem *item)
 {
-    if (!item) return false;
-    if (m_items.contains(item)) return false;
+    if (!item || annotation(item->id()))
+        return false;
     item->setParent(this);
     m_items.append(item);
-
-    connect(item, &AnnotationTextItem::positionChanged,
-            this, &OpenSWMMVisAnnotationLayer::onItemPositionChanged);
-    connect(item, &AnnotationTextItem::changed,
-            this, &OpenSWMMVisAnnotationLayer::onItemChanged);
-
-    if (m_scene)
-        buildGraphicsItem(item);
-
+    connect(item, &AnnotationTextItem::changed, this, [this] {
+        emit annotationsChanged();
+        emit repaintRequested();
+    });
+    emit annotationsChanged();
     emit repaintRequested();
     return true;
 }
-
 bool OpenSWMMVisAnnotationLayer::removeAnnotation(const QString &id)
 {
-    AnnotationTextItem *item = takeAnnotation(id);
-    if (!item) return false;
+    auto *item = takeAnnotation(id);
+    if (!item)
+        return false;
     delete item;
-    emit repaintRequested();
     return true;
 }
-
 AnnotationTextItem *OpenSWMMVisAnnotationLayer::takeAnnotation(const QString &id)
 {
-    AnnotationTextItem *item = annotation(id);
-    if (!item) return nullptr;
-
-    if (auto *gi = m_graphics.take(id)) {
-        if (m_scene && gi->scene() == m_scene)
-            m_scene->removeItem(gi);
-        delete gi;
-    }
-
+    auto *item = annotation(id);
+    if (!item)
+        return nullptr;
     m_items.removeOne(item);
+    m_bounds.remove(id);
+    m_offsets.remove(id);
     item->disconnect(this);
     item->setParent(nullptr);
+    emit annotationsChanged();
     emit repaintRequested();
     return item;
 }
-
 AnnotationTextItem *OpenSWMMVisAnnotationLayer::annotation(const QString &id) const
 {
-    for (AnnotationTextItem *item : m_items)
+    for (auto *item : m_items)
         if (item->id() == id)
             return item;
     return nullptr;
 }
-
-AnnotationTextItem *
-OpenSWMMVisAnnotationLayer::annotationAtScenePos(const QPointF &scenePos) const
+AnnotationTextItem *OpenSWMMVisAnnotationLayer::annotationAtScenePos(const QPointF &pos) const
 {
-    // Walk in reverse so the topmost (last-added) annotation wins on overlap.
-    for (auto it = m_items.crbegin(); it != m_items.crend(); ++it) {
-        auto *gi = m_graphics.value((*it)->id(), nullptr);
-        if (!gi) continue;
-        // boundingRect is in item-local coords; mapRectToScene applies the
-        // current scene position so the test runs in scene space.
-        const QRectF sceneRect = gi->mapRectToScene(gi->boundingRect());
-        if (sceneRect.contains(scenePos))
+    return annotationAtPixel(m_sceneToPixel.map(pos));
+}
+AnnotationTextItem *OpenSWMMVisAnnotationLayer::annotationAtPixel(const QPointF &pos) const
+{
+    if (!isVisible() || opacity() <= 0)
+        return nullptr;
+    for (auto it = m_items.crbegin(); it != m_items.crend(); ++it)
+        if (m_bounds.contains((*it)->id()) && m_bounds.value((*it)->id()).contains(pos))
             return *it;
-    }
     return nullptr;
 }
-
+void OpenSWMMVisAnnotationLayer::setAutoLayout(bool enabled)
+{
+    if (enabled == m_autoLayout)
+        return;
+    m_autoLayout = enabled;
+    emit annotationsChanged();
+    emit repaintRequested();
+}
 QJsonArray OpenSWMMVisAnnotationLayer::toJson() const
 {
-    QJsonArray arr;
-    for (const AnnotationTextItem *item : m_items)
-        arr.append(item->toJson());
-    return arr;
+    QJsonArray result;
+    for (auto *item : m_items)
+        result.append(item->toJson());
+    return result;
 }
-
-void OpenSWMMVisAnnotationLayer::fromJson(const QJsonArray &arr)
+void OpenSWMMVisAnnotationLayer::fromJson(const QJsonArray &items)
 {
-    // Wipe current contents (rare — typically called on a freshly-created
-    // layer right after project load).
-    while (!m_items.isEmpty()) {
-        AnnotationTextItem *item = m_items.takeFirst();
-        if (auto *gi = m_graphics.take(item->id())) {
-            if (m_scene && gi->scene() == m_scene)
-                m_scene->removeItem(gi);
-            delete gi;
+    QSignalBlocker block(this);
+    while (!m_items.isEmpty())
+        removeAnnotation(m_items.last()->id());
+    for (const auto &value : items) {
+        if (!value.isObject())
+            continue;
+        auto *item = new AnnotationTextItem;
+        item->fromJson(value.toObject());
+        if (!addAnnotation(item))
+            delete item;
+    }
+    block.unblock();
+    emit annotationsChanged();
+    emit repaintRequested();
+}
+QJsonObject OpenSWMMVisAnnotationLayer::layerJson() const
+{
+    return {{"id", layerId()},
+            {"name", name()},
+            {"visible", isVisible()},
+            {"opacity", opacity()},
+            {"autoLayout", m_autoLayout},
+            {"crs", srs() ? srs()->toWkt() : QString()},
+            {"items", toJson()}};
+}
+void OpenSWMMVisAnnotationLayer::restoreLayer(const QJsonObject &o)
+{
+    restoreLayerId(o.value("id").toString());
+    setName(o.value("name").toString(tr("Text")));
+    setVisible(o.value("visible").toBool(true));
+    setOpacity(o.value("opacity").toDouble(1));
+    setAutoLayout(o.value("autoLayout").toBool());
+    if (!o.value("crs").toString().isEmpty() &&
+        (!srs() || srs()->toWkt() != o.value("crs").toString()))
+        setSRS(
+            new SpatialReferenceSystem(o.value("crs").toString(), static_cast<QObject *>(nullptr)),
+            true);
+    fromJson(o.value("items").toArray());
+}
+namespace
+{
+struct PlacedText {
+    OpenSWMMVisAnnotationLayer *layer;
+    AnnotationTextItem *item;
+    QPointF anchor;
+    QPainterPath path;
+    QRectF rect; // rotated, padded bounds relative to the baseline
+    QPointF offset;
+    bool linked = false;
+    bool visible = true;
+};
+// A small screen-space index keeps dense generated-label layers responsive.
+class Occupancy
+{
+    QHash<QPair<int, int>, QVector<QRectF>> cells;
+    QRectF viewport;
+
+public:
+    /**
+     * @brief Create an empty 64-pixel-cell collision index for a viewport.
+     * @param[in] screen Finite logical-pixel viewport rectangle.
+     */
+    explicit Occupancy(const QRectF &screen) : viewport(screen) {}
+    /**
+     * @brief Register the viewport-intersecting part of a candidate rectangle.
+     * @param[in] bounds Finite logical-pixel occupied bounds; empty/outside intersection is ignored. Rectangles are copied into every intersected 64-pixel bucket.
+     */
+    void add(const QRectF &bounds)
+    {
+        const QRectF r = bounds.intersected(viewport);
+        if (r.isEmpty())
+            return;
+        for (int x = int(std::floor(r.left() / 64)); x <= int(std::floor(r.right() / 64)); ++x)
+            for (int y = int(std::floor(r.top() / 64)); y <= int(std::floor(r.bottom() / 64)); ++y)
+                cells[{x, y}].append(r);
+    }
+    /**
+     * @brief Test candidate overlap with any indexed occupied rectangle.
+     * @param[in] r Finite logical-pixel candidate rectangle.
+     * @return True on a QRectF intersection, false otherwise; no mutation or screen-containment check occurs.
+     */
+    bool intersects(const QRectF &r) const
+    {
+        for (int x = int(std::floor(r.left() / 64)); x <= int(std::floor(r.right() / 64)); ++x)
+            for (int y = int(std::floor(r.top() / 64)); y <= int(std::floor(r.bottom() / 64));
+                 ++y) {
+                const auto it = cells.constFind({x, y});
+                if (it != cells.cend())
+                    for (const auto &other : it.value())
+                        if (r.intersects(other))
+                            return true;
+            }
+        return false;
+    }
+};
+}
+void OpenSWMMVisAnnotationLayer::paintLayers(QPainter &p, const QList<OpenSWMMVisLayer *> &layers,
+                                             const MapExtent &extent,
+                                             const SpatialReferenceSystem *canvasSrs,
+                                             const QSize &viewport)
+{
+    for (auto *base : layers)
+        if (auto *layer = qobject_cast<OpenSWMMVisAnnotationLayer *>(base)) {
+            layer->m_bounds.clear();
+            layer->m_offsets.clear();
         }
-        delete item;
-    }
-
-    for (const QJsonValue &v : arr) {
-        if (!v.isObject()) continue;
-        auto *item = new AnnotationTextItem(this);
-        item->fromJson(v.toObject());
-        m_items.append(item);
-        connect(item, &AnnotationTextItem::positionChanged,
-                this, &OpenSWMMVisAnnotationLayer::onItemPositionChanged);
-        connect(item, &AnnotationTextItem::changed,
-                this, &OpenSWMMVisAnnotationLayer::onItemChanged);
-        if (m_scene)
-            buildGraphicsItem(item);
-    }
-    emit repaintRequested();
-}
-
-// ----- Scene plumbing -----------------------------------------------------
-
-void OpenSWMMVisAnnotationLayer::populateScene(QGraphicsScene *scene,
-                                               const MapExtent &,
-                                               const SpatialReferenceSystem *canvasSRS)
-{
-    if (!scene) return;
-    m_scene = scene;
-    m_canvasSRS = canvasSRS;
-
-    for (AnnotationTextItem *item : m_items)
-        buildGraphicsItem(item);
-}
-
-void OpenSWMMVisAnnotationLayer::depopulateScene(QGraphicsScene *scene)
-{
-    if (!scene) return;
-    for (auto it = m_graphics.begin(); it != m_graphics.end(); ++it) {
-        AnnotationGraphicsItem *gi = it.value();
-        if (gi && gi->scene() == scene)
-            scene->removeItem(gi);
-        delete gi;
-    }
-    m_graphics.clear();
-    if (m_scene == scene)
-        m_scene = nullptr;
-}
-
-void OpenSWMMVisAnnotationLayer::refreshScene(QGraphicsScene *scene,
-                                              const MapExtent &canvasExtent,
-                                              const SpatialReferenceSystem *canvasSRS)
-{
-    // CRS-change path: depopulate + populate so scene items are at the
-    // freshly-reprojected positions. In steady state we keep the existing
-    // graphics items in place — onItemPositionChanged handles incremental
-    // updates without a full rebuild.
-    if (m_scene == scene && m_canvasSRS == canvasSRS && !m_graphics.isEmpty())
+    if (!extent.isValid() || extent.width() <= 0 || extent.height() <= 0 || viewport.isEmpty())
         return;
-    depopulateScene(scene);
-    populateScene(scene, canvasExtent, canvasSRS);
-}
-
-void OpenSWMMVisAnnotationLayer::onCanvasCRSChanged(const SpatialReferenceSystem *newCanvasSRS)
-{
-    m_canvasSRS = newCanvasSRS;
-    // refreshScene will be triggered by MapCanvas after this; depopulate
-    // here so the next populate rebuilds at the correct scene positions.
-    if (m_scene)
-        depopulateScene(m_scene);
-}
-
-// ----- Private helpers ----------------------------------------------------
-
-QPointF OpenSWMMVisAnnotationLayer::toCanvas(double x, double y) const
-{
-    // v1: store positions directly in canvas-CRS coords (no reprojection on
-    // populate). The picker (Add Text tool) writes positions that are
-    // already in canvas CRS, so this stays consistent until we add a
-    // dedicated layer-CRS reprojection path.
-    return mapToScenePoint(x, y);
-}
-
-void OpenSWMMVisAnnotationLayer::buildGraphicsItem(AnnotationTextItem *item)
-{
-    if (!m_scene || !item) return;
-
-    // Replace any prior graphics item for this id (covers re-population on
-    // CRS change and explicit rebuild paths).
-    if (auto *prev = m_graphics.take(item->id())) {
-        if (prev->scene() == m_scene)
-            m_scene->removeItem(prev);
-        delete prev;
+    const double sx = viewport.width() / extent.width(), sy = viewport.height() / extent.height();
+    const QTransform mapToPixel(sx, 0, 0, -sy, -extent.xMin() * sx, extent.yMax() * sy);
+    const QRectF screen{QPointF(), QSizeF(viewport)};
+    struct Transform {
+        bool valid = true;
+        std::shared_ptr<OGRCoordinateTransformation> ct;
+    };
+    QHash<const SpatialReferenceSystem *, Transform> transforms;
+    auto toCanvas = [&](QPointF &point, const SpatialReferenceSystem *from) {
+        if (!transforms.contains(from)) {
+            Transform transform;
+            if (from && canvasSrs && from->ogrSpatialReference() &&
+                canvasSrs->ogrSpatialReference() &&
+                !from->ogrSpatialReference()->IsSame(canvasSrs->ogrSpatialReference())) {
+                transform.ct = {OGRCreateCoordinateTransformation(from->ogrSpatialReference(),
+                                                                  canvasSrs->ogrSpatialReference()),
+                                OGRCoordinateTransformation::DestroyCT};
+                transform.valid = bool(transform.ct);
+            }
+            transforms.insert(from, transform);
+        }
+        const auto &transform = transforms[from];
+        if (!transform.valid)
+            return false;
+        if (!transform.ct)
+            return true;
+        double x = point.x(), y = point.y();
+        if (!transform.ct->Transform(1, &x, &y))
+            return false;
+        point = {x, y};
+        return true;
+    };
+    QVector<PlacedText> labels;
+    Occupancy occupied(screen);
+    for (auto *base : layers) {
+        auto *layer = qobject_cast<OpenSWMMVisAnnotationLayer *>(base);
+        if (!layer || !layer->isVisible() || layer->opacity() <= 0)
+            continue;
+        layer->m_sceneToPixel = QTransform(sx, 0, 0, sy, -extent.xMin() * sx, extent.yMax() * sy);
+        for (auto *item : layer->m_items) {
+            QPointF anchor(item->x(), item->y());
+            QString text = item->text();
+            bool linked = false;
+            if (!item->featureReference().isEmpty()) {
+                auto *source = AnnotationFeatures::source(layers, item->featureReference());
+                AnnotationFeatures::Feature feature;
+                if (source &&
+                    AnnotationFeatures::resolve(source, item->featureReference(), feature)) {
+                    anchor = feature.position;
+                    if (!toCanvas(anchor, source->srs()))
+                        continue;
+                    if (!item->expression().isEmpty())
+                        text = AnnotationFeatures::evaluate(item->expression(), feature);
+                    linked = true;
+                } else {
+                    // Missing/deleted features cannot retain a misleading leader or live value.
+                    if (!item->expression().isEmpty())
+                        continue;
+                    if (!toCanvas(anchor, layer->srs()))
+                        continue;
+                }
+            } else if (!toCanvas(anchor, layer->srs()))
+                continue;
+            anchor = mapToPixel.map(anchor);
+            if (text.trimmed().isEmpty())
+                continue;
+            const QFontMetricsF fm(item->font());
+            QPainterPath path;
+            double y = 0;
+            for (const QString &line : text.split('\n')) {
+                path.addText(QPointF(0, y), item->font(), line);
+                y += fm.lineSpacing();
+            }
+            double pad = 2;
+            if (item->haloEnabled())
+                pad = std::max(pad, item->haloRadius());
+            if (item->outlineEnabled())
+                pad = std::max(pad, item->outlineWidth() / 2);
+            if (item->backgroundEnabled())
+                pad = std::max(pad, item->backgroundPadding() + item->backgroundOutlineWidth() / 2);
+            QTransform rotation;
+            rotation.rotate(-item->rotation());
+            QRectF rect = rotation.mapRect(path.boundingRect().adjusted(-pad, -pad, pad, pad));
+            if (!screen.adjusted(-200, -200, 200, 200)
+                     .intersects(rect.translated(anchor + item->offset())))
+                continue;
+            labels.append({layer, item, anchor, path, rect, item->offset(), linked, true});
+            if (linked)
+                occupied.add(QRectF(anchor - QPointF(4, 4), QSizeF(8, 8)));
+        }
     }
-
-    auto *gi = new AnnotationGraphicsItem(item);
-    gi->setPos(toCanvas(item->x(), item->y()));
-    m_scene->addItem(gi);
-    m_graphics.insert(item->id(), gi);
-}
-
-void OpenSWMMVisAnnotationLayer::onItemPositionChanged()
-{
-    auto *item = qobject_cast<AnnotationTextItem *>(sender());
-    if (!item) return;
-    auto *gi = m_graphics.value(item->id(), nullptr);
-    if (!gi) return;
-    gi->setPos(toCanvas(item->x(), item->y()));
-    emit repaintRequested();
-}
-
-void OpenSWMMVisAnnotationLayer::onItemChanged()
-{
-    auto *item = qobject_cast<AnnotationTextItem *>(sender());
-    if (!item) return;
-    auto *gi = m_graphics.value(item->id(), nullptr);
-    if (!gi) return;
-    // Geometry-affecting fields (font, halo, padding, rotation, etc.) all
-    // route here; prepareGeometryChange via update + boundingRect recompute
-    // keeps the scene's spatial index in sync without per-field branching.
-    gi->notifyGeometryChange();
-    gi->update();
-    emit repaintRequested();
+    // Manual positions win, including those in other layers.
+    for (const auto &l : labels)
+        if (!l.layer->autoLayout() || l.item->pinned())
+            occupied.add(l.rect.translated(l.anchor + l.offset));
+    // Highest layer gets first choice. Fixed positions are never modified by layout.
+    for (auto it = labels.rbegin(); it != labels.rend(); ++it) {
+        auto &l = *it;
+        if (!l.layer->autoLayout() || l.item->pinned())
+            continue;
+        bool found = false;
+        const QPointF dirs[] = {{1, -1}, {1, 1},  {-1, -1}, {-1, 1},
+                                {1, 0},  {-1, 0}, {0, -1},  {0, 1}};
+        for (int ring = 0; ring <= 12 && !found; ++ring) {
+            for (const auto &dir : dirs) {
+                QPointF offset = l.item->offset();
+                if (ring > 0) {
+                    const double gap = ring * 12.;
+                    const double x = dir.x() > 0   ? gap - l.rect.left()
+                                     : dir.x() < 0 ? -gap - l.rect.right()
+                                                   : -l.rect.center().x();
+                    const double y = dir.y() > 0   ? gap - l.rect.top()
+                                     : dir.y() < 0 ? -gap - l.rect.bottom()
+                                                   : -l.rect.center().y();
+                    offset += QPointF(x, y);
+                }
+                const QRectF candidate = l.rect.translated(l.anchor + offset);
+                if (screen.contains(candidate) && !occupied.intersects(candidate)) {
+                    l.offset = offset;
+                    occupied.add(candidate);
+                    found = true;
+                    break;
+                }
+                if (ring == 0)
+                    break;
+            }
+        }
+        l.visible = found;
+    }
+    // Leaders paint behind all text, so a later callout never covers glyphs.
+    for (const auto &l : labels) {
+        if (!l.visible || !l.linked || !l.item->calloutEnabled())
+            continue;
+        const QRectF bounds = l.rect.translated(l.anchor + l.offset);
+        if (bounds.contains(l.anchor))
+            continue;
+        const QPointF end(std::clamp(l.anchor.x(), bounds.left(), bounds.right()),
+                          std::clamp(l.anchor.y(), bounds.top(), bounds.bottom()));
+        p.save();
+        p.setOpacity(l.layer->opacity());
+        p.setRenderHint(QPainter::Antialiasing);
+        p.setPen(QPen(l.item->fillColor(), 1));
+        p.drawLine(l.anchor, end);
+        p.restore();
+    }
+    for (const auto &l : labels) {
+        if (!l.visible)
+            continue;
+        auto *item = l.item;
+        const QRectF bounds = l.rect.translated(l.anchor + l.offset);
+        l.layer->m_bounds[item->id()] = bounds;
+        l.layer->m_offsets[item->id()] = l.offset;
+        p.save();
+        p.setOpacity(l.layer->opacity());
+        p.setRenderHint(QPainter::Antialiasing);
+        p.translate(l.anchor + l.offset);
+        p.rotate(-item->rotation());
+        if (item->backgroundEnabled()) {
+            const double pad = item->backgroundPadding();
+            p.setPen(item->backgroundOutlineWidth() > 0
+                         ? QPen(item->backgroundOutlineColor(), item->backgroundOutlineWidth())
+                         : QPen(Qt::NoPen));
+            p.setBrush(item->backgroundFillColor());
+            p.drawRoundedRect(l.path.boundingRect().adjusted(-pad, -pad, pad, pad),
+                              item->backgroundCornerRadius(), item->backgroundCornerRadius());
+        }
+        if (item->haloEnabled() && item->haloRadius() > 0) {
+            p.setPen(QPen(item->haloColor(), item->haloRadius() * 2, Qt::SolidLine, Qt::RoundCap,
+                          Qt::RoundJoin));
+            p.setBrush(Qt::NoBrush);
+            p.drawPath(l.path);
+        }
+        if (item->outlineEnabled() && item->outlineWidth() > 0) {
+            p.setPen(QPen(item->outlineColor(), item->outlineWidth(), Qt::SolidLine, Qt::RoundCap,
+                          Qt::RoundJoin));
+            p.setBrush(Qt::NoBrush);
+            p.drawPath(l.path);
+        }
+        p.fillPath(l.path, item->fillColor());
+        p.restore();
+    }
 }

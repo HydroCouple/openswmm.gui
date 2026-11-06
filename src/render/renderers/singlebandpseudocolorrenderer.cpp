@@ -1,8 +1,11 @@
-/*!
- * \file   singlebandpseudocolorrenderer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      singlebandpseudocolorrenderer.cpp
+ * @brief     SingleBandPseudoColorRenderer is the IRasterRenderer counterpart to GraduatedRenderer
+ *            on the feature side.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/renderers/singlebandpseudocolorrenderer.h"
@@ -25,15 +28,21 @@ namespace
 // P5/R-1 — interpolation mirrored from RasterColorRamp (render/colorramp.cpp)
 // so the renderer reproduces the legacy ramp output byte-for-byte after the
 // full switch. Kept in sync deliberately: the legacy ramp is the reference.
+/** @brief Interpolate normalized RGB channels and alpha independently.
+ * @param c0 Valid starting color.
+ * @param c1 Valid ending color.
+ * @param f Finite interpolation fraction in [0,1], without local clamping.
+ * @return Owned QColor with linearly interpolated channels. */
 QColor interpRgb(const QColor &c0, const QColor &c1, double f)
 {
     return QColor::fromRgbF(
-        c0.redF()   + f * (c1.redF()   - c0.redF()),
-        c0.greenF() + f * (c1.greenF() - c0.greenF()),
-        c0.blueF()  + f * (c1.blueF()  - c0.blueF()),
-        c0.alphaF() + f * (c1.alphaF() - c0.alphaF()));
+        c0.redF() + f * (c1.redF() - c0.redF()), c0.greenF() + f * (c1.greenF() - c0.greenF()),
+        c0.blueF() + f * (c1.blueF() - c0.blueF()), c0.alphaF() + f * (c1.alphaF() - c0.alphaF()));
 }
 
+/** @brief Test whether an endpoint lacks a meaningful HSV hue.
+ * @param c Valid color to inspect without mutation.
+ * @return True for an undefined hue or saturation at most 1e-6. */
 bool isAchromatic(const QColor &c)
 {
     float h = 0.0f, s = 0.0f, v = 0.0f, a = 0.0f;
@@ -41,6 +50,14 @@ bool isAchromatic(const QColor &c)
     return h < 0.0f || s <= 1e-6f;
 }
 
+/** @brief Interpolate HSV endpoints along the selected hue arc, with linear alpha.
+ * @param c0 Valid starting color.
+ * @param c1 Valid ending color.
+ * @param f Finite normalized fraction in [0,1].
+ * @param longArc True to take the longer arc when the nonzero hue difference is
+ * less than half a turn; equal hues and exact half-turn ties retain their difference.
+ * @return Interpolated color with wrapped hue and clamped saturation/value/alpha.
+ * Either achromatic endpoint delegates to RGB interpolation instead. */
 QColor interpHsv(const QColor &c0, const QColor &c1, double f, bool longArc)
 {
     if (isAchromatic(c0) || isAchromatic(c1))
@@ -52,34 +69,42 @@ QColor interpHsv(const QColor &c0, const QColor &c1, double f, bool longArc)
     c1.getHsvF(&h1, &s1, &v1, &a1);
 
     double dh = h1 - h0;
-    if (longArc)
-    {
-        if (dh > 0.0 && dh < 0.5) dh -= 1.0;
-        else if (dh < 0.0 && dh > -0.5) dh += 1.0;
-    }
-    else
-    {
-        if (dh > 0.5)  dh -= 1.0;
-        else if (dh < -0.5) dh += 1.0;
+    if (longArc) {
+        if (dh > 0.0 && dh < 0.5)
+            dh -= 1.0;
+        else if (dh < 0.0 && dh > -0.5)
+            dh += 1.0;
+    } else {
+        if (dh > 0.5)
+            dh -= 1.0;
+        else if (dh < -0.5)
+            dh += 1.0;
     }
     double h = h0 + f * dh;
     h = h - std::floor(h);
     const double s = s0 + f * (s1 - s0);
     const double v = v0 + f * (v1 - v0);
     const double a = a0 + f * (a1 - a0);
-    return QColor::fromHsvF(static_cast<float>(h),
-                            static_cast<float>(std::clamp(s, 0.0, 1.0)),
+    return QColor::fromHsvF(static_cast<float>(h), static_cast<float>(std::clamp(s, 0.0, 1.0)),
                             static_cast<float>(std::clamp(v, 0.0, 1.0)),
                             static_cast<float>(std::clamp(a, 0.0, 1.0)));
 }
 
+/** @brief Dispatch interpolation for a surrounding stop pair.
+ * @param c0 Valid lower-stop color.
+ * @param c1 Valid upper-stop color.
+ * @param f Finite interpolation fraction in [0,1].
+ * @param interp Color-space/arc selection; unknown values fall back to RGB.
+ * @return Owned interpolated color; HSV modes fall back to RGB for achromatic endpoints. */
 QColor interpStops(const QColor &c0, const QColor &c1, double f, RampInterp interp)
 {
-    switch (interp)
-    {
-    case RampInterp::Rgb:      return interpRgb(c0, c1, f);
-    case RampInterp::HsvShort: return interpHsv(c0, c1, f, false);
-    case RampInterp::HsvLong:  return interpHsv(c0, c1, f, true);
+    switch (interp) {
+    case RampInterp::Rgb:
+        return interpRgb(c0, c1, f);
+    case RampInterp::HsvShort:
+        return interpHsv(c0, c1, f, false);
+    case RampInterp::HsvLong:
+        return interpHsv(c0, c1, f, true);
     }
     return interpRgb(c0, c1, f);
 }
@@ -88,6 +113,8 @@ QColor interpStops(const QColor &c0, const QColor &c1, double f, RampInterp inte
  * \brief Build a legend swatch SymbolStyle whose only layer is a
  *        SimpleFill with the supplied colour.  Keeps the legend
  *        symbol shape consistent across the two renderer hierarchies.
+ * @param c Color copied into a canonical color property without validation.
+ * @return Owned single-pass style at default opacity, with no expressions.
  */
 SymbolStyle makeSwatch(const QColor &c)
 {
@@ -99,31 +126,36 @@ SymbolStyle makeSwatch(const QColor &c)
     return s;
 }
 
+/** @brief Serialize stop positions and ARGB colors in their current order.
+ * @param stops Stop list read without sorting or validation.
+ * @return Owned JSON array with pos and color fields for every entry. */
 QJsonArray stopsToJson(const QList<SingleBandPseudoColorRenderer::Stop> &stops)
 {
     QJsonArray arr;
-    for (const auto &s : stops)
-    {
+    for (const auto &s : stops) {
         QJsonObject obj;
-        obj.insert(QStringLiteral("pos"),   s.first);
+        obj.insert(QStringLiteral("pos"), s.first);
         obj.insert(QStringLiteral("color"), s.second.name(QColor::HexArgb));
         arr.append(obj);
     }
     return arr;
 }
 
+/** @brief Convert stop JSON without repairing order or filtering malformed rows.
+ * @param arr Ordered entries; nonobjects are read as empty objects.
+ * @return Owned list with missing/mistyped positions zero and invalid colors
+ * transparent. Positions are not checked for finiteness or the normalized range. */
 QList<SingleBandPseudoColorRenderer::Stop> jsonToStops(const QJsonArray &arr)
 {
     QList<SingleBandPseudoColorRenderer::Stop> out;
     out.reserve(arr.size());
-    for (const QJsonValue &v : arr)
-    {
+    for (const QJsonValue &v : arr) {
         const QJsonObject obj = v.toObject();
         const double pos = obj.value(QStringLiteral("pos")).toDouble(0.0);
         QColor c(obj.value(QStringLiteral("color")).toString());
         if (!c.isValid())
             c = Qt::transparent;
-        out.append({ pos, c });
+        out.append({pos, c});
     }
     return out;
 }
@@ -150,11 +182,8 @@ QColor SingleBandPseudoColorRenderer::colorForValue(double value, bool isNoData)
     if (m_stops.isEmpty())
         return Qt::transparent;
 
-    // Out-of-range transparency per clamp policy (matches the legacy
-    // RasterColorRamp::colorForValue gate exactly).
-    if (m_clampMin && value < m_minValue)
-        return Qt::transparent;
-    if (m_clampMax && value > m_maxValue)
+    // Match numeric result layers: hide underflow and saturate overflow.
+    if (value < m_minValue)
         return Qt::transparent;
 
     // Single-stop ramp behaves as a constant.
@@ -182,10 +211,8 @@ QColor SingleBandPseudoColorRenderer::colorForValue(double value, bool isNoData)
 
     // Find the surrounding pair (lo, hi) such that lo.pos <= t <= hi.pos.
     // Stops are required to be in ascending-position order (header contract).
-    for (int i = 1; i < m_stops.size(); ++i)
-    {
-        if (t <= m_stops[i].first)
-        {
+    for (int i = 1; i < m_stops.size(); ++i) {
+        if (t <= m_stops[i].first) {
             const Stop &lo = m_stops.at(i - 1);
             const Stop &hi = m_stops.at(i);
             if (hi.first <= lo.first)
@@ -205,8 +232,7 @@ QList<LegendSymbolItem> SingleBandPseudoColorRenderer::legendSymbolItems() const
     const double span = m_maxValue - m_minValue;
 
     int i = 0;
-    for (const Stop &s : m_stops)
-    {
+    for (const Stop &s : m_stops) {
         LegendSymbolItem item;
         // Compute the data-space value represented by this stop's
         // normalised position.
@@ -228,10 +254,10 @@ QJsonObject SingleBandPseudoColorRenderer::toJson() const
     obj.insert(QStringLiteral("id"), rendererId());
     obj.insert(QStringLiteral("minValue"), m_minValue);
     obj.insert(QStringLiteral("maxValue"), m_maxValue);
-    obj.insert(QStringLiteral("stops"),    stopsToJson(m_stops));
+    obj.insert(QStringLiteral("stops"), stopsToJson(m_stops));
     obj.insert(QStringLiteral("clampMin"), m_clampMin);
     obj.insert(QStringLiteral("clampMax"), m_clampMax);
-    obj.insert(QStringLiteral("interp"),   static_cast<int>(m_interp));
+    obj.insert(QStringLiteral("interp"), static_cast<int>(m_interp));
     return obj;
 }
 
@@ -239,10 +265,10 @@ void SingleBandPseudoColorRenderer::fromJson(const QJsonObject &j)
 {
     m_minValue = j.value(QStringLiteral("minValue")).toDouble(0.0);
     m_maxValue = j.value(QStringLiteral("maxValue")).toDouble(1.0);
-    m_stops    = jsonToStops(j.value(QStringLiteral("stops")).toArray());
+    m_stops = jsonToStops(j.value(QStringLiteral("stops")).toArray());
     m_clampMin = j.value(QStringLiteral("clampMin")).toBool(false);
     m_clampMax = j.value(QStringLiteral("clampMax")).toBool(false);
-    m_interp   = static_cast<RampInterp>(
+    m_interp = static_cast<RampInterp>(
         j.value(QStringLiteral("interp")).toInt(static_cast<int>(RampInterp::Rgb)));
 }
 

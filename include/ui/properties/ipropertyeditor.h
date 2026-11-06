@@ -1,8 +1,9 @@
-/*!
- * \file   ipropertyeditor.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      ipropertyeditor.h
+ * @brief     Slice BM Phase 6.3.1 — abstract `IPropertyEditor` interface.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice BM Phase 6.3.1 — abstract `IPropertyEditor` interface.
  *
@@ -27,7 +28,9 @@
  * property adapters in `swmm{node,link,subcatch}propertyadapter.h`. The
  * registry does NOT own the engine; editors look it up through whatever
  * adapter their concrete BN/BO/BP slice introduces.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef IPROPERTYEDITOR_H
 #define IPROPERTYEDITOR_H
 
@@ -49,6 +52,9 @@ class QWidget;
 class IPropertyEditor
 {
 public:
+    /**
+     * @brief Destroy an editor implementation through the interface; widget lifetime follows the concrete implementation/caller contract.
+     */
     virtual ~IPropertyEditor() = default;
 
     /*!
@@ -63,6 +69,7 @@ public:
      * "inlet", "inlet_usage").
      *
      * Used as the registry key — must remain stable across releases.
+     * @return Stable lowercase registry key for this implementation.
      */
     [[nodiscard]] virtual QString objectKind() const = 0;
 
@@ -74,6 +81,8 @@ public:
      * property-tree path. Implementations may cache the widget across
      * calls when the ref's name is unchanged; PropertiesPanel does not
      * assume widget identity.
+     * @param[in] ref Selected object identity; concrete implementations resolve its borrowed model context.
+     * @return Caller-owned widget for reparenting into the property panel, or nullptr when unsupported. Implementations may reuse a widget as described above.
      */
     [[nodiscard]] virtual QWidget *editorForObject(const SWMMObjectRef &ref) = 0;
 
@@ -84,6 +93,8 @@ public:
      *
      * Implementations are responsible for engine-state guards
      * (BUILDING / OPENED checks) — the registry imposes no policy.
+     * @param[in] ref Object whose engine input is to be updated from current controls.
+     * @details This interface returns no common status; implementations define how validation/engine failures are presented and must preserve their own ownership/thread rules.
      */
     virtual void apply(const SWMMObjectRef &ref) = 0;
 };

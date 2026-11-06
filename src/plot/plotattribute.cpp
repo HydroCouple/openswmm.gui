@@ -1,22 +1,24 @@
-/*!
- * \file   plotattribute.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      plotattribute.cpp
+ * @brief     A `PlotAttribute` names what is being plotted (Depth, Flow, …) decoupled from the
+ *            object kind that produced it (node/link/subcatch/mesh-cell).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "plot/plotattribute.h"
 
-namespace openswmmvis::plot {
+namespace openswmmvis::plot
+{
 
 const QVector<PlotAttribute> &nodePlotAttributes()
 {
     static const QVector<PlotAttribute> kList = {
-        PlotAttribute::NodeDepth,
-        PlotAttribute::NodeHead,
-        PlotAttribute::NodeVolume,
-        PlotAttribute::NodeLateralInflow,
-        PlotAttribute::NodeTotalInflow,
-        PlotAttribute::NodeOverflow,
+        PlotAttribute::NodeDepth,       PlotAttribute::NodeHead,
+        PlotAttribute::NodeVolume,      PlotAttribute::NodeLateralInflow,
+        PlotAttribute::NodeTotalInflow, PlotAttribute::NodeOverflow,
     };
     return kList;
 }
@@ -24,11 +26,8 @@ const QVector<PlotAttribute> &nodePlotAttributes()
 const QVector<PlotAttribute> &linkPlotAttributes()
 {
     static const QVector<PlotAttribute> kList = {
-        PlotAttribute::LinkFlow,
-        PlotAttribute::LinkDepth,
-        PlotAttribute::LinkVelocity,
-        PlotAttribute::LinkVolume,
-        PlotAttribute::LinkCapacity,
+        PlotAttribute::LinkFlow,   PlotAttribute::LinkDepth,    PlotAttribute::LinkVelocity,
+        PlotAttribute::LinkVolume, PlotAttribute::LinkCapacity,
     };
     return kList;
 }
@@ -41,6 +40,19 @@ const QVector<PlotAttribute> &subcatchPlotAttributes()
         PlotAttribute::SubcatchEvap,
         PlotAttribute::SubcatchInfil,
         PlotAttribute::SubcatchRunoff,
+        PlotAttribute::SubcatchGwFlow,
+        PlotAttribute::SubcatchGwElev,
+        PlotAttribute::SubcatchSoilMoisture,
+        PlotAttribute::SubcatchSnowSWE,
+        PlotAttribute::SubcatchSnowEnergy,
+        PlotAttribute::SubcatchSnowSurfaceTemp,
+        PlotAttribute::SubcatchSnowBulkTemp,
+        PlotAttribute::SubcatchSnowAlbedo,
+        PlotAttribute::SubcatchSnowCover,
+        PlotAttribute::SubcatchSnowMelt,
+        PlotAttribute::SubcatchSnowInput,
+        PlotAttribute::SubcatchSnowSublimation,
+
     };
     return kList;
 }
@@ -48,20 +60,44 @@ const QVector<PlotAttribute> &subcatchPlotAttributes()
 const QVector<PlotAttribute> &systemPlotAttributes()
 {
     static const QVector<PlotAttribute> kList = {
-        PlotAttribute::SystemRainfall,
-        PlotAttribute::SystemRunoff,
-        PlotAttribute::SystemDwInflow,
-        PlotAttribute::SystemGwInflow,
-        PlotAttribute::SystemLatInflow,
-        PlotAttribute::SystemFlooding,
-        PlotAttribute::SystemOutflow,
-        PlotAttribute::SystemStorage,
-        PlotAttribute::SystemEvap,
-        PlotAttribute::SystemEvapTotal,
-        PlotAttribute::SystemPET,
-        PlotAttribute::SystemInfil,
-        PlotAttribute::SystemSnowDepth,
+        PlotAttribute::SystemRainfall,    PlotAttribute::SystemRunoff,
+        PlotAttribute::SystemDwInflow,    PlotAttribute::SystemGwInflow,
+        PlotAttribute::SystemRdiiInflow,  PlotAttribute::SystemExtInflow,
+        PlotAttribute::SystemLatInflow,   PlotAttribute::SystemFlooding,
+        PlotAttribute::SystemOutflow,     PlotAttribute::SystemStorage,
+        PlotAttribute::SystemEvap,        PlotAttribute::SystemPET,
+        PlotAttribute::SystemInfil,       PlotAttribute::SystemSnowDepth,
         PlotAttribute::SystemTemperature,
+    };
+    return kList;
+}
+
+const QVector<PlotAttribute> &mesh2DCellPlotAttributes()
+{
+    static const QVector<PlotAttribute> kList = {
+        PlotAttribute::Mesh2DDepth,       PlotAttribute::Mesh2DHGL,
+        PlotAttribute::Mesh2DVelocityMag, PlotAttribute::Mesh2DVelocityX,
+        PlotAttribute::Mesh2DVelocityY,   PlotAttribute::Mesh2DRainfall,
+        PlotAttribute::Mesh2DRainfallAvg, PlotAttribute::Mesh2DRainDepth,
+        PlotAttribute::Mesh2DRainVolume,
+    };
+    return kList;
+}
+
+const QVector<PlotAttribute> &mesh2DEdgePlotAttributes()
+{
+    static const QVector<PlotAttribute> kList = {
+        PlotAttribute::Mesh2DEdgeFlow,
+        PlotAttribute::Mesh2DEdgeFlux,
+    };
+    return kList;
+}
+
+const QVector<PlotAttribute> &mesh2DVertexPlotAttributes()
+{
+    static const QVector<PlotAttribute> kList = {
+        PlotAttribute::Mesh2DDepth,
+        PlotAttribute::Mesh2DHGL,
     };
     return kList;
 }
@@ -69,45 +105,119 @@ const QVector<PlotAttribute> &systemPlotAttributes()
 QString labelFor(PlotAttribute a)
 {
     switch (a) {
-    case PlotAttribute::NodeDepth:         return QStringLiteral("Depth (node)");
-    case PlotAttribute::NodeHead:          return QStringLiteral("Head");
-    case PlotAttribute::NodeVolume:        return QStringLiteral("Volume (node)");
-    case PlotAttribute::NodeLateralInflow: return QStringLiteral("Lateral inflow");
-    case PlotAttribute::NodeTotalInflow:   return QStringLiteral("Total inflow");
-    case PlotAttribute::NodeOverflow:      return QStringLiteral("Overflow");
-    case PlotAttribute::LinkFlow:          return QStringLiteral("Flow");
-    case PlotAttribute::LinkDepth:         return QStringLiteral("Depth (link)");
-    case PlotAttribute::LinkVelocity:      return QStringLiteral("Velocity (link)");
-    case PlotAttribute::LinkVolume:        return QStringLiteral("Volume (link)");
-    case PlotAttribute::LinkCapacity:      return QStringLiteral("Capacity");
-    case PlotAttribute::SubcatchRainfall:  return QStringLiteral("Rainfall");
-    case PlotAttribute::SubcatchSnowDepth: return QStringLiteral("Snow depth");
-    case PlotAttribute::SubcatchEvap:      return QStringLiteral("Evaporation");
-    case PlotAttribute::SubcatchInfil:     return QStringLiteral("Infiltration");
-    case PlotAttribute::SubcatchRunoff:    return QStringLiteral("Runoff");
-    case PlotAttribute::Mesh2DDepth:       return QStringLiteral("Depth (2D cell)");
-    case PlotAttribute::Mesh2DHGL:         return QStringLiteral("HGL (2D cell)");
-    case PlotAttribute::Mesh2DVelocityMag: return QStringLiteral("|V| (2D cell)");
-    case PlotAttribute::Mesh2DVelocityX:   return QStringLiteral("Vx (2D cell)");
-    case PlotAttribute::Mesh2DVelocityY:   return QStringLiteral("Vy (2D cell)");
-    case PlotAttribute::Mesh2DEdgeFlux:    return QStringLiteral("Edge flux (2D)");
-    case PlotAttribute::Mesh2DEdgeFlow:    return QStringLiteral("Edge flow (2D)");
-    case PlotAttribute::SystemTemperature: return QStringLiteral("Air temperature");
-    case PlotAttribute::SystemRainfall:    return QStringLiteral("Average rainfall");
-    case PlotAttribute::SystemSnowDepth:   return QStringLiteral("Average snow depth");
-    case PlotAttribute::SystemEvap:        return QStringLiteral("Average evaporation");
-    case PlotAttribute::SystemInfil:       return QStringLiteral("Average infiltration");
-    case PlotAttribute::SystemRunoff:      return QStringLiteral("Total runoff");
-    case PlotAttribute::SystemDwInflow:    return QStringLiteral("Total DW inflow");
-    case PlotAttribute::SystemGwInflow:    return QStringLiteral("Total GW inflow");
-    case PlotAttribute::SystemLatInflow:   return QStringLiteral("Total lateral inflow");
-    case PlotAttribute::SystemFlooding:    return QStringLiteral("Total flooding");
-    case PlotAttribute::SystemOutflow:     return QStringLiteral("Total outflow");
-    case PlotAttribute::SystemStorage:     return QStringLiteral("Total storage");
-    case PlotAttribute::SystemEvapTotal:   return QStringLiteral("Total evaporation");
-    case PlotAttribute::SystemPET:         return QStringLiteral("Potential evapotranspiration");
+    case PlotAttribute::NodeDepth:
+        return QStringLiteral("Depth (node)");
+    case PlotAttribute::NodeHead:
+        return QStringLiteral("Head");
+    case PlotAttribute::NodeVolume:
+        return QStringLiteral("Volume (node)");
+    case PlotAttribute::NodeLateralInflow:
+        return QStringLiteral("Lateral inflow");
+    case PlotAttribute::NodeTotalInflow:
+        return QStringLiteral("Total inflow");
+    case PlotAttribute::NodeOverflow:
+        return QStringLiteral("Overflow");
+    case PlotAttribute::LinkFlow:
+        return QStringLiteral("Flow");
+    case PlotAttribute::LinkDepth:
+        return QStringLiteral("Depth (link)");
+    case PlotAttribute::LinkVelocity:
+        return QStringLiteral("Velocity (link)");
+    case PlotAttribute::LinkVolume:
+        return QStringLiteral("Volume (link)");
+    case PlotAttribute::LinkCapacity:
+        return QStringLiteral("Capacity");
+    case PlotAttribute::SubcatchRainfall:
+        return QStringLiteral("Rainfall");
+    case PlotAttribute::SubcatchSnowSWE:
+        return QStringLiteral("Snow water equivalent");
+    case PlotAttribute::SubcatchSnowEnergy:
+        return QStringLiteral("Snow/ground energy");
+    case PlotAttribute::SubcatchSnowSurfaceTemp:
+        return QStringLiteral("Snow/ground surface temperature");
+    case PlotAttribute::SubcatchSnowBulkTemp:
+        return QStringLiteral("Snow/ground bulk temperature");
+    case PlotAttribute::SubcatchSnowAlbedo:
+        return QStringLiteral("Snow/ground albedo");
+    case PlotAttribute::SubcatchSnowCover:
+        return QStringLiteral("Snow cover fraction");
+    case PlotAttribute::SubcatchSnowMelt:
+        return QStringLiteral("Snowmelt rate");
+    case PlotAttribute::SubcatchSnowInput:
+        return QStringLiteral("Snow liquid surface input");
+    case PlotAttribute::SubcatchSnowSublimation:
+        return QStringLiteral("Snow sublimation / condensation");
+    case PlotAttribute::SubcatchSnowDepth:
+        return QStringLiteral("Snow depth");
+    case PlotAttribute::SubcatchEvap:
+        return QStringLiteral("Evaporation");
+    case PlotAttribute::SubcatchInfil:
+        return QStringLiteral("Infiltration");
+    case PlotAttribute::SubcatchRunoff:
+        return QStringLiteral("Runoff");
+    case PlotAttribute::SubcatchGwFlow:
+        return QStringLiteral("Groundwater flow");
+    case PlotAttribute::SubcatchGwElev:
+        return QStringLiteral("Groundwater elevation");
+    case PlotAttribute::SubcatchSoilMoisture:
+        return QStringLiteral("Soil moisture");
+    case PlotAttribute::Mesh2DDepth:
+        return QStringLiteral("Depth (2D cell)");
+    case PlotAttribute::Mesh2DHGL:
+        return QStringLiteral("HGL (2D cell)");
+    case PlotAttribute::Mesh2DVelocityMag:
+        return QStringLiteral("|V| (2D cell)");
+    case PlotAttribute::Mesh2DVelocityX:
+        return QStringLiteral("Vx (2D cell)");
+    case PlotAttribute::Mesh2DVelocityY:
+        return QStringLiteral("Vy (2D cell)");
+    case PlotAttribute::Mesh2DEdgeFlux:
+        return QStringLiteral("Edge flux (2D)");
+    case PlotAttribute::Mesh2DEdgeFlow:
+        return QStringLiteral("Edge flow (2D)");
+    case PlotAttribute::Mesh2DRainfall:
+        return QStringLiteral("Rainfall (2D cell)");
+    case PlotAttribute::Mesh2DRainVolume:
+        return QStringLiteral("Rainfall volume (2D cell)");
+    case PlotAttribute::Mesh2DRainfallAvg:
+        return QStringLiteral("Rainfall, interval mean (2D cell)");
+    case PlotAttribute::Mesh2DRainDepth:
+        return QStringLiteral("Cumulative rainfall (2D cell)");
+    case PlotAttribute::SystemTemperature:
+        return QStringLiteral("Air temperature");
+    case PlotAttribute::SystemRainfall:
+        return QStringLiteral("Average rainfall");
+    case PlotAttribute::SystemSnowDepth:
+        return QStringLiteral("Average snow depth");
+    case PlotAttribute::SystemEvap:
+        return QStringLiteral("Average evaporation");
+    case PlotAttribute::SystemInfil:
+        return QStringLiteral("Average infiltration");
+    case PlotAttribute::SystemRunoff:
+        return QStringLiteral("Total runoff");
+    case PlotAttribute::SystemDwInflow:
+        return QStringLiteral("Total DW inflow");
+    case PlotAttribute::SystemGwInflow:
+        return QStringLiteral("Total GW inflow");
+    case PlotAttribute::SystemRdiiInflow:
+        return QStringLiteral("Total RDII inflow");
+    case PlotAttribute::SystemExtInflow:
+        return QStringLiteral("Total external inflow");
+    case PlotAttribute::SystemLatInflow:
+        return QStringLiteral("Total lateral inflow");
+    case PlotAttribute::SystemFlooding:
+        return QStringLiteral("Total flooding");
+    case PlotAttribute::SystemOutflow:
+        return QStringLiteral("Total outflow");
+    case PlotAttribute::SystemStorage:
+        return QStringLiteral("Total storage");
+    case PlotAttribute::SystemEvapTotal:
+        return QStringLiteral("Total evaporation");
+    case PlotAttribute::SystemPET:
+        return QStringLiteral("Potential evapotranspiration");
     case PlotAttribute::Unknown:
-    default:                                return QStringLiteral("Unknown");
+    default:
+        return QStringLiteral("Unknown");
     }
 }
 
@@ -120,10 +230,12 @@ QString unitsFor(PlotAttribute a, UnitSystem u)
     case PlotAttribute::NodeHead:
     case PlotAttribute::Mesh2DDepth:
     case PlotAttribute::Mesh2DHGL:
+    case PlotAttribute::SubcatchGwElev:
         return us ? QStringLiteral("ft") : QStringLiteral("m");
 
     case PlotAttribute::NodeVolume:
     case PlotAttribute::LinkVolume:
+    case PlotAttribute::Mesh2DRainVolume:
         return us ? QStringLiteral("ft³") : QStringLiteral("m³");
 
     case PlotAttribute::NodeLateralInflow:
@@ -131,9 +243,12 @@ QString unitsFor(PlotAttribute a, UnitSystem u)
     case PlotAttribute::NodeOverflow:
     case PlotAttribute::LinkFlow:
     case PlotAttribute::SubcatchRunoff:
+    case PlotAttribute::SubcatchGwFlow:
     case PlotAttribute::SystemRunoff:
     case PlotAttribute::SystemDwInflow:
     case PlotAttribute::SystemGwInflow:
+    case PlotAttribute::SystemRdiiInflow:
+    case PlotAttribute::SystemExtInflow:
     case PlotAttribute::SystemLatInflow:
     case PlotAttribute::SystemFlooding:
     case PlotAttribute::SystemOutflow:
@@ -152,17 +267,39 @@ QString unitsFor(PlotAttribute a, UnitSystem u)
     case PlotAttribute::Mesh2DEdgeFlux:
         return us ? QStringLiteral("ft²/s") : QStringLiteral("m²/s");
 
+    case PlotAttribute::SubcatchSnowSWE:
+        return QStringLiteral("m");
+    case PlotAttribute::SubcatchSnowEnergy:
+        return QStringLiteral("kJ/m²");
+    case PlotAttribute::SubcatchSnowSurfaceTemp:
+        return QStringLiteral("°C");
+    case PlotAttribute::SubcatchSnowBulkTemp:
+        return QStringLiteral("°C");
+    case PlotAttribute::SubcatchSnowAlbedo:
+        return QStringLiteral("");
+    case PlotAttribute::SubcatchSnowCover:
+        return QStringLiteral("");
+    case PlotAttribute::SubcatchSnowMelt:
+        return QStringLiteral("m/s");
+    case PlotAttribute::SubcatchSnowInput:
+        return QStringLiteral("m/s");
+    case PlotAttribute::SubcatchSnowSublimation:
+        return QStringLiteral("m/s");
     case PlotAttribute::LinkCapacity:
-        return QStringLiteral("");      // dimensionless 0..1
+    case PlotAttribute::SubcatchSoilMoisture:
+        return QStringLiteral(""); // dimensionless 0..1
 
     case PlotAttribute::SubcatchRainfall:
     case PlotAttribute::SubcatchInfil:
     case PlotAttribute::SystemRainfall:
     case PlotAttribute::SystemInfil:
+    case PlotAttribute::Mesh2DRainfall:
+    case PlotAttribute::Mesh2DRainfallAvg:
         return us ? QStringLiteral("in/hr") : QStringLiteral("mm/hr");
 
     case PlotAttribute::SubcatchSnowDepth:
     case PlotAttribute::SystemSnowDepth:
+    case PlotAttribute::Mesh2DRainDepth:
         return us ? QStringLiteral("in") : QStringLiteral("mm");
 
     case PlotAttribute::SubcatchEvap:

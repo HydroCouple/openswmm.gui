@@ -1,0 +1,10 @@
+{
+  "case": "05_repeat_storm",
+  "step_seconds": 1.25,
+  "cells_per_material": 8,
+  "atol": 1e-07,
+  "rtol": 1e-05,
+  "error": "LID Richards at A: Richards adaptive-step limit exceeded",
+  "library_sha256": "dabc78a26287aff798c94bbaba0ca2d5171176ff2c4a0fa8c901ccf50291f146",
+  "source": "Native C++ exception aborted the original batch before end/report; completed CSVs/reports remain. Future runner writes per-case checkpoints."
+}

@@ -1,7 +1,10 @@
-/*!
- * \file   crsselectiondialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      crsselectiondialog.cpp
+ * @brief     Modal dialog for browsing and selecting a CRS from the GDAL database.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/dialogs/crsselectiondialog.h"
@@ -28,8 +31,7 @@
 // Construction
 // ---------------------------------------------------------------------------
 
-CRSSelectionDialog::CRSSelectionDialog(QWidget *parent)
-    : QDialog(parent)
+CRSSelectionDialog::CRSSelectionDialog(QWidget *parent) : QDialog(parent)
 {
     setWindowTitle(tr("Select Coordinate Reference System"));
     resize(840, 560);
@@ -67,9 +69,9 @@ void CRSSelectionDialog::setupUi()
     m_typeCombo->addItem(tr("All"), QString());
     m_typeCombo->addItem(tr("Geographic 2D"), QStringLiteral("geographic 2D"));
     m_typeCombo->addItem(tr("Geographic 3D"), QStringLiteral("geographic 3D"));
-    m_typeCombo->addItem(tr("Projected"),     QStringLiteral("projected"));
-    m_typeCombo->addItem(tr("Compound"),      QStringLiteral("compound"));
-    m_typeCombo->addItem(tr("Geocentric"),    QStringLiteral("geocentric"));
+    m_typeCombo->addItem(tr("Projected"), QStringLiteral("projected"));
+    m_typeCombo->addItem(tr("Compound"), QStringLiteral("compound"));
+    m_typeCombo->addItem(tr("Geocentric"), QStringLiteral("geocentric"));
     filterRow->addWidget(m_typeCombo);
 
     vlay->addLayout(filterRow);
@@ -96,7 +98,7 @@ void CRSSelectionDialog::setupUi()
     // setStretchLastSection keeps the trailing column filling residual width.
     m_treeView->header()->setSectionsMovable(false);
     m_treeView->header()->setSectionResizeMode(QHeaderView::Interactive);
-    m_treeView->header()->setStretchLastSection(true);
+    m_treeView->header()->setStretchLastSection(false);
     m_treeView->setColumnWidth(0, 480);
     m_treeView->setColumnWidth(1, 140);
     splitter->addWidget(m_treeView);
@@ -117,14 +119,13 @@ void CRSSelectionDialog::setupUi()
     vlay->addWidget(m_buttonBox);
 
     // --- Connections -------------------------------------------------------
-    connect(m_searchEdit,     &QLineEdit::textChanged,
-            this,             &CRSSelectionDialog::onSearchTextChanged);
-    connect(m_authorityCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this,             &CRSSelectionDialog::onAuthorityFilterChanged);
-    connect(m_typeCombo,      QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this,             &CRSSelectionDialog::onTypeFilterChanged);
-    connect(m_treeView->selectionModel(), &QItemSelectionModel::selectionChanged,
-            this,                         &CRSSelectionDialog::onTreeSelectionChanged);
+    connect(m_searchEdit, &QLineEdit::textChanged, this, &CRSSelectionDialog::onSearchTextChanged);
+    connect(m_authorityCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &CRSSelectionDialog::onAuthorityFilterChanged);
+    connect(m_typeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &CRSSelectionDialog::onTypeFilterChanged);
+    connect(m_treeView->selectionModel(), &QItemSelectionModel::selectionChanged, this,
+            &CRSSelectionDialog::onTreeSelectionChanged);
     connect(m_buttonBox, &QDialogButtonBox::accepted, this, &CRSSelectionDialog::onAccepted);
     connect(m_buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
 }
@@ -138,7 +139,7 @@ void CRSSelectionDialog::setCurrentCRS(const SpatialReferenceSystem *current)
     if (!current)
         return;
 
-    const QString authCode = current->toAuthority();   // "EPSG:4326"
+    const QString authCode = current->toAuthority(); // "EPSG:4326"
     if (authCode.isEmpty())
         return;
 
@@ -146,8 +147,7 @@ void CRSSelectionDialog::setCurrentCRS(const SpatialReferenceSystem *current)
     std::function<QModelIndex(const QModelIndex &)> findItem;
     findItem = [&](const QModelIndex &parent) -> QModelIndex {
         const int rows = m_treeModel->rowCount(parent);
-        for (int r = 0; r < rows; ++r)
-        {
+        for (int r = 0; r < rows; ++r) {
             QModelIndex idx = m_treeModel->index(r, 0, parent);
             if (idx.data(IsLeafRole).toBool() && idx.data(AuthCodeRole).toString() == authCode)
                 return idx;
@@ -160,8 +160,7 @@ void CRSSelectionDialog::setCurrentCRS(const SpatialReferenceSystem *current)
     };
 
     QModelIndex match = findItem(QModelIndex());
-    if (match.isValid())
-    {
+    if (match.isValid()) {
         m_treeView->setCurrentIndex(match);
         m_treeView->scrollTo(match);
     }
@@ -201,8 +200,7 @@ QString CRSSelectionDialog::selectedAuthCode() const
 // Tree builder
 // ---------------------------------------------------------------------------
 
-void CRSSelectionDialog::buildTree(const QString &authority,
-                                   const QString &typeFilter,
+void CRSSelectionDialog::buildTree(const QString &authority, const QString &typeFilter,
                                    const QString &searchText)
 {
     m_treeModel->removeRows(0, m_treeModel->rowCount());
@@ -214,17 +212,18 @@ void CRSSelectionDialog::buildTree(const QString &authority,
     // original numeric form while giving the 2D mesh writer a real linear
     // unit to honour.  Filtered out when an authority filter or a
     // mismatching type filter is active so the picker stays consistent.
-    const bool typeAllowsLocal = typeFilter.isEmpty()
-        || typeFilter.compare(QLatin1String("local"), Qt::CaseInsensitive) == 0;
-    if (authority.isEmpty() && typeAllowsLocal)
-    {
+    const bool typeAllowsLocal =
+        typeFilter.isEmpty() ||
+        typeFilter.compare(QLatin1String("local"), Qt::CaseInsensitive) == 0;
+    if (authority.isEmpty() && typeAllowsLocal) {
         auto matchSearch = [&](const QString &name) {
-            return searchText.isEmpty()
-                || name.contains(searchText, Qt::CaseInsensitive)
-                || QStringLiteral("local").contains(searchText, Qt::CaseInsensitive);
+            return searchText.isEmpty() || name.contains(searchText, Qt::CaseInsensitive) ||
+                   QStringLiteral("local").contains(searchText, Qt::CaseInsensitive);
         };
         auto *localType = new QStandardItem(tr("Local (no transform)"));
-        QFont f = localType->font(); f.setBold(true); localType->setFont(f);
+        QFont f = localType->font();
+        f.setBold(true);
+        localType->setFont(f);
         localType->setData(false, IsLeafRole);
         localType->setFlags(Qt::ItemIsEnabled);
         auto *col1 = new QStandardItem();
@@ -232,7 +231,8 @@ void CRSSelectionDialog::buildTree(const QString &authority,
         m_treeModel->appendRow({localType, col1});
 
         auto addLocal = [&](const QString &label, const QString &authCode) {
-            if (!matchSearch(label)) return;
+            if (!matchSearch(label))
+                return;
             auto *name = new QStandardItem(label);
             name->setData(authCode, AuthCodeRole);
             name->setData(true, IsLeafRole);
@@ -242,15 +242,14 @@ void CRSSelectionDialog::buildTree(const QString &authority,
             localType->appendRow({name, code});
         };
         addLocal(tr("Local — metres (no transform)"), QStringLiteral("LOCAL:METERS"));
-        addLocal(tr("Local — feet (no transform)"),   QStringLiteral("LOCAL:FEET"));
+        addLocal(tr("Local — feet (no transform)"), QStringLiteral("LOCAL:FEET"));
 
         // Drop the group if both leaves got filtered out by the search box.
         if (localType->rowCount() == 0)
             m_treeModel->removeRow(localType->row());
     }
 
-    const QList<CRSInfo> list =
-        CRSManager::instance().queryDatabase(searchText, authority, false);
+    const QList<CRSInfo> list = CRSManager::instance().queryDatabase(searchText, authority, false);
 
     // Two-level grouping: Type → Area → CRS leaf items
     //   typeNodes[type]                 → top-level QStandardItem*
@@ -258,17 +257,14 @@ void CRSSelectionDialog::buildTree(const QString &authority,
     QMap<QString, QStandardItem *> typeNodes;
     QMap<QString, QMap<QString, QStandardItem *>> areaNodes;
 
-    for (const CRSInfo &info : list)
-    {
+    for (const CRSInfo &info : list) {
         // Apply type filter
-        if (!typeFilter.isEmpty()
-            && !info.type.contains(typeFilter, Qt::CaseInsensitive))
+        if (!typeFilter.isEmpty() && !info.type.contains(typeFilter, Qt::CaseInsensitive))
             continue;
 
         // --- Ensure type-level node ---
         QStandardItem *typeItem = typeNodes.value(info.type);
-        if (!typeItem)
-        {
+        if (!typeItem) {
             typeItem = new QStandardItem(info.type);
             QFont f = typeItem->font();
             f.setBold(true);
@@ -285,8 +281,7 @@ void CRSSelectionDialog::buildTree(const QString &authority,
         // --- Ensure area-level node ---
         const QString area = info.areaName.isEmpty() ? tr("Other") : info.areaName;
         QStandardItem *areaItem = areaNodes[info.type].value(area);
-        if (!areaItem)
-        {
+        if (!areaItem) {
             areaItem = new QStandardItem(area);
             areaItem->setData(false, IsLeafRole);
             areaItem->setFlags(Qt::ItemIsEnabled);
@@ -318,33 +313,31 @@ void CRSSelectionDialog::buildTree(const QString &authority,
 
 void CRSSelectionDialog::updatePreview()
 {
-    if (m_selectedAuthCode.isEmpty())
-    {
+    if (m_selectedAuthCode.isEmpty()) {
         m_wktPreview->clear();
         return;
     }
 
     std::unique_ptr<SpatialReferenceSystem> srs;
     if (m_selectedAuthCode == QLatin1String("LOCAL:METERS") ||
-        m_selectedAuthCode == QLatin1String("LOCAL:FEET"))
-    {
+        m_selectedAuthCode == QLatin1String("LOCAL:FEET")) {
         const QString u = (m_selectedAuthCode == QLatin1String("LOCAL:FEET"))
-                              ? QStringLiteral("FEET") : QStringLiteral("METERS");
+                              ? QStringLiteral("FEET")
+                              : QStringLiteral("METERS");
         srs.reset(SpatialReferenceSystem::localFromMapUnits(u));
-    }
-    else
-    {
+    } else {
         const int sep = m_selectedAuthCode.lastIndexOf(QLatin1Char(':'));
-        if (sep < 0) return;
+        if (sep < 0)
+            return;
         const QString auth = m_selectedAuthCode.left(sep);
         bool ok = false;
         const int code = m_selectedAuthCode.mid(sep + 1).toInt(&ok);
-        if (!ok) return;
+        if (!ok)
+            return;
         srs.reset(CRSManager::instance().createFromAuthCode(auth, code));
     }
 
-    if (!srs)
-    {
+    if (!srs) {
         m_wktPreview->setPlainText(tr("Could not load CRS."));
         return;
     }
@@ -358,30 +351,26 @@ void CRSSelectionDialog::updatePreview()
 
 void CRSSelectionDialog::onSearchTextChanged(const QString & /*text*/)
 {
-    buildTree(m_authorityCombo->currentData().toString(),
-              m_typeCombo->currentData().toString(),
+    buildTree(m_authorityCombo->currentData().toString(), m_typeCombo->currentData().toString(),
               m_searchEdit->text().trimmed());
 }
 
 void CRSSelectionDialog::onAuthorityFilterChanged(int /*index*/)
 {
-    buildTree(m_authorityCombo->currentData().toString(),
-              m_typeCombo->currentData().toString(),
+    buildTree(m_authorityCombo->currentData().toString(), m_typeCombo->currentData().toString(),
               m_searchEdit->text().trimmed());
 }
 
 void CRSSelectionDialog::onTypeFilterChanged(int /*index*/)
 {
-    buildTree(m_authorityCombo->currentData().toString(),
-              m_typeCombo->currentData().toString(),
+    buildTree(m_authorityCombo->currentData().toString(), m_typeCombo->currentData().toString(),
               m_searchEdit->text().trimmed());
 }
 
 void CRSSelectionDialog::onTreeSelectionChanged()
 {
     const QModelIndexList sel = m_treeView->selectionModel()->selectedRows();
-    if (sel.isEmpty() || !sel.first().data(IsLeafRole).toBool())
-    {
+    if (sel.isEmpty() || !sel.first().data(IsLeafRole).toBool()) {
         m_selectedAuthCode.clear();
         m_buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
         m_wktPreview->clear();
@@ -399,8 +388,7 @@ void CRSSelectionDialog::onAccepted()
         return;
 
     const int sep = m_selectedAuthCode.lastIndexOf(QLatin1Char(':'));
-    if (sep >= 0)
-    {
+    if (sep >= 0) {
         const QString auth = m_selectedAuthCode.left(sep);
         bool ok = false;
         const int code = m_selectedAuthCode.mid(sep + 1).toInt(&ok);

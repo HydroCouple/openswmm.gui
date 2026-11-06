@@ -12,11 +12,9 @@
  * triangle list, reproduced here verbatim (CSR adjacency + Jacobi sweeps) so
  * it can be exercised without a GUI build.
  *
- * Background. DTMThinner filters NoData out of the point set it produces
- * (fillBandGrid, dtmthinner.cpp:1066), so DTM-derived vertices are clean. But
- * the vertices Triangle INSERTS during refinement are re-sampled afterwards
- * via sampleMany(), which returns NaN for NoData, for points outside the DEM
- * footprint, and on a RasterIO failure. That NaN used to land directly in
+ * Background. Generated vertices are sampled from the DEM afterwards via
+ * DTMRaster::sampleMany(), which returns NaN for NoData, for points outside
+ * the DEM footprint, and on a RasterIO failure. That NaN used to land directly in
  * MeshVertex::z and flow on to the INP writer and swmm_2d_set_vertex_z().
  *
  * Build & run:

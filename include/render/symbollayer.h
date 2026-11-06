@@ -1,9 +1,9 @@
-/*!
- * \file   symbollayer.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  One paint pass in a compositional SymbolStyle stack.
+/**
+ * @file      symbollayer.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     One paint pass in a compositional SymbolStyle stack.
  *
  *         A SymbolLayer is one "pass" of drawing for a feature — e.g. a
  *         simple-marker pass, a simple-line pass, a hatch-fill pass.
@@ -25,6 +25,7 @@
  *
  *         Cross-slice: Slice BI Phase 8.13.6 (see GUI_IMPLEMENTATION_PLAN.md
  *         §J.3). Sub-phase 8.13.6.1 — interface + types only.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef OPENSWMM_RENDER_SYMBOLLAYER_H
@@ -46,32 +47,33 @@ namespace OpenSWMM::Render
  *        round-trip through JSON so style files authored by future tools
  *        load correctly, even when the UI editor is deferred.
  */
-enum class SymbolLayerKind
-{
-    SimpleMarker,       /*!< Point marker (circle, square, …). [MUST] */
-    SimpleLine,         /*!< Stroked polyline. [MUST] */
-    SimpleFill,         /*!< Filled polygon. [MUST] */
-    MarkerLine,         /*!< Repeated marker along a polyline (flow arrows). [MUST] */
-    HatchFill,          /*!< Parallel-line / cross-hatch polygon fill. */
-    PatternFill,        /*!< Image-tile polygon fill. (UI editor deferred.) */
-    SvgMarker,          /*!< SVG path file marker. (UI editor deferred.) */
-    FontMarker,         /*!< Unicode-character marker from a font. (UI editor deferred.) */
+enum class SymbolLayerKind {
+    SimpleMarker, /*!< Point marker (circle, square, …). [MUST] */
+    SimpleLine,   /*!< Stroked polyline. [MUST] */
+    SimpleFill,   /*!< Filled polygon. [MUST] */
+    MarkerLine,   /*!< Repeated marker along a polyline (flow arrows). [MUST] */
+    HatchFill,    /*!< Parallel-line / cross-hatch polygon fill. */
+    PatternFill,  /*!< Image-tile polygon fill. (UI editor deferred.) */
+    SvgMarker,    /*!< SVG path file marker. (UI editor deferred.) */
+    FontMarker,   /*!< Unicode-character marker from a font. (UI editor deferred.) */
     // ── Slice Z.6 — Raster + TIN paint passes ─────────────────────────
-    RasterColorRamp,    /*!< Continuous-color raster ramp (DEM / 2D depth field). */
-    Hillshade,          /*!< Terrain hillshade overlay (azimuth / altitude / z-exag). */
-    Contour,            /*!< Contour lines + optional filled isobands. */
-    MeshEdge,           /*!< TIN / mesh wireframe edges. */
-    MeshNode,           /*!< TIN / mesh vertex markers. */
+    RasterColorRamp, /*!< Continuous-color raster ramp (DEM / 2D depth field). */
+    Hillshade,       /*!< Terrain hillshade overlay (azimuth / altitude / z-exag). */
+    Contour,         /*!< Contour lines + optional filled isobands. */
+    MeshEdge,        /*!< TIN / mesh wireframe edges. */
+    MeshNode,        /*!< TIN / mesh vertex markers. */
     // Slice AN.1 — 2D results velocity field. The Rule's SymbolLayer
     // carries glyph length / spacing / color / dryDepth cutoff; the
     // painter (SWMM2DVelocityArrowsItem) re-samples per frame via the
     // matching VelocityVectorSymbolLayerSpec. See
     // docs/RENDERING_2D_RESULTS_STYLING_PLAN.md.
-    VectorGlyph         /*!< 2D vector-field glyph layer (velocity arrows). */
+    VectorGlyph /*!< 2D vector-field glyph layer (velocity arrows). */
 };
 
 /*!
  * \brief Returns the JSON string token for a SymbolLayerKind.
+ * @param kind Kind to encode; an unrecognized enum value selects simpleMarker.
+ * @return Stable case-sensitive token such as simpleMarker, simpleLine, or vectorGlyph.
  */
 [[nodiscard]] QString symbolLayerKindToString(SymbolLayerKind kind);
 
@@ -79,6 +81,7 @@ enum class SymbolLayerKind
  * \brief Parses the JSON string token back into a SymbolLayerKind.
  * \return SymbolLayerKind::SimpleMarker when the token is unknown — keeps
  *         round-trip from breaking on future / unknown kinds.
+ * @param s Exact token, without trimming or case folding; original unknown text is not preserved.
  */
 [[nodiscard]] SymbolLayerKind symbolLayerKindFromString(const QString &s);
 
@@ -86,13 +89,22 @@ enum class SymbolLayerKind
  * \struct SymbolLayer
  * \brief One paint pass in the SymbolStyle stack.
  */
-struct SymbolLayer
-{
-    SymbolLayerKind        kind = SymbolLayerKind::SimpleMarker;
-    QVariantMap            props;                  /*!< Kind-specific (shape, size, color, …). */
-    QMap<QString, QString> dataDefinedOverrides;   /*!< property name → expression string. */
+struct SymbolLayer {
+    SymbolLayerKind kind = SymbolLayerKind::SimpleMarker;
+    QVariantMap props;                           /*!< Kind-specific (shape, size, color, …). */
+    QMap<QString, QString> dataDefinedOverrides; /*!< property name → expression string. */
 
+    /** @brief Serialize this paint pass without evaluating its expressions.
+     * @return Owned object with kind, props, and nonempty expression-map entries.
+     * QColor-typed property values become ARGB strings; other values use Qt's
+     * QVariant-to-JSON conversion. Property units are retained verbatim. */
     [[nodiscard]] QJsonObject toJson() const;
+    /** @brief Replace kind, properties, and expression map from JSON.
+     * @param j Paint-pass object. Unknown kinds select SimpleMarker; missing props
+     * or overrides clear their maps. Keys exactly color or ending in Color are
+     * parsed into QColor variants only when valid; invalid strings remain strings.
+     * Nonstring expression values become empty text. No property-schema, range,
+     * unit or expression validation occurs. */
     void fromJson(const QJsonObject &j);
 };
 

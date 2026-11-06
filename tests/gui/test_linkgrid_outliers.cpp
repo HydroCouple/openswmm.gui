@@ -1,9 +1,9 @@
-/*!
- * \file   test_linkgrid_outliers.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  A handful of corrupt coordinates must not make a model unusable.
+/**
+ * @file      test_linkgrid_outliers.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     A handful of corrupt coordinates must not make a model unusable.
  *
  *         West Whiteland's 2024 model has 10 junctions (J45194, J45202,
  *         J45231, J45269 and neighbours) sitting up to 40,000,000 units from
@@ -23,7 +23,9 @@
  *         signature, so this pins the behaviour a user sees — both that a
  *         normal link is still selectable when a degenerate extent is
  *         present, and that the corrupt ones did not silently disappear.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/swmmmodellayer.h"
 
 #include <QApplication>
@@ -33,19 +35,24 @@
 #include <QTest>
 #include <QVariantMap>
 
-namespace {
+namespace
+{
 
+/** @brief Resolve outlier-coordinate fixtures.
+ * @return SWMMVIS_GUI_TEST_DATA or ".". */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/** @brief Locate the dense-network/outlier fixture.
+ * @return Joined corrupt_coords_fixture.inp path. */
 QString fixturePath()
 {
     return QDir(dataDir()).filePath(QStringLiteral("corrupt_coords_fixture.inp"));
 }
 
-}  // namespace
+} // namespace
 
 class TestLinkGridOutliers : public QObject
 {
@@ -57,6 +64,7 @@ private slots:
     void extentReflectsTheCorruptCoordinates();
 };
 
+/** @brief Require the corrupt-coordinate fixture file. */
 void TestLinkGridOutliers::initTestCase()
 {
     QVERIFY2(QFile::exists(fixturePath()),
@@ -67,6 +75,8 @@ void TestLinkGridOutliers::initTestCase()
 // still found by a click on it, even though the model's raw extent is
 // degenerate. This passed before too (a linear scan finds everything) — it is
 // here so a future indexing change cannot trade correctness for speed.
+/** @brief Verify dense-network conduit C0 remains identifiable despite distant coordinate outliers.
+ * This asserts hit-test correctness without measuring spatial-index performance. */
 void TestLinkGridOutliers::normalLinkStaysHitTestable()
 {
     SWMMModelLayer layer(fixturePath(), nullptr);
@@ -86,6 +96,7 @@ void TestLinkGridOutliers::normalLinkStaysHitTestable()
 // cells, so query() must clamp as well. If it instead rejected rects falling
 // outside the fenced extent, these links would be stored but unreachable —
 // present in the model, invisible to every click.
+/** @brief Verify a far-away conduit remains identifiable through the clamped spatial index. */
 void TestLinkGridOutliers::corruptCoordinateLinkStaysHitTestable()
 {
     SWMMModelLayer layer(fixturePath(), nullptr);
@@ -107,13 +118,14 @@ void TestLinkGridOutliers::corruptCoordinateLinkStaysHitTestable()
 // The layer extent still covers everything — the fence changes how the index
 // is sized, not what the model contains. Pins that the fix did not "solve" the
 // problem by dropping the offending objects.
+/** @brief Verify all forty-five nodes and their distant coordinates remain in the model extent. */
 void TestLinkGridOutliers::extentReflectsTheCorruptCoordinates()
 {
     SWMMModelLayer layer(fixturePath(), nullptr);
     QList<QString> warnings, errors;
     QVERIFY(layer.loadModel(warnings, errors));
 
-    QCOMPARE(layer.cachedNodeCount(), 45);   // 40 J + 4 BAD + 1 outfall
+    QCOMPARE(layer.cachedNodeCount(), 45); // 40 J + 4 BAD + 1 outfall
     QVERIFY(layer.extent().isValid());
     QVERIFY2(layer.extent().xMax() > 2.0e7,
              "the far-away junctions must still be part of the model extent");

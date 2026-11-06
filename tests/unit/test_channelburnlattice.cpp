@@ -1,0 +1,673 @@
+/**
+ * @file      test_channelburnlattice.cpp
+ * @brief     Gates V5, V6 and V7 for the channel burn-in, phases P2 and P3
+ *         (workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md §8, §16.2).
+ *
+ * V5 — every lattice vertex carries the exact burned z, and the strings are
+ *      conformal (string k vertex i and string k+1 vertex i are quad corners).
+ * V6 — the corridor is 100 % quads, every cell convex/CCW with a healthy
+ *      scaled Jacobian, and streamwise-aligned.
+ * V7 — the densification guard reports a lattice finer than the mesh floor.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
+#include <gtest/gtest.h>
+
+#include <QPointF>
+#include <QPolygonF>
+#include <QSet>
+#include <QVector>
+
+#include "mesh/channelburnlattice.h"
+#include "mesh/meshcellgeom.h"
+#include "mesh/meshquadquality.h"
+
+#include <cmath>
+
+using namespace mesh;
+
+namespace
+{
+
+/**
+ *
+ * @brief Build the standard metre-based lattice profile options.
+ * @return Owned forced half-width 2 m, no bank clipping, maximum half-width 6 m,
+ * one interior string and chainage step 1 m; other fields retain defaults.
+ *
+ */
+BurnOptions options()
+{
+    BurnOptions o;
+    o.forceHalfWidth = 2.0;
+    o.clipToBanks = false;
+    o.maxHalfWidth = 6.0;
+    o.stringCount = 1;
+    o.chainageStep = 1.0;
+    return o;
+}
+
+/**
+ *
+ * @brief Construct the symmetric section used by lattice fixtures.
+ * @return Owned production section reconstructed from depths 0,1,2 m and widths
+ * 4,8,12 m (4-metre base, side slope 2H:1V). No local validity assertion.
+ *
+ */
+SectionGeometry trapezoid()
+{
+    const QVector<double> d = {0.0, 1.0, 2.0};
+    QVector<double> w;
+    for (const double y : d)
+        w.append(4.0 + 4.0 * y);
+    return sectionFromWidths(d, w);
+}
+
+/**
+ *
+ * @brief Build a straight west-east one-percent falling lattice profile.
+ * @param id Copied conduit ID, default C1.
+ * @param len Intended positive centreline length in metres, default 40.
+ * @return Owned profile starting at (0,0), upstream elevation 10 m and downstream
+ * 10-0.01*len m, with trapezoid() and options(). Invalid input is left to production
+ * validation; no fixture file or engine mutation.
+ *
+ */
+BurnProfile straight(const QString &id = QStringLiteral("C1"), double len = 40.0)
+{
+    ChannelInput in;
+    in.conduitId = id;
+    in.centerline = {QPointF(0, 0), QPointF(len, 0)};
+    in.zUp = 10.0;
+    in.zDn = 10.0 - len * 0.01;
+    in.section = trapezoid();
+    return buildBurnProfile(in, options());
+}
+
+/**
+ *
+ * @brief Build a sampled quarter-circle profile for bend validity checks.
+ * @param radius Positive arc radius in metres, large enough for the intended valid
+ * corridor; tighter cases deliberately test refusal.
+ * @return Owned 25-point arc from (0,0) to (radius,radius), elevation fall 10 to 9 m,
+ * standard trapezoid and 0.5-metre chainage step. Uses production profile validation.
+ *
+ */
+BurnProfile curved(double radius)
+{
+    ChannelInput in;
+    in.conduitId = QStringLiteral("BEND");
+    for (int i = 0; i <= 24; ++i) {
+        const double a = (M_PI / 2.0) * double(i) / 24.0;
+        in.centerline.append(QPointF(radius * std::sin(a), radius * (1.0 - std::cos(a))));
+    }
+    in.zUp = 10.0;
+    in.zDn = 9.0;
+    in.section = trapezoid();
+
+    BurnOptions o = options();
+    o.chainageStep = 0.5;
+    return buildBurnProfile(in, o);
+}
+
+/**
+ *
+ * @brief Copy patch XY coordinates into default-valued mesh vertices.
+ * @param pm Borrowed patch mesh; only xy is read, not its cells/elevations/metadata.
+ * @return Owned vector preserving XY order. All non-XY vertex fields retain their
+ * defaults; no elevation transfer, topology validation or input mutation.
+ *
+ */
+QVector<MeshVertex> vertsOf(const PatchMesh &pm)
+{
+    QVector<MeshVertex> v;
+    v.reserve(pm.xy.size());
+    for (const QPointF &p : pm.xy) {
+        MeshVertex mv;
+        mv.xy = p;
+        v.append(mv);
+    }
+    return v;
+}
+
+} // namespace
+
+// ─────────────────────── V5: conformal lattice, exact z ───────────────────
+
+TEST(ChannelBurnLattice, LatticeIsConformalAndCarriesTheExactBurnedZ)
+{
+    const BurnProfile p = straight();
+    ASSERT_TRUE(p.isValid());
+
+    QString err;
+    const BurnLattice lat = buildCorridorLattice(p, 2.0, 0.0, nullptr, &err);
+    ASSERT_TRUE(lat.isValid()) << err.toStdString();
+    EXPECT_EQ(lat.nAcross, p.offsets.size());
+    EXPECT_EQ(lat.nAlong, p.chainage.size()); // retain original profile stations
+
+    for (int i = 0; i < lat.nAlong; ++i)
+        for (int k = 0; k < lat.nAcross; ++k) {
+            bool inExtent = false;
+            const double want = sectionZAt(p, lat.chainage[i], lat.offsets[k], &inExtent);
+            ASSERT_TRUE(inExtent) << "station " << i << " offset " << k;
+            EXPECT_DOUBLE_EQ(lat.z[lat.at(i, k)], want);
+        }
+
+    // Conformality: every string shares the lattice's chainage stations, so the
+    // four corners of a cell come from two consecutive stations on two
+    // consecutive strings — which is what makes the quads fall out directly.
+    const auto strings = corridorStrings(lat, 500);
+    ASSERT_EQ(strings.size(), lat.nAcross);
+    for (int k = 0; k < strings.size(); ++k) {
+        ASSERT_EQ(strings[k].path.size(), lat.nAlong);
+        for (int i = 0; i < lat.nAlong; ++i)
+            EXPECT_EQ(strings[k].path[i], lat.xy[lat.at(i, k)]);
+    }
+}
+
+TEST(ChannelBurnLattice, StringsCarryDistinctMarkersAndTags)
+{
+    const BurnLattice lat = buildCorridorLattice(straight(), 4.0, 0.0);
+    ASSERT_TRUE(lat.isValid());
+
+    QHash<int, QString> markerToTag;
+    const auto strings = corridorStrings(lat, 900, &markerToTag);
+    QSet<int> markers;
+    for (const ConstraintSegment &cs : strings) {
+        EXPECT_FALSE(markers.contains(cs.marker));
+        markers.insert(cs.marker);
+        EXPECT_TRUE(cs.tag.startsWith(QStringLiteral("burn:C1:")));
+        EXPECT_EQ(markerToTag.value(cs.marker), cs.tag);
+    }
+    EXPECT_EQ(markers.size(), lat.nAcross);
+}
+
+TEST(ChannelBurnLattice, SteinerPointsPinTheExactElevation)
+{
+    const BurnLattice lat = buildCorridorLattice(straight(), 4.0, 0.0);
+    ASSERT_TRUE(lat.isValid());
+
+    const auto pts = corridorPoints(lat, 777);
+    ASSERT_EQ(pts.size(), lat.xy.size());
+    for (int i = 0; i < pts.size(); ++i) {
+        EXPECT_TRUE(pts[i].hasZ);      // never re-sampled downstream
+        EXPECT_EQ(pts[i].marker, 777); // non-zero: survives the Free-ring drop
+        EXPECT_DOUBLE_EQ(pts[i].z, lat.z[i]);
+        EXPECT_EQ(pts[i].xy, lat.xy[i]);
+    }
+
+    QVector<QPointF> xy;
+    QVector<double> z;
+    corridorZSeeds(lat, &xy, &z);
+    EXPECT_EQ(xy.size(), lat.xy.size());
+    EXPECT_EQ(z.size(), lat.z.size());
+}
+
+TEST(ChannelBurnLattice, OffsetsRunLeftToRightOfTheFlowDirection)
+{
+    // Flow west→east, so ascending offset must move south (-y), matching the
+    // projection convention and [TRANSECTS] station order.
+    const BurnLattice lat = buildCorridorLattice(straight(), 10.0, 0.0);
+    ASSERT_TRUE(lat.isValid());
+    const int mid = lat.nAlong / 2;
+    for (int k = 1; k < lat.nAcross; ++k)
+        EXPECT_LT(lat.xy[lat.at(mid, k)].y(), lat.xy[lat.at(mid, k - 1)].y());
+}
+
+// ────────────────────────── V6: the quad corridor ─────────────────────────
+
+TEST(ChannelBurnLattice, CorridorIsAllQuadsAndValidates)
+{
+    const BurnProfile p = straight();
+    const BurnLattice lat = buildCorridorLattice(p, 2.0, 0.0);
+    ASSERT_TRUE(lat.isValid());
+
+    QString err;
+    const PatchMesh pm = corridorPatch(lat, p, options(), &err);
+    ASSERT_FALSE(pm.quads.isEmpty()) << err.toStdString();
+    EXPECT_TRUE(validate(pm).isEmpty()) << validate(pm).toStdString();
+    EXPECT_EQ(pm.quads.size(), (lat.nAlong - 1) * (lat.nAcross - 1));
+
+    const auto verts = vertsOf(pm);
+    for (const MeshTriangle &q : pm.quads) {
+        EXPECT_TRUE(q.isQuad());                  // 100 %, by construction
+        EXPECT_GT(cellSignedArea(verts, q), 0.0); // CCW
+        EXPECT_TRUE(cellIsConvex(verts, q));
+        EXPECT_GE(quadQuality(verts, q).scaledJacobian, 0.866);
+    }
+}
+
+TEST(ChannelBurnLattice, CurvedCorridorStaysValidAndStreamwise)
+{
+    const BurnProfile p = curved(30.0);
+    ASSERT_TRUE(p.isValid());
+    const BurnLattice lat = buildCorridorLattice(p, 1.5, 0.0);
+    ASSERT_TRUE(lat.isValid());
+
+    QString err;
+    const PatchMesh pm = corridorPatch(lat, p, options(), &err);
+    ASSERT_FALSE(pm.quads.isEmpty()) << err.toStdString();
+    EXPECT_TRUE(validate(pm).isEmpty());
+
+    // Streamwise alignment: each cell's along-channel edge must follow the
+    // local centreline tangent. Compare the (i → i+1) edge at the cell's own
+    // station against the centreline's own direction there.
+    double worstDeg = 0.0;
+    for (int i = 0; i + 1 < lat.nAlong; ++i) {
+        const QPointF a = lat.xy[lat.at(i, lat.nAcross / 2)];
+        const QPointF b = lat.xy[lat.at(i + 1, lat.nAcross / 2)];
+        const double ang = std::atan2(b.y() - a.y(), b.x() - a.x());
+
+        // Centreline tangent at the same station, from the profile itself.
+        const double t0 = lat.chainage[i], t1 = lat.chainage[i + 1];
+        const auto ptAt = [&](double t) {
+            const auto it = std::upper_bound(p.chainage.cbegin(), p.chainage.cend(), t);
+            const int hi = std::min(int(it - p.chainage.cbegin()), int(p.chainage.size()) - 1);
+            const int lo = std::max(0, hi - 1);
+            const double d = p.chainage[hi] - p.chainage[lo];
+            const double f = (d > 0.0) ? (t - p.chainage[lo]) / d : 0.0;
+            return p.centerline[lo] + (p.centerline[hi] - p.centerline[lo]) * f;
+        };
+        const QPointF c0 = ptAt(t0), c1 = ptAt(t1);
+        const double cang = std::atan2(c1.y() - c0.y(), c1.x() - c0.x());
+        double diff = std::abs(ang - cang) * 180.0 / M_PI;
+        if (diff > 180.0)
+            diff = 360.0 - diff;
+        worstDeg = std::max(worstDeg, diff);
+    }
+    EXPECT_LE(worstDeg, 15.0);
+}
+
+TEST(ChannelBurnLattice, SmallTranslatedCorridorKeepsItsWinding)
+{
+    for (const bool reverse : {false, true}) {
+        BurnLattice lat;
+        lat.conduitId = QStringLiteral("SMALL-UTM");
+        lat.nAlong = 5;
+        lat.nAcross = 3;
+        for (int i = 0; i < lat.nAlong; ++i)
+            for (int k = 0; k < lat.nAcross; ++k) {
+                const double x = (reverse ? -1 : 1) * i * 0.01;
+                const double y = (reverse ? 1 : -1) * k * 0.01;
+                lat.xy.append(QPointF(500000 + x, 4500000 + y));
+                lat.z.append(10.0);
+            }
+        ASSERT_TRUE(lat.isValid());
+        QString error;
+        BurnOptions opt;
+        opt.roughnessFromTransect = false;
+        const PatchMesh patch = corridorPatch(lat, BurnProfile{}, opt, &error);
+        ASSERT_FALSE(patch.quads.isEmpty()) << error.toStdString();
+        EXPECT_TRUE(validate(patch).isEmpty()) << validate(patch).toStdString();
+        EXPECT_EQ(patch.quads.size(), 8);
+    }
+}
+
+TEST(ChannelBurnLattice, AHairpinIsReportedRatherThanEmittedFolded)
+{
+    // Radius well inside the corridor half-width: the inner offset row must
+    // fold. The gate is that this is REPORTED, not handed to the mesher.
+    const BurnProfile p = curved(1.5);
+    ASSERT_TRUE(p.isValid());
+    QString err;
+    const BurnLattice lat = buildCorridorLattice(p, 0.5, 0.0, nullptr, &err);
+    EXPECT_FALSE(lat.isValid());
+    EXPECT_FALSE(err.isEmpty());
+    EXPECT_TRUE(err.contains(QStringLiteral("folds")));
+}
+
+TEST(ChannelBurnLattice, RoughnessTripleReachesTheCellsAsPerCellManningsN)
+{
+    // A transect with banks and a roughness triple: overbank cells must carry
+    // the overbank n, channel cells the channel n.
+    SectionGeometry g;
+    g.station = {0.0, 20.0, 30.0, 40.0, 60.0};
+    g.elevation = {106.0, 102.0, 100.0, 102.0, 106.0};
+    g.leftBank = 20.0;
+    g.rightBank = 40.0;
+    g.nLeft = 0.06;
+    g.nChannel = 0.035;
+    g.nRight = 0.07;
+
+    ChannelInput in;
+    in.conduitId = QStringLiteral("CREEK");
+    in.centerline = {QPointF(0, 0), QPointF(40, 0)};
+    in.zUp = 10.0;
+    in.zDn = 9.0;
+    in.section = g;
+
+    BurnOptions o = options();
+    o.clipToBanks = false;
+    o.maxHalfWidth = 0.0;
+    o.stringCount = 2;
+    o.roughnessFromTransect = true;
+
+    const BurnProfile p = buildBurnProfile(in, o);
+    ASSERT_TRUE(p.isValid());
+    const BurnLattice lat = buildCorridorLattice(p, 4.0, 0.0);
+    ASSERT_TRUE(lat.isValid());
+
+    QString err;
+    const PatchMesh pm = corridorPatch(lat, p, o, &err);
+    ASSERT_FALSE(pm.quads.isEmpty()) << err.toStdString();
+
+    int left = 0, chan = 0, right = 0;
+    int c = 0;
+    for (int i = 0; i + 1 < lat.nAlong; ++i)
+        for (int k = 0; k + 1 < lat.nAcross; ++k, ++c) {
+            const double m = 0.5 * (lat.offsets[k] + lat.offsets[k + 1]);
+            const MeshTriangle &q = pm.quads[c];
+            if (m < p.section.leftBank) {
+                EXPECT_DOUBLE_EQ(q.mannings, 0.06);
+                EXPECT_TRUE(q.tag.endsWith(":left"));
+                ++left;
+            } else if (m > p.section.rightBank) {
+                EXPECT_DOUBLE_EQ(q.mannings, 0.07);
+                EXPECT_TRUE(q.tag.endsWith(":right"));
+                ++right;
+            } else {
+                EXPECT_DOUBLE_EQ(q.mannings, 0.035);
+                EXPECT_TRUE(q.tag.endsWith(":chan"));
+                ++chan;
+            }
+        }
+    EXPECT_GT(left, 0);
+    EXPECT_GT(chan, 0);
+    EXPECT_GT(right, 0);
+}
+
+TEST(ChannelBurnLattice, WithoutATransectTripleCellsKeepTheDefaultRoughness)
+{
+    const BurnProfile p = straight();
+    const BurnLattice lat = buildCorridorLattice(p, 4.0, 0.0);
+    const PatchMesh pm = corridorPatch(lat, p, options());
+    ASSERT_FALSE(pm.quads.isEmpty());
+    for (const MeshTriangle &q : pm.quads)
+        EXPECT_TRUE(std::isnan(q.mannings)); // NaN = the writer's default
+}
+
+TEST(ChannelBurnLattice, BoundaryLoopIsClosedAndCoversTheOutline)
+{
+    const BurnProfile p = straight();
+    const BurnLattice lat = buildCorridorLattice(p, 5.0, 0.0);
+    const PatchMesh pm = corridorPatch(lat, p, options());
+    ASSERT_FALSE(pm.quads.isEmpty());
+
+    // Every boundary vertex appears exactly twice — once as each segment's end.
+    QHash<int, int> degree;
+    for (const auto &s : pm.boundarySegments) {
+        ++degree[s.first];
+        ++degree[s.second];
+    }
+    const int perimeter = 2 * (lat.nAlong + lat.nAcross) - 4;
+    EXPECT_EQ(degree.size(), perimeter);
+    for (auto it = degree.constBegin(); it != degree.constEnd(); ++it)
+        EXPECT_EQ(it.value(), 2) << "vertex " << it.key() << " is not on a closed loop";
+}
+
+TEST(ChannelBurnLattice, CorridorRingIsSimpleCcwAndHoldsTheCentreline)
+{
+    const BurnProfile p = straight();
+    const BurnLattice lat = buildCorridorLattice(p, 5.0, 0.0);
+    const QPolygonF ring = corridorRing(lat);
+
+    ASSERT_GE(ring.size(), 4);
+    EXPECT_TRUE(ringIsSimple(ring));
+    EXPECT_GT(ringSignedArea(ring), 0.0); // CCW, as documented
+    EXPECT_TRUE(pointInRing(ring, QPointF(p.length() * 0.5, 0.0)));
+    EXPECT_FALSE(pointInRing(ring, QPointF(p.length() * 0.5, 50.0)));
+}
+
+// ─────────────────────── V7: the densification guard ──────────────────────
+
+TEST(ChannelBurnLattice, LatticeFinerThanTheMeshFloorIsReported)
+{
+    const BurnProfile p = straight();
+    QStringList warnings;
+    const BurnLattice lat = buildCorridorLattice(p, 0.25, /*minCellSize*/ 1.0, &warnings);
+    ASSERT_TRUE(lat.isValid());
+    ASSERT_EQ(warnings.size(), 1);
+    EXPECT_TRUE(warnings.first().contains(QStringLiteral("minimum cell size")));
+
+    warnings.clear();
+    buildCorridorLattice(p, 5.0, 0.5, &warnings);
+    EXPECT_TRUE(warnings.isEmpty());
+}
+
+TEST(ChannelBurnLattice, ZeroAlongStepFallsBackToTheProfileStations)
+{
+    const BurnProfile p = straight();
+    const BurnLattice lat = buildCorridorLattice(p, 0.0, 0.0);
+    ASSERT_TRUE(lat.isValid());
+    EXPECT_EQ(lat.chainage, p.chainage);
+}
+
+TEST(ChannelBurnLattice, ReferenceDetectsSubpixelChannelWithoutDemSamples)
+{
+    const auto p = straight();
+    const auto lat = buildCorridorLattice(p, 2, 0);
+    BurnSurface surface;
+    surface.build({lat});
+    const QPointF triangle[3] = {{4, -5}, {8, -5}, {6, 5}};
+    const double flat[3] = {12, 12, 12};
+    const auto error = surface.error(triangle, flat, {});
+    EXPECT_TRUE(error.touched);
+    EXPECT_GT(error.maximum, 2);
+    const auto hit = surface.sample({6, 0});
+    EXPECT_NEAR(hit.z, 9.94, 1e-10);
+    EXPECT_LT(surface.sample({-1, 0}).profile, 0); // flat end cap
+}
+
+TEST(ChannelBurnLattice, SparseReferenceHandlesThousandsOfReachesAndMixedScales)
+{
+    QVector<BurnLattice> lattices;
+    for (int i = 0; i < 2000; ++i) {
+        const double x = 500000 + i * 3, y = 7000000;
+        BurnLattice lat;
+        lat.nAlong = lat.nAcross = 2;
+        lat.chainage = {0, 1};
+        lat.offsets = {-1, 1};
+        lat.xy = {{x, y - 1}, {x, y + 1}, {x + 1, y - 1}, {x + 1, y + 1}};
+        lat.z = {1, 1, 1, 1};
+        lattices.append(lat);
+    }
+    BurnLattice broad = lattices.first();
+    broad.xy = {{1e8, 1e8}, {1e8, 2e8}, {2e8, 1e8}, {2e8, 2e8}};
+    broad.z = {2, 2, 2, 2};
+    lattices.append(broad);
+    BurnSurface surface;
+    surface.build(lattices);
+    for (int i = 0; i < 2000; i += 17) {
+        const auto hit = surface.sample({500000 + i * 3 + .5, 7000000});
+        EXPECT_EQ(hit.profile, i);
+        EXPECT_DOUBLE_EQ(hit.z, 1);
+    }
+    EXPECT_EQ(surface.sample({1.5e8, 1.5e8}).profile, 2000);
+    EXPECT_FALSE(surface.intersects(QRectF(1e7, 1e7, 10, 10)));
+}
+
+TEST(ChannelBurnLattice, ConflictingOverlapCannotHideAnInteriorRidge)
+{
+    BurnLattice a;
+    a.nAlong = a.nAcross = 2;
+    a.chainage = {0, 1};
+    a.offsets = {0, 1};
+    a.xy = {{0, 0}, {0, 1}, {1, 0}, {1, 1}};
+    a.z = {0, 0, 1, 1};
+    auto b = a;
+    b.z = {1, 1, 0, 0};
+    BurnSurface surface;
+    surface.build({a, b});
+    QPointF xy[3] = {{0, 0}, {1, 0}, {1, 1}};
+    double z[3] = {0, 0, 0};
+    // Envelope samples at these corners all equal zero, but its centre is
+    // higher. Competing authored planes must be rejected, not certified flat.
+    for (auto p : xy)
+        EXPECT_DOUBLE_EQ(surface.sample(p).z, 0);
+    EXPECT_GE(surface.error(xy, z, {}).maximum, .5);
+}
+
+// Dense surveyed/lidar sections: offsets whose removal changes no station's
+// cross-section by more than the tolerance are dropped, the shape is kept,
+// and a zero tolerance keeps every offset.
+TEST(ChannelBurnLattice, DenseSectionOffsetsAreThinnedWithinTolerance)
+{
+    SectionGeometry dense;
+    for (int i = 0; i <= 200; ++i) {
+        const double x = 0.2 * i;                                       // 0 .. 40
+        const double v = std::max(0.0, std::abs(x - 20.0) - 4.0) * 0.5; // 8 wide bed, 2H:1V
+        dense.station.append(x);
+        dense.elevation.append(v + 0.002 * std::sin(i * 1.7)); // sub-tolerance noise
+    }
+    ChannelInput in;
+    in.conduitId = QStringLiteral("DENSE");
+    in.centerline = {QPointF(0, 0), QPointF(60, 0)};
+    in.zUp = 10.0;
+    in.zDn = 9.4;
+    in.section = dense;
+    BurnOptions o = options();
+    o.maxHalfWidth = 30.0;
+    const BurnProfile p = buildBurnProfile(in, o);
+    ASSERT_TRUE(p.isValid());
+    ASSERT_GT(p.offsets.size(), 100);
+
+    const BurnLattice all = buildCorridorLattice(p, 5.0, 1.0);
+    ASSERT_TRUE(all.isValid());
+    EXPECT_EQ(all.nAcross, p.offsets.size());
+
+    const double tol = 0.01;
+    const BurnLattice thin = buildCorridorLattice(p, 5.0, 1.0, nullptr, nullptr, tol);
+    ASSERT_TRUE(thin.isValid());
+    EXPECT_LT(thin.nAcross, 20);
+    EXPECT_EQ(thin.offsets.first(), p.offsets.first());
+    EXPECT_EQ(thin.offsets.last(), p.offsets.last());
+    for (int k = 1; k < thin.nAcross; ++k)
+        EXPECT_LE(thin.offsets[k] - thin.offsets[k - 1], 5.0 + 1e-9);
+    // A section no denser than the mesh floor is left exactly as authored.
+    EXPECT_EQ(buildCorridorLattice(p, 5.0, 0.1, nullptr, nullptr, tol).nAcross, p.offsets.size());
+    // Piecewise-linear across the kept offsets reproduces every original
+    // offset's elevation within the tolerance, at every lattice row.
+    for (int i = 0; i < thin.nAlong; ++i) {
+        const double t = thin.chainage[i];
+        int j = 0;
+        for (const double s : p.offsets) {
+            while (j + 2 < thin.nAcross && thin.offsets[j + 1] < s)
+                ++j;
+            const double s0 = thin.offsets[j], s1 = thin.offsets[j + 1];
+            const double z0 = thin.z[thin.at(i, j)], z1 = thin.z[thin.at(i, j + 1)];
+            const double interp = z0 + (z1 - z0) * (s - s0) / (s1 - s0);
+            EXPECT_NEAR(interp, sectionZAt(p, t, s), tol + 1e-9) << "offset " << s << " row " << i;
+        }
+    }
+}
+
+// A vertical wall authored as two stations 1e-5 apart (common in surveyed
+// transects): no mesh cell can resolve it, so the lattice merges the pair
+// and keeps the banks and the thalweg.
+TEST(ChannelBurnLattice, NearDuplicateOffsetsMergeKeepingBanksAndThalweg)
+{
+    SectionGeometry wall;
+    wall.station = {0.0, 3.0, 3.00001, 10.0, 17.0, 17.00001, 20.0};
+    wall.elevation = {4.0, 4.0, 0.5, 0.0, 0.5, 4.0, 4.0};
+    ChannelInput in;
+    in.conduitId = QStringLiteral("WALL");
+    in.centerline = {QPointF(0, 0), QPointF(60, 0)};
+    in.zUp = 10.0;
+    in.zDn = 9.4;
+    in.section = wall;
+    BurnOptions o = options();
+    o.maxHalfWidth = 30.0;
+    const BurnProfile p = buildBurnProfile(in, o);
+    ASSERT_TRUE(p.isValid());
+
+    const BurnLattice lat = buildCorridorLattice(p, 5.0, 2.0);
+    ASSERT_TRUE(lat.isValid());
+    EXPECT_LT(lat.nAcross, p.offsets.size());
+    EXPECT_EQ(lat.offsets.first(), p.offsets.first());
+    EXPECT_EQ(lat.offsets.last(), p.offsets.last());
+    EXPECT_TRUE(std::any_of(lat.offsets.cbegin(), lat.offsets.cend(),
+                            [](double s) { return std::abs(s) <= 1e-9; }));
+    for (int k = 1; k < lat.nAcross; ++k)
+        EXPECT_GE(lat.offsets[k] - lat.offsets[k - 1], 0.05 * 2.0);
+    EXPECT_GE(lat.minAcrossSpacing, 0.05 * 2.0);
+    // Without a mesh floor the section is used exactly as authored.
+    EXPECT_EQ(buildCorridorLattice(p, 5.0, 0.0).nAcross, p.offsets.size());
+}
+
+// Constraint joining can leave a bank vertex a hair outside the corridor; it
+// must still take the channel surface, not the terrain beyond the bank.
+TEST(ChannelBurnLattice, SampleNearReachesABankVertexJustOutside)
+{
+    const BurnProfile p = straight();
+    const BurnLattice lat = buildCorridorLattice(p, 2.0, 0.0);
+    ASSERT_TRUE(lat.isValid());
+    BurnSurface surface;
+    surface.build({lat});
+    // The right bank of a corridor running +x is at y = offsets.first().
+    const double bankY = std::min(lat.xy[lat.at(3, 0)].y(), lat.xy[lat.at(3, lat.nAcross - 1)].y());
+    const QPointF onBank(lat.xy[lat.at(3, 0)].x(), bankY);
+    const QPointF outside(onBank.x(), bankY - 0.01);
+    EXPECT_LT(surface.sample(outside).profile, 0);
+    const auto near = surface.sampleNear(outside, 0.05);
+    ASSERT_EQ(near.profile, 0);
+    EXPECT_NEAR(near.z, surface.sample(onBank).z, 1e-9);
+    EXPECT_LT(surface.sampleNear(outside, 0.005).profile, 0);
+    // A point inside is the plain sample.
+    const QPointF inside(onBank.x(), bankY + 0.5);
+    EXPECT_DOUBLE_EQ(surface.sampleNear(inside, 0.05).z, surface.sample(inside).z);
+}
+
+// A cell outside the corridor whose edge crosses the bank by a hair (constraint
+// joining moves bank vertices by up to its tolerance) overlaps a sliver; with a
+// minimum width it is not an error, but a real overlap still is.
+TEST(ChannelBurnLattice, SliversThinnerThanTheJoinToleranceAreNotChannelErrors)
+{
+    const BurnProfile p = straight();
+    const BurnLattice lat = buildCorridorLattice(p, 2.0, 0.0);
+    ASSERT_TRUE(lat.isValid());
+    BurnSurface surface;
+    surface.build({lat});
+    const double bankY = std::min(lat.xy[lat.at(3, 0)].y(), lat.xy[lat.at(3, lat.nAcross - 1)].y());
+    const double x = lat.xy[lat.at(3, 0)].x();
+    // Two corners 0.01 inside the bank carry the bank elevation, the third is
+    // far outside on low terrain.
+    const QPointF xy[3] = {QPointF(x - 1.0, bankY + 0.01), QPointF(x + 1.0, bankY + 0.01),
+                           QPointF(x, bankY - 3.0)};
+    const double zBank = surface.sample(QPointF(x, bankY + 0.01)).z;
+    const double z[3] = {zBank, zBank, zBank - 8.0};
+    const auto any = [](const QPointF &) { return true; };
+    EXPECT_GT(surface.error(xy, z, any).maximum, 0.01);
+    EXPECT_EQ(surface.error(xy, z, any, 0.05).maximum, 0.0);
+    // The same cell pushed a metre into the corridor is a real overlap.
+    const QPointF deep[3] = {QPointF(x - 1.0, bankY + 1.0), QPointF(x + 1.0, bankY + 1.0),
+                             QPointF(x, bankY - 3.0)};
+    EXPECT_GT(surface.error(deep, z, any, 0.05).maximum, 0.1);
+}
+
+// A run of lattice rows as its own lattice: the same points and elevations,
+// a quad patch of its own, and nothing for fewer than two rows.
+TEST(ChannelBurnLattice, LatticeRowsExtractsARunThatPatchesOnItsOwn)
+{
+    const BurnProfile p = straight();
+    const BurnLattice lat = buildCorridorLattice(p, 2.0, 0.0);
+    ASSERT_TRUE(lat.isValid());
+    ASSERT_GT(lat.nAlong, 8);
+    const BurnLattice sub = latticeRows(lat, 3, 7);
+    ASSERT_TRUE(sub.isValid());
+    EXPECT_EQ(sub.nAlong, 5);
+    EXPECT_EQ(sub.nAcross, lat.nAcross);
+    for (int i = 0; i < sub.nAlong; ++i)
+        for (int k = 0; k < sub.nAcross; ++k) {
+            EXPECT_EQ(sub.xy[sub.at(i, k)], lat.xy[lat.at(i + 3, k)]);
+            EXPECT_EQ(sub.z[sub.at(i, k)], lat.z[lat.at(i + 3, k)]);
+        }
+    EXPECT_EQ(sub.chainage.first(), lat.chainage[3]);
+    QString err;
+    const PatchMesh pm = corridorPatch(sub, p, options(), &err);
+    EXPECT_TRUE(err.isEmpty()) << err.toStdString();
+    EXPECT_EQ(pm.quads.size(), (sub.nAlong - 1) * (sub.nAcross - 1));
+    EXPECT_FALSE(latticeRows(lat, 4, 4).isValid());
+}

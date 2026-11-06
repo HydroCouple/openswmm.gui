@@ -1,7 +1,10 @@
-/*!
- * \file   wmsconnectiondialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      wmsconnectiondialog.cpp
+ * @brief     Dialog for connecting to an OGC WMS service and selecting a layer to add.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/dialogs/wmsconnectiondialog.h"
@@ -27,8 +30,7 @@
 // Construction
 // ---------------------------------------------------------------------------
 
-WMSConnectionDialog::WMSConnectionDialog(QWidget *parent)
-    : QDialog(parent)
+WMSConnectionDialog::WMSConnectionDialog(QWidget *parent) : QDialog(parent)
 {
     setWindowTitle(tr("Add WMS Layer"));
     // Iteration 2 (D3) — naming wires the app-wide layout persistence.
@@ -59,8 +61,7 @@ WMSLayer *WMSConnectionDialog::createLayer(QObject *project) const
     if (urlText.isEmpty())
         return nullptr;
 
-    auto *layer = new WMSLayer(QUrl(urlText),
-                               qobject_cast<OpenSWMMVisWorkspace *>(project));
+    auto *layer = new WMSLayer(QUrl(urlText), qobject_cast<OpenSWMMVisWorkspace *>(project));
 
     // Transfer the already-fetched service info (including the negotiated WMS
     // version) so the layer uses the correct BBOX axis order and image formats
@@ -74,10 +75,8 @@ WMSLayer *WMSConnectionDialog::createLayer(QObject *project) const
     layer->setCrs(m_crsCombo->currentText());
 
     // Set layer name from service info
-    for (const WMSLayerInfo &info : m_serviceInfo->layers)
-    {
-        if (info.name == m_selectedLayerName)
-        {
+    for (const WMSLayerInfo &info : m_serviceInfo->layers) {
+        if (info.name == m_selectedLayerName) {
             layer->setName(info.title.isEmpty() ? info.name : info.title);
             break;
         }
@@ -100,8 +99,7 @@ void WMSConnectionDialog::setupUi()
     m_urlCombo = new QComboBox(this);
     m_urlCombo->setEditable(true);
     m_urlCombo->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
-    m_urlCombo->lineEdit()->setPlaceholderText(
-        tr("https://example.org/ows?SERVICE=WMS"));
+    m_urlCombo->lineEdit()->setPlaceholderText(tr("https://example.org/ows?SERVICE=WMS"));
     urlRow->addWidget(m_urlCombo, 1);
     auto *connectBtn = new QPushButton(tr("Connect"), this);
     urlRow->addWidget(connectBtn);
@@ -123,7 +121,7 @@ void WMSConnectionDialog::setupUi()
 
     // Options panel
     auto *optWidget = new QWidget(this);
-    auto *optVlay   = new QVBoxLayout(optWidget);
+    auto *optVlay = new QVBoxLayout(optWidget);
     optVlay->setContentsMargins(4, 0, 0, 0);
 
     optVlay->addWidget(new QLabel(tr("Style:"), optWidget));
@@ -151,10 +149,10 @@ void WMSConnectionDialog::setupUi()
     vlay->addWidget(m_buttonBox);
 
     connect(connectBtn, &QPushButton::clicked, this, &WMSConnectionDialog::onConnectClicked);
-    connect(m_urlCombo, &QComboBox::currentTextChanged,
-            this, &WMSConnectionDialog::onUrlComboChanged);
-    connect(m_layerTree, &QTreeWidget::itemSelectionChanged,
-            this, &WMSConnectionDialog::onLayerSelectionChanged);
+    connect(m_urlCombo, &QComboBox::currentTextChanged, this,
+            &WMSConnectionDialog::onUrlComboChanged);
+    connect(m_layerTree, &QTreeWidget::itemSelectionChanged, this,
+            &WMSConnectionDialog::onLayerSelectionChanged);
     connect(m_buttonBox, &QDialogButtonBox::accepted, this, &QDialog::accept);
     connect(m_buttonBox, &QDialogButtonBox::rejected, this, &QDialog::reject);
 }
@@ -181,10 +179,10 @@ void WMSConnectionDialog::onConnectClicked()
     m_pendingLayer = new WMSLayer(base, nullptr);
     m_pendingLayer->setParent(this);
 
-    connect(m_pendingLayer, &WMSLayer::capabilitiesFetched,
-            this, &WMSConnectionDialog::onCapabilitiesFetched);
-    connect(m_pendingLayer, &WMSLayer::capabilitiesError,
-            this, &WMSConnectionDialog::onCapabilitiesError);
+    connect(m_pendingLayer, &WMSLayer::capabilitiesFetched, this,
+            &WMSConnectionDialog::onCapabilitiesFetched);
+    connect(m_pendingLayer, &WMSLayer::capabilitiesError, this,
+            &WMSConnectionDialog::onCapabilitiesError);
 
     m_serviceTitle->setText(tr("Connecting to %1 …").arg(urlText));
     m_layerTree->clear();
@@ -200,8 +198,8 @@ void WMSConnectionDialog::onCapabilitiesFetched(const WMSServiceInfo &info)
     m_serviceInfo = new WMSServiceInfo(info);
 
     m_serviceTitle->setText(info.title.isEmpty()
-                            ? tr("WMS service (version %1)").arg(info.version)
-                            : QStringLiteral("%1  [%2]").arg(info.title, info.version));
+                                ? tr("WMS service (version %1)").arg(info.version)
+                                : QStringLiteral("%1  [%2]").arg(info.title, info.version));
 
     m_formatCombo->clear();
     for (const QString &fmt : info.imageFormats)
@@ -219,8 +217,7 @@ void WMSConnectionDialog::onCapabilitiesError(const QString &error)
 void WMSConnectionDialog::onLayerSelectionChanged()
 {
     const QList<QTreeWidgetItem *> sel = m_layerTree->selectedItems();
-    if (sel.isEmpty())
-    {
+    if (sel.isEmpty()) {
         m_selectedLayerName.clear();
         m_buttonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
         return;
@@ -231,16 +228,12 @@ void WMSConnectionDialog::onLayerSelectionChanged()
     m_buttonBox->button(QDialogButtonBox::Ok)->setEnabled(!layerName.isEmpty());
 
     // Populate styles and CRS for the selected layer
-    if (m_serviceInfo)
-    {
-        for (const WMSLayerInfo &info : m_serviceInfo->layers)
-        {
-            if (info.name == layerName)
-            {
+    if (m_serviceInfo) {
+        for (const WMSLayerInfo &info : m_serviceInfo->layers) {
+            if (info.name == layerName) {
                 m_styleCombo->clear();
-                m_styleCombo->addItems(info.styles.isEmpty()
-                                       ? QStringList{QString()}
-                                       : info.styles);
+                m_styleCombo->addItems(info.styles.isEmpty() ? QStringList{QString()}
+                                                             : info.styles);
 
                 m_crsCombo->clear();
                 m_crsCombo->addItems(info.crsIdentifiers);
@@ -265,8 +258,7 @@ void WMSConnectionDialog::populateLayerTree(const WMSServiceInfo &info)
 {
     m_layerTree->clear();
 
-    for (const WMSLayerInfo &lyrInfo : info.layers)
-    {
+    for (const WMSLayerInfo &lyrInfo : info.layers) {
         auto *item = new QTreeWidgetItem(m_layerTree);
         item->setText(0, lyrInfo.title.isEmpty() ? lyrInfo.name : lyrInfo.title);
         item->setToolTip(0, lyrInfo.abstractText);
@@ -286,7 +278,7 @@ void WMSConnectionDialog::saveRecentUrls()
     const QString currentUrl = m_urlCombo->currentText().trimmed();
     urls.removeAll(currentUrl);
     urls.prepend(currentUrl);
-    urls = urls.mid(0, 15);  // keep at most 15 recent URLs
+    urls = urls.mid(0, 15); // keep at most 15 recent URLs
 
     settings.setValue(QStringLiteral("recentUrls"), urls);
     settings.endGroup();

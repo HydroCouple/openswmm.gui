@@ -1,7 +1,11 @@
-/*!
- * \file   terraintoolbar.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      terraintoolbar.cpp
+ * @brief     Toolbar for selecting an active DTM raster and setting node/link invert offsets used
+ *            during interactive editing.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/toolbars/terraintoolbar.h"
@@ -18,8 +22,7 @@
 
 static const int kNoneIndex = 0;
 
-TerrainToolbar::TerrainToolbar(const QString &title, QWidget *parent)
-    : QToolBar(title, parent)
+TerrainToolbar::TerrainToolbar(const QString &title, QWidget *parent) : QToolBar(title, parent)
 {
     setObjectName(QStringLiteral("toolBarTerrain"));
     setMovable(true);
@@ -30,12 +33,13 @@ TerrainToolbar::TerrainToolbar(const QString &title, QWidget *parent)
     // trailing spacer left-packing the Fixed-width groups.
     using openswmmvis::ui::RibbonGroup;
     auto *groupTerrain = new RibbonGroup(tr("Active Terrain"), this);
-    auto *groupUnits   = new RibbonGroup(tr("Vertical Units"), this);
+    auto *groupUnits = new RibbonGroup(tr("Vertical Units"), this);
     auto *groupOffsets = new RibbonGroup(tr("Invert Offsets"), this);
 
     // ── DEM selector ──────────────────────────────────────────────────────────
     m_terrainCombo = new QComboBox(this);
-    m_terrainCombo->setToolTip(tr("Active terrain raster used for Z sampling and invert elevation estimation."));
+    m_terrainCombo->setToolTip(
+        tr("Active terrain raster used for Z sampling and invert elevation estimation."));
     m_terrainCombo->setMinimumWidth(160);
     m_terrainCombo->setEnabled(false);
     m_terrainCombo->addItem(tr("(none)"), QVariant::fromValue<quintptr>(0));
@@ -50,7 +54,7 @@ TerrainToolbar::TerrainToolbar(const QString &title, QWidget *parent)
            "detection is wrong (common for 3DEP data whose raster CRS reports\n"
            "geographic lat/lon but whose Z values are in metres)."));
     m_verticalUnitCombo->addItem(tr("m (metres)"), QStringLiteral("m"));
-    m_verticalUnitCombo->addItem(tr("ft (feet)"),  QStringLiteral("ft"));
+    m_verticalUnitCombo->addItem(tr("ft (feet)"), QStringLiteral("ft"));
     m_verticalUnitCombo->setEnabled(false);
     groupUnits->addWidget(m_verticalUnitCombo);
 
@@ -60,24 +64,23 @@ TerrainToolbar::TerrainToolbar(const QString &title, QWidget *parent)
     groupUnits->addWidget(m_conversionLabel);
 
     // User-editable conversion factor (auto-populated from unit combos).
-    groupUnits->addWidget(new QLabel(tr("\xc3\x97"), this));   // × symbol
+    groupUnits->addWidget(new QLabel(tr("\xc3\x97"), this)); // × symbol
     m_factorSpin = new QDoubleSpinBox(this);
     m_factorSpin->setRange(0.0001, 10000.0);
     m_factorSpin->setDecimals(6);
     m_factorSpin->setSingleStep(0.001);
     m_factorSpin->setValue(1.0);
     m_factorSpin->setMinimumWidth(90);
-    m_factorSpin->setToolTip(
-        tr("Multiplication factor applied to raw DEM elevation values to\n"
-           "convert them into model vertical units.\n"
-           "Auto-computed from the DEM unit and project flow units;\n"
-           "override here when the auto-detected value is incorrect.\n"
-           "ModelZ = DEM_Z \xc3\x97 factor"));
+    m_factorSpin->setToolTip(tr("Multiplication factor applied to raw DEM elevation values to\n"
+                                "convert them into model vertical units.\n"
+                                "Auto-computed from the DEM unit and project flow units;\n"
+                                "override here when the auto-detected value is incorrect.\n"
+                                "ModelZ = DEM_Z \xc3\x97 factor"));
     m_factorSpin->setEnabled(false);
     groupUnits->addWidget(m_factorSpin);
 
     // ── Signed offsets in model vertical units ────────────────────────────────
-    groupOffsets->addWidget(new QLabel(tr("Node Δ:"), this));   // Δ (delta)
+    groupOffsets->addWidget(new QLabel(tr("Node Δ:"), this)); // Δ (delta)
     m_nodeOffsetSpin = new QDoubleSpinBox(this);
     m_nodeOffsetSpin->setRange(-1e6, 1e6);
     m_nodeOffsetSpin->setDecimals(3);
@@ -94,7 +97,7 @@ TerrainToolbar::TerrainToolbar(const QString &title, QWidget *parent)
     m_nodeUnitLabel->setMinimumWidth(20);
     groupOffsets->addWidget(m_nodeUnitLabel);
 
-    groupOffsets->addWidget(new QLabel(tr("Link Δ:"), this));   // Δ (delta)
+    groupOffsets->addWidget(new QLabel(tr("Link Δ:"), this)); // Δ (delta)
     m_linkOffsetSpin = new QDoubleSpinBox(this);
     m_linkOffsetSpin->setRange(-1e6, 1e6);
     m_linkOffsetSpin->setDecimals(3);
@@ -138,36 +141,38 @@ TerrainToolbar::TerrainToolbar(const QString &title, QWidget *parent)
 
     // Initialise unit labels and keep them in sync with the active project.
     updateUnitLabels();
-    connect(UnitSystem::instance(), &UnitSystem::unitsChanged,
-            this, [this]() { updateUnitLabels(); });
+    connect(UnitSystem::instance(), &UnitSystem::unitsChanged, this,
+            [this]() { updateUnitLabels(); });
 
-    connect(m_terrainCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &TerrainToolbar::onComboIndexChanged);
+    connect(m_terrainCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &TerrainToolbar::onComboIndexChanged);
 
-    connect(m_verticalUnitCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, [this](int) {
+    connect(m_verticalUnitCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            [this](int) {
                 updateUnitLabels();
                 emit verticalUnitChanged(verticalUnit());
             });
 
-    connect(m_factorSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-            this, [this](double) {
+    connect(m_factorSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+            [this](double) {
                 // Factor was manually edited — notify consumers to re-read it.
                 emit verticalUnitChanged(verticalUnit());
             });
 
-    connect(m_nodeOffsetSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-            this, &TerrainToolbar::nodeOffsetChanged);
+    connect(m_nodeOffsetSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+            &TerrainToolbar::nodeOffsetChanged);
 
-    connect(m_linkOffsetSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged),
-            this, &TerrainToolbar::linkOffsetChanged);
+    connect(m_linkOffsetSpin, QOverload<double>::of(&QDoubleSpinBox::valueChanged), this,
+            &TerrainToolbar::linkOffsetChanged);
 }
 
 void TerrainToolbar::autoDetectVerticalUnit()
 {
-    if (!m_verticalUnitCombo) return;
+    if (!m_verticalUnitCombo)
+        return;
     GISRasterLayer *layer = activeTerrain();
-    if (!layer) return;                      // no terrain — keep current selection
+    if (!layer)
+        return; // no terrain — keep current selection
 
     const QString detected = layer->detectVerticalUnit();
     const int idx = m_verticalUnitCombo->findData(detected);
@@ -180,22 +185,23 @@ void TerrainToolbar::autoDetectVerticalUnit()
 void TerrainToolbar::updateUnitLabels()
 {
     const QString modelUnit = UnitSystem::instance()->depthLabel();
-    if (m_nodeUnitLabel) m_nodeUnitLabel->setText(modelUnit);
-    if (m_linkUnitLabel) m_linkUnitLabel->setText(modelUnit);
+    if (m_nodeUnitLabel)
+        m_nodeUnitLabel->setText(modelUnit);
+    if (m_linkUnitLabel)
+        m_linkUnitLabel->setText(modelUnit);
 
     const QString demUnit = verticalUnit();
     if (m_conversionLabel) {
-        const QString text = (demUnit == modelUnit)
-            ? tr("→ %1").arg(modelUnit)
-            : tr("%1 → %2").arg(demUnit, modelUnit);
+        const QString text = (demUnit == modelUnit) ? tr("→ %1").arg(modelUnit)
+                                                    : tr("%1 → %2").arg(demUnit, modelUnit);
         m_conversionLabel->setText(text);
     }
 
     // Auto-populate the factor spin from unit combo + project units.
-    // Only overwrite when the user hasn't manually changed it (spin blocker).
+    // The signal blocker suppresses notification; this replaces a manual override too.
     if (m_factorSpin) {
         const double rasterToSI = (demUnit == QLatin1String("ft")) ? 0.3048 : 1.0;
-        const double modelToSI  = UnitSystem::instance()->isSI() ? 1.0 : 0.3048;
+        const double modelToSI = UnitSystem::instance()->isSI() ? 1.0 : 0.3048;
         QSignalBlocker b(m_factorSpin);
         m_factorSpin->setValue(rasterToSI / modelToSI);
     }
@@ -221,34 +227,44 @@ double TerrainToolbar::linkOffset() const
 
 QString TerrainToolbar::verticalUnit() const
 {
-    if (!m_verticalUnitCombo) return QStringLiteral("m");
+    if (!m_verticalUnitCombo)
+        return QStringLiteral("m");
     return m_verticalUnitCombo->currentData().toString();
 }
 
 double TerrainToolbar::verticalToModelFactor() const
 {
-    if (m_factorSpin) return m_factorSpin->value();
+    if (m_factorSpin)
+        return m_factorSpin->value();
     // Fallback when spin is not yet constructed.
     const double rasterToSI = (verticalUnit() == QLatin1String("ft")) ? 0.3048 : 1.0;
-    const double modelToSI  = UnitSystem::instance()->isSI() ? 1.0 : 0.3048;
+    const double modelToSI = UnitSystem::instance()->isSI() ? 1.0 : 0.3048;
     return rasterToSI / modelToSI;
 }
 
 void TerrainToolbar::rebindCanvas(MapCanvas *canvas)
 {
-    if (m_canvas == canvas) return;
+    // A null → null call still rebuilds: the QPointer goes null when the
+    // canvas is destroyed and the combo must not keep naming its layers.
+    if (m_canvas == canvas && canvas)
+        return;
 
+    // Null when the old canvas is already gone — nothing to disconnect.
     if (m_canvas) {
-        disconnect(m_canvas, &MapCanvas::layerAdded,   this, &TerrainToolbar::onLayerAdded);
+        disconnect(m_canvas, &MapCanvas::layerAdded, this, &TerrainToolbar::onLayerAdded);
         disconnect(m_canvas, &MapCanvas::layerRemoved, this, &TerrainToolbar::onLayerRemoved);
+        disconnect(m_canvas, &QObject::destroyed, this, nullptr);
     }
 
     m_canvas = canvas;
 
     const bool active = (m_canvas != nullptr);
     if (m_canvas) {
-        connect(m_canvas, &MapCanvas::layerAdded,   this, &TerrainToolbar::onLayerAdded,   Qt::UniqueConnection);
-        connect(m_canvas, &MapCanvas::layerRemoved, this, &TerrainToolbar::onLayerRemoved, Qt::UniqueConnection);
+        connect(m_canvas, &MapCanvas::layerAdded, this, &TerrainToolbar::onLayerAdded,
+                Qt::UniqueConnection);
+        connect(m_canvas, &MapCanvas::layerRemoved, this, &TerrainToolbar::onLayerRemoved,
+                Qt::UniqueConnection);
+        connect(m_canvas, &QObject::destroyed, this, [this]() { rebindCanvas(nullptr); });
     }
     m_terrainCombo->setEnabled(active);
     m_verticalUnitCombo->setEnabled(active);
@@ -259,10 +275,8 @@ void TerrainToolbar::rebindCanvas(MapCanvas *canvas)
     rebuildCombo();
 }
 
-void TerrainToolbar::restoreState(const QString &terrainLayerPath,
-                                   double nodeOff,
-                                   double linkOff,
-                                   const QString &vertUnit)
+void TerrainToolbar::restoreState(const QString &terrainLayerPath, double nodeOff, double linkOff,
+                                  const QString &vertUnit)
 {
     {
         QSignalBlocker b(m_nodeOffsetSpin);
@@ -310,13 +324,15 @@ void TerrainToolbar::restoreState(const QString &terrainLayerPath,
 
 void TerrainToolbar::onLayerAdded(OpenSWMMVisLayer *layer)
 {
-    if (!qobject_cast<GISRasterLayer *>(layer)) return;
+    if (!qobject_cast<GISRasterLayer *>(layer))
+        return;
     rebuildCombo();
 }
 
 void TerrainToolbar::onLayerRemoved(OpenSWMMVisLayer *layer)
 {
-    if (!qobject_cast<GISRasterLayer *>(layer)) return;
+    if (!qobject_cast<GISRasterLayer *>(layer))
+        return;
 
     // If the removed layer was active, reset to "(none)" before rebuilding.
     if (activeTerrain() == qobject_cast<GISRasterLayer *>(layer)) {
@@ -346,12 +362,14 @@ void TerrainToolbar::rebuildCombo()
     m_terrainCombo->clear();
     m_terrainCombo->addItem(tr("(none)"), QVariant::fromValue<quintptr>(0));
 
-    if (!m_canvas) return;
+    if (!m_canvas)
+        return;
 
     int restoreIndex = kNoneIndex;
     for (OpenSWMMVisLayer *l : m_canvas->layers()) {
         auto *raster = qobject_cast<GISRasterLayer *>(l);
-        if (!raster) continue;
+        if (!raster)
+            continue;
         m_terrainCombo->addItem(raster->name(),
                                 QVariant::fromValue<quintptr>(reinterpret_cast<quintptr>(raster)));
         if (raster == previous)
@@ -361,8 +379,7 @@ void TerrainToolbar::rebuildCombo()
     // Iteration 4 — auto-select the first DEM when nothing is chosen yet,
     // so hover-Z sampling works the moment a raster is added. A deliberate
     // "(none)" pick (m_userChoseNone) is respected.
-    if (restoreIndex == kNoneIndex && !m_userChoseNone
-        && m_terrainCombo->count() > 1)
+    if (restoreIndex == kNoneIndex && !m_userChoseNone && m_terrainCombo->count() > 1)
         restoreIndex = kNoneIndex + 1;
 
     m_terrainCombo->setCurrentIndex(restoreIndex);

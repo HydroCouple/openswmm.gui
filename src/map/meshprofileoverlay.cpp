@@ -1,7 +1,11 @@
-/*!
- * \file   meshprofileoverlay.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      meshprofileoverlay.cpp
+ * @brief     path drawn persistently on the map plus a position arrow that mirrors the profile
+ *            chart's cursor (and can be dragged on the map via MapToolProfileMarker).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/meshprofileoverlay.h"
@@ -15,8 +19,8 @@
 
 namespace
 {
-const QColor kLineColor(0x7B, 0x2F, 0xBE);          // profile line (violet)
-const QColor kArrowFill(0xE8, 0x3A, 0x1F);          // position arrow (orange-red)
+const QColor kLineColor(0x7B, 0x2F, 0xBE); // profile line (violet)
+const QColor kArrowFill(0xE8, 0x3A, 0x1F); // position arrow (orange-red)
 } // namespace
 
 void MeshProfileOverlay::setPolyline(const QVector<QPointF> &scenePolyline)
@@ -29,8 +33,8 @@ void MeshProfileOverlay::setPolyline(const QVector<QPointF> &scenePolyline)
     m_total = 0.0;
     for (int i = 0; i < m_poly.size(); ++i) {
         if (i > 0)
-            m_total += std::hypot(m_poly[i].x() - m_poly[i - 1].x(),
-                                  m_poly[i].y() - m_poly[i - 1].y());
+            m_total +=
+                std::hypot(m_poly[i].x() - m_poly[i - 1].x(), m_poly[i].y() - m_poly[i - 1].y());
         m_chain.push_back(m_total);
     }
 }
@@ -50,7 +54,7 @@ void MeshProfileOverlay::paint(QPainter &p, const SceneToPixel &toPixel) const
 
         auto makePen = [](const QColor &c, qreal w) {
             QPen pen(c);
-            pen.setWidthF(w);            // pixel widths — already in device space
+            pen.setWidthF(w); // pixel widths — already in device space
             pen.setJoinStyle(Qt::RoundJoin);
             pen.setCapStyle(Qt::RoundCap);
             return pen;
@@ -71,8 +75,7 @@ void MeshProfileOverlay::paint(QPainter &p, const SceneToPixel &toPixel) const
         // constant pixel size regardless of zoom (matches MapToolProfileMarker).
         const QPointF a = toPixel(chainageToScene(m_arrowChainage));
         QPolygonF pin;
-        pin << a << QPointF(a.x() - 7.0, a.y() - 16.0)
-                 << QPointF(a.x() + 7.0, a.y() - 16.0);
+        pin << a << QPointF(a.x() - 7.0, a.y() - 16.0) << QPointF(a.x() + 7.0, a.y() - 16.0);
         QPen outline(QColor(0xFF, 0xFF, 0xFF, 230));
         outline.setWidthF(1.5);
         p.save();
@@ -85,13 +88,16 @@ void MeshProfileOverlay::paint(QPainter &p, const SceneToPixel &toPixel) const
 
 QPointF MeshProfileOverlay::chainageToScene(double chainage) const
 {
-    if (m_poly.isEmpty()) return QPointF();
-    if (m_poly.size() == 1) return m_poly.first();
+    if (m_poly.isEmpty())
+        return QPointF();
+    if (m_poly.size() == 1)
+        return m_poly.first();
     const double c = std::clamp(chainage, 0.0, m_total);
     for (int i = 1; i < m_poly.size(); ++i) {
-        if (c > m_chain[i]) continue;
+        if (c > m_chain[i])
+            continue;
         const double seg = m_chain[i] - m_chain[i - 1];
-        const double t   = (seg > 1e-12) ? (c - m_chain[i - 1]) / seg : 0.0;
+        const double t = (seg > 1e-12) ? (c - m_chain[i - 1]) / seg : 0.0;
         return QPointF(m_poly[i - 1].x() + (m_poly[i].x() - m_poly[i - 1].x()) * t,
                        m_poly[i - 1].y() + (m_poly[i].y() - m_poly[i - 1].y()) * t);
     }
@@ -100,7 +106,8 @@ QPointF MeshProfileOverlay::chainageToScene(double chainage) const
 
 double MeshProfileOverlay::nearestChainage(const QPointF &scenePt) const
 {
-    if (m_poly.size() < 2) return 0.0;
+    if (m_poly.size() < 2)
+        return 0.0;
     double bestD2 = std::numeric_limits<double>::infinity();
     double bestChain = 0.0;
     for (int i = 1; i < m_poly.size(); ++i) {
@@ -109,8 +116,8 @@ double MeshProfileOverlay::nearestChainage(const QPointF &scenePt) const
         const double len2 = abx * abx + aby * aby;
         double t = 0.0;
         if (len2 > 1e-12)
-            t = std::clamp(((scenePt.x() - a.x()) * abx + (scenePt.y() - a.y()) * aby) / len2,
-                           0.0, 1.0);
+            t = std::clamp(((scenePt.x() - a.x()) * abx + (scenePt.y() - a.y()) * aby) / len2, 0.0,
+                           1.0);
         const double projx = a.x() + abx * t, projy = a.y() + aby * t;
         const double dx = scenePt.x() - projx, dy = scenePt.y() - projy;
         const double d2 = dx * dx + dy * dy;

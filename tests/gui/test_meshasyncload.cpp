@@ -1,9 +1,9 @@
-/*!
- * \file   test_meshasyncload.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Mesh Tiled LOD plan Phase 1 (P1.1 + P1.2) coverage:
+/**
+ * @file      test_meshasyncload.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Mesh Tiled LOD plan Phase 1 (P1.1 + P1.2) coverage:
  *           - Rendering/QsgMeshEnabled preference (default ON, signal on
  *             change) — the P1.1 activation knob.
  *           - SWMM2DMeshLayer::setQsgOwnsRendering() gates the QPainter
@@ -17,7 +17,9 @@
  *             (CLAUDE.md §4.1 Transparent File IO).
  *
  *         Uses QTEST_MAIN under the offscreen QPA like test_asyncload.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/swmm2dmeshlayer.h"
 #include "render/sublayers/meshfillsublayer.h"
 #include "render/sublayers/meshnodesublayer.h"
@@ -44,36 +46,58 @@
 
 #include <cmath>
 
-namespace {
+namespace
+{
 
+/**
+ * @brief Resolve GUI fixture base from environment.
+ * @return Owned SWMMVIS_GUI_TEST_DATA value or current-directory dot; no existence check or IO.
+ */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/**
+ * @brief Resolve the asynchronous mesh input fixture path.
+ * @return Owned dataDir()/mesh_async_fixture.inp path, no read or creation.
+ */
 QString fixturePath()
 {
     return QDir(dataDir()).filePath(QStringLiteral("mesh_async_fixture.inp"));
 }
 
+/**
+ * @brief Create the persistent QPainter/QSG parity screenshot directory beside GUI fixtures.
+ * @return Owned path obtained by moving two parents above dataDir then output/mesh_qsg_parity;
+ * mkpath attempted without error reporting, no temporary-directory cleanup. Caller must provide
+ * expected tree.
+ */
 QString outputDir()
 {
     // Reviewable location (never a temp dir): <repo>/tests/output/mesh_qsg_parity.
-    QDir d(dataDir());              // tests/gui/data
-    d.cdUp();                       // tests/gui
-    d.cdUp();                       // tests
+    QDir d(dataDir()); // tests/gui/data
+    d.cdUp();          // tests/gui
+    d.cdUp();          // tests
     const QString out = d.filePath(QStringLiteral("output/mesh_qsg_parity"));
     QDir().mkpath(out);
     return out;
 }
 
+/**
+ * @brief Count packed pixels differing exactly from opaque white.
+ * @param[in] img Stable 32 bit QRgb-per-pixel image, caller ensures compatible scanline format.
+ * @return Count of non-qRgb(255,255,255)pixels, including differing alpha; zero for empty image.
+ * No format conversion, antialias threshold or mutation.
+ */
 int nonWhitePixels(const QImage &img)
 {
     int n = 0;
     for (int y = 0; y < img.height(); ++y) {
         const QRgb *row = reinterpret_cast<const QRgb *>(img.constScanLine(y));
         for (int x = 0; x < img.width(); ++x)
-            if (row[x] != qRgb(255, 255, 255)) ++n;
+            if (row[x] != qRgb(255, 255, 255))
+                ++n;
     }
     return n;
 }
@@ -81,6 +105,12 @@ int nonWhitePixels(const QImage &img)
 // Count near-black pixels — the wireframe edges and vertex dots are drawn in
 // dark ink over the pale terrain fill, so this signals whether the
 // edge/vertex passes engaged (the elevation ramp never produces near-black).
+/**
+ * @brief Count near-black pixels used to detect wireframe/vertex detail.
+ * @param[in] img Stable 32 bit QRgb-per-pixel image with compatible scanline format.
+ * @return Count whose red/green/blue each<60, alpha ignored; zero for empty image. Read-only
+ * classifier does not identify exact geometry or apply color-space conversion.
+ */
 int darkInkPixels(const QImage &img)
 {
     int n = 0;
@@ -93,8 +123,18 @@ int darkInkPixels(const QImage &img)
     return n;
 }
 
-QImage paintQPainterPath(SWMM2DMeshLayer *layer, const QRectF &sceneRect,
-                         const QSize &view)
+/**
+ * @brief Render a borrowed mesh layer through its CPU graphics-scene path into a white image.
+ * @param[in,out] layer Required nonnull GUI-thread layer, temporarily populated into local scene
+ * then depopulated; QSG ownership flag controls whether mesh paints, no layer ownership
+ * transfer.
+ * @param[in] sceneRect Source rectangle in scene units with scene y=-mapy; caller supplies valid
+ * extent.
+ * @param[in] view Positive output pixel dimensions.
+ * @return Owned ARGB32 premultiplied image; no file writes, Qtpainting may allocate/process
+ * callbacks. Scene lifecycle is local; source geometry/attributes remain unchanged.
+ */
+QImage paintQPainterPath(SWMM2DMeshLayer *layer, const QRectF &sceneRect, const QSize &view)
 {
     QGraphicsScene scene;
     layer->populateScene(&scene, layer->extent(), nullptr);
@@ -115,6 +155,10 @@ class TestMeshAsyncLoad : public QObject
 
 private slots:
 
+    /**
+     * @brief Require the mesh asynchronous-load fixture before rendering/load tests proceed.
+     * @note Read-only existence check, no project/native engine initialization.
+     */
     void initTestCase()
     {
         QVERIFY2(QFile::exists(fixturePath()),
@@ -122,6 +166,12 @@ private slots:
     }
 
     // P1.1 knob — preference default ON; setter round-trips and signals.
+    /**
+     * @brief Verify the QSG mesh preference toggles, emits its keyed notification and restores
+     * its prior value.
+     * @note Reads singleton original, flips it, expects Rendering/QsgMeshEnabled key then
+     * restores; does not assert a cleared store default, may write current test preferences.
+     */
     void qsgMeshPreferenceDefaultOnAndSignals()
     {
         auto *p = PreferencesManager::instance();
@@ -132,8 +182,8 @@ private slots:
         QCOMPARE(p->qsgMeshRenderEnabled(), !original);
         bool sawKey = false;
         for (const auto &args : spy)
-            if (args.at(0).toString() == QStringLiteral("Rendering")
-                && args.at(1).toString() == QStringLiteral("QsgMeshEnabled"))
+            if (args.at(0).toString() == QStringLiteral("Rendering") &&
+                args.at(1).toString() == QStringLiteral("QsgMeshEnabled"))
                 sawKey = true;
         QVERIFY(sawKey);
 
@@ -147,6 +197,13 @@ private slots:
     // cell-area rows, and Part C adds the cell-coupling row count. Checked
     // on the layer (not the free stats function) because the layer is what
     // the Properties dialog reads.
+    /**
+     * @brief Verify layer metadata exposes ordered positive area statistics and valid
+     * cell-coupling row counts.
+     * @note Reads fixture, area min<=median/mean<=max; no-couplingsrow hidden, invalid rows
+     * filtered, two valid same-cellcouplings accepted and mutator returns previous values for
+     * undo. No file writes.
+     */
     void metadataCarriesCellAreaStatsAndCouplingRows()
     {
         mesh::InpMeshReadResult read = mesh::InpMeshReader::read(fixturePath());
@@ -157,23 +214,28 @@ private slots:
         auto rowValue = [](const QVector<QPair<QString, QString>> &md,
                            const QString &key) -> QString {
             for (const auto &kv : md)
-                if (kv.first == key) return kv.second;
+                if (kv.first == key)
+                    return kv.second;
             return {};
         };
 
         const auto md = layer.extendedMetadata();
-        const QString mn  = rowValue(md, QStringLiteral("Cell area (min)"));
-        const QString mx  = rowValue(md, QStringLiteral("Cell area (max)"));
+        const QString mn = rowValue(md, QStringLiteral("Cell area (min)"));
+        const QString mx = rowValue(md, QStringLiteral("Cell area (max)"));
         const QString avg = rowValue(md, QStringLiteral("Cell area (mean)"));
         const QString med = rowValue(md, QStringLiteral("Cell area (median)"));
         QVERIFY2(!mn.isEmpty() && !mx.isEmpty() && !avg.isEmpty() && !med.isEmpty(),
                  "cell-area rows missing from mesh metadata");
 
         bool ok = false;
-        const double dmn = mn.toDouble(&ok);  QVERIFY(ok);
-        const double dmx = mx.toDouble(&ok);  QVERIFY(ok);
-        const double dav = avg.toDouble(&ok); QVERIFY(ok);
-        const double dmd = med.toDouble(&ok); QVERIFY(ok);
+        const double dmn = mn.toDouble(&ok);
+        QVERIFY(ok);
+        const double dmx = mx.toDouble(&ok);
+        QVERIFY(ok);
+        const double dav = avg.toDouble(&ok);
+        QVERIFY(ok);
+        const double dmd = med.toDouble(&ok);
+        QVERIFY(ok);
         QVERIFY(dmn > 0.0);
         QVERIFY(dmn <= dmd && dmd <= dmx);
         QVERIFY(dmn <= dav && dav <= dmx);
@@ -184,16 +246,15 @@ private slots:
         // Author rows through the mutator the Remap action uses. Invalid
         // rows are dropped; the previous set comes back for undo.
         QVector<mesh::CellCoupling> rows = {
-            { 0, QStringLiteral("W_UP"), 0.65, 2.0 },
-            { 0, QStringLiteral("W_DN"), 0.65, 2.0 },
-            { layer.triangleCount(), QStringLiteral("OOR"), 0.65, 2.0 },  // dropped
-            { 1, QString(),            0.65, 2.0 },                       // dropped
+            {0, QStringLiteral("W_UP"), 0.65, 2.0},
+            {0, QStringLiteral("W_DN"), 0.65, 2.0},
+            {layer.triangleCount(), QStringLiteral("OOR"), 0.65, 2.0}, // dropped
+            {1, QString(), 0.65, 2.0},                                 // dropped
         };
         const QVector<mesh::CellCoupling> before = layer.applyCellCouplings(rows);
         QVERIFY(before.isEmpty());
         QCOMPARE(layer.cellCouplings().size(), 2);
-        QCOMPARE(rowValue(layer.extendedMetadata(),
-                          QStringLiteral("Coupled cells (rows)")),
+        QCOMPARE(rowValue(layer.extendedMetadata(), QStringLiteral("Coupled cells (rows)")),
                  QStringLiteral("2"));
 
         // Undo contract — the mutator hands back what it replaced.
@@ -204,6 +265,13 @@ private slots:
     }
 
     // P1.1 gate — QSG ownership suppresses the CPU paint; picks unaffected.
+    /**
+     * @brief Verify QSG ownership suppresses duplicate CPU mesh painting while preserving
+     * geometry picking.
+     * @note 400 by 300 CPU image>1000 nonwhite before, exactly 0 under QSG ownership; same-value
+     * ownership emits no second repaint, vertex/cell picks unchanged, CPU restoration reproduces
+     * exact original image.
+     */
     void qsgOwnershipGatesCpuPaintNotPicks()
     {
         mesh::InpMeshReadResult read = mesh::InpMeshReader::read(fixturePath());
@@ -218,22 +286,20 @@ private slots:
         QVERIFY2(nonWhitePixels(cpuOwned) > 1000,
                  "CPU path painted nothing while it owns rendering");
 
-        const int vtx  = layer.pickVertexAt(full.center().x(), full.center().y(),
-                                            50.0, 1.0);
+        const int vtx = layer.pickVertexAt(full.center().x(), full.center().y(), 50.0, 1.0);
         const int cell = layer.pickCellAt(full.center());
 
         QSignalSpy repaint(&layer, &OpenSWMMVisLayer::repaintRequested);
         layer.setQsgOwnsRendering(true);
         QCOMPARE(repaint.count(), 1);
-        layer.setQsgOwnsRendering(true);      // no-op — no second emit
+        layer.setQsgOwnsRendering(true); // no-op — no second emit
         QCOMPARE(repaint.count(), 1);
 
         const QImage cpuGated = paintQPainterPath(&layer, full, view);
         QCOMPARE(nonWhitePixels(cpuGated), 0);
 
         // Identify/pick resolve against native arrays regardless of owner.
-        QCOMPARE(layer.pickVertexAt(full.center().x(), full.center().y(),
-                                    50.0, 1.0), vtx);
+        QCOMPARE(layer.pickVertexAt(full.center().x(), full.center().y(), 50.0, 1.0), vtx);
         QCOMPARE(layer.pickCellAt(full.center()), cell);
 
         layer.setQsgOwnsRendering(false);
@@ -242,6 +308,14 @@ private slots:
     }
 
     // P1.2 — worker-thread build + moveToThread(GUI) equals the sync build.
+    /**
+     * @brief Verify a worker-built mesh layer moved to GUI thread matches synchronous geometry
+     * and paints.
+     * @note QtConcurrentread/build with 20 second wait, validates
+     * counts/elevation/extents/render-triangle count, thread affinity and>1000 painted pixels;
+     * deletes returned unparented layer on GUI thread after use. No fixture rewrite, event-loop
+     * and worker resources required.
+     */
     void workerBuildEqualsSyncBuild()
     {
         mesh::InpMeshReadResult syncRead = mesh::InpMeshReader::read(fixturePath());
@@ -253,7 +327,8 @@ private slots:
         const QString path = fixturePath();
         watcher.setFuture(QtConcurrent::run([path]() -> SWMM2DMeshLayer * {
             mesh::InpMeshReadResult r = mesh::InpMeshReader::read(path);
-            if (!r.hasMesh) return nullptr;
+            if (!r.hasMesh)
+                return nullptr;
             auto *l = new SWMM2DMeshLayer(std::move(r.mesh), r.sourcePath);
             l->moveToThread(qApp->thread());
             return l;
@@ -264,17 +339,16 @@ private slots:
         QVERIFY(asyncLayer != nullptr);
         QCOMPARE(asyncLayer->thread(), qApp->thread());
 
-        QCOMPARE(asyncLayer->vertexCount(),   syncLayer.vertexCount());
+        QCOMPARE(asyncLayer->vertexCount(), syncLayer.vertexCount());
         QCOMPARE(asyncLayer->triangleCount(), syncLayer.triangleCount());
-        QCOMPARE(asyncLayer->edgeCount(),     syncLayer.edgeCount());
-        QCOMPARE(asyncLayer->zMin(),          syncLayer.zMin());
-        QCOMPARE(asyncLayer->zMax(),          syncLayer.zMax());
-        QCOMPARE(asyncLayer->m_sceneBBox,     syncLayer.m_sceneBBox);
+        QCOMPARE(asyncLayer->edgeCount(), syncLayer.edgeCount());
+        QCOMPARE(asyncLayer->zMin(), syncLayer.zMin());
+        QCOMPARE(asyncLayer->zMax(), syncLayer.zMax());
+        QCOMPARE(asyncLayer->m_sceneBBox, syncLayer.m_sceneBBox);
         QCOMPARE(asyncLayer->m_sceneTris.size(), syncLayer.m_sceneTris.size());
 
         // Adoption works: the moved layer paints on the GUI thread.
-        const QImage img = paintQPainterPath(asyncLayer, asyncLayer->m_sceneBBox,
-                                             QSize(400, 300));
+        const QImage img = paintQPainterPath(asyncLayer, asyncLayer->m_sceneBBox, QSize(400, 300));
         QVERIFY(nonWhitePixels(img) > 1000);
 
         delete asyncLayer;
@@ -283,6 +357,13 @@ private slots:
     // Progressive load — a deferHeavyGeometry layer renders (fill) right
     // away, then finishSceneGeometryAsync() delivers wireframe/grids/
     // adjacency/BCs identical to a synchronously-built layer.
+    /**
+     * @brief Verify deferred heavy geometry provides immediate fill then converges to
+     * synchronous adjacency and picking.
+     * @note PhaseAretainsrendertriangles but no edges/grid, CPU fill>1000 pixels; background
+     * ready within 20 s, then counts,maxslope,grids,BCslots and cellpick agree. Local layer owns
+     * worker adoption, no file writes.
+     */
     void progressiveLoadEqualsSyncBuild()
     {
         mesh::InpMeshReadResult syncRead = mesh::InpMeshReader::read(fixturePath());
@@ -291,18 +372,16 @@ private slots:
 
         mesh::InpMeshReadResult defRead = mesh::InpMeshReader::read(fixturePath());
         QVERIFY(defRead.hasMesh);
-        SWMM2DMeshLayer defLayer(std::move(defRead.mesh), defRead.sourcePath,
-                                 nullptr, /*deferHeavyGeometry=*/true);
+        SWMM2DMeshLayer defLayer(std::move(defRead.mesh), defRead.sourcePath, nullptr,
+                                 /*deferHeavyGeometry=*/true);
 
         // Phase A: drawable immediately (fill), but heavy structures absent.
         QVERIFY(!defLayer.sceneGeometryComplete());
         QCOMPARE(defLayer.m_sceneTris.size(), syncLayer.m_sceneTris.size());
         QVERIFY(defLayer.m_sceneEdges.isEmpty());
         QVERIFY(defLayer.m_triGrid.isEmpty());
-        const QImage phaseA = paintQPainterPath(&defLayer, defLayer.m_sceneBBox,
-                                                QSize(400, 300));
-        QVERIFY2(nonWhitePixels(phaseA) > 1000,
-                 "Phase-A layer painted nothing");
+        const QImage phaseA = paintQPainterPath(&defLayer, defLayer.m_sceneBBox, QSize(400, 300));
+        QVERIFY2(nonWhitePixels(phaseA) > 1000, "Phase-A layer painted nothing");
 
         // Phase B: background build converges to the sync layer's state.
         QSignalSpy ready(&defLayer, &SWMM2DMeshLayer::sceneGeometryReady);
@@ -310,11 +389,11 @@ private slots:
         QVERIFY2(ready.wait(20000), "deferred geometry did not finish in 20s");
         QVERIFY(defLayer.sceneGeometryComplete());
         QCOMPARE(defLayer.m_sceneEdges.size(), syncLayer.m_sceneEdges.size());
-        QCOMPARE(defLayer.edgeCount(),         syncLayer.edgeCount());
-        QCOMPARE(defLayer.maxSlope(),          syncLayer.maxSlope());
+        QCOMPARE(defLayer.edgeCount(), syncLayer.edgeCount());
+        QCOMPARE(defLayer.maxSlope(), syncLayer.maxSlope());
         QVERIFY(!defLayer.m_triGrid.isEmpty());
         QVERIFY(!defLayer.m_edgeGrid.isEmpty());
-        QCOMPARE(defLayer.edgeBCs().size(),    syncLayer.edgeBCs().size());
+        QCOMPARE(defLayer.edgeBCs().size(), syncLayer.edgeBCs().size());
         QCOMPARE(defLayer.pickCellAt(defLayer.m_sceneBBox.center()),
                  syncLayer.pickCellAt(syncLayer.m_sceneBBox.center()));
     }
@@ -323,6 +402,13 @@ private slots:
     // shaded-relief terrain fill (the QPainter path shares the QSG
     // schemeDrivesColor decision, so a pixel diff here proves the chain
     // dialog → MeshFillStyle::setScheme → renderer).
+    /**
+     * @brief Verify terrain-fill color-ramp and inversion edits reach repaint signaling and
+     * change rendered pixels.
+     * @note Borrowed fill style uses viridis then inversion, each image differs from prior;
+     * layer repaint>=1. Read-only mesh fixture, no settings serialization or screenshot writes
+     * in this slot.
+     */
     void terrainRampDrivesFill()
     {
         mesh::InpMeshReadResult read = mesh::InpMeshReader::read(fixturePath());
@@ -337,12 +423,10 @@ private slots:
         auto scheme = fill->scheme();
         scheme.setRampName(QStringLiteral("viridis"));
         fill->setScheme(scheme);
-        QVERIFY2(repaint.count() >= 1,
-                 "scheme edit did not reach the layer's repaintRequested");
+        QVERIFY2(repaint.count() >= 1, "scheme edit did not reach the layer's repaintRequested");
 
         const QImage after = paintQPainterPath(&layer, layer.m_sceneBBox, view);
-        QVERIFY2(after != before,
-                 "changing the terrain colour ramp did not change the fill");
+        QVERIFY2(after != before, "changing the terrain colour ramp did not change the fill");
 
         // Invert flag also drives colour.
         const QImage inv1 = after;
@@ -358,35 +442,49 @@ private slots:
     // far enough that cells project large on screen. Uses a dense grid so the
     // full-extent view genuinely has sub-pixel cells (below the 200k-tri
     // overview threshold, so the wireframe pass — not the quad bake — governs).
+    /**
+     * @brief Verify screen-cell-size thresholds show wireframe/vertices only at suitable zoom
+     * and support overrides.
+     * @note Dense 80 ktriangle grid(nooverview),explicit 10 px threshold:fullview<20 dark
+     * pixels,nearview>50; 400 px threshold suppresses near detail,zeroedge threshold forces far
+     * detail>50. Checks reasonable default thresholds and visible node sublayer. CPU
+     * images/local geometry only.
+     */
     void edgesAndVerticesAppearWhenZoomedIn()
     {
         mesh::MeshResult m;
-        const int n = 200;   // 201×201 verts, 80k tris (< 200k → no overview)
+        const int n = 200; // 201×201 verts, 80k tris (< 200k → no overview)
         m.vertices.reserve((n + 1) * (n + 1));
         for (int r = 0; r <= n; ++r)
             for (int c = 0; c <= n; ++c) {
                 mesh::MeshVertex v;
-                v.xy = QPointF(c, r);       // 1 unit spacing → 200×200 domain
-                v.z  = 0.02 * c + 0.3 * std::sin(r * 0.2);
+                v.xy = QPointF(c, r); // 1 unit spacing → 200×200 domain
+                v.z = 0.02 * c + 0.3 * std::sin(r * 0.2);
                 m.vertices.append(v);
             }
         m.triangles.reserve(n * n * 2);
         for (int r = 0; r < n; ++r)
             for (int c = 0; c < n; ++c) {
                 const int v00 = r * (n + 1) + c, v10 = v00 + 1;
-                const int v01 = v00 + n + 1,     v11 = v01 + 1;
-                mesh::MeshTriangle t1; t1.v0 = v00; t1.v1 = v10; t1.v2 = v11;
-                mesh::MeshTriangle t2; t2.v0 = v00; t2.v1 = v11; t2.v2 = v01;
+                const int v01 = v00 + n + 1, v11 = v01 + 1;
+                mesh::MeshTriangle t1;
+                t1.v0 = v00;
+                t1.v1 = v10;
+                t1.v2 = v11;
+                mesh::MeshTriangle t2;
+                t2.v0 = v00;
+                t2.v1 = v11;
+                t2.v2 = v01;
                 m.triangles.append(t1);
                 m.triangles.append(t2);
             }
         m.ok = true;
         SWMM2DMeshLayer layer(std::move(m), QString());
-        QVERIFY(!layer.hasOverview());   // dense-but-small → wireframe governs
+        QVERIFY(!layer.hasOverview()); // dense-but-small → wireframe governs
 
         // Defaults are moderate — detail comes in at a sensible zoom, not
         // only at extreme close-up (a few px per cell, not >10).
-        QVERIFY(layer.edgeZoomMinCellPx()   > 0.0 && layer.edgeZoomMinCellPx()   <= 5.0);
+        QVERIFY(layer.edgeZoomMinCellPx() > 0.0 && layer.edgeZoomMinCellPx() <= 5.0);
         QVERIFY(layer.vertexZoomMinCellPx() > 0.0 && layer.vertexZoomMinCellPx() <= 8.0);
 
         // Explicit thresholds so the test is independent of the default
@@ -404,9 +502,9 @@ private slots:
         // Zoom into a ~10-cell window (1/20 of each side) → ~80 px/cell →
         // 6400 px² → both gates open.
         const double f = 1.0 / 20.0;
-        const QRectF nearRect(bbox.center().x() - bbox.width()  * f / 2.0,
-                              bbox.center().y() - bbox.height() * f / 2.0,
-                              bbox.width() * f, bbox.height() * f);
+        const QRectF nearRect(bbox.center().x() - bbox.width() * f / 2.0,
+                              bbox.center().y() - bbox.height() * f / 2.0, bbox.width() * f,
+                              bbox.height() * f);
         const int nearDark = darkInkPixels(paintQPainterPath(&layer, nearRect, view));
 
         // Far view is essentially free of wireframe ink; the zoomed-in view
@@ -414,8 +512,9 @@ private slots:
         // fully-dark px, vs ~none at far zoom).
         QVERIFY2(farDark < 20 && nearDark > 50,
                  qPrintable(QStringLiteral("expected wireframe/vertices only "
-                            "when zoomed in: farDark=%1 nearDark=%2")
-                            .arg(farDark).arg(nearDark)));
+                                           "when zoomed in: farDark=%1 nearDark=%2")
+                                .arg(farDark)
+                                .arg(nearDark)));
 
         // The vertex sublayer defaults visible now (the LOD gate, not a
         // hidden flag, keeps far-zoom clean).
@@ -425,21 +524,24 @@ private slots:
         // cell size suppresses the detail even when zoomed in; 0 forces it on.
         layer.setEdgeZoomMinCellPx(400.0);
         layer.setVertexZoomMinCellPx(400.0);
-        const int nearHiThresh =
-            darkInkPixels(paintQPainterPath(&layer, nearRect, view));
-        QVERIFY2(nearHiThresh < 20,
-                 "raising the zoom threshold should suppress edges/vertices");
+        const int nearHiThresh = darkInkPixels(paintQPainterPath(&layer, nearRect, view));
+        QVERIFY2(nearHiThresh < 20, "raising the zoom threshold should suppress edges/vertices");
 
-        layer.setEdgeZoomMinCellPx(0.0);   // always on
-        const int farNoThresh =
-            darkInkPixels(paintQPainterPath(&layer, bbox, view));
-        QVERIFY2(farNoThresh > 50,
-                 "a 0 edge threshold should force the wireframe on at any zoom");
+        layer.setEdgeZoomMinCellPx(0.0); // always on
+        const int farNoThresh = darkInkPixels(paintQPainterPath(&layer, bbox, view));
+        QVERIFY2(farNoThresh > 50, "a 0 edge threshold should force the wireframe on at any zoom");
     }
 
     // Pyramid rebuild — rebuildOverviewAsync() builds the far-zoom overview
     // on a worker, emits started/finished, adopts on the GUI thread, and
     // matches the synchronous load-time bake.
+    /**
+     * @brief Verify background overview rebuild signals once, ignores overlapping request and
+     * reproduces load-time bake.
+     * @note 204800 triangle grid triggers overview, finishes within 20 swith
+     * true,clearsrunning/emitsrepaint; triangle count/native span match synchronous baseline.
+     * Event loop and substantial temporary memory required.
+     */
     void pyramidRebuildAsync()
     {
         // Programmatic mesh above the 200k-tri overview threshold: a
@@ -451,34 +553,40 @@ private slots:
             for (int c = 0; c <= n; ++c) {
                 mesh::MeshVertex v;
                 v.xy = QPointF(c * 2.0, r * 2.0);
-                v.z  = 0.01 * c + 0.5 * std::sin(r * 0.1);
+                v.z = 0.01 * c + 0.5 * std::sin(r * 0.1);
                 m.vertices.append(v);
             }
         m.triangles.reserve(n * n * 2);
         for (int r = 0; r < n; ++r)
             for (int c = 0; c < n; ++c) {
                 const int v00 = r * (n + 1) + c, v10 = v00 + 1;
-                const int v01 = v00 + n + 1,     v11 = v01 + 1;
-                mesh::MeshTriangle t1; t1.v0 = v00; t1.v1 = v10; t1.v2 = v11;
-                mesh::MeshTriangle t2; t2.v0 = v00; t2.v1 = v11; t2.v2 = v01;
+                const int v01 = v00 + n + 1, v11 = v01 + 1;
+                mesh::MeshTriangle t1;
+                t1.v0 = v00;
+                t1.v1 = v10;
+                t1.v2 = v11;
+                mesh::MeshTriangle t2;
+                t2.v0 = v00;
+                t2.v1 = v11;
+                t2.v2 = v01;
                 m.triangles.append(t1);
                 m.triangles.append(t2);
             }
         m.ok = true;
 
         SWMM2DMeshLayer layer(std::move(m), QString());
-        QVERIFY(layer.hasOverview());   // load-time bake ran (>= 200k tris)
+        QVERIFY(layer.hasOverview()); // load-time bake ran (>= 200k tris)
         const int bakedCount = layer.m_overviewTris.size();
         const double bakedSpan = layer.m_nativeTriSpan;
 
-        QSignalSpy started (&layer, &SWMM2DMeshLayer::overviewBuildStarted);
+        QSignalSpy started(&layer, &SWMM2DMeshLayer::overviewBuildStarted);
         QSignalSpy finished(&layer, &SWMM2DMeshLayer::overviewBuildFinished);
-        QSignalSpy repaint (&layer, &OpenSWMMVisLayer::repaintRequested);
+        QSignalSpy repaint(&layer, &OpenSWMMVisLayer::repaintRequested);
 
         layer.rebuildOverviewAsync();
         QVERIFY(layer.overviewBuildRunning());
         QCOMPARE(started.count(), 1);
-        layer.rebuildOverviewAsync();          // no-op while running
+        layer.rebuildOverviewAsync(); // no-op while running
         QCOMPARE(started.count(), 1);
 
         QVERIFY2(finished.wait(20000), "pyramid rebuild did not finish in 20s");
@@ -499,10 +607,19 @@ private slots:
     // Optional: point SWMMVIS_MESH_PARITY_INP at any .inp/.2dm to run the
     // comparison on a real mesh (run WITHOUT the offscreen QPA to get real
     // scene-graph pixels — offscreen readback comes back blank).
+    /**
+     * @brief Capture CPU and production-QSG mesh views at three zooms for human visual parity
+     * review.
+     * @note Optional SWMMVIS_MESH_PARITY_INP selects read-only mesh,CONTOURS=1 isolates
+     * contours. Registers QMLtypes once,loads source-tree swmmlayer.qml,aligns 800 by 600
+     * aspect/extents and writes qpainter_full/mid/near.png plus qsg equivalents under persistent
+     * outputDir. Requires>1000 drawn pixels per available path; unavailable framebuffer writes
+     * optional blank evidence then QSKIP, not a pixel-parity pass. Detaches borrowed renderer
+     * layer before destruction; no source mesh edits.
+     */
     void parityScreenshots()
     {
-        const QString src = qEnvironmentVariable("SWMMVIS_MESH_PARITY_INP",
-                                                 fixturePath());
+        const QString src = qEnvironmentVariable("SWMMVIS_MESH_PARITY_INP", fixturePath());
         mesh::InpMeshReadResult read = mesh::InpMeshReader::read(src);
         QVERIFY2(read.hasMesh, qPrintable(read.errorMsg));
         SWMM2DMeshLayer layer(std::move(read.mesh), read.sourcePath);
@@ -511,15 +628,16 @@ private slots:
         // on (off by default) so the QSG far-zoom frame can be inspected for
         // contour lines — verifying they render at ALL zoom levels, not just
         // Mid/Near. Edges off to isolate the contour ink.
-        if (qEnvironmentVariable("SWMMVIS_MESH_PARITY_CONTOURS")
-            == QLatin1String("1")) {
+        if (qEnvironmentVariable("SWMMVIS_MESH_PARITY_CONTOURS") == QLatin1String("1")) {
             layer.setShowContours(true);
             layer.setShowEdges(false);
         }
 
         const QSize view(800, 600);
-        const struct { const char *name; double factor; } zooms[] = {
-            {"full", 1.0}, {"mid", 0.5}, {"near", 0.25}};
+        const struct {
+            const char *name;
+            double factor;
+        } zooms[] = {{"full", 1.0}, {"mid", 0.5}, {"near", 0.25}};
         const QString outDir = outputDir();
 
         // Production pipeline: the same offscreen QQuickWidget +
@@ -531,12 +649,9 @@ private slots:
         // so register here or swmmlayer.qml fails to load.
         static bool typesRegistered = false;
         if (!typesRegistered) {
-            qmlRegisterType<SWMMLayerQSGRenderer>("OpenSWMM", 1, 0,
-                                                  "SWMMLayerQSGRenderer");
-            qmlRegisterType<SWMM2DMeshQSGRenderer>("OpenSWMM", 1, 0,
-                                                   "SWMM2DMeshQSGRenderer");
-            qmlRegisterType<SWMM2DResultsQSGRenderer>("OpenSWMM", 1, 0,
-                                                      "SWMM2DResultsQSGRenderer");
+            qmlRegisterType<SWMMLayerQSGRenderer>("OpenSWMM", 1, 0, "SWMMLayerQSGRenderer");
+            qmlRegisterType<SWMM2DMeshQSGRenderer>("OpenSWMM", 1, 0, "SWMM2DMeshQSGRenderer");
+            qmlRegisterType<SWMM2DResultsQSGRenderer>("OpenSWMM", 1, 0, "SWMM2DResultsQSGRenderer");
             typesRegistered = true;
         }
 
@@ -555,19 +670,19 @@ private slots:
         }
         // The app loads this from qrc; the test binary does not compile the
         // resource bundle, so read the same file from the source tree.
-        QDir qmlDir(dataDir());          // tests/gui/data
-        qmlDir.cdUp(); qmlDir.cdUp(); qmlDir.cdUp();   // repo root
-        const QString qmlPath =
-            qmlDir.filePath(QStringLiteral("resources/qml/swmmlayer.qml"));
+        QDir qmlDir(dataDir()); // tests/gui/data
+        qmlDir.cdUp();
+        qmlDir.cdUp();
+        qmlDir.cdUp(); // repo root
+        const QString qmlPath = qmlDir.filePath(QStringLiteral("resources/qml/swmmlayer.qml"));
         QVERIFY2(QFile::exists(qmlPath), qPrintable(qmlPath));
         qsgWidget.setSource(QUrl::fromLocalFile(qmlPath));
         qsgWidget.resize(view);
         qsgWidget.show();
         SWMM2DMeshQSGRenderer *renderer =
-            qsgWidget.rootObject()
-                ? qsgWidget.rootObject()->findChild<SWMM2DMeshQSGRenderer *>(
-                      QStringLiteral("mesh2dRenderer"))
-                : nullptr;
+            qsgWidget.rootObject() ? qsgWidget.rootObject()->findChild<SWMM2DMeshQSGRenderer *>(
+                                         QStringLiteral("mesh2dRenderer"))
+                                   : nullptr;
         QVERIFY2(renderer, "swmmlayer.qml did not provide mesh2dRenderer");
         renderer->setLayer(&layer);
 
@@ -578,28 +693,28 @@ private slots:
         const double viewAspect = double(view.width()) / double(view.height());
         auto aspectRect = [viewAspect](QRectF r) {
             double w = r.width(), h = r.height();
-            if (w / h < viewAspect) w = h * viewAspect;
-            else                    h = w / viewAspect;
-            return QRectF(r.center().x() - w / 2.0, r.center().y() - h / 2.0,
-                          w, h);
+            if (w / h < viewAspect)
+                w = h * viewAspect;
+            else
+                h = w / viewAspect;
+            return QRectF(r.center().x() - w / 2.0, r.center().y() - h / 2.0, w, h);
         };
 
         bool qsgAvailable = true;
         for (const auto &z : zooms) {
             const QRectF bbox = layer.m_sceneBBox;
-            const QRectF src  = aspectRect(QRectF(
-                bbox.center().x() - bbox.width()  * z.factor / 2.0,
-                bbox.center().y() - bbox.height() * z.factor / 2.0,
-                bbox.width() * z.factor, bbox.height() * z.factor));
+            const QRectF src =
+                aspectRect(QRectF(bbox.center().x() - bbox.width() * z.factor / 2.0,
+                                  bbox.center().y() - bbox.height() * z.factor / 2.0,
+                                  bbox.width() * z.factor, bbox.height() * z.factor));
             const QImage cpu = paintQPainterPath(&layer, src, view);
             QVERIFY(nonWhitePixels(cpu) > 1000);
-            QVERIFY(cpu.save(QStringLiteral("%1/qpainter_%2.png")
-                                 .arg(outDir, QLatin1String(z.name))));
+            QVERIFY(
+                cpu.save(QStringLiteral("%1/qpainter_%2.png").arg(outDir, QLatin1String(z.name))));
 
             // Scene y = -canvas y: convert the scene rect to a canvas extent.
-            renderer->setMapExtent(MapExtent(src.left(), -src.bottom(),
-                                             src.right(), -src.top()));
-            qsgWidget.repaint();                      // sync render, as MapCanvas does
+            renderer->setMapExtent(MapExtent(src.left(), -src.bottom(), src.right(), -src.top()));
+            qsgWidget.repaint(); // sync render, as MapCanvas does
             QImage qsg = qsgWidget.grabFramebuffer();
             // Transparent clear colour → count non-transparent instead of
             // non-white.
@@ -607,10 +722,10 @@ private slots:
             if (!qsg.isNull()) {
                 const QImage a = qsg.convertToFormat(QImage::Format_ARGB32);
                 for (int y = 0; y < a.height(); ++y) {
-                    const QRgb *row =
-                        reinterpret_cast<const QRgb *>(a.constScanLine(y));
+                    const QRgb *row = reinterpret_cast<const QRgb *>(a.constScanLine(y));
                     for (int x = 0; x < a.width(); ++x)
-                        if (qAlpha(row[x]) != 0) ++drawn;
+                        if (qAlpha(row[x]) != 0)
+                            ++drawn;
                 }
             }
             if (qsg.isNull() || drawn == 0) {
@@ -618,14 +733,13 @@ private slots:
                 // QPA/driver — evidence saved, pixel assertions skipped, and
                 // live parity is verified interactively in the real app.
                 if (!qsg.isNull())
-                    qsg.save(QStringLiteral("%1/qsg_%2_blank.png")
-                                 .arg(outDir, QLatin1String(z.name)));
+                    qsg.save(
+                        QStringLiteral("%1/qsg_%2_blank.png").arg(outDir, QLatin1String(z.name)));
                 qsgAvailable = false;
                 break;
             }
             QVERIFY2(drawn > 1000, "QSG mesh renderer drew almost nothing");
-            QVERIFY(qsg.save(QStringLiteral("%1/qsg_%2.png")
-                                 .arg(outDir, QLatin1String(z.name))));
+            QVERIFY(qsg.save(QStringLiteral("%1/qsg_%2.png").arg(outDir, QLatin1String(z.name))));
         }
         renderer->setLayer(nullptr);
 
@@ -641,10 +755,22 @@ private slots:
 // environment on demand (SWMMVIS_MESH_PARITY_APPENV=1): OpenGL RHI backend +
 // threaded render loop + 6x MSAA default format — the exact configuration
 // the shipping app forces on macOS. Must happen before QApplication exists.
+/**
+ * @brief Initialize the optional production scene-graph environment and execute this QtTest
+ * object.
+ * @param[in] argc Standard nonnegative command-line argument count,passed to
+ * QApplication/QtTest.
+ * @param[in] argv Conventional argc argument pointers,valid through application lifetime;Qtmay
+ * process arguments.
+ * @return QTest::qExecexitstatus,zero when selected tests pass or skip,nonzero on failure.
+ * Before QApplication,SWMMVIS_MESH_PARITY_APPENV=1 sets OpenGL RHI/threadedloop/6 sample
+ * default; process-wide changes intentionally persist until exit. Owns application/test on
+ * stack,may write configured screenshots/preferences via test slots; GUI/event environment
+ * required.
+ */
 int main(int argc, char *argv[])
 {
-    if (qEnvironmentVariable("SWMMVIS_MESH_PARITY_APPENV")
-        == QLatin1String("1")) {
+    if (qEnvironmentVariable("SWMMVIS_MESH_PARITY_APPENV") == QLatin1String("1")) {
         qputenv("QSG_RHI_BACKEND", "opengl");
         qputenv("QSG_RENDER_LOOP", "threaded");
         QSurfaceFormat fmt = QSurfaceFormat::defaultFormat();

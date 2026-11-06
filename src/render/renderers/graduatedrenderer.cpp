@@ -1,8 +1,11 @@
-/*!
- * \file   graduatedrenderer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      graduatedrenderer.cpp
+ * @brief     GraduatedRenderer is what drives the per-attribute heatmap on SWMMResultsLayer (depth
+ *            / head / flow) and SWMM2DResultsLayer (depth).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/renderers/graduatedrenderer.h"
@@ -29,23 +32,28 @@ using SymbolProps::overrideColorInPlace;
 // per-bin colours saved by pre-BB-α schemas. The synthesised ramp uses N
 // even-spaced stops so colorAt at each bin midpoint reproduces the
 // original colour exactly.
+/** @brief Build RGB ramp stops at the legacy bins' normalized midpoint positions.
+ * @param binColors Ordered per-bin colors copied without validity checks.
+ * @param mn Lower data bound, stored verbatim without validation.
+ * @param mx Upper data bound in the same units, also stored verbatim.
+ * @return Owned RGB ramp retaining the supplied range; an empty color list uses
+ * viridis instead. A single color occupies position 0.5, and otherwise each stop
+ * is at (index+0.5)/count so midpoint sampling reproduces the legacy colors. */
 RasterColorRamp rampFromBinColors(const QList<QColor> &binColors, double mn, double mx)
 {
     RasterColorRamp r;
     r.minValue = mn;
     r.maxValue = mx;
-    r.interp   = RampInterp::Rgb;
+    r.interp = RampInterp::Rgb;
     const int n = binColors.size();
     if (n <= 0)
         return RasterColorRamp::viridis(mn, mx);
     QGradientStops stops;
     stops.reserve(n);
-    for (int i = 0; i < n; ++i)
-    {
+    for (int i = 0; i < n; ++i) {
         // Sample at bin midpoint so the ramp evaluated at each midpoint
         // returns the original colour.
-        const double pos = (n == 1) ? 0.5
-                                    : (static_cast<double>(i) + 0.5) / static_cast<double>(n);
+        const double pos = (n == 1) ? 0.5 : (static_cast<double>(i) + 0.5) / static_cast<double>(n);
         stops.append({pos, binColors.at(i)});
     }
     r.stops = stops;
@@ -107,18 +115,18 @@ void GraduatedRenderer::autoClassify(const QVector<double> &samples)
     bool any = false;
     double mn = std::numeric_limits<double>::infinity();
     double mx = -std::numeric_limits<double>::infinity();
-    for (double v : samples)
-    {
+    for (double v : samples) {
         if (!std::isfinite(v))
             continue;
         any = true;
-        if (v < mn) mn = v;
-        if (v > mx) mx = v;
+        if (v < mn)
+            mn = v;
+        if (v > mx)
+            mx = v;
     }
     if (!any)
         return;
-    if (mn == mx)
-    {
+    if (mn == mx) {
         const double eps = std::abs(mn) > 0.0 ? std::abs(mn) * 1e-9 : 1e-9;
         mn -= eps;
         mx += eps;
@@ -137,11 +145,24 @@ void GraduatedRenderer::setOutputSizeRange(double minPx, double maxPx)
 double GraduatedRenderer::sizeForBin(int bin) const
 {
     const int n = m_binner.binCount();
-    if (n <= 0) return m_outputSizeMin;
-    if (bin < 0)    bin = 0;
-    if (bin >= n)   bin = n - 1;
-    if (n == 1)     return (m_outputSizeMin + m_outputSizeMax) * 0.5;
+    if (n <= 0)
+        return m_outputSizeMin;
+    if (bin < 0)
+        bin = 0;
+    if (bin >= n)
+        bin = n - 1;
+    if (n == 1)
+        return (m_outputSizeMin + m_outputSizeMax) * 0.5;
     const double t = static_cast<double>(bin) / static_cast<double>(n - 1);
+    return m_outputSizeMin + t * (m_outputSizeMax - m_outputSizeMin);
+}
+
+double GraduatedRenderer::sizeForValue(double v) const
+{
+    if (!sizeValueRangeValid() || !std::isfinite(v))
+        return m_outputSizeMin;
+    double t = (v - m_sizeValueMin) / (m_sizeValueMax - m_sizeValueMin);
+    t = std::clamp(t, 0.0, 1.0);
     return m_outputSizeMin + t * (m_outputSizeMax - m_outputSizeMin);
 }
 
@@ -154,11 +175,24 @@ void GraduatedRenderer::setOutputWidthRange(double minPx, double maxPx)
 double GraduatedRenderer::widthForBin(int bin) const
 {
     const int n = m_binner.binCount();
-    if (n <= 0) return m_outputWidthMin;
-    if (bin < 0)    bin = 0;
-    if (bin >= n)   bin = n - 1;
-    if (n == 1)     return (m_outputWidthMin + m_outputWidthMax) * 0.5;
+    if (n <= 0)
+        return m_outputWidthMin;
+    if (bin < 0)
+        bin = 0;
+    if (bin >= n)
+        bin = n - 1;
+    if (n == 1)
+        return (m_outputWidthMin + m_outputWidthMax) * 0.5;
     const double t = static_cast<double>(bin) / static_cast<double>(n - 1);
+    return m_outputWidthMin + t * (m_outputWidthMax - m_outputWidthMin);
+}
+
+double GraduatedRenderer::widthForValue(double v) const
+{
+    if (!sizeValueRangeValid() || !std::isfinite(v))
+        return m_outputWidthMin;
+    double t = (v - m_sizeValueMin) / (m_sizeValueMax - m_sizeValueMin);
+    t = std::clamp(t, 0.0, 1.0);
     return m_outputWidthMin + t * (m_outputWidthMax - m_outputWidthMin);
 }
 
@@ -167,8 +201,10 @@ QColor GraduatedRenderer::colorForBin(int bin) const
     const int n = m_binner.binCount();
     if (n <= 0)
         return Qt::transparent;
-    if (bin < 0)     bin = 0;
-    if (bin >= n)    bin = n - 1;
+    if (bin < 0)
+        bin = 0;
+    if (bin >= n)
+        bin = n - 1;
     // Slice BB Phase 8.6.16 — user override wins over ramp sampling.
     // Overrides survive ramp swaps; cleared explicitly via clearClassEditOverrides().
     if (const auto it = m_binColorOverrides.constFind(bin); it != m_binColorOverrides.constEnd())
@@ -183,7 +219,8 @@ QColor GraduatedRenderer::colorForClass(const QString &classKey) const
 {
     bool ok = false;
     const int bin = classKey.toInt(&ok);
-    if (!ok || bin < 0) return {};
+    if (!ok || bin < 0)
+        return {};
     // Only report the override; absence is signalled by an invalid colour
     // so undo-command snapshots can tell "no override" from "override = X".
     const auto it = m_binColorOverrides.constFind(bin);
@@ -194,11 +231,12 @@ void GraduatedRenderer::setColorForClass(const QString &classKey, const QColor &
 {
     bool ok = false;
     const int bin = classKey.toInt(&ok);
-    if (!ok || bin < 0) return;
+    if (!ok || bin < 0)
+        return;
     if (color.isValid())
         m_binColorOverrides.insert(bin, color);
     else
-        m_binColorOverrides.remove(bin);   // invalid colour ⇒ drop override.
+        m_binColorOverrides.remove(bin); // invalid colour ⇒ drop override.
 }
 
 void GraduatedRenderer::clearClassEditOverrides()
@@ -211,18 +249,21 @@ QColor GraduatedRenderer::colorForValue(double v) const
     const int n = m_binner.binCount();
     if (n <= 0)
         return Qt::transparent;
-    if (!std::isfinite(v))
-        return colorForBin(0);
+    if (!std::isfinite(v) || v < m_ramp.minValue)
+        return Qt::transparent;
+    if (v >= m_ramp.maxValue)
+        return colorForBin(n - 1);
     // If the binner has not been classified yet, derive an inline equal-
     // interval bin from the ramp's range.
-    if (m_lastBreaks.isEmpty())
-    {
+    if (m_lastBreaks.isEmpty()) {
         if (m_ramp.maxValue <= m_ramp.minValue)
             return colorForBin(0);
         const double t = (v - m_ramp.minValue) / (m_ramp.maxValue - m_ramp.minValue);
         int bin = static_cast<int>(std::floor(t * static_cast<double>(n)));
-        if (bin < 0)   bin = 0;
-        if (bin >= n)  bin = n - 1;
+        if (bin < 0)
+            bin = 0;
+        if (bin >= n)
+            bin = n - 1;
         return colorForBin(bin);
     }
     return colorForBin(m_binner.binFor(v, m_lastBreaks));
@@ -234,43 +275,71 @@ SymbolStyle GraduatedRenderer::symbolFor(const FeatureRef &, const QVariantMap &
     const QVariant v = attrs.value(m_classifyAttribute);
     bool ok = false;
     const double dv = v.toDouble(&ok);
-    if (!ok)
+    if (ok && (!std::isfinite(dv) || dv < m_ramp.minValue)) {
+        overrideColorInPlace(styled, QColor(Qt::transparent));
+        styled.opacity = 0.0;
         return styled;
+    }
 
-    // Compute the bin index once; both color + size outputs key off it.
+    // Compute the bin index once; colour (and the size axes when they
+    // follow the classify attribute) key off it.
     const int n = m_binner.binCount();
     int bin = 0;
-    if (n > 0) {
-        if (!m_lastBreaks.isEmpty()) {
+    if (ok && n > 0) {
+        if (dv >= m_ramp.maxValue) {
+            bin = n - 1;
+        } else if (!m_lastBreaks.isEmpty()) {
             bin = m_binner.binFor(dv, m_lastBreaks);
         } else if (m_ramp.maxValue > m_ramp.minValue) {
             const double t = (dv - m_ramp.minValue) / (m_ramp.maxValue - m_ramp.minValue);
             bin = static_cast<int>(std::floor(t * static_cast<double>(n)));
         }
-        if (bin < 0)   bin = 0;
-        if (bin >= n)  bin = n - 1;
+        if (bin < 0)
+            bin = 0;
+        if (bin >= n)
+            bin = n - 1;
     }
 
     // Output axis 1 — colour. Default-on (preserves prior behaviour).
-    if (m_outputColorEnabled)
+    // Skipped when the classify value is missing/non-numeric (pre-size-
+    // attribute code returned the bare base symbol in that case).
+    if (ok && m_outputColorEnabled)
         overrideColorInPlace(styled, colorForBin(bin));
 
-    // Output axis 2 — marker size (Slice BI Phase 8.13.43-α). Default-off.
-    if (m_outputSizeEnabled) {
-        const double sz = sizeForBin(bin);
-        for (SymbolLayer &sl : styled.layers) {
-            if (sl.props.contains(QStringLiteral("size")))
-                sl.props.insert(QStringLiteral("size"), sz);
+    // Size/width axes — driven by the classify bin (historical behaviour)
+    // or, when an independent size attribute is set, interpolated over that
+    // attribute's own sampled value range.
+    if (m_outputSizeEnabled || m_outputWidthEnabled) {
+        const bool independent = sizeAxisIndependent();
+        bool sOk = ok;
+        double sVal = dv;
+        if (independent) {
+            const QVariant sv = attrs.value(m_sizeAttribute);
+            sOk = false;
+            sVal = sv.toDouble(&sOk);
         }
-    }
 
-    // Output axis 3 — line width (VS.4). Independent from size so node
-    // markers and link strokes scale on their own px ranges. Default-off.
-    if (m_outputWidthEnabled) {
-        const double w = widthForBin(bin);
-        for (SymbolLayer &sl : styled.layers) {
-            if (sl.props.contains(QStringLiteral("width")))
-                sl.props.insert(QStringLiteral("width"), w);
+        if (sOk) {
+            // Output axis 2 — marker size (Slice BI Phase 8.13.43-α).
+            if (m_outputSizeEnabled) {
+                const double sz =
+                    (independent && sizeValueRangeValid()) ? sizeForValue(sVal) : sizeForBin(bin);
+                for (SymbolLayer &sl : styled.layers) {
+                    if (sl.props.contains(QStringLiteral("size")))
+                        sl.props.insert(QStringLiteral("size"), sz);
+                }
+            }
+
+            // Output axis 3 — line width (VS.4). Independent px range from
+            // size so node markers and link strokes scale on their own.
+            if (m_outputWidthEnabled) {
+                const double w =
+                    (independent && sizeValueRangeValid()) ? widthForValue(sVal) : widthForBin(bin);
+                for (SymbolLayer &sl : styled.layers) {
+                    if (sl.props.contains(QStringLiteral("width")))
+                        sl.props.insert(QStringLiteral("width"), w);
+                }
+            }
         }
     }
     return styled;
@@ -290,21 +359,20 @@ QList<LegendSymbolItem> GraduatedRenderer::legendSymbolItems() const
     const bool useBreaks = (m_lastBreaks.size() == n - 1);
 
     items.reserve(n);
-    for (int i = 0; i < n; ++i)
-    {
+    for (int i = 0; i < n; ++i) {
         LegendSymbolItem item;
-        double low  = (i == 0)     ? mn
-                                   : (useBreaks ? m_lastBreaks.at(i - 1)
-                                                : mn + (mx - mn) * static_cast<double>(i)     / n);
+        double low = (i == 0) ? mn
+                              : (useBreaks ? m_lastBreaks.at(i - 1)
+                                           : mn + (mx - mn) * static_cast<double>(i) / n);
         double high = (i == n - 1) ? mx
                                    : (useBreaks ? m_lastBreaks.at(i)
                                                 : mn + (mx - mn) * static_cast<double>(i + 1) / n);
-        item.range = { low, high };
+        item.range = {low, high};
         item.label = QStringLiteral("%1 – %2").arg(low).arg(high);
         item.symbol = m_baseSymbol;
         overrideColorInPlace(item.symbol, colorForBin(i));
         item.sortIndex = i;
-        item.classKey  = QString::number(i);
+        item.classKey = QString::number(i);
         items.append(item);
     }
     return items;
@@ -315,30 +383,37 @@ QJsonObject GraduatedRenderer::toJson() const
     QJsonObject obj;
     obj.insert(QStringLiteral("id"), rendererId());
     obj.insert(QStringLiteral("classifyAttribute"), m_classifyAttribute);
+    // Independent size attribute (empty = follow classifyAttribute).
+    if (!m_sizeAttribute.isEmpty()) {
+        obj.insert(QStringLiteral("sizeAttribute"), m_sizeAttribute);
+        obj.insert(QStringLiteral("sizeValueMin"), m_sizeValueMin);
+        obj.insert(QStringLiteral("sizeValueMax"), m_sizeValueMax);
+    }
     obj.insert(QStringLiteral("ramp"), m_ramp.toJson());
     obj.insert(QStringLiteral("binner"), m_binner.toJson());
     QJsonArray jb;
-    for (double b : m_lastBreaks) jb.append(b);
+    for (double b : m_lastBreaks)
+        jb.append(b);
     obj.insert(QStringLiteral("lastBreaks"), jb);
     obj.insert(QStringLiteral("baseSymbol"), m_baseSymbol.toJson());
     // Slice BI Phase 8.13.43-α — output-axis toggles.
     obj.insert(QStringLiteral("outputColorEnabled"), m_outputColorEnabled);
-    obj.insert(QStringLiteral("outputSizeEnabled"),  m_outputSizeEnabled);
-    obj.insert(QStringLiteral("outputSizeMin"),      m_outputSizeMin);
-    obj.insert(QStringLiteral("outputSizeMax"),      m_outputSizeMax);
+    obj.insert(QStringLiteral("outputSizeEnabled"), m_outputSizeEnabled);
+    obj.insert(QStringLiteral("outputSizeMin"), m_outputSizeMin);
+    obj.insert(QStringLiteral("outputSizeMax"), m_outputSizeMax);
     // VS.4 — independent line-width output axis.
     obj.insert(QStringLiteral("outputWidthEnabled"), m_outputWidthEnabled);
-    obj.insert(QStringLiteral("outputWidthMin"),     m_outputWidthMin);
-    obj.insert(QStringLiteral("outputWidthMax"),     m_outputWidthMax);
+    obj.insert(QStringLiteral("outputWidthMin"), m_outputWidthMin);
+    obj.insert(QStringLiteral("outputWidthMax"), m_outputWidthMax);
     // P2 — static/dynamic source + range mode.
     obj.insert(QStringLiteral("sourceKind"), attributeSourceKindToString(m_sourceKind));
-    obj.insert(QStringLiteral("rangeMode"),  rangeModeToString(m_rangeMode));
+    obj.insert(QStringLiteral("rangeMode"), rangeModeToString(m_rangeMode));
     // Slice BB Phase 8.6.16 — per-bin colour overrides. Stored as a flat
     // {"bin": "#aarrggbb", …} object so missing keys = no override.
     if (!m_binColorOverrides.isEmpty()) {
         QJsonObject jo;
-        for (auto it = m_binColorOverrides.constBegin();
-             it != m_binColorOverrides.constEnd(); ++it) {
+        for (auto it = m_binColorOverrides.constBegin(); it != m_binColorOverrides.constEnd();
+             ++it) {
             jo.insert(QString::number(it.key()), it.value().name(QColor::HexArgb));
         }
         obj.insert(QStringLiteral("binColorOverrides"), jo);
@@ -349,36 +424,38 @@ QJsonObject GraduatedRenderer::toJson() const
 void GraduatedRenderer::fromJson(const QJsonObject &j)
 {
     m_classifyAttribute = j.value(QStringLiteral("classifyAttribute")).toString();
+    // Independent size attribute — absent in pre-size-attribute projects,
+    // which leaves the axes following classifyAttribute (bin-mapped).
+    m_sizeAttribute = j.value(QStringLiteral("sizeAttribute")).toString();
+    m_sizeValueMin = j.value(QStringLiteral("sizeValueMin")).toDouble(0.0);
+    m_sizeValueMax = j.value(QStringLiteral("sizeValueMax")).toDouble(0.0);
 
     // BB-α schema: prefer the new "ramp" + "binner" keys when present.
-    if (j.contains(QStringLiteral("ramp")))
-    {
+    if (j.contains(QStringLiteral("ramp"))) {
         m_ramp = RasterColorRamp::fromJson(j.value(QStringLiteral("ramp")).toObject());
     }
-    if (j.contains(QStringLiteral("binner")))
-    {
+    if (j.contains(QStringLiteral("binner"))) {
         m_binner = IntervalBinner::fromJson(j.value(QStringLiteral("binner")).toObject());
     }
 
     m_lastBreaks.clear();
     const QJsonArray jb = j.value(QStringLiteral("lastBreaks")).toArray();
     m_lastBreaks.reserve(jb.size());
-    for (const QJsonValue &v : jb) m_lastBreaks.append(v.toDouble());
+    for (const QJsonValue &v : jb)
+        m_lastBreaks.append(v.toDouble());
 
     // Legacy load shim: pre-BB-α projects stored a flat `binColors` array
     // + `minValue` + `maxValue`. Synthesise a discrete ramp + equal-
     // interval binner so the project's visuals survive.
-    const bool hasLegacy = j.contains(QStringLiteral("binColors"))
-                       && !j.contains(QStringLiteral("ramp"));
-    if (hasLegacy)
-    {
+    const bool hasLegacy =
+        j.contains(QStringLiteral("binColors")) && !j.contains(QStringLiteral("ramp"));
+    if (hasLegacy) {
         const double mn = j.value(QStringLiteral("minValue")).toDouble(0.0);
         const double mx = j.value(QStringLiteral("maxValue")).toDouble(1.0);
         const QJsonArray arr = j.value(QStringLiteral("binColors")).toArray();
         QList<QColor> legacyColors;
         legacyColors.reserve(arr.size());
-        for (const QJsonValue &v : arr)
-        {
+        for (const QJsonValue &v : arr) {
             const QColor c(v.toString());
             legacyColors.append(c.isValid() ? c : QColor(Qt::transparent));
         }
@@ -407,20 +484,18 @@ void GraduatedRenderer::fromJson(const QJsonObject &j)
     // that width behaviour to preserve the project's visuals.
     if (j.contains(QStringLiteral("outputWidthEnabled"))) {
         m_outputWidthEnabled = j.value(QStringLiteral("outputWidthEnabled")).toBool(false);
-        m_outputWidthMin     = j.value(QStringLiteral("outputWidthMin")).toDouble(0.5);
-        m_outputWidthMax     = j.value(QStringLiteral("outputWidthMax")).toDouble(6.0);
+        m_outputWidthMin = j.value(QStringLiteral("outputWidthMin")).toDouble(0.5);
+        m_outputWidthMax = j.value(QStringLiteral("outputWidthMax")).toDouble(6.0);
     } else {
         m_outputWidthEnabled = m_outputSizeEnabled;
-        m_outputWidthMin     = m_outputSizeMin;
-        m_outputWidthMax     = m_outputSizeMax;
+        m_outputWidthMin = m_outputSizeMin;
+        m_outputWidthMax = m_outputSizeMax;
     }
 
     // P2 — static/dynamic source + range mode (default Static / FixedOverRun
     // so pre-P2 projects load unchanged).
-    m_sourceKind = attributeSourceKindFromString(
-        j.value(QStringLiteral("sourceKind")).toString());
-    m_rangeMode = rangeModeFromString(
-        j.value(QStringLiteral("rangeMode")).toString());
+    m_sourceKind = attributeSourceKindFromString(j.value(QStringLiteral("sourceKind")).toString());
+    m_rangeMode = rangeModeFromString(j.value(QStringLiteral("rangeMode")).toString());
 
     // Slice BB Phase 8.6.16 — per-bin colour overrides.
     m_binColorOverrides.clear();

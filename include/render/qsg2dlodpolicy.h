@@ -1,8 +1,9 @@
-/*!
- * \file   qsg2dlodpolicy.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      qsg2dlodpolicy.h
+ * @brief     Level-of-detail decisions for 2D scene graph rendering.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * QSG-2D-1M Phase 3 — deterministic level-of-detail policy for the 2D
  * mesh / results QSG renderers.
@@ -10,8 +11,10 @@
  * decide() maps (viewport, extent, mesh density, sublayer intents) to a
  * bucket plus per-pass visibility decisions:
  *
- *   Far  — aggregate/overview-style fill only; no dense wireframe, vertex
+ *   Far  — aggregate/overview-style fill; no dense wireframe, vertex
  *          markers, contour labels, or dense per-cell velocity glyphs.
+ *          Contour bands/isolines still draw — they follow the layer's
+ *          static classification range and must not depend on zoom.
  *   Mid  — exact fill; contours/vectors allowed with caps; edges only when
  *          cells are big enough for a wireframe to read.
  *   Near — exact everything the user asked for.
@@ -28,7 +31,9 @@
  *
  * Pure Qt-Core header + .cpp — no Qt Quick / Gui dependency; unit-tested
  * in tests/unit/test_qsg2d_lodpolicy.cpp.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMM_RENDER_QSG2DLODPOLICY_H
 #define OPENSWMM_RENDER_QSG2DLODPOLICY_H
 
@@ -39,33 +44,32 @@
 namespace OpenSWMM::Render
 {
 
-struct Qsg2DLodInputs
-{
+struct Qsg2DLodInputs {
     // ── View ────────────────────────────────────────────────────────────
-    double viewportWidthPx  = 0.0;  ///< logical px
+    double viewportWidthPx = 0.0; ///< logical px
     double viewportHeightPx = 0.0;
-    double extentWidth      = 0.0;  ///< map units
-    double extentHeight     = 0.0;
+    double extentWidth = 0.0; ///< map units
+    double extentHeight = 0.0;
 
     // ── Mesh density ────────────────────────────────────────────────────
-    qint64 cellCount    = 0;    ///< total mesh cells
-    double meshBBoxArea = 0.0;  ///< scene-space area of the mesh bbox
+    qint64 cellCount = 0;      ///< total mesh cells
+    double meshBBoxArea = 0.0; ///< scene-space area of the mesh bbox
     /*! Fraction of the mesh bbox intersecting the view, in [0,1]. The
      *  caller computes this from the two rects; used to estimate the
      *  visible cell count for glyph caps. */
     double visibleFraction = 1.0;
 
     // ── Sublayer intents (user-facing visibility toggles) ───────────────
-    bool wantFill          = true;
-    bool wantEdges         = false;
+    bool wantFill = true;
+    bool wantEdges = false;
     bool wantVertexMarkers = false;
-    bool wantContours      = false;
+    bool wantContours = false;
     bool wantContourLabels = false;
-    bool wantVelocity      = false;
-    bool haveSelection     = false;
+    bool wantVelocity = false;
+    bool haveSelection = false;
 
     // ── Hysteresis anchors (previous decision; defaults = none) ─────────
-    int previousBucket   = -1;
+    int previousBucket = -1;
     int previousZoomStep = std::numeric_limits<int>::min();
 
     /*! Far-bucket threshold on mean projected cell area (px²). The default
@@ -73,7 +77,7 @@ struct Qsg2DLodInputs
      *  renderer lowers it to 4.0 so the switch to the aggregate/overview
      *  fill happens at the same zoom as the QPainter fallback's
      *  `nativeTriSpan × pxPerScene < 2 px` test (span² = area). */
-    double farMaxCellAreaPx = 8.0;   // = Qsg2DLodPolicy::kFarMaxCellAreaPx
+    double farMaxCellAreaPx = 8.0; // = Qsg2DLodPolicy::kFarMaxCellAreaPx
 
     /*! Minimum projected cell area (px²) for the wireframe / vertex-marker
      *  passes. Below these the passes are suppressed (edges become a dark
@@ -81,46 +85,51 @@ struct Qsg2DLodInputs
      *  mesh can expose them as per-layer "show edges / vertices when zoomed
      *  to" preferences; defaults keep the historic thresholds. A value of 0
      *  means "always draw when the sublayer is visible". */
-    double edgeMinCellAreaPx   = 32.0;   // = Qsg2DLodPolicy::kEdgeMinCellAreaPx
-    double markerMinCellAreaPx = 200.0;  // = Qsg2DLodPolicy::kMarkerMinCellAreaPx
+    double edgeMinCellAreaPx = 32.0;    // = Qsg2DLodPolicy::kEdgeMinCellAreaPx
+    double markerMinCellAreaPx = 200.0; // = Qsg2DLodPolicy::kMarkerMinCellAreaPx
 };
 
-struct Qsg2DLodDecision
-{
+struct Qsg2DLodDecision {
     enum Bucket { Far = 0, Mid = 1, Near = 2 };
 
-    Bucket bucket        = Near;
-    int    zoomStep      = 0;      ///< quantised log2(px per map unit)
-    double avgCellAreaPx = 0.0;    ///< diagnostic: mean projected cell area
+    Bucket bucket = Near;
+    int zoomStep = 0;           ///< quantised log2(px per map unit)
+    double avgCellAreaPx = 0.0; ///< diagnostic: mean projected cell area
 
     // Per-pass verdicts — already combined with the user intents, i.e.
     // false either because the user turned the pass off or because the
     // bucket suppresses it.
-    bool drawFill             = true;
-    bool drawEdges            = false;
-    bool drawVertexMarkers    = false;
-    bool drawContours         = false;   ///< isolines
-    bool drawContourLabels    = false;
-    bool drawVelocityVectors  = false;
-    bool drawSelectedOverlays = false;   ///< true whenever a selection exists
+    bool drawFill = true;
+    bool drawEdges = false;
+    bool drawVertexMarkers = false;
+    bool drawContours = false; ///< isolines
+    bool drawContourLabels = false;
+    bool drawVelocityVectors = false;
+    bool drawSelectedOverlays = false; ///< true whenever a selection exists
 
     /*! Far-bucket fill strategy: render the aggregate/overview fill (when
      *  the layer has one) instead of exact per-cell geometry. */
     bool useAggregateFill = false;
 
-    /*! Exact marching-triangles contour BANDS allowed (Mid/Near). At Far
-     *  the renderers fall back to flat per-cell classification, which is
-     *  visually identical once cells are subpixel. */
+    /*! Exact marching-triangles contour BANDS allowed. True at every
+     *  bucket: band geometry follows the layer's static classification
+     *  range and is pan/zoom-invariant, so gating it on zoom made the
+     *  rendered bands change as the user zoomed (bands appeared only at
+     *  Mid/Near). Kept as a decision output so a future density veto has
+     *  one place to live. */
     bool exactContourBands = false;
 
     /*! Dense one-glyph-per-cell velocity mode allowed (Near + under cap).
      *  When false, screen-space grid sampling must be used instead. */
-    bool   denseVelocityAllowed = false;
-    qint64 maxVelocityGlyphs    = 0;
-    int    maxContourLabels     = 0;
+    bool denseVelocityAllowed = false;
+    qint64 maxVelocityGlyphs = 0;
+    int maxContourLabels = 0;
 
     /*! Content rebuild key: changes only when the bucket or the zoom
      *  octave changes. */
+    /** @brief Encode bucket and zoom octave for cache invalidation.
+     * @return Zoom step's 32-bit bit pattern shifted by two, ORed with the bucket;
+     * other pass decisions and diagnostic values are not part of this key. */
     [[nodiscard]] quint64 contentKey() const
     {
         return (quint64(quint32(zoomStep)) << 2) | quint64(bucket);
@@ -134,23 +143,35 @@ public:
     // whose area is below kFarMaxCellAreaPx spans < ~3 px — subpixel-ish,
     // wireframe/markers are pure noise. Above kNearMinCellAreaPx a cell
     // spans ≥ ~13 px and exact detail reads clearly.
-    static constexpr double kFarMaxCellAreaPx   = 8.0;
-    static constexpr double kNearMinCellAreaPx  = 160.0;
+    static constexpr double kFarMaxCellAreaPx = 8.0;
+    static constexpr double kNearMinCellAreaPx = 160.0;
     /*! Edges need at least this much projected cell area to read as a
      *  wireframe rather than a dark wash (Mid gate). */
-    static constexpr double kEdgeMinCellAreaPx  = 32.0;
+    static constexpr double kEdgeMinCellAreaPx = 32.0;
     /*! Vertex markers only make sense when cells are clearly resolved. */
     static constexpr double kMarkerMinCellAreaPx = 200.0;
     /*! Hysteresis band around the bucket thresholds (fraction). */
-    static constexpr double kBucketHysteresis   = 0.25;
+    static constexpr double kBucketHysteresis = 0.25;
     /*! Hysteresis around zoom-octave boundaries (in octaves). */
     static constexpr double kZoomStepHysteresis = 0.08;
     /*! Dense per-cell velocity glyphs allowed only below this many
      *  estimated visible cells. */
     static constexpr qint64 kDenseVelocityCellCap = 20000;
-    static constexpr int    kMidMaxContourLabels  = 40;
-    static constexpr int    kNearMaxContourLabels = 400;
+    static constexpr int kMidMaxContourLabels = 40;
+    static constexpr int kNearMaxContourLabels = 400;
 
+    /** @brief Compute density/zoom hysteresis and bounded paint-pass decisions.
+     * @param in Snapshot with finite positive view dimensions, finite mesh area
+     * and visibility fraction, nonnegative cell count, and finite threshold values.
+     * Width/height extents use map units; viewport dimensions use logical pixels;
+     * area thresholds use squared logical pixels. Previous bucket/step may use
+     * their documented unset sentinels. The input is not modified.
+     * @return Owned decision. Nonpositive view dimensions select the conservative
+     * Far fallback, preserving requested fill and selection. Unknown mesh density
+     * selects Near; the width ratio determines zoom and projected cell area.
+     * Valid views preserve requested contours at every bucket; edge/marker
+     * thresholds still apply at Far, and dense velocity is permitted only at Near
+     * within the visible-cell cap. No geometry is built or cached here. */
     [[nodiscard]] static Qsg2DLodDecision decide(const Qsg2DLodInputs &in);
 };
 

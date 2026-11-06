@@ -1,45 +1,35 @@
-/*!
- * \file   openswmmvissession.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
- * \pre
- * \bug
- * \warning
- * \todo
+/**
+ * @file      openswmmvissession.cpp
+ * @brief     OpenSWMMVisSession binds an OpenSWMMVisWorkspace (project data) to an
+ *            OpenSWMMVisGraphicsView (interactive map overlay).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @details
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
-
 
 #include "project/openswmmvissession.h"
 
-OpenSWMMVisSession::OpenSWMMVisSession(OpenSWMMVisWorkspace* parent, OpenSWMMVisGraphicsView *swmmGraphicsView)
-	: mProject(parent),
-      mGraphicsView(swmmGraphicsView)
+OpenSWMMVisSession::OpenSWMMVisSession(OpenSWMMVisWorkspace *parent,
+                                       OpenSWMMVisGraphicsView *swmmGraphicsView)
+    : mProject(parent), mGraphicsView(swmmGraphicsView)
 {
-
 }
 
+OpenSWMMVisSession::~OpenSWMMVisSession() {}
 
-OpenSWMMVisSession::~OpenSWMMVisSession()
+void OpenSWMMVisSession::setGraphicsView(OpenSWMMVisGraphicsView *graphicsView)
 {
-
+    mGraphicsView = graphicsView;
 }
-
-void OpenSWMMVisSession::setGraphicsView(OpenSWMMVisGraphicsView* graphicsView)
-{
-	mGraphicsView = graphicsView;
-}
-
 
 OpenSWMMVisGraphicsView *OpenSWMMVisSession::graphicsView() const
 {
-	return mGraphicsView;
+    return mGraphicsView;
 }
 
 OpenSWMMVisWorkspace *OpenSWMMVisSession::project() const
 {
-	return mProject;
+    return mProject;
 }

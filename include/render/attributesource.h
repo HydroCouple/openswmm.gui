@@ -1,9 +1,9 @@
-/*!
- * \file   attributesource.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  P2 — the static/dynamic styling spine.
+/**
+ * @file      attributesource.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     P2 — the static/dynamic styling spine.
  *
  *         A renderer classifies on an attribute. That attribute is either a
  *         STATIC engine/GIS field (diameter, elevation, land-use…), classified
@@ -22,7 +22,9 @@
  *         consumes RangeMode on each tick to decide whether to re-bin /
  *         re-stretch the renderer, and maps the dynamic source name to its
  *         output variable.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMM_RENDER_ATTRIBUTESOURCE_H
 #define OPENSWMM_RENDER_ATTRIBUTESOURCE_H
 
@@ -32,40 +34,67 @@ namespace OpenSWMM::Render
 {
 
 enum class AttributeSourceKind : int {
-    Static  = 0,   /*!< A model/GIS attribute, classified once. */
-    Dynamic = 1    /*!< A SWMM output variable, sampled per timestep. */
+    Static = 0, /*!< A model/GIS attribute, classified once. */
+    Dynamic = 1 /*!< A SWMM output variable, sampled per timestep. */
 };
 
 enum class RangeMode : int {
-    FixedOverRun        = 0,   /*!< Range spans the whole run (default). */
-    PerFrameAutoStretch = 1,   /*!< Range recomputed each frame. */
-    FixedUser           = 2    /*!< Explicit user min/max. */
+    FixedOverRun = 0,        /*!< Range spans the whole run (default). */
+    PerFrameAutoStretch = 1, /*!< Range recomputed each frame. */
+    FixedUser = 2            /*!< Explicit user min/max. */
 };
 
+/**
+ * @brief Encode the styling attribute source kind for project persistence.
+ * @param[in] k Source kind to encode.
+ * @return "dynamic" for Dynamic; "static" for Static or any unrecognized enum value.
+ */
 [[nodiscard]] inline QString attributeSourceKindToString(AttributeSourceKind k)
 {
-    return k == AttributeSourceKind::Dynamic ? QStringLiteral("dynamic")
-                                             : QStringLiteral("static");
+    return k == AttributeSourceKind::Dynamic ? QStringLiteral("dynamic") : QStringLiteral("static");
 }
+/**
+ * @brief Decode the case-sensitive persisted styling source kind.
+ * @param[in] s Serialized source token; not trimmed or case-normalized.
+ * @return Dynamic only for the exact token "dynamic"; Static for all other input,
+ *         including missing, empty, or unrecognized values from older projects.
+ */
 [[nodiscard]] inline AttributeSourceKind attributeSourceKindFromString(const QString &s)
 {
     return s == QLatin1String("dynamic") ? AttributeSourceKind::Dynamic
                                          : AttributeSourceKind::Static;
 }
 
+/**
+ * @brief Encode the temporal range policy for renderer persistence.
+ * @param[in] m Range policy to serialize.
+ * @return "perFrame", "fixedUser", or "fixedOverRun". Unknown enum values use
+ *         "fixedOverRun", the same fallback as FixedOverRun.
+ */
 [[nodiscard]] inline QString rangeModeToString(RangeMode m)
 {
     switch (m) {
-    case RangeMode::PerFrameAutoStretch: return QStringLiteral("perFrame");
-    case RangeMode::FixedUser:           return QStringLiteral("fixedUser");
-    case RangeMode::FixedOverRun:        break;
+    case RangeMode::PerFrameAutoStretch:
+        return QStringLiteral("perFrame");
+    case RangeMode::FixedUser:
+        return QStringLiteral("fixedUser");
+    case RangeMode::FixedOverRun:
+        break;
     }
     return QStringLiteral("fixedOverRun");
 }
+/**
+ * @brief Decode a case-sensitive renderer range-policy token.
+ * @param[in] s Serialized token; no whitespace trimming is performed.
+ * @return PerFrameAutoStretch for "perFrame", FixedUser for "fixedUser", or
+ *         FixedOverRun for any other value. Unrecognized input is accepted as default.
+ */
 [[nodiscard]] inline RangeMode rangeModeFromString(const QString &s)
 {
-    if (s == QLatin1String("perFrame"))  return RangeMode::PerFrameAutoStretch;
-    if (s == QLatin1String("fixedUser")) return RangeMode::FixedUser;
+    if (s == QLatin1String("perFrame"))
+        return RangeMode::PerFrameAutoStretch;
+    if (s == QLatin1String("fixedUser"))
+        return RangeMode::FixedUser;
     return RangeMode::FixedOverRun;
 }
 

@@ -1,12 +1,23 @@
-/*!
- * \file ribboncompactor.cpp
+/**
+ * @file      ribboncompactor.cpp
+ * @brief     UI redesign iteration 2 (R2/R5) — watches one group-bearing QToolBar and drives
+ *            per-group RibbonMode from the solver whenever the bar resizes or first shows:
+ *            trailing groups shed detail first, and promotions only land past a 32 px dead band
+ *            (applyRibbonHysteresis) so a window dragged across a boundary doesn't flap.
  *
  * UI redesign iteration 2 (R2/R5) — responsive ribbon mode driver.
  * See ribboncompactor.h for the design contract.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include "ui/toolbars/ribboncompactor.h"
 
+#include <QAction>
 #include <QEvent>
+#include <QSet>
 #include <QLayout>
 #include <QTimer>
 #include <QToolBar>
@@ -15,11 +26,11 @@
 
 #include "ui/toolbars/ribbongroup.h"
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 RibbonCompactor::RibbonCompactor(QToolBar *bar, const QList<RibbonGroup *> &groups)
-    : QObject(bar)
-    , mBar(bar)
+    : QObject(bar), mBar(bar)
 {
     for (RibbonGroup *group : groups)
         mGroups.append(QPointer<RibbonGroup>(group));
@@ -56,13 +67,27 @@ void RibbonCompactor::scheduleRelayout()
 
 void RibbonCompactor::relayoutNow()
 {
+    // A contextual group whose context is inactive has its toolbar action
+    // switched off; it takes no row width, so it stays out of the solve.
+    // (QWidget::isHidden would also catch groups of a bar not yet shown and
+    // groups parked in the overflow chevron, which must still be solved.)
+    // Each group's current mode is the previous solution the hysteresis
+    // compares against, which stays correct as groups come and go.
+    QSet<const QWidget *> switchedOff;
+    for (QAction *action : mBar->actions())
+        if (!action->isVisible())
+            if (QWidget *widget = mBar->widgetForAction(action))
+                switchedOff.insert(widget);
     QList<RibbonGroup *> groups;
     QVector<RibbonGroupWidths> widths;
+    QVector<RibbonMode> previous;
     for (const auto &pointer : std::as_const(mGroups)) {
-        if (RibbonGroup *group = pointer.data()) {
-            groups.append(group);
-            widths.append(group->groupWidths());
-        }
+        RibbonGroup *group = pointer.data();
+        if (!group || switchedOff.contains(group))
+            continue;
+        groups.append(group);
+        widths.append(group->groupWidths());
+        previous.append(group->mode());
     }
     if (groups.isEmpty())
         return;
@@ -78,13 +103,10 @@ void RibbonCompactor::relayoutNow()
     // The trailing left-pack spacer (see initializeCompactToolbar) is
     // zero-width at minimum but still costs one inter-item spacing the
     // solver doesn't know about.
-    if (mBar->findChild<QWidget *>(QStringLiteral("ribbonBarSpacer"),
-                                   Qt::FindDirectChildrenOnly))
+    if (mBar->findChild<QWidget *>(QStringLiteral("ribbonBarSpacer"), Qt::FindDirectChildrenOnly))
         available -= spacing;
 
-    const QVector<RibbonMode> modes =
-        applyRibbonHysteresis(mModes, available, widths, spacing);
-    mModes = modes;
+    const QVector<RibbonMode> modes = applyRibbonHysteresis(previous, available, widths, spacing);
     bool changed = false;
     for (int i = 0; i < groups.size(); ++i) {
         const RibbonMode before = groups.at(i)->mode();
@@ -105,4 +127,4 @@ void RibbonCompactor::relayoutNow()
     }
 }
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui

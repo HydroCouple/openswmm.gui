@@ -1,0 +1,388 @@
+/**
+ * @file      meshcellparams.cpp
+ * @brief     Registry of the per-cell (per-triangle) 2D mesh parameters the user can prescribe
+ *            interactively, plus the read/write dispatch every editing surface shares.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   Apache-2.0
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ */
+
+#include "mesh/meshcellparams.h"
+
+#include <QCoreApplication>
+
+#include <cmath>
+#include <limits>
+
+namespace mesh
+{
+
+namespace
+{
+
+/*! Editor configuration for one named infiltration parameter. Ranges are
+ *  generous on purpose: the values are in PROJECT units (in/hr or mm/hr,
+ *  in or mm — user decision 2026-08-20) and the GUI performs no conversion,
+ *  so one spec has to cover both unit systems. */
+struct InfilParamUi {
+    const char *key;
+    const char *label;
+    double min;
+    double max;
+    double step;
+    double defaultValue;
+    int decimals;
+    const char *tooltip;
+};
+
+/*! One entry per mesh::infilParamKeys() key, in that order. Keys shared by
+ *  several methods (infil.dryTime is Horton's slot 3 AND Curve Number's
+ *  slot 2) appear once — the method-dependent slot mapping lives in
+ *  mesh::infilParamKey/infilSlotForKey, not here. */
+const InfilParamUi kInfilParamUi[] = {
+    {"infil.f0", QT_TRANSLATE_NOOP("MeshCellParams", "Max. Infil. Rate (f0)"), 0.0, 1000.0, 0.1,
+     3.0, 4,
+     QT_TRANSLATE_NOOP("MeshCellParams",
+                       "Horton maximum infiltration rate, in project rate units (in/hr or "
+                       "mm/hr). [2D_INFILTRATION] P1.")},
+    {"infil.fmin", QT_TRANSLATE_NOOP("MeshCellParams", "Min. Infil. Rate (fmin)"), 0.0, 1000.0, 0.1,
+     0.5, 4,
+     QT_TRANSLATE_NOOP("MeshCellParams",
+                       "Horton minimum (saturated) infiltration rate, in project rate units. "
+                       "[2D_INFILTRATION] P2.")},
+    {"infil.decay", QT_TRANSLATE_NOOP("MeshCellParams", "Decay Constant (1/hr)"), 0.0, 100.0, 0.1,
+     4.0, 4,
+     QT_TRANSLATE_NOOP("MeshCellParams", "Horton decay constant in 1/hr. [2D_INFILTRATION] P3.")},
+    {"infil.dryTime", QT_TRANSLATE_NOOP("MeshCellParams", "Drying Time (days)"), 0.0, 1000.0, 0.5,
+     7.0, 4,
+     QT_TRANSLATE_NOOP("MeshCellParams",
+                       "Days for a fully saturated soil to dry out. Horton reads it from "
+                       "P4, Curve Number from P3.")},
+    {"infil.Fmax", QT_TRANSLATE_NOOP("MeshCellParams", "Max. Infil. Volume (Fmax)"), 0.0, 1.0e6,
+     1.0, 0.0, 4,
+     QT_TRANSLATE_NOOP("MeshCellParams",
+                       "Modified Horton maximum infiltration volume, in project depth units "
+                       "(0 = unlimited). [2D_INFILTRATION] P5.")},
+    {"infil.suction", QT_TRANSLATE_NOOP("MeshCellParams", "Suction Head"), 0.0, 1.0e4, 0.1, 3.5, 4,
+     QT_TRANSLATE_NOOP("MeshCellParams",
+                       "Green-Ampt soil capillary suction, in project depth units. "
+                       "[2D_INFILTRATION] P1.")},
+    {"infil.Ks", QT_TRANSLATE_NOOP("MeshCellParams", "Conductivity (Ks)"), 0.0, 1000.0, 0.01, 0.5,
+     4,
+     QT_TRANSLATE_NOOP("MeshCellParams",
+                       "Green-Ampt saturated hydraulic conductivity, in project rate units. "
+                       "[2D_INFILTRATION] P2.")},
+    {"infil.IMD", QT_TRANSLATE_NOOP("MeshCellParams", "Initial Deficit (IMD)"), 0.0, 1.0, 0.01,
+     0.26, 4,
+     QT_TRANSLATE_NOOP("MeshCellParams",
+                       "Green-Ampt initial soil moisture deficit as a fraction in 0..1. "
+                       "[2D_INFILTRATION] P3.")},
+    {"infil.CN", QT_TRANSLATE_NOOP("MeshCellParams", "Curve Number (CN)"), 1.0, 100.0, 1.0, 80.0, 2,
+     QT_TRANSLATE_NOOP("MeshCellParams", "SCS curve number in 1..100. [2D_INFILTRATION] P1.")},
+    {"infil.rate", QT_TRANSLATE_NOOP("MeshCellParams", "Infiltration Rate"), 0.0, 1000.0, 0.1, 0.5,
+     4,
+     QT_TRANSLATE_NOOP("MeshCellParams", "Constant infiltration rate, in project rate units. "
+                                         "[2D_INFILTRATION] P1.")},
+};
+
+} // namespace
+
+const QVector<CellParamSpec> &cellParamSpecs()
+{
+    static const QVector<CellParamSpec> specs = [] {
+        const auto tr = [](const char *s) {
+            return QCoreApplication::translate("MeshCellParams", s);
+        };
+        QVector<CellParamSpec> v;
+
+        // ---- Live: round-tripped through [2D_TRIANGLES] --------------------
+        v.append({"mannings", tr("Manning's n"), QStringLiteral("n="),
+                  /*lengthUnit=*/false, 0.001, 1.0, 0.001, 0.035, 4,
+                  /*enabled=*/true,
+                  tr("Surface roughness of the selected cells "
+                     "([2D_TRIANGLES] MANNINGS_N).")});
+        v.append({"initDepth", tr("Initial Depth"), QStringLiteral("d="),
+                  /*lengthUnit=*/true, 0.0, 1000.0, 0.05, 0.0, 4,
+                  /*enabled=*/true,
+                  tr("Standing water depth at the start of the run "
+                     "([2D_TRIANGLES] INIT_DEPTH). 0 starts the cell dry.")});
+
+        for (const auto &key : {QByteArray("infil.owner"), QByteArray("infil.conflict")}) {
+            CellParamSpec s;
+            s.key = key;
+            s.enabled = false;
+            s.kind = CellParamSpec::Kind::Enum;
+            s.min = 0;
+            s.max = 2;
+            s.label = key == "infil.owner" ? tr("Infiltration owner") : tr("Infiltration conflict");
+            s.enumLabels =
+                key == "infil.owner"
+                    ? QStringList{tr("Process disabled"), tr("Surface bank"), tr("Aquifer")}
+                    : QStringList{tr("None"), tr("Explicit surface cell method"),
+                                  tr("Obsolete destination")};
+            s.tooltip = tr(
+                "Resolved ownership. Capacity is computed by the aquifer on covered cells. Use Assign Groundwater to review conflicts.");
+            v.append(s);
+        }
+        for (const auto &key :
+             {QByteArray("surface.meshWeather"), QByteArray("surface.sourcePervious"),
+              QByteArray("surface.owner")}) {
+            CellParamSpec s;
+            s.key = key;
+            s.enabled = false;
+            s.min = 0;
+            s.max = 100;
+            s.decimals = 3;
+            s.label = key == "surface.meshWeather"      ? tr("Remaining mesh weather (%)")
+                      : key == "surface.sourcePervious" ? tr("Spatial source pervious/LID area (%)")
+                                                        : tr("Surface ownership review");
+            if (key == "surface.owner") {
+                s.kind = CellParamSpec::Kind::Enum;
+                s.max = 3;
+                s.enumLabels = {tr("Mesh only"), tr("Subcatchment / uniform"),
+                                tr("Unreviewed overlap"), tr("Invalid review")};
+            }
+            s.tooltip = tr(
+                "Engine-resolved reviewed geometry, not runtime recharge. Unavailable when no review is stored or geometry differs.");
+            v.append(s);
+        }
+        // ---- Live: per-cell infiltration (GUI plan §3.5(2), phase GG0b) ----
+        // Values resolve through mesh::resolveInfil, so a cell inheriting from
+        // its region tag reads back the region's numbers; an edit materialises
+        // a per-cell [2D_INFILTRATION] override. Parameter columns are masked
+        // per row by the resolved METHOD (mesh::infilUsesParam) — a cell whose
+        // method does not use a slot renders "—" and refuses edits.
+        {
+            CellParamSpec m;
+            m.key = QByteArrayLiteral("infil.method");
+            m.label = tr("Infiltration Method");
+            m.kind = CellParamSpec::Kind::Enum;
+            m.enumLabels = infilMethodLabels();
+            m.min = double(int(InfilMethod::None));
+            m.max = double(int(InfilMethod::Constant));
+            m.step = 1.0;
+            m.defaultValue = double(int(InfilMethod::None));
+            m.decimals = 0;
+            m.enabled = true;
+            m.tooltip = tr("Per-cell infiltration model "
+                           "([2D_INFILTRATION] METHOD). Inherited from the "
+                           "cell's region tag until it is set here.");
+            v.append(m);
+        }
+        for (const InfilParamUi &p : kInfilParamUi) {
+            CellParamSpec s;
+            s.key = QByteArray(p.key);
+            s.label = tr(p.label);
+            s.min = p.min;
+            s.max = p.max;
+            s.step = p.step;
+            s.defaultValue = p.defaultValue;
+            s.decimals = p.decimals;
+            s.enabled = true;
+            s.tooltip = tr(p.tooltip);
+            v.append(s);
+        }
+
+        // Snow uses the shared assignment editor, like groundwater below.
+        const QString snowPending = tr(
+            "Use Model → Assign snow to edit shared snowpacks, cell overrides and region defaults, with an effective-assignment preview.");
+        CellParamSpec pack;
+        pack.key = "snow.pack";
+        pack.label = tr("Snow Pack");
+        pack.kind = CellParamSpec::Kind::Enum;
+        pack.enumLabels = {tr("Unassigned")};
+        pack.max = 1;
+        pack.enabled = false;
+        pack.tooltip = snowPending;
+        v.append(pack);
+        v.append({"snow.forestCover",
+                  tr("Snow Forest Cover"),
+                  {},
+                  false,
+                  0,
+                  1,
+                  0.01,
+                  0,
+                  3,
+                  false,
+                  snowPending});
+        v.append({"snow.drift",
+                  tr("Snow Drift Factor"),
+                  {},
+                  false,
+                  0,
+                  100,
+                  0.1,
+                  1,
+                  3,
+                  false,
+                  snowPending});
+        v.append({"snow.qg",
+                  tr("Snow Ground Heat Flux (W/m²)"),
+                  {},
+                  false,
+                  -1000,
+                  1000,
+                  1,
+                  0,
+                  3,
+                  false,
+                  snowPending});
+        v.append({"snow.aep",
+                  tr("Snow Albedo Extinction Depth (m)"),
+                  {},
+                  false,
+                  0,
+                  100,
+                  0.01,
+                  0.1,
+                  4,
+                  false,
+                  snowPending});
+        v.append({"snow.slope",
+                  tr("Snow Surface Slope (degrees)"),
+                  {},
+                  false,
+                  0,
+                  90,
+                  1,
+                  0,
+                  2,
+                  false,
+                  snowPending});
+        v.append({"snow.aspect",
+                  tr("Snow Surface Aspect (degrees)"),
+                  {},
+                  false,
+                  0,
+                  360,
+                  1,
+                  0,
+                  2,
+                  false,
+                  snowPending});
+
+        // Groundwater is authored through the common assignment workflow,
+        // rather than these generic MeshTriangle fields.
+        const QString pending =
+            tr("Use Model → Assign Groundwater to preview and assign groundwater values.");
+        v.append({"gw.Ks",
+                  tr("Saturated Conductivity (Ks)"),
+                  {},
+                  false,
+                  1e-9,
+                  1.0,
+                  1e-6,
+                  1e-5,
+                  8,
+                  false,
+                  pending});
+        v.append({"gw.zs",
+                  tr("Aquifer Thickness (zs)"),
+                  {},
+                  true,
+                  0.0,
+                  1000.0,
+                  0.1,
+                  2.0,
+                  4,
+                  false,
+                  pending});
+        v.append({"gw.thetaS",
+                  tr("Porosity (theta_s)"),
+                  {},
+                  false,
+                  0.01,
+                  1.0,
+                  0.01,
+                  0.4,
+                  3,
+                  false,
+                  pending});
+        v.append({"gw.hu0",
+                  tr("Initial Unsaturated Depth (hu)"),
+                  {},
+                  true,
+                  0.0,
+                  1000.0,
+                  0.05,
+                  0.0,
+                  4,
+                  false,
+                  pending});
+        v.append({"gw.hg0",
+                  tr("Initial Saturated Depth (hg)"),
+                  {},
+                  true,
+                  0.0,
+                  1000.0,
+                  0.05,
+                  0.0,
+                  4,
+                  false,
+                  pending});
+        return v;
+    }();
+    return specs;
+}
+
+const CellParamSpec *cellParamSpec(const QByteArray &key)
+{
+    for (const CellParamSpec &s : cellParamSpecs())
+        if (s.key == key)
+            return &s;
+    return nullptr;
+}
+
+QString cellParamLabel(const QByteArray &key, const QString &depthUnitLabel)
+{
+    const CellParamSpec *s = cellParamSpec(key);
+    if (!s)
+        return QString::fromUtf8(key);
+    if (!s->lengthUnit || depthUnitLabel.isEmpty())
+        return s->label;
+    return QStringLiteral("%1 (%2)").arg(s->label, depthUnitLabel);
+}
+
+double cellParamValue(const MeshResult &mesh, int tri, const QByteArray &key)
+{
+    if (key == "surface.owner")
+        return tri >= 0 && tri < mesh.surfaceOwnershipStatus.size()
+                   ? mesh.surfaceOwnershipStatus[tri]
+                   : std::numeric_limits<double>::quiet_NaN();
+    if (key == "surface.meshWeather" || key == "surface.sourcePervious") {
+        const auto &values = key == "surface.meshWeather" ? mesh.surfaceMeshWeatherPercent
+                                                          : mesh.surfaceSourcePerviousPercent;
+        return tri >= 0 && tri < values.size() ? values[tri]
+                                               : std::numeric_limits<double>::quiet_NaN();
+    }
+    if (key == "infil.owner" || key == "infil.conflict") {
+        const auto &values =
+            key == "infil.owner" ? mesh.infiltrationOwner : mesh.infiltrationConflict;
+        return tri >= 0 && tri < values.size() ? values[tri]
+                                               : std::numeric_limits<double>::quiet_NaN();
+    }
+
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    if (tri < 0 || tri >= mesh.triangles.size())
+        return nan;
+    const MeshTriangle &t = mesh.triangles[tri];
+    if (key == "mannings")
+        return t.mannings;
+    if (key == "initDepth")
+        return t.initDepth;
+    if (key.startsWith("infil.")) {
+        // Resolved, not raw: a cell with no per-cell override reads back its
+        // region tag's (or the '*' row's) numbers, which is what the engine
+        // will run. resolveInfil never mutates the mesh.
+        const ResolvedInfil r = resolveInfil(mesh, tri);
+        if (key == "infil.method")
+            return double(int(r.row.method));
+        const int slot = infilSlotForKey(r.row.method, key);
+        return slot < 0 ? nan : r.row.p[slot]; // NaN = this method has no such slot
+    }
+    return nan; // unknown or engine-pending key carries no stored value
+}
+
+} // namespace mesh

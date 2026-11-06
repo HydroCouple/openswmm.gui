@@ -1,9 +1,13 @@
-/*!
- * \file   chartproperties.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      chartproperties.cpp
+ * @brief     visual configuration as Q_PROPERTYs so a QPropertyModel can drive the per-chart
+ *            "Chart Properties…" editor.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "plot/chartproperties.h"
 
 #include "plot/numberformat.h"
@@ -12,102 +16,178 @@
 
 #include <QAbstractAxis>
 #include <QBrush>
+#include <QLegend>
 #include <QValueAxis>
+
+#include "plot/utctimeaxis.h"
 
 #include <algorithm>
 
-namespace openswmmvis::plot {
+namespace openswmmvis::plot
+{
 
-namespace {
+namespace
+{
 // Helper: first Vertical axis on the chart (if any). Casts to QValueAxis
 // when present — that's what we need for setRange / setGridLineVisible.
+/**
+ * @brief Inspect only the first vertical axis for numeric-axis operations.
+ * @param[in] chart Optional borrowed chart.
+ * @return Borrowed QValueAxis pointer, or null for no chart/vertical axis or a nonmatching first axis. QCategoryAxis subclasses also match.
+ */
 QValueAxis *firstYAxis(QChart *chart)
 {
-    if (!chart) return nullptr;
+    if (!chart)
+        return nullptr;
     const auto axes = chart->axes(Qt::Vertical);
-    return axes.isEmpty() ? nullptr : qobject_cast<QValueAxis*>(axes.first());
+    return axes.isEmpty() ? nullptr : qobject_cast<QValueAxis *>(axes.first());
 }
+/**
+ * @brief Inspect the first horizontal axis without filtering its type.
+ * @param[in] chart Optional borrowed chart.
+ * @return Borrowed first horizontal axis, or null when absent.
+ */
 QAbstractAxis *firstXAxis(QChart *chart)
 {
-    if (!chart) return nullptr;
+    if (!chart)
+        return nullptr;
     const auto axes = chart->axes(Qt::Horizontal);
     return axes.isEmpty() ? nullptr : axes.first();
 }
 } // namespace
 
-ChartProperties::ChartProperties(QChart *chart, QObject *parent)
-    : QObject(parent), m_chart(chart)
+ChartProperties::ChartProperties(QChart *chart, QObject *parent) : QObject(parent), m_chart(chart)
 {
     // Seed the axis label formats from the global Preferences default, then
     // push them onto the chart so it opens with the user's chosen precision.
     auto *prefs = PreferencesManager::instance();
-    m_xLabelMode      = static_cast<LabelFormatMode>(prefs->plotXAxisFormatMode());
+    m_xLabelMode = static_cast<LabelFormatMode>(prefs->plotXAxisFormatMode());
     m_xLabelPrecision = prefs->plotXAxisPrecision();
-    m_yLabelMode      = static_cast<LabelFormatMode>(prefs->plotYAxisFormatMode());
+    m_yLabelMode = static_cast<LabelFormatMode>(prefs->plotYAxisFormatMode());
     m_yLabelPrecision = prefs->plotYAxisPrecision();
-    m_statisticsMode      = m_yLabelMode;
+    m_statisticsMode = m_yLabelMode;
     m_statisticsPrecision = m_yLabelPrecision;
+    m_legendPosition = legendPosition();
     applyLabelFormats_();
 }
 
 NumberFormat ChartProperties::xFormat() const noexcept
 {
-    return { static_cast<NumberFormatMode>(m_xLabelMode), m_xLabelPrecision, m_xLabelFormatStr };
+    return {static_cast<NumberFormatMode>(m_xLabelMode), m_xLabelPrecision, m_xLabelFormatStr};
 }
 
 NumberFormat ChartProperties::yFormat() const noexcept
 {
-    return { static_cast<NumberFormatMode>(m_yLabelMode), m_yLabelPrecision, m_yLabelFormatStr };
+    return {static_cast<NumberFormatMode>(m_yLabelMode), m_yLabelPrecision, m_yLabelFormatStr};
 }
 
 NumberFormat ChartProperties::statisticsNumberFormat() const noexcept
 {
-    return {
-        static_cast<NumberFormatMode>(m_statisticsMode),
-        m_statisticsPrecision,
-        m_statisticsFormatStr
-    };
+    return {static_cast<NumberFormatMode>(m_statisticsMode), m_statisticsPrecision,
+            m_statisticsFormatStr};
 }
 
 void ChartProperties::applyLabelFormats_()
 {
-    if (!m_chart) return;
+    if (!m_chart)
+        return;
     const QString xSpec = xFormat().printfSpec();
     const QString ySpec = yFormat().printfSpec();
     // Only QValueAxis honours a printf label format; QDateTimeAxis (the
-    // comparison-plot time axis) and QCategoryAxis are left untouched.
+    // comparison-plot time axis) does not match the cast. Ordinary
+    // QCategoryAxis subclasses do match it.
+    //
+    // UtcTimeAxis must be skipped EXPLICITLY (issue #11). It derives from
+    // QCategoryAxis, which derives from QValueAxis, so unlike QDateTimeAxis it
+    // DOES match the cast below — and stamping a numeric spec on it would
+    // replace its date labels with "%.3f"-formatted epoch milliseconds.
+    auto applySpec = [](QAbstractAxis *ax, const QString &spec) {
+        if (qobject_cast<openswmmvis::plot::UtcTimeAxis *>(ax))
+            return;
+        if (auto *va = qobject_cast<QValueAxis *>(ax))
+            va->setLabelFormat(spec);
+    };
     for (auto *ax : m_chart->axes(Qt::Horizontal))
-        if (auto *va = qobject_cast<QValueAxis*>(ax)) va->setLabelFormat(xSpec);
+        applySpec(ax, xSpec);
     for (auto *ax : m_chart->axes(Qt::Vertical))
-        if (auto *va = qobject_cast<QValueAxis*>(ax)) va->setLabelFormat(ySpec);
+        applySpec(ax, ySpec);
 }
 
 QString ChartProperties::displayLabelFor(const QString &name) const
 {
     // AT.3 polish — visual grouping in the flat QPropertyModel view.
-    if (name == QStringLiteral("titleText"))       return QStringLiteral("Title — Text");
-    if (name == QStringLiteral("titleFont"))       return QStringLiteral("Title — Font");
-    if (name == QStringLiteral("yAutoRange"))      return QStringLiteral("Y Axis — Auto range");
-    if (name == QStringLiteral("yMin"))            return QStringLiteral("Y Axis — Min");
-    if (name == QStringLiteral("yMax"))            return QStringLiteral("Y Axis — Max");
-    if (name == QStringLiteral("yGridVisible"))    return QStringLiteral("Y Axis — Grid lines");
-    if (name == QStringLiteral("xGridVisible"))    return QStringLiteral("X Axis — Grid lines");
-    if (name == QStringLiteral("axisLabelFont"))   return QStringLiteral("Fonts — Axis title");
-    if (name == QStringLiteral("tickLabelFont"))   return QStringLiteral("Fonts — Tick labels");
-    if (name == QStringLiteral("backgroundColor")) return QStringLiteral("Colours — Background");
-    if (name == QStringLiteral("plotAreaColor"))   return QStringLiteral("Colours — Plot area");
-    if (name == QStringLiteral("gridColor"))       return QStringLiteral("Colours — Grid");
-    if (name == QStringLiteral("chartTheme"))      return QStringLiteral("Theme");
-    if (name == QStringLiteral("xAxisNumberFormat")) return QStringLiteral("X Axis — Number format");
-    if (name == QStringLiteral("xLabelFormat"))     return QStringLiteral("X Axis — Custom format");
-    if (name == QStringLiteral("yAxisNumberFormat")) return QStringLiteral("Y Axis — Number format");
-    if (name == QStringLiteral("yLabelFormat"))     return QStringLiteral("Y Axis — Custom format");
-    if (name == QStringLiteral("statisticsFormatPreset")) return QStringLiteral("Statistics — Number format");
-    if (name == QStringLiteral("statisticsFormat"))       return QStringLiteral("Statistics — Custom format");
-    return {};   // empty → fall back to default name
+    if (name == QStringLiteral("titleText"))
+        return QStringLiteral("Title — Text");
+    if (name == QStringLiteral("titleFont"))
+        return QStringLiteral("Title — Font");
+    if (name == QStringLiteral("yAutoRange"))
+        return QStringLiteral("Y Axis — Auto range");
+    if (name == QStringLiteral("yMin"))
+        return QStringLiteral("Y Axis — Min");
+    if (name == QStringLiteral("yMax"))
+        return QStringLiteral("Y Axis — Max");
+    if (name == QStringLiteral("yGridVisible"))
+        return QStringLiteral("Y Axis — Grid lines");
+    if (name == QStringLiteral("xGridVisible"))
+        return QStringLiteral("X Axis — Grid lines");
+    if (name == QStringLiteral("axisLabelFont"))
+        return QStringLiteral("Fonts — Axis title");
+    if (name == QStringLiteral("tickLabelFont"))
+        return QStringLiteral("Fonts — Tick labels");
+    if (name == QStringLiteral("backgroundColor"))
+        return QStringLiteral("Colours — Background");
+    if (name == QStringLiteral("plotAreaColor"))
+        return QStringLiteral("Colours — Plot area");
+    if (name == QStringLiteral("gridColor"))
+        return QStringLiteral("Colours — Grid");
+    if (name == QStringLiteral("chartTheme"))
+        return QStringLiteral("Theme");
+    if (name == QStringLiteral("legendPosition"))
+        return tr("Legend — Position");
+    if (name == QStringLiteral("xAxisNumberFormat"))
+        return QStringLiteral("X Axis — Number format");
+    if (name == QStringLiteral("xLabelFormat"))
+        return QStringLiteral("X Axis — Custom format");
+    if (name == QStringLiteral("yAxisNumberFormat"))
+        return QStringLiteral("Y Axis — Number format");
+    if (name == QStringLiteral("yLabelFormat"))
+        return QStringLiteral("Y Axis — Custom format");
+    if (name == QStringLiteral("statisticsFormatPreset"))
+        return QStringLiteral("Statistics — Number format");
+    if (name == QStringLiteral("statisticsFormat"))
+        return QStringLiteral("Statistics — Custom format");
+    return {}; // empty → fall back to default name
 }
 
 // ----- Getters --------------------------------------------------------------
+
+ChartProperties::LegendPosition ChartProperties::legendPosition() const
+{
+    if (!m_chart)
+        return m_legendPosition;
+    switch (m_chart->legend()->alignment()) {
+    case Qt::AlignBottom:
+        return Bottom;
+    case Qt::AlignLeft:
+        return Left;
+    case Qt::AlignRight:
+        return Right;
+    default:
+        return Top;
+    }
+}
+
+void ChartProperties::setLegendPosition(LegendPosition position)
+{
+    if (position < Top || position > Right || position == legendPosition())
+        return;
+    m_legendPosition = position;
+    const Qt::Alignment alignments[] = {Qt::AlignTop, Qt::AlignBottom, Qt::AlignLeft,
+                                        Qt::AlignRight};
+    if (m_chart)
+        m_chart->legend()->setAlignment(alignments[position]);
+    emit legendPositionChanged(position);
+}
 
 QString ChartProperties::titleText() const
 {
@@ -157,13 +237,15 @@ QFont ChartProperties::tickLabelFont() const
 
 QColor ChartProperties::backgroundColor() const
 {
-    if (!m_chart) return QColor();
+    if (!m_chart)
+        return QColor();
     return m_chart->backgroundBrush().color();
 }
 
 QColor ChartProperties::plotAreaColor() const
 {
-    if (!m_chart) return QColor();
+    if (!m_chart)
+        return QColor();
     return m_chart->plotAreaBackgroundBrush().color();
 }
 
@@ -176,21 +258,24 @@ int ChartProperties::chartTheme() const
 
 void ChartProperties::setTitleText(const QString &text)
 {
-    if (!m_chart || m_chart->title() == text) return;
+    if (!m_chart || m_chart->title() == text)
+        return;
     m_chart->setTitle(text);
     emit titleTextChanged(text);
 }
 
 void ChartProperties::setTitleFont(const QFont &font)
 {
-    if (!m_chart || m_chart->titleFont() == font) return;
+    if (!m_chart || m_chart->titleFont() == font)
+        return;
     m_chart->setTitleFont(font);
     emit titleFontChanged(font);
 }
 
 void ChartProperties::setYAutoRange(bool on)
 {
-    if (m_yAutoRange == on) return;
+    if (m_yAutoRange == on)
+        return;
     m_yAutoRange = on;
     // When auto re-enabled, leave the current range as-is; the next
     // chart rebuild re-fits naturally. The dialog can pass a "refit
@@ -201,7 +286,8 @@ void ChartProperties::setYAutoRange(bool on)
 void ChartProperties::setYMin(qreal v)
 {
     auto *ax = firstYAxis(m_chart.data());
-    if (!ax || ax->min() == v) return;
+    if (!ax || ax->min() == v)
+        return;
     ax->setMin(v);
     m_yAutoRange = false;
     emit yMinChanged(v);
@@ -210,7 +296,8 @@ void ChartProperties::setYMin(qreal v)
 void ChartProperties::setYMax(qreal v)
 {
     auto *ax = firstYAxis(m_chart.data());
-    if (!ax || ax->max() == v) return;
+    if (!ax || ax->max() == v)
+        return;
     ax->setMax(v);
     m_yAutoRange = false;
     emit yMaxChanged(v);
@@ -219,7 +306,8 @@ void ChartProperties::setYMax(qreal v)
 void ChartProperties::setYGridVisible(bool on)
 {
     auto *ax = firstYAxis(m_chart.data());
-    if (!ax || ax->isGridLineVisible() == on) return;
+    if (!ax || ax->isGridLineVisible() == on)
+        return;
     ax->setGridLineVisible(on);
     emit yGridVisibleChanged(on);
 }
@@ -227,14 +315,16 @@ void ChartProperties::setYGridVisible(bool on)
 void ChartProperties::setXGridVisible(bool on)
 {
     auto *ax = firstXAxis(m_chart.data());
-    if (!ax || ax->isGridLineVisible() == on) return;
+    if (!ax || ax->isGridLineVisible() == on)
+        return;
     ax->setGridLineVisible(on);
     emit xGridVisibleChanged(on);
 }
 
 void ChartProperties::setAxisLabelFont(const QFont &font)
 {
-    if (!m_chart) return;
+    if (!m_chart)
+        return;
     for (auto *ax : m_chart->axes())
         ax->setTitleFont(font);
     emit axisLabelFontChanged(font);
@@ -242,7 +332,8 @@ void ChartProperties::setAxisLabelFont(const QFont &font)
 
 void ChartProperties::setTickLabelFont(const QFont &font)
 {
-    if (!m_chart) return;
+    if (!m_chart)
+        return;
     for (auto *ax : m_chart->axes())
         ax->setLabelsFont(font);
     emit tickLabelFontChanged(font);
@@ -250,14 +341,16 @@ void ChartProperties::setTickLabelFont(const QFont &font)
 
 void ChartProperties::setBackgroundColor(const QColor &c)
 {
-    if (!m_chart) return;
+    if (!m_chart)
+        return;
     m_chart->setBackgroundBrush(QBrush(c));
     emit backgroundColorChanged(c);
 }
 
 void ChartProperties::setPlotAreaColor(const QColor &c)
 {
-    if (!m_chart) return;
+    if (!m_chart)
+        return;
     m_chart->setPlotAreaBackgroundBrush(QBrush(c));
     m_chart->setPlotAreaBackgroundVisible(c.isValid());
     emit plotAreaColorChanged(c);
@@ -265,7 +358,8 @@ void ChartProperties::setPlotAreaColor(const QColor &c)
 
 void ChartProperties::setGridColor(const QColor &c)
 {
-    if (!m_chart) return;
+    if (!m_chart)
+        return;
     m_gridColor = c;
     for (auto *ax : m_chart->axes()) {
         QPen gridPen = ax->gridLinePen();
@@ -277,35 +371,48 @@ void ChartProperties::setGridColor(const QColor &c)
 
 void ChartProperties::setChartTheme(int theme)
 {
-    if (!m_chart) return;
+    if (!m_chart)
+        return;
     const auto t = static_cast<QChart::ChartTheme>(theme);
-    if (m_chart->theme() == t) return;
+    if (m_chart->theme() == t)
+        return;
     m_chart->setTheme(t);
     emit chartThemeChanged(theme);
 }
-
 
 // ---------------------------------------------------------------------------
 // Combined number-format presets (one dropdown per axis)
 // ---------------------------------------------------------------------------
 
-namespace {
+namespace
+{
+/**
+ * @brief Map the property-adapter format pair into the shared preset vocabulary.
+ * @param[in] m Raw mirror of NumberFormatMode.
+ * @param[in] count Raw digit count, expected safe for integer distance arithmetic.
+ * @return Nearest same-mode preset, or Decimals2 for unsupported mode.
+ */
 ChartProperties::AxisNumberFormat presetOf(ChartProperties::LabelFormatMode m, int count)
 {
-    return static_cast<ChartProperties::AxisNumberFormat>(
-        openswmmvis::plot::presetForNumberFormat(
-            static_cast<openswmmvis::plot::NumberFormatMode>(m), count));
+    return static_cast<ChartProperties::AxisNumberFormat>(openswmmvis::plot::presetForNumberFormat(
+        static_cast<openswmmvis::plot::NumberFormatMode>(m), count));
 }
 } // namespace
 
 ChartProperties::AxisNumberFormat ChartProperties::xAxisNumberFormat() const
-{ return presetOf(m_xLabelMode, m_xLabelPrecision); }
+{
+    return presetOf(m_xLabelMode, m_xLabelPrecision);
+}
 
 ChartProperties::AxisNumberFormat ChartProperties::yAxisNumberFormat() const
-{ return presetOf(m_yLabelMode, m_yLabelPrecision); }
+{
+    return presetOf(m_yLabelMode, m_yLabelPrecision);
+}
 
 ChartProperties::AxisNumberFormat ChartProperties::statisticsFormatPreset() const
-{ return presetOf(m_statisticsMode, m_statisticsPrecision); }
+{
+    return presetOf(m_statisticsMode, m_statisticsPrecision);
+}
 
 void ChartProperties::setXAxisNumberFormat(AxisNumberFormat f)
 {
@@ -332,7 +439,8 @@ void ChartProperties::setStatisticsFormatPreset(AxisNumberFormat f)
 
 void ChartProperties::setXLabelFormatMode(LabelFormatMode mode)
 {
-    if (m_xLabelMode == mode) return;
+    if (m_xLabelMode == mode)
+        return;
     m_xLabelMode = mode;
     applyLabelFormats_();
     emit xLabelFormatModeChanged(mode);
@@ -342,7 +450,8 @@ void ChartProperties::setXLabelFormatMode(LabelFormatMode mode)
 void ChartProperties::setXLabelPrecision(int count)
 {
     const int c = std::clamp(count, 0, 10);
-    if (m_xLabelPrecision == c) return;
+    if (m_xLabelPrecision == c)
+        return;
     m_xLabelPrecision = c;
     applyLabelFormats_();
     emit xLabelPrecisionChanged(c);
@@ -351,7 +460,8 @@ void ChartProperties::setXLabelPrecision(int count)
 
 void ChartProperties::setXLabelFormat(const QString &spec)
 {
-    if (m_xLabelFormatStr == spec) return;
+    if (m_xLabelFormatStr == spec)
+        return;
     m_xLabelFormatStr = spec;
     applyLabelFormats_();
     emit xLabelFormatChanged(spec);
@@ -359,7 +469,8 @@ void ChartProperties::setXLabelFormat(const QString &spec)
 
 void ChartProperties::setYLabelFormatMode(LabelFormatMode mode)
 {
-    if (m_yLabelMode == mode) return;
+    if (m_yLabelMode == mode)
+        return;
     m_yLabelMode = mode;
     applyLabelFormats_();
     emit yLabelFormatModeChanged(mode);
@@ -369,7 +480,8 @@ void ChartProperties::setYLabelFormatMode(LabelFormatMode mode)
 void ChartProperties::setYLabelPrecision(int count)
 {
     const int c = std::clamp(count, 0, 10);
-    if (m_yLabelPrecision == c) return;
+    if (m_yLabelPrecision == c)
+        return;
     m_yLabelPrecision = c;
     applyLabelFormats_();
     emit yLabelPrecisionChanged(c);
@@ -378,7 +490,8 @@ void ChartProperties::setYLabelPrecision(int count)
 
 void ChartProperties::setYLabelFormat(const QString &spec)
 {
-    if (m_yLabelFormatStr == spec) return;
+    if (m_yLabelFormatStr == spec)
+        return;
     m_yLabelFormatStr = spec;
     applyLabelFormats_();
     emit yLabelFormatChanged(spec);
@@ -386,7 +499,8 @@ void ChartProperties::setYLabelFormat(const QString &spec)
 
 void ChartProperties::setStatisticsFormatMode(LabelFormatMode mode)
 {
-    if (m_statisticsMode == mode) return;
+    if (m_statisticsMode == mode)
+        return;
     m_statisticsMode = mode;
     emit statisticsFormatModeChanged(mode);
     emit statisticsFormatPresetChanged(statisticsFormatPreset());
@@ -395,7 +509,8 @@ void ChartProperties::setStatisticsFormatMode(LabelFormatMode mode)
 void ChartProperties::setStatisticsPrecision(int count)
 {
     const int c = std::clamp(count, 0, 10);
-    if (m_statisticsPrecision == c) return;
+    if (m_statisticsPrecision == c)
+        return;
     m_statisticsPrecision = c;
     emit statisticsPrecisionChanged(c);
     emit statisticsFormatPresetChanged(statisticsFormatPreset());
@@ -403,16 +518,16 @@ void ChartProperties::setStatisticsPrecision(int count)
 
 void ChartProperties::setStatisticsFormat(const QString &spec)
 {
-    if (m_statisticsFormatStr == spec) return;
+    if (m_statisticsFormatStr == spec)
+        return;
     m_statisticsFormatStr = spec;
     emit statisticsFormatChanged(spec);
 }
 
 void ChartProperties::setStatisticsNumberFormat(const NumberFormat &format)
 {
-    const auto mode = format.mode == NumberFormatMode::SignificantFigures
-        ? SignificantFigures
-        : Decimals;
+    // LabelFormatMode mirrors NumberFormatMode value-for-value.
+    const auto mode = static_cast<LabelFormatMode>(format.mode);
     const int precision = std::clamp(format.count, 0, 10);
 
     const bool modeChanged = m_statisticsMode != mode;
@@ -423,9 +538,12 @@ void ChartProperties::setStatisticsNumberFormat(const NumberFormat &format)
     m_statisticsPrecision = precision;
     m_statisticsFormatStr = format.custom;
 
-    if (modeChanged) emit statisticsFormatModeChanged(mode);
-    if (precisionChanged) emit statisticsPrecisionChanged(precision);
-    if (formatChanged) emit statisticsFormatChanged(format.custom);
+    if (modeChanged)
+        emit statisticsFormatModeChanged(mode);
+    if (precisionChanged)
+        emit statisticsPrecisionChanged(precision);
+    if (formatChanged)
+        emit statisticsFormatChanged(format.custom);
 }
 
 } // namespace openswmmvis::plot

@@ -1,0 +1,127 @@
+[TITLE]
+;;Fixture for test_gageassignapply / test_gageassignrdii.
+;;
+;;Gages: GW (0,500), GE (1000,500), GN (500,1500) — non-collinear, so natural
+;;neighbour weighting is available.
+;;
+;;  SUB_W  x 0..400    -> GW (Thiessen)
+;;  SUB_E  x 600..1000 -> GE
+;;
+;;RDII:
+;;  UH1 is shared by J1 (west, 10 ac), J2 (west, 20 ac) and J3 (east, 40 ac):
+;;  it straddles the GW/GE bisector, so a Thiessen run must SPLIT it. UH1 keeps
+;;  the gage carrying the larger sewer area (GE: 40 > 10 + 20) and a copy,
+;;  UH1_GW, serves J1 and J2.
+;;  UH2 is used only by J4 (west) and simply gets GW.
+;;
+;;Everything starts on the WRONG gage, so a no-op cannot pass.
+
+[OPTIONS]
+FLOW_UNITS          	CFS
+INFILTRATION        	HORTON
+FLOW_ROUTING        	DYNWAVE
+START_DATE          	01/01/2020
+START_TIME          	00:00:00
+END_DATE            	01/02/2020
+END_TIME            	00:00:00
+REPORT_STEP         	00:15:00
+WET_STEP            	00:05:00
+DRY_STEP            	01:00:00
+ROUTING_STEP        	0:00:20
+
+[EVAPORATION]
+CONSTANT        	0.0
+DRY_ONLY        	NO
+
+[RAINGAGES]
+;;Name  Format     Interval  SCF  Source
+GW      INTENSITY  0:15      1.0  TIMESERIES  TS_W
+GE      INTENSITY  0:15      1.0  TIMESERIES  TS_E
+GN      INTENSITY  0:15      1.0  TIMESERIES  TS_N
+
+[SUBCATCHMENTS]
+;;Name  Gage  Outlet  Area  %Imperv  Width  %Slope  CurbLen
+SUB_W   GN    OUT1    5     25       500    0.5     0
+SUB_E   GN    OUT1    5     25       500    0.5     0
+
+[SUBAREAS]
+SUB_W   0.01  0.1  0.05  0.05  25  OUTLET
+SUB_E   0.01  0.1  0.05  0.05  25  OUTLET
+
+[INFILTRATION]
+SUB_W   3.0  0.5  4  7  0
+SUB_E   3.0  0.5  4  7  0
+
+[JUNCTIONS]
+;;Name  Elev  MaxDepth  InitDepth  SurDepth  Aponded
+J1      10    5         0          0         0
+J2      10    5         0          0         0
+J3      10    5         0          0         0
+J4      10    5         0          0         0
+
+[OUTFALLS]
+OUT1    0     FREE      NO
+
+[CONDUITS]
+;;Name  From  To    Length  Roughness  InOffset  OutOffset
+C1      J1    OUT1  400     0.013      0         0
+C2      J2    OUT1  400     0.013      0         0
+C3      J3    OUT1  400     0.013      0         0
+C4      J4    OUT1  400     0.013      0         0
+
+[XSECTIONS]
+C1      CIRCULAR  1  0  0  0  1
+C2      CIRCULAR  1  0  0  0  1
+C3      CIRCULAR  1  0  0  0  1
+C4      CIRCULAR  1  0  0  0  1
+
+[HYDROGRAPHS]
+;;Group  Month/Gage  Response  R     T  K
+UH1      GN
+UH1      All         Short     0.10  1  2
+UH1      All         Medium    0.05  3  2
+UH2      GN
+UH2      All         Short     0.20  1  1
+
+[RDII]
+;;Node  UHgroup  SewerArea
+J1      UH1      10
+J2      UH1      20
+J3      UH1      40
+J4      UH2      5
+
+[TIMESERIES]
+TS_W    01/01/2020  00:00  0.0
+TS_W                00:15  2.0
+TS_W                00:30  4.0
+TS_W                00:45  0.0
+TS_E    01/01/2020  00:00  0.0
+TS_E                00:15  1.0
+TS_E                00:30  3.0
+TS_E                00:45  0.0
+TS_N    01/01/2020  00:00  0.0
+TS_N                00:15  0.5
+TS_N                00:30  1.5
+TS_N                00:45  0.0
+
+[COORDINATES]
+J1      100   500
+J2      200   400
+J3      900   500
+J4      150   450
+OUT1    500   -200
+
+[POLYGONS]
+SUB_W   0     0
+SUB_W   400   0
+SUB_W   400   1000
+SUB_W   0     1000
+SUB_E   600   0
+SUB_E   1000  0
+SUB_E   1000  1000
+SUB_E   600   1000
+
+[SYMBOLS]
+GW      0     500
+GE      1000  500
+GN      500   1500

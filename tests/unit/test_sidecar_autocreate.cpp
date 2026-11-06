@@ -1,6 +1,6 @@
-/*!
- * \file   test_sidecar_autocreate.cpp
- * \brief  Regression tests for .oswp sidecar auto-create (Slice RB).
+/**
+ * @file      test_sidecar_autocreate.cpp
+ * @brief     Regression tests for .oswp sidecar auto-create (Slice RB).
  *
  * The integration paths (SWMMVisProjectWindow::saveAs writing the sidecar
  * after a successful built-in .inp write; openSingleINP creating the
@@ -16,6 +16,10 @@
  *    preference RB.4 introduced. Default must be `true` per the user's
  *    "by default" requirement, locked here so a refactor can't silently
  *    flip it.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <gtest/gtest.h>
@@ -75,7 +79,8 @@ TEST(SidecarAutoCreate, SidecarPathForDeepPath)
 // Preference default — Slice RB.4
 // ---------------------------------------------------------------------------
 
-namespace {
+namespace
+{
 
 // Run the QSettings test inside an isolated scope so the live user settings
 // store is not touched. Sets the organisation + application to a unique
@@ -83,15 +88,32 @@ namespace {
 class IsolatedSettings
 {
 public:
+    /**
+     *
+     * @brief Switch to the dedicated sidecar preference namespace and clear it.
+     * Saves current global Qt organization/application names, selects OpenSWMM-tests/
+     * SidecarAutoCreate, then clears that namespace's settings. Existing test-namespace
+     * contents are not backed up. Requires serialized use of process-global Qt identity;
+     * no synchronization/error check or production preference copy.
+     *
+     */
     IsolatedSettings()
-        : m_savedOrg(QCoreApplication::organizationName())
-        , m_savedApp(QCoreApplication::applicationName())
+        : m_savedOrg(QCoreApplication::organizationName()),
+          m_savedApp(QCoreApplication::applicationName())
     {
         QCoreApplication::setOrganizationName(QStringLiteral("OpenSWMM-tests"));
         QCoreApplication::setApplicationName(QStringLiteral("SidecarAutoCreate"));
         QSettings s;
         s.clear();
     }
+    /**
+     *
+     * @brief Clear the dedicated preference namespace and restore prior Qt app names.
+     * Acts before member strings are destroyed. Does not restore earlier test-namespace
+     * values or check settings sync errors; use on the same serialized application thread
+     * as construction and avoid unrelated settings access during the scope.
+     *
+     */
     ~IsolatedSettings()
     {
         {
@@ -101,6 +123,7 @@ public:
         QCoreApplication::setOrganizationName(m_savedOrg);
         QCoreApplication::setApplicationName(m_savedApp);
     }
+
 private:
     QString m_savedOrg;
     QString m_savedApp;
@@ -116,8 +139,7 @@ TEST(SidecarAutoCreate, AutoCreateOnOpenDefaultsToTrue)
     //   s.value("Preferences/AutoCreateOswpOnOpen", true).toBool()
     // Lock the default value in here so a future refactor can't flip it
     // without updating the test.
-    const bool def = s.value(
-        QStringLiteral("Preferences/AutoCreateOswpOnOpen"), true).toBool();
+    const bool def = s.value(QStringLiteral("Preferences/AutoCreateOswpOnOpen"), true).toBool();
     EXPECT_TRUE(def);
 }
 
@@ -126,8 +148,7 @@ TEST(SidecarAutoCreate, AutoCreateOnOpenCanBeDisabled)
     IsolatedSettings iso;
     QSettings s;
     s.setValue(QStringLiteral("Preferences/AutoCreateOswpOnOpen"), false);
-    const bool stored = s.value(
-        QStringLiteral("Preferences/AutoCreateOswpOnOpen"), true).toBool();
+    const bool stored = s.value(QStringLiteral("Preferences/AutoCreateOswpOnOpen"), true).toBool();
     EXPECT_FALSE(stored);
 }
 
@@ -140,7 +161,6 @@ TEST(SidecarAutoCreate, AutoCreateOnOpenRoundTrip)
     }
     {
         QSettings s;
-        EXPECT_TRUE(s.value(
-            QStringLiteral("Preferences/AutoCreateOswpOnOpen"), false).toBool());
+        EXPECT_TRUE(s.value(QStringLiteral("Preferences/AutoCreateOswpOnOpen"), false).toBool());
     }
 }

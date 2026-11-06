@@ -1,9 +1,9 @@
-/*!
- * \file   test_a11y_scene_exposure.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  The map's QGraphicsScene must not be enumerated by the platform
+/**
+ * @file      test_a11y_scene_exposure.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     The map's QGraphicsScene must not be enumerated by the platform
  *         accessibility bridge.
  *
  *         A live session reached 9.6-10.6 GB with `heap` attributing 4.5 GB to
@@ -22,7 +22,9 @@
  *
  *         This test both PINS that contract and documents the measurement:
  *         it fails loudly if a future change re-exposes the scene.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "map/openswmmvisgraphicsview.h"
 #include "map/openswmmvisscene.h"
 
@@ -40,7 +42,23 @@ class TestA11ySceneExposure : public QObject
 {
     Q_OBJECT
 private slots:
+    /**
+     *
+     * @brief Require the accessible map view to expose fewer than 100 children despite a
+     * 5000-item scene.
+     * Calls QAccessible::setActive(true) without restoring it; offscreen platforms may
+     * not activate a platform bridge. Checks interface enumeration, not measured process
+     * memory or individual native wrapper allocation.
+     *
+     */
     void sceneItemsAreNotAccessibleChildren();
+    /**
+     *
+     * @brief Report accessible child count for a 41898-by-20 table as a diagnostic.
+     * Requires a nonnull interface and globally requests accessibility activation;
+     * asserts no child-count/memory threshold and leaves activation requested.
+     *
+     */
     void reportTableAccessibleChildCount();
 };
 
@@ -72,7 +90,8 @@ void TestA11ySceneExposure::sceneItemsAreNotAccessibleChildren()
     QVERIFY2(children < 100,
              qPrintable(QStringLiteral("accessible childCount() = %1 for a scene of "
                                        "%2 items; the scene must not be enumerated")
-                            .arg(children).arg(kItems)));
+                            .arg(children)
+                            .arg(kItems)));
 }
 
 // Diagnostic: a QTableView the size of the Attribute Table on a large model.
@@ -92,8 +111,7 @@ void TestA11ySceneExposure::reportTableAccessibleChildCount()
 
     QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(&view);
     QVERIFY(iface);
-    qInfo() << "table rows=" << model.rowCount()
-            << "cols=" << model.columnCount()
+    qInfo() << "table rows=" << model.rowCount() << "cols=" << model.columnCount()
             << "accessible childCount=" << iface->childCount();
 }
 

@@ -1,9 +1,9 @@
-/*!
- * \file   markershape.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Canonical 19-shape enum used by Marker Symbol Layers (Slice Z.4;
+/**
+ * @file      markershape.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Canonical 19-shape enum used by Marker Symbol Layers (Slice Z.4;
  *         extended set appended later).
  *
  *         The Rule Model defines marker shapes at the SymbolLayer scope —
@@ -18,6 +18,7 @@
  *         canonical MarkerShape use the dedicated mapping functions
  *         declared below (one per legacy enum kind — added on demand;
  *         absent until a caller actually needs it).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef OPENSWMM_RENDER_MARKERSHAPE_H
@@ -51,34 +52,41 @@ Q_NAMESPACE
  *        fall back to Circle.
  */
 enum class MarkerShape : int {
-    Circle              = 0,
-    Square              = 1,
-    Triangle            = 2,    /*!< Right-pointing isoceles. */
-    Diamond             = 3,
-    Star                = 4,    /*!< Five-pointed. */
-    Cross               = 5,    /*!< "+" shape — vertical + horizontal bar. */
-    Plus                = 6,    /*!< Synonym for Cross with thicker arms. */
-    XCross              = 7,    /*!< "×" rotated cross. */
-    Pentagon            = 8,
-    Hexagon             = 9,
-    Arrow               = 10,   /*!< Right-pointing arrow head. */
-    EquilateralTriangle = 11,   /*!< Up-pointing. */
-    HalfCircle          = 12,   /*!< Semi-circle, flat side down. */
+    Circle = 0,
+    Square = 1,
+    Triangle = 2, /*!< Right-pointing isoceles. */
+    Diamond = 3,
+    Star = 4,   /*!< Five-pointed. */
+    Cross = 5,  /*!< "+" shape — vertical + horizontal bar. */
+    Plus = 6,   /*!< Synonym for Cross with thicker arms. */
+    XCross = 7, /*!< "×" rotated cross. */
+    Pentagon = 8,
+    Hexagon = 9,
+    Arrow = 10,               /*!< Right-pointing arrow head. */
+    EquilateralTriangle = 11, /*!< Up-pointing. */
+    HalfCircle = 12,          /*!< Semi-circle, flat side down. */
     // Appended set (stable values; future shapes append at the end).
-    TriangleDown        = 13,   /*!< Down-pointing isoceles. */
-    Octagon             = 14,   /*!< Regular eight-sided. */
-    Hexagram            = 15,   /*!< Six-pointed star. */
-    ArrowUp             = 16,   /*!< Up-pointing arrow head. */
-    ArrowDown           = 17,   /*!< Down-pointing arrow head. */
-    ArrowLeft           = 18    /*!< Left-pointing arrow head. */
+    TriangleDown = 13, /*!< Down-pointing isoceles. */
+    Octagon = 14,      /*!< Regular eight-sided. */
+    Hexagram = 15,     /*!< Six-pointed star. */
+    ArrowUp = 16,      /*!< Up-pointing arrow head. */
+    ArrowDown = 17,    /*!< Down-pointing arrow head. */
+    ArrowLeft = 18     /*!< Left-pointing arrow head. */
 };
 Q_ENUM_NS(MarkerShape)
 
-/*! JSON token for the shape (\c "circle", \c "square", …). */
+/**
+ * @brief Encode a marker shape as its stable lowercase persistence token.
+ * @param[in] shape Shape enum to encode; unknown enum values use the Circle fallback.
+ * @return A token such as "circle", "square", "eqtriangle", or "arrowleft".
+ */
 [[nodiscard]] QString markerShapeToString(MarkerShape shape);
 
-/*! Inverse of \ref markerShapeToString. Unknown tokens return
- *  \c MarkerShape::Circle for forward compat. */
+/**
+ * @brief Decode the exact lowercase marker token used by project styles.
+ * @param[in] s Serialized token; matching is case-sensitive without whitespace trimming.
+ * @return Matching shape, or Circle for empty/unrecognized input to support forward compatibility.
+ */
 [[nodiscard]] MarkerShape markerShapeFromString(const QString &s);
 
 /*! \brief Render \p shape into \p painter centred at \p center with the
@@ -91,14 +99,22 @@ Q_ENUM_NS(MarkerShape)
  *
  *         The function saves / restores \p painter state. Antialiasing
  *         is enabled for the duration of the draw — callers don't need
- *         to flip the hint. No-op when \p sizePx <= 0. */
-void drawMarkerShape(QPainter *painter,
-                     MarkerShape shape,
-                     const QPointF &center,
-                     qreal sizePx,
-                     const QBrush &fillBrush,
-                     const QPen &outlinePen,
-                     qreal rotationDeg = 0.0);
+ *         to flip the hint. No-op when \p sizePx <= 0.
+ * @param[in,out] painter Optional active painter to draw with; null makes the call a no-op.
+ *                       Painting changes the target device, but saved painter state is restored.
+ * @param[in] shape Canonical geometry to draw; an unknown enum value paints nothing.
+ * @param[in] center Marker center in the painter's current logical coordinate system.
+ * @param[in] sizePx Finite unrotated geometry-box side length, intended as screen pixels
+ *                  when the caller's painter coordinates are device-pixel coordinates.
+ * @param[in] fillBrush Interior fill style; ignored by the stroked Cross/XCross variants.
+ * @param[in] outlinePen Outline/stroke style. Cross/XCross replace non-positive line widths
+ *                      with max(1,sizePx*0.1) in painter coordinate units.
+ * @param[in] rotationDeg Finite angle in degrees about center, using QPainter's rotation convention.
+ * @note The existing world transform remains active. Rotation and outline width can extend
+ *       the final painted bounding box beyond the unrotated sizePx square.
+ */
+void drawMarkerShape(QPainter *painter, MarkerShape shape, const QPointF &center, qreal sizePx,
+                     const QBrush &fillBrush, const QPen &outlinePen, qreal rotationDeg = 0.0);
 
 } // namespace OpenSWMM::Render
 

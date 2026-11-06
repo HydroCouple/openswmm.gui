@@ -1,8 +1,11 @@
-/*!
- * \file   singlesymbolrenderer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      singlesymbolrenderer.cpp
+ * @brief     SingleSymbolRenderer is the simplest IFeatureRenderer: it carries one SymbolStyle and
+ *            returns it for every feature.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/renderers/singlesymbolrenderer.h"
@@ -13,9 +16,9 @@ namespace OpenSWMM::Render
 {
 
 SingleSymbolRenderer::SingleSymbolRenderer(SymbolStyle symbol, QString label)
-    : m_symbol(std::move(symbol)),
-      m_legendLabel(std::move(label))
-{}
+    : m_symbol(std::move(symbol)), m_legendLabel(std::move(label))
+{
+}
 
 void SingleSymbolRenderer::setSymbol(SymbolStyle s)
 {
@@ -49,11 +52,11 @@ SymbolStyle SingleSymbolRenderer::symbolFor(const FeatureRef &, const QVariantMa
 QList<LegendSymbolItem> SingleSymbolRenderer::legendSymbolItems() const
 {
     LegendSymbolItem item;
-    item.label    = m_legendLabel;
-    item.symbol   = m_symbol;
-    item.classKey = QStringLiteral("single");   // matches setColorForClass key
+    item.label = m_legendLabel;
+    item.symbol = m_symbol;
+    item.classKey = QStringLiteral("single"); // matches setColorForClass key
     // range stays as the (NaN, NaN) sentinel — single-symbol has no numeric range.
-    return { item };
+    return {item};
 }
 
 QJsonObject SingleSymbolRenderer::toJson() const
@@ -74,8 +77,8 @@ void SingleSymbolRenderer::fromJson(const QJsonObject &j)
     m_symbol.fromJson(j.value(QStringLiteral("symbol")).toObject());
     m_legendLabel = j.value(QStringLiteral("legendLabel")).toString();
     m_sizeData = j.contains(QStringLiteral("sizeData"))
-        ? DataDefinedScalar::fromJson(j.value(QStringLiteral("sizeData")).toObject())
-        : DataDefinedScalar{};
+                     ? DataDefinedScalar::fromJson(j.value(QStringLiteral("sizeData")).toObject())
+                     : DataDefinedScalar{};
 }
 
 std::unique_ptr<IFeatureRenderer> SingleSymbolRenderer::clone() const
@@ -88,9 +91,14 @@ std::unique_ptr<IFeatureRenderer> SingleSymbolRenderer::clone() const
 // has exactly one legend row). Mismatched keys silently no-op so callers
 // can blindly hand through whatever LegendSymbolItem.sortIndex they have.
 
-namespace {
+namespace
+{
 constexpr auto kSingleClassKey = QLatin1String("single");
 
+/** @brief Replace an existing scalar property on each advertised symbol pass.
+ * @param[in,out] style Stack to mutate without changing layer order or other fields.
+ * @param key Exact property key; missing slots are not inserted.
+ * @param v Value copied into matching entries without type or range validation. */
 void writePropOnAllLayers(SymbolStyle &style, QLatin1String key, const QVariant &v)
 {
     // Only touch layers that already advertise the slot; preserves
@@ -104,7 +112,8 @@ void writePropOnAllLayers(SymbolStyle &style, QLatin1String key, const QVariant 
 
 QColor SingleSymbolRenderer::colorForClass(const QString &classKey) const
 {
-    if (classKey != kSingleClassKey) return {};
+    if (classKey != kSingleClassKey)
+        return {};
     // Gap A1.2 — tolerant read over both grammar keys ("color" then
     // "fillColor"); matches the legend-swatch convention.
     return SymbolProps::firstColor(m_symbol);
@@ -112,40 +121,47 @@ QColor SingleSymbolRenderer::colorForClass(const QString &classKey) const
 
 qreal SingleSymbolRenderer::sizeForClass(const QString &classKey) const
 {
-    if (classKey != kSingleClassKey) return -1.0;
+    if (classKey != kSingleClassKey)
+        return -1.0;
     // Prefer "size" (markers); fall back to "width" (lines).
     for (const SymbolLayer &sl : m_symbol.layers) {
         const auto it = sl.props.constFind(QStringLiteral("size"));
-        if (it != sl.props.constEnd()) return it.value().toReal();
+        if (it != sl.props.constEnd())
+            return it.value().toReal();
     }
     for (const SymbolLayer &sl : m_symbol.layers) {
         const auto it = sl.props.constFind(QStringLiteral("width"));
-        if (it != sl.props.constEnd()) return it.value().toReal();
+        if (it != sl.props.constEnd())
+            return it.value().toReal();
     }
     return -1.0;
 }
 
 void SingleSymbolRenderer::setColorForClass(const QString &classKey, const QColor &color)
 {
-    if (classKey != kSingleClassKey || !color.isValid()) return;
+    if (classKey != kSingleClassKey || !color.isValid())
+        return;
     SymbolProps::overrideColorInPlace(m_symbol, color);
 }
 
 void SingleSymbolRenderer::setSizeForClass(const QString &classKey, qreal size)
 {
-    if (classKey != kSingleClassKey) return;
+    if (classKey != kSingleClassKey)
+        return;
     writePropOnAllLayers(m_symbol, QLatin1String("size"), size);
 }
 
 void SingleSymbolRenderer::setWidthForClass(const QString &classKey, qreal width)
 {
-    if (classKey != kSingleClassKey) return;
+    if (classKey != kSingleClassKey)
+        return;
     writePropOnAllLayers(m_symbol, QLatin1String("width"), width);
 }
 
 void SingleSymbolRenderer::setSymbolForClass(const QString &classKey, const SymbolStyle &style)
 {
-    if (classKey != kSingleClassKey) return;
+    if (classKey != kSingleClassKey)
+        return;
     m_symbol = style;
 }
 

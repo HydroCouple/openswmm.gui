@@ -1,9 +1,9 @@
-/*!
- * \file   test_namelookup_precedence.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Pins the name-resolution contract of identifyByName() / nodeIndex()
+/**
+ * @file      test_namelookup_precedence.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Pins the name-resolution contract of identifyByName() / nodeIndex()
  *         / linkIndex() after they were converted from linear scans to hash
  *         lookups (GUI load-perf Phase 1).
  *
@@ -26,7 +26,9 @@
  *
  *         Uses QTEST_MAIN (offscreen QPA) because SWMMModelLayer is a QObject
  *         layer that expects a QApplication.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/swmmmodellayer.h"
 
 #include <QApplication>
@@ -36,19 +38,24 @@
 #include <QTest>
 #include <QVariantMap>
 
-namespace {
+namespace
+{
 
+/** @brief Resolve name-lookup fixtures.
+ * @return SWMMVIS_GUI_TEST_DATA or ".". */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/** @brief Locate the cross-kind name-collision fixture.
+ * @return Joined typed_selection_fixture.inp path. */
 QString fixturePath()
 {
     return QDir(dataDir()).filePath(QStringLiteral("typed_selection_fixture.inp"));
 }
 
-}  // namespace
+} // namespace
 
 class TestNameLookupPrecedence : public QObject
 {
@@ -62,8 +69,10 @@ private slots:
     void unknownNameResolvesToNothing();
     void renameMovesOnlyTheRenamedKind();
     void incrementalAddsStayResolvable();
+    void typedRefIdentifiesItsOwnKind();
 };
 
+/** @brief Require the name-collision fixture before running lookup cases. */
 void TestNameLookupPrecedence::initTestCase()
 {
     QVERIFY2(QFile::exists(fixturePath()),
@@ -72,6 +81,7 @@ void TestNameLookupPrecedence::initTestCase()
 
 // A junction and a conduit are both named X1. The scans checked nodes first,
 // so identifyByName must still report the junction.
+/** @brief Verify untyped X1 identification prefers the node over its same-named link. */
 void TestNameLookupPrecedence::nodeWinsOverCollidingLink()
 {
     SWMMModelLayer layer(fixturePath(), nullptr);
@@ -86,6 +96,7 @@ void TestNameLookupPrecedence::nodeWinsOverCollidingLink()
 // A rain gage and a subcatchment are both named S1. The scan order put
 // catchments ahead of gages — the case a naive m_nameToSoa swap would have
 // inverted, because gages insert into that hash last and unconditionally.
+/** @brief Verify untyped S1 identification prefers its subcatchment over the same-named gage. */
 void TestNameLookupPrecedence::subcatchmentWinsOverCollidingGage()
 {
     SWMMModelLayer layer(fixturePath(), nullptr);
@@ -93,14 +104,14 @@ void TestNameLookupPrecedence::subcatchmentWinsOverCollidingGage()
     QVERIFY(layer.loadModel(warnings, errors));
 
     const QVariantMap m = layer.identifyByName(QStringLiteral("S1"));
-    QCOMPARE(m.value(QStringLiteral("Type")).toString(),
-             QStringLiteral("Subcatchment"));
+    QCOMPARE(m.value(QStringLiteral("Type")).toString(), QStringLiteral("Subcatchment"));
     QCOMPARE(m.value(QStringLiteral("Name")).toString(), QStringLiteral("S1"));
 }
 
 // nodeIndex/linkIndex are kind-scoped: the conduit X1 stays reachable even
 // though the junction X1 outranks it in identifyByName, and neither reports
 // a hit for a name that belongs to no node/link at all.
+/** @brief Verify kind-specific node/link indices resolve both X1 objects and reject names from other categories. */
 void TestNameLookupPrecedence::perKindIndicesSeeThroughCollisions()
 {
     SWMMModelLayer layer(fixturePath(), nullptr);
@@ -119,6 +130,7 @@ void TestNameLookupPrecedence::perKindIndicesSeeThroughCollisions()
     QVERIFY(layer.linkIndex(QStringLiteral("C1")) >= 0);
 }
 
+/** @brief Verify empty/unknown identities produce empty identification and negative lookup indices. */
 void TestNameLookupPrecedence::unknownNameResolvesToNothing()
 {
     SWMMModelLayer layer(fixturePath(), nullptr);
@@ -134,6 +146,7 @@ void TestNameLookupPrecedence::unknownNameResolvesToNothing()
 // Renaming the junction X1 must move only the node entry; the conduit X1
 // keeps its own name. This is the coherence the per-kind maps must maintain
 // incrementally (renameObject), not via a full index rebuild.
+/** @brief Verify renaming X1 node moves only its node key and untyped old-name lookup then reaches the unchanged link. */
 void TestNameLookupPrecedence::renameMovesOnlyTheRenamedKind()
 {
     SWMMModelLayer layer(fixturePath(), nullptr);
@@ -157,8 +170,7 @@ void TestNameLookupPrecedence::renameMovesOnlyTheRenamedKind()
     QCOMPARE(layer.linkIndex(QStringLiteral("X1")), linkBefore);
 
     // With the node gone from X1, identifyByName now falls through to the link.
-    QCOMPARE(layer.identifyByName(QStringLiteral("X1"))
-                 .value(QStringLiteral("Type")).toString(),
+    QCOMPARE(layer.identifyByName(QStringLiteral("X1")).value(QStringLiteral("Type")).toString(),
              QStringLiteral("Link"));
 }
 
@@ -168,6 +180,7 @@ void TestNameLookupPrecedence::renameMovesOnlyTheRenamedKind()
 // rebuildCategoryIndex() therefore goes stale, and the newly drawn object
 // silently resolves to nothing in the attribute table and property browser.
 // (The rest of the suite did not catch that; hence this slot.)
+/** @brief Verify newly added gages/subcatchments immediately resolve without losing pre-existing entries. */
 void TestNameLookupPrecedence::incrementalAddsStayResolvable()
 {
     SWMMModelLayer layer(fixturePath(), nullptr);
@@ -186,10 +199,37 @@ void TestNameLookupPrecedence::incrementalAddsStayResolvable()
     QCOMPARE(sm.value(QStringLiteral("Type")).toString(), QStringLiteral("Subcatchment"));
 
     // Pre-existing entries must survive the incremental inserts.
-    QCOMPARE(layer.identifyByName(QStringLiteral("S1"))
-                 .value(QStringLiteral("Type")).toString(),
+    QCOMPARE(layer.identifyByName(QStringLiteral("S1")).value(QStringLiteral("Type")).toString(),
              QStringLiteral("Subcatchment"));
     QVERIFY(layer.linkIndex(QStringLiteral("C1")) >= 0);
+}
+
+// A selection ref carries its kind. Looked up with that kind's mask, the
+// conduit X1 must identify as the link — the Properties panel used the untyped
+// lookup and showed the same-named junction for a selected conduit.
+/** @brief Verify typed lookup masks resolve colliding node/link/subcatchment/gage identities and unknown kind retains legacy precedence. */
+void TestNameLookupPrecedence::typedRefIdentifiesItsOwnKind()
+{
+    SWMMModelLayer layer(fixturePath(), nullptr);
+    QList<QString> warnings, errors;
+    QVERIFY(layer.loadModel(warnings, errors));
+
+    /** @brief Resolve an object through its typed kind mask and read the reported type label.
+     * Argument `name`: required Latin-1 object name.
+     * Argument `objectType`: SWMMObjectRef kind integer, with unknown kind using the layer's legacy mask behavior.
+     * Returns: identification Type string or empty when lookup fails; borrows the loaded captured layer. */
+    const auto typeOf = [&layer](const char *name, int objectType) {
+        return layer
+            .identifyByName(QString::fromLatin1(name),
+                            SWMMModelLayer::kindMaskForObjectType(objectType))
+            .value(QStringLiteral("Type"))
+            .toString();
+    };
+    QCOMPARE(typeOf("X1", 2), QStringLiteral("Link"));         // SWMMObjectRef::Link
+    QCOMPARE(typeOf("X1", 1), QStringLiteral("Node"));         // SWMMObjectRef::Node
+    QCOMPARE(typeOf("S1", 3), QStringLiteral("Subcatchment")); // SWMMObjectRef::Subcatchment
+    QCOMPARE(typeOf("S1", 4), QStringLiteral("Rain Gage"));    // SWMMObjectRef::RainGage
+    QCOMPARE(typeOf("X1", 0), QStringLiteral("Node"));         // unknown kind: legacy precedence
 }
 
 QTEST_MAIN(TestNameLookupPrecedence)

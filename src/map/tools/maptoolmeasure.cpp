@@ -1,7 +1,10 @@
-/*!
- * \file   maptoolmeasure.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date 2026
+/**
+ * @file      maptoolmeasure.cpp
+ * @brief     Interactive tool for measuring geodesic distances or areas on the map.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/tools/maptoolmeasure.h"
@@ -31,33 +34,25 @@ OpenSWMMVisMapToolMeasure::OpenSWMMVisMapToolMeasure(MapCanvas *canvas, QObject 
     applyPreferences();
 
     // Live-update style when preferences change.
-    connect(PreferencesManager::instance(), &PreferencesManager::preferenceChanged,
-            this, [this](const QString &group, const QString &key)
-            {
-                if (group == QLatin1String("Decorations")
-                    && key.startsWith(QLatin1String("MeasureTool/")))
-                {
+    connect(PreferencesManager::instance(), &PreferencesManager::preferenceChanged, this,
+            [this](const QString &group, const QString &key) {
+                if (group == QLatin1String("Decorations") &&
+                    key.startsWith(QLatin1String("MeasureTool/"))) {
                     applyPreferences();
                     if (m_canvas && !m_vertices.isEmpty())
-                        m_canvas->invalidate(MapCanvas::Overlay,
-                                             QStringLiteral("measure-tool"));
+                        m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("measure-tool"));
                 }
             });
 
-    if (m_canvas)
-    {
+    if (m_canvas) {
         // Rebuild the WGS-84 transform whenever the canvas CRS changes.
-        connect(m_canvas, &MapCanvas::canvasSRSChanged, this,
-                [this](SpatialReferenceSystem *)
-                {
-                    rebuildTransform();
-                    if (!m_vertices.isEmpty())
-                    {
-                        recalculate();
-                        m_canvas->invalidate(MapCanvas::Overlay,
-                                             QStringLiteral("measure-tool"));
-                    }
-                });
+        connect(m_canvas, &MapCanvas::canvasSRSChanged, this, [this](SpatialReferenceSystem *) {
+            rebuildTransform();
+            if (!m_vertices.isEmpty()) {
+                recalculate();
+                m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("measure-tool"));
+            }
+        });
     }
 }
 
@@ -70,14 +65,19 @@ OpenSWMMVisMapToolMeasure::~OpenSWMMVisMapToolMeasure()
 // Tool interface
 // ---------------------------------------------------------------------------
 
-QCursor OpenSWMMVisMapToolMeasure::cursor() const { return Qt::CrossCursor; }
+QCursor OpenSWMMVisMapToolMeasure::cursor() const
+{
+    return Qt::CrossCursor;
+}
 
-MeasureMode OpenSWMMVisMapToolMeasure::mode()  const { return m_mode; }
+MeasureMode OpenSWMMVisMapToolMeasure::mode() const
+{
+    return m_mode;
+}
 
 void OpenSWMMVisMapToolMeasure::setMode(MeasureMode mode)
 {
-    if (m_mode != mode)
-    {
+    if (m_mode != mode) {
         m_mode = mode;
         clearMeasurement();
         emit modeChanged(mode);
@@ -91,11 +91,9 @@ MeasurementUnitManager::DistanceUnit OpenSWMMVisMapToolMeasure::distanceUnit() c
 
 void OpenSWMMVisMapToolMeasure::setDistanceUnit(MeasurementUnitManager::DistanceUnit unit)
 {
-    if (m_distanceUnit != unit)
-    {
+    if (m_distanceUnit != unit) {
         m_distanceUnit = unit;
-        if (m_mode == MeasureMode::Distance)
-        {
+        if (m_mode == MeasureMode::Distance) {
             recalculate();
             if (m_canvas)
                 m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("measure-tool"));
@@ -111,11 +109,9 @@ MeasurementUnitManager::AreaUnit OpenSWMMVisMapToolMeasure::areaUnit() const
 
 void OpenSWMMVisMapToolMeasure::setAreaUnit(MeasurementUnitManager::AreaUnit unit)
 {
-    if (m_areaUnit != unit)
-    {
+    if (m_areaUnit != unit) {
         m_areaUnit = unit;
-        if (m_mode == MeasureMode::Area)
-        {
+        if (m_mode == MeasureMode::Area) {
             recalculate();
             if (m_canvas)
                 m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("measure-tool"));
@@ -124,14 +120,17 @@ void OpenSWMMVisMapToolMeasure::setAreaUnit(MeasurementUnitManager::AreaUnit uni
     }
 }
 
-double OpenSWMMVisMapToolMeasure::total() const { return m_total; }
+double OpenSWMMVisMapToolMeasure::total() const
+{
+    return m_total;
+}
 
 void OpenSWMMVisMapToolMeasure::clearMeasurement()
 {
     m_vertices.clear();
     m_segmentMetres.clear();
-    m_total      = 0.0;
-    m_finalized  = false;
+    m_total = 0.0;
+    m_finalized = false;
     emit totalChanged(0.0);
     emit measurementCleared();
     if (m_canvas)
@@ -164,8 +163,7 @@ void OpenSWMMVisMapToolMeasure::mousePressEvent(QMouseEvent *event)
     double mx, my;
     toMapCoords(event->pos().x(), event->pos().y(), mx, my);
 
-    if (m_finalized)
-    {
+    if (m_finalized) {
         // Start a brand-new measurement on the first click after finalisation.
         clearMeasurement();
     }
@@ -207,14 +205,11 @@ void OpenSWMMVisMapToolMeasure::mouseDoubleClickEvent(QMouseEvent *event)
 
 void OpenSWMMVisMapToolMeasure::keyPressEvent(QKeyEvent *event)
 {
-    if (event->key() == Qt::Key_Escape)
-    {
+    if (event->key() == Qt::Key_Escape) {
         // Clear all points and reset — keeps the tool active (GIS convention).
         clearMeasurement();
-    }
-    else if ((event->key() == Qt::Key_Backspace || event->key() == Qt::Key_Delete)
-             && !m_vertices.isEmpty() && !m_finalized)
-    {
+    } else if ((event->key() == Qt::Key_Backspace || event->key() == Qt::Key_Delete) &&
+               !m_vertices.isEmpty() && !m_finalized) {
         m_vertices.removeLast();
         recalculate();
         if (m_canvas)
@@ -226,15 +221,13 @@ void OpenSWMMVisMapToolMeasure::keyPressEvent(QKeyEvent *event)
 // Painting
 // ---------------------------------------------------------------------------
 
-void OpenSWMMVisMapToolMeasure::paint(QPainter *painter,
-                                      const MapExtent &,
+void OpenSWMMVisMapToolMeasure::paint(QPainter *painter, const MapExtent &,
                                       const SpatialReferenceSystem *)
 {
     if (!m_canvas || m_vertices.isEmpty())
         return;
 
-    auto toPixel = [this](const QPointF &pt) -> QPoint
-    {
+    auto toPixel = [this](const QPointF &pt) -> QPoint {
         int px, py;
         toPixelCoords(pt.x(), pt.y(), px, py);
         return QPoint(px, py);
@@ -245,8 +238,7 @@ void OpenSWMMVisMapToolMeasure::paint(QPainter *painter,
     // -----------------------------------------------------------------------
     // AREA MODE
     // -----------------------------------------------------------------------
-    if (m_mode == MeasureMode::Area)
-    {
+    if (m_mode == MeasureMode::Area) {
         // Build the display polygon: committed vertices + live mouse if drawing
         QVector<QPoint> poly;
         poly.reserve(m_vertices.size() + 1);
@@ -255,8 +247,7 @@ void OpenSWMMVisMapToolMeasure::paint(QPainter *painter,
         if (hasRubber)
             poly.append(toPixel(m_mousePos));
 
-        if (poly.size() >= 3)
-        {
+        if (poly.size() >= 3) {
             // Semi-transparent fill
             QColor fill = m_fillColor;
             fill.setAlpha(m_finalized ? qMin(255, m_fillOpacity * 255 / 100 * 2)
@@ -269,8 +260,7 @@ void OpenSWMMVisMapToolMeasure::paint(QPainter *painter,
         }
 
         // Committed segment outlines
-        if (m_vertices.size() >= 2)
-        {
+        if (m_vertices.size() >= 2) {
             painter->save();
             painter->setPen(QPen(m_lineColor, 2));
             for (int i = 1; i < m_vertices.size(); ++i)
@@ -279,17 +269,14 @@ void OpenSWMMVisMapToolMeasure::paint(QPainter *painter,
         }
 
         // Rubber-band: last vertex → mouse AND mouse → first vertex
-        if (hasRubber)
-        {
+        if (hasRubber) {
             painter->save();
             painter->setPen(QPen(m_lineColor, 1, Qt::DashLine));
             painter->drawLine(toPixel(m_vertices.last()), toPixel(m_mousePos));
             if (m_vertices.size() >= 2)
                 painter->drawLine(toPixel(m_mousePos), toPixel(m_vertices.first()));
             painter->restore();
-        }
-        else if (m_finalized && m_vertices.size() >= 2)
-        {
+        } else if (m_finalized && m_vertices.size() >= 2) {
             // Close the polygon with a solid line
             painter->save();
             painter->setPen(QPen(m_lineColor, 2));
@@ -306,25 +293,20 @@ void OpenSWMMVisMapToolMeasure::paint(QPainter *painter,
         painter->restore();
 
         // Area label near the last vertex
-        if (!m_vertices.isEmpty())
-        {
+        if (!m_vertices.isEmpty()) {
             QPoint lp = toPixel(m_vertices.last());
 
             // Compute live area including mouse position when drawing
             double sqm;
-            if (hasRubber && m_vertices.size() >= 2)
-            {
+            if (hasRubber && m_vertices.size() >= 2) {
                 QVector<QPointF> live = m_vertices;
                 live.append(m_mousePos);
                 sqm = geodesicArea(live);
-            }
-            else
-            {
+            } else {
                 sqm = geodesicArea(m_vertices);
             }
 
-            QString label = formatArea(sqm)
-                          + QStringLiteral("  (%1 pts)").arg(m_vertices.size());
+            QString label = formatArea(sqm) + QStringLiteral("  (%1 pts)").arg(m_vertices.size());
 
             painter->setFont(m_labelFont);
             QFontMetrics fm(painter->font());
@@ -343,8 +325,7 @@ void OpenSWMMVisMapToolMeasure::paint(QPainter *painter,
     // -----------------------------------------------------------------------
 
     // Committed segments — thicker when finalised
-    if (m_vertices.size() >= 2)
-    {
+    if (m_vertices.size() >= 2) {
         painter->save();
         painter->setPen(QPen(m_lineColor, m_finalized ? 3 : 2));
         for (int i = 1; i < m_vertices.size(); ++i)
@@ -353,8 +334,7 @@ void OpenSWMMVisMapToolMeasure::paint(QPainter *painter,
     }
 
     // Rubber-band to current mouse position
-    if (hasRubber)
-    {
+    if (hasRubber) {
         painter->save();
         painter->setPen(QPen(m_lineColor, 1, Qt::DashLine));
         painter->drawLine(toPixel(m_vertices.last()), toPixel(m_mousePos));
@@ -374,8 +354,7 @@ void OpenSWMMVisMapToolMeasure::paint(QPainter *painter,
     const int n = m_vertices.size();
     painter->setFont(m_labelFont);
 
-    for (int i = 0; i < n; ++i)
-    {
+    for (int i = 0; i < n; ++i) {
         // Suppress interior labels when there are too many vertices
         if (n > kMaxLabelled && i > 0 && i < n - 1 && (i % (n / 10)) != 0)
             continue;
@@ -396,15 +375,13 @@ void OpenSWMMVisMapToolMeasure::paint(QPainter *painter,
     }
 
     // Ghost label near the mouse: shows Δsegment and running total
-    if (hasRubber)
-    {
+    if (hasRubber) {
         const double lastCum = m_segmentMetres.isEmpty() ? 0.0 : m_segmentMetres.last();
         const double segMetres = geodesicDistance(m_vertices.last(), m_mousePos);
         const double totalMetres = lastCum + segMetres;
 
-        QString ghost = QStringLiteral("+%1  Σ %2")
-                        .arg(formatDist(segMetres))
-                        .arg(formatDist(totalMetres));
+        QString ghost =
+            QStringLiteral("+%1  Σ %2").arg(formatDist(segMetres)).arg(formatDist(totalMetres));
 
         QPoint mp = toPixel(m_mousePos);
         painter->setFont(m_labelFont);
@@ -428,8 +405,7 @@ void OpenSWMMVisMapToolMeasure::recalculate()
     m_segmentMetres.resize(m_vertices.size());
 
     double cumulative = 0.0;
-    for (int i = 0; i < m_vertices.size(); ++i)
-    {
+    for (int i = 0; i < m_vertices.size(); ++i) {
         if (i == 0)
             cumulative = 0.0;
         else
@@ -437,13 +413,10 @@ void OpenSWMMVisMapToolMeasure::recalculate()
         m_segmentMetres[i] = cumulative;
     }
 
-    if (m_mode == MeasureMode::Distance)
-    {
+    if (m_mode == MeasureMode::Distance) {
         const double totalMetres = m_segmentMetres.isEmpty() ? 0.0 : m_segmentMetres.last();
         m_total = totalMetres * MeasurementUnitManager::metresTo(m_distanceUnit);
-    }
-    else
-    {
+    } else {
         const double sqm = geodesicArea(m_vertices);
         m_total = sqm * MeasurementUnitManager::squareMetresTo(m_areaUnit);
     }
@@ -458,6 +431,13 @@ void OpenSWMMVisMapToolMeasure::recalculate()
 /*!
  * Haversine on WGS-84 sphere (R = semi-major axis, 6 378 137 m).
  * Inputs must be in decimal degrees (lon/lat).
+ * @param[in] lon1 First longitude decimal degrees in WGS84 frame.
+ * @param[in] lat1 First latitude decimal degrees.
+ * @param[in] lon2 Second longitude decimal degrees.
+ * @param[in] lat2 Second latitude decimal degrees.
+ * @return Great-circle distance on sphere radius6378137metres via haversine/atan2, not ellipsoidal
+ *   inverse geodesic. No finite/range validation or clamp on intermediate a, so invalid/roundoff
+ *   can yield nonfinite result; no mutation.
  */
 static double haversineWgs84(double lon1, double lat1, double lon2, double lat2)
 {
@@ -466,14 +446,12 @@ static double haversineWgs84(double lon1, double lat1, double lon2, double lat2)
     const double phi2 = qDegreesToRadians(lat2);
     const double dphi = qDegreesToRadians(lat2 - lat1);
     const double dlam = qDegreesToRadians(lon2 - lon1);
-    const double a    = std::sin(dphi / 2) * std::sin(dphi / 2)
-                      + std::cos(phi1) * std::cos(phi2)
-                      * std::sin(dlam / 2) * std::sin(dlam / 2);
+    const double a = std::sin(dphi / 2) * std::sin(dphi / 2) +
+                     std::cos(phi1) * std::cos(phi2) * std::sin(dlam / 2) * std::sin(dlam / 2);
     return R * 2.0 * std::atan2(std::sqrt(a), std::sqrt(1.0 - a));
 }
 
-double OpenSWMMVisMapToolMeasure::geodesicDistance(const QPointF &a,
-                                                    const QPointF &b) const
+double OpenSWMMVisMapToolMeasure::geodesicDistance(const QPointF &a, const QPointF &b) const
 {
     const double dx = b.x() - a.x();
     const double dy = b.y() - a.y();
@@ -485,14 +463,12 @@ double OpenSWMMVisMapToolMeasure::geodesicDistance(const QPointF &a,
     if (srs->isProjected())
         return std::sqrt(dx * dx + dy * dy) * srs->linearUnitsToMetres();
 
-    if (srs->isGeographic())
-    {
+    if (srs->isGeographic()) {
         double lon1 = a.x(), lat1 = a.y();
         double lon2 = b.x(), lat2 = b.y();
 
         // Transform to WGS-84 if the canvas CRS is a different geographic CRS.
-        if (m_toWgs84)
-        {
+        if (m_toWgs84) {
             m_toWgs84->Transform(1, &lon1, &lat1);
             m_toWgs84->Transform(1, &lon2, &lat2);
         }
@@ -516,28 +492,24 @@ double OpenSWMMVisMapToolMeasure::geodesicArea(const QVector<QPointF> &vertices)
 
     auto *srs = m_canvas ? m_canvas->canvasSRS() : nullptr;
 
-    if (!srs)
-    {
+    if (!srs) {
         // No CRS: planar Shoelace in raw units
         double area = 0.0;
         const int n = vertices.size();
-        for (int i = 0; i < n; ++i)
-        {
-            const QPointF &cur  = vertices[i];
+        for (int i = 0; i < n; ++i) {
+            const QPointF &cur = vertices[i];
             const QPointF &next = vertices[(i + 1) % n];
             area += cur.x() * next.y() - next.x() * cur.y();
         }
         return std::abs(area) / 2.0;
     }
 
-    if (srs->isProjected())
-    {
+    if (srs->isProjected()) {
         // Planar Shoelace in CRS units → convert to m²
         double area = 0.0;
         const int n = vertices.size();
-        for (int i = 0; i < n; ++i)
-        {
-            const QPointF &cur  = vertices[i];
+        for (int i = 0; i < n; ++i) {
+            const QPointF &cur = vertices[i];
             const QPointF &next = vertices[(i + 1) % n];
             area += cur.x() * next.y() - next.x() * cur.y();
         }
@@ -545,27 +517,23 @@ double OpenSWMMVisMapToolMeasure::geodesicArea(const QVector<QPointF> &vertices)
         return std::abs(area) / 2.0 * lf * lf;
     }
 
-    if (srs->isGeographic())
-    {
+    if (srs->isGeographic()) {
         // Spherical-excess formula (Krüger / simple trapezoid) over WGS-84 sphere.
         // Transform each vertex to WGS-84 lon/lat if needed.
         constexpr double R2 = 6378137.0 * 6378137.0;
         double area = 0.0;
         const int n = vertices.size();
-        for (int i = 0; i < n; ++i)
-        {
-            double lon1 = vertices[i].x(),           lat1 = vertices[i].y();
+        for (int i = 0; i < n; ++i) {
+            double lon1 = vertices[i].x(), lat1 = vertices[i].y();
             double lon2 = vertices[(i + 1) % n].x(), lat2 = vertices[(i + 1) % n].y();
 
-            if (m_toWgs84)
-            {
+            if (m_toWgs84) {
                 m_toWgs84->Transform(1, &lon1, &lat1);
                 m_toWgs84->Transform(1, &lon2, &lat2);
             }
 
-            area += qDegreesToRadians(lon2 - lon1)
-                  * (2.0 + std::sin(qDegreesToRadians(lat1))
-                         + std::sin(qDegreesToRadians(lat2)));
+            area += qDegreesToRadians(lon2 - lon1) *
+                    (2.0 + std::sin(qDegreesToRadians(lat1)) + std::sin(qDegreesToRadians(lat2)));
         }
         return std::abs(area * R2 / 2.0);
     }
@@ -573,9 +541,8 @@ double OpenSWMMVisMapToolMeasure::geodesicArea(const QVector<QPointF> &vertices)
     // Local CRS: raw planar
     double area = 0.0;
     const int n = vertices.size();
-    for (int i = 0; i < n; ++i)
-    {
-        const QPointF &cur  = vertices[i];
+    for (int i = 0; i < n; ++i) {
+        const QPointF &cur = vertices[i];
         const QPointF &next = vertices[(i + 1) % n];
         area += cur.x() * next.y() - next.x() * cur.y();
     }
@@ -588,11 +555,11 @@ double OpenSWMMVisMapToolMeasure::geodesicArea(const QVector<QPointF> &vertices)
 
 void OpenSWMMVisMapToolMeasure::applyPreferences()
 {
-    auto *p       = PreferencesManager::instance();
-    m_lineColor   = p->measureLineColor();
-    m_labelFont   = QFont(p->measureLabelFontFamily(), p->measureLabelFontSize());
+    auto *p = PreferencesManager::instance();
+    m_lineColor = p->measureLineColor();
+    m_labelFont = QFont(p->measureLabelFontFamily(), p->measureLabelFontSize());
     m_labelDecimals = p->measureLabelDecimals();
-    m_fillColor   = p->measureFillColor();
+    m_fillColor = p->measureFillColor();
     m_fillOpacity = p->measureFillOpacity();
 }
 
@@ -617,8 +584,7 @@ void OpenSWMMVisMapToolMeasure::rebuildTransform()
 
 void OpenSWMMVisMapToolMeasure::clearTransform()
 {
-    if (m_toWgs84)
-    {
+    if (m_toWgs84) {
         OGRCoordinateTransformation::DestroyCT(m_toWgs84);
         m_toWgs84 = nullptr;
     }
@@ -632,14 +598,14 @@ QString OpenSWMMVisMapToolMeasure::formatDist(double metres) const
 {
     const double value = metres * MeasurementUnitManager::metresTo(m_distanceUnit);
     return QStringLiteral("%1 %2")
-           .arg(value, 0, 'f', m_labelDecimals)
-           .arg(MeasurementUnitManager::distanceUnitSymbol(m_distanceUnit));
+        .arg(value, 0, 'f', m_labelDecimals)
+        .arg(MeasurementUnitManager::distanceUnitSymbol(m_distanceUnit));
 }
 
 QString OpenSWMMVisMapToolMeasure::formatArea(double sqm) const
 {
     const double value = sqm * MeasurementUnitManager::squareMetresTo(m_areaUnit);
     return QStringLiteral("%1 %2")
-           .arg(value, 0, 'f', m_labelDecimals)
-           .arg(MeasurementUnitManager::areaUnitSymbol(m_areaUnit));
+        .arg(value, 0, 'f', m_labelDecimals)
+        .arg(MeasurementUnitManager::areaUnitSymbol(m_areaUnit));
 }

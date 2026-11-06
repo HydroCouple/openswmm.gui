@@ -1,9 +1,13 @@
-/*!
- * \file   colorbutton.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      colorbutton.cpp
+ * @brief     Click → QColorDialog; the button shows the current colour as a filled swatch with a
+ *            thin outline.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/colorbutton.h"
 
 #include <QColorDialog>
@@ -13,41 +17,51 @@
 #include <QStyle>
 #include <QStyleOptionButton>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-ColorButton::ColorButton(QWidget *parent)
-    : QPushButton(parent)
+ColorButton::ColorButton(QWidget *parent) : QPushButton(parent)
 {
     setMinimumSize(60, 22);
     setText(QString());
     setCursor(Qt::PointingHandCursor);
+    updateAccessibleDescription();
     connect(this, &QPushButton::clicked, this, &ColorButton::onClicked);
 }
 
-ColorButton::ColorButton(const QColor &initial, QWidget *parent)
-    : ColorButton(parent)
+ColorButton::ColorButton(const QColor &initial, QWidget *parent) : ColorButton(parent)
 {
     m_color = initial;
+    updateAccessibleDescription();
 }
 
 void ColorButton::setColor(const QColor &c)
 {
-    if (m_color == c) return;
+    if (m_color == c)
+        return;
     m_color = c;
+    updateAccessibleDescription();
     update();
     emit colorChanged(c);
+}
+
+void ColorButton::updateAccessibleDescription()
+{
+    // Keep the contextual name supplied by the form's label buddy. Qt emits
+    // DescriptionChanged when this property changes, including alpha-only edits.
+    setAccessibleDescription(m_color.isValid() ? tr("Colour: %1; alpha: %2 of 255 (%3% opacity)")
+                                                     .arg(m_color.name(QColor::HexRgb))
+                                                     .arg(m_color.alpha())
+                                                     .arg(qRound(m_color.alphaF() * 100.0))
+                                               : tr("No colour selected"));
 }
 
 void ColorButton::onClicked()
 {
     const QColorDialog::ColorDialogOptions opts =
-        m_showAlpha ? QColorDialog::ShowAlphaChannel
-                    : QColorDialog::ColorDialogOptions();
-    const QColor picked = QColorDialog::getColor(
-        m_color.isValid() ? m_color : Qt::black,
-        this,
-        tr("Select colour"),
-        opts);
+        m_showAlpha ? QColorDialog::ShowAlphaChannel : QColorDialog::ColorDialogOptions();
+    const QColor picked = QColorDialog::getColor(m_color.isValid() ? m_color : Qt::black, this,
+                                                 tr("Select colour"), opts);
     if (picked.isValid())
         setColor(picked);
 }
@@ -64,7 +78,8 @@ void ColorButton::paintEvent(QPaintEvent *event)
 
     const int pad = 4;
     QRect inner = rect().adjusted(pad, pad, -pad, -pad);
-    if (!inner.isValid()) return;
+    if (!inner.isValid())
+        return;
 
     // Checkered background so users can see transparency.
     if (m_color.alpha() < 255) {

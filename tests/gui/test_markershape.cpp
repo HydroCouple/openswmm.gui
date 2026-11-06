@@ -1,9 +1,9 @@
-/*!
- * \file   test_markershape.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Tests for Slice Z.4 — Marker Symbol Layer.
+/**
+ * @file      test_markershape.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Tests for Slice Z.4 — Marker Symbol Layer.
  *
  *         Success criterion (RENDERING_RULE_MODEL_PLAN.md §16, Z.4):
  *           - All 13 MarkerShape values round-trip through string.
@@ -14,6 +14,7 @@
  *           - outlinePen() composes color + width + style correctly.
  *           - Data-defined override on "size" doesn't collide with the
  *             typed accessors (kept independent).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include <QBrush>
@@ -35,25 +36,122 @@ class TestMarkerShape : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     *
+     * @brief Require all thirteen marker shapes to have nonempty reversible tokens.
+     *
+     */
     void enum_roundTripsThroughString();
+    /**
+     *
+     * @brief Require unknown/empty marker tokens to resolve to Circle.
+     *
+     */
     void enum_unknownStringFallsBackToCircle();
 
+    /**
+     *
+     * @brief Require zero-size marker drawing to leave the transparent raster untouched.
+     *
+     */
     void draw_zeroSizeIsNoop();
+    /**
+     *
+     * @brief Require every marker shape to paint more than thirty nontransparent pixels in the
+     * fixed fixture.
+     *
+     */
     void draw_eachShapeProducesPixelCoverage();
+    /**
+     *
+     * @brief Require triangle rendering at zero and 45 degrees to produce different images.
+     *
+     */
     void draw_rotationProducesDifferentPixels();
+    /**
+     *
+     * @brief Invoke marker drawing with null painter and require completion without a crash; no
+     * pixels are asserted.
+     *
+     */
     void draw_nullPainterIsSafe();
 
+    /**
+     *
+     * @brief Pin Circle default, positive logical-pixel size, valid colors and nonnegative solid
+     * outline.
+     *
+     */
     void spec_defaultsAreSensible();
+    /**
+     *
+     * @brief Require outline color, fractional width and dash-dot style to compose into QPen.
+     *
+     */
     void spec_outlinePenComposesFields();
+    /**
+     *
+     * @brief Require typed marker fields to write SimpleMarker kind and canonical
+     * shape/size/color/width/rotation/offset properties.
+     *
+     */
     void spec_toSymbolLayerSetsKindAndCanonicalProps();
+    /**
+     *
+     * @brief Require typed SymbolLayer conversion to retain all explicitly assigned marker
+     * fields.
+     *
+     */
     void spec_fromSymbolLayerPreservesEveryField();
+    /**
+     *
+     * @brief Check selected geometry fields and fill alpha through spec->layer->JSON->layer->spec
+     * conversion.
+     * This case does not compare every RGB channel/outline-style field.
+     *
+     */
     void spec_roundTripIsLossless();
+    /**
+     *
+     * @brief Require absent size/fill/outline-width properties to retain defaults while explicit
+     * Diamond survives.
+     *
+     */
     void spec_partialPropsFallBackToDefaults();
+    /**
+     *
+     * @brief Require invalid QVariant QColor input to preserve the default fill color.
+     *
+     */
     void spec_invalidFillColorIsRejected();
+    /**
+     *
+     * @brief Require writing typed marker fields to retain an unrelated custom property.
+     *
+     */
     void spec_extraPropsArePreservedOnWrite();
 
 private:
+    /**
+     *
+     * @brief Count pixels with nonzero alpha in a controlled ARGB fixture.
+     * @param img Borrowed 32-bit QRgb-compatible image, normally ARGB32_Premultiplied;
+     * no format conversion or validation is performed.
+     * @return Count of alpha>0 pixels, fitting int for these small images. Reads scanlines
+     * without mutation; alpha magnitude and visual color do not affect counting.
+     *
+     */
     static int nonTransparentPixelCount(const QImage &img);
+    /**
+     *
+     * @brief Rasterize one marker with fixed style for pixel assertions.
+     * @param s Supported marker shape selector.
+     * @param rotationDeg Clockwise painter rotation in degrees, default zero.
+     * @return Owned 64x64 transparent ARGB32_Premultiplied image with a 40-pixel red
+     * marker at (32,32) and 1.5-pixel black outline. Does not save/upload the image,
+     * change a global painter or assert successful allocation.
+     *
+     */
     static QImage paintShape(MarkerShape s, qreal rotationDeg = 0.0);
 };
 
@@ -62,12 +160,11 @@ private:
 void TestMarkerShape::enum_roundTripsThroughString()
 {
     const MarkerShape all[] = {
-        MarkerShape::Circle, MarkerShape::Square, MarkerShape::Triangle,
-        MarkerShape::Diamond, MarkerShape::Star, MarkerShape::Cross,
-        MarkerShape::Plus, MarkerShape::XCross, MarkerShape::Pentagon,
-        MarkerShape::Hexagon, MarkerShape::Arrow,
-        MarkerShape::EquilateralTriangle, MarkerShape::HalfCircle
-    };
+        MarkerShape::Circle,    MarkerShape::Square, MarkerShape::Triangle,
+        MarkerShape::Diamond,   MarkerShape::Star,   MarkerShape::Cross,
+        MarkerShape::Plus,      MarkerShape::XCross, MarkerShape::Pentagon,
+        MarkerShape::Hexagon,   MarkerShape::Arrow,  MarkerShape::EquilateralTriangle,
+        MarkerShape::HalfCircle};
     for (MarkerShape s : all) {
         const QString token = markerShapeToString(s);
         QVERIFY2(!token.isEmpty(), "every shape must serialise to a non-empty token");
@@ -77,8 +174,7 @@ void TestMarkerShape::enum_roundTripsThroughString()
 
 void TestMarkerShape::enum_unknownStringFallsBackToCircle()
 {
-    QCOMPARE(markerShapeFromString(QStringLiteral("nonexistent")),
-             MarkerShape::Circle);
+    QCOMPARE(markerShapeFromString(QStringLiteral("nonexistent")), MarkerShape::Circle);
     QCOMPARE(markerShapeFromString(QString()), MarkerShape::Circle);
 }
 
@@ -101,10 +197,8 @@ QImage TestMarkerShape::paintShape(MarkerShape s, qreal rotationDeg)
     QImage img(64, 64, QImage::Format_ARGB32_Premultiplied);
     img.fill(Qt::transparent);
     QPainter p(&img);
-    drawMarkerShape(&p, s, QPointF(32, 32), 40.0,
-                    QBrush(QColor(255, 0, 0)),
-                    QPen(QColor(0, 0, 0), 1.5),
-                    rotationDeg);
+    drawMarkerShape(&p, s, QPointF(32, 32), 40.0, QBrush(QColor(255, 0, 0)),
+                    QPen(QColor(0, 0, 0), 1.5), rotationDeg);
     p.end();
     return img;
 }
@@ -114,8 +208,8 @@ void TestMarkerShape::draw_zeroSizeIsNoop()
     QImage img(32, 32, QImage::Format_ARGB32_Premultiplied);
     img.fill(Qt::transparent);
     QPainter p(&img);
-    drawMarkerShape(&p, MarkerShape::Circle, QPointF(16, 16),
-                    0.0, QBrush(Qt::red), QPen(Qt::black, 1.0));
+    drawMarkerShape(&p, MarkerShape::Circle, QPointF(16, 16), 0.0, QBrush(Qt::red),
+                    QPen(Qt::black, 1.0));
     p.end();
     QCOMPARE(nonTransparentPixelCount(img), 0);
 }
@@ -123,18 +217,17 @@ void TestMarkerShape::draw_zeroSizeIsNoop()
 void TestMarkerShape::draw_eachShapeProducesPixelCoverage()
 {
     const MarkerShape all[] = {
-        MarkerShape::Circle, MarkerShape::Square, MarkerShape::Triangle,
-        MarkerShape::Diamond, MarkerShape::Star, MarkerShape::Cross,
-        MarkerShape::Plus, MarkerShape::XCross, MarkerShape::Pentagon,
-        MarkerShape::Hexagon, MarkerShape::Arrow,
-        MarkerShape::EquilateralTriangle, MarkerShape::HalfCircle
-    };
+        MarkerShape::Circle,    MarkerShape::Square, MarkerShape::Triangle,
+        MarkerShape::Diamond,   MarkerShape::Star,   MarkerShape::Cross,
+        MarkerShape::Plus,      MarkerShape::XCross, MarkerShape::Pentagon,
+        MarkerShape::Hexagon,   MarkerShape::Arrow,  MarkerShape::EquilateralTriangle,
+        MarkerShape::HalfCircle};
     for (MarkerShape s : all) {
         const QImage img = paintShape(s);
         const int painted = nonTransparentPixelCount(img);
-        QVERIFY2(painted > 30,
-                 qPrintable(QStringLiteral("shape '%1' produced too few pixels (%2)")
-                                .arg(markerShapeToString(s)).arg(painted)));
+        QVERIFY2(painted > 30, qPrintable(QStringLiteral("shape '%1' produced too few pixels (%2)")
+                                              .arg(markerShapeToString(s))
+                                              .arg(painted)));
     }
 }
 
@@ -149,8 +242,8 @@ void TestMarkerShape::draw_rotationProducesDifferentPixels()
 
 void TestMarkerShape::draw_nullPainterIsSafe()
 {
-    drawMarkerShape(nullptr, MarkerShape::Circle, QPointF(0, 0),
-                    10.0, QBrush(Qt::red), QPen(Qt::black));
+    drawMarkerShape(nullptr, MarkerShape::Circle, QPointF(0, 0), 10.0, QBrush(Qt::red),
+                    QPen(Qt::black));
     // No crash — pass.
     QVERIFY(true);
 }
@@ -171,8 +264,8 @@ void TestMarkerShape::spec_defaultsAreSensible()
 void TestMarkerShape::spec_outlinePenComposesFields()
 {
     MarkerSymbolLayerSpec s;
-    s.outlineColor    = QColor(11, 22, 33);
-    s.outlineWidth    = 2.75;
+    s.outlineColor = QColor(11, 22, 33);
+    s.outlineWidth = 2.75;
     s.outlinePenStyle = Qt::DashDotLine;
     const QPen pen = s.outlinePen();
     QCOMPARE(pen.color(), QColor(11, 22, 33));
@@ -183,21 +276,20 @@ void TestMarkerShape::spec_outlinePenComposesFields()
 void TestMarkerShape::spec_toSymbolLayerSetsKindAndCanonicalProps()
 {
     MarkerSymbolLayerSpec s;
-    s.shape        = MarkerShape::Pentagon;
-    s.sizePx       = 14.0;
-    s.fillColor    = QColor(100, 200, 50);
+    s.shape = MarkerShape::Pentagon;
+    s.sizePx = 14.0;
+    s.fillColor = QColor(100, 200, 50);
     s.outlineColor = QColor(20, 20, 20);
     s.outlineWidth = 1.25;
-    s.rotationDeg  = 45.0;
-    s.offsetPx     = QPointF(3.0, -2.5);
+    s.rotationDeg = 45.0;
+    s.offsetPx = QPointF(3.0, -2.5);
 
     SymbolLayer layer = s.toSymbolLayer();
     QCOMPARE(layer.kind, SymbolLayerKind::SimpleMarker);
     QCOMPARE(layer.props.value(QStringLiteral("shape")).toInt(),
              static_cast<int>(MarkerShape::Pentagon));
     QCOMPARE(layer.props.value(QStringLiteral("size")).toDouble(), 14.0);
-    QCOMPARE(layer.props.value(QStringLiteral("fillColor")).value<QColor>(),
-             QColor(100, 200, 50));
+    QCOMPARE(layer.props.value(QStringLiteral("fillColor")).value<QColor>(), QColor(100, 200, 50));
     QCOMPARE(layer.props.value(QStringLiteral("outlineWidth")).toDouble(), 1.25);
     QCOMPARE(layer.props.value(QStringLiteral("rotationDeg")).toDouble(), 45.0);
     QCOMPARE(layer.props.value(QStringLiteral("offsetX")).toDouble(), 3.0);
@@ -207,39 +299,39 @@ void TestMarkerShape::spec_toSymbolLayerSetsKindAndCanonicalProps()
 void TestMarkerShape::spec_fromSymbolLayerPreservesEveryField()
 {
     MarkerSymbolLayerSpec s;
-    s.shape           = MarkerShape::Star;
-    s.sizePx          = 22.5;
-    s.fillColor       = QColor(255, 128, 0);
-    s.outlineColor    = QColor(0, 0, 0);
-    s.outlineWidth    = 0.75;
+    s.shape = MarkerShape::Star;
+    s.sizePx = 22.5;
+    s.fillColor = QColor(255, 128, 0);
+    s.outlineColor = QColor(0, 0, 0);
+    s.outlineWidth = 0.75;
     s.outlinePenStyle = Qt::DashLine;
-    s.rotationDeg     = 17.5;
-    s.offsetPx        = QPointF(-1.0, 4.0);
+    s.rotationDeg = 17.5;
+    s.offsetPx = QPointF(-1.0, 4.0);
 
     SymbolLayer layer = s.toSymbolLayer();
     MarkerSymbolLayerSpec back = MarkerSymbolLayerSpec::fromSymbolLayer(layer);
 
-    QCOMPARE(back.shape,           s.shape);
-    QCOMPARE(back.sizePx,          s.sizePx);
-    QCOMPARE(back.fillColor,       s.fillColor);
-    QCOMPARE(back.outlineColor,    s.outlineColor);
-    QCOMPARE(back.outlineWidth,    s.outlineWidth);
+    QCOMPARE(back.shape, s.shape);
+    QCOMPARE(back.sizePx, s.sizePx);
+    QCOMPARE(back.fillColor, s.fillColor);
+    QCOMPARE(back.outlineColor, s.outlineColor);
+    QCOMPARE(back.outlineWidth, s.outlineWidth);
     QCOMPARE(back.outlinePenStyle, s.outlinePenStyle);
-    QCOMPARE(back.rotationDeg,     s.rotationDeg);
-    QCOMPARE(back.offsetPx,        s.offsetPx);
+    QCOMPARE(back.rotationDeg, s.rotationDeg);
+    QCOMPARE(back.offsetPx, s.offsetPx);
 }
 
 void TestMarkerShape::spec_roundTripIsLossless()
 {
     // The full pipeline: spec → SymbolLayer → JSON → SymbolLayer → spec.
     MarkerSymbolLayerSpec s;
-    s.shape         = MarkerShape::Hexagon;
-    s.sizePx        = 9.5;
-    s.fillColor     = QColor(50, 100, 150, 200);
-    s.outlineColor  = QColor(255, 0, 0);
-    s.outlineWidth  = 1.0;
-    s.rotationDeg   = 30.0;
-    s.offsetPx      = QPointF(0.5, 0.5);
+    s.shape = MarkerShape::Hexagon;
+    s.sizePx = 9.5;
+    s.fillColor = QColor(50, 100, 150, 200);
+    s.outlineColor = QColor(255, 0, 0);
+    s.outlineWidth = 1.0;
+    s.rotationDeg = 30.0;
+    s.offsetPx = QPointF(0.5, 0.5);
 
     SymbolLayer a = s.toSymbolLayer();
     const QJsonObject j = a.toJson();
@@ -247,11 +339,11 @@ void TestMarkerShape::spec_roundTripIsLossless()
     b.fromJson(j);
 
     MarkerSymbolLayerSpec back = MarkerSymbolLayerSpec::fromSymbolLayer(b);
-    QCOMPARE(back.shape,        s.shape);
-    QCOMPARE(back.sizePx,       s.sizePx);
+    QCOMPARE(back.shape, s.shape);
+    QCOMPARE(back.sizePx, s.sizePx);
     QCOMPARE(back.outlineWidth, s.outlineWidth);
-    QCOMPARE(back.rotationDeg,  s.rotationDeg);
-    QCOMPARE(back.offsetPx,     s.offsetPx);
+    QCOMPARE(back.rotationDeg, s.rotationDeg);
+    QCOMPARE(back.offsetPx, s.offsetPx);
     // Colours round-trip through JSON via SymbolLayer's serialisation.
     QCOMPARE(back.fillColor.alpha(), s.fillColor.alpha());
 }
@@ -265,16 +357,16 @@ void TestMarkerShape::spec_partialPropsFallBackToDefaults()
     MarkerSymbolLayerSpec back = MarkerSymbolLayerSpec::fromSymbolLayer(layer);
     QCOMPARE(back.shape, MarkerShape::Diamond);
     MarkerSymbolLayerSpec defaults;
-    QCOMPARE(back.sizePx,        defaults.sizePx);
-    QCOMPARE(back.fillColor,     defaults.fillColor);
-    QCOMPARE(back.outlineWidth,  defaults.outlineWidth);
+    QCOMPARE(back.sizePx, defaults.sizePx);
+    QCOMPARE(back.fillColor, defaults.fillColor);
+    QCOMPARE(back.outlineWidth, defaults.outlineWidth);
 }
 
 void TestMarkerShape::spec_invalidFillColorIsRejected()
 {
     SymbolLayer layer;
     layer.kind = SymbolLayerKind::SimpleMarker;
-    layer.props[QStringLiteral("fillColor")] = QVariant::fromValue(QColor());  // invalid
+    layer.props[QStringLiteral("fillColor")] = QVariant::fromValue(QColor()); // invalid
     MarkerSymbolLayerSpec back = MarkerSymbolLayerSpec::fromSymbolLayer(layer);
     MarkerSymbolLayerSpec defaults;
     QCOMPARE(back.fillColor, defaults.fillColor);
@@ -287,7 +379,7 @@ void TestMarkerShape::spec_extraPropsArePreservedOnWrite()
     layer.props[QStringLiteral("customExtra")] = QStringLiteral("keep me");
 
     MarkerSymbolLayerSpec s;
-    s.shape  = MarkerShape::Hexagon;
+    s.shape = MarkerShape::Hexagon;
     s.sizePx = 11.0;
     s.writeToSymbolLayer(layer);
 

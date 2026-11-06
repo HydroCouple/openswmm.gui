@@ -1,10 +1,12 @@
-/*!
- * \file   userflagvaluesdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  UserFlagValuesDialog implementation — see userflagvaluesdialog.h.
+/**
+ * @file      userflagvaluesdialog.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     UserFlagValuesDialog implementation — see userflagvaluesdialog.h.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/userflagvaluesdialog.h"
 
 #include "ui/models/userflagsmodel.h"
@@ -20,10 +22,17 @@
 using openswmmvis::ui::UserFlagsModel;
 using FlagType = UserFlagsModel::FlagType;
 
-namespace {
+namespace
+{
 
 enum Column { ColFlag = 0, ColType = 1, ColValue = 2, ColCount = 3 };
 
+/**
+ * @param[in] found False initializes unset regardless of isYes; true initializes a concrete value.
+ * @param[in] isYes Used only when found: true selects YES, false selects NO.
+ * @return New parentless combo with unset=-1, YES=1 and NO=0 item data. Table/caller owns widget;
+ *   no model write or signals connected.
+ */
 QComboBox *makeBoolCombo(bool found, bool isYes)
 {
     auto *combo = new QComboBox;
@@ -37,35 +46,28 @@ QComboBox *makeBoolCombo(bool found, bool isYes)
 } // namespace
 
 UserFlagValuesDialog::UserFlagValuesDialog(UserFlagsEditRef ref, QWidget *parent)
-    : QDialog(parent)
-    , m_ref(std::move(ref))
+    : QDialog(parent), m_ref(std::move(ref))
 {
     setWindowTitle(tr("User Flags — %1").arg(m_ref.objectName));
     // Iteration 2 (D3) — naming wires the app-wide layout persistence.
     setObjectName(QStringLiteral("UserFlagValuesDialog"));
     resize(480, 320);
 
-    auto *intro = new QLabel(
-        tr("Flag values for %1 \"%2\". Leave a value blank (or pick "
-           "\"(unset)\") to remove the assignment.")
-            .arg(m_ref.objectType.toLower(), m_ref.objectName));
+    auto *intro = new QLabel(tr("Flag values for %1 \"%2\". Leave a value blank (or pick "
+                                "\"(unset)\") to remove the assignment.")
+                                 .arg(m_ref.objectType.toLower(), m_ref.objectName));
     intro->setWordWrap(true);
 
     m_table = new QTableWidget(0, ColCount, this);
     m_table->setHorizontalHeaderLabels({tr("Flag"), tr("Type"), tr("Value")});
-    m_table->horizontalHeader()->setSectionResizeMode(ColFlag,
-                                                      QHeaderView::ResizeToContents);
-    m_table->horizontalHeader()->setSectionResizeMode(ColType,
-                                                      QHeaderView::ResizeToContents);
-    m_table->horizontalHeader()->setSectionResizeMode(ColValue,
-                                                      QHeaderView::Stretch);
+    m_table->horizontalHeader()->setSectionResizeMode(ColFlag, QHeaderView::Interactive);
+    m_table->horizontalHeader()->setSectionResizeMode(ColType, QHeaderView::Interactive);
+    m_table->horizontalHeader()->setSectionResizeMode(ColValue, QHeaderView::Interactive);
     m_table->verticalHeader()->setVisible(false);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
 
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok |
-                                         QDialogButtonBox::Cancel, this);
-    connect(buttons, &QDialogButtonBox::accepted,
-            this, &UserFlagValuesDialog::onAccepted);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
+    connect(buttons, &QDialogButtonBox::accepted, this, &UserFlagValuesDialog::onAccepted);
     connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
     auto *layout = new QVBoxLayout(this);
@@ -79,7 +81,8 @@ UserFlagValuesDialog::UserFlagValuesDialog(UserFlagsEditRef ref, QWidget *parent
 void UserFlagValuesDialog::reloadFromModel()
 {
     m_table->setRowCount(0);
-    if (!m_ref.model) return;
+    if (!m_ref.model)
+        return;
 
     for (const auto &def : m_ref.model->defs()) {
         const int row = m_table->rowCount();
@@ -91,22 +94,16 @@ void UserFlagValuesDialog::reloadFromModel()
             flagItem->setToolTip(def.description);
         m_table->setItem(row, ColFlag, flagItem);
 
-        auto *typeItem =
-            new QTableWidgetItem(UserFlagsModel::typeLabel(def.type));
+        auto *typeItem = new QTableWidgetItem(UserFlagsModel::typeLabel(def.type));
         typeItem->setFlags(typeItem->flags() & ~Qt::ItemIsEditable);
         m_table->setItem(row, ColType, typeItem);
 
         bool found = false;
-        const QString v = m_ref.model->value(m_ref.objectType,
-                                             m_ref.objectName,
-                                             def.name, &found);
+        const QString v = m_ref.model->value(m_ref.objectType, m_ref.objectName, def.name, &found);
         if (def.type == FlagType::Boolean) {
-            m_table->setCellWidget(row, ColValue,
-                                   makeBoolCombo(found,
-                                                 v == QStringLiteral("YES")));
+            m_table->setCellWidget(row, ColValue, makeBoolCombo(found, v == QStringLiteral("YES")));
         } else {
-            m_table->setItem(row, ColValue,
-                             new QTableWidgetItem(found ? v : QString()));
+            m_table->setItem(row, ColValue, new QTableWidgetItem(found ? v : QString()));
         }
     }
 }
@@ -114,7 +111,8 @@ void UserFlagValuesDialog::reloadFromModel()
 bool UserFlagValuesDialog::applyChanges(QString *outError)
 {
     if (!m_ref.model) {
-        if (outError) *outError = tr("No project is open.");
+        if (outError)
+            *outError = tr("No project is open.");
         return false;
     }
 
@@ -123,15 +121,13 @@ bool UserFlagValuesDialog::applyChanges(QString *outError)
         const auto &def = defs[row];
 
         bool currentFound = false;
-        const QString current = m_ref.model->value(m_ref.objectType,
-                                                   m_ref.objectName,
-                                                   def.name, &currentFound);
+        const QString current =
+            m_ref.model->value(m_ref.objectType, m_ref.objectName, def.name, &currentFound);
 
         // Staged value: combo for booleans, text item otherwise.
         bool stagedSet = false;
         QString staged;
-        if (const auto *combo =
-                qobject_cast<QComboBox *>(m_table->cellWidget(row, ColValue))) {
+        if (const auto *combo = qobject_cast<QComboBox *>(m_table->cellWidget(row, ColValue))) {
             const int data = combo->currentData().toInt();
             stagedSet = (data >= 0);
             staged = (data == 1) ? QStringLiteral("YES") : QStringLiteral("NO");
@@ -142,21 +138,20 @@ bool UserFlagValuesDialog::applyChanges(QString *outError)
 
         if (!stagedSet) {
             if (currentFound) {
-                m_ref.model->clearValue(m_ref.objectType, m_ref.objectName,
-                                        def.name);
+                m_ref.model->clearValue(m_ref.objectType, m_ref.objectName, def.name);
                 m_wroteAnyChanges = true;
             }
             continue;
         }
         if (currentFound && staged == current)
-            continue;  // unchanged
+            continue; // unchanged
 
         QString err;
-        if (!m_ref.model->setValue(m_ref.objectType, m_ref.objectName,
-                                   def.name, staged, &err)) {
+        if (!m_ref.model->setValue(m_ref.objectType, m_ref.objectName, def.name, staged, &err)) {
             // Earlier rows may already have committed — m_wroteAnyChanges
             // reflects that so the caller still marks the project dirty.
-            if (outError) *outError = err;
+            if (outError)
+                *outError = err;
             return false;
         }
         m_wroteAnyChanges = true;
@@ -167,8 +162,7 @@ bool UserFlagValuesDialog::applyChanges(QString *outError)
 
 QString UserFlagValuesDialog::updatedSummary() const
 {
-    return userFlagsSummaryFor(m_ref.model, m_ref.objectType,
-                               m_ref.objectName);
+    return userFlagsSummaryFor(m_ref.model, m_ref.objectType, m_ref.objectName);
 }
 
 void UserFlagValuesDialog::onAccepted()
@@ -177,7 +171,7 @@ void UserFlagValuesDialog::onAccepted()
     if (!applyChanges(&err)) {
         if (m_confirmationsEnabled)
             QMessageBox::warning(this, tr("User Flags"), err);
-        return;  // keep the dialog open so the user can fix the value
+        return; // keep the dialog open so the user can fix the value
     }
     accept();
 }

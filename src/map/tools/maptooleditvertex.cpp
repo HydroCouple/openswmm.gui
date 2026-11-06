@@ -1,7 +1,11 @@
-/*!
- * \file   maptooleditvertex.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date 2026
+/**
+ * @file      maptooleditvertex.cpp
+ * @brief     Link polylines are stored inclusive of the from/to node coordinates at indices 0 and
+ *            n−1.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/tools/maptooleditvertex.h"
@@ -9,7 +13,6 @@
 #include "map/mapundostack.h"
 #include "layers/swmmmodellayer.h"
 #include "core/editgeometry.h"
-
 
 #include <QKeyEvent>
 #include <QMenu>
@@ -41,13 +44,13 @@ void OpenSWMMVisMapToolEditVertex::deactivate()
 
 void OpenSWMMVisMapToolEditVertex::clearActiveLink()
 {
-    m_layer    = nullptr;
-    m_linkIdx  = -1;
+    m_layer = nullptr;
+    m_linkIdx = -1;
     m_linkName.clear();
     m_interior.clear();
-    m_dragging   = false;
+    m_dragging = false;
     m_dragVertex = -1;
-    m_snapping   = false;
+    m_snapping = false;
     if (m_canvas)
         m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("editvertex-clear"));
 }
@@ -56,7 +59,8 @@ OpenSWMMVisMapToolEditVertex::LinkHit
 OpenSWMMVisMapToolEditVertex::pickLink(const QPoint &pixel) const
 {
     LinkHit h;
-    if (!m_canvas) return h;
+    if (!m_canvas)
+        return h;
 
     double mx = 0.0, my = 0.0;
     toMapCoords(pixel.x(), pixel.y(), mx, my);
@@ -69,23 +73,24 @@ OpenSWMMVisMapToolEditVertex::pickLink(const QPoint &pixel) const
     const double tol = std::max(std::abs(mx2 - mx), std::abs(my2 - my));
 
     for (OpenSWMMVisLayer *l : m_canvas->layers()) {
-        if (!l->isVisible()) continue;
+        if (!l->isVisible())
+            continue;
         auto *sl = qobject_cast<SWMMModelLayer *>(l);
-        if (!sl) continue;
-
-        const auto r = sl->pickAt(mx, my, tol);
-        if (!r.valid) continue;
-        // Only link categories.
-        if (r.cat != SWMMModelLayer::CatConduits
-         && r.cat != SWMMModelLayer::CatPumps
-         && r.cat != SWMMModelLayer::CatOrifices
-         && r.cat != SWMMModelLayer::CatWeirs
-         && r.cat != SWMMModelLayer::CatOutlets)
+        if (!sl)
             continue;
 
-        h.layer   = sl;
+        const auto r = sl->pickAt(mx, my, tol);
+        if (!r.valid)
+            continue;
+        // Only link categories.
+        if (r.cat != SWMMModelLayer::CatConduits && r.cat != SWMMModelLayer::CatPumps &&
+            r.cat != SWMMModelLayer::CatOrifices && r.cat != SWMMModelLayer::CatWeirs &&
+            r.cat != SWMMModelLayer::CatOutlets)
+            continue;
+
+        h.layer = sl;
         h.linkIdx = r.soaIndex;
-        h.name    = r.name;
+        h.name = r.name;
         return h;
     }
     return h;
@@ -93,8 +98,7 @@ OpenSWMMVisMapToolEditVertex::pickLink(const QPoint &pixel) const
 
 int OpenSWMMVisMapToolEditVertex::hitTestInteriorHandle(const QPoint &pixel) const
 {
-    for (int i = 0; i < m_interior.size(); ++i)
-    {
+    for (int i = 0; i < m_interior.size(); ++i) {
         int hx = 0, hy = 0;
         toPixelCoords(m_interior[i].x(), m_interior[i].y(), hx, hy);
         const int dx = pixel.x() - hx;
@@ -107,18 +111,17 @@ int OpenSWMMVisMapToolEditVertex::hitTestInteriorHandle(const QPoint &pixel) con
 
 void OpenSWMMVisMapToolEditVertex::mousePressEvent(QMouseEvent *event)
 {
-    if (!m_canvas) return;
+    if (!m_canvas)
+        return;
 
     // Right-click context menu (either insert on segment or delete a handle)
-    if (event->button() == Qt::RightButton)
-    {
+    if (event->button() == Qt::RightButton) {
         if (!m_layer || m_linkIdx < 0)
             return;
 
         const int handleIdx = hitTestInteriorHandle(event->pos());
         QMenu menu;
-        if (handleIdx >= 0)
-        {
+        if (handleIdx >= 0) {
             QAction *del = menu.addAction(tr("Delete vertex"));
             if (menu.exec(event->globalPosition().toPoint()) == del)
                 commitInterior(EditGeometry::removedAt(m_interior, handleIdx));
@@ -154,31 +157,29 @@ void OpenSWMMVisMapToolEditVertex::mousePressEvent(QMouseEvent *event)
         return;
     }
 
-    if (event->button() != Qt::LeftButton) return;
+    if (event->button() != Qt::LeftButton)
+        return;
 
     // If a link is active, check interior handle hit first.
-    if (m_layer && m_linkIdx >= 0)
-    {
+    if (m_layer && m_linkIdx >= 0) {
         const int h = hitTestInteriorHandle(event->pos());
-        if (h >= 0)
-        {
-            m_dragging    = true;
-            m_dragVertex  = h;
-            m_dragOrigPt  = m_interior[h]; // pre-drag position for snap exclusion
+        if (h >= 0) {
+            m_dragging = true;
+            m_dragVertex = h;
+            m_dragOrigPt = m_interior[h]; // pre-drag position for snap exclusion
             return;
         }
     }
 
     // Otherwise try to pick a link to activate.
     const LinkHit hit = pickLink(event->pos());
-    if (!hit.valid())
-    {
+    if (!hit.valid()) {
         clearActiveLink();
         return;
     }
 
-    m_layer    = hit.layer;
-    m_linkIdx  = hit.linkIdx;
+    m_layer = hit.layer;
+    m_linkIdx = hit.linkIdx;
     m_linkName = hit.name;
     m_interior = m_layer->cachedLinkInteriorVertices(m_linkIdx);
 
@@ -205,7 +206,7 @@ void OpenSWMMVisMapToolEditVertex::mouseMoveEvent(QMouseEvent *event)
         if (m_layer->snapNearestPoint(mx, my, mapRadius, snapPt, m_dragOrigPt)) {
             sx = snapPt.x();
             sy = snapPt.y();
-            m_snapPt   = snapPt;
+            m_snapPt = snapPt;
             m_snapping = true;
         }
     }
@@ -219,9 +220,10 @@ void OpenSWMMVisMapToolEditVertex::mouseMoveEvent(QMouseEvent *event)
 void OpenSWMMVisMapToolEditVertex::mouseReleaseEvent(QMouseEvent *event)
 {
     Q_UNUSED(event)
-    if (!m_dragging) return;
-    m_dragging   = false;
-    m_snapping   = false;
+    if (!m_dragging)
+        return;
+    m_dragging = false;
+    m_snapping = false;
     const int idx = m_dragVertex;
     m_dragVertex = -1;
 
@@ -242,8 +244,7 @@ void OpenSWMMVisMapToolEditVertex::mouseDoubleClickEvent(QMouseEvent *event)
 
 void OpenSWMMVisMapToolEditVertex::keyPressEvent(QKeyEvent *event)
 {
-    if (event->key() == Qt::Key_Escape)
-    {
+    if (event->key() == Qt::Key_Escape) {
         clearActiveLink();
         event->accept();
     }
@@ -257,8 +258,7 @@ void OpenSWMMVisMapToolEditVertex::commitInterior(QVector<QPointF> newInterior)
     const QVector<QPointF> oldInterior = m_layer->cachedLinkInteriorVertices(m_linkIdx);
 
     bool autoLength = false;
-    if (m_canvas)
-    {
+    if (m_canvas) {
         const QVariant v = m_canvas->property("autoLength");
         autoLength = v.isValid() ? v.toBool() : false;
     }
@@ -266,8 +266,7 @@ void OpenSWMMVisMapToolEditVertex::commitInterior(QVector<QPointF> newInterior)
 
     double oldLen = 0.0;
     double newLen = 0.0;
-    if (autoLength)
-    {
+    if (autoLength) {
         oldLen = m_layer->engineLinkLength(m_linkIdx);
 
         // Build the full polyline with the new interior and measure. The
@@ -275,15 +274,15 @@ void OpenSWMMVisMapToolEditVertex::commitInterior(QVector<QPointF> newInterior)
         const QVector<QPointF> cached = m_layer->cachedLinkPolyline(m_linkIdx);
         QVector<QPointF> full;
         full.reserve(newInterior.size() + 2);
-        if (!cached.isEmpty()) full.append(cached.first());
+        if (!cached.isEmpty())
+            full.append(cached.first());
         full.append(newInterior);
-        if (cached.size() >= 2) full.append(cached.last());
+        if (cached.size() >= 2)
+            full.append(cached.last());
         newLen = m_layer->polylineLengthInModelUnits(full);
     }
 
-    auto *cmd = new EditVertexCommand(m_layer, m_linkIdx,
-                                      oldInterior, newInterior,
-                                      oldLen, newLen,
+    auto *cmd = new EditVertexCommand(m_layer, m_linkIdx, oldInterior, newInterior, oldLen, newLen,
                                       autoLength, m_canvas);
     if (m_canvas->undoStack())
         m_canvas->undoStack()->push(cmd);
@@ -299,9 +298,8 @@ void OpenSWMMVisMapToolEditVertex::commitInterior(QVector<QPointF> newInterior)
                          QStringLiteral("editvertex-commit"));
 }
 
-void OpenSWMMVisMapToolEditVertex::paint(QPainter *painter,
-                                          const MapExtent &,
-                                          const SpatialReferenceSystem *)
+void OpenSWMMVisMapToolEditVertex::paint(QPainter *painter, const MapExtent &,
+                                         const SpatialReferenceSystem *)
 {
     if (!m_layer || m_linkIdx < 0 || !m_canvas)
         return;
@@ -311,14 +309,12 @@ void OpenSWMMVisMapToolEditVertex::paint(QPainter *painter,
 
     // Faint outline along the active link
     const QVector<QPointF> full = m_layer->cachedLinkPolyline(m_linkIdx);
-    if (full.size() >= 2)
-    {
+    if (full.size() >= 2) {
         QPainterPath path;
         int px = 0, py = 0;
         toPixelCoords(full[0].x(), full[0].y(), px, py);
         path.moveTo(px, py);
-        for (int i = 1; i < full.size(); ++i)
-        {
+        for (int i = 1; i < full.size(); ++i) {
             toPixelCoords(full[i].x(), full[i].y(), px, py);
             path.lineTo(px, py);
         }
@@ -331,8 +327,7 @@ void OpenSWMMVisMapToolEditVertex::paint(QPainter *painter,
     // Interior handles — squares at each editable interior vertex.
     painter->setBrush(Qt::white);
     painter->setPen(QPen(QColor(255, 80, 0), 1.5));
-    for (const QPointF &v : m_interior)
-    {
+    for (const QPointF &v : m_interior) {
         int px = 0, py = 0;
         toPixelCoords(v.x(), v.y(), px, py);
         painter->drawRect(px - 4, py - 4, 8, 8);

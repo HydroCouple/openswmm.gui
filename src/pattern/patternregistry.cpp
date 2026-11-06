@@ -1,20 +1,21 @@
-/*!
- * \file   patternregistry.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      patternregistry.cpp
+ * @brief     PatternProvider instances.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "pattern/patternregistry.h"
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_tables.h>
 
-namespace openswmmvis::pattern {
-
-PatternRegistry::PatternRegistry(QObject *parent)
-    : QObject(parent)
+namespace openswmmvis::pattern
 {
-}
+
+PatternRegistry::PatternRegistry(QObject *parent) : QObject(parent) {}
 
 PatternRegistry::~PatternRegistry() = default;
 
@@ -25,7 +26,8 @@ PatternProvider *PatternRegistry::findByName(const QString &name) const
 
 PatternProvider *PatternRegistry::create(const QString &name, PatternType type)
 {
-    if (name.isEmpty() || hasName(name)) return nullptr;
+    if (name.isEmpty() || hasName(name))
+        return nullptr;
 
     auto *p = new PatternProvider(name, type, this);
     m_providers.push_back(p);
@@ -41,57 +43,68 @@ PatternProvider *PatternRegistry::create(const QString &name, PatternType type)
                 emit providerRenamed(p, prev, now);
             });
 
+    // Factor edits land on the provider, never on the registry. Mirror them
+    // so the engine's multiplier list is never stale — or, right after
+    // create(), empty: swmm_pattern_add stores no factors, and a pattern
+    // written with none was the "saved without its 24 multipliers" report.
+    connect(p, &PatternProvider::factorChanged, this, [this, p](int) { pushFactors(p); });
+    connect(p, &PatternProvider::factorsChanged, this, [this, p] { pushFactors(p); });
+
     if (m_engineHandle) {
         auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
         const QByteArray idUtf8 = name.toUtf8();
         // If the engine already has the pattern (e.g. it was loaded from the
         // model and we're re-creating a view-side provider) the add is a no-op
         // path — swmm_pattern_add returns SWMM_ERR_BADPARAM on duplicate IDs.
-        if (swmm_pattern_index(eng, idUtf8.constData()) < 0)
-            swmm_pattern_add(eng, idUtf8.constData(), static_cast<int>(type));
+        if (swmm_pattern_index(eng, idUtf8.constData()) < 0 &&
+            swmm_pattern_add(eng, idUtf8.constData(), static_cast<int>(type)) == SWMM_OK)
+            pushFactors(p);
     }
 
     emit providerAdded(p);
     return p;
 }
 
-PatternProvider *PatternRegistry::duplicate(const QString &srcName,
-                                              const QString &newName)
+void PatternRegistry::pushFactors(PatternProvider *p)
+{
+    if (!m_engineHandle || !p)
+        return;
+    auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+    const int idx = swmm_pattern_index(eng, p->name().toUtf8().constData());
+    if (idx < 0)
+        return;
+    const auto &f = p->factors();
+    swmm_pattern_set_factors(eng, idx, f.constData(), f.size());
+}
+
+PatternProvider *PatternRegistry::duplicate(const QString &srcName, const QString &newName)
 {
     PatternProvider *src = findByName(srcName);
-    if (!src) return nullptr;
-    if (newName.isEmpty() || hasName(newName)) return nullptr;
+    if (!src)
+        return nullptr;
+    if (newName.isEmpty() || hasName(newName))
+        return nullptr;
 
     PatternProvider *clone = create(newName, src->type());
-    if (!clone) return nullptr;
+    if (!clone)
+        return nullptr;
 
     QVector<double> copied = src->factors();
-    clone->setAllFactors(std::move(copied));
-
-    // Mirror the factors to the engine immediately (create() only added the
-    // pattern shell). Engine factors otherwise stay at whatever was set when
-    // swmm_pattern_add was called — currently empty.
-    if (m_engineHandle) {
-        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
-        const QByteArray idUtf8 = newName.toUtf8();
-        const int idx = swmm_pattern_index(eng, idUtf8.constData());
-        if (idx >= 0) {
-            const auto &f = clone->factors();
-            swmm_pattern_set_factors(eng, idx, f.constData(), f.size());
-        }
-    }
+    clone->setAllFactors(std::move(copied)); // factorsChanged → pushFactors
     return clone;
 }
 
 void PatternRegistry::remove(PatternProvider *p)
 {
-    if (!p || !m_providers.contains(p)) return;
+    if (!p || !m_providers.contains(p))
+        return;
 
     if (m_engineHandle) {
         auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
         const QByteArray idUtf8 = p->name().toUtf8();
         const int idx = swmm_pattern_index(eng, idUtf8.constData());
-        if (idx >= 0) swmm_pattern_remove(eng, idx);
+        if (idx >= 0)
+            swmm_pattern_remove(eng, idx);
     }
 
     emit providerAboutToBeRemoved(p);
@@ -102,7 +115,8 @@ void PatternRegistry::remove(PatternProvider *p)
 
 bool PatternRegistry::rename(PatternProvider *p, const QString &newName)
 {
-    if (!p || newName.isEmpty()) return false;
+    if (!p || newName.isEmpty())
+        return false;
     if (p->name().compare(newName, Qt::CaseInsensitive) == 0) {
         // Same name (possibly different case) — apply directly.
         if (m_engineHandle) {
@@ -115,44 +129,50 @@ bool PatternRegistry::rename(PatternProvider *p, const QString &newName)
         p->setName(newName);
         return true;
     }
-    if (hasName(newName)) return false;   // Collision with a different provider.
+    if (hasName(newName))
+        return false; // Collision with a different provider.
 
     if (m_engineHandle) {
         auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
         const QByteArray prevUtf8 = p->name().toUtf8();
         const int idx = swmm_pattern_index(eng, prevUtf8.constData());
         if (idx >= 0) {
-            const int rc = swmm_pattern_rename(eng, idx,
-                                                newName.toUtf8().constData());
+            const int rc = swmm_pattern_rename(eng, idx, newName.toUtf8().constData());
             // SWMM_ERR_BADPARAM here indicates an engine-side collision (a
             // pattern was added directly to the engine since loadFromEngine).
             // Reject the rename and leave both sides untouched.
-            if (rc != SWMM_OK) return false;
+            if (rc != SWMM_OK)
+                return false;
         }
     }
-    p->setName(newName);                  // nameChanged signal re-keys m_byLowerName.
+    p->setName(newName); // nameChanged signal re-keys m_byLowerName.
     return true;
 }
 
 int PatternRegistry::loadFromEngine(void *engineHandle)
 {
-    if (!engineHandle) return 0;
+    if (!engineHandle)
+        return 0;
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
 
     const int n = swmm_pattern_count(eng);
     int added = 0;
     for (int i = 0; i < n; ++i) {
         const char *cid = swmm_pattern_id(eng, i);
-        if (!cid || !*cid) continue;
+        if (!cid || !*cid)
+            continue;
         const QString id = QString::fromUtf8(cid);
-        if (hasName(id)) continue;
+        if (hasName(id))
+            continue;
 
         int typeInt = 0;
-        if (swmm_pattern_get_type(eng, i, &typeInt) != SWMM_OK) continue;
+        if (swmm_pattern_get_type(eng, i, &typeInt) != SWMM_OK)
+            continue;
         const auto type = static_cast<PatternType>(typeInt);
 
         PatternProvider *p = create(id, type);
-        if (!p) continue;
+        if (!p)
+            continue;
 
         int fc = 0;
         if (swmm_pattern_get_factor_count(eng, i, &fc) != SWMM_OK || fc <= 0) {
@@ -164,7 +184,8 @@ int PatternRegistry::loadFromEngine(void *engineHandle)
         factors.reserve(fc);
         for (int j = 0; j < fc; ++j) {
             double v = 0.0;
-            if (swmm_pattern_get_factor(eng, i, j, &v) != SWMM_OK) v = 0.0;
+            if (swmm_pattern_get_factor(eng, i, j, &v) != SWMM_OK)
+                v = 0.0;
             factors.push_back(v);
         }
         if (factors.size() == p->factorCount())
@@ -176,22 +197,24 @@ int PatternRegistry::loadFromEngine(void *engineHandle)
 
 int PatternRegistry::saveToEngine(void *engineHandle)
 {
-    if (!engineHandle) return 0;
+    if (!engineHandle)
+        return 0;
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
     int written = 0;
 
     for (PatternProvider *p : std::as_const(m_providers)) {
-        if (!p) continue;
+        if (!p)
+            continue;
 
         const QByteArray idUtf8 = p->name().toUtf8();
         int idx = swmm_pattern_index(eng, idUtf8.constData());
         if (idx < 0) {
             // Engine doesn't have this pattern yet — add it (BUILDING state).
-            if (swmm_pattern_add(eng, idUtf8.constData(),
-                                  static_cast<int>(p->type())) != SWMM_OK)
+            if (swmm_pattern_add(eng, idUtf8.constData(), static_cast<int>(p->type())) != SWMM_OK)
                 continue;
             idx = swmm_pattern_index(eng, idUtf8.constData());
-            if (idx < 0) continue;
+            if (idx < 0)
+                continue;
         }
 
         const auto &f = p->factors();
@@ -199,6 +222,11 @@ int PatternRegistry::saveToEngine(void *engineHandle)
             ++written;
     }
     return written;
+}
+
+int PatternRegistry::saveToEngine()
+{
+    return saveToEngine(m_engineHandle);
 }
 
 } // namespace openswmmvis::pattern

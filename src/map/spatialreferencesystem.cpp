@@ -1,11 +1,11 @@
-/*!
- * \file   spatialreferencesystem.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
+/**
+ * @file      spatialreferencesystem.cpp
+ * @brief     metadata, serialisation helpers, and transformation factory methods.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @details
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/spatialreferencesystem.h"
@@ -19,26 +19,20 @@
 // Constructors / destructor
 // ---------------------------------------------------------------------------
 
-SpatialReferenceSystem::SpatialReferenceSystem(const QString &authName,
-                                               int code,
-                                               QObject *parent)
+SpatialReferenceSystem::SpatialReferenceSystem(const QString &authName, int code, QObject *parent)
     : QObject(parent)
 {
     initFromAuthCode(authName, code);
 }
 
-SpatialReferenceSystem::SpatialReferenceSystem(const QString &wktOrProj,
-                                               QObject *parent)
+SpatialReferenceSystem::SpatialReferenceSystem(const QString &wktOrProj, QObject *parent)
     : QObject(parent)
 {
     initFromWktOrProj(wktOrProj);
 }
 
-SpatialReferenceSystem::SpatialReferenceSystem(const SpatialReferenceSystem &other,
-                                               QObject *parent)
-    : QObject(parent),
-      m_authName(other.m_authName),
-      m_code(other.m_code),
+SpatialReferenceSystem::SpatialReferenceSystem(const SpatialReferenceSystem &other, QObject *parent)
+    : QObject(parent), m_authName(other.m_authName), m_code(other.m_code),
       m_description(other.m_description)
 {
     if (other.m_ogrSRS)
@@ -61,18 +55,18 @@ void SpatialReferenceSystem::initFromAuthCode(const QString &authName, int code)
 
     const QString importStr = QStringLiteral("%1:%2").arg(authName).arg(code);
     OGRErr err = m_ogrSRS->SetFromUserInput(importStr.toUtf8().constData());
-    if (err != OGRERR_NONE)
-    {
+    if (err != OGRERR_NONE) {
         delete m_ogrSRS;
         m_ogrSRS = nullptr;
         return;
     }
 
     m_authName = authName.toUpper();
-    m_code     = code;
+    m_code = code;
 
     const char *name = m_ogrSRS->GetName();
-    if (name) m_description = QString::fromUtf8(name);
+    if (name)
+        m_description = QString::fromUtf8(name);
 }
 
 void SpatialReferenceSystem::initFromWktOrProj(const QString &wktOrProj)
@@ -81,8 +75,7 @@ void SpatialReferenceSystem::initFromWktOrProj(const QString &wktOrProj)
     m_ogrSRS->SetAxisMappingStrategy(OAMS_TRADITIONAL_GIS_ORDER);
 
     OGRErr err = m_ogrSRS->SetFromUserInput(wktOrProj.toUtf8().constData());
-    if (err != OGRERR_NONE)
-    {
+    if (err != OGRERR_NONE) {
         delete m_ogrSRS;
         m_ogrSRS = nullptr;
         return;
@@ -91,34 +84,41 @@ void SpatialReferenceSystem::initFromWktOrProj(const QString &wktOrProj)
     const char *auth = m_ogrSRS->GetAuthorityName(nullptr);
     const char *code = m_ogrSRS->GetAuthorityCode(nullptr);
     m_authName = auth ? QString::fromUtf8(auth).toUpper() : QString();
-    m_code     = code ? QString::fromUtf8(code).toInt() : -1;
+    m_code = code ? QString::fromUtf8(code).toInt() : -1;
 
     const char *name = m_ogrSRS->GetName();
-    if (name) m_description = QString::fromUtf8(name);
+    if (name)
+        m_description = QString::fromUtf8(name);
 }
 
 // ---------------------------------------------------------------------------
 // Identity
 // ---------------------------------------------------------------------------
 
-QString SpatialReferenceSystem::authName() const { return m_authName; }
-int     SpatialReferenceSystem::code()     const { return m_code; }
+QString SpatialReferenceSystem::authName() const
+{
+    return m_authName;
+}
+int SpatialReferenceSystem::code() const
+{
+    return m_code;
+}
 
 QString SpatialReferenceSystem::description() const
 {
-    if (!m_description.isEmpty()) return m_description;
-    if (m_ogrSRS)
-    {
+    if (!m_description.isEmpty())
+        return m_description;
+    if (m_ogrSRS) {
         const char *n = m_ogrSRS->GetName();
-        if (n) return QString::fromUtf8(n);
+        if (n)
+            return QString::fromUtf8(n);
     }
     return toAuthority();
 }
 
 void SpatialReferenceSystem::setDescription(const QString &description)
 {
-    if (m_description != description)
-    {
+    if (m_description != description) {
         m_description = description;
         emit propertyChanged("description");
     }
@@ -130,7 +130,8 @@ void SpatialReferenceSystem::setDescription(const QString &description)
 
 QString SpatialReferenceSystem::toWkt() const
 {
-    if (!m_ogrSRS) return {};
+    if (!m_ogrSRS)
+        return {};
     char *wkt = nullptr;
     m_ogrSRS->exportToWkt(&wkt);
     QString result = wkt ? QString::fromUtf8(wkt) : QString();
@@ -140,7 +141,8 @@ QString SpatialReferenceSystem::toWkt() const
 
 QString SpatialReferenceSystem::toProj4() const
 {
-    if (!m_ogrSRS) return {};
+    if (!m_ogrSRS)
+        return {};
     char *proj = nullptr;
     m_ogrSRS->exportToProj4(&proj);
     QString result = proj ? QString::fromUtf8(proj) : QString();
@@ -176,7 +178,8 @@ bool SpatialReferenceSystem::isProjected() const
 
 bool SpatialReferenceSystem::equals(const SpatialReferenceSystem &other) const
 {
-    if (!m_ogrSRS || !other.m_ogrSRS) return false;
+    if (!m_ogrSRS || !other.m_ogrSRS)
+        return false;
     return m_ogrSRS->IsSame(other.m_ogrSRS) != 0;
 }
 
@@ -186,7 +189,8 @@ bool SpatialReferenceSystem::equals(const SpatialReferenceSystem &other) const
 
 QString SpatialReferenceSystem::linearUnitsName() const
 {
-    if (!m_ogrSRS) return {};
+    if (!m_ogrSRS)
+        return {};
     const char *unit = nullptr;
     m_ogrSRS->GetLinearUnits(&unit);
     return unit ? QString::fromUtf8(unit) : QString();
@@ -194,34 +198,38 @@ QString SpatialReferenceSystem::linearUnitsName() const
 
 double SpatialReferenceSystem::linearUnitsToMetres() const
 {
-    if (!m_ogrSRS) return 1.0;
+    if (!m_ogrSRS)
+        return 1.0;
     return m_ogrSRS->GetLinearUnits(nullptr);
 }
 
 QString SpatialReferenceSystem::angularUnitsName() const
 {
-    if (!m_ogrSRS) return {};
+    if (!m_ogrSRS)
+        return {};
     const char *unit = nullptr;
     m_ogrSRS->GetAngularUnits(&unit);
     return unit ? QString::fromUtf8(unit) : QString();
 }
 
-SpatialReferenceSystem::LinearUnitInfo
-SpatialReferenceSystem::planarLinearUnit() const
+SpatialReferenceSystem::LinearUnitInfo SpatialReferenceSystem::planarLinearUnit() const
 {
     LinearUnitInfo info;
-    if (!m_ogrSRS) return info;
+    if (!m_ogrSRS)
+        return info;
 
     // Geographic CRSes have angular units — cannot be meshed in SI.
-    if (m_ogrSRS->IsGeographic()) return info;
+    if (m_ogrSRS->IsGeographic())
+        return info;
 
     const char *unit = nullptr;
     const double m = m_ogrSRS->GetLinearUnits(&unit);
-    if (!std::isfinite(m) || m <= 0.0) return info;
+    if (!std::isfinite(m) || m <= 0.0)
+        return info;
 
     info.metresPerUnit = m;
-    info.name          = unit ? QString::fromUtf8(unit) : QString();
-    info.usable        = m_ogrSRS->IsProjected() || m_ogrSRS->IsLocal();
+    info.name = unit ? QString::fromUtf8(unit) : QString();
+    info.usable = m_ogrSRS->IsProjected() || m_ogrSRS->IsLocal();
     return info;
 }
 
@@ -237,7 +245,8 @@ OGRSpatialReference *SpatialReferenceSystem::ogrSpatialReference() const
 OGRCoordinateTransformation *
 SpatialReferenceSystem::createTransformationTo(const SpatialReferenceSystem &target) const
 {
-    if (!m_ogrSRS || !target.m_ogrSRS) return nullptr;
+    if (!m_ogrSRS || !target.m_ogrSRS)
+        return nullptr;
     return OGRCreateCoordinateTransformation(m_ogrSRS, target.m_ogrSRS);
 }
 
@@ -246,19 +255,24 @@ SpatialReferenceSystem::createTransformationTo(const SpatialReferenceSystem &tar
 // ---------------------------------------------------------------------------
 
 SpatialReferenceSystem *SpatialReferenceSystem::fromWktOrProj(const QString &wktOrProj,
-                                                               QObject *parent)
+                                                              QObject *parent)
 {
     auto *srs = new SpatialReferenceSystem(wktOrProj, parent);
-    if (!srs->ogrSpatialReference()) { delete srs; return nullptr; }
+    if (!srs->ogrSpatialReference()) {
+        delete srs;
+        return nullptr;
+    }
     return srs;
 }
 
-SpatialReferenceSystem *SpatialReferenceSystem::fromAuthCode(const QString &authName,
-                                                              int code,
-                                                              QObject *parent)
+SpatialReferenceSystem *SpatialReferenceSystem::fromAuthCode(const QString &authName, int code,
+                                                             QObject *parent)
 {
     auto *srs = new SpatialReferenceSystem(authName, code, parent);
-    if (!srs->ogrSpatialReference()) { delete srs; return nullptr; }
+    if (!srs->ogrSpatialReference()) {
+        delete srs;
+        return nullptr;
+    }
     return srs;
 }
 
@@ -279,7 +293,7 @@ SpatialReferenceSystem *SpatialReferenceSystem::untitled(QObject *parent)
 }
 
 SpatialReferenceSystem *SpatialReferenceSystem::localFromMapUnits(const QString &units,
-                                                                    QObject *parent)
+                                                                  QObject *parent)
 {
     auto *srs = new SpatialReferenceSystem(parent, Qt::Uninitialized);
     srs->m_ogrSRS = new OGRSpatialReference();

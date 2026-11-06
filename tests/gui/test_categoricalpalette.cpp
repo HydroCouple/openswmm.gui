@@ -1,12 +1,14 @@
-/*!
- * \file   test_categoricalpalette.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_categoricalpalette.cpp
+ * @brief     Tests for categoricalpalette.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice BB-γ — CategoricalPalette named-lookup API + 7 Plotly categorical
  * palettes (Plotly / D3 / G10 / T10 / Alphabet / Dark24 / Light24).
  * Self-contained: pulls in only categoricalpalette.cpp.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/categoricalpalette.h"
@@ -20,9 +22,15 @@ class TestCategoricalPalette : public QObject
     Q_OBJECT
 private slots:
 
+    /**
+     *
+     * @brief Require named Plotly lookup to produce a nonempty palette whose first color differs
+     * from Default.
+     *
+     */
     void byName_known_returns_non_default()
     {
-        const QList<QColor> def    = CategoricalPalette::byName(QStringLiteral("Default"));
+        const QList<QColor> def = CategoricalPalette::byName(QStringLiteral("Default"));
         const QList<QColor> plotly = CategoricalPalette::byName(QStringLiteral("Plotly"));
         QVERIFY(!def.isEmpty());
         QVERIFY(!plotly.isEmpty());
@@ -31,6 +39,11 @@ private slots:
         QVERIFY(plotly.first().rgba() != def.first().rgba());
     }
 
+    /**
+     *
+     * @brief Require unknown-name lookup to match Default size and first color.
+     *
+     */
     void byName_unknown_falls_back_to_default()
     {
         const QList<QColor> def = CategoricalPalette::byName(QStringLiteral("Default"));
@@ -39,6 +52,11 @@ private slots:
         QCOMPARE(bogus.first().rgba(), def.first().rgba());
     }
 
+    /**
+     *
+     * @brief Require D3 lookup to ignore case and surrounding spaces, comparing size/first color.
+     *
+     */
     void byName_case_insensitive()
     {
         const QList<QColor> a = CategoricalPalette::byName(QStringLiteral("D3"));
@@ -50,6 +68,12 @@ private slots:
         QCOMPARE(a.first().rgba(), c.first().rgba());
     }
 
+    /**
+     *
+     * @brief Require the eight advertised names: Default plus the seven named categorical
+     * palettes.
+     *
+     */
     void builtinNames_lists_all_eight()
     {
         // Default (Tab10 alias) + 7 Plotly entries = 8.
@@ -65,25 +89,37 @@ private slots:
         QVERIFY(names.contains(QStringLiteral("Light24")));
     }
 
+    /**
+     *
+     * @brief Require named palette cardinalities 10/26/24 according to the fixed reference
+     * family.
+     *
+     */
     void palette_sizes_match_plotly_reference()
     {
         // Plotly reference: Plotly/D3/G10/T10 = 10 colors each;
         // Alphabet = 26; Dark24 / Light24 = 24 each.
-        QCOMPARE(CategoricalPalette::byName(QStringLiteral("Plotly")).size(),   10);
-        QCOMPARE(CategoricalPalette::byName(QStringLiteral("D3")).size(),       10);
-        QCOMPARE(CategoricalPalette::byName(QStringLiteral("G10")).size(),      10);
-        QCOMPARE(CategoricalPalette::byName(QStringLiteral("T10")).size(),      10);
+        QCOMPARE(CategoricalPalette::byName(QStringLiteral("Plotly")).size(), 10);
+        QCOMPARE(CategoricalPalette::byName(QStringLiteral("D3")).size(), 10);
+        QCOMPARE(CategoricalPalette::byName(QStringLiteral("G10")).size(), 10);
+        QCOMPARE(CategoricalPalette::byName(QStringLiteral("T10")).size(), 10);
         QCOMPARE(CategoricalPalette::byName(QStringLiteral("Alphabet")).size(), 26);
-        QCOMPARE(CategoricalPalette::byName(QStringLiteral("Dark24")).size(),   24);
-        QCOMPARE(CategoricalPalette::byName(QStringLiteral("Light24")).size(),  24);
+        QCOMPARE(CategoricalPalette::byName(QStringLiteral("Dark24")).size(), 24);
+        QCOMPARE(CategoricalPalette::byName(QStringLiteral("Light24")).size(), 24);
     }
 
+    /**
+     *
+     * @brief Pin legacy default size 10, first Tab10 blue and palette size alongside named
+     * lookup.
+     *
+     */
     void at_and_size_unchanged_by_named_lookup_API()
     {
         // Slice BB-γ is additive — the pre-existing at()/size()/palette()
         // API must keep working identically (Tab10 default).
         QCOMPARE(CategoricalPalette::size(), 10);
-        QCOMPARE(CategoricalPalette::at(0), QColor(0x1f, 0x77, 0xb4));   // first Tab10 entry
+        QCOMPARE(CategoricalPalette::at(0), QColor(0x1f, 0x77, 0xb4)); // first Tab10 entry
         QCOMPARE(CategoricalPalette::palette().size(), 10);
     }
 };

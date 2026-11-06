@@ -1,9 +1,10 @@
-/*!
- * \file   rule.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Rule implementation (Slice Z.1).
+/**
+ * @file      rule.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Rule implementation (Slice Z.1).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/rule.h"
@@ -21,7 +22,8 @@
 namespace OpenSWMM::Render
 {
 
-namespace {
+namespace
+{
 
 /*!
  * \brief Construct a concrete IFeatureRenderer from a JSON object whose
@@ -31,6 +33,10 @@ namespace {
  *        and `src/project/projectserializer.cpp`. Kept TU-local on
  *        purpose — promoting a shared factory header is a wider refactor
  *        (CLAUDE.md §3: don't refactor things that aren't broken).
+ * @param j Renderer configuration with an exact single, graduated, categorized,
+ * rule or unclassed id; no whitespace/case normalization occurs.
+ * @return Sole ownership after the concrete loader runs, or nullptr for an
+ * unsupported/missing ID. Allocation/loader exceptions propagate.
  */
 std::unique_ptr<IFeatureRenderer> makeRendererFromJson(const QJsonObject &j)
 {
@@ -54,19 +60,13 @@ std::unique_ptr<IFeatureRenderer> makeRendererFromJson(const QJsonObject &j)
 
 } // namespace
 
-Rule::Rule(QObject *parent)
-    : QObject(parent),
-      m_renderer(std::make_unique<SingleSymbolRenderer>())
+Rule::Rule(QObject *parent) : QObject(parent), m_renderer(std::make_unique<SingleSymbolRenderer>())
 {
 }
 
-Rule::Rule(QString name,
-           std::unique_ptr<IFeatureRenderer> renderer,
-           QObject *parent)
-    : QObject(parent),
-      m_name(std::move(name)),
-      m_renderer(renderer ? std::move(renderer)
-                          : std::make_unique<SingleSymbolRenderer>())
+Rule::Rule(QString name, std::unique_ptr<IFeatureRenderer> renderer, QObject *parent)
+    : QObject(parent), m_name(std::move(name)),
+      m_renderer(renderer ? std::move(renderer) : std::make_unique<SingleSymbolRenderer>())
 {
 }
 
@@ -156,19 +156,16 @@ bool Rule::setRendererById(const QString &id)
     if (id.isEmpty())
         return false;
     if (m_renderer && m_renderer->rendererId() == id)
-        return false;  // no-op — same class
+        return false; // no-op — same class
 
     // Gap A1.3 — construct through the shared factory so the new
     // renderer's base/fallback symbol is seeded from the outgoing one
     // (or an archetype-appropriate skeleton). The Rule holds no category,
     // so the archetype is inferred from the current symbol's layer kind.
-    const FeatureSublayer::Archetype archetype =
-        RendererFactory::archetypeFromSymbol(
-            RendererFactory::baseSymbolOf(m_renderer.get()),
-            FeatureSublayer::Archetype::Point);
+    const FeatureSublayer::Archetype archetype = RendererFactory::archetypeFromSymbol(
+        RendererFactory::baseSymbolOf(m_renderer.get()), FeatureSublayer::Archetype::Point);
 
-    auto next = RendererFactory::makeRenderer(id, archetype,
-                                              m_renderer.get());
+    auto next = RendererFactory::makeRenderer(id, archetype, m_renderer.get());
     if (!next)
         return false;
     setRenderer(std::move(next));
@@ -178,8 +175,8 @@ bool Rule::setRendererById(const QString &id)
 QJsonObject Rule::toJson() const
 {
     QJsonObject j;
-    j[QStringLiteral("name")]             = m_name;
-    j[QStringLiteral("isVisible")]        = m_isVisible;
+    j[QStringLiteral("name")] = m_name;
+    j[QStringLiteral("isVisible")] = m_isVisible;
     if (!m_filterExpression.isEmpty())
         j[QStringLiteral("filterExpression")] = m_filterExpression;
     if (m_minScale != 0.0)
@@ -209,15 +206,12 @@ std::unique_ptr<Rule> Rule::fromJson(const QJsonObject &j, QObject *parent)
     if (!renderer)
         return nullptr;
 
-    auto rule = std::make_unique<Rule>(
-        j.value(QStringLiteral("name")).toString(),
-        std::move(renderer),
-        parent);
+    auto rule = std::make_unique<Rule>(j.value(QStringLiteral("name")).toString(),
+                                       std::move(renderer), parent);
 
     // isVisible defaults to true if missing.
     rule->m_isVisible = j.value(QStringLiteral("isVisible")).toBool(true);
-    rule->m_filterExpression =
-        j.value(QStringLiteral("filterExpression")).toString();
+    rule->m_filterExpression = j.value(QStringLiteral("filterExpression")).toString();
     rule->m_minScale = j.value(QStringLiteral("minScale")).toDouble(0.0);
     rule->m_maxScale = j.value(QStringLiteral("maxScale")).toDouble(0.0);
 
@@ -228,8 +222,7 @@ std::unique_ptr<Rule> Rule::fromJson(const QJsonObject &j, QObject *parent)
     // Slice Z.7 — defaults to false when key absent.
     rule->m_rebinPerFrame = j.value(QStringLiteral("rebinPerFrame")).toBool(false);
     // Slice Z.11 — same default.
-    rule->m_symbolLevelsEnabled =
-        j.value(QStringLiteral("symbolLevelsEnabled")).toBool(false);
+    rule->m_symbolLevelsEnabled = j.value(QStringLiteral("symbolLevelsEnabled")).toBool(false);
 
     return rule;
 }
@@ -237,16 +230,15 @@ std::unique_ptr<Rule> Rule::fromJson(const QJsonObject &j, QObject *parent)
 std::unique_ptr<Rule> Rule::clone(QObject *parent) const
 {
     auto copy = std::make_unique<Rule>(
-        m_name,
-        m_renderer ? m_renderer->clone() : std::make_unique<SingleSymbolRenderer>(),
+        m_name, m_renderer ? m_renderer->clone() : std::make_unique<SingleSymbolRenderer>(),
         parent);
-    copy->m_isVisible        = m_isVisible;
+    copy->m_isVisible = m_isVisible;
     copy->m_filterExpression = m_filterExpression;
-    copy->m_minScale         = m_minScale;
-    copy->m_maxScale         = m_maxScale;
-    copy->m_blendMode            = m_blendMode;
-    copy->m_rebinPerFrame        = m_rebinPerFrame;
-    copy->m_symbolLevelsEnabled  = m_symbolLevelsEnabled;
+    copy->m_minScale = m_minScale;
+    copy->m_maxScale = m_maxScale;
+    copy->m_blendMode = m_blendMode;
+    copy->m_rebinPerFrame = m_rebinPerFrame;
+    copy->m_symbolLevelsEnabled = m_symbolLevelsEnabled;
     return copy;
 }
 

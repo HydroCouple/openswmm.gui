@@ -1,9 +1,12 @@
-/*!
- * \file   perattributethemingwidget.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      perattributethemingwidget.cpp
+ * @brief     variable drives the SWMMResultsLayer colour fill.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/perattributethemingwidget.h"
 
 #include "animation/animationcontroller.h"
@@ -12,10 +15,10 @@
 #include <QHBoxLayout>
 #include <QLabel>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-PerAttributeThemingWidget::PerAttributeThemingWidget(QWidget *parent)
-    : QWidget(parent)
+PerAttributeThemingWidget::PerAttributeThemingWidget(QWidget *parent) : QWidget(parent)
 {
     buildUi();
     populateCombos();
@@ -45,35 +48,44 @@ void PerAttributeThemingWidget::buildUi()
     m_subCombo->setToolTip(tr("Subcatchment attribute that drives subcatch colour fill"));
     h->addWidget(m_subCombo);
 
-    connect(m_nodeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &PerAttributeThemingWidget::onNodeVarChanged);
-    connect(m_linkCombo, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &PerAttributeThemingWidget::onLinkVarChanged);
-    connect(m_subCombo,  QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &PerAttributeThemingWidget::onSubVarChanged);
+    connect(m_nodeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &PerAttributeThemingWidget::onNodeVarChanged);
+    connect(m_linkCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &PerAttributeThemingWidget::onLinkVarChanged);
+    connect(m_subCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &PerAttributeThemingWidget::onSubVarChanged);
 }
 
 void PerAttributeThemingWidget::populateCombos()
 {
     m_suppress = true;
     m_nodeCombo->clear();
-    m_nodeCombo->addItem(tr("Depth"),    static_cast<int>(SWMMResultVariable::NodeDepth));
-    m_nodeCombo->addItem(tr("Head"),     static_cast<int>(SWMMResultVariable::NodeHead));
-    m_nodeCombo->addItem(tr("Volume"),   static_cast<int>(SWMMResultVariable::NodeVolume));
-    m_nodeCombo->addItem(tr("Inflow"),   static_cast<int>(SWMMResultVariable::NodeInflow));
+    m_nodeCombo->addItem(tr("Depth"), static_cast<int>(SWMMResultVariable::NodeDepth));
+    m_nodeCombo->addItem(tr("Head"), static_cast<int>(SWMMResultVariable::NodeHead));
+    m_nodeCombo->addItem(tr("Volume"), static_cast<int>(SWMMResultVariable::NodeVolume));
+    m_nodeCombo->addItem(tr("Inflow"), static_cast<int>(SWMMResultVariable::NodeInflow));
     m_nodeCombo->addItem(tr("Overflow"), static_cast<int>(SWMMResultVariable::NodeOverflow));
 
     m_linkCombo->clear();
-    m_linkCombo->addItem(tr("Flow"),     static_cast<int>(SWMMResultVariable::LinkFlow));
-    m_linkCombo->addItem(tr("Depth"),    static_cast<int>(SWMMResultVariable::LinkDepth));
+    m_linkCombo->addItem(tr("Flow"), static_cast<int>(SWMMResultVariable::LinkFlow));
+    m_linkCombo->addItem(tr("Depth"), static_cast<int>(SWMMResultVariable::LinkDepth));
     m_linkCombo->addItem(tr("Velocity"), static_cast<int>(SWMMResultVariable::LinkVelocity));
     m_linkCombo->addItem(tr("Capacity"), static_cast<int>(SWMMResultVariable::LinkCapacity));
 
     m_subCombo->clear();
-    m_subCombo->addItem(tr("Runoff"),       static_cast<int>(SWMMResultVariable::SubcatchRunoff));
-    m_subCombo->addItem(tr("Infiltration"), static_cast<int>(SWMMResultVariable::SubcatchInfiltration));
-    m_subCombo->addItem(tr("Evaporation"),  static_cast<int>(SWMMResultVariable::SubcatchEvaporation));
-    m_subCombo->addItem(tr("Snow Depth"),   static_cast<int>(SWMMResultVariable::SubcatchSnowDepth));
+    m_subCombo->addItem(tr("Runoff"), static_cast<int>(SWMMResultVariable::SubcatchRunoff));
+    m_subCombo->addItem(tr("Infiltration"),
+                        static_cast<int>(SWMMResultVariable::SubcatchInfiltration));
+    m_subCombo->addItem(tr("Evaporation"),
+                        static_cast<int>(SWMMResultVariable::SubcatchEvaporation));
+    m_subCombo->addItem(tr("Snow Depth"), static_cast<int>(SWMMResultVariable::SubcatchSnowDepth));
+    m_subCombo->addItem(tr("Rainfall"), static_cast<int>(SWMMResultVariable::SubcatchRainfall));
+    m_subCombo->addItem(tr("Groundwater Flow"),
+                        static_cast<int>(SWMMResultVariable::SubcatchGwFlow));
+    m_subCombo->addItem(tr("Groundwater Elevation"),
+                        static_cast<int>(SWMMResultVariable::SubcatchGwElevation));
+    m_subCombo->addItem(tr("Soil Moisture"),
+                        static_cast<int>(SWMMResultVariable::SubcatchSoilMoisture));
     m_suppress = false;
 }
 
@@ -83,19 +95,22 @@ void PerAttributeThemingWidget::setAnimationController(AnimationController *ac)
         disconnect(m_ac.data(), nullptr, this, nullptr);
     }
     m_ac = ac;
-    if (!ac) return;
-    connect(ac, &AnimationController::primaryLayerChanged,
-            this, &PerAttributeThemingWidget::onPrimaryLayerChanged);
+    if (!ac)
+        return;
+    connect(ac, &AnimationController::primaryLayerChanged, this,
+            &PerAttributeThemingWidget::onPrimaryLayerChanged);
 }
 
 void PerAttributeThemingWidget::setPrimaryLayer(SWMMResultsLayer *layer)
 {
-    if (m_layer.data() == layer) return;
-    if (m_layer) disconnect(m_layer.data(), nullptr, this, nullptr);
+    if (m_layer.data() == layer)
+        return;
+    if (m_layer)
+        disconnect(m_layer.data(), nullptr, this, nullptr);
     m_layer = layer;
     if (layer) {
-        connect(layer, &SWMMResultsLayer::variableChanged,
-                this, &PerAttributeThemingWidget::onLayerVariableChanged);
+        connect(layer, &SWMMResultsLayer::variableChanged, this,
+                &PerAttributeThemingWidget::onLayerVariableChanged);
         pushLayerVariableToCombos();
     }
 }
@@ -113,12 +128,14 @@ void PerAttributeThemingWidget::onLayerVariableChanged(SWMMResultVariable var)
 
 void PerAttributeThemingWidget::pushLayerVariableToCombos()
 {
-    if (!m_layer) return;
+    if (!m_layer)
+        return;
     m_suppress = true;
     const SWMMResultVariable v = m_layer->variable();
     auto selectByData = [&](QComboBox *cb) {
         const int idx = cb->findData(static_cast<int>(v));
-        if (idx >= 0) cb->setCurrentIndex(idx);
+        if (idx >= 0)
+            cb->setCurrentIndex(idx);
     };
     selectByData(m_nodeCombo);
     selectByData(m_linkCombo);
@@ -128,23 +145,23 @@ void PerAttributeThemingWidget::pushLayerVariableToCombos()
 
 void PerAttributeThemingWidget::onNodeVarChanged(int index)
 {
-    if (m_suppress || !m_layer || index < 0) return;
-    m_layer->setVariable(
-        static_cast<SWMMResultVariable>(m_nodeCombo->itemData(index).toInt()));
+    if (m_suppress || !m_layer || index < 0)
+        return;
+    m_layer->setVariable(static_cast<SWMMResultVariable>(m_nodeCombo->itemData(index).toInt()));
 }
 
 void PerAttributeThemingWidget::onLinkVarChanged(int index)
 {
-    if (m_suppress || !m_layer || index < 0) return;
-    m_layer->setVariable(
-        static_cast<SWMMResultVariable>(m_linkCombo->itemData(index).toInt()));
+    if (m_suppress || !m_layer || index < 0)
+        return;
+    m_layer->setVariable(static_cast<SWMMResultVariable>(m_linkCombo->itemData(index).toInt()));
 }
 
 void PerAttributeThemingWidget::onSubVarChanged(int index)
 {
-    if (m_suppress || !m_layer || index < 0) return;
-    m_layer->setVariable(
-        static_cast<SWMMResultVariable>(m_subCombo->itemData(index).toInt()));
+    if (m_suppress || !m_layer || index < 0)
+        return;
+    m_layer->setVariable(static_cast<SWMMResultVariable>(m_subCombo->itemData(index).toInt()));
 }
 
 } // namespace openswmmvis::ui

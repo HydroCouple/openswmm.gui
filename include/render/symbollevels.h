@@ -1,9 +1,9 @@
-/*!
- * \file   symbollevels.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Cross-feature paint order (Symbol Levels) — Slice Z.11.
+/**
+ * @file      symbollevels.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Cross-feature paint order (Symbol Levels) — Slice Z.11.
  *
  *         QGIS-native feature. Without Symbol Levels, every feature is
  *         painted top-down before moving to the next; intersection
@@ -22,6 +22,7 @@
  *         actual layer paint loops is the named Z.11a follow-up — the
  *         existing renderers' paint paths consume the helper output as
  *         a sequence of (feature-index, symbol-layer-index) pairs.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef OPENSWMM_RENDER_SYMBOLLEVELS_H
@@ -41,9 +42,14 @@ inline constexpr const char *kSymbolLevelPropKey = "level";
 
 /*! Read the level for one SymbolLayer. Returns 0 when the prop is
  *  absent or non-numeric. */
+/** @param layer Borrowed layer; only the level property is read.
+ * @return QVariant::toInt() result when conversion succeeds, otherwise zero.
+ * Negative levels are allowed and sort before zero. */
 [[nodiscard]] int symbolLayerLevel(const SymbolLayer &layer);
 
 /*! Write the level into a SymbolLayer's props. */
+/** @param[in,out] layer Destination; only its level property is inserted/replaced.
+ * @param level Raw signed paint-order key; not clamped or validated. No signals are emitted. */
 void setSymbolLayerLevel(SymbolLayer &layer, int level);
 
 /*!
@@ -56,16 +62,18 @@ void setSymbolLayerLevel(SymbolLayer &layer, int level);
  *        `layers` vector. The paint host applies the matching
  *        SymbolLayer to the feature, then moves on to the next step.
  */
-struct PaintStep
-{
-    int featureIndex      = 0;
-    int symbolLayerIndex  = 0;
+struct PaintStep {
+    int featureIndex = 0;
+    int symbolLayerIndex = 0;
 };
 
+/** @brief Compare both paint-step indices exactly.
+ * @param a Left step; indices need not reference a live feature list.
+ * @param b Right step.
+ * @return True only when both feature and symbol-layer indices match. */
 [[nodiscard]] inline bool operator==(const PaintStep &a, const PaintStep &b)
 {
-    return a.featureIndex == b.featureIndex
-        && a.symbolLayerIndex == b.symbolLayerIndex;
+    return a.featureIndex == b.featureIndex && a.symbolLayerIndex == b.symbolLayerIndex;
 }
 
 /*!
@@ -87,9 +95,14 @@ struct PaintStep
  *        Stable: ties are broken by feature-input order, then
  *        symbol-layer-input order.
  */
-[[nodiscard]] QVector<PaintStep>
-computeSymbolLevelOrder(const QVector<SymbolStyle> &features,
-                         bool enabled);
+/** @param features Borrowed per-feature symbol styles, read synchronously. Feature,
+ * layer and total-step counts must fit int; no referenced data is retained.
+ * @param enabled Select level-major ordering instead of natural feature-major order.
+ * @return Independent sequence containing every layer of every feature exactly once,
+ * including disabled layers; filtering/enabled-state checks remain the paint host's
+ * responsibility. Empty input or empty styles contribute no steps. No painting occurs. */
+[[nodiscard]] QVector<PaintStep> computeSymbolLevelOrder(const QVector<SymbolStyle> &features,
+                                                         bool enabled);
 
 } // namespace OpenSWMM::Render
 

@@ -1,36 +1,97 @@
-/*!
- * \file   macoswindowutils.mm
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  macOS implementation of attachAsChildWindow (see header).
+/**
+ * @file      macoswindowutils.mm
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     macOS implementation of attachAsChildWindow (see header).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "platform/macoswindowutils.h"
 
+#include <QDialog>
+#include <QGuiApplication>
 #include <QWidget>
 
 #import <AppKit/AppKit.h>
 
-namespace openswmmvis::platform {
+namespace openswmmvis::platform
+{
+
+namespace
+{
+
+/*! True only when Qt is actually driving Cocoa.
+ *
+ *  Every AppKit path below reaches the NSWindow through
+ *  reinterpret_cast<NSView *>(winId()). That cast is valid ONLY on the cocoa
+ *  QPA. Under the offscreen / minimal platforms winId() still returns a
+ *  NON-NULL synthetic id that is not an NSView*, so the null guards further
+ *  down sail straight past it and the first property access crashes inside
+ *  objc_msgSend. Gate on the platform name instead of pointer nullness.
+ * @return True only for the Cocoa QPA platform (case-insensitive), ensuring winId() is safe to interpret as NSView*.
+ */
+bool cocoaPlatform_()
+{
+    return QGuiApplication::platformName().compare(QLatin1String("cocoa"), Qt::CaseInsensitive) ==
+           0;
+}
+
+/*! Resolve the window a dialog should be ordered above.
+ *
+ *  AppKit child windows move RIGIDLY with their parent, so attaching a dialog
+ *  to another dialog glues the two together — that is the "moving the profile
+ *  dialog also moves the time-series dialog" defect. Dialogs are frequently
+ *  Qt-parented to another dialog on purpose (lifetime coupling: the overlay
+ *  ComparisonPlotDialog and the various Display Options dialogs must die with
+ *  the plot they configure), so the Qt parent is the wrong thing to attach to.
+ *
+ *  Walk up the chain of top-level windows until a NON-dialog one is found —
+ *  in practice the main window / project window. Every modeless dialog then
+ *  hangs off that single window and they no longer drag each other around,
+ *  while still being ordered above the application's own windows.
+ *
+ *  Returns nullptr when the chain contains nothing but dialogs; not attaching
+ *  at all is preferable to re-creating the gluing.
+ * @param[in] dialog Borrowed dialog whose parent chain is inspected, or null.
+ * @return Borrowed first nondialog top-level ancestor within sixteen hops, or null for no valid host/self-parenting. Does not alter widget ownership.
+ */
+QWidget *stackingHostFor_(QWidget *dialog)
+{
+    QWidget *parent = dialog ? dialog->parentWidget() : nullptr;
+    QWidget *top = parent ? parent->window() : nullptr;
+
+    // Bounded walk — a pathological parent cycle must not spin forever.
+    for (int hops = 0; top && hops < 16; ++hops) {
+        if (top == dialog)
+            return nullptr; // self-parented; nothing to do
+        if (!qobject_cast<QDialog *>(top))
+            return top; // real host window found
+        QWidget *next = top->parentWidget();
+        top = next ? next->window() : nullptr; // dialog → keep climbing
+    }
+    return nullptr;
+}
+
+} // namespace
 
 void attachAsChildWindow(QWidget *dialog)
 {
-    if (!dialog || !dialog->isWindow())
+    if (!dialog || !dialog->isWindow() || !cocoaPlatform_())
         return;
 
-    QWidget *parentWidget = dialog->parentWidget();
-    QWidget *parentTop = parentWidget ? parentWidget->window() : nullptr;
+    QWidget *parentTop = stackingHostFor_(dialog);
     if (!parentTop || parentTop == dialog)
         return;
 
     // winId() returns the backing NSView* on macOS (creating the native window
     // if needed); its .window is the NSWindow we stack.
-    NSView *childView  = reinterpret_cast<NSView *>(dialog->winId());
+    NSView *childView = reinterpret_cast<NSView *>(dialog->winId());
     NSView *parentView = reinterpret_cast<NSView *>(parentTop->winId());
     if (!childView || !parentView)
         return;
 
-    NSWindow *childWindow  = childView.window;
+    NSWindow *childWindow = childView.window;
     NSWindow *parentWindow = parentView.window;
     if (!childWindow || !parentWindow || childWindow == parentWindow)
         return;
@@ -51,7 +112,7 @@ void attachAsChildWindow(QWidget *dialog)
 
 void detachFromParentWindow(QWidget *dialog)
 {
-    if (!dialog || !dialog->isWindow())
+    if (!dialog || !dialog->isWindow() || !cocoaPlatform_())
         return;
 
     // internalWinId() (unlike winId()) does not force native-window creation —
@@ -74,6 +135,35 @@ void detachFromParentWindow(QWidget *dialog)
     // window stands alone so it can't stay glued on screen over the parent.
     if (!dialog->isVisible() && childWindow.visible)
         [childWindow orderOut:nil];
+}
+
+namespace
+{
+id<NSObject> g_simulationActivity = nil; // retained (this file is not ARC)
+int g_simulationActivityRefs = 0;
+} // namespace
+
+void beginSimulationActivity()
+{
+    if (g_simulationActivityRefs++ > 0)
+        return;
+    g_simulationActivity = [[[NSProcessInfo processInfo]
+        beginActivityWithOptions:(NSActivityUserInitiatedAllowingIdleSystemSleep |
+                                  NSActivityLatencyCritical)
+                          reason:@"OpenSWMM simulation running"] retain];
+}
+
+void endSimulationActivity()
+{
+    if (g_simulationActivityRefs <= 0)
+        return;
+    if (--g_simulationActivityRefs > 0)
+        return;
+    if (g_simulationActivity) {
+        [[NSProcessInfo processInfo] endActivity:g_simulationActivity];
+        [g_simulationActivity release];
+        g_simulationActivity = nil;
+    }
 }
 
 } // namespace openswmmvis::platform

@@ -1,9 +1,13 @@
-/*!
- * \file   maptoolmeshselectvertex.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      maptoolmeshselectvertex.cpp
+ * @brief     Slice §V.VB — map tool that picks 2D mesh vertices by single click (within 12 px
+ *            tolerance) or by box rubber-band.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "map/tools/maptoolmeshselectvertex.h"
 
 #include "layers/openswmmvislayer.h"
@@ -11,6 +15,7 @@
 #include "map/mapcanvas.h"
 #include "mesh/meshobjectref.h"
 #include "selection/selectionmanager.h"
+#include "ui/widgets/attributepickermenu.h"
 
 #include <QAction>
 #include <QKeyEvent>
@@ -23,8 +28,7 @@
 #include <algorithm>
 #include <cmath>
 
-MapToolMeshSelectVertex::MapToolMeshSelectVertex(MapCanvas *canvas,
-                                                 SelectionManager *selection,
+MapToolMeshSelectVertex::MapToolMeshSelectVertex(MapCanvas *canvas, SelectionManager *selection,
                                                  QObject *parent)
     : OpenSWMMVisMapTool(QStringLiteral("mesh-select-vertex"), canvas, parent),
       m_selection(selection)
@@ -48,14 +52,17 @@ void MapToolMeshSelectVertex::deactivate()
 
 SWMM2DMeshLayer *MapToolMeshSelectVertex::findActiveMeshLayer_() const
 {
-    if (!m_canvas) return nullptr;
+    if (!m_canvas)
+        return nullptr;
     for (OpenSWMMVisLayer *l : m_canvas->layers()) {
         auto *mesh = qobject_cast<SWMM2DMeshLayer *>(l);
-        if (mesh && mesh->isActiveMesh()) return mesh;
+        if (mesh && mesh->isActiveMesh())
+            return mesh;
     }
     // Fallback: first mesh layer on the canvas, if any.
     for (OpenSWMMVisLayer *l : m_canvas->layers()) {
-        if (auto *mesh = qobject_cast<SWMM2DMeshLayer *>(l)) return mesh;
+        if (auto *mesh = qobject_cast<SWMM2DMeshLayer *>(l))
+            return mesh;
     }
     return nullptr;
 }
@@ -71,29 +78,35 @@ QPointF MapToolMeshSelectVertex::pixelToScene_(int px, int py) const
 
 void MapToolMeshSelectVertex::mousePressEvent(QMouseEvent *event)
 {
-    if (!m_canvas || !m_selection) return;
+    if (!m_canvas || !m_selection)
+        return;
 
     if (event->button() == Qt::RightButton) {
-        if (!m_target) m_target = findActiveMeshLayer_();
-        if (!m_target) return;
+        if (!m_target)
+            m_target = findActiveMeshLayer_();
+        if (!m_target)
+            return;
 
         // Target = the current vertex selection for this mesh; if empty, pick
         // the vertex under the cursor and select it.
         const QString wantKey = mesh::MeshObjectRef::layerKey(m_target->sourcePath());
         QVector<int> selected;
         for (const SWMMObjectRef &ref : m_selection->selection()) {
-            if (ref.objectType != SWMMObjectRef::MeshVertex) continue;
-            QString lk; int vi = -1;
+            if (ref.objectType != SWMMObjectRef::MeshVertex)
+                continue;
+            QString lk;
+            int vi = -1;
             if (mesh::MeshObjectRef::parseVertex(ref, &lk, &vi) && lk == wantKey)
                 selected.push_back(vi);
         }
         if (selected.isEmpty()) {
-            const QPointF sp  = pixelToScene_(event->pos().x(), event->pos().y());
+            const QPointF sp = pixelToScene_(event->pos().x(), event->pos().y());
             const QPointF spx = pixelToScene_(event->pos().x() + 1, event->pos().y());
             const double dsx = std::abs(spx.x() - sp.x());
             const double pxPerSceneUnit = (dsx > 0.0) ? (1.0 / dsx) : 1.0;
             const int idx = m_target->pickVertexAt(sp.x(), sp.y(), kPickTolPx, pxPerSceneUnit);
-            if (idx < 0) return;
+            if (idx < 0)
+                return;
             m_selection->select(mesh::MeshObjectRef::vertex(m_target->sourcePath(), idx),
                                 SelectionManager::Replace);
             if (m_canvas)
@@ -102,9 +115,9 @@ void MapToolMeshSelectVertex::mousePressEvent(QMouseEvent *event)
         }
 
         QMenu menu;
-        QAction *header = menu.addAction(selected.size() == 1
-            ? tr("Vertex #%1").arg(selected.front())
-            : tr("%1 vertices selected").arg(selected.size()));
+        QAction *header =
+            menu.addAction(selected.size() == 1 ? tr("Vertex #%1").arg(selected.front())
+                                                : tr("%1 vertices selected").arg(selected.size()));
         header->setEnabled(false);
         // Show elevation for a single vertex.
         if (selected.size() == 1) {
@@ -115,22 +128,38 @@ void MapToolMeshSelectVertex::mousePressEvent(QMouseEvent *event)
             zAct->setEnabled(false);
         }
         menu.addSeparator();
-        QAction *plot = menu.addAction(tr("Plot depth / HGL time series"));
+        // Same attribute picker as the 1D select tool, as a submenu under the
+        // vertex header. Depth / HGL are always servable (interpolated from
+        // incident cells), so no availability gating.
+        using namespace openswmmvis;
+        QMenu *plotMenu = ui::AttributePickerMenu::createForObjectKind(
+            plot::ObjectRef::Kind::Mesh2DVertex, plot::UnitSystem::SI, nullptr);
+        plotMenu->setTitle(tr("Plot Time Series…"));
+        menu.addMenu(plotMenu);
         QAction *picked = menu.exec(event->globalPosition().toPoint());
-        if (picked == plot)
-            emit plotVertexSeriesRequested(m_target, selected);
+        if (picked && plotMenu->actions().contains(picked)) {
+            const plot::PlotAttribute a = ui::AttributePickerMenu::attributeFrom(picked);
+            const QVector<plot::PlotAttribute> attrs =
+                (a == plot::PlotAttribute::Unknown) // "All attributes"
+                    ? plot::mesh2DVertexPlotAttributes()
+                    : QVector<plot::PlotAttribute>{a};
+            emit plotVertexSeriesRequested(m_target, selected, attrs);
+        }
+        delete plotMenu;
         return;
     }
 
-    if (event->button() != Qt::LeftButton) return;
-    m_startPixel   = event->pos();
+    if (event->button() != Qt::LeftButton)
+        return;
+    m_startPixel = event->pos();
     m_currentPixel = event->pos();
-    m_dragging     = false;
+    m_dragging = false;
 }
 
 void MapToolMeshSelectVertex::mouseMoveEvent(QMouseEvent *event)
 {
-    if (!m_canvas) return;
+    if (!m_canvas)
+        return;
     if (event->buttons() & Qt::LeftButton) {
         m_currentPixel = event->pos();
         if (!m_dragging) {
@@ -146,16 +175,19 @@ void MapToolMeshSelectVertex::mouseMoveEvent(QMouseEvent *event)
 
 void MapToolMeshSelectVertex::mouseReleaseEvent(QMouseEvent *event)
 {
-    if (!m_canvas || !m_selection) return;
-    if (event->button() != Qt::LeftButton) return;
+    if (!m_canvas || !m_selection)
+        return;
+    if (event->button() != Qt::LeftButton)
+        return;
 
-    if (!m_target) m_target = findActiveMeshLayer_();
+    if (!m_target)
+        m_target = findActiveMeshLayer_();
     if (!m_target) {
         m_dragging = false;
         return;
     }
 
-    const bool addMode    = event->modifiers().testFlag(Qt::ShiftModifier);
+    const bool addMode = event->modifiers().testFlag(Qt::ShiftModifier);
     const bool toggleMode = event->modifiers().testFlag(Qt::ControlModifier);
     const SelectionManager::Mode mode =
         toggleMode ? SelectionManager::Toggle
@@ -179,16 +211,16 @@ void MapToolMeshSelectVertex::mouseReleaseEvent(QMouseEvent *event)
         m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("mesh-vertex-rubberband-done"));
     } else {
         // Single click: nearest vertex within tolerance.
-        const QPointF sp  = pixelToScene_(event->pos().x(), event->pos().y());
+        const QPointF sp = pixelToScene_(event->pos().x(), event->pos().y());
         const QPointF spx = pixelToScene_(event->pos().x() + 1, event->pos().y());
         // 1 pixel along X maps to |spx.x - sp.x| scene units →
         // pxPerSceneUnit = 1 / |Δscene|.
         const double dsx = std::abs(spx.x() - sp.x());
         const double pxPerSceneUnit = (dsx > 0.0) ? (1.0 / dsx) : 1.0;
-        const int idx = m_target->pickVertexAt(sp.x(), sp.y(),
-                                               kPickTolPx, pxPerSceneUnit);
+        const int idx = m_target->pickVertexAt(sp.x(), sp.y(), kPickTolPx, pxPerSceneUnit);
         if (idx < 0) {
-            if (mode == SelectionManager::Replace) m_selection->clear();
+            if (mode == SelectionManager::Replace)
+                m_selection->clear();
         } else {
             m_selection->select(mesh::MeshObjectRef::vertex(sourcePath, idx), mode);
         }
@@ -204,7 +236,8 @@ void MapToolMeshSelectVertex::mouseReleaseEvent(QMouseEvent *event)
 
 void MapToolMeshSelectVertex::keyPressEvent(QKeyEvent *event)
 {
-    if (!m_selection) return;
+    if (!m_selection)
+        return;
     if (event->key() == Qt::Key_Escape) {
         m_selection->clear();
         m_dragging = false;
@@ -213,14 +246,14 @@ void MapToolMeshSelectVertex::keyPressEvent(QKeyEvent *event)
     }
 }
 
-void MapToolMeshSelectVertex::paint(QPainter *painter,
-                                    const MapExtent &,
+void MapToolMeshSelectVertex::paint(QPainter *painter, const MapExtent &,
                                     const SpatialReferenceSystem *)
 {
     // Selected vertices are highlighted by the mesh layer's renderer (via
     // setHighlightedVertices, driven by the toolbar's onSelectionChanged);
     // the tool only draws the transient box rubber-band during a drag.
-    if (!painter || !m_dragging || !m_canvas) return;
+    if (!painter || !m_dragging || !m_canvas)
+        return;
     const QPen pen(QColor(80, 160, 255, 220), 1.2, Qt::DashLine);
     painter->setPen(pen);
     painter->setBrush(QColor(80, 160, 255, 40));

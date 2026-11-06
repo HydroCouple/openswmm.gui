@@ -1,6 +1,6 @@
-/*!
- * \file   test_nninterpdegenerate.cpp
- * \brief  Degenerate-seed regression tests for NaturalNeighbourInterpolator.
+/**
+ * @file      test_nninterpdegenerate.cpp
+ * @brief     Degenerate-seed regression tests for NaturalNeighbourInterpolator.
  *
  * mesh::NaturalNeighbourInterpolator::build() documents that a degenerate
  * seed set (fewer than 3 unique points, collinear points, …) makes it return
@@ -8,7 +8,12 @@
  * was observed from runMeshPipeline() on a no-DTM run (crash reports
  * 2026-07-19 19:13:22 and 19:53:17, EXC_BAD_ACCESS at 0x0), so these cases
  * assert the documented contract: return false, never crash.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <QtTest>
 
 #include "mesh/naturalnbinterpolator.h"
@@ -18,18 +23,66 @@ class TestNNInterpDegenerate : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     *
+     * @brief Require empty seed input to return false without crashing; no diagnostic text is
+     * asserted.
+     *
+     */
     void emptySeeds();
+    /**
+     *
+     * @brief Require one XY/Z seed to be refused without triangulation or a crash.
+     *
+     */
     void singleSeed();
+    /**
+     *
+     * @brief Require two distinct collinear seed points to be refused.
+     *
+     */
     void twoSeeds();
+    /**
+     *
+     * @brief Require four input rows collapsing to two unique XY seeds to be refused.
+     *
+     */
     void duplicatePointsCollapseBelowThree();
+    /**
+     *
+     * @brief Require five unique collinear seeds to be refused despite a nonzero bounding extent.
+     *
+     */
     void collinearSeeds();
+    /**
+     *
+     * @brief Require unequal three-XY/two-Z input lengths to be refused.
+     *
+     */
     void mismatchedCounts();
+    /**
+     *
+     * @brief Require NaN/infinite XY filtering that leaves only two usable seeds to be refused.
+     *
+     */
     void nonFiniteSeeds();
+    /**
+     *
+     * @brief Require valid square-plus-centre seeds to build and print status, without invoking
+     * interpolation.
+     *
+     */
     void validSeedsBuildOnly();
+    /**
+     *
+     * @brief Require a deterministic jittered 7x7 grid to build and reproduce flat Z=5 at three
+     * interior probes.
+     *
+     */
     void validSeedsStillBuild();
 };
 
-// Each case must return false (not crash) and leave the object unusable.
+// Refusal cases require false without crashing; final cases are valid-seed controls.
 
 void TestNNInterpDegenerate::emptySeeds()
 {
@@ -57,9 +110,9 @@ void TestNNInterpDegenerate::duplicatePointsCollapseBelowThree()
     // 4 seeds but only 2 survive the 1e-7 snap-dedupe inside build().
     mesh::NaturalNeighbourInterpolator nn;
     QString err;
-    const QVector<QPointF> pts{QPointF(5.0, 5.0), QPointF(5.0, 5.0),
-                               QPointF(9.0, 9.0), QPointF(9.0, 9.0)};
-    const QVector<double>  z  {1.0, 1.0, 2.0, 2.0};
+    const QVector<QPointF> pts{QPointF(5.0, 5.0), QPointF(5.0, 5.0), QPointF(9.0, 9.0),
+                               QPointF(9.0, 9.0)};
+    const QVector<double> z{1.0, 1.0, 2.0, 2.0};
     QVERIFY(!nn.build(pts, z, &err));
 }
 
@@ -69,10 +122,9 @@ void TestNNInterpDegenerate::collinearSeeds()
     // Triangle produces no triangles here.
     mesh::NaturalNeighbourInterpolator nn;
     QString err;
-    const QVector<QPointF> pts{QPointF(0.0, 0.0), QPointF(1.0, 1.0),
-                               QPointF(2.0, 2.0), QPointF(3.0, 3.0),
-                               QPointF(4.0, 4.0)};
-    const QVector<double>  z  {1.0, 2.0, 3.0, 4.0, 5.0};
+    const QVector<QPointF> pts{QPointF(0.0, 0.0), QPointF(1.0, 1.0), QPointF(2.0, 2.0),
+                               QPointF(3.0, 3.0), QPointF(4.0, 4.0)};
+    const QVector<double> z{1.0, 2.0, 3.0, 4.0, 5.0};
     QVERIFY(!nn.build(pts, z, &err));
 }
 
@@ -80,9 +132,8 @@ void TestNNInterpDegenerate::mismatchedCounts()
 {
     mesh::NaturalNeighbourInterpolator nn;
     QString err;
-    const QVector<QPointF> pts{QPointF(0.0, 0.0), QPointF(1.0, 0.0),
-                               QPointF(0.0, 1.0)};
-    const QVector<double>  z  {1.0, 2.0};
+    const QVector<QPointF> pts{QPointF(0.0, 0.0), QPointF(1.0, 0.0), QPointF(0.0, 1.0)};
+    const QVector<double> z{1.0, 2.0};
     QVERIFY(!nn.build(pts, z, &err));
 }
 
@@ -94,9 +145,9 @@ void TestNNInterpDegenerate::nonFiniteSeeds()
     QString err;
     const double nan = std::numeric_limits<double>::quiet_NaN();
     const double inf = std::numeric_limits<double>::infinity();
-    const QVector<QPointF> pts{QPointF(0.0, 0.0), QPointF(nan, 1.0),
-                               QPointF(inf, 2.0), QPointF(1.0, 1.0)};
-    const QVector<double>  z  {1.0, 2.0, 3.0, 4.0};
+    const QVector<QPointF> pts{QPointF(0.0, 0.0), QPointF(nan, 1.0), QPointF(inf, 2.0),
+                               QPointF(1.0, 1.0)};
+    const QVector<double> z{1.0, 2.0, 3.0, 4.0};
     QVERIFY(!nn.build(pts, z, &err));
 }
 
@@ -105,10 +156,9 @@ void TestNNInterpDegenerate::validSeedsBuildOnly()
     // Isolates build() from interpolate() so a crash can be attributed.
     mesh::NaturalNeighbourInterpolator nn;
     QString err;
-    const QVector<QPointF> pts{QPointF(0.0, 0.0), QPointF(10.0, 0.0),
-                               QPointF(10.0, 10.0), QPointF(0.0, 10.0),
-                               QPointF(5.0, 5.0)};
-    const QVector<double>  z  {0.0, 0.0, 0.0, 0.0, 0.0};
+    const QVector<QPointF> pts{QPointF(0.0, 0.0), QPointF(10.0, 0.0), QPointF(10.0, 10.0),
+                               QPointF(0.0, 10.0), QPointF(5.0, 5.0)};
+    const QVector<double> z{0.0, 0.0, 0.0, 0.0, 0.0};
     const bool ok = nn.build(pts, z, &err);
     qDebug() << "build() returned" << ok << "err:" << err;
     QVERIFY2(ok, qPrintable(err));
@@ -128,30 +178,26 @@ void TestNNInterpDegenerate::validSeedsStillBuild()
     // cocircular at every cell, which is degenerate for the in-circle tests
     // Sibson weights are built on.  Deterministic LCG so the case is stable.
     QVector<QPointF> pts;
-    QVector<double>  z;
+    QVector<double> z;
     quint32 seed = 12345u;
     const auto jitter = [&seed]() {
         seed = seed * 1664525u + 1013904223u;
-        return (double(seed >> 8) / double(1u << 24)) * 3.0 - 1.5;  // +/-1.5
+        return (double(seed >> 8) / double(1u << 24)) * 3.0 - 1.5; // +/-1.5
     };
     for (int r = 0; r < 7; ++r)
-        for (int c = 0; c < 7; ++c)
-        {
+        for (int c = 0; c < 7; ++c) {
             pts.append(QPointF(c * 10.0 + jitter(), r * 10.0 + jitter()));
-            z.append(5.0);                     // flat field
+            z.append(5.0); // flat field
         }
     QVERIFY2(nn.build(pts, z, &err), qPrintable(err));
     QVERIFY(nn.isValid());
 
     // Flat seed field → any interior query reproduces the constant exactly.
-    for (const QPointF &q : {QPointF(30.0, 30.0), QPointF(27.5, 33.0),
-                             QPointF(35.0, 28.0)})
-    {
+    for (const QPointF &q : {QPointF(30.0, 30.0), QPointF(27.5, 33.0), QPointF(35.0, 28.0)}) {
         const double out = nn.interpolate(q.x(), q.y());
         qDebug() << "  interpolate" << q << "->" << out;
         QVERIFY2(std::isfinite(out),
-                 qPrintable(QStringLiteral("NaN at (%1, %2)")
-                                .arg(q.x()).arg(q.y())));
+                 qPrintable(QStringLiteral("NaN at (%1, %2)").arg(q.x()).arg(q.y())));
         QCOMPARE(out, 5.0);
     }
 }

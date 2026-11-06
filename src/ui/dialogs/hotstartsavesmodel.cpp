@@ -1,12 +1,17 @@
-/*!
- * \file   hotstartsavesmodel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      hotstartsavesmodel.cpp
+ * @brief     MVC backing for the scheduled-hot-start-saves table in the Simulation Options dialog
+ *            ([FILES] SAVE HOTSTART).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/hotstartsavesmodel.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
 
+#include <QComboBox>
 #include <QDateTime>
 #include <QDateTimeEdit>
 #include <QSignalBlocker>
@@ -15,10 +20,7 @@
 // HotstartSavesModel
 // ---------------------------------------------------------------------------
 
-HotstartSavesModel::HotstartSavesModel(QObject *parent)
-    : QAbstractTableModel(parent)
-{
-}
+HotstartSavesModel::HotstartSavesModel(QObject *parent) : QAbstractTableModel(parent) {}
 
 int HotstartSavesModel::rowCount(const QModelIndex &parent) const
 {
@@ -38,33 +40,57 @@ QVariant HotstartSavesModel::data(const QModelIndex &index, int role) const
 
     if (role == Qt::DisplayRole || role == Qt::EditRole) {
         switch (index.column()) {
-        case ColPath:     return r.path;
-        case ColDateTime: return r.oaDate;
+        case ColPath:
+            return r.path;
+        case ColDateTime:
+            return r.oaDate;
+        case ColFormat:
+            return role == Qt::EditRole ? QVariant(r.format) : QVariant(formatName(r.format));
         }
     }
+    if (role == Qt::ToolTipRole && index.column() == ColFormat)
+        return tr("Auto: SWMM 5 file, or native when storage nodes carry LIDs.\n"
+                  "Legacy: always the SWMM 5 file; OpenSWMM restores its\n"
+                  "node, link and subcatchment state.\n"
+                  "Native: OpenSWMM file; also keeps water age, reaction\n"
+                  "species, the aquifer, storage-node LIDs and snow.\n"
+                  "SWMM 5 cannot read it.");
     return {};
 }
 
-bool HotstartSavesModel::setData(const QModelIndex &index,
-                                 const QVariant &value, int role)
+bool HotstartSavesModel::setData(const QModelIndex &index, const QVariant &value, int role)
 {
     if (!index.isValid() || index.row() < 0 || index.row() >= m_rows.size())
         return false;
-    if (role != Qt::EditRole) return false;
+    if (role != Qt::EditRole)
+        return false;
     Row &r = m_rows[index.row()];
 
     switch (index.column()) {
     case ColPath: {
         const QString s = value.toString();
-        if (r.path == s) return true;
+        if (r.path == s)
+            return true;
         r.path = s;
         emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
         return true;
     }
     case ColDateTime: {
         const double d = value.toDouble();
-        if (qFuzzyCompare(r.oaDate, d)) return true;
+        if (qFuzzyCompare(r.oaDate, d))
+            return true;
         r.oaDate = d;
+        emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
+        return true;
+    }
+    case ColFormat: {
+        bool ok = false;
+        const int f = value.toInt(&ok);
+        if (!ok || f < 0 || f > 2)
+            return false;
+        if (r.format == f)
+            return true;
+        r.format = f;
         emit dataChanged(index, index, {Qt::DisplayRole, Qt::EditRole});
         return true;
     }
@@ -72,15 +98,18 @@ bool HotstartSavesModel::setData(const QModelIndex &index,
     return false;
 }
 
-QVariant HotstartSavesModel::headerData(int section,
-                                        Qt::Orientation orientation,
-                                        int role) const
+QVariant HotstartSavesModel::headerData(int section, Qt::Orientation orientation, int role) const
 {
-    if (role != Qt::DisplayRole) return {};
+    if (role != Qt::DisplayRole)
+        return {};
     if (orientation == Qt::Horizontal) {
         switch (section) {
-        case ColPath:     return tr("Path (relative to .inp directory)");
-        case ColDateTime: return tr("Datetime");
+        case ColPath:
+            return tr("Path (relative to .inp directory)");
+        case ColDateTime:
+            return tr("Datetime");
+        case ColFormat:
+            return tr("Format");
         }
     }
     return {};
@@ -88,45 +117,47 @@ QVariant HotstartSavesModel::headerData(int section,
 
 Qt::ItemFlags HotstartSavesModel::flags(const QModelIndex &index) const
 {
-    if (!index.isValid()) return Qt::NoItemFlags;
+    if (!index.isValid())
+        return Qt::NoItemFlags;
     return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable;
 }
 
-bool HotstartSavesModel::insertRows(int row, int count,
-                                    const QModelIndex &parent)
+bool HotstartSavesModel::insertRows(int row, int count, const QModelIndex &parent)
 {
     if (parent.isValid() || count <= 0 || row < 0 || row > m_rows.size())
         return false;
     beginInsertRows(QModelIndex(), row, row + count - 1);
-    for (int i = 0; i < count; ++i) m_rows.insert(row, Row{});
+    for (int i = 0; i < count; ++i)
+        m_rows.insert(row, Row{});
     endInsertRows();
     return true;
 }
 
-bool HotstartSavesModel::removeRows(int row, int count,
-                                    const QModelIndex &parent)
+bool HotstartSavesModel::removeRows(int row, int count, const QModelIndex &parent)
 {
-    if (parent.isValid() || count <= 0 || row < 0
-        || row + count > m_rows.size()) return false;
+    if (parent.isValid() || count <= 0 || row < 0 || row + count > m_rows.size())
+        return false;
     beginRemoveRows(QModelIndex(), row, row + count - 1);
-    for (int i = 0; i < count; ++i) m_rows.removeAt(row);
+    for (int i = 0; i < count; ++i)
+        m_rows.removeAt(row);
     endRemoveRows();
     return true;
 }
 
 void HotstartSavesModel::clearRows()
 {
-    if (m_rows.isEmpty()) return;
+    if (m_rows.isEmpty())
+        return;
     beginResetModel();
     m_rows.clear();
     endResetModel();
 }
 
-int HotstartSavesModel::appendRow(const QString &path, double oaDate)
+int HotstartSavesModel::appendRow(const QString &path, double oaDate, int format)
 {
     const int row = m_rows.size();
     beginInsertRows(QModelIndex(), row, row);
-    m_rows.append(Row{path, oaDate});
+    m_rows.append(Row{path, oaDate, (format >= 0 && format <= 2) ? format : 0});
     endInsertRows();
     return row;
 }
@@ -134,12 +165,12 @@ int HotstartSavesModel::appendRow(const QString &path, double oaDate)
 bool HotstartSavesModel::swapRows(int a, int b)
 {
     const int n = m_rows.size();
-    if (a < 0 || b < 0 || a >= n || b >= n || a == b) return false;
+    if (a < 0 || b < 0 || a >= n || b >= n || a == b)
+        return false;
     m_rows.swapItemsAt(a, b);
     const int lo = std::min(a, b);
     const int hi = std::max(a, b);
-    emit dataChanged(index(lo, 0), index(hi, ColCount - 1),
-                     {Qt::DisplayRole, Qt::EditRole});
+    emit dataChanged(index(lo, 0), index(hi, ColCount - 1), {Qt::DisplayRole, Qt::EditRole});
     return true;
 }
 
@@ -153,6 +184,23 @@ double HotstartSavesModel::oaDateAt(int row) const
     return (row >= 0 && row < m_rows.size()) ? m_rows.at(row).oaDate : 0.0;
 }
 
+int HotstartSavesModel::formatAt(int row) const
+{
+    return (row >= 0 && row < m_rows.size()) ? m_rows.at(row).format : 0;
+}
+
+QString HotstartSavesModel::formatName(int format)
+{
+    switch (format) {
+    case 1:
+        return tr("Legacy");
+    case 2:
+        return tr("Native");
+    default:
+        return tr("Auto");
+    }
+}
+
 // ---------------------------------------------------------------------------
 // HotstartSavesDateTimeDelegate
 // ---------------------------------------------------------------------------
@@ -162,9 +210,9 @@ HotstartSavesDateTimeDelegate::HotstartSavesDateTimeDelegate(QObject *parent)
 {
 }
 
-QWidget *HotstartSavesDateTimeDelegate::createEditor(
-    QWidget *parent, const QStyleOptionViewItem & /*opt*/,
-    const QModelIndex & /*idx*/) const
+QWidget *HotstartSavesDateTimeDelegate::createEditor(QWidget *parent,
+                                                     const QStyleOptionViewItem & /*opt*/,
+                                                     const QModelIndex & /*idx*/) const
 {
     auto *w = new QDateTimeEdit(parent);
     w->setDisplayFormat(QStringLiteral("MM/dd/yyyy HH:mm:ss"));
@@ -177,33 +225,77 @@ QWidget *HotstartSavesDateTimeDelegate::createEditor(
 
     // Push edits back to the model immediately so persistent-editor changes
     // don't get lost if the user clicks away without committing manually.
-    QObject::connect(w, &QDateTimeEdit::dateTimeChanged, w,
-        [this, w] {
-            auto *self = const_cast<HotstartSavesDateTimeDelegate *>(this);
-            emit self->commitData(w);
-        });
+    QObject::connect(w, &QDateTimeEdit::dateTimeChanged, w, [this, w] {
+        auto *self = const_cast<HotstartSavesDateTimeDelegate *>(this);
+        emit self->commitData(w);
+    });
     return w;
 }
 
-void HotstartSavesDateTimeDelegate::setEditorData(QWidget *editor,
-                                                  const QModelIndex &idx) const
+void HotstartSavesDateTimeDelegate::setEditorData(QWidget *editor, const QModelIndex &idx) const
 {
     auto *w = qobject_cast<QDateTimeEdit *>(editor);
-    if (!w) return;
+    if (!w)
+        return;
     const double oa = idx.data(Qt::EditRole).toDouble();
-    QSignalBlocker block(w);   // avoid round-tripping our own write
-    if (oa > 0.0) w->setDateTime(SimulationOptionsDialog::qDateTimeFromOaDate(oa));
-    else          w->setDateTime(w->minimumDateTime());
+    QSignalBlocker block(w); // avoid round-tripping our own write
+    if (oa > 0.0)
+        w->setDateTime(SimulationOptionsDialog::qDateTimeFromOaDate(oa));
+    else
+        w->setDateTime(w->minimumDateTime());
 }
 
-void HotstartSavesDateTimeDelegate::setModelData(QWidget *editor,
-                                                 QAbstractItemModel *model,
+void HotstartSavesDateTimeDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
                                                  const QModelIndex &idx) const
 {
     auto *w = qobject_cast<QDateTimeEdit *>(editor);
-    if (!w || !model) return;
+    if (!w || !model)
+        return;
     double oa = 0.0;
     if (w->dateTime() != w->minimumDateTime())
         oa = SimulationOptionsDialog::oaDateFromQDateTime(w->dateTime());
     model->setData(idx, oa, Qt::EditRole);
+}
+
+// ---------------------------------------------------------------------------
+// HotstartSavesFormatDelegate
+// ---------------------------------------------------------------------------
+
+HotstartSavesFormatDelegate::HotstartSavesFormatDelegate(QObject *parent)
+    : QStyledItemDelegate(parent)
+{
+}
+
+QWidget *HotstartSavesFormatDelegate::createEditor(QWidget *parent,
+                                                   const QStyleOptionViewItem & /*opt*/,
+                                                   const QModelIndex & /*idx*/) const
+{
+    auto *w = new QComboBox(parent);
+    for (int f = 0; f <= 2; ++f)
+        w->addItem(HotstartSavesModel::formatName(f), f);
+    w->setFrame(false);
+    QObject::connect(w, &QComboBox::currentIndexChanged, w, [this, w] {
+        auto *self = const_cast<HotstartSavesFormatDelegate *>(this);
+        emit self->commitData(w);
+    });
+    return w;
+}
+
+void HotstartSavesFormatDelegate::setEditorData(QWidget *editor, const QModelIndex &idx) const
+{
+    auto *w = qobject_cast<QComboBox *>(editor);
+    if (!w)
+        return;
+    QSignalBlocker block(w);
+    const int i = w->findData(idx.data(Qt::EditRole).toInt());
+    w->setCurrentIndex(i >= 0 ? i : 0);
+}
+
+void HotstartSavesFormatDelegate::setModelData(QWidget *editor, QAbstractItemModel *model,
+                                               const QModelIndex &idx) const
+{
+    auto *w = qobject_cast<QComboBox *>(editor);
+    if (!w || !model)
+        return;
+    model->setData(idx, w->currentData(), Qt::EditRole);
 }

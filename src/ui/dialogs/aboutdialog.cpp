@@ -1,10 +1,14 @@
-/*!
- * \file   aboutdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      aboutdialog.cpp
+ * @brief     About dialog with license browser.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/aboutdialog.h"
+#include "core/buildinfo.h"
 #include "version.h"
 
 #include <QApplication>
@@ -25,7 +29,9 @@
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSortFilterProxyModel>
+#include <QShowEvent>
 #include <QSplitter>
+#include <QSplitterHandle>
 #include <QStandardItem>
 #include <QStandardItemModel>
 #include <QSysInfo>
@@ -34,11 +40,16 @@
 #include <QVBoxLayout>
 #include <QtGlobal>
 
-namespace {
+namespace
+{
 
-constexpr int RoleComponentIndex = Qt::UserRole + 1;   // int → m_components index
-constexpr int RoleIsLeaf         = Qt::UserRole + 2;   // bool
+constexpr int RoleComponentIndex = Qt::UserRole + 1; // int → m_components index
+constexpr int RoleIsLeaf = Qt::UserRole + 2;         // bool
 
+/**
+ * @brief Format the compiled major, minor and patch version macros as three decimal components.
+ * @return New dotted version string; no runtime settings/build metadata lookup.
+ */
 QString applicationVersionString()
 {
     return QStringLiteral("%1.%2.%3")
@@ -47,17 +58,21 @@ QString applicationVersionString()
         .arg(SWMM_VERSION_PATCH);
 }
 
+/**
+ * @brief Gather application version, build timestamp, runtime Qt, OS/kernel and current CPU
+ *   architecture for display or clipboard.
+ * @return Newly formatted multiline text; no filesystem/network probing or clipboard write within
+ *   helper.
+ */
 QString environmentSummary()
 {
-    return QStringLiteral(
-               "SWMMVis %1\n"
-               "Build:    %2 %3\n"
-               "Qt:       %4\n"
-               "OS:       %5 (%6)\n"
-               "Arch:     %7")
+    return QStringLiteral("SWMMVis %1\n"
+                          "Build:    %2\n"
+                          "Qt:       %3\n"
+                          "OS:       %4 (%5)\n"
+                          "Arch:     %6")
         .arg(applicationVersionString())
-        .arg(QStringLiteral(__DATE__))
-        .arg(QStringLiteral(__TIME__))
+        .arg(QString::fromLatin1(openswmmvis::buildTimestamp()))
         .arg(QString::fromLatin1(qVersion()))
         .arg(QSysInfo::prettyProductName())
         .arg(QSysInfo::kernelType() + QStringLiteral(" ") + QSysInfo::kernelVersion())
@@ -70,8 +85,7 @@ QString environmentSummary()
 // Construction
 // ---------------------------------------------------------------------------
 
-AboutDialog::AboutDialog(QWidget *parent)
-    : QDialog(parent)
+AboutDialog::AboutDialog(QWidget *parent) : QDialog(parent)
 {
     setWindowTitle(tr("About SWMMVis"));
     // Iteration 2 (D3) — naming wires the app-wide layout persistence.
@@ -80,11 +94,23 @@ AboutDialog::AboutDialog(QWidget *parent)
 
     buildUi();
     loadManifest();
-    populateTree();
     showApplicationOverview();
+    populateTree();
 }
 
 AboutDialog::~AboutDialog() = default;
+
+void AboutDialog::showEvent(QShowEvent *event)
+{
+    QDialog::showEvent(event);
+    // The layout watcher restores interactive columns before Show. This
+    // hidden single-column header must fit names and fill the available pane.
+    auto *header = m_tree->header();
+    header->setStretchLastSection(false);
+    m_tree->resizeColumnToContents(0);
+    header->setMinimumSectionSize(m_tree->columnWidth(0));
+    header->setStretchLastSection(true);
+}
 
 // ---------------------------------------------------------------------------
 // UI construction
@@ -104,19 +130,20 @@ void AboutDialog::buildUi()
 
     m_copyEnvButton = new QPushButton(tr("Copy environment"), this);
     m_copyEnvButton->setToolTip(tr("Copy the build / OS / Qt summary to the clipboard"));
-    connect(m_copyEnvButton, &QPushButton::clicked, this, []() {
-        QApplication::clipboard()->setText(environmentSummary());
-    });
+    connect(m_copyEnvButton, &QPushButton::clicked, this,
+            []() { QApplication::clipboard()->setText(environmentSummary()); });
     header->addWidget(m_copyEnvButton, 0, Qt::AlignTop);
     root->addLayout(header);
 
     // ── Master / detail splitter ────────────────────────────────────────
     auto *splitter = new QSplitter(Qt::Horizontal, this);
     splitter->setObjectName(QStringLiteral("main"));
+    splitter->setChildrenCollapsible(false);
+    splitter->setHandleWidth(8);
 
     // Left: search + tree
-    auto *leftBox  = new QWidget(splitter);
-    auto *leftLay  = new QVBoxLayout(leftBox);
+    auto *leftBox = new QWidget(splitter);
+    auto *leftLay = new QVBoxLayout(leftBox);
     leftLay->setContentsMargins(0, 0, 0, 0);
 
     m_searchEdit = new QLineEdit(leftBox);
@@ -124,9 +151,9 @@ void AboutDialog::buildUi()
     m_searchEdit->setClearButtonEnabled(true);
     leftLay->addWidget(m_searchEdit);
 
-    m_tree       = new QTreeView(leftBox);
-    m_treeModel  = new QStandardItemModel(this);
-    m_treeProxy  = new QSortFilterProxyModel(this);
+    m_tree = new QTreeView(leftBox);
+    m_treeModel = new QStandardItemModel(this);
+    m_treeProxy = new QSortFilterProxyModel(this);
     m_treeProxy->setSourceModel(m_treeModel);
     m_treeProxy->setRecursiveFilteringEnabled(true);
     m_treeProxy->setFilterCaseSensitivity(Qt::CaseInsensitive);
@@ -134,6 +161,8 @@ void AboutDialog::buildUi()
     m_tree->setHeaderHidden(true);
     m_tree->setRootIsDecorated(true);
     m_tree->setAlternatingRowColors(true);
+    m_tree->setAccessibleName(tr("Components and licenses"));
+    m_tree->setHorizontalScrollMode(QAbstractItemView::ScrollPerPixel);
     leftLay->addWidget(m_tree, 1);
 
     splitter->addWidget(leftBox);
@@ -160,14 +189,15 @@ void AboutDialog::buildUi()
 
     m_licenseText = new QPlainTextEdit(rightBox);
     m_licenseText->setReadOnly(true);
-    m_licenseText->setLineWrapMode(QPlainTextEdit::NoWrap);
+    m_licenseText->setAccessibleName(tr("License text"));
+    m_licenseText->setLineWrapMode(QPlainTextEdit::WidgetWidth);
     m_licenseText->setFont(QFontDatabase::systemFont(QFontDatabase::FixedFont));
     rightLay->addWidget(m_licenseText, 1);
 
     auto *btnRow = new QHBoxLayout;
-    m_copyButton     = new QPushButton(tr("Copy License"),  rightBox);
+    m_copyButton = new QPushButton(tr("Copy License"), rightBox);
     m_homepageButton = new QPushButton(tr("Open Homepage"), rightBox);
-    m_sourceButton   = new QPushButton(tr("Open Source"),   rightBox);
+    m_sourceButton = new QPushButton(tr("Open Source"), rightBox);
     btnRow->addWidget(m_copyButton);
     btnRow->addWidget(m_homepageButton);
     btnRow->addWidget(m_sourceButton);
@@ -175,6 +205,7 @@ void AboutDialog::buildUi()
     rightLay->addLayout(btnRow);
 
     splitter->addWidget(rightBox);
+    splitter->handle(1)->setToolTip(tr("Drag to resize the component and license panels"));
     splitter->setStretchFactor(0, 1);
     splitter->setStretchFactor(1, 2);
     root->addWidget(splitter, 1);
@@ -185,11 +216,10 @@ void AboutDialog::buildUi()
     root->addWidget(bb);
 
     // ── Connections ─────────────────────────────────────────────────────
-    connect(m_searchEdit, &QLineEdit::textChanged,
-            this, &AboutDialog::onSearchTextChanged);
-    connect(m_copyButton,     &QPushButton::clicked, this, &AboutDialog::onCopyLicense);
+    connect(m_searchEdit, &QLineEdit::textChanged, this, &AboutDialog::onSearchTextChanged);
+    connect(m_copyButton, &QPushButton::clicked, this, &AboutDialog::onCopyLicense);
     connect(m_homepageButton, &QPushButton::clicked, this, &AboutDialog::onOpenHomepage);
-    connect(m_sourceButton,   &QPushButton::clicked, this, &AboutDialog::onOpenSource);
+    connect(m_sourceButton, &QPushButton::clicked, this, &AboutDialog::onOpenSource);
 }
 
 // ---------------------------------------------------------------------------
@@ -199,8 +229,7 @@ void AboutDialog::buildUi()
 void AboutDialog::loadManifest()
 {
     QFile f(QStringLiteral(":/about/components.json"));
-    if (!f.open(QIODevice::ReadOnly))
-    {
+    if (!f.open(QIODevice::ReadOnly)) {
         // Manifest missing — show only the application overview.
         m_components.clear();
         return;
@@ -212,14 +241,13 @@ void AboutDialog::loadManifest()
         m_components.clear();
 }
 
-QVector<AboutDialog::Component>
-AboutDialog::parseManifest(const QByteArray &json, QString *errorOut)
+QVector<AboutDialog::Component> AboutDialog::parseManifest(const QByteArray &json,
+                                                           QString *errorOut)
 {
     QVector<Component> out;
     QJsonParseError pe;
     QJsonDocument doc = QJsonDocument::fromJson(json, &pe);
-    if (doc.isNull() || !doc.isArray())
-    {
+    if (doc.isNull() || !doc.isArray()) {
         if (errorOut)
             *errorOut = pe.errorString().isEmpty()
                             ? QStringLiteral("Manifest root is not a JSON array.")
@@ -228,19 +256,19 @@ AboutDialog::parseManifest(const QByteArray &json, QString *errorOut)
     }
     const QJsonArray arr = doc.array();
     out.reserve(arr.size());
-    for (const QJsonValue &v : arr)
-    {
-        if (!v.isObject()) continue;
+    for (const QJsonValue &v : arr) {
+        if (!v.isObject())
+            continue;
         const QJsonObject o = v.toObject();
         Component c;
-        c.category    = o.value(QStringLiteral("category")).toString();
-        c.name        = o.value(QStringLiteral("name")).toString();
-        c.version     = o.value(QStringLiteral("version")).toString();
-        c.role        = o.value(QStringLiteral("role")).toString();
-        c.homepage    = o.value(QStringLiteral("homepage")).toString();
-        c.sourceUrl   = o.value(QStringLiteral("source")).toString();
-        c.spdx        = o.value(QStringLiteral("spdx")).toString();
-        c.provenance  = o.value(QStringLiteral("provenance")).toString();
+        c.category = o.value(QStringLiteral("category")).toString();
+        c.name = o.value(QStringLiteral("name")).toString();
+        c.version = o.value(QStringLiteral("version")).toString();
+        c.role = o.value(QStringLiteral("role")).toString();
+        c.homepage = o.value(QStringLiteral("homepage")).toString();
+        c.sourceUrl = o.value(QStringLiteral("source")).toString();
+        c.spdx = o.value(QStringLiteral("spdx")).toString();
+        c.provenance = o.value(QStringLiteral("provenance")).toString();
         c.licenseFile = o.value(QStringLiteral("licenseFile")).toString();
         if (!c.name.isEmpty())
             out.append(std::move(c));
@@ -259,14 +287,12 @@ void AboutDialog::populateTree()
 
     // Group by category, preserving manifest order within each group.
     QHash<QString, QStandardItem *> catItems;
-    for (int i = 0; i < m_components.size(); ++i)
-    {
+    for (int i = 0; i < m_components.size(); ++i) {
         const Component &c = m_components[i];
         const QString cat = c.category.isEmpty() ? tr("Other") : c.category;
 
         QStandardItem *catItem = catItems.value(cat);
-        if (!catItem)
-        {
+        if (!catItem) {
             catItem = new QStandardItem(cat);
             QFont f = catItem->font();
             f.setBold(true);
@@ -277,10 +303,9 @@ void AboutDialog::populateTree()
             catItems.insert(cat, catItem);
         }
 
-        auto *leaf = new QStandardItem(c.version.isEmpty()
-                                           ? c.name
-                                           : QStringLiteral("%1  (%2)").arg(c.name, c.version));
-        leaf->setData(i,    RoleComponentIndex);
+        auto *leaf = new QStandardItem(
+            c.version.isEmpty() ? c.name : QStringLiteral("%1  (%2)").arg(c.name, c.version));
+        leaf->setData(i, RoleComponentIndex);
         leaf->setData(true, RoleIsLeaf);
         leaf->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable);
         catItem->appendRow(leaf);
@@ -290,10 +315,14 @@ void AboutDialog::populateTree()
 
     // Selection wiring (must be after model is set on the proxy).
     if (auto *sm = m_tree->selectionModel())
-        connect(sm, &QItemSelectionModel::currentChanged,
-                this, [this](const QModelIndex &, const QModelIndex &) {
-                    onSelectionChanged();
-                });
+        connect(sm, &QItemSelectionModel::currentChanged, this,
+                [this](const QModelIndex &, const QModelIndex &) { onSelectionChanged(); });
+
+    // The application entry leads the manifest; show its license on opening.
+    const QModelIndex firstCategory = m_treeModel->index(0, 0);
+    const QModelIndex firstComponent = m_treeModel->index(0, 0, firstCategory);
+    if (firstComponent.isValid())
+        m_tree->setCurrentIndex(m_treeProxy->mapFromSource(firstComponent));
 }
 
 // ---------------------------------------------------------------------------
@@ -304,9 +333,8 @@ void AboutDialog::showApplicationOverview()
 {
     m_currentComponent = -1;
     m_nameLabel->setText(QStringLiteral("SWMMVis %1").arg(applicationVersionString()));
-    m_metaLabel->setText(tr(
-        "Open-source Qt6 GUI for the OpenSWMM engine.<br>"
-        "Select a component on the left to view its license and metadata."));
+    m_metaLabel->setText(tr("Open-source Qt6 GUI for the SWMMVis engine.<br>"
+                            "Select a component on the left to view its license and metadata."));
     m_licenseText->clear();
     m_licenseText->setPlaceholderText(tr("Select a component to view its license."));
     m_copyButton->setEnabled(false);
@@ -319,26 +347,26 @@ void AboutDialog::showComponent(const Component &c)
     m_nameLabel->setText(c.name);
 
     QStringList meta;
-    if (!c.version.isEmpty())     meta << tr("<b>Version:</b> %1").arg(c.version.toHtmlEscaped());
-    if (!c.role.isEmpty())        meta << tr("<b>Role:</b> %1").arg(c.role.toHtmlEscaped());
-    if (!c.spdx.isEmpty())        meta << tr("<b>License:</b> %1").arg(c.spdx.toHtmlEscaped());
-    if (!c.provenance.isEmpty())  meta << tr("<b>Source:</b> %1").arg(c.provenance.toHtmlEscaped());
+    if (!c.version.isEmpty())
+        meta << tr("<b>Version:</b> %1").arg(c.version.toHtmlEscaped());
+    if (!c.role.isEmpty())
+        meta << tr("<b>Role:</b> %1").arg(c.role.toHtmlEscaped());
+    if (!c.spdx.isEmpty())
+        meta << tr("<b>License:</b> %1").arg(c.spdx.toHtmlEscaped());
+    if (!c.provenance.isEmpty())
+        meta << tr("<b>Source:</b> %1").arg(c.provenance.toHtmlEscaped());
     if (!c.homepage.isEmpty())
-        meta << tr("<b>Homepage:</b> <a href=\"%1\">%1</a>")
-                    .arg(c.homepage.toHtmlEscaped());
+        meta << tr("<b>Homepage:</b> <a href=\"%1\">%1</a>").arg(c.homepage.toHtmlEscaped());
     m_metaLabel->setText(meta.join(QStringLiteral("<br>")));
 
     // License text
-    if (!c.licenseFile.isEmpty())
-    {
+    if (!c.licenseFile.isEmpty()) {
         QFile f(c.licenseFile);
         if (f.open(QIODevice::ReadOnly))
             m_licenseText->setPlainText(QString::fromUtf8(f.readAll()));
         else
             m_licenseText->setPlainText(tr("(license file not found: %1)").arg(c.licenseFile));
-    }
-    else
-    {
+    } else {
         m_licenseText->setPlainText(tr("(no license file declared in the manifest)"));
     }
 
@@ -354,7 +382,8 @@ void AboutDialog::showComponent(const Component &c)
 void AboutDialog::onSelectionChanged()
 {
     const QModelIndex proxyIdx = m_tree->currentIndex();
-    if (!proxyIdx.isValid()) return;
+    if (!proxyIdx.isValid())
+        return;
     const QModelIndex srcIdx = m_treeProxy->mapToSource(proxyIdx);
     if (!srcIdx.data(RoleIsLeaf).toBool())
         return;
@@ -378,14 +407,18 @@ void AboutDialog::onCopyLicense()
 
 void AboutDialog::onOpenHomepage()
 {
-    if (m_currentComponent < 0) return;
+    if (m_currentComponent < 0)
+        return;
     const QString url = m_components[m_currentComponent].homepage;
-    if (!url.isEmpty()) QDesktopServices::openUrl(QUrl(url));
+    if (!url.isEmpty())
+        QDesktopServices::openUrl(QUrl(url));
 }
 
 void AboutDialog::onOpenSource()
 {
-    if (m_currentComponent < 0) return;
+    if (m_currentComponent < 0)
+        return;
     const QString url = m_components[m_currentComponent].sourceUrl;
-    if (!url.isEmpty()) QDesktopServices::openUrl(QUrl(url));
+    if (!url.isEmpty())
+        QDesktopServices::openUrl(QUrl(url));
 }

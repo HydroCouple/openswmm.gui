@@ -1,0 +1,42 @@
+[
+  {
+    "example": "arrhenius",
+    "returncode": 0,
+    "output_bytes": 9237
+  },
+  {
+    "example": "attached_wall",
+    "returncode": 0,
+    "output_bytes": 9976
+  },
+  {
+    "example": "dry_buildup",
+    "returncode": 0,
+    "output_bytes": 3011
+  },
+  {
+    "example": "lid_layers",
+    "returncode": 0,
+    "output_bytes": 8195
+  },
+  {
+    "example": "parent_product",
+    "returncode": 0,
+    "output_bytes": 9976
+  },
+  {
+    "example": "setpoint",
+    "returncode": 0,
+    "output_bytes": 9235
+  },
+  {
+    "example": "wall_geometry",
+    "returncode": 0,
+    "output_bytes": 9976
+  },
+  {
+    "example": "wet_pool",
+    "returncode": 0,
+    "output_bytes": 8195
+  }
+]

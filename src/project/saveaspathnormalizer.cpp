@@ -1,11 +1,13 @@
-/*!
- * \file   saveaspathnormalizer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      saveaspathnormalizer.cpp
+ * @brief     Save As dialog result canonicalization (Slice RA, Phase RA.1).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice RA, Phase RA.1 — implementation.
  * See saveaspathnormalizer.h for design notes.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "project/saveaspathnormalizer.h"
@@ -15,12 +17,19 @@
 #include <QLatin1Char>
 #include <QStringList>
 
-namespace openswmmvis {
+namespace openswmmvis
+{
 
-namespace {
+namespace
+{
 
 // Lowercased final extension of `path`, no leading dot. Empty string when
 // the path has no extension. Uses QFileInfo::suffix() (last dot only).
+/**
+ * @brief Read the lowercase final suffix without its leading dot.
+ * @param[in] path Filename; directory components remain irrelevant.
+ * @return QFileInfo suffix, or empty when absent.
+ */
 QString tailExt(const QString &path)
 {
     return QFileInfo(path).suffix().toLower();
@@ -33,11 +42,17 @@ QString tailExt(const QString &path)
 // `model.inp.oswp` (writable={inp,oswp,gpkg}) → `model.inp` (one strip)
 // `model.bak.oswp` (writable={inp,oswp,gpkg}) → `model.bak.oswp` (bak not writable; no strip)
 // `model.inp`     (writable={inp,oswp,gpkg}) → `model.inp` (no trailing duplicate)
-QString stripOneTrailingWritable(const QString &path,
-                                 const QSet<QString> &writable)
+/**
+ * @brief Remove one recognized trailing extension layer.
+ * @param[in] path Filename including any directories.
+ * @param[in] writable Lowercase recognized extensions without leading dots.
+ * @return Prefix without the last suffix/dot if recognized, otherwise the original path; the inner suffix need not itself be writable.
+ */
+QString stripOneTrailingWritable(const QString &path, const QSet<QString> &writable)
 {
     const QString ext = tailExt(path);
-    if (ext.isEmpty() || !writable.contains(ext)) return path;
+    if (ext.isEmpty() || !writable.contains(ext))
+        return path;
 
     // Drop the trailing ".<ext>" (length = ext + 1 for the dot).
     return path.left(path.size() - ext.size() - 1);
@@ -49,7 +64,8 @@ SaveAsPathResult normalizeSaveAsPath(const QString &dialogPath,
                                      const QSet<QString> &writableExtensions)
 {
     SaveAsPathResult r;
-    if (dialogPath.isEmpty()) return r;
+    if (dialogPath.isEmpty())
+        return r;
 
     // The dialog's *original* tail extension drives isProject — capture
     // BEFORE any stripping so a `model.inp.oswp` correctly produces
@@ -67,15 +83,14 @@ SaveAsPathResult normalizeSaveAsPath(const QString &dialogPath,
     {
         // Peel and remember the outer extension.
         QString outer = tailExt(working);
-        const bool outerIsWritable = !outer.isEmpty()
-                                  && writableExtensions.contains(outer);
+        const bool outerIsWritable = !outer.isEmpty() && writableExtensions.contains(outer);
         if (outerIsWritable) {
             working = working.left(working.size() - outer.size() - 1);
             // Peel any further writable layers underneath.
             while (true) {
-                const QString peeled = stripOneTrailingWritable(working,
-                                                                writableExtensions);
-                if (peeled == working) break;
+                const QString peeled = stripOneTrailingWritable(working, writableExtensions);
+                if (peeled == working)
+                    break;
                 working = peeled;
                 r.wasNormalized = true;
             }
@@ -96,9 +111,11 @@ SaveAsPathResult normalizeSaveAsPath(const QString &dialogPath,
         // set.
         while (true) {
             const int dotIdx = stem.lastIndexOf(QLatin1Char('.'));
-            if (dotIdx <= 0) break;
+            if (dotIdx <= 0)
+                break;
             const QString stemExt = stem.mid(dotIdx + 1).toLower();
-            if (!writableExtensions.contains(stemExt)) break;
+            if (!writableExtensions.contains(stemExt))
+                break;
             stem = stem.left(dotIdx);
             r.wasNormalized = true;
         }

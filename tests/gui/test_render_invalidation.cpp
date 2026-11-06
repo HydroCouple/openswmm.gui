@@ -1,6 +1,6 @@
-/*!
- * \file   test_render_invalidation.cpp
- * \brief  Regression tests for the "have to zoom in and out before it appears"
+/**
+ * @file      test_render_invalidation.cpp
+ * @brief     Regression tests for the "have to zoom in and out before it appears"
  *         class of stale-render bugs.
  *
  *   Two independent defects are covered:
@@ -23,6 +23,10 @@
  *   smoke steps in the handoff — MapCanvas is not constructible in the
  *   offscreen test harness without a live QQuickWidget and its private cache
  *   flags have no test seam.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "layers/swmm2dmeshlayer.h"
@@ -36,10 +40,22 @@
 #include <QSet>
 #include <QTest>
 
-namespace {
+namespace
+{
 
 //! Small regular grid mesh — enough triangles for a real vertex-triangle
 //! adjacency so applyMeshVertexZ takes its incremental branch.
+/**
+ *
+ * @brief Build a regular two-triangle-per-square grid with real vertex adjacency for invalidation
+ * tests.
+ * @param n Squares per dimension, normally positive and small (default eight).
+ * Requires products (n+1)^2 and 2*n*n to fit int/container capacity; no validation.
+ * Coordinates use unit spacing and z=0.5*x+0.25*y in fixture scene units.
+ * @return Owned mesh marked ok even for a zero/negative loop range; allocation
+ * failures propagate. Positive n gives (n+1)^2 vertices and 2*n*n triangles.
+ *
+ */
 mesh::MeshResult makeGridMesh(int n = 8)
 {
     mesh::MeshResult m;
@@ -48,16 +64,22 @@ mesh::MeshResult makeGridMesh(int n = 8)
         for (int c = 0; c <= n; ++c) {
             mesh::MeshVertex v;
             v.xy = QPointF(c, r);
-            v.z  = 0.5 * c + 0.25 * r;
+            v.z = 0.5 * c + 0.25 * r;
             m.vertices.append(v);
         }
     m.triangles.reserve(n * n * 2);
     for (int r = 0; r < n; ++r)
         for (int c = 0; c < n; ++c) {
             const int v00 = r * (n + 1) + c, v10 = v00 + 1;
-            const int v01 = v00 + n + 1,     v11 = v01 + 1;
-            mesh::MeshTriangle t1; t1.v0 = v00; t1.v1 = v10; t1.v2 = v11;
-            mesh::MeshTriangle t2; t2.v0 = v00; t2.v1 = v11; t2.v2 = v01;
+            const int v01 = v00 + n + 1, v11 = v01 + 1;
+            mesh::MeshTriangle t1;
+            t1.v0 = v00;
+            t1.v1 = v10;
+            t1.v2 = v11;
+            mesh::MeshTriangle t2;
+            t2.v0 = v00;
+            t2.v1 = v11;
+            t2.v2 = v01;
             m.triangles.append(t1);
             m.triangles.append(t2);
         }
@@ -113,7 +135,7 @@ private slots:
 
         QVERIFY(layer.applyMeshVertexZ(12, 7.5));
         const quint64 after = layer.geomRevision();
-        QVERIFY(layer.applyMeshVertexZ(12, 7.5));   // same value again
+        QVERIFY(layer.applyMeshVertexZ(12, 7.5)); // same value again
         QCOMPARE(layer.geomRevision(), after);
     }
 
@@ -166,7 +188,7 @@ private slots:
 
         layer.setHighlightedVertices({0, 1, 2});
         const quint64 after = renderer.contentRevision();
-        layer.setHighlightedVertices({0, 1, 2});   // identical set
+        layer.setHighlightedVertices({0, 1, 2}); // identical set
         QCOMPARE(renderer.contentRevision(), after);
     }
 
@@ -199,12 +221,12 @@ private slots:
         QGraphicsScene scene;
 
         layer.setVisible(false);
-        layer.refreshScene(&scene, MapExtent(), nullptr);  // load-path shape
-        QCOMPARE(scene.items().size(), 0);                 // hidden: no item, by design
+        layer.refreshScene(&scene, MapExtent(), nullptr); // load-path shape
+        QCOMPARE(scene.items().size(), 0);                // hidden: no item, by design
 
         layer.setVisible(true);
-        layer.refreshScene(&scene, MapExtent(), nullptr);  // first refresh after show
-        QCOMPARE(scene.items().size(), 1);                 // fails pre-fix: flag was cleared
+        layer.refreshScene(&scene, MapExtent(), nullptr); // first refresh after show
+        QCOMPARE(scene.items().size(), 1);                // fails pre-fix: flag was cleared
     }
 
     //! Guard: a visible populate still clears the flag — a second refresh
@@ -218,9 +240,9 @@ private slots:
         QCOMPARE(scene.items().size(), 1);
         QGraphicsItem *item = scene.items().first();
 
-        layer.refreshScene(&scene, MapExtent(), nullptr);  // no rebuild pending
+        layer.refreshScene(&scene, MapExtent(), nullptr); // no rebuild pending
         QCOMPARE(scene.items().size(), 1);
-        QCOMPARE(scene.items().first(), item);             // same item, untouched
+        QCOMPARE(scene.items().first(), item); // same item, untouched
     }
 };
 

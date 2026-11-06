@@ -1,0 +1,1178 @@
+{
+  "00_overview_annotated_window.png": {
+    "reviewedAt": "2026-10-01T18:44:47.182710+00:00",
+    "sha256": "310acfcb01b198d816cc552652f2b4fb9c9e9e242622e1ce4822473b2af5991d",
+    "baseline": "workflows-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "01_main_window_annotated.png": {
+    "reviewedAt": "2026-10-01T18:44:47.182896+00:00",
+    "sha256": "310acfcb01b198d816cc552652f2b4fb9c9e9e242622e1ce4822473b2af5991d",
+    "baseline": "workflows-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "01_first_model_open.png": {
+    "reviewedAt": "2026-10-01T19:00:03.953590+00:00",
+    "sha256": "312af1f6d84b5d7c49b89f8e273c058ab66e635f619a178937aa0d096c50131b",
+    "baseline": "site-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "02_window_regions.png": {
+    "reviewedAt": "2026-10-01T18:44:47.182326+00:00",
+    "sha256": "310acfcb01b198d816cc552652f2b4fb9c9e9e242622e1ce4822473b2af5991d",
+    "baseline": "workflows-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "02_docks_default_layout.png": {
+    "reviewedAt": "2026-10-01T18:44:47.182519+00:00",
+    "sha256": "310acfcb01b198d816cc552652f2b4fb9c9e9e242622e1ce4822473b2af5991d",
+    "baseline": "workflows-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "02_ribbon_features_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.171231+00:00",
+    "sha256": "98cac09d5a2d2cc8a35f13e2d7a17a10638ee6426627d22a46d0ddffb0231678",
+    "baseline": "orientation-final",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "12a_features_ribbon.png": {
+    "reviewedAt": "2026-10-01T18:44:47.171468+00:00",
+    "sha256": "98cac09d5a2d2cc8a35f13e2d7a17a10638ee6426627d22a46d0ddffb0231678",
+    "baseline": "orientation-final",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "12a_new_feature_layer.png": {
+    "reviewedAt": "2026-10-01T18:44:47.171767+00:00",
+    "sha256": "1806abbf1ca5ceefe98c5896b2a472667981e560cf49238aad66adac00fc51aa",
+    "baseline": "orientation-final",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "12a_mesh_region_fields.png": {
+    "reviewedAt": "2026-10-01T18:44:47.172062+00:00",
+    "sha256": "da0d7a1b42796e69f07a30033dab6ba7848e767d7927a06fd5f7c99d2510a812",
+    "baseline": "orientation-final",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "01_welcome_page.png": {
+    "reviewedAt": "2026-10-01T18:44:47.172667+00:00",
+    "sha256": "57ce9cedbddf3a40a022eabeb10c778add43784a90a82d6758a9a862b4553ccb",
+    "baseline": "welcome",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "04_preferences_general.png": {
+    "reviewedAt": "2026-10-01T18:44:47.173202+00:00",
+    "sha256": "dd400d2dc5a1ac21595197171382f7779941916cae13a9cc590377754c5112c8",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "04_preferences_selection.png": {
+    "reviewedAt": "2026-10-01T18:44:47.173492+00:00",
+    "sha256": "6aa91dcc87567a2ee239967018c05bd855cf8436f35414693b38a38f60037d85",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "04_preferences_rendering.png": {
+    "reviewedAt": "2026-10-01T18:44:47.173757+00:00",
+    "sha256": "f56f917358ad441d15b1080140cbf556e68dfb4daaf3228493c68a5c7f91e0b3",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "04_preferences_2d_defaults.png": {
+    "reviewedAt": "2026-10-01T18:44:47.174039+00:00",
+    "sha256": "1c8c7263e19c7a22e792206b3a8a5361204b4fb1cf9c5923ed652237099235a7",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "04_preferences_object_defaults.png": {
+    "reviewedAt": "2026-10-01T18:44:47.174343+00:00",
+    "sha256": "b8a4d11249f809962825ad29e263648a67e88c64f916b50da9bb4c101a14aeec",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "04_preferences_appearance.png": {
+    "reviewedAt": "2026-10-01T18:44:47.174647+00:00",
+    "sha256": "7541937dcb70c12c9d45c4923ac0fbe7ad2a0d4c2da658852d4f52d0cb2367af",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "02_shortcut_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.174908+00:00",
+    "sha256": "1ea7a54fd2e97e4ad59d063930a71e6914b27204828dae7aa7358fa5009d0616",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "02_command_palette.png": {
+    "reviewedAt": "2026-10-01T18:44:47.175205+00:00",
+    "sha256": "e58fd6cb7098ba8a2204db14b77fa489a640c70ca38854990f2cf25801581062",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "02_ribbon_home_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.175441+00:00",
+    "sha256": "98a1072dfbc4c12111d034289c5f52a8bd4029dccfe15cb1d08222a2784882e1",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "02_ribbon_model_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.175644+00:00",
+    "sha256": "96886e022c039ebd3cb2197729374e28f50bd88b4999dd42859fe7baf4b52337",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "17_timeseries_editor.png": {
+    "reviewedAt": "2026-10-02T00:35:17.013472+00:00",
+    "sha256": "96f3339ab3b7a56087c6f944f424ab285cef7493e7faf44c36eb40dafe6f7e12",
+    "baseline": "round4-node-editors",
+    "notes": "Reviewed native capture of loaded editor state. Synthetic example has unresolved 22.434% quality continuity error; no treatment, initial-quality or persistence validation claim. Last chart date label clips; complete endpoint is readable in grid/status."
+  },
+  "16_landuse_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.176179+00:00",
+    "sha256": "a0dc271505c8a7cf27a1619c24fb75ce839e9da347a320f8d43d3175687bfe21",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "16_landuse_buildup.png": {
+    "reviewedAt": "2026-10-01T18:44:47.176388+00:00",
+    "sha256": "e6411fea4c25b5751d623a9100771e61326b48e001268a3d6c34f1d5bea6f8b0",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "16_landuse_washoff.png": {
+    "reviewedAt": "2026-10-01T18:44:47.176605+00:00",
+    "sha256": "2af14bac1d079954d0a4eee7f66f0dc9c95db0dead520a6e533a2d2d4370e7ab",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "08_layer_style_dialog.png": {
+    "reviewedAt": "2026-10-01T18:44:47.176798+00:00",
+    "sha256": "19ee3ef14faca3ed8f0f9af3bf39a7224064b91699acc3fc842569e33e8a6c40",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "08_kind_tree_symbology.png": {
+    "reviewedAt": "2026-10-01T18:44:47.177162+00:00",
+    "sha256": "ada026ea97052121e1e23c1b163ad4515bef1bce2642d35de28c11d46ab0d06d",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "06_crs_selection_dialog.png": {
+    "reviewedAt": "2026-10-01T18:44:47.177429+00:00",
+    "sha256": "90574277af15cdc69778b54a412210f7e5465367b42ef9fb79a9e8dcfeb5f3f8",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "10_object_tree.png": {
+    "reviewedAt": "2026-10-01T18:44:47.177820+00:00",
+    "sha256": "06564b9da124de5fa2ded211dbccb36a959c52d87dba4a63dff49d4f57be5701",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "11_attribute_table_dock.png": {
+    "reviewedAt": "2026-10-01T18:44:47.178069+00:00",
+    "sha256": "a7d02e712d9c492fbe67f3a435204079386cce8cc53f843eda90850834440e6c",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "12_editing_toolbar.png": {
+    "reviewedAt": "2026-10-01T18:44:47.178307+00:00",
+    "sha256": "96886e022c039ebd3cb2197729374e28f50bd88b4999dd42859fe7baf4b52337",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "14_model_ribbon_nodes_links.png": {
+    "reviewedAt": "2026-10-01T18:44:47.178670+00:00",
+    "sha256": "96886e022c039ebd3cb2197729374e28f50bd88b4999dd42859fe7baf4b52337",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "a03_plugins_dialog.png": {
+    "reviewedAt": "2026-10-01T18:44:47.178903+00:00",
+    "sha256": "848fcab84bffc19e08e854e44c75b04df022551504a3f771d02c5c4f71d4dd9c",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "a03_plugins_table.png": {
+    "reviewedAt": "2026-10-01T18:44:47.179260+00:00",
+    "sha256": "7f54e6c21c4fae11ab16d43c9070f6d81a9e10fdbff40b26fecf3f9dc48f09b7",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "14_link_properties_conduit.png": {
+    "reviewedAt": "2026-10-01T18:44:47.179543+00:00",
+    "sha256": "f2ad21b04276ad79af7b521c360f66462e3aa7da5092b28aa7e008097b85b164",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "14_xsection_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.179856+00:00",
+    "sha256": "0b6c35ceff0d8c3d12ddb7c83520a63a4d7d446c70cb71f2ea389f63d0d0564e",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "10_link_xsection_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.180130+00:00",
+    "sha256": "0b6c35ceff0d8c3d12ddb7c83520a63a4d7d446c70cb71f2ea389f63d0d0564e",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "15_wind_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.180441+00:00",
+    "sha256": "61f8597897f129a89a547ac2f6d509a1d255bc50f63cc69227e828708115a445",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "15_areal_depletion_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.180684+00:00",
+    "sha256": "81583ca3f6dd9a46888e200db95d4fb58735d99294fdcd0a2db412af3600dd4b",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "15_adjustments_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.180923+00:00",
+    "sha256": "29a4c9aaef8db0773617344109bdf0b8d9e9d4b8c02486cad008f6d262b948c4",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "15_evaporation_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.181174+00:00",
+    "sha256": "f9f6fcf1ad1946529ed99076fe7b489d64c0047dc5a4142ac9b07e596c82ede8",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t01_landuse_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.181426+00:00",
+    "sha256": "e6411fea4c25b5751d623a9100771e61326b48e001268a3d6c34f1d5bea6f8b0",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t01_simulation_options.png": {
+    "reviewedAt": "2026-10-01T18:44:47.181662+00:00",
+    "sha256": "eec1f12ee1a69ab865fdeb08241f68555d5aa5312eae80a2c5d256d7f90f5d24",
+    "baseline": "core-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "19_generate_mesh_sources.png": {
+    "reviewedAt": "2026-10-01T18:44:47.183074+00:00",
+    "sha256": "64f60e68d27b0c977bc56286a484124f0c27d19eadd8ecfd6988aca01eefffb7",
+    "baseline": "workflows-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "19_generate_mesh_quality.png": {
+    "reviewedAt": "2026-10-01T18:44:47.183431+00:00",
+    "sha256": "19d6936ad9501679186a8f8c456bc4560e306ad5fe07579c82dc38b473e45a54",
+    "baseline": "workflows-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "19_generate_mesh_hydraulics.png": {
+    "reviewedAt": "2026-10-01T18:44:47.183744+00:00",
+    "sha256": "3ce50e2a56cf8d83394d9709e4d73c3a1fb7ebb007c3243880320c46f82d6696",
+    "baseline": "workflows-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "23_profile_overview.png": {
+    "reviewedAt": "2026-10-01T18:44:47.184313+00:00",
+    "sha256": "a8a6b1c1691f85a90b73a1cde469ab4c7ee1102347475a11bbb6edb3990db52b",
+    "baseline": "workflows-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "23_profile_toolbar_layers.png": {
+    "reviewedAt": "2026-10-01T18:44:47.184573+00:00",
+    "sha256": "a8a6b1c1691f85a90b73a1cde469ab4c7ee1102347475a11bbb6edb3990db52b",
+    "baseline": "workflows-site",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "18_options_dialog.png": {
+    "reviewedAt": "2026-10-01T18:44:47.185189+00:00",
+    "sha256": "084fd6c13a09d199519bb530ce7504b58da531655e88b5cbddc99eb86fafbca6",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "18_title_notes.png": {
+    "reviewedAt": "2026-10-01T18:44:47.185492+00:00",
+    "sha256": "47a374b51e12386e4463aab7e7f732d4188769402ad2a54188244ba7169aad7b",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "18_models_processes.png": {
+    "reviewedAt": "2026-10-01T18:44:47.185821+00:00",
+    "sha256": "084fd6c13a09d199519bb530ce7504b58da531655e88b5cbddc99eb86fafbca6",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "18_dates_times.png": {
+    "reviewedAt": "2026-10-01T18:44:47.186298+00:00",
+    "sha256": "7dc4093fd320bf4df62268e0730c2ea73ee11ed14cf86de29a0bb3d9f3e88d4b",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "18_routing_hydraulics.png": {
+    "reviewedAt": "2026-10-01T18:44:47.186859+00:00",
+    "sha256": "eb82c85bd93171292dfbc83fb25f2520c2cb1f42b27514b8bf85725981032f05",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "18_performance.png": {
+    "reviewedAt": "2026-10-01T18:44:47.187230+00:00",
+    "sha256": "a010ac0776de3c58bca77dbad6cae9b83940574f82c94c79ac1149637339eecd",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "18_files_subtab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.187537+00:00",
+    "sha256": "3fc134ff92a7acd8137fd4f67a5534edb534a4e7eb1a130b9ff69dc303695841",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "18_output_subtab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.187819+00:00",
+    "sha256": "0b59f868d8710f160b0e20cfaf28a3a1706e03fb5e2b984537421003b6d19dee",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "18_plugins_subtab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.188144+00:00",
+    "sha256": "4ea81ae608a3d633fdd85e8b5d24394f004a696245c4b8fac25302be9f1cad2a",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "18_quality_transport.png": {
+    "reviewedAt": "2026-10-01T18:44:47.188494+00:00",
+    "sha256": "e064325434d4a13e679e93fe9474871b4c389a4e354a02cd7e43abd10ec59023",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "15_heat_solar_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.188755+00:00",
+    "sha256": "caccda472046e0b4fc1739792ac2d76d6b4425529d4ae6bc57dc87ffa14db558",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "15_heat_radiative_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.188987+00:00",
+    "sha256": "cf8d9f8460bde922cbe2877693a6b63b82a4fabec6c11c861ba67de574b3807e",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "16_pollutant_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.189242+00:00",
+    "sha256": "1a90da91007e1d87e5c3830fb3cff78c051e10f0d9160300708b1b304aa0d6af",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "16_reaction_system_species.png": {
+    "reviewedAt": "2026-10-01T18:44:47.189512+00:00",
+    "sha256": "be492edce2669bb52fec20ed3feafd1a392144c68a793a7f1e57fa4b339b27be",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "16_reaction_expressions.png": {
+    "reviewedAt": "2026-10-01T18:44:47.189739+00:00",
+    "sha256": "f7ce9ecbbf13057e81749dc983dacf4afab8a74a488cb83f7fefa6e3b9fcfb8a",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "16_reaction_file_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.189955+00:00",
+    "sha256": "c72cde8c3649c263ffc4649b3eb777b16ee6624b28eaf59ec715d3ff9fbcdf47",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "16_heat_sources.png": {
+    "reviewedAt": "2026-10-01T18:44:47.190218+00:00",
+    "sha256": "dd1b28aa685ac3c27d05b394ba5a835bc1fe99c98ceda1530dde8349d3ac65e1",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "16_heat_radiative.png": {
+    "reviewedAt": "2026-10-01T18:44:47.190451+00:00",
+    "sha256": "cf8d9f8460bde922cbe2877693a6b63b82a4fabec6c11c861ba67de574b3807e",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "16_heat_solar.png": {
+    "reviewedAt": "2026-10-01T18:44:47.190683+00:00",
+    "sha256": "caccda472046e0b4fc1739792ac2d76d6b4425529d4ae6bc57dc87ffa14db558",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "16_water_age_sources.png": {
+    "reviewedAt": "2026-10-01T18:44:47.190917+00:00",
+    "sha256": "1af66560e9b934faff2a45f1ff21360b06ff95bbd4d87f8d8616c454677c7bf5",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "15_humidity_tab.png": {
+    "reviewedAt": "2026-10-01T18:44:47.191157+00:00",
+    "sha256": "29c95965d10343afb8c4733ec8788f69878a807167dc259a90f18e7ddc86602a",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t07_pollutant_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.191376+00:00",
+    "sha256": "1a90da91007e1d87e5c3830fb3cff78c051e10f0d9160300708b1b304aa0d6af",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t07_reaction_editor_expressions.png": {
+    "reviewedAt": "2026-10-01T18:44:47.191611+00:00",
+    "sha256": "f7ce9ecbbf13057e81749dc983dacf4afab8a74a488cb83f7fefa6e3b9fcfb8a",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t07_heat_config_solar.png": {
+    "reviewedAt": "2026-10-01T18:44:47.191838+00:00",
+    "sha256": "caccda472046e0b4fc1739792ac2d76d6b4425529d4ae6bc57dc87ffa14db558",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t07_sim_options_quality.png": {
+    "reviewedAt": "2026-10-01T18:44:47.192076+00:00",
+    "sha256": "e064325434d4a13e679e93fe9474871b4c389a4e354a02cd7e43abd10ec59023",
+    "baseline": "transport",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "14_street_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.192610+00:00",
+    "sha256": "5271421aa817eea0bda3a9a6a917d7d5fd7064a8589f8ae611993c5077297c8a",
+    "baseline": "street",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "14_inlet_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.192851+00:00",
+    "sha256": "c40e5042fdc5d37367dfd84310f80ca003f82e61fb8b8afcdad5373e57a51f3e",
+    "baseline": "street",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "14_inlet_usage_page.png": {
+    "reviewedAt": "2026-10-01T18:44:47.193099+00:00",
+    "sha256": "5a9d8239b5b785b1864d7da1320f10115700ba0b35a93dbe947abb3313e8746c",
+    "baseline": "street",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t02_street_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.193318+00:00",
+    "sha256": "5271421aa817eea0bda3a9a6a917d7d5fd7064a8589f8ae611993c5077297c8a",
+    "baseline": "street",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t02_link_inlet_editor.png": {
+    "reviewedAt": "2026-10-01T18:44:47.193596+00:00",
+    "sha256": "5a9d8239b5b785b1864d7da1320f10115700ba0b35a93dbe947abb3313e8746c",
+    "baseline": "street",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t02_inlet_junction_properties.png": {
+    "reviewedAt": "2026-10-01T18:44:47.193836+00:00",
+    "sha256": "fdef10de7ed9f5c5b86a5c28c964186898cadbe12a430f6a9ed5c5792141c82a",
+    "baseline": "street",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t02_inlet_editor_combo.png": {
+    "reviewedAt": "2026-10-01T18:44:47.194123+00:00",
+    "sha256": "4e131b8aae0e5570e9d21d52009747189342b4285f2f0f0763e90fdcd1b48027",
+    "baseline": "street",
+    "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
+  },
+  "t01_open_model.png": {
+    "reviewedAt": "2026-10-01T19:00:03.954053+00:00",
+    "sha256": "312af1f6d84b5d7c49b89f8e273c058ab66e635f619a178937aa0d096c50131b",
+    "baseline": "site-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "t01_object_browser.png": {
+    "reviewedAt": "2026-10-01T19:00:03.954425+00:00",
+    "sha256": "15bb0841e0d83f3d79b66342811a2a25b62f5b71a1ef36070cc8bf74828bcb59",
+    "baseline": "site-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "23_profile_sources_tab.png": {
+    "reviewedAt": "2026-10-01T19:00:03.955282+00:00",
+    "sha256": "cb9c01a0002a884e37318073475e8667ede813b9a38c86e2d93a0323e990ed5c",
+    "baseline": "profile-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "19_mesh_style_panel.png": {
+    "reviewedAt": "2026-10-01T19:00:03.955917+00:00",
+    "sha256": "2d82e3b6372053115cf11d844a1bacbea10168b8fbd5c57aa99c74808f771d64",
+    "baseline": "twod-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "19_mesh2d_ribbon.png": {
+    "reviewedAt": "2026-10-01T19:00:03.956176+00:00",
+    "sha256": "b080d769b94d65cc596bd93e2caa03623575bd359fa36669970dafaf9e31fc57",
+    "baseline": "twod-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "t02_inlet_editor_curb.png": {
+    "reviewedAt": "2026-10-01T19:00:03.956751+00:00",
+    "sha256": "30f71ac6c800bca4b6d616719c64784db0e1c2d65101d7071a07d4a1afcdf9b5",
+    "baseline": "street-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "t02_open_model.png": {
+    "reviewedAt": "2026-10-01T19:00:03.957409+00:00",
+    "sha256": "44311afd5f7cdce69596ea9624948412fe18af597ac2258b794600d7947a7896",
+    "baseline": "street-map-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "18_fv_groups.png": {
+    "reviewedAt": "2026-10-01T19:00:03.958459+00:00",
+    "sha256": "2fba470dcff934895b8f0298da8c87b7aa3fad21ea64200682803d22bdfd8a24",
+    "baseline": "fv-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "09_selection_overview.png": {
+    "reviewedAt": "2026-10-01T19:10:22.110931+00:00",
+    "sha256": "3ea625917cc54a3bd6457c9c0d5317d0897176c891e3f52dcfe4cee52de7107a",
+    "baseline": "selection-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "09_select_upstream.png": {
+    "reviewedAt": "2026-10-01T19:10:22.111375+00:00",
+    "sha256": "27c6d51639e6a58a9fc03195429b7144a7569df131e0d7028cc2c1781b0cf0ba",
+    "baseline": "selection-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "22_statistics_panel.png": {
+    "reviewedAt": "2026-10-01T19:10:22.112551+00:00",
+    "sha256": "1e6b73e286b949babe386358a91902c04792f32153cec4c41e329944c91a653b",
+    "baseline": "plots-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "20_report_viewer.png": {
+    "reviewedAt": "2026-10-01T19:10:22.113273+00:00",
+    "sha256": "14100d64f6a9cd882294cc2ecb863889562ac418cc8fa10989fdcf1e5f997bc1",
+    "baseline": "report-rain-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "25_rainfall_visualization.png": {
+    "reviewedAt": "2026-10-01T19:10:22.113630+00:00",
+    "sha256": "dcd5db723a950704df4c2c9ce244de4ee81593fc36d3f6a7164104d3affb31f4",
+    "baseline": "report-rain-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "22_plot_variables_picker.png": {
+    "reviewedAt": "2026-10-01T19:10:22.114159+00:00",
+    "sha256": "4c8cc8675df19486ad1e70898623a8514d7ea7a1560ac59ea3d8a75bb524aac4",
+    "baseline": "comparison-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "22_chart_modes_toolbar.png": {
+    "reviewedAt": "2026-10-01T19:10:22.114257+00:00",
+    "sha256": "08a1f77839729d223ea6ebe3b51b7d51dee60e3dc1b90955c780c0b44221f56e",
+    "baseline": "comparison-final",
+    "notes": "Inspected full-size native capture against its caption; controls and expected model state visible. Process success is not numerical validation."
+  },
+  "t01_crs_dialog.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "6d7f994a12472e216aa443d0360ef2d44c9dd8984d65f370f0fe33dc54cbfb5f",
+    "baseline": "round2-site-accepted",
+    "notes": "Local feet selected in the real coordinate-reference-system picker. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t01_basemap.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "cdc8efa6af3f71aa287ace574f9abb061cfec924b04a12e3ac0d78bc76171eaf",
+    "baseline": "round2-site-accepted",
+    "notes": "Actual XYZ Tiles connection controls; optional for a geographically referenced model. The synthetic tutorial is not claimed to align with a basemap. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t01_attribute_table.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "421bad122e9b18db586d246f17274b3fda16f17991f99053953a7236cb7e8a2d",
+    "baseline": "round2-site-accepted",
+    "notes": "All 11 conduits visible in ascending Length order, with object names and table controls. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t01_coverages.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "eede6994ed3ee38f82565cf8dc4779ef7ebd0fac21b3948fef9e3bca88289dba",
+    "baseline": "round2-site-accepted",
+    "notes": "S4 compound editor shows all four land uses and three positive coverages; the header count matches the visible state. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t01_run_status.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "15abca4a39324c1462176826135fc5babc559ac4eec7fea936e21c0aa9260fa9",
+    "baseline": "round2-site-accepted",
+    "notes": "Actual sim.run job completed with Success, 100 percent progress, and reference continuity errors. Displayed job dates are shifted to local time; tutorial records that limitation. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t01_report_viewer.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "1628dc68614144822fed744e484b40c3601b1b6263b090e93b09b6fcb9c2c405",
+    "baseline": "round2-site-accepted",
+    "notes": "Flow Routing Continuity activated and visible in the report; section list and search controls visible. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t01_statistics_dashboard.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "9fdd9051bf5029d53116068dcf3b32117a0e0f6cfe03f052b1d1daf4f8e26b11",
+    "baseline": "round2-site-accepted",
+    "notes": "Links statistics table shows all 11 links and Export CSV. Does not verify export itself. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t01_results_style.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "099c6684cef7418b52270437065be0bdc66d1b03a852130a6c5c9a557c9dc6f6",
+    "baseline": "round2-site-accepted",
+    "notes": "Conduits selected with Link Flow classification and Fixed over run range. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t01_plot_variables.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "ae06463bda3399454c9d1c76b4c946fb8f2788d8a34fe9e4f47c65aa640fae43",
+    "baseline": "round2-site-accepted",
+    "notes": "J11 Depth and C11 Flow checked in expanded groups; lower unselected options require scrolling. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t01_tabular_results.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "ab83dfa087a15273546dc1f34addf5234d0c10bdd9f376450701ea6bae229a6c",
+    "baseline": "round2-site-accepted",
+    "notes": "All 11 rows with computed flow, velocity, depth and volume columns. Horizontal scroll places object-name columns outside this view. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t01_rainfall_visualization.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "dcd5db723a950704df4c2c9ce244de4ee81593fc36d3f6a7164104d3affb31f4",
+    "baseline": "round2-site",
+    "notes": "Native rainfall plot shows the storm, 239 points, 2.834 in total and 4.672 in/hr peak. Last date tick is clipped by the application; complete last time is visible in the summary table. Headless variant rejected because its chart was blank."
+  },
+  "t01_comparison_plot.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "2f4ec67ff583f19386216e99d7ee51eb18acd01cfcea45d23e03d0a4daa9d898",
+    "baseline": "round2-site",
+    "notes": "Native comparison contains only J11 Depth and C11 Flow, with correct units, legends, series controls and statistics. Last x-axis tick clips at the right edge, but the complete time range is visible below the plots. This does not validate pollutant labeling."
+  },
+  "t02_section_view_street.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "1d203a288614a3eaa45aa53f079c498e535b82aadfdf047d73725b4e1b97da7b",
+    "baseline": "round2-street-accepted",
+    "notes": "ST_A street section at V:H 10:1, 30 ft width and 2.900 ft total depth. Tutorial explicitly records current fixture gutter depression of 2 ft. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t02_report_street_tables.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "5f5943f51ab6b1c9556f422613216461bfb57c71988cb44a025b901a5f353908",
+    "baseline": "round2-street-accepted",
+    "notes": "Street Inlet Flow Summary activated; both street result tables and numeric columns visible. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "t02_capture_bypass_plot.png": {
+    "reviewedAt": "2026-10-01T19:52:00.606334+00:00",
+    "sha256": "cfeec1216f3acfa81e6a12c8349a1dedf59e1dbe701359f9d9b37d508567230a",
+    "baseline": "round2-street-headless",
+    "notes": "Three named street flow series with statistics. Dominant ST_A masks small ST_B/ST_C values at this scale; caption and instructions explain hiding ST_A to inspect bypass. Last x-axis tick clips at the right edge; full range is visible below. Actual Qt application widgets rendered using the offscreen platform; no native map-rendering claim."
+  },
+  "13_snowpack_editor.png": {
+    "reviewedAt": "2026-10-01T21:15:05.070454+00:00",
+    "sha256": "0e11e130117317b4bc65b90f3dc32c6dc3191d9668021a286cc800a9acf5040d",
+    "baseline": "round3-hydrology",
+    "notes": "Native capture inspected at full size against caption and populated fixture. Loaded values visible. Does not establish every edit/save workflow."
+  },
+  "13_unit_hydrograph_editor.png": {
+    "reviewedAt": "2026-10-01T21:15:05.070911+00:00",
+    "sha256": "e6c01e50f232d7c262121286b931466a21b0d3170b1d7454a2813323fb37b4a4",
+    "baseline": "round3-hydrology",
+    "notes": "Native capture inspected at full size against caption and populated fixture. Loaded values visible. Does not establish every edit/save workflow."
+  },
+  "13_rdii_decay_tab.png": {
+    "reviewedAt": "2026-10-01T21:15:05.071223+00:00",
+    "sha256": "95d39905f27467e1fe525ab2d6c57043eca19e58f4b86eaa69731c6d508962bf",
+    "baseline": "round3-hydrology",
+    "notes": "Native capture reviewed. Loaded linear IA and first active decay columns match fixture; horizontal scrolling needed for recovery/snow columns, explicitly stated in caption/prose."
+  },
+  "13_groundwater_exchange.png": {
+    "reviewedAt": "2026-10-01T21:15:05.071593+00:00",
+    "sha256": "86743ebbc310725b46a4202943566edb8528fec9c350f7c47cc04e8d0422b147",
+    "baseline": "round3-hydrology",
+    "notes": "Native capture inspected at full size against caption and populated fixture. Loaded values visible. Does not establish every edit/save workflow."
+  },
+  "13_subcatch_lid_usage_page.png": {
+    "reviewedAt": "2026-10-01T21:15:05.071906+00:00",
+    "sha256": "d751e2ff048be519f58f156f54162201dd75bfc118c1e881b301272140fe84b7",
+    "baseline": "round3-hydrology",
+    "notes": "Native capture inspected at full size against caption and populated fixture. Loaded values visible. Does not establish every edit/save workflow."
+  },
+  "13_lid_control_editor.png": {
+    "reviewedAt": "2026-10-01T21:15:05.072217+00:00",
+    "sha256": "849f897dca1d73f588a1cc53e50723dd637eb383ac762de833834134dcc93f3a",
+    "baseline": "round3-hydrology-wide",
+    "notes": "Native wide capture reviewed at full size. Imported BC1 displays zeros/defaults; read-back warning and diagram labels visible. Does not verify imported LID parameters or editing persistence."
+  },
+  "13_aquifer_editor.png": {
+    "reviewedAt": "2026-10-01T21:15:05.072527+00:00",
+    "sha256": "63308ca37eb1f52a8cd1ed775393a6e689e924d8ac04a3a2910f5fe48ed1b289",
+    "baseline": "round3-hydrology-wide",
+    "notes": "Native wide capture reviewed; loaded AQ1 values match fixture, and full diagram labels are readable. Replaces older unreviewed figure."
+  },
+  "13_initial_loadings.png": {
+    "reviewedAt": "2026-10-01T21:15:05.072677+00:00",
+    "sha256": "924658ff8247a15028878908f8b7e050cab88b84d7596a3c2d589d442d6fe0af",
+    "baseline": "round3-loadings",
+    "notes": "Native capture reviewed. TSS initial buildup 1 matches fixture [LOADINGS]; not a save/edit persistence test."
+  },
+  "16_initial_quality.png": {
+    "reviewedAt": "2026-10-02T00:35:17.014061+00:00",
+    "sha256": "3509b7e776b3cafbd407ec9811e88747c3bdcd61e2afc649f37cc6a6c0003b19",
+    "baseline": "round4-node-editors",
+    "notes": "Reviewed native capture of loaded editor state. Synthetic example has unresolved 22.434% quality continuity error; no treatment, initial-quality or persistence validation claim."
+  },
+  "14_node_dwf_page.png": {
+    "reviewedAt": "2026-10-02T00:35:17.014392+00:00",
+    "sha256": "836fbc9a01a12bbd368aa5f5819d205eac6586d15288efa697559e95fa406623",
+    "baseline": "round4-node-editors",
+    "notes": "Reviewed native capture of loaded editor state. Synthetic example has unresolved 22.434% quality continuity error; no treatment, initial-quality or persistence validation claim."
+  },
+  "14_node_rdii_page.png": {
+    "reviewedAt": "2026-10-02T00:35:17.014761+00:00",
+    "sha256": "a5a10d7a60830a6f378e0e662daebf38027d2244c927b5356f27a036ea26991d",
+    "baseline": "round4-node-editors",
+    "notes": "Reviewed native capture of loaded editor state. Synthetic example has unresolved 22.434% quality continuity error; no treatment, initial-quality or persistence validation claim."
+  },
+  "14_treatment_page.png": {
+    "reviewedAt": "2026-10-02T00:35:17.015037+00:00",
+    "sha256": "6175d4efb1f0a267f2b3b62f30c66449ca0645f5553aa12d6ef513a862828cdc",
+    "baseline": "round4-node-editors",
+    "notes": "Reviewed native capture of loaded editor state. Synthetic example has unresolved 22.434% quality continuity error; no treatment, initial-quality or persistence validation claim. Intentional reuse of the same editor in hydraulics and quality chapters; no validation banner is asserted."
+  },
+  "16_treatment_editor.png": {
+    "reviewedAt": "2026-10-02T00:35:17.015284+00:00",
+    "sha256": "6175d4efb1f0a267f2b3b62f30c66449ca0645f5553aa12d6ef513a862828cdc",
+    "baseline": "round4-node-editors",
+    "notes": "Reviewed native capture of loaded editor state. Synthetic example has unresolved 22.434% quality continuity error; no treatment, initial-quality or persistence validation claim. Intentional reuse of the same editor in hydraulics and quality chapters; no validation banner is asserted."
+  },
+  "11_dynamics_columns.png": {
+    "reviewedAt": "2026-10-02T00:37:46.109659+00:00",
+    "sha256": "ca143ddd4703c8e614e8edc1339ea751b625650aba9b4872accec072b7ac35bc",
+    "baseline": "round4-reopened-site",
+    "notes": "Native reopened-site capture; intentional reuse of t01_tabular_results capture. Right-hand results/units readable, object names scrolled out of view. Not a CSV export test."
+  },
+  "11_query_and_selection.png": {
+    "reviewedAt": "2026-10-02T00:55:28.263607+00:00",
+    "sha256": "7ae548e8fbc3733adffa06b987201c24008c192396b58348434c19c9891876e2",
+    "baseline": "round5-query-syntax",
+    "notes": "Native applied-query capture: C1, C10, C11 selected. Missing string after LIKE reports error col 10 and leaves previous filter/selection in place. No export/persistence claim."
+  },
+  "11_query_error.png": {
+    "reviewedAt": "2026-10-02T00:55:28.263932+00:00",
+    "sha256": "ef1c543383237a5937a331fbfdd6994ed50eea9a4c43548b96ffd942574aedba",
+    "baseline": "round5-query-syntax",
+    "notes": "Native applied-query capture: C1, C10, C11 selected. Missing string after LIKE reports error col 10 and leaves previous filter/selection in place. No export/persistence claim."
+  },
+  "17_pattern_editor.png": {
+    "reviewedAt": "2026-10-02T00:55:28.264580+00:00",
+    "sha256": "ba4ae021b90aa996ab209b535c84ecbe0775f754d34198d791f7fff1ebb41cbe",
+    "baseline": "round5-data-editors",
+    "notes": "Loaded native editor state matches unassigned MONTHLY/RATING data. Monthly sum 12, mean 1, twelve factors. Rating exact pairs in grid; horizontal ticks round to integers. No edit/save persistence claim."
+  },
+  "17_curve_editor.png": {
+    "reviewedAt": "2026-10-02T00:55:28.264800+00:00",
+    "sha256": "947069f8f216fb8ce35efd38a263ee26459b0758f9421313bb4f87df966fdde8",
+    "baseline": "round5-data-editors",
+    "notes": "Loaded native editor state matches unassigned MONTHLY/RATING data. Monthly sum 12, mean 1, twelve factors. Rating exact pairs in grid; horizontal ticks round to integers. No edit/save persistence claim."
+  },
+  "03_user_flags_dialog.png": {
+    "reviewedAt": "2026-10-02T00:55:28.265519+00:00",
+    "sha256": "2bf9b9dde60962ad4787651f0b4429aa82e08a8072acf2f88355f0d4a9c1a724",
+    "baseline": "round5-flags-final",
+    "notes": "Native schema and typed values match portable fixture. J1 boolean/integer, C_MAIN real/string. Empty cells mean unset. No new edit or save/reopen validation claim."
+  },
+  "03_user_flag_values.png": {
+    "reviewedAt": "2026-10-02T00:55:28.265776+00:00",
+    "sha256": "be07d460a5f05325cd28cbac923cafd0101c4317e6c5746609a0f69b57edb7e0",
+    "baseline": "round5-flags-final",
+    "notes": "Native schema and typed values match portable fixture. J1 boolean/integer, C_MAIN real/string. Empty cells mean unset. No new edit or save/reopen validation claim."
+  },
+  "03_user_flag_link_values.png": {
+    "reviewedAt": "2026-10-02T00:55:28.266019+00:00",
+    "sha256": "1d3a87473934b4b95c2af83016b4508fcd40cd9f8c153f7d3b9fd987bf3b8685",
+    "baseline": "round5-flags-final",
+    "notes": "Native schema and typed values match portable fixture. J1 boolean/integer, C_MAIN real/string. Empty cells mean unset. No new edit or save/reopen validation claim."
+  },
+  "01_about_dialog.png": {
+    "reviewedAt": "2026-10-02T01:00:21.025910+00:00",
+    "sha256": "2129b3e76ee15dc9128025cd43e5e0707f412ed58ddbe597956b29374187c450",
+    "baseline": "round5-orientation-final",
+    "notes": "Native current-build screenshot, visually reviewed against caption. No custom binding, action execution or environment-copy workflow claim. Intentional reuse. Qt component selected; static 6.10.x differs from runtime 6.11.1. Bundled notice contains packaging placeholder; described in A6."
+  },
+  "a06_about_dialog.png": {
+    "reviewedAt": "2026-10-02T01:00:21.026379+00:00",
+    "sha256": "2129b3e76ee15dc9128025cd43e5e0707f412ed58ddbe597956b29374187c450",
+    "baseline": "round5-orientation-final",
+    "notes": "Native current-build screenshot, visually reviewed against caption. No custom binding, action execution or environment-copy workflow claim. Intentional reuse. Qt component selected; static 6.10.x differs from runtime 6.11.1. Bundled notice contains packaging placeholder; described in A6."
+  },
+  "a01_shortcut_editor.png": {
+    "reviewedAt": "2026-10-02T01:00:21.026712+00:00",
+    "sha256": "59dac12ca723158fba2d4f6586a2536368d18096a64c641fb82105d037a77cac",
+    "baseline": "round5-orientation-final",
+    "notes": "Native current-build screenshot, visually reviewed against caption. No custom binding, action execution or environment-copy workflow claim. Zoom Extent current/default shortcut selected; no new binding recorded or applied."
+  },
+  "a01_command_palette.png": {
+    "reviewedAt": "2026-10-02T01:00:21.026986+00:00",
+    "sha256": "ed7f7839e8d54b8d8e881f3e3e36fc0043f66f4fec3c1dd5ba3a723a1f1bb805",
+    "baseline": "round5-orientation-final",
+    "notes": "Native current-build screenshot, visually reviewed against caption. No custom binding, action execution or environment-copy workflow claim. First category label Window has a clipped leading edge; Map labels and shortcuts are readable."
+  },
+  "t06_cell_closure_options.png": {
+    "reviewedAt": "2026-10-02T06:47:42.554224+00:00",
+    "sha256": "7c5aaa9c4a804ae1b90719e2c4516516028c49c3f221511875952ad9c5c7ba56",
+    "baseline": "documentation_2026-10-02_round7/slope-captures",
+    "notes": "Inspected native screenshot against caption at full size. Terrain Fill shows the 0\u20133 m bed-elevation range; closure page shows FLAT/MEAN; report shows 60 m3 rainfall/storage and 29,948 internal steps. CLI numerical verification retained separately. Overview rejected because geometry rendered as an oversized blue rectangle."
+  },
+  "t06_mesh_style_terrain.png": {
+    "reviewedAt": "2026-10-02T06:47:42.554583+00:00",
+    "sha256": "92c5ddc700d88136e83fde2f1bf3837eead872ede5c3ff1c403679029128a895",
+    "baseline": "documentation_2026-10-02_round7/slope-captures",
+    "notes": "Inspected native screenshot against caption at full size. Terrain Fill shows the 0\u20133 m bed-elevation range; closure page shows FLAT/MEAN; report shows 60 m3 rainfall/storage and 29,948 internal steps. CLI numerical verification retained separately. Overview rejected because geometry rendered as an oversized blue rectangle."
+  },
+  "t06_mass_balance.png": {
+    "reviewedAt": "2026-10-02T06:47:42.554879+00:00",
+    "sha256": "0cbcbf2468eac4ff8c0a6b7902424e62d707a84e43e9a200470de370948554bd",
+    "baseline": "documentation_2026-10-02_round7/slope-captures",
+    "notes": "Inspected native screenshot against caption at full size. Terrain Fill shows the 0\u20133 m bed-elevation range; closure page shows FLAT/MEAN; report shows 60 m3 rainfall/storage and 29,948 internal steps. CLI numerical verification retained separately. Overview rejected because geometry rendered as an oversized blue rectangle."
+  },
+  "02_status_bar.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "1dc9d4502618dd67c5b852657ea885668afb39e04212453eb9127075be69f455",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "06_status_bar_crs_button.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "a2f211267e9bd45ad8b4d24a4a05a250ca5bca1c55c952f41d1d5276d65ffef8",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "07_add_basemap_wms_tab.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "32a4afbfb5af2e56e03f0e4f8e59cc5f525a3280e38da173c8ea55c4edaea9a0",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "07_layers_panel.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "f6b14852a063663552df48a4705b6ae573161b19efa7cdcd2a91771a7bf75e8b",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "08_2d_results_style_panel.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "ff01c1a9a8bb1abfac0f2adce8eef4c5e925fffc9187dc04a8724e574269d3fd",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "08_label_expression_dialog.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "35c7eda03bdf060baebb53071fd68320cd6c051a225df56ce15fdc3a9688884a",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "08_mesh_style_panel.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "9186da905b64b4f63248cdcde2c2d7de4e9a7a49bc5cb435a33072fba36498b4",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "09_search_filter.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "2fc033ec2e353bb19854475967b423b7b9dc7917363ea8406baa8bee3b26c4fe",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "09_select_tool_preferences.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "4958aee758a39a10ee56104c280c70c8cda3d4f2512c1e66ebd9cb57a09ef999",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "10_node_compound_inflows.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "b88ebedca36c17252ff263d22edb3278d1ce8f400af849886456b4647b8cdad6",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "12_object_defaults_page.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "edbf35c0831d55fc3d52a6dc050c42a7cc98914744ff887a569168e8e68efba5",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "13_subcatchment_properties.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "dba2a58fe180b3faf0394d8e12bfa28b48514dacde9226d54b9edd0475b29aba",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "14_node_inflows_page.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "b88ebedca36c17252ff263d22edb3278d1ce8f400af849886456b4647b8cdad6",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "14_rules_editor.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "e55c287371797acdc6da107ae185ec87f0da6cab6256f0a8c464eb712e1fd64d",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "15_climatology_tabs.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "b9ce9ca12834aa5cd3d08dededc57e97ed5f686a5d69a55943b96259f5bfde92",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "15_snowmelt_tab.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "fb4f614e58eb1503599d4501c5ee5fb9cf19de764dd322ba9a0eef57cd784b6e",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "18_2d_options.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "063329e7e0542301d69f02266161fdaaa61a6d227341f02e1b605ce790ae710a",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "18_spatial_crs.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "c4a993b193aac3bfbe87239c4ab8678a1dfa2bfb523d3a120ea803b79cdaa49d",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "20_message_logs.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "6e2ad0b3d7f9bc66fa5b2589353a3e5c0922f177d5ec9238b180be5894ada48f",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "21_2d_style_panel_tabs.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "ff01c1a9a8bb1abfac0f2adce8eef4c5e925fffc9187dc04a8724e574269d3fd",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "21_active_results_combos.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "0d208655dce639a866dfc4568759915292c50901e0dff22547595d953645f46a",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "21_results_symbology_tab.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "944b9699a27afc5f6d03f89d0d298c0f5bb34ad8ac3851e30b0ac758c3a8fd56",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "24_report_viewer_sections.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "a8908fd75be012e3c6ffbebd32dfbc67cb8355827bcd181271a5199e2ed825ea",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "24_tabular_overview.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "7c0c005e143c7275664f6e505a1aaf02c784799ab8ab47f1ce420a3d838c6573",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "t08_control_rules_editor.png": {
+    "reviewedAt": "2026-10-02T06:52:29.882017+00:00",
+    "sha256": "e55c287371797acdc6da107ae185ec87f0da6cab6256f0a8c464eb712e1fd64d",
+    "baseline": "retained historical application screenshot; original capture provenance unavailable",
+    "notes": "Inspected the existing full-size image against its control-reference caption. Accepted visible controls/state; this review is not a new capture, current-build certification, solver validation or save/reopen proof. Disabled controls and sample/empty states remain as shown."
+  },
+  "10_section_view_link.png": {
+    "reviewedAt": "2026-10-02T06:57:44.541473+00:00",
+    "sha256": "5c2200f3ca94fa8328b267e5d7165650f4241dc7aa0c85989ebeaf4de89dce6c",
+    "baseline": "documentation_2026-10-02_round7/sections",
+    "notes": "Inspected full-size native capture. C1 cross-section uses 1:1, profile uses 10:1; J5 shows three connecting links. Authored geometry is not a water level. Table shows 11 populated conduit statistics rows and complete dynamic values; object names are outside the horizontal viewport."
+  },
+  "10_section_view_profile.png": {
+    "reviewedAt": "2026-10-02T06:57:44.542218+00:00",
+    "sha256": "71e09e9783c384395226717ad7001e3c97a304af95c633aa43cd87379ae99046",
+    "baseline": "documentation_2026-10-02_round7/sections",
+    "notes": "Inspected full-size native capture. C1 cross-section uses 1:1, profile uses 10:1; J5 shows three connecting links. Authored geometry is not a water level. Table shows 11 populated conduit statistics rows and complete dynamic values; object names are outside the horizontal viewport."
+  },
+  "10_section_view_node.png": {
+    "reviewedAt": "2026-10-02T06:57:44.542870+00:00",
+    "sha256": "82daf7d470d4886de4b2368070f6992eec06e3a8be0847cccc23b4badd3c3828",
+    "baseline": "documentation_2026-10-02_round7/sections",
+    "notes": "Inspected full-size native capture. C1 cross-section uses 1:1, profile uses 10:1; J5 shows three connecting links. Authored geometry is not a water level. Table shows 11 populated conduit statistics rows and complete dynamic values; object names are outside the horizontal viewport."
+  },
+  "24_attribute_table_dynamics.png": {
+    "reviewedAt": "2026-10-02T06:57:44.542993+00:00",
+    "sha256": "948f721e4981ab76a13e272033fc680774bcc37b1fd1e1ef98d67d4b1d34d36a",
+    "baseline": "documentation_2026-10-02_round7/sections",
+    "notes": "Inspected full-size native capture. C1 cross-section uses 1:1, profile uses 10:1; J5 shows three connecting links. Authored geometry is not a water level. Table shows 11 populated conduit statistics rows and complete dynamic values; object names are outside the horizontal viewport."
+  },
+  "02_ribbon_compact_modes.png": {
+    "reviewedAt": "2026-10-02T07:17:46.689270+00:00",
+    "sha256": "49eba4687f96d7aff0df2847837e80659739d525d427caf6c99bc40fef4c9bf2",
+    "baseline": "documentation_2026-10-02_round7/ribbon",
+    "notes": "Inspected all three native source strips and composite. Common pixel scale preserves actual Full/Compact/Collapsed controls; window widths and composition are labelled. Empty model explains disabled actions. Published lossless optimization verified pixel-for-pixel against the reviewed native source."
+  },
+  "21_results_ribbon_tab.png": {
+    "reviewedAt": "2026-10-02T07:21:45.386349+00:00",
+    "sha256": "cbab3d508fea63f1f855dd99e93bb43ca636149023e39275d77148b77ab712db",
+    "baseline": "documentation_2026-10-02_round7/results-ribbons",
+    "notes": "Inspected native strips full-size. Labels readable; completed site-drainage 1D run selected. No 2D layer is loaded and its disabled controls are shown. Published lossless optimization verified pixel-for-pixel against the reviewed native source."
+  },
+  "25_analysis_ribbon.png": {
+    "reviewedAt": "2026-10-02T07:21:45.386659+00:00",
+    "sha256": "139d305100eb833f541bc6ccb3e5e022570d3286208f6f60f4c057c3a32a9bd9",
+    "baseline": "documentation_2026-10-02_round7/results-ribbons",
+    "notes": "Inspected native strips full-size. Labels readable; completed site-drainage 1D run selected. No 2D layer is loaded and its disabled controls are shown. Published lossless optimization verified pixel-for-pixel against the reviewed native source."
+  },
+  "t03_mesh_style_panel.png": {
+    "reviewedAt": "2026-10-02T07:38:24.843744+00:00",
+    "sha256": "42591dd3491d15e80b7afb89d88c948db7c2e36179459ae180a86fa806253267",
+    "baseline": "documentation_2026-10-02_round7/bowl-captures",
+    "notes": "Inspected native application capture full-size. Mesh range 97\u2013100 m, solver controls and 800/726.063/73.937 m\u00b3 report match the verified input. Report reconciliation percentage is explicitly identified as unreliable in the text. Overview is first-frame context, not peak-depth validation. Published lossless optimization verified pixel-for-pixel against the reviewed native source."
+  },
+  "t03_sim_options_2d.png": {
+    "reviewedAt": "2026-10-02T07:38:24.844252+00:00",
+    "sha256": "9dc3a4076a3f264523ba51b643206a880bd64201b316a1762d264e74d09f8c28",
+    "baseline": "documentation_2026-10-02_round7/bowl-captures",
+    "notes": "Inspected native application capture full-size. Mesh range 97\u2013100 m, solver controls and 800/726.063/73.937 m\u00b3 report match the verified input. Report reconciliation percentage is explicitly identified as unreliable in the text. Overview is first-frame context, not peak-depth validation. Published lossless optimization verified pixel-for-pixel against the reviewed native source."
+  },
+  "t03_mass_balance_2d.png": {
+    "reviewedAt": "2026-10-02T07:38:24.844672+00:00",
+    "sha256": "bf01cd749ffadc35f31ae2eb1f6b0f9a6c7a95dd3a194e5a53339f9f4f0dc11d",
+    "baseline": "documentation_2026-10-02_round7/bowl-captures",
+    "notes": "Inspected native application capture full-size. Mesh range 97\u2013100 m, solver controls and 800/726.063/73.937 m\u00b3 report match the verified input. Report reconciliation percentage is explicitly identified as unreliable in the text. Overview is first-frame context, not peak-depth validation. Published lossless optimization verified pixel-for-pixel against the reviewed native source."
+  },
+  "t03_project_open.png": {
+    "reviewedAt": "2026-10-02T07:38:24.845461+00:00",
+    "sha256": "518fca09fbfd5aef668c514252399b7d725f03b59e516b34b09f48103298ecd4",
+    "baseline": "documentation_2026-10-02_round7/bowl-map-captures",
+    "notes": "Inspected native application capture full-size. Mesh range 97\u2013100 m, solver controls and 800/726.063/73.937 m\u00b3 report match the verified input. Report reconciliation percentage is explicitly identified as unreliable in the text. Overview is loaded-model context. The application automatically selects a high-depth frame on HDF5 import; this image does not establish the initial frame. Published lossless optimization verified pixel-for-pixel against the reviewed native source."
+  },
+  "t03_results_style_panel.png": {
+    "reviewedAt": "2026-10-02T07:50:14.912446+00:00",
+    "sha256": "e90274ba0849aaa3a2dc9c7edb16bcec44f3bcc00fe3c6e5904214ad70976e5b",
+    "baseline": "documentation_2026-10-02_round7/bowl-fixed-range",
+    "notes": "Visually checked native sources: fixed 0\u20130.10 m depth fill, frame 112/479 normalized cursor, matching localized time display, legible surface legend and inward velocity arrows. Public project style fields prepare the state; this does not certify manual save/reopen or cell-picking execution."
+  },
+  "t03_animation_peak.png": {
+    "reviewedAt": "2026-10-02T07:50:14.911863+00:00",
+    "sha256": "4eea45d45d0ed3f5fd7f82d809afbe51579d04f3dc4dc81284e1f6402533e904",
+    "baseline": "documentation_2026-10-02_round7/bowl-fixed-range",
+    "notes": "Visually checked native sources: fixed 0\u20130.10 m depth fill, frame 112/479 normalized cursor, matching localized time display, legible surface legend and inward velocity arrows. Public project style fields prepare the state; this does not certify manual save/reopen or cell-picking execution."
+  },
+  "t03_velocity_vectors.png": {
+    "reviewedAt": "2026-10-02T07:50:14.912181+00:00",
+    "sha256": "bf6c50096c5582105be7829fbdbaac5916c4d54d041d7884e5aa0ebaf607f358",
+    "baseline": "documentation_2026-10-02_round7/bowl-fixed-range",
+    "notes": "Visually checked native sources: fixed 0\u20130.10 m depth fill, frame 112/479 normalized cursor, matching localized time display, legible surface legend and inward velocity arrows. Public project style fields prepare the state; this does not certify manual save/reopen or cell-picking execution."
+  },
+  "t06_vfr_slope_overview.png": {
+    "reviewedAt": "2026-10-02T07:57:56.921827+00:00",
+    "sha256": "a7e7c29387bc362d84e9479533e9fc38cb09b3775a8fd65f3bba69b1b5abf040",
+    "baseline": "documentation_2026-10-02_round7/slope-geometry-captures",
+    "notes": "Inspected the native mesh footprint and empty 1D categories; rainfall plot and statistics show 20 mm over one hour. The long final dry gap is visible. Geometry-only capture has no simulation output attached."
+  },
+  "t06_rainfall_visualization.png": {
+    "reviewedAt": "2026-10-02T07:57:56.922085+00:00",
+    "sha256": "e54a7bb2b5a7f32accdee112ae822f6754b4faa6f25f2241a9f8c7250dc7dd34",
+    "baseline": "documentation_2026-10-02_round7/slope-geometry-captures",
+    "notes": "Inspected the native mesh footprint and empty 1D categories; rainfall plot and statistics show 20 mm over one hour. The long final dry gap is visible. Geometry-only capture has no simulation output attached."
+  },
+  "t04_mass_balance_coupled.png": {
+    "reviewedAt": "2026-10-02T08:06:43.787539+00:00",
+    "sha256": "835d168d5fb5c3948e771e547c8dacbd736f362e324e55b082ece339ce240d93",
+    "baseline": "documentation_2026-10-02_round7/plaza-captures",
+    "notes": "Inspected native report and vertex table. Two coupling rows show indices 16/18, J1/J2, Cd 0.65 and area 0.02 m\u00b2. Nonzero spill and drainback match the CLI run. Reconciliation and node continuity limitations remain visible and are discussed in T4; no design-validation claim."
+  },
+  "t04_vertices_attribute_table.png": {
+    "reviewedAt": "2026-10-02T08:06:43.788426+00:00",
+    "sha256": "fe8606094e446fa3355087da63290e1e5c20b77e070bde689a5e6e5bfca35160",
+    "baseline": "documentation_2026-10-02_round7/plaza-captures",
+    "notes": "Inspected native report and vertex table. Two coupling rows show indices 16/18, J1/J2, Cd 0.65 and area 0.02 m\u00b2. Nonzero spill and drainback match the CLI run. Reconciliation and node continuity limitations remain visible and are discussed in T4; no design-validation claim."
+  },
+  "t03_raster_style.png": {
+    "reviewedAt": "2026-10-02T08:08:02.973633+00:00",
+    "sha256": "5a806f9aea2672dca9b45e048d9c17bb90f88ef8dfac570b46e1eb02db0689d0",
+    "baseline": "documentation_2026-10-02_round7/bowl-raster-ready",
+    "notes": "Native raster renders and shows the expected ~97\u2013100 m data range. Source controls show the real loaded raster and projected boundary, metre units and relative output path. Configuration only: mesh generation was not executed."
+  },
+  "t03_mesh_generation_sources.png": {
+    "reviewedAt": "2026-10-02T08:08:02.973866+00:00",
+    "sha256": "958915de2507cd5740c6c2c66527f12c0f60474c4540461206fe99bcce63e660",
+    "baseline": "documentation_2026-10-02_round7/bowl-raster-ready",
+    "notes": "Native raster renders and shows the expected ~97\u2013100 m data range. Source controls show the real loaded raster and projected boundary, metre units and relative output path. Configuration only: mesh generation was not executed."
+  },
+  "15_temperature_tab.png": {
+    "reviewedAt": "2026-10-02T08:23:18.828496+00:00",
+    "sha256": "4811f133447d233254a8a2d474d8cfdc2a35324642fb2b382f453115cbec378d",
+    "baseline": "documentation_2026-10-02_round7/transport-climate-compact",
+    "notes": "Full-size native capture inspected: Time Series source and AIR_TEMP binding visible; file controls disabled correctly. The same copied transport fixture ran successfully. External-file selection is not verified by this image."
+  },
+  "07_layer_properties_source_tab.png": {
+    "reviewedAt": "2026-10-02T08:24:26.881808+00:00",
+    "sha256": "2bf954ce2212f835d76e5cd4a8d0b30b020d8e02a9ebeffd561dd2ec909bc5ed",
+    "baseline": "documentation_2026-10-02_round7/source-refresh",
+    "notes": "Native Source tab inspected full-size: copied site-drainage input source and Local CRS authority readable; Change control present. No claim of CRS conversion verification."
+  },
+  "18_mesh_page.png": {
+    "reviewedAt": "2026-10-02T08:26:35.383321+00:00",
+    "sha256": "bee23dbbd455d26de4cc126f53ef7eccedf76cbc540e3fdb9896dd1ff5129237",
+    "baseline": "documentation_2026-10-02_round7/mesh-page-compact",
+    "notes": "Native Mesh options page inspected: embedded inline mesh selected, active status and Set Active/Remove/Import/Refresh readable. External import and persistence not verified by this control reference."
+  },
+  "t07_water_age_sources.png": {
+    "reviewedAt": "2026-10-02T08:30:47.470019+00:00",
+    "sha256": "7733bbb9e483e26386d7bb9871a5f96a83feebeacba53f0aa349c55507bfb5b4",
+    "baseline": "documentation_2026-10-02_round7/transport-age",
+    "notes": "Full-size native dialog inspected: external inflow 0.500 h and initial network 6.000 h match the component file; override table correctly empty. Some source names elide, with full names documented immediately above. This is readback, not editing/save verification."
+  },
+  "08_classification_editor.png": {
+    "reviewedAt": "2026-10-02T08:32:40.993468+00:00",
+    "sha256": "6f9131cf0ebd6e2b5b2d25b93f0cc4e6bc1c7b5d3d6b81c0593da415d0c910f6",
+    "baseline": "documentation_2026-10-02_round7/classification-refresh",
+    "notes": "Native ClassificationEditor inspected: Equal interval method, eight classes, Viridis ramp, 97\u2013100 m data range, editable break and label rows readable. Lower two rows are accessible by the visible scroll bar. Control reference only; applying custom edits is not verified."
+  },
+  "t07_initial_quality.png": {
+    "reviewedAt": "2026-10-02T08:34:25.842518+00:00",
+    "sha256": "7f37efada6854303cc1980cb9e3138325590af51271d23846003745052a123dc",
+    "baseline": "documentation_2026-10-02_round7/transport-initial-controls",
+    "notes": "Native dialog inspected: Node J1 TRACER 1.0000, Link C1 DECAY 5.0000, inline CSV status. Separate variant executed successfully; input and report retained in transport-initial. The base solver-comparison input has no overrides."
+  },
+  "t09_lid_physical.png": {
+    "reviewedAt": "2026-10-04T13:44:30.830065+00:00",
+    "sha256": "89ac1c6e832fe670a956e885acac7a4f91f27dcfd4be314425301c307ac50880",
+    "baseline": "lid-storage-tutorial",
+    "notes": "Real Qt dialog captured by test_lid_treatment_editor using the T9 model. Reviewed selected physical properties and treatment fields; narrow schematic labels are elided by the current UI."
+  },
+  "t09_lid_treatment.png": {
+    "reviewedAt": "2026-10-04T13:44:30.830990+00:00",
+    "sha256": "c044dffd9dec430e53c769d2878b32494d42acfbe220708fc8b6d76fe4701e87",
+    "baseline": "lid-storage-tutorial",
+    "notes": "Real Qt dialog captured by test_lid_treatment_editor using the T9 model. Reviewed selected physical properties and treatment fields; narrow schematic labels are elided by the current UI."
+  },
+  "11_query_exclusion_sorted.png": {
+    "reviewedAt": "2026-10-04T14:24:10.212209+00:00",
+    "sha256": "afe99929049810a726a77191d4c5b08e6954eb1f229a9ebbab44900f3046abc0",
+    "baseline": "table_queries_2026-10-04",
+    "notes": "Visually checked at full size: real production Qt controls rendered at 2x in light theme. Query selects C11 and C7 at 89 and 95 ft; ascending Length arrow and match count are visible. Completion capture includes the actual popup in its original panel position. No solver or map-rendering claim."
+  },
+  "11_query_completion.png": {
+    "reviewedAt": "2026-10-04T14:24:10.212209+00:00",
+    "sha256": "544305363c1451d4d7731953a7a153c7a3ba2e38f84b10c4580f5293c844e32d",
+    "baseline": "table_queries_2026-10-04",
+    "notes": "Visually checked at full size: real production Qt controls rendered at 2x in light theme. Query selects C11 and C7 at 89 and 95 ft; ascending Length arrow and match count are visible. Completion capture includes the actual popup in its original panel position. No solver or map-rendering claim."
+  },
+  "t11_rubinato_parity.png": {
+    "reviewedAt": "2026-10-21T11:56:27.359847+00:00",
+    "sha256": "be3a42fe769167cb67082867749366fe08df3867e3e64c9d7630340d4f5e96a3",
+    "baseline": "rubinato-2017-archived-results-2026-10-21",
+    "notes": "Scientific plot generated from the archived comparison snapshot; not a GUI screenshot. Visually reviewed PNG and PDF. Experimental steady rows are distinguished from model predictions; T9 is synthetic, qualification incomplete."
+  },
+  "t11_rubinato_residuals.png": {
+    "reviewedAt": "2026-10-21T11:56:27.359968+00:00",
+    "sha256": "a58b1fa4325f5bcace4a4d92f6248bc058ea83ee080726434f38d2bc23c30016",
+    "baseline": "rubinato-2017-archived-results-2026-10-21",
+    "notes": "Scientific plot generated from the archived comparison snapshot; not a GUI screenshot. Visually reviewed PNG and PDF. Experimental steady rows are distinguished from model predictions; T9 is synthetic, qualification incomplete."
+  },
+  "t11_rubinato_routing_steps.png": {
+    "reviewedAt": "2026-10-21T11:56:27.359971+00:00",
+    "sha256": "4cef992f386a3e59214ef2313db7db14c0fcd04589e8a1f6c70ae41c2cdac3cd",
+    "baseline": "rubinato-2017-archived-results-2026-10-21",
+    "notes": "Scientific plot generated from the archived comparison snapshot; not a GUI screenshot. Visually reviewed PNG and PDF. Experimental steady rows are distinguished from model predictions; T9 is synthetic, qualification incomplete."
+  },
+  "t11_rubinato_transient.png": {
+    "reviewedAt": "2026-10-21T11:56:27.359972+00:00",
+    "sha256": "d65ccccf3848af86f60720597d8d0be56b129f5b235291386ba45674fcf0c93d",
+    "baseline": "rubinato-2017-archived-results-2026-10-21",
+    "notes": "Scientific plot generated from the archived comparison snapshot; not a GUI screenshot. Visually reviewed PNG and PDF. Experimental steady rows are distinguished from model predictions; T9 is synthetic, qualification incomplete."
+  }
+}

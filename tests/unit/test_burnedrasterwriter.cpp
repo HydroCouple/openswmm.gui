@@ -1,0 +1,683 @@
+/**
+ * @file      test_burnedrasterwriter.cpp
+ * @brief     Gate V2 on a real raster: the burned DEM round trip, phase P1
+ *         (workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md §4.5, §8).
+ *
+ * Writes its fixtures and outputs to tests/unit/data/channelburn_artifacts so a
+ * failing run leaves something a human can open in a GIS (CLAUDE.md §4.1) —
+ * the synthetic DEM, the burned copy, the difference, and the report CSV.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
+#include <gtest/gtest.h>
+
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QString>
+
+#include "mesh/burnedrasterwriter.h"
+
+#include <gdal_priv.h>
+
+#include <cmath>
+#include <limits>
+#include <filesystem>
+#ifdef Q_OS_UNIX
+#include <csignal>
+#include <sys/resource.h>
+#include <unistd.h>
+#endif
+
+#ifndef CHANNELBURN_OUT_DIR
+#define CHANNELBURN_OUT_DIR "channelburn_artifacts"
+#endif
+
+using namespace mesh;
+
+namespace
+{
+
+constexpr double kNoData = -9999.0;
+
+/**
+ *
+ * @brief Resolve/create the persistent burn-writer fixture directory.
+ * @return Absolute SWMMVIS_BURN_WRITER_TEST_OUTPUT override or CHANNELBURN_OUT_DIR
+ * fallback. Directory creation status is unchecked. Retains artifacts for GIS review;
+ * does not remove files or initialize GDAL.
+ *
+ */
+QString outDir()
+{
+    QDir d(qEnvironmentVariable("SWMMVIS_BURN_WRITER_TEST_OUTPUT",
+                                QString::fromUtf8(CHANNELBURN_OUT_DIR)));
+    if (!d.exists())
+        QDir().mkpath(d.absolutePath());
+    return d.absolutePath();
+}
+
+/**
+ *
+ * @brief Join a test-owned filename to the persistent fixture directory.
+ * @param name Relative output filename including extension; no path sanitization.
+ * @return Owned joined path after outDir attempts parent creation. Does not open,
+ * clear or validate destination; cases control replacement/cleanup individually.
+ *
+ */
+QString outPath(const QString &name)
+{
+    return outDir() + QLatin1Char('/') + name;
+}
+
+/**
+ *
+ * @brief Read fixture bytes for exact source/destination preservation checks.
+ * @param path Borrowed filename to open read-only; never modified.
+ * @return Owned full contents, or empty bytes on open failure. Empty valid file and
+ * failure are indistinguishable; read errors are unchecked. Handle closes on return.
+ *
+ */
+QByteArray fileBytes(const QString &path)
+{
+    QFile file(path);
+    if (!file.open(QIODevice::ReadOnly))
+        return {};
+    return file.readAll();
+}
+
+/**
+ *
+ * @brief Create a north-up Float32 DEM with a controlled NoData patch.
+ * @param path Test-owned output filename; existing raster can be replaced.
+ * @param z Constant elevation in metres outside the patch, converted to Float32.
+ * @param w Positive columns, default 80, with representable allocation size.
+ * @param h Positive rows, default 60.
+ * @return True if GTiff creation and every row write succeed; false otherwise.
+ * Registers GDAL, sets one-metre pixels at (-10,30), and uses -9999 where pixel
+ * centres have x in [20,26] and y in [-6,0]. No CRS is assigned. Transform/NoData/
+ * close status is unchecked; failure can leave a partial file. Dataset closes after
+ * write failure/success; allocation exceptions are not caught.
+ *
+ */
+bool makeFlatDem(const QString &path, double z, int w = 80, int h = 60)
+{
+    GDALAllRegister();
+    GDALDriver *drv = GetGDALDriverManager()->GetDriverByName("GTiff");
+    if (!drv)
+        return false;
+    GDALDataset *ds = drv->Create(path.toUtf8().constData(), w, h, 1, GDT_Float32, nullptr);
+    if (!ds)
+        return false;
+
+    // Origin (-10, 30), 1 m pixels, north-up: world y decreases with row.
+    double gt[6] = {-10.0, 1.0, 0.0, 30.0, 0.0, -1.0};
+    ds->SetGeoTransform(gt);
+    ds->GetRasterBand(1)->SetNoDataValue(kNoData);
+
+    QVector<double> row(w, z);
+    for (int r = 0; r < h; ++r) {
+        // A NoData block spanning the channel: world x in [20, 26], y in [-6, 0].
+        for (int c = 0; c < w; ++c) {
+            const double wx = gt[0] + (c + 0.5) * gt[1];
+            const double wy = gt[3] + (r + 0.5) * gt[5];
+            row[c] = (wx >= 20.0 && wx <= 26.0 && wy >= -6.0 && wy <= 0.0) ? kNoData : z;
+        }
+        if (ds->GetRasterBand(1)->RasterIO(GF_Write, 0, r, w, 1, row.data(), w, 1, GDT_Float64, 0,
+                                           0) != CE_None) {
+            GDALClose(ds);
+            return false;
+        }
+    }
+    GDALClose(ds);
+    return true;
+}
+
+/**
+ *
+ * @brief Sample one pixel in the controlled unrotated fixture grid.
+ * @param path Borrowed one-band raster filename, requiring prior GDAL registration.
+ * @param wx Finite world x in the raster coordinate units (metres for these fixtures).
+ * @param wy Finite world y in the same units.
+ * @return Pixel value or NaN for failed open, outside extent, failed read leaving
+ * NaN, or exact -9999 sentinel. Assumes a valid axis-aligned transform with nonzero
+ * pixel spacing; ignores transform/read status and does not inspect band NoData
+ * metadata. Opens/closes a read-only dataset and performs no interpolation.
+ *
+ */
+double sampleAt(const QString &path, double wx, double wy)
+{
+    GDALDataset *ds = static_cast<GDALDataset *>(GDALOpen(path.toUtf8().constData(), GA_ReadOnly));
+    if (!ds)
+        return std::numeric_limits<double>::quiet_NaN();
+    double gt[6];
+    ds->GetGeoTransform(gt);
+    const int col = int(std::floor((wx - gt[0]) / gt[1]));
+    const int row = int(std::floor((wy - gt[3]) / gt[5]));
+    double v = std::numeric_limits<double>::quiet_NaN();
+    if (col >= 0 && col < ds->GetRasterXSize() && row >= 0 && row < ds->GetRasterYSize())
+        ds->GetRasterBand(1)->RasterIO(GF_Read, col, row, 1, 1, &v, 1, 1, GDT_Float64, 0, 0);
+    GDALClose(ds);
+    if (v == kNoData)
+        return std::numeric_limits<double>::quiet_NaN();
+    return v;
+}
+
+/**
+ *
+ * @brief Read band one as row-major doubles for raster comparisons.
+ * @param path Borrowed raster path; requires registered drivers.
+ * @param w Optional output columns, assigned only after successful open.
+ * @param h Optional output rows, assigned only after successful open.
+ * @return Owned width*height buffer, or empty on failed open. Allocation/read status
+ * is not checked beyond opening; a failed read can leave default/partial values.
+ * Retains raw -9999 sentinel values, closes the dataset and does not mutate the file.
+ *
+ */
+QVector<double> readAll(const QString &path, int *w = nullptr, int *h = nullptr)
+{
+    QVector<double> out;
+    GDALDataset *ds = static_cast<GDALDataset *>(GDALOpen(path.toUtf8().constData(), GA_ReadOnly));
+    if (!ds)
+        return out;
+    const int rw = ds->GetRasterXSize(), rh = ds->GetRasterYSize();
+    if (w)
+        *w = rw;
+    if (h)
+        *h = rh;
+    out.resize(qsizetype(rw) * qsizetype(rh));
+    ds->GetRasterBand(1)->RasterIO(GF_Read, 0, 0, rw, rh, out.data(), rw, rh, GDT_Float64, 0, 0);
+    GDALClose(ds);
+    return out;
+}
+
+/**
+ *
+ * @brief Build a straight trapezoidal burn profile for raster fixtures.
+ * @param id Copied conduit identifier.
+ * @param zUp Upstream bed elevation in metres at x0.
+ * @param zDn Downstream bed elevation in metres at x1.
+ * @param x0 Upstream x in metres, at y=0.
+ * @param x1 Downstream x in metres; intended greater than x0.
+ * @return Owned production-built profile: 4-metre base width, side slope 2,
+ * 0..2-metre section depths, forced half-width 2 m, maximum half-width 8 m and
+ * 0.5-metre chainage sampling. No local validation; caller checks profile validity.
+ *
+ */
+BurnProfile channel(const QString &id, double zUp, double zDn, double x0, double x1)
+{
+    BurnOptions o;
+    o.forceHalfWidth = 2.0;
+    o.clipToBanks = false;
+    o.maxHalfWidth = 8.0;
+    o.stringCount = 1;
+    o.chainageStep = 0.5;
+
+    ChannelInput in;
+    in.conduitId = id;
+    in.centerline = {QPointF(x0, 0), QPointF(x1, 0)};
+    in.zUp = zUp;
+    in.zDn = zDn;
+    const QVector<double> d = {0.0, 1.0, 2.0};
+    QVector<double> wid;
+    for (const double y : d)
+        wid.append(4.0 + 4.0 * y); // b = 4, side slope 2
+    in.section = sectionFromWidths(d, wid);
+    return buildBurnProfile(in, o);
+}
+
+/**
+ *
+ * @brief Build the standard CREEK1 raster-burn request without running it.
+ * @param src Copied source raster path, not opened here.
+ * @param dst Copied test-owned destination path, not cleared here.
+ * @return Owned request with a 50-metre west-east profile falling from 8 to 7 m,
+ * and forceHalfWidth 2 m; remaining writer/rule options retain defaults.
+ *
+ */
+BurnRasterRequest request(const QString &src, const QString &dst)
+{
+    BurnRasterRequest r;
+    r.sourcePath = src;
+    r.outputPath = dst;
+    r.profiles = {channel(QStringLiteral("CREEK1"), 8.0, 7.0, 0.0, 50.0)};
+    r.rule.forceHalfWidth = 2.0;
+    return r;
+}
+
+} // namespace
+
+TEST(BurnedRasterWriter, BurnsTheCorridorAndLeavesTheSourceAlone)
+{
+    const QString src = outPath(QStringLiteral("flat_dem.tif"));
+    const QString dst = outPath(QStringLiteral("flat_dem_burned.tif"));
+    QFile::remove(dst);
+    ASSERT_TRUE(makeFlatDem(src, 9.0));
+
+    const QVector<double> before = readAll(src);
+
+    BurnRasterRequest req = request(src, dst);
+    ASSERT_TRUE(req.profiles.first().isValid());
+
+    BurnRasterStats st;
+    QString err;
+    ASSERT_TRUE(writeBurnedRaster(req, &st, &err)) << err.toStdString();
+    ASSERT_TRUE(QFileInfo::exists(dst));
+
+    // The source is untouched — the burn never edits the DEM in place.
+    EXPECT_EQ(readAll(src), before);
+
+    EXPECT_GT(st.pixelsReplaced, 0);
+    EXPECT_GT(st.pixelsLowered, 0);
+    EXPECT_GT(st.maxIncision, 0.0);
+    ASSERT_EQ(st.perConduit.size(), 1);
+    EXPECT_EQ(st.perConduit.first().conduitId, QStringLiteral("CREEK1"));
+
+    // Pixel centres sit at X.5, so the centreline pixel here is at chainage
+    // 25.5: bed = 8 - (1/50)·25.5 = 7.49, and |offset| = 0.5 is inside the
+    // 2 m flat bed, so the pixel holds the invert exactly.
+    EXPECT_NEAR(sampleAt(dst, 25.5, 0.5), 7.49, 1e-4);
+    // At |offset| = 6 the section is at the top of bank, 2 above the bed =
+    // 9.49 — higher than the 9.0 DEM, so min() keeps the DEM.
+    EXPECT_NEAR(sampleAt(dst, 25.5, 6.5), 9.0, 1e-4);
+    // Well outside the corridor nothing moved.
+    EXPECT_NEAR(sampleAt(dst, 25.5, 20.5), 9.0, 1e-4);
+}
+
+TEST(BurnedRasterWriter, NeverRaisesOutsideRAndKeepsNoDataThere)
+{
+    const QString src = outPath(QStringLiteral("flat_dem.tif"));
+    const QString dst = outPath(QStringLiteral("nodata_burned.tif"));
+    QFile::remove(dst);
+    ASSERT_TRUE(makeFlatDem(src, 9.0));
+
+    BurnRasterRequest req = request(src, dst);
+    BurnRasterStats st;
+    QString err;
+    ASSERT_TRUE(writeBurnedRaster(req, &st, &err)) << err.toStdString();
+
+    int w = 0, h = 0;
+    const QVector<double> a = readAll(src, &w, &h);
+    const QVector<double> b = readAll(dst);
+    ASSERT_EQ(a.size(), b.size());
+
+    BurnCorridorIndex idx;
+    idx.build(req.profiles);
+
+    double gt[6] = {-10.0, 1.0, 0.0, 30.0, 0.0, -1.0};
+    int raised = 0, noDataFilled = 0, noDataKept = 0;
+    for (int r = 0; r < h; ++r)
+        for (int c = 0; c < w; ++c) {
+            const qsizetype k = qsizetype(r) * w + c;
+            const QPointF p(gt[0] + (c + 0.5) * gt[1], gt[3] + (r + 0.5) * gt[5]);
+            BurnProjection pr;
+            double zSec = 0.0;
+            const bool covered = bestBurnAt(idx, req.profiles, p, &pr, &zSec);
+            const bool forced = covered && std::abs(pr.offset) <= req.rule.forceHalfWidth;
+
+            if (a[k] == kNoData) {
+                if (forced) {
+                    EXPECT_NE(b[k], kNoData);
+                    ++noDataFilled;
+                } else {
+                    EXPECT_EQ(b[k], kNoData);
+                    ++noDataKept;
+                }
+                continue;
+            }
+            if (!forced && b[k] > a[k] + 1e-9)
+                ++raised;
+        }
+    EXPECT_EQ(raised, 0);
+    EXPECT_GT(noDataFilled, 0);
+    EXPECT_GT(noDataKept, 0);
+}
+
+TEST(BurnedRasterWriter, BurningABurnedDemChangesNothing)
+{
+    const QString src = outPath(QStringLiteral("flat_dem.tif"));
+    const QString once = outPath(QStringLiteral("idem_once.tif"));
+    const QString twice = outPath(QStringLiteral("idem_twice.tif"));
+    QFile::remove(once);
+    QFile::remove(twice);
+    ASSERT_TRUE(makeFlatDem(src, 9.0));
+
+    QString err;
+    BurnRasterStats s1, s2;
+    BurnRasterRequest r1 = request(src, once);
+    ASSERT_TRUE(writeBurnedRaster(r1, &s1, &err)) << err.toStdString();
+
+    BurnRasterRequest r2 = request(once, twice);
+    ASSERT_TRUE(writeBurnedRaster(r2, &s2, &err)) << err.toStdString();
+
+    // Idempotence is a property of the RASTER, and it holds exactly: the second
+    // pass writes min(float(z1), zSec), which rounds back to the same float.
+    EXPECT_EQ(readAll(once), readAll(twice));
+
+    // The outcome counters are not the invariant — a Float32 band rounds z1, so
+    // the second pass still books a "lowered" wherever the exact section sits a
+    // float-epsilon below the stored value. What must be zero is the INCISION.
+    EXPECT_LT(s2.maxIncision, 1e-5);
+    EXPECT_GT(s1.maxIncision, 0.1);
+}
+
+TEST(BurnedRasterWriter, ReportNamesTheUnitsAndOneRowPerConduit)
+{
+    const QString src = outPath(QStringLiteral("flat_dem.tif"));
+    const QString dst = outPath(QStringLiteral("report_burned.tif"));
+    const QString csv = outPath(QStringLiteral("report_burn_report.csv"));
+    QFile::remove(dst);
+    QFile::remove(csv);
+    ASSERT_TRUE(makeFlatDem(src, 9.0));
+
+    BurnRasterRequest req = request(src, dst);
+    req.profiles.append(channel(QStringLiteral("CREEK2"), 8.5, 8.2, 5.0, 40.0));
+
+    BurnRasterStats st;
+    QString err;
+    ASSERT_TRUE(writeBurnedRaster(req, &st, &err)) << err.toStdString();
+    ASSERT_TRUE(
+        writeBurnReport(csv, req, st, QStringLiteral("model ft; raster m; vScale 0.3048"), &err))
+        << err.toStdString();
+
+    QFile f(csv);
+    ASSERT_TRUE(f.open(QIODevice::ReadOnly | QIODevice::Text));
+    const QString text = QString::fromUtf8(f.readAll());
+    EXPECT_TRUE(text.contains(QStringLiteral("# units,model ft; raster m; vScale 0.3048")));
+    EXPECT_TRUE(text.contains(QStringLiteral("conduit,length,z_up,z_dn,slope")));
+    EXPECT_TRUE(text.contains(QStringLiteral("CREEK1,")));
+    EXPECT_TRUE(text.contains(QStringLiteral("CREEK2,")));
+}
+
+TEST(BurnedRasterWriter, CancellationRemovesThePartialOutput)
+{
+    const QString src = outPath(QStringLiteral("flat_dem.tif"));
+    const QString dst = outPath(QStringLiteral("cancelled.tif"));
+    QFile::remove(dst);
+    ASSERT_TRUE(makeFlatDem(src, 9.0));
+
+    BurnRasterRequest req = request(src, dst);
+    req.progress = [](int, const QString &) { return false; };
+
+    BurnRasterStats st;
+    QString err;
+    EXPECT_FALSE(writeBurnedRaster(req, &st, &err));
+    EXPECT_EQ(err, QStringLiteral("Cancelled."));
+    EXPECT_FALSE(QFileInfo::exists(dst));
+}
+
+TEST(BurnedRasterWriter, IntegerDemIsPromotedToFloatingPoint)
+{
+    const QString src = outPath(QStringLiteral("int_dem.tif"));
+    const QString dst = outPath(QStringLiteral("int_dem_burned.tif"));
+    QFile::remove(dst);
+
+    GDALAllRegister();
+    GDALDriver *drv = GetGDALDriverManager()->GetDriverByName("GTiff");
+    ASSERT_NE(drv, nullptr);
+    GDALDataset *ds = drv->Create(src.toUtf8().constData(), 80, 60, 1, GDT_Int16, nullptr);
+    ASSERT_NE(ds, nullptr);
+    double gt[6] = {-10.0, 1.0, 0.0, 30.0, 0.0, -1.0};
+    ds->SetGeoTransform(gt);
+    QVector<double> row(80, 9.0);
+    for (int r = 0; r < 60; ++r)
+        ds->GetRasterBand(1)->RasterIO(GF_Write, 0, r, 80, 1, row.data(), 80, 1, GDT_Float64, 0, 0);
+    GDALClose(ds);
+
+    BurnRasterStats st;
+    QString err;
+    ASSERT_TRUE(writeBurnedRaster(request(src, dst), &st, &err)) << err.toStdString();
+    auto *output = static_cast<GDALDataset *>(GDALOpen(dst.toUtf8().constData(), GA_ReadOnly));
+    ASSERT_NE(output, nullptr);
+    EXPECT_EQ(output->GetRasterBand(1)->GetRasterDataType(), GDT_Float64);
+    GDALClose(output);
+    const auto req = request(src, dst);
+    BurnCorridorIndex index;
+    index.build(req.profiles);
+    BurnProjection projection;
+    double section = 0;
+    ASSERT_TRUE(bestBurnAt(index, req.profiles, {20.5, 0.5}, &projection, &section));
+    EXPECT_NEAR(sampleAt(dst, 20.5, 0.5), section, 1e-10);
+}
+
+TEST(BurnedRasterWriter, ReportUsesLogicalDestinationNotJobStage)
+{
+    const QString physical = outPath(".job-stage-dem.tif");
+    const QString logical = outPath("published-channel.tif");
+    const QString csv = outPath("logical_report.csv");
+    auto req = request(outPath("source.tif"), physical);
+    req.logicalOutputPath = logical;
+    BurnRasterStats stats;
+    QString error;
+    ASSERT_TRUE(writeBurnReport(csv, req, stats, "model m; raster m", &error))
+        << error.toStdString();
+    const auto bytes = fileBytes(csv);
+    EXPECT_TRUE(bytes.contains(logical.toUtf8()));
+    EXPECT_FALSE(bytes.contains(physical.toUtf8()));
+}
+
+TEST(BurnedRasterWriter, RefusesExistingDestinationWithoutChangingIt)
+{
+    const QString src = outPath("existing_source.tif");
+    const QString dst = outPath("existing_destination.tif");
+    ASSERT_TRUE(makeFlatDem(src, 9.0));
+    ASSERT_TRUE(makeFlatDem(dst, 42.0));
+    const auto before = fileBytes(dst);
+    ASSERT_FALSE(before.isEmpty());
+    QString error;
+    BurnRasterStats stats;
+    EXPECT_FALSE(writeBurnedRaster(request(src, dst), &stats, &error));
+    EXPECT_FALSE(error.isEmpty());
+    EXPECT_EQ(fileBytes(dst), before);
+}
+
+TEST(BurnedRasterWriter, CancellationPreservesExistingDestination)
+{
+    const QString src = outPath("cancel_existing_source.tif");
+    const QString dst = outPath("cancel_existing_destination.tif");
+    ASSERT_TRUE(makeFlatDem(src, 9.0));
+    ASSERT_TRUE(makeFlatDem(dst, 42.0));
+    const auto before = fileBytes(dst);
+    auto req = request(src, dst);
+    req.progress = [](int, const QString &) { return false; };
+    BurnRasterStats stats;
+    QString error;
+    EXPECT_FALSE(writeBurnedRaster(req, &stats, &error));
+    EXPECT_EQ(fileBytes(dst), before);
+}
+
+TEST(BurnedRasterWriter, EmptyOwnedStageCanBeWrittenAndLateCancellationCleansIt)
+{
+    const QString src = outPath("owned_source.tif");
+    const QString dst = outPath("owned_stage.tif");
+    ASSERT_TRUE(makeFlatDem(src, 9.0));
+    {
+        QFile stage(dst);
+        ASSERT_TRUE(stage.open(QIODevice::WriteOnly));
+    }
+    auto req = request(src, dst);
+    int lastProgress = -1;
+    req.progress = [&](int value, const QString &) {
+        EXPECT_GE(value, lastProgress);
+        lastProgress = value;
+        return value < 100;
+    };
+    BurnRasterStats stats;
+    stats.pixelsVisited = 123;
+    QString error;
+    EXPECT_FALSE(writeBurnedRaster(req, &stats, &error));
+    EXPECT_EQ(error, QStringLiteral("Cancelled."));
+    EXPECT_FALSE(QFileInfo::exists(dst));
+    EXPECT_EQ(stats.pixelsVisited, 123);
+    {
+        QFile stage(dst);
+        ASSERT_TRUE(stage.open(QIODevice::WriteOnly));
+    }
+    req.progress = {};
+    ASSERT_TRUE(writeBurnedRaster(req, &stats, &error)) << error.toStdString();
+    EXPECT_GT(stats.pixelsVisited, 0);
+    EXPECT_NEAR(sampleAt(dst, 25.5, 0.5), 7.49, 1e-4);
+}
+
+TEST(BurnedRasterWriter, SourceAliasesAreRefused)
+{
+    const QString src = outPath("alias_source.tif");
+    ASSERT_TRUE(makeFlatDem(src, 9.0));
+    const auto before = fileBytes(src);
+    const QString hardLink = outPath("alias_hardlink.tif");
+    QFile::remove(hardLink);
+    std::error_code ec;
+    std::filesystem::create_hard_link(std::filesystem::u8path(src.toUtf8().constData()),
+                                      std::filesystem::u8path(hardLink.toUtf8().constData()), ec);
+    ASSERT_FALSE(ec) << ec.message();
+    QString error;
+    BurnRasterStats stats;
+    EXPECT_FALSE(writeBurnedRaster(request(src, hardLink), &stats, &error));
+    EXPECT_EQ(fileBytes(src), before);
+    EXPECT_FALSE(writeBurnedRaster(request(src, src), &stats, &error));
+    EXPECT_EQ(fileBytes(src), before);
+}
+
+TEST(BurnedRasterWriter, ReportShortWriteFailsWithoutReplacingPriorReport)
+{
+#ifdef Q_OS_UNIX
+    const QString csv = outPath("limited_report.csv");
+    const QByteArray before("Prior complete report\n");
+    {
+        QFile file(csv);
+        ASSERT_TRUE(file.open(QIODevice::WriteOnly));
+        ASSERT_EQ(file.write(before), before.size());
+    }
+    auto req = request(outPath("source.tif"), outPath("physical.tif"));
+    req.logicalOutputPath = outPath("logical.tif");
+    ASSERT_EXIT(
+        {
+            std::signal(SIGXFSZ, SIG_IGN);
+            struct rlimit limit;
+            if (getrlimit(RLIMIT_FSIZE, &limit) != 0)
+                _exit(2);
+            limit.rlim_cur = 64;
+            if (setrlimit(RLIMIT_FSIZE, &limit) != 0)
+                _exit(3);
+            BurnRasterStats stats;
+            QString error;
+            const bool saved = writeBurnReport(csv, req, stats, "model m; raster m", &error);
+            _exit(!saved && !error.isEmpty() ? 0 : 1);
+        },
+        ::testing::ExitedWithCode(0), "");
+    EXPECT_EQ(fileBytes(csv), before);
+#else
+    GTEST_SKIP() << "OS file-size failure injection requires POSIX rlimits";
+#endif
+}
+
+TEST(BurnedRasterWriter, RefusesRasterThatNeedsAnAuxiliaryFile)
+{
+    const QString src = outPath("aux_source.tif");
+    const QString dst = outPath("aux_stage.tif");
+    const QString auxiliary = dst + ".aux.xml";
+    QFile::remove(dst);
+    QFile::remove(auxiliary);
+    ASSERT_TRUE(makeFlatDem(src, 9.0));
+    auto req = request(src, dst);
+    req.progress = [&](int progress, const QString &) {
+        if (progress == 100) {
+            QFile sidecar(auxiliary);
+            if (!sidecar.open(QIODevice::WriteOnly))
+                return false;
+            sidecar.write("<PAMDataset><Metadata><MDI key=\"job-note\">auxiliary</MDI>"
+                          "</Metadata></PAMDataset>\n");
+        }
+        return true;
+    };
+    BurnRasterStats stats;
+    QString error;
+    EXPECT_FALSE(writeBurnedRaster(req, &stats, &error));
+    EXPECT_TRUE(error.contains("auxiliary", Qt::CaseInsensitive)) << error.toStdString();
+    EXPECT_FALSE(QFileInfo::exists(dst));
+    // The job owner owns companion cleanup; keep this fixture reviewable.
+    EXPECT_TRUE(QFileInfo::exists(auxiliary));
+}
+
+TEST(BurnedRasterWriter, FinalRasterFlushFailureDoesNotReportSuccess)
+{
+#ifdef Q_OS_UNIX
+    const QString src = outPath("flush_source.tif");
+    const QString dst = outPath("flush_stage.tif");
+    QFile::remove(dst);
+    ASSERT_TRUE(makeFlatDem(src, 9.0));
+    const auto before = fileBytes(src);
+    auto req = request(src, dst);
+    ASSERT_EXIT(
+        {
+            std::signal(SIGXFSZ, SIG_IGN);
+            req.progress = [](int progress, const QString &) {
+                if (progress < 100)
+                    return true;
+                struct rlimit limit;
+                if (getrlimit(RLIMIT_FSIZE, &limit) != 0)
+                    _exit(2);
+                limit.rlim_cur = 1; // after RasterIO, before final flush/close
+                if (setrlimit(RLIMIT_FSIZE, &limit) != 0)
+                    _exit(3);
+                return true;
+            };
+            BurnRasterStats stats;
+            QString error;
+            const bool saved = writeBurnedRaster(req, &stats, &error);
+            _exit(!saved && !error.isEmpty() ? 0 : 1);
+        },
+        ::testing::ExitedWithCode(0), "");
+    EXPECT_FALSE(QFileInfo::exists(dst));
+    EXPECT_EQ(fileBytes(src), before);
+#else
+    GTEST_SKIP() << "OS file-size failure injection requires POSIX rlimits";
+#endif
+}
+
+// Overlay mode writes only the tiles the burn changes and a VRT that paints
+// them over the source: pixel for pixel the same DEM as the full copy,
+// including NoData the burn fills and NoData it keeps.
+TEST(BurnedRasterWriter, OverlayMatchesTheFullCopyAndWritesOnlyChangedTiles)
+{
+    const QString src = outPath(QStringLiteral("overlay_dem.tif"));
+    const QString copy = outPath(QStringLiteral("overlay_dem_copy.tif"));
+    const QString vrt = outPath(QStringLiteral("overlay_dem_burned.vrt"));
+    const QString tiles = outPath(QStringLiteral("overlay_dem_burned_tiles.tif"));
+    for (const auto &f : {copy, vrt, tiles})
+        QFile::remove(f);
+    ASSERT_TRUE(makeFlatDem(src, 9.0, 700, 520)); // 3 x 3 tiles of 256
+
+    QString err;
+    BurnRasterStats a, b;
+    ASSERT_TRUE(writeBurnedRaster(request(src, copy), &a, &err)) << err.toStdString();
+    BurnRasterRequest req = request(src, vrt);
+    req.overlayTilesPath = tiles;
+    req.overlayTilesName = QFileInfo(tiles).fileName();
+    ASSERT_TRUE(writeBurnedRaster(req, &b, &err)) << err.toStdString();
+
+    EXPECT_EQ(b.pixelsReplaced, a.pixelsReplaced);
+    EXPECT_EQ(b.pixelsLowered, a.pixelsLowered);
+    EXPECT_EQ(b.maxIncision, a.maxIncision);
+    int w = 0, h = 0;
+    const QVector<double> full = readAll(copy, &w, &h);
+    const QVector<double> over = readAll(vrt);
+    ASSERT_EQ(over.size(), full.size());
+    qsizetype differ = 0;
+    for (qsizetype k = 0; k < full.size(); ++k)
+        differ += over[k] != full[k];
+    EXPECT_EQ(differ, 0);
+
+    // The channel lies in the first tile column (x 0..50 of -10..690): the
+    // far tiles were never written.
+    GDALDataset *t = static_cast<GDALDataset *>(GDALOpen(tiles.toUtf8().constData(), GA_ReadOnly));
+    ASSERT_TRUE(t);
+    const char *near = t->GetRasterBand(1)->GetMetadataItem("BLOCK_OFFSET_0_0", "TIFF");
+    const char *far = t->GetRasterBand(1)->GetMetadataItem("BLOCK_OFFSET_2_0", "TIFF");
+    EXPECT_TRUE(near && *near);
+    EXPECT_FALSE(far && *far);
+    GDALClose(t);
+}

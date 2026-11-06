@@ -1,9 +1,9 @@
-/*!
- * \file   test_subcatchpropertyadapter.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice TA round-trip tests for SWMMSubcatchPropertyAdapter.
+/**
+ * @file      test_subcatchpropertyadapter.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice TA round-trip tests for SWMMSubcatchPropertyAdapter.
  *         Mirror of `test_linkpropertyadapter.cpp` (Slice SA) for the
  *         subcatchment-side `tag` Q_PROPERTY. Exercises:
  *           - The `tag` getter+setter round-trip via the
@@ -16,6 +16,7 @@
  *             Q_PROPERTY (mirror of the link-side metaobject check).
  *           - That `displayLabelFor("tag")` resolves to a non-empty
  *             localized string.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/properties/swmmsubcatchpropertyadapter.h"
@@ -27,15 +28,24 @@
 #include <QSignalSpy>
 #include <QTest>
 
-namespace {
+namespace
+{
 
 // Tiny fixture: two subcatchments S1 + S2. Both exist so the multi-
 // subcatchment isolation case can verify writes to one don't bleed
 // into the other.
+/**
+ *
+ * @brief Allocate the editing-only engine with subcatchments S1/S2.
+ * @return Owned handle to destroy, or nullptr on allocation failure; add statuses
+ * are unchecked. Does not open files, configure runoff or simulate.
+ *
+ */
 SWMM_Engine buildTwoSubcatchFixture()
 {
     SWMM_Engine e = swmm_engine_new();
-    if (!e) return nullptr;
+    if (!e)
+        return nullptr;
     swmm_subcatch_add(e, "S1");
     swmm_subcatch_add(e, "S2");
     return e;
@@ -53,6 +63,51 @@ private slots:
     // Slice TA — tag round-trip
     // ====================================================================
 
+    /**
+     *
+     * @brief Require snowpack references to assign once, ignore no-op/missing names, track engine
+     * rename and clear without changing another subcatchment.
+     * Also checks the compound editor kind, label and advertised property.
+     *
+     */
+    void snowPackAssignmentUsesEngineAndSurvivesRename()
+    {
+        SWMM_Engine e = buildTwoSubcatchFixture();
+        QVERIFY(e);
+        QCOMPARE(swmm_snowpack_add(e, "Pack"), SWMM_OK);
+        SWMMSubcatchPropertyAdapter a(e, QStringLiteral("S1"));
+        DataObjectRef r = a.snowPackRef();
+        QCOMPARE(r.kind, DataObjectRef::Snowpack);
+        QVERIFY(r.currentName.isEmpty());
+        r.currentName = "Pack";
+        QSignalSpy spy(&a, &SWMMSubcatchPropertyAdapter::changed);
+        a.setSnowPackRef(r);
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(a.snowPackRef().currentName, QStringLiteral("Pack"));
+        QCOMPARE(QString::fromUtf8(swmm_subcatch_get_snowpack(e, 1)), QString{});
+        a.setSnowPackRef(r);
+        QCOMPARE(spy.count(), 1); // no-edit
+        r.currentName = "Missing";
+        a.setSnowPackRef(r);
+        QCOMPARE(spy.count(), 1);
+        QCOMPARE(a.snowPackRef().currentName, QStringLiteral("Pack"));
+        QCOMPARE(swmm_snowpack_rename(e, 0, "Renamed"), SWMM_OK);
+        QCOMPARE(a.snowPackRef().currentName, QStringLiteral("Renamed"));
+        r.currentName.clear();
+        a.setSnowPackRef(r);
+        QCOMPARE(spy.count(), 2);
+        QVERIFY(a.snowPackRef().currentName.isEmpty());
+        QVERIFY(!a.displayLabelFor("snowPack").isEmpty());
+        QVERIFY(a.metaObject()->indexOfProperty("snowPack") >= 0);
+        swmm_engine_destroy(e);
+    }
+
+    /**
+     *
+     * @brief Require subcatchment tag set/overwrite/clear to round-trip and the first real edit
+     * to emit changed once.
+     *
+     */
     void tagRoundTrip()
     {
         SWMM_Engine e = buildTwoSubcatchFixture();
@@ -79,6 +134,12 @@ private slots:
 
     // Tag must survive a rename — the engine stores tags index-keyed,
     // so renaming the subcatchment id does not touch the tag storage.
+    /**
+     *
+     * @brief Require an engine subcatchment rename plus adapter stored-name update to retain its
+     * index-keyed tag.
+     *
+     */
     void renameKeepsTag()
     {
         SWMM_Engine e = buildTwoSubcatchFixture();
@@ -101,6 +162,11 @@ private slots:
     }
 
     // Setting a tag on S1 must not bleed into S2.
+    /**
+     *
+     * @brief Require tag writes to S1/S2 to remain independent when S1 is edited again.
+     *
+     */
     void multiSubcatchTagIsolation()
     {
         SWMM_Engine e = buildTwoSubcatchFixture();
@@ -127,6 +193,11 @@ private slots:
     // Slice TA — meta-object contract: tag is writable
     // ====================================================================
 
+    /**
+     *
+     * @brief Require the subcatchment tag meta-property to exist and advertise a writable setter.
+     *
+     */
     void tagAdvertisedAsWritable()
     {
         SWMM_Engine e = buildTwoSubcatchFixture();
@@ -146,6 +217,11 @@ private slots:
     // Slice TA — display label resolves
     // ====================================================================
 
+    /**
+     *
+     * @brief Require the tag property to have a nonempty localized display label.
+     *
+     */
     void tagDisplayLabelResolves()
     {
         SWMM_Engine e = buildTwoSubcatchFixture();
@@ -162,6 +238,12 @@ private slots:
     // Precipitation scale factors — rain/snow scale round-trip
     // ====================================================================
 
+    /**
+     *
+     * @brief Require rain/snow dimensionless multipliers to default to one, round-trip separately
+     * and emit the first rain change once.
+     *
+     */
     void scaleFactorsRoundTrip()
     {
         SWMM_Engine e = buildTwoSubcatchFixture();
@@ -189,6 +271,11 @@ private slots:
     // The Property Browser hands out an unbounded spin box, so the adapter
     // write slot guards v > 0. A non-positive value must be rejected without
     // mutating the stored value or emitting changed().
+    /**
+     *
+     * @brief Require zero/negative rain multipliers to preserve the prior 0.8 and emit no change.
+     *
+     */
     void scaleFactorRejectsNonPositive()
     {
         SWMM_Engine e = buildTwoSubcatchFixture();
@@ -202,13 +289,17 @@ private slots:
         a.setRainScaleFactor(0.0);
         a.setRainScaleFactor(-2.0);
         QCOMPARE(spy.count(), 0);
-        QVERIFY2(qFuzzyCompare(a.rainScaleFactor(), 0.8),
-                 "rejected value must not mutate storage");
+        QVERIFY2(qFuzzyCompare(a.rainScaleFactor(), 0.8), "rejected value must not mutate storage");
 
         swmm_engine_destroy(e);
     }
 
     // Setting a scale factor on S1 must not bleed into S2.
+    /**
+     *
+     * @brief Require changing S1 rain multiplier to leave S2 at its default one.
+     *
+     */
     void scaleFactorMultiSubcatchIsolation()
     {
         SWMM_Engine e = buildTwoSubcatchFixture();
@@ -224,6 +315,11 @@ private slots:
         swmm_engine_destroy(e);
     }
 
+    /**
+     *
+     * @brief Require both rain/snow multiplier meta-properties to be writable and labeled.
+     *
+     */
     void scaleFactorsAdvertisedAsWritable()
     {
         SWMM_Engine e = buildTwoSubcatchFixture();
@@ -237,6 +333,54 @@ private slots:
             QVERIFY2(mo->property(idx).isWritable(), prop);
             QVERIFY(!a.displayLabelFor(QString::fromLatin1(prop)).isEmpty());
         }
+
+        swmm_engine_destroy(e);
+    }
+
+    // ====================================================================
+    // Post-run summary rows (Attribute Table dynamics parity)
+    // ====================================================================
+
+    // The three stat* rows must be advertised READ-ONLY (no WRITE →
+    // QPropertyModel renders non-editable), readable through the meta-
+    // object (catches READ-accessor typos moc only surfaces at runtime),
+    // zero on the never-run editing engine, and labelled.
+    /**
+     *
+     * @brief Require precipitation/runoff-volume/max-runoff summaries to be readable, labeled,
+     * read-only and zero before a run.
+     * Checks a new stats-source identity emits once, identical identity is silent
+     * and no registry still falls back to safe zero engine statistics.
+     *
+     */
+    void statRowsReadOnlyZeroPreRun()
+    {
+        SWMM_Engine e = buildTwoSubcatchFixture();
+        QVERIFY(e);
+
+        SWMMSubcatchPropertyAdapter a(e, QStringLiteral("S1"));
+        const auto *mo = a.metaObject();
+        for (const char *prop : {"statPrecip", "statRunoffVol", "statMaxRunoff"}) {
+            const int idx = mo->indexOfProperty(prop);
+            QVERIFY2(idx >= 0, prop);
+            QVERIFY2(!mo->property(idx).isWritable(), prop);
+            const QVariant v = mo->property(idx).read(&a);
+            QVERIFY2(v.isValid(), prop);
+            QCOMPARE(v.toDouble(), 0.0);
+            QVERIFY(!a.displayLabelFor(QString::fromLatin1(prop)).isEmpty());
+        }
+
+        // A stats-source change re-prompts the view via changed(); the
+        // same id twice must not re-emit.
+        QSignalSpy spy(&a, &SWMMSubcatchPropertyAdapter::changed);
+        const QUuid someRun = QUuid::createUuid();
+        a.setStatsSource(someRun);
+        QCOMPARE(spy.count(), 1);
+        a.setStatsSource(someRun);
+        QCOMPARE(spy.count(), 1);
+        // With a non-null id but NO registry bound, the getters stay on
+        // the safe engine path (null-registry branch) — still zero.
+        QCOMPARE(a.statPrecip(), 0.0);
 
         swmm_engine_destroy(e);
     }

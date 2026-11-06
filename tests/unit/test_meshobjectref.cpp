@@ -1,15 +1,14 @@
-/*!
- * \file   test_meshobjectref.cpp
- * \brief  Slice §V.VA — MeshObjectRef encode/parse round-trip tests.
+/**
+ * @file      test_meshobjectref.cpp
+ * @brief     Slice §V.VA — MeshObjectRef encode/parse round-trip tests.
  *
  * MeshObjectRef builds SWMMObjectRef instances naming mesh vertices and
  * edges; the encoded form has to round-trip through QSet (qHash) and the
  * SelectionManager so future Property-Browser / Attribute-Table views see
  * the same identity the toolbar selected.
  *
- * The layer pointer fed to MeshObjectRef::vertex / ::edge is only used to
- * extract a "mesh::<id>" key; calling with nullptr is permitted (yields
- * a `<null>` key) so these tests don't need a real SWMM2DMeshLayer.
+ * Fixtures use empty QString layer IDs and check their encoded mesh layer keys;
+ * they do not require a live SWMM2DMeshLayer.
  *
  * Tests:
  *   1. vertex(nullptr,N) round-trips through parseVertex
@@ -18,6 +17,10 @@
  *   4. Parse rejects refs of the wrong ObjectType
  *   5. qHash distinguishes vertex/edge refs that share a name string
  *   6. Two refs with the same (type, name) are equal and collapse in QSet
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <gtest/gtest.h>
@@ -29,6 +32,12 @@
 
 using mesh::MeshObjectRef;
 
+/**
+ *
+ * @brief Verify an empty-layer-key vertex reference preserves kind, encoded index and parsed
+ * layer key.
+ *
+ */
 TEST(MeshObjectRef, VertexRoundTrip)
 {
     const SWMMObjectRef ref = MeshObjectRef::vertex(QString(), 1234);
@@ -42,6 +51,11 @@ TEST(MeshObjectRef, VertexRoundTrip)
     EXPECT_EQ(layerKey, MeshObjectRef::layerKey(QString()));
 }
 
+/**
+ *
+ * @brief Verify an empty-layer-key edge reference preserves face index and local edge two.
+ *
+ */
 TEST(MeshObjectRef, EdgeRoundTrip)
 {
     const SWMMObjectRef ref = MeshObjectRef::edge(QString(), 567, 2);
@@ -55,6 +69,11 @@ TEST(MeshObjectRef, EdgeRoundTrip)
     EXPECT_EQ(e, 2);
 }
 
+/**
+ *
+ * @brief Require malformed local edge five to fail reference parsing.
+ *
+ */
 TEST(MeshObjectRef, EdgeRejectsOutOfRangeLocal)
 {
     const SWMMObjectRef bad(SWMMObjectRef::MeshEdge,
@@ -64,12 +83,16 @@ TEST(MeshObjectRef, EdgeRejectsOutOfRangeLocal)
     EXPECT_FALSE(MeshObjectRef::parseEdge(bad, &layerKey, &tri, &e));
 }
 
+/**
+ *
+ * @brief Reject vertex/edge strings paired with the opposite object kind.
+ *
+ */
 TEST(MeshObjectRef, ParseRejectsWrongObjectType)
 {
     // A vertex ref string with edge-type kind should fail parseVertex,
     // and vice versa.
-    const SWMMObjectRef asEdge(SWMMObjectRef::MeshEdge,
-                               MeshObjectRef::vertex(QString(), 3).name);
+    const SWMMObjectRef asEdge(SWMMObjectRef::MeshEdge, MeshObjectRef::vertex(QString(), 3).name);
     QString lk;
     int vi = -1;
     EXPECT_FALSE(MeshObjectRef::parseVertex(asEdge, &lk, &vi));
@@ -80,12 +103,17 @@ TEST(MeshObjectRef, ParseRejectsWrongObjectType)
     EXPECT_FALSE(MeshObjectRef::parseEdge(asVertex, &lk, &tri, &e));
 }
 
+/**
+ *
+ * @brief Require equal name text with different vertex/edge kinds to remain two QSet identities.
+ *
+ */
 TEST(MeshObjectRef, QHashDistinguishesVertexAndEdgeWithSameNameString)
 {
     // Construct two refs that share a name but differ in objectType.
     const QString shared = MeshObjectRef::layerKey(QString()) + QStringLiteral("#collide");
     const SWMMObjectRef a(SWMMObjectRef::MeshVertex, shared);
-    const SWMMObjectRef b(SWMMObjectRef::MeshEdge,   shared);
+    const SWMMObjectRef b(SWMMObjectRef::MeshEdge, shared);
     EXPECT_NE(a, b);
 
     QSet<SWMMObjectRef> s;
@@ -94,6 +122,11 @@ TEST(MeshObjectRef, QHashDistinguishesVertexAndEdgeWithSameNameString)
     EXPECT_EQ(s.size(), 2);
 }
 
+/**
+ *
+ * @brief Require identical vertex identities to compare equal and occupy one QSet entry.
+ *
+ */
 TEST(MeshObjectRef, EqualRefsCollapseInQSet)
 {
     const SWMMObjectRef r1 = MeshObjectRef::vertex(QString(), 42);

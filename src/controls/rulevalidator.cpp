@@ -1,9 +1,14 @@
-/*!
- * \file   rulevalidator.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      rulevalidator.cpp
+ * @brief     Wraps engine gap BR-02 (`swmm_control_validate_rule`) — the production parser runs
+ *            against the live engine's name tables (NODE / LINK / CURVE / TIMESERIES refs) without
+ *            mutating engine state.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "controls/rulevalidator.h"
 
 #include "layers/swmmmodellayer.h"
@@ -11,16 +16,17 @@
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_controls.h>
 
-namespace openswmmvis::controls {
+namespace openswmmvis::controls
+{
 
 RuleValidator::RuleValidator(SWMMModelLayer *layer, QObject *parent)
-    : QObject(parent),
-      m_layer(layer)
+    : QObject(parent), m_layer(layer)
 {
     m_debounceTimer = new QTimer(this);
     m_debounceTimer->setSingleShot(true);
     connect(m_debounceTimer, &QTimer::timeout, this, [this]() {
-        if (!m_pendingProvider) return;
+        if (!m_pendingProvider)
+            return;
         const Result r = validateImpl_(m_pendingText);
         m_pendingProvider->setValidation(r.state, r.message, r.errorLine);
         m_pendingProvider.clear();
@@ -57,26 +63,25 @@ RuleValidator::Result RuleValidator::validateImpl_(const QString &text) const
     }
 
     char errbuf[256] = {};
-    int  line = -1;
+    int line = -1;
     const QByteArray utf8 = text.toUtf8();
-    const int rc = swmm_control_validate_rule(
-        eng, utf8.constData(), errbuf, sizeof(errbuf), &line);
+    const int rc = swmm_control_validate_rule(eng, utf8.constData(), errbuf, sizeof(errbuf), &line);
     if (rc == SWMM_OK) {
         r.state = ValidationState::Valid;
         return r;
     }
-    r.state     = ValidationState::Invalid;
-    r.message   = QString::fromUtf8(errbuf);
+    r.state = ValidationState::Invalid;
+    r.message = QString::fromUtf8(errbuf);
     r.errorLine = line;
     return r;
 }
 
-void RuleValidator::validateDebounced(ControlRuleProvider *provider,
-                                        const QString &text)
+void RuleValidator::validateDebounced(ControlRuleProvider *provider, const QString &text)
 {
-    if (!provider) return;
+    if (!provider)
+        return;
     m_pendingProvider = provider;
-    m_pendingText     = text;
+    m_pendingText = text;
     // Provider state is Pending while the timer ticks — visible to the
     // list view's icon via `validationChanged`.
     provider->setValidation(ValidationState::Pending);

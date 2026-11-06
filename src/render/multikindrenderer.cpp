@@ -1,8 +1,12 @@
-/*!
- * \file   multikindrenderer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      multikindrenderer.cpp
+ * @brief     MultiKindRenderer is the `IFeatureRenderer` adapter that lets a multi-kind layer
+ *            (`SWMMModelLayer` with 11 object categories, `SWMMResultsLayer` with 3 attribute
+ *            scopes) carry one inner renderer per kind.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/multikindrenderer.h"
@@ -19,13 +23,18 @@
 namespace OpenSWMM::Render
 {
 
-namespace {
+namespace
+{
 
 // Factory: construct a concrete IFeatureRenderer from a JSON object whose
 // "id" field discriminates the renderer kind. Local to this TU so it
 // doesn't pollute the public header — MultiKindRenderer is the only
 // caller. Returns nullptr if "id" is missing or unknown; the caller
 // decides whether to fall back to a default.
+/** @brief Construct and load one of the four locally supported vector renderers.
+ * @param j Object with an exact single, graduated, categorized or rule id.
+ * @return Sole ownership after fromJson(), or nullptr for missing/unknown IDs.
+ * Other renderer types, including nested multikind/unclassed renderers, are unsupported. */
 std::unique_ptr<IFeatureRenderer> makeRendererFromJson(const QJsonObject &j)
 {
     const QString id = j.value(QStringLiteral("id")).toString();
@@ -38,16 +47,14 @@ std::unique_ptr<IFeatureRenderer> makeRendererFromJson(const QJsonObject &j)
         r = std::make_unique<CategorizedRenderer>();
     else if (id == QLatin1String("rule"))
         r = std::make_unique<RuleBasedRenderer>();
-    if (r) r->fromJson(j);
+    if (r)
+        r->fromJson(j);
     return r;
 }
 
 } // namespace
 
-MultiKindRenderer::MultiKindRenderer()
-    : m_fallback(std::make_unique<SingleSymbolRenderer>())
-{
-}
+MultiKindRenderer::MultiKindRenderer() : m_fallback(std::make_unique<SingleSymbolRenderer>()) {}
 
 const IFeatureRenderer *MultiKindRenderer::rendererFor(const QString &kind) const
 {
@@ -64,7 +71,8 @@ IFeatureRenderer *MultiKindRenderer::rendererFor(const QString &kind)
 void MultiKindRenderer::setRendererFor(const QString &kind,
                                        std::unique_ptr<IFeatureRenderer> renderer)
 {
-    if (kind.isEmpty()) return;
+    if (kind.isEmpty())
+        return;
     if (!renderer) {
         m_perKind.erase(kind);
         return;
@@ -85,7 +93,8 @@ void MultiKindRenderer::setFallback(std::unique_ptr<IFeatureRenderer> r)
     // Never allow a null fallback — keeps symbolFor() total. If the caller
     // passes nullptr we silently keep the current fallback rather than
     // crashing on the next paint.
-    if (r) m_fallback = std::move(r);
+    if (r)
+        m_fallback = std::move(r);
 }
 
 std::vector<QString> MultiKindRenderer::kinds() const
@@ -98,8 +107,7 @@ std::vector<QString> MultiKindRenderer::kinds() const
     return out;
 }
 
-SymbolStyle MultiKindRenderer::symbolFor(const FeatureRef &f,
-                                         const QVariantMap &attrs) const
+SymbolStyle MultiKindRenderer::symbolFor(const FeatureRef &f, const QVariantMap &attrs) const
 {
     // Dispatch on categoryHint; empty hint or missing per-kind entry both
     // fall through to the fallback so the renderer never returns garbage.
@@ -120,7 +128,8 @@ QList<LegendSymbolItem> MultiKindRenderer::legendSymbolItems() const
     QList<LegendSymbolItem> out;
     for (const QString &kind : kinds()) {
         const auto it = m_perKind.find(kind);
-        if (it == m_perKind.end() || !it->second) continue;
+        if (it == m_perKind.end() || !it->second)
+            continue;
         const IFeatureRenderer *r = it->second.get();
         const auto items = r->legendSymbolItems();
         for (LegendSymbolItem item : items) {
@@ -128,12 +137,9 @@ QList<LegendSymbolItem> MultiKindRenderer::legendSymbolItems() const
             // item. Precedence: user override (BB Phase 8.6.10) wins over
             // the renderer's auto label; empty inner label collapses to
             // just the kind.
-            const QString innerLabel = !item.userLabel.isEmpty()
-                                           ? item.userLabel
-                                           : item.label;
-            item.userLabel = innerLabel.isEmpty()
-                                 ? kind
-                                 : kind + QStringLiteral(" / ") + innerLabel;
+            const QString innerLabel = !item.userLabel.isEmpty() ? item.userLabel : item.label;
+            item.userLabel =
+                innerLabel.isEmpty() ? kind : kind + QStringLiteral(" / ") + innerLabel;
             out.append(item);
         }
     }

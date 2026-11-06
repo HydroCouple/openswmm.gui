@@ -1,9 +1,12 @@
-/*!
- * \file   maptoolmeshprofile.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      maptoolmeshprofile.cpp
+ * @brief     to define a longitudinal profile cross-section.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "map/tools/maptoolmeshprofile.h"
 
 #include "map/mapcanvas.h"
@@ -24,9 +27,8 @@ void MapToolMeshProfile::activate()
     OpenSWMMVisMapTool::activate();
     m_drawing = false;
     m_scenePts.clear();
-    emit statusMessageChanged(
-        tr("Trace profile: click to add vertices, double-click or Enter to "
-           "finish, right-click to undo, Esc to cancel."));
+    emit statusMessageChanged(tr("Trace profile: click to add vertices, double-click or Enter to "
+                                 "finish, right-click to undo, Esc to cancel."));
 }
 
 void MapToolMeshProfile::deactivate()
@@ -46,40 +48,43 @@ QPointF MapToolMeshProfile::pixelToScene_(int px, int py) const
 
 void MapToolMeshProfile::mousePressEvent(QMouseEvent *event)
 {
-    if (!m_canvas) return;
+    if (!m_canvas)
+        return;
 
     if (event->button() == Qt::RightButton) {
         // Undo the last vertex.
         if (m_drawing && !m_scenePts.isEmpty()) {
             m_scenePts.removeLast();
-            if (m_scenePts.isEmpty()) m_drawing = false;
-            m_canvas->invalidate(MapCanvas::Overlay,
-                                 QStringLiteral("mesh-profile-undo"));
+            if (m_scenePts.isEmpty())
+                m_drawing = false;
+            m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("mesh-profile-undo"));
         }
         return;
     }
 
-    if (event->button() != Qt::LeftButton) return;
+    if (event->button() != Qt::LeftButton)
+        return;
 
     m_scenePts.push_back(pixelToScene_(event->pos().x(), event->pos().y()));
-    m_drawing     = true;
+    m_drawing = true;
     m_cursorPixel = event->pos();
-    m_canvas->invalidate(MapCanvas::Overlay,
-                         QStringLiteral("mesh-profile-vertex"));
+    m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("mesh-profile-vertex"));
 }
 
 void MapToolMeshProfile::mouseMoveEvent(QMouseEvent *event)
 {
-    if (!m_canvas || !m_drawing) return;
+    if (!m_canvas || !m_drawing)
+        return;
     m_cursorPixel = event->pos();
-    m_canvas->invalidate(MapCanvas::Overlay,
-                         QStringLiteral("mesh-profile-preview"));
+    m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("mesh-profile-preview"));
 }
 
 void MapToolMeshProfile::mouseDoubleClickEvent(QMouseEvent *event)
 {
-    if (!m_canvas || !m_drawing) return;
-    if (event->button() != Qt::LeftButton) return;
+    if (!m_canvas || !m_drawing)
+        return;
+    if (event->button() != Qt::LeftButton)
+        return;
 
     // Qt's contract for the second click of a double-click pair varies by
     // platform: on some platforms MouseButtonPress is delivered before
@@ -115,16 +120,14 @@ void MapToolMeshProfile::keyPressEvent(QKeyEvent *event)
 void MapToolMeshProfile::finishTrace_()
 {
     if (m_scenePts.size() < 2) {
-        emit statusMessageChanged(
-            tr("Add at least two vertices before finishing the profile."));
+        emit statusMessageChanged(tr("Add at least two vertices before finishing the profile."));
         return;
     }
     const QVector<QPointF> pts = m_scenePts;
     m_drawing = false;
     m_scenePts.clear();
     if (m_canvas)
-        m_canvas->invalidate(MapCanvas::Overlay,
-                             QStringLiteral("mesh-profile-finish"));
+        m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("mesh-profile-finish"));
     emit profilePathTraced(pts);
 }
 
@@ -134,12 +137,10 @@ void MapToolMeshProfile::cancelTrace_()
     m_drawing = false;
     m_scenePts.clear();
     if (had && m_canvas)
-        m_canvas->invalidate(MapCanvas::Overlay,
-                             QStringLiteral("mesh-profile-cancel"));
+        m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("mesh-profile-cancel"));
 }
 
-void MapToolMeshProfile::paint(QPainter *painter,
-                               const MapExtent & /*canvasExtent*/,
+void MapToolMeshProfile::paint(QPainter *painter, const MapExtent & /*canvasExtent*/,
                                const SpatialReferenceSystem * /*canvasSRS*/)
 {
     if (!painter || !m_canvas || !m_drawing || m_scenePts.isEmpty())
@@ -159,7 +160,7 @@ void MapToolMeshProfile::paint(QPainter *painter,
     }
     viewPoly << m_cursorPixel;
 
-    QPen pen(QColor(31, 111, 183, 230));   // matches the HGL line accent
+    QPen pen(QColor(31, 111, 183, 230)); // matches the HGL line accent
     pen.setStyle(Qt::DashLine);
     pen.setWidth(2);
     painter->setPen(pen);

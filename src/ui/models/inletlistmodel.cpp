@@ -1,41 +1,43 @@
-/*!
- * \file   inletlistmodel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      inletlistmodel.cpp
+ * @brief     Inlet List Model implementation.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/models/inletlistmodel.h"
 
 #include "inlet/inletprovider.h"
 #include "inlet/inletregistry.h"
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using openswmmvis::inlet::InletProvider;
 using openswmmvis::inlet::InletRegistry;
 
-InletListModel::InletListModel(QObject *parent)
-    : QAbstractListModel(parent)
-{
-}
+InletListModel::InletListModel(QObject *parent) : QAbstractListModel(parent) {}
 
 InletListModel::~InletListModel() = default;
 
 void InletListModel::setRegistry(InletRegistry *registry)
 {
-    if (m_registry.data() == registry) return;
+    if (m_registry.data() == registry)
+        return;
     beginResetModel();
-    if (m_registry) m_registry->disconnect(this);
+    if (m_registry)
+        m_registry->disconnect(this);
     m_registry = QPointer<InletRegistry>(registry);
     if (m_registry) {
-        connect(m_registry, &InletRegistry::providerAdded,
-                this, &InletListModel::onProviderAdded_);
-        connect(m_registry, &InletRegistry::providerAboutToBeRemoved,
-                this, &InletListModel::onProviderAboutToBeRemoved_);
-        connect(m_registry, &InletRegistry::providerRenamed,
-                this, &InletListModel::onProviderRenamed_);
-        connect(m_registry, &InletRegistry::providerParamsChanged,
-                this, &InletListModel::onProviderParamsChanged_);
+        connect(m_registry, &InletRegistry::providerAdded, this, &InletListModel::onProviderAdded_);
+        connect(m_registry, &InletRegistry::providerAboutToBeRemoved, this,
+                &InletListModel::onProviderAboutToBeRemoved_);
+        connect(m_registry, &InletRegistry::providerRenamed, this,
+                &InletListModel::onProviderRenamed_);
+        connect(m_registry, &InletRegistry::providerParamsChanged, this,
+                &InletListModel::onProviderParamsChanged_);
     }
     endResetModel();
 }
@@ -47,73 +49,84 @@ InletRegistry *InletListModel::registry() const noexcept
 
 InletProvider *InletListModel::providerAt(int row) const
 {
-    if (!m_registry) return nullptr;
+    if (!m_registry)
+        return nullptr;
     const auto provs = m_registry->providers();
     return (row >= 0 && row < provs.size()) ? provs.at(row) : nullptr;
 }
 
 int InletListModel::rowCount(const QModelIndex &parent) const
 {
-    if (parent.isValid() || !m_registry) return 0;
+    if (parent.isValid() || !m_registry)
+        return 0;
     return m_registry->providerCount();
 }
 
 QVariant InletListModel::data(const QModelIndex &index, int role) const
 {
-    if (!m_registry || !index.isValid()) return {};
+    if (!m_registry || !index.isValid())
+        return {};
     auto *p = providerAt(index.row());
-    if (!p) return {};
+    if (!p)
+        return {};
     switch (role) {
     case Qt::DisplayRole:
     case Qt::EditRole:
         return p->name();
     case Qt::ToolTipRole:
-        return tr("Type %1, %2 × %3").arg(p->type())
-                 .arg(p->length(), 0, 'g', 6).arg(p->width(), 0, 'g', 6);
+        return openswmmvis::inlet::inletTypeLabel(p->type());
     default:
         return {};
     }
 }
 
-QVariant InletListModel::headerData(int section, Qt::Orientation orientation,
-                                      int role) const
+QVariant InletListModel::headerData(int section, Qt::Orientation orientation, int role) const
 {
-    if (role != Qt::DisplayRole) return {};
-    if (orientation == Qt::Vertical) return section + 1;
+    if (role != Qt::DisplayRole)
+        return {};
+    if (orientation == Qt::Vertical)
+        return section + 1;
     return tr("Inlets");
 }
 
 Qt::ItemFlags InletListModel::flags(const QModelIndex &index) const
 {
-    if (!index.isValid()) return Qt::NoItemFlags;
+    if (!index.isValid())
+        return Qt::NoItemFlags;
     return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable;
 }
 
-bool InletListModel::setData(const QModelIndex &index, const QVariant &value,
-                               int role)
+bool InletListModel::setData(const QModelIndex &index, const QVariant &value, int role)
 {
-    if (!m_registry || !index.isValid() || role != Qt::EditRole) return false;
+    if (!m_registry || !index.isValid() || role != Qt::EditRole)
+        return false;
     auto *p = providerAt(index.row());
-    if (!p) return false;
+    if (!p)
+        return false;
     const QString newName = value.toString().trimmed();
-    if (newName.isEmpty()) return false;
+    if (newName.isEmpty())
+        return false;
     return m_registry->rename(p, newName);
 }
 
 int InletListModel::indexOf_(InletProvider *p) const
 {
-    if (!m_registry || !p) return -1;
+    if (!m_registry || !p)
+        return -1;
     const auto provs = m_registry->providers();
     for (int i = 0; i < provs.size(); ++i)
-        if (provs.at(i) == p) return i;
+        if (provs.at(i) == p)
+            return i;
     return -1;
 }
 
 void InletListModel::onProviderAdded_(InletProvider *p)
 {
-    if (!m_registry || !p) return;
+    if (!m_registry || !p)
+        return;
     const int row = indexOf_(p);
-    if (row < 0) return;
+    if (row < 0)
+        return;
     beginInsertRows({}, row, row);
     endInsertRows();
 }
@@ -121,16 +134,17 @@ void InletListModel::onProviderAdded_(InletProvider *p)
 void InletListModel::onProviderAboutToBeRemoved_(InletProvider *p)
 {
     const int row = indexOf_(p);
-    if (row < 0) return;
+    if (row < 0)
+        return;
     beginRemoveRows({}, row, row);
     endRemoveRows();
 }
 
-void InletListModel::onProviderRenamed_(InletProvider *p,
-                                          const QString &, const QString &)
+void InletListModel::onProviderRenamed_(InletProvider *p, const QString &, const QString &)
 {
     const int row = indexOf_(p);
-    if (row < 0) return;
+    if (row < 0)
+        return;
     const auto idx = index(row);
     emit dataChanged(idx, idx, {Qt::DisplayRole, Qt::EditRole});
 }
@@ -138,7 +152,8 @@ void InletListModel::onProviderRenamed_(InletProvider *p,
 void InletListModel::onProviderParamsChanged_(InletProvider *p)
 {
     const int row = indexOf_(p);
-    if (row < 0) return;
+    if (row < 0)
+        return;
     const auto idx = index(row);
     emit dataChanged(idx, idx, {Qt::ToolTipRole});
 }

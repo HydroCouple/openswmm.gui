@@ -1,9 +1,9 @@
-/*!
- * \file   storageshapegeom.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Per-shape meaning of a storage unit's three raw dimensions.
+/**
+ * @file      storageshapegeom.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Per-shape meaning of a storage unit's three raw dimensions.
  *
  *         A storage node's Param 1/2/3 rows carry different quantities depending
  *         on the shape — "Major Axis Length" for a cone, "Base Length" for a
@@ -16,6 +16,7 @@
  *
  *         Ordinals match `SWMMNodePropertyAdapter::StorageShape` and the engine's
  *         `SWMM_StorageShape`.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef STORAGESHAPEGEOM_H
@@ -24,26 +25,27 @@
 #include <QCoreApplication>
 #include <QString>
 
-namespace openswmmvis {
+namespace openswmmvis
+{
 
 //! One storage-shape row. A paramNLabel is the empty string when that dimension
 //! is unused for the shape (tabular and functional use no raw dimensions at all —
 //! they are driven by a curve and by the A/B/C coefficients respectively).
 struct StorageShapeRow {
-    const char *name;         //!< "PYRAMIDAL", … (engine keyword; PARABOLOID is "PARABOLIC").
-    int         engineId;     //!< SWMM_StorageShape numeric.
-    const char *param1Label;  //!< "" when unused.
+    const char *name;        //!< "PYRAMIDAL", … (engine keyword; PARABOLOID is "PARABOLIC").
+    int engineId;            //!< SWMM_StorageShape numeric.
+    const char *param1Label; //!< "" when unused.
     const char *param2Label;
     const char *param3Label;
 };
 
 //! Engine ids, spelled out so call sites don't hard-code magic numbers.
-inline constexpr int kStorageTabularId     = 0;
-inline constexpr int kStorageFunctionalId  = 1;
+inline constexpr int kStorageTabularId = 0;
+inline constexpr int kStorageFunctionalId = 1;
 inline constexpr int kStorageCylindricalId = 2;
-inline constexpr int kStorageConicalId     = 3;
-inline constexpr int kStorageParaboloidId  = 4;
-inline constexpr int kStoragePyramidalId   = 5;
+inline constexpr int kStorageConicalId = 3;
+inline constexpr int kStorageParaboloidId = 4;
+inline constexpr int kStoragePyramidalId = 5;
 
 //! Dimension meanings are the legacy solver's (src/legacy/engine/node.c
 //! storage_readParams): for the elliptical shapes p1/p2 are the FULL axes (the
@@ -51,51 +53,76 @@ inline constexpr int kStoragePyramidalId   = 5;
 //! base length and width. p3 is a run-over-rise side slope, except on the
 //! paraboloid where it is the height at the top axes — and where it may not be 0.
 inline constexpr StorageShapeRow kStorageShapes[] = {
-    { "TABULAR",     kStorageTabularId,     "",                  "",                  ""                       },
-    { "FUNCTIONAL",  kStorageFunctionalId,  "",                  "",                  ""                       },
-    { "CYLINDRICAL", kStorageCylindricalId, "Major Axis Length", "Minor Axis Width",  ""                       },
-    { "CONICAL",     kStorageConicalId,     "Major Axis Length", "Minor Axis Width",  "Side Slope (run/rise)"  },
-    { "PARABOLIC",   kStorageParaboloidId,  "Top Major Axis",    "Top Minor Axis",    "Height at Top Axes"     },
-    { "PYRAMIDAL",   kStoragePyramidalId,   "Base Length",       "Base Width",        "Side Slope (run/rise)"  },
+    {"TABULAR", kStorageTabularId, "", "", ""},
+    {"FUNCTIONAL", kStorageFunctionalId, "", "", ""},
+    {"CYLINDRICAL", kStorageCylindricalId, "Major Axis Length", "Minor Axis Width", ""},
+    {"CONICAL", kStorageConicalId, "Major Axis Length", "Minor Axis Width",
+     "Side Slope (run/rise)"},
+    {"PARABOLIC", kStorageParaboloidId, "Top Major Axis", "Top Minor Axis", "Height at Top Axes"},
+    {"PYRAMIDAL", kStoragePyramidalId, "Base Length", "Base Width", "Side Slope (run/rise)"},
 };
 
 //! Look up a shape row by engine id; falls back to FUNCTIONAL for an unknown id
 //! so callers never get nullptr.
+/**
+ * @param[in] engineId Engine shape enumeration value; supported values are listed in the static metadata table.
+ * @details Reads immutable metadata only; returned row pointers, where applicable, are borrowed process-lifetime storage. Unknown-shape fallback follows the documented lookup behavior.
+ */
 inline const StorageShapeRow *findStorageShapeRow(int engineId)
 {
     for (const auto &r : kStorageShapes) {
-        if (r.engineId == engineId) return &r;
+        if (r.engineId == engineId)
+            return &r;
     }
     return &kStorageShapes[kStorageFunctionalId];
 }
 
 //! True iff `shapeId` is one of the four geometric shapes — i.e. the ones driven
 //! by raw dimensions rather than by a curve or by the A/B/C power law.
+/**
+ * @param[in] shapeId Engine shape enumeration value; supported values are listed in the static metadata table.
+ * @details Reads immutable metadata only; returned row pointers, where applicable, are borrowed process-lifetime storage. Unknown-shape fallback follows the documented lookup behavior.
+ */
 inline bool storageShapeIsGeometric(int shapeId)
 {
-    return shapeId == kStorageCylindricalId || shapeId == kStorageConicalId
-        || shapeId == kStorageParaboloidId  || shapeId == kStoragePyramidalId;
+    return shapeId == kStorageCylindricalId || shapeId == kStorageConicalId ||
+           shapeId == kStorageParaboloidId || shapeId == kStoragePyramidalId;
 }
 
 //! Shape-specific label for param `ordinal` (1..3), e.g. "Base Length".
 //! Empty when the dimension is unused for the shape or the ordinal is out of range.
+/**
+ * @param[in] shapeId Engine shape enumeration value; supported values are listed in the static metadata table.
+ * @param[in] ordinal One-based geometry-slot number.
+ * @details Reads immutable metadata only; returned row pointers, where applicable, are borrowed process-lifetime storage. Unknown-shape fallback follows the documented lookup behavior.
+ */
 inline QString storageGeomLabel(int shapeId, int ordinal)
 {
     const StorageShapeRow *r = findStorageShapeRow(shapeId);
     const char *lbl = nullptr;
     switch (ordinal) {
-    case 1: lbl = r->param1Label; break;
-    case 2: lbl = r->param2Label; break;
-    case 3: lbl = r->param3Label; break;
-    default: return {};
+    case 1:
+        lbl = r->param1Label;
+        break;
+    case 2:
+        lbl = r->param2Label;
+        break;
+    case 3:
+        lbl = r->param3Label;
+        break;
+    default:
+        return {};
     }
-    return (lbl && *lbl)
-               ? QCoreApplication::translate("StorageShape", lbl)
-               : QString();
+    return (lbl && *lbl) ? QCoreApplication::translate("StorageShape", lbl) : QString();
 }
 
 //! True iff param `ordinal` (1..3) is a real, directly-editable dimension for
 //! `shapeId`. A cylinder has no side slope, so ordinal 3 is false there.
+/**
+ * @param[in] shapeId Engine shape enumeration value; supported values are listed in the static metadata table.
+ * @param[in] ordinal One-based geometry-slot number.
+ * @details Reads immutable metadata only; returned row pointers, where applicable, are borrowed process-lifetime storage. Unknown-shape fallback follows the documented lookup behavior.
+ */
 inline bool storageGeomApplies(int shapeId, int ordinal)
 {
     return !storageGeomLabel(shapeId, ordinal).isEmpty();

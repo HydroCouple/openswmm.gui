@@ -1,0 +1,6 @@
+# Run outputs and GUI project files written next to the deck stay local.
+*.rpt
+*.out
+*.oswp
+gw_roundtrip_saved.inp
+gw_roundtrip_noaq.inp

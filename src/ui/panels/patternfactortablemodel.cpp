@@ -1,37 +1,41 @@
-/*!
- * \file   patternfactortablemodel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      patternfactortablemodel.cpp
+ * @brief     Schema is fixed: one column "Factor" with N rows where N = the bound provider's
+ *            `factorCount()` (12 monthly / 7 daily / 24 hourly / 24 weekend).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/panels/patternfactortablemodel.h"
 
 #include "pattern/patternprovider.h"
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using openswmmvis::pattern::PatternProvider;
 
-PatternFactorTableModel::PatternFactorTableModel(QObject *parent)
-    : QAbstractTableModel(parent)
-{
-}
+PatternFactorTableModel::PatternFactorTableModel(QObject *parent) : QAbstractTableModel(parent) {}
 
 PatternFactorTableModel::~PatternFactorTableModel() = default;
 
 void PatternFactorTableModel::setProvider(PatternProvider *p)
 {
-    if (m_provider.data() == p) return;
+    if (m_provider.data() == p)
+        return;
     beginResetModel();
-    if (m_provider) m_provider->disconnect(this);
+    if (m_provider)
+        m_provider->disconnect(this);
     m_provider = QPointer<PatternProvider>(p);
     if (m_provider) {
-        connect(m_provider, &PatternProvider::factorChanged,
-                this, &PatternFactorTableModel::onProviderFactorChanged_);
-        connect(m_provider, &PatternProvider::factorsChanged,
-                this, &PatternFactorTableModel::onProviderFactorsChanged_);
-        connect(m_provider, &PatternProvider::typeChanged,
-                this, &PatternFactorTableModel::onProviderTypeChanged_);
+        connect(m_provider, &PatternProvider::factorChanged, this,
+                &PatternFactorTableModel::onProviderFactorChanged_);
+        connect(m_provider, &PatternProvider::factorsChanged, this,
+                &PatternFactorTableModel::onProviderFactorsChanged_);
+        connect(m_provider, &PatternProvider::typeChanged, this,
+                &PatternFactorTableModel::onProviderTypeChanged_);
     }
     endResetModel();
 }
@@ -43,7 +47,8 @@ PatternProvider *PatternFactorTableModel::provider() const noexcept
 
 int PatternFactorTableModel::rowCount(const QModelIndex &parent) const
 {
-    if (parent.isValid() || !m_provider) return 0;
+    if (parent.isValid() || !m_provider)
+        return 0;
     return m_provider->factorCount();
 }
 
@@ -57,7 +62,8 @@ QVariant PatternFactorTableModel::data(const QModelIndex &index, int role) const
     if (!m_provider || !index.isValid() || index.column() != 0)
         return {};
     const int row = index.row();
-    if (row < 0 || row >= m_provider->factorCount()) return {};
+    if (row < 0 || row >= m_provider->factorCount())
+        return {};
 
     switch (role) {
     case Qt::DisplayRole:
@@ -71,13 +77,15 @@ QVariant PatternFactorTableModel::data(const QModelIndex &index, int role) const
 }
 
 QVariant PatternFactorTableModel::headerData(int section, Qt::Orientation orientation,
-                                              int role) const
+                                             int role) const
 {
-    if (role != Qt::DisplayRole) return {};
+    if (role != Qt::DisplayRole)
+        return {};
     if (orientation == Qt::Horizontal) {
         return section == 0 ? tr("Factor") : QVariant{};
     }
-    if (!m_provider) return QString::number(section + 1);
+    if (!m_provider)
+        return QString::number(section + 1);
     return PatternProvider::rowLabel(m_provider->type(), section);
 }
 
@@ -88,14 +96,14 @@ Qt::ItemFlags PatternFactorTableModel::flags(const QModelIndex &index) const
     return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable;
 }
 
-bool PatternFactorTableModel::setData(const QModelIndex &index, const QVariant &value,
-                                      int role)
+bool PatternFactorTableModel::setData(const QModelIndex &index, const QVariant &value, int role)
 {
     if (!m_provider || !index.isValid() || index.column() != 0 || role != Qt::EditRole)
         return false;
     bool ok = false;
     const double v = value.toDouble(&ok);
-    if (!ok) return false;
+    if (!ok)
+        return false;
     // PatternProvider::setFactor validates + emits factorChanged, which we
     // pick up to issue the dataChanged signal.
     return m_provider->setFactor(index.row(), v);
@@ -109,9 +117,9 @@ void PatternFactorTableModel::onProviderFactorChanged_(int i)
 
 void PatternFactorTableModel::onProviderFactorsChanged_()
 {
-    if (!m_provider || rowCount() == 0) return;
-    emit dataChanged(index(0, 0), index(rowCount() - 1, 0),
-                     {Qt::DisplayRole, Qt::EditRole});
+    if (!m_provider || rowCount() == 0)
+        return;
+    emit dataChanged(index(0, 0), index(rowCount() - 1, 0), {Qt::DisplayRole, Qt::EditRole});
 }
 
 void PatternFactorTableModel::onProviderTypeChanged_()

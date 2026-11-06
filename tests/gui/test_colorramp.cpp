@@ -1,12 +1,14 @@
-/*!
- * \file   test_colorramp.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_colorramp.cpp
+ * @brief     Tests for colorramp.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice BB-α — RasterColorRamp data type, HSV interpolation, built-in
  * catalogue, JSON round-trip. Self-contained: pulls in render/colorramp.cpp
  * only.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/colorramp.h"
@@ -24,6 +26,16 @@ namespace
 // Helper — compare two QColors in HSV-F space (because RGB→HSV is what
 // the test cases reason about), with a small tolerance for floating-
 // point error.
+/**
+ *
+ * @brief Compare scalar color components with absolute inclusive tolerance.
+ * @param a First component, normally finite normalized HSV or RGB-derived scalar.
+ * @param b Expected component in the same scale.
+ * @param eps Nonnegative absolute tolerance, default .001.
+ * @return True when abs(a-b)<=eps; NaN differences fail. No hue wrapping,
+ * relative tolerance, QColor conversion or assertion side effects.
+ *
+ */
 bool fuzzyEqualF(double a, double b, double eps = 1e-3)
 {
     return std::fabs(a - b) <= eps;
@@ -35,41 +47,75 @@ class TestColorRamp : public QObject
 {
     Q_OBJECT
 private slots:
+    /**
+     *
+     * @brief Require below-range values to be transparent and above-range values to saturate, for
+     * every legacy clamp-flag combination.
+     *
+     */
+    void numericRangeHidesUnderflowAndSaturatesOverflow()
+    {
+        auto ramp = RasterColorRamp::builtin("Viridis");
+        ramp.minValue = 2;
+        ramp.maxValue = 8;
+        for (bool legacyMin : {false, true})
+            for (bool legacyMax : {false, true}) {
+                ramp.clampMin = legacyMin;
+                ramp.clampMax = legacyMax;
+                QCOMPARE(ramp.colorForValue(1.9).alpha(), 0);
+                QCOMPARE(ramp.colorForValue(2), ramp.colorAt(0));
+                QCOMPARE(ramp.colorForValue(8), ramp.colorAt(1));
+                QCOMPARE(ramp.colorForValue(80), ramp.colorAt(1));
+            }
+    }
 
     // ---- Stops at 0, 0.5, 1 --------------------------------------------------
 
+    /**
+     *
+     * @brief Require RGB ramp interpolation to preserve exact red/blue endpoint colors.
+     *
+     */
     void colorAt_endpoints()
     {
         RasterColorRamp r;
-        r.stops = { {0.0, QColor(255, 0, 0)},
-                    {1.0, QColor(0, 0, 255)} };
+        r.stops = {{0.0, QColor(255, 0, 0)}, {1.0, QColor(0, 0, 255)}};
         r.interp = RampInterp::Rgb;
         QCOMPARE(r.colorAt(0.0), QColor(255, 0, 0));
         QCOMPARE(r.colorAt(1.0), QColor(0, 0, 255));
     }
 
+    /**
+     *
+     * @brief Require per-channel RGB midpoint within one integer channel unit.
+     *
+     */
     void colorAt_midpoint_rgb()
     {
         RasterColorRamp r;
-        r.stops = { {0.0, QColor(0, 0, 0)},
-                    {1.0, QColor(100, 200, 50)} };
+        r.stops = {{0.0, QColor(0, 0, 0)}, {1.0, QColor(100, 200, 50)}};
         r.interp = RampInterp::Rgb;
         const QColor mid = r.colorAt(0.5);
         // RGB-linear midpoint:
-        QVERIFY(qAbs(mid.red()   - 50)  <= 1);
+        QVERIFY(qAbs(mid.red() - 50) <= 1);
         QVERIFY(qAbs(mid.green() - 100) <= 1);
-        QVERIFY(qAbs(mid.blue()  - 25)  <= 1);
+        QVERIFY(qAbs(mid.blue() - 25) <= 1);
     }
 
     // ---- HSV-short vs HSV-long interpolation --------------------------------
 
+    /**
+     *
+     * @brief Require the short hue arc from red to blue to cross magenta near normalized hue
+     * .833.
+     *
+     */
     void colorAt_hsvShort_pure_red_to_blue()
     {
         // Red (hue 0°) → Blue (hue 240°). Short arc backwards (red → blue
         // crossing magenta) is 120° span; long arc forward is 240° span.
         RasterColorRamp r;
-        r.stops = { {0.0, QColor(255, 0, 0)},
-                    {1.0, QColor(0, 0, 255)} };
+        r.stops = {{0.0, QColor(255, 0, 0)}, {1.0, QColor(0, 0, 255)}};
         r.interp = RampInterp::HsvShort;
         const QColor mid = r.colorAt(0.5);
         float h = 0.0f, s = 0.0f, v = 0.0f, a = 0.0f;
@@ -79,11 +125,15 @@ private slots:
         QVERIFY(fuzzyEqualF(h, 0.833, 0.02));
     }
 
+    /**
+     *
+     * @brief Require the long hue arc from red to blue to cross green near normalized hue .333.
+     *
+     */
     void colorAt_hsvLong_pure_red_to_blue()
     {
         RasterColorRamp r;
-        r.stops = { {0.0, QColor(255, 0, 0)},
-                    {1.0, QColor(0, 0, 255)} };
+        r.stops = {{0.0, QColor(255, 0, 0)}, {1.0, QColor(0, 0, 255)}};
         r.interp = RampInterp::HsvLong;
         const QColor mid = r.colorAt(0.5);
         float h = 0.0f, s = 0.0f, v = 0.0f, a = 0.0f;
@@ -92,32 +142,45 @@ private slots:
         QVERIFY(fuzzyEqualF(h, 0.333, 0.02));
     }
 
+    /**
+     *
+     * @brief Require undefined black hue to trigger RGB interpolation toward red.
+     *
+     */
     void colorAt_hsv_falls_back_to_rgb_on_achromatic_endpoint()
     {
         // Black has hue == -1 (achromatic). HSV interpolation is undefined;
         // the impl must fall back to RGB to remain sensible.
         RasterColorRamp r;
-        r.stops = { {0.0, QColor::fromRgb(0, 0, 0)},
-                    {1.0, QColor::fromRgb(255, 0, 0)} };
+        r.stops = {{0.0, QColor::fromRgb(0, 0, 0)}, {1.0, QColor::fromRgb(255, 0, 0)}};
         r.interp = RampInterp::HsvShort;
         const QColor mid = r.colorAt(0.5);
         // RGB-linear midpoint of black → red is (127, 0, 0).
         QVERIFY(qAbs(mid.red() - 127) <= 1);
         QVERIFY(qAbs(mid.green()) <= 1);
-        QVERIFY(qAbs(mid.blue())  <= 1);
+        QVERIFY(qAbs(mid.blue()) <= 1);
     }
 
     // ---- Clamping and empty stops --------------------------------------------
 
+    /**
+     *
+     * @brief Require normalized positions outside [0,1] to use endpoint colors.
+     *
+     */
     void colorAt_clamps_to_endpoints_below_zero_above_one()
     {
         RasterColorRamp r;
-        r.stops = { {0.0, QColor(10, 20, 30)},
-                    {1.0, QColor(200, 210, 220)} };
+        r.stops = {{0.0, QColor(10, 20, 30)}, {1.0, QColor(200, 210, 220)}};
         QCOMPARE(r.colorAt(-1.0), QColor(10, 20, 30));
-        QCOMPARE(r.colorAt( 2.0), QColor(200, 210, 220));
+        QCOMPARE(r.colorAt(2.0), QColor(200, 210, 220));
     }
 
+    /**
+     *
+     * @brief Require an empty-stop ramp to return zero alpha.
+     *
+     */
     void colorAt_empty_stops_returns_transparent()
     {
         RasterColorRamp r;
@@ -126,12 +189,20 @@ private slots:
 
     // ---- Built-in catalogue ---------------------------------------------------
 
+    /**
+     *
+     * @brief Require 25 catalog names and presence of selected depth/terrain/continuous/reference
+     * entries.
+     *
+     */
     void builtin_names_lists_all_entries()
     {
         // Slice BB-α shipped 13 entries; Slice BB-β added 10 Plotly
-        // continuous palettes; the mesh terrain palette adds one — total 24.
+        // continuous palettes; the mesh terrain palette adds one; the
+        // 2026-09-01 water-depth ramp adds one — total 25.
         const QStringList names = RasterColorRamp::builtinNames();
-        QCOMPARE(names.size(), 24);
+        QCOMPARE(names.size(), 25);
+        QVERIFY(names.contains(QStringLiteral("Water Depth")));
         QVERIFY(names.contains(QStringLiteral("Viridis")));
         QVERIFY(names.contains(QStringLiteral("Plasma")));
         QVERIFY(names.contains(QStringLiteral("RdBu")));
@@ -143,6 +214,11 @@ private slots:
         QVERIFY(names.contains(QStringLiteral("Bluered")));
     }
 
+    /**
+     *
+     * @brief Pin all five legacy terrain stops/colors and RGB interpolation exactly.
+     *
+     */
     void builtin_terrain_matches_legacy_elevation_palette()
     {
         // The "terrain" builtin must reproduce the historic 5-stop mesh
@@ -152,42 +228,83 @@ private slots:
         const RasterColorRamp r = RasterColorRamp::builtin(QStringLiteral("Terrain"));
         QCOMPARE(r.interp, RampInterp::Rgb);
         const QList<QPair<double, QColor>> expected = {
-            {0.00, QColor(0x1a, 0x3d, 0x6b)},
-            {0.20, QColor(0x2e, 0x8b, 0x57)},
-            {0.50, QColor(0xc8, 0xd9, 0x4e)},
-            {0.75, QColor(0xc8, 0xa0, 0x00)},
+            {0.00, QColor(0x1a, 0x3d, 0x6b)}, {0.20, QColor(0x2e, 0x8b, 0x57)},
+            {0.50, QColor(0xc8, 0xd9, 0x4e)}, {0.75, QColor(0xc8, 0xa0, 0x00)},
             {1.00, QColor(0xf0, 0xf0, 0xe8)},
         };
         QCOMPARE(r.stops.size(), expected.size());
         for (int i = 0; i < expected.size(); ++i) {
-            QCOMPARE(r.stops[i].first,  expected[i].first);
+            QCOMPARE(r.stops[i].first, expected[i].first);
             QCOMPARE(r.stops[i].second, expected[i].second);
         }
     }
 
+    /**
+     *
+     * @brief Pin shallow/deep water colors and require alpha to interpolate and never decrease
+     * with depth.
+     *
+     */
+    void builtin_waterDepth_carries_alpha_gradient()
+    {
+        // 2026-09-01 — the 2D depth-fill default, in the user's stated
+        // direction: deeper water = dark blue, shallower = lighter shade.
+        // Translucent near-white blue at the shallow end (the shoreline
+        // fades into the terrain), fully opaque deep navy at maximum depth.
+        // The alpha gradient is the point of the ramp, so pin both ends
+        // and the interpolation.
+        const RasterColorRamp r = RasterColorRamp::builtin(QStringLiteral("Water Depth"));
+        QCOMPARE(r.interp, RampInterp::Rgb);
+        QCOMPARE(r.stops.first().first, 0.0);
+        QCOMPARE(r.stops.last().first, 1.0);
+        QCOMPARE(r.stops.first().second, QColor(0xf7, 0xfb, 0xff, 100));
+        QCOMPARE(r.stops.last().second, QColor(0x08, 0x30, 0x6b, 255));
+        // Alpha interpolates through the middle rather than jumping.
+        const int aMid = r.colorAt(0.5).alpha();
+        QVERIFY2(aMid > 100 && aMid < 255,
+                 qPrintable(QStringLiteral("mid alpha %1 not interpolated").arg(aMid)));
+        // Deeper is never more transparent.
+        int prev = r.colorAt(0.0).alpha();
+        for (double t = 0.1; t <= 1.0001; t += 0.1) {
+            const int a = r.colorAt(t).alpha();
+            QVERIFY(a >= prev);
+            prev = a;
+        }
+    }
+
+    /**
+     *
+     * @brief Require each listed continuous palette to have two or more stops, distinct endpoint
+     * colors and positions 0/1.
+     *
+     */
     void builtin_plotly_lookup_returns_distinct_ramps()
     {
         // Slice BB-β — every Plotly factory returns a non-grayscale ramp
         // (more than 2 stops or distinct endpoints).
         for (const QString &name :
-             { QStringLiteral("Plotly3"),  QStringLiteral("IceFire"),
-               QStringLiteral("Blackbody"),QStringLiteral("Electric"),
-               QStringLiteral("Hot"),      QStringLiteral("Jet"),
-               QStringLiteral("Picnic"),   QStringLiteral("Portland"),
-               QStringLiteral("Rainbow"),  QStringLiteral("Bluered") })
-        {
+             {QStringLiteral("Plotly3"), QStringLiteral("IceFire"), QStringLiteral("Blackbody"),
+              QStringLiteral("Electric"), QStringLiteral("Hot"), QStringLiteral("Jet"),
+              QStringLiteral("Picnic"), QStringLiteral("Portland"), QStringLiteral("Rainbow"),
+              QStringLiteral("Bluered")}) {
             const RasterColorRamp r = RasterColorRamp::builtin(name);
             QVERIFY2(r.stops.size() >= 2,
                      qPrintable(QStringLiteral("Plotly ramp \"%1\" has < 2 stops").arg(name)));
             // First and last stops differ (no degenerate flat ramp).
-            QVERIFY2(r.stops.first().second.rgba() != r.stops.last().second.rgba(),
-                     qPrintable(QStringLiteral("Plotly ramp \"%1\" endpoints identical").arg(name)));
+            QVERIFY2(
+                r.stops.first().second.rgba() != r.stops.last().second.rgba(),
+                qPrintable(QStringLiteral("Plotly ramp \"%1\" endpoints identical").arg(name)));
             // Endpoints are at exactly 0.0 and 1.0.
             QCOMPARE(r.stops.first().first, 0.0);
-            QCOMPARE(r.stops.last().first,  1.0);
+            QCOMPARE(r.stops.last().first, 1.0);
         }
     }
 
+    /**
+     *
+     * @brief Require upper/lower Viridis lookup to match stop count and first color.
+     *
+     */
     void builtin_lookup_is_case_insensitive()
     {
         const RasterColorRamp r1 = RasterColorRamp::builtin(QStringLiteral("VIRIDIS"));
@@ -196,17 +313,27 @@ private slots:
         QCOMPARE(r1.stops.first().second, r2.stops.first().second);
     }
 
+    /**
+     *
+     * @brief Require unknown ramp lookup to return two black/white stops.
+     *
+     */
     void builtin_unknown_falls_back_to_grayscale()
     {
         const RasterColorRamp r = RasterColorRamp::builtin(QStringLiteral("does-not-exist"));
         // Grayscale has two stops, black → white.
         QCOMPARE(r.stops.size(), 2);
         QCOMPARE(r.stops.first().second.name(), QStringLiteral("#000000"));
-        QCOMPARE(r.stops.last().second.name(),  QStringLiteral("#ffffff"));
+        QCOMPARE(r.stops.last().second.name(), QStringLiteral("#ffffff"));
     }
 
     // ---- JSON round-trip ------------------------------------------------------
 
+    /**
+     *
+     * @brief Round-trip numeric bounds, legacy clamp flags, HSV-long mode and ordered RGBA stops.
+     *
+     */
     void json_round_trip_preserves_stops_and_interp()
     {
         RasterColorRamp r;
@@ -214,10 +341,10 @@ private slots:
         r.maxValue = 12.5;
         r.clampMin = true;
         r.clampMax = false;
-        r.interp   = RampInterp::HsvLong;
-        r.stops    = { {0.0, QColor(10, 20, 30, 200)},
-                       {0.4, QColor(120, 130, 140)},
-                       {1.0, QColor(250, 240, 230)} };
+        r.interp = RampInterp::HsvLong;
+        r.stops = {{0.0, QColor(10, 20, 30, 200)},
+                   {0.4, QColor(120, 130, 140)},
+                   {1.0, QColor(250, 240, 230)}};
 
         const QJsonObject obj = r.toJson();
         const RasterColorRamp r2 = RasterColorRamp::fromJson(obj);
@@ -226,11 +353,10 @@ private slots:
         QCOMPARE(r2.maxValue, r.maxValue);
         QCOMPARE(r2.clampMin, r.clampMin);
         QCOMPARE(r2.clampMax, r.clampMax);
-        QCOMPARE(r2.interp,   r.interp);
+        QCOMPARE(r2.interp, r.interp);
         QCOMPARE(r2.stops.size(), r.stops.size());
-        for (int i = 0; i < r.stops.size(); ++i)
-        {
-            QCOMPARE(r2.stops[i].first,  r.stops[i].first);
+        for (int i = 0; i < r.stops.size(); ++i) {
+            QCOMPARE(r2.stops[i].first, r.stops[i].first);
             QCOMPARE(r2.stops[i].second.rgba(), r.stops[i].second.rgba());
         }
     }

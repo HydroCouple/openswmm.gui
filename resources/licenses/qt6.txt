@@ -1,22 +1,29 @@
 Qt 6 Framework
 Copyright (C) The Qt Company Ltd and other contributors.
 
-The Qt framework is dual-licensed:
-  * Open Source: GNU LGPL version 3 (LGPL-3.0-only) for the Qt Essentials
-    and Add-ons that this application uses.
-  * Commercial: terms negotiated directly with The Qt Company.
+Qt offers different license choices for different modules. This open-source
+SWMMVis distribution uses:
+  * LGPL-3.0-only for the LGPL-covered Qt Essentials and add-on libraries,
+    including the application framework, widgets and networking.
+  * GPL-3.0-only for Qt Charts. Qt Charts is also available under a
+    commercial license from The Qt Company.
 
-This application uses Qt under the LGPL-3.0-only terms. The full LGPL-3.0
-text is shipped with the Qt installation under
-`<Qt>/Licenses/LICENSE.LGPL3`. A copy should be inserted here at packaging
-time by the build system. Until then, please consult:
+SWMMVis source code is licensed under GPL-3.0-or-later. Qt Charts is a
+GPLv3 dependency of this distribution; the LGPL-covered modules alone do
+not require an application to adopt the GPL. Third-party code within Qt
+retains its own license terms.
+
+License texts and module licensing information:
 
     https://www.gnu.org/licenses/lgpl-3.0.html
+    https://www.gnu.org/licenses/gpl-3.0.html
+    https://doc.qt.io/qt-6/licensing.html
+    https://doc.qt.io/qt-6/qtcharts-index.html#licenses
 
 Source code for the Qt version used by this build is available from:
 
     https://download.qt.io/official_releases/qt/
 
-In compliance with LGPL-3.0, the Qt libraries are dynamically linked and
-end users have the right to relink the application against modified
-versions of Qt.
+The Environment summary in About SWMMVis reports the runtime Qt version.
+The Qt libraries are dynamically linked; LGPL-covered libraries may be
+replaced or relinked as provided by their license terms.

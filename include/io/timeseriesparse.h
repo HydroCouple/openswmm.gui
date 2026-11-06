@@ -1,9 +1,9 @@
-/*!
- * \file   timeseriesparse.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BQ Phase 6.7.3 — shared CSV / TSV / .dat row parser.
+/**
+ * @file      timeseriesparse.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BQ Phase 6.7.3 — shared CSV / TSV / .dat row parser.
  *
  * Extracted from ObservedCsvRunLayer::parseRow_ so the same parser drives:
  *   - file import (ObservedCsvRunLayer, TimeseriesProvider ExternalFile mode)
@@ -13,11 +13,15 @@
  *   - ISO 8601:           yyyy-MM-ddTHH:mm:ss, yyyy-MM-dd HH:mm[:ss], yyyy-MM-dd
  *   - SWMM .dat / US:     MM/dd/yyyy [HH:mm[:ss]]
  *   - European:           dd/MM/yyyy HH:mm
+ *   - 12-hour US AM/PM:   M/d/yyyy h:mm[:ss] AM|PM (PCSWMM .tsf; single-digit
+ *                         month/day/hour accepted, 24-hour siblings included)
  *   - Hours-since-start:  numeric fallback (only when fallbackBase is finite)
  *
  * Auto-detected delimiters: tab, comma, semicolon (highest-count wins; defaults
  * to comma when none are present).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_IO_TIMESERIESPARSE_H
 #define OPENSWMMVIS_IO_TIMESERIESPARSE_H
 
@@ -26,15 +30,18 @@
 
 #include <vector>
 
-namespace openswmmvis::io {
+namespace openswmmvis::io
+{
 
 /*!
  * \brief Guess the per-row delimiter from a sample line.
  * \details Counts tab / comma / semicolon occurrences in the line; the
  *          highest non-zero count wins. Ties favour tab over comma over
  *          semicolon. Defaults to comma when nothing matches.
+ * @param[in] sampleLine Unquoted sample text; delimiter characters inside quotes are counted too.
+ * @return Chosen separator, with tab then comma preferred on equal counts.
  */
-QChar guessDelimiter(const QString& sampleLine);
+QChar guessDelimiter(const QString &sampleLine);
 
 /*!
  * \brief Try to parse \a s as a timestamp into a SWMM Julian date.
@@ -44,8 +51,10 @@ QChar guessDelimiter(const QString& sampleLine);
  *                      hours since this base Julian date. Pass NaN to disable
  *                      the numeric fallback.
  * \returns \c true on success.
+ * @details Date formats are tried in the listed order, so ambiguous slash dates prefer US ordering. Calendar components are used without timezone conversion. Numeric fallback returns true after conversion even if the numeric result is nonfinite.
+ * @warning On failure, do not consume jOut; it may have been assigned during an unsuccessful date conversion.
  */
-bool tryParseTimestamp(const QString& s, double& jOut, double fallbackBase);
+bool tryParseTimestamp(const QString &s, double &jOut, double fallbackBase);
 
 /*!
  * \brief Parse one delimited row into a timestamp + N value cells.
@@ -56,12 +65,10 @@ bool tryParseTimestamp(const QString& s, double& jOut, double fallbackBase);
  *                                      empty / non-numeric cells become NaN.
  * \param hoursSinceStartFallbackBase   Forwarded to tryParseTimestamp().
  * \returns \c true iff the timestamp parsed. Value cells may be NaN.
+ * @details Splits literally at every delimiter; CSV quoting and escaping are not interpreted. At least two cells are required. On failure valuesOut is unchanged; timeJulianOut follows tryParseTimestamp() failure semantics. No units conversion or finite-value filtering is applied to numeric values.
  */
-bool parseRow(const QString& line,
-              QChar delim,
-              double& timeJulianOut,
-              std::vector<double>& valuesOut,
-              double hoursSinceStartFallbackBase);
+bool parseRow(const QString &line, QChar delim, double &timeJulianOut,
+              std::vector<double> &valuesOut, double hoursSinceStartFallbackBase);
 
 /*!
  * \brief State carried across lines when reading a SWMM .dat timeseries file.
@@ -70,8 +77,7 @@ bool parseRow(const QString& line,
  *          (`<date> <time> <value>`) that re-anchor it. The cached date is
  *          tracked here so the caller can drive a per-line parse loop.
  */
-struct SwmmDatState
-{
+struct SwmmDatState {
     /*! \brief SWMM DateTime used as the anchor for 2-token lines (the
      *  whole-day part). Initialise to a sensible base before parsing the
      *  first line — e.g. `openswmmvis::core::qDateTimeToSwmmDateTime(
@@ -82,7 +88,7 @@ struct SwmmDatState
     /*! \brief Set to true once a 3-token line has been parsed. Lets the
      *  caller distinguish "anchor came from the file" vs "anchor was the
      *  GUI's default" for UI hints. */
-    bool   anyDateSeen    = false;
+    bool anyDateSeen = false;
 };
 
 /*!
@@ -101,11 +107,10 @@ struct SwmmDatState
  * \param timeJulianOut    On success, SWMM Julian date for this row.
  * \param valueOut         On success, the value at this row.
  * \returns \c true iff the line yielded a usable (time, value) pair.
+ * @details Failed rows leave the state and both outputs unchanged. Clock fields must be nonnegative but are not restricted to 23/59/59; numeric hours may extend beyond a day. Parsed numeric values are not filtered for finiteness. Date ordering is year-first for a four-character first field or first integer above 31, otherwise day-first above 12, otherwise month-first.
  */
-bool parseSwmmDatLine(const QString& line,
-                      SwmmDatState&  state,
-                      double&        timeJulianOut,
-                      double&        valueOut);
+bool parseSwmmDatLine(const QString &line, SwmmDatState &state, double &timeJulianOut,
+                      double &valueOut);
 
 } // namespace openswmmvis::io
 

@@ -1,0 +1,24 @@
+Running main() from /Users/calebbuahin/Documents/Projects/vcpkg/buildtrees/gtest/src/v1.15.2-41f5afb119.clean/googletest/src/gtest_main.cc
+Note: Google Test filter = EngineCheckpoint.MeshRichardsLidThermalEnergyContinuesAcrossRestart
+[==========] Running 1 test from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 1 test from EngineCheckpoint
+[ RUN      ] EngineCheckpoint.MeshRichardsLidThermalEnergyContinuesAcrossRestart
+[openswmm 2D] backend 'auto': the GPU/Kokkos plugin serves only all-triangle meshes under MOMENTUM_EQUATION LOCAL_INERTIAL with no transport rows (species / age / temperature); using the CPU marcher for this model.
+[openswmm 2D] backend 'auto': the GPU/Kokkos plugin serves only all-triangle meshes under MOMENTUM_EQUATION LOCAL_INERTIAL with no transport rows (species / age / temperature); using the CPU marcher for this model.
+/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/tests/unit/engine/test_engine_checkpoint.cpp:1331: Failure
+Expected equality of these values:
+  target.engine.loadCheckpoint(checkpoint.string())
+    Which is: "Mesh restore requires its fresh result header."
+  ""
+
+[  FAILED  ] EngineCheckpoint.MeshRichardsLidThermalEnergyContinuesAcrossRestart (181 ms)
+[----------] 1 test from EngineCheckpoint (181 ms total)
+
+[----------] Global test environment tear-down
+[==========] 1 test from 1 test suite ran. (182 ms total)
+[  PASSED  ] 0 tests.
+[  FAILED  ] 1 test, listed below:
+[  FAILED  ] EngineCheckpoint.MeshRichardsLidThermalEnergyContinuesAcrossRestart
+
+ 1 FAILED TEST

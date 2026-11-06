@@ -1,8 +1,10 @@
-/*!
- * \file   rainintervalref.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      rainintervalref.h
+ * @brief     DA.2 parity follow-up — value type + shared helpers for the rain gage "Recording
+ *            Interval" Property Browser row.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * DA.2 parity follow-up — value type + shared helpers for the rain gage
  * "Recording Interval" Property Browser row. Legacy SWMM edits this field as
@@ -18,6 +20,7 @@
  * the C API exposes it as a double via swmm_gage_get/set_rain_interval. The
  * inline helpers here convert between that second count and the legacy clock
  * string, matching the engine's own parser (parse_time_seconds: H:MM[:SS]).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef RAININTERVALREF_H
@@ -27,32 +30,38 @@
 #include <QString>
 #include <QStringList>
 
-#include <openswmm/engine/openswmm_callbacks.h>  // SWMM_Engine typedef
+#include <openswmm/engine/openswmm_callbacks.h> // SWMM_Engine typedef
 
 class SWMMModelLayer;
 
 /*! Identifies the recording-interval attribute on a single rain gage. */
-struct RainIntervalRef
-{
-    SWMM_Engine     engine   = nullptr;  ///< Engine handle (borrow, not owned)
-    QString         gageName;            ///< Owning gage id
-    int             seconds  = 0;        ///< Recording interval in seconds
+struct RainIntervalRef {
+    SWMM_Engine engine = nullptr; ///< Engine handle (borrow, not owned)
+    QString gageName;             ///< Owning gage id
+    int seconds = 0;              ///< Recording interval in seconds
     /*! Owning model layer (borrow) — writes route through the layer when
      *  present so other views refresh; falls back to the bare engine
      *  setter (e.g. in tests). */
-    SWMMModelLayer *layer    = nullptr;
+    SWMMModelLayer *layer = nullptr;
 
+    /**
+     * @brief Compare reference identity and every cached display/value field.
+     * @param[in] other Reference to compare without dereferencing borrowed engine/model pointers.
+     * @return True only when all stored fields match; equality does not verify current engine state.
+     */
     bool operator==(const RainIntervalRef &other) const noexcept
     {
-        return engine == other.engine && gageName == other.gageName
-               && seconds == other.seconds && layer == other.layer;
+        return engine == other.engine && gageName == other.gageName && seconds == other.seconds &&
+               layer == other.layer;
     }
 };
 
 Q_DECLARE_METATYPE(RainIntervalRef)
 
 /*! Install the `RainIntervalRef → QString` converter (renders the H:MM
- *  clock label). Idempotent. */
+ *  clock label). Idempotent.
+ * @details Installs the Qt value-to-QString converter once using a local registration flag. Call during GUI startup before concurrent use; no engine ownership is acquired.
+ */
 void registerRainIntervalRefConverter();
 
 // ---------------------------------------------------------------------------
@@ -60,24 +69,30 @@ void registerRainIntervalRefConverter();
 // attribute-table interval delegate). Header-inline so all three agree.
 // ---------------------------------------------------------------------------
 
-namespace rain_interval {
+namespace rain_interval
+{
 
 /*! The legacy [RAINGAGES] interval presets (Epaswmm5 Uedit.pas), in clock
- *  H:MM form. The combo is editable, so custom values are still accepted. */
+ *  H:MM form. The combo is editable, so custom values are still accepted.
+ * @return Ten standard intervals from one minute through 24 hours, as independent H:MM strings; callers may accept custom values.
+ */
 inline QStringList presetsHMM()
 {
-    return {QStringLiteral("0:01"), QStringLiteral("0:05"),
-            QStringLiteral("0:10"), QStringLiteral("0:15"),
-            QStringLiteral("0:20"), QStringLiteral("0:30"),
-            QStringLiteral("1:00"), QStringLiteral("6:00"),
-            QStringLiteral("12:00"), QStringLiteral("24:00")};
+    return {QStringLiteral("0:01"), QStringLiteral("0:05"), QStringLiteral("0:10"),
+            QStringLiteral("0:15"), QStringLiteral("0:20"), QStringLiteral("0:30"),
+            QStringLiteral("1:00"), QStringLiteral("6:00"), QStringLiteral("12:00"),
+            QStringLiteral("24:00")};
 }
 
 /*! Format a second count as the legacy clock string: "H:MM" when on a whole
- *  minute, "H:MM:SS" otherwise. */
+ *  minute, "H:MM:SS" otherwise.
+ * @param[in] secs Interval in whole seconds; negative input is clamped to zero.
+ * @return Unbounded-hour H:MM or H:MM:SS text with zero-padded minutes/seconds.
+ */
 inline QString secondsToHMM(int secs)
 {
-    if (secs < 0) secs = 0;
+    if (secs < 0)
+        secs = 0;
     const int h = secs / 3600;
     const int m = (secs % 3600) / 60;
     const int s = secs % 60;
@@ -92,26 +107,34 @@ inline QString secondsToHMM(int secs)
 /*! Parse a clock string into seconds, matching the engine's parser
  *  (parse_time_seconds): colon form is H:MM[:SS] (first token = hours); a
  *  bare number is decimal hours (engine [RAINGAGES] grammar). Returns -1 on
- *  malformed input so callers can reject the edit. */
+ *  malformed input so callers can reject the edit.
+ * @param[in] text Trimmed H:MM[:SS] or nonnegative decimal hours. Caller must restrict magnitudes to a finite result representable as int seconds.
+ * @return Rounded whole seconds for decimal hours, or integer component sum for colon form; -1 for malformed/negative input.
+ * @details Minute/second components are not constrained to 0..59; zero is accepted by this parser and further engine validation belongs to the adapter.
+ */
 inline int hmmToSeconds(const QString &text)
 {
     const QString t = text.trimmed();
-    if (t.isEmpty()) return -1;
+    if (t.isEmpty())
+        return -1;
 
     if (!t.contains(QLatin1Char(':'))) {
         bool ok = false;
         const double hours = t.toDouble(&ok);
-        if (!ok || hours < 0.0) return -1;
+        if (!ok || hours < 0.0)
+            return -1;
         return static_cast<int>(hours * 3600.0 + 0.5);
     }
 
     const QStringList parts = t.split(QLatin1Char(':'));
-    if (parts.size() < 2 || parts.size() > 3) return -1;
+    if (parts.size() < 2 || parts.size() > 3)
+        return -1;
     int field[3] = {0, 0, 0};
     for (int i = 0; i < parts.size(); ++i) {
         bool ok = false;
         const int v = parts[i].toInt(&ok);
-        if (!ok || v < 0) return -1;
+        if (!ok || v < 0)
+            return -1;
         field[i] = v;
     }
     return field[0] * 3600 + field[1] * 60 + field[2];

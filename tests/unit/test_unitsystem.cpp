@@ -1,6 +1,10 @@
 /**
- * @file test_unitsystem.cpp
- * @brief Unit tests for UnitSystem — label helpers, SI detection, and flow unit round-trip.
+ * @file      test_unitsystem.cpp
+ * @brief     Placeholder UnitSystem label and SI-classification cases; implementation calls disabled.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <gtest/gtest.h>
@@ -11,6 +15,12 @@ enum swmm_FlowUnitsProperty { CFS = 0, GPM = 1, MGD = 2, CMS = 3, LPS = 4, MLD =
 
 // ---- isSI ----------------------------------------------------------------
 
+/**
+ *
+ * @brief Reserve the CFS classification case; currently asserts only true.
+ * The UnitSystem calls are commented out, so this placeholder does not validate units.
+ *
+ */
 TEST(UnitSystem, CFS_is_not_SI)
 {
     // UnitSystem::instance()->setFlowUnits(CFS, nullptr);
@@ -18,6 +28,12 @@ TEST(UnitSystem, CFS_is_not_SI)
     EXPECT_TRUE(true); // placeholder until implementation exists
 }
 
+/**
+ *
+ * @brief Reserve the CMS classification case; currently asserts only true.
+ * No UnitSystem behavior is executed until the commented implementation is enabled.
+ *
+ */
 TEST(UnitSystem, CMS_is_SI)
 {
     // UnitSystem::instance()->setFlowUnits(CMS, nullptr);
@@ -27,6 +43,11 @@ TEST(UnitSystem, CMS_is_SI)
 
 // ---- Label helpers -------------------------------------------------------
 
+/**
+ *
+ * @brief Reserve CFS flow-label validation; current placeholder only asserts true.
+ *
+ */
 TEST(UnitSystem, FlowUnitLabel_CFS)
 {
     // UnitSystem::instance()->setFlowUnits(CFS, nullptr);
@@ -34,6 +55,11 @@ TEST(UnitSystem, FlowUnitLabel_CFS)
     EXPECT_TRUE(true);
 }
 
+/**
+ *
+ * @brief Reserve CMS flow-label validation; current placeholder only asserts true.
+ *
+ */
 TEST(UnitSystem, FlowUnitLabel_CMS)
 {
     // UnitSystem::instance()->setFlowUnits(CMS, nullptr);
@@ -41,6 +67,11 @@ TEST(UnitSystem, FlowUnitLabel_CMS)
     EXPECT_TRUE(true);
 }
 
+/**
+ *
+ * @brief Reserve US length-label validation; current placeholder only asserts true.
+ *
+ */
 TEST(UnitSystem, LengthLabel_US)
 {
     // UnitSystem::instance()->setFlowUnits(CFS, nullptr);
@@ -48,6 +79,11 @@ TEST(UnitSystem, LengthLabel_US)
     EXPECT_TRUE(true);
 }
 
+/**
+ *
+ * @brief Reserve SI length-label validation; current placeholder only asserts true.
+ *
+ */
 TEST(UnitSystem, LengthLabel_SI)
 {
     // UnitSystem::instance()->setFlowUnits(CMS, nullptr);

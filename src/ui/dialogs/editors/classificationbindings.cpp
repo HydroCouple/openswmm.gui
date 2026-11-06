@@ -1,33 +1,43 @@
-/*!
- * \file   classificationbindings.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice US.1 — concrete IClassificationBinding implementations.
+/**
+ * @file      classificationbindings.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice US.1 — concrete IClassificationBinding implementations.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/editors/classificationbindings.h"
 
+#include "layers/gisrasterlayer.h"
 #include "render/colorramp.h"
+#include "render/renderers/graduatedrasterrenderer.h"
 #include "render/renderers/graduatedrenderer.h"
 
 #include <algorithm>
+#include <cmath>
 
 using OpenSWMM::Render::BinMethod;
 using OpenSWMM::Render::ClassificationScheme;
+using OpenSWMM::Render::GraduatedRasterRenderer;
 using OpenSWMM::Render::GraduatedRenderer;
 using OpenSWMM::Render::IFeatureRenderer;
 using OpenSWMM::Render::IntervalBinner;
 using OpenSWMM::Render::RangeMode;
 // RasterColorRamp lives at global scope (render/colorramp.h).
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
-/*! Best-effort reverse match of a renderer's RasterColorRamp to a built-in
- *  name, so the editor's ramp combo reflects the renderer instead of always
- *  showing the default. Returns "" when no built-in matches (custom ramp) —
- *  the scheme then keeps its default name (today's behaviour). */
+/**
+ * @brief Find the first builtin whose gradient stops exactly equal the supplied ramp stops.
+ * @param ramp Borrowed ramp; numeric range and other metadata are ignored.
+ * @return Owned builtin name or empty for no exact match. No approximate color comparison,
+ * inversion inference or ramp mutation.
+ */
 QString builtinNameFor(const RasterColorRamp &ramp)
 {
     for (const QString &name : RasterColorRamp::builtinNames()) {
@@ -37,18 +47,24 @@ QString builtinNameFor(const RasterColorRamp &ramp)
     return QString();
 }
 
-/*! Translate the editor's scheme into the renderer's ramp: stops from the
- *  resolved ramp (inverted in place when requested), value range preserved
- *  from the renderer so FixedUser bounds aren't clobbered. */
-RasterColorRamp rendererRampFromScheme(const ClassificationScheme &s,
-                                       double preserveMin, double preserveMax)
+/**
+ * @brief Resolve and optionally invert scheme gradient stops while retaining supplied scalar
+ * endpoints.
+ * @param s Borrowed configuration supplying resolved ramp and inversion flag.
+ * @param preserveMin Scalar minimum copied verbatim into returned ramp.
+ * @param preserveMax Scalar maximum copied verbatim, without sorting/finite validation.
+ * @return Owned ramp; inversion maps stop positions to1-minus-position then sorts them,
+ * without changing caller scheme or copying its custom range over these endpoints.
+ */
+RasterColorRamp rendererRampFromScheme(const ClassificationScheme &s, double preserveMin,
+                                       double preserveMax)
 {
     RasterColorRamp ramp = s.resolvedRamp();
     if (s.invertRamp()) {
         QGradientStops inv;
         inv.reserve(ramp.stops.size());
         for (const auto &stop : ramp.stops)
-            inv.append({ 1.0 - stop.first, stop.second });
+            inv.append({1.0 - stop.first, stop.second});
         std::sort(inv.begin(), inv.end(),
                   [](const auto &a, const auto &b) { return a.first < b.first; });
         ramp.stops = inv;
@@ -66,10 +82,8 @@ GraduatedRendererBinding::GraduatedRendererBinding(RendererGetter getRenderer,
                                                    RendererInstaller installRenderer,
                                                    AttributeList attributeList,
                                                    RangeModeGate rangeModesEnabled)
-    : m_get(std::move(getRenderer)),
-      m_install(std::move(installRenderer)),
-      m_attributes(std::move(attributeList)),
-      m_rangeGate(std::move(rangeModesEnabled))
+    : m_get(std::move(getRenderer)), m_install(std::move(installRenderer)),
+      m_attributes(std::move(attributeList)), m_rangeGate(std::move(rangeModesEnabled))
 {
     resync();
 }
@@ -87,6 +101,11 @@ ClassificationScheme GraduatedRendererBinding::schemeFromRenderer() const
     const QString name = builtinNameFor(g->ramp());
     if (!name.isEmpty())
         s.setRampName(name);
+    else if (!g->ramp().stops.isEmpty())
+        // No builtin matches — a custom ramp. Mirror the payload into the
+        // scheme so the editor shows the real gradient (and pushes the same
+        // stops back) instead of silently reverting to the default name.
+        s.setCustomRamp(g->ramp(), QObject::tr("(custom)"));
 
     s.setRangeMode(g->rangeMode());
     const bool fixedUser = (g->rangeMode() == RangeMode::FixedUser);
@@ -109,24 +128,31 @@ void GraduatedRendererBinding::resync()
 void GraduatedRendererBinding::setScheme(const ClassificationScheme &s)
 {
     GraduatedRenderer *g = m_get ? m_get() : nullptr;
-    if (!g) { m_scheme = s; return; }
+    if (!g) {
+        m_scheme = s;
+        return;
+    }
 
     const ClassificationScheme prev = m_scheme;
-    auto cloneAsGraduated = [&]() -> std::pair<std::unique_ptr<IFeatureRenderer>, GraduatedRenderer *> {
+    auto cloneAsGraduated =
+        [&]() -> std::pair<std::unique_ptr<IFeatureRenderer>, GraduatedRenderer *> {
         auto fresh = g->clone();
         auto *gf = dynamic_cast<GraduatedRenderer *>(fresh.get());
-        return { std::move(fresh), gf };
+        return {std::move(fresh), gf};
     };
 
     auto [fresh, gf] = cloneAsGraduated();
-    if (!gf) { m_scheme = s; return; }
+    if (!gf) {
+        m_scheme = s;
+        return;
+    }
 
     // Binner (method / count / manual breaks). setBinner clears the cached
     // breaks so the layer rebuild re-classifies from data — exactly the old
     // onBinCountChanged / onBinMethodChanged / onAutoClassify behaviour.
-    if (s.binner().method() != prev.binner().method()
-        || s.binner().binCount() != prev.binner().binCount()
-        || s.binner().manualBreaks() != prev.binner().manualBreaks()) {
+    if (s.binner().method() != prev.binner().method() ||
+        s.binner().binCount() != prev.binner().binCount() ||
+        s.binner().manualBreaks() != prev.binner().manualBreaks()) {
         gf->setBinner(s.binner());
     }
 
@@ -135,23 +161,30 @@ void GraduatedRendererBinding::setScheme(const ClassificationScheme &s)
         gf->setRangeMode(s.rangeMode());
         if (s.rangeMode() == RangeMode::FixedUser) {
             double mn = s.rangeMin(), mx = s.rangeMax();
-            if (mn > mx) std::swap(mn, mx);
-            if (mn == mx) mx = mn + 1.0;
+            if (mn > mx)
+                std::swap(mn, mx);
+            if (mn == mx)
+                mx = mn + 1.0;
             gf->setRange(mn, mx);
         }
         gf->clearBreaks();
-    } else if (s.rangeMode() == RangeMode::FixedUser
-               && (s.rangeMin() != prev.rangeMin() || s.rangeMax() != prev.rangeMax())) {
+    } else if (s.rangeMode() == RangeMode::FixedUser &&
+               (s.rangeMin() != prev.rangeMin() || s.rangeMax() != prev.rangeMax())) {
         double mn = s.rangeMin(), mx = s.rangeMax();
-        if (mn > mx) std::swap(mn, mx);
-        if (mn == mx) mx = mn + 1.0;
+        if (mn > mx)
+            std::swap(mn, mx);
+        if (mn == mx)
+            mx = mn + 1.0;
         gf->setRange(mn, mx);
         gf->clearBreaks();
     }
 
-    // Ramp (name / invert / two-colour). Preserve the renderer's value range.
-    if (s.rampName() != prev.rampName() || s.invertRamp() != prev.invertRamp()
-        || s.lowColor() != prev.lowColor() || s.highColor() != prev.highColor()) {
+    // Ramp (name / custom payload / invert / two-colour). Preserve the
+    // renderer's value range.
+    if (s.rampName() != prev.rampName() || s.invertRamp() != prev.invertRamp() ||
+        s.hasCustomRamp() != prev.hasCustomRamp() ||
+        (s.hasCustomRamp() && s.customRamp().stops != prev.customRamp().stops) ||
+        s.lowColor() != prev.lowColor() || s.highColor() != prev.highColor()) {
         gf->setRamp(rendererRampFromScheme(s, gf->ramp().minValue, gf->ramp().maxValue));
     }
 
@@ -176,8 +209,8 @@ QPair<double, double> GraduatedRendererBinding::dataRange() const
 {
     GraduatedRenderer *g = m_get ? m_get() : nullptr;
     if (g)
-        return { g->ramp().minValue, g->ramp().maxValue };
-    return { 0.0, 1.0 };
+        return {g->ramp().minValue, g->ramp().maxValue};
+    return {0.0, 1.0};
 }
 
 void GraduatedRendererBinding::autoClassify()
@@ -187,7 +220,8 @@ void GraduatedRendererBinding::autoClassify()
     // against fresh samples (the same path the old "Auto-classify" button
     // drove).
     GraduatedRenderer *g = m_get ? m_get() : nullptr;
-    if (!g) return;
+    if (!g)
+        return;
     auto fresh = g->clone();
     if (auto *gf = dynamic_cast<GraduatedRenderer *>(fresh.get()))
         gf->clearBreaks();
@@ -245,15 +279,66 @@ void GraduatedRendererBinding::setAttribute(const QString &name)
 SublayerSchemeBinding::SublayerSchemeBinding(Getter getter, Setter setter,
                                              SampleProvider sampleProvider,
                                              RangeProvider rangeProvider,
-                                             bool supportsContinuousMode,
-                                             bool supportsRangeModes)
-    : m_get(std::move(getter)),
-      m_set(std::move(setter)),
-      m_samples(std::move(sampleProvider)),
-      m_range(std::move(rangeProvider)),
-      m_supportsContinuous(supportsContinuousMode),
+                                             bool supportsContinuousMode, bool supportsRangeModes)
+    : m_get(std::move(getter)), m_set(std::move(setter)), m_samples(std::move(sampleProvider)),
+      m_range(std::move(rangeProvider)), m_supportsContinuous(supportsContinuousMode),
       m_supportsRangeModes(supportsRangeModes)
 {
+}
+
+// ── RasterSchemeBinding ─────────────────────────────────────────────────
+
+GraduatedRasterRenderer *RasterSchemeBinding::renderer() const
+{
+    return m_layer ? dynamic_cast<GraduatedRasterRenderer *>(m_layer->rasterRenderer()) : nullptr;
+}
+
+ClassificationScheme RasterSchemeBinding::scheme() const
+{
+    GraduatedRasterRenderer *g = renderer();
+    return g ? g->scheme() : ClassificationScheme();
+}
+
+void RasterSchemeBinding::setScheme(const ClassificationScheme &s)
+{
+    GraduatedRasterRenderer *g = renderer();
+    if (!g)
+        return;
+    g->setScheme(s);
+    g->reclassify(m_layer->sampleValues(m_layer->renderBand()));
+    m_layer->notifyRasterRendererEdited();
+}
+
+QVector<double> RasterSchemeBinding::sampleValues() const
+{
+    return m_layer ? m_layer->sampleValues(m_layer->renderBand()) : QVector<double>{};
+}
+
+void RasterSchemeBinding::autoClassify()
+{
+    // "Auto-classify from data": re-seed the range from the band statistics
+    // (a custom range on the scheme still wins inside the renderer) and
+    // re-derive the edges from the sample.
+    GraduatedRasterRenderer *g = renderer();
+    if (!g)
+        return;
+    const auto [lo, hi] = m_layer->bandRange(m_layer->renderBand());
+    if (std::isfinite(lo) && std::isfinite(hi))
+        g->setDataRange(lo, hi);
+    g->reclassify(m_layer->sampleValues(m_layer->renderBand()));
+    m_layer->notifyRasterRendererEdited();
+}
+
+QPair<double, double> RasterSchemeBinding::dataRange() const
+{
+    GraduatedRasterRenderer *g = renderer();
+    return g ? qMakePair(g->dataMin(), g->dataMax()) : qMakePair(0.0, 1.0);
+}
+
+QVector<double> RasterSchemeBinding::computedEdges() const
+{
+    GraduatedRasterRenderer *g = renderer();
+    return g ? g->edges() : QVector<double>{};
 }
 
 } // namespace openswmmvis::ui

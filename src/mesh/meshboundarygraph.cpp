@@ -1,11 +1,17 @@
-/*!
- * \file   meshboundarygraph.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      meshboundarygraph.cpp
+ * @brief     Boundary-edge connectivity graph for a generated / loaded 2D mesh, used by the mesh
+ *            edge-select tool to Ctrl-click two boundary edges and select the whole chain between
+ *            them (shortest = geometric length).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "mesh/meshboundarygraph.h"
 
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshresult.h"
 
 #include <cmath>
@@ -13,21 +19,23 @@
 #include <queue>
 #include <utility>
 
-namespace mesh {
+namespace mesh
+{
 
-MeshBoundaryGraph MeshBoundaryGraph::build(const MeshResult &mesh,
-                                           const QVector<bool> &isBoundary)
+MeshBoundaryGraph MeshBoundaryGraph::build(const MeshResult &mesh, const QVector<bool> &isBoundary)
 {
     MeshBoundaryGraph g;
 
     const int nt = int(mesh.triangles.size());
     const int nv = int(mesh.vertices.size());
-    if (nt == 0 || nv == 0 || isBoundary.isEmpty()) return g;
+    if (nt == 0 || nv == 0 || isBoundary.isEmpty())
+        return g;
 
-    QHash<int,int> compact;   // mesh vertex index -> compact id
+    QHash<int, int> compact; // mesh vertex index -> compact id
     auto compactId = [&compact](int v) {
         auto it = compact.constFind(v);
-        if (it != compact.constEnd()) return it.value();
+        if (it != compact.constEnd())
+            return it.value();
         const int id = compact.size();
         compact.insert(v, id);
         return id;
@@ -35,15 +43,17 @@ MeshBoundaryGraph MeshBoundaryGraph::build(const MeshResult &mesh,
 
     for (int t = 0; t < nt; ++t) {
         const MeshTriangle &tri = mesh.triangles[t];
-        // Edge local e is opposite vertex e — the convention shared by
-        // pickEdgeAt / buildBoundaryFlags / the engine.
-        const int va[3] = {tri.v1, tri.v2, tri.v0};
-        const int vb[3] = {tri.v2, tri.v0, tri.v1};
-        for (int e = 0; e < 3; ++e) {
-            const int slot = t * 3 + e;
-            if (slot >= int(isBoundary.size()) || !isBoundary[slot]) continue;
-            const int v0 = va[e], v1 = vb[e];
-            if (v0 < 0 || v0 >= nv || v1 < 0 || v1 >= nv || v0 == v1) continue;
+        // Edge local e = (v[(e+1)%nv], v[(e+2)%nv]) — the convention shared
+        // by pickEdgeAt / buildBoundaryFlags / the engine (mesh::edgeEndpoints).
+        const int nvert = tri.vertexCount();
+        for (int e = 0; e < nvert; ++e) {
+            const int slot = edgeSlot(t, e);
+            if (slot >= int(isBoundary.size()) || !isBoundary[slot])
+                continue;
+            int v0 = -1, v1 = -1;
+            edgeEndpoints(tri, e, v0, v1);
+            if (v0 < 0 || v0 >= nv || v1 < 0 || v1 >= nv || v0 == v1)
+                continue;
 
             const QPointF &p0 = mesh.vertices[v0].xy;
             const QPointF &p1 = mesh.vertices[v1].xy;
@@ -52,9 +62,9 @@ MeshBoundaryGraph MeshBoundaryGraph::build(const MeshResult &mesh,
 
             Edge edge;
             edge.slot = slot;
-            edge.a    = compactId(v0);
-            edge.b    = compactId(v1);
-            edge.len  = std::sqrt(dx * dx + dy * dy);
+            edge.a = compactId(v0);
+            edge.b = compactId(v1);
+            edge.len = std::sqrt(dx * dx + dy * dy);
             g.m_slotToEdge.insert(slot, int(g.m_edges.size()));
             g.m_edges.append(edge);
         }
@@ -83,10 +93,11 @@ MeshBoundaryGraph MeshBoundaryGraph::build(const MeshResult &mesh,
 QVector<int> MeshBoundaryGraph::shortestPath(int startSlot, int endSlot) const
 {
     const auto itStart = m_slotToEdge.constFind(startSlot);
-    const auto itEnd   = m_slotToEdge.constFind(endSlot);
+    const auto itEnd = m_slotToEdge.constFind(endSlot);
     if (itStart == m_slotToEdge.constEnd() || itEnd == m_slotToEdge.constEnd())
         return {};
-    if (startSlot == endSlot) return {startSlot};
+    if (startSlot == endSlot)
+        return {startSlot};
 
     const Edge &se = m_edges[itStart.value()];
     const Edge &ee = m_edges[itEnd.value()];
@@ -98,10 +109,10 @@ QVector<int> MeshBoundaryGraph::shortestPath(int startSlot, int endSlot) const
     const int ncv = int(m_vertPtr.size()) - 1;
     constexpr double kInf = std::numeric_limits<double>::infinity();
     QVector<double> dist(ncv, kInf);
-    QVector<int>    prevVert(ncv, -1);
-    QVector<int>    prevEdge(ncv, -1);
+    QVector<int> prevVert(ncv, -1);
+    QVector<int> prevEdge(ncv, -1);
 
-    using Entry = std::pair<double,int>;   // (dist, compact vertex)
+    using Entry = std::pair<double, int>; // (dist, compact vertex)
     std::priority_queue<Entry, std::vector<Entry>, std::greater<Entry>> pq;
     dist[se.a] = 0.0;
     dist[se.b] = 0.0;
@@ -112,21 +123,26 @@ QVector<int> MeshBoundaryGraph::shortestPath(int startSlot, int endSlot) const
     while (!pq.empty()) {
         const auto [d, v] = pq.top();
         pq.pop();
-        if (d > dist[v]) continue;          // stale heap entry
-        if (v == ee.a || v == ee.b) { reached = v; break; }
+        if (d > dist[v])
+            continue; // stale heap entry
+        if (v == ee.a || v == ee.b) {
+            reached = v;
+            break;
+        }
         for (int k = m_vertPtr[v]; k < m_vertPtr[v + 1]; ++k) {
             const Edge &e = m_edges[m_vertEdge[k]];
             const int u = (e.a == v) ? e.b : e.a;
             const double nd = d + e.len;
             if (nd < dist[u]) {
-                dist[u]     = nd;
+                dist[u] = nd;
                 prevVert[u] = v;
                 prevEdge[u] = m_vertEdge[k];
                 pq.emplace(nd, u);
             }
         }
     }
-    if (reached < 0) return {};             // disconnected boundary loops
+    if (reached < 0)
+        return {}; // disconnected boundary loops
 
     // Walk the predecessor chain back to a seed vertex, then emit
     // start → intermediates → end.
@@ -146,7 +162,8 @@ QVector<int> MeshBoundaryGraph::shortestPath(int startSlot, int endSlot) const
     QVector<int> unique;
     unique.reserve(path.size());
     for (int slot : std::as_const(path))
-        if (!unique.contains(slot)) unique.append(slot);
+        if (!unique.contains(slot))
+            unique.append(slot);
     return unique;
 }
 

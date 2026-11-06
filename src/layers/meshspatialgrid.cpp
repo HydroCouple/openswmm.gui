@@ -1,26 +1,34 @@
-/*!
- * \file   meshspatialgrid.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      meshspatialgrid.cpp
+ * @brief     Uniform 2D spatial grid over an arbitrary set of axis-aligned rectangles.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * See meshspatialgrid.h for the storage layout and threading contract.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "layers/meshspatialgrid.h"
 
 #include <algorithm>
 #include <cmath>
 
-namespace {
+namespace
+{
 
 // A rect the grid can index: finite, non-negative extents. Deliberately
 // accepts zero-area rects (axis-aligned edges, point queries) that
 // QRectF::isValid()/isEmpty() would reject.
+/**
+ * @brief Accept finite nonnegative rectangle bounds for grid indexing.
+ * @param[in] b Rectangle with ordinary Qt left/top/right/bottom arithmetic.
+ * @return True for finite edges and width/height at least zero, including points/axis-aligned edges; false for negative or nonfinite extents.
+ */
 inline bool usable(const QRectF &b)
 {
-    return b.width() >= 0.0 && b.height() >= 0.0
-        && std::isfinite(b.left()) && std::isfinite(b.top())
-        && std::isfinite(b.right()) && std::isfinite(b.bottom());
+    return b.width() >= 0.0 && b.height() >= 0.0 && std::isfinite(b.left()) &&
+           std::isfinite(b.top()) && std::isfinite(b.right()) && std::isfinite(b.bottom());
 }
 
 } // namespace
@@ -39,7 +47,8 @@ inline bool usable(const QRectF &b)
 void MeshSpatialGrid::rebuild(const QVector<QRectF> &bboxes)
 {
     clear();
-    if (bboxes.isEmpty()) return;
+    if (bboxes.isEmpty())
+        return;
 
     // ── Pick a uniform cell size from the median bbox diagonal ────────
     // 16x the median diagonal keeps most bboxes inside a single cell while
@@ -58,10 +67,13 @@ void MeshSpatialGrid::rebuild(const QVector<QRectF> &bboxes)
     QVector<double> diagonals;
     diagonals.reserve(bboxes.size());
     for (const QRectF &b : bboxes) {
-        if (!usable(b)) continue;
+        if (!usable(b))
+            continue;
         if (!seeded) {
-            minX = b.left();  maxX = b.right();
-            minY = b.top();   maxY = b.bottom();
+            minX = b.left();
+            maxX = b.right();
+            minY = b.top();
+            maxY = b.bottom();
             seeded = true;
         } else {
             minX = std::min(minX, b.left());
@@ -70,21 +82,21 @@ void MeshSpatialGrid::rebuild(const QVector<QRectF> &bboxes)
             maxY = std::max(maxY, b.bottom());
         }
         const double diag = std::hypot(b.width(), b.height());
-        if (diag > 0.0) diagonals.append(diag);
+        if (diag > 0.0)
+            diagonals.append(diag);
     }
-    if (!seeded || diagonals.isEmpty()) return;
+    if (!seeded || diagonals.isEmpty())
+        return;
     extent = QRectF(QPointF(minX, minY), QPointF(maxX, maxY));
 
-    std::nth_element(diagonals.begin(),
-                     diagonals.begin() + diagonals.size() / 2,
-                     diagonals.end());
-    const double median   = diagonals[diagonals.size() / 2];
+    std::nth_element(diagonals.begin(), diagonals.begin() + diagonals.size() / 2, diagonals.end());
+    const double median = diagonals[diagonals.size() / 2];
     const double cellSize = std::max(median * 16.0, 1e-6);
 
     cellW = cellSize;
     cellH = cellSize;
-    cols  = std::max(1, int(std::ceil(extent.width()  / cellW)));
-    rows  = std::max(1, int(std::ceil(extent.height() / cellH)));
+    cols = std::max(1, int(std::ceil(extent.width() / cellW)));
+    rows = std::max(1, int(std::ceil(extent.height() / cellH)));
 
     // Hard cap on grid resolution — without this a degenerate bbox set
     // (e.g. one huge box + many tiny ones) blows past 1024 × 1024 cells
@@ -93,8 +105,8 @@ void MeshSpatialGrid::rebuild(const QVector<QRectF> &bboxes)
         const double scale = std::sqrt(double(cols) * rows / (1024.0 * 1024.0));
         cellW *= scale;
         cellH *= scale;
-        cols   = std::max(1, int(std::ceil(extent.width()  / cellW)));
-        rows   = std::max(1, int(std::ceil(extent.height() / cellH)));
+        cols = std::max(1, int(std::ceil(extent.width() / cellW)));
+        rows = std::max(1, int(std::ceil(extent.height() / cellH)));
     }
 
     const int nCells = cols * rows;
@@ -103,16 +115,16 @@ void MeshSpatialGrid::rebuild(const QVector<QRectF> &bboxes)
     // Write the count for cell k into cellOffsets[k + 1]; the prefix-sum
     // below converts the count array in place to exclusive offsets.
     cellOffsets.assign(nCells + 1, 0);
-    auto cellRange = [&](const QRectF &b,
-                         int &cx0, int &cx1, int &cy0, int &cy1) {
-        cx0 = std::clamp(int(std::floor((b.left()   - extent.left()) / cellW)), 0, cols - 1);
-        cx1 = std::clamp(int(std::floor((b.right()  - extent.left()) / cellW)), 0, cols - 1);
-        cy0 = std::clamp(int(std::floor((b.top()    - extent.top())  / cellH)), 0, rows - 1);
-        cy1 = std::clamp(int(std::floor((b.bottom() - extent.top())  / cellH)), 0, rows - 1);
+    auto cellRange = [&](const QRectF &b, int &cx0, int &cx1, int &cy0, int &cy1) {
+        cx0 = std::clamp(int(std::floor((b.left() - extent.left()) / cellW)), 0, cols - 1);
+        cx1 = std::clamp(int(std::floor((b.right() - extent.left()) / cellW)), 0, cols - 1);
+        cy0 = std::clamp(int(std::floor((b.top() - extent.top()) / cellH)), 0, rows - 1);
+        cy1 = std::clamp(int(std::floor((b.bottom() - extent.top()) / cellH)), 0, rows - 1);
     };
 
     for (const QRectF &b : bboxes) {
-        if (!usable(b)) continue;
+        if (!usable(b))
+            continue;
         int cx0, cx1, cy0, cy1;
         cellRange(b, cx0, cx1, cy0, cy1);
         for (int cy = cy0; cy <= cy1; ++cy)
@@ -132,11 +144,12 @@ void MeshSpatialGrid::rebuild(const QVector<QRectF> &bboxes)
     // deterministic.
     cellIndices.resize(totalMemberships);
     QVector<int> writePos = cellOffsets;
-    writePos.resize(nCells);    // drop the sentinel — only need starts
+    writePos.resize(nCells); // drop the sentinel — only need starts
 
     for (int i = 0; i < bboxes.size(); ++i) {
         const QRectF &b = bboxes[i];
-        if (!usable(b)) continue;
+        if (!usable(b))
+            continue;
         int cx0, cx1, cy0, cy1;
         cellRange(b, cx0, cx1, cy0, cy1);
         for (int cy = cy0; cy <= cy1; ++cy)
@@ -156,10 +169,9 @@ void MeshSpatialGrid::rebuild(const QVector<QRectF> &bboxes)
     // reserve a reasonable output buffer up front.
     int nonEmpty = 0;
     for (int k = 0; k < nCells; ++k)
-        if (cellOffsets[k + 1] > cellOffsets[k]) ++nonEmpty;
-    avgPerCell = (nonEmpty > 0)
-                     ? int((qint64(totalMemberships) + nonEmpty - 1) / nonEmpty)
-                     : 0;
+        if (cellOffsets[k + 1] > cellOffsets[k])
+            ++nonEmpty;
+    avgPerCell = (nonEmpty > 0) ? int((qint64(totalMemberships) + nonEmpty - 1) / nonEmpty) : 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -167,9 +179,11 @@ void MeshSpatialGrid::rebuild(const QVector<QRectF> &bboxes)
 // dedup so a bbox spanning multiple cells is only reported once.
 // ---------------------------------------------------------------------------
 
-QVector<int> MeshSpatialGrid::query(const QRectF &rect) const
+QVector<int> MeshSpatialGrid::query(const QRectF &rect, int maxResults, bool *complete) const
 {
     QVector<int> out;
+    if (complete)
+        *complete = true;
     if (cellOffsets.isEmpty() || !usable(rect))
         return out;
 
@@ -177,14 +191,16 @@ QVector<int> MeshSpatialGrid::query(const QRectF &rect) const
     // query along an axis-aligned edge. QRectF::intersected()/isEmpty()
     // discard them, so reject fully-disjoint rects manually and let the
     // clamps below bound the cell walk.
-    if (rect.right()  < extent.left() || rect.left() > extent.right()
-        || rect.bottom() < extent.top() || rect.top() > extent.bottom())
+    if (rect.right() < extent.left() || rect.left() > extent.right() ||
+        rect.bottom() < extent.top() || rect.top() > extent.bottom())
         return out;
 
-    const int cx0 = std::clamp(int(std::floor((rect.left()   - extent.left()) / cellW)), 0, cols - 1);
-    const int cx1 = std::clamp(int(std::floor((rect.right()  - extent.left()) / cellW)), 0, cols - 1);
-    const int cy0 = std::clamp(int(std::floor((rect.top()    - extent.top())  / cellH)), 0, rows - 1);
-    const int cy1 = std::clamp(int(std::floor((rect.bottom() - extent.top())  / cellH)), 0, rows - 1);
+    const int cx0 = std::clamp(int(std::floor((rect.left() - extent.left()) / cellW)), 0, cols - 1);
+    const int cx1 =
+        std::clamp(int(std::floor((rect.right() - extent.left()) / cellW)), 0, cols - 1);
+    const int cy0 = std::clamp(int(std::floor((rect.top() - extent.top()) / cellH)), 0, rows - 1);
+    const int cy1 =
+        std::clamp(int(std::floor((rect.bottom() - extent.top()) / cellH)), 0, rows - 1);
 
     // Bump the epoch — any entry in `seen` not equal to the new value is
     // "not yet visited by this query". O(1) reset. On wrap (every ~4B
@@ -200,19 +216,25 @@ QVector<int> MeshSpatialGrid::query(const QRectF &rect) const
     // seen.size() ceiling caps any pathological estimate at the
     // theoretical maximum.
     const qint64 touchedCells = qint64(cx1 - cx0 + 1) * qint64(cy1 - cy0 + 1);
-    const qint64 estimate     = touchedCells * qint64(avgPerCell);
-    out.reserve(int(std::min<qint64>(std::max<qint64>(64, estimate),
-                                     qint64(seen.size()))));
+    const qint64 estimate = touchedCells * qint64(avgPerCell);
+    const auto limit =
+        maxResults < 0 ? qint64(seen.size()) : std::min(qint64(maxResults), qint64(seen.size()));
+    out.reserve(int(std::min<qint64>(std::max<qint64>(64, estimate), limit)));
 
     for (int cy = cy0; cy <= cy1; ++cy) {
         for (int cx = cx0; cx <= cx1; ++cx) {
-            const int   k     = cy * cols + cx;
-            const int   begin = cellOffsets[k];
-            const int   end   = cellOffsets[k + 1];
-            const int  *data  = cellIndices.constData();
+            const int k = cy * cols + cx;
+            const int begin = cellOffsets[k];
+            const int end = cellOffsets[k + 1];
+            const int *data = cellIndices.constData();
             for (int p = begin; p < end; ++p) {
                 const int idx = data[p];
                 if (seen[idx] != epoch) {
+                    if (out.size() == limit) {
+                        if (complete)
+                            *complete = false;
+                        return out;
+                    }
                     seen[idx] = epoch;
                     out.append(idx);
                 }

@@ -1,9 +1,10 @@
-/*!
- * \file   rulestylesubject.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  RuleStyleSubject implementation (Slice Z.2).
+/**
+ * @file      rulestylesubject.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     RuleStyleSubject implementation (Slice Z.2).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/dialogs/rulestylesubject.h"
@@ -13,14 +14,11 @@
 
 #include <utility>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-RuleStyleSubject::RuleStyleSubject(OpenSWMM::Render::Rule *rule,
-                                   QString routingId,
-                                   QString section)
-    : m_rule(rule)
-    , m_routingId(std::move(routingId))
-    , m_section(std::move(section))
+RuleStyleSubject::RuleStyleSubject(OpenSWMM::Render::Rule *rule, QString routingId, QString section)
+    : m_rule(rule), m_routingId(std::move(routingId)), m_section(std::move(section))
 {
 }
 
@@ -60,8 +58,7 @@ subjectsFromRuleList(OpenSWMM::Render::RuleList *list)
         OpenSWMM::Render::Rule *r = list->at(i);
         if (!r)
             continue;
-        subjects.push_back(std::make_unique<RuleStyleSubject>(
-            r, QStringLiteral("rule.%1").arg(i)));
+        subjects.push_back(std::make_unique<RuleStyleSubject>(r, QStringLiteral("rule.%1").arg(i)));
     }
     return subjects;
 }

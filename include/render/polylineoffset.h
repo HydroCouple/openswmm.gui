@@ -1,9 +1,9 @@
-/*!
- * \file   polylineoffset.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Perpendicular polyline offset — closes the Z.5 offset gap (Z.5b).
+/**
+ * @file      polylineoffset.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Perpendicular polyline offset — closes the Z.5 offset gap (Z.5b).
  *
  *         LineSymbolLayerSpec::offsetPx (Slice Z.5) ships the field but
  *         doesn't apply it at paint time — the helper for that lives
@@ -36,6 +36,7 @@
  *         The helper is a pure function; no Qt painter state involved.
  *         Callers can wire it into `LineSymbolLayerSpec::offsetPx`
  *         consumers at paint time without further plumbing.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef OPENSWMM_RENDER_POLYLINEOFFSET_H
@@ -67,10 +68,19 @@ inline constexpr qreal kDefaultMiterLimit = 2.0;
  *         The returned polyline may have more vertices than the input
  *         when bevel joins kick in, and fewer when consecutive vertices
  *         coincide.
+ * @param input Finite vertices in a common planar coordinate system. The
+ * right-hand convention assumes Qt image coordinates with Y increasing downward.
+ * The sequence is treated as an open polyline, including when endpoints coincide.
+ * @param offsetPx Finite signed shift in input-coordinate units; use screen-pixel
+ * coordinates for a pixel-sized shift. qFuzzyIsNull values return input unchanged.
+ * @param miterLimit Finite nonnegative ratio limiting corner distance relative
+ * to abs(offsetPx); it is not clamped or validated.
+ * @return Owned offset vertices. Empty, singleton, all-coincident and effectively
+ * zero-offset inputs are returned unchanged. Segments of length at most 1e-9
+ * are treated as degenerate. Self-intersections are not detected or repaired.
  */
-[[nodiscard]] QPolygonF offsetPolyline(const QPolygonF &input,
-                                        qreal offsetPx,
-                                        qreal miterLimit = kDefaultMiterLimit);
+[[nodiscard]] QPolygonF offsetPolyline(const QPolygonF &input, qreal offsetPx,
+                                       qreal miterLimit = kDefaultMiterLimit);
 
 } // namespace OpenSWMM::Render
 

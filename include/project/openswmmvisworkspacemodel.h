@@ -1,18 +1,20 @@
-/*!
- * \file   openswmmvisworkspacemodel.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  QAbstractItemModel adapter exposing an OpenSWMMVisWorkspace to Qt's
+/**
+ * @file      openswmmvisworkspacemodel.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     QAbstractItemModel adapter exposing an OpenSWMMVisWorkspace to Qt's
  *         model-view framework.
  *
- * \details OpenSWMMVisWorkspaceModel provides a tree representation of an
+ * @details OpenSWMMVisWorkspaceModel provides a tree representation of an
  *          OpenSWMMVisWorkspace so that workspace sessions and their child
  *          layers can be displayed in a QTreeView or QListView.  The full
  *          QAbstractItemModel interface (index, parent, rowCount, etc.) is
  *          currently stubbed out pending Slice AA completion; only the
  *          constructor and destructor are implemented.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef SWMMVISWORKSPACEMODEL_H
 #define SWMMVISWORKSPACEMODEL_H
 

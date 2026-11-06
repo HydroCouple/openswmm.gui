@@ -1,9 +1,9 @@
-/*!
- * \file   swmmdatetimeformat.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  The one date-time format string the GUI displays and edits SWMM
+/**
+ * @file      swmmdatetimeformat.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     The one date-time format string the GUI displays and edits SWMM
  *         times in.
  *
  * Split out of `swmmdatetime.h` on purpose: that header includes the engine's
@@ -11,13 +11,16 @@
  * (e.g. `test_timeseries_table_model`) compile view/model code with no engine
  * include path at all. A format string needs none, so it lives here and stays
  * reachable from those targets.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_CORE_SWMMDATETIMEFORMAT_H
 #define OPENSWMMVIS_CORE_SWMMDATETIMEFORMAT_H
 
 #include <QString>
 
-namespace openswmmvis::core {
+namespace openswmmvis::core
+{
 
 /*! \brief Canonical date-time format for display and editing: `MM/dd/yyyy HH:mm`.
  *
@@ -30,7 +33,11 @@ namespace openswmmvis::core {
  *  non-zero seconds field. Editors built on this must therefore preserve the
  *  seconds they were handed (a QDateTimeEdit does: the sections omitted from
  *  the display format keep their value), or they silently truncate — the
- *  defect class GH #1 was about. */
+ *  defect class GH #1 was about.
+ *
+ * @return A QString containing Qt's `MM/dd/yyyy HH:mm` date/time display pattern.
+ *         This is a formatting pattern, not a formatted date or a storage encoding.
+ */
 inline QString swmmDateTimeDisplayFormat()
 {
     return QStringLiteral("MM/dd/yyyy HH:mm");

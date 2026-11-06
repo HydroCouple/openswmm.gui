@@ -1,0 +1,30 @@
+Running main() from /Users/calebbuahin/Documents/Projects/vcpkg/buildtrees/gtest/src/v1.15.2-41f5afb119.clean/googletest/src/gtest_main.cc
+[==========] Running 9 tests from 2 test suites.
+[----------] Global test environment set-up.
+[----------] 6 tests from RxVmTest
+[ RUN      ] RxVmTest.PrecedenceAndAssociativityGoldens
+[       OK ] RxVmTest.PrecedenceAndAssociativityGoldens (0 ms)
+[ RUN      ] RxVmTest.KineticsWithResolvedOperandsEvaluateExactly
+[       OK ] RxVmTest.KineticsWithResolvedOperandsEvaluateExactly (0 ms)
+[ RUN      ] RxVmTest.UndefinedIdentifierReportsNameAndColumn
+[       OK ] RxVmTest.UndefinedIdentifierReportsNameAndColumn (0 ms)
+[ RUN      ] RxVmTest.EmptySpanEvaluatesToZeroByContract
+[       OK ] RxVmTest.EmptySpanEvaluatesToZeroByContract (0 ms)
+[ RUN      ] RxVmTest.DepthGuardRejectsTooDeepExpressions
+[       OK ] RxVmTest.DepthGuardRejectsTooDeepExpressions (0 ms)
+[ RUN      ] RxVmTest.ArityErrorsNameTheFunction
+[       OK ] RxVmTest.ArityErrorsNameTheFunction (0 ms)
+[----------] 6 tests from RxVmTest (0 ms total)
+
+[----------] 3 tests from RxCompileEngineTest
+[ RUN      ] RxCompileEngineTest.GoodConfigCompilesToPool
+[       OK ] RxCompileEngineTest.GoodConfigCompilesToPool (1 ms)
+[ RUN      ] RxCompileEngineTest.ForwardOnlyTermRuleFailsOpen
+[       OK ] RxCompileEngineTest.ForwardOnlyTermRuleFailsOpen (1 ms)
+[ RUN      ] RxCompileEngineTest.TransactionalRegistryOnRejectedConfig
+[       OK ] RxCompileEngineTest.TransactionalRegistryOnRejectedConfig (1 ms)
+[----------] 3 tests from RxCompileEngineTest (4 ms total)
+
+[----------] Global test environment tear-down
+[==========] 9 tests from 2 test suites ran. (4 ms total)
+[  PASSED  ] 9 tests.

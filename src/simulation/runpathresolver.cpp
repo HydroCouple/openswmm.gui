@@ -1,10 +1,12 @@
-/*!
- * \file   runpathresolver.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      runpathresolver.cpp
+ * @brief     Strategy C (GUI-only, no engine [OPTIONS] persistence).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice QB.2 — implementation. See runpathresolver.h for design notes.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "simulation/runpathresolver.h"
@@ -12,20 +14,22 @@
 #include <QDir>
 #include <QFileInfo>
 #include <QLatin1Char>
+#include <QList>
+#include <QPair>
 #include <QSettings>
+#include <QVariant>
 
-namespace openswmmvis {
-
-QString resolveRunOutputPath(const QString &inpPath,
-                             const QString &override_,
-                             RunOutputKind  kind)
+namespace openswmmvis
 {
-    if (inpPath.isEmpty()) return {};
+
+QString resolveRunOutputPath(const QString &inpPath, const QString &override_, RunOutputKind kind)
+{
+    if (inpPath.isEmpty())
+        return {};
 
     const QFileInfo inpFi(inpPath);
-    const QString siblingExt = (kind == RunOutputKind::Rpt)
-        ? QStringLiteral(".rpt")
-        : QStringLiteral(".out");
+    const QString siblingExt =
+        (kind == RunOutputKind::Rpt) ? QStringLiteral(".rpt") : QStringLiteral(".out");
 
     // Tier 1 — explicit override.
     const QString cleanOverride = override_.trimmed();
@@ -38,8 +42,7 @@ QString resolveRunOutputPath(const QString &inpPath,
         // Relative path: resolve against the .inp's directory so the
         // override remains portable when the user moves the project
         // tree around.
-        return QDir::cleanPath(
-            inpFi.absoluteDir().absoluteFilePath(cleanOverride));
+        return QDir::cleanPath(inpFi.absoluteDir().absoluteFilePath(cleanOverride));
     }
 
     // Tier 2 — sibling default. Matches today's SWMMVis::runActiveProject
@@ -48,22 +51,48 @@ QString resolveRunOutputPath(const QString &inpPath,
     return inpFi.absoluteDir().filePath(inpFi.completeBaseName() + siblingExt);
 }
 
-QString resolveRunOutputPathFromSettings(const QString &inpPath,
-                                         RunOutputKind  kind)
+QString resolveRunOutputPathFromSettings(const QString &inpPath, RunOutputKind kind)
 {
-    if (inpPath.isEmpty()) return {};
+    if (inpPath.isEmpty())
+        return {};
 
     // Slice AA-4 key layout — preserved verbatim so existing QSettings
     // round-trips work without migration.
-    const QString settingsKey = QStringLiteral("SWMMVis/Project/%1/%2")
-        .arg(inpPath,
-             (kind == RunOutputKind::Rpt)
-                ? QStringLiteral("ReportFilePath")
-                : QStringLiteral("OutputFilePath"));
+    const QString settingsKey =
+        QStringLiteral("SWMMVis/Project/%1/%2")
+            .arg(inpPath, (kind == RunOutputKind::Rpt) ? QStringLiteral("ReportFilePath")
+                                                       : QStringLiteral("OutputFilePath"));
 
     QSettings s;
-    const QString override_ = s.value(settingsKey).toString();
+    const QString writerKey = QStringLiteral("SWMMVis/Project/%1/%2").arg(inpPath,
+        kind == RunOutputKind::Rpt ? "ReportWriter" : "OutputWriter");
+    const QString override_ = s.value(writerKey).toString().isEmpty()
+        ? s.value(settingsKey).toString() : QString();
     return resolveRunOutputPath(inpPath, override_, kind);
+}
+
+void moveProjectSettings(const QString &fromPath, const QString &toPath)
+{
+    if (toPath.isEmpty() || fromPath == toPath)
+        return;
+    const auto group = [](const QString &path) {
+        return QStringLiteral("SWMMVis/Project/%1").arg(path);
+    };
+
+    QSettings s;
+    QList<QPair<QString, QVariant>> carried;
+    if (!fromPath.isEmpty()) {
+        s.beginGroup(group(fromPath));
+        for (const QString &key : s.allKeys())
+            carried.append({key, s.value(key)});
+        s.endGroup();
+    }
+
+    s.remove(group(toPath));
+    s.beginGroup(group(toPath));
+    for (const auto &[key, value] : std::as_const(carried))
+        s.setValue(key, value);
+    s.endGroup();
 }
 
 } // namespace openswmmvis

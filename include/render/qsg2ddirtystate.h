@@ -1,8 +1,9 @@
-/*!
- * \file   qsg2ddirtystate.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      qsg2ddirtystate.h
+ * @brief     Tracking of geometry, scalar, and style changes in 2D rendering.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * QSG-2D-1M Phase 2 — dirty-domain separation for the 2D mesh / results
  * QSG renderers.
@@ -42,7 +43,9 @@
  *   style edit (nothing else moved)    -> Style
  *
  * Pure Qt-Core header — no Qt Quick dependency, unit-testable headlessly.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMM_RENDER_QSG2DDIRTYSTATE_H
 #define OPENSWMM_RENDER_QSG2DDIRTYSTATE_H
 
@@ -55,17 +58,17 @@ class Qsg2DDirtyState
 {
 public:
     enum Domain : quint32 {
-        None      = 0,
-        Geometry  = 1u << 0,
-        Style     = 1u << 1,
-        Data      = 1u << 2,
+        None = 0,
+        Geometry = 1u << 0,
+        Style = 1u << 1,
+        Data = 1u << 2,
         Selection = 1u << 3,
-        Lod       = 1u << 4,
+        Lod = 1u << 4,
         Transform = 1u << 5,
 
         /*! Every content-affecting domain (everything except Transform). */
         AllContent = Geometry | Style | Data | Selection | Lod,
-        All        = AllContent | Transform,
+        All = AllContent | Transform,
     };
 
     // ── Event notes (called from signal handlers / setters) ────────────
@@ -73,31 +76,47 @@ public:
     /*! Map extent changed. \p zoomChanged distinguishes zoom from pure pan
      *  (used for perf-log reasons; the content verdict comes from the LOD
      *  inputs given to resolve()). */
+    /** @param zoomChanged True for a zoom event; retained with logical OR until resolve()/clear(). */
     void noteExtentChanged(bool zoomChanged)
     {
         m_extentChanged = true;
-        m_zoomChanged   = m_zoomChanged || zoomChanged;
+        m_zoomChanged = m_zoomChanged || zoomChanged;
     }
 
-    void noteDataChanged()      { m_pending |= Data; }
+    /** @brief Accumulate a result-data invalidation without clearing other domains. */
+    void noteDataChanged() { m_pending |= Data; }
+    /** @brief Accumulate a highlighted-element invalidation. */
     void noteSelectionChanged() { m_pending |= Selection; }
-    void noteStyleChanged()     { m_pending |= Style; }
-    void noteGeometryChanged()  { m_pending |= Geometry; }
+    /** @brief Accumulate a style invalidation. */
+    void noteStyleChanged() { m_pending |= Style; }
+    /** @brief Accumulate a topology/coordinate invalidation. */
+    void noteGeometryChanged() { m_pending |= Geometry; }
 
     /*! Layer pointer swapped / renderer force-rebuild: everything is stale. */
-    void noteLayerChanged()     { m_pending |= AllContent; }
+    void noteLayerChanged() { m_pending |= AllContent; }
 
     /*! Ambiguous invalidation (e.g. the layer's catch-all repaintRequested
      *  signal). Classified by resolve() using the snapshot diffs. */
-    void noteExternalChanged()  { m_external = true; }
+    void noteExternalChanged() { m_external = true; }
 
     // ── Pre-resolve introspection (for perf-log dirty reasons) ─────────
 
+    /** @brief Inspect whether any extent event is awaiting resolution.
+     * @return Pending extent flag, without consuming it. */
     [[nodiscard]] bool extentChangePending() const { return m_extentChanged; }
-    [[nodiscard]] bool zoomChangePending()   const { return m_zoomChanged; }
+    /** @brief Inspect whether at least one pending extent event was a zoom.
+     * @return Accumulated zoom flag, without consuming it. */
+    [[nodiscard]] bool zoomChangePending() const { return m_zoomChanged; }
+    /** @brief Inspect whether an ambiguous external invalidation is pending.
+     * @return External flag, without performing snapshot classification. */
     [[nodiscard]] bool externalChangePending() const { return m_external; }
+    /** @brief Read explicit content-domain notes before snapshot resolution.
+     * @return Pending Domain bitmask; excludes unclassified external and extent events. */
     [[nodiscard]] quint32 pending() const { return m_pending; }
 
+    /** @brief Inspect whether any explicit, external, or extent event is pending.
+     * @return True if resolve() has event state to consume; independent snapshot
+     * differences can still require work when this returns false. */
     [[nodiscard]] bool hasAnythingPending() const
     {
         return m_pending != None || m_external || m_extentChanged;
@@ -121,32 +140,40 @@ public:
      *                         rect the content was built for (false forces
      *                         an Lod rebuild so pans that leave the built
      *                         region repopulate the newly exposed area).
-     */
-    quint32 resolve(bool geomRevisionChanged,
-                    bool selectionChanged,
-                    bool timeChanged,
-                    bool lodKeyChanged,
-                    bool extentInsideCoverage)
+     * @param geomRevisionChanged True when the geometry snapshot differs.
+     * @param selectionChanged True when the highlighted-element snapshot differs.
+     * @param timeChanged True when the result frame differs.
+     * @param lodKeyChanged True when the policy's content key differs.
+     * @param extentInsideCoverage True when current view bounds are fully covered.
+     * @return Combined Domain mask. Snapshot differences always add their domains;
+     * an otherwise unclassified external event adds Style, an extent event adds
+     * Transform, and a changed LOD key/coverage miss adds Lod even without an event.
+     * All pending bits and flags are cleared before returning. */
+    quint32 resolve(bool geomRevisionChanged, bool selectionChanged, bool timeChanged,
+                    bool lodKeyChanged, bool extentInsideCoverage)
     {
         quint32 bits = m_pending;
 
         // Snapshot diffs always win — they are ground truth regardless of
         // which (or whether a) signal fired.
-        if (geomRevisionChanged) bits |= Geometry;
-        if (selectionChanged)    bits |= Selection;
-        if (timeChanged)         bits |= Data;
+        if (geomRevisionChanged)
+            bits |= Geometry;
+        if (selectionChanged)
+            bits |= Selection;
+        if (timeChanged)
+            bits |= Data;
 
         // An ambiguous external change with no observable diff is treated
         // as a style edit: the broadest safe content refresh that still
         // leaves static geometry, selection and transform state alone.
-        if (m_external
-            && !geomRevisionChanged && !selectionChanged && !timeChanged
-            && (bits & (Geometry | Selection | Data)) == 0)
+        if (m_external && !geomRevisionChanged && !selectionChanged && !timeChanged &&
+            (bits & (Geometry | Selection | Data)) == 0)
             bits |= Style;
 
         if (m_extentChanged) {
             bits |= Transform;
-            if (lodKeyChanged || !extentInsideCoverage) bits |= Lod;
+            if (lodKeyChanged || !extentInsideCoverage)
+                bits |= Lod;
         } else if (lodKeyChanged || !extentInsideCoverage) {
             // Viewport/DPR resize (or a mesh-stat change) without an extent
             // move still re-keys the content — and a coverage miss without
@@ -155,26 +182,27 @@ public:
             bits |= Lod;
         }
 
-        m_pending       = None;
-        m_external      = false;
+        m_pending = None;
+        m_external = false;
         m_extentChanged = false;
-        m_zoomChanged   = false;
+        m_zoomChanged = false;
         return bits;
     }
 
+    /** @brief Discard every pending domain and event flag without resolving snapshots. */
     void clear()
     {
-        m_pending       = None;
-        m_external      = false;
+        m_pending = None;
+        m_external = false;
         m_extentChanged = false;
-        m_zoomChanged   = false;
+        m_zoomChanged = false;
     }
 
 private:
-    quint32 m_pending       = None;
-    bool    m_external      = false;
-    bool    m_extentChanged = false;
-    bool    m_zoomChanged   = false;
+    quint32 m_pending = None;
+    bool m_external = false;
+    bool m_extentChanged = false;
+    bool m_zoomChanged = false;
 };
 
 } // namespace OpenSWMM::Render

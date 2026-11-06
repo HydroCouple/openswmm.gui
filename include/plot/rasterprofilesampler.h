@@ -1,9 +1,9 @@
-/*!
- * \file   rasterprofilesampler.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Pure-logic sampler that turns a user-traced polyline over a DEM
+/**
+ * @file      rasterprofilesampler.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Pure-logic sampler that turns a user-traced polyline over a DEM
  *         raster into a longitudinal cross-section: cumulative chainage +
  *         ground elevation at evenly-spaced samples along the path.
  *
@@ -22,7 +22,9 @@
  *           raster — this sampler does the canvas → raster transform explicitly.
  *         - There is no water: depthNow / maxDepth stay 0, hasResults is false,
  *           and `crossings` is empty, so the chart draws ground + soil only.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef RASTER_PROFILE_SAMPLER_H
 #define RASTER_PROFILE_SAMPLER_H
 
@@ -56,14 +58,14 @@ namespace RasterProfileSampler
  * \return A ground-only section. Empty when the raster can't be opened or the
  *         polyline has < 2 vertices. Samples outside the DEM keep ground = NaN,
  *         which the chart renders as a gap.
+ * @note Inputs should contain finite coordinates, finite vertical scaling and a finite stepHint. Nonpositive band defaults to one. Zero-length paths and failure to construct a required CRS transformation return an empty section; absent/unreadable raster CRS metadata falls back to untransformed coordinates. Individual transform/DEM NoData failures become NaN ground.
+ * @note Returned chainage uses canvas/scene units, ground uses rawZ*vertFactor, and exact vertices are always included. Automatic spacing uses half a pixel adjusted by full-path length scale, falling back to totalLength/200. The kMaxSamples spacing target is not a strict count cap because each segment contributes an exact endpoint. No mesh results/source handles are retained.
  */
-[[nodiscard]] ProfileSection::Section
-buildRasterProfile(const QString &rasterPath,
-                   int band,
-                   const SpatialReferenceSystem *canvasSRS,
-                   const QVector<QPointF> &scenePolyline,
-                   double vertFactor = 1.0,
-                   double stepHint   = 0.0);
+[[nodiscard]] ProfileSection::Section buildRasterProfile(const QString &rasterPath, int band,
+                                                         const SpatialReferenceSystem *canvasSRS,
+                                                         const QVector<QPointF> &scenePolyline,
+                                                         double vertFactor = 1.0,
+                                                         double stepHint = 0.0);
 
 } // namespace RasterProfileSampler
 

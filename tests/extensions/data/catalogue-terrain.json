@@ -1,0 +1,4 @@
+{"total":2,"items":[
+  {"sourceId":"footprint-inside","title":"Intersecting catalogue footprint","downloadURL":"https://example.invalid/not-downloaded.tif","boundingBox":{"minX":-76.08,"minY":40.03,"maxX":-76.03,"maxY":40.08}},
+  {"sourceId":"footprint-hole","title":"Footprint entirely inside excluded hole","downloadURL":"https://example.invalid/not-downloaded-either.tif","boundingBox":{"minX":-76.01,"minY":39.99,"maxX":-75.99,"maxY":40.01}}
+]}

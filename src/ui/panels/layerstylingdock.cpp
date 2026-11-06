@@ -1,9 +1,13 @@
-/*!
- * \file   layerstylingdock.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      layerstylingdock.cpp
+ * @brief     RENDERING_RULE_MODEL_PLAN.md §13 — a docked, non-modal variant of the
+ *            LayerStyleDialog's Symbology tab.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/panels/layerstylingdock.h"
 #include "ui/theme/themehelpers.h"
 
@@ -17,18 +21,17 @@
 #include <QVBoxLayout>
 #include <QWidget>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 // ---------------------------------------------------------------------------
 
-LayerStylingDock::LayerStylingDock(QWidget *parent)
-    : QDockWidget(tr("Layer Styling"), parent)
+LayerStylingDock::LayerStylingDock(QWidget *parent) : QDockWidget(tr("Layer Styling"), parent)
 {
     setObjectName(QStringLiteral("LayerStylingDock"));
     setAllowedAreas(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea);
-    setFeatures(QDockWidget::DockWidgetClosable
-              | QDockWidget::DockWidgetMovable
-              | QDockWidget::DockWidgetFloatable);
+    setFeatures(QDockWidget::DockWidgetClosable | QDockWidget::DockWidgetMovable |
+                QDockWidget::DockWidgetFloatable);
     buildUi();
 }
 
@@ -67,10 +70,9 @@ void LayerStylingDock::buildUi()
     m_placeholder = new QWidget(m_stack);
     auto *plvbox = new QVBoxLayout(m_placeholder);
     plvbox->setContentsMargins(8, 24, 8, 8);
-    auto *plLabel = new QLabel(
-        tr("Select a layer in the Layers panel to edit its styling.\n\n"
-           "Edits apply live to the canvas — no Apply button needed."),
-        m_placeholder);
+    auto *plLabel = new QLabel(tr("Select a layer in the Layers panel to edit its styling.\n\n"
+                                  "Edits apply live to the canvas — no Apply button needed."),
+                               m_placeholder);
     plLabel->setWordWrap(true);
     plLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());
     plLabel->setAlignment(Qt::AlignTop | Qt::AlignLeft);

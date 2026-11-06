@@ -1,0 +1,5 @@
+; Standard SWMM rain file (STAN_PRCP): Station Year Month Day Hour Minute Value
+STA_N 2020 1 1 0  0 0.00
+STA_N 2020 1 1 0 15 0.20
+STA_N 2020 1 1 0 30 0.40
+STA_N 2020 1 1 0 45 0.00
