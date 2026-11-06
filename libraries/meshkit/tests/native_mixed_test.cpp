@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: Apache-2.0
 #include "meshkit/job.hpp"
+#include "meshkit/blocks.hpp"
 #include "meshkit/constraints.hpp"
 #include "meshkit/constraintaudit.hpp"
 #include <iostream>
@@ -46,9 +47,41 @@ void complete(const JobResult &r)
     }
     CHECK(std::abs(area - 400) < 1e-7);
 }
+void fieldGridBounds()
+{
+    int samples = 0;
+    const auto size = [&](const Box2 &box) {
+        ++samples;
+        return 2. + box.left() + 10. * box.top();
+    };
+    const auto grid = plan::quadBlockGridFromField({0, 0, 3, 2}, 1, size, {}, {}, 6);
+    CHECK(grid.isValid() && grid.cols == 3 && grid.rows == 2 && samples == 6);
+    CHECK(std::abs(grid.h[5] - .9 * 14.) < 1e-5);
+    samples = 0;
+    CHECK(!plan::quadBlockGridFromField({0, 0, 3, 2}, 1, size, {}, {}, 5).isValid());
+    CHECK(samples == 0);
+    // Above 2^53, floating-point multiplication rounds this odd cell count down
+    // to the requested limit. Reject exactly before attempting any allocation.
+    constexpr std::int64_t side = 95'000'001;
+    CHECK(!plan::quadBlockGridFromField({0, 0, double(side), double(side)}, 1, size,
+                                      {}, {}, side * side - 1).isValid());
+    CHECK(samples == 0);
+    const auto blocked = plan::quadBlockGridFromField(
+        {0, 0, 6, 6}, 1, size, {{{3, 0}, {3, 6}}});
+    CHECK(blocked.isValid());
+    for (int row = 0; row < blocked.rows; ++row) {
+        CHECK(std::isfinite(blocked.h[std::ptrdiff_t(row) * blocked.cols]));
+        CHECK(!std::isfinite(blocked.h[std::ptrdiff_t(row) * blocked.cols + 3]));
+    }
+    samples = 0;
+    CHECK(!plan::quadBlockGridFromField({0, 0, 3, 2}, 1, size, {}, [] { return true; }).isValid());
+    CHECK(samples == 0);
+}
+
 int main()
 {
     try {
+        fieldGridBounds();
         auto r = request();
         r.quadRegions = {region(4, 4, 16, 16, 3)};
         auto result = runJob(r);

@@ -152,16 +152,20 @@ QuadBlockGrid quadBlockGridFromField(const Box2 &bounds, double pitch,
     const double columns = std::ceil(bounds.width() / pitch),
                  rows = std::ceil(bounds.height() / pitch);
     if (!std::isfinite(columns) || !std::isfinite(rows) || columns < 1 || rows < 1 ||
-        columns * rows > maximumCells || columns > 100000000 || rows > 100000000)
+        columns > 100000000 || rows > 100000000)
         return grid;
     grid.origin = bounds.topLeft();
     grid.pitch = pitch;
     grid.cols = int(columns);
     grid.rows = int(rows);
-    grid.h.fill(kUnusable, grid.cols * grid.rows);
+    const std::int64_t cellCount = std::int64_t(grid.cols) * grid.rows;
+    if (cellCount > maximumCells || cellCount > std::numeric_limits<std::ptrdiff_t>::max() ||
+        std::uint64_t(cellCount) > grid.h.max_size())
+        return {};
+    grid.h.fill(kUnusable, std::size_t(cellCount));
     for (int y = 0; y < grid.rows; ++y)
         for (int x = 0; x < grid.cols; ++x) {
-            const int at = y * grid.cols + x;
+            const std::ptrdiff_t at = std::ptrdiff_t(y) * grid.cols + x;
             if ((at & 4095) == 0 && cancelled && cancelled())
                 return {};
             const double h =
@@ -195,7 +199,7 @@ QuadBlockGrid quadBlockGridFromField(const Box2 &bounds, double pitch,
                      ++y)
                     for (int x = std::max(0, int(cx) - 1);
                          x <= std::min(grid.cols - 1, int(cx) + 1); ++x)
-                        grid.h[y * grid.cols + x] = kUnusable;
+                        grid.h[std::ptrdiff_t(y) * grid.cols + x] = kUnusable;
             }
         }
     return grid;
