@@ -15,6 +15,8 @@
 #include <windows.h>
 #include <io.h>
 #else
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 namespace meshkit::native_detail
@@ -56,7 +58,18 @@ public:
 #ifdef _WIN32
             file_ = _wfopen(temp_.c_str(), L"wbx");
 #else
-            file_ = std::fopen(temp_.c_str(), "wbx");
+            // Restrict access from creation, even with a permissive process umask.
+            const int fd = ::open(temp_.c_str(), O_WRONLY | O_CREAT | O_EXCL, S_IRUSR | S_IWUSR);
+            if (fd >= 0) {
+                file_ = ::fdopen(fd, "wb");
+                if (!file_) {
+                    const int error = errno;
+                    ::close(fd);
+                    ::unlink(temp_.c_str());
+                    errno = error;
+                    break;
+                }
+            }
 #endif
             if (file_)
                 return;

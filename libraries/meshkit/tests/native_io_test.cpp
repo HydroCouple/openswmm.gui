@@ -6,6 +6,9 @@
 #include <iostream>
 #include <stdexcept>
 #include <chrono>
+#ifndef _WIN32
+#include <sys/stat.h>
+#endif
 #define CHECK(x)                                                                                   \
     do {                                                                                           \
         if (!(x))                                                                                  \
@@ -23,6 +26,55 @@ void put(const std::filesystem::path &p, const std::string &s)
     std::ofstream out(p, std::ios::binary);
     out << s;
 }
+#ifndef _WIN32
+void privateOutput(const Mesh &mesh, const std::filesystem::path &dir)
+{
+    struct RestoreUmask {
+        mode_t previous = ::umask(0);
+        ~RestoreUmask() { ::umask(previous); }
+    } restore;
+    const auto checkMode = [](const std::filesystem::path &path) {
+        struct stat info{};
+        CHECK(::stat(path.c_str(), &info) == 0);
+        if ((info.st_mode & 0777) != 0600)
+            throw std::runtime_error("Output permissions are not owner-only: " + path.string());
+    };
+    bool sawTemporary = false, cancelWhenStaged = false;
+    IOOptions options;
+    options.cancelled = [&] {
+        for (const auto &entry : std::filesystem::directory_iterator(dir)) {
+            if (entry.path().filename().string().find(".meshkit-") != 0)
+                continue;
+            sawTemporary = true;
+            checkMode(entry.path());
+            return cancelWhenStaged;
+        }
+        return false;
+    };
+    const auto target = dir / "private.mkb";
+    auto result = writeBinary(target, mesh, options);
+    if (!result.complete())
+        throw std::runtime_error(result.message);
+    CHECK(sawTemporary);
+    checkMode(target);
+    CHECK(readBinary(target).report.complete());
+    // Replacement remains private even when the old destination was permissive.
+    CHECK(::chmod(target.c_str(), 0644) == 0);
+    options.overwrite = true;
+    options.durable = true;
+    sawTemporary = false;
+    CHECK(writeBinary(target, mesh, options).complete());
+    CHECK(sawTemporary);
+    checkMode(target);
+    const auto before = bytes(target);
+    cancelWhenStaged = true;
+    sawTemporary = false;
+    CHECK(writeBinary(target, mesh, options).status == RunStatus::Cancelled);
+    CHECK(sawTemporary && bytes(target) == before);
+    checkMode(target);
+}
+#endif
+
 int main()
 {
     const auto dir = std::filesystem::temp_directory_path() /
@@ -43,6 +95,9 @@ int main()
         m.aliases = {{0, 50, 88}};
         m.metadata.crs = "EPSG:32618";
         m.metadata.description = "fixture";
+#ifndef _WIN32
+        privateOutput(m, dir);
+#endif
         auto p = dir / "mesh.mkb";
         auto w = writeBinary(p, m);
         CHECK(w.complete());
