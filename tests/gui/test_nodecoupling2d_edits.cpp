@@ -14,14 +14,18 @@
 #include "layers/swmmmodellayer.h"
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
+#include "map/tools/maptoolidentify.h"
 #include "project/openswmmvisworkspace.h"
 #include "swmmvisprojectwindow.h"
 #include "ui/widgets/nodecouplingselector.h"
 #include "ui/panels/swmmattributetablemodel.h"
 #include "ui/panels/attributetablepanel.h"
+#include "ui/panels/propertiespanel.h"
 #include "ui/properties/attributegroups.h"
+#include "ui/properties/swmmnodepropertyadapter.h"
 #include <QComboBox>
 #include <QTableView>
+#include <QTreeView>
 #include <QUndoStack>
 #include <QClipboard>
 #include <QApplication>
@@ -40,6 +44,18 @@ int columnFor(SWMMAttributeTableModel &table, const QString &tag)
     for (int c = 0; c < specs.size(); ++c)
         if (specs[c].setter == tag) return c;
     return -1;
+}
+
+QModelIndex propertyValue(QAbstractItemModel *model, const QString &label,
+                         const QModelIndex &parent = {})
+{
+    for (int row = 0; row < model->rowCount(parent); ++row) {
+        const auto index = model->index(row, 0, parent);
+        if (index.data().toString().startsWith(label)) return index.siblingAtColumn(1);
+        const auto child = propertyValue(model, label, index);
+        if (child.isValid()) return child;
+    }
+    return {};
 }
 
 /** @brief Locate the node-coupling fixture.
@@ -92,6 +108,31 @@ class TestNodeCoupling2DEdits : public QObject
 {
     Q_OBJECT
 private slots:
+    void propertyPanelRefreshesFreeRelaxationOnTypeSwitch()
+    {
+        Harness h;
+        QVERIFY(h.open());
+        PropertiesPanel panel;
+        panel.setProject(h.layer);
+        IdentifyResult identified;
+        identified.layerName = h.layer->name();
+        identified.features = {h.layer->identifyByName("O1", SWMMModelLayer::kKindNode)};
+        panel.showIdentifyResults({identified});
+        auto *tree = panel.findChild<QTreeView *>();
+        auto *adapter = panel.findChild<SWMMOutfallPropertyAdapter *>();
+        QVERIFY(tree && tree->model() && adapter);
+        auto relaxation = [&] { return propertyValue(tree->model(), "2D Tailwater Relaxation"); };
+        QVERIFY(relaxation().isValid());
+        QVERIFY(!(relaxation().flags() & Qt::ItemIsEditable));
+        const auto label = adapter->displayLabelFor("couplingTailwaterRelax");
+        adapter->setOutfallType(SWMMNodePropertyAdapter::NORMAL);
+        QCOMPARE(adapter->displayLabelFor("couplingTailwaterRelax"), label);
+        QVERIFY(relaxation().flags() & Qt::ItemIsEditable);
+        adapter->setOutfallType(SWMMNodePropertyAdapter::FREE);
+        QVERIFY(!(relaxation().flags() & Qt::ItemIsEditable));
+        QVERIFY(propertyValue(tree->model(), "2D Discharge Spread").flags() & Qt::ItemIsEditable);
+    }
+
     void attributeParametersValidateAndUndo()
     {
         Harness h;
@@ -147,8 +188,27 @@ private slots:
         QVERIFY(cell("node_2d_param_TAILWATER_RELAX").isValid());
         QVERIFY(!cell("node_2d_param_D").isValid());
         QVERIFY(table.setData(cell("node_2d_param_SPREAD"), "0"));
+        QVERIFY(!(table.flags(cell("node_2d_param_TAILWATER_RELAX")) & Qt::ItemIsEditable));
+        QVERIFY(!table.setData(cell("node_2d_param_TAILWATER_RELAX"), "10"));
+        QVERIFY(table.setData(cell("node_outfall_type"), 1));
+        QVERIFY(table.flags(cell("node_2d_param_TAILWATER_RELAX")) & Qt::ItemIsEditable);
         QVERIFY(table.setData(cell("node_2d_param_TAILWATER_RELAX"), "10"));
         QCOMPARE(h.state("O1").params.value("TAILWATER_RELAX"), QString("10"));
+        QVERIFY(table.setData(cell("node_outfall_type"), 0));
+        QVERIFY(!(table.flags(cell("node_2d_param_TAILWATER_RELAX")) & Qt::ItemIsEditable));
+        QVERIFY(table.flags(cell("node_2d_param_SPREAD")) & Qt::ItemIsEditable);
+        QCOMPARE(h.state("O1").params.value("TAILWATER_RELAX"), QString("10"));
+        QVERIFY(!table.setData(cell("node_2d_param_TAILWATER_RELAX"), "20"));
+        QString bulkError;
+        QVERIFY(!table.applyScalarEdits({QString("O1")}, {{"2D TAILWATER_RELAX", "20"}},
+                                         h.canvas->undoStack(), &bulkError));
+        QVERIFY(!bulkError.isEmpty());
+        QCOMPARE(h.state("O1").params.value("TAILWATER_RELAX"), QString("10"));
+        h.canvas->undoStack()->undo();
+        QVERIFY(table.flags(cell("node_2d_param_TAILWATER_RELAX")) & Qt::ItemIsEditable);
+        QCOMPARE(h.state("O1").params.value("TAILWATER_RELAX"), QString("10"));
+        h.canvas->undoStack()->redo();
+        QVERIFY(!(table.flags(cell("node_2d_param_TAILWATER_RELAX")) & Qt::ItemIsEditable));
         for (const auto category : {SWMMModelLayer::CatStorage, SWMMModelLayer::CatDividers}) {
             table.setSource(h.layer, category);
             for (const auto &key : nodecoupling2d::paramKeys()) {
@@ -308,7 +368,7 @@ private slots:
         QVERIFY(QDir().mkpath(dir));
         const QString saved = QDir(dir).filePath(QStringLiteral("mini_2d_coupling.inp"));
         QFile::remove(saved);
-        nodecoupling2d::State j1;
+        nodecoupling2d::State j1, outfall;
         {
             Harness h;
             QVERIFY(h.open());
@@ -331,6 +391,13 @@ private slots:
                 QVERIFY2(table.setData(table.index(0, columnFor(table, "node_2d_param_" + it.key())),
                                        it.value()), qPrintable(it.key()));
             j1 = h.state("J1");
+            table.setSource(h.layer, SWMMModelLayer::CatOutfalls);
+            auto cell = [&](const QString &tag) { return table.index(0, columnFor(table, tag)); };
+            QVERIFY(table.setData(cell("node_outfall_type"), 1));
+            QVERIFY(table.setData(cell("node_2d_param_TAILWATER_RELAX"), "12.5"));
+            QVERIFY(table.setData(cell("node_2d_param_SPREAD"), "2"));
+            QVERIFY(table.setData(cell("node_outfall_type"), 0));
+            outfall = h.state("O1");
             QVERIFY2(h.window->saveAs(saved, &error), qPrintable(error));
         }
         QFile f(saved);
@@ -345,6 +412,13 @@ private slots:
         nodecoupling2d::State back;
         QVERIFY(window->modelLayer()->nodeCoupling2D(QStringLiteral("J1"), &back));
         QCOMPARE(back, j1);
+        QVERIFY(window->modelLayer()->nodeCoupling2D(QStringLiteral("O1"), &back));
+        QCOMPARE(back, outfall);
+        SWMMAttributeTableModel table;
+        table.setSource(window->modelLayer(), SWMMModelLayer::CatOutfalls);
+        const auto relax = table.index(0, columnFor(table, "node_2d_param_TAILWATER_RELAX"));
+        QVERIFY(!(table.flags(relax) & Qt::ItemIsEditable));
+        QCOMPARE(table.data(relax, Qt::EditRole).toString(), QString("12.5"));
         delete window;
         delete ws;
     }

@@ -209,7 +209,7 @@ QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
     if (property == QLatin1String("couplingSpread"))
         return tr("2D Discharge Spread (%1)").arg(L);
     if (property == QLatin1String("couplingTailwaterRelax"))
-        return tr("2D Tailwater Relaxation (s)");
+        return tr("2D Tailwater Relaxation (s, non-FREE only)");
 
     // Inlet junction (§3.4). Depression height/width are the LOCAL gutter
     // depression at this inlet, distinct from the street's own gutter.

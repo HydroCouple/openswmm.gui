@@ -1314,7 +1314,8 @@ class SWMMOutfallPropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(SWMMNodePropertyAdapter::FlapGate outfallFlapGate READ outfallFlapGate WRITE
                    setOutfallFlapGate NOTIFY changed)
     // 1D↔2D coupling: an outfall is OUTFALL_2D or NOT_COUPLEABLE; a flap
-    // gate blocks only reverse flow, the 2D tailwater still applies.
+    // gate blocks only reverse flow for non-FREE boundaries. FREE receives no
+    // surface tailwater or return flow; its stored relaxation remains inactive.
     Q_PROPERTY(bool coupleable READ coupleable WRITE setCoupleable NOTIFY changed)
     Q_PROPERTY(QString couplingSpread READ couplingSpread WRITE setCouplingSpread NOTIFY changed)
     Q_PROPERTY(QString couplingTailwaterRelax READ couplingTailwaterRelax WRITE

@@ -609,7 +609,10 @@ right-click and choose **Paste**. Paste values without a header row.
 The **2D Coupling** group in junction, divider and storage tables contains
 eligibility, structure, diameter, perimeter, opening/chamber areas, lid fraction,
 crest, law, coefficient preset and four coefficient overrides. Outfalls expose
-eligibility, structure, spread radius and tailwater relaxation. Numeric override
+eligibility, structure, spread radius and tailwater relaxation. Tailwater relaxation
+is read-only for `FREE` outfalls because they discharge without surface backwater
+or return flow; its stored value is retained, and spread remains editable. Changing
+the boundary type refreshes this eligibility, including after undo/redo. Numeric override
 cells display `NULL` when no override is authored; clear the editor to restore
 inheritance. Enum overrides have **(inherit)**. Changing structure or disabling coupling clears its parameters,
 so paste the structure first and geometry second. Undo restores the whole prior

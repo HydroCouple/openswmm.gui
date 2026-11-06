@@ -870,7 +870,9 @@ QList<ColumnSpec> nodeCouplingColumns(SWMMModelLayer::Category cat)
         {"COI", "Positive surface-to-sewer coefficient. Authored mesh-map Cd takes precedence."},
         {"COO", "Positive sewer-to-surface coefficient. Authored mesh-map Cd takes precedence."},
         {"SPREAD", "Nonnegative outfall discharge radius; default 0. Does not expand reverse-flow donors."},
-        {"TAILWATER_RELAX", "Nonnegative tailwater smoothing time in seconds; default 0 (immediate)."}};
+        {"TAILWATER_RELAX", "Nonnegative tailwater smoothing time in seconds; default 0 (immediate). "
+                            "Inactive for FREE outfalls: they discharge to the surface without "
+                            "surface backwater or return flow. Stored values are preserved."}};
     auto param = [&](const char *key, const char *label, UnitKind unit,
                      const QStringList &tokens = {}) {
         ColumnSpec c;
@@ -4758,6 +4760,14 @@ Qt::ItemFlags SWMMAttributeTableModel::flags(const QModelIndex &index) const
             if (!m_layer->nodeCoupling2D(objectNameAt(index.row()), &state) ||
                 state.type == nodecoupling2d::None)
                 return f;
+            if (spec.setter == "node_2d_param_TAILWATER_RELAX") {
+                int boundary = -1;
+                const int node = swmm_node_index(m_layer->engine(),
+                    objectNameAt(index.row()).toUtf8().constData());
+                if (swmm_node_get_outfall_type(m_layer->engine(), node, &boundary) != SWMM_OK ||
+                    boundary == 0) // FREE: retain the authored token, but it has no effect.
+                    return f;
+            }
         }
         if (inheritedproperties::field(spec.key)) {
             int state = -1;
