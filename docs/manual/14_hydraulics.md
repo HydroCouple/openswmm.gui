@@ -251,6 +251,11 @@ Outfalls have no depth or ponding rows.
 | `TIDAL` | A stage that repeats every day from a tidal curve of hour against stage (**Tidal Curve**) |
 | `TIMESERIES` | A stage that follows a time series (**Stage Time Series**) — a river or a measured downstream level |
 
+When mapped to a 2D surface, `FREE` outfalls discharge without receiving surface
+backwater or return flow. Other boundary types retain the existing surface-tailwater
+interaction. **2D Discharge Spread** remains active for `FREE`; **2D Tailwater
+Relaxation** is inactive and its stored value is retained when switching types.
+
 The three stage rows follow the live **Outfall Type**: they enable and disable
 as you change it, so an outfall never carries a stale stage source. The stage
 only reaches upstream under dynamic-wave routing, which carries backwater;

@@ -448,8 +448,9 @@ void TwoDPage::buildUi()
     m_couplingHeadCombo->addItem(tr("Wet mean over the structure area"),
                                  QStringLiteral("STENCIL_WET_MEAN"));
     m_couplingHeadCombo->setToolTip(
-        tr("Which 2D water level drives the exchange and an outfall's tailwater "
-           "(COUPLING_HEAD). The wet mean over the structure area is the "
+        tr("Which 2D water level drives the exchange and non-FREE outfall tailwater "
+           "(COUPLING_HEAD). FREE outfalls discharge without surface backwater or return flow. "
+           "The wet mean over the structure area is the "
            "manhole-area average that best matched laboratory data."));
     coupForm->addRow(tr("Surface head:"), m_couplingHeadCombo);
 

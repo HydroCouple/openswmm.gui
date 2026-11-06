@@ -82,8 +82,12 @@ The engine stores explicit node settings in a dedicated INP section:
 ```
 [2D_NODE_COUPLING]
 J1 MANHOLE LAW=WEIR_ORIFICE D=1.2 CREST=NODE_RIM
-OUT1 OUTFALL SPREAD=2 TAILWATER_RELAX=5
+OUT1 OUTFALL SPREAD=2
 ```
+
+OUT1 uses a `FREE` boundary: if mapped, it delivers discharge to the surface
+without surface backwater or return flow. Tailwater relaxation applies only to
+non-FREE outfalls.
 
 Each row contains a node name, a structure
 (`NONE`, `MANHOLE`, `GRATE`, `CURB`, `OPEN`, or `OUTFALL`), and optional

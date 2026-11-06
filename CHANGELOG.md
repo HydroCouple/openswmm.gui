@@ -18,6 +18,13 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ## [Unreleased]
 
+### Changed
+
+- Coupled FREE outfalls discharge to the 2D surface without surface backwater or
+  return flow. Tailwater Relaxation is inactive for FREE and retains its stored
+  value; discharge spreading remains active. Other boundary types keep their
+  existing surface-tailwater interaction. Requires the matching engine update.
+
 ### Added
 
 - **Hot-start save format.** The scheduled hot-start saves table has a **Format**

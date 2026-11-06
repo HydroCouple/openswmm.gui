@@ -2245,7 +2245,7 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
                         {"couplingCoi", structure},
                         {"couplingCoo", structure},
                         {"couplingSpread", t == A::OUTFALL_2D},
-                        {"couplingTailwaterRelax", t == A::OUTFALL_2D}};
+                        {"couplingTailwaterRelax", t == A::OUTFALL_2D && a->outfallType() != A::FREE}};
                     for (const auto &r : rows)
                         if (a->metaObject()->indexOfProperty(r.first) >= 0)
                             setRowEditable(pm, a, QString::fromLatin1(r.first), r.second);

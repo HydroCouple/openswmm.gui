@@ -781,7 +781,7 @@ This distinction matters when a US project uses an SI-tagged mesh.
 | `GRATE` | Grated opening: enter the effective exchange area and weir perimeter. Junction, divider or storage | Explicit choice |
 | `CURB` | Curb opening: enter its hydraulic opening area and effective weir length/perimeter. Junction, divider or storage | Explicit choice; currently shares the grate geometry resolution |
 | `OPEN` | Open-top pond/storage represented by a storage node's area-depth relationship | Default for storage nodes; legal only on storage |
-| `OUTFALL` | Transfers connected-link flow to/from the surface and uses surface tailwater | Default for outfall nodes; outfalls accept only `OUTFALL` or `NONE` |
+| `OUTFALL` | FREE boundaries discharge to the surface without surface backwater or return flow; other boundary types retain surface tailwater and permitted two-way flow | Default for outfall nodes; outfalls accept only `OUTFALL` or `NONE` |
 
 **2D Coupleable = NO** sets `NONE` and clears structure overrides.
 **YES** restores the class default; a class whose default is `NONE` is explicitly
@@ -813,9 +813,19 @@ All numeric values must be finite. Positive means strictly greater than zero.
 | Drainage orifice / `COI` | Positive surface-to-sewer coefficient. Explicit map Cd overrides it |
 | Surcharge orifice / `COO` | Positive sewer-to-surface coefficient. Explicit map Cd overrides it |
 | Outfall spread / `SPREAD` | Nonnegative radius in project length units, default 0. Positive discharge reaches the original receiving cells plus connected cells in the radius that are wet or no higher than the original footprint's highest bed; area weighted. Reverse flow uses the original donor reservations |
-| Tailwater relaxation / `TAILWATER_RELAX` | Nonnegative seconds, default 0 (immediate feedback). Positive values smooth the cached surface tailwater with a bounded Δt/τ update. This affects timing; check timestep sensitivity. The ordinary outfall flap-gate setting controls reverse link flow |
+| Tailwater relaxation / `TAILWATER_RELAX` | Inactive for FREE boundaries; the authored value is retained. For other outfall types: nonnegative seconds, default 0 (immediate feedback). Positive values smooth the cached surface tailwater with a bounded Δt/τ update. This affects timing; check timestep sensitivity. The ordinary outfall flap-gate setting controls reverse link flow |
 
 Outfall tables expose spread and relaxation instead of opening-law geometry.
+A mapped `FREE` outfall retains its usual normal/critical-depth boundary even
+when the receiving surface is flooded above the outlet crown. `SPREAD` still
+distributes its discharge. Tailwater relaxation is disabled for `FREE`, and
+switching to another boundary type restores the retained setting. `NORMAL`,
+`FIXED`, `TIDAL` and `TIMESERIES` keep the existing surface-tailwater interaction;
+a flap gate blocks reverse flow without hiding their tailwater.
+
+Models that previously relied on surface backwater at a `FREE` outfall will
+produce different results. Choose an appropriate non-FREE boundary when that
+interaction is required; model boundary types are not converted automatically.
 Junction, storage and divider tables expose all opening-law parameters, even
 when inherited or unused by the current law. Set `NONE` nodes to the desired
 structure before entering parameters. See @ref manual_attribute_tables for
