@@ -388,7 +388,7 @@ remapping those spatial connections.
 | **2D Orifice Coeff. In (Coi)** | Positive surface-to-sewer orifice coefficient override for WEIR_ORIFICE. | `COI` |
 | **2D Orifice Coeff. Out (Coo)** | Positive sewer-to-surface orifice coefficient override for WEIR_ORIFICE. | `COO` |
 | **2D Discharge Spread** | OUTFALL_2D discharge spread radius, in project length units; must be nonnegative. | `SPREAD` |
-| **2D Tailwater Relaxation (s)** | OUTFALL_2D tailwater relaxation time in seconds; must be nonnegative. | `TAILWATER_RELAX` |
+| **2D Tailwater Relaxation (s, non-FREE only)** | OUTFALL_2D tailwater relaxation time in seconds; must be nonnegative. Inactive for `FREE` boundaries; the stored value is retained when switching types. | `TAILWATER_RELAX` |
 
 The numeric rows are text fields: leave one blank to use the inherited or
 structure default. Length/area labels carry the current project units, and
@@ -399,7 +399,8 @@ resolved orifice coefficients or opening area.
 
 The panel greys out parameters that do not apply to the selected structure.
 Diameter is editable for MANHOLE; opening area and perimeter for GRATE, CURB
-and OPEN_STORAGE; discharge spread and tailwater relaxation for OUTFALL_2D.
+and OPEN_STORAGE; discharge spread for OUTFALL_2D; and tailwater relaxation
+for non-FREE OUTFALL_2D boundaries.
 Other structure rows apply to non-outfall openings. An outfall can use only
 OUTFALL_2D or NOT_COUPLEABLE; OPEN_STORAGE requires a storage node. Ordinary
 junctions and dividers default to MANHOLE, storage units to OPEN_STORAGE,
