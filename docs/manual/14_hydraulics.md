@@ -715,7 +715,7 @@ then click the two end nodes.
 
 **Properties.** **Rating Curve** type (`FUNCTIONAL_HEAD`, `FUNCTIONAL_DEPTH`,
 `TABULAR_HEAD`, `TABULAR_DEPTH`), **Offset** (or **Elevation**), **Coefficient**
-and **Exponent** for the functional forms, a **Rating Curve** picker for the
+and **Exponent** for the functional forms, a **Tabular Curve** picker for the
 tabular forms, and **Flap Gate**. The exponent and curve rows show and hide with
 the chosen type. Writes `[OUTLETS]`.
 
