@@ -164,7 +164,7 @@ jobs:
         if: runner.os != 'Windows'
         working-directory: ${{ env.VCPKG_ROOT }}
         run: |
-          ./bootstrap-vcpkg${{ matrix.shell_ext }}
+          bash "${{ github.workspace }}/scripts/ci_configure_retry.sh" ./bootstrap-vcpkg${{ matrix.shell_ext }}
           chmod +x vcpkg
 
       # NOTE: the old "Export GitHub Actions cache variables" step (which exported

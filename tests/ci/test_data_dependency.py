@@ -1,7 +1,7 @@
 """@file test_data_dependency.py
 @brief Configure the actual Data dependency helper without Qt, downloads or GUI builds.
 @details Each case retains its fake SDK, Data source, Git history and configure log
-under tests/verification/data_bundling_cmake for review.
+under build/ci-data for review.
 @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
 @license GPL-3.0-or-later
 """
@@ -22,10 +22,12 @@ class DataDependencyTest(unittest.TestCase):
 
     def setUp(self):
         """@brief Create a unique retained case directory, never a temporary folder."""
-        self.case = ROOT / "tests/verification/data_bundling_cmake" / self._testMethodName / str(uuid.uuid4())
-        self.source = self.case / "source"
-        self.build = self.case / "build"
+        # Keep MSBuild TryCompile tracking paths below MAX_PATH on CI.
+        self.case = ROOT / "build/ci-data" / uuid.uuid4().hex[:12]
+        self.source = self.case / "s"
+        self.build = self.case / "b"
         self.source.mkdir(parents=True)
+        (self.case / "case.txt").write_text(self._testMethodName + "\n", encoding="utf-8")
 
     def command(self, arguments, cwd=None):
         """@brief Run a bounded command and retain its combined output."""
