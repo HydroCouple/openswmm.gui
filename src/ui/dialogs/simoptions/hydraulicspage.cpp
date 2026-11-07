@@ -249,10 +249,13 @@ void HydraulicsPage::buildUi()
 
     m_fvSlotCeleritySpin = new QDoubleSpinBox(m_fvGroup);
     m_fvSlotCeleritySpin->setRange(1.0, 10000.0);
-    m_fvSlotCeleritySpin->setDecimals(1);
+    // Two decimals: the engine's default is 100 ft/s, which an SI project
+    // reads back as 30.48 m/s and must show as such, not as 30.5.
+    m_fvSlotCeleritySpin->setDecimals(2);
     m_fvSlotCeleritySpin->setToolTip(
         tr("Preissmann-slot pressure-wave celerity, in project length units "
-           "per second (FV_SLOT_CELERITY)."));
+           "per second (FV_SLOT_CELERITY). Default 100 ft/s = 30.48 m/s in "
+           "either unit system."));
     fvForm->addRow(tr("Slot celerity:"), m_fvSlotCeleritySpin);
 
     // FV_PRESSURE_CLOSURE (engine issue #156; GUI issue #10). FV-only key;
