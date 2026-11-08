@@ -503,6 +503,7 @@ void FilesPage::buildUi()
     outerLay->setContentsMargins(0, 0, 0, 0);
 
     auto *subTabs = new QTabWidget(page);
+    subTabs->setObjectName(QStringLiteral("filesTabs"));
     subTabs->setDocumentMode(true);
     outerLay->addWidget(subTabs);
 
@@ -741,7 +742,10 @@ void FilesPage::buildUi()
     // Sub-tab "Output" — writer combos + [REPORT] flags + .rpt / .out paths
     // (Phase 3.10.2, 2026-05-22)
     // =====================================================================
-    auto *outputPage = new QWidget(subTabs);
+    m_outputTabs = new QTabWidget(subTabs);
+    m_outputTabs->setObjectName(QStringLiteral("outputTabs"));
+    m_outputTabs->setDocumentMode(true);
+    auto *outputPage = new QWidget(m_outputTabs);
     auto *outVlay = new QVBoxLayout(outputPage);
 
     // ── Writer / Container group ────────────────────────────────────────
@@ -853,7 +857,8 @@ void FilesPage::buildUi()
     outVlay->addWidget(outGroup);
 
     outVlay->addStretch(1);
-    subTabs->addTab(outputPage, tr("O&utput"));
+    m_outputTabs->addTab(outputPage, tr("General"));
+    subTabs->addTab(m_outputTabs, tr("O&utput"));
 
     // =====================================================================
     // Sub-tab "Plugins" — [PLUGINS] table (Phase 3.10.3, 2026-05-22)

@@ -27,7 +27,7 @@ what they apply to, so no page is a single long scrolling column:
 | **Dates & Times** | Simulation Window / Time Steps / Events |
 | **Routing & Hydraulics** | Routing / Dynamic Wave / Finite Volume / Unsteady Friction |
 | **Quality & Transport** | General / Eulerian ARD / Lagrangian (LARD) / Reserved Species |
-| **2D Surface Routing** | Hydrodynamics / Wetting & Drying / Coupling / Processes / Performance & Output |
+| **2D Surface Routing** | Hydrodynamics / Wetting & Drying / Coupling / Processes / Performance |
 
 Tabs and sidebar rows are **activated contextually**: a tab that does not apply
 to the current selection greys out rather than disappearing, and its tooltip
@@ -462,7 +462,8 @@ project has no value for a key, the page shows the corresponding default from
 (\ref manual_preferences) — the same value **File → New** would synthesise.
 
 Five tabs: **Hydrodynamics**, **Wetting & Drying**, **Coupling**, **Processes**
-and **Performance & Output**.
+and **Performance**. Output controls are under **Files / Output / Plugins →
+Output → 2D Results**.
 
 \fig{18_2d_options.png, The 2D Surface Routing page — the Hydrodynamics tab with the explicit marcher}
 
@@ -582,7 +583,7 @@ With **Subsurface** on, **Destination** above locks to the 2D aquifer:
 infiltrated water enters the column under the cell, which is the mutual
 exclusion the engine validates.
 
-#### Performance & Output
+#### Performance
 
 **Performance**
 
@@ -595,13 +596,6 @@ OpenMP plugin above its own floor, else the built-in CPU marcher. A named
 backend loads that plugin outright; if it is missing or has no usable device the
 run falls back to CPU with a notice. The `OPENSWMM_2D_BACKEND` environment
 variable overrides this setting.
-
-**Output**
-
-| Control | Meaning | Writes |
-| --- | --- | --- |
-| **Write 2D results to output (REPORT_2D)** | Write 2D results to the output file at all | `REPORT_2D` |
-| **2D results file** | HDF5 file receiving 2D results; relative paths resolve against the input file's folder. Blank uses `<model>.2d.h5` next to the input | `OUTPUT_FILE` |
 
 **Retired keys.** `MIN_TIMESTEP`, `REL_TOLERANCE`, `ABS_TOLERANCE`,
 `MAX_CVODE_STEPS`, `MAX_KRYLOV_DIM`, `LINEAR_SOLVER`, `PRECONDITIONER`,
@@ -654,7 +648,11 @@ and as Auto otherwise. The **Hot-start file (USE)** row reads either format.
 
 \fig{18_output_subtab.png, The Output sub-tab with writer combos and the report contents group}
 
-**Output sub-tab.** *Writer / Container* selects which plugin drives each of the
+**Output sub-tab.** Its secondary tabs are **General** and **2D Results**.
+The 2D tab is available in builds with the 2D module and becomes
+editable when that module is enabled on **Models / Processes → Modules**.
+
+On **General**, *Writer / Container* selects which plugin drives each of the
 three writer roles:
 
 | Control | What it does |
@@ -698,6 +696,21 @@ round-trips comma-separated; an empty list collapses to `NONE`. They write
 `.out` paths. Leaving either blank derives the path from the input file (same
 folder, matching extension). The **Browse…** filters follow the extension the
 selected writer plugin advertises.
+
+On **2D Results**, the output controls write `[2D_OPTIONS]` keys:
+
+| Control | Meaning | Writes |
+| --- | --- | --- |
+| **Write 2D results to output (REPORT_2D)** | Enable 2D results output | `REPORT_2D` |
+| **2D results file** | HDF5 destination; relative paths resolve against the input folder. Blank uses `<model>.2d.h5` | `OUTPUT_FILE` |
+| **Precision** | Single (float32) or Double (float64) | `OUTPUT_PRECISION` |
+| **Compression** | HDF5 compression level 0–9; 0 disables compression | `OUTPUT_COMPRESSION` |
+| **2D report step** | Follow the reporting step or set a separate frame interval | `REPORT_2D_STEP` |
+| **Variables** | Choose dataset groups or apply a preset; depth is required | `REPORT_2D_VARIABLES` |
+| **Species** | All transported species or a selected subset | `REPORT_2D_SPECIES` |
+
+The estimated output size updates with the selected fields, precision and run
+schedule.
 
 \fig{18_plugins_subtab.png, The Plugins sub-tab editing the model's PLUGINS section}
 

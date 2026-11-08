@@ -494,6 +494,9 @@ void SimulationOptionsDialog::buildUi()
     // Slice AA-3.5 — Files / Plugins page (its own inner sub-tabs). Lives at
     // the end so existing ordering is preserved.
     m_filesPage = new openswmmvis::ui::FilesPage(*m_ctx, this);
+#ifdef OPENSWMM_HAS_2D
+    m_filesPage->outputTabs()->addTab(m_twoDPage->outputPage(), tr("2D Results"));
+#endif
     addPage(m_filesPage);
 
     m_categoryList->setCurrentRow(0);
@@ -624,6 +627,11 @@ void SimulationOptionsDialog::buildGateTable()
 #ifdef OPENSWMM_HAS_2D
     rowGate(
         m_2DRow, [this] { return m_modelsPage && m_modelsPage->module2DEnabled(); },
+        tr("Enable the 2D module on Models / Processes \u203A Modules"));
+    tabGate(
+        m_filesPage->outputTabs(),
+        m_filesPage->outputTabs()->indexOf(m_twoDPage->outputPage()),
+        [this] { return m_modelsPage && m_modelsPage->module2DEnabled(); },
         tr("Enable the 2D module on Models / Processes \u203A Modules"));
 #endif
     // Activation lives on this page: it must remain reachable even when

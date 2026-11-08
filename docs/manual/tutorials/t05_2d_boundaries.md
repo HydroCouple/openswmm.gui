@@ -442,7 +442,9 @@ dialog (\ref manual_simulation_options), across its five tabs:
 | **Wetting & Drying** | Depth thresholds · Cell closure |
 | **Coupling** | 1D ↔ 2D coupling |
 | **Processes** | Processes (rainfall, infiltration, evaporation, transport) · Groundwater (subsurface) |
-| **Performance & Output** | Performance · Output |
+| **Performance** | Performance |
+
+Output controls are under **Files / Output / Plugins → Output → 2D Results**.
 
 \figtodo{t05_sim_options_2d_page.png, The 2D Surface Routing page of the Simulation Options dialog}
 

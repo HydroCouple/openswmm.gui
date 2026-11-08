@@ -62,7 +62,7 @@ to about 0.325%. Reducing the routing step alone did not improve that check.
 On **2D Surface Routing**, retain explicit integration, maximum timestep 2 s,
 CFL number 0.7, dry depth 0.001 m, flat cell closure and mean face reconstruction.
 Under **Processes**, **Rainfall mode** is **System (uniform gage mean)**.
-Under **Performance & Output**, enable 2D output and keep
+Under **Files / Output / Plugins → Output → 2D Results**, enable 2D output and keep
 `coupled_plaza.2d.h5` as the result file.
 
 ### Node coupling settings and INP storage

@@ -249,7 +249,7 @@ overrides `FV_BACKEND`, and **`OPENSWMM_2D_BACKEND`** overrides `[2D_OPTIONS]
 BACKEND`.
 
 In the GUI, the 2D backend is the **Backend:** combo in the **Performance**
-group of **Simulation Options → 2D Surface Routing → Performance & Output**,
+group of **Simulation Options → 2D Surface Routing → Performance**,
 with
 the entries
 **Auto**, **CPU (built-in marcher)**, **OpenMP (Kokkos)**, **CUDA**, **HIP**
@@ -281,7 +281,7 @@ distributed as a separate package.
 So if the **Backend:** combo lists CUDA but selecting it silently falls back to
 CPU, the plugin simply is not present in your build.
 
-\figtodo{a03_backend_combo.png, The Backend combo in the Performance group of 2D Surface Routing - Performance & Output}
+\figtodo{a03_backend_combo.png, The Backend combo in the Performance group of 2D Surface Routing - Performance}
 
 ## Tips and gotchas
 
