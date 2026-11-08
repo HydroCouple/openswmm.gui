@@ -650,7 +650,7 @@ void TestSimulationOptionsGates::structure()
         {"twoDTabs",
          {QStringLiteral("Hydrodynamics"), QStringLiteral("Wetting & Drying"),
           QStringLiteral("Coupling"), QStringLiteral("Processes"),
-          QStringLiteral("Performance & Output")}},
+          QStringLiteral("Performance")}},
     };
     for (const auto &set : kTabSets) {
         auto *tabs = dlg.findChild<QTabWidget *>(QLatin1String(set.tabs));

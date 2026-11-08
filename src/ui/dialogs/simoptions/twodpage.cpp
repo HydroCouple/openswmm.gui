@@ -124,8 +124,11 @@ void TwoDPage::buildUi()
     auto *t2CplLay = new QVBoxLayout(t2Cpl);
     auto *t2Prc = new QWidget(m_tabs);
     auto *t2PrcLay = new QVBoxLayout(t2Prc);
-    auto *t2Out = new QWidget(m_tabs);
-    auto *t2OutLay = new QVBoxLayout(t2Out);
+    auto *t2Perf = new QWidget(m_tabs);
+    auto *t2PerfLay = new QVBoxLayout(t2Perf);
+    m_outputPage = new QWidget(this);
+    m_outputPage->setObjectName(QStringLiteral("twoDOutputPage"));
+    auto *outputLay = new QVBoxLayout(m_outputPage);
 
     // The explicit local-inertial marcher is the only 2D integrator (D2
     // retirement of the CVODE/ARKODE stack, 2026-07-29) — no selector, and
@@ -311,7 +314,7 @@ void TwoDPage::buildUi()
 
     // Same shape as the FV tab's "Finite volume performance" group: the
     // model's own backend request, persisted as [2D_OPTIONS] BACKEND.
-    auto *perfGroup = new QGroupBox(tr("Performance"), t2Out);
+    auto *perfGroup = new QGroupBox(tr("Performance"), t2Perf);
     auto *perfForm = new QFormLayout(perfGroup);
 
     m_backend2DCombo = new QComboBox(perfGroup);
@@ -331,7 +334,7 @@ void TwoDPage::buildUi()
         "environment variable overrides this setting when set."));
     perfForm->addRow(tr("Backend:"), m_backend2DCombo);
 
-    t2OutLay->addWidget(perfGroup);
+    t2PerfLay->addWidget(perfGroup);
 
     // Not "Mesh": every knob here is a depth below which the solver stops
     // treating a cell as wet. Nothing in it describes the mesh.
@@ -785,7 +788,7 @@ void TwoDPage::buildUi()
     });
     t2PrcLay->addWidget(m_gw2DGroup);
 
-    auto *outGroup = new QGroupBox(tr("Output"), t2Out);
+    auto *outGroup = new QGroupBox(tr("Output"), m_outputPage);
     auto *outForm = new QFormLayout(outGroup);
 
     m_report2DBox = new QCheckBox(tr("Write 2D results to output (REPORT_2D)"), outGroup);
@@ -1049,19 +1052,20 @@ void TwoDPage::buildUi()
     connect(m_output2DCompressionSpin, &QSpinBox::valueChanged, this,
             [this](int) { updateOutputSizeEstimate(); });
 
-    t2OutLay->addWidget(outGroup);
+    outputLay->addWidget(outGroup);
+    outputLay->addStretch();
 
     t2HydLay->addStretch();
     t2MshLay->addStretch();
     t2CplLay->addStretch();
     t2PrcLay->addStretch();
-    t2OutLay->addStretch();
+    t2PerfLay->addStretch();
 
     m_tabs->addTab(t2Hyd, tr("Hydrodynamics"));
     m_tabs->addTab(t2Msh, tr("Wetting && Drying"));
     m_tabs->addTab(t2Cpl, tr("Coupling"));
     m_tabs->addTab(t2Prc, tr("Processes"));
-    m_tabs->addTab(t2Out, tr("Performance && Output"));
+    m_tabs->addTab(t2Perf, tr("Performance"));
 }
 
 void TwoDPage::tagWidgets()
@@ -1644,6 +1648,8 @@ void TwoDPage::read()
     m_gwWilting->setValue(QString::fromUtf8(effective).toDouble());
     refreshGates();
     ctx_.captureEditors(this);
+    // The output controls are hosted outside this widget subtree by FilesPage.
+    ctx_.captureEditors(m_outputPage);
 }
 
 int TwoDPage::write()
@@ -1662,14 +1668,14 @@ int TwoDPage::write()
             return false;
         return swmm_options_set_ext(e, key, v.toUtf8().constData()) == 0;
     };
-    auto writeIfChanged = [&](const char *key, const QString &nv) {
+    auto writeIfChanged = [&](const char *key, const QString &nv, const QWidget *owner = nullptr) {
         // [2D_OPTIONS] keys go through swmm_options_set_ext, not the plain
         // setter the context wraps — but they are still option editors and
         // must appear in the reachability comparison, so the key is recorded
         // through the context either way.
         ctx_.recordWrittenKey(key);
         // Numeric-aware compare, same rationale as the [OPTIONS] pages.
-        const QString desired = ctx_.valueForWrite(key, nv, this, true);
+        const QString desired = ctx_.valueForWrite(key, nv, owner ? owner : this, true);
         if (SimulationOptionsDialog::optionValueEquals(getExt(key), desired)) return;
         if (setExt(key, desired))
             ++n;
@@ -1686,7 +1692,7 @@ int TwoDPage::write()
     writeIfChanged("COUPLING_CD", QString::number(m_couplingCdSpin->value(), 'g', 17));
     writeIfChanged("COUPLING_SYNC", QString::number(m_couplingSyncSpin->value(), 'g', 17));
     writeIfChanged("RAINFALL_MODE", m_rainfall2DModeCombo->currentData().toString());
-    writeIfChanged("REPORT_2D", SOD::engineBoolString(m_report2DBox->isChecked()));
+    writeIfChanged("REPORT_2D", SOD::engineBoolString(m_report2DBox->isChecked()), m_outputPage);
 
     // Explicit-marcher configuration (the only 2D integrator).
     writeIfChanged("THETA",
@@ -1738,7 +1744,7 @@ int TwoDPage::write()
     writeIfChanged("COUPLING_EQUALIZE", m_couplingEqualizeCombo->currentData().toString());
     // Empty clears the key — InpWriter omits OUTPUT_FILE when unset and the
     // run wiring falls back to <model>.2d.h5.
-    writeIfChanged("OUTPUT_FILE", m_output2DFileEdit->text().trimmed());
+    writeIfChanged("OUTPUT_FILE", m_output2DFileEdit->text().trimmed(), m_outputPage);
 
     // E1 — precision / compression / cadence / variables / species.
     auto getExtWide = [&](const char *key) -> QString {
@@ -1749,15 +1755,18 @@ int TwoDPage::write()
             return QString::fromUtf8(buf.data()).trimmed();
         return {};
     };
-    writeIfChanged("OUTPUT_PRECISION", m_output2DPrecisionCombo->currentData().toString());
-    writeIfChanged("OUTPUT_COMPRESSION", QString::number(m_output2DCompressionSpin->value()));
+    writeIfChanged("OUTPUT_PRECISION", m_output2DPrecisionCombo->currentData().toString(),
+                   m_outputPage);
+    writeIfChanged("OUTPUT_COMPRESSION", QString::number(m_output2DCompressionSpin->value()),
+                   m_outputPage);
     {
         // Engine formats the key as HH:MM:SS; compare in seconds so an
         // untouched value is not re-written.
         ctx_.recordWrittenKey("REPORT_2D_STEP");
         const double cur = SOD::parsePreciseStepSeconds(getExt("REPORT_2D_STEP"), 0);
         const double draft = m_report2DStepSameBox->isChecked() ? 0 : fractionalTimespanSeconds(m_report2DStepEdit);
-        const double nv = SOD::parsePreciseStepSeconds(ctx_.valueForWrite("REPORT_2D_STEP", QString::number(draft, 'g', 17), this, true), 0);
+        const double nv = SOD::parsePreciseStepSeconds(
+            ctx_.valueForWrite("REPORT_2D_STEP", QString::number(draft, 'g', 17), m_outputPage, true), 0);
         if (cur != nv) {
             if (setExt("REPORT_2D_STEP", QString::number(nv, 'g', 17)))
                 ++n;
@@ -1835,6 +1844,7 @@ int TwoDPage::write()
         }
     }
     ctx_.captureEditors(this);
+    ctx_.captureEditors(m_outputPage);
     return n;
 }
 

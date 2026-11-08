@@ -179,7 +179,7 @@ Remaining: 146 figures, 0 videos. Published so far: 191.
 
 ## appendices/a03_plugins.md
 
-- [ ] `a03_backend_combo.png` (line 286) — The Backend combo in the Performance group of 2D Surface Routing - Performance & Output
+- [ ] `a03_backend_combo.png` (line 286) — The Backend combo in the Performance group of 2D Surface Routing - Performance
 
 ## appendices/a04_performance.md
 

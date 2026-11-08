@@ -224,7 +224,8 @@ mesh for a different model. Leave this tutorial's inline mesh unchanged.
 
 The **2D Surface Routing** page maps one-to-one onto `[2D_OPTIONS]`. Its five
 tabs are **Hydrodynamics**, **Wetting & Drying**, **Coupling**, **Processes**
-and **Performance & Output**; the groups below sit on them in that order:
+and **Performance**. Output controls are under **Files / Output / Plugins →
+Output → 2D Results**. The controls below write `[2D_OPTIONS]`:
 
 | Group | Control | `[2D_OPTIONS]` key |
 | ----- | ------- | ------------------ |
@@ -259,7 +260,8 @@ With **None (no direct rainfall)** nothing happens at all.
 ### 7. Run and retain the outputs
 
 **Analysis → Execute** (`Ctrl+R`) runs the model. Confirm **2D Surface Routing**
-is enabled and **Performance & Output → Write 2D results** is checked. The input
+is enabled and **Files / Output / Plugins → Output → 2D Results →
+Write 2D results** is checked. The input
 sets `OUTPUT_FILE terrain_bowl.2d.h5`. Keep the `.inp`, `.rpt`, `.out` and `.2d.h5`
 together. The checked run contains 480 frames on 128 cells, from 00:00:30 to
 04:00:00.

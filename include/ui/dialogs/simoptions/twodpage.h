@@ -8,7 +8,7 @@
  * Simulation Options → 2D Surface Routing.
  *
  * Tabs: Hydrodynamics · Wetting & Drying · Coupling · Processes ·
- * Performance & Output. Five rather than PLAN §2's four: §1.3 reserved "a
+ * Performance. Five rather than PLAN §2's four: §1.3 reserved "a
  * Processes tab after Coupling", and that content (the 2D process switches and
  * the groundwater enables, U1/U5) now exists.
  *
@@ -16,6 +16,8 @@
  * "Rainfall & Output" lost its rainfall to the Processes tab, and "Mesh &
  * Closure" never held a mesh setting — its first group is the depth thresholds
  * that decide when a cell counts as wet.
+ * Output controls are hosted under Files / Output / Plugins → Output while
+ * this page retains their draft, schedule hooks and engine read/write logic.
  *
  * Every key on this page is an `[2D_OPTIONS]` key and goes through
  * `swmm_options_set_ext`, not the plain `[OPTIONS]` setter — so the page keeps
@@ -113,13 +115,20 @@ public:
     void refreshGates() override;
 
     /*! \brief Tab order, so the dialog can name tabs without magic numbers. */
-    enum Tab { TabHydrodynamics = 0, TabWetDry, TabCoupling, TabProcesses, TabOutput };
+    enum Tab { TabHydrodynamics = 0, TabWetDry, TabCoupling, TabProcesses, TabPerformance };
 
     /**
      * @brief Expose the owned tab container for host navigation.
      * @return Borrowed widget; do not delete or retain beyond page lifetime.
      */
     [[nodiscard]] QTabWidget *tabs() const { return m_tabs; }
+
+    /**
+     * @brief Return the output controls for hosting in the Files page's Output tabs.
+     * The host takes QWidget ownership; this page retains the draft logic and must
+     * share the host's lifetime.
+     */
+    [[nodiscard]] QWidget *outputPage() const { return m_outputPage; }
 
     /*!
      * \brief What this page needs from Dates & Times (PLAN §4.1).
@@ -277,6 +286,7 @@ private:
     void setReportSpeciesText(const QString &text);
 
     QTabWidget *m_tabs = nullptr;
+    QWidget *m_outputPage = nullptr;
     ScheduleHooks m_schedule;
 
     QDoubleSpinBox *m_maxTimestepSpin = nullptr;

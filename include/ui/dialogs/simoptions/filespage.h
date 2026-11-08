@@ -27,6 +27,7 @@ class QLineEdit;
 class QPushButton;
 class QRadioButton;
 class QTableView;
+class QTabWidget;
 class QVBoxLayout;
 
 // These carry the member types verbatim from the monolith, so the page needs
@@ -93,6 +94,9 @@ public:
      * write() from considering values in disabled controls.
      */
     void applyCapabilities() override;
+
+    /** @brief Borrow the Output tab container for hosting additional output controls. */
+    [[nodiscard]] QTabWidget *outputTabs() const { return m_outputTabs; }
 
 private slots:
     /**
@@ -336,6 +340,7 @@ private:
     openswmmvis::ui::RelativePathPicker *m_inflowsPathEdit = nullptr;
     QComboBox *m_inputWriterCombo = nullptr;
     openswmmvis::ui::RelativePathPicker *m_outflowsPathEdit = nullptr;
+    QTabWidget *m_outputTabs = nullptr;
     QLineEdit *m_outputFilePathEdit = nullptr;
     QComboBox *m_outputWriterCombo = nullptr;
     QPushButton *m_pluginsAddBtn = nullptr;
