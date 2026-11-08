@@ -1990,6 +1990,8 @@ private:
      * @param[in] operationId Captured unique attempt.
      * @return True only while this attempt still owns that row's native state. */
     bool runAttemptCurrent(int rowId, const QUuid &operationId) const;
+    void load2DResultsForAttempt(SWMMVisProjectWindow *, const QString &, const QString &,
+                                 const std::function<bool()> &);
     /** @brief Release exactly one counted preparation/runner reservation.
      * @param[in] operationId Captured unique attempt; repeated calls are inert. */
     void releaseRunAttempt(const QUuid &operationId);

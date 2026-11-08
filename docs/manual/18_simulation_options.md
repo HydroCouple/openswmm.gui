@@ -830,3 +830,37 @@ Wall-friction save/reopen qualification covers triangular meshes. For quad
 walls on local edge 3, use INP: the existing GeoPackage boundary table is
 restricted to edge indices 0–2. Solver wall-friction tests cover triangles
 and quads independently of that file-format limitation.
+
+
+## Component execution
+
+Choose **Analysis → Component execution…** to select an execution arrangement
+for the current project. **Native engine** remains the default. The component
+choices run the complete model, split water, or split passive pollutant exchange
+through a separately installed HydroCoupleComposer application. Select that
+application and the folder containing the OpenSWMM engine component library.
+Neither SWMMVis nor the engine requires HydroCoupleSDK.
+
+Execution settings and component identities are saved with the project. Host
+application and library locations are local preferences. The normal **Run**
+command saves pending edits, launches the chosen arrangement and reports its
+progress in Simulation Status. Each component run creates a fresh
+`<model>.component-runs/<run-id>` folder beside the input. A successful run opens
+its normal network and mesh result layers; result paths are saved by the existing
+project serializer. The original input's output paths are not repurposed.
+
+The component validates the actual model profile before advancing. Split water
+uses the qualified water-only profiles. Split pollutant uses the bounded serial
+CPU, first-order, passive-storage profile with one pollutant in MG/L, UG/L or
+#/L. Its material journal capacity must be an integer from 1 to 65536; unsupported
+models, conflicting authored output declarations or exact-arithmetic refusals
+produce diagnostics. Choosing an arrangement does not disable unsupported
+physics or change its ownership.
+
+Composer jobs currently do not support pause. Stop terminates the external run;
+interrupted files remain available in that run folder but are not loaded as
+finished results. Previous result layers remain available. A successful process
+exit alone is insufficient: SWMMVis checks the matching completion event, final
+component time, run manifest and declared result files before opening them.
+Coordinated component restart and arbitrary foreign-graph editing remain
+separate capabilities.
