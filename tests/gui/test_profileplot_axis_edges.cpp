@@ -117,6 +117,7 @@ private slots:
      * mutation.
      */
     void inundationRespectsGroundKnotsAndDryGaps();
+    void inundationAtJunctionCrown();
 };
 
 void TestProfilePlotAxisEdges::profilePlotHitTestsAndSetsEdges()
@@ -329,6 +330,123 @@ ProfileBuilder::PathStatic shallowProfile()
     path.links = {l, l};
     return path;
 }
+}
+
+void TestProfilePlotAxisEdges::inundationAtJunctionCrown()
+{
+    auto path = shallowProfile(); // crowns at 102 m, inverts at 100 m
+    path.terrainSamples = {{0, 101}, {1000, 101}};
+    ProfilePlotOptions options;
+    options.setLegendVisible(false);
+    const QColor fill("#a8dcd5"), line("#087f7b");
+    options.setInundation2DFillBrush(fill);
+    options.setInundation2DLinePen(QPen(line, 3));
+    ProfilePlotWidget plot;
+    plot.resize(800, 480);
+    plot.setOptions(&options);
+    auto toggles = plot.layerToggles();
+    toggles.useTerrainGround = true;
+    plot.setLayerToggles(toggles);
+
+    auto setPath = [&] {
+        plot.setPath(path);
+        using E = ProfilePlotWidget::AxisEdge;
+        plot.setAxisEdgeValue(E::XMinimum, -50);
+        plot.setAxisEdgeValue(E::XMaximum, 1050);
+        plot.setAxisEdgeValue(E::YMinimum, 99.5);
+        plot.setAxisEdgeValue(E::YMaximum, 103);
+    };
+    setPath();
+    auto values = std::make_shared<ProfileBuilder::SourceDerived>();
+    values->hglByPeriod = {{100.4, 100.4, 100.4}, {100.8, 100.8, 100.8}};
+    ProfilePlotWidget::SeriesBinding hgl;
+    hgl.derived = values;
+    plot.setSeries({hgl});
+    plot.setCurrentPeriod(0);
+
+    using Sample = ProfilePlotWidget::Surface2DSample;
+    auto render = [&](const QVector<Sample> &samples) {
+        plot.setSurface2DSamples(samples);
+        QImage image(plot.size(), QImage::Format_ARGB32_Premultiplied);
+        image.fill(Qt::white);
+        plot.render(&image); // same widget paint pass as PNG export
+        return image;
+    };
+    auto level = [&](double wse) { return render({{0, 101, wse}, {1000, 101, wse}}); };
+    auto pixel = [&](double station, double elevation) {
+        const QRectF range = plot.visibleDataRange();
+        return QPoint(qRound(64 + (station - range.left()) / range.width() * (plot.width() - 80)),
+                      qRound(16 + (range.bottom() - elevation) / range.height() * (plot.height() - 56)));
+    };
+
+    const auto base = render({});
+    const QPoint shaft = pixel(500, 101.25), side = shaft + QPoint(10, 0);
+    options.setInundation2DLinePen(Qt::NoPen);
+    const auto below = level(101.5);
+    QCOMPARE(below.pixelColor(shaft), base.pixelColor(shaft));
+    QCOMPARE(below.pixelColor(side), fill);
+    options.setInundation2DFillBrush(Qt::NoBrush);
+    options.setInundation2DLinePen(QPen(line, 3));
+    const auto lineOnly = level(101.5);
+    const QPoint surface = pixel(500, 101.5);
+    QCOMPARE(lineOnly.pixelColor(surface), base.pixelColor(surface));
+    QCOMPARE(lineOnly.pixelColor(surface + QPoint(10, 0)), line);
+
+    options.setInundation2DFillBrush(fill);
+    saveInundation(level(101.5), QStringLiteral("junction-below-crown.png"));
+    const auto contact = level(102);
+    QCOMPARE(contact.pixelColor(shaft), base.pixelColor(shaft));
+    QCOMPARE(contact.pixelColor(pixel(500, 102.1)), base.pixelColor(pixel(500, 102.1)));
+
+    plot.setCurrentPeriod(1);
+    const auto nextBase = render({});
+    const auto above = level(102.5);
+    QCOMPARE(above.pixelColor(shaft), nextBase.pixelColor(shaft));
+    QCOMPARE(above.pixelColor(pixel(500, 102.25)), fill);
+    QCOMPARE(above.pixelColor(pixel(500, 102.5)), line);
+    const QPoint risenHead = pixel(500, 100.65);
+    QVERIFY(base.pixelColor(risenHead) != nextBase.pixelColor(risenHead));
+    QCOMPARE(above.pixelColor(risenHead), nextBase.pixelColor(risenHead));
+    saveInundation(above, QStringLiteral("junction-submerged.png"));
+
+    // Isolate the fill where the sloping surface crosses within the 7-pixel shaft.
+    options.setInundation2DLinePen(Qt::NoPen);
+    const auto slope = render({{0, 101, 101.5}, {496, 101, 101.5},
+                               {504, 101, 102.5}, {1000, 101, 102.5}});
+    const QPoint cap = pixel(500, 102.12);
+    QCOMPARE(slope.pixelColor(cap - QPoint(2, 0)), nextBase.pixelColor(cap - QPoint(2, 0)));
+    QCOMPARE(slope.pixelColor(cap + QPoint(2, 0)), fill);
+
+    // The endpoint uses the same pixel-width shaft after the horizontal scale changes.
+    plot.setAxisEdgeValue(ProfilePlotWidget::AxisEdge::XMaximum, 550);
+    const auto zoomBase = render({});
+    const auto zoomWet = level(102.5);
+    const QPoint end = pixel(0, 101.25) + QPoint(1, 0);
+    QCOMPARE(zoomWet.pixelColor(end), zoomBase.pixelColor(end));
+    QCOMPARE(zoomWet.pixelColor(end + QPoint(8, 0)), fill);
+
+    auto closeNodes = path;
+    closeNodes.chainage[1] = 2;
+    closeNodes.links[0].length = 2;
+    closeNodes.links[1].length = 998;
+    plot.setPath(closeNodes);
+    const auto overlapBase = render({});
+    const QPoint overlap = pixel(1, 101.25);
+    const auto overlapWet = level(101.5);
+    QCOMPARE(overlapWet.pixelColor(overlap), overlapBase.pixelColor(overlap));
+    QCOMPARE(overlapWet.pixelColor(overlap + QPoint(10, 0)), fill);
+
+    path.nodes[1].kind = ProfileBuilder::NodeKind::VirtualJunction;
+    setPath();
+    QCOMPARE(level(101.5).pixelColor(shaft), fill);
+    path.nodes[1].kind = ProfileBuilder::NodeKind::Junction;
+    for (auto &link : path.links)
+        link.kind = ProfileBuilder::LinkKind::Weir;
+    setPath();
+    // With only schematic links, the three nodes occupy virtual stations 0, 1 and 2.
+    plot.setAxisEdgeValue(ProfilePlotWidget::AxisEdge::XMinimum, -0.1);
+    plot.setAxisEdgeValue(ProfilePlotWidget::AxisEdge::XMaximum, 2.1);
+    QCOMPARE(level(101.5).pixelColor(pixel(1, 101.25)), fill);
 }
 
 void TestProfilePlotAxisEdges::liveFitIgnoresMissingAndHiddenOutputs()
