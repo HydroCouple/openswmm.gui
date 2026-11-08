@@ -30,6 +30,8 @@
 #include "ui/actioncatalog.h"
 #include "ui/actionregistry.h"
 #include "ui/dialogs/preferencesdialog.h"
+#include "ui/dialogs/componentexecutiondialog.h"
+#include "simulation/componentexecution.h"
 #include "ui/theme/iconfactory.h"
 #include "ui/toolbars/compacttoolbarcontroller.h"
 #include "ui/toolbars/mesheditingtoolbar.h"
@@ -50,6 +52,27 @@
 void SWMMVis::registerActions()
 {
     qApp->installEventFilter(this);
+    auto *componentExecution = new QAction(tr("Component execution…"), this);
+    componentExecution->setObjectName(QStringLiteral("actionComponentExecution"));
+    connect(componentExecution, &QAction::triggered, this, [this] {
+        auto *pw = activeProjectWindow();
+        if (!pw || pw->isClosing() || pw->property("extensionRunCount").toInt() ||
+            pw->property("extensionReadLeases").toInt() || !pw->property("extensionWriteLease").toString().isEmpty())
+            return;
+        if (mPreparingRunAttempts.contains(pw->extensionSessionId().toString(QUuid::WithoutBraces) +
+                                          '/' + pw->engineVersion()))
+            return;
+        auto *model = openswmmvis::simulation::ComponentEngineRegistry::forProject(pw);
+        if (!model->property("dirtyHookInstalled").toBool()) {
+            connect(model, &openswmmvis::simulation::ComponentEngineRegistry::settingsChanged,
+                    pw, [pw] { pw->setHasChanges(true); });
+            model->setProperty("dirtyHookInstalled", true);
+        }
+        ComponentExecutionDialog dialog(model, this);
+        dialog.exec();
+    });
+    if (ui->menuAnalysis)
+        ui->menuAnalysis->addAction(componentExecution);
     // App-level Undo / Redo, routed to the ACTIVE project's map undo stack.
     // Created disabled; onActiveSubWindowChanged() rebinds enabled-state to
     // the focused project's stack (canUndo/canRedoChanged) on every tab

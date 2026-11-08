@@ -63,7 +63,7 @@ public:
     /** Launch the simulation on a worker thread via QtConcurrent::run.
      * @details One-shot: later calls are no-ops. Resolves paths, emits started(), validates aliases and 2D output availability, then reserves inputs/outputs and dispatches. Preflight failures queue finished() without starting a worker. Does not change the process working directory.
      */
-    void start();
+    virtual void start();
 
     /**
      * @brief Request early termination without blocking the GUI.
@@ -71,13 +71,15 @@ public:
      * Linked-engine step loops finalize/report/close partial results on cooperative cancellation;
      * legacy workers are killed and cannot guarantee normal finalization.
      */
-    void cancel();
+    virtual void cancel();
 
     /** Request pause — the step-loop parks in a short sleep until
      *  setPaused(false) is called. Safe to call from the GUI thread.
      * @param[in] paused Atomic flag observed by the linked-engine step loop between native steps; legacy process execution does not consult this flag.
      */
-    void setPaused(bool paused);
+    virtual void setPaused(bool paused);
+    virtual bool supportsPause() const { return true; }
+    virtual bool supportsPartialResults() const { return true; }
     /**
      * @brief Read the requested pause flag.
      * @return Atomic flag, which does not prove the worker has reached a parked boundary.
@@ -103,7 +105,7 @@ public:
      * @brief Enumerate predicted output destinations for guards and cleanup coordination.
      * @return Captured start-time outputs, or a fresh INP path scan before start; includes report/binary/log/LID companion and declared mesh/interface outputs. No files are created.
      */
-    QStringList outputPaths() const
+    virtual QStringList outputPaths() const
     {
         return m_outputPaths.isEmpty() ? runOutputPaths(m_inpPath, m_rptPath, m_outPath)
                                        : m_outputPaths;

@@ -229,6 +229,7 @@
 #include "plugins/filefilterregistry.h"
 #include "selection/selectionmanager.h"
 #include "simulation/simulationrunner.h"
+#include "simulation/componentexecution.h"
 #include "simulation/checkpointmodel.h"
 #include "simulation/runpathlease.h"
 #include "ui/dialogs/checkpointsdialog.h"
@@ -4965,6 +4966,12 @@ void SWMMVis::initializeMenus()
                 ui->actionPauseExecution->setChecked(false);
                 return;
             }
+            if (!runner->supportsPause()) {
+                QSignalBlocker b(ui->actionPauseExecution);
+                ui->actionPauseExecution->setChecked(false);
+                onLogMessage(tr("This component run does not support pausing."), OpenSWMMVisLogMessage::Information);
+                return;
+            }
             runner->setPaused(paused);
             onLogMessage(
                 paused
@@ -4981,17 +4988,18 @@ void SWMMVis::initializeMenus()
         if (!runner)
             return;
         const bool wasPaused = runner->isPaused();
-        if (!wasPaused)
+        const bool partialResults = runner->supportsPartialResults();
+        if (!wasPaused && runner->supportsPause())
             runner->setPaused(true);
 
         const QString name = QFileInfo(runner->inpPath()).fileName();
         const auto reply =
             QMessageBox::question(this, tr("Stop simulation"),
-                                  tr("Stop \"%1\" now?\n\n"
+                                  (partialResults ? tr("Stop \"%1\" now?\n\n"
                                      "The simulation is paused.  Choosing Yes flushes whatever "
                                      "the engine has produced up to this point to the .out / "
                                      ".rpt files and loads the partial results.  Choosing No "
-                                     "resumes the run.")
+                                     "resumes the run.") : tr("Stop \"%1\" now?\n\nInterrupted component files will be retained without loading them. Previous results remain available."))
                                       .arg(name),
                                   QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
         if (!runner)
@@ -4999,8 +5007,8 @@ void SWMMVis::initializeMenus()
 
         if (reply == QMessageBox::Yes) {
             requestRunCancellation(runner->property("extensionRunAttemptId").toUuid());
-            onLogMessage(tr("Stop requested for %1 — partial results will "
-                            "be saved to the .out file.")
+            onLogMessage((partialResults ? tr("Stop requested for %1 — partial results will "
+                            "be saved to the .out file.") : tr("Stop requested for %1 — previous results will remain available."))
                              .arg(name));
         } else if (!wasPaused) {
             // User aborted the stop — resume since we paused implicitly.
@@ -7159,6 +7167,21 @@ double undeclared2DCoordinateScale(SWMMVisProjectWindow *window)
 void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window, const QString &filePath,
                                  const QString &h5Override)
 {
+    load2DResultsForAttempt(window, filePath, h5Override, {});
+}
+
+void SWMMVis::load2DResultsForAttempt(SWMMVisProjectWindow *window, const QString &filePath,
+                                      const QString &h5Override,
+                                      const std::function<bool()> &stillCurrent)
+{
+    const QPointer<SWMMVis> self(this);
+    const QPointer<SWMMVisProjectWindow> owner(window);
+    const auto valid = [&] {
+        return self && owner && !owner->isClosing() && owner->canvas() &&
+               (!stillCurrent || stillCurrent());
+    };
+    if (!valid())
+        return;
     // An explicit add (Import ▸ Add 2D Results…) names its own file; the
     // project-open pass resolves one from the model instead.
     const bool explicitAdd = !h5Override.isEmpty();
@@ -7197,6 +7220,7 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window, const QString &fi
             if (!src || QFileInfo(src->path()).absoluteFilePath() != wanted)
                 continue;
             window->setActive2DResultsLayer(r2d);
+            if (!valid()) return;
             onLogMessage(tr("2D results already loaded: %1").arg(QFileInfo(h5Path).fileName()));
             return;
         }
@@ -7233,6 +7257,8 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window, const QString &fi
                         h5Src->setSimulationStart(simStart);
                         onLogMessage(
                             tr("2D layer time anchor: %1").arg(simStart.toString(Qt::ISODate)));
+                        if (!valid())
+                            return;
                     }
                 }
             }
@@ -7241,23 +7267,47 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window, const QString &fi
             // peak-frame scan (setSource swallows ownership).
             IMesh2DSource *srcRaw = h5Src.get();
             auto *resLayer = new SWMM2DResultsLayer(QStringLiteral("2D Results"), nullptr);
+            const QPointer<SWMM2DResultsLayer> result(resLayer);
+            bool adopted = false;
+            const auto discardUnadopted = qScopeGuard([&] {
+                if (adopted || !result)
+                    return;
+                if (owner && owner->canvas()) {
+                    const int index = owner->canvas()->layers().indexOf(result);
+                    if (index >= 0) {
+                        const QPointer<OpenSWMMVisLayer> taken(owner->canvas()->takeLayer(index, false));
+                        if (taken)
+                            taken->deleteLater();
+                        return;
+                    }
+                }
+                if (result)
+                    result->deleteLater();
+            });
+            const auto alive = [&] { return valid() && result; };
             resLayer->setAsyncSurface(true); // fit frames off the GUI thread
+            if (!alive()) return;
             // Tag with the backing .h5 so a later live run REUSES this
             // layer instead of stacking a duplicate (one results layer
             // per file — see the twoDInitialized handler).
             resLayer->setProperty("snoopy_h5_path", QFileInfo(h5Path).absoluteFilePath());
+            if (!alive()) return;
             // Issue #155 — set BEFORE setSource so the first geometry
             // build already uses it. A file written by engine 6.0+ carries
             // its own /crs factor and ignores this.
             resLayer->setFallbackCoordinateScale(undeclared2DCoordinateScale(window));
+            if (!alive()) return;
             resLayer->setSource(std::move(h5Src));
+            if (!alive() || result->source() != srcRaw) return;
             // Outputs inherit the model's CRS so the
             // Properties window shows a real CRS and any
             // reprojection logic matches the input.
             if (window->modelLayer() && window->modelLayer()->srs())
                 resLayer->setSRS(new SpatialReferenceSystem(*window->modelLayer()->srs(), resLayer),
                                  /*ownsSRS=*/true);
+            if (!alive() || result->source() != srcRaw) return;
             window->canvas()->addLayer(resLayer, /*pushUndo=*/false);
+            if (!alive() || result->source() != srcRaw) return;
 
             // Scan all frames to find (a) the peak-inundation
             // frame to seek to and (b) the actual depth range so
@@ -7332,8 +7382,10 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window, const QString &fi
                 swmm_2d_get_dry_depth(window->modelLayer()->engine(), &engineDry) == SWMM_OK &&
                 engineDry > 0.0) {
                 resLayer->setDryDepth(engineDry);
+                if (!alive() || result->source() != srcRaw) return;
             } else if (inpDry > 0.0) {
                 resLayer->setDryDepth(inpDry);
+                if (!alive() || result->source() != srcRaw) return;
             }
 
             // Tune the inundation colour ramp's upper bound to the
@@ -7344,7 +7396,9 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window, const QString &fi
                 // most of the palette); seek still goes to the true peak
                 // frame, which is the interesting one to land on.
                 resLayer->setMaxDepth(rampMax);
+                if (!alive() || result->source() != srcRaw) return;
                 resLayer->setCurrentTimeIndex(peakFrame);
+                if (!alive() || result->source() != srcRaw) return;
             }
 
             // Apply the project sidecar's persisted settings and
@@ -7359,28 +7413,38 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window, const QString &fi
                     continue;
                 if (r.contains(QStringLiteral("name")))
                     resLayer->setName(r.value(QStringLiteral("name")).toString());
+                if (!alive() || result->source() != srcRaw) return;
                 if (r.contains(QStringLiteral("visible")))
                     resLayer->setVisible(r.value(QStringLiteral("visible")).toBool());
+                if (!alive() || result->source() != srcRaw) return;
                 if (r.contains(QStringLiteral("opacity")))
                     resLayer->setOpacity(r.value(QStringLiteral("opacity")).toDouble());
+                if (!alive() || result->source() != srcRaw) return;
                 if (r.value(QStringLiteral("dryDepth")).toDouble() > 0.0)
                     resLayer->setDryDepth(r.value(QStringLiteral("dryDepth")).toDouble());
+                if (!alive() || result->source() != srcRaw) return;
                 resLayer->restoreWaterDisplayPolicy(
                     r.value(QStringLiteral("waterDisplayPolicy")).toObject());
+                if (!alive() || result->source() != srcRaw) return;
                 if (r.value(QStringLiteral("maxDepth")).toDouble() > 0.0)
                     resLayer->setMaxDepth(r.value(QStringLiteral("maxDepth")).toDouble());
+                if (!alive() || result->source() != srcRaw) return;
                 if (r.value(QStringLiteral("maxVelocity")).toDouble() > 0.0)
                     resLayer->setMaxVelocity(r.value(QStringLiteral("maxVelocity")).toDouble());
+                if (!alive() || result->source() != srcRaw) return;
                 const QJsonObject subs = r.value(QStringLiteral("sublayers")).toObject();
                 if (!subs.isEmpty())
                     OpenSWMM::Render::ISublayerHost::loadSublayersFromJson(*resLayer, subs);
+                if (!alive() || result->source() != srcRaw) return;
                 onLogMessage(tr("2D results style restored from project."));
+                if (!alive() || result->source() != srcRaw) return;
                 break;
             }
             // Only the project-open pass consumes the sidecar's pending
             // restore; an explicit add must leave it for the auto-load.
             if (!explicitAdd)
                 window->clearPending2DResultsRestore();
+            if (!alive() || result->source() != srcRaw) return;
 
             // Make this the tab's active 2D results layer so the 2D
             // analysis combo + cell-pick tool + mesh profile target it.
@@ -7390,6 +7454,7 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window, const QString &fi
             // Add SWMM Results behaviour).
             if (explicitAdd || !window->active2DResultsLayer())
                 window->setActive2DResultsLayer(resLayer);
+            if (!alive() || result->source() != srcRaw) return;
 
             // CF.MVP-fix.1 — register the 2D layer as the
             // animation controller's fallback driver so the
@@ -7397,6 +7462,7 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window, const QString &fi
             // when no 1D .out results are loaded.
             if (mAnimationController && !mAnimationController->primaryLayer()) {
                 mAnimationController->setFallback2DLayer(resLayer);
+                if (!alive() || result->source() != srcRaw) return;
             }
 
             onLogMessage(tr("Loaded 2D results: %1 (%2 frames, "
@@ -7407,6 +7473,8 @@ void SWMMVis::maybeLoad2DResults(SWMMVisProjectWindow *window, const QString &fi
                              .arg(double(peakDepth) * 1000.0, 0, 'f', 2)
                              .arg(peakFrame)
                              .arg(resLayer->maxVelocity() * 1000.0, 0, 'f', 3));
+            if (!alive() || result->source() != srcRaw) return;
+            adopted = true;
         } else {
             onLogMessage(tr("Found 2D output file but failed to open: %1").arg(h5Path),
                          OpenSWMMVisLogMessage::LogMessageType::Warning);
@@ -10373,6 +10441,28 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
             return;
     }
 
+    auto *componentRegistry = openswmmvis::simulation::ComponentEngineRegistry::forProject(pw);
+    if (!componentRegistry->error().isEmpty()) {
+        onLogMessage(componentRegistry->error(), OpenSWMMVisLogMessage::Error);
+        return;
+    }
+    const bool componentRun = componentRegistry->mode() != QStringLiteral("native");
+    openswmmvis::simulation::ComponentRunRequest componentRequest;
+    if (componentRun) {
+        if (!pw->engineVersion().startsWith(QStringLiteral("6."))) {
+            onLogMessage(tr("Component execution requires OpenSWMM 6."), OpenSWMMVisLogMessage::Error);
+            return;
+        }
+        componentRequest.model = inpPath;
+        componentRequest.settings = componentRegistry->settings();
+        componentRequest.directory = QFileInfo(inpPath).absoluteDir().filePath(
+            QFileInfo(inpPath).completeBaseName() + QStringLiteral(".component-runs/") +
+            QUuid::createUuid().toString(QUuid::WithoutBraces));
+        componentRequest.program = QSettings().value(QStringLiteral("SWMMVis/Components/ComposerProgram")).toString();
+        componentRequest.components = QSettings().value(QStringLiteral("SWMMVis/Components/LibraryDirectory")).toString();
+        componentRequest.surface = componentRegistry->mode() != QStringLiteral("complete");
+    }
+
     // The 2D pre-flight below and the OUTPUT_FILE default after it both need
     // the same three facts. Resolve each exactly once — on a large model every
     // one of these is a full re-read of the .inp from disk, and the file has
@@ -10386,14 +10476,14 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
     // OUTPUT_FILE without consulting that per-project flag, so a .h5 can be
     // open as a results layer with the flag false. The stale-2D-results
     // collision guard below must still see it.
-    QString h5Path = SimulationRunner::parseTwoDOutputFile(inpPath);
+    QString h5Path = componentRun ? componentRequest.mesh() : SimulationRunner::parseTwoDOutputFile(inpPath);
 
     // Pre-flight: if the user enabled 2D Surface Routing for this model but no
     // mesh resolves (no inline [2D_*] sections and no valid [2D_MESH_FILE]),
     // the engine silently runs 1D-only. Warn and let the user decide rather
     // than producing 1D-only results without explanation.
     {
-        if (twoDEnabled && !twoDMeshFound) {
+        if (!componentRun && twoDEnabled && !twoDMeshFound) {
             const auto reply = QMessageBox::warning(
                 this, tr("2D mesh not found"),
                 tr("2D Surface Routing is enabled for this model, but no 2D "
@@ -10424,7 +10514,7 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
     // the engine resolves it against the .inp directory) and save so the run
     // engine, which opens the .inp from disk, sees it.
     {
-        if (twoDMeshFound && h5Path.isEmpty()) {
+        if (!componentRun && twoDMeshFound && h5Path.isEmpty()) {
             const QString h5Default =
                 QFileInfo(inpPath).completeBaseName() + QStringLiteral(".2d.h5");
             if (swmm_options_set_ext(pw->modelLayer()->engine(), "OUTPUT_FILE",
@@ -10462,9 +10552,9 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
     // keep today's behaviour. Strategy C per §Q.5 — GUI-only resolution,
     // no engine OPTIONS surface. Surface a log line naming the resolved
     // paths so the user can see which files the run will write.
-    const QString rptPath =
+    const QString rptPath = componentRun ? componentRequest.report() :
         openswmmvis::resolveRunOutputPathFromSettings(inpPath, openswmmvis::RunOutputKind::Rpt);
-    const QString outPath =
+    const QString outPath = componentRun ? componentRequest.binary() :
         openswmmvis::resolveRunOutputPathFromSettings(inpPath, openswmmvis::RunOutputKind::Out);
     {
         const QFileInfo inpFi(inpPath);
@@ -10473,7 +10563,7 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
         const QString defaultOut = siblingBase + QStringLiteral(".out");
         const bool overrodeRpt = (QDir::cleanPath(rptPath) != QDir::cleanPath(defaultRpt));
         const bool overrodeOut = (QDir::cleanPath(outPath) != QDir::cleanPath(defaultOut));
-        if (overrodeRpt || overrodeOut) {
+        if (!componentRun && (overrodeRpt || overrodeOut)) {
             onLogMessage(tr("Using output overrides — rpt: %1 / out: %2").arg(rptPath, outPath),
                          OpenSWMMVisLogMessage::Information);
             if (!contextCurrent())
@@ -10524,8 +10614,10 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
             inputs.append(runner->inpPath());
         }
         QString error;
-        const QStringList extra =
+        QStringList extra =
             compatibilityInput.isEmpty() ? QStringList() : QStringList{compatibilityInput};
+        if (componentRun)
+            extra.append(componentRequest.directory);
         if (SimulationRunner::validateRunPaths(inpPath, rptPath, outPath, inputs, active, &error,
                                                extra))
             return true;
@@ -10890,13 +10982,28 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
     // Create runner; wire signals → model; runner deletes itself after finish.
     if (!preparationCurrent())
         return;
-    auto *runner =
-        new SimulationRunner(jobId, instanceName, runInpPath, rptPath, outPath, engineVer, this);
+    SimulationRunner *runner = componentRun
+        ? static_cast<SimulationRunner *>(new openswmmvis::simulation::ComposerSimulationRunner(
+            jobId, instanceName, componentRequest, this))
+        : new SimulationRunner(jobId, instanceName, runInpPath, rptPath, outPath, engineVer, this);
     runner->setProperty("extensionRunAttemptId", operationId);
     mActiveRunners.insert(jobId, runner);
     transferredToRunner = true;
     const auto attemptCurrent = [controller, jobId, operationId] {
         return controller && controller->runAttemptCurrent(jobId, operationId);
+    };
+    const auto componentResultCurrent = [componentRun, owner, model, nativeRegistry,
+                                         initialSession, editingEngine, revision, inpPath] {
+        if (!componentRun)
+            return true;
+        const auto current = nativeRegistry ? nativeRegistry->session(initialSession.sessionId)
+                                            : OpenSWMM::Sdk::ModelSessionState{};
+        return owner && !owner->isClosing() && model && owner->modelLayer() == model &&
+               model->engine() == editingEngine && model->modelFilePath() == inpPath &&
+               model->editRevision() == revision &&
+               current.sessionId == initialSession.sessionId &&
+               current.loadGeneration == initialSession.loadGeneration &&
+               current.status == OpenSWMM::Sdk::SessionStatus::Ready;
     };
     connect(runner, &SimulationRunner::started, this,
             [processRegistry, operationId, attemptCurrent] {
@@ -11001,9 +11108,9 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
     // Keep history available even while the shared display clock is held.
     // The animation controller alone decides whether selected results follow.
     connect(runner, &SimulationRunner::progressChanged, this,
-            [self, pwGuard, outPathCopy, rptPathCopy, attemptCurrent, operationId](int tickJobId, double, const QDateTime &,
+            [self, pwGuard, outPathCopy, rptPathCopy, attemptCurrent, operationId, componentRun](int tickJobId, double, const QDateTime &,
                                                       double, double) {
-                if (!self || !pwGuard || pwGuard->isClosing() || !attemptCurrent())
+                if (componentRun || !self || !pwGuard || pwGuard->isClosing() || !attemptCurrent())
                     return;
                 self->tickLive1DResults(tickJobId, pwGuard, outPathCopy, rptPathCopy, operationId);
             });
@@ -11011,9 +11118,10 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
     connect(
         runner, &SimulationRunner::finished, this,
         [self, runner, pwGuard, outPathCopy, rptPathCopy, instanceName,
-         traceRunId, operationId, attemptCurrent](int finishedJobId, bool success, int errCode, QString errMsg,
+         traceRunId, operationId, attemptCurrent, componentResultCurrent](int finishedJobId, bool success, int errCode, QString errMsg,
                      double runoffFrac, double routingFrac, double twoDFrac) {
             const QPointer<SimulationRunner> runnerGuard(runner);
+            const bool partialResults = runner->supportsPartialResults();
             const auto deleteFinishedRunner = qScopeGuard([runnerGuard] {
                 if (runnerGuard)
                     runnerGuard->deleteLater();
@@ -11064,6 +11172,10 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
                 }
                 self->ui->actionPauseExecution->setEnabled(false);
                 self->ui->actionCancelExecution->setEnabled(false);
+            } else {
+                self->ui->actionPauseExecution->setEnabled(std::any_of(
+                    self->mActiveRunners.cbegin(), self->mActiveRunners.cend(),
+                    [](SimulationRunner *active) { return active && active->supportsPause(); }));
             }
 
             // Success path OR cancelled path — both preserve the .out
@@ -11078,7 +11190,7 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
             const bool outHasData =
                 QFileInfo(outPathCopy).exists() && QFileInfo(outPathCopy).size() > 0;
             if (cancelled) {
-                self->onLogMessage(tr("Simulation cancelled. Partial results: %1").arg(outPathCopy),
+                self->onLogMessage(partialResults ? tr("Simulation cancelled. Partial results: %1").arg(outPathCopy) : errMsg,
                                    OpenSWMMVisLogMessage::Warning);
             } else if (!success) {
                 self->onLogMessage(tr("Simulation failed (code %1): %2 — %3")
@@ -11107,7 +11219,7 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
             // cancel/success — the engine flushed partial output
             // either way, and the user explicitly asked for Cancel to
             // save results. Only skip on engine-error with no output.
-            const bool hasResults = (success || cancelled) && outHasData;
+            const bool hasResults = (success || (cancelled && partialResults)) && outHasData && componentResultCurrent();
             // The layer this job was tailing live, if any. Finalising it
             // in place keeps its identity, so open plots / the animation
             // controller bound to it never see a swap.
@@ -11117,12 +11229,12 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
                     liveLayer ? liveLayer
                               : self->findOrCreateResultsLayer(pwGuard, outPathCopy, rptPathCopy);
                 const QPointer<SWMMResultsLayer> resultGuard(rl);
-                if (!attemptCurrent() || !pwGuard || pwGuard->isClosing() || !resultGuard)
+                if (!attemptCurrent() || !componentResultCurrent() || !pwGuard || pwGuard->isClosing() || !resultGuard)
                     return;
                 // Remember which .rpt this run wrote so the Report
                 // Viewer can list it (persisted in the .oswp sidecar).
                 rl->setReportFilePath(rptPathCopy);
-                if (!attemptCurrent() || !resultGuard || !pwGuard || pwGuard->isClosing())
+                if (!attemptCurrent() || !componentResultCurrent() || !resultGuard || !pwGuard || pwGuard->isClosing())
                     return;
 
                 bool opened = false;
@@ -11132,7 +11244,7 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
                     // live with whatever whole periods exist — still
                     // usable, so keep it rather than reopening.
                     rl->refreshLive();
-                    if (!attemptCurrent() || !resultGuard || !pwGuard || pwGuard->isClosing())
+                    if (!attemptCurrent() || !componentResultCurrent() || !resultGuard || !pwGuard || pwGuard->isClosing())
                         return;
                     opened = rl->totalTimeSteps() > 0;
                 }
@@ -11141,11 +11253,11 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
                     // classic post-run open. closeResults() first in case
                     // a stale handle is bound (overwrite-confirm path).
                     rl->closeResults();
-                    if (!attemptCurrent() || !resultGuard || !pwGuard || pwGuard->isClosing())
+                    if (!attemptCurrent() || !componentResultCurrent() || !resultGuard || !pwGuard || pwGuard->isClosing())
                         return;
                     QList<QString> rlWarnings, rlErrors;
                     opened = rl->openResults(rlWarnings, rlErrors);
-                    if (!attemptCurrent() || !resultGuard || !pwGuard || pwGuard->isClosing())
+                    if (!attemptCurrent() || !componentResultCurrent() || !resultGuard || !pwGuard || pwGuard->isClosing())
                         return;
                     if (!opened)
                         for (const QString &e : rlErrors)
@@ -11153,13 +11265,13 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
                 }
                 if (opened) {
                     rl->autoStretchColorRamp();
-                    if (!attemptCurrent() || !resultGuard || !pwGuard || pwGuard->isClosing())
+                    if (!attemptCurrent() || !componentResultCurrent() || !resultGuard || !pwGuard || pwGuard->isClosing())
                         return;
                     // A live run was already selected on its first data. Do
                     // not steal a later Analysis selection or a background tab.
                     if (!liveLayer || !pwGuard->activeResultsLayer())
                         pwGuard->setActiveResultsLayer(rl);
-                    if (!attemptCurrent() || !resultGuard || !pwGuard || pwGuard->isClosing())
+                    if (!attemptCurrent() || !componentResultCurrent() || !resultGuard || !pwGuard || pwGuard->isClosing())
                         return;
                     if (pwGuard == self->activeProjectWindow() &&
                         pwGuard->activeResultsLayer() == rl)
@@ -11503,7 +11615,23 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
     // Action changes publish outward signals. Install every terminal handler
     // before exposing them; native window destruction settles an undispatched
     // preparation without waiting for a worker that has not started.
-    ui->actionPauseExecution->setEnabled(true);
+    if (componentRun) {
+        const QPointer<openswmmvis::simulation::ComposerSimulationRunner> componentRunner(
+            qobject_cast<openswmmvis::simulation::ComposerSimulationRunner *>(runner));
+        connect(runner, &SimulationRunner::finished, this,
+                [self, pwGuard, attemptCurrent, componentRunner, componentResultCurrent](int, bool success, int, const QString &, double, double, double) {
+                    if (success && self && pwGuard && !pwGuard->isClosing() && componentRunner &&
+                        !componentRunner->request().mesh().isEmpty() && attemptCurrent() && componentResultCurrent())
+                        self->load2DResultsForAttempt(pwGuard, componentRunner->request().model,
+                                                      componentRunner->request().mesh(),
+                                                      [attemptCurrent, componentResultCurrent] {
+                                                          return attemptCurrent() && componentResultCurrent();
+                                                      });
+                });
+    }
+    ui->actionPauseExecution->setEnabled(std::any_of(
+        mActiveRunners.cbegin(), mActiveRunners.cend(),
+        [](SimulationRunner *active) { return active && active->supportsPause(); }));
     if (!controller)
         return;
     ui->actionCancelExecution->setEnabled(true);

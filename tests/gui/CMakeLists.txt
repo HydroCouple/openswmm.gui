@@ -2872,6 +2872,21 @@ add_swmmvis_gui_test(test_simrunner_failures
 )
 target_link_libraries(test_simrunner_failures PRIVATE Qt6::Concurrent)
 
+add_swmmvis_gui_test(test_component_execution
+    test_component_execution.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/componentexecution.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/componentexecutiondialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/simulation/componentexecution.h
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/componentexecutiondialog.h
+    ${CMAKE_SOURCE_DIR}/src/io/mesh2dlivevariables.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
+    ${CMAKE_SOURCE_DIR}/src/io/lidstates.cpp
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/simulation/simulationrunner.h
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h)
+target_link_libraries(test_component_execution PRIVATE Qt6::Concurrent)
+
 # Worker-owned native checkpoint sessions; value results and path protection.
 add_swmmvis_gui_test(test_checkpointworker
     test_checkpointworker.cpp
@@ -3265,6 +3280,14 @@ add_swmmvis_gui_test(test_featurelayer_hostwiring
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_featurelayer_hostwiring)
+
+# Standard component execution through the shipping main-window controller.
+add_swmmvis_gui_test(test_component_execution_window
+    test_component_execution_window.cpp
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_component_execution_window)
 
 # Ribbon organization on the real main window (process-aware editing plan,
 # Phase 1): one face per command, Quick Access, contextual Animation, stack

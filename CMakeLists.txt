@@ -1524,6 +1524,10 @@ set(
         # Simulation
         src/simulation/runpathresolver.cpp
         src/simulation/simulationrunner.cpp
+        src/simulation/componentexecution.cpp
+        include/simulation/componentexecution.h
+        src/ui/dialogs/componentexecutiondialog.cpp
+        include/ui/dialogs/componentexecutiondialog.h
         src/simulation/checkpointmodel.cpp
         src/ui/dialogs/checkpointsdialog.cpp
         src/simulation/checkpointworker.cpp
