@@ -1005,6 +1005,22 @@ double ProfilePlotWidget::nodeHalfWidthPx(int nodeIdx) const
     return std::max(kDefaultNodeHalfWidthPx, half);
 }
 
+std::optional<QRectF> ProfilePlotWidget::nodeGlyphRect(int nodeIdx) const
+{
+    const auto &node = m_path.nodes[nodeIdx];
+    // Between two excavated links there is no exposed shaft, unless the node hosts a LID.
+    if (node.lidLayers.isEmpty() && nodeIdx > 0 && nodeIdx < m_path.links.size() &&
+        linkKindIsExcavated(m_path.links[nodeIdx - 1].kind) &&
+        linkKindIsExcavated(m_path.links[nodeIdx].kind))
+        return std::nullopt;
+
+    const double chain = virtualX(nodeIdx);
+    const QPointF rim = dataToPixel(chain, ProfileBuilder::groundElev(node));
+    const QPointF invert = dataToPixel(chain, node.invertElev);
+    const double half = nodeHalfWidthPx(nodeIdx);
+    return QRectF(QPointF(rim.x() - half, rim.y()), QPointF(rim.x() + half, invert.y()));
+}
+
 std::optional<ProfilePlotWidget::LidLinkDrawing>
 ProfilePlotWidget::lidLinkDrawing(int linkIdx) const
 {
@@ -2164,9 +2180,6 @@ void ProfilePlotWidget::paintSurface2D(QPainter &p) const
     const QBrush brush =
         m_options ? m_options->inundation2DFillBrush() : QBrush(QColor(0x20, 0xB2, 0xAA, 90));
 
-    p.save();
-    p.setClipRect(plotRect());
-
     // Clip each owned interval against both the result bed and the drawn
     // ground. Split at ground/axis knots too, so a DEM kink or a compressed
     // link cannot move the intersection. Never join across missing cells.
@@ -2219,6 +2232,23 @@ void ProfilePlotWidget::paintSurface2D(QPainter &p) const
             line.lineTo(right);
         }
     }
+    if (fill.isEmpty())
+        return;
+
+    // Keep surface water above a submerged crown, and reserve the shaft interior for 1D results.
+    const QRectF bounds = plotRect();
+    QPainterPath shafts;
+    shafts.setFillRule(Qt::WindingFill); // overlapping shaft rectangles still exclude water
+    for (int i = 0; i < m_path.nodes.size(); ++i) {
+        if (m_path.nodes[i].kind == ProfileBuilder::NodeKind::Junction) {
+            if (const auto shaft = nodeGlyphRect(i); shaft && shaft->intersects(bounds))
+                shafts.addRect(*shaft);
+        }
+    }
+    QPainterPath plot;
+    plot.addRect(bounds);
+    p.save();
+    p.setClipPath(plot.subtracted(shafts), Qt::IntersectClip);
     if (brush.style() != Qt::NoBrush)
         p.fillPath(fill, brush);
     if (pen.style() != Qt::NoPen) {
@@ -3117,14 +3147,8 @@ void ProfilePlotWidget::paintNodes(QPainter &p) const
     // Narrow tube so the wider path / animated HGL lines remain readable
     // through the manhole interior.  Matches the soil-fill knockout width.
     for (int i = 0; i < m_path.nodes.size(); ++i) {
-        // Suppress the manhole tube + rim glyph when this node sits between
-        // two excavated links — there's no real manhole there to draw, and
-        // the stepwise ground line in paintSoilFill never rises to the rim
-        // for these nodes, so a tube would float disconnected from the soil.
-        const bool incomingExc = (i > 0) && linkKindIsExcavated(m_path.links[i - 1].kind);
-        const bool outgoingExc =
-            (i + 1 < m_path.nodes.size()) && linkKindIsExcavated(m_path.links[i].kind);
-        if (incomingExc && outgoingExc && m_path.nodes[i].lidLayers.isEmpty())
+        const auto tube = nodeGlyphRect(i);
+        if (!tube)
             continue;
 
         // Same reasoning for a virtual junction: it is a computational break
@@ -3137,9 +3161,7 @@ void ProfilePlotWidget::paintNodes(QPainter &p) const
         // conduits either side — that overlap is what shows the split.
         if (m_path.nodes[i].kind == ProfileBuilder::NodeKind::VirtualJunction) {
             const auto &vn = m_path.nodes[i];
-            const double vchain = virtualX(i);
-            const QPointF vrim = dataToPixel(vchain, ProfileBuilder::groundElev(vn));
-            const QPointF vinv = dataToPixel(vchain, vn.invertElev);
+            const QPointF vrim(tube->center().x(), tube->top());
             QPen vjPen = themeVirtualJunctionPen();
             if (m_selectedNames.contains(vn.name)) {
                 vjPen.setColor(QColor(0xFF, 0x66, 0x00)); // bright orange
@@ -3147,8 +3169,7 @@ void ProfilePlotWidget::paintNodes(QPainter &p) const
             }
             p.setBrush(Qt::NoBrush);
             p.setPen(vjPen);
-            p.drawRect(QRectF(QPointF(vrim.x() - nodeHalfWidthPx(i), vrim.y()),
-                              QPointF(vrim.x() + nodeHalfWidthPx(i), vinv.y())));
+            p.drawRect(*tube);
             // An inlet junction is a virtual junction that also captures
             // street flow to an off-profile underdrain node. The capture node
             // is not on this profile, so mark the capture itself: a small
@@ -3169,9 +3190,7 @@ void ProfilePlotWidget::paintNodes(QPainter &p) const
         }
 
         const auto &n = m_path.nodes[i];
-        const double chain = virtualX(i);
-        const QPointF rim = dataToPixel(chain, ProfileBuilder::groundElev(n));
-        const QPointF inv = dataToPixel(chain, n.invertElev);
+        const QPointF rim(tube->center().x(), tube->top());
 
         const bool selected = m_selectedNames.contains(n.name);
         const QColor fill = themeNodeFill(n.kind);
@@ -3185,11 +3204,9 @@ void ProfilePlotWidget::paintNodes(QPainter &p) const
         // Manhole tube — outline-only rectangle from invert to rim.  The
         // interior stays transparent so the HGL / EGL lines and any soil
         // knockout behind it remain visible through the tube.
-        const QRectF tube(QPointF(rim.x() - nodeHalfWidthPx(i), rim.y()),
-                          QPointF(rim.x() + nodeHalfWidthPx(i), inv.y()));
         p.setBrush(Qt::NoBrush);
         p.setPen(pen);
-        p.drawRect(tube);
+        p.drawRect(*tube);
 
         // Flooding test — outfalls cannot flood (open boundary), so they
         // always render with the normal outfall glyph.  Any other node

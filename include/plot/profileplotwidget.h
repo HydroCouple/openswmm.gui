@@ -577,6 +577,9 @@ private:
      * @return 3.5 logical pixels normally/for invalid indices; LID nodes use up to 24 pixels, limited to a quarter of neighboring pixel gaps with a 3.5-pixel floor. Elevations remain physically scaled.
      */
     [[nodiscard]] double nodeHalfWidthPx(int nodeIdx) const;
+    /** Shaft or virtual-break bounds in widget pixels; absent when the glyph is suppressed. */
+    [[nodiscard]] std::optional<QRectF> nodeGlyphRect(int nodeIdx) const;
+
     struct LidLinkDrawing {
         QPainterPath connection, body;
     };
