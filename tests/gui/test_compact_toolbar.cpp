@@ -40,6 +40,7 @@ private slots:
     void init();
 
     void tabSwitchSwapsVisibility();
+    void permanentToolbarSurvivesTabChangesAndRestore();
     void contextualTabHiddenUntilRevealed();
     void hidingCurrentTabFallsBack();
     void lastTabPersists();
@@ -146,6 +147,50 @@ void TestCompactToolbar::tabSwitchSwapsVisibility()
     delete rig.window;
 }
 
+/** @brief Quick Access keeps its tools-row position, including with an older saved layout. */
+void TestCompactToolbar::permanentToolbarSurvivesTabChangesAndRestore()
+{
+    QByteArray legacyState;
+    {
+        Rig legacy = makeRig();
+        legacyState = legacy.window->saveState(2);
+        delete legacy.window;
+    }
+    Rig rig = makeRig(false);
+    rig.window->resize(900, 400);
+    auto *quick = new QToolBar(QStringLiteral("Quick Access"), rig.window);
+    quick->setObjectName(QStringLiteral("toolBarQuickAccess"));
+    auto *controls = new QLabel(QStringLiteral("Permanent controls"), quick);
+    controls->setFixedSize(250, 100);
+    quick->addWidget(controls);
+    rig.controller->setPermanentToolbar(quick);
+    rig.controller->finalize();
+    QVERIFY(rig.window->restoreState(legacyState, 2));
+    rig.controller->restoreLayout();
+
+    auto *strip = rig.controller->stripToolBar();
+    for (const QString &tab : {QStringLiteral("home"), QStringLiteral("model"),
+                               QStringLiteral("mesh2d")}) {
+        rig.controller->setTabVisible(tab, true);
+        rig.controller->setCurrentTab(tab);
+        QTRY_VERIFY(controls->isVisibleTo(rig.window));
+        QTRY_VERIFY(quick->y() > strip->geometry().bottom());
+        QTRY_COMPARE(quick->x(), strip->x());
+        for (auto *bar : rig.controller->toolbarsForTab(tab)) {
+            QTRY_COMPARE(bar->y(), quick->y());
+            QTRY_VERIFY(bar->x() >= quick->geometry().right());
+        }
+    }
+    const auto saved = rig.window->saveState(2);
+    QVERIFY(rig.window->restoreState(saved, 2));
+    rig.controller->restoreLayout();
+    QTRY_VERIFY(controls->isVisibleTo(rig.window));
+    QTRY_COMPARE(quick->x(), strip->x());
+    QVERIFY(!quick->isMovable());
+    QVERIFY(!quick->isFloatable());
+    delete rig.window;
+}
+
 /**
  *
  * @brief Require a hidden Mesh tab to refuse selection until explicitly revealed, then show its
@@ -227,7 +272,7 @@ void TestCompactToolbar::catalogTabIdsAreMounted()
         known.insert(QString::fromLatin1(tab));
     // The app mounts exactly the catalog's tab vocabulary (home, model,
     // terrain, mesh2d, features, analysis, results) plus the Quick Access
-    // cluster on the strip — every catalog tab id must be in that set, so no
+    // cluster below the strip — every catalog tab id must be in that set, so no
     // action can be assigned to an unmounted tab.
     known.insert(QString::fromLatin1(kActionCatalogStrip));
     for (const auto &entry : kActionCatalog) {

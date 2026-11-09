@@ -46,6 +46,7 @@
 #include <QFrame>
 #include <QHBoxLayout>
 #include <QMenu>
+#include <QStyle>
 #include <QToolBar>
 #include <QToolButton>
 
@@ -194,6 +195,7 @@ void SWMMVis::initializeCompactToolbar()
 {
     using openswmmvis::ui::CompactToolbarController;
     using openswmmvis::ui::IconFactory;
+    using openswmmvis::ui::kRibbonIconFull;
     using openswmmvis::ui::RibbonGroup;
     using openswmmvis::ui::RibbonSplitButton;
 
@@ -205,7 +207,7 @@ void SWMMVis::initializeCompactToolbar()
     // visible three-row stacks (small icon + label, every row its own
     // button — never a dropdown, which the August revision ruled out).
     // Select, Pan, Full Extent, Undo and Redo live in the Quick Access
-    // cluster on the tab strip instead of on five tabs. Unresolved names are
+    // group below the tab strip instead of on five tabs. Unresolved names are
     // skipped, same tolerance as the registry sweep.
     /**
      * @brief Resolve existing child actions by object name. Argument `names`: borrowed
@@ -521,22 +523,31 @@ void SWMMVis::initializeCompactToolbar()
     mCompactToolbar->addTab(QStringLiteral("results"), tr("Animation"), {mToolBarAnimation},
                             /*contextual*/ true);
 
-    // Quick Access: the commands every tab needs, on the tab strip itself so
-    // they never cost a tab switch. Select reuses the "select" split family
+    // Quick Access: a permanent group at the left of the tools row, below
+    // the tabs. Its larger targets never increase the tab-strip height.
+    // Select reuses the "select" split family
     // (and its persisted last-used member); the faces are the same QActions
     // as the menus, so checked state follows the canvas tool everywhere.
     {
-        auto *quick = new QWidget(this);
+        auto *bar = new QToolBar(tr("Quick Access"), this);
+        bar->setObjectName(QStringLiteral("toolBarQuickAccess"));
+        auto *group = new RibbonGroup(tr("Quick Access"), bar);
+        auto *quick = new QWidget(group);
         quick->setObjectName(QStringLiteral("ribbonQuickAccess"));
         quick->setAccessibleName(tr("Quick Access"));
         auto *row = new QHBoxLayout(quick);
         row->setContentsMargins(2, 0, 2, 0);
-        row->setSpacing(0);
-        const QSize iconSize(20, 20);
+        row->setSpacing(2);
+        const QSize iconSize(kRibbonIconFull, kRibbonIconFull);
+        constexpr int buttonSize = 44;
         auto *select = new RibbonSplitButton(
             QStringLiteral("select"), resolve({"actionSelect", "actionSelectByPolygon"}), quick);
         select->setToolButtonStyle(Qt::ToolButtonIconOnly);
         select->setIconSize(iconSize);
+        // Keep a full-size primary target in addition to the native menu arrow.
+        const int menuWidth = select->style()->pixelMetric(QStyle::PM_MenuButtonIndicator,
+                                                          nullptr, select);
+        select->setFixedSize(buttonSize + menuWidth, buttonSize);
         row->addWidget(select);
         /**
          * @brief Append icon-only Quick Access buttons. Argument `names`: action object names
@@ -549,6 +560,7 @@ void SWMMVis::initializeCompactToolbar()
                 button->setDefaultAction(act);
                 button->setToolButtonStyle(Qt::ToolButtonIconOnly);
                 button->setIconSize(iconSize);
+                button->setFixedSize(buttonSize, buttonSize);
                 row->addWidget(button);
             }
         };
@@ -557,9 +569,12 @@ void SWMMVis::initializeCompactToolbar()
         rule->setFrameShape(QFrame::VLine);
         rule->setFrameShadow(QFrame::Plain);
         rule->setForegroundRole(QPalette::Dark);
+        rule->setFixedHeight(26);
         row->addWidget(rule);
         addQuick({"actionUndo", "actionRedo"});
-        mCompactToolbar->setLeadingWidget(quick);
+        group->addWidget(quick);
+        bar->addWidget(group);
+        mCompactToolbar->setPermanentToolbar(bar);
     }
     mCompactToolbar->finalize();
 

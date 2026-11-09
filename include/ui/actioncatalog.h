@@ -30,7 +30,7 @@
  *                     "" = the action keeps whatever icon it already has.
  *  - tab:             where the action's ONE ribbon face lives: a compact-
  *                     toolbar tab id, "strip" for the Quick Access cluster
- *                     on the tab strip, or "" for menu/palette only.
+ *                     below the tab strip, or "" for menu/palette only.
  *                     test_ribbon_organization compares it with the mounted
  *                     ribbon, so a regrouping must update it.
  *  - menuPath:        canonical menu location (documentation + menubar
@@ -414,7 +414,7 @@ inline constexpr const char *kActionCatalogTabs[] = {
     "home", "model", "terrain", "mesh2d", "analysis", "results", "features",
 };
 
-/// Pseudo-tab of the Quick Access cluster on the tab strip, visible on every tab.
+/// Stable pseudo-tab ID of Quick Access, pinned below the tabs and visible on every tab.
 inline constexpr const char *kActionCatalogStrip = "strip";
 
 } // namespace openswmmvis::ui
