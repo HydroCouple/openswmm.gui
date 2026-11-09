@@ -143,7 +143,11 @@ include(FetchOpenSWMMEngine)
 include(FetchHydroCoupleOgc)
 include(GuiExtensionSdk)
 include(FetchOpenSWMMData)
-add_subdirectory(libraries/meshkit)
+add_subdirectory(libraries/meshkit EXCLUDE_FROM_ALL)
+install(FILES libraries/meshkit/LICENSE libraries/meshkit/NOTICE libraries/meshkit/RELICENSING.md
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/MeshKit)
+install(FILES libraries/meshkit/vendor/predicates/LICENSE
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/MeshKit RENAME predicates.txt)
 
 # ── Additional engine versions shipped as subprocess workers ────────────────
 # EPA SWMM 5.2.4 (pinned tag on the build-v5.2.4 branch), compiled statically
