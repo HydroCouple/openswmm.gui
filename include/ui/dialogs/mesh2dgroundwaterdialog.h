@@ -44,6 +44,7 @@
 #include <QDialog>
 #include <QList>
 #include <QMap>
+#include <QPair>
 #include <QPointer>
 #include <QStringList>
 #include <functional>
@@ -106,6 +107,14 @@ public:
      * mutation or node creation.
      */
     void focusNode(const QString &node);
+    /**
+     * @brief Open Edge boundaries on the selected mesh edges (process-aware plan Phase 4): says
+     *   how many can carry an aquifer boundary and why the others cannot, selects their rows,
+     *   and offers Set for Eligible Edges… to stage complete records for them.
+     * @param[in] edges Zero-based (cell, local edge) pairs; empty leaves the page as it opens.
+     * @details Nothing is written until Apply/OK, which runs the page's own validation.
+     */
+    void setTargetEdges(const QList<QPair<int, int>> &edges);
     /**
      * @brief Configure optional undo ownership for future node-bed and boundary commits.
      * @param[in] stack Borrowed optional QUndoStack stored through QPointer; null omits those
@@ -258,6 +267,13 @@ private slots:
      */
     void onRemoveNodeBed();
     /**
+     * @brief Ask for one boundary (type, constant or series, flow distribution and the inflow
+     *   concentrations validation requires) and stage it on every eligible target edge.
+     */
+    void setForTargetEdges();
+    /** @brief Re-judge the target edges and select their rows in the boundary table. */
+    void refreshTargetEdges();
+    /**
      * @brief Read current groundwater runtime diagnostics into the text view without advancing
      * simulation.
      * @details Missing view is a no-op; absent engine or inactive kernel displays a status
@@ -350,6 +366,9 @@ private:
     QWidget *m_sourcePage = nullptr;
     Mesh2DAquiferBoundaryModel *m_boundaries = nullptr;
     QWidget *m_boundaryPage = nullptr;
+    QList<QPair<int, int>> m_targetEdges; ///< Selected edges the page was opened on.
+    QLabel *m_targetSummary = nullptr;
+    QPushButton *m_setForTargets = nullptr;
     QMap<QString, QWidget *> m_transportOptions;
     QComboBox *m_clockCombo = nullptr;
     QMap<QString, QDoubleSpinBox *> m_clockNumbers;

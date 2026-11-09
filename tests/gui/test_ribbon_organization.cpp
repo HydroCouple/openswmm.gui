@@ -413,6 +413,74 @@ private slots:
         QTRY_VERIFY(!project);
     }
 
+    /** @brief Process locks (plan §5, Phase 4): a switched-off process disables the commands
+     *  that only write its records, with the reason on hover; its editors stay openable (they
+     *  open read-only) and switching it back on re-enables everything without a restart. */
+    void processLocksGateWriteOnlyCommands()
+    {
+        QVERIFY(QMetaObject::invokeMethod(m_win, "onNewProject", Qt::DirectConnection));
+        const auto projects = m_win->findChildren<SWMMVisProjectWindow *>();
+        QCOMPARE(projects.size(), 1);
+        QPointer<SWMMVisProjectWindow> project = projects.first();
+        QTRY_VERIFY(project->modelLayer()->engine());
+        auto *mdi = m_win->findChild<QMdiArea *>();
+        QTRY_COMPARE(mdi->activeSubWindow(), static_cast<QMdiSubWindow *>(project.data()));
+        SWMMModelLayer *model = project->modelLayer();
+        auto *registry = ActionRegistry::instance();
+        const auto command = [registry](const char *id) {
+            QAction *action = registry->action(QString::fromLatin1(id));
+            return action;
+        };
+        const char *writers[] = {"mesh.assignGroundwater", "mesh.assignSurfaceQuality"};
+        // Editors open read-only instead; snow and heat are set up before they are switched
+        // on (the engine reads IGNORE_SNOWMELT YES for any model without a snowpack).
+        const char *editors[] = {"mesh.gw2dParams",     "mesh.gw2dEdgeBoundaries",
+                                 "mesh.gw2dNodeBeds",   "mesh.gw2dInitCond",
+                                 "mesh.surfaceQuality2d", "mesh.snow",
+                                 "mesh.heatFromRaster"};
+        for (const char *id : writers)
+            QVERIFY2(command(id), id);
+        for (const char *id : editors)
+            QVERIFY2(command(id), id);
+
+        // A new project: groundwater AUTO (authoring rows is how it turns on), quality on,
+        // heat off — heat never locks, so its raster assignment stays usable.
+        for (const char *id : writers)
+            QVERIFY2(command(id)->isEnabled(), id);
+        QVERIFY(command("mesh.heatFromRaster")->isEnabled());
+
+        QVERIFY(model->setOption("IGNORE_QUALITY", QStringLiteral("YES")));
+        QVERIFY(model->setOption("IGNORE_SNOWMELT", QStringLiteral("YES")));
+        QCOMPARE(swmm_options_set_ext(model->engine(), "GROUNDWATER", "NO"), 0);
+        emit model->optionsChanged({QStringLiteral("GROUNDWATER")});
+        const QHash<QString, QString> reasons = {
+            {QStringLiteral("mesh.assignGroundwater"), QStringLiteral("2D groundwater is off.")},
+            {QStringLiteral("mesh.assignSurfaceQuality"), QStringLiteral("Water quality is off.")}};
+        for (const char *id : writers) {
+            const QString key = QString::fromLatin1(id);
+            QVERIFY2(!command(id)->isEnabled(), id);
+            QVERIFY2(command(id)->toolTip().contains(reasons.value(key)),
+                     qPrintable(command(id)->toolTip()));
+            QVERIFY2(registry->disabledReason(key).startsWith(reasons.value(key)),
+                     qPrintable(registry->disabledReason(key)));
+        }
+        for (const char *id : editors)
+            QVERIFY2(command(id)->isEnabled(), id);
+
+        QVERIFY(model->setOption("IGNORE_QUALITY", QStringLiteral("NO")));
+        QVERIFY(model->setOption("IGNORE_SNOWMELT", QStringLiteral("NO")));
+        QCOMPARE(swmm_options_set_ext(model->engine(), "GROUNDWATER", "YES"), 0);
+        emit model->optionsChanged({QStringLiteral("GROUNDWATER")});
+        for (const char *id : writers) {
+            QVERIFY2(command(id)->isEnabled(), id);
+            QVERIFY2(!command(id)->toolTip().contains(QStringLiteral(" is off.")),
+                     qPrintable(command(id)->toolTip()));
+        }
+
+        closeProjects();
+        QTRY_VERIFY(!project);
+    }
+
     /** @brief Host wiring for aggregate editing (process-aware plan Phase 3): selecting several
      *  mesh cells in a project shows them in Properties as one aggregate, not an empty panel. */
     void propertiesAggregatesSeveralMeshCells()

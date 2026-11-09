@@ -9,6 +9,7 @@
 
 #include "ui/dialogs/mesh2dgroundwaterdialog.h"
 #include "ui/hydrothermalstate.h"
+#include "ui/processlock.h"
 
 #include "core/unitsystem.h"
 #include "results/gwledgermodel.h"
@@ -20,6 +21,8 @@
 #include <openswmm/engine/openswmm_gw2d.h>
 #include <openswmm/engine/openswmm_heat.h>
 #include <openswmm/engine/openswmm_model.h>
+#include <openswmm/engine/openswmm_2d.h>
+#include <openswmm/engine/openswmm_tables.h>
 
 #include <initializer_list>
 
@@ -27,6 +30,7 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
+#include <QDoubleValidator>
 #include <QFormLayout>
 #include <QSignalBlocker>
 #include <QUndoStack>
@@ -1075,12 +1079,15 @@ void Mesh2DGroundwaterDialog::loadFromEngine()
 
     // The setter also marks options authored; querying lifecycle avoids a
     // hidden model change when this dialog is only inspected or cancelled.
+    // Switched off, the aquifer stays inspectable but read-only (plan §5).
     const bool editable = canEdit(m_engine);
-    setEditable(editable, editable ? QString()
-                                   : tr("A simulation is running. The aquifer rows seed "
-                                        "the kernel when it starts, so they cannot be "
-                                        "changed now — reset the run to edit them. The "
-                                        "State tab still updates."));
+    const QString locked = processLockReason(m_engine, LockableProcess::Groundwater2D);
+    setEditable(editable && locked.isEmpty(),
+                !editable ? tr("A simulation is running. The aquifer rows seed "
+                               "the kernel when it starts, so they cannot be "
+                               "changed now — reset the run to edit them. The "
+                               "State tab still updates.")
+                          : locked);
 }
 
 void Mesh2DGroundwaterDialog::setEditable(bool on, const QString &whyNot)
@@ -1660,6 +1667,12 @@ bool Mesh2DGroundwaterDialog::applyChanges()
             tr("Reset the simulation before applying edits. Your draft remains here."));
         return false;
     }
+    if (const QString locked = processLockReason(m_engine, LockableProcess::Groundwater2D);
+        !locked.isEmpty()) {
+        QMessageBox::warning(this, tr("2D Groundwater"),
+                             locked + QLatin1Char(' ') + tr("Your draft remains here."));
+        return false;
+    }
     if (auto *focus = focusWidget())
         focus->clearFocus();
     const auto draft = optionDraft();
@@ -1825,6 +1838,262 @@ void Mesh2DGroundwaterDialog::focusNode(const QString &node)
         m_nodeView->selectRow(row);
     updateBottomConnection();
 }
+void Mesh2DGroundwaterDialog::setTargetEdges(const QList<QPair<int, int>> &edges)
+{
+    m_targetEdges = edges;
+    if (edges.isEmpty() || !m_boundaryPage)
+        return;
+    m_tabs->setCurrentWidget(m_boundaryPage);
+    if (!m_targetSummary) {
+        auto *bar = new QHBoxLayout;
+        m_targetSummary = new QLabel(m_boundaryPage);
+        m_targetSummary->setObjectName("gwBoundaryTargetSummary");
+        m_targetSummary->setWordWrap(true);
+        m_setForTargets = new QPushButton(tr("Set for Eligible Edges…"), m_boundaryPage);
+        m_setForTargets->setObjectName("gwBoundarySetForTargets");
+        m_setForTargets->setAutoDefault(false);
+        bar->addWidget(m_targetSummary, 1);
+        bar->addWidget(m_setForTargets);
+        static_cast<QVBoxLayout *>(m_boundaryPage->layout())->insertLayout(1, bar);
+        connect(m_setForTargets, &QPushButton::clicked, this,
+                &Mesh2DGroundwaterDialog::setForTargetEdges);
+    }
+    refreshTargetEdges();
+}
+
+void Mesh2DGroundwaterDialog::refreshTargetEdges()
+{
+    if (!m_targetSummary || !m_engine)
+        return;
+    const auto judged = Mesh2DAquiferBoundaryModel::eligibility(m_engine, m_targetEdges);
+    QStringList reasons;
+    if (judged.interior)
+        reasons << tr("%1 interior").arg(judged.interior);
+    if (judged.uncovered)
+        reasons << tr("%1 not under an active aquifer row").arg(judged.uncovered);
+    if (judged.invalid)
+        reasons << tr("%1 not in this mesh").arg(judged.invalid);
+    QString text = !judged.error.isEmpty()
+                       ? judged.error
+                       : tr("Selected edges: %1. Can take an aquifer boundary: %2.")
+                             .arg(m_targetEdges.size())
+                             .arg(judged.eligible.size());
+    if (judged.error.isEmpty() && !reasons.isEmpty())
+        text += QLatin1Char(' ') + tr("Excluded: %1.").arg(reasons.join(QStringLiteral(", ")));
+    m_targetSummary->setText(text);
+    m_setForTargets->setEnabled(m_editable && !judged.eligible.isEmpty());
+    m_setForTargets->setToolTip(
+        judged.eligible.isEmpty()
+            ? tr("None of the selected edges is an exterior edge under an active aquifer row.")
+            : tr("Stage one boundary on the eligible edges (%1); Apply writes it.")
+                  .arg(judged.eligible.size()));
+    // Show the target's records: select every row on a target edge.
+    auto *view = m_boundaryPage->findChild<QTableView *>("gwBoundaryTable");
+    if (!view || !view->selectionModel())
+        return;
+    QItemSelection rows;
+    for (int row = 0; row < m_boundaries->rowCount(); ++row) {
+        const QPair<int, int> edge{
+            m_boundaries->index(row, Mesh2DAquiferBoundaryModel::Cell).data(Qt::EditRole).toInt() - 1,
+            m_boundaries->index(row, Mesh2DAquiferBoundaryModel::Edge).data(Qt::EditRole).toInt()};
+        if (m_targetEdges.contains(edge))
+            rows.select(m_boundaries->index(row, 0),
+                        m_boundaries->index(row, Mesh2DAquiferBoundaryModel::Columns - 1));
+    }
+    view->selectionModel()->select(rows, QItemSelectionModel::ClearAndSelect);
+}
+
+void Mesh2DGroundwaterDialog::setForTargetEdges()
+{
+    if (!m_engine || !m_editable)
+        return;
+    const auto judged = Mesh2DAquiferBoundaryModel::eligibility(m_engine, m_targetEdges);
+    if (judged.eligible.isEmpty())
+        return;
+    QString speciesError;
+    const QStringList species = Mesh2DAquiferBoundaryModel::inflowSpecies(m_engine, &speciesError);
+    QStringList series;
+    for (int t = 0; t < swmm_table_count(m_engine); ++t) {
+        int type = -1;
+        if (const char *id = swmm_table_id(m_engine, t);
+            id && swmm_table_get_type(m_engine, t, &type) == SWMM_OK && type == 0)
+            series << QString::fromUtf8(id);
+    }
+    // Edge lengths, for a total flow split by length (mesh units; only ratios matter).
+    QList<double> lengths;
+    for (const auto &edge : judged.eligible) {
+        int v[4]{}, nv = 0;
+        double ax = 0, ay = 0, az = 0, bx = 0, by = 0, bz = 0;
+        if (swmm_2d_cell_get_vertices(m_engine, edge.first, v, &nv) != SWMM_OK || nv < 3 ||
+            swmm_2d_vertex_get_xyz(m_engine, v[(edge.second + 1) % nv], &ax, &ay, &az) != SWMM_OK ||
+            swmm_2d_vertex_get_xyz(m_engine, v[(edge.second + 2) % nv], &bx, &by, &bz) != SWMM_OK)
+            lengths << 0.0;
+        else
+            lengths << std::hypot(bx - ax, by - ay);
+    }
+    double totalLength = 0;
+    for (double length : lengths)
+        totalLength += length;
+
+    QDialog ask(this);
+    ask.setObjectName("gwBoundarySetDialog");
+    ask.setWindowTitle(tr("Aquifer Boundary for Eligible Edges (%1)").arg(judged.eligible.size()));
+    auto *form = new QFormLayout(&ask);
+    auto *kind = new QComboBox(&ask);
+    kind->setObjectName("gwBoundarySetKind");
+    kind->addItem(tr("Head (water-table elevation)"), QStringLiteral("HEAD"));
+    kind->addItem(tr("Flow (positive into the aquifer)"), QStringLiteral("FLOW"));
+    form->addRow(tr("Boundary:"), kind);
+    auto *source = new QComboBox(&ask);
+    source->setObjectName("gwBoundarySetSeries");
+    source->addItem(tr("Constant value"), QString());
+    for (const QString &name : series)
+        source->addItem(tr("Time series %1").arg(name), name);
+    form->addRow(tr("Value from:"), source);
+    auto *value = new QDoubleSpinBox(&ask);
+    value->setObjectName("gwBoundarySetValue");
+    value->setRange(-1.0e9, 1.0e9);
+    value->setDecimals(6);
+    form->addRow(tr("Head:"), value); // relabelled by update()
+    auto *distribution = new QComboBox(&ask);
+    distribution->setObjectName("gwBoundarySetDistribution");
+    distribution->addItem(tr("The same flow on each edge"), QStringLiteral("EACH"));
+    distribution->addItem(tr("One total, split over the edges by length"), QStringLiteral("SPLIT"));
+    form->addRow(tr("Distribution:"), distribution);
+    QMap<QString, QLineEdit *> concentrations;
+    auto *chemistry = new QLabel(
+        species.isEmpty() ? QString()
+                          : tr("Water flowing in carries these concentrations (native units; "
+                               "temperature in °C). Each must be entered."),
+        &ask);
+    chemistry->setWordWrap(true);
+    form->addRow(chemistry);
+    for (const QString &name : species) {
+        auto *edit = new QLineEdit(&ask);
+        edit->setObjectName(QStringLiteral("gwBoundarySetConc:") + name);
+        edit->setValidator(new QDoubleValidator(edit));
+        concentrations.insert(name, edit);
+        form->addRow(name == "__TEMPERATURE__" ? tr("Temperature:")
+                     : name == "__WATER_AGE__" ? tr("Water age:")
+                                               : name + QLatin1Char(':'),
+                     edit);
+    }
+    auto *preview = new QLabel(&ask);
+    preview->setObjectName("gwBoundarySetPreview");
+    preview->setWordWrap(true);
+    form->addRow(preview);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &ask);
+    form->addRow(buttons);
+    connect(buttons, &QDialogButtonBox::accepted, &ask, &QDialog::accept);
+    connect(buttons, &QDialogButtonBox::rejected, &ask, &QDialog::reject);
+
+    const int n = int(judged.eligible.size());
+    const QString length = m_units ? m_units->lengthLabel() : QStringLiteral("project units");
+    // One value per eligible edge, in the record's native units.
+    const auto perEdge = [&] {
+        QList<double> values;
+        const bool split = kind->currentData() == "FLOW" && source->currentData().toString().isEmpty() &&
+                           distribution->currentData() == "SPLIT" && totalLength > 0;
+        for (int i = 0; i < n; ++i)
+            values << (split ? value->value() * lengths[i] / totalLength : value->value());
+        return values;
+    };
+    const auto inflow = [&] {
+        return kind->currentData() == "HEAD" || !source->currentData().toString().isEmpty() ||
+               value->value() > 0;
+    };
+    const auto update = [&] {
+        const bool flow = kind->currentData() == "FLOW";
+        const bool constant = source->currentData().toString().isEmpty();
+        auto *label = qobject_cast<QLabel *>(form->labelForField(value));
+        if (label)
+            label->setText(flow ? tr("Flow (m³/s):") : tr("Head (%1):").arg(length));
+        value->setEnabled(constant);
+        distribution->setEnabled(flow && constant);
+        const bool needsChemistry = inflow();
+        chemistry->setVisible(needsChemistry && !species.isEmpty());
+        bool complete = speciesError.isEmpty();
+        for (auto *edit : concentrations) {
+            edit->setEnabled(needsChemistry);
+            if (auto *row = form->labelForField(edit))
+                row->setVisible(needsChemistry);
+            edit->setVisible(needsChemistry);
+            int pos = 0;
+            QString text = edit->text();
+            if (needsChemistry &&
+                edit->validator()->validate(text, pos) != QValidator::Acceptable)
+                complete = false;
+        }
+        QString summary;
+        if (!speciesError.isEmpty())
+            summary = speciesError;
+        else if (!constant)
+            summary = tr("Each edge follows time series %1.")
+                          .arg(source->currentData().toString());
+        else if (!flow)
+            summary = tr("Head %1 %2 on each edge.").arg(value->value()).arg(length);
+        else {
+            const QList<double> values = perEdge();
+            double total = 0;
+            for (double v : values)
+                total += v;
+            QStringList parts;
+            for (int i = 0; i < n && i < 6; ++i)
+                parts << tr("cell %1 edge %2: %3")
+                             .arg(judged.eligible[i].first + 1)
+                             .arg(judged.eligible[i].second)
+                             .arg(values[i], 0, 'g', 6);
+            if (n > 6)
+                parts << tr("…");
+            summary = tr("Flow per edge (m³/s) — %1. Total %2 m³/s.")
+                          .arg(parts.join(QStringLiteral("; ")))
+                          .arg(total, 0, 'g', 6);
+        }
+        if (judged.interior || judged.uncovered || judged.invalid)
+            summary += QLatin1Char(' ') +
+                       tr("Excluded edges: %1.")
+                           .arg(judged.interior + judged.uncovered + judged.invalid);
+        preview->setText(summary);
+        buttons->button(QDialogButtonBox::Ok)->setEnabled(complete);
+    };
+    connect(kind, &QComboBox::currentIndexChanged, &ask, update);
+    connect(source, &QComboBox::currentIndexChanged, &ask, update);
+    connect(distribution, &QComboBox::currentIndexChanged, &ask, update);
+    connect(value, &QDoubleSpinBox::valueChanged, &ask, update);
+    for (auto *edit : concentrations)
+        connect(edit, &QLineEdit::textChanged, &ask, update);
+    update();
+    if (ask.exec() != QDialog::Accepted)
+        return;
+
+    QList<Mesh2DAquiferBoundaryModel::Row> rows;
+    const QList<double> values = perEdge();
+    const QString seriesName = source->currentData().toString();
+    for (int i = 0; i < n; ++i) {
+        Mesh2DAquiferBoundaryModel::Row water;
+        water.cell = judged.eligible[i].first;
+        water.edge = judged.eligible[i].second;
+        water.kind = kind->currentData().toString();
+        water.series = seriesName;
+        water.value = seriesName.isEmpty() ? values[i] : 0.0;
+        rows << water;
+        if (!inflow())
+            continue;
+        for (auto it = concentrations.cbegin(); it != concentrations.cend(); ++it) {
+            Mesh2DAquiferBoundaryModel::Row term = water;
+            term.species = it.key();
+            term.kind = QStringLiteral("CONC");
+            term.series.clear();
+            term.value = it.value()->locale().toDouble(it.value()->text());
+            rows << term;
+        }
+    }
+    m_boundaries->stageEdges(rows);
+    refreshTargetEdges();
+    m_targetSummary->setText(m_targetSummary->text() + QLatin1Char(' ') +
+                             tr("Staged on %1 edges; Apply writes them.").arg(n));
+}
+
 void Mesh2DGroundwaterDialog::updateBottomConnection()
 {
     if (!m_bottomDestination)

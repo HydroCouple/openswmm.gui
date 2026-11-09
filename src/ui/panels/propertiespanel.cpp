@@ -24,6 +24,7 @@
 #include <type_traits>
 #include "map/mapundostack.h"
 #include "ui/panels/attributedelegates.h"
+#include "ui/processlock.h"
 #include "map/mapcanvas.h"
 #include "layers/swmmresultslayer.h"    // active-run stats binding
 #include "map/tools/maptoolidentify.h"  // IdentifyResult
@@ -295,6 +296,8 @@ QString meshGroupName(MeshAttributeTableModel::Kind kind, const QString &key)
         return PropertiesPanel::tr("Infiltration");
     if (key.startsWith("surface.") || key == "ownerSource")
         return PropertiesPanel::tr("Surface ownership");
+    if (key.startsWith("gwBoundary."))
+        return PropertiesPanel::tr("Aquifer boundary");
     if (key.startsWith("gw."))
         return PropertiesPanel::tr("Groundwater");
     if (key.startsWith("snow."))
@@ -307,6 +310,60 @@ QString meshGroupName(MeshAttributeTableModel::Kind kind, const QString &key)
     if (kind == Kind::Edge && key != "Edge" && key != "Length" && key != "Boundary")
         return PropertiesPanel::tr("Boundary condition");
     return PropertiesPanel::tr("General");
+}
+
+/*! Aquifer boundary Edit…: opens the Edge boundaries page on \p rows' edges of the active
+ *  mesh, which judges which of them can take a boundary (plan Phase 4). A switched-off
+ *  groundwater process opens it read-only. */
+QPushButton *aquiferBoundaryButton(PropertiesPanel *panel, QWidget *parent,
+                                   MeshAttributeTableModel *source, SWMM2DMeshLayer *layer,
+                                   const QList<int> &rows, SWMMModelLayer *model)
+{
+    QList<QPair<int, int>> edges;
+    int boundary = 0;
+    for (int row : rows) {
+        int cell = -1, local = -1;
+        QString ignored;
+        if (!mesh::MeshObjectRef::parseEdge(source->refForRow(row), &ignored, &cell, &local))
+            continue;
+        edges.append({cell, local});
+        boundary += layer->isBoundaryEdge(cell, local) ? 1 : 0;
+    }
+    auto *button = new QPushButton(PropertiesPanel::tr("Edit aquifer boundaries…"), parent);
+    button->setObjectName("editMeshAquiferBoundary");
+    const QPointer<SWMMModelLayer> owner(model);
+    const auto update = [button, layer, owner, boundary] {
+        button->setEnabled(owner && owner->engine() && layer->isActiveMesh() && boundary > 0);
+    };
+    update();
+    button->setToolTip(PropertiesPanel::tr("Opens the aquifer Edge boundaries page on the "
+                                           "selected boundary edges (%1) of the active mesh.")
+                           .arg(boundary));
+    QObject::connect(layer, &SWMM2DMeshLayer::activeMeshChanged, button, update);
+    QObject::connect(button, &QPushButton::clicked, panel,
+                     [panel, layer, edges] { emit panel->groundwaterEdgesRequested(layer, edges); });
+    return button;
+}
+
+/*! Groundwater Edit…: needs the active mesh of an open model whose 2D groundwater is not
+ *  switched off (plan §5); re-gated when the active mesh or the options change. */
+void gateGroundwaterButton(QPushButton *button, SWMM2DMeshLayer *layer, SWMMModelLayer *model)
+{
+    const QPointer<SWMMModelLayer> owner(model);
+    const auto update = [button, layer, owner] {
+        const SWMM_Engine engine = owner ? owner->engine() : nullptr;
+        const QString locked = openswmmvis::ui::processLockReason(
+            engine, openswmmvis::ui::LockableProcess::Groundwater2D);
+        button->setEnabled(engine && layer->isActiveMesh() && locked.isEmpty());
+        button->setToolTip(!locked.isEmpty()
+                               ? locked
+                               : PropertiesPanel::tr("Groundwater assignments require the "
+                                                     "active mesh of an open model."));
+    };
+    update();
+    QObject::connect(layer, &SWMM2DMeshLayer::activeMeshChanged, button, update);
+    if (model)
+        QObject::connect(model, &SWMMModelLayer::optionsChanged, button, update);
 }
 
 // Custom root constructor signature is the QPropertyModel registration contract.
@@ -1635,6 +1692,8 @@ void PropertiesPanel::showMeshSelection(MapCanvas *canvas, const QList<SWMMObjec
                 connect(button, &QPushButton::clicked, source, [this, source, aggregate] {
                     source->editCoupledNodes(aggregate->rows(), this);
                 });
+            } else if (kind == Kind::Edge && group->name() == tr("Aquifer boundary")) {
+                button = aquiferBoundaryButton(this, m_treeView, source, layer, rows, m_swmmLayer);
             } else if (kind == Kind::Edge && group->name() == tr("Boundary condition")) {
                 int boundary = 0;
                 for (int row : rows) {
@@ -1672,14 +1731,7 @@ void PropertiesPanel::showMeshSelection(MapCanvas *canvas, const QList<SWMMObjec
             } else if (group->name() == tr("Groundwater")) {
                 button = new QPushButton(tr("Edit groundwater parameters…"), m_treeView);
                 button->setObjectName("editMeshGroundwater");
-                const auto update = [this, layer, button] {
-                    button->setEnabled(m_swmmLayer && m_swmmLayer->engine() &&
-                                       layer->isActiveMesh());
-                };
-                update();
-                button->setToolTip(
-                    tr("Groundwater assignments require the active mesh of an open model."));
-                connect(layer, &SWMM2DMeshLayer::activeMeshChanged, button, update);
+                gateGroundwaterButton(button, layer, m_swmmLayer);
                 connect(button, &QPushButton::clicked, source, [this, layer, aggregate] {
                     emit groundwaterCellsRequested(layer, aggregate->rows());
                 });
@@ -1796,8 +1848,10 @@ void PropertiesPanel::showMeshObject(MapCanvas *canvas, const SWMMObjectRef &ref
                 button->setObjectName("editMeshCoupledNodes");
                 connect(button, &QPushButton::clicked, source,
                         [this, source, row] { source->editCoupledNodes({row}, this); });
+            } else if (kind == Kind::Edge && group->name() == tr("Aquifer boundary")) {
+                button = aquiferBoundaryButton(this, m_treeView, source, layer, {row}, m_swmmLayer);
             } else if (kind == Kind::Edge && group->name() == tr("Boundary condition") &&
-                layer->isBoundaryEdge(element, local)) {
+                       layer->isBoundaryEdge(element, local)) {
                 button = new QPushButton(tr("Edit surface boundary condition…"), m_treeView);
                 button->setObjectName("editMeshBoundary");
                 connect(button, &QPushButton::clicked, source,
@@ -1815,14 +1869,7 @@ void PropertiesPanel::showMeshObject(MapCanvas *canvas, const SWMMObjectRef &ref
             } else if (group->name() == tr("Groundwater")) {
                 button = new QPushButton(tr("Edit groundwater parameters…"), m_treeView);
                 button->setObjectName("editMeshGroundwater");
-                const auto update = [this, layer, button] {
-                    button->setEnabled(m_swmmLayer && m_swmmLayer->engine() &&
-                                       layer->isActiveMesh());
-                };
-                update();
-                button->setToolTip(
-                    tr("Groundwater assignments require the active mesh of an open model."));
-                connect(layer, &SWMM2DMeshLayer::activeMeshChanged, button, update);
+                gateGroundwaterButton(button, layer, m_swmmLayer);
                 connect(button, &QPushButton::clicked, source,
                         [this, layer, row] { emit groundwaterCellsRequested(layer, {row}); });
             }

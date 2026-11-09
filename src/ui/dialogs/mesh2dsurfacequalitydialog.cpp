@@ -12,6 +12,7 @@
 #include "core/unitsystem.h"
 #include "ui/dialogs/mesh2dsectionroweditor.h"
 #include "ui/dialogs/mesh2dsectionrowmodel.h"
+#include "ui/processlock.h"
 
 #include <QDialogButtonBox>
 #include <QFrame>
@@ -103,12 +104,15 @@ Mesh2DSurfaceQualityDialog::Mesh2DSurfaceQualityDialog(SWMM_Engine engine, QWidg
     outer->addWidget(m_buttons);
     resize(820, 480);
 
+    const QString locked = processLockReason(engine, LockableProcess::SurfaceQuality);
     if (!engine)
         setEditable(false, tr("No model is open."));
     else if (!canEdit(engine))
         setEditable(false, tr("A simulation is running. These rows seed the surface when it "
                               "starts, so they cannot be changed now — reset the run to edit "
                               "them."));
+    else if (!locked.isEmpty()) // switched off: inspectable but read-only (plan §5)
+        setEditable(false, locked);
     else
         setEditable(true, QString());
     if (units) {
@@ -149,7 +153,7 @@ bool Mesh2DSurfaceQualityDialog::applyChanges()
             dirty.append(model);
     if (dirty.isEmpty())
         return true;
-    QString error;
+    QString error = processLockReason(m_engine, LockableProcess::SurfaceQuality);
     for (auto *model : dirty)
         if (error.isEmpty())
             error = model->validateCommit(m_engine);

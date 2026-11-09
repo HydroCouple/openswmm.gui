@@ -121,13 +121,18 @@ public:
     void setGwPreviewSource(GwPreviewSourceFn fn) { m_gwPreviewSource = std::move(fn); }
 
     /*! \brief Short status for a process ("off", "no pollutants"); empty when the
-     *  process is in use. Shown beside its name in the picker and as
-     *  the group's tooltip. Informational only: configurators stay reachable so a process can
-     *  be set up before it is switched on. */
+     *  process is in use. Shown beside its name in the picker. */
     using ProcessStatusFn = std::function<QString(Process)>;
     /** @param[in] fn Moved status callback; empty shows no status. Refreshes immediately. */
     void setProcessStatusProvider(ProcessStatusFn fn);
-    /** @brief Re-query the status callback and relabel the picker (also on show and popup). */
+    /*! \brief Why a switched-off process's records are read-only (plan §5); empty when it can
+     *  be edited. Disables the commands registered with setCommandProcess() and becomes the
+     *  picker's and group's tooltip. */
+    using ProcessLockFn = std::function<QString(Process)>;
+    /** @param[in] fn Moved lock callback; empty locks nothing. Refreshes immediately. */
+    void setProcessLockProvider(ProcessLockFn fn);
+    /** @brief Re-query the status and lock callbacks, relabel the picker and re-gate the
+     *  commands (also on show and popup). */
     void refreshProcessStatus();
 
     /** @brief Add a mesh-wide command (Burn Channels) to the Mesh group as a large face.
@@ -141,6 +146,14 @@ public:
      * @param[in] action Borrowed action already placed on the tab.
      * @param[in] needs Required selection; Nothing removes the requirement. */
     void setCommandNeeds(QAction *action, Needs needs);
+    /** @brief Disable \a action while \a process is switched off (a command that only writes
+     *  the process's records; editors that also show them open read-only instead).
+     * @param[in] action Borrowed action already placed on the tab.
+     * @param[in] process Process whose switch gates it. */
+    void setCommandProcess(QAction *action, Process process);
+    /** @return Why \a action is disabled — the process lock first, then the missing
+     *  selection — or empty when it is usable or not gated here. */
+    [[nodiscard]] QString blockedReason(const QAction *action) const;
     /** @brief Fill the Cell Data group (GIS sampling of cell parameters) with large faces.
      * @param[in] actions Borrowed live actions in display order. */
     void addCellDataActions(const QList<QAction *> &actions);
@@ -150,6 +163,8 @@ public:
 
     /** @return Process whose group is shown. */
     [[nodiscard]] Process currentProcess() const { return m_process; }
+    /** @return Selected edges of the active mesh as (cell, local edge) pairs. */
+    [[nodiscard]] QList<QPair<int, int>> selectedEdges() const { return currentSelectedEdges(); }
     /** @brief Show \a process's group and select it in the picker. */
     void setCurrentProcess(Process process);
 
@@ -180,6 +195,8 @@ signals:
     void editInTableRequested(SWMM2DMeshLayer *mesh, int meshKind);
     /** @param[in] process Newly shown process group. */
     void processChanged(MeshEditingToolbar::Process process);
+    /** @brief The gated commands' enable state or blockedReason() may have changed. */
+    void commandStatesChanged();
 
 private slots:
     void onActiveMeshComboChanged(int index);
@@ -222,6 +239,7 @@ private:
     QList<QAction *> m_processActions; ///< Menu/palette mirror of the picker (exclusive).
     Process m_process = Process::SurfaceFlow;
     ProcessStatusFn m_processStatus;
+    ProcessLockFn m_processLock;
 
     QAction *m_actEditVertex = nullptr;
     QAction *m_actEditEdge = nullptr;
@@ -233,6 +251,8 @@ private:
     QAction *m_actRemap = nullptr;      // Remap 1D↔2D (Plan C.4)
     QAction *m_actReviewOwnership = nullptr;
     QHash<QAction *, Needs> m_needs; ///< Selection-scoped commands.
+    QHash<QAction *, Process> m_locks; ///< Commands disabled while their process is off.
+    bool m_haveCells = false; ///< Selection, as of updateEnabledState.
 
     NodeLocatorFn m_nodeLocator;
     GwPreviewSourceFn m_gwPreviewSource;

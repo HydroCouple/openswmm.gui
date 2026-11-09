@@ -100,7 +100,6 @@ void editBoundaryValue(QDialog *dialog, const QString &text)
     QVERIFY(QMetaObject::invokeMethod(value, "editingFinished"));
 }
 
-
 void editCouplingValue(QTableWidget *table, int row, int column, const QString &text)
 {
     const auto index = table->model()->index(row, column);
@@ -1154,6 +1153,194 @@ private slots:
         canvas.undoStack()->undo();
         QCOMPARE(swmm_gw2d_row_count(model.engine(), &count), SWMM_OK);
         QCOMPARE(count, 1);
+    }
+
+    /** Phase 4: the aquifer boundary (a compound engine record) is summarised read-only on
+     *  edges in the table and Properties — one edge, and several with Mixed where they differ —
+     *  follows a model edit, and Edit… requests the Edge boundaries page on exactly the
+     *  selected edges of the active mesh. */
+    void aquiferBoundarySummaryAndEditRoutes()
+    {
+        const QString dir = QCoreApplication::applicationDirPath() + "/mesh_editor_roundtrip";
+        QVERIFY(QDir().mkpath(dir));
+        QFile input(QFINDTESTDATA("data/mini_2d.inp"));
+        QVERIFY(input.open(QIODevice::ReadOnly));
+        const QString path = dir + "/aquifer_summary.inp";
+        QFile fixture(path);
+        QVERIFY(fixture.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        fixture.write(input.readAll());
+        fixture.close();
+        SWMMModelLayer model(path);
+        QList<QString> warnings, errors;
+        QVERIFY2(model.loadModel(warnings, errors), qPrintable(errors.join(' ')));
+        const auto parsed = mesh::InpMeshReader::read(path);
+        QVERIFY(parsed.hasMesh);
+        SWMM2DMeshLayer meshLayer(parsed.mesh, path);
+        MapCanvas canvas;
+        canvas.addLayer(&meshLayer, false);
+        meshLayer.setActiveMesh(true);
+        // Two triangles: (0,0) and (0,2) are exterior, (0,1) is the shared diagonal.
+        QVERIFY(meshLayer.isBoundaryEdge(0, 0) && meshLayer.isBoundaryEdge(0, 2));
+        QVERIFY(!meshLayer.isBoundaryEdge(0, 1));
+        QCOMPARE(swmm_gw2d_row_add(model.engine(), 0, nullptr, -1, .125, 5, .45, .1, 2), SWMM_OK);
+        const SWMM_GwBoundary flow{0, 0, SWMM_GW2D_BOUNDARY_FLOW, 0.25};
+        QCOMPARE(swmm_gw2d_boundary_set(model.engine(), &flow, ""), SWMM_OK);
+
+        MeshAttributeTableModel edges;
+        edges.setModelLayer(&model);
+        edges.setSource(&meshLayer, MeshAttributeTableModel::Kind::Edge);
+        const auto at = [&](int cell, int local, const char *key) {
+            return edges.index(edges.rowForRef(mesh::MeshObjectRef::edge(path, cell, local)),
+                               colFor(edges, key));
+        };
+        QCOMPARE(at(0, 0, "gwBoundary.type").data().toString(), QString("Flow"));
+        QCOMPARE(at(0, 0, "gwBoundary.flow").data().toDouble(), 0.25);
+        QVERIFY(!at(0, 0, "gwBoundary.head").data().isValid()); // not used by a Flow boundary
+        QCOMPARE(at(0, 2, "gwBoundary.type").data().toString(), QString("None"));
+        QVERIFY(!at(0, 1, "gwBoundary.type").data().isValid()); // interior
+        for (const char *key : {"gwBoundary.type", "gwBoundary.head", "gwBoundary.flow",
+                                "gwBoundary.series", "gwBoundary.chemistry"})
+            QVERIFY2(!(edges.flags(at(0, 0, key)) & Qt::ItemIsEditable), key);
+
+        // A model edit (the aquifer editor's Apply, undo and redo all mark one) refreshes it.
+        const SWMM_GwBoundary head{0, 2, SWMM_GW2D_BOUNDARY_HEAD, 9.5};
+        QCOMPARE(swmm_gw2d_boundary_set(model.engine(), &head, ""), SWMM_OK);
+        QSignalSpy changed(&edges, &QAbstractItemModel::dataChanged);
+        model.markEdited();
+        QVERIFY(changed.count() >= 1);
+        QCOMPARE(at(0, 2, "gwBoundary.type").data().toString(), QString("Head"));
+        QCOMPARE(at(0, 2, "gwBoundary.head").data().toDouble(), 9.5);
+
+        PropertiesPanel properties;
+        properties.setProject(&model);
+        properties.show();
+        const auto fieldText = [&](const char *key) {
+            const auto label = edges.headerData(colFor(edges, key), Qt::Horizontal);
+            auto *tree = properties.findChild<QTreeView *>()->model();
+            for (int i = 0; i < tree->rowCount(); ++i) {
+                const auto group = tree->index(i, 0);
+                for (int j = 0; j < tree->rowCount(group); ++j)
+                    if (tree->index(j, 0, group).data() == label)
+                        return tree->index(j, 1, group).data().toString();
+            }
+            return QStringLiteral("<missing>");
+        };
+        using EdgeList = QList<QPair<int, int>>;
+        QSignalSpy request(&properties, &PropertiesPanel::groundwaterEdgesRequested);
+        properties.showMeshObject(&canvas, mesh::MeshObjectRef::edge(path, 0, 0));
+        QCOMPARE(fieldText("gwBoundary.type"), QString("Flow"));
+        auto *edit = properties.findChild<QPushButton *>("editMeshAquiferBoundary");
+        QVERIFY(edit && edit->isEnabled());
+        edit->click();
+        QCOMPARE(request.count(), 1);
+        QCOMPARE(request.last().at(0).value<SWMM2DMeshLayer *>(), &meshLayer);
+        QCOMPARE(request.last().at(1).value<EdgeList>(), (EdgeList{{0, 0}}));
+
+        properties.showMeshSelection(&canvas, {mesh::MeshObjectRef::edge(path, 0, 0),
+                                               mesh::MeshObjectRef::edge(path, 0, 2),
+                                               mesh::MeshObjectRef::edge(path, 0, 1)});
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QCOMPARE(fieldText("gwBoundary.type"), QString("Mixed"));
+        if (const QString dir = qEnvironmentVariable("SWMMVIS_REVIEW_CAPTURE_DIR"); !dir.isEmpty()) {
+            properties.resize(420, 760);
+            properties.findChild<QTreeView *>()->expandAll();
+            QTest::qWait(20);
+            QDir().mkpath(dir);
+            properties.grab().save(dir + "/properties-aquifer-boundary-mixed.png");
+        }
+        QCOMPARE(properties.findChildren<QPushButton *>("editMeshAquiferBoundary").size(), 1);
+        edit = properties.findChild<QPushButton *>("editMeshAquiferBoundary");
+        QVERIFY(edit && edit->isEnabled());
+        edit->click();
+        QCOMPARE(request.count(), 2);
+        QCOMPARE(request.last().at(1).value<EdgeList>(), (EdgeList{{0, 0}, {0, 2}, {0, 1}}));
+
+        // Only the active mesh carries the engine's aquifer boundaries.
+        meshLayer.setActiveMesh(false);
+        QVERIFY(!edit->isEnabled());
+    }
+
+    /** Process locks (plan §5, Phase 4): with 2D groundwater switched off, the Properties
+     *  Edit… (one cell and several) is disabled with the reason, and an assignment previewed
+     *  while it was on refuses Apply; switching it back on restores both. */
+    void groundwaterRoutesLockWhileSwitchedOff()
+    {
+        const QString dir = QCoreApplication::applicationDirPath() + "/mesh_editor_roundtrip";
+        QVERIFY(QDir().mkpath(dir));
+        QFile input(QFINDTESTDATA("data/mini_2d.inp"));
+        QVERIFY(input.open(QIODevice::ReadOnly));
+        const QString path = dir + "/gw_lock.inp";
+        QFile fixture(path);
+        QVERIFY(fixture.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        fixture.write(input.readAll());
+        fixture.close();
+        SWMMModelLayer model(path);
+        QList<QString> warnings, errors;
+        QVERIFY2(model.loadModel(warnings, errors), qPrintable(errors.join(' ')));
+        const auto parsed = mesh::InpMeshReader::read(path);
+        QVERIFY(parsed.hasMesh);
+        SWMM2DMeshLayer meshLayer(parsed.mesh, path);
+        MapCanvas canvas;
+        canvas.addLayer(&meshLayer, false);
+        SelectionManager selection;
+        PropertiesPanel properties;
+        properties.setProject(&model);
+        properties.show();
+        meshLayer.setActiveMesh(true);
+        const auto switchGroundwater = [&model](const char *mode) {
+            QCOMPARE(swmm_options_set_ext(model.engine(), "GROUNDWATER", mode), SWMM_OK);
+            emit model.optionsChanged({QStringLiteral("GROUNDWATER")});
+        };
+        const QString reason = QStringLiteral("2D groundwater is off.");
+        const QList<SWMMObjectRef> cells = {mesh::MeshObjectRef::cell(path, 0),
+                                            mesh::MeshObjectRef::cell(path, 1)};
+        for (const bool several : {false, true}) {
+            if (several)
+                properties.showMeshSelection(&canvas, cells);
+            else
+                properties.showMeshObject(&canvas, cells[1]);
+            // The previous tree's buttons are deleted later; find only the current one.
+            QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+            QCOMPARE(properties.findChildren<QPushButton *>("editMeshGroundwater").size(), 1);
+            auto *edit = properties.findChild<QPushButton *>("editMeshGroundwater");
+            QVERIFY(edit);
+            QVERIFY(edit->isEnabled());
+            switchGroundwater("NO");
+            QVERIFY(!edit->isEnabled());
+            QVERIFY2(edit->toolTip().startsWith(reason), qPrintable(edit->toolTip()));
+            switchGroundwater("AUTO"); // AUTO is not a lock: rows are how it turns on
+            QVERIFY(edit->isEnabled());
+        }
+
+        QCOMPARE(swmm_gw2d_row_add(model.engine(), 0, nullptr, -1, .125, 5, .45, .1, 2), SWMM_OK);
+        UnitSystem units;
+        openswmmvis::ui::GroundwaterAssignDialog gw(&model, &meshLayer, &canvas, &selection,
+                                                    &units);
+        gw.selectTarget("KS");
+        gw.setInitialCells({1});
+        gw.findChild<QDoubleSpinBox *>("gwAssignmentValue")->setValue(2.0);
+        auto *preview = gw.findChild<QPushButton *>("gwAssignmentPreviewButton");
+        auto *apply = gw.findChild<QPushButton *>("gwAssignmentApplyButton");
+        auto *status = gw.findChild<QLabel *>("gwAssignmentStatus");
+        QVERIFY(preview && apply && status);
+        preview->click();
+        QTRY_VERIFY_WITH_TIMEOUT(apply->isEnabled(), 10000);
+        switchGroundwater("NO"); // switched off after the preview: a stale commit
+        apply->click();
+        int count = 0;
+        QCOMPARE(swmm_gw2d_row_count(model.engine(), &count), SWMM_OK);
+        QCOMPARE(count, 1);
+        QCOMPARE(canvas.undoStack()->count(), 0);
+        QVERIFY2(status->text().startsWith(reason), qPrintable(status->text()));
+        preview->click(); // a new preview is refused with the same reason
+        QVERIFY(!apply->isEnabled());
+        QVERIFY2(status->text().startsWith(reason), qPrintable(status->text()));
+        switchGroundwater("AUTO");
+        preview->click();
+        QTRY_VERIFY_WITH_TIMEOUT(apply->isEnabled(), 10000);
+        apply->click();
+        QCOMPARE(swmm_gw2d_row_count(model.engine(), &count), SWMM_OK);
+        QCOMPARE(count, 2);
     }
 
     // ---- shape ----------------------------------------------------------

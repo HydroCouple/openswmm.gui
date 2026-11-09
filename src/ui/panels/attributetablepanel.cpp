@@ -13,6 +13,7 @@
 #include "ui/panels/attributetablepanel.h"
 #include "ui/panels/groupedattributeheader.h"
 #include "ui/panels/attributedelegates.h"
+#include "ui/processlock.h"
 #include "ui/panels/dataobjectattributetablemodel.h"
 #include "ui/models/userflagsmodel.h"
 #include "ui/panels/meshattributetablemodel.h"
@@ -2927,6 +2928,7 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
     // deleted individually, and there is no type to convert.
     if (meshSourceActive()) {
         QMenu meshMenu(this);
+        meshMenu.setToolTipsVisible(true); // a disabled action says why
         QAction *copy = meshMenu.addAction(tr("Copy (Ctrl+C)"));
         connect(copy, &QAction::triggered, this, &AttributeTablePanel::copySelectionToClipboard);
         meshMenu.addSeparator();
@@ -2953,7 +2955,12 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
             connect(infil, &QAction::triggered, this,
                     [this, targets] { m_meshModel->editInfiltration(targets, this); });
             auto *gw = meshMenu.addAction(tr("Edit groundwater parameters…"));
-            gw->setEnabled(mesh && mesh->isActiveMesh() && m_layer && m_layer->engine());
+            const QString gwLocked = openswmmvis::ui::processLockReason(
+                m_layer ? m_layer->engine() : nullptr,
+                openswmmvis::ui::LockableProcess::Groundwater2D);
+            gw->setEnabled(mesh && mesh->isActiveMesh() && m_layer && m_layer->engine() &&
+                           gwLocked.isEmpty());
+            gw->setToolTip(gwLocked);
             connect(gw, &QAction::triggered, this, [this, targets] {
                 emit groundwaterCellsRequested(m_meshModel->layer(), targets);
             });
@@ -2969,6 +2976,24 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
             }));
             connect(editBC, &QAction::triggered, this,
                     [this, targets] { m_meshModel->editBoundaryCondition(targets, this); });
+            // The aquifer page judges which edges can take a boundary (plan Phase 4).
+            auto *mesh = m_meshModel->layer();
+            QList<QPair<int, int>> edges;
+            bool boundary = false;
+            for (int row : targets) {
+                int cell = -1, local = -1;
+                QString ignored;
+                if (mesh::MeshObjectRef::parseEdge(m_meshModel->refForRow(row), &ignored, &cell,
+                                                   &local)) {
+                    edges.append({cell, local});
+                    boundary |= mesh && mesh->isBoundaryEdge(cell, local);
+                }
+            }
+            auto *editGw = meshMenu.addAction(tr("Edit aquifer boundaries…"));
+            editGw->setEnabled(boundary && mesh && mesh->isActiveMesh() && m_layer &&
+                               m_layer->engine());
+            connect(editGw, &QAction::triggered, this,
+                    [this, edges] { emit groundwaterEdgesRequested(m_meshModel->layer(), edges); });
         }
         const bool clickedEditable =
             srcIdx.isValid() && (m_meshModel->flags(srcIdx) & Qt::ItemIsEditable);
