@@ -45,7 +45,7 @@ CompactToolbarController::CompactToolbarController(QMainWindow *window)
     mTabBar->setExpanding(false);
     mTabBar->setFocusPolicy(Qt::TabFocus);
     mTabBar->setAccessibleName(tr("Toolbar tabs"));
-    mTabBarAction = mStrip->addWidget(mTabBar);
+    mStrip->addWidget(mTabBar);
 
     // Expanding spacer keeps future corner widgets (command palette
     // launcher) right-aligned.
@@ -204,32 +204,7 @@ void CompactToolbarController::finalize()
     if (mFinalized || !mWindow)
         return;
 
-    // Row 1: the strip; row 2: every tab's shared toolbars after one
-    // break; row 3 (after a second break): the own-row bars. TWO passes,
-    // not one loop — addToolBarBreak appends positionally, so a mid-loop
-    // break would push every later tab's bars onto the wrong row. A row
-    // whose bars are all hidden costs no height, so row 3 only exists
-    // while a tab with an own-row bar is current.
-    // Re-adding an already-added toolbar (the .ui-authored and subclass
-    // bars) moves it into place; setMovable(false) locks the layout.
-    mWindow->addToolBar(Qt::TopToolBarArea, mStrip);
-    mWindow->addToolBarBreak(Qt::TopToolBarArea);
-    const auto mount = [this](QToolBar *bar) {
-        mWindow->removeToolBar(bar);
-        mWindow->addToolBar(Qt::TopToolBarArea, bar);
-        bar->setMovable(false);
-    };
-    for (const Tab &tab : mTabs)
-        for (QToolBar *bar : tab.bars)
-            if (bar && !mOwnRowBars.contains(bar))
-                mount(bar);
-    if (!mOwnRowBars.isEmpty()) {
-        mWindow->addToolBarBreak(Qt::TopToolBarArea);
-        for (const Tab &tab : mTabs)
-            for (QToolBar *bar : tab.bars)
-                if (bar && mOwnRowBars.contains(bar))
-                    mount(bar);
-    }
+    mountToolbars();
 
     for (int i = 0; i < mTabs.size(); ++i) {
         if (mTabs[i].contextual)
@@ -257,6 +232,63 @@ void CompactToolbarController::finalize()
     relayoutStrip();
 }
 
+void CompactToolbarController::mountToolbars()
+{
+    // Drop saved breaks as well as placements before rebuilding the managed rows.
+    const auto detach = [this](QToolBar *bar) {
+        if (!bar)
+            return;
+        mWindow->removeToolBarBreak(bar);
+        mWindow->removeToolBar(bar);
+    };
+    detach(mStrip);
+    detach(mPermanentBar);
+    for (const Tab &tab : mTabs)
+        for (QToolBar *bar : tab.bars)
+            detach(bar);
+
+    // Row 1: the strip; row 2: permanent tools, then the tab's shared toolbars after one
+    // break; row 3 (after a second break): the own-row bars. TWO passes,
+    // not one loop — addToolBarBreak appends positionally, so a mid-loop
+    // break would push every later tab's bars onto the wrong row. A row
+    // whose bars are all hidden costs no height, so row 3 only exists
+    // while a tab with an own-row bar is current.
+    // Re-adding an already-added toolbar (the .ui-authored and subclass
+    // bars) moves it into place; setMovable(false) locks the layout.
+    mWindow->addToolBar(Qt::TopToolBarArea, mStrip);
+    mStrip->show();
+    mWindow->addToolBarBreak(Qt::TopToolBarArea);
+    const auto mount = [this](QToolBar *bar) {
+        mWindow->addToolBar(Qt::TopToolBarArea, bar);
+        bar->setMovable(false);
+    };
+    if (mPermanentBar) {
+        mount(mPermanentBar);
+        mPermanentBar->setMinimumWidth(mPermanentBar->sizeHint().width());
+        mPermanentBar->show();
+    }
+    for (const Tab &tab : mTabs)
+        for (QToolBar *bar : tab.bars)
+            if (bar && !mOwnRowBars.contains(bar))
+                mount(bar);
+    if (!mOwnRowBars.isEmpty()) {
+        mWindow->addToolBarBreak(Qt::TopToolBarArea);
+        for (const Tab &tab : mTabs)
+            for (QToolBar *bar : tab.bars)
+                if (bar && mOwnRowBars.contains(bar))
+                    mount(bar);
+    }
+}
+
+void CompactToolbarController::restoreLayout()
+{
+    if (!mFinalized || !mWindow)
+        return;
+    mountToolbars();
+    applyVisibility();
+    relayoutStrip();
+}
+
 void CompactToolbarController::setTabVisible(const QString &id, bool visible)
 {
     const int index = indexOf(id);
@@ -272,13 +304,16 @@ void CompactToolbarController::setTabVisible(const QString &id, bool visible)
     relayoutStrip();
 }
 
-void CompactToolbarController::setLeadingWidget(QWidget *widget)
+void CompactToolbarController::setPermanentToolbar(QToolBar *toolbar)
 {
-    if (!widget || !mTabBarAction)
+    if (!toolbar || mFinalized || mPermanentBar)
         return;
-    mStrip->insertWidget(mTabBarAction, widget);
-    mStrip->insertSeparator(mTabBarAction);
-    relayoutStrip();
+    mPermanentBar = toolbar;
+    toolbar->setMovable(false);
+    toolbar->setFloatable(false);
+    toolbar->setAllowedAreas(Qt::TopToolBarArea);
+    toolbar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    toolbar->toggleViewAction()->setEnabled(false);
 }
 
 void CompactToolbarController::relayoutStrip()

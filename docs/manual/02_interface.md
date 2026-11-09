@@ -13,8 +13,8 @@ The whole main window. Commands live in three places at once:
 - the **menu bar**, where every capability has a menu home, including every
   Mesh 2D tab command under **Model → Mesh ▸**;
 - the **ribbon**, a tabbed compact toolbar with captioned groups (Home, Model,
-  Terrain, Mesh 2D, Features, Analysis, Animation), led by a **Quick Access**
-  cluster (Select, Pan, Full Extent, Undo, Redo) that stays visible on every tab;
+  Terrain, Mesh 2D, Features, Analysis, Animation), with a permanent **Quick Access**
+  group (Select, Pan, Full Extent, Undo, Redo) at the left of the tools row below the tabs;
 - the **Command Palette** (`Ctrl+Shift+P`), which searches all of them by name.
 
 Keyboard shortcuts listed here are the defaults; rebind any of them in
@@ -48,7 +48,7 @@ tabbed together, so a saved workspace may have a different arrangement.
 
 | Region | How to recognize it | What to do there |
 |---|---|---|
-| **1. Ribbon tabs and command row** | Quick Access, then Home; Model; Features and Analysis across the top, plus Terrain, Mesh 2D and Animation when the project has that content | Choose a task family; then use its labeled command groups |
+| **1. Ribbon tabs and command row** | Home; Model; Features and Analysis across the top, plus Terrain, Mesh 2D and Animation when the project has that content; Quick Access stays at the left of the command row below | Choose a task family; then use its labeled command groups |
 | **2. Project tabs** | Welcome and the model name immediately above the map | Switch projects or return to the Welcome page |
 | **3. Map canvas** | The network and subcatchment polygons in the center | Navigate; select; draw; inspect layers and results |
 | **4. Layers and Object Browser** | Dock tabs listing map layers or SWMM object categories | Choose a layer or find an object by name |
@@ -74,8 +74,9 @@ are managed by the tab strip and cannot be hidden individually.
 
 ### The ribbon
 
-The ribbon is one row of buttons under a tab strip. Only the current tab's toolbar
-is visible; the tab you were last on is restored at the next launch
+The ribbon is one row of buttons under a tab strip. Quick Access stays visible at
+the left while the remaining tools follow the selected tab. The tab you were last
+on is restored at the next launch
 (`SWMMVis::MainWindow/CompactToolbarTab`).
 
 Buttons are grouped into captioned **ribbon groups** — a caption under a row of
@@ -89,10 +90,12 @@ command, and the **Command Palette** finds any of them by name.
 
 #### Quick Access
 
-The left end of the tab strip holds the commands every tab needs: **Select ▾**
+The left end of the tools row below the tabs holds the commands every tab needs: **Select ▾**
 (Select / Select by Polygon), **Pan**, **Full Extent**, **Undo** and **Redo**.
 They stay visible whichever tab is current, so returning to plain selection after
-a drawing tool never costs a tab switch.
+a drawing tool never costs a tab switch. These five controls have 44 px click
+targets and standard 32 px ribbon icons; Select reserves additional width for its dropdown arrow.
+The larger controls do not increase the height of the tab strip.
 
 #### Ribbon tabs and groups
 

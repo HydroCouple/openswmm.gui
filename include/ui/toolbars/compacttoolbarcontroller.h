@@ -108,6 +108,11 @@ public:
      */
     void finalize();
 
+    /** @brief Reapply the managed toolbar rows after QMainWindow restores a saved layout.
+     * @note Call after finalize(). Keeps dock placements and the current tab; repairs older
+     * layouts that predate the permanent tools-row toolbar. */
+    void restoreLayout();
+
     /**
      * @param[in] id Stable tab ID, first match; unknown no-op.
      * @param[in] visible Desired QTabBar visibility.
@@ -150,12 +155,12 @@ public:
      */
     QToolBar *stripToolBar() const { return mStrip; }
 
-    /*! Mount \a widget at the leading edge of the tab strip, before the tab
-     *  bar — the Quick Access cluster that stays visible on every tab.
-     * @param[in] widget Live widget; the strip adopts it. Null is ignored. Call once.
-     * @note Inserts a separator between the widget and the tab bar and re-lays the strip.
+    /*! Pin a toolbar before the tab-specific bars in the tools row below the tabs.
+     * @param[in] toolbar Borrowed live toolbar; the main window adopts it on finalize().
+     * @note Call once before finalize(). It remains visible independently of tab selection,
+     * cannot float or move, and reserves enough width to keep its controls out of overflow.
      */
-    void setLeadingWidget(QWidget *widget);
+    void setPermanentToolbar(QToolBar *toolbar);
 
 signals:
     /**
@@ -180,6 +185,8 @@ private:
      *   or reparent toolbars. GUI-thread only.
      */
     void applyVisibility();
+    /** @brief Mount the locked strip, permanent tools, shared tools and optional own-row bars. */
+    void mountToolbars();
     /**
      * @brief Refresh tab-bar hint and synchronously invalidate/set strip layout geometry to current
      *   contents rect.
@@ -198,7 +205,7 @@ private:
     QMainWindow *mWindow = nullptr;
     QToolBar *mStrip = nullptr;
     QTabBar *mTabBar = nullptr;
-    QAction *mTabBarAction = nullptr; ///< Strip slot of the tab bar; leading widgets go before it.
+    QToolBar *mPermanentBar = nullptr; ///< Leading tools-row toolbar, independent of tab visibility.
     QList<Tab> mTabs;
     QList<QToolBar *> mOwnRowBars;
     bool mFinalized = false;

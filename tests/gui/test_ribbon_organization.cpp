@@ -1,7 +1,7 @@
 /**
  * @file      test_ribbon_organization.cpp
  * @brief     Ribbon organization contract on the real main window (process-aware editing plan,
- *            Phase 1): one ribbon face per command, a Quick Access cluster on the tab strip,
+ *            Phase 1): one ribbon face per command, Quick Access pinned below the tab strip,
  *            no View tab, a contextual Animation tab, stacks inside the row budget, catalog
  *            tab fields that match the mounted placement, and every catalog command reachable
  *            from a menu or the ribbon.
@@ -62,6 +62,7 @@ using openswmmvis::ui::ActionRegistry;
 using openswmmvis::ui::CompactToolbarController;
 using openswmmvis::ui::kActionCatalog;
 using openswmmvis::ui::kActionCatalogStrip;
+using openswmmvis::ui::kRibbonIconFull;
 using openswmmvis::ui::kRibbonRowHeight;
 using openswmmvis::ui::RibbonGroup;
 using openswmmvis::ui::RibbonSplitButton;
@@ -69,8 +70,8 @@ using openswmmvis::ui::RibbonSplitButton;
 namespace
 {
 
-/// Window width at which every group on a tab must keep its labels. Model carries the
-/// most commands; the other always-visible tabs keep labels in a narrower window.
+/// Width budget for the tab-specific tools to keep all labels, in addition to the
+/// permanent Quick Access group. Model carries the most commands.
 struct LabelledWidth {
     const char *tab;
     int window;
@@ -146,8 +147,8 @@ private slots:
                  "Animation must stay hidden until a results layer exists");
     }
 
-    /** @brief Select ▾, Pan, Full Extent, Undo and Redo lead the tab strip. */
-    void quickAccessLeadsTheStrip()
+    /** @brief Large Select ▾, Pan, Full Extent, Undo and Redo stay below every tab. */
+    void quickAccessLeadsTheToolsRow()
     {
         QStringList names;
         for (QAction *action : facesOf(m_quick))
@@ -162,18 +163,37 @@ private slots:
 
         auto *strip = m_win->findChild<QToolBar *>(QStringLiteral("toolBarTabStrip"));
         auto *tabs = m_win->findChild<QTabBar *>(QStringLiteral("compactToolbarTabBar"));
-        QVERIFY(strip && tabs);
-        int quickIndex = -1;
-        int tabIndex = -1;
-        const auto actions = strip->actions();
-        for (int i = 0; i < actions.size(); ++i) {
-            if (strip->widgetForAction(actions[i]) == m_quick)
-                quickIndex = i;
-            if (strip->widgetForAction(actions[i]) == tabs)
-                tabIndex = i;
+        auto *quickBar = m_win->findChild<QToolBar *>(QStringLiteral("toolBarQuickAccess"));
+        QVERIFY(strip && tabs && quickBar);
+        QVERIFY(!strip->isAncestorOf(m_quick));
+        QVERIFY(quickBar->isAncestorOf(m_quick));
+        QVERIFY(!quickBar->isMovable());
+        QVERIFY(!quickBar->isFloatable());
+        const auto buttons = m_quick->findChildren<QToolButton *>();
+        QCOMPARE(buttons.size(), 5);
+        for (QToolButton *button : buttons) {
+            QCOMPARE(button->iconSize(), QSize(kRibbonIconFull, kRibbonIconFull));
+            QVERIFY(button->width() >= 44);
+            QCOMPARE(button->height(), 44);
         }
-        QVERIFY2(quickIndex >= 0 && tabIndex >= 0 && quickIndex < tabIndex,
-                 "Quick Access must sit before the tab bar");
+
+        m_win->resize(1600, 900);
+        m_win->show();
+        const QString previous = m_controller->currentTab();
+        for (const QString &id : m_controller->tabIds()) {
+            const bool wasVisible = m_controller->isTabVisible(id);
+            m_controller->setTabVisible(id, true);
+            m_controller->setCurrentTab(id);
+            QTRY_VERIFY(m_quick->isVisibleTo(m_win));
+            QTRY_VERIFY(quickBar->geometry().top() > strip->geometry().bottom());
+            QTRY_VERIFY(quickBar->x() == strip->x());
+            // The bigger buttons must never enlarge the tab-strip row.
+            QVERIFY(strip->height() < buttons.first()->height());
+            for (QToolButton *button : buttons)
+                QTRY_VERIFY(button->isVisibleTo(m_win));
+            m_controller->setTabVisible(id, wasVisible);
+        }
+        m_controller->setCurrentTab(previous);
     }
 
     /** @brief No command has two ribbon faces (Quick Access included in the count). */
@@ -291,17 +311,19 @@ private slots:
         QVERIFY2(columns > 0, "no stack columns were mounted");
     }
 
-    /** @brief Labels render whenever the window is wide enough: report each tab's labeled
-     *  (Full) width, and require every group on the always-visible tabs to keep its labels at
-     *  the window width listed in kLabelledWidths. Set RIBBON_WIDTH_DEBUG for per-group widths. */
+    /** @brief Keep labels at the existing tab-specific width budgets plus the permanent group.
+     * Set RIBBON_WIDTH_DEBUG for per-group widths. */
     void labelsRenderAtCommonWindowWidth()
     {
         m_win->show();
         QStringList report;
         QStringList iconOnly;
+        auto *quickBar = m_win->findChild<QToolBar *>(QStringLiteral("toolBarQuickAccess"));
+        QVERIFY(quickBar);
         for (const auto &target : kLabelledWidths) {
             const QString id = QLatin1String(target.tab);
-            m_win->resize(target.window, 900);
+            const int windowWidth = target.window + quickBar->minimumWidth();
+            m_win->resize(windowWidth, 900);
             m_controller->setCurrentTab(id);
             QCoreApplication::processEvents();
             QTest::qWait(50); // the compactor solves on a zero timer
@@ -315,7 +337,7 @@ private slots:
                     if (group->mode() != openswmmvis::ui::RibbonMode::Full)
                         iconOnly << QStringLiteral("%1/%2 at %3 px")
                                         .arg(id, group->caption())
-                                        .arg(target.window);
+                                        .arg(windowWidth);
                     if (qEnvironmentVariableIsSet("RIBBON_WIDTH_DEBUG"))
                         qInfo().noquote() << id << group->caption() << "full" << widths.full
                                           << "compact" << widths.compact;

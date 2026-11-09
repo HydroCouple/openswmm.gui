@@ -281,6 +281,7 @@
 #include "ui/dialogs/infilassigntoselectiondialog.h"
 #include "animation/animationcontroller.h"
 #include "ui/toolbars/terraintoolbar.h"
+#include "ui/toolbars/compacttoolbarcontroller.h"
 #include "ui/toolbars/mesheditingtoolbar.h"
 #include "ui/toolbars/ribbongroup.h"
 
@@ -5710,6 +5711,8 @@ void SWMMVis::initializeSettings()
     // gave way to the compact-toolbar layout — v1 blobs no longer apply and
     // fail gracefully into the default layout.
     restoreState(mSettings.value("SWMMVis::WindowState", saveState(2)).toByteArray(), 2);
+    if (mCompactToolbar)
+        mCompactToolbar->restoreLayout();
     setWindowState(static_cast<Qt::WindowState>(
         mSettings.value("SWMMVis::WindowStateEnum", static_cast<int>(windowState())).toInt()));
     // Clamp like every dialog does: a geometry saved on a monitor that is no
