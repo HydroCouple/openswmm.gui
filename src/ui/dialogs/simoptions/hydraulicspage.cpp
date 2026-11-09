@@ -15,6 +15,13 @@
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QLabel>
+#include <QMessageBox>
+#include <QLineEdit>
+#include <QDoubleValidator>
+#include <QIntValidator>
+#include <QJsonArray>
+#include <QJsonObject>
+#include <QLocale>
 #include <QSpinBox>
 #include <QStandardItemModel>
 #include <QTabWidget>
@@ -63,10 +70,10 @@ void HydraulicsPage::buildUi()
     m_routingCombo->addItem(tr("Kinematic Wave"), QStringLiteral("KINWAVE"));
     m_routingCombo->addItem(tr("Dynamic Wave"), QStringLiteral("DYNWAVE"));
     m_routingCombo->addItem(tr("Finite Volume"), QStringLiteral("FV"));
-    m_routingCombo->setToolTip(
-        tr("Flow-routing method for conduits (option FLOW_ROUTING).\n"
-           "Finite Volume is the explicit Godunov solver; the tabs below grey "
-           "themselves out when they do not apply to the selected method."));
+    m_routingCombo->setToolTip(tr(
+        "Flow-routing method for conduits (option FLOW_ROUTING).\n"
+        "Finite Volume provides explicit Godunov and native implicit integration; the tabs below grey "
+        "themselves out when they do not apply to the selected method."));
     connect(m_routingCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
             [this](int) { emit gateInputsChanged(); });
     headerForm->addRow(tr("Flow routing:"), m_routingCombo);
@@ -172,7 +179,7 @@ void HydraulicsPage::buildUi()
     solForm->addRow(tr("Lengthening step:"), m_lengtheningSpin);
 
     m_variableStepSpin = new QDoubleSpinBox(solGroup);
-    m_variableStepSpin->setRange(0.0, 1.0);
+    m_variableStepSpin->setRange(0.0, 10.0);
     m_variableStepSpin->setSingleStep(0.05);
     m_variableStepSpin->setDecimals(3);
     m_variableStepSpin->setToolTip(
@@ -204,10 +211,10 @@ void HydraulicsPage::buildUi()
     m_fvCellLengthSpin = new QDoubleSpinBox(m_fvGroup);
     m_fvCellLengthSpin->setRange(0.0, 100000.0);
     m_fvCellLengthSpin->setDecimals(2);
-    m_fvCellLengthSpin->setSpecialValueText(tr("whole conduit"));
+    m_fvCellLengthSpin->setSpecialValueText(tr("Use minimum cell count"));
     m_fvCellLengthSpin->setToolTip(
         tr("Target cell length for conduit discretisation, in project length "
-           "units (FV_CELL_LENGTH). 0 = one cell per conduit."));
+           "units (FV_CELL_LENGTH). 0 = use FV_MIN_CELLS per conduit."));
     fvForm->addRow(tr("Cell length:"), m_fvCellLengthSpin);
 
     m_fvMinCellsSpin = new QSpinBox(m_fvGroup);
@@ -244,6 +251,9 @@ void HydraulicsPage::buildUi()
     m_fvTimeIntCombo = new QComboBox(m_fvGroup);
     m_fvTimeIntCombo->addItem(tr("Euler"), QStringLiteral("EULER"));
     m_fvTimeIntCombo->addItem(tr("RK2"), QStringLiteral("RK2"));
+    if (ctx_.caps().implicitFv)
+        m_fvTimeIntCombo->addItem(tr("Backward Euler (native, experimental)"),
+                                  QStringLiteral("BACKWARD_EULER"));
     m_fvTimeIntCombo->setToolTip(tr("Substep time integrator (FV_TIME_INTEGRATION)."));
     fvForm->addRow(tr("Time integration:"), m_fvTimeIntCombo);
 
@@ -349,6 +359,84 @@ void HydraulicsPage::buildUi()
     fvPerfForm->addRow(tr("CFL census interval:"), m_fvCflCensusSpin);
 
     fvLay->addWidget(m_fvPerfGroup);
+
+    m_implicitGroup = new QGroupBox(tr("Native implicit solver — experimental"), this);
+    m_implicitGroup->setObjectName(QStringLiteral("implicitFvGroup"));
+    auto *implicitForm = new QFormLayout(m_implicitGroup);
+    const auto restrictions = ctx_.caps().implicitFvSchema.value("restrictions").toString();
+    auto *notice = new QLabel(
+        tr("This solver is experimental and does not yet support every FV feature. "
+           "<a href=\"details\">View supported features and limitations</a>."), m_implicitGroup);
+    notice->setWordWrap(true);
+    notice->setObjectName(QStringLiteral("implicitFvRestrictions"));
+    notice->setTextInteractionFlags(Qt::TextBrowserInteraction);
+    notice->setOpenExternalLinks(false);
+    connect(notice, &QLabel::linkActivated, this, [this, restrictions](const QString &) {
+        QMessageBox details(QMessageBox::Information, tr("Implicit FV support"),
+                            tr("The engine reports the following supported features and limitations. "
+                               "Select Show Details to read the complete list."),
+                            QMessageBox::Ok, this);
+        details.setDetailedText(restrictions);
+        details.exec();
+    });
+    implicitForm->addRow(notice);
+    m_implicitMethod = new QComboBox(m_implicitGroup);
+    for (const auto &method : ctx_.caps().implicitFvSchema.value("methods").toArray())
+        m_implicitMethod->addItem(method.toString(), method.toString());
+    tagOption(m_implicitMethod, "FV_IMPLICIT_METHOD");
+    implicitForm->addRow(tr("Native linear method:"), m_implicitMethod);
+    m_implicitPreconditioner = new QComboBox(m_implicitGroup);
+    for (const auto &method : ctx_.caps().implicitFvSchema.value("preconditioners").toArray())
+        m_implicitPreconditioner->addItem(method.toString(), method.toString());
+    tagOption(m_implicitPreconditioner, "FV_IMPLICIT_PRECONDITIONER");
+    implicitForm->addRow(tr("Preconditioner:"), m_implicitPreconditioner);
+    auto *fieldColumns = new QHBoxLayout;
+    auto *leftFields = new QFormLayout;
+    auto *rightFields = new QFormLayout;
+    fieldColumns->addLayout(leftFields, 1);
+    fieldColumns->addLayout(rightFields, 1);
+    implicitForm->addRow(fieldColumns);
+    int fieldIndex = 0;
+    for (const auto &entry : ctx_.caps().implicitFvSchema.value("fields").toArray()) {
+        const auto field = entry.toObject();
+        const auto key = field.value("key").toString();
+        auto *editor = new QLineEdit(m_implicitGroup);
+        editor->setObjectName(key);
+        if (field.value("integer").toBool())
+            editor->setValidator(new QIntValidator(field.value("minimum").toInt(),
+                                                   field.value("maximum").toInt(), editor));
+        else {
+            auto *validator = new QDoubleValidator(field.value("minimum").toDouble(),
+                                                   field.value("maximum").toDouble(), 17, editor);
+            validator->setNotation(QDoubleValidator::ScientificNotation);
+            validator->setLocale(QLocale::c());
+            editor->setValidator(validator);
+        }
+        tagOption(editor, key.toUtf8().constData());
+        editor->setToolTip(
+            tr("%1. Scientific notation is accepted. Tolerances use the engine's internal units shown here.")
+                .arg(key));
+        (fieldIndex++ % 2 == 0 ? leftFields : rightFields)
+            ->addRow(field.value("label").toString(), editor);
+        m_implicitFields.insert(key, editor);
+    }
+    m_implicitGroup->setVisible(ctx_.caps().implicitFv);
+    // A separate tab keeps advanced controls within the dialog viewport.
+    connect(m_fvTimeIntCombo, qOverload<int>(&QComboBox::currentIndexChanged), this, [this] {
+        if (!m_reading && m_fvTimeIntCombo->currentData() == QStringLiteral("BACKWARD_EULER")) {
+            // Pending widget edits only: Cancel leaves the model untouched.
+            m_fvOrderCombo->setCurrentIndex(m_fvOrderCombo->findData(QStringLiteral("1")));
+            m_fvPressureClosureCombo->setCurrentIndex(
+                m_fvPressureClosureCombo->findData(QStringLiteral("SLOT")));
+            m_fvBackendCombo->setCurrentIndex(m_fvBackendCombo->findData(QStringLiteral("CPU")));
+            m_fvLtsBox->setChecked(false);
+            m_fvPressImplicitBox->setChecked(false);
+            m_skipSteadyBox->setChecked(false);
+            m_ufMethodCombo->setCurrentIndex(m_ufMethodCombo->findData(QStringLiteral("NONE")));
+        }
+        refreshGates();
+        emit gateInputsChanged();
+    });
 
     // ── Unsteady friction (engine issue #156; GUI issue #10) ───────────
     // Consumed by BOTH the dynamic-wave and FV solvers, so it is its own
@@ -467,6 +555,8 @@ void HydraulicsPage::buildUi()
     m_tabs->addTab(dwTab, tr("Dynamic Wave"));
     m_tabs->addTab(fvTab, tr("Finite Volume"));
     m_tabs->addTab(ufTab, tr("Unsteady Friction"));
+    if (ctx_.caps().implicitFv)
+        m_tabs->addTab(m_implicitGroup, tr("Implicit FV"));
 }
 
 void HydraulicsPage::tagWidgets()
@@ -515,6 +605,7 @@ void HydraulicsPage::tagWidgets()
 
 void HydraulicsPage::read()
 {
+    m_reading = true;
     const auto sim = PreferencesManager::instance()->simulationDefaults();
     const auto ynStr = [](bool v) { return v ? QStringLiteral("YES") : QStringLiteral("NO"); };
     auto selectComboByData = [](QComboBox *c, const QString &data) {
@@ -608,6 +699,25 @@ void HydraulicsPage::read()
                                ctx_.option("FV_LTS", QStringLiteral("YES"))) == Qt::Checked);
     m_fvLtsTiersSpin->setValue(optInt("FV_LTS_MAX_TIERS", 6));
     m_fvCflCensusSpin->setValue(optInt("FV_CFL_CENSUS_INTERVAL", 1));
+    if (ctx_.caps().implicitFv) {
+        selectComboByData(m_implicitMethod, ctx_.option("FV_IMPLICIT_METHOD"));
+        selectComboByData(m_implicitPreconditioner, ctx_.option("FV_IMPLICIT_PRECONDITIONER"));
+        for (auto it = m_implicitFields.begin(); it != m_implicitFields.end(); ++it) {
+            const QString original = ctx_.option(it.key().toUtf8().constData());
+            bool ok = false;
+            const double value = original.toDouble(&ok);
+            const QString display = ok && qIsFinite(value) &&
+                    qobject_cast<const QDoubleValidator *>(it.value()->validator())
+                ? QLocale::c().toString(value, 'g', QLocale::FloatingPointShortest)
+                : original;
+            // Preserve the engine's exact text when an editor is unchanged.
+            it.value()->setProperty("implicitOriginalValue", original);
+            it.value()->setProperty("implicitDisplayValue", display);
+            it.value()->setText(display);
+        }
+    }
+    m_reading = false;
+    refreshGates();
     ctx_.captureEditors(this);
 }
 
@@ -677,8 +787,58 @@ int HydraulicsPage::write()
     n += writeOption("FV_LTS_MAX_TIERS", QString::number(m_fvLtsTiersSpin->value()));
     n += writeOption("FV_CFL_CENSUS_INTERVAL", QString::number(m_fvCflCensusSpin->value()));
 
+    if (ctx_.caps().implicitFv) {
+        n += writeOption("FV_IMPLICIT_METHOD", m_implicitMethod->currentData().toString());
+        n += writeOption("FV_IMPLICIT_PRECONDITIONER",
+                                 m_implicitPreconditioner->currentData().toString());
+        for (auto it = m_implicitFields.begin(); it != m_implicitFields.end(); ++it) {
+            const auto *editor = it.value();
+            const QString value = editor->text() == editor->property("implicitDisplayValue").toString()
+                ? editor->property("implicitOriginalValue").toString() : editor->text();
+            n += writeOption(it.key().toUtf8().constData(), value);
+        }
+    }
     ctx_.captureEditors(this);
     return n;
+}
+
+bool HydraulicsPage::validate(QString *warn)
+{
+    if (!ctx_.caps().implicitFv)
+        return true;
+    const bool nativeUnsteady = ctx_.caps().implicitFvSchema.value("native_unsteady_friction").toBool();
+    const bool supportedUnsteady = m_ufMethodCombo->currentData() == QStringLiteral("NONE") ||
+        (nativeUnsteady && m_ufMethodCombo->currentData() == QStringLiteral("VITKOVSKY"));
+    if (flowRouting() == QStringLiteral("FV") &&
+        m_fvTimeIntCombo->currentData() == QStringLiteral("BACKWARD_EULER") &&
+        (m_fvOrderCombo->currentData() != QStringLiteral("1") ||
+         m_fvPressureClosureCombo->currentData() != QStringLiteral("SLOT") ||
+         (m_fvBackendCombo->currentData() != QStringLiteral("CPU") &&
+          m_fvBackendCombo->currentData() != QStringLiteral("AUTO")) ||
+         m_fvLtsBox->isChecked() || m_fvPressImplicitBox->isChecked() ||
+         m_skipSteadyBox->isChecked() ||
+         !supportedUnsteady)) {
+        if (warn)
+            *warn = tr(
+                "This experimental solver requires CPU/AUTO, first-order SLOT, local time stepping off, "
+                "pressure-only implicit solve off, steady skips off and a supported unsteady-friction setting. Select Euler then "
+                "Backward Euler to apply compatible pending hydraulic settings. Cell count and slot celerity are preserved.");
+        return false;
+    }
+    for (auto it = m_implicitFields.begin(); it != m_implicitFields.end(); ++it) {
+        if (!it.value()->hasAcceptableInput()) {
+            if (warn)
+                *warn = tr("Enter a finite value within the supported range for %1.").arg(it.key());
+            return false;
+        }
+    }
+    if (m_implicitFields.value("FV_IMPLICIT_MIN_STEP")->text().toDouble() >
+        m_implicitFields.value("FV_IMPLICIT_MAX_STEP")->text().toDouble()) {
+        if (warn)
+            *warn = tr("The minimum implicit step must not exceed the maximum implicit step.");
+        return false;
+    }
+    return true;
 }
 
 void HydraulicsPage::refreshGates()
@@ -687,6 +847,21 @@ void HydraulicsPage::refreshGates()
     // widgets inside it, so these never leave this class (PLAN §4.3 "widget"
     // rows). Setting a control on a disabled group is harmless — Qt ANDs the
     // enabled state down the tree.
+    const bool implicit = ctx_.caps().implicitFv && flowRouting() == QStringLiteral("FV") &&
+                          m_fvTimeIntCombo->currentData() == QStringLiteral("BACKWARD_EULER");
+    m_implicitGroup->setEnabled(implicit);
+    const int nativeTab = m_tabs->indexOf(m_implicitGroup);
+    if (nativeTab >= 0)
+        m_tabs->setTabEnabled(nativeTab, implicit);
+    m_fvPerfGroup->setEnabled(!implicit);
+    m_fvCflSpin->setEnabled(!implicit);
+    m_fvOrderCombo->setEnabled(!implicit);
+    m_fvPressureClosureCombo->setEnabled(!implicit && ctx_.caps().fvPressure);
+    m_fvBackendCombo->setEnabled(!implicit);
+    m_fvLtsBox->setEnabled(!implicit);
+    m_fvPressImplicitBox->setEnabled(!implicit);
+    m_skipSteadyBox->setEnabled(!implicit);
+    m_ufMethodCombo->setEnabled(!implicit || ctx_.caps().implicitFvSchema.value("native_unsteady_friction").toBool());
     const QString surcharge =
         m_surchargeCombo ? m_surchargeCombo->currentData().toString() : QString();
     const bool dyn = surcharge == QLatin1String("DYNAMIC_SLOT");
@@ -701,10 +876,10 @@ void HydraulicsPage::refreshGates()
         m_tpaCeleritySpin->setEnabled(tpa && ctx_.caps().tpa);
 
     if (m_fvLimiterCombo && m_fvOrderCombo)
-        m_fvLimiterCombo->setEnabled(m_fvOrderCombo->currentData().toString() ==
-                                     QLatin1String("2"));
+        m_fvLimiterCombo->setEnabled(!implicit && m_fvOrderCombo->currentData().toString() ==
+                                                      QLatin1String("2"));
     if (m_fvLtsTiersSpin && m_fvLtsBox)
-        m_fvLtsTiersSpin->setEnabled(m_fvLtsBox->isChecked());
+        m_fvLtsTiersSpin->setEnabled(!implicit && m_fvLtsBox->isChecked());
     if (m_ufK3Spin && m_ufMethodCombo)
         m_ufK3Spin->setEnabled(m_ufMethodCombo->currentData().toString() != QLatin1String("NONE"));
 

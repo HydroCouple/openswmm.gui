@@ -276,13 +276,13 @@ The *System / Performance* page has a one-click preset that does exactly that.
 
 | Control | Options / meaning | Writes |
 | --- | --- | --- |
-| **Cell length** | Target cell length in project length units; the special value reads **whole conduit** (one cell per conduit) | `FV_CELL_LENGTH` |
+| **Cell length** | Target cell length in project length units; zero reads **Use minimum cell count** and uses `FV_MIN_CELLS` per conduit | `FV_CELL_LENGTH` |
 | **Min cells per conduit** | Floor on cells per conduit | `FV_MIN_CELLS` |
 | **CFL number** | Courant number the explicit substep targets | `FV_CFL` |
 | **Riemann solver** | HLLC or HLL | `FV_RIEMANN` |
 | **Spatial order** | 1st order, or 2nd order (MUSCL-Hancock) | `FV_ORDER` |
 | **Slope limiter** | Minmod / van Leer / Superbee — enabled only at 2nd order | `FV_LIMITER` |
-| **Time integration** | Euler or RK2 | `FV_TIME_INTEGRATION` |
+| **Time integration** | Euler, RK2, or native Backward Euler (experimental, when supported by the loaded engine) | `FV_TIME_INTEGRATION` |
 | **Slot celerity** | Preissmann-slot pressure-wave celerity | `FV_SLOT_CELERITY` |
 | **Pressure closure** | SLOT (Preissmann) or TPA — TPA carries a signed pressure head so sub-atmospheric full-pipe flow is representable | `FV_PRESSURE_CLOSURE` |
 | **Implicit pressurized head solve (experimental)** | Solves surcharged-cell heads implicitly; CPU backend only and local time stepping stands down while it engages | `FV_PRESSURIZED_IMPLICIT` |
@@ -307,6 +307,20 @@ warns once and uses the built-in behaviour.
 | **Local time stepping (FV_LTS)** | Advance slow cells with larger substeps grouped in tiers | `FV_LTS` |
 | **LTS max tiers** | Cap on the tier spread; enabled only while LTS is on | `FV_LTS_MAX_TIERS` |
 | **CFL census interval** | Substeps between full Courant re-surveys; 1 = every substep | `FV_CFL_CENSUS_INTERVAL` |
+
+**Native Backward Euler preview**
+
+Choose **Routing & Hydraulics → Finite Volume → Time integration → Backward Euler (native, experimental)**. The choice is available only when the loaded engine advertises it through its read-only `FV_IMPLICIT_SCHEMA` contract. It selects the native coupled implicit water solver and preserves the physical conduit cells and slot celerity.
+
+Choosing it prepares first-order SLOT, CPU, local time stepping off, pressure-only implicit solve off, steady skips off and unsteady friction off in the dialog. These are pending edits: Apply/OK commits them together through the existing configuration history, while Cancel leaves them unapplied. The advanced controls are on the **Implicit FV** tab and accept scientific notation. Their tolerance units are the engine's internal feet, cubic feet and seconds, as labelled, even in SI projects.
+
+The native linear method can use chain condensation with GMRES fallback, or full GMRES, with block or scalar ILU(0). Both are developed in the engine. PCG and multigrid are not selectable because they are not implemented for this nonsymmetric coupled system. A chain-condensation fallback is another native implicit linear solve; it never switches the time integrator to explicit FV.
+
+This preview currently admits closed conduits, ordinary algebraic junctions, supported physical storage, fixed outfalls and the qualified in-memory water-source profile. It rejects unsupported combinations at initialization. Full FV parity remains unfinished: open channels, structures/controls, flooding, heat, solute, multispecies, 1D–2D coupling and disk restart are not supported by this preview. Dry-junction startup and very shallow dry-front qualification also remain open. The existing explicit solver retains those features.
+
+On a rerun, the GUI preserves the previous native `.out` in a numbered `.previous-native-*` sibling before opening a fresh native output. An incompatible-model rejection during initialization leaves existing results in place.
+
+The run log records the actual native runtime, physical cell count, accepted/rejected steps, Newton/GMRES work and final residuals through `FV_IMPLICIT_DIAGNOSTICS`. A rejected window does not publish partial hydraulic state or receipts, and the GUI reports an engine error. The separate **Implicit pressurized head solve** checkbox is an existing explicit-FV option and does not select this solver.
 
 #### Unsteady Friction
 

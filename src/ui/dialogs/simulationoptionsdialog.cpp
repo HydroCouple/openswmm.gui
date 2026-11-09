@@ -148,21 +148,7 @@ bool SimulationOptionsDialog::runNestedClimatology(int tab)
 
 // Destructor is now inline in the header to keep the moc vtable self-contained.
 
-/*!
- * Disables controls the currently-selected engine does not support.
- *
- * Every block now lives in the owning page's applyCapabilities(), which
- * addPage() runs as each page is registered — Routing & Hydraulics takes the
- * FV routing item, TPA, the FV pressure closure, unsteady friction,
- * DYNAMIC_SLOT, SEMI_IMPLICIT and Anderson; Quality & Transport takes the
- * solver surface; Files takes signed heads and the legacy writers / [PLUGINS]
- * disable. What is left here is the re-callable entry point for a mid-session
- * engine-version change: re-probe, then let every page re-apply.
- *
- * The 2D module checkbox, Mesh page and 2D Surface Routing page stay editable
- * even on legacy SWMM 5: mesh preparation is a pure GUI concern and the engine
- * simply ignores 2D inputs at run time.
- */
+// Reapply restrictions from the once-captured shared capability snapshot.
 void SimulationOptionsDialog::applyEngineConstraints()
 {
     for (openswmmvis::ui::SimOptionsPage *p : m_pageOrder)
@@ -527,7 +513,15 @@ void SimulationOptionsDialog::buildUi()
 namespace
 {
 
-/*! Grey a sidebar row without hiding it, and move off it if it was current. */
+/**
+ * @brief Apply a visible sidebar row's enablement and redirect if it becomes inactive.
+ * @param list Optional borrowed list; null is a no-op.
+ * @param row Zero-based row; negative or missing item is a no-op.
+ * @param on True restores selectable/enabled flags; false clears all item flags.
+ * @param reason Borrowed disabled tooltip, copied to the item; cleared when enabled.
+ * An active disabled row redirects to row zero without searching its enablement.
+ * Does not hide/remove items, own the list or mutate engine state.
+ */
 void applyRowGate(QListWidget *list, int row, bool on, const QString &reason)
 {
     if (!list || row < 0)
@@ -544,7 +538,15 @@ void applyRowGate(QListWidget *list, int row, bool on, const QString &reason)
         list->setCurrentRow(0);
 }
 
-/*! Grey an inner tab, and redirect off it if it was showing. */
+/**
+ * @brief Apply an inner tab's enablement and move away from a newly disabled active tab.
+ * @param tabs Optional borrowed tab widget; null is a no-op.
+ * @param idx Zero-based target tab; out-of-range indices are ignored.
+ * @param on Desired enabled state, leaving the tab visible.
+ * @param reason Borrowed disabled tooltip, copied to the tab; cleared when enabled.
+ * If disabling the current tab, selects the first enabled tab when one exists;
+ * otherwise no alternative selection is forced. Does not own widgets or write options.
+ */
 void applyTabGate(QTabWidget *tabs, int idx, bool on, const QString &reason)
 {
     if (!tabs || idx < 0 || idx >= tabs->count())

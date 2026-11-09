@@ -62,6 +62,12 @@ namespace
 // file, AFTER the GUI has released its own result readers and BEFORE any
 // report/output writer starts. This also catches a locked zero-byte output
 // left by an earlier failed attempt. The engine still owns the run-time lock.
+/**
+ * @brief Probe an existing HDF5 destination for writable lock access without truncating it.
+ * @param[in] path Output file path; empty/missing file succeeds without creating it.
+ * @param[out] error Busy/access diagnostic on failure, unchanged on success.
+ * @return True after a transient platform probe lock is acquired/released, or on platforms without a probe implementation; not a persistent runtime lock.
+ */
 bool twoDOutputAvailable(const QString &path, QString &error)
 {
     if (path.isEmpty() || !QFileInfo::exists(path))
@@ -113,6 +119,11 @@ bool twoDOutputAvailable(const QString &path, QString &error)
 // by the worker thread only.
 struct RunLog {
     QFile file;
+    /**
+     * @brief Open an append-only diagnostic log beside the report.
+     * @param[in] rptPath Report path defining the .runlog.txt companion stem.
+     * @details Open failure leaves logging inert; run output validation/reservations are handled by the caller.
+     */
     explicit RunLog(const QString &rptPath)
     {
         const QFileInfo fi(rptPath);
@@ -120,6 +131,11 @@ struct RunLog {
                          QStringLiteral(".runlog.txt"));
         file.open(QIODevice::Append | QIODevice::Text);
     }
+    /**
+     * @brief Append a timestamped line and request a flush.
+     * @param[in] text Diagnostic text.
+     * @details No-op when the log is not open; write/flush errors are not propagated. Worker access is serialized by its run.
+     */
     void line(const QString &text)
     {
         if (!file.isOpen())
@@ -136,12 +152,23 @@ struct RunLog {
 // "numerical" returns SWMM_ERR_NUMERICAL from a step). Empty = inert.
 struct TestFault {
     QString phase, kind;
+    /**
+     * @brief Match a configured test-fault phase exactly.
+     * @param[in] p Non-null Latin-1 phase name.
+     * @return True for exact configured phase text.
+     */
     bool at(const char *p) const { return phase == QLatin1String(p); }
 };
 
 // swmm_2d_get_run_stats → SimulationRunner::twoDSolverStats, queued onto the
 // GUI thread. Called from the worker with the engine still open; a refused
 // read (2D not active, solver finalised) simply emits nothing.
+/**
+ * @brief Capture snow ledgers on the engine-owning worker and queue copied rows to the GUI.
+ * @param[in] self Non-null runner kept alive through worker completion.
+ * @param[in] jobId Correlation ID.
+ * @param[in] eng Borrowed open worker engine.
+ */
 void emitSnowLedger(SimulationRunner *self, int jobId, SWMM_Engine eng)
 {
     const auto rows = openswmmvis::simulation::snowLedgerRows(eng);
@@ -150,6 +177,13 @@ void emitSnowLedger(SimulationRunner *self, int jobId, SWMM_Engine eng)
         Qt::QueuedConnection);
 }
 
+/**
+ * @brief Queue current solver/backend/tier telemetry when readable.
+ * @param[in] self Non-null retained runner receiver.
+ * @param[in] jobId Correlation ID.
+ * @param[in] eng Borrowed open worker engine; failed stats reads emit nothing.
+ * @details At most eight tier counts are copied into the queued value payload.
+ */
 void emitTwoDSolverStats(SimulationRunner *self, int jobId, SWMM_Engine eng)
 {
     SWMM_2DRunStats st{};
@@ -181,8 +215,10 @@ namespace
 
 /**
  * @brief Convert a SWMM engine time (OADate: decimal days since
- *        1899-12-30 00:00:00 local) to a QDateTime. Returns an invalid
+ *        1899-12-30 00:00:00 nominal calendar) to a QDateTime. Returns an invalid
  *        QDateTime for non-finite or clearly-bogus values (≤ epoch).
+ * @param[in] oaDate Positive finite nominal SWMM days since 1899-12-30.
+ * @return Shared UTC-basis calendar representation, or invalid for nonpositive/nonfinite input.
  */
 QDateTime oaDateToQDateTime(double oaDate)
 {
@@ -215,6 +251,8 @@ QDateTime oaDateToQDateTime(double oaDate)
  *  3. {app_dir}/../bin/{CONFIG}/
  *
  * @return Absolute path to the worker, or an empty string if none was found.
+ * @param[in] version Requested legacy version text used in executable names.
+ * @details Checks file existence in application/build-relative locations, not PATH or executable permissions. Only the configured LEGACY_SWMM_VERSION may use an unversioned fallback.
  */
 QString findLegacyWorker(const QString &version)
 {
@@ -276,6 +314,11 @@ QString findLegacyWorker(const QString &version)
 
 namespace
 {
+/**
+ * @brief Remove an unquoted semicolon comment from an INP row.
+ * @param[in] line UTF-8-decoded row copied for editing; quote state toggles at each double quote.
+ * @return Trimmed content before the first semicolon outside quotes.
+ */
 QString withoutInpComment(QString line)
 {
     bool quoted = false;
@@ -292,6 +335,11 @@ QString withoutInpComment(QString line)
 
 // Match the engine's quoted-token and comma-delimiter rules for option rows.
 // In a whitespace row an embedded comma belongs to a name; pure CSV separates it.
+/**
+ * @brief Split INP option rows using quote-aware whitespace/comma rules.
+ * @param[in] line Comment-stripped row text.
+ * @return Ordered tokens with surrounding quoted-field delimiters removed; interior commas in whitespace-delimited names are retained. Does not validate balanced quotes.
+ */
 QStringList optionTokens(const QString &line)
 {
     bool quoted = false, pureCsv = true;
@@ -372,6 +420,11 @@ struct RunFileReferences {
     QStringList inputs, outputs;
 };
 
+/**
+ * @brief Scan declared built-in input/output resource slots for path protection.
+ * @param[in] inp Model file read as UTF-8, with references resolved relative to its directory.
+ * @return Owning path lists, empty for unreadable input; does not recurse through arbitrary plugin/nested datasource dependencies.
+ */
 RunFileReferences knownRunReferences(const QString &inp)
 {
     RunFileReferences references;
@@ -451,6 +504,11 @@ RunFileReferences knownRunReferences(const QString &inp)
     return references;
 }
 
+/**
+ * @brief Convert a path to filesystem-native representation.
+ * @param[in] path Qt path text.
+ * @return Wide Windows or UTF-8 non-Windows filesystem path.
+ */
 std::filesystem::path nativeRunPath(const QString &path)
 {
 #ifdef Q_OS_WIN
@@ -460,6 +518,12 @@ std::filesystem::path nativeRunPath(const QString &path)
 #endif
 }
 
+/**
+ * @brief Compare file identities without requiring both paths to exist.
+ * @param[in] left First path, empty returns false.
+ * @param[in] right Second path, empty returns false.
+ * @return Filesystem-equivalent/canonically equal or cleaned-absolute-equal paths, case-insensitive on Windows.
+ */
 bool sameRunFile(const QString &left, const QString &right)
 {
     if (left.isEmpty() || right.isEmpty())
@@ -613,6 +677,13 @@ namespace
 {
 
 // A failed SimulationResult for an exception that escaped the worker body.
+/**
+ * @brief Translate an escaped worker exception into a terminal failure value.
+ * @param[in] phase Last known run phase, or empty for run fallback.
+ * @param[in] what Exception description copied into the diagnostic.
+ * @param[in] log Optional borrowed log receiving a timestamped exception record.
+ * @return Failed result with SWMM_ERR_INTERNAL and captured phase; no engine handles escape.
+ */
 SimulationResult exceptionResult(const QString &phase, const QString &what, RunLog *log)
 {
     SimulationResult r;
@@ -669,6 +740,10 @@ namespace
 // run streams: on a saturated pool the engine queued behind them and they
 // behind the engine (a run on a 10-core Mac spent its time waiting on
 // render jobs). A private pool; a few runs may still overlap.
+/**
+ * @brief Isolate simulation workers from rendering/IO task starvation.
+ * @return Borrowed process-lifetime pool capped at four concurrent run tasks.
+ */
 QThreadPool *enginePool()
 {
     static QThreadPool pool;
@@ -820,6 +895,10 @@ void SimulationRunner::start()
             // mesh + solver state. close() is safe in every engine state.
             struct EngineGuard {
                 SWMM_Engine eng = swmm_engine_create();
+                /**
+                 * @brief Close and destroy a linked-engine handle on normal return or exception.
+                 * @details No-op for null; executes on the engine-owning worker.
+                 */
                 ~EngineGuard()
                 {
                     if (!eng)
@@ -888,6 +967,14 @@ void SimulationRunner::start()
             // from the step loop, so a registered progress callback never
             // fires during the run — progress is polled inline below.
             swmm_set_warning_callback(eng, &SimulationRunner::warningCallback, rawSelf);
+            char implicitDiagnostic[8192] = {};
+            const bool nativeImplicit =
+                swmm_options_get(eng, "FV_IMPLICIT_DIAGNOSTICS", implicitDiagnostic,
+                                 sizeof(implicitDiagnostic)) == SWMM_OK &&
+                QByteArray(implicitDiagnostic).contains("\"active\":true");
+            if (nativeImplicit)
+                runLog->line(QStringLiteral("Native implicit FV: %1")
+                                 .arg(QString::fromUtf8(implicitDiagnostic)));
 
             // ── Slice CF.MVP — 2D mesh hand-off to the GUI ─────────────────
             // After successful initialize, the surface_router_ mesh is fully
@@ -980,9 +1067,37 @@ void SimulationRunner::start()
             // Start
             *phase = QStringLiteral("start");
             runLog->line(QStringLiteral("start"));
+            // The native transactional writer requires a fresh destination.
+            // The GUI already holds the output lease and has obtained its
+            // usual overwrite consent. Preserve the preceding binary results
+            // in a new sibling file, after successful native preflight.
+            QString previousNativeOutput;
+            const QString nativeOutput = QString::fromUtf8(out);
+            if (nativeImplicit && QFileInfo::exists(nativeOutput)) {
+                int suffix = 1;
+                do {
+                    previousNativeOutput =
+                        nativeOutput + QStringLiteral(".previous-native-%1").arg(suffix++);
+                } while (QFileInfo::exists(previousNativeOutput));
+                if (!QFile::rename(nativeOutput, previousNativeOutput))
+                    return {false, SWMM_ERR_IO,
+                            tr("Cannot preserve previous native results: %1").arg(nativeOutput),
+                            0.0, 0.0};
+                runLog->line(QStringLiteral("Previous native results preserved: %1")
+                                 .arg(previousNativeOutput));
+            }
             rc = swmm_engine_start(eng, 1 /* save_results */);
             if (rc != SWMM_OK) {
-                const QString msg = engineFailureText(eng, rc);
+                QString msg = engineFailureText(eng, rc);
+                if (!previousNativeOutput.isEmpty()) {
+                    if (!QFileInfo::exists(nativeOutput) &&
+                        QFile::rename(previousNativeOutput, nativeOutput))
+                        runLog->line(QStringLiteral(
+                            "Restored previous native results after start refusal."));
+                    else
+                        msg +=
+                            tr("\nPrevious results are preserved at %1").arg(previousNativeOutput);
+                }
                 return {false, rc, msg, 0.0, 0.0}; // engineGuard closes + destroys
             }
 
@@ -1379,6 +1494,11 @@ void SimulationRunner::start()
             // End
             if (stepFailCode == SWMM_OK)
                 *phase = QStringLiteral("end");
+            if (swmm_options_get(eng, "FV_IMPLICIT_DIAGNOSTICS", implicitDiagnostic,
+                                 sizeof(implicitDiagnostic)) == SWMM_OK &&
+                QByteArray(implicitDiagnostic).contains("\"active\":true"))
+                runLog->line(QStringLiteral("Native implicit FV final work: %1")
+                                 .arg(QString::fromUtf8(implicitDiagnostic)));
             runLog->line(QStringLiteral("end"));
             swmm_engine_end(eng);
             emitSnowLedger(rawSelf, rawSelf->m_jobId, eng);
