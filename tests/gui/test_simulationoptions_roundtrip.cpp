@@ -32,7 +32,7 @@
  *   1. `wroteAnyChanges()` is false after Apply — the dialog's own dirty count
  *      (writeIfChanged's numeric-aware compare) saw nothing to write.
  *   2. The model serialised BEFORE the dialog existed and AFTER Apply is
- *      byte-identical in every [OPTIONS]-class section — [OPTIONS],
+ *      equal after line/whitespace normalization in every [OPTIONS]-class section — [OPTIONS],
  *      [REPORT], [FILES], [EVENTS], [2D_OPTIONS], [TITLE] — so a write the
  *      dirty count missed (e.g. a value re-formatted to the same number)
  *      still fails here, with a readable diff of the offending section.
@@ -70,6 +70,7 @@
 #include <QListView>
 #include <QComboBox>
 #include "ui/dialogs/simoptions/hydraulicspage.h"
+#include "ui/dialogs/simoptions/enginecapabilities.h"
 #include <QLineEdit>
 #include <QTableView>
 #include <QUndoStack>
@@ -102,16 +103,25 @@
 namespace
 {
 
+/** @brief Read the fixture/output root used by option round-trip cases.
+ * @return Owned SWMMVIS_GUI_TEST_DATA value or dot fallback; no I/O. */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/** @brief Form a fixture/output path beneath the configured data root.
+ * @param[in] name Controlled relative filename; no sanitization or reservation.
+ * @return Owned joined path without checking existence or creating parents. */
 QString fixture(const QString &name)
 {
     return QDir(dataDir()).filePath(name);
 }
 
+/** @brief Load an unparented model layer with exclusive RAII ownership.
+ * @param[in] path Existing model filename copied into the layer.
+ * @return Owning loaded layer, or null after load refusal and automatic cleanup.
+ * Warnings/errors are discarded; no simulation is started. */
 std::unique_ptr<SWMMModelLayer> openLayer(const QString &path)
 {
     auto layer = std::make_unique<SWMMModelLayer>(path, nullptr);
@@ -121,6 +131,13 @@ std::unique_ptr<SWMMModelLayer> openLayer(const QString &path)
     return layer;
 }
 
+/** @brief Load a project window whose workspace lifetime follows the returned window.
+ * @param[in] path Existing model filename copied into the window.
+ * @param[out] error Optional joined load diagnostics set only on load refusal;
+ * unchanged on success.
+ * @return Owning loaded window or null after refusal and window/workspace cleanup.
+ * Parents the created workspace to the window; no engine alias ownership escapes
+ * independently and no save or simulation is invoked. */
 std::unique_ptr<SWMMVisProjectWindow> openProjectWindow(const QString &path, QString *error)
 {
     auto *workspace = OpenSWMMVisWorkspace::newInstance(QString(), nullptr);
@@ -135,6 +152,10 @@ std::unique_ptr<SWMMVisProjectWindow> openProjectWindow(const QString &path, QSt
     return window;
 }
 
+/** @brief Read fixture/writer text as owned UTF-8.
+ * @param[in] path Filename borrowed for synchronous text-mode read.
+ * @return Decoded text, empty for empty/open-refused file; partial reads have no
+ * separate status. Input bytes are unchanged. */
 QString readAll(const QString &path)
 {
     QFile f(path);
@@ -152,6 +173,13 @@ const QStringList kOwnedSections = {
 };
 
 //! Section name → its normalised body (trimmed lines, comments/blank removed).
+/** @brief Extract normalized bodies of sections owned by the options dialog.
+ * @param[in] text Full input/writer text, unchanged.
+ * @return Owned map for TITLE/OPTIONS/REPORT/FILES/EVENTS/2D_OPTIONS, combining
+ * repeated section rows in encounter order.
+ * Uppercases bracketed section names, drops blanks/leading-semicolon comments and
+ * simplifies internal whitespace. This is normalized line equality, not original
+ * byte equality, and it is not a full quoted-token/comment parser. */
 QMap<QString, QStringList> ownedSections(const QString &text)
 {
     QMap<QString, QStringList> out;
@@ -171,6 +199,13 @@ QMap<QString, QStringList> ownedSections(const QString &text)
 }
 
 //! Copy \p src to \p dst with FLOW_ROUTING rewritten (FV variant).
+/** @brief Overwrite a copied deck with column-zero FLOW_ROUTING assignments replaced.
+ * @param[in] src Source filename read through readAll.
+ * @param[in] dst Destination, truncated if already present; parent must exist.
+ * @param[in] routing Raw replacement keyword inserted without validation.
+ * @return False for empty/unreadable source or output-open refusal, otherwise true
+ * even if no routing line matched or an unchecked write failed.
+ * Uses a multiline regular expression; does not parse or run the produced deck. */
 bool writeRoutingVariant(const QString &src, const QString &dst, const QString &routing)
 {
     QString text = readAll(src);
@@ -194,6 +229,12 @@ class TestSimulationOptionsRoundTrip : public QObject
 
 private:
     //! The whole contract for one deck.
+    /** @brief Require an unedited dialog Apply to preserve dirty state and normalized owned-section text.
+     * @param[in] deck Existing model filename loaded into an exclusively owned layer.
+     * @param[in] stem Controlled prefix for retained _before/_after .inp snapshots.
+     * Serializes before/after, directly invokes onApply and compares every owned
+     * section in order, reporting first differences. Uses real engine/dialog without
+     * a project window; does not test byte identity, notes persistence or simulation. */
     void roundTrip(const QString &deck, const QString &stem)
     {
         auto layer = openLayer(deck);
@@ -417,6 +458,89 @@ private slots:
     }
 
 
+
+    /** @brief Require native implicit-FV edits to remain pending until Apply and participate in one undo/redo command.
+     * Checks cancel preservation, scientific volume tolerance 2e-11, implicit LTS
+     * disablement, unchanged mesh/celerity controls and rejection of a later NaN edit.
+     * Skips without the native implicit engine capability; does not run hydraulics. */
+    void nativeImplicitPendingApplyCancelUndoAndScientificTolerance()
+    {
+        auto layer = openLayer(fixture("gw_exchange_fixture.inp"));
+        QVERIFY(layer);
+        auto e = layer->engine();
+        const auto caps = openswmmvis::ui::probeEngineCapabilities(e, QStringLiteral("6.0.0"));
+        if (!caps.implicitFv)
+            QSKIP("The loaded engine does not advertise native implicit finite-volume support.");
+        const auto original = layer->getOption("FV_TIME_INTEGRATION");
+        const auto length = layer->getOption("FV_CELL_LENGTH");
+        const auto cells = layer->getOption("FV_MIN_CELLS");
+        const auto celerity = layer->getOption("FV_SLOT_CELERITY");
+        auto combo = [](QWidget *parent, const char *key) -> QComboBox * {
+            for (auto *w : parent->findChildren<QComboBox *>())
+                if (w->property("optionKey").toString() == QLatin1String(key))
+                    return w;
+            return nullptr;
+        };
+        {
+            SimulationOptionsDialog dialog(e, layer.get(), QStringLiteral("6.0.0"), nullptr,
+                                           nullptr);
+            auto *integrator = combo(&dialog, "FV_TIME_INTEGRATION");
+            QVERIFY(integrator);
+            const int be = integrator->findData(QStringLiteral("BACKWARD_EULER"));
+            QVERIFY(be >= 0);
+            integrator->setCurrentIndex(be);
+            QCOMPARE(layer->getOption("FV_TIME_INTEGRATION"), original);
+            dialog.reject();
+            QCOMPARE(layer->getOption("FV_TIME_INTEGRATION"), original);
+        }
+        QUndoStack undo;
+        SimulationOptionsDialog dialog(e, layer.get(), QStringLiteral("6.0.0"), nullptr, nullptr);
+        dialog.setUndoStack(&undo);
+        auto *routing = combo(&dialog, "FLOW_ROUTING");
+        QVERIFY(routing);
+        routing->setCurrentIndex(routing->findData(QStringLiteral("FV")));
+        auto *integrator = combo(&dialog, "FV_TIME_INTEGRATION");
+        QVERIFY(integrator);
+        integrator->setCurrentIndex(integrator->findData(QStringLiteral("BACKWARD_EULER")));
+        auto *tolerance = dialog.findChild<QLineEdit *>(QStringLiteral("FV_IMPLICIT_VOLUME_ATOL"));
+        QVERIFY(tolerance);
+        tolerance->setText(QStringLiteral("2e-11"));
+        auto *page = dialog.findChild<openswmmvis::ui::HydraulicsPage *>();
+        QVERIFY(page);
+        QString warning;
+        QVERIFY2(page->validate(&warning), qPrintable(warning));
+        QVERIFY(QMetaObject::invokeMethod(&dialog, "onApply", Qt::DirectConnection));
+        QCOMPARE(layer->getOption("FV_TIME_INTEGRATION"), QStringLiteral("BACKWARD_EULER"));
+        QCOMPARE(layer->getOption("FV_IMPLICIT_VOLUME_ATOL").toDouble(), 2e-11);
+        QCOMPARE(layer->getOption("FV_LTS"), QStringLiteral("NO"));
+        QCOMPARE(layer->getOption("FV_CELL_LENGTH"), length);
+        QCOMPARE(layer->getOption("FV_MIN_CELLS"), cells);
+        QCOMPARE(layer->getOption("FV_SLOT_CELERITY"), celerity);
+        QCOMPARE(undo.count(), 1);
+        undo.undo();
+        QCOMPARE(layer->getOption("FV_TIME_INTEGRATION"), original);
+        undo.redo();
+        QCOMPARE(layer->getOption("FV_TIME_INTEGRATION"), QStringLiteral("BACKWARD_EULER"));
+        QCOMPARE(layer->getOption("FV_IMPLICIT_VOLUME_ATOL").toDouble(), 2e-11);
+        tolerance->setText(QStringLiteral("nan"));
+        QVERIFY(!page->validate(&warning));
+        QCOMPARE(layer->getOption("FV_IMPLICIT_VOLUME_ATOL").toDouble(), 2e-11);
+    }
+
+    /** @brief Require null-engine capability probing and a schema-less hydraulics page to omit BACKWARD_EULER support. */
+    void nativeImplicitAbsentSchemaDoesNotAdvertiseSupport()
+    {
+        auto caps = openswmmvis::ui::probeEngineCapabilities(nullptr, QStringLiteral("6.0.0"));
+        QVERIFY(!caps.implicitFv);
+        openswmmvis::ui::SimOptionsContext context(nullptr, nullptr, nullptr, caps);
+        openswmmvis::ui::HydraulicsPage page(context);
+        page.read();
+        for (auto *combo : page.findChildren<QComboBox *>())
+            if (combo->property("optionKey").toString() == QStringLiteral("FV_TIME_INTEGRATION"))
+                QCOMPARE(combo->findData(QStringLiteral("BACKWARD_EULER")), -1);
+    }
+
+    /** @brief Register twelve editor families for both engine-close and layer-destruction invalidation paths. */
     void modelEditorOwnerLifetime_data()
     {
         QTest::addColumn<QString>("family");
@@ -432,6 +556,10 @@ private slots:
         }
     }
 
+    /** @brief Require each real model editor to disable, hide and reject when its engine owner closes or dies.
+     * Checks engineAboutToClose still exposes the live handle independently of dialog
+     * connections, then processes 350 ms of delayed callbacks after invalidation.
+     * Constructs actual registries/providers for data editors with RAII ownership. */
     void modelEditorOwnerLifetime()
     {
         QFETCH(QString, family);
@@ -523,6 +651,7 @@ private slots:
         QVERIFY(!dialog->isEnabled());
     }
 
+    /** @brief Register street/inlet registry destruction and inlet undo-stack destruction cases. */
     void nestedRegistryAndUndoLifetime_data()
     {
         QTest::addColumn<QString>("owner");
@@ -531,6 +660,9 @@ private slots:
         QTest::newRow("inlet-undo-stack") << QStringLiteral("undo");
     }
 
+    /** @brief Require nested editor dependency destruction to hide/disable the editor and clear its provider selection/model.
+     * Checks null current provider, empty name and zero provider rows, then lets
+     * 350 ms of delayed callbacks drain; static combo choices are outside the check. */
     void nestedRegistryAndUndoLifetime()
     {
         QFETCH(QString, owner);
@@ -586,6 +718,9 @@ private slots:
      *  exactly how the long-standing IGNORE_2D red hid for so long. Must run
      *  before any QSettings is constructed.
      */
+    /** @brief Redirect process Qt settings to retained round-trip-test INI storage before dialog construction.
+     * Sets test organization/application names and a user-scope path under dataDir.
+     * mkpath is unchecked and prior process settings are not restored by this suite. */
     void initTestCase()
     {
         QCoreApplication::setOrganizationName(QStringLiteral("openswmm-test"));
@@ -598,12 +733,14 @@ private slots:
         QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, scratch);
     }
 
+    /** @brief Require no-edit Apply round-trip identity on the typed-selection 1D DYNWAVE fixture. */
     void dynwave1D()
     {
         roundTrip(fixture(QStringLiteral("typed_selection_fixture.inp")),
                   QStringLiteral("simopts_roundtrip_dynwave"));
     }
 
+    /** @brief Require no-edit Apply round-trip identity on the mini_2d fixture. */
     void twoD()
     {
         roundTrip(fixture(QStringLiteral("mini_2d.inp")), QStringLiteral("simopts_roundtrip_2d"));
@@ -649,6 +786,8 @@ private slots:
         }
     }
 
+    /** @brief Require no-edit Apply identity on a retained FV variant of the typed-selection fixture.
+     * Creates the routing-token variant before invoking the shared roundTrip gate. */
     void finiteVolume()
     {
         const QString variant = fixture(QStringLiteral("simopts_roundtrip_fv_variant.inp"));
@@ -659,6 +798,8 @@ private slots:
 
     //! A real edit must still be detected — guards against the test passing
     //! because writeToEngine silently writes nothing.
+    /** @brief Require a behind-dialog engine routing-step change to be counted when Apply restores the widget value.
+     * Serves as a positive control against a write path that silently writes nothing. */
     void editIsDetected()
     {
         auto layer = openLayer(fixture(QStringLiteral("typed_selection_fixture.inp")));
@@ -672,6 +813,7 @@ private slots:
         QVERIFY(dlg.wroteAnyChanges());
     }
 
+    /** @brief Register accepted edit, accepted no-op, cancelled edit and duplicate-refusal/cancel child-dialog interactions. */
     void nestedWaterAgeEditorTracksOwningProject_data()
     {
         QTest::addColumn<QString>("action");
@@ -682,6 +824,12 @@ private slots:
         QTest::newRow("refuse-duplicate-then-cancel") << QStringLiteral("duplicate") << false;
     }
 
+    /** @brief Require the real nested water-age editor to dirty only its owning project exactly when an edit commits.
+     * Copies two retained decks, opens separate projects and drives the modal child
+     * through a zero-delay timer. Checks duplicate override refusal, cancel/no-op
+     * preservation, accepted GW source age hours, zero overrides and isolation from
+     * the other project. Rejecting the outer options dialog must preserve an already
+     * committed child edit; disk bytes remain unchanged because no Save is performed. */
     void nestedWaterAgeEditorTracksOwningProject()
     {
         QFETCH(QString, action);

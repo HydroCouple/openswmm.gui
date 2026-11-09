@@ -22,6 +22,7 @@
 #define ENGINECAPABILITIES_H
 
 #include <QString>
+#include <QJsonObject>
 
 #include <openswmm/engine/openswmm_engine.h>
 
@@ -44,6 +45,8 @@ struct EngineCapabilities {
     bool legacy = false;
 
     // ---- probed keys: one field per `if` block of applyEngineConstraints ----
+    QJsonObject implicitFvSchema; ///< Read-only engine contract; empty on older builds.
+    bool implicitFv = false;
     bool fv = false;          ///< probe FV_CFL              (FLOW_ROUTING FV item)
     bool transport = false;   ///< probe QUALITY_SOLVER      (solver combo, outfall backflow,
                               ///<                            ARD + LARD groups, water age, heat)
@@ -58,13 +61,21 @@ struct EngineCapabilities {
     bool andersonAccel = false; ///< ANDERSON_ACCEL check box
     bool pluginWriters = false; ///< writers group + [PLUGINS] table
 
-    bool has2D = false; ///< OPENSWMM_HAS_2D && the engine reports a 2D surface.
+    bool has2D = false; ///< OPENSWMM_HAS_2D and a non-null engine handle; no mesh query.
 };
 
-/*!
- * \brief Probe \a e once for everything the dialog gates on.
- * \param e       Engine handle; may be null (every capability reads false).
- * \param version Engine version string as passed to the dialog.
+/**
+ * @brief Snapshot the option-editor capability gates for one engine/version pair.
+ * @param e Borrowed valid engine during this read, permitted null.
+ * @param version Copied version text; an exact leading 5. marks legacy and
+ * short-circuits all probes without trimming or version parsing.
+ * @return Owned capability value. Nonlegacy ordinary feature flags require a
+ * nonempty successful option read. Implicit-FV support requires parsed schema
+ * version one, native true and BACKWARD_EULER integration; parsing retries five
+ * buffers from 8 through 128 KiB. Parsed schema is retained even when unsupported.
+ * For nonlegacy versions the four legacy-exclusion flags are true even with a
+ * null handle. has2D checks only build-time 2D support and a non-null handle, not
+ * runtime mesh existence. Does not mutate options, probe again later or own the engine.
  */
 EngineCapabilities probeEngineCapabilities(SWMM_Engine e, const QString &version);
 

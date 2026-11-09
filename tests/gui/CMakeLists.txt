@@ -4675,6 +4675,18 @@ swmmvis_link_full_app_deps(test_hydrothermalgis)
 
 add_swmmvis_gui_test(test_twodbackendpolicy test_twodbackendpolicy.cpp)
 
+# Native BE dispatch through the real worker, repeated runs and rejected
+# unsupported physics. Persistent outputs are under the test working directory.
+add_swmmvis_gui_test(test_implicit_fv_runner
+    test_implicit_fv_runner.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_implicit_fv_runner)
+
+set_property(TEST test_implicit_fv_runner APPEND PROPERTY ENVIRONMENT
+    "SWMMVIS_IMPLICIT_FIXTURE=${GUI_TEST_DATA_DIR}/implicit_backward_euler.inp")
+
 # Docked plot content: lifecycle, tab isolation, activation and layout persistence.
 add_swmmvis_gui_test(test_plotdock
     test_plotdock.cpp
@@ -4819,6 +4831,7 @@ add_swmmvis_gui_test(test_resultstablesdialogs
 swmmvis_link_full_app_deps(test_resultstablesdialogs)
 target_compile_definitions(test_resultstablesdialogs PRIVATE
     PHASE4B_OUTPUT="${SWMMVIS_PHASE4B_OUTPUT_DIR}")
+
 # Phase 3b (2026-10-31, workplans/BELLINGE_GW_QUALITY_PHASE3B_AGENT_BRIEF_2026-10-31.md):
 # spatial assignment of [2D_COVERAGES]/[2D_LOADINGS]/[2D_CURB_LENGTH]/
 # [2D_INITIAL_QUALITY]/[GW_INITIAL_QUALITY]/[GW_SOURCES] rows from the cell

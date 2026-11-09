@@ -56,6 +56,7 @@
 #include <QListWidget>
 #include <QObject>
 #include <QScrollArea>
+#include "ui/dialogs/simoptions/enginecapabilities.h"
 #include <QScrollBar>
 #include <QSet>
 #include <QStackedWidget>
@@ -71,16 +72,25 @@
 namespace
 {
 
+/** @brief Read the GUI fixture/output root.
+ * @return Owned SWMMVIS_GUI_TEST_DATA value or dot fallback; no I/O. */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
 }
 
+/** @brief Join a controlled fixture/output name beneath the GUI data root.
+ * @param[in] name Relative filename copied without sanitization.
+ * @return Owned joined path; no existence check, parent creation or reservation. */
 QString fixture(const QString &name)
 {
     return QDir(dataDir()).filePath(name);
 }
 
+/** @brief Load a model layer with exclusive RAII ownership.
+ * @param[in] path Existing deck filename copied into the layer.
+ * @return Owning loaded layer, or null after load refusal/cleanup.
+ * Discards load diagnostics and starts no simulation. */
 std::unique_ptr<SWMMModelLayer> openLayer(const QString &path)
 {
     auto layer = std::make_unique<SWMMModelLayer>(path, nullptr);
@@ -91,6 +101,11 @@ std::unique_ptr<SWMMModelLayer> openLayer(const QString &path)
 }
 
 /*! Walk up from \a w; true when \a ancestor is on the chain. */
+/** @brief Test whether a widget or one of its parents equals the requested ancestor.
+ * @param[in] w Borrowed live start widget, or null for an empty chain.
+ * @param[in] ancestor Borrowed ancestor pointer to compare, without dereferencing it.
+ * @return True for the first identity match including w itself; false otherwise.
+ * Requires parent chain stability, transfers no ownership and mutates no widget. */
 bool hasAncestor(const QWidget *w, const QWidget *ancestor)
 {
     for (const QWidget *p = w; p; p = p->parentWidget())
@@ -183,6 +198,10 @@ namespace
 {
 
 /*! Sidebar row index whose text is \a title, or -1. */
+/** @brief Find the first sidebar item with an exact title.
+ * @param[in] cats Non-null live list with valid item pointers, unchanged.
+ * @param[in] title Case-sensitive text to match.
+ * @return Zero-based first matching row or -1 when absent. */
 int rowOf(const QListWidget *cats, const QString &title)
 {
     for (int i = 0; i < cats->count(); ++i)
@@ -192,12 +211,21 @@ int rowOf(const QListWidget *cats, const QString &title)
 }
 
 /*! Enabled state of a sidebar row (rows are greyed, never hidden — PLAN §4.3). */
+/** @brief Read a sidebar item's enabled flag.
+ * @param[in] cats Non-null live list, unchanged.
+ * @param[in] row Valid index whose item exists; unchecked before dereference.
+ * @return True when the item has Qt::ItemIsEnabled; visibility is not tested. */
 bool rowEnabled(const QListWidget *cats, int row)
 {
     return cats->item(row)->flags().testFlag(Qt::ItemIsEnabled);
 }
 
 /*! Select FLOW_ROUTING by its engine token. */
+/** @brief Select a routing combo item by canonical engine token.
+ * @param[in,out] dlg Live options dialog whose pending widget state may change.
+ * @param[in] token Non-null Latin-1 item-data token expected to be present.
+ * Qt fatal assertions return from this helper on absent combo/item. Changing
+ * selection invokes normal page-gating signals, without applying to the engine. */
 void setRouting(SimulationOptionsDialog &dlg, const char *token)
 {
     auto *combo = dlg.findChild<QComboBox *>(QStringLiteral("flowRoutingCombo"));
@@ -209,6 +237,9 @@ void setRouting(SimulationOptionsDialog &dlg, const char *token)
 
 } // namespace
 
+/** @brief Require report-start bounds to follow both edited simulation endpoints, including earlier dates and second precision.
+ * Tests temporary inverted-window editing followed by a valid later window;
+ * changes page widgets without applying or running a model. */
 void TestSimulationOptionsGates::reportStartFollowsEditedSimulationWindow()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -256,6 +287,9 @@ void TestSimulationOptionsGates::reportStartFollowsEditedSimulationWindow()
     QCOMPARE(report->dateTime(), original.addDays(2).addSecs(600));
 }
 
+/** @brief Require DatesPage reread to discard stale report-time bounds for earlier and later engine windows.
+ * Writes page values back and checks exact report date/seconds rather than
+ * reusing an old minimum/maximum. */
 void TestSimulationOptionsGates::reportStartReloadsEarlierSimulationWindow()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -296,6 +330,8 @@ void TestSimulationOptionsGates::reportStartReloadsEarlierSimulationWindow()
 }
 
 /*! T0 — the names exist and are parented into the page stack. */
+/** @brief Require the Quality and Transport category to remain enabled for an empty editable engine.
+ * Constructs/destroys a real options dialog without topology or a simulation. */
 void TestSimulationOptionsGates::emptyProjectCanReachHeatActivation()
 {
     auto engine = swmm_engine_new();
@@ -315,6 +351,8 @@ void TestSimulationOptionsGates::emptyProjectCanReachHeatActivation()
     swmm_engine_destroy(engine);
 }
 
+/** @brief Require every declared page-test widget objectName to resolve and nonchrome widgets to belong to the page stack.
+ * Detects missing or built-but-unparented controls; no engine Apply is invoked. */
 void TestSimulationOptionsGates::objectNameCensus()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -349,6 +387,9 @@ void TestSimulationOptionsGates::objectNameCensus()
 
 /*! T0 — every written key has a tagged editor, and every tagged editor is
  *  reachable from the page stack. */
+/** @brief Require all tagged option editors to belong to the page stack and every Apply-recorded key to have a tag.
+ * Splits comma-paired date/time keys, invokes real Apply and checks the recorded
+ * key set is nonempty; does not require that each key changed its value. */
 void TestSimulationOptionsGates::reachability()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -394,6 +435,7 @@ void TestSimulationOptionsGates::reachability()
 }
 
 /*! Test 4a — the 2D row follows the module toggle, greyed with a reason. */
+/** @brief Require the 2D category to gray out with an explanatory tooltip when its module toggle is off, then reenable without tooltip when on. */
 void TestSimulationOptionsGates::twoDRowGate()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -417,6 +459,7 @@ void TestSimulationOptionsGates::twoDRowGate()
 }
 
 /*! Test 5 — turning off the page you are viewing must land you somewhere usable. */
+/** @brief Require disabling the currently selected 2D category to redirect to a different enabled sidebar row. */
 void TestSimulationOptionsGates::rowRedirect()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -440,6 +483,10 @@ void TestSimulationOptionsGates::rowRedirect()
 
 /*! Test 4b — the Hydraulics tabs follow FLOW_ROUTING (the headline of the
  *  restructure: contextual activation instead of one 35-control column). */
+/** @brief Require routing-dependent hydraulics tab availability and an enabled current tab across STEADY/KINWAVE/DYNWAVE/FV.
+ * Accounts for optional native implicit tab, requires Routing always enabled,
+ * DW only for DYNWAVE and FV/unsteady tabs disabled for incompatible modes.
+ * It does not force capability-dependent FV/unsteady availability when compatible. */
 void TestSimulationOptionsGates::hydraulicsTabGates()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -448,7 +495,10 @@ void TestSimulationOptionsGates::hydraulicsTabGates()
                                 nullptr);
     auto *tabs = dlg.findChild<QTabWidget *>(QStringLiteral("hydraulicsTabs"));
     QVERIFY2(tabs, "Routing & Hydraulics has no hydraulicsTabs");
-    QCOMPARE(tabs->count(), 4);
+    const bool native =
+        openswmmvis::ui::probeEngineCapabilities(layer->engine(), QStringLiteral("6.0.0"))
+            .implicitFv;
+    QCOMPARE(tabs->count(), native ? 5 : 4);
 
     // Routing is every solver's tab and never gates off; Dynamic Wave is
     // DYNWAVE-only; Finite Volume is FV-only. Unsteady friction rides on an
@@ -492,6 +542,9 @@ void TestSimulationOptionsGates::hydraulicsTabGates()
 }
 
 /*! Test 4b — the Quality tabs follow QUALITY_SOLVER. */
+/** @brief Require the four quality tabs to follow LEGACY/ARD/LAGRANGIAN selection while General/Reserved Species remain available.
+ * Skips when this engine lacks the quality option surface; selected tab must
+ * remain enabled after each change. */
 void TestSimulationOptionsGates::qualityTabGates()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -534,6 +587,7 @@ void TestSimulationOptionsGates::qualityTabGates()
 }
 
 /*! Test 5 — switching FLOW_ROUTING while viewing the tab that just went away. */
+/** @brief Require switching from DYNWAVE to STEADY while viewing Dynamic Wave to redirect to an enabled hydraulics tab. */
 void TestSimulationOptionsGates::tabRedirect()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -556,6 +610,9 @@ void TestSimulationOptionsGates::tabRedirect()
 /*! Test 7 — no page scrolls at 1280x800, on any of its tabs. The whole point
  *  of the restructure: at most ~13 controls per tab instead of one long
  *  column. Mesh and Files legitimately scroll their tables, not their pages. */
+/** @brief Require non-table-dominated option pages to avoid vertical page scrolling at a 1280-by-800 dialog size.
+ * Shows each first nested tab with event/layout waits, exempting Mesh and Files
+ * category tables; does not inspect every control's internal scrolling. */
 void TestSimulationOptionsGates::noScrollAt1280x800()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -605,6 +662,8 @@ void TestSimulationOptionsGates::noScrollAt1280x800()
 }
 
 /*! Test 8 — sidebar rows in order, and every inner tab set, in order. */
+/** @brief Require exact ordered sidebar labels and all specified inner tab sets, adding Implicit FV only when capability-probed.
+ * Normalizes escaped ampersands to visible captions before comparing. */
 void TestSimulationOptionsGates::structure()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -661,16 +720,23 @@ void TestSimulationOptionsGates::structure()
         // Compare the visible captions used by the expected list below.
         for (int i = 0; i < tabs->count(); ++i)
             got << tabs->tabText(i).replace(QStringLiteral("&&"), QStringLiteral("&"));
-        QVERIFY2(got == set.titles,
+        QStringList expectedTitles = set.titles;
+        if (qstrcmp(set.tabs, "hydraulicsTabs") == 0 &&
+            openswmmvis::ui::probeEngineCapabilities(e, QStringLiteral("6.0.0")).implicitFv)
+            expectedTitles << QStringLiteral("Implicit FV");
+        QVERIFY2(got == expectedTitles,
                  qPrintable(QStringLiteral("%1: %2 != %3")
                                 .arg(QLatin1String(set.tabs), got.join(QStringLiteral(" | ")),
-                                     set.titles.join(QStringLiteral(" | ")))));
+                                     expectedTitles.join(QStringLiteral(" | ")))));
     }
 }
 
 QTEST_MAIN(TestSimulationOptionsGates)
 #include "test_simulationoptions_gates.moc"
 
+/** @brief Require CMS/CFS groundwater process controls to preserve AUTO provenance on no-edit Apply and convert explicit suction to the same 30 m physical value.
+ * Checks displayed units/default 150 m equivalent, BOTH/TWO_WAY edits and
+ * unchanged custom suction on reopen; performs no groundwater timestep. */
 void TestSimulationOptionsGates::aquiferProcessInputsPreserveAutomaticAndConvertUnits()
 {
     for (const char *units : {"CMS", "CFS"}) {
@@ -715,6 +781,8 @@ void TestSimulationOptionsGates::aquiferProcessInputsPreserveAutomaticAndConvert
     }
 }
 
+/** @brief Require automatic wilting controls enabled only for active MESH aquifers and disabled when GW is off, retaining authored AUTO ET.
+ * Checks MESH and PER_SUBCATCH configurations without running either. */
 void TestSimulationOptionsGates::automaticEtFollowsAquiferMode()
 {
     for (const char *mode : {"MESH", "PER_SUBCATCH"}) {
@@ -743,6 +811,12 @@ namespace
 {
 
 /// Edits the next modal Climatology dialog with \a edit and accepts it.
+/** @brief Arrange asynchronous editing/acceptance of the next modal ClimatologyDialog.
+ * @param[in] edit Nonempty callable copied into a repeating timer callback; captured
+ * references and the expected modal controls must remain alive until invoked.
+ * Polls every 10 ms without a timeout. On a match stops/deletes the timer, edits
+ * the borrowed dialog and clicks its expected OK button. If no dialog appears
+ * the unparented timer remains active; no ownership of the dialog is taken. */
 void editNextClimatology(std::function<void(ClimatologyDialog &)> edit)
 {
     auto *timer = new QTimer;
@@ -759,6 +833,12 @@ void editNextClimatology(std::function<void(ClimatologyDialog &)> edit)
     timer->start();
 }
 
+/** @brief Drive the next heat-to-groundwater modal shortcut to porous-equilibrium thermal settings.
+ * Uses an unparented 10 ms timer and owned heap phase/attempt counters, first
+ * clicking the groundwater-settings shortcut and then selecting the thermal
+ * combo/OK. After over 300 polls records qFail, rejects an active modal and cleans
+ * its timer/counters. Caller must pump events and expose expected control names;
+ * no completion result is returned. */
 void editNextGroundwaterThermalSettings()
 {
     auto *timer = new QTimer;
@@ -805,6 +885,12 @@ void editNextGroundwaterThermalSettings()
     timer->start();
 }
 
+/** @brief Arrange changing the next modal heat configuration and accepting it.
+ * @param[in] enabled Heat checkbox state copied into the asynchronous callback.
+ * Polls every 10 ms up to over 300 attempts, matching dialog/control names. On
+ * match applies the state and clicks OK, then cleans owned timer/counter; timeout
+ * records qFail and rejects an active modal. Caller pumps events and keeps the
+ * expected dialog interaction alive; no engine handle is retained directly. */
 void editNextHeatConfiguration(bool enabled)
 {
     auto *timer = new QTimer;
@@ -836,6 +922,10 @@ void editNextHeatConfiguration(bool enabled)
     timer->start();
 }
 
+/** @brief Read climate latitude for configuration-state assertions.
+ * @param[in] e Live engine handle, borrowed.
+ * @return Latitude degrees, or initial zero/unfilled output after ignored getter
+ * refusal. Does not assert, convert or mutate the engine. */
 double latitude(SWMM_Engine e)
 {
     double v = 0;
@@ -843,6 +933,11 @@ double latitude(SWMM_Engine e)
     return v;
 }
 
+/** @brief Read a standard option, falling back to the extended option surface.
+ * @param[in] e Live engine handle, borrowed.
+ * @param[in] key Non-null standard or extended option key.
+ * @return UTF-8 decoded 256-byte-buffer text, possibly empty/partial if both getters
+ * fail. Extended-getter status is ignored; no independent error or mutation. */
 QString option(SWMM_Engine e, const char *key)
 {
     char buf[256] = {};
@@ -855,6 +950,8 @@ QString option(SWMM_Engine e, const char *key)
 
 /*! Closure audit C2: an accepted nested editor belongs to the outer dialog's
  *  Apply boundary, so Cancel reverts it and leaves no history entry. */
+/** @brief Require an accepted nested climatology edit to revert on outer Cancel with no dirty flag or undo/redo history.
+ * Uses a timed real modal interaction and checks latitude degrees before/after. */
 void TestSimulationOptionsGates::nestedCancelRevertsAcceptedEdits()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -878,6 +975,9 @@ void TestSimulationOptionsGates::nestedCancelRevertsAcceptedEdits()
 
 /*! One Apply = one Undo entry for the nested climate edit and the page edit;
  *  Undo and Redo move both; a later Cancel keeps what was applied. */
+/** @brief Require one Apply to group nested latitude and routing edits into a single undo entry.
+ * Outer Cancel after Apply must keep the committed segment; undo/redo move both
+ * values together. */
 void TestSimulationOptionsGates::applyIsOneUndoEntryForNestedAndPageEdits()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -913,6 +1013,9 @@ void TestSimulationOptionsGates::applyIsOneUndoEntryForNestedAndPageEdits()
 
 /*! Closing the model while a nested editor is open must invalidate both
  *  dialogs before either can accept a stale engine handle or create history. */
+/** @brief Require closing the model during a modal climatology edit to disable/reject both dialogs and prevent stale accept/history creation.
+ * A repeating timer performs the close; checks null engine, unchanged write flag
+ * and empty undo/redo stack after the modal loop returns. */
 void TestSimulationOptionsGates::modelCloseDuringNestedEditorInvalidatesWholeSession()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -954,6 +1057,9 @@ void TestSimulationOptionsGates::modelCloseDuringNestedEditorInvalidatesWholeSes
 
 /*! A climate edit restores every value and provenance flag exactly, in both
  *  directions, and refuses to overwrite an edit made outside the history. */
+/** @brief Require climate configuration undo/redo to preserve monthly evaporation values, type, authoring flags and latitude exactly.
+ * After an out-of-history latitude change, undo must refuse overwrite, retain
+ * 10.5 degrees, report one failure and remove the invalid history entry. */
 void TestSimulationOptionsGates::climateUndoIsExactAndRefusesExternalEdits()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -1005,6 +1111,8 @@ void TestSimulationOptionsGates::climateUndoIsExactAndRefusesExternalEdits()
     QCOMPARE(stack.count(), 0);
 }
 
+/** @brief Require a configuration snapshot identity/undo command to include groundwater THERMAL_MODEL.
+ * Checks WATER_ONLY versus POROUS_EQUILIBRIUM across undo/redo without errors. */
 void TestSimulationOptionsGates::groundwaterThermalConfigurationUndoTracksTransportKeys()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -1036,6 +1144,9 @@ void TestSimulationOptionsGates::groundwaterThermalConfigurationUndoTracksTransp
     QCOMPARE(failures.size(), 0);
 }
 
+/** @brief Require a nested groundwater thermal shortcut edit to join the outer options cancellation boundary.
+ * Real modal timer interaction sets porous equilibrium, then outer reject restores
+ * water-only with no history or wroteAnyChanges. */
 void TestSimulationOptionsGates::groundwaterThermalShortcutJoinsOuterCancelUndoSegment()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -1060,6 +1171,9 @@ void TestSimulationOptionsGates::groundwaterThermalShortcutJoinsOuterCancelUndoS
     QVERIFY(!dialog.wroteAnyChanges());
 }
 
+/** @brief Require accepted heat activation and routing edits to share one Apply undo command, while later un-applied heat disable reverts on Cancel.
+ * Checks exact enable/routing states across undo/redo and empty history for the
+ * cancelled segment. */
 void TestSimulationOptionsGates::heatConfigurationSharesOuterUndoAndCancelSegment()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -1115,6 +1229,9 @@ void TestSimulationOptionsGates::heatConfigurationSharesOuterUndoAndCancelSegmen
     QVERIFY(!stack.canRedo());
 }
 
+/** @brief Require keyboard activation of accessible runtime-overview 2D navigation to close nested heat UI and select the outer 2D page.
+ * A bounded timer drives modal phases, checks accessible action text/description,
+ * and verifies pending heat enable is reverted by outer Cancel with no history. */
 void TestSimulationOptionsGates::runtimeOverviewNavigatesToTwoDSettings()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -1218,6 +1335,13 @@ namespace
 {
 
 /*! The SAVE HOTSTART lines of the `.inp` the engine writes to \a path. */
+/** @brief Serialize a model and collect its apparent SAVE HOTSTART rows.
+ * @param[in] e Live writable model handle, borrowed.
+ * @param[in] path Controlled destination .inp, potentially overwritten; parent exists.
+ * @return Owned whitespace-simplified matching rows, empty on write/open refusal
+ * or no rows. Does not distinguish those outcomes.
+ * Matches case-insensitive line prefixes after simplification; no full section
+ * parser, file deletion or engine ownership transfer. */
 QStringList savedHotstartRows(SWMM_Engine e, const QString &path)
 {
     if (swmm_model_write(e, path.toUtf8().constData()) != SWMM_OK)
@@ -1238,6 +1362,10 @@ QStringList savedHotstartRows(SWMM_Engine e, const QString &path)
 // read from the file shows it, OK without an edit leaves the [FILES] rows
 // as they were, and a changed format reaches the engine and the `.inp`.
 // Written decks: tests/gui/data/hotstart_save_formats_out/ (for review).
+/** @brief Require scheduled Auto/Native/Legacy formats to hydrate, remain unchanged on no-edit write and persist an edited format.
+ * Writes retained before/unedited/edited decks, rereads model rows and checks
+ * SAVE/USE HOTSTART paths rebase correctly into subdirectories. Does not create
+ * a hotstart payload or run a simulation. */
 void TestSimulationOptionsGates::hotstartSaveFormatsSurviveFilesPage()
 {
     auto layer = openLayer(fixture(QStringLiteral("hotstart_save_formats.inp")));
