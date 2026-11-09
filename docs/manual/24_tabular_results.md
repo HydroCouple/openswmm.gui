@@ -32,6 +32,13 @@ each category's table, after the editable model attributes and the user-flag
 columns. The left of the table is always the model you can edit; the right is
 always what the last run produced.
 
+The table uses one compact group row for **Model Attributes**, **2D Coupling**,
+and **Output Summary**, in that order. Each group occupies one continuous
+block of columns. The property view provides finer collapsible groups:
+**Node Depth**, **Node Flooding**, **Link Flow**, **Surcharge**, **Pumping**,
+and **Runoff** as appropriate.
+Group headings are display aids; exported column names remain unchanged.
+
 | Category | Result columns |
 |----------|----------------|
 | Junctions, Outfalls, Storage, Dividers | **Max Depth (Sim.)**, **Max Overflow**, **Vol. Flooded**, **Time Flooded (hr)** |
