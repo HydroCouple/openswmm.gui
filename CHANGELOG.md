@@ -20,6 +20,9 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Changed
 
+- The finite-volume **Slot celerity** shows two decimals, so an SI model reads the
+  engine's default of 100 ft/s as 30.48 m/s rather than 30.5. Requires the matching
+  engine update.
 - Coupled FREE outfalls discharge to the 2D surface without surface backwater or
   return flow. Tailwater Relaxation is inactive for FREE and retains its stored
   value; discharge spreading remains active. Other boundary types keep their
