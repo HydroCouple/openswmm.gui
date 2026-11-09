@@ -585,7 +585,7 @@ select. Every command is also under **Model → Mesh →**.
 | Group | Contents |
 | --- | --- |
 | **Mesh** | **Mesh:** the active mesh every other command acts on · **Auto-couple Nodes** · **Remap 1D↔2D** · **Burn Channels**. The elevation under the cursor is shown in the status bar |
-| **Process** | **Surface Flow**, **Infiltration**, **Groundwater**, **Surface Quality**, **Snow** or **Heat**. The next group shows that process's commands when it has any. Surface Flow values are edited in Properties or the Attribute Table, so it has no command group. A process that is switched off reads, for example, "Snow — off" (the tooltip says where to switch it on); its commands stay usable so it can be set up first. **Model → Mesh → Process** offers the same choice |
+| **Process** | **Surface Flow**, **Infiltration**, **Groundwater**, **Surface Quality**, **Snow** or **Heat**. The next group shows that process's commands when it has any. Surface Flow values are edited in Properties or the Attribute Table, so it has no command group. A process that is switched off reads, for example, "Snow — off", and its tooltip says where to switch it on. **Model → Mesh → Process** offers the same choice |
 | **Select** | **Cells**, **Edges** and **Vertices** tools · **Clear Selection** · **Edit in Table**, which opens the Attribute Table on the selected element kind |
 | *Process group* | **Infiltration:** Infiltration to Selection…, Review Ownership… · **Groundwater:** Assign Groundwater…, Aquifer Properties…, State…, Edge Boundaries…, Node Beds… · **Surface Quality:** Surface Quality…, Assign Surface Quality… · **Snow:** Assign Snow… · **Heat:** Heat Properties from Raster… |
 | **Cell Data** | **From Raster…**, **From Shapefile…** |
@@ -593,6 +593,29 @@ select. Every command is also under **Model → Mesh →**.
 
 Commands that act on a selection are enabled only while it holds what they need:
 **Infiltration to Selection…** needs cells. A disabled command's tooltip says what to select.
+
+**A switched-off process is read-only.** While **Groundwater** is set to *Off*
+(Simulation Options › 2D Surface Routing › Processes) or **Water quality** is
+unticked (Simulation Options › Models / Processes › Active processes), that
+process's records cannot be changed from any route:
+
+- **Assign Groundwater…** and **Assign Surface Quality…** are disabled, and
+  their tooltip names the switch.
+- **Aquifer Properties…**, **Edge Boundaries…**, **Node Beds…** and **Surface
+  Quality…** still open, read-only, with the same explanation at the top, so
+  the records stay visible. **State…** is unaffected.
+- The **Edit…** button of the Properties **Groundwater** group and the
+  attribute table's **Edit groundwater parameters…** are disabled with the
+  reason.
+- An editor opened before the switch changed refuses **Apply** and keeps your
+  draft.
+
+Groundwater set to *Automatic* is not switched off: it turns on as soon as
+aquifer rows exist, so they can always be added. **Snow** and **Heat** are never
+locked, because both are set up before they are switched on: a model without a
+snowpack always reads snowmelt as off, and temperature transport is ticked in
+**Heat Configuration** next to the heat settings. Their picker entries still read
+"Snow — off" or "Heat — off" until then.
 
 **Editing values.** Click one element and edit it in **Properties**; each change
 is written at once. To edit many, use either route:
@@ -1057,6 +1080,43 @@ project sidecar. Provenance records the reviewed snapshot; reopening does not
 reapply or automatically refresh the source layer. Exterior groundwater
 HEAD/FLOW edges require their own hydraulic binding and explicit inflow
 chemistry; quality rows do not create water flow.
+
+#### Aquifer boundaries on selected edges
+
+The edge table and Properties summarise each exterior edge's aquifer boundary in
+read-only fields: **Aquifer Boundary** (Head, Flow or None), **Aquifer Head**
+(water-table elevation, project length units), **Aquifer Inflow** (total m³/s
+through the edge, positive into the aquifer), **Aquifer Series** (replaces the
+value) and **Aquifer Chemistry** (its species terms). With several edges
+selected, a field the edges do not share reads *Mixed*. The fields belong to the
+active mesh of an open model; interior edges show nothing.
+
+The record is edited as a whole, because a boundary that can let water in must
+also say what that water carries. Select the edges with the **Edges** tool,
+then do one of these:
+
+- **Edge Boundaries…** in the **Groundwater** process group;
+- **Edit…** beside **Aquifer boundary** in Properties;
+- **Edit aquifer boundaries…** in the edge table's row menu.
+
+Each opens the **Edge boundaries** page on the selection. A line above the table
+counts the selected edges, how many can take an aquifer boundary, and why the
+others cannot (interior edges, cells not under an active aquifer row). The
+selected edges' existing rows are highlighted. **Set for Eligible Edges…** asks
+for one boundary:
+
+| Field | Meaning |
+| --- | --- |
+| **Boundary** | **Head** (water-table elevation) or **Flow** (positive into the aquifer) |
+| **Value from** | A constant, or a time series that replaces it |
+| **Distribution** | Flow only: **the same flow on each edge**, or **one total split over the edges by length**. The preview lists the flow per edge and the total |
+| **Concentrations** | Shown when water can flow in (Head, a series, or a positive flow): one value per enabled species (pollutants, reaction species, water age, temperature in °C). Each must be entered; none defaults to zero |
+
+**OK** stages a hydraulic row and its concentrations on every eligible edge,
+replacing what those edges had; excluded edges are left alone. Nothing is
+written until **Apply** or **OK** in the editor, which runs the page's usual
+checks and records one undo step. The summary fields update after Apply, Undo
+and Redo.
 
 The matching development engine supports standalone CPU FULL_SWE reconstruction
 order 2 with CLOSED_FORM, ENSLAVED or SIGMA aquifers, bulk or SIGMA-layered

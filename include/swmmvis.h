@@ -1844,6 +1844,13 @@ private:
     void openComparisonPlotFor2DResults(
         const openswmmvis::plot::ObjectRef &ref,
         const QVector<openswmmvis::plot::ResultDescriptor> &descriptors);
+    /**
+     * @brief Open the 2D aquifer editor on \p page, targeted at \p edges of the active mesh.
+     * @param page Mesh2DGroundwaterDialog::Page value (the enum is nested, so not declarable
+     *   here).
+     * @param edges Zero-based (cell, local edge) pairs; the Edge boundaries page opens on them.
+     */
+    void openGroundwaterDialog(int page, const QList<QPair<int, int>> &edges = {});
 
     Ui::SWMMVis *ui;
     QStringList mRecentFiles;

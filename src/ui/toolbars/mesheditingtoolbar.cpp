@@ -333,23 +333,29 @@ void MeshEditingToolbar::setProcessStatusProvider(ProcessStatusFn fn)
     refreshProcessStatus();
 }
 
+void MeshEditingToolbar::setProcessLockProvider(ProcessLockFn fn)
+{
+    m_processLock = std::move(fn);
+    refreshProcessStatus();
+}
+
 void MeshEditingToolbar::refreshProcessStatus()
 {
     for (int row = 0; row < m_processCombo->count(); ++row) {
         const auto process = static_cast<Process>(m_processCombo->itemData(row).toInt());
         const QString status = m_processStatus ? m_processStatus(process) : QString();
+        const QString locked = m_processLock ? m_processLock(process) : QString();
         const QString name = processName(process);
         const QString label = status.isEmpty() ? name : tr("%1 — %2").arg(name, status);
         m_processCombo->setItemText(row, label);
         if (row < m_processActions.size())
             m_processActions[row]->setText(label);
+        // A switched-off process says how to switch it on; its records stay
+        // inspectable in Properties and the attribute table.
         m_processCombo->setItemData(row,
-                                    status.isEmpty()
-                                        ? QString()
-                                        : tr("%1: %2. Its settings stay editable, so it can be "
-                                             "set up before it is switched on in Simulation "
-                                             "Options.")
-                                              .arg(name, status),
+                                    !locked.isEmpty()   ? locked
+                                    : status.isEmpty() ? QString()
+                                                       : tr("%1: %2.").arg(name, status),
                                     Qt::ToolTipRole);
         if (auto *group = m_processGroups.value(static_cast<int>(process)))
             group->setToolTip(m_processCombo->itemData(row, Qt::ToolTipRole).toString());
@@ -357,6 +363,7 @@ void MeshEditingToolbar::refreshProcessStatus()
     // The picker sizes to its longest label; a new status can change that, and
     // a widget-hosting group only re-measures when told.
     m_groupProcess->refreshWidth();
+    updateEnabledState(); // a lock follows its switch
 }
 
 void MeshEditingToolbar::setCurrentProcess(Process process)
@@ -407,6 +414,29 @@ void MeshEditingToolbar::setCommandNeeds(QAction *action, Needs needs)
     else
         m_needs.insert(action, needs);
     updateEnabledState();
+}
+
+void MeshEditingToolbar::setCommandProcess(QAction *action, Process process)
+{
+    if (!action)
+        return;
+    m_locks.insert(action, process);
+    updateEnabledState();
+}
+
+QString MeshEditingToolbar::blockedReason(const QAction *action) const
+{
+    auto *key = const_cast<QAction *>(action);
+    if (const auto lock = m_locks.constFind(key); lock != m_locks.cend() && m_processLock)
+        if (QString why = m_processLock(*lock); !why.isEmpty())
+            return why;
+    switch (m_needs.value(key, Needs::Nothing)) {
+    case Needs::Cells:
+        return m_haveCells ? QString() : tr("Select one or more 2D cells with the Cells tool.");
+    case Needs::Nothing:
+        break;
+    }
+    return {};
 }
 
 void MeshEditingToolbar::addCellDataActions(const QList<QAction *> &actions)
@@ -865,15 +895,9 @@ void MeshEditingToolbar::updateEnabledState()
     m_actClearSelection->setEnabled(m_selection && !m_selection->isEmpty());
     m_actReviewOwnership->setEnabled(haveMesh && bool(m_surfaceOwnershipReview));
 
-    const bool cells = !currentSelectedCells().isEmpty();
-    for (auto it = m_needs.cbegin(); it != m_needs.cend(); ++it) {
-        switch (it.value()) {
-        case Needs::Cells:
-            it.key()->setEnabled(cells);
-            break;
-        case Needs::Nothing:
-            break;
-        }
-    }
+    m_haveCells = !currentSelectedCells().isEmpty();
+    for (QAction *action : m_needs.keys() + m_locks.keys())
+        action->setEnabled(blockedReason(action).isEmpty());
+    emit commandStatesChanged();
 }
 

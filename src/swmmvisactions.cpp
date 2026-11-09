@@ -175,8 +175,22 @@ void SWMMVis::registerActions()
         for (const char *id : {"mesh.selectVertices", "mesh.selectEdges", "mesh.autoCouple",
                                "mesh.remap", "mesh.editInTable", "mesh.reviewOwnership"})
             registry->setDisabledReason(QString::fromLatin1(id), needMesh);
-        registry->setDisabledReason(QStringLiteral("mesh.assignInfiltration"),
-                                    tr("Select one or more 2D cells with the Cells tool."));
+        // The Mesh 2D tab owns the enable state of its selection- and
+        // process-gated commands, so it also says which condition blocks each.
+        if (mMeshEditingToolbar) {
+            const auto meshReasons = [this, registry] {
+                for (const char *id : {"mesh.assignInfiltration", "mesh.assignGroundwater",
+                                       "mesh.assignSurfaceQuality", "mesh.snow",
+                                       "mesh.heatFromRaster"}) {
+                    const QString key = QString::fromLatin1(id);
+                    registry->setDisabledReason(
+                        key, mMeshEditingToolbar->blockedReason(registry->action(key)));
+                }
+            };
+            connect(mMeshEditingToolbar, &MeshEditingToolbar::commandStatesChanged, this,
+                    meshReasons);
+            meshReasons();
+        }
         registry->setDisabledReason(QStringLiteral("mesh.clearSelection"),
                                     tr("Nothing is selected."));
         registry->setDisabledReason(QStringLiteral("edit.undo"),

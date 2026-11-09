@@ -274,6 +274,7 @@
 #include "mesh/meshcellgeom.h"
 #include "mesh/meshobjectref.h"
 #include "ui/dialogs/mesh2dgroundwaterdialog.h"
+#include "ui/processlock.h"
 #include "ui/dialogs/mesh2dsurfacequalitydialog.h"
 #include "ui/dialogs/meshsnowdialog.h"
 #include "ui/dialogs/assignraingagesdialog.h"
@@ -1267,6 +1268,83 @@ void SWMMVis::openTerrainProfilePlotFor(const QVector<QPointF> &scenePolyline)
                                   pw);
 }
 
+/**
+ * @brief Open the 2D aquifer/state editor on a requested page, targeted at \p edges.
+ * @param[in] page Mesh2DGroundwaterDialog::Page value.
+ * @param[in] edges Zero-based (cell, local edge) pairs of the active mesh; the Edge boundaries
+ *   page opens on them (eligibility counts, Set for Eligible Edges…). Empty opens as before.
+ * @details Missing project yields a null-engine editor. For a live target wires dirty-state
+ * notification and guarded node/edge undo against engine/mesh revisions, invalidating context
+ * on engine close/destruction or mesh revision change.
+ */
+void SWMMVis::openGroundwaterDialog(int page, const QList<QPair<int, int>> &edges)
+{
+    auto *pw = activeProjectWindow();
+    SWMM_Engine engine = (pw && pw->modelLayer()) ? pw->modelLayer()->engine() : nullptr;
+    using Page = openswmmvis::ui::Mesh2DGroundwaterDialog::Page;
+    openswmmvis::ui::Mesh2DGroundwaterDialog dlg(engine, this, static_cast<Page>(page),
+                                                 pw ? pw->unitSystem() : nullptr);
+    // V4: the State tab also lists the saved run's aquifer ledgers (active
+    // 2D results file) and plots chosen terms on that run.
+    const SWMM2DResultsLayer *results = pw ? pw->active2DResultsLayer() : nullptr;
+    dlg.setSavedResultsFile(results && results->source() ? results->source()->sourcePath()
+                                                         : QString());
+    connect(&dlg, &openswmmvis::ui::Mesh2DGroundwaterDialog::plotLedgerRequested, this,
+            [this](const QVector<openswmmvis::plot::ResultDescriptor> &terms) {
+                openComparisonPlotFor2DResults(openswmmvis::plot::ObjectRef::forSystem(),
+                                               terms);
+            });
+    if (pw) {
+        if (pw->modelLayer()) {
+            QPointer<SWMMModelLayer> owner = pw->modelLayer();
+            QList<QPair<QPointer<SWMM2DMeshLayer>, quint64>> geometry;
+            for (auto *layer : pw->canvas()->layers())
+                if (auto *mesh = qobject_cast<SWMM2DMeshLayer *>(layer)) {
+                    geometry.append({mesh, mesh->geomRevision()});
+                    connect(mesh, &SWMM2DMeshLayer::meshEditsChanged, &dlg,
+                            [mesh, &dlg, revision = mesh->geomRevision()] {
+                                if (mesh->geomRevision() != revision)
+                                    (&dlg)->invalidateContext();
+                            });
+                }
+            dlg.setNodeUndoStack(
+                pw->canvas()->undoStack(),
+                [owner, engine, geometry] {
+                    if (!owner || owner->engine() != engine)
+                        return false;
+                    for (const auto &item : geometry)
+                        if (!item.first || item.first->geomRevision() != item.second)
+                            return false;
+                    return true;
+                },
+                [owner] {
+                    if (owner)
+                        owner->markEdited();
+                });
+            connect(pw->modelLayer(), &SWMMModelLayer::engineAboutToClose, &dlg,
+                    &openswmmvis::ui::Mesh2DGroundwaterDialog::invalidateContext);
+            connect(pw->modelLayer(), &QObject::destroyed, &dlg,
+                    &openswmmvis::ui::Mesh2DGroundwaterDialog::invalidateContext);
+        }
+        connect(&dlg, &openswmmvis::ui::Mesh2DGroundwaterDialog::changesMayHaveBeenApplied, pw,
+                [pw] { pw->setHasChanges(true); });
+        // R7: source and node-bed edits move the map's groundwater markers.
+        connect(&dlg, &openswmmvis::ui::Mesh2DGroundwaterDialog::changesMayHaveBeenApplied, pw,
+                [pw] {
+                    for (auto *layer : pw->canvas()->layers())
+                        if (auto *mesh = qobject_cast<SWMM2DMeshLayer *>(layer))
+                            mesh->refreshGroundwaterMarkers();
+                });
+    }
+    // Every view of the aquifer (the edge table's summary columns, map markers)
+    // follows a successful Apply, as the node Properties route already does.
+    if (pw && pw->modelLayer())
+        connect(&dlg, &openswmmvis::ui::Mesh2DGroundwaterDialog::applied, pw->modelLayer(),
+                &SWMMModelLayer::markEdited);
+    dlg.setTargetEdges(edges);
+    dlg.exec();
+}
+
 static void showSpatialAssignment(SWMMVisProjectWindow *pw, SWMM2DMeshLayer *mesh,
                                   const QString &target, const QList<int> &cells)
 {
@@ -1634,71 +1712,8 @@ void SWMMVis::initializeMeshEditingToolBar()
     // G1 (2026-09-07): the two-zone kernel is in the engine, so this editor
     // is live — [2D_AQUIFER_OPTIONS], the per-scope [2D_AQUIFER] rows, the
     // [2D_AQUIFER_NODE] beds, and a read-only state/diagnostics page.
-    /**
-     * @brief Open the 2D aquifer/state editor on a requested page. Argument `page`: initial
-     * groundwater page enum. Returns: no value; missing project yields a null-engine editor. For
-     * a
-     * live target wires dirty-state notification and guarded node undo against engine/mesh
-     * revisions, invalidating context on engine close/destruction or mesh revision change.
-     */
-    auto openGwDialog = [this](openswmmvis::ui::Mesh2DGroundwaterDialog::Page page) {
-        auto *pw = activeProjectWindow();
-        SWMM_Engine engine = (pw && pw->modelLayer()) ? pw->modelLayer()->engine() : nullptr;
-        openswmmvis::ui::Mesh2DGroundwaterDialog dlg(engine, this, page,
-                                                     pw ? pw->unitSystem() : nullptr);
-        // V4: the State tab also lists the saved run's aquifer ledgers (active
-        // 2D results file) and plots chosen terms on that run.
-        const SWMM2DResultsLayer *results = pw ? pw->active2DResultsLayer() : nullptr;
-        dlg.setSavedResultsFile(results && results->source() ? results->source()->sourcePath()
-                                                             : QString());
-        connect(&dlg, &openswmmvis::ui::Mesh2DGroundwaterDialog::plotLedgerRequested, this,
-                [this](const QVector<openswmmvis::plot::ResultDescriptor> &terms) {
-                    openComparisonPlotFor2DResults(openswmmvis::plot::ObjectRef::forSystem(),
-                                                   terms);
-                });
-        if (pw) {
-            if (pw->modelLayer()) {
-                QPointer<SWMMModelLayer> owner = pw->modelLayer();
-                QList<QPair<QPointer<SWMM2DMeshLayer>, quint64>> geometry;
-                for (auto *layer : pw->canvas()->layers())
-                    if (auto *mesh = qobject_cast<SWMM2DMeshLayer *>(layer)) {
-                        geometry.append({mesh, mesh->geomRevision()});
-                        connect(mesh, &SWMM2DMeshLayer::meshEditsChanged, &dlg,
-                                [mesh, &dlg, revision = mesh->geomRevision()] {
-                                    if (mesh->geomRevision() != revision)
-                                        (&dlg)->invalidateContext();
-                                });
-                    }
-                dlg.setNodeUndoStack(
-                    pw->canvas()->undoStack(),
-                    [owner, engine, geometry] {
-                        if (!owner || owner->engine() != engine)
-                            return false;
-                        for (const auto &item : geometry)
-                            if (!item.first || item.first->geomRevision() != item.second)
-                                return false;
-                        return true;
-                    },
-                    [owner] {
-                        if (owner)
-                            owner->markEdited();
-                    });
-                connect(pw->modelLayer(), &SWMMModelLayer::engineAboutToClose, &dlg,
-                        &openswmmvis::ui::Mesh2DGroundwaterDialog::invalidateContext);
-                connect(pw->modelLayer(), &QObject::destroyed, &dlg,
-                        &openswmmvis::ui::Mesh2DGroundwaterDialog::invalidateContext);
-            }
-            connect(&dlg, &openswmmvis::ui::Mesh2DGroundwaterDialog::changesMayHaveBeenApplied, pw,
-                    [pw] { pw->setHasChanges(true); });
-            // R7: source and node-bed edits move the map's groundwater markers.
-            connect(&dlg, &openswmmvis::ui::Mesh2DGroundwaterDialog::changesMayHaveBeenApplied, pw,
-                    [pw] {
-                        for (auto *layer : pw->canvas()->layers())
-                            if (auto *mesh = qobject_cast<SWMM2DMeshLayer *>(layer))
-                                mesh->refreshGroundwaterMarkers();
-                    });
-        }
-        dlg.exec();
+    const auto openGwDialog = [this](openswmmvis::ui::Mesh2DGroundwaterDialog::Page page) {
+        openGroundwaterDialog(int(page));
     };
 
     auto *actGWParams = new QAction(tr("Aquifer…"), this);
@@ -1745,8 +1760,11 @@ void SWMMVis::initializeMeshEditingToolBar()
     actGWEdges->setObjectName(QStringLiteral("actionMesh2DGWEdgeBoundaries"));
     actGWEdges->setToolTip(tr("Aquifer head / flow boundaries and their chemistry or heat terms "
                               "on mesh edges."));
-    connect(actGWEdges, &QAction::triggered, this, [openGwDialog]() {
-        openGwDialog(openswmmvis::ui::Mesh2DGroundwaterDialog::Page::EdgeBoundaries);
+    connect(actGWEdges, &QAction::triggered, this, [this]() {
+        // Opened on the edges selected on the map, when there are any.
+        openGroundwaterDialog(
+            int(openswmmvis::ui::Mesh2DGroundwaterDialog::Page::EdgeBoundaries),
+            mMeshEditingToolbar ? mMeshEditingToolbar->selectedEdges() : QList<QPair<int, int>>{});
     });
     auto *actGWNodeBeds = new QAction(tr("Aquifer Node Beds…"), this);
     actGWNodeBeds->setObjectName(QStringLiteral("actionMesh2DGWNodeBeds"));
@@ -1783,46 +1801,50 @@ void SWMMVis::initializeMeshEditingToolBar()
     mMeshEditingToolbar->addProcessActions(Process::Snow, {assignSnow});
     mMeshEditingToolbar->addProcessActions(Process::Heat, {actHeatRaster});
 
-    // Picker status: informational, so a process can be configured before it
-    // is switched on (the plan's "keep enable settings reachable" rule).
-    mMeshEditingToolbar->setProcessStatusProvider([this](Process process) -> QString {
+    // Process locks (plan §5, Phase 4): a process switched off is read-only.
+    // Commands that only write its records are disabled with the reason; its
+    // editors (Aquifer…, Edge Boundaries…, Node Beds…, Surface Quality…) open
+    // read-only, and State && Diagnostics… stays an inspector. Snow and heat
+    // are set up first and switched on afterwards, so they never lock.
+    mMeshEditingToolbar->setCommandProcess(assignGroundwater, Process::Groundwater);
+    mMeshEditingToolbar->setCommandProcess(assignSurfaceQuality, Process::SurfaceQuality);
+    const auto processLock = [this](Process process) -> QString {
         auto *pw = activeProjectWindow();
-        SWMMModelLayer *model = pw ? pw->modelLayer() : nullptr;
-        if (!model || !model->engine())
-            return {};
-        const auto isOn = [model](const char *key, const char *fallback) {
-            return SimulationOptionsDialog::parseEngineBool(model->getOption(
-                       QByteArray(key), QString::fromLatin1(fallback))) == Qt::Checked;
-        };
-        // Short, so the closed picker never cuts it off; the tooltip says
-        // where to switch the process on.
-        const QString off = tr("off");
+        SWMM_Engine engine = pw && pw->modelLayer() ? pw->modelLayer()->engine() : nullptr;
+        using openswmmvis::ui::LockableProcess;
         switch (process) {
+        case Process::Groundwater:
+            return openswmmvis::ui::processLockReason(engine, LockableProcess::Groundwater2D);
         case Process::SurfaceQuality:
-            if (isOn("IGNORE_QUALITY", "NO"))
-                return off;
-            return model->dataObjectCount(SWMMModelLayer::DataPollutants) > 0
-                       ? QString()
-                       : tr("no pollutants");
+            return openswmmvis::ui::processLockReason(engine, LockableProcess::SurfaceQuality);
         case Process::Snow:
-            return isOn("IGNORE_SNOWMELT", "NO") ? off : QString();
         case Process::Heat:
-            return isOn("HEAT_TRANSPORT", "NO") ? QString() : off;
-        case Process::Groundwater: {
-            // [2D_OPTIONS] GROUNDWATER NO (or OFF, read back as NO) switches
-            // the 2D aquifer off. YES forces it on; AUTO turns it on once
-            // [2D_AQUIFER] rows exist, which the Groundwater group creates.
-            char gw[32] = {};
-            const QString mode =
-                swmm_options_get_ext(model->engine(), "GROUNDWATER", gw, sizeof gw) == 0
-                    ? QString::fromUtf8(gw).trimmed().toUpper()
-                    : QString();
-            return mode == QLatin1String("NO") ? off : QString();
-        }
         case Process::SurfaceFlow:
         case Process::Infiltration:
             break;
         }
+        return {};
+    };
+    mMeshEditingToolbar->setProcessLockProvider(processLock);
+    // Picker status: short, so the closed picker never cuts it off; the
+    // tooltip (the lock reason) says where to switch the process on.
+    mMeshEditingToolbar->setProcessStatusProvider([this, processLock](Process process) -> QString {
+        if (!processLock(process).isEmpty())
+            return tr("off");
+        auto *pw = activeProjectWindow();
+        SWMMModelLayer *model = pw ? pw->modelLayer() : nullptr;
+        if (!model || !model->engine())
+            return {};
+        if (process == Process::SurfaceQuality &&
+            model->dataObjectCount(SWMMModelLayer::DataPollutants) == 0)
+            return tr("no pollutants");
+        const auto isOn = [model](const char *key, const char *fallback) {
+            return SimulationOptionsDialog::parseEngineBool(model->getOption(
+                       QByteArray(key), QString::fromLatin1(fallback))) == Qt::Checked;
+        };
+        if ((process == Process::Snow && isOn("IGNORE_SNOWMELT", "NO")) ||
+            (process == Process::Heat && !isOn("HEAT_TRANSPORT", "NO")))
+            return tr("off");
         return {};
     });
 
@@ -4704,6 +4726,15 @@ void SWMMVis::initializePropertiesPanelDockWidget()
     };
     connect(mPropertiesPanel, &PropertiesPanel::groundwaterCellsRequested, this, openGroundwaterCells);
     connect(mAttributeTablePanel, &AttributeTablePanel::groundwaterCellsRequested, this, openGroundwaterCells);
+    const auto openGroundwaterEdges = [this](SWMM2DMeshLayer *mesh,
+                                             const QList<QPair<int, int>> &edges) {
+        if (mesh && mesh->isActiveMesh() && !edges.isEmpty())
+            openGroundwaterDialog(int(openswmmvis::ui::Mesh2DGroundwaterDialog::Page::EdgeBoundaries),
+                                  edges);
+    };
+    connect(mPropertiesPanel, &PropertiesPanel::groundwaterEdgesRequested, this, openGroundwaterEdges);
+    connect(mAttributeTablePanel, &AttributeTablePanel::groundwaterEdgesRequested, this,
+            openGroundwaterEdges);
     auto *tableDock = new QDockWidget(tr("Attribute Table"), this);
     tableDock->setObjectName(QStringLiteral("dockWidgetAttributeTable"));
     tableDock->setWidget(mAttributeTablePanel);

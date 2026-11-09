@@ -26,6 +26,7 @@
 #include "ui/properties/dataobjectref.h"
 
 #include "ui/dialogs/infilassigntoselectiondialog.h"
+#include "ui/dialogs/mesh2daquifermodel.h"
 #include "ui/properties/dataobjectpickereditor.h"
 #include "ui/widgets/nodecouplingselector.h"
 #include "layers/nodecoupling2d.h"
@@ -422,8 +423,57 @@ void MeshAttributeTableModel::setModelLayer(SWMMModelLayer *layer)
     m_modelLayer = layer;
     if (m_layer && !m_focus.isValid())
         m_layer->setInfiltrationModel(layer);
+    // Apply, undo and redo of the aquifer editor all mark the model edited.
+    disconnect(m_modelEdited);
+    m_modelEdited = layer ? connect(layer, &SWMMModelLayer::modelEdited, this,
+                                    &MeshAttributeTableModel::refreshGroundwaterBoundaries)
+                          : QMetaObject::Connection();
+    m_gwBoundariesBuilt = false;
     rebuildColumns();
     endResetModel();
+}
+
+const QHash<quint64, MeshAttributeTableModel::GwEdgeBoundary> &
+MeshAttributeTableModel::groundwaterBoundaries() const
+{
+    if (m_gwBoundariesBuilt)
+        return m_gwBoundaries;
+    m_gwBoundaries.clear();
+    m_gwBoundariesBuilt = true;
+    SWMM_Engine engine = m_modelLayer ? m_modelLayer->engine() : nullptr;
+    QList<openswmmvis::ui::Mesh2DAquiferBoundaryModel::Row> rows;
+    if (!engine || !openswmmvis::ui::Mesh2DAquiferBoundaryModel::read(engine, rows).isEmpty())
+        return m_gwBoundaries;
+    for (const auto &row : rows) {
+        GwEdgeBoundary &b = m_gwBoundaries[(quint64(quint32(row.cell)) << 3) | quint32(row.edge)];
+        const QString amount = row.series.isEmpty() ? QString::number(row.value) : row.series;
+        if (row.species.isEmpty()) {
+            b.kind = row.kind;
+            b.value = row.value;
+            b.series = row.series;
+        } else {
+            b.chemistry << QStringLiteral("%1 %2 %3").arg(row.species, row.kind, amount);
+        }
+    }
+    return m_gwBoundaries;
+}
+
+void MeshAttributeTableModel::refreshGroundwaterBoundaries()
+{
+    if (!m_gwBoundariesBuilt)
+        return; // never read: the next read is fresh anyway
+    const auto before = m_gwBoundaries;
+    m_gwBoundariesBuilt = false;
+    if (m_kind != Kind::Edge || rowCount() == 0 || groundwaterBoundaries() == before)
+        return;
+    int first = -1, last = -1;
+    for (int c = 0; c < m_columnSpecs.size(); ++c)
+        if (m_columnSpecs[c].key.startsWith(QLatin1String("gwBoundary."))) {
+            first = first < 0 ? c : first;
+            last = c;
+        }
+    if (first >= 0)
+        emit dataChanged(index(0, first), index(rowCount() - 1, last));
 }
 
 bool MeshAttributeTableModel::canPick() const
@@ -467,6 +517,7 @@ void MeshAttributeTableModel::setSource(SWMM2DMeshLayer *layer, Kind kind,
     // The segment-tag index belongs to the previous mesh; two meshes can share
     // a geometry revision, so the revision check alone would reuse it.
     m_segmentTagsBuilt = false;
+    m_gwBoundariesBuilt = false;
     m_focus = focus;
     if (m_layer && !m_focus.isValid())
         m_layer->setInfiltrationModel(m_modelLayer);
@@ -609,7 +660,24 @@ void MeshAttributeTableModel::rebuildColumns()
             << refCol(canPick(), QStringLiteral("curve"), tr("Rating Curve"),
                       tr("Stage → flow curve for a Rating Curve boundary. Pick "
                          "from the project's curves."))
-            << text(QStringLiteral("group"), tr("Group"), tr("Optional named boundary group."));
+            << text(QStringLiteral("group"), tr("Group"), tr("Optional named boundary group."))
+            // The aquifer boundary is a compound record (hydraulic row plus the species terms
+            // it must carry), so it is summarised here and edited on the Edge boundaries page.
+            << ro(QStringLiteral("gwBoundary.type"), tr("Aquifer Boundary"), UnitKind::None,
+                  tr("Groundwater (2D aquifer) boundary on this exterior edge: Head, Flow or "
+                     "none. Edit aquifer boundaries… (Properties or the row menu) opens the "
+                     "Edge boundaries page on the selected edges."))
+            << ro(QStringLiteral("gwBoundary.head"), tr("Aquifer Head"), UnitKind::Length,
+                  tr("Water-table elevation held by a Head boundary."))
+            << ro(QStringLiteral("gwBoundary.flow"), tr("Aquifer Inflow (m³/s)"), UnitKind::None,
+                  tr("Total flow into the aquifer through this edge for a Flow boundary; "
+                     "negative leaves it."))
+            << ro(QStringLiteral("gwBoundary.series"), tr("Aquifer Series"), UnitKind::None,
+                  tr("Time series that replaces the head or flow value."))
+            << ro(QStringLiteral("gwBoundary.chemistry"), tr("Aquifer Chemistry"),
+                  UnitKind::None,
+                  tr("Species terms on the edge: concentration (CONC), series concentration "
+                     "(TS), mass flux or heat flux."));
         break;
 
     case Kind::Cell:
@@ -995,6 +1063,37 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
                 m_segmentTagsBuilt = true;
             }
             return m_segmentTags.value({qMin(va, vb), qMax(va, vb)});
+        }
+        if (spec.key.startsWith(QLatin1String("gwBoundary."))) {
+            if (!m_layer->isBoundaryEdge(tri, e))
+                return missing(tr("Not applicable on an interior edge."));
+            if (!m_layer->isActiveMesh() || !m_modelLayer || !m_modelLayer->engine())
+                return missing(tr("Aquifer boundaries belong to the active mesh of an open "
+                                  "model."));
+            const GwEdgeBoundary none;
+            const auto &records = groundwaterBoundaries();
+            const auto it = records.constFind((quint64(quint32(tri)) << 3) | quint32(e));
+            const GwEdgeBoundary &b = it == records.cend() ? none : *it;
+            if (spec.key == QLatin1String("gwBoundary.type"))
+                return b.kind == QLatin1String("HEAD")   ? tr("Head")
+                       : b.kind == QLatin1String("FLOW") ? tr("Flow")
+                                                         : tr("None");
+            if (spec.key == QLatin1String("gwBoundary.head") ||
+                spec.key == QLatin1String("gwBoundary.flow")) {
+                const bool head = spec.key == QLatin1String("gwBoundary.head");
+                if (b.kind != (head ? QLatin1String("HEAD") : QLatin1String("FLOW")))
+                    return missing(tr("Not used by this aquifer boundary."));
+                if (!b.series.isEmpty())
+                    return missing(tr("Replaced by time series %1.").arg(b.series));
+                return b.value;
+            }
+            if (spec.key == QLatin1String("gwBoundary.series"))
+                return b.series.isEmpty() ? missing(tr("No time series assigned."))
+                                          : QVariant(b.series);
+            if (spec.key == QLatin1String("gwBoundary.chemistry"))
+                return b.chemistry.isEmpty() ? missing(tr("No species terms."))
+                                             : QVariant(b.chemistry.join(QStringLiteral("; ")));
+            return {};
         }
         const QVector<mesh::MeshEdgeBC> &bcs = m_layer->edgeBCs();
         if (flat >= bcs.size())

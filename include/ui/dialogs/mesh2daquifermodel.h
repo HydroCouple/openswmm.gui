@@ -34,6 +34,8 @@
 #include <QByteArray>
 #include <QList>
 #include <QMap>
+#include <QPair>
+#include <QStringList>
 #include <memory>
 #include <QString>
 
@@ -763,6 +765,49 @@ public:
      */
     std::shared_ptr<Mesh2DAquiferBoundaryModel> transactionCopy() const;
 
+    /**
+     * @brief Replace an output list from current hydraulic and chemistry API records (also read by the edge table's summary).
+     * @param[in] engine Borrowed engine queried synchronously.
+     * @param[out] rows Cleared first, then water and chemistry records appended; contains a
+     * partial prefix on failure and must be discarded then.
+     * @return Empty after all reads succeed, otherwise first count/read error.
+     * @details Copies zero-based IDs and native values using fixed 32-KiB series/4-KiB species
+     * buffers; this wrapper does not independently detect successful API string truncation.
+     */
+    static QString read(SWMM_Engine, QList<Row> &);
+
+    /*! Which of a set of edges can carry a hydraulic groundwater boundary, by the rules
+     *  validate() applies: an exterior edge of a cell under an active aquifer row. */
+    struct Eligibility {
+        QList<QPair<int, int>> eligible; ///< (cell, local edge), in request order.
+        int interior = 0;                ///< Shared by two cells.
+        int uncovered = 0;               ///< No active aquifer row covers the cell.
+        int invalid = 0;                 ///< Not an edge of this mesh.
+        QString error;                   ///< Set when nothing could be judged (e.g. PER_SUBCATCH).
+    };
+    /**
+     * @brief Classify requested edges for a hydraulic boundary without writing anything.
+     * @param[in] engine Borrowed engine read synchronously (one pass over the cells).
+     * @param[in] edges Zero-based (cell, local edge) pairs; duplicates are judged once each.
+     * @return Eligible edges and the reasons the others were excluded.
+     */
+    static Eligibility eligibility(SWMM_Engine, const QList<QPair<int, int>> &edges);
+    /**
+     * @brief Species an inflowing boundary must carry an explicit concentration for.
+     * @param[in] engine Borrowed engine read synchronously.
+     * @param[out] error Optional read failure.
+     * @return Enabled pollutants, bulk reaction species, water age and temperature, as
+     *   validate() requires them; sorted.
+     */
+    static QStringList inflowSpecies(SWMM_Engine, QString *error = nullptr);
+    /**
+     * @brief Stage complete edge records: a water row replaces the edge's hydraulic row, a
+     *   species row replaces that species' concentration (CONC/TS) or the same flux kind.
+     * @param[in] rows Proposed rows; nothing is validated or written until commit().
+     * @details No-ops when read-only. Resets the model; water rows stay first.
+     */
+    void stageEdges(const QList<Row> &rows);
+
 private:
     /**
      * @brief Stable-partition a boundary-row copy into water followed by chemistry.
@@ -772,16 +817,6 @@ private:
      * deduplicate or validate values.
      */
     static QList<Row> canonical(const QList<Row> &);
-    /**
-     * @brief Replace an output list from current hydraulic and chemistry API records.
-     * @param[in] engine Borrowed engine queried synchronously.
-     * @param[out] rows Cleared first, then water and chemistry records appended; contains a
-     * partial prefix on failure and must be discarded then.
-     * @return Empty after all reads succeed, otherwise first count/read error.
-     * @details Copies zero-based IDs and native values using fixed 32-KiB series/4-KiB species
-     * buffers; this wrapper does not independently detect successful API string truncation.
-     */
-    static QString read(SWMM_Engine, QList<Row> &);
     /**
      * @brief Sequentially replace engine chemistry/hydraulic records and verify read-back
      * equality.

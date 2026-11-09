@@ -10,6 +10,7 @@
 #include "ui/dialogs/groundwaterassigndialog.h"
 #include "core/displaynumber.h"
 #include "ui/hydrothermalstate.h"
+#include "ui/processlock.h"
 #include <openswmm/engine/openswmm_gw2d.h>
 #include "layers/swmmmodellayer.h"
 #include "layers/swmm2dmeshlayer.h"
@@ -1419,10 +1420,21 @@ QVector<int> GroundwaterAssignDialog::scope(QString *error) const
         *error = tr("No mesh cells are in scope.");
     return cells;
 }
+QString GroundwaterAssignDialog::lockReason() const
+{
+    const bool surface = m_target->currentData().toString().startsWith(QLatin1String("SQ_"));
+    return processLockReason(m_engine, surface ? LockableProcess::SurfaceQuality
+                                               : LockableProcess::Groundwater2D);
+}
 bool GroundwaterAssignDialog::currentContext(QString *error) const
 {
     if (!m_engine || !m_model || !m_mesh || m_model->engine() != m_engine) {
         *error = tr("The model is no longer available.");
+        return false;
+    }
+    // Switched off, the process's records stay as they are; every Apply path asks here.
+    if (const QString locked = lockReason(); !locked.isEmpty()) {
+        *error = locked;
         return false;
     }
     if (m_mesh->geomRevision() != m_geometry || m_mesh->attrRevision() != m_attributes ||
@@ -1445,6 +1457,10 @@ void GroundwaterAssignDialog::preview()
         return;
     invalidatePreview();
     QString error;
+    if (const QString locked = lockReason(); !locked.isEmpty()) {
+        m_status->setText(locked);
+        return;
+    }
     if (m_target->currentData() == "ET_POLICY") {
         m_process = previewAquiferProcesses(m_engine, m_processEt->currentData().toString(),
                                             m_processLink->currentData().toString(),

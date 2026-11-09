@@ -38,6 +38,7 @@
 #include <openswmm/engine/openswmm_pollutants.h>
 
 #include <QAbstractSpinBox>
+#include <QApplication>
 #include <QAccessible>
 #include <QCheckBox>
 #include <QDialogButtonBox>
@@ -60,6 +61,9 @@
 #include <QComboBox>
 #include <QTabWidget>
 #include <QUndoStack>
+#include <QScopeGuard>
+
+#include <cmath>
 
 using openswmmvis::ui::Mesh2DGroundwaterDialog;
 using openswmmvis::ui::Mesh2DAquiferModel;
@@ -95,6 +99,15 @@ struct Engine {
             swmm_engine_destroy(handle);
     }
 };
+/*! Review screenshot of \p widget when SWMMVIS_REVIEW_CAPTURE_DIR is set; no-op otherwise. */
+void reviewCapture(QWidget *widget, const QString &name)
+{
+    const QString dir = qEnvironmentVariable("SWMMVIS_REVIEW_CAPTURE_DIR");
+    if (dir.isEmpty() || !widget)
+        return;
+    QDir().mkpath(dir);
+    widget->grab().save(dir + QLatin1Char('/') + name + QStringLiteral(".png"));
+}
 } // namespace
 
 class ClosingOwner : public QWidget
@@ -988,6 +1001,196 @@ LID Stack .2
      * retains node/Kc; setting thickness 1 then succeeds with one of each signal and clears
      * dirty. Modal dismissal queued.
      */
+    /**
+     * @brief Phase 4 gate: Edge boundaries opened on selected edges judges them by the rules
+     * Apply enforces, stages complete records (hydraulic row plus the concentration every
+     * enabled species needs) only on the eligible ones, conserves a total split by length, and
+     * Apply writes them as one undo step.
+     * @note mini_2d with vertex 1 moved to x=20, so the two exterior edges of cell 1 differ in
+     * length; files under workplans/artifacts/process-boundaries-phase4-2026-11-01/targets.
+     */
+    void targetEdgesStageCompleteRecordsOnEligibleEdges()
+    {
+        const QString root = QDir::currentPath() +
+                             "/workplans/artifacts/process-boundaries-phase4-2026-11-01/targets";
+        QDir().mkpath(root);
+        QFile source(
+            qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QDir::currentPath() + "/tests/gui/data") +
+            "/mini_2d.inp");
+        QVERIFY(source.open(QIODevice::ReadOnly));
+        QByteArray deck = source.readAll();
+        QVERIFY(deck.contains("10    0    10.5"));
+        deck.replace("10    0    10.5", "20    0    10.5");
+        QFile input(root + "/model.inp");
+        QVERIFY(input.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        input.write(deck);
+        input.close();
+        Engine engine(false);
+        QCOMPARE(swmm_engine_open(engine.handle, input.fileName().toUtf8().constData(), nullptr,
+                                  nullptr, nullptr),
+                 SWMM_OK);
+        QCOMPARE(swmm_pollutant_add(engine.handle, "TSS", 0), SWMM_OK);
+
+        // Eligibility equals what Apply accepts, edge by edge; before any aquifer row exists
+        // every exterior edge is excluded as uncovered.
+        using Row = Mesh2DAquiferBoundaryModel::Row;
+        QList<QPair<int, int>> all;
+        for (int cell = 0; cell < 2; ++cell)
+            for (int edge = 0; edge < 3; ++edge)
+                all.append({cell, edge});
+        auto judged = Mesh2DAquiferBoundaryModel::eligibility(engine.handle, all);
+        QCOMPARE(judged.eligible.size(), 0);
+        QCOMPARE(judged.interior, 2);
+        QCOMPARE(judged.uncovered, 4);
+        QCOMPARE(swmm_gw2d_row_add(engine.handle, 0, "", -1, .001, 5, .4, .05, 1), SWMM_OK);
+        judged = Mesh2DAquiferBoundaryModel::eligibility(engine.handle, all);
+        QCOMPARE(judged.eligible.size(), 4);
+        QCOMPARE(judged.interior, 2);
+        for (const auto &edge : all) {
+            Mesh2DAquiferBoundaryModel probe;
+            QVERIFY(probe.load(engine.handle).isEmpty());
+            probe.stageEdges({Row{edge.first, edge.second, {}, "FLOW", {}, 0.0}});
+            QCOMPARE(probe.validateCommit(engine.handle).isEmpty(),
+                     judged.eligible.contains(edge));
+        }
+        QCOMPARE(Mesh2DAquiferBoundaryModel::inflowSpecies(engine.handle), QStringList{"TSS"});
+
+        // Opened on cell 0's three edges: two exterior, one interior.
+        const QList<QPair<int, int>> target = {{0, 0}, {0, 1}, {0, 2}};
+        Mesh2DGroundwaterDialog dlg(engine.handle, nullptr,
+                                    Mesh2DGroundwaterDialog::Page::EdgeBoundaries);
+        QUndoStack undo;
+        dlg.setNodeUndoStack(&undo, [] { return true; }, {});
+        dlg.setTargetEdges(target);
+        auto *summary = dlg.findChild<QLabel *>("gwBoundaryTargetSummary");
+        auto *setFor = dlg.findChild<QPushButton *>("gwBoundarySetForTargets");
+        QVERIFY(summary && setFor);
+        QVERIFY2(summary->text().startsWith("Selected edges: 3. Can take an aquifer boundary: 2."),
+                 qPrintable(summary->text()));
+        QVERIFY2(summary->text().contains("Excluded: 1 interior."), qPrintable(summary->text()));
+        QVERIFY(setFor->isEnabled());
+        dlg.resize(980, 520);
+        dlg.show();
+        QTest::qWait(20);
+        reviewCapture(&dlg, QStringLiteral("edge-boundaries-targeted"));
+
+        QString preview;
+        bool okWithoutConcentration = true;
+        QTimer::singleShot(0, &dlg, [&] {
+            auto *ask = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+            QVERIFY(ask && ask->objectName() == "gwBoundarySetDialog");
+            const auto close = qScopeGuard([ask] {
+                if (ask->isVisible())
+                    ask->reject();
+            });
+            auto *kind = ask->findChild<QComboBox *>("gwBoundarySetKind");
+            kind->setCurrentIndex(kind->findData("FLOW"));
+            ask->findChild<QDoubleSpinBox *>("gwBoundarySetValue")->setValue(0.6);
+            auto *split = ask->findChild<QComboBox *>("gwBoundarySetDistribution");
+            split->setCurrentIndex(split->findData("SPLIT"));
+            auto *ok = ask->findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Ok);
+            // Inflow carries TSS: no implicit zero concentration.
+            okWithoutConcentration = ok->isEnabled();
+            ask->findChild<QLineEdit *>("gwBoundarySetConc:TSS")->setText("3");
+            preview = ask->findChild<QLabel *>("gwBoundarySetPreview")->text();
+            reviewCapture(ask, QStringLiteral("edge-boundaries-set-for-eligible"));
+            ok->click();
+        });
+        setFor->click();
+        QVERIFY(!okWithoutConcentration);
+        QVERIFY2(preview.contains("Total 0.6 m³/s"), qPrintable(preview));
+
+        auto *model = dlg.findChild<Mesh2DAquiferBoundaryModel *>("gwBoundaryModel");
+        QVERIFY(model);
+        QCOMPARE(model->rowCount(), 4); // two water rows, two TSS concentrations
+        QCOMPARE(swmm_gw2d_boundary_count(engine.handle), 0); // staged, not written
+        QTest::qWait(20);
+        reviewCapture(&dlg, QStringLiteral("edge-boundaries-staged"));
+        // Cell 0: edge 0 runs (20,0)-(10,10), edge 2 runs (0,0)-(20,0).
+        const double l0 = std::hypot(10.0, 10.0), l2 = 20.0;
+        dlg.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Apply)->click();
+        QCOMPARE(swmm_gw2d_boundary_count(engine.handle), 2);
+        QCOMPARE(swmm_gw_boundary_quality_count(engine.handle), 2);
+        double total = 0;
+        for (int i = 0; i < 2; ++i) {
+            SWMM_GwBoundary b{};
+            char series[64]{};
+            QCOMPARE(swmm_gw2d_boundary_get(engine.handle, i, &b, series, sizeof series), SWMM_OK);
+            QCOMPARE(b.cell, 0);
+            QCOMPARE(b.kind, int(SWMM_GW2D_BOUNDARY_FLOW));
+            QVERIFY(b.edge == 0 || b.edge == 2);
+            QVERIFY(qAbs(b.value - 0.6 * (b.edge == 0 ? l0 : l2) / (l0 + l2)) < 1e-12);
+            total += b.value;
+        }
+        QVERIFY(qAbs(total - 0.6) < 1e-12);
+        QCOMPARE(undo.count(), 1);
+        undo.undo();
+        QCOMPARE(swmm_gw2d_boundary_count(engine.handle), 0);
+        QCOMPARE(swmm_gw_boundary_quality_count(engine.handle), 0);
+    }
+
+    /**
+     * @brief Process lock (plan §5, Phase 4): with [2D_OPTIONS] GROUNDWATER NO the editor opens
+     * read-only with the reason; AUTO stays editable; switching off after a draft refuses
+     * Apply, keeps the draft and writes nothing.
+     */
+    void switchedOffGroundwaterIsReadOnlyAndRefusesStaleApply()
+    {
+        Engine engine;
+        QVERIFY(engine.handle);
+        QCOMPARE(swmm_node_add(engine.handle, "DraftNode", SWMM_NODE_JUNCTION), SWMM_OK);
+        const QString reason = QStringLiteral("2D groundwater is off.");
+        const auto bannerSays = [&reason](const QDialog &dlg) {
+            for (auto *label : dlg.findChildren<QLabel *>())
+                if (label->text().startsWith(reason))
+                    return true;
+            return false;
+        };
+        QCOMPARE(swmm_options_set_ext(engine.handle, "GROUNDWATER", "NO"), SWMM_OK);
+        {
+            Mesh2DGroundwaterDialog dlg(engine.handle, nullptr,
+                                        Mesh2DGroundwaterDialog::Page::NodeBeds);
+            QCOMPARE(dlg.findChild<QDialogButtonBox *>()->standardButtons(),
+                     QDialogButtonBox::Close);
+            QVERIFY(bannerSays(dlg));
+            dlg.resize(980, 520);
+            dlg.show();
+            QTest::qWait(20);
+            reviewCapture(&dlg, QStringLiteral("aquifer-editor-locked"));
+        }
+        QCOMPARE(swmm_options_set_ext(engine.handle, "GROUNDWATER", "AUTO"), SWMM_OK);
+        Mesh2DGroundwaterDialog dlg(engine.handle);
+        auto *buttons = dlg.findChild<QDialogButtonBox *>();
+        QVERIFY(buttons->button(QDialogButtonBox::Apply));
+        QVERIFY(!bannerSays(dlg));
+        auto *nodes = dlg.findChild<Mesh2DAquiferNodeModel *>();
+        QVERIFY(nodes);
+        const int row = nodes->appendRow(QStringLiteral("DraftNode"), 0);
+        QVERIFY(nodes->setData(nodes->index(row, Mesh2DAquiferNodeModel::ColKc), 1.0));
+        QVERIFY(nodes->setData(nodes->index(row, Mesh2DAquiferNodeModel::ColDc), 1.0));
+        QSignalSpy writes(&dlg, &Mesh2DGroundwaterDialog::changesMayHaveBeenApplied);
+        QCOMPARE(swmm_options_set_ext(engine.handle, "GROUNDWATER", "NO"), SWMM_OK);
+        dlg.show();
+        QString warning;
+        QTimer::singleShot(0, &dlg, [&dlg, &warning] {
+            if (auto *message = dlg.findChild<QMessageBox *>()) {
+                warning = message->text();
+                message->accept();
+            }
+        });
+        buttons->button(QDialogButtonBox::Apply)->click();
+        QCOMPARE(writes.count(), 0);
+        QVERIFY2(warning.startsWith(reason), qPrintable(warning));
+        QVERIFY(nodes->isDirty());
+        int beds = -1;
+        QCOMPARE(swmm_gw2d_node_count(engine.handle, &beds), SWMM_OK);
+        QCOMPARE(beds, 0);
+        QCOMPARE(swmm_options_set_ext(engine.handle, "GROUNDWATER", "AUTO"), SWMM_OK);
+        buttons->button(QDialogButtonBox::Apply)->click();
+        QCOMPARE(writes.count(), 1);
+        QVERIFY(!nodes->isDirty());
+    }
+
     void failedOkKeepsDialogAndDraftOpen()
     {
         Engine engine;

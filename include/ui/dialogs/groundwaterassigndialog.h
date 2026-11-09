@@ -247,6 +247,8 @@ private:
      * verification.
      */
     bool currentContext(QString *error) const;
+    /** @return Why the current target's process is switched off, or empty (plan §5). */
+    [[nodiscard]] QString lockReason() const;
     /**
      * @brief Install the retained property/transport proposal after final context/undo-owner
      * checks.

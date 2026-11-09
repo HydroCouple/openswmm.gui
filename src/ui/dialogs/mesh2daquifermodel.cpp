@@ -1316,6 +1316,77 @@ QString Mesh2DAquiferBoundaryModel::load(SWMM_Engine engine)
     endResetModel();
     return m_error;
 }
+namespace
+{
+/*! Species a boundary may carry, and those with a mass or count basis (MASSFLUX), as the
+ *  engine enables them. Shared by validate() and inflowSpecies(). */
+QString boundarySpecies(SWMM_Engine engine, QSet<QString> *species, QSet<QString> *massSpecies)
+{
+    const auto flag = [&](const char *key, bool groundwater) {
+        char value[128]{};
+        const int rc = groundwater ? swmm_gw_transport_option_get(engine, key, value, sizeof value)
+                                   : swmm_options_get(engine, key, value, sizeof value);
+        return rc == SWMM_OK && QString::fromUtf8(value) == "YES";
+    };
+    if (!flag("IGNORE_QUALITY", false)) {
+        if (flag("TRANSPORT_POLLUTANTS", true))
+            for (int p = 0; p < swmm_pollutant_count(engine); ++p)
+                if (const char *name = swmm_pollutant_id(engine, p)) {
+                    species->insert(QString::fromUtf8(name));
+                    massSpecies->insert(QString::fromUtf8(name));
+                }
+        if (flag("TRANSPORT_MSX", true))
+            for (int s = 0; s < swmm_reaction_species_count(engine); ++s) {
+                char name[4096]{}, unit[4096]{};
+                int wall = 0;
+                double a = 0, r = 0;
+                if (swmm_reaction_species_get(engine, s, name, sizeof name, &wall, unit,
+                                              sizeof unit, &a, &r) != SWMM_OK)
+                    return Mesh2DAquiferBoundaryModel::tr("Cannot read reaction species.");
+                if (!wall) {
+                    species->insert(QString::fromUtf8(name));
+                    QString basis = QString::fromUtf8(unit).trimmed().toUpper();
+                    if (basis.endsWith("/L"))
+                        basis.chop(2);
+                    const QSet<QString> known{"MG",   "UG",   "G",     "KG", "MOL",
+                                              "MMOL", "UMOL", "COUNT", "#"};
+                    if (known.contains(basis))
+                        massSpecies->insert(QString::fromUtf8(name));
+                }
+            }
+    }
+    if (flag("WATER_AGE", false) && flag("TRANSPORT_AGE", true))
+        species->insert("__WATER_AGE__");
+    if (flag("HEAT_TRANSPORT", false) && flag("TRANSPORT_TEMPERATURE", true))
+        species->insert("__TEMPERATURE__");
+    return {};
+}
+
+/*! Whether the last applicable aquifer row (global, then tag, then cell) under \p target is
+ *  active (ks > 0, zs > 0, θs > θr). Shared by validate() and eligibility(). */
+QString activeAquiferCovers(SWMM_Engine engine, int target, int aquifers, bool *covered)
+{
+    char tag[4096]{};
+    if (swmm_2d_get_triangle_tag(engine, target, tag, sizeof tag) != SWMM_OK)
+        return Mesh2DAquiferBoundaryModel::tr("Cannot read the boundary cell tag.");
+    *covered = false;
+    for (int pass = 0; pass < 3; ++pass)
+        for (int i = 0; i < aquifers; ++i) {
+            int scope = 0, cell = -1;
+            char rowTag[4096]{};
+            double ks = 0, zs = 0, ts = 0, tr = 0, alpha = 0;
+            if (swmm_gw2d_row_get(engine, i, &scope, rowTag, sizeof rowTag, &cell, &ks, &zs, &ts,
+                                  &tr, &alpha) != SWMM_OK)
+                return Mesh2DAquiferBoundaryModel::tr("Cannot read an aquifer row.");
+            if (scope != pass || (scope == 2 && cell != target) ||
+                (scope == 1 && QString::fromUtf8(rowTag) != QString::fromUtf8(tag)))
+                continue;
+            *covered = ks > 0 && zs > 0 && ts > tr;
+        }
+    return {};
+}
+} // namespace
+
 QString Mesh2DAquiferBoundaryModel::validate(SWMM_Engine engine, const QList<Row> &rows)
 {
     if (rows.isEmpty())
@@ -1327,44 +1398,9 @@ QString Mesh2DAquiferBoundaryModel::validate(SWMM_Engine engine, const QList<Row
     if (swmm_gw2d_option_get(engine, "MODE", mode, sizeof mode) != SWMM_OK ||
         QString::fromUtf8(mode) == "PER_SUBCATCH")
         return tr("Hydraulic edge forcing requires a mesh aquifer.");
-    const auto flag = [&](const char *key, bool groundwater) {
-        char value[128]{};
-        const int rc = groundwater ? swmm_gw_transport_option_get(engine, key, value, sizeof value)
-                                   : swmm_options_get(engine, key, value, sizeof value);
-        return rc == SWMM_OK && QString::fromUtf8(value) == "YES";
-    };
     QSet<QString> species, massSpecies;
-    if (!flag("IGNORE_QUALITY", false)) {
-        if (flag("TRANSPORT_POLLUTANTS", true))
-            for (int p = 0; p < swmm_pollutant_count(engine); ++p)
-                if (const char *name = swmm_pollutant_id(engine, p)) {
-                    species.insert(QString::fromUtf8(name));
-                    massSpecies.insert(QString::fromUtf8(name));
-                }
-        if (flag("TRANSPORT_MSX", true))
-            for (int s = 0; s < swmm_reaction_species_count(engine); ++s) {
-                char name[4096]{}, unit[4096]{};
-                int wall = 0;
-                double a = 0, r = 0;
-                if (swmm_reaction_species_get(engine, s, name, sizeof name, &wall, unit,
-                                              sizeof unit, &a, &r) != SWMM_OK)
-                    return tr("Cannot read reaction species.");
-                if (!wall) {
-                    species.insert(QString::fromUtf8(name));
-                    QString basis = QString::fromUtf8(unit).trimmed().toUpper();
-                    if (basis.endsWith("/L"))
-                        basis.chop(2);
-                    const QSet<QString> known{"MG",   "UG",   "G",     "KG", "MOL",
-                                              "MMOL", "UMOL", "COUNT", "#"};
-                    if (known.contains(basis))
-                        massSpecies.insert(QString::fromUtf8(name));
-                }
-            }
-    }
-    if (flag("WATER_AGE", false) && flag("TRANSPORT_AGE", true))
-        species.insert("__WATER_AGE__");
-    if (flag("HEAT_TRANSPORT", false) && flag("TRANSPORT_TEMPERATURE", true))
-        species.insert("__TEMPERATURE__");
+    if (const QString error = boundarySpecies(engine, &species, &massSpecies); !error.isEmpty())
+        return error;
     const auto edgeKey = [](int a, int b) {
         if (a > b)
             std::swap(a, b);
@@ -1450,23 +1486,10 @@ QString Mesh2DAquiferBoundaryModel::validate(SWMM_Engine engine, const QList<Row
     if (swmm_gw2d_row_count(engine, &aquifers) != SWMM_OK)
         return tr("Cannot read aquifer coverage.");
     for (auto it = hydraulic.cbegin(); it != hydraulic.cend(); ++it) {
-        char tag[4096]{};
-        if (swmm_2d_get_triangle_tag(engine, it->cell, tag, sizeof tag) != SWMM_OK)
-            return tr("Cannot read the boundary cell tag.");
         bool covered = false;
-        for (int pass = 0; pass < 3; ++pass)
-            for (int i = 0; i < aquifers; ++i) {
-                int scope = 0, cell = -1;
-                char rowTag[4096]{};
-                double ks = 0, zs = 0, ts = 0, tr = 0, alpha = 0;
-                if (swmm_gw2d_row_get(engine, i, &scope, rowTag, sizeof rowTag, &cell, &ks, &zs,
-                                      &ts, &tr, &alpha) != SWMM_OK)
-                    return Mesh2DAquiferBoundaryModel::tr("Cannot read an aquifer row.");
-                if (scope != pass || (scope == 2 && cell != it->cell) ||
-                    (scope == 1 && QString::fromUtf8(rowTag) != QString::fromUtf8(tag)))
-                    continue;
-                covered = ks > 0 && zs > 0 && ts > tr;
-            }
+        if (const QString error = activeAquiferCovers(engine, it->cell, aquifers, &covered);
+            !error.isEmpty())
+            return error;
         if (!covered)
             return tr("Define an active aquifer below each hydraulic boundary cell.");
         if (it->kind == "HEAD" || it->value > 0 || !it->series.isEmpty())
@@ -1485,6 +1508,115 @@ QString Mesh2DAquiferBoundaryModel::validate(SWMM_Engine engine, const QList<Row
             return tr("Every chemistry row requires a matching hydraulic edge.");
     return {};
 }
+Mesh2DAquiferBoundaryModel::Eligibility
+Mesh2DAquiferBoundaryModel::eligibility(SWMM_Engine engine, const QList<QPair<int, int>> &edges)
+{
+    Eligibility result;
+    int count = 0, aquifers = 0;
+    char mode[128]{};
+    if (swmm_2d_cell_count(engine, &count) != SWMM_OK ||
+        swmm_gw2d_row_count(engine, &aquifers) != SWMM_OK) {
+        result.error = tr("Cannot read the mesh.");
+        return result;
+    }
+    if (swmm_gw2d_option_get(engine, "MODE", mode, sizeof mode) != SWMM_OK ||
+        QString::fromUtf8(mode) == "PER_SUBCATCH") {
+        result.error = tr("Hydraulic edge forcing requires a mesh aquifer.");
+        return result;
+    }
+    const auto edgeKey = [](int a, int b) {
+        if (a > b)
+            std::swap(a, b);
+        return (quint64(quint32(a)) << 32) | quint32(b);
+    };
+    // Same exterior rule as validate(): an edge whose vertex pair occurs once.
+    QList<QPair<int, int>> requested;
+    QHash<QPair<int, int>, quint64> keys;
+    QHash<quint64, int> occurrences;
+    for (const auto &edge : edges) {
+        if (keys.contains(edge))
+            continue;
+        int vertices[4]{}, nv = 0;
+        if (edge.first < 0 || edge.first >= count ||
+            swmm_2d_cell_get_vertices(engine, edge.first, vertices, &nv) != SWMM_OK ||
+            edge.second < 0 || edge.second >= nv) {
+            ++result.invalid;
+            keys.insert(edge, 0);
+            continue;
+        }
+        const quint64 key = edgeKey(vertices[(edge.second + 1) % nv], vertices[(edge.second + 2) % nv]);
+        keys.insert(edge, key);
+        occurrences.insert(key, 0);
+        requested.append(edge);
+    }
+    for (int cell = 0; cell < count && !occurrences.isEmpty(); ++cell) {
+        int vertices[4]{}, nv = 0;
+        if (swmm_2d_cell_get_vertices(engine, cell, vertices, &nv) != SWMM_OK) {
+            result.error = tr("Cannot read cell connectivity.");
+            return result;
+        }
+        for (int edge = 0; edge < nv; ++edge) {
+            auto found = occurrences.find(edgeKey(vertices[(edge + 1) % nv], vertices[(edge + 2) % nv]));
+            if (found != occurrences.end())
+                ++found.value();
+        }
+    }
+    for (const auto &edge : requested) {
+        if (occurrences.value(keys.value(edge)) != 1) {
+            ++result.interior;
+            continue;
+        }
+        bool covered = false;
+        if (const QString error = activeAquiferCovers(engine, edge.first, aquifers, &covered);
+            !error.isEmpty()) {
+            result.error = error;
+            return result;
+        }
+        if (covered)
+            result.eligible.append(edge);
+        else
+            ++result.uncovered;
+    }
+    return result;
+}
+
+QStringList Mesh2DAquiferBoundaryModel::inflowSpecies(SWMM_Engine engine, QString *error)
+{
+    QSet<QString> species, massSpecies;
+    const QString failed = boundarySpecies(engine, &species, &massSpecies);
+    if (error)
+        *error = failed;
+    QStringList names(species.cbegin(), species.cend());
+    names.sort();
+    return names;
+}
+
+void Mesh2DAquiferBoundaryModel::stageEdges(const QList<Row> &rows)
+{
+    if (!m_editable || rows.isEmpty())
+        return;
+    const auto flux = [](const QString &kind) {
+        return kind == QLatin1String("MASSFLUX") || kind == QLatin1String("HEATFLUX");
+    };
+    // A concentration (CONC or TS) replaces either; a flux replaces the same flux kind.
+    const auto sameTerm = [&flux](const Row &a, const Row &b) {
+        if (a.cell != b.cell || a.edge != b.edge || a.species != b.species)
+            return false;
+        if (a.species.isEmpty())
+            return true;
+        return flux(a.kind) ? a.kind == b.kind : !flux(b.kind);
+    };
+    beginResetModel();
+    for (const Row &row : rows) {
+        m_rows.erase(std::remove_if(m_rows.begin(), m_rows.end(),
+                                    [&](const Row &old) { return sameTerm(old, row); }),
+                     m_rows.end());
+        m_rows.append(row);
+    }
+    m_rows = canonical(m_rows);
+    endResetModel();
+}
+
 QString Mesh2DAquiferBoundaryModel::validateCommit(SWMM_Engine engine, bool physical) const
 {
     if (!m_error.isEmpty())

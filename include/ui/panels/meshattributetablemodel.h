@@ -366,8 +366,27 @@ private:
     [[nodiscard]] bool canPick() const;
 
 
+    /// Aquifer edge boundary behind the Aquifer Boundary columns (an engine record, read-only
+    /// here; the Edge boundaries page edits it).
+    struct GwEdgeBoundary {
+        QString kind;          ///< HEAD, FLOW, or empty when the edge has species terms only.
+        double value = 0.0;    ///< Head (project length) or flow (m³/s, positive inward).
+        QString series;        ///< Replaces the value when set.
+        QStringList chemistry; ///< One "species KIND value-or-series" term each.
+        bool operator==(const GwEdgeBoundary &) const = default;
+    };
+    /** @return The bound model's aquifer edge records keyed by (cell << 3 | local edge), read
+     *  once per model edit (no engine call per painted cell). */
+    [[nodiscard]] const QHash<quint64, GwEdgeBoundary> &groundwaterBoundaries() const;
+    /** @brief Re-read the aquifer edge records after a model edit; repaints their columns
+     *  only when a record changed, so other edits keep their single refresh. */
+    void refreshGroundwaterBoundaries();
+
     QPointer<SWMM2DMeshLayer> m_layer;
     QHash<int, QStringList> m_cellCoupledNodes;
+    mutable QHash<quint64, GwEdgeBoundary> m_gwBoundaries;
+    mutable bool m_gwBoundariesBuilt = false;
+    QMetaObject::Connection m_modelEdited;
     /// Boundary segment tag by sorted vertex pair, rebuilt when the geometry revision moves.
     mutable QHash<QPair<int, int>, QString> m_segmentTags;
     mutable quint64 m_segmentTagsRevision = 0;

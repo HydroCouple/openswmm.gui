@@ -30,9 +30,12 @@
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QLabel>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QTabWidget>
+#include <QTimer>
 #include <QtTest/QtTest>
 
 using openswmmvis::ui::Mesh2DAquiferNodeModel;
@@ -705,6 +708,59 @@ private slots:
         // Nothing changed: Apply succeeds without writing again.
         dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Apply)->click();
         QCOMPARE(applied.count(), 1);
+    }
+
+    /** Process lock (plan §5, Phase 4): with water quality off the dialog opens read-only with
+     *  the reason, and switching it off after a draft refuses Apply and writes nothing. */
+    void switchedOffQualityIsReadOnlyAndRefusesStaleApply()
+    {
+        const QString inp = writeDeck(QStringLiteral("lock"));
+        Engine engine;
+        QVERIFY(openModel(engine, inp, QFileInfo(inp).absolutePath()));
+        const QString reason = QStringLiteral("Water quality is off.");
+        const auto bannerSays = [&reason](const QDialog &dialog) {
+            for (auto *label : dialog.findChildren<QLabel *>())
+                if (label->text().startsWith(reason))
+                    return true;
+            return false;
+        };
+        QCOMPARE(swmm_options_set(engine.handle, "IGNORE_QUALITY", "YES"), SWMM_OK);
+        {
+            Mesh2DSurfaceQualityDialog dialog(engine.handle);
+            QCOMPARE(dialog.findChild<QDialogButtonBox *>()->standardButtons(),
+                     QDialogButtonBox::Close);
+            QVERIFY(bannerSays(dialog));
+        }
+        QCOMPARE(swmm_options_set(engine.handle, "IGNORE_QUALITY", "NO"), SWMM_OK);
+        Mesh2DSurfaceQualityDialog dialog(engine.handle);
+        QVERIFY(!bannerSays(dialog));
+        auto *curb = dialog.findChild<Mesh2DSectionRowModel *>(QStringLiteral("sqCurbLength"));
+        QVERIFY(curb);
+        QVERIFY(set(*curb, 0, 2, QStringLiteral("20")));
+        QSignalSpy applied(&dialog, &Mesh2DSurfaceQualityDialog::applied);
+        QCOMPARE(swmm_options_set(engine.handle, "IGNORE_QUALITY", "YES"), SWMM_OK);
+        dialog.show();
+        QString warning;
+        QTimer::singleShot(0, &dialog, [&dialog, &warning] {
+            if (auto *message = dialog.findChild<QMessageBox *>()) {
+                warning = message->text();
+                message->accept();
+            }
+        });
+        auto *apply = dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Apply);
+        apply->click();
+        QCOMPARE(applied.count(), 0);
+        QVERIFY2(warning.startsWith(reason), qPrintable(warning));
+        double length = 0.0;
+        QCOMPARE(swmm_2d_curb_length_get(engine.handle, 0, nullptr, nullptr, 0, nullptr, &length),
+                 SWMM_OK);
+        QVERIFY(length != 20.0);
+        QCOMPARE(swmm_options_set(engine.handle, "IGNORE_QUALITY", "NO"), SWMM_OK);
+        apply->click();
+        QCOMPARE(applied.count(), 1);
+        QCOMPARE(swmm_2d_curb_length_get(engine.handle, 0, nullptr, nullptr, 0, nullptr, &length),
+                 SWMM_OK);
+        QCOMPARE(length, 20.0);
     }
 
     /**
