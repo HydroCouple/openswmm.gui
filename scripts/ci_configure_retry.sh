@@ -20,7 +20,7 @@ for attempt in 1 2 3; do
     exit 0
   fi
   # Check only this attempt's output; other command failures must stay fatal.
-  if (( attempt == 3 )) || ! grep -Eq 'curl: \(6\) Could not resolve host:|curl: \(22\) The requested URL returned error: (408|429|500|502|503|504)([^0-9]|$)' "$log"; then
+  if (( attempt == 3 )) || ! grep -Eq 'curl: \((6|7|28|35|52|56)\)|curl: \(22\) The requested URL returned error: (408|429|500|502|503|504)([^0-9]|$)' "$log"; then
     exit "$status"
   fi
 
