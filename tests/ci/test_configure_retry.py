@@ -36,6 +36,9 @@ if outcome == "dns":
     print("error: curl: (6) Could not resolve host: github.com", file=sys.stderr)
     print("CMake Error: CMAKE_CXX_COMPILER not set, after EnableLanguage", file=sys.stderr)
     sys.exit(1)
+if outcome.startswith("curl"):
+    print("error: curl: (" + outcome[4:] + ") dependency download failed", file=sys.stderr)
+    sys.exit(1)
 if outcome.startswith("http"):
     print("curl: (22) The requested URL returned error: " + outcome[4:], file=sys.stderr)
     sys.exit(1)
@@ -87,6 +90,24 @@ sys.exit(0)
 
     def test_old_gateway_output_does_not_retry_a_new_configuration_error(self):
         result, attempts, delays = self.run_configure(["http504", "cmake"])
+        self.assertEqual((result.returncode, attempts, delays), (23, 2, ["20"]))
+
+    def test_transient_connection_timeout_and_reset_failures_recover(self):
+        for code in (7, 28, 35, 52, 56):
+            with self.subTest(code=code):
+                result, attempts, delays = self.run_configure([f"curl{code}", "ok"])
+                self.assertEqual((result.returncode, attempts, delays), (0, 2, ["20"]))
+
+    def test_persistent_timeout_is_bounded(self):
+        result, attempts, delays = self.run_configure(["curl28"] * 3)
+        self.assertEqual((result.returncode, attempts, delays), (1, 3, ["20", "40"]))
+
+    def test_certificate_failure_is_not_retried(self):
+        result, attempts, delays = self.run_configure(["curl60"])
+        self.assertEqual((result.returncode, attempts, delays), (1, 1, []))
+
+    def test_old_timeout_does_not_retry_a_configuration_error(self):
+        result, attempts, delays = self.run_configure(["curl28", "cmake"])
         self.assertEqual((result.returncode, attempts, delays), (23, 2, ["20"]))
 
     def test_configuration_error_fails_immediately(self):
