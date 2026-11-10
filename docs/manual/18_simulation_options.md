@@ -220,7 +220,7 @@ The tab that applies under every solver.
 | **Force-main equation** | Hazen-Williams (H-W) or Darcy-Weisbach (D-W) | `FORCE_MAIN_EQUATION` |
 | **Normal-flow criterion** | Slope / Froude / Both / Neither | `NORMAL_FLOW_LIMITED` |
 | **Inertial damping** | None / Partial / Full — dynamic-wave routing only | `INERTIAL_DAMPING` |
-| **Numerical stability area** | Numerical area floor for legacy junction behavior; 0 selects 12.566 ft² (1.167 m²). A positive per-junction Storage Area specifies physical chamber geometry independently | `MIN_SURFAREA` |
+| **Minimum Nodal Surface Area** | Minimum area used to compute changes in node depth. Enter ft² for US units or m² for SI units. Zero uses 12.566 ft² (1.167 m²). For 1D surface ponding, enable **Allow ponding at nodes** and set a positive **Ponded Area** on the junction | `MIN_SURFAREA` |
 | **Min conduit slope** | Lower clamp on conduit slope, percent | `MIN_SLOPE` |
 
 **Skip steady state** — moved here from *Dates & Times*.

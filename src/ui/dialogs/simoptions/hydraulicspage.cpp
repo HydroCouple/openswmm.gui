@@ -504,8 +504,11 @@ void HydraulicsPage::buildUi()
     m_minSurfAreaSpin->setRange(0.0, 1.0e6);
     m_minSurfAreaSpin->setDecimals(4);
     m_minSurfAreaSpin->setToolTip(
-        tr("Numerical stability area for legacy junctions (MIN_SURFAREA). A positive junction Storage Area supplies physical chamber storage independently."));
-    condForm->addRow(tr("Numerical stability area:"), m_minSurfAreaSpin);
+        tr("Minimum surface area used to compute changes in node depth (MIN_SURFAREA). "
+           "Enter ft² for US units or m² for SI units. Zero uses the default of 12.566 ft² "
+           "(1.167 m²). For 1D surface ponding, enable Allow ponding at nodes and set a "
+           "positive Ponded Area on the junction."));
+    condForm->addRow(tr("Minimum Nodal Surface Area:"), m_minSurfAreaSpin);
 
     m_minSlopeSpin = new QDoubleSpinBox(condGroup);
     m_minSlopeSpin->setRange(0.0, 100.0);
