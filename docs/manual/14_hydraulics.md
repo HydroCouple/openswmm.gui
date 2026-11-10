@@ -92,7 +92,7 @@ then click the map; clicking on a conduit inserts the junction into it — see
 | **Initial Depth** | Water depth at the start of the run | `[JUNCTIONS]` |
 | **Surcharge Depth** | Extra depth above the maximum depth that the node can hold under pressure before it floods — a sealed or bolted manhole cover | `[JUNCTIONS]` |
 | **Storage Area** | Physical chamber area (ft²/m²); 0 retains legacy junction behavior. Positive area stores water below the rim, including above connected pipe crowns | Optional seventh `[JUNCTIONS]` field |
-| **Ponded Area** | Surface area over which flooded water ponds when ponding is allowed in Simulation Options; 0 means flooded water is lost from the model | `[JUNCTIONS]` |
+| **Ponded Area** | Surface area available to store floodwater above the rim when **Allow ponding at nodes** is enabled. For a 1D junction, an omitted or zero value means floodwater leaves the model | `[JUNCTIONS]` |
 
 **Type-specific behaviour.** Surcharge depth and ponded area are two different
 answers to "what happens when the node is full". A surcharge depth keeps the
@@ -103,7 +103,7 @@ depth does not start ponding until that depth is exceeded.
 
 **Physical chamber storage.** In updated OpenSWMM 5.3.0 and 6.0.0, set **Storage Area** in Properties or the junction attribute table. The node keeps its junction symbol. Below the rim its volume is area × depth, including when connected pipes are surcharged. Above-rim shaft volume is capped; surface ponding uses **Ponded Area** separately. **Surcharge Depth** permits pressure head and does not lengthen the chamber. With ponding enabled, the pond starts at the rim; pressure allowance applies when ponding is off.
 
-Zero is the default for existing and newly created junctions. It preserves legacy behavior and is different from specifying a physical area. **Numerical stability area** in Simulation Options remains `MIN_SURFAREA`; it is not the chamber geometry and does not silently enlarge an explicitly smaller chamber. Set a default Storage Area in Preferences → Object Defaults when creating many manholes.
+With the default **Storage Area** of zero, the solver uses legacy junction behavior. **Minimum Nodal Surface Area** (`MIN_SURFAREA`) sets the project-wide minimum area for computing changes in node depth. A positive junction **Storage Area** supplies the actual chamber area even when it is smaller than this minimum. Set a default Storage Area in Preferences → Object Defaults when creating many manholes.
 
 Use dynamic-wave routing for 5.3.0; 6.0.0 also supports physical storage through its CPU finite-volume paths with zero Surcharge Depth. Use dynamic wave for above-rim pressure allowance. Dynamic Slot currently refuses positive chamber areas; select EXTRAN or SLOT instead. Kinematic/steady routing rejects positive Storage Area. Virtual and inlet junctions keep their zero-storage semantics. Stock EPA 5.2.4 and older workers do not support this field: the GUI refuses such a run, and stock-EPA export refuses to drop the volume. Use an updated worker when selecting 5.3.0. For very small chambers, use a shorter routing step and enough trials to resolve filling and drying. A run that cannot close the chamber water budget stops with a timestep/convergence message; the engine does not enlarge the area to make it run.
 
