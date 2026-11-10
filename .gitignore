@@ -90,6 +90,21 @@ docs/test_output/
 # payloads are committed (examples/* + negation, since git cannot negate
 # inside a fully-ignored directory).
 examples/*
+!examples/open_book_runoff/
+examples/open_book_runoff/*
+!examples/open_book_runoff/open_book.inp
+!examples/open_book_runoff/README.md
+!examples/open_book_runoff/receiving_node_inflow.csv
+!examples/open_book_runoff/receiving_node_inflow.png
+!examples/open_book_runoff/report.html
+!examples/open_book_runoff/timing_check_inflow.csv
+!examples/open_book_runoff/pear_shape/
+examples/open_book_runoff/pear_shape/*
+!examples/open_book_runoff/pear_shape/combined.inp
+!examples/open_book_runoff/pear_shape/report.html
+!examples/open_book_runoff/pear_shape/pear_shape_comparison.png
+!examples/open_book_runoff/pear_shape/receiving_node_inflow.csv
+!examples/open_book_runoff/pear_shape/timing_check_inflow.csv
 !examples/extensions/
 !examples/extensions/**
 !examples/rubinato2017/
@@ -153,6 +168,8 @@ tests/unit/data/channelburn_artifacts/
 # read-fixture needs `git add -f`; the two tests/unit/data/*.rpt predate this.
 *.out
 *.rpt
+!examples/open_book_runoff/original_storm.rpt
+!examples/open_book_runoff/pear_shape/original_storm.rpt
 *.oswp
 
 # Isolated flow/travel-time development build

@@ -6,7 +6,7 @@
  * @brief     Shared confirm → convert → summary flow for changing a node or
  *         link to a different SWMM type. Reused by:
  *           - `OpenSWMMVisMapToolSelect::showContextMenu` ("Convert To ▸")
- *           - `AttributeTablePanel::onChangeTypeTriggered` ("Change Type…")
+ *           - `AttributeTablePanel::onContextMenuRequested` ("Change Type…")
  *
  * The user is warned BEFORE the conversion that the old type's specific
  * attributes will be cleared (the conversion is not undoable), and shown
@@ -20,8 +20,10 @@
 #include <QCoreApplication>
 #include <QString>
 #include <QStringList>
+#include "layers/typeconversion.h"
 
 class QWidget;
+class QMenu;
 class SWMMModelLayer;
 
 namespace openswmmvis::ui
@@ -46,8 +48,8 @@ public:
     /*! \brief GUI-only pseudo node type for an inlet junction: engine-side a
      *  JUNCTION with BOTH is_virtual and is_inlet set, plus one
      *  [INLET_USAGE] row. Converting INTO one needs a design and a capture
-     *  node, which the caller collects with InletJunctionSetupDialog and
-     *  passes through \ref runToInletJunction. */
+     *  node, which the menu collects with InletJunctionSetupDialog and
+     *  passes to the batch conversion. */
     static constexpr int kInletNodeType = 5;
 
     /*! \brief User-facing label for a SWMM_NodeType value
@@ -89,67 +91,11 @@ public:
  */
     static QString summaryHtml(const QStringList &cleared, const QStringList &warnings);
 
-    /*! \brief Confirm with the user, then convert via
-     *  `SWMMModelLayer::applyNodeConvert/applyLinkConvert`, then show the
-     *  engine-reported summary (or the failure reason). The layer method
-     *  emits the repaint/geometry/attribute signals that refresh the map
-     *  and panels. Returns true only if the conversion succeeded.
-     * @param[in] parent Optional borrowed modal-message parent; host must preserve parent/layer
-     *   lifetimes through nested event loops.
-     * @param[in] layer Optional borrowed live model layer; null immediately fails, no ownership or
-     *   deletion guard.
-     * @param[in] isNode True node/pseudo-kind operation, false engine link conversion.
-     * @param[in] name Nonempty exact object name resolved by layer helpers; empty fails before
-     *   prompt.
-     * @param[in] currentType Caller-reported current type; exact equality with newType returns
-     *   false BEFORE checking engine inlet flag.
-     * @param[in] newType Requested engine type or virtual-node pseudo type; inlet promotion needs
-     *   runToInletJunction instead.
-     * @return True after requested sequence succeeded and completion message closed; false for
-     *   early no-op, declined confirmation or reported helper failure. False can still leave
-     *   earlier mutations.
-     * @note Confirm BEFORE writes. Read actual inlet flag to demote inlet role/usage when needed;
-     *   virtual target may first convert to Junction, then set virtual flag. Plain junction target
-     *   clears inlet then virtual; other targets clear inlet (return ignored in plain branch) then
-     *   convert. Stale caller pseudo-kind can affect branch/default behavior.
-     * @note Nonundoable direct layer helpers update caches/repaint/attributes, conversions also
-     *   geometry; no transaction or restoration after a later failed step. Failure/completion
-     *   messages are modal and interpolate raw identity/summary text. This function does not
-     *   independently set project dirty flag beyond chosen layer helpers.
- */
-    static bool run(QWidget *parent, SWMMModelLayer *layer, bool isNode, const QString &name,
-                    int currentType, int newType);
+    // Populate lazily from live engine state. Both entry points snapshot typed IDs before
+    // opening the menu. The request survives sorting, refiltering and modeless capture picking.
+    static void addActions(QMenu *menu, SWMMModelLayer *layer, TypeConversionRequest request,
+                           int hiddenCount = 0);
 
-    /*! \brief Promote \p name to an inlet junction: confirm, set the flag
-     *  (`swmm_node_set_inlet`), then install the usage row naming
-     *  \p inletDesign / \p captureNode. Split out of run() because the
-     *  identity fields have to be collected BEFORE the mutation (D-G6) and
-     *  run()'s signature carries no room for them. Not undoable, like every
-     *  other type conversion — the confirm text says so.
-     * @param[in] parent Optional borrowed message-box parent; preserve dialog/layer/engine lifetime
-     *   through nested loops.
-     * @param[in] layer Optional borrowed live model layer; null fails.
-     * @param[in] name Required existing source node name; no trimming.
-     * @param[in] currentType Caller-reported source kind; values other than Junction 0 or Virtual 4
-     *   trigger preliminary node conversion to Junction.
-     * @param[in] inletDesign Required nonempty design ID resolved AFTER promotion, not validated
-     *   before first mutation.
-     * @param[in] captureNode Required nonempty capture node ID resolved AFTER promotion.
-     * @param[in] placement Raw SWMM inlet placement enum forwarded to usage validation, no local
-     *   bounds check.
-     * @return True after Junction/inlet promotion and usage installation plus success summary;
-     *   false for missing input/decline/helper/identity/usage failure, possibly with partial
-     *   changes.
-     * @note After confirmation, optionally convert source to Junction, set inlet=true (also
-     *   virtual), then build zero-initialized node-host usage with design/capture indexes,
-     *   num_inlets=1 and given placement. On missing identity/usage failure attempt set inlet=false
-     *   without checking rollback result; retains virtual role and any prior base-type
-     *   conversion/attribute loss. Original complete model state is not restored despite generic
-     *   failure wording. No undo transaction.
- */
-    static bool runToInletJunction(QWidget *parent, SWMMModelLayer *layer, const QString &name,
-                                   int currentType, const QString &inletDesign,
-                                   const QString &captureNode, int placement);
 };
 
 } // namespace openswmmvis::ui

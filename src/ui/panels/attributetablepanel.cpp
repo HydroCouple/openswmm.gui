@@ -3397,8 +3397,37 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
         }
     }
 
-    auto *changeTypeAct = menu.addAction(tr("Change Type…"));
-    connect(changeTypeAct, &QAction::triggered, this, &AttributeTablePanel::onChangeTypeTriggered);
+    const auto family = objectTypeForCategory(m_model->category());
+    if (m_layer && m_proxy->sourceModel() == m_model && sourceIdx.isValid() &&
+        (family == SWMMObjectRef::Node || family == SWMMObjectRef::Link)) {
+        const SWMMObjectRef clicked(family, m_model->objectNameAt(sourceIdx.row()));
+        TypeConversionRequest request;
+        request.family = family;
+        int hidden = 0;
+        if (m_selMgr && m_selMgr->size() > 1 && m_selMgr->contains(clicked)) {
+            // Walk the category once. rowForName falls back to a row scan for a
+            // colliding node/link ID or a selection from another category.
+            for (int row = 0; row < m_model->rowCount(); ++row) {
+                SWMMObjectRef ref(family, m_model->objectNameAt(row));
+                if (!m_selMgr->contains(ref))
+                    continue;
+                request.objects.append(ref);
+                if (!m_proxy->mapFromSource(m_model->index(row, 0)).isValid())
+                    ++hidden;
+            }
+        } else if (!m_selMgr && m_view->selectionModel()->isRowSelected(proxyIdx.row())) {
+            for (int row : selectedSourceRows())
+                request.objects.append({family, m_model->objectNameAt(row)});
+        } else {
+            request.objects.append(clicked);
+        }
+        const QString title =
+            request.objects.size() == 1
+                ? tr("Change Type…")
+                : tr("Change Type of %1 Selected Rows…").arg(request.objects.size());
+        openswmmvis::ui::TypeConversionFlow::addActions(menu.addMenu(title), m_layer, request,
+                                                        hidden);
+    }
 
     // Delete — only for spatial categories that have an engine delete path.
     // Mirrors the map's right-click delete, and routes through the same undo
@@ -4300,97 +4329,4 @@ void AttributeTablePanel::deleteSelectedRows()
         return;
 
     deleteObjects(names);
-}
-
-void AttributeTablePanel::onChangeTypeTriggered()
-{
-    // Resolve the right-clicked object, then hand off to the shared
-    // TypeConversionFlow (node + link). The flow warns that type-specific
-    // attributes will be lost, converts via the layer, and shows the
-    // engine-reported cleared fields + topology warnings.
-    if (!m_view || !m_model || !m_layer || !m_layer->engine())
-        return;
-
-    const auto sel = m_view->selectionModel();
-    if (!sel)
-        return;
-    const auto rows = sel->selectedRows();
-    if (rows.isEmpty()) {
-        QMessageBox::information(this, tr("Change Type"), tr("Select a row first."));
-        return;
-    }
-    const QModelIndex srcIdx = m_proxy->mapToSource(rows.first());
-    const QString name = m_model->objectNameAt(srcIdx.row());
-    if (name.isEmpty())
-        return;
-
-    const auto cat = m_model->category();
-    const bool isNode =
-        (cat == SWMMModelLayer::CatJunctions || cat == SWMMModelLayer::CatOutfalls ||
-         cat == SWMMModelLayer::CatStorage || cat == SWMMModelLayer::CatDividers);
-    const bool isLink = (cat == SWMMModelLayer::CatConduits || cat == SWMMModelLayer::CatPumps ||
-                         cat == SWMMModelLayer::CatOrifices || cat == SWMMModelLayer::CatWeirs ||
-                         cat == SWMMModelLayer::CatOutlets);
-    if (!isNode && !isLink) {
-        QMessageBox::information(this, tr("Change Type"),
-                                 tr("Only nodes and links can be converted to another type."));
-        return;
-    }
-
-    // Read the current type so the picker can exclude it (the engine
-    // rejects a same-type convert with SWMM_ERR_BADPARAM). Nodes have four
-    // kinds, links five.
-    SWMM_Engine eng = m_layer->engine();
-    const QByteArray id = name.toUtf8();
-    const int idx =
-        isNode ? swmm_node_index(eng, id.constData()) : swmm_link_index(eng, id.constData());
-    if (idx < 0)
-        return;
-    int currentType = 0;
-    if (isNode)
-        swmm_node_get_type(eng, idx, &currentType);
-    else
-        swmm_link_get_type(eng, idx, &currentType);
-
-    // Virtual junctions surface as their own node kind (mirrors the map's
-    // Convert To ▸ menu): a flagged node reports kVirtualNodeType so
-    // "Junction" (demote) is offered, and the "Virtual Junction" target is
-    // listed only when the engine's usage rules are met (the item picker
-    // has no way to grey an entry out).
-    constexpr int kVJ = openswmmvis::ui::TypeConversionFlow::kVirtualNodeType;
-    int vjRule = 0;
-    if (isNode) {
-        int isVirtual = 0;
-        swmm_node_is_virtual(eng, idx, &isVirtual);
-        if (isVirtual)
-            currentType = kVJ;
-        swmm_node_virtual_eligible(eng, idx, &vjRule);
-    }
-
-    QStringList labels;
-    QVector<int> values;
-    const int nKinds = 5;
-    for (int t = 0; t < nKinds; ++t) {
-        if (t == currentType)
-            continue;
-        if (isNode && t == kVJ && vjRule != 0)
-            continue;
-        labels << (isNode ? openswmmvis::ui::TypeConversionFlow::nodeTypeLabel(t)
-                          : openswmmvis::ui::TypeConversionFlow::linkTypeLabel(t));
-        values << t;
-    }
-
-    bool ok = false;
-    const QString choice =
-        QInputDialog::getItem(this, isNode ? tr("Change Node Type") : tr("Change Link Type"),
-                              tr("Convert <b>%1</b> to:").arg(name), labels, 0, false, &ok);
-    if (!ok || choice.isEmpty())
-        return;
-    const int newType = values[labels.indexOf(choice)];
-
-    // The shared flow confirms, converts via the layer (which emits the
-    // geometryChanged / attributeChanged signals this panel and the
-    // Property Browser already listen to), and shows the summary. No
-    // explicit reloadGeometry()/refresh()/emit is needed here.
-    openswmmvis::ui::TypeConversionFlow::run(this, m_layer, isNode, name, currentType, newType);
 }

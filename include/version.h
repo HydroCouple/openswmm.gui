@@ -1,3 +1,13 @@
+/**
+ * @file      version.h
+ * @brief     Build-generated project version information.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
+// clang-format off: Preserve CMake substitutions.
 #pragma once
 
 #define SWMM_VERSION_MAJOR 6
@@ -13,3 +23,4 @@
 
 /** Full version string including any pre-release suffix, e.g. "6.0.0-alpha.1". */
 #define SWMM_VERSION_FULL "6.0.0-alpha.4"
+// clang-format on

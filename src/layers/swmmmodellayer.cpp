@@ -5888,6 +5888,103 @@ void marshalConversionResult(const SWMM_ConversionResult &res, QStringList *outC
 }
 } // namespace
 
+QList<TypeConversionOutcome> SWMMModelLayer::convertTypes(const TypeConversionRequest &request,
+                                                          bool apply)
+{
+    QList<TypeConversionOutcome> outcomes;
+    QList<int> positions, indices;
+    QSet<SWMMObjectRef> seen;
+    const bool nodes = request.family == SWMMObjectRef::Node;
+    for (const auto &ref : request.objects) {
+        if (seen.contains(ref))
+            continue;
+        seen.insert(ref);
+        TypeConversionOutcome item;
+        item.object = ref;
+        if (ref.objectType != request.family || (!nodes && request.family != SWMMObjectRef::Link)) {
+            item.reason = nodes ? tr("Only nodes can be converted to this type.")
+                                : tr("Only links can be converted to this type.");
+        } else {
+            const int idx = nodes ? nodeIndex(ref.name) : linkIndex(ref.name);
+            const QByteArray id = ref.name.toUtf8();
+            const int live = nodes ? swmm_node_index(m_engine, id.constData())
+                                   : swmm_link_index(m_engine, id.constData());
+            if (idx < 0 || live < 0) {
+                item.reason = tr("Object no longer exists.");
+            } else if (idx != live) {
+                item.reason = tr("The model changed and this object could not be matched.");
+            } else {
+                positions.append(outcomes.size());
+                indices.append(idx);
+            }
+        }
+        outcomes.append(item);
+    }
+    if (indices.isEmpty())
+        return outcomes;
+
+    int design = -1, capture = -1;
+    if (nodes && request.target == SWMM_CONVERT_INLET && m_engine) {
+        design = request.topologyOnly && !apply
+                     ? -2
+                     : swmm_inlet_index(m_engine, request.design.toUtf8().constData());
+        capture = swmm_node_index(m_engine, request.capture.toUtf8().constData());
+    }
+    QList<SWMM_TypeChange> rows(indices.size());
+    const int rc =
+        swmm_convert_types(m_engine, nodes, request.target, indices.constData(), indices.size(),
+                           design, capture, request.placement, apply, rows.data());
+    // No signals or event loops occur between engine validation and cache synchronization.
+    std::optional<BulkEdit> bulk;
+    if (apply && rc == SWMM_OK)
+        bulk.emplace(this);
+    for (qsizetype i = 0; i < rows.size(); ++i) {
+        auto &item = outcomes[positions[i]];
+        auto &row = rows[i];
+        item.source = row.source_type;
+        const int status = rc == SWMM_OK ? row.status : rc;
+        if (status != SWMM_OK) {
+            if (row.dependency_node >= 0 && !nodes && status == 609) {
+                item.reason =
+                    tr("Junction %1 requires two conduits (rule 609).")
+                        .arg(QString::fromUtf8(swmm_node_id(m_engine, row.dependency_node)));
+            } else if (!nodes && status == 635) {
+                item.reason = tr("This conduit hosts an inlet usage. Remove the assignment first.");
+            } else if (nodes && status == 619 && request.target == SWMM_CONVERT_INLET) {
+                item.reason = tr("An inlet junction requires dynamic-wave routing (rule 619).");
+            } else if (status == 627) {
+                item.reason = tr(
+                    "An inlet capture node must remain a separate, nonvirtual receiver (rule 627).");
+            } else if (status >= 609 && status <= 635) {
+                item.reason = virtualJunctionRuleText(status);
+            } else {
+                item.reason = QString::fromUtf8(swmm_error_message(status));
+            }
+        } else if (item.source == request.target) {
+            item.state = TypeConversionOutcome::AlreadyTarget;
+        } else if (!apply) {
+            item.state = TypeConversionOutcome::Eligible;
+        } else {
+            item.state = TypeConversionOutcome::Converted;
+            marshalConversionResult(row.details, &item.cleared, &item.warnings);
+            const int idx = indices[i];
+            if (nodes) {
+                auto &node = m_nodes[idx];
+                node.nodeType = request.target >= SWMM_CONVERT_VIRTUAL ? int(SWMM_NODE_JUNCTION)
+                                                                       : request.target;
+                node.isVirtual = request.target >= SWMM_CONVERT_VIRTUAL;
+                node.isInlet = request.target == SWMM_CONVERT_INLET;
+            } else {
+                m_links[idx].linkType = request.target;
+            }
+            m_bulkTypeChanges.insert(item.object);
+            m_inletConnectorsDirty = true;
+        }
+        swmm_conversion_result_free(&row.details);
+    }
+    return outcomes;
+}
+
 bool SWMMModelLayer::applyNodeConvert(const QString &name, int newNodeType, QStringList *outCleared,
                                       QStringList *outWarnings, QString *outError)
 {
@@ -7411,8 +7508,42 @@ void SWMMModelLayer::endBulkEdit()
         return; // inner scope; outer still owns it
 
     blockSignals(false);
-    if (!m_bulkDirty)
-        return; // nothing mutated — nothing to say
+    const auto changedTypes = std::exchange(m_bulkTypeChanges, {});
+    if (!m_bulkDirty && changedTypes.isEmpty())
+        return;
+    if (!changedTypes.isEmpty())
+        m_bulkAttrsEdited = true;
+    if (!m_bulkDirty) {
+        // Type conversions preserve SoA indices. Retain the user's ordering of
+        // surviving rows, and append arrivals in their normal category order.
+        const auto previousOrders = std::exchange(m_objectOrderOverrides, {});
+        rebuildCategoryIndex();
+        for (auto it = previousOrders.cbegin(); it != previousOrders.cend(); ++it) {
+            const auto category = it.key();
+            const auto members = defaultObjectOrder(category);
+            QSet<int> pending(members.cbegin(), members.cend());
+            QVector<int> order;
+            order.reserve(members.size());
+            for (int id : it.value())
+                if (pending.remove(id))
+                    order.append(id);
+            for (int id : members)
+                if (pending.contains(id))
+                    order.append(id);
+            m_objectOrderOverrides.insert(category, order);
+            for (int row = 0; row < order.size(); ++row) {
+                auto loc = m_objectLocation.find(objectNameAt(category, row));
+                if (loc != m_objectLocation.end() && loc->first == category)
+                    loc->second = row;
+            }
+        }
+        m_needsRebuild = true;
+        emit typesChanged(changedTypes);
+        emit geometryChanged();
+        emit repaintRequested();
+        emit modelEdited();
+        return;
+    }
     m_bulkDirty = false;
 
     // Perf-plan Phase 0: the one-shot batch close is where a bulk delete
@@ -7432,6 +7563,8 @@ void SWMMModelLayer::endBulkEdit()
     m_needsRebuild = true;
     if (m_batchedItem)
         m_batchedItem->refreshBoundingRect();
+    if (!changedTypes.isEmpty())
+        emit typesChanged(changedTypes);
     emit repaintRequested();
     emit geometryChanged();
     // Attribute / hydrograph edits made inside the scope announce here, once.

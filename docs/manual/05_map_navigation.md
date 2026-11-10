@@ -162,7 +162,7 @@ the menu acts on the object you pointed at.
 | **Zoom to Object** | Frames the object. If the object is part of a multi-object selection, frames the whole selection instead. |
 | **Rainfall Visualization…** | Rain gages only — opens the rainfall dialog focused on this gage (see \ref manual_analysis_tools). |
 | **Plot Time Series…** ▸ | Submenu of result variables valid for this object kind, including pollutant/species series. With two or more `.out` results layers loaded the menu gains a level: **Plot Time Series ▸ &lt;results layer&gt; ▸ &lt;variable&gt;**. |
-| **Convert To** ▸ | Nodes and links only. Lists the other kinds of the same family, plus **Virtual Junction** and — when the engine supports it — **Inlet Junction**. Targets whose engine eligibility rules are not met are greyed out with the failing rule as their tooltip. |
+| **Convert To** ▸ | Right-click a selected node or link to convert eligible objects in the selection. The clicked object determines the target family. Right-click an unselected object to convert it alone. Unavailable targets show the reason. |
 | **Flip Direction** | Links only. Swaps the upstream and downstream nodes without moving the link. Undoable. |
 | **Delete…** | Selects the object under the cursor and runs the shared confirm-and-delete flow. |
 

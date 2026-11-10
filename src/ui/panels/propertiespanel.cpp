@@ -1519,7 +1519,7 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
     m_selectionScope->addItem(tr("%1 objects selected — choose a group to edit").arg(refs.size()));
     for (const auto &scope : choices)
         m_selectionScope->addItem(tr("%1 (%2)").arg(scope.title).arg(scope.refs.size()));
-    const auto bind = [this, canvas = QPointer<MapCanvas>(canvas), choices, total = refs.size()](int index) {
+    const auto bind = [this, canvas = QPointer<MapCanvas>(canvas), choices, refs, total = refs.size()](int index) {
         if (index <= 0 || index > choices.size()) {
             clear();
             setWindowTitle(tr("%1 objects selected").arg(total));
@@ -1590,6 +1590,10 @@ void PropertiesPanel::showSelection(MapCanvas *canvas, const QList<SWMMObjectRef
                 m_aggregateBar->show();
             }
         }
+        // Binding a scope clears the previous adapters. Remember the full
+        // selection after binding so type changes can regroup it.
+        m_selectionCanvas = canvas;
+        m_displayedSelection = refs;
         m_selectionScope->setVisible(choices.size() > 1);
     };
     connect(m_selectionScope, qOverload<int>(&QComboBox::currentIndexChanged), this, bind);
@@ -1947,6 +1951,8 @@ void PropertiesPanel::showLayerProperties(OpenSWMMVisLayer *layer)
 
 void PropertiesPanel::clear()
 {
+    m_displayedSelection.clear();
+    m_selectionCanvas = nullptr;
     releaseMeshProperties();
 #ifdef HAVE_QPROPERTYMODEL
     if (auto *pm = qobject_cast<QPropertyModel *>(m_model))
@@ -2036,9 +2042,11 @@ void PropertiesPanel::setProject(SWMMModelLayer *layer)
         return;
 
     // Disconnect from the old layer before replacing it.
-    if (m_swmmLayer)
+    if (m_swmmLayer) {
         QObject::disconnect(m_swmmLayer, &SWMMModelLayer::attributeChanged, this,
                             &PropertiesPanel::onObjectEditedExternally);
+        disconnect(m_conversionConnection);
+    }
 
     if (m_meshFields || m_meshAggregate || m_swmmAggregate || m_dataAggregate)
         clear();
@@ -2066,6 +2074,21 @@ void PropertiesPanel::setProject(SWMMModelLayer *layer)
     // length or subcatchment area recalculated from an edited geometry).
     connect(layer, &SWMMModelLayer::attributeChanged, this,
             &PropertiesPanel::onObjectEditedExternally, Qt::UniqueConnection);
+    m_conversionConnection = connect(
+        layer, &SWMMModelLayer::typesChanged, this, [this](const QSet<SWMMObjectRef> &changed) {
+            if (m_selectionCanvas && !m_displayedSelection.isEmpty()) {
+                for (const auto &ref : std::as_const(m_displayedSelection)) {
+                    if (changed.contains(ref)) {
+                        const auto refs = m_displayedSelection;
+                        showSelection(m_selectionCanvas, refs);
+                        return;
+                    }
+                }
+            }
+            if ((m_nodeAdapter && changed.contains({SWMMObjectRef::Node, m_nodeAdapter->name()})) ||
+                (m_linkAdapter && changed.contains({SWMMObjectRef::Link, m_linkAdapter->name()})))
+                onLayerComboIndexChanged(m_layerCombo->currentIndex());
+        });
     connect(layer, &SWMMModelLayer::objectRenamed, this, &PropertiesPanel::onObjectRenamed,
             Qt::UniqueConnection);
 }

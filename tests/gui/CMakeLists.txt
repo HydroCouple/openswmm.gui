@@ -1949,11 +1949,7 @@ add_swmmvis_gui_test(test_vjsourcesummary
 #
 # add_swmmvis_gui_test(test_linkpropertyadapter test_linkpropertyadapter.cpp …)
 
-# Node/link type conversion — the shared TypeConversionFlow text builders
-# plus the engine swmm_node_convert / swmm_link_convert contract the layer
-# methods wrap. Self-contained: compiles typeconversionflow.cpp and stubs
-# the two SWMMModelLayer::apply*Convert methods at link time (the modal
-# run() is never invoked), so it avoids the full SWMMModelLayer link chain.
+# Conversion labels and real engine batch eligibility, atomicity and dependencies.
 add_swmmvis_gui_test(test_typeconversionflow
     test_typeconversionflow.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/typeconversionflow.cpp
@@ -3750,6 +3746,12 @@ add_swmmvis_gui_test(test_nodestructurebulk
     ${SWMMVIS_TEST_SOURCES}
     ${SWMMVIS_TEST_EXTRA_SOURCES})
 swmmvis_link_full_app_deps(test_nodestructurebulk)
+
+add_swmmvis_gui_test(test_bulktypeconversion
+    test_bulktypeconversion.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_bulktypeconversion)
 
 
 

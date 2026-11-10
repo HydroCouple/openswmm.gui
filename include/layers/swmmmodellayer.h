@@ -14,6 +14,7 @@
 
 #include "layers/openswmmvislayer.h"
 #include "layers/swmm_category.h"
+#include "layers/typeconversion.h"
 #include "layers/nodecoupling2d.h"   // 1D↔2D node coupling snapshots
 #include "core/preferencesmanager.h" // NewProjectSpec defaults structs
 #include "render/labelconfig.h"
@@ -2665,6 +2666,9 @@ public:
     bool applyLinkConvert(const QString &name, int newLinkType, QStringList *outCleared = nullptr,
                           QStringList *outWarnings = nullptr, QString *outError = nullptr);
 
+    // Preview or commit one snapshot of typed IDs. A refusal leaves that object intact.
+    QList<TypeConversionOutcome> convertTypes(const TypeConversionRequest &request, bool apply);
+
     /*!
      * \brief Reverse link \p linkIdx: the upstream node becomes the downstream
      *        node and vice versa, leaving the physical link unchanged.
@@ -4131,6 +4135,7 @@ signals:
      *   modelEdited.
      */
     void attributeChanged(const QString &objectName);
+    void typesChanged(const QSet<SWMMObjectRef> &objects);
     /** @brief Refresh extension-derived field metadata or values without editing the model.
      * @param[in] schemaChanged True after registration/removal, false after value invalidation.
      * @note GUI-thread notification for read-only tables and presentation consumers. */
@@ -4508,6 +4513,7 @@ private:
     // spurious geometryChanged().
     int m_bulkDepth = 0;
     bool m_bulkDirty = false;
+    QSet<SWMMObjectRef> m_bulkTypeChanges;
     bool m_bulkAttrsEdited = false; ///< endBulkEdit also emits modelEdited
     bool m_bulkHydroEdited = false; ///< endBulkEdit also emits hydrographChanged("")
 

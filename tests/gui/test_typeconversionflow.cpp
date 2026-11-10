@@ -11,11 +11,6 @@
  *              the cleared-fields marshaling assumption (NULL-terminated
  *              arrays sized by n_cleared).
  *
- * The modal `TypeConversionFlow::run()` is deliberately NOT exercised
- * (it blocks on QMessageBox). Its non-UI call into the layer is covered
- * by the layer's own apply* methods; the layer is stubbed at link time
- * here (same idiom as test_control_rule_models.cpp) since the production
- * SWMMModelLayer drags in nanoflann / GDAL / the scene graph.
  *
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -29,6 +24,9 @@
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_edit.h>
 
+#include <openswmm/engine/openswmm_model.h>
+#include <openswmm/engine/openswmm_infrastructure.h>
+#include <QScopeGuard>
 #include <QObject>
 #include <QString>
 #include <QStringList>
@@ -276,101 +274,105 @@ private slots:
         swmm_conversion_result_free(&res);
         swmm_engine_destroy(e);
     }
+    void dependentLinkDoesNotBlockIndependentLink()
+    {
+        auto e = buildFixture();
+        QVERIFY(e);
+        const auto cleanup = qScopeGuard([&] { swmm_engine_destroy(e); });
+        QCOMPARE(swmm_node_add(e, "J3", SWMM_NODE_JUNCTION), SWMM_OK);
+        QCOMPARE(swmm_link_add(e, "C2", SWMM_LINK_CONDUIT), SWMM_OK);
+        QCOMPARE(swmm_link_set_nodes(e, 1, 1, 2), SWMM_OK);
+        QCOMPARE(swmm_node_set_virtual(e, 1, 1), SWMM_OK);
+        QCOMPARE(swmm_link_add(e, "free", SWMM_LINK_CONDUIT), SWMM_OK);
+        QCOMPARE(swmm_link_set_nodes(e, 2, 0, 2), SWMM_OK);
+        QCOMPARE(swmm_link_add(e, "pump", SWMM_LINK_PUMP), SWMM_OK);
+        int ids[] = {0, 2, 3, -1};
+        for (int apply : {0, 1}) {
+            SWMM_TypeChange rows[4]{};
+            const auto release = qScopeGuard([&] {
+                for (auto &row : rows)
+                    swmm_conversion_result_free(&row.details);
+            });
+            QCOMPARE(swmm_convert_types(e, 0, SWMM_LINK_PUMP, ids, 4, -1, -1, 0, apply, rows),
+                     SWMM_OK);
+            QCOMPARE(rows[0].status, 609);
+            QCOMPARE(rows[0].dependency_node, 1);
+            QCOMPARE(rows[1].status, SWMM_OK);
+            QCOMPARE(rows[2].source_type, int(SWMM_LINK_PUMP));
+            QCOMPARE(rows[3].status, SWMM_ERR_BADINDEX);
+            int type = -1, rule = -1;
+            QCOMPARE(swmm_link_get_type(e, 2, &type), SWMM_OK);
+            QCOMPARE(type, int(apply ? SWMM_LINK_PUMP : SWMM_LINK_CONDUIT));
+            QCOMPARE(swmm_node_virtual_eligible(e, 1, &rule), SWMM_OK);
+            QCOMPARE(rule, 0);
+            if (apply)
+                QVERIFY(rows[1].details.n_warnings > 0);
+        }
+        QCOMPARE(swmm_link_convert(e, 0, SWMM_LINK_PUMP, nullptr), 609);
+    }
+
+    void inletPromotionIsAtomic()
+    {
+        auto e = buildFixture();
+        QVERIFY(e);
+        const auto cleanup = qScopeGuard([&] { swmm_engine_destroy(e); });
+        QCOMPARE(swmm_options_set(e, "FLOW_ROUTING", "DYNWAVE"), SWMM_OK);
+        QCOMPARE(swmm_node_add(e, "J3", SWMM_NODE_JUNCTION), SWMM_OK);
+        QCOMPARE(swmm_link_add(e, "C2", SWMM_LINK_CONDUIT), SWMM_OK);
+        QCOMPARE(swmm_link_set_nodes(e, 1, 1, 2), SWMM_OK);
+        for (int i : {0, 1})
+            QCOMPARE(swmm_link_set_xsect(e, i, SWMM_XSECT_RECT_OPEN, 3, 4, 0, 0), SWMM_OK);
+        QCOMPARE(swmm_node_convert(e, 1, SWMM_NODE_STORAGE, nullptr), SWMM_OK);
+        QCOMPARE(swmm_node_set_storage_functional(e, 1, 12, 1.5, 7), SWMM_OK);
+        QCOMPARE(swmm_node_set_max_depth(e, 1, 9), SWMM_OK);
+        QCOMPARE(swmm_inlet_add(e, "Drop", "DROP_GRATE"), SWMM_OK);
+        QCOMPARE(swmm_inlet_add(e, "Street", "CURB"), SWMM_OK);
+        const int host = 1;
+        auto change = [&](int target, int design, int capture, int apply) {
+            SWMM_TypeChange row{};
+            const int rc = swmm_convert_types(e, 1, target, &host, 1, design, capture,
+                                              SWMM_INLET_ON_SAG, apply, &row);
+            swmm_conversion_result_free(&row.details);
+            return rc ? rc : row.status;
+        };
+        QCOMPARE(change(SWMM_CONVERT_INLET, 0, host, 1), 627);
+        QCOMPARE(change(SWMM_CONVERT_INLET, 1, 0, 1), 623);
+        QCOMPARE(change(SWMM_CONVERT_INLET, -1, 0, 1), 625);
+        int type = -1, flag = -1;
+        QCOMPARE(swmm_node_get_type(e, host, &type), SWMM_OK);
+        QCOMPARE(type, int(SWMM_NODE_STORAGE));
+        double a = 0, b = 0, c = 0, depth = 0;
+        QCOMPARE(swmm_node_get_storage_functional(e, host, &a, &b, &c), SWMM_OK);
+        QCOMPARE(a, 12.);
+        QCOMPARE(b, 1.5);
+        QCOMPARE(c, 7.);
+        QCOMPARE(swmm_node_get_max_depth(e, host, &depth), SWMM_OK);
+        QCOMPARE(depth, 9.);
+        QCOMPARE(swmm_node_is_virtual(e, host, &flag), SWMM_OK);
+        QCOMPARE(flag, 0);
+        QCOMPARE(swmm_inlet_usage_count(e), 0);
+        QCOMPARE(change(SWMM_CONVERT_INLET, -2, -1, 0), SWMM_OK);
+        QCOMPARE(change(SWMM_CONVERT_INLET, 0, 0, 1), SWMM_OK);
+        SWMM_InletUsage usage{};
+        QCOMPARE(swmm_inlet_usage_get(e, 0, &usage), SWMM_OK);
+        QCOMPARE(usage.host_idx, host);
+        QCOMPARE(usage.capture_node_idx, 0);
+        QCOMPARE(usage.placement, int(SWMM_INLET_ON_SAG));
+        QCOMPARE(change(SWMM_CONVERT_VIRTUAL, -1, -1, 1), SWMM_OK);
+        QCOMPARE(swmm_inlet_usage_count(e), 0);
+        QCOMPARE(swmm_node_is_virtual(e, host, &flag), SWMM_OK);
+        QCOMPARE(flag, 1);
+        QCOMPARE(change(SWMM_NODE_JUNCTION, -1, -1, 1), SWMM_OK);
+        QCOMPARE(swmm_node_is_virtual(e, host, &flag), SWMM_OK);
+        QCOMPARE(flag, 0);
+
+        usage.host_kind = SWMM_INLET_HOST_LINK;
+        usage.host_idx = 0;
+        QCOMPARE(swmm_inlet_usage_set(e, &usage, nullptr), SWMM_OK);
+        QCOMPARE(change(SWMM_CONVERT_INLET, 0, 0, 1), 629);
+        QCOMPARE(swmm_link_convert(e, 0, SWMM_LINK_WEIR, nullptr), 635);
+    }
 };
-
-// ----------------------------------------------------------------------------
-// Link-time stubs for the SWMMModelLayer convert methods that
-// typeconversionflow.cpp references from run(). The tests never call run(),
-// so these are never invoked — they only satisfy the linker without pulling
-// the full SWMMModelLayer (and its nanoflann / GDAL deps) into the binary.
-// ----------------------------------------------------------------------------
-#include "layers/swmmmodellayer.h"
-
-/**
- *
- * @brief Refuse node conversion in the unused isolated-link stand-in.
- * @param name Borrowed ignored identity.
- * @param type Ignored requested type.
- * @param cleared Optional borrowed output, left unchanged.
- * @param warnings Optional borrowed output, left unchanged.
- * @param error Optional borrowed output, left unchanged.
- * @return Always false, with no native edit, signal or retained reference.
- *
- */
-bool SWMMModelLayer::applyNodeConvert(const QString &name, int type, QStringList *cleared,
-                                      QStringList *warnings, QString *error)
-{
-    return false;
-}
-/**
- *
- * @brief Refuse link conversion in the unused isolated-link stand-in.
- * @param name Borrowed ignored identity.
- * @param type Ignored requested type.
- * @param cleared Optional borrowed output, left unchanged.
- * @param warnings Optional borrowed output, left unchanged.
- * @param error Optional borrowed output, left unchanged.
- * @return Always false, with no native edit, signal or retained reference.
- *
- */
-bool SWMMModelLayer::applyLinkConvert(const QString &name, int type, QStringList *cleared,
-                                      QStringList *warnings, QString *error)
-{
-    return false;
-}
-/**
- *
- * @brief Refuse virtual-node mutation in the unused isolated-link stand-in.
- * @param name Borrowed ignored identity.
- * @param enabled Ignored requested flag.
- * @param error Optional borrowed output, left unchanged.
- * @return Always false without native access or retained references.
- *
- */
-bool SWMMModelLayer::applySetVirtual(const QString &name, bool enabled, QString *error)
-{
-    return false;
-}
-// Inlet-junction promotion / demotion + the usage row run() and
-// runToInletJunction() touch. Same never-called link-time stubs.
-/**
- *
- * @brief Refuse inlet-node mutation in the unused isolated-link stand-in.
- * @param name Borrowed ignored identity.
- * @param enabled Ignored requested flag.
- * @param error Optional borrowed output, left unchanged.
- * @return Always false without native access or retained references.
- *
- */
-bool SWMMModelLayer::applySetInlet(const QString &name, bool enabled, QString *error)
-{
-    return false;
-}
-/**
- *
- * @brief Refuse inlet-usage mutation in the unused isolated-link stand-in.
- * @param usage Borrowed ignored native record; embedded names are not retained.
- * @param error Optional borrowed output, left unchanged.
- * @return Always false without native access, copy or retained references.
- *
- */
-bool SWMMModelLayer::applySetInletUsage(const SWMM_InletUsage &usage, QString *error)
-{
-    return false;
-}
-// run() reads the engine handle to probe the inlet flag before deciding how
-// to demote; nullptr short-circuits that probe.
-/**
- *
- * @brief Return no engine from the unused isolated-link stand-in.
- * @return Null borrowed handle; no allocation. These stand-ins only link the uncalled
- * modal conversion path and are not production model behavior.
- *
- */
-SWMM_Engine SWMMModelLayer::engine() const
-{
-    return nullptr;
-}
 
 QTEST_MAIN(TestTypeConversionFlow)
 #include "test_typeconversionflow.moc"

@@ -84,6 +84,7 @@ set(_oe_api_sentinels
     "openswmm_infrastructure.h:swmm_lid_set_type"
     "openswmm_checkpoint.h:swmm_checkpoint_start_session"
     "openswmm_gw2d.h:swmm_gw2d_node_replace"
+    "openswmm_edit.h:swmm_convert_types"
     "openswmm_nodes.h:swmm_node_get_rim_depth"
     "openswmm_nodes.h:swmm_node_get_storage_area"
     "openswmm_nodes.h:swmm_node_set_storage_area"
