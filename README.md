@@ -1,12 +1,12 @@
 # SWMMVis
 
+SWMMVis is HydroCouple’s Qt desktop interface for stormwater modeling. [OpenSWMM Engine](https://github.com/HydroCouple/openswmm.engine) is developed by Caleb Buahin and HydroCouple Developers. It builds on EPA SWMM 5.
+
 <p align="center">
   <img src="resources/images/swmmvis-demo.gif" alt="SWMMVis animating 2D flood results over an aerial basemap" width="900">
 </p>
 
 *Animated 2D flood results in SWMMVis.*
-
-**Qt6/C++ graphical user interface for the OpenSWMM storm-water simulation engine (v6.0.0)**
 
 [![Build and Package](../../actions/workflows/build_and_test.yml/badge.svg?branch=swmm6_gui)](../../actions/workflows/build_and_test.yml)
 [![Documentation](../../actions/workflows/documentation.yml/badge.svg?branch=swmm6_gui)](../../actions/workflows/documentation.yml)
@@ -18,6 +18,10 @@
 [GUI documentation](https://www.hydrocouple.org/openswmm.gui/) · [Engine documentation](https://hydrocouple.org/openswmm.engine) · [Engine source](https://github.com/HydroCouple/openswmm.engine)
 
 ---
+
+## How to cite
+
+Cite [SWMMVis (OpenSWMM GUI)](CITATION.cff) with its version or full commit. For simulations, also cite the [OpenSWMM Engine version used](https://github.com/HydroCouple/openswmm.engine#how-to-cite).
 
 ## Overview
 

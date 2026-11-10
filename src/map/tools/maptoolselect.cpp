@@ -30,7 +30,6 @@
 #include "core/unitsystem.h"
 #include "ui/widgets/attributepickermenu.h"
 #include "ui/dialogs/typeconversionflow.h"
-#include "ui/dialogs/inletjunctionsetupdialog.h"
 
 #include <openswmm/engine/openswmm_subcatchments.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
@@ -1662,74 +1661,21 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
 
     menu.addSeparator();
 
-    // Convert To ▸ — nodes and links only. The identify hit map carries
-    // only elementType/elementName, so read the current kind live from the
-    // engine (same pattern as the Attribute Table's Change Type). Using
-    // ref.objectType to pick the node-vs-link namespace is deliberate: a
-    // node and a link may share a name, so findObjectLocation would be
-    // ambiguous here.
-    QHash<QAction *, int> convertTargets;
-    int currentType = -1;
     if (hitLayer && hitLayer->engine() &&
         (ref.objectType == SWMMObjectRef::Node || ref.objectType == SWMMObjectRef::Link)) {
-        SWMM_Engine eng = hitLayer->engine();
-        const bool isNode = (ref.objectType == SWMMObjectRef::Node);
-        const QByteArray id = ref.name.toUtf8();
-        const int idx =
-            isNode ? swmm_node_index(eng, id.constData()) : swmm_link_index(eng, id.constData());
-        const int rcT = (idx < 0) ? -1
-                                  : (isNode ? swmm_node_get_type(eng, idx, &currentType)
-                                            : swmm_link_get_type(eng, idx, &currentType));
-        if (rcT == SWMM_OK) {
-            // Virtual junctions surface as their own node kind: a flagged
-            // node reports kVirtualNodeType so "Junction" (demote) becomes
-            // an offered target, and the "Virtual Junction" target is
-            // greyed out with the violated rule when the engine's usage
-            // rules (two identical conduits, zero offsets, no 2D coupling,
-            // …) aren't met — point inflows do not disqualify a node.
-            constexpr int kVJ = openswmmvis::ui::TypeConversionFlow::kVirtualNodeType;
-            // Inlet junctions are the same story one level down: they carry
-            // BOTH flags, so the probe order is inlet → virtual, and the
-            // "Inlet Junction" target is offered only when the engine's inlet
-            // rules hold (all the VJ rules plus 623: both conduits STREET).
-            constexpr int kIJ = openswmmvis::ui::TypeConversionFlow::kInletNodeType;
-            const bool inletSupported = hitLayer->engineSupportsInletJunctions();
-            int vjRule = 0, ijRule = 0;
-            if (isNode) {
-                int isInlet = 0;
-                swmm_node_is_inlet(eng, idx, &isInlet);
-                int isVirtual = 0;
-                swmm_node_is_virtual(eng, idx, &isVirtual);
-                if (isInlet)
-                    currentType = kIJ;
-                else if (isVirtual)
-                    currentType = kVJ;
-                swmm_node_virtual_eligible(eng, idx, &vjRule);
-                swmm_node_inlet_eligible(eng, idx, /*for_drop_inlet=*/0, &ijRule);
-            }
-            QMenu *convertMenu = menu.addMenu(QObject::tr("Convert To"));
-            convertMenu->setToolTipsVisible(true);
-            // 5 SWMM kinds + Virtual Junction (+ Inlet Junction when the
-            // engine supports it, and only for nodes).
-            const int nKinds = (isNode && inletSupported) ? 6 : 5;
-            for (int t = 0; t < nKinds; ++t) {
-                if (t == currentType)
-                    continue;
-                const QString label = isNode
-                                          ? openswmmvis::ui::TypeConversionFlow::nodeTypeLabel(t)
-                                          : openswmmvis::ui::TypeConversionFlow::linkTypeLabel(t);
-                QAction *act = convertMenu->addAction(label);
-                if (isNode && t == kVJ && vjRule != 0) {
-                    act->setEnabled(false);
-                    act->setToolTip(SWMMModelLayer::virtualJunctionRuleText(vjRule));
-                }
-                if (isNode && t == kIJ && ijRule != 0) {
-                    act->setEnabled(false);
-                    act->setToolTip(SWMMModelLayer::virtualJunctionRuleText(ijRule));
-                }
-                convertTargets.insert(act, t);
-            }
+        TypeConversionRequest request;
+        request.family = ref.objectType;
+        request.objects = {ref};
+        if (projectWindow && projectWindow->modelLayer() == hitLayer) {
+            const auto *selection = projectWindow->selectionManager();
+            if (selection && selection->contains(ref))
+                request.objects = selection->selection().values();
         }
+        auto *convert =
+            menu.addMenu(request.objects.size() == 1
+                             ? tr("Convert To")
+                             : tr("Convert %1 Selected Objects To").arg(request.objects.size()));
+        openswmmvis::ui::TypeConversionFlow::addActions(convert, hitLayer, request);
     }
 
     // Flip Direction — links only. Swaps the upstream and downstream nodes
@@ -1787,49 +1733,6 @@ void OpenSWMMVisMapToolSelect::showContextMenu(const QPoint &pixel)
 
     if (actRainViz && picked == actRainViz) {
         emit rainfallVisualizationRequested(ref);
-        return;
-    }
-
-    // Convert To ▸ dispatch — run the shared confirm/convert/summary flow.
-    // On success drop any now-stale inline vertex-edit session on this
-    // element (e.g. conduit handles after a convert to pump).
-    if (convertTargets.contains(picked) && hitLayer) {
-        const bool isNode = (ref.objectType == SWMMObjectRef::Node);
-        const int target = convertTargets.value(picked);
-        // Promoting to an inlet junction needs an inlet design and a capture
-        // node up front (D-G6), so it takes the setup dialog and its own
-        // entry point rather than the generic flow.
-        if (isNode && target == openswmmvis::ui::TypeConversionFlow::kInletNodeType) {
-            // Non-modal floating panel (the capture node can be picked on
-            // the map); the conversion runs from accepted(), which also
-            // keeps the confirm prompt out of this mouse handler.
-            const int ni = hitLayer->nodeIndex(ref.name);
-            QWidget *parentTop = widget ? widget->window() : nullptr;
-            auto *dlg = new openswmmvis::ui::InletJunctionSetupDialog(
-                hitLayer, ni >= 0 ? QVector<int>{ni} : QVector<int>{}, parentTop);
-            dlg->setAttribute(Qt::WA_DeleteOnClose);
-            QPointer<SWMMModelLayer> layer(hitLayer);
-            const QString name = ref.name;
-            connect(dlg, &QDialog::accepted, this, [this, dlg, layer, name, currentType, widget]() {
-                if (!layer || layer->nodeIndex(name) < 0)
-                    return;
-                if (openswmmvis::ui::TypeConversionFlow::runToInletJunction(
-                        widget, layer, name, currentType, dlg->inletDesign(), dlg->captureNode(),
-                        dlg->placement())) {
-                    if (m_editKind != EditKind::None && m_editName == name)
-                        clearEditMode();
-                }
-            });
-            dlg->show();
-            dlg->raise();
-            dlg->activateWindow();
-            return;
-        }
-        if (openswmmvis::ui::TypeConversionFlow::run(widget, hitLayer, isNode, ref.name,
-                                                     currentType, target)) {
-            if (m_editKind != EditKind::None && m_editName == ref.name)
-                clearEditMode();
-        }
         return;
     }
 
@@ -2007,6 +1910,14 @@ void OpenSWMMVisMapToolSelect::enterEditMode(SWMMModelLayer *layer, const QStrin
 {
     clearEditMode();
 
+    m_typeChangeConnection = connect(
+        layer, &SWMMModelLayer::typesChanged, this, [this](const QSet<SWMMObjectRef> &changed) {
+            if ((m_editKind == EditKind::Link &&
+                 changed.contains({SWMMObjectRef::Link, m_editName})) ||
+                (m_editKind == EditKind::Node &&
+                 changed.contains({SWMMObjectRef::Node, m_editName})))
+                clearEditMode();
+        });
     m_editLayer = layer;
     m_editName = name;
     m_editKind = kind;
@@ -2050,6 +1961,7 @@ void OpenSWMMVisMapToolSelect::enterEditMode(SWMMModelLayer *layer, const QStrin
 
 void OpenSWMMVisMapToolSelect::clearEditMode()
 {
+    disconnect(m_typeChangeConnection);
     // Roll back any live node/gage-drag preview.
     if (m_editDragging && m_editLayer && m_editSoaIdx >= 0) {
         if (m_editKind == EditKind::Node)

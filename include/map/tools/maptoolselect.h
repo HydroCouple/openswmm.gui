@@ -483,6 +483,7 @@ private:
     void deleteSelectedEditHandles();
 
     EditKind m_editKind = EditKind::None;
+    QMetaObject::Connection m_typeChangeConnection;
     SWMMModelLayer *m_editLayer = nullptr;
     QString m_editName;
     int m_editSoaIdx = -1;

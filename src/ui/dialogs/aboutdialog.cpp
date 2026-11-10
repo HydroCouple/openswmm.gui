@@ -333,7 +333,7 @@ void AboutDialog::showApplicationOverview()
 {
     m_currentComponent = -1;
     m_nameLabel->setText(QStringLiteral("SWMMVis %1").arg(applicationVersionString()));
-    m_metaLabel->setText(tr("Open-source Qt6 GUI for the SWMMVis engine.<br>"
+    m_metaLabel->setText(tr("SWMMVis is HydroCouple’s desktop interface for OpenSWMM Engine, led by Caleb Buahin and built on EPA SWMM 5.<br>"
                             "Select a component on the left to view its license and metadata."));
     m_licenseText->clear();
     m_licenseText->setPlaceholderText(tr("Select a component to view its license."));

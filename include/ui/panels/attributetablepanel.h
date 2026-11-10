@@ -336,17 +336,7 @@ private slots:
      * ignored. This slot itself provides no universal undo, atomicity or file-save guarantee.
      */
     void onContextMenuRequested(const QPoint &pos);
-    /**
-     * @brief Resolve the first selected proxy row through the retained SWMM model and run shared
-     * type conversion.
-     * Requires a matching active SWMM source for row identity; implementation checks retained
-     * model/layer/engine but does not independently exclude alternate proxy sources here.
-     * Prompts for no selection/unsupported categories and offers other node/link kinds,
-     * including virtual-junction eligibility rules. Shared TypeConversionFlow confirms and
-     * performs edits/notifies views. Borrowed source/engine must survive nested pickers;
-     * this wrapper does not return success, save files or add independent rollback.
-     */
-    void onChangeTypeTriggered();
+
 
     /**
      * @brief Confirm then dispatch deletion for selected application features or active SWMM

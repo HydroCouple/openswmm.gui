@@ -28,7 +28,6 @@ class QPushButton;
 class QAbstractItemModel;
 class QAbstractItemDelegate;
 class MapCanvas;
-struct SWMMObjectRef;
 #ifdef HAVE_QPROPERTYMODEL
 class QPropertyModel; // from QPropertyModel library
 class QPropertyItemDelegate;
@@ -492,6 +491,9 @@ private:
     class FeatureAggregateSelection *m_featureAggregate = nullptr;
     QWidget *m_sourceRelationships = nullptr;
     class SWMMAggregateSelection *m_swmmAggregate = nullptr;
+    QMetaObject::Connection m_conversionConnection;
+    QPointer<MapCanvas> m_selectionCanvas;
+    QList<SWMMObjectRef> m_displayedSelection;
     QComboBox *m_selectionScope = nullptr;
     QWidget *m_aggregateBar = nullptr;       ///< Selection summary, aggregates only.
     class QLabel *m_aggregateSummary = nullptr;

@@ -1658,6 +1658,7 @@ set(
         # Dialogs
         # Shared confirm → convert → summary flow for node/link type changes.
         src/ui/dialogs/typeconversionflow.cpp
+        src/ui/dialogs/typeconversionmenu.cpp
         src/ui/dialogs/crsselectiondialog.cpp
         src/ui/dialogs/crschangedialog.cpp
         src/ui/dialogs/aboutdialog.cpp

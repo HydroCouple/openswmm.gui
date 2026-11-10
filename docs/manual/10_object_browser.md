@@ -289,10 +289,9 @@ two surfaces:
 - the map's right-click **Convert To ▸** submenu (Select tool);
 - the Attribute Table's right-click **Change Type…**.
 
-Both run the same flow: a confirmation warning that the old type's specific
-attributes will be cleared and that **the conversion is not undoable**, then the
-engine conversion, then a summary of the fields the engine cleared plus any
-topology warnings.
+Right-click a selected node or link on the map to convert the selection. In the table, the command applies to selected rows of the current category, including rows hidden by a query. Right-click an unselected object to act on that object alone.
+
+The confirmation shows the target type and how many objects qualify. Incompatible attributes are cleared and the conversion cannot be undone. After conversion, expand the details to see each skipped ID and reason, cleared fields and any follow-up work. For example, when converting conduits to pumps, a conduit needed by a virtual junction is skipped. An independent conduit can convert and receive a reminder to assign a pump curve.
 
 Offered targets:
 
