@@ -1,0 +1,16 @@
+hasMesh=1 isExternal=0 mesh.ok=1
+sourcePath="$CASE/model.inp"
+errorMsg=""
+warning="Mesh file $CASE/model.inp has no ';; UNITS:' header \u2014 engine will infer units from SWMM FLOW_UNITS. Regenerate the mesh to embed the unit descriptor."
+unitsHeader=""
+sourceCrsTag=""
+mesh.errorMsg=""
+vertices n=20000 sha256=36d32fe4c79d78b295e04e7ee46ceca3bd1e755961e71c4d3f82883fa93626bb
+cells n=5002 sha256=dd5c5e21a97d0d57b0d6b789b1978754778cc810c2704f176b6424aa69b8a0f0
+boundaryEdges n=0
+cellCouplings n=0
+infilDefaults n=0
+infilOverrides n=0
+infilStep=0/0x0000000000000000
+surface/infiltration previews: 0 0 0 0 0 0
+edgeBCs n=20008 sha256=3a9ab12db353d0143b251b6b1d3ccbec63d8313a0e7d37b4348bb2ba0dd8c4da

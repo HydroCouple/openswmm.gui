@@ -18,14 +18,25 @@
 #include "mesh/meshcellgeom.h"
 #include "mesh/meshinfil.h"
 
+#include <QByteArray>
 #include <QChar>
 #include <QDir>
 #include <QFile>
 #include <QFileInfo>
 #include <QHash>
-#include <QPair>
 
 #include <algorithm>
+#include <cerrno>
+#include <climits>
+#include <cmath>
+#include <cstdlib>
+#include <cstring>
+#include <vector>
+#ifdef __APPLE__
+#include <xlocale.h>
+#else
+#include <charconv>
+#endif
 
 namespace mesh
 {
@@ -69,18 +80,20 @@ struct ConveyanceRow {
 using ConveyanceRowList = QVector<ConveyanceRow>;
 
 /**
- * @brief Read a whole existing QFile input into an owned UTF-8-decoded string.
- * @param[in] path Borrowed filesystem pathname, unchanged; opened read-only/text and closed on
- * return.
- * @param[out] out Required nonnull borrowed string, assigned only after exists/open checks pass;
- * untouched on checked failure. No pointer retained.
+ * @brief Read a whole existing file as raw bytes, dropping every carriage return.
+ * @param[in] path Borrowed filesystem pathname, unchanged; opened read-only and closed on return.
+ * @param[out] out Required nonnull borrowed buffer, assigned only after exists/open checks pass;
+ * untouched on checked failure. Stays NUL-terminated (QByteArray guarantee).
  * @param[out] err Optional borrowed diagnostic, overwritten for missing/open failure and not
  * cleared on success.
- * @return True after readAll()/UTF-8 decode, false on checked missing/open failure. No post-read
- * error/ short-read validation or file-size budget; successful return is not a content/grammar
- * certificate. Allocates whole text, writes no files and retains no source ownership.
+ * @return True after readAll(), false on checked missing/open failure, with the same messages as
+ * the former text reader. No decoding: lines are split and decoded later, one at a time.
+ *
+ * @details Every '\r' is removed, not only CRLF pairs, because that is what the former
+ * QIODevice::Text read did (QIODevicePrivate::read drops each '\r'), so a stray CR inside a line
+ * still joins its neighbours exactly as before.
  */
-bool readTextFile(const QString &path, QString *out, QString *err)
+bool readFileBytes(const QString &path, QByteArray *out, QString *err)
 {
     QFile f(path);
     if (!f.exists()) {
@@ -88,13 +101,299 @@ bool readTextFile(const QString &path, QString *out, QString *err)
             *err = QStringLiteral("File does not exist: %1").arg(path);
         return false;
     }
-    if (!f.open(QIODevice::ReadOnly | QIODevice::Text)) {
+    if (!f.open(QIODevice::ReadOnly)) {
         if (err)
             *err = QStringLiteral("Cannot open %1 for reading.").arg(path);
         return false;
     }
-    *out = QString::fromUtf8(f.readAll());
+    *out = f.readAll();
+    if (std::memchr(out->constData(), '\r', size_t(out->size()))) {
+        char *b = out->data();
+        out->truncate(std::remove(b, b + out->size(), '\r') - b);
+    }
     return true;
+}
+
+/*! QChar::isSpace restricted to ASCII: U+0009..U+000D and U+0020. Lines containing any byte
+ *  >= 0x80 never reach the byte path (they are decoded and take the QString path), so this is
+ *  the whole whitespace set the byte path can meet. */
+inline bool isAsciiSpace(char c) noexcept
+{
+    return c == ' ' || (c >= '\t' && c <= '\r');
+}
+
+inline bool isAsciiDigit(char c) noexcept
+{
+    return c >= '0' && c <= '9';
+}
+
+#ifdef __APPLE__
+/*! Immutable per-process C numeric locale for strtod_l — the meshkit smsio.cpp pattern: Apple's
+ *  floating-point std::from_chars needs macOS 26, below the shipped deployment targets. */
+locale_t cNumericLocale()
+{
+    struct Numeric {
+        locale_t value = newlocale(LC_NUMERIC_MASK, "C", nullptr);
+        ~Numeric()
+        {
+            if (value)
+                freelocale(value);
+        }
+    };
+    static const Numeric locale;
+    return locale.value;
+}
+#endif
+
+/**
+ * @brief Convert a plain decimal token without building a QString; refuse anything else.
+ * @param[in] b Token start inside a NUL-terminated buffer; the byte after the token is ASCII
+ * whitespace, ';', '\n' or the terminator, so a C converter stops exactly at the token end.
+ * @param[in] n Token length in bytes.
+ * @param[out] v Converted value, written only on success.
+ * @return True only for `[+-]? D+ ( . D+ )? ( [eE] [+-]? D+ )?` up to 64 bytes that converts to a
+ * finite value without range error. Every other token — inf/nan names, hex, `.5`/`5.`, overflow,
+ * underflow — returns false so the caller asks QString::toDouble, which keeps Qt's exact
+ * acceptance rules. On the accepted grammar both converters round correctly, so the value is
+ * bit-identical to QString::toDouble's.
+ */
+bool fastToDouble(const char *b, qsizetype n, double *v) noexcept
+{
+    if (n <= 0 || n > 64)
+        return false;
+    const char *p = b;
+    const char *const e = b + n;
+    if (*p == '+' || *p == '-')
+        ++p;
+    const char *q = p;
+    while (p < e && isAsciiDigit(*p))
+        ++p;
+    if (p == q)
+        return false;
+    if (p < e && *p == '.') {
+        q = ++p;
+        while (p < e && isAsciiDigit(*p))
+            ++p;
+        if (p == q)
+            return false;
+    }
+    if (p < e && (*p == 'e' || *p == 'E')) {
+        ++p;
+        if (p < e && (*p == '+' || *p == '-'))
+            ++p;
+        q = p;
+        while (p < e && isAsciiDigit(*p))
+            ++p;
+        if (p == q)
+            return false;
+    }
+    if (p != e)
+        return false;
+#ifdef __APPLE__
+    const locale_t loc = cNumericLocale();
+    if (!loc)
+        return false;
+    char *stop = nullptr;
+    errno = 0;
+    const double d = strtod_l(b, &stop, loc);
+    if (stop != e || errno != 0 || !std::isfinite(d))
+        return false;
+#else
+    double d = 0.0;
+    const char *first = (*b == '+') ? b + 1 : b; // from_chars refuses a leading '+'
+    const auto r = std::from_chars(first, e, d, std::chars_format::general);
+    if (r.ec != std::errc{} || r.ptr != e || !std::isfinite(d))
+        return false;
+#endif
+    *v = d;
+    return true;
+}
+
+/**
+ * @brief Convert a plain decimal integer token without building a QString; refuse anything else.
+ * @return True only for `[+-]? D{1,18}` whose value fits int; every other token returns false so
+ * the caller asks QString::toInt (which then decides, e.g. out of range -> not ok).
+ */
+bool fastToInt(const char *b, qsizetype n, int *v) noexcept
+{
+    if (n <= 0)
+        return false;
+    const char *p = b;
+    const char *const e = b + n;
+    bool neg = false;
+    if (p < e && (*p == '+' || *p == '-'))
+        neg = (*p++ == '-');
+    if (p == e || e - p > 18)
+        return false;
+    long long acc = 0;
+    for (; p < e; ++p) {
+        if (!isAsciiDigit(*p))
+            return false;
+        acc = acc * 10 + (*p - '0');
+    }
+    if (neg)
+        acc = -acc;
+    if (acc < INT_MIN || acc > INT_MAX)
+        return false;
+    *v = int(acc);
+    return true;
+}
+
+/*! Tokens of one ASCII row, as byte ranges into the file buffer. The first kKeep are kept (the
+ *  row parsers read at most index 6); `count` is the full token count, so size checks see the
+ *  same number tokenize() would. */
+struct ByteRow {
+    static constexpr int kKeep = 8;
+    const char *begin[kKeep];
+    qsizetype len[kKeep];
+    qsizetype count = 0;
+};
+
+/*! tokenize() on bytes: drop everything from the first ';', split on ASCII whitespace. */
+void tokenizeBytes(const char *s, const char *e, ByteRow &row) noexcept
+{
+    if (const void *semi = std::memchr(s, ';', size_t(e - s)))
+        e = static_cast<const char *>(semi);
+    row.count = 0;
+    while (s < e) {
+        while (s < e && isAsciiSpace(*s))
+            ++s;
+        if (s >= e)
+            break;
+        const char *start = s;
+        while (s < e && !isAsciiSpace(*s))
+            ++s;
+        if (row.count < ByteRow::kKeep) {
+            row.begin[row.count] = start;
+            row.len[row.count] = s - start;
+        }
+        ++row.count;
+    }
+}
+
+/*! Row-token adaptor over a ByteRow: fast numeric paths, QString fallback for everything the
+ *  fast paths refuse, so every conversion answers exactly as QString::toDouble/toInt would. */
+struct ByteTokens {
+    const ByteRow &row;
+    qsizetype size() const noexcept { return row.count; }
+    QString str(int k) const { return QString::fromLatin1(row.begin[k], row.len[k]); }
+    double toDouble(int k, bool *ok) const
+    {
+        double v = 0.0;
+        if (fastToDouble(row.begin[k], row.len[k], &v)) {
+            *ok = true;
+            return v;
+        }
+        return str(k).toDouble(ok);
+    }
+    int toInt(int k, bool *ok) const
+    {
+        int v = 0;
+        if (fastToInt(row.begin[k], row.len[k], &v)) {
+            *ok = true;
+            return v;
+        }
+        return str(k).toInt(ok);
+    }
+};
+
+/*! Row-token adaptor over tokenize() output — the path for rows containing non-ASCII bytes. */
+struct StringTokens {
+    const QStringList &tok;
+    qsizetype size() const noexcept { return tok.size(); }
+    QString str(int k) const { return tok[k]; }
+    double toDouble(int k, bool *ok) const { return tok[k].toDouble(ok); }
+    int toInt(int k, bool *ok) const { return tok[k].toInt(ok); }
+};
+
+/**
+ * @brief Append one `[2D_VERTICES]` row `X Y Z [TAG]`.
+ * @param[in] tok Row tokens (ByteTokens or StringTokens); a blank/comment row has none.
+ * @param[in] rawTrimmed Callable returning the trimmed raw line, used only for diagnostics.
+ * @param[in,out] out Mesh; one vertex appended on success, untouched on error.
+ * @return Empty on success or blank row, else the diagnostic the former reader produced.
+ */
+template <typename Tokens, typename RawFn>
+QString parseVertexRow(const Tokens &tok, const RawFn &rawTrimmed, MeshResult &out)
+{
+    if (tok.size() == 0)
+        return {};
+    if (tok.size() < 3)
+        return QStringLiteral("[2D_VERTICES] needs X Y Z (got: %1)").arg(rawTrimmed());
+    bool okx = false, oky = false, okz = false;
+    const double x = tok.toDouble(0, &okx);
+    const double y = tok.toDouble(1, &oky);
+    const double z = tok.toDouble(2, &okz);
+    if (!okx || !oky || !okz)
+        return QStringLiteral("[2D_VERTICES] non-numeric value (got: %1)").arg(rawTrimmed());
+    MeshVertex v;
+    v.xy = QPointF(x, y);
+    v.z = z;
+    if (tok.size() >= 4)
+        v.tag = tok.str(3);
+    out.vertices.append(std::move(v));
+    return {};
+}
+
+/**
+ * @brief Append one `[2D_TRIANGLES]` `V1 V2 V3 MANNINGS_N [INIT_DEPTH] [TAG]` or `[2D_QUADS]`
+ * `V1 V2 V3 V4 MANNINGS_N [INIT_DEPTH] [TAG]` row.
+ * @param[in] tok Row tokens (ByteTokens or StringTokens); a blank/comment row has none.
+ * @param[in] isQuads True for a [2D_QUADS] row.
+ * @param[in] rawTrimmed Callable returning the trimmed raw line, used only for diagnostics.
+ * @param[in,out] out Mesh; one cell appended on success, untouched on error.
+ * @return Empty on success or blank row, else the diagnostic the former reader produced.
+ *
+ * @details Cells land in MeshResult::triangles in the engine's order — triangles first, then
+ * quads — so a [2D_TRIANGLES] row after any [2D_QUADS] row is an error (same rule as the engine),
+ * otherwise every cell-addressed section behind it would silently renumber. tok[nvert] is
+ * MANNINGS_N; tok[nvert+1] is INIT_DEPTH when numeric, otherwise the historical TAG; tok[nvert+2]
+ * is TAG after a depth.
+ */
+template <typename Tokens, typename RawFn>
+QString parseCellRow(const Tokens &tok, bool isQuads, const RawFn &rawTrimmed, MeshResult &out)
+{
+    if (tok.size() == 0)
+        return {};
+    const int nvert = isQuads ? 4 : 3;
+    const char *sec = isQuads ? kSecQuads : kSecTriangles;
+    if (tok.size() < nvert)
+        return QStringLiteral("%1 needs %2 (got: %3)")
+            .arg(QLatin1String(sec),
+                 isQuads ? QStringLiteral("V1 V2 V3 V4") : QStringLiteral("V1 V2 V3"),
+                 rawTrimmed());
+    if (!isQuads && !out.triangles.isEmpty() && out.triangles.last().isQuad())
+        return QStringLiteral("[2D_TRIANGLES] row after a [2D_QUADS] row: cells "
+                              "are numbered triangles first, then quads (got: %1)")
+            .arg(rawTrimmed());
+    MeshTriangle t;
+    for (int k = 0; k < nvert; ++k) {
+        bool okv = false;
+        const int v = tok.toInt(k, &okv);
+        if (!okv)
+            return QStringLiteral("%1 non-integer vertex index (got: %2)")
+                .arg(QLatin1String(sec), rawTrimmed());
+        t.setVertex(k, v);
+    }
+    if (tok.size() >= nvert + 1) {
+        bool okn = false;
+        const double n = tok.toDouble(nvert, &okn);
+        if (okn)
+            t.mannings = n;
+    }
+    if (tok.size() >= nvert + 2) {
+        bool okd = false;
+        const double d = tok.toDouble(nvert + 1, &okd);
+        if (okd) {
+            t.initDepth = d;
+            if (tok.size() >= nvert + 3)
+                t.tag = tok.str(nvert + 2);
+        } else {
+            t.tag = tok.str(nvert + 1);
+        }
+    }
+    out.triangles.append(std::move(t));
+    return {};
 }
 
 /**
@@ -306,90 +605,8 @@ double parseInfilStepSeconds(const QString &token)
  */
 QString parseSection(const QString &sectionName, const QStringList &bodyLines, MeshResult &out)
 {
-    if (sectionName.compare(QLatin1String(kSecVertices), Qt::CaseInsensitive) == 0) {
-        for (const QString &raw : bodyLines) {
-            const QStringList tok = tokenize(raw);
-            if (tok.isEmpty())
-                continue;
-            if (tok.size() < 3)
-                return QStringLiteral("[2D_VERTICES] needs X Y Z (got: %1)").arg(raw.trimmed());
-            bool okx = false, oky = false, okz = false;
-            const double x = tok[0].toDouble(&okx);
-            const double y = tok[1].toDouble(&oky);
-            const double z = tok[2].toDouble(&okz);
-            if (!okx || !oky || !okz)
-                return QStringLiteral("[2D_VERTICES] non-numeric value (got: %1)")
-                    .arg(raw.trimmed());
-            MeshVertex v;
-            v.xy = QPointF(x, y);
-            v.z = z;
-            if (tok.size() >= 4)
-                v.tag = tok[3];
-            out.vertices.append(v);
-        }
-        return {};
-    }
-
-    // [2D_TRIANGLES] `V1 V2 V3 MANNINGS_N [INIT_DEPTH] [TAG]` and, since the
-    // engine's mixed meshes (2D_TRI_QUAD_MESH_PLAN_2026-09-06), [2D_QUADS]
-    // `V1 V2 V3 V4 MANNINGS_N [INIT_DEPTH] [TAG]`. Both land in
-    // MeshResult::triangles in the engine's cell order — triangles first,
-    // then quads — so a quad row is only legal once no triangle row can
-    // follow it: a [2D_TRIANGLES] row after any [2D_QUADS] row is an error
-    // (same rule as the engine), otherwise every cell-addressed section
-    // behind it would silently renumber.
-    const bool isTriangles =
-        sectionName.compare(QLatin1String(kSecTriangles), Qt::CaseInsensitive) == 0;
-    const bool isQuads = sectionName.compare(QLatin1String(kSecQuads), Qt::CaseInsensitive) == 0;
-    if (isTriangles || isQuads) {
-        const int nvert = isQuads ? 4 : 3;
-        const char *sec = isQuads ? kSecQuads : kSecTriangles;
-        for (const QString &raw : bodyLines) {
-            const QStringList tok = tokenize(raw);
-            if (tok.isEmpty())
-                continue;
-            if (tok.size() < nvert)
-                return QStringLiteral("%1 needs %2 (got: %3)")
-                    .arg(QLatin1String(sec),
-                         isQuads ? QStringLiteral("V1 V2 V3 V4") : QStringLiteral("V1 V2 V3"),
-                         raw.trimmed());
-            if (isTriangles && !out.triangles.isEmpty() && out.triangles.last().isQuad())
-                return QStringLiteral("[2D_TRIANGLES] row after a [2D_QUADS] row: cells "
-                                      "are numbered triangles first, then quads (got: %1)")
-                    .arg(raw.trimmed());
-            MeshTriangle t;
-            for (int k = 0; k < nvert; ++k) {
-                bool okv = false;
-                const int v = tok[k].toInt(&okv);
-                if (!okv)
-                    return QStringLiteral("%1 non-integer vertex index (got: %2)")
-                        .arg(QLatin1String(sec), raw.trimmed());
-                t.setVertex(k, v);
-            }
-            // tok[nvert] is MANNINGS_N. tok[nvert+1] is INIT_DEPTH when
-            // numeric, otherwise the historical TAG; tok[nvert+2] is TAG
-            // after a depth.
-            if (tok.size() >= nvert + 1) {
-                bool okn = false;
-                const double n = tok[nvert].toDouble(&okn);
-                if (okn)
-                    t.mannings = n;
-            }
-            if (tok.size() >= nvert + 2) {
-                bool okd = false;
-                const double d = tok[nvert + 1].toDouble(&okd);
-                if (okd) {
-                    t.initDepth = d;
-                    if (tok.size() >= nvert + 3)
-                        t.tag = tok[nvert + 2];
-                } else {
-                    t.tag = tok[nvert + 1];
-                }
-            }
-            out.triangles.append(t);
-        }
-        return {};
-    }
+    // [2D_VERTICES] / [2D_TRIANGLES] / [2D_QUADS] rows are parsed one at a time as the file is
+    // walked (parseVertexRow / parseCellRow), never through here.
 
     // [2D_VERTEX_NODE_MAP] — VERTEX NODE [CD AREA]. The engine's authoritative
     // 1D<->2D coupling, distinct from the [2D_VERTICES] TAG column. Lands on
@@ -716,104 +933,159 @@ QString parseConveyanceLine(const QString &raw, ConveyanceRow &row)
     return {};
 }
 
-/**
- * @brief Scan all double-semicolon comment lines for retained units and source-CRS header
- * values.
- * @param[in] text Borrowed whole file text, unchanged; keys matched case-insensitively after
- * trimming.
- * @param[out] crsOut Optional borrowed string, cleared at entry and assigned by the last
- * SOURCE_CRS header.
- * @return Owned last UNITS header value, empty when absent/explicitly empty. Scans through all
- * sections because inline writer metadata may appear below geometry; only leading ';;' comments
- * qualify. Does not parse/validate CRS or units, combine different files, convert coordinates or
- * retain input views. Allocates split lines/strings, no IO or state mutation beyond optional
- * output.
- *
- * @details Scan \p text for `;; UNITS: <value>` and `;; SOURCE_CRS: <value>` header comments
- * anywhere in the file. Returns the unit value (empty when the header is absent) and fills \p
- * crsOut with the source-CRS tag if present.
- *
- * The scan walks the entire text rather than stopping at the first section header because the
- * writer appends these comments BELOW the existing sections in inline (.inp) mode.  The keys
- * (`UNITS:` and `SOURCE_CRS:`) are specific enough that incidental hits in other `;;` comments
- * are unlikely; if both inline and external blocks define the header the last occurrence wins
- * (matches the order in which the writer emits them).
- */
-QString scanUnitsHeader(const QString &text, QString *crsOut)
-{
+/*! Last `;; UNITS:` / `;; SOURCE_CRS:` values seen in one file (empty when absent). */
+struct HeaderComments {
     QString units;
-    if (crsOut)
-        crsOut->clear();
-    const QStringList lines = text.split(QChar('\n'), Qt::KeepEmptyParts);
-    for (const QString &raw : lines) {
-        const QString t = raw.trimmed();
-        if (!t.startsWith(QStringLiteral(";;")))
-            continue;
-        // Drop the ";;" prefix and any leading whitespace.
-        QString rest = t.mid(2).trimmed();
-        if (rest.startsWith(QStringLiteral("UNITS:"), Qt::CaseInsensitive)) {
-            units = rest.mid(QStringLiteral("UNITS:").size()).trimmed();
-        } else if (crsOut && rest.startsWith(QStringLiteral("SOURCE_CRS:"), Qt::CaseInsensitive)) {
-            *crsOut = rest.mid(QStringLiteral("SOURCE_CRS:").size()).trimmed();
-        }
-    }
-    return units;
+    QString crs;
+};
+
+/**
+ * @brief Apply one trimmed line to the `;; UNITS:` / `;; SOURCE_CRS:` header scan.
+ * @param[in] t Trimmed line. Only lines starting with ";;" qualify; keys match
+ * case-insensitively after the prefix and following whitespace are dropped.
+ * @param[in,out] h Last value wins for each key (an empty value also replaces), exactly like the
+ * former whole-file scanUnitsHeader.
+ *
+ * @details The writer appends these comments BELOW the existing sections in inline (.inp) mode,
+ * so every line of the file is offered, not just the lines before the first section.
+ */
+void noteHeaderComment(const QString &t, HeaderComments &h)
+{
+    if (!t.startsWith(QStringLiteral(";;")))
+        return;
+    const QString rest = t.mid(2).trimmed();
+    if (rest.startsWith(QStringLiteral("UNITS:"), Qt::CaseInsensitive))
+        h.units = rest.mid(QStringLiteral("UNITS:").size()).trimmed();
+    else if (rest.startsWith(QStringLiteral("SOURCE_CRS:"), Qt::CaseInsensitive))
+        h.crs = rest.mid(QStringLiteral("SOURCE_CRS:").size()).trimmed();
+}
+
+/*! How the walk treats the body of the current section. */
+enum class SectionKind {
+    None,       ///< Before the first header: lines are ignored.
+    Vertices,   ///< Rows parsed one at a time (parseVertexRow).
+    Triangles,  ///< Rows parsed one at a time (parseCellRow).
+    Quads,      ///< Rows parsed one at a time (parseCellRow).
+    MeshFile,   ///< Body collected, first FILE row wins.
+    BC,         ///< Body collected into deferred BC rows.
+    Conveyance, ///< Body collected into deferred conveyance rows.
+    Body,       ///< Body collected and handed to parseSection.
+    Ignored,    ///< Any other section: parseSection would ignore it, so nothing is kept.
+};
+
+SectionKind sectionKind(const QString &name)
+{
+    const auto is = [&name](const char *s) {
+        return name.compare(QLatin1String(s), Qt::CaseInsensitive) == 0;
+    };
+    if (is(kSecVertices))
+        return SectionKind::Vertices;
+    if (is(kSecTriangles))
+        return SectionKind::Triangles;
+    if (is(kSecQuads))
+        return SectionKind::Quads;
+    if (is(kSecMeshFile))
+        return SectionKind::MeshFile;
+    if (is(kSecBC))
+        return SectionKind::BC;
+    if (is(kSecConveyance))
+        return SectionKind::Conveyance;
+    if (is(kSecVertexNodeMap) || is(kSecTriangleNodeMap) || is(kSecInfilOptions) ||
+        is(kSecInfilDefaults) || is(kSecInfil))
+        return SectionKind::Body;
+    return SectionKind::Ignored;
 }
 
 /**
- * @brief Walk bracket-delimited native mesh sections and accumulate authoring data plus deferred
- * edge rows.
- * @param[in] text Borrowed complete input, unchanged; only trimmed lines beginning '[' and
- * ending ']' start a section, so trailing header comments are not stripped before recognition.
- * @param[in,out] out Borrowed mesh, existing contents retained and appended/modified by
- * parseSection(); no geometry/unit validation or transactional rollback. Coupling tag/index
- * resolution follows current accumulated order and is not deferred until later vertex/cell
- * sections.
- * @param[out] sawVertices Borrowed flag, reset false then true when a vertices section is
- * flushed, even empty.
- * @param[out] sawTriangles Borrowed distinct flag, reset false then true for triangles or quads,
- * even empty.
- * @param[out] meshFileRefOut Optional borrowed string, cleared first. First nonempty FILE within
- * each mesh-reference block wins, but a later such block can replace it; null ignores
- * references/no recursion.
- * @param[in,out] bcRowsOut Optional borrowed deferred BC vector, not cleared, valid nonblank
- * rows appended; null skips BC parsing/validation entirely.
- * @param[in,out] conveyOut Optional borrowed deferred endpoint-factor vector, not cleared, rows
- * appended; null skips its section parsing/validation entirely.
- * @return First owned parse diagnostic, or empty for completed traversal. Any error leaves
- * partial flags, mesh and accumulated rows; unknown sections ignored rather than retained.
- * Allocates whole-line/section/ row storage, no filesystem reads, external file resolution,
- * engine updates or input-pointer retention.
+ * @brief Decode one line exactly as the former whole-file QString::fromUtf8 + split('\n') did.
+ * @param[in] b,e Line bytes without the '\n'.
+ * @param[in] firstLine True for the first line of the file.
  *
- * @details Walk \p text section-by-section, accumulating vertex / triangle data into
- * \p out. Records whether either section was actually seen so the caller can distinguish "no
- * mesh in this file" from "mesh present but empty".
+ * @details QString::fromUtf8 skips one UTF-8 BOM at the start of every input it is given. The
+ * whole-file decode therefore dropped one BOM on the first line only; BOMs opening any later line
+ * all stayed as U+FEFF. A later line's leading BOMs are counted and re-added here, so fromUtf8
+ * never sees one at the start. '\n' never occurs inside a UTF-8 sequence, valid or not, so
+ * decoding line by line yields the same characters otherwise.
  */
-QString parseSectionsFromText(const QString &text, MeshResult &out, bool &sawVertices,
-                              bool &sawTriangles, QString *meshFileRefOut,
-                              BCRowList *bcRowsOut = nullptr,
-                              ConveyanceRowList *conveyOut = nullptr)
+QString decodeLine(const char *b, const char *e, bool firstLine)
+{
+    if (firstLine)
+        return QString::fromUtf8(b, e - b);
+    qsizetype boms = 0;
+    while (e - b >= 3 && uchar(b[0]) == 0xEF && uchar(b[1]) == 0xBB && uchar(b[2]) == 0xBF) {
+        b += 3;
+        ++boms;
+    }
+    if (boms == 0)
+        return QString::fromUtf8(b, e - b);
+    return QString(boms, QChar(0xFEFF)) + QString::fromUtf8(b, e - b);
+}
+
+/*! Upper bound on the rows of the section starting at \p p: lines until the next line whose first
+ *  non-blank byte is '['. Used only to size the vertex / cell arrays. */
+qsizetype countRowsUntilHeader(const char *p, const char *end)
+{
+    qsizetype rows = 0;
+    while (p < end) {
+        const char *q = p;
+        while (q < end && *q != '\n' && isAsciiSpace(*q))
+            ++q;
+        if (q < end && *q == '[')
+            break;
+        const void *nl = std::memchr(p, '\n', size_t(end - p));
+        p = nl ? static_cast<const char *>(nl) + 1 : end;
+        ++rows;
+    }
+    return rows;
+}
+
+/**
+ * @brief Walk one file's bracket-delimited native mesh sections in a single pass over its bytes,
+ * accumulating authoring data, deferred edge rows and the `;;` header comments.
+ * @param[in] bytes Borrowed whole file, '\r' already removed, NUL-terminated, unchanged. Only
+ * trimmed lines beginning '[' and ending ']' start a section, so trailing header comments are not
+ * stripped before recognition.
+ * @param[in,out] out Borrowed mesh, existing contents retained and appended; no geometry/unit
+ * validation or transactional rollback. Coupling tag/index resolution follows current
+ * accumulated order and is not deferred until later vertex/cell sections.
+ * @param[out] sawVertices Reset false, then true once a vertices section is seen, even empty.
+ * @param[out] sawTriangles Reset false, then true once a triangles or quads section is seen.
+ * @param[out] meshFileRefOut Optional, cleared first. First nonempty FILE within each
+ * mesh-reference block wins, but a later such block can replace it; null ignores references.
+ * @param[in,out] bcRowsOut Optional deferred BC vector, not cleared, valid nonblank rows
+ * appended; null skips BC parsing/validation entirely.
+ * @param[in,out] conveyOut Optional deferred endpoint-factor vector, not cleared, rows appended;
+ * null skips its section parsing/validation entirely.
+ * @param[out] headers Last `;; UNITS:` / `;; SOURCE_CRS:` values of the WHOLE file — the scan
+ * continues past a parse error, as the former separate whole-file scan did.
+ * @return First owned parse diagnostic, or empty for completed traversal. Any error leaves
+ * partial flags, mesh and accumulated rows; unknown sections are skipped.
+ *
+ * @details Lines are split at '\n'. A line made only of ASCII bytes is handled on bytes: vertex
+ * and cell rows are tokenized in place and converted without building QStrings (ByteTokens).
+ * Any line containing a byte >= 0x80 is decoded (decodeLine) and handled with the QString rules —
+ * tokenize(), QString::trimmed(), Unicode whitespace — so non-ASCII content behaves exactly as
+ * before. Vertex and cell rows are parsed as they are met, in file order; other sections are
+ * collected and parsed when the next header (or the end) is reached, also in file order, so the
+ * first error reported is the same one the former split-then-parse walk reported.
+ */
+QString parseSectionsFromBytes(const QByteArray &bytes, MeshResult &out, bool &sawVertices,
+                               bool &sawTriangles, QString *meshFileRefOut, BCRowList *bcRowsOut,
+                               ConveyanceRowList *conveyOut, HeaderComments *headers)
 {
     sawVertices = sawTriangles = false;
     if (meshFileRefOut)
         meshFileRefOut->clear();
+    *headers = {};
 
-    const QStringList lines = text.split(QChar('\n'), Qt::KeepEmptyParts);
     QString currentSection;
+    SectionKind kind = SectionKind::None;
     QStringList body;
+    QString err;
 
     auto flush = [&]() -> QString {
-        if (currentSection.isEmpty()) {
-            body.clear();
-            return {};
-        }
-        if (currentSection.compare(QLatin1String(kSecVertices), Qt::CaseInsensitive) == 0)
-            sawVertices = true;
-        if (currentSection.compare(QLatin1String(kSecTriangles), Qt::CaseInsensitive) == 0)
-            sawTriangles = true;
-        if (currentSection.compare(QLatin1String(kSecQuads), Qt::CaseInsensitive) == 0)
-            sawTriangles = true; // an all-quad mesh is a mesh
-        if (currentSection.compare(QLatin1String(kSecMeshFile), Qt::CaseInsensitive) == 0) {
+        switch (kind) {
+        case SectionKind::MeshFile:
             // First "FILE <path>" token wins (mirrors the engine).
             if (meshFileRefOut) {
                 for (const QString &raw : body) {
@@ -824,64 +1096,152 @@ QString parseSectionsFromText(const QString &text, MeshResult &out, bool &sawVer
                     }
                 }
             }
-            body.clear();
-            return {};
-        }
-        if (currentSection.compare(QLatin1String(kSecBC), Qt::CaseInsensitive) == 0) {
+            break;
+        case SectionKind::BC:
             // §V.VD.1 — accumulate BC rows. Resolution to the sized
             // edgeBCs vector happens after the mesh is known.
             if (bcRowsOut) {
                 for (const QString &raw : body) {
                     BCRow row;
-                    const QString err = parseBCLine(raw, row);
-                    if (!err.isEmpty()) {
-                        body.clear();
-                        return err;
-                    }
+                    const QString e = parseBCLine(raw, row);
+                    if (!e.isEmpty())
+                        return e;
                     if (row.cell >= 0)
                         bcRowsOut->append(row);
                 }
             }
-            body.clear();
-            return {};
-        }
-        if (currentSection.compare(QLatin1String(kSecConveyance), Qt::CaseInsensitive) == 0) {
+            break;
+        case SectionKind::Conveyance:
             // Engine §11A — accumulate conveyance rows keyed by vertex pair.
             // Mesh-side resolution (vertex pair → flat slot(s)) happens after
             // triangulation is known, so we just collect rows here.
             if (conveyOut) {
                 for (const QString &raw : body) {
                     ConveyanceRow row;
-                    const QString err = parseConveyanceLine(raw, row);
-                    if (!err.isEmpty()) {
-                        body.clear();
-                        return err;
-                    }
+                    const QString e = parseConveyanceLine(raw, row);
+                    if (!e.isEmpty())
+                        return e;
                     if (row.va >= 0)
                         conveyOut->append(row);
                 }
             }
-            body.clear();
-            return {};
+            break;
+        case SectionKind::Body:
+            return parseSection(currentSection, body, out);
+        default:
+            break;
         }
-        const QString err = parseSection(currentSection, body, out);
-        body.clear();
-        return err;
+        return {};
     };
 
-    for (const QString &raw : lines) {
-        const QString trimmed = raw.trimmed();
-        if (trimmed.startsWith(QChar('[')) && trimmed.endsWith(QChar(']'))) {
-            const QString err = flush();
+    const char *p = bytes.constData();
+    const char *const end = p + bytes.size();
+    const char *const fileStart = p;
+    ByteRow row;
+    while (p < end) {
+        const char *const ls = p;
+        const void *nl = std::memchr(p, '\n', size_t(end - p));
+        const char *const le = nl ? static_cast<const char *>(nl) : end;
+        p = nl ? le + 1 : end;
+
+        unsigned char high = 0;
+        for (const char *c = ls; c < le; ++c)
+            high |= uchar(*c);
+
+        if (high >= 0x80) {
+            // Non-ASCII line: the QString rules, unchanged.
+            const QString raw = decodeLine(ls, le, ls == fileStart);
+            const QString trimmed = raw.trimmed();
+            noteHeaderComment(trimmed, *headers);
             if (!err.isEmpty())
-                return err;
-            currentSection = trimmed;
+                continue; // past an error only the header scan continues
+            if (trimmed.startsWith(QChar('[')) && trimmed.endsWith(QChar(']'))) {
+                err = flush();
+                body.clear();
+                currentSection = trimmed;
+                kind = sectionKind(currentSection);
+                sawVertices |= kind == SectionKind::Vertices;
+                sawTriangles |= kind == SectionKind::Triangles || kind == SectionKind::Quads;
+                continue;
+            }
+            const auto rawTrimmed = [&trimmed] { return trimmed; };
+            switch (kind) {
+            case SectionKind::Vertices:
+                err = parseVertexRow(StringTokens{tokenize(raw)}, rawTrimmed, out);
+                break;
+            case SectionKind::Triangles:
+            case SectionKind::Quads:
+                err = parseCellRow(StringTokens{tokenize(raw)}, kind == SectionKind::Quads,
+                                   rawTrimmed, out);
+                break;
+            case SectionKind::MeshFile:
+            case SectionKind::BC:
+            case SectionKind::Conveyance:
+            case SectionKind::Body:
+                body.append(raw);
+                break;
+            default:
+                break;
+            }
             continue;
         }
-        if (!currentSection.isEmpty())
-            body.append(raw);
+
+        // ASCII line.
+        const char *ts = ls;
+        const char *te = le;
+        while (ts < te && isAsciiSpace(*ts))
+            ++ts;
+        while (te > ts && isAsciiSpace(te[-1]))
+            --te;
+        if (te - ts >= 2 && ts[0] == ';' && ts[1] == ';')
+            noteHeaderComment(QString::fromLatin1(ts, te - ts), *headers);
+        if (!err.isEmpty())
+            continue;
+        if (ts < te && *ts == '[' && te[-1] == ']') {
+            err = flush();
+            body.clear();
+            currentSection = QString::fromLatin1(ts, te - ts);
+            kind = sectionKind(currentSection);
+            sawVertices |= kind == SectionKind::Vertices;
+            sawTriangles |= kind == SectionKind::Triangles || kind == SectionKind::Quads;
+            // Size the array for this section's rows. Grow at least geometrically: QList::reserve
+            // allocates exactly what it is asked for and copies every element, so exact reserves
+            // at many repeated headers would be quadratic.
+            const auto reserveFor = [&](auto &list) {
+                const qsizetype need = list.size() + countRowsUntilHeader(p, end);
+                if (need > list.capacity())
+                    list.reserve(std::max(need, 2 * list.capacity()));
+            };
+            if (kind == SectionKind::Vertices)
+                reserveFor(out.vertices);
+            else if (kind == SectionKind::Triangles || kind == SectionKind::Quads)
+                reserveFor(out.triangles);
+            continue;
+        }
+        const auto rawTrimmed = [ts, te] { return QString::fromLatin1(ts, te - ts); };
+        switch (kind) {
+        case SectionKind::Vertices:
+            tokenizeBytes(ls, le, row);
+            err = parseVertexRow(ByteTokens{row}, rawTrimmed, out);
+            break;
+        case SectionKind::Triangles:
+        case SectionKind::Quads:
+            tokenizeBytes(ls, le, row);
+            err = parseCellRow(ByteTokens{row}, kind == SectionKind::Quads, rawTrimmed, out);
+            break;
+        case SectionKind::MeshFile:
+        case SectionKind::BC:
+        case SectionKind::Conveyance:
+        case SectionKind::Body:
+            body.append(QString::fromLatin1(ls, le - ls));
+            break;
+        default:
+            break;
+        }
     }
-    return flush();
+    if (err.isEmpty())
+        err = flush();
+    return err;
 }
 
 /**
@@ -921,7 +1281,8 @@ void applyBCRows(const MeshResult &mesh, const BCRowList &rows, QVector<MeshEdge
  * @param[in,out] edgeBCs Borrowed destination; only matching slots within its current size are
  * written, other boundary fields/padding unchanged. Can be shorter than full slot count safely
  * in this helper.
- * @note Allocates endpoint-to-slot adjacency when rows nonempty, applies all shared/nonmanifold
+ * @note Allocates a row-pair map and a vertex-count byte filter when rows nonempty (no per-edge
+ * index), applies all shared/nonmanifold
  * matching slots for symmetry, no source mutation, numeric revalidation, engine/file effects or
  * retained references.
  *
@@ -937,27 +1298,46 @@ void applyConveyanceRows(const MeshResult &mesh, const ConveyanceRowList &rows,
     if (rows.isEmpty())
         return;
     const int nslots = edgeBCs.size();
-    // Build vertex-pair → list-of-flat-slots once. Key is the sorted pair.
-    QHash<QPair<int, int>, QVector<int>> pairToSlots;
-    pairToSlots.reserve(edgeSlotCount(mesh.triangles.size()));
+    // Final value per sorted vertex pair. Later rows replace earlier ones, which is exactly what
+    // writing the rows one after another into the same slots produced. The rows are few (a
+    // section of the file); the mesh edges are many, so look the edges up in the rows rather than
+    // indexing every edge of the mesh (the former QHash of per-edge vectors cost ~0.4 s per
+    // million cells whenever any conveyance row was present).
+    const auto pairKey = [](int a, int b) {
+        const int lo = std::min(a, b), hi = std::max(a, b);
+        return (quint64(quint32(lo)) << 32) | quint32(hi);
+    };
+    QHash<quint64, double> convByPair;
+    convByPair.reserve(rows.size());
+    for (const auto &r : rows)
+        convByPair.insert(pairKey(r.va, r.vb), r.conv);
+    // Cheap pre-filter: an edge can only match when both endpoints occur in some row. Rows hold
+    // nonnegative indices (parseConveyanceLine); the filter covers indices below the vertex count
+    // and anything outside it goes straight to the hash, so its size stays bounded by the mesh.
+    std::vector<char> inRow(size_t(mesh.vertices.size()), 0);
+    for (const auto &r : rows) {
+        if (r.va < mesh.vertices.size())
+            inRow[size_t(r.va)] = 1;
+        if (r.vb < mesh.vertices.size())
+            inRow[size_t(r.vb)] = 1;
+    }
+    const auto mayMatch = [&inRow](int v) {
+        return v >= 0 && (size_t(v) >= inRow.size() || inRow[size_t(v)]);
+    };
     for (int t = 0; t < mesh.triangles.size(); ++t) {
         const auto &tri = mesh.triangles[t];
         const int ne = tri.vertexCount();
         for (int e = 0; e < ne; ++e) {
             int va = 0, vb = 0;
             edgeEndpoints(tri, e, va, vb);
-            const QPair<int, int> key = (va < vb) ? qMakePair(va, vb) : qMakePair(vb, va);
-            pairToSlots[key].append(edgeSlot(t, e));
-        }
-    }
-    for (const auto &r : rows) {
-        const QPair<int, int> key = (r.va < r.vb) ? qMakePair(r.va, r.vb) : qMakePair(r.vb, r.va);
-        const auto it = pairToSlots.constFind(key);
-        if (it == pairToSlots.constEnd())
-            continue; // no such edge — silently skip
-        for (int flat : *it) {
+            if (!mayMatch(va) || !mayMatch(vb))
+                continue;
+            const auto it = convByPair.constFind(pairKey(va, vb));
+            if (it == convByPair.constEnd())
+                continue; // no row for this edge
+            const int flat = edgeSlot(t, e);
             if (flat >= 0 && flat < nslots)
-                edgeBCs[flat].conveyance = r.conv;
+                edgeBCs[flat].conveyance = it.value();
         }
     }
 }
@@ -985,25 +1365,13 @@ InpMeshReadResult InpMeshReader::read(const QString &inpPath)
 {
     InpMeshReadResult result;
 
-    QString inpText;
-    if (!readTextFile(inpPath, &inpText, &result.errorMsg))
+    QByteArray inpBytes;
+    if (!readFileBytes(inpPath, &inpBytes, &result.errorMsg))
         return result;
 
-    // Capture the inline `;; UNITS:` and `;; SOURCE_CRS:` headers (if any)
-    // up front; the external-file path may overwrite them when a .2dm is
-    // resolved further down. No rejection here — the engine decides what
-    // to do with the value.
-    {
-        QString tag;
-        const QString units = scanUnitsHeader(inpText, &tag);
-        if (!units.isEmpty())
-            result.unitsHeader = units;
-        if (!tag.isEmpty())
-            result.sourceCrsTag = tag;
-    }
-
-    // First pass on the .inp: capture any [2D_MESH_FILE] reference and parse
-    // inline mesh sections opportunistically. The engine prefers the external
+    // One pass on the .inp: capture any [2D_MESH_FILE] reference, parse
+    // inline mesh sections opportunistically and collect the inline
+    // `;; UNITS:` / `;; SOURCE_CRS:` headers. The engine prefers the external
     // file when both are present, so an external reference clears any inline
     // data we accumulated.
     MeshResult inlineMesh;
@@ -1012,8 +1380,20 @@ InpMeshReadResult InpMeshReader::read(const QString &inpPath)
     QString meshFileRef;
     BCRowList inlineBCs;          // §V.VD.1 — collected from any [2D_BOUNDARY_CONDITIONS]
     ConveyanceRowList inlineConv; // Engine §11A — [2D_EDGE_CONVEYANCE]
-    const QString inpErr = parseSectionsFromText(inpText, inlineMesh, sawInlineVerts, sawInlineTris,
-                                                 &meshFileRef, &inlineBCs, &inlineConv);
+    HeaderComments inlineHeaders;
+    const QString inpErr =
+        parseSectionsFromBytes(inpBytes, inlineMesh, sawInlineVerts, sawInlineTris, &meshFileRef,
+                               &inlineBCs, &inlineConv, &inlineHeaders);
+    inpBytes = QByteArray();
+
+    // The inline headers apply even when the parse failed; the external-file
+    // path may overwrite them when a .2dm is resolved further down. No
+    // rejection here — the engine decides what to do with the value.
+    if (!inlineHeaders.units.isEmpty())
+        result.unitsHeader = inlineHeaders.units;
+    if (!inlineHeaders.crs.isEmpty())
+        result.sourceCrsTag = inlineHeaders.crs;
+
     if (!inpErr.isEmpty()) {
         result.errorMsg = inpErr;
         return result;
@@ -1027,8 +1407,8 @@ InpMeshReadResult InpMeshReader::read(const QString &inpPath)
         if (fi.isRelative())
             absMeshPath = QFileInfo(inpPath).absoluteDir().absoluteFilePath(meshFileRef);
 
-        QString meshText;
-        if (!readTextFile(absMeshPath, &meshText, &result.errorMsg)) {
+        QByteArray meshBytes;
+        if (!readFileBytes(absMeshPath, &meshBytes, &result.errorMsg)) {
             // [2D_MESH_FILE] referenced but the file is missing — report it
             // so the user sees something is wrong rather than silently
             // dropping the mesh.
@@ -1036,17 +1416,6 @@ InpMeshReadResult InpMeshReader::read(const QString &inpPath)
                 QStringLiteral("[2D_MESH_FILE] points at %1 but the file could not be read: %2")
                     .arg(absMeshPath, result.errorMsg);
             return result;
-        }
-
-        // External file's own ;; UNITS: / ;; SOURCE_CRS: headers take
-        // precedence over the inline ones for the resolved mesh.
-        {
-            QString tag;
-            const QString units = scanUnitsHeader(meshText, &tag);
-            if (!units.isEmpty())
-                result.unitsHeader = units;
-            if (!tag.isEmpty())
-                result.sourceCrsTag = tag;
         }
 
         MeshResult extMesh;
@@ -1058,8 +1427,19 @@ InpMeshReadResult InpMeshReader::read(const QString &inpPath)
         // .inp wins on BC overrides since the user edits them there).
         BCRowList extBCs;
         ConveyanceRowList extConv; // Engine §11A — [2D_EDGE_CONVEYANCE]
-        const QString extErr = parseSectionsFromText(meshText, extMesh, sawExtVerts, sawExtTris,
-                                                     nullptr, &extBCs, &extConv);
+        HeaderComments extHeaders;
+        const QString extErr = parseSectionsFromBytes(meshBytes, extMesh, sawExtVerts, sawExtTris,
+                                                      nullptr, &extBCs, &extConv, &extHeaders);
+        // Release the file bytes before the edge-BC array below is allocated.
+        meshBytes = QByteArray();
+
+        // External file's own ;; UNITS: / ;; SOURCE_CRS: headers take
+        // precedence over the inline ones for the resolved mesh.
+        if (!extHeaders.units.isEmpty())
+            result.unitsHeader = extHeaders.units;
+        if (!extHeaders.crs.isEmpty())
+            result.sourceCrsTag = extHeaders.crs;
+
         if (!extErr.isEmpty()) {
             result.errorMsg = QStringLiteral("%1 (in %2)").arg(extErr, absMeshPath);
             return result;
@@ -1089,9 +1469,10 @@ InpMeshReadResult InpMeshReader::read(const QString &inpPath)
             // overlay external rows first, then .inp rows (so .inp overrides
             // on conflict).
             // NB: `slots` is a Qt keyword macro — use `nslots`.
+            // resize() on the empty vector value-initialises every slot to
+            // MeshEdgeBC{}, so no second fill pass is needed.
             const int nslots = edgeSlotCount(result.mesh.triangles.size());
             result.edgeBCs.resize(nslots);
-            std::fill(result.edgeBCs.begin(), result.edgeBCs.end(), MeshEdgeBC{});
             applyBCRows(result.mesh, extBCs, result.edgeBCs);
             applyBCRows(result.mesh, inlineBCs, result.edgeBCs);
             // Engine §11A — overlay external conveyance first, then .inp
@@ -1111,8 +1492,7 @@ InpMeshReadResult InpMeshReader::read(const QString &inpPath)
         result.hasMesh = true;
 
         const int nslots = edgeSlotCount(result.mesh.triangles.size());
-        result.edgeBCs.resize(nslots);
-        std::fill(result.edgeBCs.begin(), result.edgeBCs.end(), MeshEdgeBC{});
+        result.edgeBCs.resize(nslots); // value-initialised to MeshEdgeBC{}
         applyBCRows(result.mesh, inlineBCs, result.edgeBCs);
         applyConveyanceRows(result.mesh, inlineConv, result.edgeBCs);
     }
