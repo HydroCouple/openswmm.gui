@@ -545,14 +545,13 @@ QString StreetEditorDialog::pickStreet(StreetRegistry *registry, SWMMModelLayer 
 
     StreetEditorDialog dlg(registry, layer, parent);
     dlg.setModal(true);
-    if (initialName.isEmpty()) {
-        dlg.m_mode = Mode::CreateNew;
-        dlg.setWindowTitle(tr("New Street"));
-        dlg.invokeNew();
-    } else {
+    if (auto *provider = registry->findByName(initialName)) {
         dlg.setWindowTitle(tr("Edit Street"));
-        if (auto *p = registry->findByName(initialName))
-            dlg.selectProviderInList_(p);
+        dlg.selectProviderInList_(provider);
+    } else {
+        dlg.setWindowTitle(tr("Select Street"));
+        dlg.m_listView->selectionModel()->clear();
+        dlg.bindProvider_(nullptr);
     }
     dlg.exec();
 

@@ -622,17 +622,17 @@ QString AquiferEditorDialog::pickAquifer(AquiferRegistry *registry, SWMMModelLay
 
     AquiferEditorDialog dlg(registry, layer, parent);
     dlg.setModal(true);
-    if (initialName.isEmpty()) {
-        dlg.m_mode = Mode::CreateNew;
-        dlg.setWindowTitle(tr("New Aquifer"));
-        dlg.invokeNew();
-    } else {
+    if (auto *provider = registry->findByName(initialName)) {
         dlg.setWindowTitle(tr("Edit Aquifer"));
-        if (auto *p = registry->findByName(initialName))
-            dlg.selectProviderInList_(p);
+        dlg.selectProviderInList_(provider);
+    } else {
+        dlg.setWindowTitle(tr("Select Aquifer"));
+        dlg.m_listView->selectionModel()->clear();
+        dlg.bindProvider_(nullptr);
     }
     dlg.exec();
-    registry->saveToEngine();
+    if (dlg.m_registry)
+        dlg.m_registry->saveToEngine();
 
     auto *p = dlg.currentProvider();
     return p ? p->name() : QString();

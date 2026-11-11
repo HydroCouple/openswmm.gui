@@ -284,6 +284,11 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
             return;
         const auto dc = static_cast<SWMMModelLayer::DataCategory>(dcInt);
 
+        const QPointer<SWMMModelLayer> owner(m_layer);
+        const auto engine = owner->engine();
+        const auto sameModel = [&] {
+            return owner && m_layer == owner && owner->engine() == engine;
+        };
         QMenu dmenu(this);
         if (!isLeaf) {
             // Slice BM.0-Add-New (2026-05-24) — Add-New launches the
@@ -303,7 +308,7 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
             if (DataObjectAttributeTableModel::supportsCategory(dc))
                 actTable = dmenu.addAction(tr("Open in Attribute Table"));
             QAction *picked = dmenu.exec(m_view->viewport()->mapToGlobal(pos));
-            if (!picked)
+            if (!picked || !sameModel())
                 return;
             if (picked == actAdd)
                 launchAddNewEditor(dc);
@@ -347,9 +352,11 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
         }
 
         QAction *picked = dmenu.exec(m_view->viewport()->mapToGlobal(pos));
+        if (!picked || !sameModel())
+            return;
         if (picked == actEdit && hasEditor) {
-            openComprehensiveEditorFor(m_layer, m_canvas ? m_canvas->undoStack() : nullptr,
-                                       refForProxyIndex(proxyIdx), this);
+            editorReg.openForObject(dc, owner, m_canvas ? m_canvas->undoStack() : nullptr,
+                                    leafRef.name, this);
         } else if (picked && picked == actDelete && canDelete) {
             const QString msg = tr("Delete \"%1\"?").arg(leafRef.name);
             if (QMessageBox::question(this, tr("Confirm Delete"), msg,
@@ -606,10 +613,12 @@ void ObjectBrowserPanel::onItemDoubleClicked(const QModelIndex &proxyIdx)
 
     // Non-spatial data leaves route through the shared open-for-edit helper
     // so double-click and the leaf right-click "Edit…" action use one code
-    // path. The helper returns false for spatial refs — we fall through to
-    // zoom-to-object for those.
-    if (openComprehensiveEditorFor(m_layer, m_canvas ? m_canvas->undoStack() : nullptr, ref, this))
+    // path. Spatial refs zoom to the object.
+    if (DataObjectAttributeTableModel::categoryForType(ref.objectType) !=
+        SWMMModelLayer::NumDataCategories) {
+        openComprehensiveEditorFor(m_layer, m_canvas ? m_canvas->undoStack() : nullptr, ref, this);
         return;
+    }
 
     zoomToObject(ref);
 }
@@ -618,54 +627,10 @@ void ObjectBrowserPanel::onItemDoubleClicked(const QModelIndex &proxyIdx)
 // and right-click "Edit…". The per-kind dialog wiring lives in
 // ComprehensiveEditorRegistry::Entry::openForObject so the same table that
 // enables "Edit…" (hasEditor) also performs it.
-namespace
-{
-/**
- * @param[in] t Selection-bus type, including spatial/unknown/mesh types.
- * @return Corresponding non-spatial data category for all thirteen supported kinds,
- *   NumDataCategories otherwise. Pure mapping, no engine/provider existence query.
- */
-SWMMModelLayer::DataCategory dataCategoryForRefType(SWMMObjectRef::ObjectType t)
-{
-    using L = SWMMModelLayer;
-    using R = SWMMObjectRef;
-    switch (t) {
-    case R::Curve:
-        return L::DataCurves;
-    case R::TimeSeries:
-        return L::DataTimeSeries;
-    case R::TimePattern:
-        return L::DataPatterns;
-    case R::LIDControl:
-        return L::DataLIDControls;
-    case R::Pollutant:
-        return L::DataPollutants;
-    case R::LandUse:
-        return L::DataLandUses;
-    case R::Aquifer:
-        return L::DataAquifers;
-    case R::Snowpack:
-        return L::DataSnowpacks;
-    case R::Control:
-        return L::DataControls;
-    case R::Transect:
-        return L::DataTransects;
-    case R::Hydrograph:
-        return L::DataHydrographs;
-    case R::Street:
-        return L::DataStreets;
-    case R::Inlet:
-        return L::DataInlets;
-    default:
-        return L::NumDataCategories;
-    }
-}
-} // namespace
-
 bool ObjectBrowserPanel::openComprehensiveEditorFor(SWMMModelLayer *layer, QUndoStack *undoStack,
                                                     const SWMMObjectRef &ref, QWidget *parent)
 {
-    const auto cat = dataCategoryForRefType(ref.objectType);
+    const auto cat = DataObjectAttributeTableModel::categoryForType(ref.objectType);
     if (cat == SWMMModelLayer::NumDataCategories)
         return false;
     return ComprehensiveEditorRegistry::instance().openForObject(cat, layer, undoStack, ref.name,

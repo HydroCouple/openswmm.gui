@@ -293,7 +293,7 @@ InletProvider *InletEditorDialog::currentProvider() const noexcept
 
 QString InletEditorDialog::pickInlet(InletRegistry *registry, SWMMModelLayer *layer,
                                      QUndoStack *undoStack, QWidget *parent,
-                                     int compatibleXsectShape)
+                                     int compatibleXsectShape, const QString &initialName)
 {
     if (!registry)
         return {};
@@ -307,17 +307,17 @@ QString InletEditorDialog::pickInlet(InletRegistry *registry, SWMMModelLayer *la
                                      "can be assigned."));
     }
 
-    // Land on the first compatible design so the modal opens on something the
-    // host can actually accept.
-    InletProvider *first = nullptr;
-    for (InletProvider *p : registry->providers()) {
-        if (dlg.passesShapeFilter_(p)) {
-            first = p;
-            break;
+    auto *initial = registry->findByName(initialName);
+    if (!initial) {
+        for (auto *provider : registry->providers()) {
+            if (dlg.passesShapeFilter_(provider)) {
+                initial = provider;
+                break;
+            }
         }
     }
-    if (first)
-        dlg.selectProviderInList_(first);
+    if (initial)
+        dlg.selectProviderInList_(initial);
     else
         dlg.bindProvider_(nullptr);
 

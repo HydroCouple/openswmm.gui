@@ -66,8 +66,7 @@ public:
     /**
      * @param[in] layer Optional borrowed guarded model; registry and validation engine accessed on
      *   GUI thread, no ownership transfer.
-     * @param[in] undoStack Borrowed raw pointer stored but UNUSED by current dialog mutations;
-     *   methods use direct layer apply helpers without undo.
+     * @param[in] undoStack Optional shared stack for undoable rule body edits.
      * @param[in] parent Optional QWidget owner; caller manages parentless floating nonmodal panel.
      * @brief Build shared-registry rule list, code editor, validator and hidden create card,
      *   initially bind first rule or none.
@@ -86,7 +85,7 @@ public:
     /*! \brief Slice BM.0-Add-New factory: same dialog, started in
      *  CreateNew mode. Caller owns the returned dialog.
      * @param[in] layer Optional borrowed model forwarded to new dialog.
-     * @param[in] undoStack Borrowed unused undo pointer forwarded.
+     * @param[in] undoStack Optional shared undo stack forwarded.
      * @param[in] parent Optional owner of returned dialog, otherwise caller owns heap allocation.
      * @return New hidden dialog in CreateNew mode with create card revealed/focused. Does not
      *   show/exec, choose a unique name or create engine rule until submit. Existing first provider
@@ -103,7 +102,7 @@ public:
      *  flow through `applyControlRule*` so the engine state matches
      *  after successful flush; direct reject/done can bypass close-event flush.
      * @param[in] layer Required borrowed model; null returns empty before creating UI.
-     * @param[in] undoStack Borrowed unused undo pointer forwarded.
+     * @param[in] undoStack Optional shared undo stack forwarded.
      * @param[in] initialName Empty reveals CreateNew card; nonempty attempts to select existing
      *   name, otherwise initial provider can remain current.
      * @param[in] parent Optional owner/parent for stack-local modal picker, must survive nested
@@ -118,16 +117,8 @@ public:
     static QString pickControlRule(SWMMModelLayer *layer, QUndoStack *undoStack,
                                    const QString &initialName, QWidget *parent = nullptr);
 
-    /*! \brief Bring the dialog forward and select \p name in the list
-     *  (no-op if absent).
-     * @param[in] name Requested registry/list name, index lookup delegated to RuleListModel;
-     *   absent/filtered item cannot be made visible automatically.
-     * @brief Show/raise/activate panel, attempt to flush prior dirty text, then select matching
-     *   proxy item.
-     * @note Absent name still shows/flushes; search filter is not cleared. Flush failure warning
-     *   does not stop selection attempt and subsequent binding may discard failed draft. No
-     *   guarantee requested name becomes current, no engine rule creation.
- */
+    /*! Show the editor, flush the current draft and reveal the requested existing rule.
+     *  Clear the search if it hides the rule. */
     void openForRule(const QString &name);
 
     /**
@@ -291,7 +282,7 @@ private slots:
      *   and show failure warning if rejected.
      * @note Does NOT check current Create enabled state/repeat local identifier check; layer
      *   handles validation. Success hides/clears card, switches Edit and selects new rule when
-     *   visible in current filter, then focuses code. Filter not cleared, outgoing draft may flush
+     *   available in the model. A filter hiding the target is cleared. The outgoing draft may flush
      *   via selection; no undo despite stored stack. Skeleton refers to literal J1/P1, not known
      *   existing objects.
      */
@@ -355,7 +346,7 @@ private:
     openswmmvis::controls::ControlRuleRegistry *registry_() const;
 
     QPointer<SWMMModelLayer> m_layer;
-    QUndoStack *m_undoStack = nullptr;
+    QPointer<QUndoStack> m_undoStack;
     QPointer<openswmmvis::controls::ControlRuleProvider> m_current;
     Mode m_mode = Mode::Edit;
 

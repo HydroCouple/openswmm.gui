@@ -136,26 +136,9 @@ public:
     static StreetEditorDialog *createNew(openswmmvis::street::StreetRegistry *registry,
                                          SWMMModelLayer *layer, QWidget *parent = nullptr);
 
-    /**
-     * @brief Run a modal live editor and flush a still-valid registry on closure.
-     * @param[in] registry Borrowed nullable registry; null returns empty without a dialog.
-     * @param[in] layer Borrowed optional model context; not owned.
-     * @param[in] initialName Borrowed street identity to preselect when found; empty creates a
-     * new suggested street immediately. Missing nonempty names leave the constructor's initial
-     * selection.
-     * @param[in] parent Optional Qt owner of the stack-lifetime modal dialog.
-     * @return Current provider name or empty when unbound/invalidated, independent of
-     * Accepted/Rejected result.
-     * @details Ignores exec() result. After closing, saveToEngine() is called only through the
-     * surviving guarded registry; its status is ignored. Earlier live changes are not rolled
-     * back.
-     *
-     * @details Modal pick / create / edit entry point — mirrors
-     *  TransectEditorDialog::pickTransect. Empty \p initialName →
-     *  CreateNew mode; otherwise → Edit mode pre-selecting that street.
-     *  Returns the name of the street bound to the dialog on close, or
-     *  empty if none. After close the registry is flushed to the engine.
-     */
+    /*! Open the street picker on the assigned ID. With no matching ID it opens
+     *  without a selection. Users can choose an existing object or add one in the editor.
+     *  Returns the selected name on close, or an empty string if no object was chosen. */
     static QString pickStreet(openswmmvis::street::StreetRegistry *registry, SWMMModelLayer *layer,
                               const QString &initialName, QWidget *parent = nullptr);
 

@@ -135,13 +135,16 @@ public:
      * every shape.
      * @return Selected provider name only when a provider survives and passes compatibility,
      * otherwise empty; independent of the dialog's Accepted/Rejected result.
-     * @details Preselects the first compatible registry provider, while the full registry list
+     * @param[in] initialName Assigned inlet to preselect. An empty or missing ID selects
+     * the first compatible design.
+     * @details The full registry list
      * remains available for editing. After exec(), flushes a surviving guarded registry without
      * checking save status, then validates the final selection and warns if incompatible. No
      * cancellation rollback is supplied.
      */
     static QString pickInlet(openswmmvis::inlet::InletRegistry *registry, SWMMModelLayer *layer,
-                             QUndoStack *undoStack, QWidget *parent, int compatibleXsectShape = -1);
+                             QUndoStack *undoStack, QWidget *parent, int compatibleXsectShape = -1,
+                             const QString &initialName = {});
 
     /**
      * @brief Read the editor's current mode flag.

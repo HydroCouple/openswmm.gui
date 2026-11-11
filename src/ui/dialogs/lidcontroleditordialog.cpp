@@ -285,6 +285,22 @@ void LidControlEditorDialog::openForLidControl(const QString &name)
         selectProviderInList_(p);
 }
 
+QString LidControlEditorDialog::pickLidControl(LidControlRegistry *registry, SWMMModelLayer *layer,
+                                               const QString &initialName, QWidget *parent)
+{
+    if (!registry || !layer)
+        return {};
+    LidControlEditorDialog dialog(registry, layer, parent);
+    if (auto *provider = registry->findByName(initialName))
+        dialog.selectProviderInList_(provider);
+    auto *buttons = dialog.findChild<QDialogButtonBox *>(QString(), Qt::FindDirectChildrenOnly);
+    auto *use = buttons->addButton(tr("Use LID Control"), QDialogButtonBox::AcceptRole);
+    connect(use, &QPushButton::clicked, &dialog, &QDialog::accept);
+    if (dialog.exec() != QDialog::Accepted || !dialog.currentProvider())
+        return {};
+    return dialog.currentProvider()->name();
+}
+
 LidControlProvider *LidControlEditorDialog::currentProvider() const noexcept
 {
     return m_current.data();

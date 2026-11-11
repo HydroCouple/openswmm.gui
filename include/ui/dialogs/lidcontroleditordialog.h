@@ -137,6 +137,11 @@ public:
      */
     void openForLidControl(const QString &name);
 
+    /*! Open the control editor as a picker and return the explicitly chosen ID. */
+    static QString pickLidControl(openswmmvis::lid::LidControlRegistry *registry,
+                                  SWMMModelLayer *layer, const QString &initialName,
+                                  QWidget *parent);
+
 protected:
     /**
      * @brief Dismiss the project-owned editor; standalone callers first resolve a NODE draft.

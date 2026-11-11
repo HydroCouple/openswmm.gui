@@ -311,6 +311,7 @@ void SWMMObjectTreeModel::setLayer(SWMMModelLayer *layer)
 
 void SWMMObjectTreeModel::scheduleReload()
 {
+    m_dataRows.clear();
     if (m_reloadPending)
         return;
     m_reloadPending = true;
@@ -325,6 +326,7 @@ void SWMMObjectTreeModel::reload()
     beginResetModel();
     m_visible.clear();
     m_visibleData.clear();
+    m_dataRows.clear();
     if (m_layer) {
         // Walk the layer's user-configurable category order (Slice T.2)
         // instead of the hard-coded enum sequence; empty categories
@@ -409,11 +411,39 @@ QModelIndex SWMMObjectTreeModel::indexFor(const SWMMObjectRef &ref) const
 {
     if (!m_layer || ref.name.isEmpty())
         return {};
+    for (const auto dc : m_visibleData) {
+        if (refTypeForDataCategory(dc) != ref.objectType)
+            continue;
+        const int top = topRowForDataCategory(dc);
+        // Build once per requested category, including during multi-selection sync.
+        auto found = m_dataRows.constFind(dc);
+        if (found == m_dataRows.cend()) {
+            auto &rows = m_dataRows[dc];
+            const int count = m_layer->dataObjectCount(dc);
+            for (int row = 0; row < count; ++row)
+                rows.insert(m_layer->dataObjectNameAt(dc, row), row);
+            found = m_dataRows.constFind(dc);
+        }
+        const int row = found->value(ref.name, -1);
+        return row < 0 ? QModelIndex{} : createIndex(row, 0, quintptr(top));
+    }
+
     SWMMModelLayer::Category cat;
     int row = 0;
     if (!m_layer->findObjectLocation(ref.name, &cat, &row))
         return {};
-    return indexFor(cat, row);
+    if (refTypeForCategory(cat) == ref.objectType)
+        return indexFor(cat, row);
+    // Spatial namespaces can also share IDs. Only a collision needs a scan.
+    for (auto candidate : m_visible) {
+        if (refTypeForCategory(candidate) != ref.objectType)
+            continue;
+        const int count = m_layer->categoryCount(candidate);
+        for (int i = 0; i < count; ++i)
+            if (m_layer->objectNameAt(candidate, i) == ref.name)
+                return indexFor(candidate, i);
+    }
+    return {};
 }
 
 // ---------------------------------------------------------------------------

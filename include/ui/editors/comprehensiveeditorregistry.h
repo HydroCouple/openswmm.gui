@@ -131,19 +131,16 @@ public:
      * @param[in] layer Optional borrowed live layer, null rejects.
      * @param[in] undoStack Optional borrowed stack passed to callback; only supported editors use
      *   it.
-     * @param[in] name Exact requested object ID; empty rejects, existence not checked centrally.
-     * @param[in] parent Optional QWidget dialog owner passed through; parentless windows require
-     *   dialog-specific cleanup.
-     * @return False if entry/callback/layer absent or name empty; true once callback invoked, even
-     *   if callback silently fails registry/dialog creation or object lookup. Does not mean object
-     *   was found or changes saved.
-     * @note GUI-thread dispatch can create/show/raise modeless dialogs, initialize registries and
-     *   wire close-time engine writes. Callback exceptions propagate. Builtin reuse policy differs
-     *   by kind: registry-backed six retarget on registry change, several other static windows
-     *   remain bound to original model until destroyed; host manages project/window lifetime.
+     * @param[in] name Existing object ID in the requested category and layer.
+     * @param[in] parent Dialog owner, also used to report a missing target.
+     * @return True when an existing object was dispatched to its registered editor.
      */
     bool openForObject(SWMMModelLayer::DataCategory cat, SWMMModelLayer *layer,
                        QUndoStack *undoStack, const QString &name, QWidget *parent) const;
+
+    /*! Resolve a requested ID in its model and category. A missing ID is reported to parent. */
+    static QString existingObjectName(SWMMModelLayer::DataCategory cat, SWMMModelLayer *layer,
+                                      const QString &name, QWidget *parent);
 
 private:
     /**

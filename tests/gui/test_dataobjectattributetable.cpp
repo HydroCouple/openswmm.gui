@@ -30,7 +30,27 @@
 #include "ui/panels/dataobjectattributetablemodel.h"
 #include "ui/panels/propertiespanel.h"
 #include "ui/properties/swmmpollutantpropertyadapter.h"
+#include "ui/panels/objectbrowserpanel.h"
+#include "ui/panels/swmmobjecttreemodel.h"
+#include "ui/dialogs/ruleseditordialog.h"
+#include "ui/dialogs/patterneditordialog.h"
+#include "ui/panels/attributetablepanel.h"
+#include "ui/properties/dataobjectpickereditor.h"
+#include "ui/properties/datarecordsref.h"
+#include "controls/controlruleprovider.h"
+#include <QApplication>
+#include <QDialog>
+#include <QLineEdit>
+#include <QListView>
+#include <QMenu>
+#include <QPushButton>
+#include <QMessageBox>
+#include <QTextEdit>
+#include <QStandardItemModel>
+#include <QTableView>
+#include <QTimer>
 #include <QTreeView>
+#include <QSortFilterProxyModel>
 #include <QSignalSpy>
 
 #include <openswmm/engine/openswmm_pollutants.h>
@@ -57,10 +77,10 @@ QString dataDir()
 
 /** @brief Load a fresh owned data-object fixture layer.
  * @return Unique layer for data_object_table_fixture.inp, or nullptr on load failure after destroying the failed layer. Diagnostics are local and discarded. */
-std::unique_ptr<SWMMModelLayer> openLayer()
+std::unique_ptr<SWMMModelLayer>
+openLayer(const QString &file = QStringLiteral("data_object_table_fixture.inp"))
 {
-    auto layer = std::make_unique<SWMMModelLayer>(
-        QDir(dataDir()).filePath(QStringLiteral("data_object_table_fixture.inp")), nullptr);
+    auto layer = std::make_unique<SWMMModelLayer>(QDir(dataDir()).filePath(file), nullptr);
     QList<QString> warnings, errors;
     if (!layer->loadModel(warnings, errors))
         return nullptr;
@@ -98,7 +118,15 @@ class TestDataObjectAttributeTable : public QObject
 {
     Q_OBJECT
 private slots:
+    void everyEditableCategoryOpensExistingObjects_data();
     void everyEditableCategoryOpensExistingObjects();
+    void switchingProjectsEditsOnlyTheRequestedRule();
+    void openingAFilteredPatternRevealsIt();
+    void referenceMenusUseTheFieldKind();
+    void detailedPropertiesUsesClickedSelection();
+    void streetPickerAssignsTheClickedConduit();
+    void missingReferenceDoesNotOpenAnotherObject();
+    void openingAnUnassignedReferenceDoesNotCreateAnObject();
     void rowsMatchRegistry_data();
     void rowsMatchRegistry();
     void editWritesProviderEngineAndUndoes();
@@ -229,19 +257,411 @@ void TestDataObjectAttributeTable::rejectedEngineWriteLeavesValuesAndHistoryUnch
     QVERIFY(undo.canRedo());
 }
 
-/** @brief Verify every category advertising an editor also registers an existing-object dispatch callback. */
+void TestDataObjectAttributeTable::everyEditableCategoryOpensExistingObjects_data()
+{
+    QTest::addColumn<int>("kind");
+    QTest::addColumn<QString>("id");
+    QTest::addColumn<QString>("editor");
+    using R = SWMMObjectRef;
+    const auto add = [](R::ObjectType kind, const char *id, const char *editor) {
+        QTest::newRow(editor) << int(kind) << QString::fromLatin1(id)
+                              << QString::fromLatin1(editor);
+    };
+    add(R::TimeSeries, "C1", "TimeseriesEditorDialog");
+    add(R::Curve, "CurveB", "CurveEditorDialog");
+    add(R::Control, "RuleB", "RulesEditorDialog");
+    add(R::Hydrograph, "GroupB", "HydrographGroupEditor");
+    add(R::TimePattern, "LastPattern", "PatternEditorDialog");
+    add(R::Transect, "Profile", "TransectEditorDialog");
+    add(R::Inlet, "CURB1", "InletEditorDialog");
+    add(R::Street, "ST1", "StreetEditorDialog");
+    add(R::LIDControl, "Stack", "LidControlEditorDialog");
+    add(R::Snowpack, "Snow", "SnowpackEditorDialog");
+    add(R::Pollutant, "TSS", "PollutantEditorDialog");
+    add(R::LandUse, "Residential", "LandUseEditorDialog");
+    add(R::Aquifer, "AQ1", "AquiferEditorDialog");
+}
+
 void TestDataObjectAttributeTable::everyEditableCategoryOpensExistingObjects()
 {
-    const auto &reg = ComprehensiveEditorRegistry::instance();
-    for (int i = 0; i < DC::NumDataCategories; ++i) {
-        const auto cat = static_cast<SWMMModelLayer::DataCategory>(i);
-        if (!reg.hasEditor(cat))
+    QFETCH(int, kind);
+    QFETCH(QString, id);
+    QFETCH(QString, editor);
+    auto layer = openLayer("data_editor_routing.inp");
+    QVERIFY(layer);
+    ObjectBrowserPanel panel;
+    panel.resize(650, 800);
+    panel.setProject(layer.get(), nullptr);
+    panel.show();
+    auto *tree = panel.findChild<SWMMObjectTreeModel *>();
+    auto *view = panel.findChild<QTreeView *>();
+    QVERIFY(tree && view);
+    auto *proxy = qobject_cast<QSortFilterProxyModel *>(view->model());
+    QVERIFY(proxy);
+    const SWMMObjectRef ref{static_cast<SWMMObjectRef::ObjectType>(kind), id};
+    const auto leaf = proxy->mapFromSource(tree->indexFor(ref));
+    QCOMPARE(leaf.data(SWMMObjectTreeModel::RoleObjectRef).value<SWMMObjectRef>(), ref);
+    view->expand(leaf.parent());
+    view->scrollTo(leaf);
+    const auto pos = view->visualRect(leaf).center();
+    QCOMPARE(view->indexAt(pos), leaf);
+    const auto category = DataObjectAttributeTableModel::categoryForType(ref.objectType);
+    const int initialCount = layer->dataObjectCount(category);
+    QSignalSpy edited(layer.get(), &SWMMModelLayer::modelEdited);
+    QTimer::singleShot(0, &panel, [tree] {
+        auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+        QVERIFY(menu);
+        // A queued refresh can invalidate the original row during menu.exec().
+        tree->reload();
+        for (auto *action : menu->actions()) {
+            if (action->text() == QStringLiteral("Edit…")) {
+                QTest::mouseClick(menu, Qt::LeftButton, Qt::NoModifier,
+                                  menu->actionGeometry(action).center());
+                return;
+            }
+        }
+        menu->close();
+        QFAIL("Missing Edit action");
+    });
+    emit view->customContextMenuRequested(pos);
+    const auto closeRequestedEditor = [&](QWidget &host) {
+        for (auto *dialog : host.findChildren<QDialog *>()) {
+            if (!dialog->isVisible() ||
+                QString::fromLatin1(dialog->metaObject()->className()).section("::", -1) != editor)
+                continue;
+            bool selected = false;
+            for (auto *list : dialog->findChildren<QListView *>())
+                selected |= list->isVisible() && list->currentIndex().data().toString() == id;
+            dialog->close();
+            return selected;
+        }
+        return false;
+    };
+    QVERIFY2(closeRequestedEditor(panel), "Browser Edit opened the wrong dialog or ID");
+    emit view->doubleClicked(proxy->mapFromSource(tree->indexFor(ref)));
+    QVERIFY2(closeRequestedEditor(panel), "Browser double-click opened the wrong dialog or ID");
+
+    PropertiesPanel properties;
+    properties.setProject(layer.get());
+    properties.show();
+    properties.showDataObject(layer.get(), kind, id);
+    for (auto *button : properties.findChildren<QPushButton *>()) {
+        if (button->isVisible() && button->text().startsWith("Open ")) {
+            button->click();
+            break;
+        }
+    }
+    QVERIFY2(closeRequestedEditor(properties), "Properties header opened the wrong dialog or ID");
+
+    AttributeTablePanel table;
+    table.resize(900, 600);
+    table.setProject(layer.get(), nullptr);
+    table.show();
+    table.showDataCategory(category);
+    auto *grid = table.findChild<QTableView *>();
+    QVERIFY(grid);
+    const auto matches = grid->model()->match(grid->model()->index(0, 0), Qt::DisplayRole, id, 1,
+                                              Qt::MatchFixedString);
+    QCOMPARE(matches.size(), 1);
+    grid->scrollTo(matches.first());
+    QTimer::singleShot(0, &table, [&] {
+        auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+        QVERIFY(menu);
+        for (auto *action : menu->actions()) {
+            if (action->text().startsWith("Edit ")) {
+                action->trigger();
+                break;
+            }
+        }
+        menu->close();
+    });
+    emit grid->customContextMenuRequested(grid->visualRect(matches.first()).center());
+    QVERIFY2(closeRequestedEditor(table), "Attribute Table Edit opened the wrong dialog or ID");
+    QCOMPARE(layer->dataObjectCount(category), initialCount);
+    QCOMPARE(edited.count(), 0);
+}
+
+void TestDataObjectAttributeTable::switchingProjectsEditsOnlyTheRequestedRule()
+{
+    auto a = openLayer("data_editor_routing.inp");
+    auto b = openLayer("data_editor_routing.inp");
+    QVERIFY(a && b);
+    QUndoStack undoA, undoB;
+    QWidget host;
+    auto &registry = ComprehensiveEditorRegistry::instance();
+    using Dialog = openswmmvis::ui::RulesEditorDialog;
+    QVERIFY(registry.openForObject(DC::DataControls, a.get(), &undoA, "RuleB", &host));
+    QPointer<Dialog> previous = host.findChild<Dialog *>();
+    QVERIFY(previous && previous->currentProvider());
+    auto *providerA = previous->currentProvider();
+    const QString before = providerA->body();
+    QVERIFY(registry.openForObject(DC::DataControls, b.get(), &undoB, "RuleB", &host));
+    Dialog *current = nullptr;
+    for (auto *dialog : host.findChildren<Dialog *>())
+        if (dialog->isVisible())
+            current = dialog;
+    QVERIFY(current && current != previous);
+    auto *providerB = current->currentProvider();
+    QVERIFY(providerB && providerB != providerA);
+    QCOMPARE(providerB->name(), QStringLiteral("RuleB"));
+    auto *code = current->findChild<QTextEdit *>();
+    QVERIFY(code);
+    QString changed = code->toPlainText();
+    QVERIFY(changed.contains("CLOSED"));
+    code->setPlainText(changed.replace("CLOSED", "OPEN"));
+    current->close();
+    QCOMPARE(undoA.count(), 0);
+    QCOMPARE(providerA->body(), before);
+    QCOMPARE(undoB.count(), 1);
+    QVERIFY(providerB->body().contains("OPEN"));
+    undoB.undo();
+    QCOMPARE(providerB->body(), before);
+}
+
+void TestDataObjectAttributeTable::openingAFilteredPatternRevealsIt()
+{
+    auto layer = openLayer("data_editor_routing.inp");
+    QVERIFY(layer);
+    QWidget host;
+    auto &registry = ComprehensiveEditorRegistry::instance();
+    QVERIFY(registry.openForObject(DC::DataPatterns, layer.get(), nullptr, "LastPattern", &host));
+    auto *dialog = host.findChild<openswmmvis::ui::PatternEditorDialog *>();
+    QVERIFY(dialog);
+    auto *list = dialog->findChild<QListView *>();
+    QVERIFY(list);
+    for (auto *field : dialog->findChildren<QLineEdit *>())
+        if (field->placeholderText().contains("Search patterns"))
+            field->setText("LastPattern");
+    QCOMPARE(list->model()->rowCount(), 1);
+    QVERIFY(registry.openForObject(DC::DataPatterns, layer.get(), nullptr, "FirstPattern", &host));
+    QCOMPARE(list->currentIndex().data().toString(), QStringLiteral("FirstPattern"));
+}
+
+void TestDataObjectAttributeTable::referenceMenusUseTheFieldKind()
+{
+    auto layer = openLayer("data_editor_routing.inp");
+    QVERIFY(layer);
+    QTableView view;
+    QStandardItemModel model(1, 1);
+    view.setModel(&model);
+    const auto index = model.index(0, 0);
+    using R = DataObjectRef;
+    struct Example {
+        R::Kind kind;
+        const char *id;
+        const char *dialogClass;
+    };
+    const Example examples[] = {{R::DiversionCurve, "CurveB", "CurveEditorDialog"},
+                                {R::TidalCurve, "CurveB", "CurveEditorDialog"},
+                                {R::PumpCurve, "CurveB", "CurveEditorDialog"},
+                                {R::RatingCurve, "CurveB", "CurveEditorDialog"},
+                                {R::StorageCurve, "CurveB", "CurveEditorDialog"},
+                                {R::AnyCurve, "CurveB", "CurveEditorDialog"},
+                                {R::TimeSeries, "C1", "TimeseriesEditorDialog"},
+                                {R::Pattern, "LastPattern", "PatternEditorDialog"},
+                                {R::UnitHydrograph, "GroupB", "HydrographGroupEditor"},
+                                {R::Transect, "Profile", "TransectEditorDialog"},
+                                {R::Street, "ST1", "StreetEditorDialog"},
+                                {R::Snowpack, "Snow", "SnowpackEditorDialog"},
+                                {R::Pollutant, "TSS", "PollutantEditorDialog"},
+                                {R::LidControl, "Stack", "LidControlEditorDialog"},
+                                {R::Aquifer, "AQ1", "AquiferEditorDialog"},
+                                {R::Inlet, "CURB1", "InletEditorDialog"},
+                                {R::Node, "J1", nullptr},
+                                {R::RainGage, "G1", nullptr},
+                                {R::Subcatchment, "", nullptr},
+                                {R::SubcatchOutlet, "", nullptr},
+                                {R::CaptureNode, "", nullptr}};
+    for (const auto &example : examples) {
+        R ref;
+        ref.layer = layer.get();
+        ref.engine = layer->engine();
+        ref.kind = example.kind;
+        ref.currentName = QString::fromLatin1(example.id);
+        model.setData(index, QVariant::fromValue(ref));
+        QMenu menu;
+        QCOMPARE(addDataObjectReferenceAction(menu, &view, index), example.dialogClass != nullptr);
+        if (!example.dialogClass)
             continue;
-        const auto *entry = reg.find(cat);
-        QVERIFY2(entry && entry->openForObject,
-                 qPrintable(QStringLiteral("category %1 enables Edit… but cannot "
-                                           "open an existing object")
-                                .arg(i)));
+        QString actual;
+        QStringList selected;
+        QTimer::singleShot(0, &view, [&] {
+            auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+            if (!dialog)
+                return;
+            actual = QString::fromLatin1(dialog->metaObject()->className()).section("::", -1);
+            for (auto *list : dialog->findChildren<QListView *>())
+                if (list->isVisible())
+                    selected << list->currentIndex().data().toString();
+            dialog->reject();
+        });
+        menu.actions().first()->trigger();
+        QCOMPARE(actual, QString::fromLatin1(example.dialogClass));
+        QVERIFY2(selected.contains(ref.currentName),
+                 qPrintable(actual + ": " + selected.join(',')));
+        QCOMPARE(index.data(Qt::EditRole).value<R>().currentName, ref.currentName);
+    }
+}
+
+void TestDataObjectAttributeTable::streetPickerAssignsTheClickedConduit()
+{
+    auto layer = openLayer("data_editor_routing.inp");
+    QVERIFY(layer);
+    AttributeTablePanel table;
+    table.resize(1200, 650);
+    table.setProject(layer.get(), nullptr);
+    table.show();
+    table.showModelCategory(layer.get(), DC::CatConduits);
+    auto *grid = table.findChild<QTableView *>();
+    QVERIFY(grid);
+    QModelIndex field;
+    for (int col = 0; col < grid->model()->columnCount(); ++col) {
+        const auto index = grid->model()->index(0, col);
+        const auto value = index.data(Qt::EditRole);
+        if (value.metaType() == QMetaType::fromType<DataObjectRef>() &&
+            value.value<DataObjectRef>().kind == DataObjectRef::Street) {
+            field = index;
+            break;
+        }
+    }
+    QVERIFY(field.isValid());
+    QCOMPARE(field.data(Qt::EditRole).value<DataObjectRef>().currentName, "ST1");
+    grid->scrollTo(field);
+    QTimer::singleShot(0, &table, [&] {
+        auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+        QVERIFY(menu);
+        for (auto *action : menu->actions()) {
+            if (!action->text().contains("ST1") || !action->text().contains("Street"))
+                continue;
+            QTimer::singleShot(0, &table, [] {
+                auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+                QVERIFY(dialog);
+                auto *list = dialog->findChild<QListView *>();
+                const auto matches = list->model()->match(
+                    list->model()->index(0, 0), Qt::DisplayRole, "ST2", 1, Qt::MatchFixedString);
+                if (!matches.isEmpty())
+                    list->setCurrentIndex(matches.first());
+                dialog->close();
+            });
+            action->trigger();
+            break;
+        }
+        menu->close();
+    });
+    emit grid->customContextMenuRequested(grid->visualRect(field).center());
+    const auto result =
+        grid->model()->index(0, field.column()).data(Qt::EditRole).value<DataObjectRef>();
+    QCOMPARE(result.currentName, "ST2");
+}
+
+void TestDataObjectAttributeTable::openingAnUnassignedReferenceDoesNotCreateAnObject()
+{
+    auto layer = openLayer("data_editor_routing.inp");
+    QVERIFY(layer);
+    QTableView view;
+    QStandardItemModel model(1, 1);
+    view.setModel(&model);
+    const auto index = model.index(0, 0);
+    const QList<QPair<DataObjectRef::Kind, DC::DataCategory>> examples{
+        {DataObjectRef::Aquifer, DC::DataAquifers}, {DataObjectRef::Street, DC::DataStreets},
+        {DataObjectRef::Transect, DC::DataTransects}, {DataObjectRef::Pollutant, DC::DataPollutants}};
+    for (const auto &[kind, category] : examples) {
+        DataObjectRef ref;
+        ref.kind = kind;
+        ref.layer = layer.get();
+        ref.engine = layer->engine();
+        model.setData(index, QVariant::fromValue(ref));
+        const auto before = layer->dataObjectCount(category);
+        QMenu menu;
+        QVERIFY(addDataObjectReferenceAction(menu, &view, index));
+        QTimer::singleShot(0, &view, [] {
+            auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+            QVERIFY(dialog);
+            dialog->close();
+        });
+        menu.actions().first()->trigger();
+        QCOMPARE(layer->dataObjectCount(category), before);
+        QCOMPARE(index.data(Qt::EditRole).value<DataObjectRef>(), ref);
+    }
+}
+
+void TestDataObjectAttributeTable::missingReferenceDoesNotOpenAnotherObject()
+{
+    auto layer = openLayer("data_editor_routing.inp");
+    QVERIFY(layer);
+    QTableView view;
+    QStandardItemModel model(1, 1);
+    view.setModel(&model);
+    DataObjectRef ref;
+    ref.layer = layer.get();
+    ref.engine = layer->engine();
+    ref.currentName = "RemovedSeries";
+    const auto index = model.index(0, 0);
+    model.setData(index, QVariant::fromValue(ref));
+    QMenu menu;
+    QVERIFY(addDataObjectReferenceAction(menu, &view, index));
+    QString warning;
+    QTimer::singleShot(0, &view, [&] {
+        auto *dialog = qobject_cast<QDialog *>(QApplication::activeModalWidget());
+        if (auto *message = qobject_cast<QMessageBox *>(dialog))
+            warning = message->text();
+        if (dialog)
+            dialog->reject();
+    });
+    menu.actions().first()->trigger();
+    QVERIFY(warning.contains(ref.currentName));
+    QCOMPARE(index.data(Qt::EditRole).value<DataObjectRef>(), ref);
+}
+
+void TestDataObjectAttributeTable::detailedPropertiesUsesClickedSelection()
+{
+    auto layer = openLayer("data_editor_routing.inp");
+    QVERIFY(layer);
+    AttributeTablePanel table;
+    table.resize(1200, 650);
+    table.setProject(layer.get(), nullptr);
+    table.show();
+    table.showDataCategory(DC::DataTimeSeries);
+    auto *view = table.findChild<QTableView *>();
+    QVERIFY(view);
+    auto *model = view->model();
+    int col = 0;
+    while (col < model->columnCount() &&
+           model->index(0, col).data(Qt::EditRole).metaType().id() != qMetaTypeId<DataRecordsRef>())
+        ++col;
+    QVERIFY(col < model->columnCount());
+    const auto clicked = model->index(1, col);
+    view->scrollTo(clicked);
+    for (int expected : {1, 2}) {
+        view->selectRow(0);
+        if (expected == 2)
+            view->selectionModel()->select(clicked,
+                                           QItemSelectionModel::Select | QItemSelectionModel::Rows);
+        bool found = false;
+        bool scalarAction = false;
+        QTimer::singleShot(0, &table, [&] {
+            auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+            if (!menu)
+                return;
+            QAction *edit = nullptr;
+            for (auto *action : menu->actions()) {
+                scalarAction |= action->text().startsWith("Apply");
+                if (action->text().startsWith("Edit detailed properties"))
+                    edit = action;
+            }
+            found = edit;
+            if (edit)
+                edit->trigger();
+            menu->close();
+        });
+        emit view->customContextMenuRequested(view->visualRect(clicked).center());
+        QVERIFY(found);
+        QVERIFY(!scalarAction);
+        auto *dialog = table.findChild<QDialog *>("DataRecordsDialog");
+        QVERIFY(dialog && dialog->isVisible());
+        QCOMPARE(dialog->windowTitle(), QString("Properties — %1 selected").arg(expected));
+        dialog->close();
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     }
 }
 

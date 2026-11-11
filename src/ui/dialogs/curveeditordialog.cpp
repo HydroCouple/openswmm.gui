@@ -211,8 +211,11 @@ void CurveEditorDialog::openForCurve(const QString &name)
     if (!m_registry || name.isEmpty())
         return;
     auto *p = m_registry->findByName(name);
-    if (p)
+    if (p) {
+        if (m_mode == Mode::CreateNew)
+            onCancelCreateClicked_();
         selectProviderInList_(p);
+    }
 }
 
 CurveProvider *CurveEditorDialog::currentProvider() const noexcept
@@ -726,6 +729,8 @@ void CurveEditorDialog::selectProviderInList_(CurveProvider *p)
             continue;
         if (reinterpret_cast<CurveProvider *>(item->data(Qt::UserRole + 1).value<quintptr>()) ==
             p) {
+            if (m_listProxy && !m_listProxy->mapFromSource(src).isValid())
+                m_filterCombo->setCurrentIndex(0);
             const QModelIndex view = m_listProxy ? m_listProxy->mapFromSource(src) : src;
             if (view.isValid())
                 m_listView->setCurrentIndex(view);

@@ -60,17 +60,9 @@
 #include "ui/properties/initialqualityeditref.h"
 // Slice BM.0-Browse-Edit — right-click menu dispatches to editors via the registry.
 #include "ui/editors/comprehensiveeditorregistry.h"
-#include "ui/dialogs/curveeditordialog.h"
-#include "ui/dialogs/hydrographgroupeditor.h"
 #include "ui/dialogs/nodecompoundeditdialog.h"
-#include "ui/dialogs/patterneditordialog.h"
-#include "ui/dialogs/timeserieseditordialog.h"
-#include "ui/dialogs/transecteditordialog.h"
-#include "curve/curveregistry.h"
+#include "curve/curveprovider.h"
 #include "inlet/inletprovider.h"
-#include "pattern/patternregistry.h"
-#include "timeseries/timeseriesregistry.h"
-#include "transect/transectregistry.h"
 #include "ui/properties/swmmlinkpropertyadapter.h"
 #include "ui/properties/storageshapegeom.h" // storageGeomApplies (grey out N/A dims)
 #include "ui/properties/xsectshapegeom.h"   // xsectGeomApplies (grey out N/A geoms)
@@ -78,7 +70,6 @@
 #include "ui/properties/swmmsubcatchpropertyadapter.h"
 // Slice DA.2 — non-spatial Data Object adapters.
 #include "ui/properties/swmmaquiferpropertyadapter.h"
-#include "ui/dialogs/ruleseditordialog.h"
 #include "ui/properties/swmmcontrolrulepropertyadapter.h"
 #include "ui/properties/swmmcurvepropertyadapter.h"
 #include "ui/properties/swmmhydrographpropertyadapter.h"
@@ -2858,8 +2849,7 @@ void PropertiesPanel::showDataObject(SWMMModelLayer *layer, int objectKind, cons
 // ---------------------------------------------------------------------------
 //
 // Dispatches through `ComprehensiveEditorRegistry::openForObject`, the same
-// table the object browser's double-click and right-click "Edit…" use, so a
-// single editor instance is reused across all three surfaces.
+// table used by the Object Browser and Attribute Table.
 
 void PropertiesPanel::onOpenInEditorClicked()
 {
@@ -2868,27 +2858,11 @@ void PropertiesPanel::onOpenInEditorClicked()
     if (!ComprehensiveEditorRegistry::instance().hasEditor(m_dataObjectCategory))
         return;
 
-    // Undo stack is owned by the canvas; the attribute panel doesn't see it
-    // directly. Passing null is fine — the editors all accept a null stack
-    // and fall back to their own undo behaviour.
-    ComprehensiveEditorRegistry::instance().openForObject(
-        m_dataObjectCategory, m_swmmLayer, /*undoStack=*/nullptr, m_dataAdapter->name(), this);
+    auto *canvas = m_swmmLayer->editCanvas();
+    ComprehensiveEditorRegistry::instance().openForObject(m_dataObjectCategory, m_swmmLayer,
+                                                          canvas ? canvas->undoStack() : nullptr,
+                                                          m_dataAdapter->name(), this);
 }
-
-// ---------------------------------------------------------------------------
-// Slice BM.0-Browse-Edit (2026-05-25) — right-click on complex-typed rows
-// ---------------------------------------------------------------------------
-//
-// DataObjectRef rows: "Edit \"<name>\" in <editor>…" routed through the
-// matching modal-pick factory (HydrographGroupEditor::pickGroup, ...).
-// Curve rows fall back to the picker's non-modal flow (no pickCurve yet).
-// NodeCompoundEditRef rows: single "Edit…" that spawns NodeCompoundEditDialog.
-// Other row types pop no menu so we don't add UI noise on numeric / enum cells.
-//
-// Dispatch mirrors `DataObjectPickerEditor::onPickerClicked` — kept in sync
-// here intentionally rather than extracted, since the picker's body was last
-// edited by the user and we want to avoid clobber-on-revert. A shared
-// helper is a small follow-up once both surfaces stabilise.
 
 void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
 {
@@ -2910,192 +2884,32 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
     QMenu menu(m_treeView);
     const int metaId = value.metaType().id();
 
-    // Slice BR Phase 6.8.4 — when the panel is showing a control rule,
-    // offer a top-of-menu "Open in Rules Editor…" entry on any row so
-    // the user can jump to the dedicated CRUD editor regardless of which
-    // cell they happened to right-click. The inline MultiLineCellDelegate
-    // text editor stays in place for direct edits.
-    if (auto *crAdapter = qobject_cast<SWMMControlRulePropertyAdapter *>(m_dataAdapter)) {
-        const QString ruleName = crAdapter->name();
-        if (!ruleName.isEmpty()) {
-            QAction *actOpenInEditor =
-                menu.addAction(tr("Open \"%1\" in Rules Editor…").arg(ruleName));
-            QAction *picked = menu.exec(m_treeView->viewport()->mapToGlobal(pos));
-            if (picked == actOpenInEditor) {
-                auto *layer = crAdapter->modelLayer();
-                if (layer) {
-                    // Reuse the ComprehensiveEditorRegistry-singleton dialog by
-                    // first triggering createNew (which raises/reuses) then
-                    // pivoting to the named rule.
-                    using openswmmvis::ui::RulesEditorDialog;
-                    auto *dlg = new RulesEditorDialog(layer, /*undoStack=*/nullptr, m_treeView);
-                    dlg->setAttribute(Qt::WA_DeleteOnClose);
-                    dlg->openForRule(ruleName);
-                }
-            }
-            return;
-        }
-    }
-
-    // Slice BQ Phase 6.7.4 — Transect parity with the control-rule path
-    // above: any row in the attribute panel for a transect offers a
-    // top-of-menu "Open in Transect Editor…" jump to the dedicated CRUD
-    // editor. The transect's roughness / station tables are edited there.
-    if (auto *txAdapter = qobject_cast<SWMMTransectPropertyAdapter *>(m_dataAdapter)) {
-        const QString txName = txAdapter->name();
-        if (!txName.isEmpty()) {
-            QAction *actOpenInEditor =
-                menu.addAction(tr("Open \"%1\" in Transect Editor…").arg(txName));
-            QAction *picked = menu.exec(m_treeView->viewport()->mapToGlobal(pos));
-            if (picked == actOpenInEditor) {
-                auto *layer = txAdapter->modelLayer();
-                if (layer) {
-                    using openswmmvis::transect::TransectRegistry;
-                    using openswmmvis::ui::TransectEditorDialog;
-                    auto *reg = qobject_cast<TransectRegistry *>(layer->ensureTransectRegistry());
-                    if (!reg)
-                        return;
-                    auto *dlg =
-                        new TransectEditorDialog(reg, layer, /*undoStack=*/nullptr, m_treeView);
-                    dlg->setAttribute(Qt::WA_DeleteOnClose);
-                    dlg->openForTransect(txName);
-                }
-            }
-            return;
-        }
+    if (metaId == qMetaTypeId<DataRecordsRef>()) {
+        openDataRecords(value.value<DataRecordsRef>(), m_treeView);
+        return;
     }
 
     if (metaId == qMetaTypeId<DataObjectRef>()) {
-        const DataObjectRef ref = value.value<DataObjectRef>();
-        if (!ref.layer)
-            return;
+        if (addDataObjectReferenceAction(menu, m_treeView, valueIdx))
+            menu.exec(m_treeView->viewport()->mapToGlobal(pos));
+        return;
+    }
 
-        // Rain gages and the subcatch outlet picker have no comprehensive
-        // editor — skip the menu entirely (combo selection on the cell is
-        // sufficient; right-click adds no value).
-        if (ref.kind == DataObjectRef::RainGage ||
-            ref.kind == DataObjectRef::SubcatchOutlet
-            // A capture node is picked from the existing nodes; there is no
-            // "Nodes" comprehensive editor to route the menu at.
-            || ref.kind == DataObjectRef::CaptureNode)
-            return;
-
-        // Kind → category (mirrors dataobjectpickereditor.cpp).
-        SWMMModelLayer::DataCategory dc = SWMMModelLayer::DataTimeSeries;
-        switch (ref.kind) {
-        case DataObjectRef::TidalCurve:
-        case DataObjectRef::AnyCurve:
-        case DataObjectRef::PumpCurve:
-        case DataObjectRef::RatingCurve:
-        case DataObjectRef::StorageCurve:
-            dc = SWMMModelLayer::DataCurves;
-            break;
-        case DataObjectRef::TimeSeries:
-            dc = SWMMModelLayer::DataTimeSeries;
-            break;
-        case DataObjectRef::Pattern:
-            dc = SWMMModelLayer::DataPatterns;
-            break;
-        case DataObjectRef::UnitHydrograph:
-            dc = SWMMModelLayer::DataHydrographs;
-            break;
-        case DataObjectRef::Pollutant:
-            dc = SWMMModelLayer::DataPollutants;
-            break;
-        case DataObjectRef::LidControl:
-            dc = SWMMModelLayer::DataLIDControls;
-            break;
-        case DataObjectRef::Aquifer:
-            dc = SWMMModelLayer::DataAquifers;
-            break;
-        case DataObjectRef::Inlet:
-            dc = SWMMModelLayer::DataInlets;
-            break;
-        case DataObjectRef::RainGage: /* unreachable, handled above */
-            break;
-        case DataObjectRef::SubcatchOutlet: /* unreachable, handled above */
-            break;
-        case DataObjectRef::CaptureNode: /* unreachable, handled above */
-            break;
+    if (m_dataAdapter && (m_dataObjectCategory == SWMMModelLayer::DataControls ||
+                          m_dataObjectCategory == SWMMModelLayer::DataTransects)) {
+        const auto category = m_dataObjectCategory;
+        const auto name = m_dataAdapter->name();
+        QPointer<SWMMModelLayer> owner(m_dataAdapter->modelLayer());
+        const auto engine = owner ? owner->engine() : nullptr;
+        const auto &registry = ComprehensiveEditorRegistry::instance();
+        auto *edit =
+            menu.addAction(tr("Open \"%1\" in %2…").arg(name, registry.editorTitle(category)));
+        if (menu.exec(m_treeView->viewport()->mapToGlobal(pos)) == edit && owner &&
+            owner == m_swmmLayer && owner->engine() == engine) {
+            auto *canvas = owner->editCanvas();
+            registry.openForObject(category, owner, canvas ? canvas->undoStack() : nullptr, name,
+                                   this);
         }
-
-        const auto &reg = ComprehensiveEditorRegistry::instance();
-        const QString title = reg.editorTitle(dc);
-        const bool shipped = reg.hasEditor(dc);
-
-        QAction *actEdit =
-            menu.addAction(ref.currentName.isEmpty()
-                               ? tr("Open %1…").arg(title.isEmpty() ? tr("Editor") : title)
-                               : tr("Edit \"%1\" in %2…")
-                                     .arg(ref.currentName, title.isEmpty() ? tr("Editor") : title));
-        actEdit->setEnabled(shipped);
-        if (!shipped)
-            actEdit->setToolTip(reg.gapTooltip(dc));
-        menu.setToolTipsVisible(true);
-
-        QAction *picked = menu.exec(m_treeView->viewport()->mapToGlobal(pos));
-        if (!picked || picked != actEdit || !shipped)
-            return;
-
-        QString chosen;
-        switch (dc) {
-        case SWMMModelLayer::DataHydrographs:
-            chosen = HydrographGroupEditor::pickGroup(ref.layer, ref.currentName, m_treeView);
-            break;
-        case SWMMModelLayer::DataPatterns: {
-            using openswmmvis::pattern::PatternRegistry;
-            using openswmmvis::ui::PatternEditorDialog;
-            auto *r = qobject_cast<PatternRegistry *>(ref.layer->ensurePatternRegistry());
-            if (!r)
-                return;
-            chosen = PatternEditorDialog::pickPattern(r, /*undoStack=*/nullptr, ref.currentName,
-                                                      m_treeView);
-            break;
-        }
-        case SWMMModelLayer::DataTimeSeries: {
-            using openswmmvis::timeseries::TimeseriesRegistry;
-            using openswmmvis::ui::TimeseriesEditorDialog;
-            auto *r = qobject_cast<TimeseriesRegistry *>(ref.layer->ensureTimeseriesRegistry());
-            if (!r)
-                return;
-            chosen = TimeseriesEditorDialog::pickTimeseries(r, /*undoStack=*/nullptr,
-                                                            ref.currentName, m_treeView);
-            if (!chosen.isEmpty())
-                r->saveToEngine();
-            break;
-        }
-        case SWMMModelLayer::DataCurves: {
-            // CurveEditorDialog has no pickCurve modal yet — match the
-            // picker's non-modal fallback: open the dialog and rely on
-            // the user to re-pick from the combo once they're done.
-            using openswmmvis::curve::CurveRegistry;
-            using openswmmvis::ui::CurveEditorDialog;
-            auto *r = qobject_cast<CurveRegistry *>(ref.layer->ensureCurveRegistry());
-            if (!r)
-                return;
-            QPointer<CurveEditorDialog> dlg =
-                ref.currentName.isEmpty()
-                    ? CurveEditorDialog::createNew(r, /*undoStack=*/nullptr, m_treeView)
-                    : nullptr;
-            if (!dlg) {
-                dlg = new CurveEditorDialog(r, /*undoStack=*/nullptr, m_treeView);
-                dlg->openForCurve(ref.currentName);
-            }
-            if (dlg) {
-                dlg->setAttribute(Qt::WA_DeleteOnClose);
-                dlg->show();
-            }
-            return;
-        }
-        default:
-            return;
-        }
-        if (chosen.isEmpty())
-            return;
-
-        DataObjectRef updated = ref;
-        updated.currentName = chosen;
-        m_treeView->model()->setData(valueIdx, QVariant::fromValue(updated), Qt::EditRole);
         return;
     }
 
@@ -3108,7 +2922,6 @@ void PropertiesPanel::onTreeContextMenu(const QPoint &pos)
             openUsageEditor(ref, window());
         return;
     }
-    if(metaId==qMetaTypeId<DataRecordsRef>()) {openDataRecords(value.value<DataRecordsRef>(),m_treeView);return;}
     if (metaId == qMetaTypeId<NodeCompoundEditRef>()) {
         const NodeCompoundEditRef ref = value.value<NodeCompoundEditRef>();
         if (!ref.engine || ref.nodeName.isEmpty())

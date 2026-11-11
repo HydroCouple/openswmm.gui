@@ -205,8 +205,11 @@ void PatternEditorDialog::openForPattern(const QString &name)
     if (!m_registry || name.isEmpty())
         return;
     auto *p = m_registry->findByName(name);
-    if (p)
+    if (p) {
+        if (m_mode == Mode::CreateNew)
+            onCancelCreateClicked_();
         selectProviderInList_(p);
+    }
 }
 
 QString PatternEditorDialog::pickPattern(PatternRegistry *registry, QUndoStack *undoStack,
@@ -701,6 +704,8 @@ void PatternEditorDialog::selectProviderInList_(PatternProvider *p)
         const auto ptr =
             reinterpret_cast<PatternProvider *>(item->data(Qt::UserRole + 1).value<quintptr>());
         if (ptr == p) {
+            if (m_listProxy && !m_listProxy->mapFromSource(srcIdx).isValid())
+                m_searchEdit->clear();
             const QModelIndex proxyIdx = m_listProxy ? m_listProxy->mapFromSource(srcIdx) : srcIdx;
             if (proxyIdx.isValid())
                 m_listView->setCurrentIndex(proxyIdx);

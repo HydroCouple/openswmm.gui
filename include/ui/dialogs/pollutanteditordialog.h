@@ -92,25 +92,9 @@ public:
     static PollutantEditorDialog *createNew(openswmmvis::pollutant::PollutantRegistry *registry,
                                             SWMMModelLayer *layer, QWidget *parent = nullptr);
 
-    /**
-     * @brief Run a modal edit/create workflow and return its current provider name on close.
-     * @param[in] registry Borrowed registry that must remain alive for the entire nested event
-     * loop and final save; null returns empty immediately.
-     * @param[in] layer Borrowed optional model context, not owned.
-     * @param[in] initialName Borrowed identity to preselect when found; empty creates a
-     * suggested-name provider immediately. Missing nonempty names retain the constructor's
-     * initial selection.
-     * @param[in] parent Optional owner for the stack-lifetime child dialog.
-     * @return Copied current provider name or empty when none remains; does not depend on
-     * accepted versus rejected result.
-     * @details Provider edits are live, exec() result is ignored and saveToEngine() is called
-     * after closing without inspecting its result. No transaction or cancel rollback is
-     * supplied.
-     *
-     * @details Modal pick / create / edit entry point — mirrors pickStreet. Empty
-     *  \p initialName → CreateNew; otherwise → Edit pre-selecting that name.
-     *  Returns the bound pollutant name on close.
-     */
+    /*! Open the pollutant picker on the assigned ID. With no matching ID it opens
+     *  without a selection. Users can choose an existing object or add one in the editor.
+     *  Returns the selected name on close, or an empty string if no object was chosen. */
     static QString pickPollutant(openswmmvis::pollutant::PollutantRegistry *registry,
                                  SWMMModelLayer *layer, const QString &initialName,
                                  QWidget *parent = nullptr);

@@ -89,19 +89,9 @@ public:
     static AquiferEditorDialog *createNew(openswmmvis::aquifer::AquiferRegistry *registry,
                                           SWMMModelLayer *layer, QWidget *parent = nullptr);
 
-    /**
-     * @brief Run a modal live aquifer editor and return its selected provider ID on close.
-     * @param[in] registry Borrowed registry required to remain alive through exec() and final
-     * save; null returns empty immediately.
-     * @param[in] layer Borrowed optional model/pattern context; not owned.
-     * @param[in] initialName Borrowed identity to preselect when found; empty creates a
-     * suggested aquifer immediately, while missing nonempty identity retains initial selection.
-     * @param[in] parent Optional Qt owner of the stack-lifetime child dialog.
-     * @return Copied current provider name, or empty if none remains, independent of
-     * Accepted/Rejected result.
-     * @details Ignores exec() result and calls saveToEngine() on closure without checking
-     * status. Live provider changes are not canceled or rolled back.
-     */
+    /*! Open the aquifer picker on the assigned ID. With no matching ID it opens
+     *  without a selection. Users can choose an existing object or add one in the editor.
+     *  Returns the selected name on close, or an empty string if no object was chosen. */
     static QString pickAquifer(openswmmvis::aquifer::AquiferRegistry *registry,
                                SWMMModelLayer *layer, const QString &initialName,
                                QWidget *parent = nullptr);

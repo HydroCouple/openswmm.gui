@@ -191,7 +191,10 @@ void HydrographGroupEditor::openForGroup(const QString &name)
     const int sourceRow = m_groupListModel->indexOf(name);
     if (sourceRow < 0)
         return;
-    const QModelIndex proxyIdx = m_filterProxy->mapFromSource(m_groupListModel->index(sourceRow));
+    const auto source = m_groupListModel->index(sourceRow);
+    if (!m_filterProxy->mapFromSource(source).isValid())
+        m_filterEdit->clear();
+    const QModelIndex proxyIdx = m_filterProxy->mapFromSource(source);
     if (proxyIdx.isValid())
         m_groupList->setCurrentIndex(proxyIdx);
 }
