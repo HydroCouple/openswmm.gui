@@ -230,6 +230,16 @@ add_swmmvis_unit_test(test_meshinpbcroundtrip
     ${PROJECT_SOURCE_DIR}/libraries/meshkit/src/mesh/inpmeshwriter.cpp
 )
 
+# Edge-case snapshots for the mesh reader (plan §5 Phase 1 (b)): 64 generated inputs, each
+# result compared with tests/unit/data/inpmeshreader_edgecases/<case>.txt (pinned to the former
+# reader's behaviour; MESH_EDGE_GOLDEN_WRITE=1 rewrites them for a deliberate change).
+add_swmmvis_unit_test(test_inpmeshreader_edgecases
+    test_inpmeshreader_edgecases.cpp
+    ${PROJECT_SOURCE_DIR}/libraries/meshkit/include/mesh/inpmeshreader.h
+)
+target_compile_definitions(test_inpmeshreader_edgecases PRIVATE
+    MESH_EDGE_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
+
 # Channel burn-in, phase P0: section reconstruction, thalweg anchoring,
 # longitudinal bed interpolation and inter-section blending. Pure geometry —
 # no GDAL, no engine, no widgets (CHANNEL_BURN_IN_PLAN_2026-09-21.md §8 V1).

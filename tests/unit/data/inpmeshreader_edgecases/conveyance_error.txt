@@ -1,0 +1,16 @@
+hasMesh=0 isExternal=0 mesh.ok=0
+sourcePath=""
+errorMsg="[2D_EDGE_CONVEYANCE] CONVEYANCE must be a number in [0, 1] (got: 0 2 1.5)"
+warning=""
+unitsHeader=""
+sourceCrsTag=""
+mesh.errorMsg=""
+vertices n=0
+cells n=0
+boundaryEdges n=0
+cellCouplings n=0
+infilDefaults n=0
+infilOverrides n=0
+infilStep=0/0x0000000000000000
+surface/infiltration previews: 0 0 0 0 0 0
+edgeBCs n=0
