@@ -2441,6 +2441,9 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // 7d43a1ff) — before that fix the sink was never wired and the loss was
     // silent all the way to the user; reading the delta here is the GUI half.
     const int engineWarnsBefore = swmm_get_warning_count(mModelLayer->engine());
+    QString registryError;
+    if (!mModelLayer->flushDataObjectRegistries(&registryError))
+        return failSave(tr("save model edits"), newPath, registryError);
     // Built-in INP serialization can otherwise rewrite an external mesh at
     // its OLD reference (or at an unrelated same-named Save As destination).
     // Temporarily request inline output; the GUI owns the selected external
@@ -2480,8 +2483,6 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
                 .toUtf8();
         return context.path.isEmpty() ? nullptr : context.path.constData();
     };
-    // Include registry edits from modeless editors that are still open at save time.
-    mModelLayer->flushDataObjectRegistries();
     modelWriteStarted = !pluginId.isEmpty();
     const int rc =
         pluginId.isEmpty()

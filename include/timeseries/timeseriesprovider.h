@@ -297,6 +297,9 @@ public:
     void setTimeMode(TimeMode mode, QDateTime anchorForRelative = {});
 
 signals:
+    /// Authored inline samples, time mode or file binding changed. Cache eviction is display-only.
+    void storageChanged();
+
     /*! \brief The derived timeMode() flipped, or the relative anchor moved.
      *  Payload-free; subscribers re-read (metadataChanged style). */
     void timeModeChanged();
@@ -378,6 +381,7 @@ private:
      * @details Extends sticky all-relative intent to the full list, otherwise clamps the existing prefix; emits timeModeChanged() only when the derived mode differs.
      */
     void reconcileRelativeAfterMutation_(TimeMode prevMode);
+    void notifyInlineEdit();
 };
 
 } // namespace openswmmvis::timeseries

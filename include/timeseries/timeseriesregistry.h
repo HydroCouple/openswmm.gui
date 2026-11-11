@@ -178,6 +178,14 @@ public:
      */
     int saveToEngine();
 
+    /// Publish any pending editor changes before reading engine-backed records.
+    bool flushPendingEdit(TimeseriesProvider *provider);
+    bool flushPendingEdits(QString *error = nullptr);
+
+    /// Stop pending editor writes when the owning model closes its engine.
+    void detachEngine();
+
+
     /*! \brief The engine handle currently bound to this registry (the one
      *  loadFromEngine / saveToEngine last operated on), or nullptr if none.
      * @return Borrowed cached engine handle, or null before any non-null load/save; lifetime is controlled by the project.
@@ -231,6 +239,9 @@ signals:
      */
     void simulationStartChanged(const QDateTime &now);
 
+    /// The edited series is available to engine-backed views.
+    void editsPublished(openswmmvis::timeseries::TimeseriesProvider *provider);
+
     /*! \brief A provider was created and added to the registry.
      * @param[in] provider Borrowed owned provider after registration/name-signal wiring.
      */
@@ -262,6 +273,9 @@ private:
     QHash<QString, TimeseriesProvider *> m_byLowerName; ///< Case-insensitive index.
     QSet<TimeseriesProvider *>
         m_failedPointImports;       ///< Preserve engine rows when editor import rejects timestamps.
+    QSet<TimeseriesProvider *> m_pendingEdits;
+    bool m_importing = false;
+    bool m_flushScheduled = false;
     void *m_engineHandle = nullptr; ///< Cached for the no-arg saveToEngine().
     QString m_projectAnchor;        ///< .inp dir for relative display.
     QDateTime m_simulationStart;    ///< START_DATE+TIME; anchor for relative series.

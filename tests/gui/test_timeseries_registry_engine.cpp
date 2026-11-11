@@ -22,6 +22,8 @@
 #include <QObject>
 #include <QTest>
 
+#include <limits>
+
 using openswmmvis::core::qDateTimeToSwmmDateTime;
 using openswmmvis::timeseries::TimeseriesProvider;
 using openswmmvis::timeseries::TimeseriesRegistry;
@@ -74,6 +76,44 @@ class TestTimeseriesRegistryEngine : public QObject
     Q_OBJECT
 
 private slots:
+    void pendingEditsPreserveOtherSeriesAndRetryRejectedWrites()
+    {
+        const QByteArray file = QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", "."))
+                                    .filePath("timeseries_files/rain_ts_files.inp").toUtf8();
+        SWMM_Engine eng = swmm_engine_create();
+        QVERIFY(eng);
+        QCOMPARE(swmm_engine_open(eng, file, "", "", nullptr), SWMM_OK);
+        TimeseriesRegistry registry;
+        QCOMPARE(registry.loadFromEngine(eng), 3);
+        auto *external = registry.findByName("TS_COL");
+        auto *series = registry.create("EDITED");
+        QVERIFY(external && series);
+        const int externalIndex = swmm_table_index(eng, "TS_COL");
+        const int inlineIndex = swmm_table_index(eng, "EDITED");
+        external->disposePointCache();
+        QCOMPARE(external->pointCount(), 0);
+        QVERIFY(series->setAllPoints({{t(2026, 1, 1, 0), 1.5}}));
+        QCoreApplication::sendPostedEvents(&registry, QEvent::MetaCall);
+        double value = 0.;
+        QCOMPARE(swmm_table_get_point(eng, inlineIndex, 0, nullptr, &value), SWMM_OK);
+        QCOMPARE(value, 1.5);
+        int count = 0;
+        QCOMPARE(swmm_table_get_point_count(eng, externalIndex, &count), SWMM_OK);
+        QCOMPARE(count, 4);
+
+        QVERIFY(series->setValueAt(0, std::numeric_limits<double>::infinity()));
+        QString reason;
+        QVERIFY(!registry.flushPendingEdits(&reason));
+        QVERIFY(reason.contains("EDITED"));
+        QCOMPARE(swmm_table_get_point(eng, inlineIndex, 0, nullptr, &value), SWMM_OK);
+        QCOMPARE(value, 1.5);
+        QVERIFY(series->setValueAt(0, 2.5));
+        QVERIFY(registry.flushPendingEdits());
+        QCOMPARE(swmm_table_get_point(eng, inlineIndex, 0, nullptr, &value), SWMM_OK);
+        QCOMPARE(value, 2.5);
+        registry.detachEngine();
+        swmm_engine_destroy(eng);
+    }
 
     /**
      *
@@ -654,5 +694,5 @@ private slots:
     }
 };
 
-QTEST_APPLESS_MAIN(TestTimeseriesRegistryEngine)
+QTEST_GUILESS_MAIN(TestTimeseriesRegistryEngine)
 #include "test_timeseries_registry_engine.moc"

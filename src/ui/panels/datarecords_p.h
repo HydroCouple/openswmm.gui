@@ -120,6 +120,12 @@ QList<SurfaceConstituent> surfaceConstituents(SWMMModelLayer *layer)
 }
 QVariantMap remainingRecord(SWMMModelLayer *layer, DC::DataCategory cat, const QString &name)
 {
+    if (cat == DC::DataTimeSeries) {
+        auto *series = qobject_cast<openswmmvis::timeseries::TimeseriesRegistry *>(
+            layer->ensureTimeseriesRegistry());
+        if (series && !series->flushPendingEdit(series->findByName(name)))
+            return {};
+    }
     const auto e = layer->engine();
     const int idx = nativeIndex(e, cat, name);
     if (idx < 0)

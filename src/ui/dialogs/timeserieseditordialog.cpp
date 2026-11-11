@@ -32,7 +32,7 @@
 #include <QButtonGroup>
 #include <QCheckBox>
 #include <QClipboard>
-#include <QCloseEvent>
+#include <QAbstractItemDelegate>
 #include <QComboBox>
 #include <QDateTime>
 #include <QDateTimeEdit>
@@ -211,16 +211,25 @@ void TimeseriesEditorDialog::invalidateContext()
     reject();
 }
 
-void TimeseriesEditorDialog::closeEvent(QCloseEvent *e)
+void TimeseriesEditorDialog::done(int result)
 {
-    // Step F — dispose the currently-bound provider's cache if it's
-    // ExternalFile-backed. The provider survives in the registry; only its
-    // (re-readable) point vector is freed.
-    if (!m_providers.isEmpty()) {
-        if (auto *p = m_providers.first().data())
-            p->disposePointCache();
+    if (m_contextValid && m_table) {
+        // The title-bar close can arrive while the cell delegate still owns the typed value.
+        const auto index = m_table->currentIndex();
+        if (auto *editor = m_table->indexWidget(index)) {
+            auto *delegate = m_table->itemDelegateForIndex(index);
+            emit delegate->commitData(editor);
+            emit delegate->closeEditor(editor);
+        }
     }
-    QDialog::closeEvent(e);
+    QString error;
+    if (m_registry && !m_registry->flushPendingEdits(&error)) {
+        m_status->showMessage(error);
+        return;
+    }
+    if (!m_providers.isEmpty() && m_providers.first())
+        m_providers.first()->disposePointCache();
+    QDialog::done(result);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -266,11 +275,6 @@ QString TimeseriesEditorDialog::pickTimeseries(TimeseriesRegistry *registry, QUn
     }
 
     dlg.exec();
-
-    // Flush any inline edits back to the engine so callers that read
-    // names via the engine API see the new/edited series.
-    if (dlg.m_registry)
-        dlg.m_registry->saveToEngine();
 
     return dlg.currentName();
 }
@@ -636,9 +640,7 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
     // the chart isn't squeezed to a sliver by the grid's larger sizeHint.
 
     // ── Close row ───────────────────────────────────────────────────────────
-    // Wired to close() rather than accept()/reject(): on Qt >= 6.3 done()
-    // bypasses closeEvent(), which is where the point cache is disposed. Not
-    // the default button — Enter in a value cell must never dismiss the editor.
+    // Enter in a value cell should commit the cell without dismissing the editor.
     auto *closeBox = new QDialogButtonBox(QDialogButtonBox::Close, this);
     closeBox->setObjectName(QStringLiteral("ts_closeBox"));
     closeBox->setContentsMargins(8, 6, 8, 6); // outer runs at 0 margins
@@ -2374,7 +2376,7 @@ void TimeseriesEditorDialog::rebindActiveProvider_(TimeseriesProvider *p)
     // Inline / Gpkg providers are unaffected (disposePointCache is a no-op).
     if (!m_providers.isEmpty()) {
         if (auto *prev = m_providers.first().data())
-            if (prev != p)
+            if (prev != p && (!m_registry || m_registry->flushPendingEdit(prev)))
                 prev->disposePointCache();
     }
 

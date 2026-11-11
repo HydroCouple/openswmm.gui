@@ -72,6 +72,7 @@ TimeseriesProvider::TimeMode TimeseriesProvider::timeMode() const noexcept
 
 void TimeseriesProvider::setRelativeInfo(int count, QDateTime anchor, int allRelativeIntent)
 {
+    const int previousCount = m_relativeCount;
     const TimeMode prevMode = timeMode();
     const QDateTime prevAnchor = m_relativeAnchor;
 
@@ -83,8 +84,10 @@ void TimeseriesProvider::setRelativeInfo(int count, QDateTime anchor, int allRel
     m_relativeCount = qBound(0, count, static_cast<int>(m_points.size()));
     m_relativeAnchor = std::move(anchor);
 
-    if (timeMode() != prevMode || m_relativeAnchor != prevAnchor)
+    if (timeMode() != prevMode || m_relativeAnchor != prevAnchor || m_relativeCount != previousCount) {
+        notifyInlineEdit();
         emit timeModeChanged();
+    }
 }
 
 void TimeseriesProvider::setTimeMode(TimeMode mode, QDateTime anchorForRelative)
@@ -106,8 +109,10 @@ void TimeseriesProvider::setTimeMode(TimeMode mode, QDateTime anchorForRelative)
         // badge has no use for it while Absolute.
     }
 
-    if (timeMode() != prevMode || m_relativeAnchor != prevAnchor)
+    if (timeMode() != prevMode || m_relativeAnchor != prevAnchor) {
+        notifyInlineEdit();
         emit timeModeChanged();
+    }
 }
 
 void TimeseriesProvider::reconcileRelativeAfterMutation_(TimeMode prevMode)
@@ -118,6 +123,12 @@ void TimeseriesProvider::reconcileRelativeAfterMutation_(TimeMode prevMode)
         m_relativeCount = qBound(0, m_relativeCount, static_cast<int>(m_points.size()));
     if (timeMode() != prevMode)
         emit timeModeChanged();
+}
+
+void TimeseriesProvider::notifyInlineEdit()
+{
+    if (m_sourceMode == SourceMode::Inline)
+        emit storageChanged();
 }
 
 bool TimeseriesProvider::isStrictMonotone_(const QVector<TimeseriesPoint> &pts)
@@ -157,6 +168,9 @@ bool TimeseriesProvider::setAllPoints(QVector<TimeseriesPoint> newPoints, QStrin
     }
     const TimeMode prevMode = timeMode();
     m_points = std::move(newPoints);
+    reconcileRelativeAfterMutation_(prevMode);
+    if (prevCount || newCount)
+        notifyInlineEdit();
     if (prevCount > 0) {
         qCDebug(lcTsLoadProvider) << "  emit pointsRemoved(0," << prevCount << ")";
         emit pointsRemoved(0, prevCount);
@@ -165,7 +179,6 @@ bool TimeseriesProvider::setAllPoints(QVector<TimeseriesPoint> newPoints, QStrin
         qCDebug(lcTsLoadProvider) << "  emit pointsInserted(0," << m_points.size() << ")";
         emit pointsInserted(0, m_points.size());
     }
-    reconcileRelativeAfterMutation_(prevMode);
     qCDebug(lcTsLoadProvider) << "setAllPoints EXIT  took" << t.elapsed() << "ms";
     return true;
 }
@@ -182,6 +195,7 @@ bool TimeseriesProvider::setValueAt(int i, double newValue, QString *reasonOut)
     if (m_points[i].value == newValue)
         return true;
     m_points[i].value = newValue;
+    notifyInlineEdit();
     emit pointsChanged(i, 1);
     return true;
 }
@@ -193,6 +207,7 @@ bool TimeseriesProvider::setValueLive(int i, double newValue)
     if (m_points[i].value == newValue)
         return true;
     m_points[i].value = newValue;
+    notifyInlineEdit();
     emit pointsChanged(i, 1);
     return true;
 }
@@ -224,6 +239,7 @@ bool TimeseriesProvider::setPointAt(int i, QDateTime newTime, double newValue, Q
     }
     m_points[i].time = std::move(newTime);
     m_points[i].value = newValue;
+    notifyInlineEdit();
     emit pointsChanged(i, 1);
     return true;
 }
@@ -251,8 +267,9 @@ int TimeseriesProvider::insertPoint(QDateTime time, double value, QString *reaso
     // all-relative intent is handled by the reconcile below.
     if (!m_allRelative && at < m_relativeCount)
         ++m_relativeCount;
-    emit pointsInserted(at, 1);
     reconcileRelativeAfterMutation_(prevMode);
+    notifyInlineEdit();
+    emit pointsInserted(at, 1);
     return at;
 }
 
@@ -264,6 +281,7 @@ void TimeseriesProvider::removePointsAt(QVector<int> indices)
     std::sort(indices.begin(), indices.end(), std::greater<int>());
     indices.erase(std::unique(indices.begin(), indices.end()), indices.end());
     const TimeMode prevMode = timeMode();
+    const auto originalCount = pointCount();
     for (int idx : indices) {
         if (idx < 0 || idx >= m_points.size())
             continue;
@@ -273,6 +291,8 @@ void TimeseriesProvider::removePointsAt(QVector<int> indices)
         emit pointsRemoved(idx, 1);
     }
     reconcileRelativeAfterMutation_(prevMode);
+    if (pointCount() != originalCount)
+        notifyInlineEdit();
 }
 
 void TimeseriesProvider::setName(QString newName)
@@ -307,16 +327,19 @@ void TimeseriesProvider::setSourceMode(SourceMode mode)
         return;
     const SourceMode prev = m_sourceMode;
     m_sourceMode = mode;
+    emit storageChanged();
     emit sourceModeChanged(prev, m_sourceMode);
 }
 
 void TimeseriesProvider::setFileSource(QString path, QString columnSelector, QDateTime mtime)
 {
-    const bool changed =
-        (path != m_filePath) || (columnSelector != m_columnSelector) || (mtime != m_fileMTime);
+    const bool bindingChanged = path != m_filePath || columnSelector != m_columnSelector;
+    const bool changed = bindingChanged || mtime != m_fileMTime;
     m_filePath = std::move(path);
     m_columnSelector = std::move(columnSelector);
     m_fileMTime = std::move(mtime);
+    if (bindingChanged && m_sourceMode == SourceMode::ExternalFile)
+        emit storageChanged();
     if (changed)
         emit metadataChanged();
 }
