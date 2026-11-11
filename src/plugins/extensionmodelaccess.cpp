@@ -139,6 +139,8 @@ QString writeSnapshot(SWMMVisProjectWindow *window, QString *error)
         return mapped.storage.isEmpty() ? nullptr : mapped.storage.constData();
     };
     auto engine = window->modelLayer()->engine();
+    if (!window->modelLayer()->flushDataObjectRegistries(error))
+        return {};
     // Preserve the source mesh reference while requesting a self-contained inline snapshot.
     QByteArray meshReference(32768, '\0');
     const bool haveMeshReference = swmm_options_get_ext(engine, "MESH_FILE", meshReference.data(),
@@ -155,7 +157,6 @@ QString writeSnapshot(SWMMVisProjectWindow *window, QString *error)
             *error = "The engine refused inline mesh serialization for a snapshot.";
         return {};
     }
-    window->modelLayer()->flushDataObjectRegistries();
     const int warningsBefore = swmm_get_warning_count(engine);
     const int result =
         swmm_model_write_staged(engine, path.toUtf8().constData(), mapOutput, &mapper);

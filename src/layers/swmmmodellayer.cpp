@@ -937,6 +937,7 @@ void SWMMModelLayer::closeEngine()
 {
     if (m_engine) {
         emit engineAboutToClose();
+        m_tsRegistryEngineHandle = nullptr;
         swmm_engine_close(m_engine);
         swmm_engine_destroy(m_engine);
         m_engine = nullptr;
@@ -8080,6 +8081,7 @@ QObject *SWMMModelLayer::ensureTimeseriesRegistry()
         reg = new TimeseriesRegistry(this);
         m_tsRegistry = reg;
         m_tsRegistryEngineHandle = eng;
+        connect(this, &SWMMModelLayer::engineAboutToClose, reg, &TimeseriesRegistry::detachEngine);
         reg->loadFromEngine(eng);
         // Anchor for relative-path DISPLAY in the timeseries editor. Refreshed
         // below on every call too, so it follows a Save As.
@@ -8125,12 +8127,8 @@ QObject *SWMMModelLayer::ensureTimeseriesRegistry()
                 getOption(QByteArrayLiteral("START_TIME"), QStringLiteral("00:00:00"))));
         });
 
-        // Deliberately NOT wired to the registry's saveToEngine flush: the
-        // signals above already fire at edit time, so dirty tracking is
-        // complete. saveToEngine() is a deferred flush that the editor dialog
-        // runs unconditionally on close — including Cancel — so marking the
-        // project edited from it would dirty an untouched project and force a
-        // needless full .inp rewrite on the next run.
+        // Dirty tracking follows edits. Publishing pending samples does not
+        // independently mark the project edited.
     }
     // Outside the construction branch so the anchor follows a Save As, which
     // moves modelFilePath() without rebuilding the registry.
@@ -8242,14 +8240,18 @@ QObject *SWMMModelLayer::ensureCurveRegistry()
     return reg;
 }
 
-void SWMMModelLayer::flushDataObjectRegistries()
+bool SWMMModelLayer::flushDataObjectRegistries(QString *error)
 {
     SWMM_Engine eng = engine();
     if (!eng)
-        return;
+        return true;
     using openswmmvis::curve::CurveRegistry;
     using openswmmvis::lid::LidControlRegistry;
     using openswmmvis::pattern::PatternRegistry;
+    using openswmmvis::timeseries::TimeseriesRegistry;
+    if (auto *series = liveRegistry<TimeseriesRegistry>(m_tsRegistry, m_tsRegistryEngineHandle, eng);
+        series && !series->flushPendingEdits(error))
+        return false;
     if (auto *curves = qobject_cast<CurveRegistry *>(m_curveRegistry);
         curves && m_curveRegistryEngineHandle == eng)
         curves->saveToEngine(eng);
@@ -8259,6 +8261,7 @@ void SWMMModelLayer::flushDataObjectRegistries()
     if (auto *lids = liveRegistry<LidControlRegistry>(m_lidControlRegistry,
                                                       m_lidControlRegistryEngineHandle, eng))
         lids->saveToEngine(eng);
+    return true;
 }
 
 // ---------------------------------------------------------------------------

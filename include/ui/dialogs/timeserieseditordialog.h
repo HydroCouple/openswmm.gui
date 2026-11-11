@@ -24,7 +24,6 @@
 
 class QAction;
 class QCheckBox;
-class QCloseEvent;
 class QComboBox;
 class QDateTimeEdit;
 class QDoubleSpinBox;
@@ -89,8 +88,8 @@ public:
      *   layout persistence, copy registry project anchor once, observe simulation-start badge
      *   changes. Registry destruction, parent engineAboutToClose signal and caller-stack
      *   destruction invalidate. Provider values retain authored native units, no quantity/unit
-     *   conversion here. Close leaves all live edits; ordinary closeEvent disposes first external
-     *   point cache, not flush registry to engine.
+     *   conversion here. Closing commits the active cell, publishes edited series, and releases the external
+     *   point cache.
  */
     explicit TimeseriesEditorDialog(
         openswmmvis::timeseries::TimeseriesRegistry *registry, QUndoStack *undoStack,
@@ -130,9 +129,7 @@ public:
      *  round-trip a time series selection inline (e.g. the
      *  NodeCompoundEditDialog inflow picker). Empty \p initialName →
      *  CreateNew mode; otherwise → Edit mode bound to that series.
-     *  After the user closes the dialog, the registry is flushed back
-     *  to the engine (`saveToEngine`) so engine state matches the
-     *  edited points. Returns the name of the series currently bound
+     *  Closing publishes the edited series to the engine. Returns the name of the series currently bound
      *  to the dialog on close, or empty if no live provider is bound, independently of acceptance
      *   or edits.
      * @param[in] registry Borrowed registry kept through modal call; null returns empty
@@ -143,8 +140,7 @@ public:
      *   known binds existing provider.
      * @param[in] parent Optional parent for stack-local modal dialog; no ownership transfer.
      * @note Ignores exec accepted/rejected result and returns current bound name even on Esc/no
-     *   edits; flushes still-valid registry after modal loop, ignoring saveToEngine
-     *   written-count/failure. Invalidation clears registry/providers so skips flush/returns empty.
+     *   edits. Invalidation clears the registry and providers and returns an empty name.
      *   No rollback of creations, deletions or provider edits.
  */
     static QString pickTimeseries(openswmmvis::timeseries::TimeseriesRegistry *registry,
@@ -240,19 +236,10 @@ public:
  */
     int linkExternalFile(const QString &path, const QString &columnSelector = QString());
 
-protected:
-    /*! \brief Step F + Step E.2 — dispose any ExternalFile-mode point cache
-     *  on the way out so the registry doesn't carry it around after the
-     *  editor closes, and delegate close; layout persistence is handled by the application watcher.
-     * @param[in] e Borrowed Qt close event forwarded to QDialog; not retained.
-     * @note Dispose only currently bound first provider cache (no-op unless external), then
-     *   delegate. No saveToEngine, rollback or private-history clear. Programmatic
-     *   accept/reject/done/direct destruction need not invoke this path. Disposing shared provider
-     *   cache notifies its other views too.
- */
-    void closeEvent(QCloseEvent *e) override;
-
 public slots:
+    /// Commit the active cell and pending series before dismissing the editor.
+    void done(int result) override;
+
     /*! End editing before the project, registry or undo owner is released.
      * @note Idempotently mark invalid/disable, disconnect registry/providers from this receiver,
      *   clear guarded pointers and grid/chart/list sources/history bindings, then reject. Does not

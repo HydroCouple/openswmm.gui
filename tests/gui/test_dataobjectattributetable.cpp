@@ -33,6 +33,11 @@
 #include "ui/panels/objectbrowserpanel.h"
 #include "ui/panels/swmmobjecttreemodel.h"
 #include "ui/dialogs/ruleseditordialog.h"
+#include "ui/dialogs/timeserieseditordialog.h"
+#include "ui/panels/timeseriestablemodel.h"
+#include "timeseries/timeseriesregistry.h"
+#include <QDoubleSpinBox>
+#include <QTemporaryDir>
 #include "ui/dialogs/patterneditordialog.h"
 #include "ui/panels/attributetablepanel.h"
 #include "ui/properties/dataobjectpickereditor.h"
@@ -120,6 +125,7 @@ class TestDataObjectAttributeTable : public QObject
 private slots:
     void everyEditableCategoryOpensExistingObjects_data();
     void everyEditableCategoryOpensExistingObjects();
+    void inlineSeriesSurvivesCloseAndReload();
     void switchingProjectsEditsOnlyTheRequestedRule();
     void openingAFilteredPatternRevealsIt();
     void referenceMenusUseTheFieldKind();
@@ -416,6 +422,81 @@ void TestDataObjectAttributeTable::switchingProjectsEditsOnlyTheRequestedRule()
     QVERIFY(providerB->body().contains("OPEN"));
     undoB.undo();
     QCOMPARE(providerB->body(), before);
+}
+
+void TestDataObjectAttributeTable::inlineSeriesSurvivesCloseAndReload()
+{
+    auto layer = openLayer("single_rain_series.inp");
+    QVERIFY(layer);
+    const QString id = QStringLiteral("InlineTest");
+    using openswmmvis::timeseries::TimeseriesRegistry;
+    using openswmmvis::ui::TimeseriesEditorDialog;
+    auto *registry = qobject_cast<TimeseriesRegistry *>(layer->ensureTimeseriesRegistry());
+    QVERIFY(registry && registry->create(id));
+    QWidget host;
+    QUndoStack undo;
+    auto openEditor = [&](SWMMModelLayer *owner) -> TimeseriesEditorDialog * {
+        ComprehensiveEditorRegistry::instance().openForObject(DC::DataTimeSeries, owner, &undo, id, &host);
+        for (auto *dialog : host.findChildren<TimeseriesEditorDialog *>())
+            if (dialog->isVisible() && dialog->currentName() == id)
+                return dialog;
+        return nullptr;
+    };
+    auto *editor = openEditor(layer.get());
+    QVERIFY(editor);
+    QAction *addRow = nullptr;
+    for (auto *action : editor->findChildren<QAction *>())
+        if (action->text() == "Add Row")
+            addRow = action;
+    QVERIFY(addRow);
+    addRow->trigger();
+    addRow->trigger();
+    auto *grid = editor->tableModel();
+    QCOMPARE(grid->rowCount(), 2);
+    const auto time0 = grid->index(0, 0).data(Qt::EditRole).toDateTime();
+    const auto time1 = grid->index(1, 0).data(Qt::EditRole).toDateTime();
+    QVERIFY(grid->setData(grid->index(0, 1), 2.5));
+    // Close directly from an active value editor, without pressing Enter.
+    auto *view = editor->findChild<QTableView *>();
+    QVERIFY(view);
+    view->setCurrentIndex(grid->index(1, 1));
+    view->edit(view->currentIndex());
+    auto *cellEditor = view->findChild<QDoubleSpinBox *>();
+    QVERIFY(cellEditor);
+    cellEditor->setValue(7.25);
+    auto *closeButton = editor->findChild<QPushButton *>("ts_closeBtn");
+    QVERIFY(closeButton);
+    closeButton->click();
+
+    DataObjectAttributeTableModel table;
+    table.setSource(layer.get(), DC::DataTimeSeries);
+    auto *again = openEditor(layer.get());
+    QVERIFY(again);
+    auto verify = [&](TimeseriesEditorDialog *dialog, double firstValue) {
+        auto *model = dialog->tableModel();
+        QCOMPARE(model->rowCount(), 2);
+        QCOMPARE(model->index(0, 0).data(Qt::EditRole).toDateTime(), time0);
+        QCOMPARE(model->index(1, 0).data(Qt::EditRole).toDateTime(), time1);
+        QCOMPARE(model->index(0, 1).data(Qt::EditRole).toDouble(), firstValue);
+        QCOMPARE(model->index(1, 1).data(Qt::EditRole).toDouble(), 7.25);
+    };
+    verify(again, 2.5);
+    // Saving with a second edit still open must use the current values.
+    QVERIFY(again->tableModel()->setData(again->tableModel()->index(0, 1), 9.5));
+    again->undoStack()->undo();
+    verify(again, 2.5);
+    again->undoStack()->redo();
+    QTemporaryDir tmp;
+    QVERIFY(tmp.isValid());
+    const QString output = tmp.filePath("inline.inp");
+    QVERIFY(layer->flushDataObjectRegistries());
+    QCOMPARE(swmm_model_write(layer->engine(), output.toUtf8()), SWMM_OK);
+    again->close();
+    auto saved = openLayer(output);
+    QVERIFY(saved);
+    auto *reopened = openEditor(saved.get());
+    QVERIFY(reopened);
+    verify(reopened, 9.5);
 }
 
 void TestDataObjectAttributeTable::openingAFilteredPatternRevealsIt()

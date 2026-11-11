@@ -1365,7 +1365,16 @@ QList<Field> fieldsFor(SWMMModelLayer *layer, SWMMModelLayer::DataCategory cat)
     }
     if (layer && remainingCategory(cat)) {
         auto *reg=registryFor(layer,cat);
-        for (auto *p:providersOf(reg,cat)) {const QSignalBlocker ps(p),rs(reg);refreshRemaining(layer,cat,p,nameOf(p,cat));}
+        for (auto *p : providersOf(reg, cat)) {
+            const QSignalBlocker ps(p), rs(reg);
+            if (cat == DC::DataTimeSeries) {
+                // Loading table columns only needs the accepted engine record. Rehydrating
+                // the editor here would also replace its file cache and empty-series time mode.
+                p->setProperty("bulkAccepted", remainingRecord(layer, cat, nameOf(p, cat)));
+            } else {
+                refreshRemaining(layer, cat, p, nameOf(p, cat));
+            }
+        }
     }
     Field name = nameField();
     name.get = [cat](QObject *o) { return QVariant(nameOf(o, cat)); };
@@ -2471,6 +2480,11 @@ void DataObjectAttributeTableModel::connectRegistry()
         connect(r,&openswmmvis::curve::CurveRegistry::providerRenamed,this,&DataObjectAttributeTableModel::reload,Qt::QueuedConnection);for(auto *p:r->providers())watch(p);break; }
     case DC::DataTimeSeries: {
         auto *r=static_cast<openswmmvis::timeseries::TimeseriesRegistry *>(m_registry.data());
+        connect(r, &openswmmvis::timeseries::TimeseriesRegistry::editsPublished, this,
+                [this](openswmmvis::timeseries::TimeseriesProvider *p) {
+                    p->setProperty("bulkAccepted", remainingRecord(m_layer, m_category, p->name()));
+                    onProviderParamsChanged(p);
+                });
         auto watch=[this](openswmmvis::timeseries::TimeseriesProvider *p){connect(p,&openswmmvis::timeseries::TimeseriesProvider::pointsChanged,this,[this,p]{onProviderParamsChanged(p);});connect(p,&openswmmvis::timeseries::TimeseriesProvider::sourceModeChanged,this,[this,p]{onProviderParamsChanged(p);});};
         connect(r,&openswmmvis::timeseries::TimeseriesRegistry::providerAdded,this,[this,watch](auto *p){watch(p);reload();});
         connect(r,&openswmmvis::timeseries::TimeseriesRegistry::providerAboutToBeRemoved,this,&DataObjectAttributeTableModel::reload,Qt::QueuedConnection);

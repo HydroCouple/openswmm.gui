@@ -22,6 +22,8 @@
 #include <openswmm/engine/openswmm_edit.h> // swmm_table_delete
 
 #include <QFileInfo>
+#include <QScopedValueRollback>
+#include <QTimer>
 
 #include <string>
 
@@ -92,6 +94,20 @@ TimeseriesProvider *TimeseriesRegistry::create(const QString &name)
             swmm_timeseries_add(eng, name.toUtf8().constData());
     }
 
+    // Coalesce edits from a paste, drag, or undo macro into one native table replacement.
+    connect(p, &TimeseriesProvider::storageChanged, this, [this, p] {
+        if (!m_engineHandle || m_importing || findByName(p->name()) != p)
+            return;
+        m_pendingEdits.insert(p);
+        if (!m_flushScheduled) {
+            m_flushScheduled = true;
+            QTimer::singleShot(0, this, [this] {
+                m_flushScheduled = false;
+                flushPendingEdits();
+            });
+        }
+    });
+
     emit providerAdded(p);
     return p;
 }
@@ -117,6 +133,7 @@ void TimeseriesRegistry::remove(TimeseriesProvider *p)
     m_byLowerName.remove(p->name().toLower());
     m_providers.removeOne(p);
     m_failedPointImports.remove(p);
+    m_pendingEdits.remove(p);
     p->deleteLater();
 }
 
@@ -149,6 +166,7 @@ int TimeseriesRegistry::loadFromEngine(void *engineHandle)
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
     m_engineHandle = engineHandle; // remember for the no-arg saveToEngine() path
 
+    const QScopedValueRollback loading(m_importing, true);
     const int tableCount = swmm_table_count(eng);
     int added = 0;
     for (int i = 0; i < tableCount; ++i) {
@@ -233,6 +251,42 @@ int TimeseriesRegistry::loadFromEngine(void *engineHandle)
     return added;
 }
 
+void TimeseriesRegistry::detachEngine()
+{
+    m_engineHandle = nullptr;
+    m_pendingEdits.clear();
+}
+
+bool TimeseriesRegistry::flushPendingEdit(TimeseriesProvider *p)
+{
+    if (!m_pendingEdits.contains(p))
+        return true;
+    // Observations and an external source still awaiting a path have no INP payload.
+    if (p->sourceMode() == TimeseriesProvider::SourceMode::GeopackageObserved ||
+        (p->sourceMode() == TimeseriesProvider::SourceMode::ExternalFile && p->filePath().isEmpty())) {
+        m_pendingEdits.remove(p);
+        return true;
+    }
+    if (saveProviderToEngine(p)) {
+        emit editsPublished(p);
+        return true;
+    }
+    emit p->mutationRejected(tr("Could not save time series %1 to the model.").arg(p->name()));
+    return false;
+}
+
+bool TimeseriesRegistry::flushPendingEdits(QString *error)
+{
+    QStringList failed;
+    const auto pending = m_pendingEdits;
+    for (auto *p : pending)
+        if (!flushPendingEdit(p))
+            failed << p->name();
+    if (error && !failed.isEmpty())
+        *error = tr("The engine rejected the edits to time series %1").arg(failed.join(", "));
+    return failed.isEmpty();
+}
+
 int TimeseriesRegistry::saveToEngine()
 {
     return saveToEngine(m_engineHandle);
@@ -267,16 +321,13 @@ bool TimeseriesRegistry::writeProvider(void *engineHandle, TimeseriesProvider *p
     // A failed import leaves an empty editor provider, not an intentionally
     // empty series. Do not let an unrelated editor flush erase engine rows.
     // A deliberate valid replacement may repair it; later clearing is normal.
-    if (m_failedPointImports.contains(p)) {
-        if (p->pointCount() == 0) {
-            emit p->mutationRejected(
-                tr("Time series %1 could not be loaded because its "
-                   "timestamps are out of sequence. Its original engine data has been "
-                   "preserved; correct the source or enter a valid replacement before saving it.")
-                    .arg(p->name()));
-            return false;
-        }
-        m_failedPointImports.remove(p);
+    if (m_failedPointImports.contains(p) && p->pointCount() == 0) {
+        emit p->mutationRejected(
+            tr("Time series %1 could not be loaded because its "
+               "timestamps are out of sequence. Its original engine data has been "
+               "preserved; correct the source or enter a valid replacement before saving it.")
+                .arg(p->name()));
+        return false;
     }
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
     // B4 — ExternalFile providers with a linked path persist as engine
@@ -298,15 +349,14 @@ bool TimeseriesRegistry::writeProvider(void *engineHandle, TimeseriesProvider *p
             return false;
     }
 
-    // Read the slot's current token so an unchanged reference is left
-    // verbatim (keeps a relative .inp token relative across saves).
-    char absBuf[1024] = {};
-    char origBuf[1024] = {};
-    const bool haveSlot =
-        swmm_file_path_get(eng, SWMM_FILE_TIMESERIES_DATA, idUtf8.constData(), absBuf,
-                           int(sizeof(absBuf)), origBuf, int(sizeof(origBuf))) == SWMM_OK;
-
+    std::string token;
+    int relativeCount = 0;
+    double anchor = 0.;
     if (fileBacked) {
+        char absBuf[1024] = {};
+        char origBuf[1024] = {};
+        const bool haveSlot = swmm_file_path_get(eng, SWMM_FILE_TIMESERIES_DATA, idUtf8.constData(),
+                                                absBuf, sizeof(absBuf), origBuf, sizeof(origBuf)) == SWMM_OK;
         // Compose "path:col" — the GUI owns the colon convention; the
         // user never types it (spec §4 task 5). InpWriter then emits
         // `name FILE "path:col"` whenever the slot is non-empty.
@@ -319,15 +369,26 @@ bool TimeseriesRegistry::writeProvider(void *engineHandle, TimeseriesProvider *p
             openswmmvis::ui::extcol::splitPathColumn(absBuf, aPath, aCol);
             same = (oCol == wantCol && oPath == wantPath) || (aCol == wantCol && aPath == wantPath);
         }
-        QVector<double> xs,ys;for(const auto &pt:p->points()){xs<<openswmmvis::core::qDateTimeToSwmmDateTime(pt.time);ys<<pt.value;}
-        const auto token=same?std::string(origBuf):openswmmvis::ui::extcol::composePathColumn(wantPath,wantCol);
-        return swmm_table_replace_points(eng,idx,xs.constData(),ys.constData(),xs.size(),0,0,token.c_str())==SWMM_OK;
+        token = same ? std::string(origBuf) : openswmmvis::ui::extcol::composePathColumn(wantPath, wantCol);
+    } else if (p->relativeCount() > 0 && p->relativeAnchor().isValid()) {
+        relativeCount = p->relativeCount();
+        anchor = openswmmvis::core::qDateTimeToSwmmDateTime(p->relativeAnchor());
     }
 
-    QVector<double> xs,ys;for(const auto &pt:p->points()){xs<<openswmmvis::core::qDateTimeToSwmmDateTime(pt.time);ys<<pt.value;}
-    int nRel=p->relativeCount();double anchor=0;
-    if(nRel>0 && p->relativeAnchor().isValid())anchor=openswmmvis::core::qDateTimeToSwmmDateTime(p->relativeAnchor());else nRel=0;
-    return swmm_table_replace_points(eng,idx,xs.constData(),ys.constData(),xs.size(),nRel,anchor,"")==SWMM_OK;
+    QVector<double> xs, ys;
+    xs.reserve(p->pointCount());
+    ys.reserve(p->pointCount());
+    for (const auto &point : p->points()) {
+        xs.append(openswmmvis::core::qDateTimeToSwmmDateTime(point.time));
+        ys.append(point.value);
+    }
+    if (swmm_table_replace_points(eng, idx, xs.constData(), ys.constData(), p->pointCount(),
+                                  relativeCount, anchor, token.c_str()) != SWMM_OK)
+        return false;
+
+    m_pendingEdits.remove(p);
+    m_failedPointImports.remove(p);
+    return true;
 }
 
 } // namespace openswmmvis::timeseries
