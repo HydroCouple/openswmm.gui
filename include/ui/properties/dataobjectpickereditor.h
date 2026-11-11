@@ -14,13 +14,6 @@
  * the adapter's WRITE slot (e.g. `setOutfallTidalCurveRef`). Clicking
  * the "…" button opens a creation flow.
  *
- * Per Slice BM.0-Add-New (2026-05-24): "…" prompts the user for a
- * name and commits via `SWMMModelLayer::createDataObject` for
- * categories with a complex MVC editor (Time Series, Unit Hydrographs).
- * For gap categories (Curves, Patterns), the picker surfaces the
- * tooltip naming the future editor slice instead. Once those editor
- * slices ship, the picker will dispatch through the same
- * `ObjectBrowserPanel::launchAddNewEditor` path as Add-New.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -32,6 +25,13 @@
 #include "ui/properties/dataobjectref.h"
 
 class LabeledPickerCombo;
+class QAbstractItemView;
+class QMenu;
+class QModelIndex;
+
+/*! Add the typed reference editor to a cell menu. Selection-only references
+ *  keep their existing dropdown or map selection. */
+bool addDataObjectReferenceAction(QMenu &menu, QAbstractItemView *view, const QModelIndex &index);
 
 class DataObjectPickerEditor : public QWidget
 {

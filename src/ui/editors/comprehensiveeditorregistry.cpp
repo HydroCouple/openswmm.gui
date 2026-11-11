@@ -1,4 +1,3 @@
-#include "ui/properties/datarecordsref.h"
 /**
  * @file      comprehensiveeditorregistry.cpp
  * @brief     Single source of truth mapping each non-spatial data category to its comprehensive
@@ -38,6 +37,7 @@
 #include "ui/dialogs/transecteditordialog.h"
 
 #include <QCoreApplication>
+#include <QMessageBox>
 #include <QPointer>
 #include <QUndoStack>
 
@@ -131,55 +131,52 @@ void openTimeseriesBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *par
     dlg->show();
 }
 
-// Singleton-raise: opening from two surfaces must reuse one dialog
-// instance ([[feedback_mvc_synchronized_uis]]). Shared between the
-// create-new and browse launches so they never spawn parallel windows.
-static QPointer<HydrographGroupEditor> sHydrographEditor;
-
-/**
- * @param[in] layer Optional borrowed model; null no-op. Initialized registry/model must stay live
- *   while dialog uses it.
- * @param[in] parent Optional owner used only when constructing a new window; null parent does not
- *   retain model lifetime.
- * @note Unnamed stack argument ignored; this launcher creates no undo command itself.
- * @brief Reuse process-static QPointer hydrograph editor or construct it for first supplied layer,
- *   then beginNewGroup(). Subsequent supplied layer/parent do not retarget existing editor; no
- *   explicit WA_DeleteOnClose or flush connection in this wrapper.
- * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
- *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
- *   retains external model lifetime.
- */
-void openHydrographsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+template <class Registry>
+void syncRegistryOnClose(QDialog *dialog, Registry *registry, SWMMModelLayer *layer)
 {
-    if (!layer)
-        return;
-    if (!sHydrographEditor)
-        sHydrographEditor = new HydrographGroupEditor(layer, parent);
-    sHydrographEditor->beginNewGroup();
+    QObject::connect(dialog, &QDialog::finished, dialog,
+                     [reg = QPointer<Registry>(registry), owner = QPointer<SWMMModelLayer>(layer),
+                      engine = layer->engine()] {
+                         if (reg && owner && owner->engine() == engine)
+                             reg->saveToEngine(engine);
+                     });
 }
 
-/**
- * @param[in] layer Optional borrowed model; null no-op. Initialized registry/model must stay live
- *   while dialog uses it.
- * @param[in] parent Optional owner used only when constructing a new window; null parent does not
- *   retain model lifetime.
- * @note Unnamed stack argument ignored; this launcher creates no undo command itself.
- * @brief Reuse process-static QPointer hydrograph editor or construct it for first supplied layer,
- *   then openForGroup(empty) to browse without selection/creation. Subsequent supplied layer/parent
- *   do not retarget existing editor; no explicit WA_DeleteOnClose or flush connection in this
- *   wrapper.
- * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
- *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
- *   retains external model lifetime.
- */
-void openHydrographsBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+// Reuse a visible editor only for its owning model. A closed window can
+// still have a live QPointer until Qt processes its deferred deletion.
+template <class Dialog>
+Dialog *projectEditor(SWMMModelLayer *layer, const std::function<Dialog *()> &create)
 {
-    if (!layer)
-        return;
-    if (!sHydrographEditor)
-        sHydrographEditor = new HydrographGroupEditor(layer, parent);
-    // Empty name = show without selecting or creating anything.
-    sHydrographEditor->openForGroup(QString());
+    static QPointer<SWMMModelLayer> owner;
+    static QPointer<Dialog> window;
+    if (window && window->isVisible() && owner == layer)
+        return window;
+    if (window && window->isVisible())
+        window->close();
+    owner = layer;
+    window = create();
+    window->setAttribute(Qt::WA_DeleteOnClose);
+    QObject::connect(layer, &SWMMModelLayer::engineAboutToClose, window.data(), &QDialog::close);
+    QObject::connect(layer, &QObject::destroyed, window.data(), &QDialog::close);
+    return window;
+}
+
+HydrographGroupEditor *hydrographEditor(SWMMModelLayer *layer, QWidget *parent)
+{
+    return projectEditor<HydrographGroupEditor>(
+        layer, [=] { return new HydrographGroupEditor(layer, parent); });
+}
+
+void openHydrographsCreateNew(SWMMModelLayer *layer, QUndoStack *, QWidget *parent)
+{
+    if (layer)
+        hydrographEditor(layer, parent)->beginNewGroup();
+}
+
+void openHydrographsBrowse(SWMMModelLayer *layer, QUndoStack *, QWidget *parent)
+{
+    if (layer)
+        hydrographEditor(layer, parent)->openForGroup({});
 }
 
 /**
@@ -330,12 +327,7 @@ void openTransectsCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *p
     // existing apply* helpers already mutate the engine inline, so this is
     // belt-and-braces for paths that mutate the provider directly (drags,
     // grid edits, etc.) bypassing the layer.
-    QPointer<TransectRegistry> regPtr(reg);
-    QPointer<SWMMModelLayer> layerPtr(layer);
-    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
-        if (regPtr && layerPtr)
-            regPtr->saveToEngine(layerPtr->engine());
-    });
+    syncRegistryOnClose(dlg, reg, layer);
     dlg->show();
 }
 
@@ -365,12 +357,7 @@ void openTransectsBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *pare
         return;
     auto *dlg = new TransectEditorDialog(reg, layer, stack, parent);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    QPointer<TransectRegistry> regPtr(reg);
-    QPointer<SWMMModelLayer> layerPtr(layer);
-    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
-        if (regPtr && layerPtr)
-            regPtr->saveToEngine(layerPtr->engine());
-    });
+    syncRegistryOnClose(dlg, reg, layer);
     dlg->show();
 }
 
@@ -404,12 +391,7 @@ void openStreetsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget
     // Auto-flush the registry to the engine when the dialog closes (mirrors
     // the transect path; inline apply* helpers already mutate the engine, so
     // this covers direct provider edits that bypass the layer).
-    QPointer<StreetRegistry> regPtr(reg);
-    QPointer<SWMMModelLayer> layerPtr(layer);
-    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
-        if (regPtr && layerPtr)
-            regPtr->saveToEngine(layerPtr->engine());
-    });
+    syncRegistryOnClose(dlg, reg, layer);
     dlg->show();
 }
 
@@ -438,12 +420,7 @@ void openStreetsBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *p
         return;
     auto *dlg = new StreetEditorDialog(reg, layer, parent);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    QPointer<StreetRegistry> regPtr(reg);
-    QPointer<SWMMModelLayer> layerPtr(layer);
-    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
-        if (regPtr && layerPtr)
-            regPtr->saveToEngine(layerPtr->engine());
-    });
+    syncRegistryOnClose(dlg, reg, layer);
     dlg->show();
 }
 
@@ -474,12 +451,7 @@ void openPollutantsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWid
     if (!dlg)
         return;
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    QPointer<PollutantRegistry> regPtr(reg);
-    QPointer<SWMMModelLayer> layerPtr(layer);
-    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
-        if (regPtr && layerPtr)
-            regPtr->saveToEngine(layerPtr->engine());
-    });
+    syncRegistryOnClose(dlg, reg, layer);
     dlg->show();
 }
 
@@ -508,12 +480,7 @@ void openPollutantsBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget
         return;
     auto *dlg = new PollutantEditorDialog(reg, layer, parent);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    QPointer<PollutantRegistry> regPtr(reg);
-    QPointer<SWMMModelLayer> layerPtr(layer);
-    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
-        if (regPtr && layerPtr)
-            regPtr->saveToEngine(layerPtr->engine());
-    });
+    syncRegistryOnClose(dlg, reg, layer);
     dlg->show();
 }
 
@@ -544,12 +511,7 @@ void openAquifersCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidge
     if (!dlg)
         return;
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    QPointer<AquiferRegistry> regPtr(reg);
-    QPointer<SWMMModelLayer> layerPtr(layer);
-    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
-        if (regPtr && layerPtr)
-            regPtr->saveToEngine(layerPtr->engine());
-    });
+    syncRegistryOnClose(dlg, reg, layer);
     dlg->show();
 }
 
@@ -578,12 +540,7 @@ void openAquifersBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *
         return;
     auto *dlg = new AquiferEditorDialog(reg, layer, parent);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    QPointer<AquiferRegistry> regPtr(reg);
-    QPointer<SWMMModelLayer> layerPtr(layer);
-    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
-        if (regPtr && layerPtr)
-            regPtr->saveToEngine(layerPtr->engine());
-    });
+    syncRegistryOnClose(dlg, reg, layer);
     dlg->show();
 }
 
@@ -619,12 +576,7 @@ void openLandUsesCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidge
     // Buildup/Washoff rows re-dimension live with the pollutant set.
     dlg->trackPollutantRegistry(
         qobject_cast<PollutantRegistry *>(layer->ensurePollutantRegistry()));
-    QPointer<LandUseRegistry> regPtr(reg);
-    QPointer<SWMMModelLayer> layerPtr(layer);
-    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
-        if (regPtr && layerPtr)
-            regPtr->saveToEngine(layerPtr->engine());
-    });
+    syncRegistryOnClose(dlg, reg, layer);
     dlg->show();
 }
 
@@ -658,12 +610,7 @@ void openLandUsesBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *
     // Buildup/Washoff rows re-dimension live with the pollutant set.
     dlg->trackPollutantRegistry(
         qobject_cast<PollutantRegistry *>(layer->ensurePollutantRegistry()));
-    QPointer<LandUseRegistry> regPtr(reg);
-    QPointer<SWMMModelLayer> layerPtr(layer);
-    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
-        if (regPtr && layerPtr)
-            regPtr->saveToEngine(layerPtr->engine());
-    });
+    syncRegistryOnClose(dlg, reg, layer);
     dlg->show();
 }
 
@@ -751,12 +698,7 @@ void openInletsCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *pare
     if (!dlg)
         return;
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    QPointer<InletRegistry> regPtr(reg);
-    QPointer<SWMMModelLayer> layerPtr(layer);
-    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
-        if (regPtr && layerPtr)
-            regPtr->saveToEngine(layerPtr->engine());
-    });
+    syncRegistryOnClose(dlg, reg, layer);
     dlg->show();
 }
 
@@ -786,12 +728,7 @@ void openInletsBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
         return;
     auto *dlg = new InletEditorDialog(reg, layer, stack, parent);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    QPointer<InletRegistry> regPtr(reg);
-    QPointer<SWMMModelLayer> layerPtr(layer);
-    QObject::connect(dlg, &QDialog::finished, dlg, [regPtr, layerPtr]() {
-        if (regPtr && layerPtr)
-            regPtr->saveToEngine(layerPtr->engine());
-    });
+    syncRegistryOnClose(dlg, reg, layer);
     dlg->show();
 }
 
@@ -851,244 +788,109 @@ void openLidControlsBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidge
     dlg->show();
 }
 
-// Per-session singleton: once the dialog closes (WA_DeleteOnClose),
-// the QPointer auto-nullifies and the next launch constructs a fresh
-// instance. Simultaneous entry points (Object Browser Add-New,
-// PropertiesPanel browse, Data-menu browse) raise the same window
-// ([[feedback_mvc_synchronized_uis]]).
-static QPointer<RulesEditorDialog> sRulesEditor;
-
-/**
- * @param[in] layer Optional borrowed model; null no-op. Initialized registry/model must stay live
- *   while dialog uses it.
- * @param[in] parent Optional owner used only when constructing a new window; null parent does not
- *   retain model lifetime.
- * @param[in] stack Optional borrowed undo stack passed to dialog/factory; dialog must not outlive
- *   required stack.
- * @brief Reuse shared rules dialog or construct via createNew; existing window receives invokeNew.
- *   New instance is WA_DeleteOnClose, then show/raise/activateWindow.
- * @note Registry singleton does not key this window by layer; existing dialog can remain bound to
- *   earlier project/stack. No explicit close-time save hook added here. Null factory returns
- *   silently.
- * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
- *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
- *   retains external model lifetime.
- */
-void openControlsCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
+RulesEditorDialog *rulesEditor(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent,
+                               bool createNew = false)
 {
-    if (!layer)
-        return;
-    if (!sRulesEditor) {
-        sRulesEditor = RulesEditorDialog::createNew(layer, stack, parent);
-        if (sRulesEditor)
-            sRulesEditor->setAttribute(Qt::WA_DeleteOnClose);
-    } else {
-        sRulesEditor->invokeNew();
-    }
-    if (sRulesEditor) {
-        sRulesEditor->show();
-        sRulesEditor->raise();
-        sRulesEditor->activateWindow();
-    }
+    return projectEditor<RulesEditorDialog>(layer, [=] {
+        return createNew ? RulesEditorDialog::createNew(layer, stack, parent)
+                         : new RulesEditorDialog(layer, stack, parent);
+    });
 }
 
-/**
- * @param[in] layer Optional borrowed model; null no-op. Initialized registry/model must stay live
- *   while dialog uses it.
- * @param[in] parent Optional owner used only when constructing a new window; null parent does not
- *   retain model lifetime.
- * @param[in] stack Optional borrowed undo stack passed to dialog/factory; dialog must not outlive
- *   required stack.
- * @brief Reuse shared rules dialog or construct normally without new rule creation. New instance is
- *   WA_DeleteOnClose, then show/raise/activateWindow.
- * @note Registry singleton does not key this window by layer; existing dialog can remain bound to
- *   earlier project/stack. No explicit close-time save hook added here. Null factory returns
- *   silently.
- * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
- *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
- *   retains external model lifetime.
- */
 void openControlsBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
 {
     if (!layer)
         return;
-    if (!sRulesEditor) {
-        sRulesEditor = new RulesEditorDialog(layer, stack, parent);
-        sRulesEditor->setAttribute(Qt::WA_DeleteOnClose);
-    }
-    sRulesEditor->show();
-    sRulesEditor->raise();
-    sRulesEditor->activateWindow();
+    auto *dialog = rulesEditor(layer, stack, parent);
+    dialog->show();
+    dialog->raise();
+    dialog->activateWindow();
 }
 
-// ── Open-for-object launches ───────────────────────────────────────────────
-// Object launches reuse windows for most kinds; time series opens a fresh window.
-// Reused windows serve the Object Browser
-// (leaf Edit… / double-click), the Properties panel "Open in…" button and
-// the Attribute Table row "Edit in…" action. Moved here from
-// ObjectBrowserPanel::openComprehensiveEditorFor so every surface reads the
-// same table that answers hasEditor().
+void openControlsCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
+{
+    if (!layer)
+        return;
+    auto *dialog = rulesEditor(layer, stack, parent, true);
+    if (dialog->isVisible())
+        dialog->invokeNew();
+    dialog->show();
+    dialog->raise();
+    dialog->activateWindow();
+}
 
-/**
- * @param[in] layer Optional borrowed model; null no-op.
- * @param[in] name Exact object/group ID passed through; wrapper does not reject empty/unknown name
- *   itself.
- * @param[in] parent Optional window owner, used only on new construction.
- * @note Unnamed stack argument ignored.
- * @brief Reuse shared Hydrograph editor, constructing for first layer only, then invoke
- *   object-specific open method.
- * @note Existing static dialog is not retargeted by new layer/parent/stack. No explicit
- *   deletion-on-close/flush wiring here. No result indicating object found or saved.
- * @note GUI-thread only; registry ensure can initialize model state. Borrowed model/stack must
- *   outlive dialog use; no direct notification/undo command in this wrapper.
- */
-void openHydrographForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
+void openHydrographForObject(SWMMModelLayer *layer, QUndoStack *, const QString &name,
                              QWidget *parent)
 {
-    if(layer)openDataRecords(dataRecordsRef(layer,SWMMModelLayer::DataHydrographs,{name},stack),parent);
+    hydrographEditor(layer, parent)->openForGroup(name);
 }
 
-/**
- * @param[in] layer Optional borrowed model; null no-op.
- * @param[in] name Exact object/group ID passed through; wrapper does not reject empty/unknown name
- *   itself.
- * @param[in] parent Optional window owner, used only on new construction.
- * @param[in] stack Optional borrowed undo stack passed only when a new editor is created.
- * @brief Ensure typed registry and reuse function-static QPointer dialog, constructing only when
- *   absent, then invoke object-specific open method.
- * @note Existing dialog is NOT retargeted when registry/layer/stack changes. Wrapper adds no
- *   explicit WA_DeleteOnClose or engine-flush callback; constructor/open method governs visibility
- *   and persistence. Caller coordinates project lifetime.
- * @note GUI-thread only; registry ensure can initialize model state. Borrowed model/stack must
- *   outlive dialog use; no direct notification/undo command in this wrapper.
- */
-void openCurveForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
-                        QWidget *parent)
-{
-    if(layer)openDataRecords(dataRecordsRef(layer,SWMMModelLayer::DataCurves,{name},stack),parent);
-}
-
-/**
- * @param[in] layer Optional borrowed model; null no-op.
- * @param[in] name Exact object/group ID passed through; wrapper does not reject empty/unknown name
- *   itself.
- * @param[in] parent Optional window owner, used only on new construction.
- * @param[in] stack Optional borrowed undo stack passed only when a new editor is created.
- * @brief Ensure typed registry and reuse function-static QPointer dialog, constructing only when
- *   absent, then invoke object-specific open method.
- * @note Existing dialog is NOT retargeted when registry/layer/stack changes. Wrapper adds no
- *   explicit WA_DeleteOnClose or engine-flush callback; constructor/open method governs visibility
- *   and persistence. Caller coordinates project lifetime.
- * @note GUI-thread only; registry ensure can initialize model state. Borrowed model/stack must
- *   outlive dialog use; no direct notification/undo command in this wrapper.
- */
-void openPatternForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
-                          QWidget *parent)
-{
-    if (!layer)
-        return;
-    auto *reg = qobject_cast<PatternRegistry *>(layer->ensurePatternRegistry());
-    if (!reg)
-        return;
-    static QPointer<PatternEditorDialog> editor;
-    if (!editor)
-        editor = new PatternEditorDialog(reg, stack, parent);
-    editor->openForPattern(name);
-}
-
-/**
- * @param[in] layer Optional borrowed model; null no-op.
- * @param[in] name Exact object/group ID passed through; wrapper does not reject empty/unknown name
- *   itself.
- * @param[in] parent Optional window owner, used only on new construction.
- * @param[in] stack Optional borrowed undo stack passed only when a new editor is created.
- * @brief Ensure typed registry and reuse function-static QPointer dialog, constructing only when
- *   absent, then invoke object-specific open method.
- * @note Existing dialog is NOT retargeted when registry/layer/stack changes. Wrapper adds no
- *   explicit WA_DeleteOnClose or engine-flush callback; constructor/open method governs visibility
- *   and persistence. Caller coordinates project lifetime.
- * @note GUI-thread only; registry ensure can initialize model state. Borrowed model/stack must
- *   outlive dialog use; no direct notification/undo command in this wrapper.
- */
-void openTransectForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
-                           QWidget *parent)
-{
-    if (!layer)
-        return;
-    auto *reg = qobject_cast<TransectRegistry *>(layer->ensureTransectRegistry());
-    if (!reg)
-        return;
-    static QPointer<TransectEditorDialog> editor;
-    if (!editor)
-        editor = new TransectEditorDialog(reg, layer, stack, parent);
-    editor->openForTransect(name);
-}
-
-/**
- * @param[in] layer Optional borrowed model; null no-op.
- * @param[in] name Exact object/group ID passed through; wrapper does not reject empty/unknown name
- *   itself.
- * @param[in] parent Optional window owner, used only on new construction.
- * @param[in] stack Optional borrowed undo stack passed only when a new editor is created.
- * @brief Ensure typed registry and reuse function-static QPointer dialog, constructing only when
- *   absent, then invoke object-specific open method.
- * @note Existing dialog is NOT retargeted when registry/layer/stack changes. Wrapper adds no
- *   explicit WA_DeleteOnClose or engine-flush callback; constructor/open method governs visibility
- *   and persistence. Caller coordinates project lifetime.
- * @note GUI-thread only; registry ensure can initialize model state. Borrowed model/stack must
- *   outlive dialog use; no direct notification/undo command in this wrapper.
- */
-void openInletForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
-                        QWidget *parent)
-{
-    if (!layer)
-        return;
-    auto *reg = qobject_cast<InletRegistry *>(layer->ensureInletRegistry());
-    if (!reg)
-        return;
-    static QPointer<InletEditorDialog> editor;
-    if (!editor)
-        editor = new InletEditorDialog(reg, layer, stack, parent);
-    editor->openForInlet(name);
-}
-
-/**
- * @param[in] layer Optional borrowed model; null no-op.
- * @param[in] name Exact object/group ID passed through; wrapper does not reject empty/unknown name
- *   itself.
- * @param[in] parent Optional window owner, used only on new construction.
- * @param[in] stack Optional borrowed undo stack passed only when a new editor is created.
- * @brief Reuse shared Control editor, constructing for first layer only, then invoke
- *   object-specific open method.
- * @note Existing static dialog is not retargeted by new layer/parent/stack. Rules new dialog marked
- *   WA_DeleteOnClose. No result indicating object found or saved.
- * @note GUI-thread only; registry ensure can initialize model state. Borrowed model/stack must
- *   outlive dialog use; no direct notification/undo command in this wrapper.
- */
 void openControlForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
                           QWidget *parent)
 {
-    if(layer)openDataRecords(dataRecordsRef(layer,SWMMModelLayer::DataControls,{name},stack),parent);
+    rulesEditor(layer, stack, parent)->openForRule(name);
 }
 
-/**
- * @param[in] layer Optional borrowed model; null no-op.
- * @param[in] name Exact object/group ID passed through; wrapper does not reject empty/unknown name
- *   itself.
- * @param[in] parent Optional window owner, used only on new construction.
- * @param[in] stack Optional borrowed undo stack passed only when a new editor is created.
- * @brief Ensure registry and resolve provider by name; if missing, create EMPTY provider with that
- *   name before opening a new modeless editor. Failed create returns silently.
- * @note Always allocates a new WA_DeleteOnClose dialog, finished savesToEngine guarded by registry.
- *   Unlike a pure browse action, missing provider creation can mutate registry before user
- *   edits/cancels; central dispatch does not verify existing engine object.
- * @note GUI-thread only; registry ensure can initialize model state. Borrowed model/stack must
- *   outlive dialog use; no direct notification/undo command in this wrapper.
- */
+void openPatternForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
+                          QWidget *parent)
+{
+    auto *reg = qobject_cast<PatternRegistry *>(layer->ensurePatternRegistry());
+    if (!reg || !reg->findByName(name))
+        return;
+    auto *dialog = projectEditor<PatternEditorDialog>(
+        layer, [=] { return new PatternEditorDialog(reg, stack, parent); });
+    dialog->openForPattern(name);
+}
+
+void openCurveForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
+                        QWidget *parent)
+{
+    auto *reg = qobject_cast<CurveRegistry *>(layer->ensureCurveRegistry());
+    if (!reg || !reg->findByName(name))
+        return;
+    auto *dialog = projectEditor<CurveEditorDialog>(
+        layer, [=] { return new CurveEditorDialog(reg, stack, parent); });
+    dialog->openForCurve(name);
+}
+
+void openTransectForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
+                           QWidget *parent)
+{
+    auto *reg = qobject_cast<TransectRegistry *>(layer->ensureTransectRegistry());
+    if (!reg || !reg->findByName(name))
+        return;
+    auto *dialog = projectEditor<TransectEditorDialog>(layer, [=] {
+        auto *editor = new TransectEditorDialog(reg, layer, stack, parent);
+        syncRegistryOnClose(editor, reg, layer);
+        return editor;
+    });
+    dialog->openForTransect(name);
+}
+
+void openInletForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
+                        QWidget *parent)
+{
+    auto *reg = qobject_cast<InletRegistry *>(layer->ensureInletRegistry());
+    if (!reg || !reg->findByName(name))
+        return;
+    auto *dialog = projectEditor<InletEditorDialog>(layer, [=] {
+        auto *editor = new InletEditorDialog(reg, layer, stack, parent);
+        syncRegistryOnClose(editor, reg, layer);
+        return editor;
+    });
+    dialog->openForInlet(name);
+}
+
 void openTimeseriesForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
                              QWidget *parent)
 {
-    if(layer)openDataRecords(dataRecordsRef(layer,SWMMModelLayer::DataTimeSeries,{name},stack),parent);
+    auto *reg = qobject_cast<TimeseriesRegistry *>(layer->ensureTimeseriesRegistry());
+    auto *provider = reg ? reg->findByName(name) : nullptr;
+    if (!provider)
+        return;
+    auto *dialog = new TimeseriesEditorDialog(reg, stack, provider, parent);
+    dialog->setAttribute(Qt::WA_DeleteOnClose);
+    dialog->show();
 }
 
 /*! Shared body for the registry-backed list editors (pollutant, land use,
@@ -1120,7 +922,7 @@ void openRegistryEditorFor(QPointer<Dlg> &slot, QPointer<Reg> &slotReg, Reg *reg
 {
     if (!reg)
         return;
-    if (slot && slotReg != reg) {
+    if (slot && (slotReg != reg || !slot->isVisible())) {
         slot->close();
         slot = nullptr;
     }
@@ -1128,14 +930,10 @@ void openRegistryEditorFor(QPointer<Dlg> &slot, QPointer<Reg> &slotReg, Reg *reg
         slot = new Dlg(reg, layer, parent);
         slot->setAttribute(Qt::WA_DeleteOnClose);
         slotReg = reg;
-        if constexpr (!std::is_same_v<Dlg, SnowpackEditorDialog> && !std::is_same_v<Dlg, LidControlEditorDialog>) {
-            QPointer<Reg> regPtr(reg);
-            QPointer<SWMMModelLayer> layerPtr(layer);
-            QObject::connect(slot.data(), &QDialog::finished, slot.data(), [regPtr, layerPtr]() {
-                if (regPtr && layerPtr)
-                    regPtr->saveToEngine(layerPtr->engine());
-            });
-        }
+        QObject::connect(layer, &SWMMModelLayer::engineAboutToClose, slot.data(), &QDialog::close);
+        if constexpr (!std::is_same_v<Dlg, SnowpackEditorDialog> &&
+                      !std::is_same_v<Dlg, LidControlEditorDialog>)
+            syncRegistryOnClose(slot.data(), reg, layer);
     }
     (slot.data()->*openFn)(name);
 }
@@ -1424,6 +1222,27 @@ bool ComprehensiveEditorRegistry::openForObject(SWMMModelLayer::DataCategory cat
     const Entry *e = find(cat);
     if (!e || !e->openForObject || !layer || name.isEmpty())
         return false;
-    e->openForObject(layer, undoStack, name, parent);
+    const QString id = existingObjectName(cat, layer, name, parent);
+    if (id.isEmpty())
+        return false;
+    e->openForObject(layer, undoStack, id, parent);
     return true;
+}
+
+QString ComprehensiveEditorRegistry::existingObjectName(SWMMModelLayer::DataCategory cat,
+                                                        SWMMModelLayer *layer, const QString &name,
+                                                        QWidget *parent)
+{
+    if (!layer || name.isEmpty())
+        return {};
+    const int count = layer->dataObjectCount(cat);
+    for (int row = 0; row < count; ++row) {
+        const QString id = layer->dataObjectNameAt(cat, row);
+        if (id.compare(name, Qt::CaseInsensitive) == 0)
+            return id;
+    }
+    if (parent)
+        QMessageBox::information(parent, QObject::tr("Edit data object"),
+                                 QObject::tr("“%1” is no longer in this model.").arg(name));
+    return {};
 }

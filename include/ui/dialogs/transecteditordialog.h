@@ -118,19 +118,9 @@ public:
                                            SWMMModelLayer *layer, QUndoStack *undoStack,
                                            QWidget *parent = nullptr);
 
-    /**
-     * @brief Run a local modal editor, flush its surviving registry, then return the bound
-     * provider name.
-     * @param registry Optional borrowed registry; null returns empty without creating UI.
-     * @param layer Optional borrowed layer; engine close/destruction invalidates the binding.
-     * @param undoStack Optional borrowed command stack under constructor lifetime rules.
-     * @param initialName Empty immediately attempts default-named creation. A found nonempty
-     * name selects it; an unknown name retains the constructor's first selection.
-     * @param parent Optional Qt parent during local dialog lifetime.
-     * @return Owned bound provider name or empty when unbound. Accepted/Rejected is not a commit
-     * gate; edits and new objects can persist after Cancel. Calls saveToEngine after any normal
-     * modal exit if registry remains bound, ignoring its result. Invalidation clears that ref.
-     */
+    /*! Open the transect picker on the assigned ID. With no matching ID it opens
+     *  without a selection. Users can choose an existing object or add one in the editor.
+     *  Returns the selected name on close, or an empty string if no object was chosen. */
     static QString pickTransect(openswmmvis::transect::TransectRegistry *registry,
                                 SWMMModelLayer *layer, QUndoStack *undoStack,
                                 const QString &initialName, QWidget *parent = nullptr);

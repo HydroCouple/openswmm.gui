@@ -27,18 +27,11 @@
 #include "ui/properties/subcatchcompoundeditref.h"
 #include "ui/properties/userflagseditref.h" // per-object User Flags cell
 #include "ui/editors/comprehensiveeditorregistry.h"
-#include "ui/dialogs/curveeditordialog.h"
-#include "ui/dialogs/hydrographgroupeditor.h"
 #include "ui/dialogs/linkcompoundeditdialog.h"
 #include "ui/dialogs/nodecompoundeditdialog.h"
 #include "ui/dialogs/subcatchcompoundeditdialog.h"
 #include "ui/dialogs/groundwaterexchangedialog.h"
 #include "ui/panels/usagetablemodel.h"
-#include "ui/dialogs/patterneditordialog.h"
-#include "ui/dialogs/timeserieseditordialog.h"
-#include "curve/curveregistry.h"
-#include "pattern/patternregistry.h"
-#include "timeseries/timeseriesregistry.h"
 
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_links.h>
@@ -3050,17 +3043,37 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
         QAction *edit = dataMenu.addAction(
             tr("Edit \"%1\" in %2…").arg(name, title.isEmpty() ? tr("Editor") : title));
         edit->setEnabled(!name.isEmpty() && reg.hasEditor(dc));
-        connect(edit, &QAction::triggered, this, [this, dc, name]() {
-            ComprehensiveEditorRegistry::instance().openForObject(
-                dc, m_layer, m_canvas ? m_canvas->undoStack() : nullptr, name, this);
+        QPointer<SWMMModelLayer> owner(m_layer);
+        const auto engine = owner ? owner->engine() : nullptr;
+        connect(edit, &QAction::triggered, this, [this, dc, name, owner, engine] {
+            if (owner && owner == m_layer && owner->engine() == engine)
+                ComprehensiveEditorRegistry::instance().openForObject(
+                    dc, owner, m_canvas ? m_canvas->undoStack() : nullptr, name, this);
         });
 
         const QVariant cellValue = srcIdx.data(Qt::EditRole);
         const int col = srcIdx.column();
         const QList<openswmmvis::ColumnSpec> specs = m_dataModel->columnSpecs();
         const QList<int> selRows = selectedSourceRows();
-        if ((m_dataModel->flags(srcIdx) & Qt::ItemIsEditable) && col >= 1 && col < specs.size() &&
-            selRows.size() >= 2) {
+        if (cellValue.metaType().id() == qMetaTypeId<DataRecordsRef>()) {
+            const auto rows = selRows.contains(srcIdx.row()) ? selRows : QList<int>{srcIdx.row()};
+            DataRecordsRef ref = cellValue.value<DataRecordsRef>();
+            ref.names.clear();
+            ref.providers.clear();
+            for (int row : rows) {
+                ref.names << m_dataModel->objectNameAt(row);
+                ref.providers << m_dataModel->providerAt(row);
+            }
+            auto *details = dataMenu.addAction(
+                rows.size() == 1
+                    ? tr("Edit detailed properties for “%1”…").arg(name)
+                    : tr("Edit detailed properties for %1 objects…").arg(rows.size()));
+            connect(details, &QAction::triggered, this, [this, ref, owner, engine] {
+                if (owner && owner == m_layer && owner->engine() == engine)
+                    openDataRecords(ref, window());
+            });
+        } else if ((m_dataModel->flags(srcIdx) & Qt::ItemIsEditable) && col >= 1 &&
+                   col < specs.size() && selRows.size() >= 2) {
             const openswmmvis::ColumnSpec &spec = specs[col];
             dataMenu.addSeparator();
             QAction *copyVal = dataMenu.addAction(tr("Apply this \"%1\" value to %2 selected rows")
@@ -3186,13 +3199,6 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
             });
             addedEditAction = true;
         }
-    } else if(metaId==qMetaTypeId<DataRecordsRef>()) {
-        auto ref=cellValue.value<DataRecordsRef>();QStringList names;
-        const auto rows=selectedSourceRows();for(int row:rows)names<<m_dataModel->objectNameAt(row);
-        if(!rows.contains(sourceIdx.row()))names={m_dataModel->objectNameAt(sourceIdx.row())};
-        ref=dataRecordsRef(m_dataModel->layer(),m_dataModel->category(),names,m_dataModel->undoStack());
-        auto *action=menu.addAction(tr("Edit keyed records for %1 objects…").arg(names.size()));
-        connect(action,&QAction::triggered,this,[this,ref]{openDataRecords(ref,window());});addedEditAction=true;
     } else if (metaId == qMetaTypeId<LinkCompoundEditRef>()) {
         auto ref = cellValue.value<LinkCompoundEditRef>();
         if (ref.layer && ref.kind == LinkCompoundEditRef::InletUsage) {
@@ -3226,122 +3232,7 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
             addedEditAction = true;
         }
     } else if (metaId == qMetaTypeId<DataObjectRef>()) {
-        const DataObjectRef ref = cellValue.value<DataObjectRef>();
-        if (ref.layer && ref.kind != DataObjectRef::RainGage &&
-            ref.kind != DataObjectRef::SubcatchOutlet
-            // Capture nodes are picked from existing nodes — no editor.
-            && ref.kind != DataObjectRef::CaptureNode) {
-            SWMMModelLayer::DataCategory dc = SWMMModelLayer::DataTimeSeries;
-            switch (ref.kind) {
-            case DataObjectRef::TidalCurve:
-            case DataObjectRef::AnyCurve:
-            case DataObjectRef::PumpCurve:
-            case DataObjectRef::RatingCurve:
-            case DataObjectRef::StorageCurve:
-            case DataObjectRef::DiversionCurve:
-                dc = SWMMModelLayer::DataCurves;
-                break;
-            case DataObjectRef::TimeSeries:
-                dc = SWMMModelLayer::DataTimeSeries;
-                break;
-            case DataObjectRef::Pattern:
-                dc = SWMMModelLayer::DataPatterns;
-                break;
-            case DataObjectRef::UnitHydrograph:
-                dc = SWMMModelLayer::DataHydrographs;
-                break;
-            case DataObjectRef::Pollutant:
-                dc = SWMMModelLayer::DataPollutants;
-                break;
-            case DataObjectRef::LidControl:
-                dc = SWMMModelLayer::DataLIDControls;
-                break;
-            case DataObjectRef::Aquifer:
-                dc = SWMMModelLayer::DataAquifers;
-                break;
-            case DataObjectRef::Inlet:
-                dc = SWMMModelLayer::DataInlets;
-                break;
-            case DataObjectRef::RainGage: /* handled above */
-                break;
-            case DataObjectRef::SubcatchOutlet: /* handled above */
-                break;
-            case DataObjectRef::Node: /* handled above */
-                break;
-            case DataObjectRef::CaptureNode: /* handled above */
-                break;
-            }
-            const auto &reg = ComprehensiveEditorRegistry::instance();
-            const QString title = reg.editorTitle(dc);
-            const bool shipped = reg.hasEditor(dc);
-            QAction *act = menu.addAction(
-                ref.currentName.isEmpty()
-                    ? tr("Open %1…").arg(title.isEmpty() ? tr("Editor") : title)
-                    : tr("Edit \"%1\" in %2…")
-                          .arg(ref.currentName, title.isEmpty() ? tr("Editor") : title));
-            act->setEnabled(shipped);
-            if (!shipped)
-                act->setToolTip(reg.gapTooltip(dc));
-            connect(act, &QAction::triggered, this, [this, ref, dc, sourceIdx]() {
-                QString chosen;
-                switch (dc) {
-                case SWMMModelLayer::DataHydrographs:
-                    chosen = HydrographGroupEditor::pickGroup(ref.layer, ref.currentName, this);
-                    break;
-                case SWMMModelLayer::DataPatterns: {
-                    using openswmmvis::pattern::PatternRegistry;
-                    using openswmmvis::ui::PatternEditorDialog;
-                    auto *r = qobject_cast<PatternRegistry *>(ref.layer->ensurePatternRegistry());
-                    if (!r)
-                        return;
-                    chosen = PatternEditorDialog::pickPattern(r, /*undoStack=*/nullptr,
-                                                              ref.currentName, this);
-                    break;
-                }
-                case SWMMModelLayer::DataTimeSeries: {
-                    using openswmmvis::timeseries::TimeseriesRegistry;
-                    using openswmmvis::ui::TimeseriesEditorDialog;
-                    auto *r =
-                        qobject_cast<TimeseriesRegistry *>(ref.layer->ensureTimeseriesRegistry());
-                    if (!r)
-                        return;
-                    chosen = TimeseriesEditorDialog::pickTimeseries(r, /*undoStack=*/nullptr,
-                                                                    ref.currentName, this);
-                    if (!chosen.isEmpty())
-                        r->saveToEngine();
-                    break;
-                }
-                case SWMMModelLayer::DataCurves: {
-                    using openswmmvis::curve::CurveRegistry;
-                    using openswmmvis::ui::CurveEditorDialog;
-                    auto *r = qobject_cast<CurveRegistry *>(ref.layer->ensureCurveRegistry());
-                    if (!r)
-                        return;
-                    QPointer<CurveEditorDialog> dlg =
-                        ref.currentName.isEmpty()
-                            ? CurveEditorDialog::createNew(r, /*undoStack=*/nullptr, this)
-                            : nullptr;
-                    if (!dlg) {
-                        dlg = new CurveEditorDialog(r, /*undoStack=*/nullptr, this);
-                        dlg->openForCurve(ref.currentName);
-                    }
-                    if (dlg) {
-                        dlg->setAttribute(Qt::WA_DeleteOnClose);
-                        dlg->show();
-                    }
-                    return;
-                }
-                default:
-                    return;
-                }
-                if (chosen.isEmpty())
-                    return;
-                DataObjectRef updated = ref;
-                updated.currentName = chosen;
-                m_model->setData(sourceIdx, QVariant::fromValue(updated), Qt::EditRole);
-            });
-            addedEditAction = true;
-        }
+        addedEditAction = addDataObjectReferenceAction(menu, m_view, proxyIdx);
     }
 
     if (addedEditAction)

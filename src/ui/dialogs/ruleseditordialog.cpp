@@ -36,6 +36,7 @@
 #include <QSortFilterProxyModel>
 #include <QSplitter>
 #include <QToolButton>
+#include <QUndoStack>
 #include <QVBoxLayout>
 
 namespace openswmmvis::ui
@@ -646,7 +647,12 @@ void RulesEditorDialog::openForRule(const QString &name)
     const int row = m_listModel->indexOf(name);
     if (row < 0)
         return;
-    m_listView->setCurrentIndex(m_listProxy->mapFromSource(m_listModel->index(row, 0)));
+    if (m_createCard)
+        m_createCard->hide();
+    const auto source = m_listModel->index(row, 0);
+    if (!m_listProxy->mapFromSource(source).isValid())
+        m_searchEdit->clear();
+    m_listView->setCurrentIndex(m_listProxy->mapFromSource(source));
 }
 
 void RulesEditorDialog::closeEvent(QCloseEvent *e)

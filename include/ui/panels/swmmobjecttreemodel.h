@@ -26,6 +26,7 @@
 
 #include <QAbstractItemModel>
 #include <QPointer>
+#include <QHash>
 #include <QVector>
 
 #include "layers/swmmmodellayer.h"
@@ -111,15 +112,7 @@ public:
      */
     QModelIndex indexFor(SWMMModelLayer::Category c, int row) const;
 
-    /*! Convenience: model index for a selection-bus object. Walks the
-     *  layer's name→(cat,row) map — O(1) hash lookup. Returns an
-     *  invalid QModelIndex when the object is unknown.
-     * @param[in] ref Selection reference; only name used, type IGNORED. Empty name rejects.
-     * @return Spatial leaf found by source name-location hash or invalid; does not resolve
-     *   non-spatial data objects. Colliding names follow layer hash entry regardless of ref.type,
-     *   so callers requiring typed resolution must check separately. No selection/visibility
-     *   change.
-     */
+    /*! Resolve a selection by its type and ID in the current model. */
     QModelIndex indexFor(const SWMMObjectRef &ref) const;
 
     /*! Slice BM.0 — section discriminator for a top-level row.
@@ -331,6 +324,7 @@ private:
     // below m_visible with a non-selectable separator row between when
     // both sections are non-empty.
     QVector<SWMMModelLayer::DataCategory> m_visibleData;
+    mutable QHash<int, QHash<QString, int>> m_dataRows;
 };
 
 #endif // SWMMOBJECTTREEMODEL_H
