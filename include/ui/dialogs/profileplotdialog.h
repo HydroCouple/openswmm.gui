@@ -436,6 +436,7 @@ private:
     quint64 m_surface2DGeometryRevision = 0;
     QPointer<class SWMM2DResultsLayer> m_surface2DLayer;
     QAction *m_actShow2D = nullptr;
+    QAction *m_actShowMax2D = nullptr; ///< mirrors ProfilePlotOptions::showMax2DInundation
     QAction *m_actLidWater = nullptr;
     QAction *m_actLidHead = nullptr;
 

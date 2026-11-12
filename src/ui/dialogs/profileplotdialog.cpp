@@ -369,6 +369,19 @@ void ProfilePlotDialog::buildLayout()
     connect(m_actShow2D, &QAction::toggled, this, [this](bool on) {
         m_options->setShow2DInundation(on); // options.changed → rebuild
     });
+    // Its maximum over the run, the 2D counterpart of the Max HGL; mirrors
+    // the showMax2DInundation option (also in Display Options).
+    m_actShowMax2D =
+        toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Inundation2DMax")),
+                           tr("Max 2D Inundation"));
+    m_actShowMax2D->setObjectName(QStringLiteral("showMax2DInundation"));
+    m_actShowMax2D->setToolTip(tr("Overlay the maximum over the run of the active 2D results "
+                                  "layer's water surface along the profile, beneath the "
+                                  "current 2D band."));
+    m_actShowMax2D->setCheckable(true);
+    m_actShowMax2D->setChecked(m_options->showMax2DInundation());
+    connect(m_actShowMax2D, &QAction::toggled, m_options,
+            &ProfilePlotOptions::setShowMax2DInundation);
     root->addWidget(toolbar);
 
     // Header banner with the path summary.
@@ -561,7 +574,12 @@ void ProfilePlotDialog::buildLayout()
             QSignalBlocker b(m_actShow2D);
             m_actShow2D->setChecked(show2D);
         }
-        const bool want2D = show2D || m_options->showMax2DInundation();
+        const bool showMax2D = m_options->showMax2DInundation();
+        if (m_actShowMax2D && m_actShowMax2D->isChecked() != showMax2D) {
+            QSignalBlocker b(m_actShowMax2D);
+            m_actShowMax2D->setChecked(showMax2D);
+        }
+        const bool want2D = show2D || showMax2D;
         if (want2D != (m_surface2DLayer != nullptr))
             rebuildSurface2DStations();
         else if (m_options->showMax2DInundation() && !m_surface2DMaxApplied)

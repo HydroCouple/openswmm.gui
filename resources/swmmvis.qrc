@@ -56,6 +56,7 @@
         <file alias="ProfileLidHead">images/profile_lid_head.svg</file>
         <file alias="AttributeTracks">images/attribute_tracks.svg</file>
         <file alias="Inundation2D">images/inundation_2d.svg</file>
+        <file alias="Inundation2DMax">images/inundation_2d_max.svg</file>
         <!-- 2D surface profile — Analysis "2D Profile" and the Mesh 2D tab's trace tool. -->
         <file alias="Profile2D">images/profile_2d.svg</file>
         <file alias="ExportImage">images/export_image.svg</file>

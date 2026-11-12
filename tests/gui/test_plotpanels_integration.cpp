@@ -1395,6 +1395,8 @@ private slots:
             // from the saved dialog layout, so set it explicitly.
             QVERIFY(options->showMax2DInundation());
             options->setShow2DInundation(true);
+            auto *maxAction = dialog->findChild<QAction *>(QStringLiteral("showMax2DInundation"));
+            QVERIFY(maxAction && maxAction->isCheckable() && maxAction->isChecked());
 
             const double scale = water->depthToMeshUnits();
             auto maxima = [plot] {
@@ -1416,11 +1418,14 @@ private slots:
             }
 
             // Both 2D surfaces off: the overlay unbinds. Max alone rebinds it and
-            // samples the envelope again.
+            // samples the envelope again. The toolbar button and the option
+            // (Display properties) drive each other.
             options->setShow2DInundation(false);
-            options->setShowMax2DInundation(false);
+            maxAction->setChecked(false);
+            QVERIFY(!options->showMax2DInundation());
             QVERIFY(plot->surface2DSamples().isEmpty());
             options->setShowMax2DInundation(true);
+            QVERIFY(maxAction->isChecked());
             QVERIFY(!plot->surface2DSamples().isEmpty());
             QTRY_VERIFY_WITH_TIMEOUT(maxima() > 0, 20000);
         }
