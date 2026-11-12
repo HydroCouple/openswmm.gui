@@ -22,6 +22,7 @@
 #include <QElapsedTimer>
 #include <cmath>
 #include <cstdlib>
+#include <functional>
 #include <new>
 // Count allocations only inside the explicitly measured integration call.
 // Qt setup, field capture, births and test assertions are outside this scope.
@@ -145,6 +146,41 @@ static FlowParticleSettings longLife()
     s.trailSeconds = 100;
     s.maxHistory = 20000;
     return s;
+}
+/**
+ *
+ * @brief Build a stored-velocity (velocity-only) native capture on the unit-square grid.
+ * @param columns Positive grid width in metres (scene units equal metres).
+ * @param rows Positive grid height in metres.
+ * @param velocity Cell-mean velocity in m/s as a function of each triangle's centroid.
+ * @param flux Native outward face flux written to every edge; NaN means not reported.
+ * @return Owned input with depth 1 m everywhere and a copied prepared mesh.
+ *
+ */
+static FlowParticleNativeInput storedVelocityInput(int columns, int rows,
+                                                   const std::function<QPointF(QPointF)> &velocity,
+                                                   double flux = NAN)
+{
+    const auto grid = field(columns, rows);
+    FlowParticleNativeInput input;
+    input.mesh = std::make_shared<FlowParticleMesh>(*grid->mesh);
+    input.geometry = 1;
+    for (const auto &ids : input.mesh->triangles) {
+        FlowParticleNativeTriangle t;
+        t.meanDepth = 1;
+        t.depth = {1, 1, 1};
+        t.available = true;
+        t.velocityOnly = true;
+        t.flux = {flux, flux, flux};
+        QPointF centroid;
+        for (int k = 0; k < 3; ++k) {
+            t.metres[k] = input.mesh->vertices[ids[k]];
+            centroid += t.metres[k] / 3;
+        }
+        t.velocitySI = velocity(centroid);
+        input.triangles.push_back(t);
+    }
+    return input;
 }
 // The seed distribution before the allocation-free rewrite (2026-10-17), kept
 // verbatim so the production build can be checked for exactly matching numeric output.
@@ -3404,6 +3440,130 @@ private slots:
         QCOMPARE(system.particles().front().id, id);
         QVERIFY(system.particles().front().position.x() > position.x());
         QCOMPARE(system.frame()->deaths, quint64(0));
+    }
+    /**
+     *
+     * @brief Require trails through stored cell velocities to turn smoothly at faces.
+     * A solid-body rotation (0.1 rad/s) is sampled at triangle centroids, as the engine
+     * writes one velocity per cell. Per display tick the heading may turn by about
+     * 0.1/60 rad; a piecewise-constant field turns by up to ~0.1 rad at each face.
+     *
+     */
+    void storedCellVelocitiesTurnSmoothlyAcrossFaces()
+    {
+        const QPointF centre(20, 20);
+        const auto input = storedVelocityInput(40, 40, [centre](QPointF p) {
+            return QPointF(-(p.y() - centre.y()) * .1, (p.x() - centre.x()) * .1);
+        });
+        std::atomic_bool cancelled = false;
+        const auto snapshot = buildFlowParticleField(input, cancelled);
+        QVERIFY(snapshot);
+        FlowParticleSystem system;
+        system.setSettings(longLife());
+        system.setField(snapshot);
+        QVERIFY(system.spawn({25, 20.2}));
+        QPointF previous = system.particles().front().position, heading;
+        double maxTurn = 0;
+        for (int tick = 0; tick < 20 * 60; ++tick) {
+            system.advance(1. / 60);
+            const auto now = system.particles().front().position;
+            const auto step = now - previous;
+            if (std::hypot(step.x(), step.y()) < 1e-9)
+                continue;
+            if (!heading.isNull())
+                maxTurn = std::max(maxTurn, std::abs(std::atan2(referenceCross(heading, step),
+                                                                QPointF::dotProduct(heading, step))));
+            heading = step;
+            previous = now;
+        }
+        const auto &p = system.particles().front();
+        QCOMPARE(p.stop, FlowParticleStop::None);
+        QVERIFY(p.crossings > 20);
+        QVERIFY2(maxTurn < .01, qPrintable(QString("max turn per tick %1 rad").arg(maxTurn)));
+        const double radius = std::hypot((p.position - centre).x(), (p.position - centre).y());
+        QVERIFY2(std::abs(radius - std::hypot(5., .2)) < .25, qPrintable(QString::number(radius)));
+    }
+    /**
+     *
+     * @brief Require converging stored cell velocities to carry particles along the seam.
+     * Left of x=10 cells move (1,0.5) m/s, right of it (-1,0.5) m/s. A per-cell field
+     * bounces the particle across the seam face until it stops as a vector conflict.
+     *
+     */
+    void convergingStoredVelocitiesCarryParticlesAlongTheSeam()
+    {
+        const auto input = storedVelocityInput(20, 20, [](QPointF p) {
+            return QPointF(p.x() < 10 ? 1 : -1, .5);
+        });
+        std::atomic_bool cancelled = false;
+        const auto snapshot = buildFlowParticleField(input, cancelled);
+        QVERIFY(snapshot);
+        FlowParticleSystem system;
+        system.setSettings(longLife());
+        system.setField(snapshot);
+        QVERIFY(system.spawn({9.3, 5.2}));
+        system.advance(5, 100000);
+        const auto &p = system.particles().front();
+        QCOMPARE(p.stop, FlowParticleStop::None);
+        QVERIFY2(p.position.y() > 7, qPrintable(QString::number(p.position.y())));
+        QVERIFY(p.position.x() > 9.3 && p.position.x() < 10 + 1e-6);
+    }
+    /**
+     *
+     * @brief Require very fast curved motion to cross faces without invalid-field stops.
+     * A crossing whose duration falls below the 1e-12 s step resolution used to switch cell
+     * without moving onto the face, leaving the head outside the neighbour.
+     *
+     */
+    void fastCurvedFieldsCrossFacesWithoutInvalidStops()
+    {
+        // 0.1 rad/s rotation shown 10^4 times faster: crossings shorter than
+        // 1e-12 s still span ~1e-8 of a cell and must land on the face.
+        FlowParticleSystem system;
+        auto s = longLife();
+        s.speed = 1e4;
+        s.maxHistory = 32;
+        system.setSettings(s);
+        system.setField(field(60, 60, {}, true));
+        for (int i = 0; i < 400; ++i)
+            QVERIFY(system.spawn({1.13 + (i % 20) * 2.9, 1.37 + (i / 20) * 2.9}));
+        for (int tick = 0; tick < 6; ++tick)
+            system.advance(1. / 60, 1 << 28);
+        int invalid = 0;
+        for (const auto &p : system.particles())
+            invalid += p.stop == FlowParticleStop::InvalidField;
+        QCOMPARE(invalid, 0);
+    }
+    /**
+     *
+     * @brief Require a known closed wall to deflect stored velocities instead of absorbing trails.
+     * Flow of (1,-0.3) m/s points into the bottom wall of a 20-by-4 channel. With a reported
+     * zero face flux the particle slides along the wall; with no reported flux the boundary
+     * may be an outflow, so the particle still leaves through it.
+     *
+     */
+    void storedVelocitiesSlideAlongClosedWallsOnly()
+    {
+        for (double flux : {0., double(NAN)}) {
+            const auto input =
+                storedVelocityInput(20, 4, [](QPointF) { return QPointF(1, -.3); }, flux);
+            std::atomic_bool cancelled = false;
+            const auto snapshot = buildFlowParticleField(input, cancelled);
+            QVERIFY(snapshot);
+            FlowParticleSystem system;
+            system.setSettings(longLife());
+            system.setField(snapshot);
+            QVERIFY(system.spawn({2, .5}));
+            system.advance(5, 100000);
+            const auto &p = system.particles().front();
+            if (std::isnan(flux)) {
+                QCOMPARE(p.stop, FlowParticleStop::Outflow);
+                continue;
+            }
+            QCOMPARE(p.stop, FlowParticleStop::None);
+            QVERIFY2(p.position.x() > 6.5, qPrintable(QString::number(p.position.x())));
+            QVERIFY(p.position.y() > 0);
+        }
     }
     /**
      *
