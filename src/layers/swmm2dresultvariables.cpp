@@ -525,6 +525,10 @@ void SWMM2DResultsLayer::adoptPassOpacity_()
 
 bool SWMM2DResultsLayer::applyResultRowDefaults_(OpenSWMM::Render::ISublayer *base) const
 {
+    // Every extra row costs a full-mesh read or particle work per frame. On
+    // large meshes only depth starts shown; the others keep their default
+    // styles for when the user switches them on.
+    const bool shown = cells_.size() <= kLargeMeshDefaultRowCells;
     if (auto *sub = qobject_cast<ResultScalarSublayer *>(base)) {
         auto *st = sub->fillStyle();
         const QString key = sub->variableKey();
@@ -536,7 +540,7 @@ bool SWMM2DResultsLayer::applyResultRowDefaults_(OpenSWMM::Render::ISublayer *ba
         if (key == kMoistureKey) {
             st->setCellFill(true);
             st->setSmoothFill(true);
-            return true;
+            return shown;
         }
         if (key == kTableKey) {
             st->setCellFill(false);
@@ -547,7 +551,7 @@ bool SWMM2DResultsLayer::applyResultRowDefaults_(OpenSWMM::Render::ISublayer *ba
             auto scheme = st->contourStyle()->scheme();
             scheme.setRangeMode(OpenSWMM::Render::RangeMode::PerFrameAutoStretch);
             st->contourStyle()->setScheme(scheme);
-            return true;
+            return shown;
         }
         return false;
     }
@@ -557,11 +561,11 @@ bool SWMM2DResultsLayer::applyResultRowDefaults_(OpenSWMM::Render::ISublayer *ba
         sub->vectorStyle()->setStreaks(true);
         // Arrows keep the former velocity arrows' meaning: px per m/s.
         sub->vectorStyle()->setSizeMode(OpenSWMM::Render::ResultVectorStyle::SizeMode::FixedScale);
-        return true;
+        return shown;
     }
     // Darcy velocity: the vector style's own arrows (sized and coloured by magnitude).
     if (auto *sub = qobject_cast<ResultVectorSublayer *>(base); sub && sub->vectorKey() == kDarcyKey)
-        return true;
+        return shown;
     return false;
 }
 

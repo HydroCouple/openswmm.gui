@@ -3228,6 +3228,14 @@ add_swmmvis_gui_test(test_2dresults_vizfixes
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_2dresults_vizfixes)
+# GPU filled contours on the fast vertex surface (ScalarBandMaterial) draw only with
+# their compiled shaders; the opt-in GPU captures need them in this binary.
+qt_add_shaders(test_2dresults_vizfixes "vizfixes_test_shaders"
+    BATCHABLE
+    PREFIX "/" BASE "${CMAKE_SOURCE_DIR}"
+    FILES
+        ${CMAKE_SOURCE_DIR}/resources/shaders/scalarband.vert
+        ${CMAKE_SOURCE_DIR}/resources/shaders/scalarband.frag)
 
 # Live 2D ticks must cost O(1) each: one timeRangeChanged + one frame load per
 # tick (coalesced), an incremental max-depth envelope, a history cap that thins
@@ -4644,6 +4652,8 @@ qt_add_shaders(test_flowstreaks "flowstreak_test_shaders"
     FILES
         ${CMAKE_SOURCE_DIR}/resources/shaders/scalarfill.vert
         ${CMAKE_SOURCE_DIR}/resources/shaders/scalarfill.frag
+        ${CMAKE_SOURCE_DIR}/resources/shaders/scalarband.vert
+        ${CMAKE_SOURCE_DIR}/resources/shaders/scalarband.frag
         ${CMAKE_SOURCE_DIR}/resources/shaders/flowparticle.vert
         ${CMAKE_SOURCE_DIR}/resources/shaders/flowparticle.frag
         ${CMAKE_SOURCE_DIR}/resources/shaders/mapmask.frag)

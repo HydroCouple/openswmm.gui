@@ -1771,6 +1771,10 @@ public:
      *   dry/zero-speed/missing-flux frames, independently of run capability.
      */
     bool hasVelocityData() const noexcept { return have_velocity_; }
+    /*! The displayed frame is the fast vertex-averaged surface (a mesh above 250,000 cells
+     *  in a view too large for a regional fit): every wet corner value is shared by all cells
+     *  at that vertex. */
+    [[nodiscard]] bool fastSurfacePublished() const noexcept { return published_key_.fast; }
 
     /*! \brief Whether the run carries per-edge flux data at all, independent of
      *  the current frame. Probes the source once (cached) and is the correct
@@ -2160,6 +2164,16 @@ public:
      *   and not a completed-fit count.
      */
     [[nodiscard]] int surfaceFitCount() const noexcept { return surface_fit_count_; }
+    /*! Cost of the most recently published surface, in milliseconds.
+     * readMs/fitMs are the worker's private-file read and water-surface fit that produced the
+     * frame (a cached frame repeats them; a GUI-thread read reports readMs 0); publishMs is the
+     * GUI-thread install of this publication.
+     * Logged per frame as `[render-perf] surface` when OPENSWMM_RENDER_PERF=1.
+     */
+    struct SurfaceTiming {
+        double readMs = 0, fitMs = 0, publishMs = 0;
+    };
+    [[nodiscard]] SurfaceTiming lastSurfaceTiming() const noexcept { return last_surface_timing_; }
     /*! A fit is running or waiting on the worker.
      * @return Whether a worker fit is active or pending, including envelope work; pending/throttled
      *   display requests keep it true.
@@ -2690,6 +2704,7 @@ private:
     struct SurfaceKey {
         quint64 sourceRev = 0, geomRev = 0, policyRev = 0, regionRev = 0;
         int generation = 0, frame = -1, tickRev = 0;
+        bool fast = false; // vertex-averaged display surface, no water-surface fit
         /**
          * @brief Compare all source/geometry/policy/region/history/frame/tick identity fields; a
          *   matching key permits fitted-field reuse.
@@ -2709,8 +2724,43 @@ private:
         CellWaterGeometry::VisibilityPolicy policy;
         std::vector<CellWaterGeometry::Surface> surfaces;
         std::vector<float> depths, flux, velocityX, velocityY;     // inputs
+        bool readFlux = true, readVelocity = true;                 // HDF5 worker reads
         std::vector<CellWaterGeometry::CornerDepths> flow, smooth; // outputs
+        std::vector<std::array<float, 3>> sceneCorners;            // per display triangle
+        double sceneCornerPeak = 0;                                // largest finite corner depth
+        double readMs = 0, fitMs = 0;                              // worker cost of this fit
     };
+    /**
+     * @return True when new full-domain frames use the fast display surface: meshes above
+     *   kFastSurfaceCells cells whose current view is too large for a regional fit.
+     */
+    [[nodiscard]] bool fastSurface_() const;
+    static constexpr size_t kFastSurfaceCells = 250000;
+    /**
+     * @brief Fast display surface for zoomed-out views of large meshes: each wet cell's stage
+     *   averaged onto its vertices (VertexDepthReconstruct::reconstructVertexSignedDepths, the
+     *   method used before the water-surface fit), with no fit and no edge flux.
+     * @param[in,out] job Full-domain job with depths read; fills surfaces and smooth corners,
+     *   leaves flow empty. Corners of cells hidden by the visibility policy are NaN.
+     * @note Reads stable geometry only; safe on the serial worker.
+     */
+    void fastSurfaceFields_(SurfaceJob &job) const;
+    /**
+     * @param[in] smooth Per-cell corner depths, one entry per cell.
+     * @param[out] corners Per display triangle signed corner depths (NaN where absent).
+     * @param[out] peak Largest finite corner depth, 0 when none.
+     * @param[in] parallel Spread fixed blocks of triangles over the global thread pool (saved
+     *   results); the output does not depend on it.
+     * @note Reads stable geometry only; safe on the serial worker.
+     */
+    void sceneCornersFor_(const std::vector<CellWaterGeometry::CornerDepths> &smooth,
+                          std::vector<std::array<float, 3>> &corners, double &peak,
+                          bool parallel = false) const;
+    /**
+     * @param[in] corners Output of sceneCornersFor_ for the current geometry.
+     * @param[in] peak Its largest finite corner depth; grows the automatic depth range.
+     */
+    void installSceneCorners_(const std::vector<std::array<float, 3>> &corners, double peak);
     /**
      * @param[in] frame Retained source frame index; invalid index still creates a key with source
      *   revision fallback0.
@@ -2870,6 +2920,7 @@ private:
     SurfaceKey published_key_, requested_key_;
     quint64 policy_revision_ = 0, request_seq_ = 0, published_seq_ = 0, surface_epoch_ = 0;
     int requested_time_idx_ = -1, surface_fit_count_ = 0, live_min_fit_interval_ms_ = 1000;
+    SurfaceTiming last_surface_timing_;
     bool async_surface_ = false, surface_busy_ = false, envelope_wanted_ = false;
     bool policy_signal_pending_ = false, loading_live_ = false, live_fit_timer_armed_ = false;
     QElapsedTimer live_fit_clock_;
@@ -2893,6 +2944,10 @@ private:
     std::vector<float> edge_ny_;      ///< [mesh::edgeSlot(cell, e)], dimensionless.
     bool have_edge_geom_ = false;
     bool have_velocity_ = false;
+    // Every SceneTri velocity and the vertex velocity field are zero: set only by
+    // applyCurrentFlux_'s full wipe, cleared by anything that writes them, so a frame
+    // without velocity data skips re-zeroing millions of triangles.
+    bool scene_velocity_zero_ = false;
     /*! Tri-state cache for hasEdgeFluxData(): 0 = not yet determined,
      *  +1 = edge flux present, -1 = absent. Reset on setSource. */
     mutable int edge_flux_probe_ = 0;
@@ -3076,11 +3131,14 @@ private:
     /**
      * @brief Apply the defaults of a newly offered row: depth filled contours, velocity streaks,
      *   groundwater water table isolines with labels, the unsaturated column average as a
-     *   smooth fill and Darcy velocity arrows. Other rows stay hidden.
+     *   smooth fill and Darcy velocity arrows. Other rows stay hidden. Above
+     *   kLargeMeshDefaultRowCells cells only the depth row is shown; the others keep these
+     *   styles but start hidden.
      * @param[in] sub New scalar or vector row.
      * @return True when the row is shown by default.
      */
     bool applyResultRowDefaults_(OpenSWMM::Render::ISublayer *sub) const;
+    static constexpr size_t kLargeMeshDefaultRowCells = 500000;
     /**
      * @brief Translate the engines' state into the depth and velocity rows, for snapshots saved
      *   before the rows drove the engines (no "unifiedResults" marker). Pending until both rows

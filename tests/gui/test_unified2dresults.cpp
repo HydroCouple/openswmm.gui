@@ -184,6 +184,39 @@ public:
     }
 };
 
+// FieldSource's catalog over a strip of 250,001 unit squares (500,002 cells), just above the
+// large-mesh default threshold. Every cell carries the first cell's value.
+class LargeFieldSource : public FieldSource
+{
+public:
+    static constexpr int kSquares = 250001;
+    LargeFieldSource()
+    {
+        for (auto it = values.begin(); it != values.end(); ++it)
+            it->assign(size_t(triangleCount()), it->front());
+    }
+    int vertexCount() const override { return 2 * (kSquares + 1); }
+    int triangleCount() const override { return 2 * kSquares; }
+    bool readMeshGeometry(std::vector<double> &x, std::vector<double> &y, std::vector<double> &z,
+                          std::vector<std::array<int, 3>> &tris) override
+    {
+        x.clear();
+        y.clear();
+        for (int i = 0; i <= kSquares; ++i) {
+            x.insert(x.end(), {double(i), double(i)});
+            y.insert(y.end(), {0, 1});
+        }
+        z.assign(x.size(), 0);
+        tris.clear();
+        for (int i = 0; i < kSquares; ++i) {
+            const int a = 2 * i, b = a + 2, c = a + 3, d = a + 1;
+            tris.push_back({a, b, c});
+            tris.push_back({a, c, d});
+        }
+        return true;
+    }
+};
+
 class Renderer : public SWMM2DResultsQSGRenderer
 {
 public:
@@ -498,6 +531,29 @@ private slots:
         QFile out(QDir(outputDir()).filePath("unified_rows.json"));
         QVERIFY(out.open(QIODevice::WriteOnly | QIODevice::Truncate));
         out.write(QJsonDocument(ISublayerHost::saveSublayersToJson(layer)).toJson());
+    }
+
+    /** @brief Above 500,000 cells only the depth row starts shown; the other default rows exist
+     * with their default styles, hidden, and their passes stay off until switched on. */
+    void largeMeshesShowOnlyDepthByDefault()
+    {
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<LargeFieldSource>());
+        auto *depth = scalarRow(layer, kDepth);
+        auto *table = scalarRow(layer, kTable);
+        auto *moisture = scalarRow(layer, kMoisture);
+        auto *velocity = vectorRow(layer, kVelocity);
+        auto *darcy = vectorRow(layer, kDarcy);
+        QVERIFY(depth && table && moisture && velocity && darcy);
+        QVERIFY(depth->isVisible() && depth->fillStyle()->filledContours());
+        QVERIFY(layer.contourBandSublayer()->isVisible());
+        QVERIFY(!velocity->isVisible() && velocity->vectorStyle()->streaks());
+        QVERIFY(!layer.flowStreakSublayer()->isVisible());
+        QVERIFY(!table->isVisible() && table->fillStyle()->isolines());
+        QVERIFY(!moisture->isVisible() && moisture->fillStyle()->smoothFill());
+        QVERIFY(!darcy->isVisible() && darcy->vectorStyle()->arrows());
+        velocity->setVisible(true);
+        QVERIFY(layer.flowStreakSublayer()->isVisible());
     }
 
     /** @brief A project saved before the rows drove the passes translates the passes' state into
@@ -1174,6 +1230,36 @@ private slots:
         }
         QCOMPARE(engine, 0);
         QVERIFY(row > 0);
+    }
+
+    /** @brief A frame without velocity data shows zero velocity every time, including after
+     * velocities were written again: the wipe is skipped only when nothing wrote them since. */
+    void framesWithoutVelocityAlwaysClearIt()
+    {
+        auto owned = std::make_unique<FieldSource>();
+        auto *source = owned.get();
+        source->values["Mesh2_face_depth"] = {1, 1}; // wet cells carry velocity
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::move(owned));
+        layer.setCurrentTimeIndex(1);
+        auto speed = [&] {
+            float sum = 0;
+            for (const auto &t : layer.m_sceneTris)
+                sum += std::abs(t.vx) + std::abs(t.vy) + std::abs(t.vmag);
+            return sum;
+        };
+        for (int round = 0; round < 2; ++round) {
+            source->storedVelocity = true;
+            layer.refreshCurrentFrame();
+            QVERIFY(layer.hasVelocityData());
+            QVERIFY(speed() > 0);
+            source->storedVelocity = false;
+            layer.refreshCurrentFrame();
+            QVERIFY(!layer.hasVelocityData());
+            QCOMPARE(speed(), 0.f);
+            layer.refreshCurrentFrame(); // nothing written since: the wipe is skipped
+            QCOMPARE(speed(), 0.f);
+        }
     }
 
     /** @brief Fixed-scale arrows (px per m/s, as the former velocity arrows), the dry-depth

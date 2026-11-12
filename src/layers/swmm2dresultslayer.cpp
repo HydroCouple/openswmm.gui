@@ -15,6 +15,8 @@
 #include "layers/swmm2dresultslayer.h"
 #include "render/sublayers/resultscalarsublayer.h"
 #include "render/classificationcolorsampler.h"
+#include "render/qsg2drenderstats.h"
+#include <QScopeGuard>
 #include "render/smoothfillraster.h"
 
 #include "contour/contourchain.h"
@@ -2717,7 +2719,8 @@ template <class Job> size_t surfaceJobBytes(const Job &job)
         job.surfaces.capacity() * sizeof(CellWaterGeometry::Surface) +
         (job.depths.capacity() + job.flux.capacity() + job.velocityX.capacity() +
          job.velocityY.capacity()) * sizeof(float) +
-        (job.flow.capacity() + job.smooth.capacity()) * sizeof(CellWaterGeometry::CornerDepths);
+        (job.flow.capacity() + job.smooth.capacity()) * sizeof(CellWaterGeometry::CornerDepths) +
+        job.sceneCorners.capacity() * sizeof(std::array<float, 3>);
     // Charge shared region geometry per owner conservatively; the budget must
     // also hold when a pan leaves older coverage alive in the frame cache.
     if (job.region)
@@ -2734,6 +2737,27 @@ template <class Job> size_t surfaceJobBytes(const Job &job)
     }
     return bytes;
 }
+/**
+ * @brief Run fn(begin, end) over [0, n) in fixed 65,536-element blocks.
+ * @param[in] n Element count.
+ * @param[in] parallel Spread the blocks over the global thread pool; false runs them in order on
+ *   the calling thread (live runs keep the engine's cores, per the 2026-10-02 rule).
+ * @param[in] fn Writes only to elements of its own block and reads shared data that is not
+ *   modified meanwhile, so the result does not depend on scheduling or thread count.
+ */
+template <class Fn> void forBlocks(size_t n, bool parallel, Fn &&fn)
+{
+    constexpr size_t block = 65536;
+    if (!parallel || n <= block) {
+        fn(size_t(0), n);
+        return;
+    }
+    std::vector<std::pair<size_t, size_t>> ranges;
+    for (size_t first = 0; first < n; first += block)
+        ranges.emplace_back(first, std::min(n, first + block));
+    QtConcurrent::blockingMap(ranges,
+                              [&fn](std::pair<size_t, size_t> &r) { fn(r.first, r.second); });
+}
 } // namespace
 
 SWMM2DResultsLayer::SurfaceKey SWMM2DResultsLayer::surfaceKey_(int frame) const
@@ -2746,7 +2770,13 @@ SWMM2DResultsLayer::SurfaceKey SWMM2DResultsLayer::surfaceKey_(int frame) const
     key.generation = source_ ? source_->historyGeneration() : 0;
     key.frame = frame;
     key.tickRev = source_ ? source_->frameContentRevision(frame) : 0;
+    key.fast = fastSurface_();
     return key;
+}
+
+bool SWMM2DResultsLayer::fastSurface_() const
+{
+    return cells_.size() > kFastSurfaceCells && !surface_region_;
 }
 
 void SWMM2DResultsLayer::readSurfaceInputs_(int t, std::vector<float> &depths,
@@ -2830,6 +2860,15 @@ bool SWMM2DResultsLayer::loadFrame_(int t)
             job->epoch = surface_epoch_;
             job->live = loading_live_;
             job->policy = waterVisibilityPolicy();
+            if (key.fast) {
+                // The fast surface needs depth only, plus what visible velocity
+                // displays read: arrows the stored velocity, and without it
+                // arrows or streaks the edge flux.
+                job->readVelocity =
+                    m_velocityVectorSublayer && m_velocityVectorSublayer->isVisible();
+                job->readFlux = !source_->hasStoredVelocity() &&
+                                (job->readVelocity || flowStreaksEnabled());
+            }
             readSurfaceJob_(*job);
             // Nothing is displayed yet for this source and geometry: fit the
             // first frame here so the map never starts empty. Every later
@@ -2899,6 +2938,8 @@ bool SWMM2DResultsLayer::loadFrame_(int t)
 // queries, profiles and both renderers always see one coherent frame.
 void SWMM2DResultsLayer::publishSurface_(SurfaceJob &job, quint64 seq)
 {
+    QElapsedTimer publishClock;
+    publishClock.start();
     const int t = job.key.frame;
     current_time_idx_ = t;
     ++frame_revision_;
@@ -2940,7 +2981,10 @@ void SWMM2DResultsLayer::publishSurface_(SurfaceJob &job, quint64 seq)
         }
         std::vector<CellWaterGeometry::CornerDepths>().swap(cellFlowDepths_);
         install(surfaceDepths_, job.smooth);
-        fillSceneCorners_();
+        if (job.sceneCorners.size() == size_t(m_sceneTris.size()))
+            installSceneCorners_(job.sceneCorners, job.sceneCornerPeak);
+        else
+            fillSceneCorners_();
         applyCurrentFlux_(&job.velocityX, &job.velocityY);
     }
     if (graphics_item_)
@@ -2949,6 +2993,12 @@ void SWMM2DResultsLayer::publishSurface_(SurfaceJob &job, quint64 seq)
         arrows_item_->geometryChanged();
     published_key_ = job.key;
     published_seq_ = std::max(published_seq_, seq);
+    last_surface_timing_ = {job.readMs, job.fitMs, publishClock.nsecsElapsed() / 1e6};
+    if (OpenSWMM::Render::Qsg2DRenderStats::loggingEnabled())
+        qInfo().nospace() << "[render-perf] surface frame=" << t << " cells=" << cells_.size()
+                          << " region=" << (job.region ? int(job.region->cells.size()) : -1)
+                          << " read_ms=" << job.readMs << " fit_ms=" << job.fitMs
+                          << " publish_ms=" << last_surface_timing_.publishMs;
     if (policy_signal_pending_) {
         policy_signal_pending_ = false;
         emit waterDisplayPolicyChanged();
@@ -2961,6 +3011,10 @@ void SWMM2DResultsLayer::publishSurface_(SurfaceJob &job, quint64 seq)
 void SWMM2DResultsLayer::fitSurface_(SurfaceJob &job,
                                      CellWaterGeometry::NeighborhoodFit::Workspace *workspace) const
 {
+    QElapsedTimer clock;
+    clock.start();
+    job.readMs = 0;
+    const auto stamp = qScopeGuard([&] { job.fitMs = clock.nsecsElapsed() / 1e6 - job.readMs; });
     if (!job.inputPath.isEmpty()) {
         // Reused input storage must not expose an older frame after a failed
         // file open or read. clear() retains its allocation for the next job.
@@ -2975,10 +3029,10 @@ void SWMM2DResultsLayer::fitSurface_(SurfaceJob &job,
                                                    job.flux);
         else if (ok) {
             ok = reader.readDepthsAt(job.key.frame, job.depths);
-            if (!reader.readEdgeFluxAt(job.key.frame, job.flux))
+            if (!job.readFlux || !reader.readEdgeFluxAt(job.key.frame, job.flux))
                 job.flux.clear();
         }
-        if (ok && reader.hasFaceField("Mesh2_face_vx") &&
+        if (ok && job.readVelocity && reader.hasFaceField("Mesh2_face_vx") &&
             reader.hasFaceField("Mesh2_face_vy")) {
             const bool velocityOk = job.region
                 ? reader.readFaceFieldCellsAt("Mesh2_face_vx", job.key.frame, job.region->cells,
@@ -2998,11 +3052,16 @@ void SWMM2DResultsLayer::fitSurface_(SurfaceJob &job,
         for (float &d : job.depths)
             if (!std::isfinite(d) || d < 0)
                 d = std::numeric_limits<float>::quiet_NaN();
+        job.readMs = clock.nsecsElapsed() / 1e6;
     }
     auto &surfaces = job.surfaces;
     if (!job.region) {
-        fitSurfaceFields_(job.depths, job.flux, job.policy, surfaces, job.flow, job.smooth,
-                          workspace);
+        if (job.key.fast)
+            fastSurfaceFields_(job);
+        else
+            fitSurfaceFields_(job.depths, job.flux, job.policy, surfaces, job.flow, job.smooth,
+                              workspace);
+        sceneCornersFor_(job.smooth, job.sceneCorners, job.sceneCornerPeak, !job.live);
         return;
     }
     const auto &region = *job.region;
@@ -3092,8 +3151,10 @@ void SWMM2DResultsLayer::scheduleFit_()
                 target.swap(spare);
         };
         take(job->surfaces, spare_surface_->surfaces);
-        take(job->flow, spare_surface_->flow);
+        if (!job->key.fast)
+            take(job->flow, spare_surface_->flow);
         take(job->smooth, spare_surface_->smooth);
+        take(job->sceneCorners, spare_surface_->sceneCorners);
         if (!job->inputPath.isEmpty()) {
             take(job->depths, spare_surface_->depths);
             take(job->flux, spare_surface_->flux);
@@ -3183,7 +3244,8 @@ void SWMM2DResultsLayer::retainSurfaceBuffers_(const std::shared_ptr<SurfaceJob>
     job->depths.resize(current_depths_.size());
     job->flux.resize(current_flux_.size());
     job->surfaces.resize(cellSurfaces_.size());
-    job->flow.resize(cellSurfaces_.size());
+    if (!job->key.fast) // the fast surface has no flow corners
+        job->flow.resize(cellSurfaces_.size());
     job->smooth.resize(surfaceDepths_.size());
     spare_surface_ = job;
     surface_buffer_bytes_ = surfaceJobBytes(*job);
@@ -3515,6 +3577,7 @@ void SWMM2DResultsLayer::closeSource()
         t.dv0 = t.dv1 = t.dv2 = 0.0f;
         t.vx = t.vy = t.vmag = 0.0f;
     }
+    scene_velocity_zero_ = false;
     m_sceneEdges.clear(); // Issue 3 — drop the wireframe with the source
     vvx_.clear();         // V1 — drop the per-vertex velocity field
     vvy_.clear();
@@ -4813,6 +4876,7 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     cellFlowFlags_.clear();
 
     m_sceneTris.resize(static_cast<int>(tris_.size()));
+    scene_velocity_zero_ = false;
     int badTris = 0;
     for (int i = 0; i < static_cast<int>(tris_.size()); ++i) {
         SceneTri &st = m_sceneTris[i];
@@ -4973,26 +5037,119 @@ void SWMM2DResultsLayer::applyCurrentDepths_()
 
 void SWMM2DResultsLayer::fillSceneCorners_()
 {
-    for (int i = 0; i < m_sceneTris.size(); ++i) {
-        const auto &ids = tris_[size_t(i)];
-        const int cell = triCell_[size_t(i)];
-        auto depth = [&](int v) {
-            const auto &ids = cells_[size_t(cell)];
-            const auto it = std::find(ids.begin(), ids.end(), v);
-            return v >= 0 && it != ids.end()
-                       ? float(surfaceDepths_[size_t(cell)][size_t(it - ids.begin())])
-                       : std::numeric_limits<float>::quiet_NaN();
-        };
-        auto &t = m_sceneTris[i];
-        t.depth = current_depths_[size_t(cell)];
-        t.dv0 = depth(ids[0]);
-        t.dv1 = depth(ids[1]);
-        t.dv2 = depth(ids[2]);
-        if (!max_depth_user_set_)
-            for (float d : {t.dv0, t.dv1, t.dv2})
+    std::vector<std::array<float, 3>> corners;
+    double peak = 0;
+    sceneCornersFor_(surfaceDepths_, corners, peak);
+    installSceneCorners_(corners, peak);
+}
+
+void SWMM2DResultsLayer::sceneCornersFor_(
+    const std::vector<CellWaterGeometry::CornerDepths> &smooth,
+    std::vector<std::array<float, 3>> &corners, double &peak, bool parallel) const
+{
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    corners.resize(tris_.size());
+    // One peak per block, combined after: a maximum, so the result is scheduling-independent.
+    std::vector<double> peaks((tris_.size() + 65535) / 65536 + 1, 0.);
+    forBlocks(tris_.size(), parallel, [&](size_t first, size_t last) {
+        double &blockPeak = peaks[first / 65536];
+        for (size_t i = first; i < last; ++i) {
+            const auto &ids = tris_[i];
+            const int cell = triCell_[i];
+            auto depth = [&](int v) {
+                const auto &ids = cells_[size_t(cell)];
+                const auto it = std::find(ids.begin(), ids.end(), v);
+                return v >= 0 && it != ids.end() && size_t(cell) < smooth.size()
+                           ? float(smooth[size_t(cell)][size_t(it - ids.begin())])
+                           : nan;
+            };
+            auto &out = corners[i];
+            out = {depth(ids[0]), depth(ids[1]), depth(ids[2])};
+            for (float d : out)
                 if (std::isfinite(d))
-                    max_depth_ = std::max(max_depth_, double(d));
+                    blockPeak = std::max(blockPeak, double(d));
+        }
+    });
+    peak = *std::max_element(peaks.begin(), peaks.end());
+}
+
+void SWMM2DResultsLayer::installSceneCorners_(const std::vector<std::array<float, 3>> &corners,
+                                              double peak)
+{
+    const int count = int(std::min(size_t(m_sceneTris.size()), corners.size()));
+    for (int i = 0; i < count; ++i) {
+        auto &t = m_sceneTris[i];
+        const auto &d = corners[size_t(i)];
+        t.depth = current_depths_[size_t(triCell_[size_t(i)])];
+        t.dv0 = d[0];
+        t.dv1 = d[1];
+        t.dv2 = d[2];
     }
+    if (!max_depth_user_set_)
+        max_depth_ = std::max(max_depth_, peak);
+}
+
+void SWMM2DResultsLayer::fastSurfaceFields_(SurfaceJob &job) const
+{
+    const size_t n = cells_.size();
+    const auto &depths = job.depths;
+    // Per-cell steps are independent; saved results use every core for them.
+    const bool parallel = !job.live;
+    job.surfaces.resize(n);
+    std::vector<float> bed(n, 0.f); // cell-centre fallback where vertex beds are unusable
+    forBlocks(n, parallel, [&](size_t first, size_t last) {
+        for (size_t c = first; c < last; ++c) {
+            job.surfaces[c] = CellWaterGeometry::reconstruct(cellSplit_[c], depths[c], vz_);
+            double sum = 0;
+            int count = 0;
+            for (int v : cells_[c])
+                if (v >= 0 && size_t(v) < vz_.size() && std::isfinite(vz_[size_t(v)])) {
+                    sum += vz_[size_t(v)];
+                    ++count;
+                }
+            bed[c] = count ? float(sum / count) : 0.f;
+        }
+    });
+    std::vector<float> stageSum, weight, vertexDepth;
+    VertexDepthReconstruct::reconstructVertexSignedDepths(
+        cellSplit_, depths, bed, vz_, float(std::max(dry_depth_, 1e-6)), stageSum, weight,
+        vertexDepth);
+    std::vector<CellWaterGeometry::CornerDepths>().swap(job.flow);
+    // A vertex no wet cell's water reaches takes the highest stage of its shown cells
+    // (negative depth), so the waterline falls inside them and every corner value is
+    // shared by all cells at that vertex.
+    std::vector<unsigned char> shown(n, 0);
+    forBlocks(n, parallel, [&](size_t first, size_t last) {
+        for (size_t c = first; c < last; ++c)
+            shown[c] = CellWaterGeometry::visible(
+                CellWaterGeometry::displayState(cellSplit_[c], job.surfaces[c], vz_, job.policy),
+                job.policy);
+    });
+    // Serial: several cells write each waterline vertex (a maximum, so order-independent).
+    for (size_t c = 0; c < n; ++c) {
+        if (!shown[c])
+            continue;
+        for (size_t k = 0; k < 4 && cells_[c][k] >= 0; ++k) {
+            const size_t v = size_t(cells_[c][k]);
+            if (weight[v] > 0)
+                continue;
+            const float edge = float(job.surfaces[c].signedDepth(vz_[v]));
+            vertexDepth[v] = weight[v] < 0 ? std::max(vertexDepth[v], edge) : edge;
+            weight[v] = -1; // marks a waterline vertex, assigned once per frame
+        }
+    }
+    job.smooth.resize(n);
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    forBlocks(n, parallel, [&](size_t first, size_t last) {
+        for (size_t c = first; c < last; ++c) {
+            auto &corner = job.smooth[c];
+            corner.fill(nan);
+            if (!shown[c])
+                continue;
+            for (size_t k = 0; k < 4 && cells_[c][k] >= 0; ++k)
+                corner[k] = double(vertexDepth[size_t(cells_[c][k])]);
+        }
+    });
 }
 
 void SWMM2DResultsLayer::applyCurrentFlux_(const std::vector<float> *savedVx,
@@ -5019,13 +5176,17 @@ void SWMM2DResultsLayer::applyCurrentFlux_(const std::vector<float> *savedVx,
         static_cast<int>(triCell_.size()) != nTri) {
         // No flux data this tick — wipe per-tri velocities so an old frame
         // doesn't ghost when the user scrubs into a flux-less region.
+        if (scene_velocity_zero_)
+            return; // nothing has written them since the last wipe
         for (auto &st : m_sceneTris) {
             st.vx = st.vy = st.vmag = 0.0f;
         }
         std::fill(vvx_.begin(), vvx_.end(), 0.0f); // V1 — drop stale vertex field
         std::fill(vvy_.begin(), vvy_.end(), 0.0f);
+        scene_velocity_zero_ = true;
         return;
     }
+    scene_velocity_zero_ = false;
 
     // Stored velocities carry the solver's chosen reconstruction (in particular
     // FULL_SWE cell momentum). Edge-based RT0 is the legacy-source fallback.

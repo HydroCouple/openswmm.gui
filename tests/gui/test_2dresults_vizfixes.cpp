@@ -40,11 +40,15 @@
 #include <QDoubleSpinBox>
 #include <QUndoStack>
 #include "map/swmm2dresultsqsgrenderer.h"
+#include "map/scalarbandmaterial.h"
+#include "map/scalarfillmaterial.h"
 #include "render/sublayers/contourbandsublayer.h"
 #include "render/sublayers/scalarfillsublayer.h"
 #include "render/contourjob.h"
 #include <QElapsedTimer>
+#include <QDir>
 #include <QFile>
+#include <QFileInfo>
 #include <QTextStream>
 #include <QSGGeometryNode>
 #include <QGraphicsScene>
@@ -56,8 +60,13 @@
 #include <QObject>
 #include <QTest>
 #include <QSignalSpy>
+#include <QScopeGuard>
+#include <QThreadPool>
 
 #include <array>
+#include <cstring>
+#include <functional>
+#include <limits>
 #include <memory>
 #include <vector>
 
@@ -405,6 +414,86 @@ public:
 
 // Same sloping fixture with a spatially uniform RT0 flow. Reversing speed
 // exercises both dense and grid-sampled velocity snapshots during handoff.
+// A strip of 125,001 unit squares (250,002 cells, just above the fast-surface threshold) on a
+// flat bed. Cells below kSquares are wet, alternating 0.3 m and 0.5 m by square; the rest are dry.
+class LargeStripSource : public VfrSource
+{
+public:
+    static constexpr int kSquares = 125001;
+    LargeStripSource()
+    {
+        x.clear();
+        y.clear();
+        for (int i = 0; i <= kSquares; ++i) {
+            x.insert(x.end(), {double(i), double(i)});
+            y.insert(y.end(), {0., 1.});
+        }
+        z.assign(x.size(), 0.);
+        frames = {std::vector<float>(size_t(2 * kSquares), 0.f)};
+        for (int c = 0; c < kSquares; ++c)
+            frames[0][size_t(c)] = (c / 2) % 2 ? 0.5f : 0.3f;
+    }
+    int triangleCount() const override { return 2 * kSquares; }
+    bool readMeshGeometry(std::vector<double> &ox, std::vector<double> &oy, std::vector<double> &oz,
+                          std::vector<std::array<int, 3>> &tris) override
+    {
+        ox = x;
+        oy = y;
+        oz = z;
+        tris.clear();
+        for (int i = 0; i < kSquares; ++i) {
+            const int a = 2 * i, b = a + 2, c = a + 3, d = a + 1;
+            tris.push_back({a, b, c});
+            tris.push_back({a, c, d});
+        }
+        return true;
+    }
+};
+
+// A 360-by-360 grid of unit squares (259,200 cells, above the fast-surface threshold) on a flat
+// bed. Depth grows smoothly eastward with a north-south wave, so filled contours form wide bands
+// at screen scale; the westernmost 20 columns are dry (a waterline).
+class LargeGridSource : public VfrSource
+{
+public:
+    static constexpr int kSide = 360;
+    LargeGridSource()
+    {
+        x.clear();
+        y.clear();
+        for (int j = 0; j <= kSide; ++j)
+            for (int i = 0; i <= kSide; ++i) {
+                x.push_back(i);
+                y.push_back(j);
+            }
+        z.assign(x.size(), 0.);
+        frames = {std::vector<float>(size_t(2 * kSide * kSide), 0.f)};
+        for (int j = 0; j < kSide; ++j)
+            for (int i = 20; i < kSide; ++i) {
+                const float d = float(.05 + .6 * (i + .5) / kSide *
+                                                (.6 + .4 * std::sin((j + .5) / 30.)));
+                const size_t c = size_t(2 * (j * kSide + i));
+                frames[0][c] = frames[0][c + 1] = d;
+            }
+    }
+    int triangleCount() const override { return 2 * kSide * kSide; }
+    bool readMeshGeometry(std::vector<double> &ox, std::vector<double> &oy, std::vector<double> &oz,
+                          std::vector<std::array<int, 3>> &tris) override
+    {
+        ox = x;
+        oy = y;
+        oz = z;
+        tris.clear();
+        for (int j = 0; j < kSide; ++j)
+            for (int i = 0; i < kSide; ++i) {
+                const int a = j * (kSide + 1) + i, b = a + 1, c = a + kSide + 2, d = a + kSide + 1;
+                tris.push_back({a, b, c});
+                tris.push_back({a, c, d});
+            }
+        return true;
+    }
+};
+
 class FlowVfrSource : public VfrSource
 {
 public:
@@ -942,6 +1031,44 @@ private slots:
      * reported through the test framework.
      */
     void bellingeWorkerEqualityAndLatency();
+    /**
+     * @brief Time 2D depth animation on a large saved result, display pass by display pass.
+     *
+     * @details Skips unless VFR_LARGE_MESH names a .2d.h5 (for example one written by
+     * tests/tools/make_synthetic_2d_results_h5.py) and VFR_PERF_OUT a reviewable directory.
+     * Writes large-mesh-animation.csv with, per pass and frame: GUI-thread request call,
+     * request-to-published wall time, the layer's worker read/fit and GUI publish times, the
+     * longest GUI-thread stall while waiting, and renderer synchronization before and after the
+     * background contour job, at full extent in a 1600x1000 view. No speed thresholds; waits
+     * allow 10 minutes per frame.
+     */
+    void largeMeshAnimationBaseline();
+    /**
+     * @brief Require a zoomed-out view of a mesh above 250,000 cells to show the fast
+     * vertex-averaged surface: one depth per shared vertex (the fitted surface keeps
+     * cell-owned corners), bounded by the incident wet depths, and dry cells undrawn.
+     */
+    void largeMeshesShowTheFastVertexSurface();
+    /**
+     * @brief Require the fast surface spread over the thread pool to equal the one-thread result
+     * bit for bit: its per-cell and per-triangle blocks write disjoint elements, and the shared
+     * vertex scatters stay serial.
+     */
+    void fastVertexSurfaceIsIndependentOfThreadCount();
+    /**
+     * @brief Require filled contours of the fast surface to be classified on the GPU: one sync,
+     * no contour job, ScalarBandMaterial nodes indexing exactly the wet triangles with their
+     * shared corner depths, and no CPU band geometry. OPENSWMM_QSG_GPU_BANDS=0 restores the
+     * marched CPU bands for the same frame.
+     */
+    void fastSurfaceBandsClassifyOnTheGpu();
+    /**
+     * @brief Opt-in (VFR_TEST_GPU=1, a real window): GPU-classified bands of the fast surface
+     * look like the marched CPU bands of the same frame. At most 2% of coloured pixels may differ
+     * by more than 24 levels in a channel (rasterization along band edges). Saves both images
+     * and the difference to VFR_TEST_ARTIFACTS or tests/output/gpu_bands_2026-11-12.
+     */
+    void gpuBandsMatchMarchedBandsOnScreen();
 };
 
 void Test2DResultsVizFixes::bellingeNeighborhoodSavedLiveAndRendering()
@@ -1619,6 +1746,386 @@ void Test2DResultsVizFixes::bellingeWorkerEqualityAndLatency()
         sameMaximum(profile, MeshProfileSampler::buildMeshProfile(nullptr, &sync, section, 100)));
     row << "profile_560m_stations," << stationMs << "," << profile.samples.size() << "\n"
         << "profile_560m_apply_maximum," << applyMs << "," << profile.samples.size() << "\n";
+}
+
+void Test2DResultsVizFixes::fastVertexSurfaceIsIndependentOfThreadCount()
+{
+    auto *pool = QThreadPool::globalInstance();
+    const int threads = pool->maxThreadCount();
+    const auto restore = qScopeGuard([pool, threads] { pool->setMaxThreadCount(threads); });
+    std::vector<std::array<float, 3>> corners[2];
+    for (int run = 0; run < 2; ++run) {
+        pool->setMaxThreadCount(run == 0 ? 1 : std::max(threads, 4));
+        SWMM2DResultsLayer layer;
+        layer.setAsyncSurface(true); // saved results: the parallel worker path
+        layer.setSource(std::make_unique<LargeStripSource>());
+        QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(), 120000);
+        QVERIFY(layer.fastSurfacePublished());
+        for (const auto &t : layer.m_sceneTris)
+            corners[run].push_back({t.dv0, t.dv1, t.dv2});
+    }
+    QCOMPARE(corners[0].size(), corners[1].size());
+    QVERIFY(std::memcmp(corners[0].data(), corners[1].data(),
+                        corners[0].size() * sizeof(corners[0][0])) == 0);
+}
+
+void Test2DResultsVizFixes::fastSurfaceBandsClassifyOnTheGpu()
+{
+    class Renderer : public SWMM2DResultsQSGRenderer
+    {
+    public:
+        /* @brief Expose the protected scene-graph synchronization hook for this test.
+         * @param[in,out] old Previous owned root or null; ownership passes in and back out.
+         * @return Updated root owned by the caller. */
+        QSGNode *sync(QSGNode *old) { return updatePaintNode(old, nullptr); }
+    };
+    struct Counts {
+        int gpuNodes = 0, gpuIndices = 0, cpuVertices = 0;
+        float minValue = 1e30f, maxValue = -1e30f;
+        size_t interior = 0, colors = 0;
+    };
+    auto count = [](QSGNode *root) {
+        Counts c;
+        QVector<QSGNode *> pending{root};
+        for (qsizetype n = 0; n < pending.size(); ++n) {
+            for (auto *child = pending[n]->firstChild(); child; child = child->nextSibling())
+                pending.append(child);
+            if (pending[n]->type() != QSGNode::GeometryNodeType)
+                continue;
+            auto *node = static_cast<QSGGeometryNode *>(pending[n]);
+            auto *g = node->geometry();
+            if (!g || !node->material())
+                continue;
+            if (node->material()->type() == ScalarBandMaterial().type()) {
+                ++c.gpuNodes;
+                c.gpuIndices += g->indexCount();
+                const auto *v = static_cast<const ScalarFillVertex *>(g->vertexData());
+                const quint16 *index = g->indexDataAsUShort();
+                for (int i = 0; i < g->indexCount(); ++i) {
+                    c.minValue = std::min(c.minValue, v[index[i]].value);
+                    c.maxValue = std::max(c.maxValue, v[index[i]].value);
+                }
+                const auto *m = static_cast<const ScalarBandMaterial *>(node->material());
+                c.interior = m->interiorLevels().size();
+                c.colors = m->colors().size();
+            } else if (g->attributeCount() == 2) {
+                for (int i = 0; i < g->vertexCount(); ++i)
+                    c.cpuVertices += g->vertexDataAsColoredPoint2D()[i].a > 0;
+            }
+        }
+        return c;
+    };
+    SWMM2DResultsLayer layer;
+    layer.setAsyncSurface(true);
+    layer.setSource(std::make_unique<LargeStripSource>());
+    QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(), 120000);
+    QVERIFY(layer.fastSurfacePublished());
+    for (auto *s : layer.sublayers())
+        s->setVisible(false);
+    layer.contourBandSublayer()->bandStyle()->setSmoothBands(true);
+    layer.contourBandSublayer()->setVisible(true);
+    layer.setVisible(true);
+    const auto box = layer.m_sceneBBox;
+    const MapExtent extent(box.left(), -box.bottom(), box.right(), -box.top());
+    const auto previous = qgetenv("OPENSWMM_QSG_GPU_BANDS");
+    const auto restore = qScopeGuard([previous] {
+        if (previous.isNull())
+            qunsetenv("OPENSWMM_QSG_GPU_BANDS");
+        else
+            qputenv("OPENSWMM_QSG_GPU_BANDS", previous);
+    });
+    for (bool gpu : {true, false}) {
+        if (gpu)
+            qunsetenv("OPENSWMM_QSG_GPU_BANDS");
+        else
+            qputenv("OPENSWMM_QSG_GPU_BANDS", "0");
+        Renderer renderer;
+        renderer.setWidth(1600);
+        renderer.setHeight(400);
+        renderer.setMapExtent(extent);
+        renderer.setLayer(&layer);
+        QSignalSpy ready(&renderer, &SWMM2DResultsQSGRenderer::contentReady);
+        std::unique_ptr<QSGNode> root(renderer.sync(nullptr));
+        if (!gpu) { // marched in the background on a mesh this size
+            QVERIFY(ready.wait(120000));
+            root.reset(renderer.sync(root.release()));
+        }
+        const auto c = count(root.get());
+        if (gpu) {
+            QCOMPARE(ready.count(), 0); // no contour job
+            QVERIFY(c.gpuNodes > 0);
+            QCOMPARE(c.gpuIndices, 3 * LargeStripSource::kSquares); // the wet triangles
+            QVERIFY(c.minValue >= .3f - 1e-6f && c.maxValue <= .5f + 1e-6f);
+            QVERIFY(c.colors >= 1);
+            QCOMPARE(c.interior + 1, c.colors);
+            QCOMPARE(c.cpuVertices, 0);
+        } else {
+            QCOMPARE(c.gpuNodes, 0);
+            QVERIFY(c.cpuVertices > 0);
+        }
+    }
+}
+
+void Test2DResultsVizFixes::gpuBandsMatchMarchedBandsOnScreen()
+{
+    if (qEnvironmentVariableIntValue("VFR_TEST_GPU") != 1)
+        QSKIP("Set VFR_TEST_GPU=1 with QT_QPA_PLATFORM=cocoa (needs a GPU window)");
+    const QString dir = qEnvironmentVariable(
+        "VFR_TEST_ARTIFACTS", QFileInfo(QString::fromUtf8(__FILE__))
+                                  .absoluteDir()
+                                  .absoluteFilePath("../output/gpu_bands_2026-11-12"));
+    QVERIFY(QDir().mkpath(dir));
+    SWMM2DResultsLayer layer;
+    layer.setAsyncSurface(true);
+    layer.setSource(std::make_unique<LargeGridSource>());
+    QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(), 120000);
+    QVERIFY(layer.fastSurfacePublished());
+    for (auto *s : layer.sublayers())
+        s->setVisible(false);
+    layer.contourBandSublayer()->bandStyle()->setSmoothBands(true);
+    layer.contourBandSublayer()->setVisible(true);
+    layer.setVisible(true);
+    const auto box = layer.m_sceneBBox;
+    const MapExtent extent(box.left(), -box.bottom(), box.right(), -box.top());
+    const auto previous = qgetenv("OPENSWMM_QSG_GPU_BANDS");
+    const auto restore = qScopeGuard([previous] {
+        if (previous.isNull())
+            qunsetenv("OPENSWMM_QSG_GPU_BANDS");
+        else
+            qputenv("OPENSWMM_QSG_GPU_BANDS", previous);
+    });
+    QImage images[2];
+    const char *names[2] = {"gpu", "marched"};
+    for (int run = 0; run < 2; ++run) {
+        if (run == 0)
+            qunsetenv("OPENSWMM_QSG_GPU_BANDS");
+        else
+            qputenv("OPENSWMM_QSG_GPU_BANDS", "0");
+        QQuickWindow window;
+        QSurfaceFormat format = window.format();
+        format.setSamples(0); // no edge antialiasing on either path
+        window.setFormat(format);
+        window.setColor(Qt::white);
+        window.resize(800, 800);
+        auto *renderer = new SWMM2DResultsQSGRenderer(window.contentItem());
+        renderer->setSize(QSizeF(800, 800));
+        renderer->setLayer(&layer);
+        renderer->setMapExtent(extent);
+        window.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&window));
+        QTRY_COMPARE_WITH_TIMEOUT(renderer->displayedFrameRevision(), layer.frameRevision(),
+                                  60000);
+        QSignalSpy swapped(&window, &QQuickWindow::frameSwapped);
+        renderer->update();
+        QTRY_VERIFY_WITH_TIMEOUT(swapped.count() > 0, 10000);
+        images[run] = window.grabWindow().convertToFormat(QImage::Format_ARGB32);
+        QVERIFY(!images[run].isNull());
+        QVERIFY(images[run].save(dir + QStringLiteral("/bands-%1.png").arg(names[run])));
+        window.close();
+    }
+    QCOMPARE(images[0].size(), images[1].size());
+    QImage diff(images[0].size(), QImage::Format_ARGB32);
+    diff.fill(Qt::white);
+    qint64 coloured = 0, differing = 0;
+    for (int yy = 0; yy < images[0].height(); ++yy)
+        for (int xx = 0; xx < images[0].width(); ++xx) {
+            const QRgb a = images[0].pixel(xx, yy), b = images[1].pixel(xx, yy);
+            if (a == qRgb(255, 255, 255) && b == qRgb(255, 255, 255))
+                continue;
+            ++coloured;
+            const int delta = std::max({std::abs(qRed(a) - qRed(b)), std::abs(qGreen(a) - qGreen(b)),
+                                        std::abs(qBlue(a) - qBlue(b))});
+            if (delta > 24) {
+                ++differing;
+                diff.setPixel(xx, yy, qRgb(220, 0, 0));
+            }
+        }
+    QVERIFY(diff.save(dir + QStringLiteral("/bands-difference.png")));
+    QVERIFY2(coloured > images[0].width() * images[0].height() / 4,
+             qPrintable(QStringLiteral("only %1 coloured pixels").arg(coloured)));
+    QVERIFY2(differing * 50 <= coloured,
+             qPrintable(QStringLiteral("%1 of %2 coloured pixels differ").arg(differing).arg(coloured)));
+}
+
+void Test2DResultsVizFixes::largeMeshesShowTheFastVertexSurface()
+{
+    SWMM2DResultsLayer layer;
+    layer.setAsyncSurface(true); // as the application constructs saved-result layers
+    layer.setSource(std::make_unique<LargeStripSource>());
+    QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(), 120000);
+    const auto &ids = layer.triVertexIndices();
+    const auto &owner = layer.triCellMap();
+    QCOMPARE(qsizetype(ids.size()), layer.m_sceneTris.size());
+    std::vector<float> atVertex(layer.m_sceneVerts.size(), std::numeric_limits<float>::quiet_NaN());
+    int wet = 0;
+    for (qsizetype i = 0; i < layer.m_sceneTris.size(); ++i) {
+        const auto &t = layer.m_sceneTris[i];
+        const float corners[3] = {t.dv0, t.dv1, t.dv2};
+        if (owner[size_t(i)] >= LargeStripSource::kSquares) {
+            for (float d : corners)
+                QVERIFY(std::isnan(d)); // dry cells are not drawn
+            continue;
+        }
+        ++wet;
+        for (int k = 0; k < 3; ++k) {
+            QVERIFY(corners[k] >= .3f - 1e-6f && corners[k] <= .5f + 1e-6f);
+            float &shared = atVertex[size_t(ids[size_t(i)][size_t(k)])];
+            if (std::isnan(shared))
+                shared = corners[k];
+            else
+                QVERIFY2(std::abs(shared - corners[k]) < 1e-6f,
+                         qPrintable(QString("vertex %1: %2 vs %3")
+                                        .arg(ids[size_t(i)][size_t(k)])
+                                        .arg(shared)
+                                        .arg(corners[k])));
+        }
+    }
+    QCOMPARE(wet, LargeStripSource::kSquares);
+
+    // The smooth depth fill draws each wet triangle once, indexed over shared vertices.
+    class Renderer : public SWMM2DResultsQSGRenderer
+    {
+    public:
+        /* @brief Expose the protected scene-graph synchronization hook for this test.
+         * @param[in,out] old Previous owned root or null; ownership passes in and back out.
+         * @return Updated root owned by the caller. */
+        QSGNode *sync(QSGNode *old) { return updatePaintNode(old, nullptr); }
+    };
+    for (auto *s : layer.sublayers())
+        s->setVisible(false);
+    layer.smoothDepthFillSublayer()->setVisible(true);
+    layer.setVisible(true);
+    Renderer renderer;
+    renderer.setWidth(1600);
+    renderer.setHeight(200);
+    const auto box = layer.m_sceneBBox;
+    renderer.setMapExtent(MapExtent(box.left(), -box.bottom(), box.right(), -box.top()));
+    renderer.setLayer(&layer);
+    std::unique_ptr<QSGNode> root(renderer.sync(nullptr));
+    int references = 0;
+    QVector<QSGNode *> pending{root.get()};
+    for (qsizetype n = 0; n < pending.size(); ++n) {
+        for (auto *c = pending[n]->firstChild(); c; c = c->nextSibling())
+            pending.append(c);
+        if (pending[n]->type() != QSGNode::GeometryNodeType)
+            continue;
+        auto *g = static_cast<QSGGeometryNode *>(pending[n])->geometry();
+        if (!g || g->attributeCount() != 2 || g->indexType() != QSGGeometry::UnsignedShortType)
+            continue;
+        const auto *v = g->vertexDataAsColoredPoint2D();
+        const quint16 *index = g->indexDataAsUShort();
+        for (int k = 0; k < g->indexCount(); ++k)
+            QVERIFY(v[index[k]].a > 0);
+        references += g->indexCount();
+    }
+    QCOMPARE(references, 3 * wet);
+}
+
+void Test2DResultsVizFixes::largeMeshAnimationBaseline()
+{
+    const QString path = qEnvironmentVariable("VFR_LARGE_MESH"),
+                  out = qEnvironmentVariable("VFR_PERF_OUT");
+    if (path.isEmpty() || out.isEmpty())
+        QSKIP("Set VFR_LARGE_MESH and VFR_PERF_OUT");
+    class Renderer : public SWMM2DResultsQSGRenderer
+    {
+    public:
+        /* @brief Expose the protected scene-graph synchronization hook for this benchmark.
+         * @param[in,out] old Previous owned root or null; ownership passes in and back out.
+         * @return Updated root owned by the caller. */
+        QSGNode *sync(QSGNode *old) { return updatePaintNode(old, nullptr); }
+    };
+    QFile csv(out + "/large-mesh-animation.csv");
+    QVERIFY(csv.open(QIODevice::WriteOnly | QIODevice::Text));
+    QTextStream row(&csv);
+    QElapsedTimer timer;
+    auto ms = [&timer] { return double(timer.nsecsElapsed()) / 1e6; };
+    timer.start();
+    auto file = std::make_unique<HDF5Mesh2DSource>();
+    QVERIFY(file->open(path));
+    SWMM2DResultsLayer layer;
+    layer.setAsyncSurface(true); // as the application constructs saved-result layers
+    layer.setSource(std::move(file));
+    layer.setVisible(true);
+    QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(), 600000);
+    row << "# open_and_first_frame_ms," << ms() << ",cells," << layer.source()->triangleCount()
+        << "\n";
+    row << "pass,frame,request_call_ms,request_to_published_ms,worker_read_ms,worker_fit_ms,"
+           "publish_ms,max_gui_stall_ms,sync_ms,contour_ready_ms,sync_after_contours_ms\n";
+    const auto box = layer.m_sceneBBox;
+    const MapExtent extent(box.left(), -box.bottom(), box.right(), -box.top());
+    // The longest gap between 1 ms timer ticks is the longest GUI-thread block.
+    QElapsedTimer beat;
+    double maxGap = 0;
+    QTimer pulse;
+    pulse.setInterval(1);
+    connect(&pulse, &QTimer::timeout, &pulse, [&] {
+        maxGap = std::max(maxGap, beat.nsecsElapsed() / 1e6);
+        beat.restart();
+    });
+    struct Pass {
+        const char *name;
+        bool contours;
+        std::function<void()> show;
+    };
+    const Pass passes[] = {
+        {"bands", true, [&] { layer.contourBandSublayer()->setVisible(true); }},
+        {"bands_isolines", true,
+         [&] {
+             layer.contourBandSublayer()->setVisible(true);
+             layer.isolineSublayer()->setVisible(true);
+         }},
+        {"smooth_fill", false, [&] { layer.smoothDepthFillSublayer()->setVisible(true); }},
+    };
+    const int count = layer.source()->timeCount();
+    for (const auto &pass : passes) {
+        for (auto *s : layer.sublayers())
+            s->setVisible(false);
+        pass.show();
+        Renderer renderer;
+        renderer.setWidth(1600);
+        renderer.setHeight(1000);
+        renderer.setMapExtent(extent);
+        renderer.setLayer(&layer);
+        QSignalSpy ready(&renderer, &SWMM2DResultsQSGRenderer::contentReady);
+        std::unique_ptr<QSGNode> root(renderer.sync(nullptr));
+        // Marched contours arrive from a background job; GPU-classified bands draw at once.
+        const auto pending = [&] { return renderer.displayedFrameRevision() != layer.frameRevision(); };
+        if (pass.contours && pending() && ready.wait(600000))
+            root.reset(renderer.sync(root.release()));
+        // Frames 1..last, then 0: every request changes the displayed frame (each pass
+        // ends on frame 0), so every request starts a new surface and contour job.
+        for (int k = 1; k <= count; ++k) {
+            const int frame = k % count;
+            ready.clear();
+            maxGap = 0;
+            beat.start();
+            pulse.start();
+            timer.start();
+            layer.setCurrentTimeIndex(frame);
+            const double callMs = ms();
+            QTRY_COMPARE_WITH_TIMEOUT(layer.currentTimeIndex(), frame, 600000);
+            const double shownMs = ms();
+            pulse.stop();
+            const auto timing = layer.lastSurfaceTiming();
+            timer.start();
+            root.reset(renderer.sync(root.release()));
+            const double syncMs = ms();
+            double readyMs = -1, afterMs = -1;
+            timer.start();
+            if (pass.contours && pending() && (ready.count() > 0 || ready.wait(600000))) {
+                readyMs = ms();
+                timer.start();
+                root.reset(renderer.sync(root.release()));
+                afterMs = ms();
+            }
+            row << pass.name << "," << frame << "," << callMs << "," << shownMs << ","
+                << timing.readMs << "," << timing.fitMs << "," << timing.publishMs << ","
+                << std::max(maxGap, callMs) << "," << syncMs << "," << readyMs << "," << afterMs
+                << "\n";
+            row.flush();
+        }
+    }
 }
 
 void Test2DResultsVizFixes::flowingSlopeProfilesContoursAndHistory()

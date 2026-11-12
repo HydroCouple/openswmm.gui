@@ -203,6 +203,7 @@ void SWMM2DResultsLayer::readSurfaceJob_(SurfaceJob &job)
 
 void SWMM2DResultsLayer::publishRegionalSurface_(const SurfaceJob &job)
 {
+    scene_velocity_zero_ = false; // writes regional triangle and vertex velocities
     const float nan = std::numeric_limits<float>::quiet_NaN();
     const CellWaterGeometry::CornerDepths missing{nan, nan, nan, nan};
     // Legacy query/render buffers keep their global indexing. Allocate once;
