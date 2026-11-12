@@ -88,22 +88,28 @@ void SetInletCommentsCommand::undo()
 
 RenameInletCommand::RenameInletCommand(InletRegistry *registry, InletProvider *provider,
                                        QString newName, QUndoCommand *parent)
-    : QUndoCommand(parent), m_registry(registry), m_provider(provider),
+    : QUndoCommand(parent), m_registry(registry),
       m_oldName(provider ? provider->name() : QString()), m_newName(std::move(newName))
 {
     setText(QCoreApplication::translate("inlet", "Rename Inlet"));
 }
 
+// By name, not by the provider seen at construction: the inlet may have been
+// deleted and brought back by Undo since, as a new provider.
 void RenameInletCommand::redo()
 {
-    if (m_registry && m_provider)
-        m_registry->rename(m_provider, m_newName);
+    if (!m_registry || m_oldName.isEmpty())
+        return;
+    if (InletProvider *p = m_registry->findByName(m_oldName))
+        m_registry->rename(p, m_newName);
 }
 
 void RenameInletCommand::undo()
 {
-    if (m_registry && m_provider)
-        m_registry->rename(m_provider, m_oldName);
+    if (!m_registry || m_oldName.isEmpty())
+        return;
+    if (InletProvider *p = m_registry->findByName(m_newName))
+        m_registry->rename(p, m_oldName);
 }
 
 // ─── AddInletCommand ────────────────────────────────────────────────────────
@@ -161,6 +167,10 @@ void DeleteInletCommand::undo()
         return;
     p->setDesign(m_design);
     p->setComments(m_comments);
+    // create() put a default design into the engine; the restored settings
+    // must reach it too, not only this cache.
+    if (void *engine = m_registry->engineHandle())
+        m_registry->saveToEngine(engine, m_name);
 }
 
 } // namespace openswmmvis::inlet

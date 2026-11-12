@@ -21,6 +21,9 @@
 #define OPENSWMMVIS_UI_DIALOGS_AQUIFEREDITORDIALOG_H
 
 #include <QDialog>
+#include "aquifer/aquiferprovider.h" // Params held per draft
+
+#include <QHash>
 #include <QPointer>
 #include <QStringList>
 #include <QVector>
@@ -33,6 +36,7 @@ class QListView;
 class QPushButton;
 class QSplitter;
 
+class QUndoStack;
 class SWMMModelLayer;
 
 namespace openswmmvis::aquifer
@@ -50,6 +54,8 @@ namespace openswmmvis::ui
 {
 
 class AquiferListModel;
+class DataObjectDraftSession;
+class DraftMarkProxyModel;
 
 class AquiferEditorDialog : public QDialog
 {
@@ -65,10 +71,10 @@ public:
      * @param[in] layer Borrowed optional model context, guarded by QPointer; supplies the
      * pattern editor when present.
      * @param[in] parent Optional Qt owner of the dialog and child controls/models.
-     * @details Selects the first available provider; uses GUI-thread immediate provider edits
-     * and nonblocking relationship warnings. Caller keeps the associated engine context valid
-     * through all edits and nested confirmations. Closing the dialog does not roll back
-     * provider/registry mutations.
+     * @details Selects the first available provider. Field edits are held in a draft per aquifer
+     * until Apply, which writes them to the model as one step on the stack given to
+     * setUndoStack(); create, delete and rename take effect at once. Relationship warnings do
+     * not block. Closing with a draft asks Apply / Discard / Cancel.
      */
     AquiferEditorDialog(openswmmvis::aquifer::AquiferRegistry *registry, SWMMModelLayer *layer,
                         QWidget *parent = nullptr);
@@ -102,6 +108,17 @@ public:
      * independent of current selection.
      */
     Mode mode() const noexcept { return m_mode; }
+
+    /*! The project's undo stack: one Apply becomes one step on it. */
+    void setUndoStack(QUndoStack *stack);
+    /*! Apply / Revert state of this editor's drafts. */
+    DataObjectDraftSession *draftSession() const noexcept { return m_session; }
+
+public slots:
+    /// With unapplied drafts, ask Apply / Discard / Cancel before closing.
+    void done(int result) override;
+
+public:
     /**
      * @brief Borrow the guarded current aquifer provider.
      * @return Registry-owned pointer or null when unbound/destroyed; no ownership transfer.
@@ -215,12 +232,10 @@ private slots:
      */
     void onNameEdited_();
     /**
-     * @brief Copy all displayed scalar values and the optional evaporation pattern to the
-     * provider.
-     * @details Suppressed during hydration or without a provider. Writes every spin's
-     * rounded/clamped value on any field edit, then the selected pattern (empty for row zero)
-     * and refreshes the diagram. Retains native fractions, length and rainfall-rate units
-     * without conversion; relationship warnings do not block writes and no local undo is added.
+     * @brief Copy all displayed scalar values and the optional evaporation pattern into the
+     * current aquifer's draft (dropped again when it matches the model).
+     * @details Suppressed during hydration or without a provider. Retains native fractions,
+     * length and rainfall-rate units without conversion; relationship warnings do not block.
      */
     void onFieldEdited_();
     /**
@@ -298,6 +313,17 @@ private:
      */
     int activeParam_() const;
 
+    /// What the form shows for \p p: its draft if it has one, else the model's values.
+    openswmmvis::aquifer::AquiferProvider::Params shown_(openswmmvis::aquifer::AquiferProvider *p) const;
+    bool applyDrafts_(QString *reason);
+    void revertDrafts_();
+
+    QHash<openswmmvis::aquifer::AquiferProvider *, openswmmvis::aquifer::AquiferProvider::Params>
+        m_drafts;
+    DataObjectDraftSession *m_session = nullptr;
+    QPointer<QUndoStack> m_undo;
+    bool m_applying = false;
+
     QPointer<openswmmvis::aquifer::AquiferRegistry> m_registry;
     QPointer<SWMMModelLayer> m_layer;
     QPointer<openswmmvis::aquifer::AquiferProvider> m_current;
@@ -307,6 +333,7 @@ private:
 
     QListView *m_listView = nullptr;
     AquiferListModel *m_listModel = nullptr;
+    DraftMarkProxyModel *m_draftMarks = nullptr; ///< Marks rows holding unapplied changes.
     QPushButton *m_addBtn = nullptr;
     QPushButton *m_delBtn = nullptr;
 

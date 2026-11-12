@@ -101,7 +101,7 @@ public:
      * @brief Write current authoring providers through a borrowed engine handle.
      * @param[in] engineHandle Valid SWMM_Engine retained for later calls; null is a no-op preserving the previous handle.
      * @return Number of providers whose engine object was found or added and whose setter calls were attempted; not a count of confirmed setter success.
-     * @details Adds missing pollutants using their stored units, writes scalar values, then resolves co-pollutant names in a second pass. Existing engine units cannot be edited here. Setter return codes are ignored; partial changes are not rolled back.
+     * @details Adds missing pollutants, writes the units and scalar values, then resolves co-pollutant names in a second pass. Units are refused outside BUILDING/OPENED (engine lifecycle). Setter return codes are ignored; partial changes are not rolled back.
      * @param[in] onlyName Optional name restricting writes to that provider.
      */
     int saveToEngine(void *engineHandle, const QString &onlyName = {});

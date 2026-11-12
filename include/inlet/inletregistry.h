@@ -121,6 +121,13 @@ public:
      */
     int saveToEngine();
 
+    /*! The design as the engine keeps it: `swmm_inlet_set_design` stores only
+     *  the field groups the type uses, and a read back gives the others their
+     *  defaults. Used to check that an Apply reached the engine.
+     * @param[in] design Authored design.
+     * @return \p design with the unused groups at their defaults. */
+    static openswmmvis::inlet::InletDesignData storedDesign(const openswmmvis::inlet::InletDesignData &design);
+
     /**
      * @brief Expose the engine most recently supplied to load/save.
      * @return Borrowed opaque SWMM_Engine, or null before any non-null handle was supplied; registry does not extend engine lifetime.

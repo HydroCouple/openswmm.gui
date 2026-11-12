@@ -5,11 +5,14 @@
  * @license   GPL-3.0-or-later
  * @brief     Slice BQ Phase 6.7.3.3 — modeless two-pane editor dialog.
  *
- * Registry list, multi-column grid and chart edit provider data live. The editor owns
- * a separate undo stack when a caller stack is supplied as an enable/lifetime token;
- * closing does not roll edits back. Source-mode controls support external file previews
- * and inline conversion, with GeoPackage selection still a placeholder. Numeric rotate
- * and scale panels transform selected points. Points use absolute GUI timestamps while
+ * Registry list, multi-column grid and chart edit a DRAFT copy of each series the
+ * user opens; the model's series change only at Apply, as one step on the caller's
+ * undo stack (workplans/DATA_OBJECT_APPLY_REVERT_PLAN_2026-11-11.md, Phase 3). The
+ * editor's own undo stack steps through draft edits. Create, delete and rename take
+ * effect at once. Source-mode controls support external file previews, observation copies
+ * prepared from a native GeoPackage dataset (Geopackage source), and inline conversion.
+ * Numeric rotate and scale
+ * panels transform selected points. Points use absolute GUI timestamps while
  * authoring metadata controls absolute/elapsed-time INP serialization.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
@@ -17,10 +20,15 @@
 #ifndef OPENSWMMVIS_UI_DIALOGS_TIMESERIESEDITORDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_TIMESERIESEDITORDIALOG_H
 
+#include "timeseries/timeseriesprovider.h" // Content snapshots held per draft
+
 #include <QDialog>
+#include <QJsonObject>
 #include <QPointer>
 #include <QUndoStack> // complete type for the inline undoStack() accessor
 #include <QVector>
+
+#include <functional>
 
 class QAction;
 class QCheckBox;
@@ -38,6 +46,7 @@ class QSplitter;
 class QToolButton;
 class QStatusBar;
 class QTableView;
+class QTimer;
 class QToolBar;
 class QUndoStack;
 
@@ -54,6 +63,23 @@ class TimeseriesEditChartView;
 class TimeseriesListModel;
 class TimeseriesTableModel;
 class ChartAxisFormatController;
+class DataObjectDraftSession;
+class DraftMarkProxyModel;
+
+/*! A series prepared from an observation dataset: the model-owned points and
+ *  the binding (dataset, series, reviewed preparation choices) they came from. */
+struct ObservationCopy {
+    QVector<openswmmvis::timeseries::TimeseriesPoint> points;
+    QJsonObject binding;
+};
+
+/*! Produces an ObservationCopy for the series named \p seriesName of \p model
+ *  (the editor's model layer, to find the datasets loaded on its map). Choose
+ *  asks the user (dataset, series, units and clock); Refresh re-prepares from
+ *  \p currentBinding without asking. False with \p error (empty = cancelled). */
+using ObservationSourceFn =
+    std::function<bool(QWidget *parent, const QObject *model, const QString &seriesName,
+                       const QJsonObject &currentBinding, ObservationCopy *out, QString *error)>;
 
 class TimeseriesEditorDialog : public QDialog
 {
@@ -88,8 +114,8 @@ public:
      *   layout persistence, copy registry project anchor once, observe simulation-start badge
      *   changes. Registry destruction, parent engineAboutToClose signal and caller-stack
      *   destruction invalidate. Provider values retain authored native units, no quantity/unit
-     *   conversion here. Closing commits the active cell, publishes edited series, and releases the external
-     *   point cache.
+     *   conversion here. Edits go to a draft copy per series; Apply writes the drafts to the model
+     *   as one step on \p undoStack. Closing commits the active cell and asks about unapplied drafts.
  */
     explicit TimeseriesEditorDialog(
         openswmmvis::timeseries::TimeseriesRegistry *registry, QUndoStack *undoStack,
@@ -129,7 +155,7 @@ public:
      *  round-trip a time series selection inline (e.g. the
      *  NodeCompoundEditDialog inflow picker). Empty \p initialName →
      *  CreateNew mode; otherwise → Edit mode bound to that series.
-     *  Closing publishes the edited series to the engine. Returns the name of the series currently bound
+     *  Closing with unapplied edits asks Apply / Discard first. Returns the name of the series currently bound
      *  to the dialog on close, or empty if no live provider is bound, independently of acceptance
      *   or edits.
      * @param[in] registry Borrowed registry kept through modal call; null returns empty
@@ -181,6 +207,13 @@ public:
      *   command references must remain live when replayed.
  */
     QUndoStack *undoStack() const noexcept { return m_undoStack.data(); }
+
+    /*! Apply / Revert state of this editor's drafts. */
+    DataObjectDraftSession *draftSession() const noexcept { return m_session; }
+
+    /*! The draft copy the grid and chart are editing, or null. The model's
+     *  series changes only when the draft is applied. Exposed for tests. */
+    openswmmvis::timeseries::TimeseriesProvider *editedSeries() const;
 
     // ── CreateNew-mode introspection (exposed for tests) ────────────────────
 
@@ -236,9 +269,29 @@ public:
  */
     int linkExternalFile(const QString &path, const QString &columnSelector = QString());
 
+    /*! \brief Install the Choose / Refresh behind the Geopackage source. The
+     *  application installs the observation-dataset flow at start-up; without
+     *  it the Geopackage source cannot pick a series.
+     * @param[in] choose Interactive dataset + series + preparation choice.
+     * @param[in] refresh Non-interactive re-preparation from a saved binding. */
+    static void setObservationSource(ObservationSourceFn choose, ObservationSourceFn refresh);
+
+    /*! \brief Make the bound series' draft an observation copy (Geopackage
+     *  source): \p copy's points, read-only, with its binding. One step on the
+     *  editor's undo stack; the model changes at Apply. Used by Choose and
+     *  Refresh; exposed for tests.
+     * @return False when no series is bound. */
+    bool useObservationCopy(const ObservationCopy &copy);
+
 public slots:
-    /// Commit the active cell and pending series before dismissing the editor.
+    /// Commit the active cell; with unapplied drafts, ask Apply / Discard / Cancel first.
     void done(int result) override;
+
+private slots:
+    /// Hand a value still being typed in a grid cell to the model.
+    void commitOpenCell_();
+
+public slots:
 
     /*! End editing before the project, registry or undo owner is released.
      * @note Idempotently mark invalid/disable, disconnect registry/providers from this receiver,
@@ -315,8 +368,9 @@ private slots:
      * @brief Revalidate trimmed current name/registry/identifier, directly create registry
      *   provider, copy selected source-mode metadata and bind as Edit.
      * @note Does not check button enabled/current mode, push undo or load selected external file.
-     *   Registry creation may add empty engine series immediately; failure silent. SourceMode
-     *   GeoPackage remains placeholder. No relative-time default here (list New sets it
+     *   Registry creation may add empty engine series immediately; failure silent. The series
+     *   is created Inline; another chosen source is the draft's first edit. No relative-time
+     *   default here (list New sets it
      *   separately).
      */
     void onCreateNewSubmit_();
@@ -408,6 +462,12 @@ private slots:
      *   engine flush; current cache may be empty.
      */
     void onDetachToInline_();
+    /// Geopackage source: pick a dataset series and prepare a copy (installed source).
+    void onChooseObservations_();
+    /// Geopackage source: prepare again from the saved binding, without asking.
+    void onRefreshObservations_();
+    /// Geopackage source: keep the points, drop the binding, become Inline.
+    void onDetachObservations_();
     /**
      * @param[in] index Time-mode combo row; data 2 refreshes read-only Mixed, 1 requests Relative,
      *   anything else requests Absolute.
@@ -557,7 +617,7 @@ private:
     // ── Source-mode card helpers ────────────────────────────────────────────
     /**
      * @brief Create owned source-mode radio group, external path/header/reload/detach controls and
-     *   Inline absolute/relative row; GeoPackage shows placeholder only.
+     *   Inline absolute/relative row, and the Geopackage source row (Choose / Refresh / Detach).
      * @note Insert after toolbar and connect immediate provider metadata edits; no source mutation
      *   until callback. Repeated calls unsupported.
      */
@@ -568,7 +628,7 @@ private:
      * @note Relative path is display-only; file existence/newer-than-cached mtime queried
      *   synchronously, no watcher/reload/size/hash validation. Browse always enabled in external;
      *   other controls need file. External disables edit/rotate/scale/add/delete/paste;
-     *   Copy/history remain. GeoPackage is not blocked by this gate. Does not enumerate headers
+     *   Copy/history remain; a Geopackage source is read-only the same way. Does not enumerate headers
      *   (caller must populate combo).
      */
     void refreshSourceModeCardForProvider_();
@@ -642,7 +702,37 @@ private:
                                       QStringList *columnHeadersOut = nullptr,
                                       QString *errorOut = nullptr, bool *fabricatedOut = nullptr);
 
-    QVector<QPointer<openswmmvis::timeseries::TimeseriesProvider>> m_providers;
+    // ── Drafts (Apply / Revert) ──────────────────────────────────────────────
+    /*! One series opened in this editor: the model's provider, the copy the
+     *  views edit, and the model content the copy was last taken from. */
+    struct Draft {
+        QPointer<openswmmvis::timeseries::TimeseriesProvider> live;
+        openswmmvis::timeseries::TimeseriesProvider *copy = nullptr;
+        openswmmvis::timeseries::TimeseriesProvider::Content base;
+    };
+    /*! The draft copy of \p live, made on first use. Null for null. */
+    openswmmvis::timeseries::TimeseriesProvider *
+    draftFor_(openswmmvis::timeseries::TimeseriesProvider *live);
+    /*! The model's provider behind draft \p copy, or null. */
+    openswmmvis::timeseries::TimeseriesProvider *
+    liveFor_(const openswmmvis::timeseries::TimeseriesProvider *copy) const;
+    /*! The model's series changed: follow it when the draft is unedited,
+     *  otherwise keep the draft and report the conflict. */
+    void onLiveChanged_(openswmmvis::timeseries::TimeseriesProvider *live);
+    /*! The model's series is going away: drop its draft (and the editor's
+     *  undo steps, which may refer to it). */
+    void dropDraft_(openswmmvis::timeseries::TimeseriesProvider *live);
+    int dirtyCount_() const;
+    bool applyDrafts_(QString *why);
+    void revertDrafts_();
+
+    QVector<Draft> m_drafts;
+    QPointer<QUndoStack> m_projectUndo; ///< Caller's stack: one Apply = one step there.
+    DataObjectDraftSession *m_session = nullptr;
+    QTimer *m_draftCheck = nullptr; ///< Coalesces draft edits into one indicator update.
+    bool m_applying = false;        ///< Our own Apply is writing the model.
+
+    QVector<QPointer<openswmmvis::timeseries::TimeseriesProvider>> m_providers; ///< Bound drafts.
     QPointer<QUndoStack> m_undoStack;
     bool m_contextValid = true;
     QPointer<openswmmvis::timeseries::TimeseriesRegistry> m_registry;
@@ -670,6 +760,7 @@ private:
     QToolButton *m_listDeleteBtn = nullptr;
     QToolButton *m_listRenameBtn = nullptr;
     openswmmvis::ui::TimeseriesListModel *m_listModel = nullptr;
+    DraftMarkProxyModel *m_draftMarks = nullptr; ///< Marks rows holding unapplied changes.
 
     // ── CreateNew-mode UI (null in Edit mode) ───────────────────────────────
     QFrame *m_createCard = nullptr;
@@ -710,7 +801,10 @@ private:
     QLabel *m_extStatusLabel = nullptr; ///< mtime / staleness indicator.
     QPushButton *m_extReloadBtn = nullptr;
     QPushButton *m_extDetachBtn = nullptr;  ///< One-way Convert-to-Inline.
-    QLabel *m_gpkgPlaceholderLbl = nullptr; ///< Stubbed in this cut.
+    QLabel *m_gpkgSourceLbl = nullptr;      ///< Dataset · series · range of an observation copy.
+    QPushButton *m_gpkgChooseBtn = nullptr;
+    QPushButton *m_gpkgRefreshBtn = nullptr;
+    QPushButton *m_gpkgDetachBtn = nullptr;
     QComboBox *m_timeModeCombo = nullptr;   ///< Absolute / Relative (+ read-only Mixed).
     QLabel *m_timeModeBadge = nullptr;      ///< "saved as elapsed time from …" hint.
 

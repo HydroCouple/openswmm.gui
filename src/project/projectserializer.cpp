@@ -363,7 +363,22 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw, const 
         return {};
     obj["extensions"] = pw->property("extensionData").toJsonObject();
     obj["views"] = pw->property("extensionViews").toJsonArray();
-    obj["timeSeriesAssignments"] = pw->property("timeSeriesAssignments").toJsonArray();
+    // The observation provenance log, plus one binding per observation-copy
+    // series, rebuilt from the series at each save so renames and detaches follow.
+    {
+        QJsonArray assignments;
+        for (const auto &entry : pw->property("timeSeriesAssignments").toJsonArray())
+            if (!entry.toObject().value("binding").toBool())
+                assignments.append(entry);
+        if (auto *layer = pw->modelLayer()) // never creates the registry
+            for (const auto &value : layer->timeseriesObservationBindings()) {
+                auto binding = value.toObject();
+                binding["sourcePath"] =
+                    toRelativePath(binding.value("sourcePath").toString(), oswpFile);
+                assignments.append(binding);
+            }
+        obj["timeSeriesAssignments"] = assignments;
+    }
     obj["instanceId"] = pw->property("extensionInstanceId").toUuid().toString();
 
     QJsonArray calibration;
@@ -882,7 +897,28 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj, SWMMVisProje
     pw->setExtensionProjectIdentity(QUuid(sessionObj.value("instanceId").toString()), oswpFile);
     pw->setProperty("extensionData", sessionObj.value("extensions").toObject());
     pw->setProperty("extensionViews", sessionObj.value("views").toArray());
-    pw->setProperty("timeSeriesAssignments", sessionObj.value("timeSeriesAssignments").toArray());
+    // Observation-copy bindings go back onto their series; the rest is the provenance log.
+    {
+        QJsonArray log, bindings;
+        for (const auto &value : sessionObj.value("timeSeriesAssignments").toArray()) {
+            auto entry = value.toObject();
+            if (!entry.value("binding").toBool()) {
+                log.append(value);
+                continue;
+            }
+            entry["sourcePath"] = resolveStoredPath(entry.value("sourcePath").toString(), oswpFile);
+            bindings.append(entry);
+        }
+        pw->setProperty("timeSeriesAssignments", log);
+        if (pw->modelLayer()) // waits for the registry when it does not exist yet
+            for (const QString &name :
+                 pw->modelLayer()->restoreTimeseriesObservationBindings(bindings))
+                if (warningsOut)
+                    warningsOut->append(
+                        QObject::tr("Time series '%1' is no longer in the model; its link to "
+                                    "observations was dropped.")
+                            .arg(name));
+    }
 
     QJsonArray calibration;
     for (const auto &value : sessionObj.value("calibrationData").toArray()) {

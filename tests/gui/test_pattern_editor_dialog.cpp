@@ -29,7 +29,9 @@
 #include "pattern/patternprovider.h"
 #include "pattern/patternregistry.h"
 #include "ui/dialogs/patterneditordialog.h"
+#include "ui/editors/dataobjectdraftsession.h"
 #include "ui/panels/patternfactortablemodel.h"
+#include "ui/util/tableclipboard.h"
 #include "ui/widgets/patterneditchartview.h" // complete type for chartView()->grab()
 
 #include <openswmm/engine/openswmm_engine.h>
@@ -40,7 +42,8 @@
 #include <QChartView>
 #include <QClipboard>
 #include <QComboBox>
-#include <QDialogButtonBox>
+#include <QFont>
+#include <QPointer>
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QLineEdit>
@@ -552,8 +555,13 @@ private slots:
         spin->setValue(1.0);
         dlg.invokeNormalize();
 
-        // 7 ones → normalize(1) → each = 1/7.
+        // 7 ones → normalize(1) → each = 1/7, in the editor's draft until Apply.
         const double expected = 1.0 / 7.0;
+        for (int i = 0; i < 7; ++i) {
+            QVERIFY(qAbs(dlg.editedPattern()->factor(i) - expected) < 1e-9);
+            QCOMPARE(p->factor(i), 1.0);
+        }
+        QVERIFY(dlg.draftSession()->apply());
         for (int i = 0; i < 7; ++i)
             QVERIFY(qAbs(p->factor(i) - expected) < 1e-9);
     }
@@ -992,9 +1000,9 @@ private slots:
             dlg.setPreviewMarkersVisible(false);
             dlg.show();
             QVERIFY(QTest::qWaitForWindowExposed(&dlg));
-            auto *box = dlg.findChild<QDialogButtonBox *>(QStringLiteral("pattern_closeBox"));
-            QVERIFY(box);
-            box->button(QDialogButtonBox::Close)->click();
+            auto *close = dlg.findChild<QPushButton *>(QStringLiteral("pattern_closeBtn"));
+            QVERIFY(close);
+            close->click();
             QTRY_VERIFY(!dlg.isVisible());
         }
 
@@ -1030,9 +1038,8 @@ private slots:
         dlg.show();
         QVERIFY(QTest::qWaitForWindowExposed(&dlg));
 
-        auto *box = dlg.findChild<QDialogButtonBox *>(QStringLiteral("pattern_closeBox"));
-        QVERIFY(box);
-        auto *btn = box->button(QDialogButtonBox::Close);
+        // The Close button sits in the Apply / Revert footer.
+        auto *btn = dlg.findChild<QPushButton *>(QStringLiteral("pattern_closeBtn"));
         QVERIFY(btn);
         QVERIFY(!btn->isDefault());
         QVERIFY(!btn->autoDefault());
@@ -1081,6 +1088,149 @@ private slots:
         QCOMPARE(v, 0.5);
         QCOMPARE(swmm_pattern_get_factor_count(eng, idx, &count), SWMM_OK);
         QCOMPARE(count, 24);
+    }
+
+    // Apply / Revert plan, Phase 5: the editor edits a draft; Apply writes the
+    // factors to the engine as one project undo step that still undoes after
+    // the editor is gone. The list marks the pattern meanwhile.
+    void draftReachesTheEngineAtApplyAsOneUndoStep()
+    {
+        SWMM_Engine eng = swmm_engine_new();
+        QVERIFY(eng);
+        auto cleanup = qScopeGuard([eng] { swmm_engine_destroy(eng); });
+        PatternRegistry reg;
+        reg.attachEngine(eng);
+        auto *p = reg.create(QStringLiteral("HP"), PatternType::Hourly);
+        QVERIFY(p);
+        const int idx = swmm_pattern_index(eng, "HP");
+        const auto engineFactor5 = [eng, idx] {
+            double v = -1;
+            swmm_pattern_get_factor(eng, idx, 5, &v);
+            return v;
+        };
+        QCOMPARE(engineFactor5(), 1.0);
+
+        QUndoStack stack;
+        QPointer<PatternEditorDialog> dlg = new PatternEditorDialog(&reg, &stack);
+        QVERIFY(dlg->tableModel()->setData(dlg->tableModel()->index(5, 0), 1.25));
+        QVERIFY(dlg->draftSession()->hasDraft());
+        QCOMPARE(engineFactor5(), 1.0); // nothing reached the model yet
+        QCOMPARE(stack.count(), 0);
+        const QModelIndex row = dlg->listView()->model()->index(0, 0);
+        QVERIFY(row.data(Qt::FontRole).value<QFont>().italic());
+
+        QVERIFY(dlg->draftSession()->apply());
+        QCOMPARE(engineFactor5(), 1.25);
+        QCOMPARE(stack.count(), 1);
+        QVERIFY(!row.data(Qt::FontRole).value<QFont>().italic());
+
+        delete dlg; // the step must not need the editor
+        stack.undo();
+        QCOMPARE(engineFactor5(), 1.0);
+        QCOMPARE(p->factor(5), 1.0);
+        stack.redo();
+        QCOMPARE(engineFactor5(), 1.25);
+    }
+
+    // Plan D5 / D8: deleting a pattern in the editor is one undoable step; Undo
+    // brings it back with its type and factors, in the engine.
+    /** Table cell, paste and Normalize edits are steps of the editor's undo; a
+     *  paste of several cells is one step; undoing all of them leaves no draft.
+     *  None of it reaches the model. */
+    void tableEditsUndoInTheEditor()
+    {
+        PatternRegistry reg;
+        auto *p = reg.create(QStringLiteral("DP"), PatternType::Daily);
+        QVERIFY(p);
+        const PatternProvider::Params applied = p->params();
+        QUndoStack stack;
+        PatternEditorDialog dlg(&reg, &stack);
+        QUndoStack *undo = dlg.draftUndoStack();
+        PatternProvider *draft = dlg.editedPattern();
+        QVERIFY(undo && draft && draft != p);
+
+        QVERIFY(dlg.tableModel()->setData(dlg.tableModel()->index(1, 0), 2.0));
+        QCOMPARE(undo->count(), 1);
+        auto *clipboard = dlg.factorTable()->findChild<openswmmvis::ui::TableClipboard *>();
+        QVERIFY(clipboard);
+        dlg.factorTable()->setCurrentIndex(dlg.tableModel()->index(3, 0));
+        QVERIFY(clipboard->pasteText(QStringLiteral("0.5\n0.25\n4\n")));
+        QCOMPARE(draft->factor(3), 0.5);
+        QCOMPARE(draft->factor(5), 4.0);
+        QCOMPARE(undo->count(), 2); // three cells, one step
+        dlg.invokeNormalize();
+        QCOMPARE(undo->count(), 3);
+        const PatternProvider::Params edited = draft->params();
+        QVERIFY(dlg.draftSession()->hasDraft());
+
+        for (int i = 0; i < 3; ++i)
+            undo->undo();
+        QVERIFY(draft->params() == applied);
+        QVERIFY(!dlg.draftSession()->hasDraft());
+        for (int i = 0; i < 3; ++i)
+            undo->redo();
+        QVERIFY(draft->params() == edited);
+        QVERIFY(p->params() == applied);
+        QCOMPARE(stack.count(), 0);
+    }
+
+    /** A pattern with fewer factors than its type needs (a file may list only
+     *  some) loads with the missing ones at 1.0, as legacy SWMM reads it; the
+     *  Apply read-back does the same. */
+    void shortPatternIsPaddedWithOnes()
+    {
+        SWMM_Engine eng = swmm_engine_new();
+        QVERIFY(eng);
+        auto cleanup = qScopeGuard([eng] { swmm_engine_destroy(eng); });
+        QCOMPARE(swmm_pattern_add(eng, "SP", int(PatternType::Monthly)), SWMM_OK);
+        const int idx = swmm_pattern_index(eng, "SP");
+        const double one = 1.5;
+        QCOMPARE(swmm_pattern_set_factors(eng, idx, &one, 1), SWMM_OK);
+
+        PatternRegistry reg;
+        QCOMPARE(reg.loadFromEngine(eng), 1);
+        PatternProvider *p = reg.findByName(QStringLiteral("SP"));
+        QVERIFY(p);
+        QVector<double> expected(12, 1.0);
+        expected[0] = 1.5;
+        QCOMPARE(p->factors(), expected);
+
+        const double two[] = {2.0, 0.5};
+        QCOMPARE(swmm_pattern_set_factors(eng, idx, two, 2), SWMM_OK);
+        QCOMPARE(reg.loadFromEngine(eng, QStringLiteral("SP")), 1);
+        expected[0] = 2.0;
+        expected[1] = 0.5;
+        QCOMPARE(p->factors(), expected);
+    }
+
+    void deleteUndoBringsBackTypeAndFactors()
+    {
+        SWMM_Engine eng = swmm_engine_new();
+        QVERIFY(eng);
+        auto cleanup = qScopeGuard([eng] { swmm_engine_destroy(eng); });
+        PatternRegistry reg;
+        reg.attachEngine(eng);
+        auto *p = reg.create(QStringLiteral("DP"), PatternType::Daily);
+        QVERIFY(p && p->setFactor(2, 0.5));
+        QUndoStack stack;
+        {
+            PatternEditorDialog dlg(&reg, &stack);
+            QCOMPARE(dlg.currentProvider(), p);
+            dlg.deleteCurrentSilently();
+        }
+        QCOMPARE(swmm_pattern_index(eng, "DP"), -1);
+        QCOMPARE(stack.count(), 1);
+        stack.undo();
+        const int idx = swmm_pattern_index(eng, "DP");
+        QVERIFY(idx >= 0);
+        int n = 0;
+        swmm_pattern_get_factor_count(eng, idx, &n);
+        QCOMPARE(n, 7);
+        double v = -1;
+        swmm_pattern_get_factor(eng, idx, 2, &v);
+        QCOMPARE(v, 0.5);
+        auto *back = reg.findByName(QStringLiteral("DP"));
+        QVERIFY(back && back->type() == PatternType::Daily && back->factor(2) == 0.5);
     }
 };
 

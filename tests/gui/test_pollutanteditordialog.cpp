@@ -9,6 +9,7 @@
 
 #include "ui/dialogs/pollutanteditordialog.h"
 #include "pollutant/pollutantregistry.h"
+#include "ui/editors/dataobjectdraftsession.h"
 
 #include <QAbstractButton>
 #include <QApplication>
@@ -22,6 +23,7 @@
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QTest>
+#include <QUndoStack>
 
 using openswmmvis::ui::PollutantEditorDialog;
 using openswmmvis::pollutant::PollutantRegistry;
@@ -50,6 +52,10 @@ private slots:
     void editsPreserveUnchangedExactValues_data();
     void editsPreserveUnchangedExactValues();
     void absentRegistryDisablesEditors();
+    void editsAreHeldUntilApplyAndUndoAsOneStep();
+    void revertDiscardsTheDraft();
+    void changeElsewhereIsAConflictWithADraftAndARefreshWithout();
+    void closingWithADraftAsks();
     void listAndActionsAreAccessible();
 };
 
@@ -102,6 +108,7 @@ void TestPollutantEditorDialog::editsPreserveUnchangedExactValues()
         QVERIFY(rain);
         rain->setValue(9.25);
     }
+    QVERIFY(dialog.draftSession()->apply());
     QCOMPARE(provider->rainConc(), edit == QStringLiteral("rain") ? 9.25 : 1.234567891);
     QCOMPARE(provider->gwConc(), 2.345678912);
     QCOMPARE(provider->rdiiConc(), 3.456789123);
@@ -232,6 +239,177 @@ void TestPollutantEditorDialog::registryDestructionClosesEditor()
     QVERIFY(!dialog.isVisible());
     dialog.invokeNew();
     QVERIFY(!dialog.currentProvider());
+}
+
+namespace
+{
+QDoubleSpinBox *spinFor(PollutantEditorDialog &dialog, const QString &labelText)
+{
+    for (auto *label : dialog.findChildren<QLabel *>())
+        if (label->text().remove(QLatin1Char('&')) == labelText)
+            return qobject_cast<QDoubleSpinBox *>(label->buddy());
+    return nullptr;
+}
+using State = openswmmvis::ui::DataObjectDraftSession::State;
+
+/** Press the named button of the message box the next modal call opens. */
+void answerNextPrompt(const QString &buttonText, bool *seen)
+{
+    QTimer::singleShot(0, [buttonText, seen] {
+        auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+        if (!box)
+            return;
+        for (auto *button : box->buttons())
+            if (button->text().remove(QLatin1Char('&')) == buttonText) {
+                *seen = true;
+                button->click();
+                return;
+            }
+        box->reject();
+    });
+}
+} // namespace
+
+/** An edit stays in the editor until Apply; Apply is one undo step; the indicator follows. */
+void TestPollutantEditorDialog::editsAreHeldUntilApplyAndUndoAsOneStep()
+{
+    PollutantRegistry registry;
+    auto *tss = registry.create(QStringLiteral("TSS"));
+    auto *lead = registry.create(QStringLiteral("Lead"));
+    QUndoStack undo;
+    PollutantEditorDialog dialog(&registry, nullptr);
+    dialog.setUndoStack(&undo);
+    auto *apply = dialog.findChild<QPushButton *>(QStringLiteral("draftApply"));
+    auto *revert = dialog.findChild<QPushButton *>(QStringLiteral("draftRevert"));
+    auto *status = dialog.findChild<QLabel *>(QStringLiteral("draftStatus"));
+    QVERIFY(apply && revert && status);
+    QCOMPARE(dialog.draftSession()->state(), State::Clean);
+    QVERIFY(!apply->isEnabled() && !revert->isEnabled());
+
+    QSignalSpy changes(&registry, &PollutantRegistry::providerParamsChanged);
+    QCOMPARE(dialog.currentProvider(), tss);
+    spinFor(dialog, QStringLiteral("Rain Concentration"))->setValue(9.25);
+    spinFor(dialog, QStringLiteral("GW Concentration"))->setValue(3.5);
+    dialog.listView()->setCurrentIndex(dialog.listView()->model()->index(1, 0));
+    QCOMPARE(dialog.currentProvider(), lead);
+    spinFor(dialog, QStringLiteral("Rain Concentration"))->setValue(1.5);
+
+    // Nothing reached the model: other views still see the old values.
+    QCOMPARE(tss->rainConc(), 0.0);
+    QCOMPARE(lead->rainConc(), 0.0);
+    QCOMPARE(changes.count(), 0);
+    QCOMPARE(dialog.draftSession()->state(), State::Unapplied);
+    QVERIFY(apply->isEnabled() && revert->isEnabled());
+    QVERIFY(status->text().contains(QStringLiteral("2")));
+    // Returning to an object shows its draft, not the model value.
+    dialog.listView()->setCurrentIndex(dialog.listView()->model()->index(0, 0));
+    QCOMPARE(spinFor(dialog, QStringLiteral("Rain Concentration"))->value(), 9.25);
+
+    apply->click();
+    QCOMPARE(tss->rainConc(), 9.25);
+    QCOMPARE(tss->gwConc(), 3.5);
+    QCOMPARE(lead->rainConc(), 1.5);
+    QCOMPARE(dialog.draftSession()->state(), State::Applied);
+    QVERIFY(!apply->isEnabled());
+    QCOMPARE(undo.count(), 1); // both objects, all fields: one step
+
+    undo.undo();
+    QCOMPARE(tss->rainConc(), 0.0);
+    QCOMPARE(tss->gwConc(), 0.0);
+    QCOMPARE(lead->rainConc(), 0.0);
+    QCOMPARE(spinFor(dialog, QStringLiteral("Rain Concentration"))->value(), 0.0); // form follows
+    undo.redo();
+    QCOMPARE(tss->rainConc(), 9.25);
+    QCOMPARE(lead->rainConc(), 1.5);
+
+    // Editing a value back to the model's value leaves nothing to apply.
+    spinFor(dialog, QStringLiteral("Rain Concentration"))->setValue(4.0);
+    QCOMPARE(dialog.draftSession()->state(), State::Unapplied);
+    spinFor(dialog, QStringLiteral("Rain Concentration"))->setValue(9.25);
+    QVERIFY(!dialog.draftSession()->hasDraft());
+    QVERIFY(!apply->isEnabled());
+}
+
+void TestPollutantEditorDialog::revertDiscardsTheDraft()
+{
+    PollutantRegistry registry;
+    auto *tss = registry.create(QStringLiteral("TSS"));
+    tss->setRainConc(2.0);
+    PollutantEditorDialog dialog(&registry, nullptr);
+    spinFor(dialog, QStringLiteral("Rain Concentration"))->setValue(9.25);
+    QVERIFY(dialog.draftSession()->hasDraft());
+    dialog.findChild<QPushButton *>(QStringLiteral("draftRevert"))->click();
+    QVERIFY(!dialog.draftSession()->hasDraft());
+    QCOMPARE(dialog.draftSession()->state(), State::Clean);
+    QCOMPARE(spinFor(dialog, QStringLiteral("Rain Concentration"))->value(), 2.0);
+    QCOMPARE(tss->rainConc(), 2.0);
+}
+
+/** The same pollutant edited in another view must neither wipe the draft nor be wiped unasked. */
+void TestPollutantEditorDialog::changeElsewhereIsAConflictWithADraftAndARefreshWithout()
+{
+    PollutantRegistry registry;
+    auto *tss = registry.create(QStringLiteral("TSS"));
+    PollutantEditorDialog dialog(&registry, nullptr);
+
+    tss->setGwConc(6.0); // no draft: the form follows the model
+    QCOMPARE(spinFor(dialog, QStringLiteral("GW Concentration"))->value(), 6.0);
+    QCOMPARE(dialog.draftSession()->state(), State::Clean);
+
+    spinFor(dialog, QStringLiteral("Rain Concentration"))->setValue(9.25);
+    tss->setGwConc(7.0); // with a draft: kept, flagged
+    QCOMPARE(dialog.draftSession()->state(), State::Conflict);
+    QCOMPARE(spinFor(dialog, QStringLiteral("Rain Concentration"))->value(), 9.25);
+    QCOMPARE(tss->rainConc(), 0.0);
+
+    bool seen = false;
+    answerNextPrompt(QStringLiteral("Cancel"), &seen);
+    QVERIFY(!dialog.draftSession()->apply());
+    QVERIFY(seen);
+    QCOMPARE(tss->rainConc(), 0.0);
+    QVERIFY(dialog.draftSession()->hasDraft());
+
+    seen = false;
+    answerNextPrompt(QStringLiteral("Discard Mine and Reload"), &seen);
+    QVERIFY(dialog.draftSession()->apply());
+    QVERIFY(seen);
+    QVERIFY(!dialog.draftSession()->hasDraft());
+    QCOMPARE(tss->rainConc(), 0.0);
+    QCOMPARE(spinFor(dialog, QStringLiteral("GW Concentration"))->value(), 7.0);
+}
+
+void TestPollutantEditorDialog::closingWithADraftAsks()
+{
+    PollutantRegistry registry;
+    auto *tss = registry.create(QStringLiteral("TSS"));
+    PollutantEditorDialog dialog(&registry, nullptr);
+    dialog.show();
+    spinFor(dialog, QStringLiteral("Rain Concentration"))->setValue(9.25);
+    auto *close = dialog.findChild<QPushButton *>(QStringLiteral("draftClose"));
+    QVERIFY(close);
+
+    bool seen = false;
+    answerNextPrompt(QStringLiteral("Cancel"), &seen);
+    close->click();
+    QVERIFY(seen);
+    QVERIFY(dialog.isVisible());
+    QVERIFY(dialog.draftSession()->hasDraft());
+
+    seen = false;
+    answerNextPrompt(QStringLiteral("Discard"), &seen);
+    dialog.close(); // title-bar close takes the same path
+    QVERIFY(seen);
+    QVERIFY(!dialog.isVisible());
+    QCOMPARE(tss->rainConc(), 0.0);
+
+    dialog.show();
+    spinFor(dialog, QStringLiteral("Rain Concentration"))->setValue(9.25);
+    seen = false;
+    answerNextPrompt(QStringLiteral("Apply"), &seen);
+    close->click();
+    QVERIFY(seen);
+    QVERIFY(!dialog.isVisible());
+    QCOMPARE(tss->rainConc(), 9.25);
 }
 
 QTEST_MAIN(TestPollutantEditorDialog)

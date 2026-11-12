@@ -108,7 +108,7 @@ bool TimeseriesListModel::setData(const QModelIndex &index, const QVariant &valu
         return false;
     // Registry rejects on uniqueness collision; nameChanged signal triggers
     // onProviderRenamed_ which fires dataChanged with the new label.
-    return m_registry->rename(p, newName);
+    return m_rename ? m_rename(p, newName) : m_registry->rename(p, newName);
 }
 
 Qt::ItemFlags TimeseriesListModel::flags(const QModelIndex &index) const

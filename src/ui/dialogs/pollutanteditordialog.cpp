@@ -13,6 +13,10 @@
 #include "layers/swmmmodellayer.h" // complete type for QPointer<SWMMModelLayer>
 #include "pollutant/pollutantprovider.h"
 #include "pollutant/pollutantregistry.h"
+#include "ui/editors/dataobjectdraftsession.h"
+#include "ui/editors/dataobjectstructureedit.h"
+#include "ui/models/draftmarkproxymodel.h"
+#include "ui/editors/paramsdraftedit.h"
 #include "ui/models/pollutantlistmodel.h"
 #include "ui/theme/iconfactory.h"
 
@@ -27,14 +31,27 @@
 #include <QListView>
 #include <QMessageBox>
 #include <QPushButton>
+#include <QSignalBlocker>
 #include <QSplitter>
+#include <QUndoStack>
 #include <QVBoxLayout>
+
+#include <openswmm/engine/openswmm_pollutants.h>
 
 namespace openswmmvis::ui
 {
 
+using openswmmvis::pollutant::PollutantParams;
 using openswmmvis::pollutant::PollutantProvider;
 using openswmmvis::pollutant::PollutantRegistry;
+
+namespace
+{
+bool samePollutant(const PollutantParams &now, const PollutantParams &target)
+{
+    return now.sameAs(target, 1e-9);
+}
+} // namespace
 
 PollutantEditorDialog::PollutantEditorDialog(PollutantRegistry *registry, SWMMModelLayer *layer,
                                              QWidget *parent)
@@ -47,6 +64,23 @@ PollutantEditorDialog::PollutantEditorDialog(PollutantRegistry *registry, SWMMMo
     if (m_registry) {
         connect(m_registry, &PollutantRegistry::providerRenamed, this,
                 &PollutantEditorDialog::onProviderRenamed_);
+        // The model object changed from another view (or an Undo): with a
+        // draft on it that is a conflict to resolve at Apply, otherwise the
+        // form just follows the model.
+        connect(m_registry, &PollutantRegistry::providerParamsChanged, this,
+                [this](PollutantProvider *p) {
+                    if (m_applying)
+                        return;
+                    if (m_drafts.contains(p))
+                        m_session->noteExternalChange();
+                    else if (p == m_current)
+                        bindProvider_(p);
+                });
+        connect(m_registry, &PollutantRegistry::providerAboutToBeRemoved, this,
+                [this](PollutantProvider *p) {
+                    if (m_drafts.remove(p))
+                        m_session->noteEdited();
+                });
         m_listModel->setRegistry(m_registry);
         if (m_registry->providerCount() > 0)
             selectProviderInList_(m_registry->providers().first());
@@ -79,6 +113,7 @@ void PollutantEditorDialog::invalidateContext()
     // editingFinished, and a nested confirmation may return after closure.
     if (m_registry)
         m_registry->disconnect(this);
+    m_drafts.clear(); // the model is going away: nothing left to apply to
     m_current.clear();
     m_registry.clear();
     m_layer.clear();
@@ -104,6 +139,59 @@ PollutantProvider *PollutantEditorDialog::currentProvider() const noexcept
     return m_current.data();
 }
 
+void PollutantEditorDialog::setUndoStack(QUndoStack *stack)
+{
+    m_undo = stack;
+}
+
+void PollutantEditorDialog::done(int result)
+{
+    if (m_registry && !m_session->resolveBeforeClose())
+        return;
+    QDialog::done(result);
+}
+
+PollutantParams PollutantEditorDialog::shown_(PollutantProvider *p) const
+{
+    const auto draft = m_drafts.constFind(p);
+    return draft != m_drafts.cend() ? draft.value() : p->params();
+}
+
+int PollutantEditorDialog::dirtyCount_()
+{
+    return m_registry ? int(m_drafts.size()) : 0;
+}
+
+bool PollutantEditorDialog::applyDrafts_(QString *reason)
+{
+    QVector<DataObjectDraftSession::Edit> edits;
+    QStringList names;
+    for (auto it = m_drafts.cbegin(); it != m_drafts.cend(); ++it) {
+        names << it.key()->name();
+        edits.append(paramsDraftEdit(m_registry.data(), m_layer.data(), it.key(),
+                                     it.key()->params(), it.value(), samePollutant));
+    }
+    m_applying = true;
+    const bool ok = DataObjectDraftSession::commit(
+        edits, m_undo, names.size() == 1 ? tr("Edit pollutant %1").arg(names.first())
+                                         : tr("Edit %n pollutant(s)", nullptr, int(names.size())));
+    m_applying = false;
+    if (!ok) {
+        *reason = tr("the model did not accept the values for %1; nothing was changed")
+                      .arg(names.join(QStringLiteral(", ")));
+        return false;
+    }
+    m_drafts.clear();
+    bindProvider_(m_current);
+    return true;
+}
+
+void PollutantEditorDialog::revertDrafts_()
+{
+    m_drafts.clear();
+    bindProvider_(m_current);
+}
+
 void PollutantEditorDialog::buildUi_()
 {
     auto *outer = new QVBoxLayout(this);
@@ -121,9 +209,14 @@ void PollutantEditorDialog::buildUi_()
     m_listView = new QListView(leftPane);
     m_listView->setAccessibleName(tr("Pollutants"));
     m_listView->setAccessibleDescription(
-        tr("Select a pollutant to edit its properties. Changes apply immediately."));
+        tr("Select a pollutant to edit its properties. Changes are held until you choose Apply."));
     m_listModel = new PollutantListModel(this);
-    m_listView->setModel(m_listModel);
+    // Rows whose object holds an unapplied draft read in italics.
+    m_draftMarks = new DraftMarkProxyModel(this);
+    m_draftMarks->setSourceModel(m_listModel);
+    m_draftMarks->setHasDraft(
+        [this](int row) { return m_drafts.contains(m_listModel->providerAt(row)); });
+    m_listView->setModel(m_draftMarks);
     m_listView->setEditTriggers(QAbstractItemView::DoubleClicked |
                                 QAbstractItemView::EditKeyPressed);
     leftLay->addWidget(m_listView, 1);
@@ -165,6 +258,7 @@ void PollutantEditorDialog::buildUi_()
     m_initSpin = makeSpin(1.0e9, 4, 0.1);
     m_decaySpin = makeSpin(1.0e6, 4, 0.01);
     m_mwtSpin = makeSpin(1.0e6, 4, 1.0);
+    m_mwtSpin->setMinimum(0.0001); // the model refuses a weight that is not positive
     m_coFracSpin = makeSpin(100.0, 4, 0.1);
 
     form->addRow(tr("&Rain Concentration"), m_rainSpin);
@@ -189,10 +283,18 @@ void PollutantEditorDialog::buildUi_()
 
     outer->addWidget(m_splitter, 1);
 
-    auto *bb = new QDialogButtonBox(QDialogButtonBox::Close, this);
-    connect(bb, &QDialogButtonBox::rejected, this, &QDialog::accept);
-    connect(bb, &QDialogButtonBox::accepted, this, &QDialog::accept);
-    outer->addWidget(bb);
+    m_session = new DataObjectDraftSession(
+        {{}, // every field commits to the draft as it is edited
+         [this] { return dirtyCount_(); },
+         [this](QString *reason) { return applyDrafts_(reason); },
+         [this] { revertDrafts_(); }},
+        this);
+    connect(m_session, &DataObjectDraftSession::changed, m_draftMarks,
+            &DraftMarkProxyModel::refreshMarks);
+    m_session->setModel(m_layer); // Save / Run / Close ask about unapplied drafts
+    auto *footer = new DataObjectDraftFooter(m_session, this);
+    connect(footer, &DataObjectDraftFooter::closeRequested, this, &QDialog::accept);
+    outer->addWidget(footer);
 
     // ── Wiring ──────────────────────────────────────────────────────────────
     connect(m_listView->selectionModel(), &QItemSelectionModel::selectionChanged, this,
@@ -247,19 +349,20 @@ void PollutantEditorDialog::bindProvider_(PollutantProvider *p)
     rebuildCoPollutantCombo_(p);
 
     if (p) {
+        const PollutantParams v = shown_(p);
         m_nameEdit->setText(p->name());
-        const int ui = m_unitsCombo->findData(p->units());
+        const int ui = m_unitsCombo->findData(v.units);
         m_unitsCombo->setCurrentIndex(ui >= 0 ? ui : 0);
-        m_rainSpin->setValue(p->rainConc());
-        m_gwSpin->setValue(p->gwConc());
-        m_rdiiSpin->setValue(p->rdiiConc());
-        m_initSpin->setValue(p->initConc());
-        m_decaySpin->setValue(p->kDecay());
-        m_mwtSpin->setValue(p->mwt());
-        m_snowOnlyCheck->setChecked(p->snowOnly());
-        const int ci = m_coPollCombo->findData(p->coPollutant());
+        m_rainSpin->setValue(v.rainConc);
+        m_gwSpin->setValue(v.gwConc);
+        m_rdiiSpin->setValue(v.rdiiConc);
+        m_initSpin->setValue(v.initConc);
+        m_decaySpin->setValue(v.kDecay);
+        m_mwtSpin->setValue(v.mwt);
+        m_snowOnlyCheck->setChecked(v.snowOnly);
+        const int ci = m_coPollCombo->findData(v.coPollutant);
         m_coPollCombo->setCurrentIndex(ci >= 0 ? ci : 0);
-        m_coFracSpin->setValue(p->coFraction());
+        m_coFracSpin->setValue(v.coFraction);
     } else {
         m_nameEdit->clear();
     }
@@ -279,7 +382,7 @@ void PollutantEditorDialog::selectProviderInList_(PollutantProvider *p)
         bindProvider_(p);
         return;
     }
-    const QModelIndex idx = m_listModel->index(row);
+    const QModelIndex idx = viewIndexOf(m_listView, m_listModel->index(row));
     m_listView->selectionModel()->setCurrentIndex(idx, QItemSelectionModel::ClearAndSelect);
     // bindProvider_ triggered by the selection change.
 }
@@ -304,9 +407,15 @@ void PollutantEditorDialog::onAddClicked_()
 {
     if (!m_registry)
         return;
-    PollutantProvider *p = m_registry->create(suggestUniqueName_());
-    if (p)
+    const QString name = suggestUniqueName_();
+    if (!DataObjectDraftSession::commit(
+            {createObjectEdit(m_registry.data(), name, [](PollutantProvider *) { return true; })},
+            m_undo, tr("Create pollutant %1").arg(name)))
+        return;
+    if (PollutantProvider *p = m_registry->findByName(name)) {
         selectProviderInList_(p);
+        m_session->noteApplied(tr("Created %1").arg(name));
+    }
 }
 
 void PollutantEditorDialog::onDeleteClicked_()
@@ -314,15 +423,33 @@ void PollutantEditorDialog::onDeleteClicked_()
     if (!m_registry || !m_current)
         return;
     const QPointer<PollutantProvider> victim = m_current;
-    const auto answer = QMessageBox::question(
-        this, tr("Delete Pollutant"), tr("Delete pollutant \"%1\"?").arg(m_current->name()));
+    // Plan D8: say what the engine detaches, and that Undo will not re-attach it.
+    QString text = tr("Delete pollutant \"%1\"?").arg(m_current->name());
+    if (void *engine = m_registry->engineHandle()) {
+        const QString uses = dataObjectUses(
+            engine, swmm_pollutant_analyze_impact,
+            swmm_pollutant_index(static_cast<SWMM_Engine>(engine),
+                                 m_current->name().toUtf8().constData()));
+        if (!uses.isEmpty())
+            text += QLatin1String("\n\n") + uses + QLatin1Char(' ') +
+                    tr("Those uses are removed or cleared with it; Undo brings back the "
+                       "pollutant and its settings, but not those uses.");
+    }
+    const auto answer = QMessageBox::question(this, tr("Delete Pollutant"), text);
     if (answer != QMessageBox::Yes || !m_registry || !victim ||
         !m_registry->providers().contains(victim.data()))
         return;
 
     if (m_current == victim)
         m_current.clear();
-    m_registry->remove(victim);
+    const QString removedName = victim->name();
+    const auto restore = [registry = m_registry, kept = victim->params()](PollutantProvider *p) {
+        return registry && writeParams(registry.data(), p, kept, samePollutant);
+    };
+    if (!DataObjectDraftSession::commit({deleteObjectEdit(m_registry.data(), removedName, restore)},
+                                        m_undo, tr("Delete pollutant %1").arg(removedName)))
+        return;
+    m_session->noteApplied(tr("Deleted %1").arg(removedName));
     if (m_registry->providerCount() > 0)
         selectProviderInList_(m_registry->providers().first());
     else
@@ -344,41 +471,52 @@ void PollutantEditorDialog::onNameEdited_()
         return;
     }
     const QPointer<PollutantProvider> edited = m_current;
-    if (!m_registry->rename(edited, newName)) {
+    if (!DataObjectDraftSession::commit(
+            {renameObjectEdit(m_registry.data(), edited->name(), newName)}, m_undo,
+            tr("Rename pollutant %1 to %2").arg(edited->name(), newName))) {
         QMessageBox::warning(this, tr("Rename Pollutant"),
                              tr("A pollutant named \"%1\" already exists.").arg(newName));
         if (edited && m_current == edited)
             m_nameEdit->setText(edited->name());
+        return;
     }
+    m_session->noteApplied(tr("Renamed to %1").arg(newName));
 }
 
 void PollutantEditorDialog::onFieldEdited_()
 {
     if (m_suppressFieldSync || !m_current)
         return;
-    // Commit only the edited field. Other controls may display a rounded or
-    // range-limited view of valid provider values and must not rewrite them.
+    // The edit goes to the draft; the model changes at Apply. Only the edited
+    // field is taken from its control: the others may display a rounded or
+    // range-limited view of valid values and must not rewrite them.
+    PollutantParams v = shown_(m_current);
     const QObject *field = sender();
     if (field == m_unitsCombo)
-        m_current->setUnits(m_unitsCombo->currentData().toInt());
+        v.units = m_unitsCombo->currentData().toInt();
     else if (field == m_rainSpin)
-        m_current->setRainConc(m_rainSpin->value());
+        v.rainConc = m_rainSpin->value();
     else if (field == m_gwSpin)
-        m_current->setGwConc(m_gwSpin->value());
+        v.gwConc = m_gwSpin->value();
     else if (field == m_rdiiSpin)
-        m_current->setRdiiConc(m_rdiiSpin->value());
+        v.rdiiConc = m_rdiiSpin->value();
     else if (field == m_initSpin)
-        m_current->setInitConc(m_initSpin->value());
+        v.initConc = m_initSpin->value();
     else if (field == m_decaySpin)
-        m_current->setKDecay(m_decaySpin->value());
+        v.kDecay = m_decaySpin->value();
     else if (field == m_mwtSpin)
-        m_current->setMwt(m_mwtSpin->value());
+        v.mwt = m_mwtSpin->value();
     else if (field == m_snowOnlyCheck)
-        m_current->setSnowOnly(m_snowOnlyCheck->isChecked());
+        v.snowOnly = m_snowOnlyCheck->isChecked();
     else if (field == m_coPollCombo)
-        m_current->setCoPollutant(m_coPollCombo->currentData().toString());
+        v.coPollutant = m_coPollCombo->currentData().toString();
     else if (field == m_coFracSpin)
-        m_current->setCoFraction(m_coFracSpin->value());
+        v.coFraction = m_coFracSpin->value();
+    if (v == m_current->params())
+        m_drafts.remove(m_current); // edited back to the model's value
+    else
+        m_drafts.insert(m_current, v);
+    m_session->noteEdited();
 }
 
 void PollutantEditorDialog::onProviderRenamed_(PollutantProvider *p, const QString &,
@@ -428,8 +566,6 @@ QString PollutantEditorDialog::pickPollutant(PollutantRegistry *registry, SWMMMo
         dlg.bindProvider_(nullptr);
     }
     dlg.exec();
-    if (dlg.m_registry)
-        dlg.m_registry->saveToEngine();
 
     auto *p = dlg.currentProvider();
     return p ? p->name() : QString();

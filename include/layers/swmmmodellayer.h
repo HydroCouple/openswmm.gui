@@ -38,6 +38,7 @@ struct SWMMKdTrees;
 #include <openswmm/engine/openswmm_callbacks.h>      // SWMM_Engine typedef
 #include <openswmm/engine/openswmm_infrastructure.h> // SWMM_InletUsage (by value)
 #include <QFont>
+#include <QJsonArray>
 #include <QMap>
 #include <QPen>
 #include <QBrush>
@@ -3652,6 +3653,20 @@ public:
      */
     QObject *ensureTimeseriesRegistry();
 
+    /*! Bindings of the observation-copy (Geopackage source) time series, for the
+     *  project's .oswp. Does not create the registry: before it exists, these are
+     *  the bindings the project file restored (pending until it is created).
+     * @return One entry per bound series (see TimeseriesRegistry::observationBindings). */
+    QJsonArray timeseriesObservationBindings() const;
+
+    /*! Put .oswp bindings back on their series. With no registry yet they wait and
+     *  are applied when ensureTimeseriesRegistry() creates it; a registry rebuilt
+     *  for a new engine keeps the bindings of the one it replaces. Not an edit.
+     * @param[in] bindings `timeSeriesAssignments` entries with `"binding": true`.
+     * @return Names of bound series no longer in the model (known only when the
+     *   registry already exists; later misses are logged). */
+    QStringList restoreTimeseriesObservationBindings(const QJsonArray &bindings);
+
     /*! Same lazy-init pattern as ensureTimeseriesRegistry, for the
      *  PatternRegistry.
      * @return Borrowed typed pattern registry exposed as QObject, or null without current engine.
@@ -3678,7 +3693,7 @@ public:
      */
     QObject *ensureCurveRegistry();
 
-    /// Publish pending time series and the live curve, pattern and LID registries before saving.
+    /// Publish pending time series and the live LID registry before saving.
     /// Returns false with an optional reason when an edited time series cannot be written.
     bool flushDataObjectRegistries(QString *error = nullptr);
 
@@ -5107,6 +5122,7 @@ private:
     // views see the same provider instances.
     QObject *m_tsRegistry = nullptr;
     void *m_tsRegistryEngineHandle = nullptr;
+    QJsonArray m_pendingObservationBindings; ///< .oswp bindings awaiting the registry.
     QObject *m_patternRegistry = nullptr;
     void *m_patternRegistryEngineHandle = nullptr;
     QObject *m_curveRegistry = nullptr;

@@ -93,6 +93,9 @@ struct InletDesignData {
     InletCurveKind curveKind = InletCurveKind::None;
 };
 
+/** @brief Field-by-field equality of two designs (defined in inletprovider.cpp). */
+bool operator==(const InletDesignData &a, const InletDesignData &b);
+
 class InletProvider : public QObject
 {
     Q_OBJECT
@@ -289,6 +292,24 @@ public:
      * @details No physical bounds, finiteness, enum validity, or reference checks occur locally; engine save validates fields used by the chosen type. Equal values are a no-op.
      */
     void setCurveKind(InletCurveKind v);
+
+    /*! Everything the inlet editor changes: an editor's draft, and the before /
+     *  after of one Apply. */
+    struct Params {
+        InletDesignData design;
+        QString comments;
+        bool operator==(const Params &o) const
+        {
+            return design == o.design && comments == o.comments;
+        }
+        /*! Equal within \p relTol relative (absolute near zero) for the
+         *  dimensions; type, choices, curve and comments exactly. */
+        bool sameAs(const Params &other, double relTol) const;
+    };
+    /** @return Copy of the design and comments. */
+    Params params() const { return {m_design, m_comments}; }
+    /** @brief Replace design and comments; paramsChanged() / commentsChanged() for what differs. */
+    void setParams(const Params &params);
 
 signals:
     /**

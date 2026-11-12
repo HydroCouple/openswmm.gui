@@ -78,7 +78,8 @@ using openswmmvis::ui::TransectEditorDialog;
  * @brief Ensure typed Timeseries registry and invoke createNew factory, returning silently on null
  *   result. New dialog is WA_DeleteOnClose and shown modeless; this launcher does not reuse
  *   existing windows.
- * @note Edits publish immediately through the bound registry; closing does not publish other drafts.
+ * @note Edits reach the model at Apply, one step on \p stack; closing with unapplied edits
+ *   asks Apply / Discard / Cancel.
  * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
@@ -113,7 +114,8 @@ void openTimeseriesCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *
  * @brief Ensure typed Timeseries registry and construct list editor without deliberately creating a
  *   new entry. New dialog is WA_DeleteOnClose and shown modeless; this launcher does not reuse
  *   existing windows.
- * @note Edits publish immediately through the bound registry; closing does not publish other drafts.
+ * @note Edits reach the model at Apply, one step on \p stack; closing with unapplied edits
+ *   asks Apply / Discard / Cancel.
  * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
@@ -305,9 +307,8 @@ void openCurvesBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
  * @brief Ensure typed Transects registry and invoke createNew factory, returning silently on null
  *   result. New dialog is WA_DeleteOnClose and shown modeless; this launcher does not reuse
  *   existing windows.
- * @note Dialog finished queues synchronous registry saveToEngine(layer->engine()) in dialog
- *   context, guarded by QPointers to both layer/registry; errors ignored. It runs on accepted or
- *   rejected close, not just successful edits.
+ * @note Edits reach the model at Apply, one step on \p stack; closing with unapplied edits
+ *   asks Apply / Discard / Cancel.
  * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
@@ -327,7 +328,6 @@ void openTransectsCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *p
     // existing apply* helpers already mutate the engine inline, so this is
     // belt-and-braces for paths that mutate the provider directly (drags,
     // grid edits, etc.) bypassing the layer.
-    syncRegistryOnClose(dlg, reg, layer);
     dlg->show();
 }
 
@@ -341,9 +341,8 @@ void openTransectsCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *p
  * @brief Ensure typed Transects registry and construct list editor without deliberately creating a
  *   new entry. New dialog is WA_DeleteOnClose and shown modeless; this launcher does not reuse
  *   existing windows.
- * @note Dialog finished queues synchronous registry saveToEngine(layer->engine()) in dialog
- *   context, guarded by QPointers to both layer/registry; errors ignored. It runs on accepted or
- *   rejected close, not just successful edits.
+ * @note Edits reach the model at Apply, one step on \p stack; closing with unapplied edits
+ *   asks Apply / Discard / Cancel.
  * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
@@ -357,7 +356,6 @@ void openTransectsBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *pare
         return;
     auto *dlg = new TransectEditorDialog(reg, layer, stack, parent);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    syncRegistryOnClose(dlg, reg, layer);
     dlg->show();
 }
 
@@ -366,18 +364,17 @@ void openTransectsBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *pare
  *   while dialog uses it.
  * @param[in] parent Optional owner used only when constructing a new window; null parent does not
  *   retain model lifetime.
- * @note Unnamed stack argument ignored; this launcher creates no undo command itself.
+ * @param[in] stack Optional borrowed project undo stack; one Apply becomes one step on it.
  * @brief Ensure typed Streets registry and invoke createNew factory, returning silently on null
  *   result. New dialog is WA_DeleteOnClose and shown modeless; this launcher does not reuse
  *   existing windows.
- * @note Dialog finished queues synchronous registry saveToEngine(layer->engine()) in dialog
- *   context, guarded by QPointers to both layer/registry; errors ignored. It runs on accepted or
- *   rejected close, not just successful edits.
+ * @note Edits reach the model at Apply, one step on \p stack; closing with unapplied edits
+ *   asks Apply / Discard / Cancel.
  * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
  */
-void openStreetsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+void openStreetsCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
 {
     if (!layer)
         return;
@@ -391,7 +388,7 @@ void openStreetsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget
     // Auto-flush the registry to the engine when the dialog closes (mirrors
     // the transect path; inline apply* helpers already mutate the engine, so
     // this covers direct provider edits that bypass the layer).
-    syncRegistryOnClose(dlg, reg, layer);
+    dlg->setUndoStack(stack); // edits reach the model at Apply, one undo step each
     dlg->show();
 }
 
@@ -400,18 +397,17 @@ void openStreetsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget
  *   while dialog uses it.
  * @param[in] parent Optional owner used only when constructing a new window; null parent does not
  *   retain model lifetime.
- * @note Unnamed stack argument ignored; this launcher creates no undo command itself.
+ * @param[in] stack Optional borrowed project undo stack; one Apply becomes one step on it.
  * @brief Ensure typed Streets registry and construct list editor without deliberately creating a
  *   new entry. New dialog is WA_DeleteOnClose and shown modeless; this launcher does not reuse
  *   existing windows.
- * @note Dialog finished queues synchronous registry saveToEngine(layer->engine()) in dialog
- *   context, guarded by QPointers to both layer/registry; errors ignored. It runs on accepted or
- *   rejected close, not just successful edits.
+ * @note Edits reach the model at Apply, one step on \p stack; closing with unapplied edits
+ *   asks Apply / Discard / Cancel.
  * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
  */
-void openStreetsBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+void openStreetsBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
 {
     if (!layer)
         return;
@@ -420,7 +416,7 @@ void openStreetsBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *p
         return;
     auto *dlg = new StreetEditorDialog(reg, layer, parent);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    syncRegistryOnClose(dlg, reg, layer);
+    dlg->setUndoStack(stack); // edits reach the model at Apply, one undo step each
     dlg->show();
 }
 
@@ -429,18 +425,17 @@ void openStreetsBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *p
  *   while dialog uses it.
  * @param[in] parent Optional owner used only when constructing a new window; null parent does not
  *   retain model lifetime.
- * @note Unnamed stack argument ignored; this launcher creates no undo command itself.
+ * @param[in] stack Optional borrowed project undo stack; one Apply becomes one step on it.
  * @brief Ensure typed Pollutants registry and invoke createNew factory, returning silently on null
  *   result. New dialog is WA_DeleteOnClose and shown modeless; this launcher does not reuse
  *   existing windows.
- * @note Dialog finished queues synchronous registry saveToEngine(layer->engine()) in dialog
- *   context, guarded by QPointers to both layer/registry; errors ignored. It runs on accepted or
- *   rejected close, not just successful edits.
+ * @note Edits reach the model at Apply, one step on \p stack; closing with unapplied edits
+ *   asks Apply / Discard / Cancel.
  * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
  */
-void openPollutantsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+void openPollutantsCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
 {
     if (!layer)
         return;
@@ -451,7 +446,7 @@ void openPollutantsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWid
     if (!dlg)
         return;
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    syncRegistryOnClose(dlg, reg, layer);
+    dlg->setUndoStack(stack); // edits reach the model at Apply, one undo step each
     dlg->show();
 }
 
@@ -460,18 +455,17 @@ void openPollutantsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWid
  *   while dialog uses it.
  * @param[in] parent Optional owner used only when constructing a new window; null parent does not
  *   retain model lifetime.
- * @note Unnamed stack argument ignored; this launcher creates no undo command itself.
+ * @param[in] stack Optional borrowed project undo stack; one Apply becomes one step on it.
  * @brief Ensure typed Pollutants registry and construct list editor without deliberately creating a
  *   new entry. New dialog is WA_DeleteOnClose and shown modeless; this launcher does not reuse
  *   existing windows.
- * @note Dialog finished queues synchronous registry saveToEngine(layer->engine()) in dialog
- *   context, guarded by QPointers to both layer/registry; errors ignored. It runs on accepted or
- *   rejected close, not just successful edits.
+ * @note Edits reach the model at Apply, one step on \p stack; closing with unapplied edits
+ *   asks Apply / Discard / Cancel.
  * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
  */
-void openPollutantsBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+void openPollutantsBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
 {
     if (!layer)
         return;
@@ -480,7 +474,7 @@ void openPollutantsBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget
         return;
     auto *dlg = new PollutantEditorDialog(reg, layer, parent);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    syncRegistryOnClose(dlg, reg, layer);
+    dlg->setUndoStack(stack);
     dlg->show();
 }
 
@@ -489,18 +483,17 @@ void openPollutantsBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget
  *   while dialog uses it.
  * @param[in] parent Optional owner used only when constructing a new window; null parent does not
  *   retain model lifetime.
- * @note Unnamed stack argument ignored; this launcher creates no undo command itself.
+ * @param[in] stack Optional borrowed project undo stack; one Apply becomes one step on it.
  * @brief Ensure typed Aquifers registry and invoke createNew factory, returning silently on null
  *   result. New dialog is WA_DeleteOnClose and shown modeless; this launcher does not reuse
  *   existing windows.
- * @note Dialog finished queues synchronous registry saveToEngine(layer->engine()) in dialog
- *   context, guarded by QPointers to both layer/registry; errors ignored. It runs on accepted or
- *   rejected close, not just successful edits.
+ * @note Edits reach the model at Apply, one step on \p stack; closing with unapplied edits
+ *   asks Apply / Discard / Cancel.
  * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
  */
-void openAquifersCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+void openAquifersCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
 {
     if (!layer)
         return;
@@ -511,7 +504,7 @@ void openAquifersCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidge
     if (!dlg)
         return;
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    syncRegistryOnClose(dlg, reg, layer);
+    dlg->setUndoStack(stack); // edits reach the model at Apply, one undo step each
     dlg->show();
 }
 
@@ -520,18 +513,17 @@ void openAquifersCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidge
  *   while dialog uses it.
  * @param[in] parent Optional owner used only when constructing a new window; null parent does not
  *   retain model lifetime.
- * @note Unnamed stack argument ignored; this launcher creates no undo command itself.
+ * @param[in] stack Optional borrowed project undo stack; one Apply becomes one step on it.
  * @brief Ensure typed Aquifers registry and construct list editor without deliberately creating a
  *   new entry. New dialog is WA_DeleteOnClose and shown modeless; this launcher does not reuse
  *   existing windows.
- * @note Dialog finished queues synchronous registry saveToEngine(layer->engine()) in dialog
- *   context, guarded by QPointers to both layer/registry; errors ignored. It runs on accepted or
- *   rejected close, not just successful edits.
+ * @note Edits reach the model at Apply, one step on \p stack; closing with unapplied edits
+ *   asks Apply / Discard / Cancel.
  * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
  */
-void openAquifersBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+void openAquifersBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
 {
     if (!layer)
         return;
@@ -540,7 +532,7 @@ void openAquifersBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *
         return;
     auto *dlg = new AquiferEditorDialog(reg, layer, parent);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    syncRegistryOnClose(dlg, reg, layer);
+    dlg->setUndoStack(stack);
     dlg->show();
 }
 
@@ -680,9 +672,8 @@ void openSnowpacksBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget 
  * @brief Ensure typed Inlets registry and invoke createNew factory, returning silently on null
  *   result. New dialog is WA_DeleteOnClose and shown modeless; this launcher does not reuse
  *   existing windows.
- * @note Dialog finished queues synchronous registry saveToEngine(layer->engine()) in dialog
- *   context, guarded by QPointers to both layer/registry; errors ignored. It runs on accepted or
- *   rejected close, not just successful edits.
+ * @note Edits reach the model at Apply, one step on \p stack; closing with unapplied edits
+ *   asks Apply / Discard / Cancel.
  * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
@@ -698,7 +689,6 @@ void openInletsCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *pare
     if (!dlg)
         return;
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    syncRegistryOnClose(dlg, reg, layer);
     dlg->show();
 }
 
@@ -712,9 +702,8 @@ void openInletsCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *pare
  * @brief Ensure typed Inlets registry and construct list editor without deliberately creating a new
  *   entry. New dialog is WA_DeleteOnClose and shown modeless; this launcher does not reuse existing
  *   windows.
- * @note Dialog finished queues synchronous registry saveToEngine(layer->engine()) in dialog
- *   context, guarded by QPointers to both layer/registry; errors ignored. It runs on accepted or
- *   rejected close, not just successful edits.
+ * @note Edits reach the model at Apply, one step on \p stack; closing with unapplied edits
+ *   asks Apply / Discard / Cancel.
  * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
@@ -728,7 +717,6 @@ void openInletsBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
         return;
     auto *dlg = new InletEditorDialog(reg, layer, stack, parent);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
-    syncRegistryOnClose(dlg, reg, layer);
     dlg->show();
 }
 
@@ -860,9 +848,7 @@ void openTransectForObject(SWMMModelLayer *layer, QUndoStack *stack, const QStri
     if (!reg || !reg->findByName(name))
         return;
     auto *dialog = projectEditor<TransectEditorDialog>(layer, [=] {
-        auto *editor = new TransectEditorDialog(reg, layer, stack, parent);
-        syncRegistryOnClose(editor, reg, layer);
-        return editor;
+        return new TransectEditorDialog(reg, layer, stack, parent); // edits reach the model at Apply
     });
     dialog->openForTransect(name);
 }
@@ -874,9 +860,7 @@ void openInletForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString 
     if (!reg || !reg->findByName(name))
         return;
     auto *dialog = projectEditor<InletEditorDialog>(layer, [=] {
-        auto *editor = new InletEditorDialog(reg, layer, stack, parent);
-        syncRegistryOnClose(editor, reg, layer);
-        return editor;
+        return new InletEditorDialog(reg, layer, stack, parent); // edits reach the model at Apply
     });
     dialog->openForInlet(name);
 }
@@ -896,8 +880,9 @@ void openTimeseriesForObject(SWMMModelLayer *layer, QUndoStack *stack, const QSt
 /*! Shared body for the registry-backed list editors (pollutant, land use,
  *  aquifer, snowpack, LID control, street). Reuses one window per kind while
  *  it is bound to the same registry; a project switch (new registry) closes
- *  the stale window first. Snowpack fields commit immediately; other editor owners retain
- *  their close-time registry synchronization.
+ *  the stale window first. Snowpack fields commit immediately; the pollutant, aquifer and
+ *  street editors write the model at Apply; the others keep their close-time registry
+ *  synchronization.
  * @tparam Dlg Dialog constructible from registry, layer and parent, with finished/open member
  *   support.
  * @tparam Reg QObject registry providing saveToEngine(engine).
@@ -931,8 +916,12 @@ void openRegistryEditorFor(QPointer<Dlg> &slot, QPointer<Reg> &slotReg, Reg *reg
         slot->setAttribute(Qt::WA_DeleteOnClose);
         slotReg = reg;
         QObject::connect(layer, &SWMMModelLayer::engineAboutToClose, slot.data(), &QDialog::close);
+        // Editors with explicit Apply write the model themselves.
         if constexpr (!std::is_same_v<Dlg, SnowpackEditorDialog> &&
-                      !std::is_same_v<Dlg, LidControlEditorDialog>)
+                      !std::is_same_v<Dlg, LidControlEditorDialog> &&
+                      !std::is_same_v<Dlg, PollutantEditorDialog> &&
+                      !std::is_same_v<Dlg, AquiferEditorDialog> &&
+                      !std::is_same_v<Dlg, StreetEditorDialog>)
             syncRegistryOnClose(slot.data(), reg, layer);
     }
     (slot.data()->*openFn)(name);
@@ -943,15 +932,15 @@ void openRegistryEditorFor(QPointer<Dlg> &slot, QPointer<Reg> &slotReg, Reg *reg
  * @param[in] name Exact object/group ID passed through; wrapper does not reject empty/unknown name
  *   itself.
  * @param[in] parent Optional window owner, used only on new construction.
- * @note Unnamed stack argument ignored.
+ * @param[in] stack Optional borrowed project undo stack; one Apply becomes one step on it.
  * @brief Ensure typed registry, then use per-kind static QPointer window/registry slots through
  *   openRegistryEditorFor. Registry changes close old window before constructing new; selected
- *   object opening delegated to kind-specific method. Close-time flush guarded by layer/registry
- *   pointers; no success/error return.
+ *   object opening delegated to kind-specific method. No close-time flush: edits reach the
+ *   model at Apply; no success/error return.
  * @note GUI-thread only; registry ensure can initialize model state. Borrowed model/stack must
  *   outlive dialog use; no direct notification/undo command in this wrapper.
  */
-void openPollutantForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/, const QString &name,
+void openPollutantForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
                             QWidget *parent)
 {
     if (!layer)
@@ -961,6 +950,8 @@ void openPollutantForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/, const
     openRegistryEditorFor(editor, editorReg,
                           qobject_cast<PollutantRegistry *>(layer->ensurePollutantRegistry()),
                           layer, parent, &PollutantEditorDialog::openForPollutant, name);
+    if (editor)
+        editor->setUndoStack(stack);
 }
 
 /**
@@ -993,15 +984,15 @@ void openLandUseForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/, const Q
  * @param[in] name Exact object/group ID passed through; wrapper does not reject empty/unknown name
  *   itself.
  * @param[in] parent Optional window owner, used only on new construction.
- * @note Unnamed stack argument ignored.
+ * @param[in] stack Optional borrowed project undo stack; one Apply becomes one step on it.
  * @brief Ensure typed registry, then use per-kind static QPointer window/registry slots through
  *   openRegistryEditorFor. Registry changes close old window before constructing new; selected
- *   object opening delegated to kind-specific method. Close-time flush guarded by layer/registry
- *   pointers; no success/error return.
+ *   object opening delegated to kind-specific method. No close-time flush: edits reach the
+ *   model at Apply; no success/error return.
  * @note GUI-thread only; registry ensure can initialize model state. Borrowed model/stack must
  *   outlive dialog use; no direct notification/undo command in this wrapper.
  */
-void openAquiferForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/, const QString &name,
+void openAquiferForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
                           QWidget *parent)
 {
     if (!layer)
@@ -1011,6 +1002,8 @@ void openAquiferForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/, const Q
     openRegistryEditorFor(editor, editorReg,
                           qobject_cast<AquiferRegistry *>(layer->ensureAquiferRegistry()), layer,
                           parent, &AquiferEditorDialog::openForAquifer, name);
+    if (editor)
+        editor->setUndoStack(stack);
 }
 
 /**
@@ -1068,15 +1061,15 @@ void openLidControlForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/, cons
  * @param[in] name Exact object/group ID passed through; wrapper does not reject empty/unknown name
  *   itself.
  * @param[in] parent Optional window owner, used only on new construction.
- * @note Unnamed stack argument ignored.
+ * @param[in] stack Optional borrowed project undo stack; one Apply becomes one step on it.
  * @brief Ensure typed registry, then use per-kind static QPointer window/registry slots through
  *   openRegistryEditorFor. Registry changes close old window before constructing new; selected
- *   object opening delegated to kind-specific method. Close-time flush guarded by layer/registry
- *   pointers; no success/error return.
+ *   object opening delegated to kind-specific method. No close-time flush: edits reach the
+ *   model at Apply; no success/error return.
  * @note GUI-thread only; registry ensure can initialize model state. Borrowed model/stack must
  *   outlive dialog use; no direct notification/undo command in this wrapper.
  */
-void openStreetForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/, const QString &name,
+void openStreetForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
                          QWidget *parent)
 {
     if (!layer)
@@ -1086,6 +1079,8 @@ void openStreetForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/, const QS
     openRegistryEditorFor(editor, editorReg,
                           qobject_cast<StreetRegistry *>(layer->ensureStreetRegistry()), layer,
                           parent, &StreetEditorDialog::openForStreet, name);
+    if (editor)
+        editor->setUndoStack(stack);
 }
 
 /*! Populates the registry with every non-spatial category in

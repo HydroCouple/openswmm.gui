@@ -11,6 +11,9 @@
 #include "core/swmmidentifier.h"
 #include "ui/theme/iconfactory.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
+#include "ui/editors/dataobjectdraftsession.h"
+#include "ui/editors/dataobjectstructureedit.h"
+#include "ui/models/draftmarkproxymodel.h"
 
 #include "layers/swmmmodellayer.h" // complete type required by QPointer<SWMMModelLayer>
 #include "transect/transectprovider.h"
@@ -20,6 +23,7 @@
 #include "ui/models/transectlistmodel.h"
 #include "ui/models/transectstationtablemodel.h"
 #include "ui/widgets/transectchartview.h"
+#include "ui/util/tableclipboard.h"
 
 #include <qpropertyitem.h>
 #include <qpropertyitemdelegate.h>
@@ -50,8 +54,47 @@
 #include <QUndoStack>
 #include <QVBoxLayout>
 
+#include <openswmm/engine/openswmm_infrastructure.h>
+
 namespace openswmmvis::ui
 {
+
+namespace
+{
+/*! Replace a transect draft's whole content (a pasted station block) as one
+ *  step on the editor's own undo stack. */
+class SetTransectDraftCommand : public QUndoCommand
+{
+public:
+    SetTransectDraftCommand(openswmmvis::transect::TransectProvider *draft,
+                            openswmmvis::transect::TransectProvider::Params after,
+                            const QString &text)
+        : QUndoCommand(text), m_draft(draft), m_before(draft->params()), m_after(std::move(after))
+    {
+    }
+    void redo() override { m_draft->setParams(m_after); }
+    void undo() override { m_draft->setParams(m_before); }
+
+private:
+    openswmmvis::transect::TransectProvider *m_draft;
+    openswmmvis::transect::TransectProvider::Params m_before, m_after;
+};
+
+/*! Put \p target into \p live and its engine transect, read the engine back
+ *  and say whether the model kept it. Used by Apply, its undo / redo, and to
+ *  restore a deleted transect's settings when Undo brings it back. */
+bool writeTransect(openswmmvis::transect::TransectRegistry *registry,
+                   openswmmvis::transect::TransectProvider *live,
+                   const openswmmvis::transect::TransectProvider::Params &target)
+{
+    live->setParams(target); // views and the project's edited mark follow its signals
+    if (void *engine = registry->engineHandle()) {
+        registry->saveToEngine(engine, live->name());
+        registry->loadFromEngine(engine, live->name()); // what the model holds now
+    }
+    return live->params().sameAs(target, 1e-9);
+}
+} // namespace
 
 using openswmmvis::transect::TransectProvider;
 using openswmmvis::transect::TransectRegistry;
@@ -87,7 +130,7 @@ TransectEditorDialog::TransectEditorDialog(TransectRegistry *registry, SWMMModel
 
     // Initial selection.
     if (m_registry && m_registry->providerCount() > 0 && m_listView)
-        m_listView->setCurrentIndex(m_listModel->index(0));
+        m_listView->setCurrentIndex(viewIndexOf(m_listView, m_listModel->index(0)));
     else
         bindProvider_(nullptr);
 
@@ -98,9 +141,9 @@ TransectEditorDialog::TransectEditorDialog(TransectRegistry *registry, SWMMModel
     if (m_splitter)
         m_splitter->setObjectName(QStringLiteral("main"));
     setAccessibleDescription(
-        undoStack
-            ? tr("Changes are applied immediately. Closing this editor does not undo changes. Use Undo to reverse an edit.")
-            : tr("Changes are applied immediately. Closing this editor does not undo changes."));
+        tr("Changes are held until you choose Apply, which writes them to the model as one "
+           "undoable step. Undo and Redo in this editor step through unapplied changes. Adding, "
+           "deleting and renaming take effect at once."));
     if (m_table)
         m_table->setAccessibleName(tr("Transect values"));
     if (m_listView)
@@ -130,6 +173,10 @@ void TransectEditorDialog::invalidateContext()
     m_registry.clear();
     m_undoStack.clear();
     m_layer.clear();
+    for (const auto &d : std::as_const(m_drafts)) // the model is going away
+        if (d.live)
+            d.live->disconnect(this);
+    m_drafts.clear();
     bindProvider_(nullptr);
     if (m_listModel)
         m_listModel->setRegistry(nullptr);
@@ -181,16 +228,7 @@ QString TransectEditorDialog::pickTransect(TransectRegistry *registry, SWMMModel
         dlg.m_listView->selectionModel()->clear();
         dlg.bindProvider_(nullptr);
     }
-    dlg.exec();
-
-    // Flush the registry to the engine so an adapter's setter (which
-    // looks up the transect by name through the engine) can resolve it.
-    // Uses the engine handle cached by `loadFromEngine` (set when the
-    // layer first vended the registry); the no-arg overload is a no-op
-    // if the registry was never bound. This keeps the test target free
-    // of the SWMMModelLayer::engine() linkage.
-    if (dlg.m_registry)
-        dlg.m_registry->saveToEngine();
+    dlg.exec(); // closing with a draft asks Apply / Discard first
 
     auto *p = dlg.currentProvider();
     return p ? p->name() : QString();
@@ -224,7 +262,17 @@ void TransectEditorDialog::buildUi_()
         m_listView->setSelectionMode(QAbstractItemView::SingleSelection);
         m_listView->setUniformItemSizes(true);
         m_listModel = new TransectListModel(this);
-        m_listView->setModel(m_listModel);
+        // Rows whose object holds an unapplied draft read in italics.
+        m_draftMarks = new DraftMarkProxyModel(this);
+        m_draftMarks->setSourceModel(m_listModel);
+        m_draftMarks->setHasDraft([this](int row) {
+            TransectProvider *live = m_listModel->providerAt(row);
+            for (const auto &d : std::as_const(m_drafts))
+                if (live && d.live == live)
+                    return !(d.copy->params() == live->params());
+            return false;
+        });
+        m_listView->setModel(m_draftMarks);
         lay->addWidget(m_listView, 1);
 
         connect(m_listView->selectionModel(), &QItemSelectionModel::currentChanged, this,
@@ -308,6 +356,49 @@ void TransectEditorDialog::buildUi_()
         m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
         m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
         m_table->setAlternatingRowColors(true);
+        // Stations must stay strictly increasing, so a pasted station block
+        // replaces the points as a whole (setAllPoints validates the result);
+        // elevation-only pastes run cell by cell. Rows past the end append.
+        TableClipboardOptions clip;
+        clip.pasteRows = [this](int firstRow, int firstColumn, const QList<QStringList> &rows,
+                                QString *message) -> int {
+            if (!m_edited || firstColumn != 0) // column 0 = Station
+                return -1;
+            QVector<openswmmvis::transect::TransectPoint> pts = m_edited->points();
+            int written = 0;
+            for (int r = 0; r < rows.size(); ++r) {
+                bool okS = false, okE = false;
+                const double s = rows[r].value(0).trimmed().toDouble(&okS);
+                const double e = rows[r].value(1).trimmed().toDouble(&okE);
+                const int row = firstRow + r;
+                if (row < pts.size() && (okS || okE)) {
+                    if (okS)
+                        pts[row].station = s;
+                    if (okE)
+                        pts[row].elevation = e;
+                } else if (row >= pts.size() && okS && okE) {
+                    pts.push_back({s, e});
+                } else {
+                    continue;
+                }
+                ++written;
+            }
+            QString reason;
+            openswmmvis::transect::TransectProvider check(QString{});
+            if (written == 0) {
+                *message = tr("No station / elevation values to paste.");
+            } else if (!check.setAllPoints(pts, &reason)) { // same rule as the draft
+                *message = tr("Paste rejected: %1").arg(reason);
+                written = 0;
+            } else {
+                auto after = m_edited->params();
+                after.points = pts;
+                m_draftUndo->push(new SetTransectDraftCommand(m_edited, after, tr("Paste stations")));
+                *message = tr("Pasted %n row(s).", nullptr, written);
+            }
+            return written;
+        };
+        TableClipboard::install(m_table, clip);
         // MVC: table selection drives the chart's highlight overlay so the
         // user can see which handles correspond to the selected rows.
         connect(
@@ -350,15 +441,10 @@ void TransectEditorDialog::buildUi_()
         // undoable MoveStationPoint via the dialog's QUndoStack.
         connect(m_chartView, &TransectChartView::stationDragFinished, this,
                 [this](int idx, double oldS, double oldE, double newS, double newE) {
-                    if (!m_current || !m_undoStack) {
-                        // No stack — apply directly so the chart visual stays
-                        // at the new position even when undo isn't wired.
-                        if (m_current)
-                            m_current->setPointLive(idx, newS, newE);
+                    if (!m_edited)
                         return;
-                    }
-                    m_undoStack->push(new openswmmvis::transect::MoveStationPointCommand(
-                        m_current, idx, oldS, oldE, newS, newE));
+                    m_draftUndo->push(new openswmmvis::transect::MoveStationPointCommand(
+                        m_edited, idx, oldS, oldE, newS, newE));
                 });
         connect(m_chartView, &TransectChartView::handleClicked, this,
                 &TransectEditorDialog::onChartHandleClicked_);
@@ -378,15 +464,23 @@ void TransectEditorDialog::buildUi_()
     // Close row. Wired to close() rather than accept()/reject() so every exit
     // (button, Esc, title bar) takes the same path. Not the default button —
     // Enter in a station/elevation cell must never dismiss the editor.
-    auto *closeBox = new QDialogButtonBox(QDialogButtonBox::Close, this);
-    closeBox->setObjectName(QStringLiteral("transect_closeBox"));
-    closeBox->setContentsMargins(8, 6, 8, 6); // outer runs at 0 margins
-    auto *closeBtn = closeBox->button(QDialogButtonBox::Close);
-    closeBtn->setObjectName(QStringLiteral("transect_closeBtn"));
-    closeBtn->setAutoDefault(false);
-    closeBtn->setDefault(false);
-    connect(closeBox, &QDialogButtonBox::rejected, this, &QDialog::close);
-    outer->addWidget(closeBox);
+    m_draftUndo = new QUndoStack(this);
+    m_session = new DataObjectDraftSession({{}, // every edit goes to the draft at once
+                                            [this] { return dirtyCount_(); },
+                                            [this](QString *why) { return applyDrafts_(why); },
+                                            [this] { revertDrafts_(); }},
+                                           this);
+    m_session->setModel(m_layer); // Save / Run / Close ask about unapplied drafts
+    connect(m_draftUndo, &QUndoStack::indexChanged, m_session, &DataObjectDraftSession::noteEdited);
+    if (m_draftMarks)
+        connect(m_session, &DataObjectDraftSession::changed, m_draftMarks,
+                &DraftMarkProxyModel::refreshMarks);
+    auto *footer = new DataObjectDraftFooter(m_session, this);
+    footer->setObjectName(QStringLiteral("transect_draftFooter"));
+    footer->setContentsMargins(8, 6, 8, 6); // outer runs at 0 margins
+    footer->closeButton()->setObjectName(QStringLiteral("transect_closeBtn"));
+    connect(footer, &DataObjectDraftFooter::closeRequested, this, &QDialog::close);
+    outer->addWidget(footer);
 
     m_status = new QStatusBar(this);
     m_countLabel = new QLabel(m_status);
@@ -418,6 +512,21 @@ void TransectEditorDialog::buildToolbar_()
     aOut->setToolTip(tr("Zoom out (Ctrl+-)"));
     aOut->setShortcut(QKeySequence::ZoomOut);
     connect(aOut, &QAction::triggered, this, &TransectEditorDialog::onZoomOutClicked_);
+
+    // Draft edits, step by step (the model changes at Apply).
+    m_toolBar->addSeparator();
+    QAction *aUndo = m_draftUndo->createUndoAction(this, tr("Undo"));
+    aUndo->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Undo")));
+    aUndo->setShortcut(QKeySequence::Undo);
+    aUndo->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+    QAction *aRedo = m_draftUndo->createRedoAction(this, tr("Redo"));
+    aRedo->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Redo")));
+    aRedo->setShortcut(QKeySequence::Redo);
+    aRedo->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+    m_toolBar->addAction(aUndo);
+    m_toolBar->addAction(aRedo);
+    addAction(aUndo);
+    addAction(aRedo);
 
     m_toolBar->addSeparator();
 
@@ -535,7 +644,7 @@ void TransectEditorDialog::selectProviderInList_(TransectProvider *p)
     const auto provs = m_registry ? m_registry->providers() : QVector<TransectProvider *>{};
     for (int i = 0; i < provs.size(); ++i) {
         if (provs.at(i) == p) {
-            m_listView->setCurrentIndex(m_listModel->index(i));
+            m_listView->setCurrentIndex(viewIndexOf(m_listView, m_listModel->index(i)));
             return;
         }
     }
@@ -561,22 +670,27 @@ void TransectEditorDialog::bindProvider_(TransectProvider *p)
         updateStatusBar_();
         return;
     }
-    if (m_current)
-        m_current->disconnect(this);
+    for (const auto &c : std::as_const(m_bindConnections))
+        disconnect(c);
+    m_bindConnections.clear();
     m_current = QPointer<TransectProvider>(p);
+    // The table, chart, property tree and comments edit the draft copy; the
+    // model's transect changes at Apply.
+    TransectProvider *edited = copyFor_(p);
+    m_edited = QPointer<TransectProvider>(edited);
 
     if (m_tableModel)
-        m_tableModel->setProvider(p);
+        m_tableModel->setProvider(edited);
     if (m_chartView)
-        m_chartView->setProvider(p);
+        m_chartView->setProvider(edited);
     if (auto *bag = qobject_cast<TransectPropertyBag *>(m_propertyBag))
-        bag->bind(p, m_layer.data());
+        bag->bind(edited, m_layer.data());
 
     m_suppressPropertyRefresh = true;
     if (m_nameEdit)
         m_nameEdit->setText(p ? p->name() : QString());
     if (m_commentsEdit)
-        m_commentsEdit->setPlainText(p ? p->comments() : QString());
+        m_commentsEdit->setPlainText(edited ? edited->comments() : QString());
     m_suppressPropertyRefresh = false;
 
     if (m_addRowBtn)
@@ -586,23 +700,23 @@ void TransectEditorDialog::bindProvider_(TransectProvider *p)
     if (m_delBtn)
         m_delBtn->setEnabled(p != nullptr);
 
-    if (m_current) {
-        connect(m_current, &TransectProvider::mutationRejected, this,
-                &TransectEditorDialog::onMutationRejected_);
-        connect(m_current, &TransectProvider::nameChanged, this,
-                [this](const QString &, const QString &now) {
-                    if (m_nameEdit && m_nameEdit->text() != now) {
-                        const QSignalBlocker b(m_nameEdit);
-                        m_nameEdit->setText(now);
-                    }
-                    setWindowTitle(tr("Transect Editor — %1").arg(now));
-                });
-        connect(m_current, &TransectProvider::commentsChanged, this, [this]() {
-            if (!m_commentsEdit || !m_current)
+    if (m_current && m_edited) {
+        m_bindConnections << connect(m_edited, &TransectProvider::mutationRejected, this,
+                                     &TransectEditorDialog::onMutationRejected_);
+        m_bindConnections << connect(m_current, &TransectProvider::nameChanged, this,
+                                     [this](const QString &, const QString &now) {
+                                         if (m_nameEdit && m_nameEdit->text() != now) {
+                                             const QSignalBlocker b(m_nameEdit);
+                                             m_nameEdit->setText(now);
+                                         }
+                                         setWindowTitle(tr("Transect Editor — %1").arg(now));
+                                     });
+        m_bindConnections << connect(m_edited, &TransectProvider::commentsChanged, this, [this]() {
+            if (!m_commentsEdit || !m_edited)
                 return;
-            if (m_commentsEdit->toPlainText() != m_current->comments()) {
+            if (m_commentsEdit->toPlainText() != m_edited->comments()) {
                 const QSignalBlocker b(m_commentsEdit);
-                m_commentsEdit->setPlainText(m_current->comments());
+                m_commentsEdit->setPlainText(m_edited->comments());
             }
         });
     }
@@ -617,18 +731,18 @@ void TransectEditorDialog::bindProvider_(TransectProvider *p)
 void TransectEditorDialog::refreshPropertyBag_()
 {
     if (auto *bag = qobject_cast<TransectPropertyBag *>(m_propertyBag))
-        bag->bind(m_current.data(), m_layer.data());
+        bag->bind(m_edited.data(), m_layer.data());
 }
 
 void TransectEditorDialog::updateStatusBar_()
 {
     if (!m_countLabel)
         return;
-    if (!m_current) {
+    if (!m_edited) {
         m_countLabel->setText({});
         return;
     }
-    m_countLabel->setText(tr("%1 stations").arg(m_current->pointCount()));
+    m_countLabel->setText(tr("%1 stations").arg(m_edited->pointCount()));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -670,20 +784,17 @@ void TransectEditorDialog::onNameEdited_()
     } else {
         m_registry->rename(m_current, newName);
     }
+    m_session->noteApplied(tr("Renamed to %1").arg(newName));
 }
 
 void TransectEditorDialog::onCommentsEdited_()
 {
-    if (m_suppressPropertyRefresh || !m_current || !m_commentsEdit)
+    if (m_suppressPropertyRefresh || !m_edited || !m_commentsEdit)
         return;
     const QString newText = m_commentsEdit->toPlainText();
-    if (newText == m_current->comments())
+    if (newText == m_edited->comments())
         return;
-    if (m_undoStack) {
-        m_undoStack->push(new openswmmvis::transect::SetCommentsCommand(m_current, newText));
-    } else {
-        m_current->setComments(newText);
-    }
+    m_draftUndo->push(new openswmmvis::transect::SetCommentsCommand(m_edited, newText));
 }
 
 bool TransectEditorDialog::renameCurrent(const QString &newName)
@@ -721,9 +832,14 @@ void TransectEditorDialog::onAddTransectClicked_()
     // Create with a default-unique name and immediately focus the name
     // field so the user can rename inline — no intermediate prompt.
     const QString name = suggestUniqueName_();
-    auto *p = m_registry->create(name);
+    if (!DataObjectDraftSession::commit(
+            {createObjectEdit(m_registry.data(), name, [](TransectProvider *) { return true; })},
+            m_undoStack, tr("Create transect %1").arg(name)))
+        return;
+    auto *p = m_registry->findByName(name);
     if (!p)
         return;
+    m_session->noteApplied(tr("Created %1").arg(name));
     selectProviderInList_(p);
     m_mode = Mode::Edit;
     if (m_nameEdit) {
@@ -737,12 +853,19 @@ void TransectEditorDialog::onDeleteTransectClicked_()
     if (!m_current || !m_registry)
         return;
     const QString name = m_current->name();
-    const auto reply = QMessageBox::question(
-        this, tr("Delete Transect"),
-        tr("Delete transect “%1”?\n\nAny conduit with an IRREGULAR cross-section "
-           "referencing this transect will lose its reference.")
-            .arg(name),
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    // Plan D8 — say what the engine detaches, and that Undo will not re-attach it.
+    QString text = tr("Delete transect “%1”?").arg(name);
+    if (void *engine = m_registry->engineHandle()) {
+        const QString uses = dataObjectUses(
+            engine, swmm_transect_analyze_impact,
+            swmm_transect_index(static_cast<SWMM_Engine>(engine), name.toUtf8().constData()));
+        if (!uses.isEmpty())
+            text += QLatin1String("\n\n") + uses + QLatin1Char(' ') +
+                    tr("Conduits using it lose their IRREGULAR cross-section; Undo brings back the "
+                       "transect and its settings, but not those cross-sections.");
+    }
+    const auto reply = QMessageBox::question(this, tr("Delete Transect"), text,
+                                             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
     if (reply != QMessageBox::Yes)
         return;
     deleteCurrentSilently();
@@ -752,25 +875,28 @@ void TransectEditorDialog::deleteCurrentSilently()
 {
     if (!m_current || !m_registry)
         return;
-    m_registry->remove(m_current);
+    const QString name = m_current->name();
+    const auto restore = [registry = m_registry, kept = m_current->params()](TransectProvider *p) {
+        return registry && writeTransect(registry.data(), p, kept);
+    };
+    if (!DataObjectDraftSession::commit({deleteObjectEdit(m_registry.data(), name, restore)},
+                                        m_undoStack, tr("Delete transect %1").arg(name)))
+        return;
+    m_session->noteApplied(tr("Deleted %1").arg(name));
 }
 
 void TransectEditorDialog::onAddRowClicked_()
 {
-    if (!m_current)
+    if (!m_edited)
         return;
-    const int n = m_current->pointCount();
-    const double newX = (n > 0) ? (m_current->pointAt(n - 1).station + 1.0) : 0.0;
-    if (m_undoStack) {
-        m_undoStack->push(new openswmmvis::transect::InsertStationCommand(m_current, newX, 0.0));
-    } else {
-        m_current->insertPoint(newX, 0.0);
-    }
+    const int n = m_edited->pointCount();
+    const double newX = (n > 0) ? (m_edited->pointAt(n - 1).station + 1.0) : 0.0;
+    m_draftUndo->push(new openswmmvis::transect::InsertStationCommand(m_edited, newX, 0.0));
 }
 
 void TransectEditorDialog::onDeleteRowsClicked_()
 {
-    if (!m_current || !m_table)
+    if (!m_edited || !m_table)
         return;
     const auto sel = m_table->selectionModel();
     if (!sel)
@@ -782,11 +908,7 @@ void TransectEditorDialog::onDeleteRowsClicked_()
         rows.push_back(sel->currentIndex().row());
     if (rows.isEmpty())
         return;
-    if (m_undoStack) {
-        m_undoStack->push(new openswmmvis::transect::DeleteStationsCommand(m_current, rows));
-    } else {
-        m_current->removePointsAt(rows);
-    }
+    m_draftUndo->push(new openswmmvis::transect::DeleteStationsCommand(m_edited, rows));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -803,6 +925,7 @@ void TransectEditorDialog::onProviderRemoved_(TransectProvider *p)
 {
     if (m_current.data() == p)
         bindProvider_(nullptr);
+    dropDraft_(p);
 }
 
 void TransectEditorDialog::onProviderRenamed_(TransectProvider *p, const QString &,
@@ -988,27 +1111,18 @@ void TransectEditorDialog::onTableSelectionChanged_()
 
 void TransectEditorDialog::onChartInsertRequested_(double station, double elevation)
 {
-    if (!m_current)
+    if (!m_edited)
         return;
-    if (m_undoStack) {
-        m_undoStack->push(
-            new openswmmvis::transect::InsertStationCommand(m_current, station, elevation));
-    } else {
-        m_current->insertPoint(station, elevation);
-    }
+    m_draftUndo->push(new openswmmvis::transect::InsertStationCommand(m_edited, station, elevation));
 }
 
 void TransectEditorDialog::onChartDeleteRequested_(int index)
 {
-    if (!m_current || index < 0 || index >= m_current->pointCount())
+    if (!m_edited || index < 0 || index >= m_edited->pointCount())
         return;
     QVector<int> rows;
     rows.push_back(index);
-    if (m_undoStack) {
-        m_undoStack->push(new openswmmvis::transect::DeleteStationsCommand(m_current, rows));
-    } else {
-        m_current->removePointsAt(rows);
-    }
+    m_draftUndo->push(new openswmmvis::transect::DeleteStationsCommand(m_edited, rows));
 }
 
 void TransectEditorDialog::onChartPropertiesClicked_()
@@ -1049,16 +1163,16 @@ void TransectEditorDialog::onChartPropertiesClicked_()
 
 void TransectEditorDialog::onCopyDataClicked_()
 {
-    if (!m_current)
+    if (!m_edited)
         return;
     QString tsv;
     tsv += tr("Station\tElevation\n");
-    for (const auto &p : m_current->points())
+    for (const auto &p : m_edited->points())
         tsv += QStringLiteral("%1\t%2\n").arg(p.station).arg(p.elevation);
     QApplication::clipboard()->setText(tsv);
     if (m_status)
         m_status->showMessage(
-            tr("Copied %1 station rows to clipboard.").arg(m_current->pointCount()), 3000);
+            tr("Copied %1 station rows to clipboard.").arg(m_edited->pointCount()), 3000);
 }
 
 void TransectEditorDialog::onExportChartClicked_()
@@ -1075,6 +1189,150 @@ void TransectEditorDialog::onExportChartClicked_()
     } else if (m_status) {
         m_status->showMessage(tr("Saved chart to %1").arg(path), 3000);
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Drafts — the form edits a copy; Apply writes it to the model
+// ─────────────────────────────────────────────────────────────────────────────
+
+void TransectEditorDialog::done(int result)
+{
+    if (m_contextValid && m_registry && !m_session->resolveBeforeClose())
+        return;
+    QDialog::done(result);
+}
+
+TransectProvider *TransectEditorDialog::copyFor_(TransectProvider *live)
+{
+    if (!live)
+        return nullptr;
+    for (const auto &d : std::as_const(m_drafts))
+        if (d.live == live)
+            return d.copy;
+    Draft d;
+    d.live = live;
+    d.base = live->params();
+    d.copy = new TransectProvider(live->name(), this);
+    d.copy->setParams(d.base);
+    m_drafts.push_back(d);
+
+    TransectProvider *copy = d.copy;
+    // Edits of the copy (table cells, property tree, commands) → indicator.
+    const auto edited = [this] { m_session->noteEdited(); };
+    for (auto signal : {&TransectProvider::commentsChanged, &TransectProvider::roughnessChanged,
+                        &TransectProvider::bankStationsChanged,
+                        &TransectProvider::encroachmentStationsChanged,
+                        &TransectProvider::modifiersChanged}) {
+        connect(copy, signal, this, edited);
+        connect(live, signal, this, [this, live] { onLiveChanged_(live); });
+    }
+    for (auto signal : {&TransectProvider::pointsChanged, &TransectProvider::pointsInserted,
+                        &TransectProvider::pointsRemoved}) {
+        connect(copy, signal, this, edited);
+        connect(live, signal, this, [this, live] { onLiveChanged_(live); });
+    }
+    // Renames take effect at once (registry); the copy follows.
+    connect(live, &TransectProvider::nameChanged, copy,
+            [copy](const QString &, const QString &now) { copy->setName(now); });
+    return copy;
+}
+
+void TransectEditorDialog::onLiveChanged_(TransectProvider *live)
+{
+    if (m_applying)
+        return;
+    for (auto &d : m_drafts) {
+        if (d.live != live)
+            continue;
+        if (!(d.copy->params() == d.base)) {
+            m_session->noteExternalChange(); // keep the user's draft; Apply asks
+            return;
+        }
+        d.base = live->params();
+        if (!(d.copy->params() == d.base)) {
+            d.copy->setParams(d.base); // unedited: follow the model
+            m_draftUndo->clear();      // its steps were recorded against the old values
+        }
+        return;
+    }
+}
+
+void TransectEditorDialog::dropDraft_(TransectProvider *live)
+{
+    for (int i = 0; i < m_drafts.size(); ++i) {
+        if (m_drafts.at(i).live != live)
+            continue;
+        TransectProvider *copy = m_drafts.at(i).copy;
+        m_drafts.remove(i);
+        live->disconnect(this);
+        if (m_edited.data() == copy)
+            bindProvider_(nullptr);
+        m_draftUndo->clear(); // steps may refer to the dropped copy
+        copy->deleteLater();
+        m_session->noteEdited();
+        return;
+    }
+}
+
+int TransectEditorDialog::dirtyCount_() const
+{
+    int n = 0;
+    for (const auto &d : m_drafts)
+        if (d.live && !(d.copy->params() == d.live->params()))
+            ++n;
+    return n;
+}
+
+bool TransectEditorDialog::applyDrafts_(QString *reason)
+{
+    QVector<DataObjectDraftSession::Edit> edits;
+    QStringList names;
+    void *engine = m_registry ? m_registry->engineHandle() : nullptr;
+    for (const auto &d : std::as_const(m_drafts)) {
+        if (!d.live || d.copy->params() == d.live->params())
+            continue;
+        names << d.live->name();
+        // Replayed by Undo/Redo after this editor may have closed: guarded
+        // pointers and values only, never `this`.
+        // The transect Apply saw, or, once that one was deleted and brought
+        // back by Undo, the transect of the same name.
+        edits.append({[registry = m_registry, layer = m_layer, hadLayer = !m_layer.isNull(), engine,
+                       live = d.live, name = d.live->name(), before = d.live->params(),
+                       after = d.copy->params()](bool forward) {
+            if (!registry || (hadLayer && !layer) || registry->engineHandle() != engine)
+                return false;
+            TransectProvider *p = stepTarget(registry.data(), live, name);
+            return p && writeTransect(registry.data(), p, forward ? after : before);
+        }});
+    }
+    if (edits.isEmpty())
+        return true;
+    m_applying = true;
+    const bool ok = DataObjectDraftSession::commit(
+        edits, m_undoStack,
+        names.size() == 1 ? tr("Edit transect %1").arg(names.first())
+                          : tr("Edit %n transect(s)", nullptr, int(names.size())));
+    m_applying = false;
+    if (!ok) {
+        *reason = tr("the model did not accept %1; nothing was changed")
+                      .arg(names.join(QStringLiteral(", ")));
+        return false;
+    }
+    revertDrafts_(); // the copies now take what the model kept
+    return true;
+}
+
+void TransectEditorDialog::revertDrafts_()
+{
+    for (auto &d : m_drafts) {
+        if (!d.live)
+            continue;
+        d.base = d.live->params();
+        d.copy->setParams(d.base);
+    }
+    m_draftUndo->clear();
+    refreshPropertyBag_();
+    updateStatusBar_();
 }
 
 } // namespace openswmmvis::ui

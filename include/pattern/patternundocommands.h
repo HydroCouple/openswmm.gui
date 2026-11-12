@@ -5,11 +5,10 @@
  * @license   GPL-3.0-or-later
  * @brief     QUndoCommand subclasses for graphical edits on a PatternProvider.
  *
- * Scope (per user direction): undo coverage is intentionally limited to the
- * **graphical** edits driven from `PatternEditChartView` (vertical drag for
- * factor edit, horizontal drag for slot reorder). Table-cell edits and the
- * Normalize action continue to mutate the provider directly — matching the
- * existing pattern-editor behaviour.
+ * Graphical edits driven from `PatternEditChartView` (vertical drag for
+ * factor edit, horizontal drag for slot reorder) use the bulk and swap
+ * commands; the editor's table cell, paste and Normalize edits use
+ * `SetPatternParamsCommand`.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -18,6 +17,7 @@
 
 #include "pattern/patternprovider.h"
 
+#include <QPointer>
 #include <QString>
 #include <QUndoCommand>
 #include <QVector>
@@ -85,6 +85,24 @@ private:
     PatternProvider *m_provider;
     int m_i;
     int m_j;
+};
+
+/*! \brief Replace a pattern's factors with a captured state (table cell, paste and Normalize
+ *  edits in the pattern editor). Pushed after the edit has been made: the first redo finds the
+ *  pattern already in the new state and changes nothing. A deleted pattern makes it a no-op. */
+class SetPatternParamsCommand : public QUndoCommand
+{
+public:
+    SetPatternParamsCommand(PatternProvider *provider, PatternProvider::Params before,
+                            PatternProvider::Params after, QString description,
+                            QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    QPointer<PatternProvider> m_provider;
+    PatternProvider::Params m_before;
+    PatternProvider::Params m_after;
 };
 
 } // namespace openswmmvis::pattern

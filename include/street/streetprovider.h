@@ -177,6 +177,29 @@ public:
      */
     void setBackingRoughness(double v);
 
+    /*! Every value the street editor changes: an editor's draft, and the
+     *  before / after of one Apply. */
+    struct Params {
+        double crownWidth = 30.0;
+        double curbHeight = 0.5;
+        double crossSlope = 2.0;
+        double roadRoughness = 0.016;
+        double gutterDepression = 0.0;
+        double gutterWidth = 0.0;
+        int sides = 2;
+        double backingWidth = 0.0;
+        double backingSlope = 0.0;
+        double backingRoughness = 0.0;
+        bool operator==(const Params &) const = default;
+        /*! Equal within \p relTol relative (absolute near zero); the engine
+         *  converts units on the way in and out. */
+        bool sameAs(const Params &other, double relTol) const;
+    };
+    /** @return Copy of all cross-section values. */
+    Params params() const;
+    /** @brief Replace all values at once; one paramsChanged() when anything differs. */
+    void setParams(const Params &params);
+
 signals:
     /**
      * @brief Notify observers after the stored identifier changes.

@@ -11,6 +11,10 @@
  */
 
 #include "ui/dialogs/streeteditordialog.h"
+#include "ui/editors/dataobjectdraftsession.h"
+#include "ui/editors/dataobjectstructureedit.h"
+#include "ui/models/draftmarkproxymodel.h"
+#include "ui/editors/paramsdraftedit.h"
 #include "core/swmmidentifier.h"
 
 #include "layers/swmmmodellayer.h" // QPointer<SWMMModelLayer> needs the complete type
@@ -20,7 +24,7 @@
 #include "ui/theme/iconfactory.h"
 
 #include <QButtonGroup>
-#include <QDialogButtonBox>
+#include <QUndoStack>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
 #include <QHBoxLayout>
@@ -38,11 +42,21 @@
 #include <QSplitter>
 #include <QVBoxLayout>
 
+#include <openswmm/engine/openswmm_infrastructure.h>
+
 namespace openswmmvis::ui
 {
 
 using openswmmvis::street::StreetProvider;
 using openswmmvis::street::StreetRegistry;
+
+namespace
+{
+bool sameStreet(const StreetProvider::Params &now, const StreetProvider::Params &target)
+{
+    return now.sameAs(target, 1e-9);
+}
+} // namespace
 
 // ─────────────────────────────────────────────────────────────────────────────
 // StreetSectionPreview
@@ -56,13 +70,15 @@ StreetSectionPreview::StreetSectionPreview(QWidget *parent) : QWidget(parent)
 
 void StreetSectionPreview::setProvider(StreetProvider *p)
 {
-    if (m_provider == p)
-        return;
-    if (m_provider)
-        m_provider->disconnect(this);
     m_provider = p;
-    if (m_provider)
-        connect(m_provider, &StreetProvider::paramsChanged, this, qOverload<>(&QWidget::update));
+    if (p)
+        m_shown = p->params();
+    update();
+}
+
+void StreetSectionPreview::showParams(const StreetProvider::Params &values)
+{
+    m_shown = values;
     update();
 }
 
@@ -83,15 +99,15 @@ void StreetSectionPreview::paintEvent(QPaintEvent *)
     // cross-section. Points are drawn with independent X/Y scaling (vertical
     // exaggeration) so the shallow profile stays legible while the topology and
     // proportions match the engine.
-    const double w3 = qMax(0.0, m_provider->crownWidth());   // Tcrown
-    const double w2 = qMax(0.0, m_provider->gutterWidth());  // W (gutter)
-    const double w1 = qMax(0.0, m_provider->backingWidth()); // Tback
+    const double w3 = qMax(0.0, m_shown.crownWidth);   // Tcrown
+    const double w2 = qMax(0.0, m_shown.gutterWidth);  // W (gutter)
+    const double w1 = qMax(0.0, m_shown.backingWidth); // Tback
     const double w4 = qMax(0.0, w3 - w2);
-    const double slope = qMax(0.0, m_provider->crossSlope()) / 100.0;       // Sx
-    const double backSlope = qMax(0.0, m_provider->backingSlope()) / 100.0; // Sback
-    const double curb = qMax(0.0, m_provider->curbHeight());                // Hcurb
-    const double dep = qMax(0.0, m_provider->gutterDepression());           // a (depression)
-    const bool twoSide = (m_provider->sides() == 2);
+    const double slope = qMax(0.0, m_shown.crossSlope) / 100.0;       // Sx
+    const double backSlope = qMax(0.0, m_shown.backingSlope) / 100.0; // Sback
+    const double curb = qMax(0.0, m_shown.curbHeight);                // Hcurb
+    const double dep = qMax(0.0, m_shown.gutterDepression);           // a (depression)
+    const bool twoSide = (m_shown.sides == 2);
 
     const double y1 = curb + dep;                // top of curb
     const double y3 = dep + slope * w2;          // bottom of depressed gutter
@@ -177,8 +193,8 @@ StreetEditorDialog::StreetEditorDialog(StreetRegistry *registry, SWMMModelLayer 
     resize(720, 420);
     buildUi_();
 
-    setAccessibleDescription(
-        tr("Changes are applied immediately. Closing this editor does not undo changes."));
+    setAccessibleDescription(tr("Changes are held until you choose Apply, which writes them to "
+                                "the model as one undoable step."));
     m_listView->setAccessibleName(tr("Street designs"));
     if (m_registry)
         connect(m_registry, &QObject::destroyed, this, &StreetEditorDialog::invalidateContext);
@@ -192,6 +208,21 @@ StreetEditorDialog::StreetEditorDialog(StreetRegistry *registry, SWMMModelLayer 
                 &StreetEditorDialog::onProviderAdded_);
         connect(m_registry, &StreetRegistry::providerRenamed, this,
                 &StreetEditorDialog::onProviderRenamed_);
+        // Changed from another view (or an Undo): with a draft that is a
+        // conflict to resolve at Apply, otherwise the form follows the model.
+        connect(m_registry, &StreetRegistry::providerParamsChanged, this, [this](StreetProvider *p) {
+            if (m_applying)
+                return;
+            if (m_drafts.contains(p))
+                m_session->noteExternalChange();
+            else if (p == m_current)
+                bindProvider_(p);
+        });
+        connect(m_registry, &StreetRegistry::providerAboutToBeRemoved, this,
+                [this](StreetProvider *p) {
+                    if (m_drafts.remove(p))
+                        m_session->noteEdited();
+                });
         m_listModel->setRegistry(m_registry);
         if (m_registry->providerCount() > 0)
             selectProviderInList_(m_registry->providers().first());
@@ -213,6 +244,7 @@ void StreetEditorDialog::invalidateContext()
         disconnect(m_layer, nullptr, this, nullptr);
     m_registry = nullptr;
     m_layer = nullptr;
+    m_drafts.clear(); // the model is going away: nothing left to apply to
     bindProvider_(nullptr);
     m_listModel->setRegistry(nullptr);
     setEnabled(false);
@@ -251,7 +283,12 @@ void StreetEditorDialog::buildUi_()
     leftLay->setContentsMargins(0, 0, 0, 0);
     m_listView = new QListView(leftPane);
     m_listModel = new StreetListModel(this);
-    m_listView->setModel(m_listModel);
+    // Rows whose object holds an unapplied draft read in italics.
+    m_draftMarks = new DraftMarkProxyModel(this);
+    m_draftMarks->setSourceModel(m_listModel);
+    m_draftMarks->setHasDraft(
+        [this](int row) { return m_drafts.contains(m_listModel->providerAt(row)); });
+    m_listView->setModel(m_draftMarks);
     m_listView->setEditTriggers(QAbstractItemView::DoubleClicked |
                                 QAbstractItemView::EditKeyPressed);
     leftLay->addWidget(m_listView, 1);
@@ -327,10 +364,17 @@ void StreetEditorDialog::buildUi_()
 
     outer->addWidget(m_splitter, 1);
 
-    auto *bb = new QDialogButtonBox(QDialogButtonBox::Close, this);
-    connect(bb, &QDialogButtonBox::rejected, this, &QDialog::accept);
-    connect(bb, &QDialogButtonBox::accepted, this, &QDialog::accept);
-    outer->addWidget(bb);
+    m_session = new DataObjectDraftSession({{}, // every field commits to the draft as edited
+                                            [this] { return int(m_drafts.size()); },
+                                            [this](QString *why) { return applyDrafts_(why); },
+                                            [this] { revertDrafts_(); }},
+                                           this);
+    connect(m_session, &DataObjectDraftSession::changed, m_draftMarks,
+            &DraftMarkProxyModel::refreshMarks);
+    m_session->setModel(m_layer); // Save / Run / Close ask about unapplied drafts
+    auto *footer = new DataObjectDraftFooter(m_session, this);
+    connect(footer, &DataObjectDraftFooter::closeRequested, this, &QDialog::accept);
+    outer->addWidget(footer);
 
     // ── Wiring ──────────────────────────────────────────────────────────────
     connect(m_listView->selectionModel(), &QItemSelectionModel::selectionChanged, this,
@@ -367,17 +411,19 @@ void StreetEditorDialog::bindProvider_(StreetProvider *p)
         w->setEnabled(enabled);
 
     if (p) {
+        const StreetProvider::Params v = shown_(p);
         m_nameEdit->setText(p->name());
-        m_crownWidthSpin->setValue(p->crownWidth());
-        m_curbHeightSpin->setValue(p->curbHeight());
-        m_crossSlopeSpin->setValue(p->crossSlope());
-        m_roadRoughSpin->setValue(p->roadRoughness());
-        m_gutterDepSpin->setValue(p->gutterDepression());
-        m_gutterWidthSpin->setValue(p->gutterWidth());
-        m_backWidthSpin->setValue(p->backingWidth());
-        m_backSlopeSpin->setValue(p->backingSlope());
-        m_backRoughSpin->setValue(p->backingRoughness());
-        (p->sides() == 1 ? m_oneSidedRadio : m_twoSidedRadio)->setChecked(true);
+        m_crownWidthSpin->setValue(v.crownWidth);
+        m_curbHeightSpin->setValue(v.curbHeight);
+        m_crossSlopeSpin->setValue(v.crossSlope);
+        m_roadRoughSpin->setValue(v.roadRoughness);
+        m_gutterDepSpin->setValue(v.gutterDepression);
+        m_gutterWidthSpin->setValue(v.gutterWidth);
+        m_backWidthSpin->setValue(v.backingWidth);
+        m_backSlopeSpin->setValue(v.backingSlope);
+        m_backRoughSpin->setValue(v.backingRoughness);
+        (v.sides == 1 ? m_oneSidedRadio : m_twoSidedRadio)->setChecked(true);
+        m_preview->showParams(v);
     } else {
         m_nameEdit->clear();
     }
@@ -397,7 +443,7 @@ void StreetEditorDialog::selectProviderInList_(StreetProvider *p)
         bindProvider_(p);
         return;
     }
-    const QModelIndex idx = m_listModel->index(row);
+    const QModelIndex idx = viewIndexOf(m_listView, m_listModel->index(row));
     m_listView->selectionModel()->setCurrentIndex(idx, QItemSelectionModel::ClearAndSelect);
     // bindProvider_ is triggered by the selection change.
 }
@@ -424,17 +470,34 @@ void StreetEditorDialog::onAddStreetClicked_()
 {
     if (!m_registry)
         return;
-    StreetProvider *p = m_registry->create(suggestUniqueName_());
-    if (p)
+    const QString name = suggestUniqueName_();
+    if (!DataObjectDraftSession::commit(
+            {createObjectEdit(m_registry.data(), name, [](StreetProvider *) { return true; })},
+            m_undo, tr("Create street %1").arg(name)))
+        return;
+    if (StreetProvider *p = m_registry->findByName(name)) {
+        m_session->noteApplied(tr("Created %1").arg(name));
         selectProviderInList_(p);
+    }
 }
 
 void StreetEditorDialog::onDeleteStreetClicked_()
 {
     if (!m_registry || !m_current)
         return;
-    const auto answer = QMessageBox::question(this, tr("Delete Street"),
-                                              tr("Delete street \"%1\"?").arg(m_current->name()));
+    // Plan D8 — say what the engine detaches, and that Undo will not re-attach it.
+    QString text = tr("Delete street \"%1\"?").arg(m_current->name());
+    if (void *engine = m_registry->engineHandle()) {
+        const QString uses = dataObjectUses(
+            engine, swmm_street_analyze_impact,
+            swmm_street_index(static_cast<SWMM_Engine>(engine),
+                              m_current->name().toUtf8().constData()));
+        if (!uses.isEmpty())
+            text += QLatin1String("\n\n") + uses + QLatin1Char(' ') +
+                    tr("Those uses are removed with it; Undo brings back the street and its "
+                       "settings, but not those uses.");
+    }
+    const auto answer = QMessageBox::question(this, tr("Delete Street"), text);
     if (answer != QMessageBox::Yes)
         return;
     deleteCurrentSilently();
@@ -445,8 +508,17 @@ void StreetEditorDialog::deleteCurrentSilently()
     if (!m_registry || !m_current)
         return;
     StreetProvider *victim = m_current;
+    const QString removedName = victim->name();
+    const auto restore = [registry = m_registry, kept = victim->params()](StreetProvider *p) {
+        return registry && writeParams(registry.data(), p, kept, sameStreet);
+    };
     m_current = nullptr;
-    m_registry->remove(victim);
+    if (!DataObjectDraftSession::commit({deleteObjectEdit(m_registry.data(), removedName, restore)},
+                                        m_undo, tr("Delete street %1").arg(removedName))) {
+        bindProvider_(m_registry->findByName(removedName));
+        return;
+    }
+    m_session->noteApplied(tr("Deleted %1").arg(removedName));
     if (m_registry->providerCount() > 0)
         selectProviderInList_(m_registry->providers().first());
     else
@@ -466,12 +538,16 @@ void StreetEditorDialog::onNameEdited_()
             m_nameEdit->setText(m_current->name());
         return;
     }
-    if (!m_registry->rename(m_current, newName)) {
+    if (!DataObjectDraftSession::commit(
+            {renameObjectEdit(m_registry.data(), m_current->name(), newName)}, m_undo,
+            tr("Rename street %1 to %2").arg(m_current->name(), newName))) {
         QMessageBox::warning(this, tr("Rename Street"),
                              tr("A street named \"%1\" already exists.").arg(newName));
         if (m_current)
             m_nameEdit->setText(m_current->name());
+        return;
     }
+    m_session->noteApplied(tr("Renamed to %1").arg(newName));
 }
 
 bool StreetEditorDialog::renameCurrent(const QString &newName)
@@ -483,24 +559,83 @@ bool StreetEditorDialog::renameCurrent(const QString &newName)
 
 void StreetEditorDialog::onFieldEdited_()
 {
-    if (m_suppressFieldSync || !m_current)
-        return;
-    m_current->setCrownWidth(m_crownWidthSpin->value());
-    m_current->setCurbHeight(m_curbHeightSpin->value());
-    m_current->setCrossSlope(m_crossSlopeSpin->value());
-    m_current->setRoadRoughness(m_roadRoughSpin->value());
-    m_current->setGutterDepression(m_gutterDepSpin->value());
-    m_current->setGutterWidth(m_gutterWidthSpin->value());
-    m_current->setBackingWidth(m_backWidthSpin->value());
-    m_current->setBackingSlope(m_backSlopeSpin->value());
-    m_current->setBackingRoughness(m_backRoughSpin->value());
+    draftFromForm_();
 }
 
 void StreetEditorDialog::onSidesToggled_()
 {
+    draftFromForm_();
+}
+
+void StreetEditorDialog::draftFromForm_()
+{
     if (m_suppressFieldSync || !m_current)
         return;
-    m_current->setSides(m_oneSidedRadio->isChecked() ? 1 : 2);
+    StreetProvider::Params v;
+    v.crownWidth = m_crownWidthSpin->value();
+    v.curbHeight = m_curbHeightSpin->value();
+    v.crossSlope = m_crossSlopeSpin->value();
+    v.roadRoughness = m_roadRoughSpin->value();
+    v.gutterDepression = m_gutterDepSpin->value();
+    v.gutterWidth = m_gutterWidthSpin->value();
+    v.sides = m_oneSidedRadio->isChecked() ? 1 : 2;
+    v.backingWidth = m_backWidthSpin->value();
+    v.backingSlope = m_backSlopeSpin->value();
+    v.backingRoughness = m_backRoughSpin->value();
+    if (v == m_current->params())
+        m_drafts.remove(m_current); // edited back to the model's values
+    else
+        m_drafts.insert(m_current, v);
+    m_preview->showParams(v);
+    m_session->noteEdited();
+}
+
+void StreetEditorDialog::setUndoStack(QUndoStack *stack)
+{
+    m_undo = stack;
+}
+
+void StreetEditorDialog::done(int result)
+{
+    if (m_contextValid && m_registry && !m_session->resolveBeforeClose())
+        return;
+    QDialog::done(result);
+}
+
+StreetProvider::Params StreetEditorDialog::shown_(StreetProvider *p) const
+{
+    const auto draft = m_drafts.constFind(p);
+    return draft != m_drafts.cend() ? draft.value() : p->params();
+}
+
+bool StreetEditorDialog::applyDrafts_(QString *reason)
+{
+    QVector<DataObjectDraftSession::Edit> edits;
+    QStringList names;
+    for (auto it = m_drafts.cbegin(); it != m_drafts.cend(); ++it) {
+        names << it.key()->name();
+        edits.append(paramsDraftEdit(m_registry.data(), m_layer.data(), it.key(), it.key()->params(),
+                                     it.value(), sameStreet));
+    }
+    m_applying = true;
+    const bool ok = DataObjectDraftSession::commit(
+        edits, m_undo, names.size() == 1 ? tr("Edit street %1").arg(names.first())
+                                         : tr("Edit %n street(s)", nullptr, int(names.size())));
+    m_applying = false;
+    if (!ok) {
+        *reason = tr("the model did not accept the values for %1; nothing was changed")
+                      .arg(names.join(QStringLiteral(", ")));
+        return false;
+    }
+    m_drafts.clear();
+    bindProvider_(m_current);
+    return true;
+}
+
+void StreetEditorDialog::revertDrafts_()
+{
+    m_drafts.clear();
+    bindProvider_(m_current);
 }
 
 void StreetEditorDialog::onProviderAdded_(StreetProvider *)
@@ -553,12 +688,7 @@ QString StreetEditorDialog::pickStreet(StreetRegistry *registry, SWMMModelLayer 
         dlg.m_listView->selectionModel()->clear();
         dlg.bindProvider_(nullptr);
     }
-    dlg.exec();
-
-    // Flush the registry to the engine so a subsequent name → index lookup
-    // resolves through engine setters (mirrors pickTransect).
-    if (dlg.m_registry)
-        dlg.m_registry->saveToEngine();
+    dlg.exec(); // closing with a draft asks Apply / Discard first
 
     auto *p = dlg.currentProvider();
     return p ? p->name() : QString();

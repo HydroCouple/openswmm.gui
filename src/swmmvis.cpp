@@ -217,6 +217,7 @@
 #include "ui/panels/layertreepanel.h"
 #include "ui/panels/legenddock.h"
 #include "ui/editors/comprehensiveeditorregistry.h"
+#include "ui/editors/dataobjectdraftsession.h"
 #include "ui/panels/objectbrowserpanel.h"
 #include "ui/panels/propertiespanel.h"
 #include "ui/panels/sectionviewpanel.h"
@@ -439,6 +440,9 @@ SWMMVis::SWMMVis(QWidget *parent) : QMainWindow(parent), ui(new Ui::SWMMVis)
     registerActions();
     initializeDefaultWorkspaceSession();
     initializeExtensions();
+    // The time series editor's Geopackage source picks and refreshes
+    // observation copies through the native observation-dataset flow.
+    openswmmvis::ui::installTimeseriesObservationSource();
 
     // Allow the window to shrink well below the size implied by the toolbars,
     // dock widgets and central MDI area so it can be snapped/tiled to half the
@@ -6081,6 +6085,13 @@ void SWMMVis::onSaveProject()
         return;
     }
 
+    // Editors with unapplied changes: Save writes the applied state, so ask.
+    const QPointer<SWMMVisProjectWindow> guard(pw);
+    if (!openswmmvis::ui::resolveUnappliedChanges(pw->modelLayer(),
+                                                  openswmmvis::ui::UnappliedAction::Save, this) ||
+        !guard || !pw->modelLayer())
+        return;
+
     // Same portability preview Save As gives. Without this a plain Save of a
     // model holding an unportable reference reported nothing at all.
     if (pw->modelLayer())
@@ -6115,6 +6126,12 @@ void SWMMVis::onSaveAs()
 bool SWMMVis::saveProjectWindowAs(SWMMVisProjectWindow *pw)
 {
     if (!pw)
+        return false;
+    // Editors with unapplied changes: Save writes the applied state, so ask.
+    const QPointer<SWMMVisProjectWindow> guard(pw);
+    if (!openswmmvis::ui::resolveUnappliedChanges(pw->modelLayer(),
+                                                  openswmmvis::ui::UnappliedAction::Save, this) ||
+        !guard)
         return false;
 
     const QString suggested = pw->modelLayer() ? pw->modelLayer()->modelFilePath() : QString();
@@ -10426,6 +10443,16 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
     };
     if (alreadyRunning())
         return;
+
+    // Editors with unapplied changes: the run uses the applied model, so ask.
+    // Extension-requested runs (a session id) run the applied state as is.
+    if (requestedSessionId.isNull()) {
+        const QPointer<SWMMVisProjectWindow> guard(pw);
+        if (!openswmmvis::ui::resolveUnappliedChanges(pw->modelLayer(),
+                                                      openswmmvis::ui::UnappliedAction::Run, this) ||
+            !guard || !pw->modelLayer() || !pw->modelLayer()->engine())
+            return;
+    }
 
     QPointer<SWMMVisProjectWindow> owner(pw);
     QPointer<SWMMModelLayer> model(pw->modelLayer());

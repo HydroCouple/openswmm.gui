@@ -25,6 +25,42 @@ class QSpinBox;
 class QTableWidget;
 namespace openswmmvis::ui
 {
+struct ObservationCopy; // timeserieseditordialog.h
+
+/** @brief One observation series offered by the time series editor's Choose Series…. */
+struct ObservationSeriesChoice {
+    std::shared_ptr<const OpenSWMM::TimeSeries::TimeSeriesDataset> dataset; ///< Loaded dataset metadata.
+    QString seriesId; ///< Stable SeriesInfo::id within the dataset.
+    QString label;    ///< "<dataset> — <series> (<unit>)".
+};
+
+/** @brief Every series of the observation datasets loaded on the map of \p model's project.
+ * @param[in] model The project's SWMMModelLayer (the time series registry's parent).
+ * @return Choices in layer order; empty when the project has no available observation layer. */
+QVector<ObservationSeriesChoice> loadedObservationSeries(const QObject *model);
+
+/** @brief Install the observation-dataset Choose / Refresh behind the time series editor's
+ *  Geopackage source (TimeseriesEditorDialog::setObservationSource). Call once at start-up. */
+void installTimeseriesObservationSource();
+
+/** @brief The editor copy of a prepared series: its points, and a binding that records the
+ *  dataset, series, provenance and the reviewed choices (for Refresh and the .oswp).
+ * @param[in] prepared Successful preparation.
+ * @param[in] dataset The dataset it was prepared from.
+ * @param[out] out Points and binding. */
+void observationCopyFrom(const OpenSWMM::TimeSeries::PreparedAssignment &prepared,
+                         const OpenSWMM::TimeSeries::TimeSeriesDataset &dataset, ObservationCopy *out);
+
+/** @brief Prepare the bound series again from the dataset at the binding's path, with the
+ *  same reviewed choices. Synchronous (at most one million points).
+ * @param[in] binding A binding made by observationCopyFrom().
+ * @param[in] seriesName The model series receiving the copy.
+ * @param[out] out Fresh points and binding.
+ * @param[out] error Why it failed (dataset missing, replaced, or the choices no longer fit).
+ * @return True on success. */
+bool refreshObservationCopy(const QJsonObject &binding, const QString &seriesName,
+                            ObservationCopy *out, QString *error);
+
 /** @brief Apply a previously validated copy through one checked native transaction.
  * @param[in] project Exact live project, never whichever project became active later.
  * @param[in] prepared Immutable prepared values and explicit binding choices.
@@ -51,6 +87,12 @@ public:
         QString seriesId, QWidget *parent = nullptr);
     /** @brief Request worker cancellation and join its bounded read loop before destruction. */
     ~TimeSeriesAssignmentDialog() override;
+    /** @brief Review and prepare a copy for a time series editor's draft without touching any
+     *  model: the name is fixed to \p seriesName and the use to "time series only".
+     * @return True with \p out set when the user chose "Use in Editor" on a valid preview. */
+    static bool prepareForEditor(std::shared_ptr<const OpenSWMM::TimeSeries::TimeSeriesDataset> dataset,
+                                 const QString &seriesId, const QString &seriesName,
+                                 QWidget *parent, OpenSWMM::TimeSeries::PreparedAssignment *out);
 private:
     struct Work; ///< Detached worker state; no model or widget pointers cross the thread boundary.
     /** @brief Cancel pending preparation and revoke Apply after any input/model edit. */
@@ -68,6 +110,7 @@ private:
     OpenSWMM::TimeSeries::SeriesInfo m_series; ///< Copied source descriptor used to present choices.
     OpenSWMM::TimeSeries::PreparedAssignment m_prepared; ///< Reviewed copied samples for the current revision.
     quint64 m_revision = 0; ///< Incremented on any option or model change to invalidate stale previews.
+    bool m_forEditor = false; ///< Hand the preview to a time series editor instead of the model.
     void *m_engine = nullptr; ///< Borrowed engine identity only; compared on Apply, never used by workers.
     std::shared_ptr<Work> m_work; ///< Current detached worker state, also retained by its thread.
     std::thread m_thread; ///< Preparation thread joined before replacement or destruction.

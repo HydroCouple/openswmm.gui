@@ -21,10 +21,13 @@
  *   │              │                              │  properties…           │
  *   └──────────────┴──────────────────────────────┴────────────────────────┘
  *
- * MVC contract — every mutation goes through TransectProvider (or via the
- * SWMMModelLayer apply helpers when a layer is bound). Subscribed signals
- * keep the list, the property tree, the station table, and the chart in
- * lock-step.
+ * MVC contract — the property tree, station table, chart and comments edit a
+ * DRAFT copy of each transect the user opens; the model's transect changes
+ * only at Apply, as one step on the dialog's QUndoStack
+ * (workplans/DATA_OBJECT_APPLY_REVERT_PLAN_2026-11-11.md). Draft edits undo
+ * step by step on the editor's own stack (toolbar Undo / Redo). Add, delete
+ * and rename take effect at once. Subscribed signals keep the list, the
+ * property tree, the station table, and the chart in lock-step.
  *
  * Right-click on the chart pops a context menu whose "Chart properties…"
  * entry opens a QPropertyModel-backed editor over the TransectChartView's
@@ -39,8 +42,12 @@
 #ifndef OPENSWMMVIS_UI_DIALOGS_TRANSECTEDITORDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_TRANSECTEDITORDIALOG_H
 
+#include "transect/transectprovider.h" // Params held per draft
+
 #include <QDialog>
+#include <QMetaObject>
 #include <QPointer>
+#include <QVector>
 
 class QDoubleSpinBox;
 class QLabel;
@@ -70,6 +77,8 @@ namespace openswmmvis::ui
 class TransectListModel;
 class TransectStationTableModel;
 class TransectChartView;
+class DataObjectDraftSession;
+class DraftMarkProxyModel;
 
 class TransectEditorDialog : public QDialog
 {
@@ -145,6 +154,18 @@ public:
      */
     openswmmvis::transect::TransectProvider *currentProvider() const noexcept;
 
+    /*! Apply / Revert state of this editor's drafts. */
+    DataObjectDraftSession *draftSession() const noexcept { return m_session; }
+    /*! The draft copy the form edits for the current transect, or null. Exposed for tests. */
+    openswmmvis::transect::TransectProvider *editedTransect() const noexcept { return m_edited.data(); }
+    /*! The editor's own undo history of draft edits. Exposed for tests. */
+    QUndoStack *draftUndoStack() const noexcept { return m_draftUndo; }
+
+public slots:
+    /// With unapplied drafts, ask Apply / Discard / Cancel before closing.
+    void done(int result) override;
+
+public:
     // ── Test hooks ──────────────────────────────────────────────────────────
 
     /**
@@ -458,6 +479,31 @@ private:
      */
     QString suggestUniqueName_() const;
 
+    // ── Drafts (Apply / Revert) ─────────────────────────────────────────────
+    /*! One transect opened here: the model's provider, the copy the form edits,
+     *  and the model values the copy was last taken from. */
+    struct Draft {
+        QPointer<openswmmvis::transect::TransectProvider> live;
+        openswmmvis::transect::TransectProvider *copy = nullptr;
+        openswmmvis::transect::TransectProvider::Params base;
+    };
+    /// The draft copy of \p live, made on first use; null for null.
+    openswmmvis::transect::TransectProvider *copyFor_(openswmmvis::transect::TransectProvider *live);
+    /// The model's transect changed: follow it when unedited, else report the conflict.
+    void onLiveChanged_(openswmmvis::transect::TransectProvider *live);
+    /// The model's transect is going away: drop its draft.
+    void dropDraft_(openswmmvis::transect::TransectProvider *live);
+    int dirtyCount_() const;
+    bool applyDrafts_(QString *reason);
+    void revertDrafts_();
+
+    QVector<Draft> m_drafts;
+    QPointer<openswmmvis::transect::TransectProvider> m_edited; ///< Copy bound to the form.
+    QVector<QMetaObject::Connection> m_bindConnections; ///< This binding's provider signals.
+    QUndoStack *m_draftUndo = nullptr; ///< Step-by-step undo of draft edits (toolbar Undo/Redo).
+    DataObjectDraftSession *m_session = nullptr;
+    bool m_applying = false;
+
     bool m_contextValid = true;
     QPointer<openswmmvis::transect::TransectRegistry> m_registry;
     QPointer<SWMMModelLayer> m_layer;
@@ -471,6 +517,7 @@ private:
     // Left pane.
     QListView *m_listView = nullptr;
     TransectListModel *m_listModel = nullptr;
+    DraftMarkProxyModel *m_draftMarks = nullptr; ///< Marks rows holding unapplied changes.
     QPushButton *m_addBtn = nullptr;
     QPushButton *m_delBtn = nullptr;
 

@@ -11,6 +11,7 @@
 #include "core/unitsystem.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace openswmmvis::curve
 {
@@ -306,6 +307,35 @@ void CurveProvider::setType(CurveType t)
     const CurveType prev = m_type;
     m_type = t;
     emit typeChanged(prev, m_type);
+}
+
+bool CurveProvider::Params::operator==(const Params &o) const
+{
+    if (type != o.type || points.size() != o.points.size())
+        return false;
+    for (int i = 0; i < points.size(); ++i)
+        if (points[i].x != o.points[i].x || points[i].y != o.points[i].y)
+            return false;
+    return true;
+}
+
+bool CurveProvider::Params::sameAs(const Params &o, double relTol) const
+{
+    const auto near = [relTol](double a, double b) {
+        return std::abs(a - b) <= relTol * std::max({1.0, std::abs(a), std::abs(b)});
+    };
+    if (type != o.type || points.size() != o.points.size())
+        return false;
+    for (int i = 0; i < points.size(); ++i)
+        if (!near(points[i].x, o.points[i].x) || !near(points[i].y, o.points[i].y))
+            return false;
+    return true;
+}
+
+bool CurveProvider::setParams(const Params &p)
+{
+    setType(p.type);
+    return params() == p || setAllPoints(p.points);
 }
 
 } // namespace openswmmvis::curve

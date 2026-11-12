@@ -9,6 +9,9 @@
 
 #include "pollutant/pollutantprovider.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace openswmmvis::pollutant
 {
 
@@ -105,6 +108,41 @@ void PollutantProvider::setCoFraction(double v)
     if (v == m_coFraction)
         return;
     m_coFraction = v;
+    emit paramsChanged();
+}
+
+bool PollutantParams::sameAs(const PollutantParams &o, double relTol) const
+{
+    const auto near = [relTol](double a, double b) {
+        return std::abs(a - b) <= relTol * std::max({1.0, std::abs(a), std::abs(b)});
+    };
+    return units == o.units && snowOnly == o.snowOnly &&
+           coPollutant.compare(o.coPollutant, Qt::CaseInsensitive) == 0 &&
+           near(rainConc, o.rainConc) && near(gwConc, o.gwConc) && near(initConc, o.initConc) &&
+           near(rdiiConc, o.rdiiConc) && near(kDecay, o.kDecay) && near(mwt, o.mwt) &&
+           near(coFraction, o.coFraction);
+}
+
+PollutantParams PollutantProvider::params() const
+{
+    return {m_units,  m_rainConc, m_gwConc,      m_initConc,  m_rdiiConc,
+            m_kDecay, m_mwt,      m_snowOnly,    m_coPollutant, m_coFraction};
+}
+
+void PollutantProvider::setParams(const PollutantParams &v)
+{
+    if (v == params())
+        return;
+    m_units = v.units;
+    m_rainConc = v.rainConc;
+    m_gwConc = v.gwConc;
+    m_initConc = v.initConc;
+    m_rdiiConc = v.rdiiConc;
+    m_kDecay = v.kDecay;
+    m_mwt = v.mwt;
+    m_snowOnly = v.snowOnly;
+    m_coPollutant = v.coPollutant;
+    m_coFraction = v.coFraction;
     emit paramsChanged();
 }
 

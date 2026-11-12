@@ -34,10 +34,10 @@
 #include "ui/panels/swmmobjecttreemodel.h"
 #include "ui/dialogs/ruleseditordialog.h"
 #include "ui/dialogs/timeserieseditordialog.h"
+#include "ui/editors/dataobjectdraftsession.h"
 #include "ui/panels/timeseriestablemodel.h"
 #include "timeseries/timeseriesregistry.h"
 #include <QDoubleSpinBox>
-#include <QTemporaryDir>
 #include "ui/dialogs/patterneditordialog.h"
 #include "ui/panels/attributetablepanel.h"
 #include "ui/properties/dataobjectpickereditor.h"
@@ -466,7 +466,18 @@ void TestDataObjectAttributeTable::inlineSeriesSurvivesCloseAndReload()
     cellEditor->setValue(7.25);
     auto *closeButton = editor->findChild<QPushButton *>("ts_closeBtn");
     QVERIFY(closeButton);
+    // Closing with unapplied edits asks first; choose Apply.
+    bool asked = false;
+    QTimer::singleShot(0, editor, [&asked] {
+        if (auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget()))
+            for (auto *button : box->buttons())
+                if (button->text().remove('&') == QStringLiteral("Apply")) {
+                    asked = true;
+                    button->click();
+                }
+    });
     closeButton->click();
+    QVERIFY(asked);
 
     DataObjectAttributeTableModel table;
     table.setSource(layer.get(), DC::DataTimeSeries);
@@ -481,14 +492,18 @@ void TestDataObjectAttributeTable::inlineSeriesSurvivesCloseAndReload()
         QCOMPARE(model->index(1, 1).data(Qt::EditRole).toDouble(), 7.25);
     };
     verify(again, 2.5);
-    // Saving with a second edit still open must use the current values.
+    // A second edit, stepped through the editor's own undo, then applied and saved.
     QVERIFY(again->tableModel()->setData(again->tableModel()->index(0, 1), 9.5));
     again->undoStack()->undo();
     verify(again, 2.5);
     again->undoStack()->redo();
-    QTemporaryDir tmp;
-    QVERIFY(tmp.isValid());
-    const QString output = tmp.filePath("inline.inp");
+    // Save writes the applied state, so apply the second edit first.
+    QVERIFY(again->draftSession()->apply());
+    // Kept for review: <repo>/workplans/data-object-apply/phase1/review.
+    QDir out(dataDir());
+    QVERIFY(out.cdUp() && out.cdUp() && out.cdUp());
+    QVERIFY(out.mkpath("workplans/data-object-apply/phase1/review"));
+    const QString output = out.filePath("workplans/data-object-apply/phase1/review/inline_series_close_reload.inp");
     QVERIFY(layer->flushDataObjectRegistries());
     QCOMPARE(swmm_model_write(layer->engine(), output.toUtf8()), SWMM_OK);
     again->close();

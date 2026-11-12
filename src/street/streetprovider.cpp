@@ -9,6 +9,9 @@
 
 #include "street/streetprovider.h"
 
+#include <algorithm>
+#include <cmath>
+
 #include <utility>
 
 namespace openswmmvis::street
@@ -107,6 +110,41 @@ void StreetProvider::setBackingRoughness(double v)
     if (v == m_backingRoughness)
         return;
     m_backingRoughness = v;
+    emit paramsChanged();
+}
+
+bool StreetProvider::Params::sameAs(const Params &o, double relTol) const
+{
+    const auto close = [relTol](double a, double b) {
+        return std::abs(a - b) <= relTol * std::max({1.0, std::abs(a), std::abs(b)});
+    };
+    return sides == o.sides && close(crownWidth, o.crownWidth) && close(curbHeight, o.curbHeight) &&
+           close(crossSlope, o.crossSlope) && close(roadRoughness, o.roadRoughness) &&
+           close(gutterDepression, o.gutterDepression) && close(gutterWidth, o.gutterWidth) &&
+           close(backingWidth, o.backingWidth) && close(backingSlope, o.backingSlope) &&
+           close(backingRoughness, o.backingRoughness);
+}
+
+StreetProvider::Params StreetProvider::params() const
+{
+    return {m_crownWidth,  m_curbHeight, m_crossSlope,   m_roadRoughness, m_gutterDepression,
+            m_gutterWidth, m_sides,      m_backingWidth, m_backingSlope,  m_backingRoughness};
+}
+
+void StreetProvider::setParams(const Params &p)
+{
+    if (p == params())
+        return;
+    m_crownWidth = p.crownWidth;
+    m_curbHeight = p.curbHeight;
+    m_crossSlope = p.crossSlope;
+    m_roadRoughness = p.roadRoughness;
+    m_gutterDepression = p.gutterDepression;
+    m_gutterWidth = p.gutterWidth;
+    m_sides = p.sides;
+    m_backingWidth = p.backingWidth;
+    m_backingSlope = p.backingSlope;
+    m_backingRoughness = p.backingRoughness;
     emit paramsChanged();
 }
 

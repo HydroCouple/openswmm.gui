@@ -185,13 +185,15 @@ int PollutantRegistry::saveToEngine(void *engineHandle, const QString &onlyName)
         const QByteArray idUtf8 = p->name().toUtf8();
         int idx = swmm_pollutant_index(eng, idUtf8.constData());
         if (idx < 0) {
-            // units are write-once at creation.
             if (swmm_pollutant_add(eng, idUtf8.constData(), p->units()) != SWMM_OK)
                 continue;
             idx = swmm_pollutant_index(eng, idUtf8.constData());
             if (idx < 0)
                 continue;
         }
+        // The editor offers the units, so they are written like the rest; this
+        // was missing and a units change never reached the saved file.
+        swmm_pollutant_set_units(eng, idx, p->units());
         swmm_pollutant_set_rain_conc(eng, idx, p->rainConc());
         swmm_pollutant_set_gw_conc(eng, idx, p->gwConc());
         swmm_pollutant_set_init_conc(eng, idx, p->initConc());

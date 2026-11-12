@@ -26,6 +26,7 @@
 #define OPENSWMMVIS_TIMESERIES_TIMESERIESPROVIDER_H
 
 #include <QDateTime>
+#include <QJsonObject>
 #include <QObject>
 #include <QString>
 #include <QVector>
@@ -48,7 +49,8 @@ public:
     enum class SourceMode {
         Inline,            ///< Stored in the project (`.inp` [TIMESERIES] rows).
         ExternalFile,      ///< Linked to a CSV / TSV / .dat file on disk.
-        GeopackageObserved ///< Stored in the project geopackage `observed_*` tables.
+        GeopackageObserved ///< Prepared copy of an observation series (native GeoPackage
+                           ///< dataset): points saved as ordinary rows, the binding in the .oswp.
     };
     Q_ENUM(SourceMode)
 
@@ -69,6 +71,29 @@ public:
         Mixed     ///< Elapsed head rows + dated tail (loaded, not authored).
     };
     Q_ENUM(TimeMode)
+
+    /*! \brief Everything an editor can change in one series: an editor's
+     *  draft copy, and the before / after of one Apply. Points are implicitly
+     *  shared, so copying an unedited series costs no point storage. */
+    struct Content {
+        QVector<TimeseriesPoint> points;
+        SourceMode sourceMode = SourceMode::Inline;
+        QString filePath;
+        QString columnSelector;
+        QDateTime fileMTime;
+        int relativeCount = 0;
+        bool allRelative = false;
+        QDateTime relativeAnchor;
+        QString unitsLabel;
+        QString description;
+        QJsonObject observationBinding; ///< GeopackageObserved: where the copy came from
+
+        /*! Same saved state. An external-file series compares by its file
+         *  binding: its points are a cache of the file, not authored data.
+         *  The relative anchor only counts while rows are relative; the
+         *  observation binding only for a GeopackageObserved series. */
+        bool sameAs(const Content &other) const;
+    };
 
     /**
      * @brief Create an empty inline absolute-time series.
@@ -123,6 +148,18 @@ public:
      * @return Copied last-observed file timestamp; no filesystem stat occurs on access.
      */
     QDateTime fileMTime() const noexcept { return m_fileMTime; }
+
+    /*! \brief GeopackageObserved: the dataset, series and reviewed preparation
+     *  choices the points were copied from (empty otherwise). Saved in the
+     *  project's .oswp; Refresh re-runs the preparation from it.
+     * @return Copied binding object; no file access. */
+    QJsonObject observationBinding() const { return m_observationBinding; }
+    /**
+     * @brief Replace the observation binding; notifies metadataChanged() (and storageChanged() for a
+     *   GeopackageObserved series) when it differs. Points and mode are unchanged.
+     * @param[in] binding Binding object copied verbatim.
+     */
+    void setObservationBinding(QJsonObject binding);
 
     // ── Point access ────────────────────────────────────────────────────────
 
@@ -296,6 +333,15 @@ public:
      */
     void setTimeMode(TimeMode mode, QDateTime anchorForRelative = {});
 
+    /*! \brief Copy of everything content() lists; the name stays separate. */
+    Content content() const;
+
+    /*! \brief Replace everything at once. Listeners are told after the whole
+     *  state is in place: points removed/inserted when they differ, then the
+     *  mode, time-mode and metadata signals, then storageChanged() when the
+     *  saved state changed. No validation: \p content comes from a provider. */
+    void setContent(const Content &content);
+
 signals:
     /// Authored inline samples, time mode or file binding changed. Cache eviction is display-only.
     void storageChanged();
@@ -359,6 +405,7 @@ private:
     QString m_filePath;
     QString m_columnSelector;
     QDateTime m_fileMTime;
+    QJsonObject m_observationBinding;
     QVector<TimeseriesPoint> m_points;
 
     // Time-mode state (see the TimeMode enum). m_allRelative is the sticky

@@ -29,7 +29,10 @@
 #ifndef OPENSWMMVIS_UI_DIALOGS_POLLUTANTEDITORDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_POLLUTANTEDITORDIALOG_H
 
+#include "pollutant/pollutantprovider.h"
+
 #include <QDialog>
+#include <QHash>
 #include <QPointer>
 
 class QCheckBox;
@@ -39,6 +42,7 @@ class QLineEdit;
 class QListView;
 class QPushButton;
 class QSplitter;
+class QUndoStack;
 
 class SWMMModelLayer;
 
@@ -52,6 +56,8 @@ namespace openswmmvis::ui
 {
 
 class PollutantListModel;
+class DataObjectDraftSession;
+class DraftMarkProxyModel;
 
 class PollutantEditorDialog : public QDialog
 {
@@ -105,6 +111,13 @@ public:
      * from current selection.
      */
     Mode mode() const noexcept { return m_mode; }
+
+    /*! Undo stack that receives one step per Apply. Null: Apply has no history. */
+    void setUndoStack(QUndoStack *stack);
+    /*! Apply / Revert state of this editor's unapplied edits. */
+    DataObjectDraftSession *draftSession() const noexcept { return m_session; }
+    /*! Ask about unapplied edits before closing; a refused close keeps the editor open. */
+    void done(int result) override;
     /**
      * @brief Borrow the currently bound pollutant provider.
      * @return Registry-owned provider, or null when unbound/destroyed; do not delete or retain
@@ -240,6 +253,11 @@ private:
      * no registry exists. Does not reserve or create the name.
      */
     QString suggestUniqueName_() const;
+    /*! Values the form shows for \p p: its unapplied draft, else the model's. */
+    openswmmvis::pollutant::PollutantParams shown_(openswmmvis::pollutant::PollutantProvider *p) const;
+    int dirtyCount_();
+    bool applyDrafts_(QString *reason);
+    void revertDrafts_();
 
     QPointer<openswmmvis::pollutant::PollutantRegistry> m_registry;
     QPointer<SWMMModelLayer> m_layer;
@@ -251,6 +269,7 @@ private:
     // Left pane.
     QListView *m_listView = nullptr;
     PollutantListModel *m_listModel = nullptr;
+    DraftMarkProxyModel *m_draftMarks = nullptr; ///< Marks rows holding unapplied changes.
     QPushButton *m_addBtn = nullptr;
     QPushButton *m_delBtn = nullptr;
 
@@ -268,6 +287,14 @@ private:
     QDoubleSpinBox *m_coFracSpin = nullptr;
 
     bool m_suppressFieldSync = false;
+
+    // Unapplied edits, per model pollutant. The registry's providers always
+    // hold the applied values, so other views never see a draft.
+    QHash<openswmmvis::pollutant::PollutantProvider *, openswmmvis::pollutant::PollutantParams>
+        m_drafts;
+    DataObjectDraftSession *m_session = nullptr;
+    QPointer<QUndoStack> m_undo;
+    bool m_applying = false;
 };
 
 } // namespace openswmmvis::ui

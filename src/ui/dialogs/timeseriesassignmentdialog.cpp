@@ -13,6 +13,11 @@
 #include "sdk/IEditScope.hpp"
 #include "core/unitsystem.h"
 #include "ui/properties/dataobjectref.h"
+#include "ui/dialogs/timeserieseditordialog.h"
+#include "ui/util/fileopendialog.h"
+#include "timeseries/timeseriesstore.h"
+#include "layers/timeserieslayer.h"
+#include "map/mapcanvas.h"
 #include "ui/util/tableclipboard.h"
 #include <QCheckBox>
 #include <QComboBox>
@@ -20,7 +25,11 @@
 #include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
+#include <QApplication>
+#include <QFileInfo>
 #include <QHeaderView>
+#include <QListWidget>
+#include <QMessageBox>
 #include <QJsonArray>
 #include <QLabel>
 #include <QLineEdit>
@@ -217,7 +226,8 @@ void TimeSeriesAssignmentDialog::updateTarget()
 }
 void TimeSeriesAssignmentDialog::prepare()
 {
-    if (m_work || !m_dataset || !m_project || m_project->isClosing() || !m_project->modelLayer()) return;
+    if (m_work || !m_dataset) return;
+    if (!m_forEditor && (!m_project || m_project->isClosing() || !m_project->modelLayer())) return;
     AssignmentOptions o; o.seriesId = m_series.id; o.modelSeriesName = m_name->text().trimmed();
     o.target = AssignmentTarget(m_target->currentIndex()); o.targetObject = m_object->text().trimmed(); o.targetUnit = m_unit->text().trimmed();
     o.clockConfirmed = m_series.timeBasis == TimeBasis::CalendarDate || m_clock->currentIndex() > 0;
@@ -228,7 +238,7 @@ void TimeSeriesAssignmentDialog::prepare()
     o.rainfallFormat = m_rainFormat->currentIndex(); o.rainfallIntervalSeconds = m_rainInterval->value();
     o.fromKey = m_series.timeBasis == TimeBasis::CalendarDate ? m_from->date().toJulianDay() : m_from->dateTime().toMSecsSinceEpoch();
     o.toKey = m_series.timeBasis == TimeBasis::CalendarDate ? m_to->date().toJulianDay() : m_to->dateTime().toMSecsSinceEpoch();
-    m_engine = m_project->modelLayer()->engine();
+    m_engine = m_project && m_project->modelLayer() ? m_project->modelLayer()->engine() : nullptr;
     m_work = std::make_shared<Work>(); m_work->revision = m_revision;
     const auto state = m_work; const auto dataset = m_dataset;
     m_thread = std::thread([state,dataset,o] { state->result = prepareAssignment(*dataset,o,&state->cancel); state->done.store(true,std::memory_order_release); });
@@ -248,11 +258,17 @@ void TimeSeriesAssignmentDialog::poll()
         m_preview->setItem(row,0,new QTableWidgetItem(m_prepared.times[i].toString("yyyy-MM-dd HH:mm:ss")));
         m_preview->setItem(row,1,new QTableWidgetItem(QString::number(m_prepared.values[i],'g',12)));
     }
-    m_status->setText(tr("Ready: %1 model points in %2. Preview shows %3 first/last points. Create and apply makes one undoable copy.").arg(total).arg(m_prepared.options.targetUnit).arg(shown));
+    m_status->setText(m_forEditor
+        ? tr("Ready: %1 model points in %2. Preview shows %3 first/last points. Use in Editor puts them in the editor; Apply there writes them to the model.").arg(total).arg(m_prepared.options.targetUnit).arg(shown)
+        : tr("Ready: %1 model points in %2. Preview shows %3 first/last points. Create and apply makes one undoable copy.").arg(total).arg(m_prepared.options.targetUnit).arg(shown));
     m_apply->setEnabled(true);
 }
 void TimeSeriesAssignmentDialog::apply()
 {
+    if (m_forEditor) { // the editor's Apply writes the model
+        if (m_prepared.ok()) accept();
+        return;
+    }
     if (!m_prepared.ok() || !m_project || m_project->isClosing() || !m_project->modelLayer() || m_project->modelLayer()->engine() != m_engine) {
         invalidate(); m_status->setText(tr("The destination changed. Prepare a new preview.")); return;
     }
@@ -260,5 +276,228 @@ void TimeSeriesAssignmentDialog::apply()
     QString error;
     if (!applyPreparedTimeSeries(m_project,prepared,&error)) { m_status->setText(error); return; }
     accept();
+}
+
+bool TimeSeriesAssignmentDialog::prepareForEditor(std::shared_ptr<const TimeSeriesDataset> dataset,
+                                                  const QString &seriesId, const QString &seriesName,
+                                                  QWidget *parent, PreparedAssignment *out)
+{
+    TimeSeriesAssignmentDialog dlg(nullptr, std::move(dataset), seriesId, parent);
+    dlg.m_forEditor = true;
+    dlg.setWindowTitle(tr("Use observations in %1").arg(seriesName));
+    dlg.m_name->setText(seriesName);
+    dlg.m_name->setReadOnly(true);
+    dlg.m_target->setCurrentIndex(int(AssignmentTarget::SeriesOnly));
+    dlg.m_target->setEnabled(false);
+    dlg.m_apply->setText(tr("Use in Editor"));
+    if (dlg.exec() != QDialog::Accepted || !dlg.m_prepared.ok()) return false;
+    *out = dlg.m_prepared;
+    return true;
+}
+
+namespace
+{
+/** @brief Reviewed choices worth keeping for Refresh; 64-bit keys as text (JSON numbers are doubles). */
+QJsonObject optionsToJson(const AssignmentOptions &o)
+{
+    return {{"seriesId", o.seriesId}, {"targetUnit", o.targetUnit},
+            {"clockConfirmed", o.clockConfirmed}, {"utcOffsetSeconds", o.utcOffsetSeconds},
+            {"dailyConstantConfirmed", o.dailyConstantConfirmed}, {"allowQualified", o.allowQualified},
+            {"allowIrregularInterpolation", o.allowIrregularInterpolation},
+            {"expectedIntervalSeconds", QString::number(o.expectedIntervalSeconds)},
+            {"unitInterpretationConfirmed", o.unitInterpretationConfirmed},
+            {"fromKey", QString::number(o.fromKey)}, {"toKey", QString::number(o.toKey)}};
+}
+AssignmentOptions optionsFromJson(const QJsonObject &j)
+{
+    AssignmentOptions o;
+    o.seriesId = j.value("seriesId").toString();
+    o.targetUnit = j.value("targetUnit").toString();
+    o.clockConfirmed = j.value("clockConfirmed").toBool();
+    o.utcOffsetSeconds = j.value("utcOffsetSeconds").toInt();
+    o.dailyConstantConfirmed = j.value("dailyConstantConfirmed").toBool();
+    o.allowQualified = j.value("allowQualified").toBool();
+    o.allowIrregularInterpolation = j.value("allowIrregularInterpolation").toBool();
+    o.expectedIntervalSeconds = j.value("expectedIntervalSeconds").toString().toLongLong();
+    o.unitInterpretationConfirmed = j.value("unitInterpretationConfirmed").toBool();
+    bool ok = false;
+    if (const qint64 k = j.value("fromKey").toString().toLongLong(&ok); ok) o.fromKey = k;
+    if (const qint64 k = j.value("toKey").toString().toLongLong(&ok); ok) o.toKey = k;
+    o.target = AssignmentTarget::SeriesOnly;
+    return o;
+}
+} // namespace
+
+void observationCopyFrom(const PreparedAssignment &prepared, const TimeSeriesDataset &dataset,
+                         ObservationCopy *out)
+{
+    out->points.clear();
+    out->points.reserve(prepared.times.size());
+    for (qsizetype i = 0; i < prepared.times.size(); ++i)
+        out->points.push_back({prepared.times[i], prepared.values[i]});
+    QJsonObject b = prepared.provenance; // dataset id, fingerprint, path, series, units, range
+    b.remove("modelSeries");              // the model series' name is the registry's, at save time
+    b["datasetTitle"] = dataset.title;
+    for (const auto &series : dataset.series)
+        if (series.id == prepared.options.seriesId)
+            b["seriesTitle"] = series.title.isEmpty() ? series.sourceSeriesId : series.title;
+    b["options"] = optionsToJson(prepared.options);
+    out->binding = b;
+}
+
+bool refreshObservationCopy(const QJsonObject &binding, const QString &seriesName,
+                            ObservationCopy *out, QString *error)
+{
+    QString why;
+    const QString path = binding.value("sourcePath").toString();
+    const auto dataset = TimeSeriesStore::open(path, &why);
+    if (!dataset) {
+        if (error) *error = QObject::tr("Cannot open the observation dataset %1: %2").arg(path, why);
+        return false;
+    }
+    if (dataset->id != binding.value("datasetId").toString()) {
+        if (error) *error = QObject::tr("%1 now holds a different dataset. Choose the series again.").arg(path);
+        return false;
+    }
+    AssignmentOptions o = optionsFromJson(binding.value("options").toObject());
+    o.modelSeriesName = seriesName;
+    const PreparedAssignment prepared = prepareAssignment(*dataset, o);
+    if (!prepared.ok()) {
+        if (error) *error = prepared.error.isEmpty() ? QObject::tr("The dataset gave no observations.") : prepared.error;
+        return false;
+    }
+    observationCopyFrom(prepared, *dataset, out);
+    return true;
+}
+
+namespace
+{
+QString choiceLabel(const TimeSeriesDataset &dataset, const SeriesInfo &series)
+{
+    const QString name = series.title.isEmpty() ? series.sourceSeriesId : series.title;
+    return series.unit.isEmpty()
+        ? QStringLiteral("%1 — %2").arg(dataset.title, name)
+        : QStringLiteral("%1 — %2 (%3)").arg(dataset.title, name, series.unit);
+}
+
+/** @brief Pick a series among the loaded observation datasets, or Browse… for a GeoPackage.
+ * @return False when cancelled or nothing was chosen; a failed Browse is reported in place. */
+bool chooseObservationSeries(QWidget *parent, const QObject *model, const QJsonObject &current,
+                             std::shared_ptr<const TimeSeriesDataset> *dataset, QString *seriesId)
+{
+    QVector<ObservationSeriesChoice> choices = loadedObservationSeries(model);
+    QDialog dlg(parent);
+    dlg.setObjectName(QStringLiteral("observationSeriesChooser"));
+    dlg.setWindowTitle(QObject::tr("Choose Observation Series"));
+    dlg.resize(520, 360);
+    auto *layout = new QVBoxLayout(&dlg);
+    auto *hint = new QLabel(&dlg);
+    hint->setWordWrap(true);
+    layout->addWidget(hint);
+    auto *list = new QListWidget(&dlg);
+    list->setObjectName(QStringLiteral("observationSeriesList"));
+    layout->addWidget(list, 1);
+    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, &dlg);
+    auto *browse = buttons->addButton(QObject::tr("Browse…"), QDialogButtonBox::ActionRole);
+    browse->setObjectName(QStringLiteral("observationBrowse"));
+    browse->setToolTip(QObject::tr("Add the series of a native observation GeoPackage that is not on the map"));
+    auto *next = buttons->addButton(QObject::tr("Next…"), QDialogButtonBox::AcceptRole);
+    next->setObjectName(QStringLiteral("observationNext"));
+    layout->addWidget(buttons);
+    QObject::connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
+    QObject::connect(next, &QPushButton::clicked, &dlg, &QDialog::accept);
+    QObject::connect(list, &QListWidget::itemDoubleClicked, &dlg, &QDialog::accept);
+
+    const auto refreshHint = [&] {
+        hint->setText(choices.isEmpty()
+            ? QObject::tr("No observation datasets are loaded on the map. Use Browse… to pick a native observation GeoPackage.")
+            : QObject::tr("Series of the observation datasets on the map. Browse… adds one from a file."));
+        next->setEnabled(list->currentRow() >= 0);
+    };
+    const auto add = [&](const ObservationSeriesChoice &choice) {
+        choices.push_back(choice);
+        list->addItem(choice.label);
+    };
+    const auto items = choices;
+    choices.clear();
+    int selected = items.isEmpty() ? -1 : 0;
+    for (const auto &choice : items) {
+        if (choice.dataset->path == current.value("sourcePath").toString() &&
+            choice.seriesId == current.value("seriesId").toString())
+            selected = int(choices.size());
+        add(choice);
+    }
+    list->setCurrentRow(selected);
+    QObject::connect(list, &QListWidget::currentRowChanged, &dlg, [&] { refreshHint(); });
+    QObject::connect(browse, &QPushButton::clicked, &dlg, [&] {
+        const QString start = current.isEmpty()
+            ? QString() : QFileInfo(current.value("sourcePath").toString()).absolutePath();
+        const QString path = FileOpenDialog::getOpenFileName(
+            QStringLiteral("observations"), &dlg, QObject::tr("Choose observation dataset"), start,
+            QObject::tr("Observation GeoPackage (*.gpkg);;All files (*)"));
+        if (path.isEmpty()) return;
+        QString why;
+        const auto opened = TimeSeriesStore::open(path, &why);
+        if (!opened || opened->series.isEmpty()) {
+            QMessageBox::warning(&dlg, QObject::tr("Choose Observation Series"),
+                opened ? QObject::tr("%1 holds no observation series.").arg(path) : why);
+            return;
+        }
+        int first = -1;
+        for (const auto &series : opened->series) {
+            bool known = false;
+            for (const auto &choice : std::as_const(choices))
+                known = known || (choice.dataset->path == opened->path && choice.seriesId == series.id);
+            if (known) continue;
+            if (first < 0) first = int(choices.size());
+            add({opened, series.id, choiceLabel(*opened, series)});
+        }
+        if (first >= 0) list->setCurrentRow(first);
+        refreshHint();
+    });
+    refreshHint();
+    if (dlg.exec() != QDialog::Accepted || list->currentRow() < 0) return false;
+    const auto &chosen = choices[list->currentRow()];
+    *dataset = chosen.dataset;
+    *seriesId = chosen.seriesId;
+    return true;
+}
+} // namespace
+
+QVector<ObservationSeriesChoice> loadedObservationSeries(const QObject *model)
+{
+    QVector<ObservationSeriesChoice> out;
+    if (!model) return out;
+    for (QWidget *widget : QApplication::allWidgets()) {
+        auto *project = qobject_cast<SWMMVisProjectWindow *>(widget);
+        if (!project || project->modelLayer() != model || !project->canvas()) continue;
+        for (auto *layer : project->canvas()->layers()) {
+            auto *observations = qobject_cast<TimeSeriesLayer *>(layer);
+            const auto dataset = observations ? observations->dataset() : nullptr;
+            if (!dataset) continue;
+            for (const auto &series : dataset->series)
+                out.push_back({dataset, series.id, choiceLabel(*dataset, series)});
+        }
+        break;
+    }
+    return out;
+}
+
+void installTimeseriesObservationSource()
+{
+    TimeseriesEditorDialog::setObservationSource(
+        [](QWidget *parent, const QObject *model, const QString &name, const QJsonObject &current,
+           ObservationCopy *out, QString *) {
+            std::shared_ptr<const TimeSeriesDataset> dataset;
+            QString seriesId;
+            if (!chooseObservationSeries(parent, model, current, &dataset, &seriesId)) return false;
+            PreparedAssignment prepared;
+            if (!TimeSeriesAssignmentDialog::prepareForEditor(dataset, seriesId, name, parent, &prepared))
+                return false;
+            observationCopyFrom(prepared, *dataset, out);
+            return true;
+        },
+        [](QWidget *, const QObject *, const QString &name, const QJsonObject &current,
+           ObservationCopy *out, QString *error) { return refreshObservationCopy(current, name, out, error); });
 }
 }

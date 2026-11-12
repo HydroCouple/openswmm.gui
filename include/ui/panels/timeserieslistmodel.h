@@ -35,6 +35,8 @@
 #include <QPointer>
 #include <QVector>
 
+#include <functional>
+
 namespace openswmmvis::timeseries
 {
 class TimeseriesProvider;
@@ -76,6 +78,15 @@ public:
      *   provider lifetimes.
      */
     openswmmvis::timeseries::TimeseriesRegistry *registry() const noexcept;
+
+    /*! \brief Route in-place renames through the owner (e.g. as an undoable
+     *  step). Without one, setData renames through the registry directly.
+     * @param[in] handler Returns false when the rename was refused. */
+    void setRenameHandler(
+        std::function<bool(openswmmvis::timeseries::TimeseriesProvider *, const QString &)> handler)
+    {
+        m_rename = std::move(handler);
+    }
 
     /*! \brief The provider at a given row, or nullptr.
      * @param[in] row Zero-based cached row.
@@ -148,6 +159,7 @@ private slots:
 
 private:
     QPointer<openswmmvis::timeseries::TimeseriesRegistry> m_registry;
+    std::function<bool(openswmmvis::timeseries::TimeseriesProvider *, const QString &)> m_rename;
     /*! \brief Cached row order. Mirrors registry->providers() so the model
      *  can answer rowCount/data without re-querying the registry on each
      *  call and so beginInsertRows/beginRemoveRows can use stable indices. */

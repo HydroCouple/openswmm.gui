@@ -29,6 +29,7 @@
 #include "curve/curveregistry.h"
 #include "dialog_a11y_checks.h"
 #include "ui/dialogs/curveeditordialog.h"
+#include "ui/editors/dataobjectdraftsession.h"
 #include "ui/panels/curvepointtablemodel.h"
 #include "ui/widgets/curveeditchartview.h"
 
@@ -38,7 +39,12 @@
 
 #include <QChartView>
 #include <QComboBox>
-#include <QDialogButtonBox>
+#include <QAction>
+#include <QClipboard>
+#include <QFont>
+#include <QGuiApplication>
+#include <QLocale>
+#include <QPointer>
 #include <QLineEdit>
 #include <QListView>
 #include <QObject>
@@ -510,16 +516,23 @@ private slots:
         CurveEditorDialog dlg(&reg, &stack);
         QCOMPARE(dlg.currentProvider(), p);
 
+        // Rows change the editor's draft; the curve changes at Apply.
+        auto *draft = dlg.editedCurve();
+        QVERIFY(draft && draft != p);
         const int n0 = p->pointCount();
         dlg.invokeAddRow();
-        QCOMPARE(p->pointCount(), n0 + 1);
+        QCOMPARE(draft->pointCount(), n0 + 1);
         dlg.invokeAddRow();
-        QCOMPARE(p->pointCount(), n0 + 2);
+        QCOMPARE(draft->pointCount(), n0 + 2);
 
         // Select the last row + delete.
-        dlg.pointTable()->selectRow(p->pointCount() - 1);
+        dlg.pointTable()->selectRow(draft->pointCount() - 1);
         dlg.invokeDeleteRows();
+        QCOMPARE(draft->pointCount(), n0 + 1);
+        QCOMPARE(p->pointCount(), n0);
+        QVERIFY(dlg.draftSession()->apply());
         QCOMPARE(p->pointCount(), n0 + 1);
+        QCOMPARE(stack.count(), 1); // one Apply, one step
     }
 
     // The editor used to be dismissable only from the title bar. The Close
@@ -542,9 +555,8 @@ private slots:
         dlg.show();
         QVERIFY(QTest::qWaitForWindowExposed(&dlg));
 
-        auto *box = dlg.findChild<QDialogButtonBox *>(QStringLiteral("curve_closeBox"));
-        QVERIFY(box);
-        auto *btn = box->button(QDialogButtonBox::Close);
+        // The Close button sits in the Apply / Revert footer.
+        auto *btn = dlg.findChild<QPushButton *>(QStringLiteral("curve_closeBtn"));
         QVERIFY(btn);
         QVERIFY(!btn->isDefault());
         QVERIFY(!btn->autoDefault());
@@ -698,6 +710,170 @@ private slots:
         const auto axes = dlg.chartView()->chart()->axes(Qt::Horizontal);
         QVERIFY(!axes.isEmpty());
         QCOMPARE(axes.first()->titleText(), QStringLiteral("Head (m)"));
+    }
+
+    // Apply / Revert plan, Phase 5: the editor edits a draft; Apply writes the
+    // curve (type and points) to the engine as one project undo step that still
+    // undoes after the editor is gone. The list marks the curve meanwhile.
+    void draftReachesTheEngineAtApplyAsOneUndoStep()
+    {
+        SWMM_Engine eng = swmm_engine_new();
+        QVERIFY(eng);
+        auto cleanup = qScopeGuard([eng] { swmm_engine_destroy(eng); });
+        CurveRegistry reg;
+        QCOMPARE(reg.loadFromEngine(eng), 0);
+        auto *p = reg.create(QStringLiteral("RC1"), CurveType::Rating);
+        QVERIFY(p && p->setAllPoints({{0.0, 0.0}, {1.0, 2.0}, {2.0, 5.0}}));
+        const int idx = swmm_table_index(eng, "RC1");
+        const auto engineY1 = [eng, idx] {
+            double x = 0, y = -1;
+            swmm_table_get_point(eng, idx, 1, &x, &y);
+            return y;
+        };
+        const auto engineType = [eng, idx] {
+            int t = -1;
+            swmm_table_get_type(eng, idx, &t);
+            return t;
+        };
+        QCOMPARE(engineY1(), 2.0);
+
+        QUndoStack stack;
+        QPointer<CurveEditorDialog> dlg = new CurveEditorDialog(&reg, &stack);
+        QVERIFY(dlg->tableModel()->setData(dlg->tableModel()->index(1, 1), 3.5));
+        dlg->editedCurve()->setType(CurveType::Diversion);
+        QVERIFY(dlg->draftSession()->hasDraft());
+        QCOMPARE(engineY1(), 2.0); // nothing reached the model yet
+        QCOMPARE(engineType(), int(CurveType::Rating));
+        QCOMPARE(stack.count(), 0);
+        const QModelIndex row = dlg->listView()->model()->index(0, 0);
+        QVERIFY(row.data(Qt::FontRole).value<QFont>().italic());
+
+        QVERIFY(dlg->draftSession()->apply());
+        QCOMPARE(engineY1(), 3.5);
+        QCOMPARE(engineType(), int(CurveType::Diversion));
+        QCOMPARE(stack.count(), 1);
+        QVERIFY(!row.data(Qt::FontRole).value<QFont>().italic());
+
+        delete dlg; // the step must not need the editor
+        stack.undo();
+        QCOMPARE(engineY1(), 2.0);
+        QCOMPARE(engineType(), int(CurveType::Rating));
+        QCOMPARE(p->pointAt(1).y, 2.0);
+        stack.redo();
+        QCOMPARE(engineY1(), 3.5);
+    }
+
+    // Plan D5 / D8: deleting a curve in the editor is one undoable step; Undo
+    // brings it back with its type and points, in the engine.
+    void deleteUndoBringsBackTypeAndPoints()
+    {
+        SWMM_Engine eng = swmm_engine_new();
+        QVERIFY(eng);
+        auto cleanup = qScopeGuard([eng] { swmm_engine_destroy(eng); });
+        CurveRegistry reg;
+        QCOMPARE(reg.loadFromEngine(eng), 0);
+        auto *p = reg.create(QStringLiteral("PC2"), CurveType::Pump2);
+        QVERIFY(p && p->setAllPoints({{1.0, 10.0}, {2.0, 8.0}}));
+        QUndoStack stack;
+        {
+            CurveEditorDialog dlg(&reg, &stack);
+            QCOMPARE(dlg.currentProvider(), p);
+            dlg.deleteCurrentSilently();
+        }
+        QCOMPARE(swmm_table_index(eng, "PC2"), -1);
+        QCOMPARE(stack.count(), 1);
+        stack.undo();
+        const int idx = swmm_table_index(eng, "PC2");
+        QVERIFY(idx >= 0);
+        int t = -1, n = 0;
+        swmm_table_get_type(eng, idx, &t);
+        swmm_table_get_point_count(eng, idx, &n);
+        QCOMPARE(t, int(CurveType::Pump2));
+        QCOMPARE(n, 2);
+        auto *back = reg.findByName(QStringLiteral("PC2"));
+        QVERIFY(back && back->type() == CurveType::Pump2 && back->pointAt(1).y == 8.0);
+        stack.redo();
+        QCOMPARE(swmm_table_index(eng, "PC2"), -1);
+    }
+
+    // Review E-18: "1,5<tab>2,5" from a comma-decimal spreadsheet is the point
+    // (1.5, 2.5), not (1, 5); a header row is skipped.
+    void pasteReadsCommaDecimals()
+    {
+        const QLocale before;
+        QLocale::setDefault(QLocale(QLocale::German, QLocale::Germany));
+        auto restore = qScopeGuard([before] { QLocale::setDefault(before); });
+        CurveRegistry reg;
+        QVERIFY(reg.create(QStringLiteral("CV"), CurveType::Storage));
+        QUndoStack stack;
+        CurveEditorDialog dlg(&reg, &stack);
+        QGuiApplication::clipboard()->setText(
+            QStringLiteral("Depth\tArea\n1,5\t2,5\n3\t4\n"));
+        QAction *paste = nullptr;
+        for (QAction *a : dlg.actions())
+            if (a->text() == QStringLiteral("Paste"))
+                paste = a;
+        QVERIFY(paste);
+        paste->trigger();
+        auto *draft = dlg.editedCurve();
+        QCOMPARE(draft->pointCount(), 2);
+        QCOMPARE(draft->pointAt(0).x, 1.5);
+        QCOMPARE(draft->pointAt(0).y, 2.5);
+        QCOMPARE(draft->pointAt(1).x, 3.0);
+    }
+
+    /** Table cell, row, paste and type edits are steps of the editor's undo:
+     *  each undoes and redoes on the draft, and undoing all of them leaves no
+     *  draft. None of it reaches the model. */
+    void tableEditsUndoInTheEditor()
+    {
+        CurveRegistry reg;
+        auto *p = reg.create(QStringLiteral("RC1"), CurveType::Rating);
+        QVERIFY(p && p->setAllPoints({{0.0, 0.0}, {1.0, 2.0}, {2.0, 5.0}}));
+        const CurveProvider::Params applied = p->params();
+        QUndoStack stack;
+        CurveEditorDialog dlg(&reg, &stack);
+        QUndoStack *undo = dlg.draftUndoStack();
+        CurveProvider *draft = dlg.editedCurve();
+        QVERIFY(undo && draft && draft != p);
+        QAction *paste = nullptr;
+        for (QAction *a : dlg.actions())
+            if (a->text() == QStringLiteral("Paste"))
+                paste = a;
+        auto *type = dlg.findChild<QComboBox *>(QStringLiteral("curve_typeCombo"));
+        QVERIFY(paste && type);
+
+        QVERIFY(dlg.tableModel()->setData(dlg.tableModel()->index(1, 1), 3.5)); // a cell
+        QCOMPARE(undo->count(), 1);
+        dlg.pointTable()->selectRow(2);
+        dlg.invokeAddRow();
+        QCOMPARE(draft->pointCount(), 4);
+        QCOMPARE(undo->count(), 2);
+        dlg.pointTable()->selectRow(0);
+        dlg.invokeDeleteRows();
+        QCOMPARE(draft->pointCount(), 3);
+        QCOMPARE(undo->count(), 3);
+        dlg.pointTable()->clearSelection();
+        QGuiApplication::clipboard()->setText(QStringLiteral("10\t1\n11\t2\n"));
+        paste->trigger(); // appended: two rows, one step
+        QCOMPARE(draft->pointCount(), 5);
+        QCOMPARE(undo->count(), 4);
+        type->setCurrentIndex(type->findData(int(CurveType::Diversion)));
+        QCOMPARE(draft->type(), CurveType::Diversion);
+        QCOMPARE(undo->count(), 5);
+        const CurveProvider::Params edited = draft->params();
+        QVERIFY(dlg.draftSession()->hasDraft());
+
+        for (int i = 0; i < 5; ++i)
+            undo->undo();
+        QVERIFY(draft->params() == applied);
+        QCOMPARE(type->currentData().toInt(), int(CurveType::Rating)); // the box follows
+        QVERIFY(!dlg.draftSession()->hasDraft());
+        for (int i = 0; i < 5; ++i)
+            undo->redo();
+        QVERIFY(draft->params() == edited);
+        QVERIFY(p->params() == applied);
+        QCOMPARE(stack.count(), 0);
     }
 };
 

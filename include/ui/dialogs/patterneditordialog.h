@@ -44,8 +44,12 @@
 #ifndef OPENSWMMVIS_UI_DIALOGS_PATTERNEDITORDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_PATTERNEDITORDIALOG_H
 
+#include "pattern/patternprovider.h" // Params held per draft
+
 #include <QDialog>
+#include <QMetaObject>
 #include <QPointer>
+#include <QVector>
 
 class QComboBox;
 class QDoubleSpinBox;
@@ -81,6 +85,7 @@ namespace openswmmvis::ui
 class InteractiveChartView;
 class PatternEditChartView;
 class PatternFactorTableModel;
+class DataObjectDraftSession;
 class ChartAxisFormatController;
 
 class PatternEditorDialog : public QDialog
@@ -186,6 +191,16 @@ public:
      * @return Borrowed model whose rows follow the current binding; caller must not delete it.
      */
     PatternFactorTableModel *tableModel() const noexcept { return m_tableModel; }
+
+    /*! The draft session behind the Apply / Revert footer. */
+    DataObjectDraftSession *draftSession() const noexcept { return m_session; }
+    /*! The copy of the current pattern that the table, chart and Normalize edit (its draft). */
+    openswmmvis::pattern::PatternProvider *editedPattern() const noexcept { return m_edited.data(); }
+    /*! Step-by-step undo of draft edits (chart drags), behind the editor's Undo / Redo. */
+    QUndoStack *draftUndoStack() const noexcept { return m_draftUndo; }
+
+    /*! Closing with unapplied changes asks Apply / Discard / Cancel first. */
+    void done(int result) override;
     /**
      * @brief Expose the preview line, rebuilt from factors when data or style changes.
      * @return Borrowed chart-owned series, with slot-centre points or paired step endpoints.
@@ -515,6 +530,33 @@ private:
      * negative values rather than deriving a negative minimum. Existing ranges are replaced.
      */
     void refreshChart_();
+
+    // ── Drafts (Apply / Revert) ─────────────────────────────────────────────
+    /*! One pattern opened here: the model's provider, the copy the editor
+     *  edits, and the model values the copy was last taken from. */
+    struct Draft {
+        QPointer<openswmmvis::pattern::PatternProvider> live;
+        openswmmvis::pattern::PatternProvider *copy = nullptr;
+        openswmmvis::pattern::PatternProvider::Params base;
+    };
+    /// The draft copy of \p live, made on first use; null for null.
+    openswmmvis::pattern::PatternProvider *copyFor_(openswmmvis::pattern::PatternProvider *live);
+    /// The model's pattern changed: follow it when unedited, else report the conflict.
+    void onLiveChanged_(openswmmvis::pattern::PatternProvider *live);
+    /// The model's pattern is going away: drop its draft.
+    void dropDraft_(openswmmvis::pattern::PatternProvider *live);
+    int dirtyCount_() const;
+    bool applyDrafts_(QString *reason);
+    void revertDrafts_();
+    /// Italic list rows for patterns holding unapplied changes.
+    void refreshDraftMarks_();
+
+    QVector<Draft> m_drafts;
+    QPointer<openswmmvis::pattern::PatternProvider> m_edited; ///< Draft copy of m_current.
+    DataObjectDraftSession *m_session = nullptr;
+    QUndoStack *m_draftUndo = nullptr; ///< Step-by-step undo of draft edits (Undo/Redo buttons).
+    QList<QMetaObject::Connection> m_bindConnections; ///< View wiring to the bound copy.
+    bool m_applying = false;
     /**
      * @brief Set sum, arithmetic mean and count for the current provider, or clear the label if
      * unbound.

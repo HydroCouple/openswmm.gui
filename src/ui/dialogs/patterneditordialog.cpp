@@ -16,12 +16,16 @@
 #include "core/preferencesmanager.h"
 #include "pattern/patternprovider.h"
 #include "pattern/patternregistry.h"
+#include "pattern/patternundocommands.h"
 #include "ui/panels/patternfactortablemodel.h"
 #include "ui/widgets/chartaxisformatcontroller.h"
 #include "ui/widgets/interactivechartview.h"
 #include "ui/widgets/patterneditchartview.h"
 #include "ui/util/tableclipboard.h"
+#include "ui/editors/dataobjectdraftsession.h"
+#include "ui/editors/dataobjectstructureedit.h"
 
+#include <QAction>
 #include <QApplication>
 #include <QButtonGroup>
 #include <QCategoryAxis>
@@ -29,7 +33,6 @@
 #include <QClipboard>
 #include <QCloseEvent>
 #include <QComboBox>
-#include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -66,6 +69,8 @@
 
 #include <algorithm>
 
+#include <openswmm/engine/openswmm_tables.h>
+
 namespace openswmmvis::ui
 {
 
@@ -96,6 +101,18 @@ QString typeLabel(PatternType t)
     return {};
 }
 
+/*! Put \p target into \p live (the registry mirrors it to the engine), read
+ *  the engine back and say whether the model kept it. Used by Apply, its undo
+ *  / redo, and to restore a deleted pattern when Undo brings it back. */
+bool writePattern(PatternRegistry *registry, PatternProvider *live,
+                  const PatternProvider::Params &target)
+{
+    if (!live->setParams(target))
+        return false;
+    if (void *engine = registry->engineHandle())
+        registry->loadFromEngine(engine, live->name()); // what the model holds now
+    return live->params().sameAs(target, 1e-9);
+}
 } // namespace
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -123,12 +140,8 @@ PatternEditorDialog::PatternEditorDialog(PatternRegistry *registry, QUndoStack *
         connect(m_registry, &PatternRegistry::providerRenamed, this,
                 &PatternEditorDialog::onProviderRenamed_);
     }
-    // Same seam as CurveEditorDialog: flush the registry when the editor
-    // closes so nothing authored here stays out of the engine.
-    connect(this, &QDialog::finished, this, [this] {
-        if (m_registry)
-            m_registry->saveToEngine();
-    });
+    // Edits reach the model at Apply (the registry mirrors each applied change
+    // to the engine), so closing writes nothing.
 
     rebuildListModel_();
     // Pre-select the first pattern if any exist (use the proxy index so the
@@ -148,10 +161,8 @@ PatternEditorDialog::PatternEditorDialog(PatternRegistry *registry, QUndoStack *
     if (m_splitter)
         m_splitter->setObjectName(QStringLiteral("main"));
     restoreDialogSettings_();
-    setAccessibleDescription(
-        undoStack
-            ? tr("Changes are applied immediately. Closing this editor does not undo changes. Use Undo to reverse an edit.")
-            : tr("Changes are applied immediately. Closing this editor does not undo changes."));
+    setAccessibleDescription(tr("Changes are held until you choose Apply. Apply writes them to "
+                                "the model as one step you can undo."));
     if (m_table)
         m_table->setAccessibleName(tr("Pattern values"));
     if (m_listView)
@@ -248,6 +259,19 @@ PatternProvider *PatternEditorDialog::currentProvider() const noexcept
 void PatternEditorDialog::buildUi_()
 {
     auto *outer = new QVBoxLayout(this);
+
+    // Edits go to a draft copy of each pattern; the model changes at Apply.
+    m_draftUndo = new QUndoStack(this);
+    m_session = new DataObjectDraftSession({{}, // every edit goes to the draft at once
+                                            [this] { return dirtyCount_(); },
+                                            [this](QString *why) { return applyDrafts_(why); },
+                                            [this] { revertDrafts_(); }},
+                                           this);
+    if (m_registry) // the registry belongs to the model layer
+        m_session->setModel(m_registry->parent()); // Save / Run / Close ask about drafts
+    connect(m_draftUndo, &QUndoStack::indexChanged, m_session, &DataObjectDraftSession::noteEdited);
+    connect(m_session, &DataObjectDraftSession::changed, this,
+            &PatternEditorDialog::refreshDraftMarks_);
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(0);
 
@@ -337,6 +361,7 @@ void PatternEditorDialog::buildUi_()
 
         m_table = new QTableView(centerHost);
         m_tableModel = new PatternFactorTableModel(this);
+        m_tableModel->setUndoStack(m_draftUndo); // cell edits undo in the editor
         m_table->setModel(m_tableModel);
         m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
         m_table->horizontalHeader()->setSectionsClickable(false);
@@ -344,11 +369,28 @@ void PatternEditorDialog::buildUi_()
         m_table->verticalHeader()->setDefaultSectionSize(22);
         m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
         m_table->setAlternatingRowColors(true);
-        openswmmvis::ui::TableClipboard::install(m_table);
+        TableClipboard::Options clipboard;
+        clipboard.undoStack = m_draftUndo; // one paste, one undo step
+        openswmmvis::ui::TableClipboard::install(m_table, clipboard);
         centerLay->addWidget(m_table, /*stretch=*/1);
 
         // Normalize row.
         auto *normRow = new QHBoxLayout();
+        // Draft edits undo here, step by step; Apply is one step on the
+        // project's undo stack.
+        for (const bool undo : {true, false}) {
+            QAction *action = undo ? m_draftUndo->createUndoAction(this, tr("Undo"))
+                                   : m_draftUndo->createRedoAction(this, tr("Redo"));
+            action->setIcon(openswmmvis::ui::IconFactory::icon(undo ? QStringLiteral("Undo")
+                                                                    : QStringLiteral("Redo")));
+            action->setShortcut(undo ? QKeySequence::Undo : QKeySequence::Redo);
+            action->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+            addAction(action);
+            auto *button = new QToolButton(centerHost);
+            button->setDefaultAction(action);
+            button->setToolButtonStyle(Qt::ToolButtonIconOnly);
+            normRow->addWidget(button);
+        }
         normRow->addWidget(new QLabel(tr("Normalize to sum ="), centerHost));
         m_normalizeTargetSpin = new QDoubleSpinBox(centerHost);
         m_normalizeTargetSpin->setDecimals(4);
@@ -414,7 +456,7 @@ void PatternEditorDialog::buildUi_()
         m_chartView = new PatternEditChartView(m_chart, m_lineSeries, rightHost);
         m_chartView->setRenderHint(QPainter::Antialiasing, true);
         m_chartView->setMinimumHeight(200);
-        m_chartView->setUndoStack(m_undoStack);
+        m_chartView->setUndoStack(m_draftUndo); // drags undo in the editor, on the draft
 
         // Plot toolbar — same affordance set as the Unit Hydrograph editor's
         // preview pane (zoom in/out, pan, extent, copy, export, style).
@@ -585,19 +627,17 @@ void PatternEditorDialog::buildUi_()
     m_splitter->setStretchFactor(1, 2);
     m_splitter->setStretchFactor(2, 3);
 
-    // ── Close row ───────────────────────────────────────────────────────────
-    // Wired to close() rather than accept()/reject(): on Qt >= 6.3 done()
-    // bypasses closeEvent(), which is where saveDialogSettings_() runs. Not
-    // the default button — Enter in a factor cell must never dismiss the editor.
-    auto *closeBox = new QDialogButtonBox(QDialogButtonBox::Close, this);
-    closeBox->setObjectName(QStringLiteral("pattern_closeBox"));
-    closeBox->setContentsMargins(8, 6, 8, 6); // outer runs at 0 margins
-    auto *closeBtn = closeBox->button(QDialogButtonBox::Close);
-    closeBtn->setObjectName(QStringLiteral("pattern_closeBtn"));
-    closeBtn->setAutoDefault(false);
-    closeBtn->setDefault(false);
-    connect(closeBox, &QDialogButtonBox::rejected, this, &QDialog::close);
-    outer->addWidget(closeBox);
+    // ── Apply / Revert / Close ──────────────────────────────────────────────
+    // Close is wired to close() rather than accept()/reject(): on Qt >= 6.3
+    // done() bypasses closeEvent(), which is where saveDialogSettings_() runs.
+    // Not the default button — Enter in a factor cell must never dismiss the
+    // editor.
+    auto *footer = new DataObjectDraftFooter(m_session, this);
+    footer->setObjectName(QStringLiteral("pattern_draftFooter"));
+    footer->setContentsMargins(8, 6, 8, 6); // outer runs at 0 margins
+    footer->closeButton()->setObjectName(QStringLiteral("pattern_closeBtn"));
+    connect(footer, &DataObjectDraftFooter::closeRequested, this, &QDialog::close);
+    outer->addWidget(footer);
 
     // ── Status bar ──────────────────────────────────────────────────────────
     m_status = new QStatusBar(this);
@@ -743,17 +783,20 @@ void PatternEditorDialog::bindProvider_(PatternProvider *p)
         updateStatusBar_();
         return;
     }
-    if (m_current)
-        m_current->disconnect(this);
+    for (const auto &c : std::as_const(m_bindConnections))
+        disconnect(c);
+    m_bindConnections.clear();
     m_current = QPointer<PatternProvider>(p);
+    m_edited = copyFor_(p); // the table, chart and Normalize edit the draft
+    PatternProvider *e = m_edited.data();
 
     if (m_tableModel)
-        m_tableModel->setProvider(p);
+        m_tableModel->setProvider(e);
     if (m_chartView)
-        m_chartView->setProvider(p);
+        m_chartView->setProvider(e);
 
     if (m_typeLabel) {
-        m_typeLabel->setText(p ? typeLabel(p->type()) : tr("(no pattern selected)"));
+        m_typeLabel->setText(e ? typeLabel(e->type()) : tr("(no pattern selected)"));
     }
     if (m_normalizeBtn)
         m_normalizeBtn->setEnabled(p != nullptr);
@@ -766,15 +809,15 @@ void PatternEditorDialog::bindProvider_(PatternProvider *p)
     if (m_deleteBtn)
         m_deleteBtn->setEnabled(p != nullptr);
 
-    if (m_current) {
-        connect(m_current, &PatternProvider::factorChanged, this,
-                &PatternEditorDialog::onProviderFactorChanged_);
-        connect(m_current, &PatternProvider::factorsChanged, this,
-                &PatternEditorDialog::onProviderFactorsChanged_);
-        connect(m_current, &PatternProvider::typeChanged, this,
-                &PatternEditorDialog::onProviderTypeChanged_);
-        connect(m_current, &PatternProvider::mutationRejected, this,
-                &PatternEditorDialog::onMutationRejected_);
+    if (e) {
+        m_bindConnections << connect(e, &PatternProvider::factorChanged, this,
+                                     &PatternEditorDialog::onProviderFactorChanged_)
+                          << connect(e, &PatternProvider::factorsChanged, this,
+                                     &PatternEditorDialog::onProviderFactorsChanged_)
+                          << connect(e, &PatternProvider::typeChanged, this,
+                                     &PatternEditorDialog::onProviderTypeChanged_)
+                          << connect(e, &PatternProvider::mutationRejected, this,
+                                     &PatternEditorDialog::onMutationRejected_);
     }
 
     refreshChart_();
@@ -797,19 +840,19 @@ void PatternEditorDialog::refreshChart_()
     for (const QString &lbl : prevLabels)
         m_xAxis->remove(lbl);
 
-    if (!m_current || m_current->factorCount() == 0) {
+    if (!m_edited || m_edited->factorCount() == 0) {
         m_xAxis->setRange(0.0, 1.0);
         m_yAxis->setRange(0.0, 1.0);
         return;
     }
 
-    const int n = m_current->factorCount();
+    const int n = m_edited->factorCount();
     double maxV = 0.0;
 
     if (m_smoothPreview) {
         // Smooth mode: one point per slot at the slot centre.
         for (int i = 0; i < n; ++i) {
-            const double v = m_current->factor(i);
+            const double v = m_edited->factor(i);
             m_lineSeries->append(i + 0.5, v);
             maxV = std::max(maxV, v);
         }
@@ -817,7 +860,7 @@ void PatternEditorDialog::refreshChart_()
         // Step-line mode: emit (i, f_i) and (i+1, f_i) so each slot draws as
         // a unit-wide horizontal segment. 2·N points total.
         for (int i = 0; i < n; ++i) {
-            const double v = m_current->factor(i);
+            const double v = m_edited->factor(i);
             m_lineSeries->append(double(i), v);
             m_lineSeries->append(double(i + 1), v);
             maxV = std::max(maxV, v);
@@ -826,13 +869,13 @@ void PatternEditorDialog::refreshChart_()
 
     if (m_markersOn) {
         for (int i = 0; i < n; ++i)
-            m_scatterSeries->append(i + 0.5, m_current->factor(i));
+            m_scatterSeries->append(i + 0.5, m_edited->factor(i));
     }
     m_scatterSeries->setVisible(m_markersOn);
 
     // Categorical x labels — Jan, Sun, 00:00 etc. — anchored at slot centres.
     for (int i = 0; i < n; ++i) {
-        m_xAxis->append(PatternProvider::rowLabel(m_current->type(), i), i + 0.5);
+        m_xAxis->append(PatternProvider::rowLabel(m_edited->type(), i), i + 0.5);
     }
     m_xAxis->setRange(0.0, double(n));
     m_yAxis->setRange(0.0, std::max(1.0, maxV * 1.1));
@@ -842,15 +885,15 @@ void PatternEditorDialog::updateStatusBar_()
 {
     if (!m_sumLabel)
         return;
-    if (!m_current) {
+    if (!m_edited) {
         m_sumLabel->setText({});
         return;
     }
     m_sumLabel->setText(
         tr("Sum: %1   ·   Mean: %2   ·   Count: %3")
-            .arg(m_current->sumOfFactors(), 0, 'f', 4)
-            .arg(m_current->sumOfFactors() / std::max(1, m_current->factorCount()), 0, 'f', 4)
-            .arg(m_current->factorCount()));
+            .arg(m_edited->sumOfFactors(), 0, 'f', 4)
+            .arg(m_edited->sumOfFactors() / std::max(1, m_edited->factorCount()), 0, 'f', 4)
+            .arg(m_edited->factorCount()));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -859,14 +902,19 @@ void PatternEditorDialog::updateStatusBar_()
 
 void PatternEditorDialog::onNormalizeClicked_()
 {
-    if (!m_current)
+    if (!m_edited)
         return;
     const double target = m_normalizeTargetSpin ? m_normalizeTargetSpin->value() : 1.0;
     QString reason;
-    if (!m_current->normalize(target, &reason)) {
+    const PatternProvider::Params before = m_edited->params();
+    if (!m_edited->normalize(target, &reason)) {
         if (m_status)
             m_status->showMessage(reason, 4000);
+        return;
     }
+    if (!(m_edited->params() == before))
+        m_draftUndo->push(new openswmmvis::pattern::SetPatternParamsCommand(
+            m_edited, before, m_edited->params(), tr("Normalize")));
 }
 
 void PatternEditorDialog::invokeNormalize()
@@ -902,6 +950,7 @@ void PatternEditorDialog::onProviderRemoved_(PatternProvider *p)
     if (m_current == p) {
         bindProvider_(nullptr);
     }
+    dropDraft_(p);
 }
 
 void PatternEditorDialog::onProviderRenamed_(PatternProvider *p, const QString &,
@@ -940,8 +989,8 @@ void PatternEditorDialog::onProviderFactorsChanged_()
 
 void PatternEditorDialog::onProviderTypeChanged_()
 {
-    if (m_typeLabel && m_current)
-        m_typeLabel->setText(typeLabel(m_current->type()));
+    if (m_typeLabel && m_edited)
+        m_typeLabel->setText(typeLabel(m_edited->type()));
     refreshChart_();
     updateStatusBar_();
 }
@@ -1012,7 +1061,9 @@ void PatternEditorDialog::onListItemRenamed_(QStandardItem *item)
         m_suppressListItemRename = false;
         return;
     }
-    if (!m_registry->rename(p, newName)) {
+    if (!DataObjectDraftSession::commit({renameObjectEdit(m_registry.data(), p->name(), newName)},
+                                        m_undoStack,
+                                        tr("Rename pattern %1 to %2").arg(p->name(), newName))) {
         m_suppressListItemRename = true;
         item->setText(p->name());
         m_suppressListItemRename = false;
@@ -1025,7 +1076,9 @@ bool PatternEditorDialog::renameCurrent(const QString &newName)
 {
     if (!m_current || !m_registry)
         return false;
-    return m_registry->rename(m_current, newName.trimmed());
+    const QString from = m_current->name(), to = newName.trimmed();
+    return DataObjectDraftSession::commit({renameObjectEdit(m_registry.data(), from, to)},
+                                          m_undoStack, tr("Rename pattern %1 to %2").arg(from, to));
 }
 
 void PatternEditorDialog::onDeleteClicked_()
@@ -1033,13 +1086,19 @@ void PatternEditorDialog::onDeleteClicked_()
     if (!m_current || !m_registry)
         return;
     const QString name = m_current->name();
-    const auto reply =
-        QMessageBox::question(this, tr("Delete Pattern"),
-                              tr("Delete pattern “%1”?\n\nAny model object referencing this "
-                                 "pattern (DWF inflows, infiltration adjustments, etc.) will "
-                                 "lose its reference.")
-                                  .arg(name),
-                              QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    // Plan D8 — say what the engine detaches, and that Undo will not re-attach it.
+    QString text = tr("Delete pattern “%1”?").arg(name);
+    if (void *engine = m_registry->engineHandle()) {
+        const QString uses = dataObjectUses(
+            engine, swmm_pattern_analyze_impact,
+            swmm_pattern_index(static_cast<SWMM_Engine>(engine), name.toUtf8().constData()));
+        if (!uses.isEmpty())
+            text += QLatin1String("\n\n") + uses + QLatin1Char(' ') +
+                    tr("Those uses lose this pattern; Undo brings back the pattern and its "
+                       "factors, but not those uses.");
+    }
+    const auto reply = QMessageBox::question(this, tr("Delete Pattern"), text,
+                                             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
     if (reply != QMessageBox::Yes)
         return;
     deleteCurrentSilently();
@@ -1049,7 +1108,18 @@ void PatternEditorDialog::deleteCurrentSilently()
 {
     if (!m_current || !m_registry)
         return;
-    m_registry->remove(m_current); // providerAboutToBeRemoved → onProviderRemoved_ → list refresh.
+    const QString name = m_current->name();
+    // providerAboutToBeRemoved → onProviderRemoved_ → list refresh.
+    DataObjectDraftSession::commit(
+        {deleteObjectEditWith(
+            m_registry.data(), name,
+            [type = m_current->type()](PatternRegistry *r, const QString &n) {
+                return r->create(n, type);
+            },
+            [registry = m_registry, kept = m_current->params()](PatternProvider *p) {
+                return registry && writePattern(registry.data(), p, kept);
+            })},
+        m_undoStack, tr("Delete pattern %1").arg(name));
 }
 
 void PatternEditorDialog::onListContextMenu_(const QPoint &pos)
@@ -1112,7 +1182,19 @@ PatternProvider *PatternEditorDialog::duplicateCurrent(const QString &newName)
 {
     if (!m_current || !m_registry)
         return nullptr;
-    PatternProvider *clone = m_registry->duplicate(m_current->name(), newName);
+    // The model's pattern (not this editor's draft of it), as one undoable step.
+    const auto type = m_current->type();
+    const PatternProvider::Params kept = m_current->params();
+    if (!DataObjectDraftSession::commit(
+            {createObjectEditWith(
+                m_registry.data(), newName,
+                [type](PatternRegistry *r, const QString &n) { return r->create(n, type); },
+                [registry = m_registry, kept](PatternProvider *p) {
+                    return registry && writePattern(registry.data(), p, kept);
+                })},
+            m_undoStack, tr("Duplicate pattern as %1").arg(newName)))
+        return nullptr;
+    PatternProvider *clone = m_registry->findByName(newName);
     if (clone)
         selectProviderInList_(clone);
     return clone;
@@ -1286,7 +1368,14 @@ void PatternEditorDialog::onCreateNewSubmit_()
     const auto type =
         static_cast<PatternType>(m_typeCombo ? m_typeCombo->currentData().toInt() : 0);
 
-    PatternProvider *p = m_registry->create(name, type);
+    if (!DataObjectDraftSession::commit(
+            {createObjectEditWith(
+                m_registry.data(), name,
+                [type](PatternRegistry *r, const QString &n) { return r->create(n, type); },
+                [](PatternProvider *) { return true; })},
+            m_undoStack, tr("Create pattern %1").arg(name)))
+        return;
+    PatternProvider *p = m_registry->findByName(name);
     if (!p)
         return;
 
@@ -1330,6 +1419,164 @@ void PatternEditorDialog::restoreDialogSettings_()
 
     // Re-render with the restored toggles.
     refreshChart_();
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Drafts — the editor edits a copy; Apply writes it to the model
+// ─────────────────────────────────────────────────────────────────────────────
+
+void PatternEditorDialog::done(int result)
+{
+    if (m_contextValid && m_registry && !m_session->resolveBeforeClose())
+        return;
+    QDialog::done(result);
+}
+
+PatternProvider *PatternEditorDialog::copyFor_(PatternProvider *live)
+{
+    if (!live)
+        return nullptr;
+    for (const auto &d : std::as_const(m_drafts))
+        if (d.live == live)
+            return d.copy;
+    Draft d;
+    d.live = live;
+    d.base = live->params();
+    d.copy = new PatternProvider(live->name(), live->type(), this);
+    d.copy->setParams(d.base);
+    m_drafts.push_back(d);
+
+    PatternProvider *copy = d.copy;
+    const auto edited = [this] { m_session->noteEdited(); }; // table, Normalize, paste
+    connect(copy, &PatternProvider::factorChanged, this, edited);
+    connect(copy, &PatternProvider::factorsChanged, this, edited);
+    connect(live, &PatternProvider::factorChanged, this, [this, live] { onLiveChanged_(live); });
+    connect(live, &PatternProvider::factorsChanged, this, [this, live] { onLiveChanged_(live); });
+    // Renames take effect at once (registry); the copy follows.
+    connect(live, &PatternProvider::nameChanged, copy,
+            [copy](const QString &, const QString &now) { copy->setName(now); });
+    return copy;
+}
+
+void PatternEditorDialog::onLiveChanged_(PatternProvider *live)
+{
+    if (m_applying)
+        return;
+    for (auto &d : m_drafts) {
+        if (d.live != live)
+            continue;
+        if (!(d.copy->params() == d.base)) {
+            m_session->noteExternalChange(); // keep the user's draft; Apply asks
+            return;
+        }
+        d.base = live->params();
+        if (!(d.copy->params() == d.base)) {
+            d.copy->setParams(d.base); // unedited: follow the model
+            m_draftUndo->clear();      // its steps were recorded against the old values
+        }
+        return;
+    }
+}
+
+void PatternEditorDialog::dropDraft_(PatternProvider *live)
+{
+    for (int i = 0; i < m_drafts.size(); ++i) {
+        if (m_drafts.at(i).live != live)
+            continue;
+        PatternProvider *copy = m_drafts.at(i).copy;
+        m_drafts.remove(i);
+        live->disconnect(this);
+        if (m_edited.data() == copy)
+            bindProvider_(nullptr);
+        m_draftUndo->clear(); // steps may refer to the dropped copy
+        copy->deleteLater();
+        m_session->noteEdited();
+        return;
+    }
+}
+
+int PatternEditorDialog::dirtyCount_() const
+{
+    int n = 0;
+    for (const auto &d : m_drafts)
+        if (d.live && !(d.copy->params() == d.live->params()))
+            ++n;
+    return n;
+}
+
+bool PatternEditorDialog::applyDrafts_(QString *reason)
+{
+    QVector<DataObjectDraftSession::Edit> edits;
+    QStringList names;
+    void *engine = m_registry ? m_registry->engineHandle() : nullptr;
+    for (const auto &d : std::as_const(m_drafts)) {
+        if (!d.live || d.copy->params() == d.live->params())
+            continue;
+        names << d.live->name();
+        // Replayed by Undo/Redo after this editor may have closed: guarded
+        // pointers, names and values only, never `this`.
+        edits.append({[registry = m_registry, engine, live = d.live, name = d.live->name(),
+                       before = d.live->params(), after = d.copy->params()](bool forward) {
+            if (!registry || registry->engineHandle() != engine)
+                return false;
+            PatternProvider *p = stepTarget(registry.data(), live, name);
+            return p && writePattern(registry.data(), p, forward ? after : before);
+        }});
+    }
+    if (edits.isEmpty())
+        return true;
+    m_applying = true;
+    const bool ok = DataObjectDraftSession::commit(
+        edits, m_undoStack,
+        names.size() == 1 ? tr("Edit pattern %1").arg(names.first())
+                          : tr("Edit %n pattern(s)", nullptr, int(names.size())));
+    m_applying = false;
+    if (!ok) {
+        *reason = tr("the model did not accept %1; nothing was changed")
+                      .arg(names.join(QStringLiteral(", ")));
+        return false;
+    }
+    revertDrafts_(); // the copies now take what the model kept
+    return true;
+}
+
+void PatternEditorDialog::revertDrafts_()
+{
+    for (auto &d : m_drafts) {
+        if (!d.live)
+            continue;
+        d.base = d.live->params();
+        d.copy->setParams(d.base);
+    }
+    m_draftUndo->clear();
+    refreshChart_();
+    updateStatusBar_();
+}
+
+void PatternEditorDialog::refreshDraftMarks_()
+{
+    if (!m_listModel)
+        return;
+    m_suppressListItemRename = true; // font changes emit itemChanged
+    for (int r = 0; r < m_listModel->rowCount(); ++r) {
+        QStandardItem *item = m_listModel->item(r);
+        if (!item)
+            continue;
+        auto *live =
+            reinterpret_cast<PatternProvider *>(item->data(Qt::UserRole + 1).value<quintptr>());
+        bool dirty = false;
+        for (const auto &d : std::as_const(m_drafts))
+            if (d.live == live)
+                dirty = !(d.copy->params() == live->params());
+        if (item->font().italic() == dirty)
+            continue;
+        QFont font = item->font();
+        font.setItalic(dirty);
+        item->setFont(font);
+        item->setData(dirty ? tr("Unapplied changes: Apply writes them to the model") : QVariant(),
+                      Qt::AccessibleDescriptionRole);
+    }
+    m_suppressListItemRename = false;
 }
 
 } // namespace openswmmvis::ui

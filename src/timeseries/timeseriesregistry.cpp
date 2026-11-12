@@ -22,7 +22,9 @@
 #include <openswmm/engine/openswmm_edit.h> // swmm_table_delete
 
 #include <QFileInfo>
+#include <QJsonArray>
 #include <QScopedValueRollback>
+#include <QSignalBlocker>
 #include <QTimer>
 
 #include <string>
@@ -135,6 +137,11 @@ void TimeseriesRegistry::remove(TimeseriesProvider *p)
     m_failedPointImports.remove(p);
     m_pendingEdits.remove(p);
     p->deleteLater();
+}
+
+int TimeseriesRegistry::engineTableIndex(void *engineHandle, const QString &name)
+{
+    return engineHandle ? seriesTableIndex(static_cast<SWMM_Engine>(engineHandle), name) : -1;
 }
 
 bool TimeseriesRegistry::rename(TimeseriesProvider *p, const QString &newName)
@@ -251,6 +258,44 @@ int TimeseriesRegistry::loadFromEngine(void *engineHandle)
     return added;
 }
 
+QJsonArray TimeseriesRegistry::observationBindings() const
+{
+    QJsonArray out;
+    for (const TimeseriesProvider *p : m_providers) {
+        if (p->sourceMode() != TimeseriesProvider::SourceMode::GeopackageObserved ||
+            p->observationBinding().isEmpty())
+            continue;
+        QJsonObject entry = p->observationBinding();
+        entry[QStringLiteral("binding")] = true;
+        entry[QStringLiteral("modelSeries")] = p->name();
+        out.append(entry);
+    }
+    return out;
+}
+
+QStringList TimeseriesRegistry::restoreObservationBindings(const QJsonArray &entries)
+{
+    QStringList missing;
+    for (const QJsonValue &value : entries) {
+        QJsonObject binding = value.toObject();
+        if (!binding.value(QStringLiteral("binding")).toBool())
+            continue;
+        const QString name = binding.value(QStringLiteral("modelSeries")).toString();
+        TimeseriesProvider *p = findByName(name);
+        if (!p) {
+            missing << name;
+            continue;
+        }
+        binding.remove(QStringLiteral("binding"));
+        binding.remove(QStringLiteral("modelSeries"));
+        // Restoring what the project file says is not an edit: no flush, no dirty mark.
+        const QSignalBlocker quiet(p);
+        p->setSourceMode(TimeseriesProvider::SourceMode::GeopackageObserved);
+        p->setObservationBinding(binding);
+    }
+    return missing;
+}
+
 void TimeseriesRegistry::detachEngine()
 {
     m_engineHandle = nullptr;
@@ -261,9 +306,8 @@ bool TimeseriesRegistry::flushPendingEdit(TimeseriesProvider *p)
 {
     if (!m_pendingEdits.contains(p))
         return true;
-    // Observations and an external source still awaiting a path have no INP payload.
-    if (p->sourceMode() == TimeseriesProvider::SourceMode::GeopackageObserved ||
-        (p->sourceMode() == TimeseriesProvider::SourceMode::ExternalFile && p->filePath().isEmpty())) {
+    // An external source still awaiting a path has no INP payload.
+    if (p->sourceMode() == TimeseriesProvider::SourceMode::ExternalFile && p->filePath().isEmpty()) {
         m_pendingEdits.remove(p);
         return true;
     }
@@ -277,6 +321,7 @@ bool TimeseriesRegistry::flushPendingEdit(TimeseriesProvider *p)
 
 bool TimeseriesRegistry::flushPendingEdits(QString *error)
 {
+    emit aboutToFlushEdits();
     QStringList failed;
     const auto pending = m_pendingEdits;
     for (auto *p : pending)
@@ -331,11 +376,12 @@ bool TimeseriesRegistry::writeProvider(void *engineHandle, TimeseriesProvider *p
     }
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
     // B4 — ExternalFile providers with a linked path persist as engine
-    // FILE timeseries ("path:col" token) below. Pathless ExternalFile
-    // and GeopackageObserved providers keep their previous skip.
+    // FILE timeseries ("path:col" token) below; a pathless one is skipped.
+    // An observation copy (GeopackageObserved) is written as ordinary rows:
+    // its binding lives in the .oswp, so the model file stays self-contained.
     const bool fileBacked =
         p->sourceMode() == TimeseriesProvider::SourceMode::ExternalFile && !p->filePath().isEmpty();
-    if (p->sourceMode() != TimeseriesProvider::SourceMode::Inline && !fileBacked)
+    if (p->sourceMode() == TimeseriesProvider::SourceMode::ExternalFile && !fileBacked)
         return false;
 
     const QByteArray idUtf8 = p->name().toUtf8();
@@ -370,7 +416,8 @@ bool TimeseriesRegistry::writeProvider(void *engineHandle, TimeseriesProvider *p
             same = (oCol == wantCol && oPath == wantPath) || (aCol == wantCol && aPath == wantPath);
         }
         token = same ? std::string(origBuf) : openswmmvis::ui::extcol::composePathColumn(wantPath, wantCol);
-    } else if (p->relativeCount() > 0 && p->relativeAnchor().isValid()) {
+    } else if (p->sourceMode() == TimeseriesProvider::SourceMode::Inline &&
+               p->relativeCount() > 0 && p->relativeAnchor().isValid()) {
         relativeCount = p->relativeCount();
         anchor = openswmmvis::core::qDateTimeToSwmmDateTime(p->relativeAnchor());
     }

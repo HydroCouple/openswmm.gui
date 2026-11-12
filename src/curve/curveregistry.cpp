@@ -201,6 +201,34 @@ int CurveRegistry::loadFromEngine(void *engineHandle)
     return added;
 }
 
+int CurveRegistry::loadFromEngine(void *engineHandle, const QString &onlyName)
+{
+    CurveProvider *p = findByName(onlyName);
+    if (!engineHandle || !p)
+        return 0;
+    auto *eng = static_cast<SWMM_Engine>(engineHandle);
+    const int idx = curveTableIndex(eng, onlyName);
+    int typeInt = -1, n = 0;
+    if (idx < 0 || swmm_table_get_type(eng, idx, &typeInt) != SWMM_OK ||
+        swmm_table_get_point_count(eng, idx, &n) != SWMM_OK)
+        return 0;
+    CurveProvider::Params now;
+    now.type = static_cast<CurveType>(typeInt);
+    for (int j = 0; j < n; ++j) {
+        double x = 0.0, y = 0.0;
+        if (swmm_table_get_point(eng, idx, j, &x, &y) == SWMM_OK)
+            now.points.push_back({x, y});
+    }
+    const QSignalBlocker quiet(p); // the engine already holds it: no mirroring back
+    p->setParams(now);
+    return 1;
+}
+
+int CurveRegistry::engineTableIndex(void *engineHandle, const QString &name)
+{
+    return engineHandle ? curveTableIndex(static_cast<SWMM_Engine>(engineHandle), name) : -1;
+}
+
 int CurveRegistry::saveToEngine(void *engineHandle)
 {
     if (!engineHandle)

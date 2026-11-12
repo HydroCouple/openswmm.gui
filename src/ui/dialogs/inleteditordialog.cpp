@@ -8,6 +8,9 @@
  */
 
 #include "ui/dialogs/inleteditordialog.h"
+#include "ui/editors/dataobjectdraftsession.h"
+#include "ui/editors/paramsdraftedit.h"
+#include "ui/models/draftmarkproxymodel.h"
 #include "core/swmmidentifier.h"
 
 #include "curve/curveprovider.h"
@@ -32,7 +35,6 @@
 #include <QClipboard>
 #include <QComboBox>
 #include <QCoreApplication>
-#include <QDialogButtonBox>
 #include <QFileDialog>
 #include <QGraphicsScene>
 #include <QHBoxLayout>
@@ -208,8 +210,9 @@ InletEditorDialog::InletEditorDialog(InletRegistry *registry, SWMMModelLayer *la
     buildUi_();
     buildToolbar_();
 
-    setAccessibleDescription(
-        tr("Changes are applied immediately. Closing this editor does not undo changes."));
+    setAccessibleDescription(tr("Changes are held until you choose Apply, which writes them to "
+                                "the model as one undoable step. Adding, deleting and renaming "
+                                "take effect at once."));
     m_listView->setAccessibleName(tr("Inlet designs"));
     if (m_registry)
         connect(m_registry, &QObject::destroyed, this, &InletEditorDialog::invalidateContext);
@@ -229,13 +232,14 @@ InletEditorDialog::InletEditorDialog(InletRegistry *registry, SWMMModelLayer *la
                 [this](InletProvider *p) {
                     if (m_current.data() == p)
                         bindProvider_(nullptr);
+                    dropDraft_(p);
                 });
     }
     if (m_listModel)
         m_listModel->setRegistry(m_registry);
 
     if (m_registry && m_registry->providerCount() > 0 && m_listView)
-        m_listView->setCurrentIndex(m_listModel->index(0));
+        m_listView->setCurrentIndex(viewIndexOf(m_listView, m_listModel->index(0)));
     else
         bindProvider_(nullptr);
 
@@ -259,6 +263,10 @@ void InletEditorDialog::invalidateContext()
     m_registry = nullptr;
     m_layer = nullptr;
     m_undoStack = nullptr;
+    for (const auto &d : std::as_const(m_drafts)) // the model is going away
+        if (d.live)
+            d.live->disconnect(this);
+    m_drafts.clear();
     bindProvider_(nullptr);
     m_listModel->setRegistry(nullptr);
     setEnabled(false);
@@ -321,13 +329,7 @@ QString InletEditorDialog::pickInlet(InletRegistry *registry, SWMMModelLayer *la
     else
         dlg.bindProvider_(nullptr);
 
-    dlg.exec();
-
-    // Flush the registry to the engine so the caller's setter (which resolves
-    // the design by name through the engine) can find it — mirrors
-    // TransectEditorDialog::pickTransect.
-    if (dlg.m_registry)
-        dlg.m_registry->saveToEngine();
+    dlg.exec(); // closing with a draft asks Apply / Discard first
 
     InletProvider *p = dlg.currentProvider();
     if (!p)
@@ -375,7 +377,17 @@ void InletEditorDialog::buildUi_()
         m_listView->setSelectionMode(QAbstractItemView::SingleSelection);
         m_listView->setUniformItemSizes(true);
         m_listModel = new InletListModel(this);
-        m_listView->setModel(m_listModel);
+        // Rows whose object holds an unapplied draft read in italics.
+        m_draftMarks = new DraftMarkProxyModel(this);
+        m_draftMarks->setSourceModel(m_listModel);
+        m_draftMarks->setHasDraft([this](int row) {
+            InletProvider *live = m_listModel->providerAt(row);
+            for (const auto &d : std::as_const(m_drafts))
+                if (live && d.live == live)
+                    return !(d.copy->params() == live->params());
+            return false;
+        });
+        m_listView->setModel(m_draftMarks);
         lay->addWidget(m_listView, 1);
 
         connect(m_listView->selectionModel(), &QItemSelectionModel::currentChanged, this,
@@ -482,18 +494,26 @@ void InletEditorDialog::buildUi_()
     m_splitter->setStretchFactor(1, 3);
     m_splitter->setStretchFactor(2, 3);
 
-    // Close row. Wired to close() rather than accept()/reject() so every exit
-    // (button, Esc, title bar) takes the same path. Not the default button —
-    // Enter in a field must never dismiss the editor.
-    auto *closeBox = new QDialogButtonBox(QDialogButtonBox::Close, this);
-    closeBox->setObjectName(QStringLiteral("inlet_closeBox"));
-    closeBox->setContentsMargins(8, 6, 8, 6); // outer runs at 0 margins
-    auto *closeBtn = closeBox->button(QDialogButtonBox::Close);
-    closeBtn->setObjectName(QStringLiteral("inlet_closeBtn"));
-    closeBtn->setAutoDefault(false);
-    closeBtn->setDefault(false);
-    connect(closeBox, &QDialogButtonBox::rejected, this, &QDialog::close);
-    outer->addWidget(closeBox);
+    // Apply status + Revert / Apply / Close. Close goes through close() so every
+    // exit (button, Esc, title bar) takes the same path; no footer button is a
+    // default — Enter in a field must never dismiss the editor.
+    m_draftUndo = new QUndoStack(this);
+    connect(m_draftUndo, &QUndoStack::indexChanged, this, [this] { m_session->noteEdited(); });
+    m_session = new DataObjectDraftSession({{}, // every edit goes to the draft at once
+                                            [this] { return dirtyCount_(); },
+                                            [this](QString *why) { return applyDrafts_(why); },
+                                            [this] { revertDrafts_(); }},
+                                           this);
+    m_session->setModel(m_layer); // Save / Run / Close ask about unapplied drafts
+    if (m_draftMarks)
+        connect(m_session, &DataObjectDraftSession::changed, m_draftMarks,
+                &DraftMarkProxyModel::refreshMarks);
+    auto *footer = new DataObjectDraftFooter(m_session, this);
+    footer->setObjectName(QStringLiteral("inlet_draftFooter"));
+    footer->setContentsMargins(8, 6, 8, 6); // outer runs at 0 margins
+    footer->closeButton()->setObjectName(QStringLiteral("inlet_closeBtn"));
+    connect(footer, &DataObjectDraftFooter::closeRequested, this, &QDialog::close);
+    outer->addWidget(footer);
 
     m_status = new QStatusBar(this);
     m_hintLabel = new QLabel(m_status);
@@ -523,6 +543,22 @@ void InletEditorDialog::buildToolbar_()
     aOut->setToolTip(tr("Zoom out (Ctrl+-)"));
     aOut->setShortcut(QKeySequence::ZoomOut);
     connect(aOut, &QAction::triggered, m_drawing, &InletDrawingView::zoomOut);
+
+    m_toolBar->addSeparator();
+
+    // Draft edits, step by step (the model changes at Apply).
+    QAction *aUndo = m_draftUndo->createUndoAction(this, tr("Undo"));
+    aUndo->setIcon(IconFactory::icon(QStringLiteral("Undo")));
+    aUndo->setShortcut(QKeySequence::Undo);
+    aUndo->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+    QAction *aRedo = m_draftUndo->createRedoAction(this, tr("Redo"));
+    aRedo->setIcon(IconFactory::icon(QStringLiteral("Redo")));
+    aRedo->setShortcut(QKeySequence::Redo);
+    aRedo->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+    m_toolBar->addAction(aUndo);
+    m_toolBar->addAction(aRedo);
+    addAction(aUndo);
+    addAction(aRedo);
 
     m_toolBar->addSeparator();
 
@@ -586,7 +622,7 @@ void InletEditorDialog::applyRowVisibility_()
     }
 
     if (m_pickCurveBtn) {
-        m_pickCurveBtn->setEnabled(m_current && m_current->type() == InletType::Custom);
+        m_pickCurveBtn->setEnabled(m_edited && m_edited->type() == InletType::Custom);
     }
 }
 
@@ -601,7 +637,7 @@ void InletEditorDialog::selectProviderInList_(InletProvider *p)
     const auto provs = m_registry ? m_registry->providers() : QVector<InletProvider *>{};
     for (int i = 0; i < provs.size(); ++i) {
         if (provs.at(i) == p) {
-            m_listView->setCurrentIndex(m_listModel->index(i));
+            m_listView->setCurrentIndex(viewIndexOf(m_listView, m_listModel->index(i)));
             return;
         }
     }
@@ -620,34 +656,37 @@ void InletEditorDialog::bindProvider_(InletProvider *p)
 {
     if (!m_contextValid)
         p = nullptr;
-    if (m_current.data() != p) {
-        if (m_current)
-            m_current->disconnect(this);
-        m_current = QPointer<InletProvider>(p);
-        if (m_current) {
-            connect(m_current, &InletProvider::paramsChanged, this,
+    m_current = QPointer<InletProvider>(p);
+    // The form edits the draft copy; the model's inlet changes at Apply.
+    InletProvider *edited = copyFor_(p);
+    if (m_edited.data() != edited) {
+        if (m_edited)
+            m_edited->disconnect(this);
+        m_edited = QPointer<InletProvider>(edited);
+        if (m_edited) {
+            connect(m_edited, &InletProvider::paramsChanged, this,
                     &InletEditorDialog::syncFromProvider_);
-            connect(m_current, &InletProvider::commentsChanged, this, [this]() {
-                if (!m_commentsEdit || !m_current)
+            connect(m_edited, &InletProvider::commentsChanged, this, [this]() {
+                if (!m_commentsEdit || !m_edited)
                     return;
-                if (m_commentsEdit->toPlainText() != m_current->comments()) {
+                if (m_commentsEdit->toPlainText() != m_edited->comments()) {
                     const QSignalBlocker b(m_commentsEdit);
-                    m_commentsEdit->setPlainText(m_current->comments());
+                    m_commentsEdit->setPlainText(m_edited->comments());
                 }
             });
         }
     }
 
     if (m_propertyBag)
-        m_propertyBag->bind(p);
+        m_propertyBag->bind(edited);
     if (m_drawing)
-        m_drawing->setProvider(p);
+        m_drawing->setProvider(edited);
 
     m_suppressSync = true;
     if (m_nameEdit)
         m_nameEdit->setText(p ? p->name() : QString());
     if (m_commentsEdit)
-        m_commentsEdit->setPlainText(p ? p->comments() : QString());
+        m_commentsEdit->setPlainText(edited ? edited->comments() : QString());
     m_suppressSync = false;
 
     const bool enabled = (p != nullptr);
@@ -667,8 +706,8 @@ void InletEditorDialog::bindProvider_(InletProvider *p)
 
 void InletEditorDialog::syncFromProvider_()
 {
-    if (m_typeCombo && m_current) {
-        const int idx = m_typeCombo->findData(static_cast<int>(m_current->type()));
+    if (m_typeCombo && m_edited) {
+        const int idx = m_typeCombo->findData(static_cast<int>(m_edited->type()));
         if (idx >= 0 && idx != m_typeCombo->currentIndex()) {
             const QSignalBlocker b(m_typeCombo);
             m_typeCombo->setCurrentIndex(idx);
@@ -691,10 +730,10 @@ void InletEditorDialog::refreshCustomCurve_()
     if (!m_drawing)
         return;
     QVector<QPointF> pts;
-    if (m_current && m_current->type() == InletType::Custom && !m_current->curveId().isEmpty() &&
+    if (m_edited && m_edited->type() == InletType::Custom && !m_edited->curveId().isEmpty() &&
         m_layer) {
         if (auto *reg = qobject_cast<CurveRegistry *>(m_layer->ensureCurveRegistry())) {
-            if (CurveProvider *cp = reg->findByName(m_current->curveId())) {
+            if (CurveProvider *cp = reg->findByName(m_edited->curveId())) {
                 pts.reserve(cp->pointCount());
                 for (const auto &pt : cp->points())
                     pts.push_back(QPointF(pt.x, pt.y));
@@ -708,11 +747,11 @@ void InletEditorDialog::updateStatusBar_()
 {
     if (!m_hintLabel)
         return;
-    if (!m_current) {
+    if (!m_edited) {
         m_hintLabel->setText({});
         return;
     }
-    m_hintLabel->setText(openswmmvis::inlet::inletTypeLabel(m_current->type()));
+    m_hintLabel->setText(openswmmvis::inlet::inletTypeLabel(m_edited->type()));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -721,7 +760,7 @@ void InletEditorDialog::updateStatusBar_()
 
 void InletEditorDialog::commitDesign_(const InletDesignData &before, const InletDesignData &after)
 {
-    if (!m_current)
+    if (!m_edited)
         return;
 
     CurveRegistry *curves =
@@ -731,33 +770,24 @@ void InletEditorDialog::commitDesign_(const InletDesignData &before, const Inlet
     if (!validateDesign(after, curves, &reason)) {
         if (m_status)
             m_status->showMessage(reason, 5000);
-        // Re-sync the bag so the tree shows the design that is actually stored.
+        // Re-sync the bag so the tree shows the design the draft actually holds.
         if (m_propertyBag)
-            m_propertyBag->bind(m_current.data());
+            m_propertyBag->bind(m_edited.data());
         if (m_propertyModel)
             m_propertyModel->refreshValues();
         return;
     }
-
-    if (m_undoStack) {
-        m_undoStack->push(new openswmmvis::inlet::SetInletParamsCommand(m_current, before, after));
-    } else {
-        m_current->setDesign(after);
-    }
+    m_draftUndo->push(new openswmmvis::inlet::SetInletParamsCommand(m_edited, before, after));
 }
 
 void InletEditorDialog::onTypeComboChanged_(int index)
 {
-    if (m_suppressSync || !m_current || !m_typeCombo || index < 0)
+    if (m_suppressSync || !m_edited || !m_typeCombo || index < 0)
         return;
     const auto t = static_cast<InletType>(m_typeCombo->itemData(index).toInt());
-    if (t == m_current->type())
+    if (t == m_edited->type())
         return;
-    if (m_undoStack) {
-        m_undoStack->push(new openswmmvis::inlet::SetInletTypeCommand(m_current, t));
-    } else {
-        m_current->setType(t);
-    }
+    m_draftUndo->push(new openswmmvis::inlet::SetInletTypeCommand(m_edited, t));
 }
 
 void InletEditorDialog::onNameEdited_()
@@ -793,38 +823,35 @@ void InletEditorDialog::onNameEdited_()
     } else {
         m_registry->rename(m_current, newName);
     }
+    m_session->noteApplied(tr("Renamed to %1").arg(newName));
 }
 
 void InletEditorDialog::onCommentsEdited_()
 {
-    if (m_suppressSync || !m_current || !m_commentsEdit)
+    if (m_suppressSync || !m_edited || !m_commentsEdit)
         return;
     const QString text = m_commentsEdit->toPlainText();
-    if (text == m_current->comments())
+    if (text == m_edited->comments())
         return;
-    if (m_undoStack) {
-        m_undoStack->push(new openswmmvis::inlet::SetInletCommentsCommand(m_current, text));
-    } else {
-        m_current->setComments(text);
-    }
+    m_draftUndo->push(new openswmmvis::inlet::SetInletCommentsCommand(m_edited, text));
 }
 
 void InletEditorDialog::onPickCurveClicked_()
 {
-    if (!m_current || !m_layer)
+    if (!m_edited || !m_layer)
         return;
     auto *reg = qobject_cast<CurveRegistry *>(m_layer->ensureCurveRegistry());
     if (!reg)
         return;
 
     const QString chosen =
-        CurveEditorDialog::pickCurve(reg, m_undoStack, m_current->curveId(), this);
-    if (chosen.isEmpty() || !m_contextValid || !m_current || !m_layer)
+        CurveEditorDialog::pickCurve(reg, m_undoStack, m_edited->curveId(), this);
+    if (chosen.isEmpty() || !m_contextValid || !m_edited || !m_layer)
         return;
 
-    InletDesignData after = m_current->design();
+    InletDesignData after = m_edited->design();
     after.curveId = chosen;
-    commitDesign_(m_current->design(), after);
+    commitDesign_(m_edited->design(), after);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -861,6 +888,7 @@ void InletEditorDialog::onAddClicked_()
     InletProvider *p = m_registry->findByName(name);
     if (!p)
         return;
+    m_session->noteApplied(tr("Created %1").arg(name));
     selectProviderInList_(p);
     m_mode = Mode::Edit;
     if (m_nameEdit) {
@@ -877,11 +905,11 @@ void InletEditorDialog::onDeleteClicked_()
     const QString impact = m_registry->impactSummary(m_current);
 
     QString detail = tr("Delete inlet design “%1”?").arg(name);
-    if (!impact.isEmpty())
-        detail +=
-            QStringLiteral("\n\n") + tr("This design is referenced by %1; those references will "
-                                        "be removed.")
-                                         .arg(impact);
+    if (!impact.isEmpty()) // plan D8: and Undo will not put them back
+        detail += QStringLiteral("\n\n") +
+                  tr("This design is referenced by %1; those references will be removed. Undo "
+                     "brings back the design and its settings, but not those references.")
+                      .arg(impact);
 
     const auto reply = QMessageBox::question(this, tr("Delete Inlet"), detail,
                                              QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
@@ -894,11 +922,137 @@ void InletEditorDialog::deleteCurrentSilently()
 {
     if (!m_current || !m_registry)
         return;
+    const QString name = m_current->name();
     if (m_undoStack) {
         m_undoStack->push(new openswmmvis::inlet::DeleteInletCommand(m_registry, m_current));
     } else {
         m_registry->remove(m_current);
     }
+    m_session->noteApplied(tr("Deleted %1").arg(name));
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Drafts — the form edits a copy; Apply writes it to the model
+// ─────────────────────────────────────────────────────────────────────────────
+
+void InletEditorDialog::done(int result)
+{
+    if (m_contextValid && m_registry && !m_session->resolveBeforeClose())
+        return;
+    QDialog::done(result);
+}
+
+InletProvider *InletEditorDialog::copyFor_(InletProvider *live)
+{
+    if (!live)
+        return nullptr;
+    for (const auto &d : std::as_const(m_drafts))
+        if (d.live == live)
+            return d.copy;
+    Draft d;
+    d.live = live;
+    d.base = live->params();
+    d.copy = new InletProvider(live->name(), this);
+    d.copy->setParams(d.base);
+    m_drafts.push_back(d);
+    connect(live, &InletProvider::paramsChanged, this, [this, live] { onLiveChanged_(live); });
+    connect(live, &InletProvider::commentsChanged, this, [this, live] { onLiveChanged_(live); });
+    InletProvider *copy = d.copy;
+    connect(live, &InletProvider::nameChanged, copy,
+            [copy](const QString &, const QString &now) { copy->setName(now); });
+    return copy;
+}
+
+void InletEditorDialog::onLiveChanged_(InletProvider *live)
+{
+    if (m_applying)
+        return;
+    for (auto &d : m_drafts) {
+        if (d.live != live)
+            continue;
+        if (!(d.copy->params() == d.base)) {
+            m_session->noteExternalChange(); // keep the user's draft; Apply asks
+            return;
+        }
+        d.base = live->params();
+        if (!(d.copy->params() == d.base)) {
+            d.copy->setParams(d.base); // unedited: follow the model
+            m_draftUndo->clear();      // its steps were recorded against the old values
+        }
+        m_session->noteEdited();
+        return;
+    }
+}
+
+void InletEditorDialog::dropDraft_(InletProvider *live)
+{
+    for (int i = 0; i < m_drafts.size(); ++i) {
+        if (m_drafts.at(i).live != live)
+            continue;
+        InletProvider *copy = m_drafts.at(i).copy;
+        m_drafts.remove(i);
+        live->disconnect(this);
+        if (m_edited.data() == copy)
+            bindProvider_(nullptr);
+        m_draftUndo->clear(); // steps may refer to the dropped copy
+        copy->deleteLater();
+        m_session->noteEdited();
+        return;
+    }
+}
+
+int InletEditorDialog::dirtyCount_() const
+{
+    int n = 0;
+    for (const auto &d : m_drafts)
+        if (d.live && !(d.copy->params() == d.live->params()))
+            ++n;
+    return n;
+}
+
+bool InletEditorDialog::applyDrafts_(QString *reason)
+{
+    QVector<DataObjectDraftSession::Edit> edits;
+    QStringList names;
+    for (const auto &d : std::as_const(m_drafts)) {
+        if (!d.live || d.copy->params() == d.live->params())
+            continue;
+        names << d.live->name();
+        edits.append(paramsDraftEdit(
+            m_registry.data(), m_layer.data(), d.live.data(), d.live->params(), d.copy->params(),
+            [](const InletProvider::Params &now, const InletProvider::Params &target) {
+                // The engine keeps only the field groups the type uses.
+                return now.sameAs({InletRegistry::storedDesign(target.design), target.comments},
+                                  1e-9);
+            }));
+    }
+    if (edits.isEmpty())
+        return true;
+    m_applying = true;
+    const bool ok = DataObjectDraftSession::commit(
+        edits, m_undoStack, names.size() == 1 ? tr("Edit inlet %1").arg(names.first())
+                                              : tr("Edit %n inlet(s)", nullptr, int(names.size())));
+    m_applying = false;
+    if (!ok) {
+        *reason = tr("the model did not accept the design of %1; nothing was changed")
+                      .arg(names.join(QStringLiteral(", ")));
+        return false;
+    }
+    revertDrafts_(); // the copies now take the values the model kept
+    return true;
+}
+
+void InletEditorDialog::revertDrafts_()
+{
+    for (auto &d : m_drafts) {
+        if (!d.live)
+            continue;
+        d.base = d.live->params();
+        d.copy->setParams(d.base);
+    }
+    m_draftUndo->clear();
+    if (m_propertyModel)
+        m_propertyModel->refreshValues();
 }
 
 void InletEditorDialog::onProviderRenamed_(InletProvider *p, const QString &, const QString &now)
