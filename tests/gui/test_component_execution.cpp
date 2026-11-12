@@ -66,6 +66,15 @@ private slots:
         if(dates)connect(&run,&SimulationRunner::simulationDatesKnown,&run,close);else connect(&run,&SimulationRunner::started,&run,close);
         run.start();QTRY_COMPARE_WITH_TIMEOUT(done.count(),1,5000);QVERIFY(entered);QCOMPARE(done[0][2].toInt(),0);QVERIFY(!QFileInfo::exists(r.directory));QVERIFY(RunPathLease::activePaths().isEmpty());
     }
+    // The launcher reads only the simulation period (swmm_engine_open_simulation_period), so a 2D
+    // model's mesh is never parsed there: even a missing mesh file reaches dates-known, and the
+    // component run itself reports it.
+    void launcherReadsTheSimulationPeriodWithoutTheMesh(){
+        auto r=request("complete");r.program="/usr/bin/true";r.components=work_;
+        write(r.model,minimal+"[2D_OPTIONS]\nMAX_TIMESTEP 1\n[2D_MESH_FILE]\nFILE missing.2dm\n");
+        ComposerSimulationRunner run(1,"period",r);QSignalSpy dates(&run,&SimulationRunner::simulationDatesKnown);QSignalSpy done(&run,&SimulationRunner::finished);
+        run.start();QTRY_COMPARE_WITH_TIMEOUT(done.count(),1,10000);QCOMPARE(dates.count(),1);QVERIFY(RunPathLease::activePaths().isEmpty());
+    }
     void existingRootAndActiveInputAreNeverOverwritten(){
         auto r=request("complete");r.program="/usr/bin/true";r.components=work_;QDir().mkpath(r.directory);write(r.directory+"/sentinel","keep");
         ComposerSimulationRunner run(1,"existing",r);QSignalSpy done(&run,&SimulationRunner::finished);run.start();QTRY_COMPARE_WITH_TIMEOUT(done.count(),1,10000);QVERIFY(!done[0][1].toBool());QCOMPARE(read(r.directory+"/sentinel"),QByteArray("keep"));
