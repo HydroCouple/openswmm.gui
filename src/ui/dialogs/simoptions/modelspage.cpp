@@ -31,6 +31,7 @@
 #include "core/preferencesmanager.h"
 #include "layers/swmmmodellayer.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
+#include "ui/util/tableclipboard.h"
 
 namespace openswmmvis::ui
 {
@@ -202,6 +203,7 @@ void ModelsPage::buildUi()
     auto *matrixLay = new QVBoxLayout(matrixGroup);
     m_transportMatrixTable =
         new QTableWidget(SWMM_TRANSPORT_DOMAIN_COUNT, SWMM_TRANSPORT_CLASS_COUNT, matrixGroup);
+    openswmmvis::ui::TableClipboard::install(m_transportMatrixTable, {.copyOnly = true});
     m_transportMatrixTable->setObjectName(QStringLiteral("transportMatrixTable"));
     {
         QStringList cols, rows;

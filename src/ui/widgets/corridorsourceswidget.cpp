@@ -14,6 +14,7 @@
 #include "map/spatialreferencesystem.h"
 #include "ui/theme/themehelpers.h"
 #include "ui/uiscrollhelpers.h"
+#include "ui/util/tableclipboard.h"
 
 #include <QComboBox>
 #include <QFileInfo>
@@ -159,6 +160,8 @@ CorridorSourcesWidget::CorridorSourcesWidget(QWidget *parent) : QWidget(parent)
     m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::Interactive);
     m_table->setMinimumHeight(140);
+    // Rows come from map selections, so a paste fills existing rows.
+    openswmmvis::ui::TableClipboard::install(m_table);
     layout->addWidget(m_table);
     m_remove = new QPushButton(tr("&Remove selected sources"), this);
     m_remove->setObjectName(QStringLiteral("corridorRemove"));

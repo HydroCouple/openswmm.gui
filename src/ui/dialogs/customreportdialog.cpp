@@ -14,6 +14,7 @@
 
 #include "layers/swmmresultslayer.h"
 #include "ui/theme/iconfactory.h"
+#include "ui/util/tableclipboard.h"
 
 #include <openswmm/engine/openswmm_output.h>
 
@@ -139,6 +140,12 @@ void CustomReportDialog::buildUi()
     m_clauseTable->setHorizontalHeaderLabels({tr("Label"), tr("Kind"), tr("Object filter"),
                                               tr("Variable"), tr("Aggregate"), tr("Threshold")});
     m_clauseTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    openswmmvis::ui::TableClipboardOptions clip;
+    clip.appendRow = [this] {
+        onAddClauseClicked();
+        return true;
+    };
+    openswmmvis::ui::TableClipboard::install(m_clauseTable, clip);
     topLayout->addWidget(m_clauseTable);
 
     auto *btnRow = new QHBoxLayout;
@@ -164,6 +171,7 @@ void CustomReportDialog::buildUi()
 
     m_resultModel = new QStandardItemModel(this);
     m_resultTable = new QTableView(bot);
+    openswmmvis::ui::TableClipboard::install(m_resultTable, {.copyOnly = true});
     m_resultTable->setModel(m_resultModel);
     m_resultTable->setSortingEnabled(true);
     m_resultTable->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
@@ -303,6 +311,7 @@ void CustomReportDialog::evaluate()
     };
 
     std::vector<float> series(periods);
+    QStringList badThresholds;
     const int rows = m_clauseTable->rowCount();
     for (int r = 0; r < rows; ++r) {
         const QString label = m_clauseTable->item(r, 0) ? m_clauseTable->item(r, 0)->text()
@@ -312,8 +321,16 @@ void CustomReportDialog::evaluate()
             m_clauseTable->item(r, 2) ? m_clauseTable->item(r, 2)->text() : QString();
         auto *varCombo = qobject_cast<QComboBox *>(m_clauseTable->cellWidget(r, 3));
         auto *aggCombo = qobject_cast<QComboBox *>(m_clauseTable->cellWidget(r, 4));
-        const double thr =
-            m_clauseTable->item(r, 5) ? m_clauseTable->item(r, 5)->text().toDouble() : 0.0;
+        // A blank threshold is 0; text that is not a number skips the clause
+        // instead of silently running it at 0.
+        const QString thrText =
+            m_clauseTable->item(r, 5) ? m_clauseTable->item(r, 5)->text().trimmed() : QString();
+        bool thrOk = true;
+        const double thr = thrText.isEmpty() ? 0.0 : thrText.toDouble(&thrOk);
+        if (!thrOk) {
+            badThresholds << label;
+            continue;
+        }
         if (!kindCombo || !varCombo || !aggCombo)
             continue;
 
@@ -379,6 +396,10 @@ void CustomReportDialog::evaluate()
             m_resultModel->appendRow(row);
         }
     }
+    if (!badThresholds.isEmpty())
+        QMessageBox::warning(this, tr("Custom report"),
+                             tr("The threshold is not a number for: %1. Those clauses were skipped.")
+                                 .arg(badThresholds.join(QStringLiteral(", "))));
 }
 
 void CustomReportDialog::onExportClicked()

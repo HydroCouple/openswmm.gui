@@ -22,6 +22,7 @@
 #include "pattern/patternregistry.h"
 #include "timeseries/timeseriesregistry.h"
 #include "ui/uiscrollhelpers.h"
+#include "ui/util/tableclipboard.h"
 
 #include <QComboBox>
 #include <QPointer>
@@ -327,6 +328,7 @@ void NodeCompoundEditDialog::buildInflowsPage()
     vlay->addWidget(m_inflowsSummary);
 
     m_inflowsTable = new QTableWidget(0, 7, page);
+    openswmmvis::ui::TableClipboard::install(m_inflowsTable, {.copyOnly = true});
     m_inflowsTable->setAccessibleName(tr("External inflows"));
     m_inflowsTable->setHorizontalHeaderLabels({tr("Constituent"), tr("Type"), tr("Time Series"),
                                                tr("Baseline"), tr("M-Factor"), tr("S-Factor"),
@@ -509,6 +511,7 @@ void NodeCompoundEditDialog::buildDwfPage()
     vlay->addWidget(m_dwfSummary);
 
     m_dwfTable = new QTableWidget(0, 6, page);
+    openswmmvis::ui::TableClipboard::install(m_dwfTable, {.copyOnly = true});
     m_dwfTable->setAccessibleName(tr("Dry weather inflows"));
     m_dwfTable->setHorizontalHeaderLabels({tr("Constituent"), tr("Average"), tr("Monthly"),
                                            tr("Daily"), tr("Hourly"), tr("Weekend")});
@@ -653,6 +656,7 @@ void NodeCompoundEditDialog::buildRdiiPage()
     vlay->addWidget(m_rdiiSummary);
 
     m_rdiiTable = new QTableWidget(0, 2, page);
+    openswmmvis::ui::TableClipboard::install(m_rdiiTable, {.copyOnly = true});
     m_rdiiTable->setAccessibleName(tr("RDII inflows"));
     m_rdiiTable->setHorizontalHeaderLabels({tr("UH Group"), tr("Sewer Area")});
     m_rdiiTable->horizontalHeader()->setStretchLastSection(false);
@@ -786,6 +790,7 @@ void NodeCompoundEditDialog::buildTreatmentPage()
     m_treatmentTable->horizontalHeader()->setStretchLastSection(false);
     m_treatmentTable->verticalHeader()->setVisible(false);
     m_treatmentTable->setSelectionBehavior(QAbstractItemView::SelectRows);
+    openswmmvis::ui::TableClipboard::install(m_treatmentTable);
     vlay->addWidget(m_treatmentTable, 1);
 
     // Iteration 4 — expression cells edit through the highlighting /

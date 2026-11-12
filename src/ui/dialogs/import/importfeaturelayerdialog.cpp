@@ -20,6 +20,7 @@
 #include "ui/dialogs/import/importmappingmodel.h"
 #include "ui/dialogs/import/importplanning.h"
 #include "ui/dialogs/import/importpreviewmodel.h"
+#include "ui/util/tableclipboard.h"
 
 #include <ogr_core.h>
 #include <ogrsf_frmts.h>
@@ -158,6 +159,7 @@ void ImportFeatureLayerDialog::buildUi()
     m_mappingView->verticalHeader()->setVisible(false);
     m_mappingView->setSelectionMode(QAbstractItemView::SingleSelection);
     m_mappingView->setEditTriggers(QAbstractItemView::AllEditTriggers);
+    openswmmvis::ui::TableClipboard::install(m_mappingView);
     mapLay->addWidget(m_mappingView, 1);
 
     m_validation = new QLabel(this);
@@ -221,6 +223,7 @@ void ImportFeatureLayerDialog::buildUi()
     auto *pv = new QVBoxLayout(previewWidget);
     pv->setContentsMargins(0, 0, 0, 0);
     m_previewView = new QTableView(this);
+    openswmmvis::ui::TableClipboard::install(m_previewView, {.copyOnly = true});
     m_previewView->setModel(m_previewModel);
     m_previewView->horizontalHeader()->setSectionResizeMode(ImportPreviewModel::DetailCol,
                                                             QHeaderView::Interactive);

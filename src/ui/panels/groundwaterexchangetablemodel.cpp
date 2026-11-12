@@ -3,6 +3,7 @@
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
 #include "ui/widgets/gwfexpressionedit.h"
+#include "ui/util/tableclipboard.h"
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_model.h>
@@ -654,6 +655,9 @@ void buildGroundwaterExchangeEditor(QWidget *host, SubcatchCompoundEditRef ref)
     table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     table->horizontalHeader()->setStretchLastSection(true);
     layout->addWidget(table, 1);
+    openswmmvis::ui::TableClipboardOptions clip;
+    clip.undoStack = ref.undoStack; // one paste, one Undo step
+    openswmmvis::ui::TableClipboard::install(table, clip);
     auto *status = new QLabel(host);
     status->setTextFormat(Qt::PlainText);
     status->setObjectName("groundwaterExchangeFeedback");

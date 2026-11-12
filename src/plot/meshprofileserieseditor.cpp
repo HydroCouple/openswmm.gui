@@ -8,6 +8,7 @@
  */
 
 #include "plot/meshprofileserieseditor.h"
+#include "ui/util/tableclipboard.h"
 #include <QCheckBox>
 #include <QColorDialog>
 #include <QComboBox>
@@ -64,6 +65,9 @@ MeshProfileSeriesEditor::MeshProfileSeriesEditor(QWidget *parent) : QWidget(pare
     m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
+    // Series are added from the source / quantity pickers, so a paste fills
+    // existing rows.
+    openswmmvis::ui::TableClipboard::install(m_table);
     layout->addWidget(m_table);
     m_error = new QLabel(this);
     m_error->setObjectName("sectionSeriesError");

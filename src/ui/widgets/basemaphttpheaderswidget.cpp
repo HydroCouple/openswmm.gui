@@ -11,6 +11,7 @@
  */
 
 #include "ui/widgets/basemaphttpheaderswidget.h"
+#include "ui/util/tableclipboard.h"
 
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -49,6 +50,15 @@ BasemapHttpHeadersWidget::BasemapHttpHeadersWidget(QWidget *parent) : QWidget(pa
     m_table->verticalHeader()->setVisible(false);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setMinimumHeight(80);
+    openswmmvis::ui::TableClipboardOptions clip;
+    clip.appendRow = [this] { // onAddRow without opening an editor
+        const int row = m_table->rowCount();
+        m_table->insertRow(row);
+        m_table->setItem(row, 0, new QTableWidgetItem(QString()));
+        m_table->setItem(row, 1, new QTableWidgetItem(QString()));
+        return true;
+    };
+    openswmmvis::ui::TableClipboard::install(m_table, clip);
     gLayout->addWidget(m_table);
 
     auto *btnRow = new QHBoxLayout;

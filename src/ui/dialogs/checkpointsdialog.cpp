@@ -12,6 +12,7 @@
 #include "ui/dialogs/checkpointsdialog.h"
 #include "core/displaynumber.h"
 #include "simulation/checkpointmodel.h"
+#include "ui/util/tableclipboard.h"
 #include <openswmm/engine/openswmm_checkpoint.h>
 #include <QStandardItemModel>
 #include <QTableView>
@@ -78,6 +79,7 @@ CheckpointsDialog::CheckpointsDialog(CheckpointModel *model, QWidget *parent)
     connect(m_profile, &QComboBox::currentIndexChanged, this, profileChanged);
     connect(m_history, &QComboBox::currentIndexChanged, this, profileChanged);
     m_list = new QTableView;
+    openswmmvis::ui::TableClipboard::install(m_list, {.copyOnly = true});
     m_list->setObjectName("checkpointList");
     m_list->setModel(model);
     m_list->setSelectionBehavior(QAbstractItemView::SelectRows);

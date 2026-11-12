@@ -10,6 +10,7 @@
 
 #include "ui/dialogs/wateragesourcesdialog.h"
 #include "ui/precisenumericvalue.h"
+#include "ui/util/tableclipboard.h"
 
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_water_age.h>
@@ -119,6 +120,7 @@ void WaterAgeSourcesDialog::buildUi()
     m_globalTable->verticalHeader()->setVisible(false);
     m_globalTable->horizontalHeader()->setStretchLastSection(false);
     m_globalTable->setSelectionMode(QAbstractItemView::NoSelection);
+    openswmmvis::ui::TableClipboard::install(m_globalTable);
     for (int r = 0; r < kSourceCount; ++r) {
         auto *nameItem =
             new QTableWidgetItem(QCoreApplication::translate("WaterAge", kSources[r].label));
@@ -145,6 +147,12 @@ void WaterAgeSourcesDialog::buildUi()
     m_overrideTable->setHorizontalHeaderLabels({tr("Source"), tr("Node"), tr("Age (hours)")});
     m_overrideTable->verticalHeader()->setVisible(false);
     m_overrideTable->horizontalHeader()->setStretchLastSection(false);
+    openswmmvis::ui::TableClipboardOptions clip;
+    clip.appendRow = [this] {
+        onAddOverride();
+        return true;
+    };
+    openswmmvis::ui::TableClipboard::install(m_overrideTable, clip);
     vlay->addWidget(m_overrideTable);
 
     auto *btnRow = new QHBoxLayout;

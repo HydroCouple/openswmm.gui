@@ -15,6 +15,7 @@
 #include "ui/uiscrollhelpers.h"
 #include "ui/hydrothermalconfiguration.h"
 #include "ui/heatproperties.h"
+#include "ui/util/tableclipboard.h"
 #include <QDataStream>
 #include <cmath>
 #include <limits>
@@ -345,6 +346,7 @@ void HeatConfigDialog::buildUi()
         m_sourceTable->verticalHeader()->setVisible(false);
         m_sourceTable->horizontalHeader()->setStretchLastSection(false);
         m_sourceTable->setSelectionMode(QAbstractItemView::NoSelection);
+        openswmmvis::ui::TableClipboard::install(m_sourceTable);
         for (int r = 0; r < kSourceCount; ++r) {
             auto *nameItem =
                 new QTableWidgetItem(QCoreApplication::translate("HeatCfg", kSources[r].label));
@@ -376,6 +378,12 @@ void HeatConfigDialog::buildUi()
         m_overrideTable->setHorizontalHeaderLabels({tr("Source"), tr("Node"), tr("Temperature")});
         m_overrideTable->verticalHeader()->setVisible(false);
         m_overrideTable->horizontalHeader()->setStretchLastSection(false);
+        openswmmvis::ui::TableClipboardOptions overrideClip;
+        overrideClip.appendRow = [this] {
+            onAddOverride();
+            return true;
+        };
+        openswmmvis::ui::TableClipboard::install(m_overrideTable, overrideClip);
         lay->addWidget(m_overrideTable);
 
         auto *btns = new QHBoxLayout;
@@ -617,6 +625,7 @@ void HeatConfigDialog::buildUi()
     m_channelGroundPreviewStatus->setWordWrap(true);
     bedLayout->addWidget(m_channelGroundPreviewStatus);
     m_channelGroundPreviewTable = new QTableWidget(0, 4, bedPage);
+    openswmmvis::ui::TableClipboard::install(m_channelGroundPreviewTable, {.copyOnly = true});
     m_channelGroundPreviewTable->setObjectName(QStringLiteral("hc_channelGroundPreviewTable"));
     m_channelGroundPreviewTable->setHorizontalHeaderLabels(
         {tr("Link"), tr("Mesh cell sample (1-based)"), tr("Covered / total (m)"), tr("XY result")});
@@ -720,6 +729,12 @@ void HeatConfigDialog::buildUi()
     m_elementTable->setHorizontalHeaderLabels(
         {tr("Property"), tr("Scope"), tr("Object / tag / cell ID"), tr("Value (SI / °C)")});
     m_elementTable->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    openswmmvis::ui::TableClipboardOptions elementClip;
+    elementClip.appendRow = [this] {
+        addElementOverride();
+        return true;
+    };
+    openswmmvis::ui::TableClipboard::install(m_elementTable, elementClip);
     spatialLayout->addWidget(m_elementTable);
     auto *spatialButtons = new QHBoxLayout;
     auto *addElement = new QPushButton(tr("Add override"), spatialPage);
@@ -746,6 +761,7 @@ void HeatConfigDialog::buildUi()
     spatialButtons->addWidget(resolve);
     spatialLayout->addLayout(spatialButtons);
     m_resolvedElements = new QTableWidget(0, 3, spatialPage);
+    openswmmvis::ui::TableClipboard::install(m_resolvedElements, {.copyOnly = true});
     m_resolvedElements->setObjectName("hc_resolvedElements");
     m_resolvedElements->setHorizontalHeaderLabels(
         {tr("Object"), tr("Effective value (SI / °C)"), tr("Value source")});

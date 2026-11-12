@@ -17,6 +17,7 @@
 #include "map/spatialreferencesystem.h"
 #include "selection/selectionmanager.h"
 #include "mesh/meshobjectref.h"
+#include "ui/util/tableclipboard.h"
 #include <openswmm/engine/openswmm_gw2d.h>
 #include <QApplication>
 #include <QCheckBox>
@@ -142,6 +143,7 @@ public:
 QTableWidget *table(const QStringList &headings, const char *name, QWidget *parent)
 {
     auto *t = new QTableWidget(0, headings.size(), parent);
+    openswmmvis::ui::TableClipboard::install(t, {.copyOnly = true});
     t->setObjectName(name);
     t->setHorizontalHeaderLabels(headings);
     t->setEditTriggers(QAbstractItemView::NoEditTriggers);

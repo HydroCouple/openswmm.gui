@@ -9,6 +9,7 @@
  */
 
 #include "ui/dialogs/featurefieldeditor.h"
+#include "ui/util/tableclipboard.h"
 
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -90,6 +91,12 @@ FeatureFieldEditor::FeatureFieldEditor(QWidget *parent) : QDialog(parent)
     m_choices->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_choices->setSelectionMode(QAbstractItemView::SingleSelection);
     m_choices->setMinimumHeight(120);
+    openswmmvis::ui::TableClipboardOptions clip;
+    clip.appendRow = [this] {
+        onAddChoice();
+        return true;
+    };
+    openswmmvis::ui::TableClipboard::install(m_choices, clip);
     choiceLay->addWidget(m_choices);
     auto *btns = new QHBoxLayout();
     auto *add = new QPushButton(tr("Add"), m_choiceBox);

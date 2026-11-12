@@ -17,6 +17,7 @@
 #include "ui/dialogs/mesh2dgwsourcemodel.h"
 #include "ui/dialogs/mesh2dsectionroweditor.h"
 #include "ui/dialogs/mesh2dsectionrowmodel.h"
+#include "ui/util/tableclipboard.h"
 
 #include <openswmm/engine/openswmm_gw2d.h>
 #include <openswmm/engine/openswmm_heat.h>
@@ -766,6 +767,9 @@ QWidget *Mesh2DGroundwaterDialog::buildAquiferPage()
                                             new ComboDelegate(soilModelTokens(), this, true));
     m_aquiferView->setItemDelegateForColumn(Mesh2DAquiferModel::ColClosure,
                                             new ComboDelegate(closureTokens(), this, true));
+    openswmmvis::ui::TableClipboardOptions aquiferClip;
+    aquiferClip.appendRow = [this] { return m_aquifer->appendRow() >= 0; };
+    openswmmvis::ui::TableClipboard::install(m_aquiferView, aquiferClip);
     v->addWidget(m_aquiferView, 1);
 
     auto *row = new QHBoxLayout;
@@ -812,6 +816,9 @@ QWidget *Mesh2DGroundwaterDialog::buildNodeBedPage()
     m_nodeView->horizontalHeader()->setStretchLastSection(false);
     m_nodeView->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     m_nodeView->horizontalHeader()->moveSection(Mesh2DAquiferNodeModel::ColExchange, 2);
+    openswmmvis::ui::TableClipboardOptions bedClip;
+    bedClip.appendRow = [this] { return m_nodes->appendRow(tr("<node>"), 0) >= 0; };
+    openswmmvis::ui::TableClipboard::install(m_nodeView, bedClip);
     v->addWidget(m_nodeView, 1);
 
     auto *row = new QHBoxLayout;
@@ -915,6 +922,7 @@ QWidget *Mesh2DGroundwaterDialog::buildStatePage()
     sv->addWidget(m_ledgerStatus);
     m_ledger = new results::GwLedgerModel(this);
     m_ledgerView = new QTableView(saved);
+    openswmmvis::ui::TableClipboard::install(m_ledgerView, {.copyOnly = true});
     m_ledgerView->setModel(m_ledger);
     m_ledgerView->setAccessibleName(tr("Saved groundwater water and species ledgers"));
     m_ledgerView->setSelectionBehavior(QAbstractItemView::SelectRows);
@@ -1157,6 +1165,9 @@ QWidget *Mesh2DGroundwaterDialog::buildBoundaryPage()
     view->setSelectionBehavior(QAbstractItemView::SelectRows);
     view->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     view->horizontalHeader()->setStretchLastSection(true);
+    // Rows are added by kind (hydraulic edge / species row), so a paste
+    // only fills existing rows.
+    openswmmvis::ui::TableClipboard::install(view);
     layout->addWidget(view);
     auto *buttons = new QHBoxLayout;
     auto *water = new QPushButton(tr("Add hydraulic edge"), m_boundaryPage);
@@ -1228,6 +1239,9 @@ QWidget *Mesh2DGroundwaterDialog::buildSourcesPage()
     m_sourceView = new QTableView(m_sourcePage);
     m_sourceView->setObjectName(QStringLiteral("gwSourcesTable"));
     table(m_sourceView, m_sources, tr("Groundwater sources"));
+    openswmmvis::ui::TableClipboardOptions sourceClip;
+    sourceClip.appendRow = [this] { return m_sources->appendSource() >= 0; };
+    openswmmvis::ui::TableClipboard::install(m_sourceView, sourceClip);
     layout->addWidget(m_sourceView, 1);
 
     auto *row = new QHBoxLayout;
@@ -1245,6 +1259,9 @@ QWidget *Mesh2DGroundwaterDialog::buildSourcesPage()
     m_termView = new QTableView(termsBox);
     m_termView->setObjectName(QStringLiteral("gwSourceTermsTable"));
     table(m_termView, m_sourceTerms, tr("Species terms of the selected groundwater source"));
+    openswmmvis::ui::TableClipboardOptions termClip;
+    termClip.appendRow = [this] { return m_sourceTerms->appendTerm() >= 0; };
+    openswmmvis::ui::TableClipboard::install(m_termView, termClip);
     termsLayout->addWidget(m_termView);
     auto *termRow = new QHBoxLayout;
     auto *addTerm = button(tr("Add term"), "gwSourceTermAdd", termsBox);

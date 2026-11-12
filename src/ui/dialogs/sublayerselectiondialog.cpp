@@ -13,6 +13,7 @@
 #include "ui/dialogs/sublayerselectiondialog.h"
 #include "ui/theme/iconfactory.h"
 #include "ui/util/numerictablewidgetitem.h"
+#include "ui/util/tableclipboard.h"
 
 #include <QAbstractItemView>
 #include <QDialogButtonBox>
@@ -62,6 +63,7 @@ void SublayerSelectionDialog::buildUi(const QString &sourcePath)
 
     // ── Table ────────────────────────────────────────────────────────────────
     m_table = new QTableWidget(m_sublayers.size(), 4, this);
+    openswmmvis::ui::TableClipboard::install(m_table, {.copyOnly = true});
     m_table->setHorizontalHeaderLabels({tr("Layer"), tr("Geometry"), tr("Features"), tr("CRS")});
     m_table->verticalHeader()->setVisible(false);
     m_table->setSelectionMode(QAbstractItemView::NoSelection);

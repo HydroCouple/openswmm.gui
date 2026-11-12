@@ -10,6 +10,7 @@
 #include "ui/dialogs/userflagvaluesdialog.h"
 
 #include "ui/models/userflagsmodel.h"
+#include "ui/util/tableclipboard.h"
 
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -65,6 +66,7 @@ UserFlagValuesDialog::UserFlagValuesDialog(UserFlagsEditRef ref, QWidget *parent
     m_table->horizontalHeader()->setSectionResizeMode(ColValue, QHeaderView::Interactive);
     m_table->verticalHeader()->setVisible(false);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    openswmmvis::ui::TableClipboard::install(m_table);
 
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     connect(buttons, &QDialogButtonBox::accepted, this, &UserFlagValuesDialog::onAccepted);

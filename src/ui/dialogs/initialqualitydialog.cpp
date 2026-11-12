@@ -23,6 +23,7 @@
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include "ui/util/fileopendialog.h"
+#include "ui/util/tableclipboard.h"
 #include <QFileInfo>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -138,6 +139,12 @@ void InitialQualityDialog::buildUi()
         {tr("Scope"), tr("Element"), tr("Constituent"), tr("Value")});
     m_table->verticalHeader()->setVisible(false);
     m_table->horizontalHeader()->setStretchLastSection(false);
+    openswmmvis::ui::TableClipboardOptions clip;
+    clip.appendRow = [this] {
+        onAddRow();
+        return true;
+    };
+    openswmmvis::ui::TableClipboard::install(m_table, clip);
     vlay->addWidget(m_table);
 
     // U2 — the `[INITIAL_QUALITY] FILE <csv>` sidecar. Rows loaded from it

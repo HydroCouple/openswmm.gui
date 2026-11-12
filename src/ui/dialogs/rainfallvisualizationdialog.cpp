@@ -25,6 +25,7 @@
 #include <QComboBox>
 #include <QDialogButtonBox>
 #include "plot/utctimeaxis.h"
+#include "ui/util/tableclipboard.h"
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QIcon>
@@ -273,6 +274,7 @@ void RainfallVisualizationDialog::buildUi_()
     m_mainSplit->addWidget(m_tabs);
 
     m_statsTable = new QTableWidget(m_mainSplit);
+    openswmmvis::ui::TableClipboard::install(m_statsTable, {.copyOnly = true});
     m_statsTable->setObjectName(QStringLiteral("statsTable"));
     m_statsTable->setColumnCount(12);
     m_statsTable->setHorizontalHeaderLabels({tr("Gage"), tr("Source"), tr("Total depth"),

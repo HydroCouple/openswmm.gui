@@ -31,6 +31,7 @@
 #include <QElapsedTimer>
 #include <QFileDialog>
 #include "ui/util/fileopendialog.h"
+#include "ui/util/tableclipboard.h"
 #include <QFontDialog>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -746,6 +747,7 @@ void TraceAnalysisDialog::showDetails(TraceSublayer *part, QWidget *parent)
     note->setWordWrap(true);
     layout->addWidget(note);
     auto *table = new QTableWidget;
+    openswmmvis::ui::TableClipboard::install(table, {.copyOnly = true});
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table->setColumnCount(7);
     table->setHorizontalHeaderLabels({tr("Type"), tr("ID"), tr("Flow fraction"),

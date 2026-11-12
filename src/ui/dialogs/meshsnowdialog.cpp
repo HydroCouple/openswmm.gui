@@ -25,6 +25,7 @@
 #include "map/mapundostack.h"
 #include "mesh/meshobjectref.h"
 #include "selection/selectionmanager.h"
+#include "ui/util/tableclipboard.h"
 #include <openswmm/engine/openswmm_subcatchments.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <QApplication>
@@ -252,6 +253,8 @@ MeshSnowDialog::MeshSnowDialog(SWMMModelLayer *model, SWMM2DMeshLayer *mesh, Map
     table_->setItemDelegateForColumn(2, new PackDelegate(rows_, table_));
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    // Assignments are added from the scope form, so a paste fills existing rows.
+    openswmmvis::ui::TableClipboard::install(table_);
     layout->addWidget(table_, 2);
     auto *remove = new QPushButton(tr("Remove selected assignments"), this);
     layout->addWidget(remove);
@@ -301,6 +304,7 @@ MeshSnowDialog::MeshSnowDialog(SWMMModelLayer *model, SWMM2DMeshLayer *mesh, Map
     if (selection_)
         connect(selection_, &SelectionManager::selectionChanged, this, [this] { preview(); });
     resolved_ = new QTableWidget(0, 5, this);
+    openswmmvis::ui::TableClipboard::install(resolved_, {.copyOnly = true});
     resolved_->setObjectName("meshSnowPreview");
     resolved_->setHorizontalHeaderLabels({tr("Cell"), tr("Effective pack"), tr("Assignment source"),
                                           tr("Terrain"), tr("Snow model")});
@@ -589,6 +593,7 @@ void MeshSnowDialog::fillFromLayer()
     form->addRow(tr("Class lookup:"), lookup);
     layout->addLayout(form);
     auto *table = new QTableWidget(0, 4, &dialog);
+    openswmmvis::ui::TableClipboard::install(table, {.copyOnly = true});
     table->setHorizontalHeaderLabels({tr("Cell"), tr("Before"), tr("After"), tr("Source")});
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
     table->setEditTriggers(QAbstractItemView::NoEditTriggers);

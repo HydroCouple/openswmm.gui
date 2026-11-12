@@ -13,6 +13,7 @@
 #include "layers/swmmmodellayer.h"
 #include "render/categoricalpalette.h"
 #include "ui/util/numerictablewidgetitem.h"
+#include "ui/util/tableclipboard.h"
 
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
@@ -82,6 +83,7 @@ ProfilePathPickerDialog::ProfilePathPickerDialog(SWMMModelLayer *model,
     layout->addWidget(header);
 
     m_table = new QTableWidget(this);
+    openswmmvis::ui::TableClipboard::install(m_table, {.copyOnly = true});
     m_table->setColumnCount(5);
     m_table->setHorizontalHeaderLabels(
         {tr(""), tr("Length"), tr("Conduits"), tr("Other"), tr("Drop")});

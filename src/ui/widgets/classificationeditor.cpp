@@ -16,6 +16,7 @@
 #include "ui/widgets/colorrampcombobox.h"
 #include "ui/precisenumericvalue.h"
 #include "ui/theme/themehelpers.h"
+#include "ui/util/tableclipboard.h"
 
 #include <QCheckBox>
 #include <QColor>
@@ -232,6 +233,7 @@ void ClassificationEditor::buildUi()
     m_table->setAlternatingRowColors(true);
     m_table->setItemDelegateForColumn(2, new ColorCellDelegate(m_table));
     m_table->setMinimumHeight(150);
+    openswmmvis::ui::TableClipboard::install(m_table);
     form->addRow(m_table);
     m_table->setAccessibleName(tr("Classification ranges, colours and labels"));
     m_rangeMinSpin->setAccessibleName(tr("Minimum classification value"));

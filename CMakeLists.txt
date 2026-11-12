@@ -718,6 +718,7 @@ set(
         include/ui/util/externalcolumnfilecore.h
         include/ui/util/fileopendialog.h
         include/ui/util/figurecapture.h
+        include/ui/util/tableclipboard.h
 
         # ── UI panels ────────────────────────────────────────────────────────
         include/ui/panels/attributedelegates.h
@@ -1540,6 +1541,7 @@ set(
         # UI utilities
         src/ui/util/externalcolumnfile.cpp
         src/ui/util/figurecapture.cpp
+        src/ui/util/tableclipboard.cpp
 
         # UI panels
         src/ui/panels/attributedelegates.cpp
