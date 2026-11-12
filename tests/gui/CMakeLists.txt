@@ -1068,6 +1068,8 @@ add_swmmvis_gui_test(test_timeseries_editor_dialog
     ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesundocommands.h
     ${CMAKE_SOURCE_DIR}/include/io/timeseriesparse.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/timeserieseditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/editors/dataobjectdraftsession.h
+    ${CMAKE_SOURCE_DIR}/src/ui/editors/dataobjectdraftsession.cpp
     ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
     # Grid time column edits through DateTimeDelegate (MM/dd/yyyy HH:mm).
     ${CMAKE_SOURCE_DIR}/include/ui/delegates/datetimedelegate.h
@@ -1131,6 +1133,8 @@ add_swmmvis_gui_test(test_objectbrowser_add_new_dispatch
     ${CMAKE_SOURCE_DIR}/include/timeseries/timeseriesundocommands.h
     ${CMAKE_SOURCE_DIR}/include/io/timeseriesparse.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/timeserieseditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/editors/dataobjectdraftsession.h
+    ${CMAKE_SOURCE_DIR}/src/ui/editors/dataobjectdraftsession.cpp
     ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
     # Grid time column edits through DateTimeDelegate (MM/dd/yyyy HH:mm).
     ${CMAKE_SOURCE_DIR}/include/ui/delegates/datetimedelegate.h
@@ -1247,6 +1251,9 @@ add_swmmvis_gui_test(test_aquifer_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/aquifer/aquiferprovider.cpp
     ${CMAKE_SOURCE_DIR}/src/aquifer/aquiferregistry.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/aquifereditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/editors/dataobjectdraftsession.h
+    ${CMAKE_SOURCE_DIR}/src/ui/editors/dataobjectdraftsession.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/editors/paramsdraftedit.h
     ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/models/aquiferlistmodel.cpp
     # qobject_cast<PatternRegistry*> needs the pattern metaobjects.
@@ -1283,6 +1290,9 @@ add_swmmvis_gui_test(test_pattern_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/pattern/patternregistry.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/panels/patternfactortablemodel.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/patterneditordialog.cpp
+    # Apply / Revert footer and session (Phase 5 of the Apply/Revert plan).
+    ${CMAKE_SOURCE_DIR}/include/ui/editors/dataobjectdraftsession.h
+    ${CMAKE_SOURCE_DIR}/src/ui/editors/dataobjectdraftsession.cpp
     ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
     ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
@@ -1333,6 +1343,9 @@ add_swmmvis_gui_test(test_curve_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/curve/curveregistry.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/panels/curvepointtablemodel.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/curveeditordialog.cpp
+    # Apply / Revert footer and session (Phase 5 of the Apply/Revert plan).
+    ${CMAKE_SOURCE_DIR}/include/ui/editors/dataobjectdraftsession.h
+    ${CMAKE_SOURCE_DIR}/src/ui/editors/dataobjectdraftsession.cpp
     ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/theme/iconfactory.h
     ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
@@ -1393,6 +1406,8 @@ add_swmmvis_gui_test(test_transect_editor_dialog
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/transectchartview.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/transectpropertybag.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/transecteditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/editors/dataobjectdraftsession.h
+    ${CMAKE_SOURCE_DIR}/src/ui/editors/dataobjectdraftsession.cpp
     ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/theme/iconfactory.h
     ${CMAKE_SOURCE_DIR}/src/ui/theme/iconfactory.cpp
@@ -1799,6 +1814,8 @@ add_swmmvis_gui_test(test_pollutanteditordialog
     test_pollutanteditordialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/pollutanteditordialog.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/pollutanteditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/editors/dataobjectdraftsession.h
+    ${CMAKE_SOURCE_DIR}/src/ui/editors/dataobjectdraftsession.cpp
     ${CMAKE_SOURCE_DIR}/src/core/swmmidentifier.cpp
     ${CMAKE_SOURCE_DIR}/include/pollutant/pollutantprovider.h
     ${CMAKE_SOURCE_DIR}/src/pollutant/pollutantprovider.cpp
@@ -3804,6 +3821,35 @@ add_swmmvis_gui_test(test_dataobjectattributetable
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_dataobjectattributetable)
+
+# Phase 0 reproduction (recording, not a gate): time series edits made in the
+# editor dialog, saved through the real saveAs to .inp and GeoPackage, reopened
+# (workplans/DATA_OBJECT_APPLY_REVERT_PLAN_2026-11-11.md section 6).
+add_swmmvis_gui_test(test_timeseries_persistence_repro
+    test_timeseries_persistence_repro.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_timeseries_persistence_repro)
+
+# Phase 1 gate: an edit held by an open Pollutant / Aquifer / Street / Inlet /
+# Transect editor must be in the file written by Save (.inp and GeoPackage).
+add_swmmvis_gui_test(test_dataobject_save_roundtrip
+    test_dataobject_save_roundtrip.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_dataobject_save_roundtrip)
+
+# Phase 2 gate: explicit Apply / Revert in a data object editor against a real
+# model (Pollutant pilot) — draft invisible until Apply, one undo step that
+# reaches the engine after the editor closed, conflict, refusal, save.
+add_swmmvis_gui_test(test_dataobject_draft_session
+    test_dataobject_draft_session.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_dataobject_draft_session)
 
 # Rain-gage file / column / format coupling — review follow-ups R3 (a path edit
 # reconciles the column and undoes as one step) and A-2 (the file format is

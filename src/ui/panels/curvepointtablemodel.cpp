@@ -10,6 +10,7 @@
 #include "ui/panels/curvepointtablemodel.h"
 
 #include "curve/curveprovider.h"
+#include "curve/curveundocommands.h"
 #include "core/unitsystem.h"
 
 namespace openswmmvis::ui
@@ -113,14 +114,19 @@ bool CurvePointTableModel::setData(const QModelIndex &index, const QVariant &val
     if (!ok)
         return false;
     const int row = index.row(), col = index.column();
+    const CurveProvider::Params before = m_provider->params();
+    bool done = false;
     if (col == 1) {
-        return m_provider->setYAt(row, v);
+        done = m_provider->setYAt(row, v);
     }
     if (col == 0) {
         const double curY = m_provider->pointAt(row).y;
-        return m_provider->setPointAt(row, v, curY);
+        done = m_provider->setPointAt(row, v, curY);
     }
-    return false;
+    if (done && m_undoStack && !(m_provider->params() == before))
+        m_undoStack->push(new openswmmvis::curve::SetCurveParamsCommand(
+            m_provider, before, m_provider->params(), tr("Edit point %1").arg(row + 1)));
+    return done;
 }
 
 void CurvePointTableModel::onPointsChanged_(int first, int count)

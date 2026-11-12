@@ -9,6 +9,9 @@
 
 #include "aquifer/aquiferprovider.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace openswmmvis::aquifer
 {
 
@@ -50,6 +53,37 @@ void AquiferProvider::setEvapPattern(QString pattern)
     if (pattern == m_evapPattern)
         return;
     m_evapPattern = std::move(pattern);
+    emit paramsChanged();
+}
+
+bool AquiferProvider::Params::sameAs(const Params &other, double relTol) const
+{
+    if (evapPattern != other.evapPattern)
+        return false;
+    for (int k = 0; k < ParamCount; ++k) {
+        const double a = values[k], b = other.values[k];
+        if (std::abs(a - b) > relTol * std::max({1.0, std::abs(a), std::abs(b)}))
+            return false;
+    }
+    return true;
+}
+
+AquiferProvider::Params AquiferProvider::params() const
+{
+    Params p;
+    for (int k = 0; k < ParamCount; ++k)
+        p.values[k] = m_param[k];
+    p.evapPattern = m_evapPattern;
+    return p;
+}
+
+void AquiferProvider::setParams(const Params &p)
+{
+    if (p == params())
+        return;
+    for (int k = 0; k < ParamCount; ++k)
+        m_param[k] = p.values[k];
+    m_evapPattern = p.evapPattern;
     emit paramsChanged();
 }
 

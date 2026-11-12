@@ -11,6 +11,7 @@
 #include "ui/panels/patternfactortablemodel.h"
 
 #include "pattern/patternprovider.h"
+#include "pattern/patternundocommands.h"
 
 namespace openswmmvis::ui
 {
@@ -106,7 +107,12 @@ bool PatternFactorTableModel::setData(const QModelIndex &index, const QVariant &
         return false;
     // PatternProvider::setFactor validates + emits factorChanged, which we
     // pick up to issue the dataChanged signal.
-    return m_provider->setFactor(index.row(), v);
+    const PatternProvider::Params before = m_provider->params();
+    const bool done = m_provider->setFactor(index.row(), v);
+    if (done && m_undoStack && !(m_provider->params() == before))
+        m_undoStack->push(new openswmmvis::pattern::SetPatternParamsCommand(
+            m_provider, before, m_provider->params(), tr("Edit factor %1").arg(index.row() + 1)));
+    return done;
 }
 
 void PatternFactorTableModel::onProviderFactorChanged_(int i)

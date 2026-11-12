@@ -53,4 +53,24 @@ void BulkSetCurvePointsCommand::redo()
     apply_(m_newPoints);
 }
 
+SetCurveParamsCommand::SetCurveParamsCommand(CurveProvider *provider, CurveProvider::Params before,
+                                             CurveProvider::Params after, QString description,
+                                             QUndoCommand *parent)
+    : QUndoCommand(description, parent), m_provider(provider), m_before(std::move(before)),
+      m_after(std::move(after))
+{
+}
+
+void SetCurveParamsCommand::undo()
+{
+    if (m_provider)
+        m_provider->setParams(m_before);
+}
+
+void SetCurveParamsCommand::redo()
+{
+    if (m_provider)
+        m_provider->setParams(m_after);
+}
+
 } // namespace openswmmvis::curve

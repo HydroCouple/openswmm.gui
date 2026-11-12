@@ -16,6 +16,7 @@
 #include "timeseries/timeseriesprovider.h"
 #include "timeseries/timeseriesregistry.h"
 #include "ui/dialogs/timeserieseditordialog.h"
+#include "ui/editors/dataobjectdraftsession.h"
 #include "ui/panels/timeseriestablemodel.h"
 #include "ui/widgets/timeserieseditchartview.h"
 
@@ -45,10 +46,13 @@
 #include <QTemporaryDir>
 #include <QTest>
 #include <QTimer>
+#include <QTimeZone>
 #include <QApplication>
 #include <QTextStream>
 #include <QToolBar>
 #include <QAction>
+#include <QJsonObject>
+#include <QScopeGuard>
 #include <QUndoStack>
 
 #include <cmath>
@@ -58,6 +62,7 @@ using openswmmvis::timeseries::TimeseriesPoint;
 using openswmmvis::timeseries::TimeseriesProvider;
 using openswmmvis::timeseries::TimeseriesRegistry;
 using openswmmvis::ui::TimeseriesEditorDialog;
+using State = openswmmvis::ui::DataObjectDraftSession::State;
 
 namespace
 {
@@ -107,6 +112,23 @@ QList<QPointF> linePointsFromChart(QChart *c)
         if (auto *line = qobject_cast<QLineSeries *>(s))
             return line->points();
     return {};
+}
+
+/*! Press \p buttonText on the next modal message box; sets \p seen when found. */
+void answerNextPrompt(const QString &buttonText, bool *seen)
+{
+    QTimer::singleShot(0, [buttonText, seen] {
+        auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget());
+        if (!box)
+            return;
+        for (auto *button : box->buttons())
+            if (button->text().remove(QLatin1Char('&')) == buttonText) {
+                *seen = true;
+                button->click();
+                return;
+            }
+        box->reject();
+    });
 }
 } // namespace
 
@@ -249,16 +271,18 @@ private slots:
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
 
-        // Edit through the grid model — chart should auto-refresh via provider signals.
+        // Edit through the grid model — chart should auto-refresh via the
+        // draft's signals; the model's series waits for Apply.
         QVERIFY(dlg.tableModel()->setData(dlg.tableModel()->index(1, 1), 42.0));
-        QCOMPARE(p.pointAt(1).value, 42.0);
+        QCOMPARE(dlg.editedSeries()->pointAt(1).value, 42.0);
+        QCOMPARE(p.pointAt(1).value, 2.0);
         const auto pts = linePointsFromChart(dlg.chartView()->chart());
         QCOMPARE(pts.at(1).y(), 42.0);
         QCOMPARE(dlg.undoStack()->count(), 1);
 
         // Undo restores everywhere.
         dlg.undoStack()->undo();
-        QCOMPARE(p.pointAt(1).value, 2.0);
+        QCOMPARE(dlg.editedSeries()->pointAt(1).value, 2.0);
         QCOMPARE(linePointsFromChart(dlg.chartView()->chart()).at(1).y(), 2.0);
     }
 
@@ -301,7 +325,7 @@ private slots:
             }
         QVERIFY2(undo, "the editor toolbar offers Undo");
         undo->trigger();
-        QCOMPARE(p.pointAt(1).value, 2.0); // the editor's own edit
+        QCOMPARE(dlg.editedSeries()->pointAt(1).value, 2.0); // the editor's own edit
         undo->trigger();                   // nothing more to undo here
         QCOMPARE(foreignUndos, 0);
     }
@@ -353,7 +377,7 @@ private slots:
         // Commit a new stamp through the delegate → provider.
         dte->setDateTime(t(2026, 1, 1, 7));
         delegate->setModelData(dte, dlg.tableModel(), idx);
-        QCOMPARE(p.pointAt(1).time, t(2026, 1, 1, 7));
+        QCOMPARE(dlg.editedSeries()->pointAt(1).time, t(2026, 1, 1, 7));
         delete editor;
     }
 
@@ -387,7 +411,8 @@ private slots:
         // ...and survive a commit that only moved the minute.
         dte->setDateTime(dte->dateTime().addSecs(60));
         delegate->setModelData(dte, dlg.tableModel(), idx);
-        QCOMPARE(p.pointAt(0).time, QDateTime(QDate(2026, 1, 1), QTime(0, 16, 30), Qt::UTC));
+        QCOMPARE(dlg.editedSeries()->pointAt(0).time,
+                 QDateTime(QDate(2026, 1, 1), QTime(0, 16, 30), Qt::UTC));
         delete editor;
     }
 
@@ -509,6 +534,7 @@ private slots:
         QVERIFY(p.setAllPoints(fixture())); // 0h, 6h, 12h → 6h median
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        TimeseriesProvider &d = *dlg.editedSeries(); // the draft the views edit
 
         QAction *add = nullptr;
         for (auto *a : dlg.findChildren<QAction *>())
@@ -519,13 +545,13 @@ private slots:
         QVERIFY(add != nullptr);
 
         add->trigger();
-        QCOMPARE(p.pointCount(), 4);
+        QCOMPARE(d.pointCount(), 4);
         // New point at last + 6h = 2026-01-01 18:00.
-        QCOMPARE(p.pointAt(3).time, t(2026, 1, 1, 18));
-        QCOMPARE(p.pointAt(3).value, p.pointAt(2).value);
+        QCOMPARE(d.pointAt(3).time, t(2026, 1, 1, 18));
+        QCOMPARE(d.pointAt(3).value, d.pointAt(2).value);
 
         dlg.undoStack()->undo();
-        QCOMPARE(p.pointCount(), 3);
+        QCOMPARE(d.pointCount(), 3);
     }
 
     /**
@@ -540,6 +566,7 @@ private slots:
         TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        TimeseriesProvider &d = *dlg.editedSeries(); // the draft the views edit
 
         QAction *add = nullptr;
         for (auto *a : dlg.findChildren<QAction *>())
@@ -549,11 +576,11 @@ private slots:
             }
         QVERIFY(add != nullptr);
         add->trigger();
-        QCOMPARE(p.pointCount(), 1);
+        QCOMPARE(d.pointCount(), 1);
         // Time is "now" (UTC) on a whole minute: the grid shows HH:mm, so
         // clock seconds were invisible but still written to the .inp
         // (tutorial bug report, 2026-10-17).
-        const QDateTime t0 = p.pointAt(0).time;
+        const QDateTime t0 = d.pointAt(0).time;
         QCOMPARE(t0.time().second(), 0);
         QCOMPARE(t0.time().msec(), 0);
         const qint64 ds = t0.secsTo(QDateTime::currentDateTimeUtc());
@@ -573,6 +600,7 @@ private slots:
         QVERIFY(p.setAllPoints(fixture()));
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        TimeseriesProvider &d = *dlg.editedSeries(); // the draft the views edit
 
         // Build a QTableView selection covering rows 0 and 2.
         auto *table = dlg.findChild<QTableView *>();
@@ -589,11 +617,11 @@ private slots:
             }
         QVERIFY(del != nullptr);
         del->trigger();
-        QCOMPARE(p.pointCount(), 1);
-        QCOMPARE(p.pointAt(0).time, t(2026, 1, 1, 6)); // middle row kept
+        QCOMPARE(d.pointCount(), 1);
+        QCOMPARE(d.pointAt(0).time, t(2026, 1, 1, 6)); // middle row kept
 
         dlg.undoStack()->undo();
-        QCOMPARE(p.pointCount(), 3);
+        QCOMPARE(d.pointCount(), 3);
     }
 
     /**
@@ -642,6 +670,7 @@ private slots:
         QVERIFY(p.setAllPoints(fixture()));
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        TimeseriesProvider &d = *dlg.editedSeries(); // the draft the views edit
 
         // Excel-style TSV: ISO timestamp + value per line. Two new times that
         // don't collide with existing 0h / 6h / 12h.
@@ -657,15 +686,15 @@ private slots:
         QVERIFY(paste != nullptr);
         paste->trigger();
 
-        QCOMPARE(p.pointCount(), 5);
-        QCOMPARE(p.pointAt(1).time, t(2026, 1, 1, 3));
-        QCOMPARE(p.pointAt(1).value, 10.0);
-        QCOMPARE(p.pointAt(3).time, t(2026, 1, 1, 9));
-        QCOMPARE(p.pointAt(3).value, 20.0);
+        QCOMPARE(d.pointCount(), 5);
+        QCOMPARE(d.pointAt(1).time, t(2026, 1, 1, 3));
+        QCOMPARE(d.pointAt(1).value, 10.0);
+        QCOMPARE(d.pointAt(3).time, t(2026, 1, 1, 9));
+        QCOMPARE(d.pointAt(3).value, 20.0);
 
         // Single Cmd-Z reverts the whole paste (macro).
         dlg.undoStack()->undo();
-        QCOMPARE(p.pointCount(), 3);
+        QCOMPARE(d.pointCount(), 3);
     }
 
     /**
@@ -683,6 +712,7 @@ private slots:
         QVERIFY(p.setAllPoints(fixture())); // already has 0h / 6h / 12h
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        TimeseriesProvider &d = *dlg.editedSeries(); // the draft the views edit
 
         // First row collides with existing 6h; second is novel.
         QApplication::clipboard()->setText(
@@ -697,8 +727,8 @@ private slots:
         paste->trigger();
 
         // 3 → 4: only the novel row landed.
-        QCOMPARE(p.pointCount(), 4);
-        QCOMPARE(p.pointAt(1).time, t(2026, 1, 1, 3));
+        QCOMPARE(d.pointCount(), 4);
+        QCOMPARE(d.pointAt(1).time, t(2026, 1, 1, 3));
     }
 
     /**
@@ -738,6 +768,7 @@ private slots:
         p.setSourceMode(TimeseriesProvider::SourceMode::ExternalFile);
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        TimeseriesProvider &d = *dlg.editedSeries(); // the draft the views edit
 
         QAction *add = nullptr;
         for (auto *a : dlg.findChildren<QAction *>())
@@ -746,7 +777,7 @@ private slots:
                 break;
             }
         add->trigger();
-        QCOMPARE(p.pointCount(), 3); // unchanged
+        QCOMPARE(d.pointCount(), 3); // unchanged
 
         QApplication::clipboard()->setText(QStringLiteral("2026-01-01T03:00:00\t10.0"));
         QAction *paste = nullptr;
@@ -756,7 +787,7 @@ private slots:
                 break;
             }
         paste->trigger();
-        QCOMPARE(p.pointCount(), 3); // unchanged
+        QCOMPARE(d.pointCount(), 3); // unchanged
     }
 
     // ── Source-mode card (Phase 6.7.3.6) ────────────────────────────────────
@@ -930,13 +961,14 @@ private slots:
         TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        TimeseriesProvider &d = *dlg.editedSeries(); // the draft the views edit
 
         const int n = dlg.linkExternalFile(path);
         QCOMPARE(n, 3);
-        QCOMPARE(p.sourceMode(), TimeseriesProvider::SourceMode::ExternalFile);
-        QCOMPARE(p.pointCount(), 3);
-        QCOMPARE(p.pointAt(1).value, 2.0);
-        QCOMPARE(p.filePath(), path);
+        QCOMPARE(d.sourceMode(), TimeseriesProvider::SourceMode::ExternalFile);
+        QCOMPARE(d.pointCount(), 3);
+        QCOMPARE(d.pointAt(1).value, 2.0);
+        QCOMPARE(d.filePath(), path);
 
         // Column combo populated from CSV header (single value column).
         auto *combo = dlg.findChild<QComboBox *>();
@@ -973,15 +1005,16 @@ private slots:
         TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_GONE"));
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        TimeseriesProvider &d = *dlg.editedSeries(); // the draft the views edit
 
         // Bind a real column first, then re-bind the column a re-exported file
         // no longer has (the "headers changed under a saved model" case).
         QCOMPARE(dlg.linkExternalFile(path, QStringLiteral("rain_b")), 2);
-        QCOMPARE(p.pointCount(), 2);
+        QCOMPARE(d.pointCount(), 2);
 
         QCOMPARE(dlg.linkExternalFile(path, QStringLiteral("rain_old")), 0);
-        QCOMPARE(p.pointCount(), 0);                              // no bogus preview
-        QCOMPARE(p.columnSelector(), QStringLiteral("rain_old")); // not rewritten
+        QCOMPARE(d.pointCount(), 0);                              // no bogus preview
+        QCOMPARE(d.columnSelector(), QStringLiteral("rain_old")); // not rewritten
 
         auto *combo = dlg.findChild<QComboBox *>();
         QVERIFY(combo != nullptr);
@@ -1018,10 +1051,11 @@ private slots:
         TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_NOHDR"));
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        TimeseriesProvider &d = *dlg.editedSeries(); // the draft the views edit
 
         QCOMPARE(dlg.linkExternalFile(path), 2); // line 1 spent as header
-        QCOMPARE(p.pointAt(0).value, 2.0);
-        QVERIFY(p.columnSelector().isEmpty());
+        QCOMPARE(d.pointAt(0).value, 2.0);
+        QVERIFY(d.columnSelector().isEmpty());
 
         auto *combo = dlg.findChild<QComboBox *>();
         QVERIFY(combo != nullptr);
@@ -1033,9 +1067,9 @@ private slots:
         // …and picking a non-first column is refused outright: the binding and
         // the loaded points stay on the first data column.
         combo->setCurrentIndex(1);
-        QVERIFY(p.columnSelector().isEmpty());
-        QCOMPARE(p.pointCount(), 2);
-        QCOMPARE(p.pointAt(0).value, 2.0);
+        QVERIFY(d.columnSelector().isEmpty());
+        QCOMPARE(d.pointCount(), 2);
+        QCOMPARE(d.pointAt(0).value, 2.0);
         QCOMPARE(combo->currentIndex(), 0);
     }
 
@@ -1063,12 +1097,13 @@ private slots:
         TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_B"));
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        TimeseriesProvider &d = *dlg.editedSeries(); // the draft the views edit
 
         // Select the second column by name.
         const int n = dlg.linkExternalFile(path, QStringLiteral("rain_b"));
         QCOMPARE(n, 2);
-        QCOMPARE(p.pointAt(0).value, 10.0);
-        QCOMPARE(p.pointAt(1).value, 20.0);
+        QCOMPARE(d.pointAt(0).value, 10.0);
+        QCOMPARE(d.pointAt(1).value, 20.0);
     }
 
     /**
@@ -1090,13 +1125,14 @@ private slots:
         TimeseriesProvider &p = *reg.create(QStringLiteral("TSF_A"));
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        TimeseriesProvider &d = *dlg.editedSeries(); // the draft the views edit
 
         QCOMPARE(dlg.linkExternalFile(path, QStringLiteral("RG2")), 3);
-        QCOMPARE(p.pointAt(0).value, 0.05);
-        QCOMPARE(p.pointAt(2).value, 0.25);
+        QCOMPARE(d.pointAt(0).value, 0.05);
+        QCOMPARE(d.pointAt(2).value, 0.25);
         // 12:00:00 AM → midnight; 1:30:00 PM → 13:30.
-        QCOMPARE(p.pointAt(0).time, t(2007, 1, 1, 0));
-        QCOMPARE(p.pointAt(2).time, QDateTime(QDate(2007, 1, 1), QTime(13, 30), Qt::UTC));
+        QCOMPARE(d.pointAt(0).time, t(2007, 1, 1, 0));
+        QCOMPARE(d.pointAt(2).time, QDateTime(QDate(2007, 1, 1), QTime(13, 30), Qt::UTC));
 
         auto *combo = dlg.findChild<QComboBox *>();
         QVERIFY(combo != nullptr);
@@ -1129,11 +1165,12 @@ private slots:
         QVERIFY(b.setAllPoints(fixture()));
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &a);
+        TimeseriesProvider &da = *dlg.editedSeries(); // the draft the views edit
         dlg.show();
         QTest::qWait(50);
 
         QCOMPARE(dlg.linkExternalFile(path, QStringLiteral("rain_b")), 2);
-        QCOMPARE(a.columnSelector(), QStringLiteral("rain_b"));
+        QCOMPARE(da.columnSelector(), QStringLiteral("rain_b"));
 
         // Drive rebindActiveProvider_ through the list pane like a user click:
         // away to the inline series, then back to the file-backed one.
@@ -1172,7 +1209,7 @@ private slots:
         // Shown item and provider state agree (items carry the real header
         // name as userData).
         QCOMPARE(combo->currentIndex(), 1);
-        QCOMPARE(combo->currentData().toString(), a.columnSelector());
+        QCOMPARE(combo->currentData().toString(), da.columnSelector());
     }
 
     /**
@@ -1199,8 +1236,9 @@ private slots:
         TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        TimeseriesProvider &d = *dlg.editedSeries(); // the draft the views edit
         QCOMPARE(dlg.linkExternalFile(path), 2);
-        QCOMPARE(p.sourceMode(), TimeseriesProvider::SourceMode::ExternalFile);
+        QCOMPARE(d.sourceMode(), TimeseriesProvider::SourceMode::ExternalFile);
 
         // Find + click the Detach button.
         QPushButton *detach = nullptr;
@@ -1212,9 +1250,9 @@ private slots:
         QVERIFY(detach != nullptr);
         detach->click();
 
-        QCOMPARE(p.sourceMode(), TimeseriesProvider::SourceMode::Inline);
-        QCOMPARE(p.pointCount(), 2);     // points stayed
-        QVERIFY(p.filePath().isEmpty()); // file link severed
+        QCOMPARE(d.sourceMode(), TimeseriesProvider::SourceMode::Inline);
+        QCOMPARE(d.pointCount(), 2);     // points stayed
+        QVERIFY(d.filePath().isEmpty()); // file link severed
     }
 
     // ── Rotate / Scale (Phase 6.7.3.5 follow-up) ────────────────────────────
@@ -1234,6 +1272,7 @@ private slots:
         QVERIFY(p.setAllPoints(fixture())); // values 1, 2, 3
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        TimeseriesProvider &d = *dlg.editedSeries(); // the draft the views edit
 
         // Switch the chart into ScalePoints mode (so the panel becomes visible)
         // and select all three points.
@@ -1285,13 +1324,13 @@ private slots:
         applyBtn->click();
 
         // Centroid is 2: scaling deviations by two gives values 0, 2, 4.
-        QCOMPARE(p.pointAt(0).value, 0.0);
-        QCOMPARE(p.pointAt(1).value, 2.0);
-        QCOMPARE(p.pointAt(2).value, 4.0);
+        QCOMPARE(d.pointAt(0).value, 0.0);
+        QCOMPARE(d.pointAt(1).value, 2.0);
+        QCOMPARE(d.pointAt(2).value, 4.0);
 
         dlg.undoStack()->undo();
-        QCOMPARE(p.pointAt(0).value, 1.0);
-        QCOMPARE(p.pointAt(2).value, 3.0);
+        QCOMPARE(d.pointAt(0).value, 1.0);
+        QCOMPARE(d.pointAt(2).value, 3.0);
     }
 
     /**
@@ -1307,6 +1346,7 @@ private slots:
         QVERIFY(p.setAllPoints(fixture()));
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        TimeseriesProvider &d = *dlg.editedSeries(); // the draft the views edit
 
         dlg.chartView()->setEditMode(
             openswmmvis::ui::TimeseriesEditChartView::EditMode::ScalePoints);
@@ -1332,12 +1372,12 @@ private slots:
         QVERIFY(applyBtn != nullptr);
 
         // Default scaleX=scaleY=1.0 — Apply should produce identical points.
-        const auto before = p.points();
+        const auto before = d.points();
         applyBtn->click();
-        QCOMPARE(p.points().size(), before.size());
+        QCOMPARE(d.points().size(), before.size());
         for (int i = 0; i < before.size(); ++i) {
-            QCOMPARE(p.pointAt(i).time, before.at(i).time);
-            QCOMPARE(p.pointAt(i).value, before.at(i).value);
+            QCOMPARE(d.pointAt(i).time, before.at(i).time);
+            QCOMPARE(d.pointAt(i).value, before.at(i).value);
         }
     }
 
@@ -1354,6 +1394,7 @@ private slots:
         QVERIFY(p.setAllPoints(fixture()));
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        TimeseriesProvider &d = *dlg.editedSeries(); // the draft the views edit
 
         dlg.chartView()->setEditMode(
             openswmmvis::ui::TimeseriesEditChartView::EditMode::RotatePoints);
@@ -1380,11 +1421,11 @@ private slots:
         }
         QVERIFY(applyBtn != nullptr);
 
-        const auto before = p.points();
+        const auto before = d.points();
         applyBtn->click();
-        QCOMPARE(p.points().size(), before.size());
+        QCOMPARE(d.points().size(), before.size());
         for (int i = 0; i < before.size(); ++i)
-            QCOMPARE(p.pointAt(i).value, before.at(i).value);
+            QCOMPARE(d.pointAt(i).value, before.at(i).value);
     }
 
     /**
@@ -1411,6 +1452,7 @@ private slots:
         TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        TimeseriesProvider &d = *dlg.editedSeries(); // the draft the views edit
         QCOMPARE(dlg.linkExternalFile(path), 1);
 
         // Rewrite the file with an extra row, then click Reload.
@@ -1425,8 +1467,8 @@ private slots:
         QVERIFY(reload != nullptr);
         reload->click();
 
-        QCOMPARE(p.pointCount(), 2);
-        QCOMPARE(p.pointAt(1).value, 2.0);
+        QCOMPARE(d.pointCount(), 2);
+        QCOMPARE(d.pointAt(1).value, 2.0);
     }
 
     /*!
@@ -1505,6 +1547,7 @@ private slots:
         TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        TimeseriesProvider &d = *dlg.editedSeries(); // the draft the views edit
         dlg.show();
         QTest::qWait(20);
 
@@ -1513,8 +1556,8 @@ private slots:
                 a->trigger();
                 break;
             }
-        QCOMPARE(p.pointCount(), 1);
-        QCOMPARE(p.pointAt(0).time, t(2007, 1, 1, 6));
+        QCOMPARE(d.pointCount(), 1);
+        QCOMPARE(d.pointAt(0).time, t(2007, 1, 1, 6));
     }
 
     /**
@@ -1532,6 +1575,7 @@ private slots:
         QVERIFY(p.timeMode() == TimeseriesProvider::TimeMode::Absolute);
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        TimeseriesProvider &d = *dlg.editedSeries(); // the draft the views edit
         dlg.show();
         QTest::qWait(20);
 
@@ -1544,14 +1588,14 @@ private slots:
 
         // Switch to Relative through the combo → provider follows, undoable.
         combo->setCurrentIndex(combo->findData(1));
-        QCOMPARE(p.timeMode(), TimeseriesProvider::TimeMode::Relative);
-        QCOMPARE(p.relativeCount(), p.pointCount());
-        QCOMPARE(p.relativeAnchor(), t(2026, 1, 1, 0));
+        QCOMPARE(d.timeMode(), TimeseriesProvider::TimeMode::Relative);
+        QCOMPARE(d.relativeCount(), d.pointCount());
+        QCOMPARE(d.relativeAnchor(), t(2026, 1, 1, 0));
         auto *badge = holder->findChild<QLabel *>(QStringLiteral("timeModeBadge"));
         QVERIFY(badge && badge->isVisibleTo(&dlg) && !badge->text().isEmpty());
 
         dlg.undoStack()->undo();
-        QCOMPARE(p.timeMode(), TimeseriesProvider::TimeMode::Absolute);
+        QCOMPARE(d.timeMode(), TimeseriesProvider::TimeMode::Absolute);
         QTest::qWait(10);
         QCOMPARE(combo->currentData().toInt(), 0);
     }
@@ -1570,6 +1614,7 @@ private slots:
         QVERIFY(p.setAllPoints(fixture()));
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        TimeseriesProvider &d = *dlg.editedSeries(); // the draft the views edit
         dlg.show();
         QTest::qWait(20);
 
@@ -1580,7 +1625,7 @@ private slots:
         combo->setCurrentIndex(combo->findData(1));
         QTest::qWait(10);
         // Refused: first point precedes the anchor → elapsed would be negative.
-        QCOMPARE(p.timeMode(), TimeseriesProvider::TimeMode::Absolute);
+        QCOMPARE(d.timeMode(), TimeseriesProvider::TimeMode::Absolute);
         QCOMPARE(combo->currentData().toInt(), 0); // snapped back
     }
 
@@ -1624,6 +1669,7 @@ private slots:
         TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &p);
+        TimeseriesProvider &d = *dlg.editedSeries(); // the draft the views edit
         dlg.show();
         QTest::qWait(20);
 
@@ -1634,7 +1680,7 @@ private slots:
                 a->trigger();
                 break;
             }
-        QCOMPARE(p.pointCount(), 0);
+        QCOMPARE(d.pointCount(), 0);
 
         // Relative mode: "1" is one elapsed hour from the anchor.
         p.setTimeMode(TimeseriesProvider::TimeMode::Relative, t(2026, 1, 1, 0));
@@ -1644,9 +1690,9 @@ private slots:
                 a->trigger();
                 break;
             }
-        QCOMPARE(p.pointCount(), 1);
-        QCOMPARE(p.pointAt(0).time, t(2026, 1, 1, 1));
-        QCOMPARE(p.pointAt(0).value, 5.0);
+        QCOMPARE(d.pointCount(), 1);
+        QCOMPARE(d.pointAt(0).time, t(2026, 1, 1, 1));
+        QCOMPARE(d.pointAt(0).value, 5.0);
     }
 
     // The editor used to be dismissable only from the title bar. The Close
@@ -1668,9 +1714,7 @@ private slots:
         dlg.show();
         QVERIFY(QTest::qWaitForWindowExposed(&dlg));
 
-        auto *box = dlg.findChild<QDialogButtonBox *>(QStringLiteral("ts_closeBox"));
-        QVERIFY(box);
-        auto *btn = box->button(QDialogButtonBox::Close);
+        auto *btn = dlg.findChild<QPushButton *>(QStringLiteral("ts_closeBtn"));
         QVERIFY(btn);
         QVERIFY(!btn->isDefault());
         QVERIFY(!btn->autoDefault());
@@ -1678,6 +1722,286 @@ private slots:
 
         btn->click();
         QTRY_VERIFY(!dlg.isVisible());
+    }
+
+    // ── Apply / Revert (workplans/DATA_OBJECT_APPLY_REVERT_PLAN_2026-11-11.md, Phase 3) ──
+
+    /*! Edits stay in the draft until Apply; Apply is one step on the caller's
+     *  stack, and undoing it there brings the unedited draft along. */
+    void applyWritesTheModelAsOneProjectStep()
+    {
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QVERIFY(p.setAllPoints(fixture()));
+        QUndoStack project;
+        TimeseriesEditorDialog dlg(&reg, &project, &p);
+        auto *session = dlg.draftSession();
+        QCOMPARE(session->state(), State::Clean);
+
+        QVERIFY(dlg.tableModel()->setData(dlg.tableModel()->index(1, 1), 42.0));
+        QVERIFY(dlg.tableModel()->setData(dlg.tableModel()->index(2, 1), 43.0));
+        QTRY_COMPARE(session->state(), State::Unapplied);
+        QCOMPARE(p.pointAt(1).value, 2.0);
+        QCOMPARE(project.count(), 0);
+
+        dlg.findChild<QPushButton *>(QStringLiteral("draftApply"))->click();
+        QCOMPARE(session->state(), State::Applied);
+        QCOMPARE(p.pointAt(1).value, 42.0);
+        QCOMPARE(p.pointAt(2).value, 43.0);
+        QCOMPARE(project.count(), 1); // two edits, one step
+
+        project.undo();
+        QCOMPARE(p.pointAt(1).value, 2.0);
+        QCOMPARE(dlg.tableModel()->index(1, 1).data(Qt::EditRole).toDouble(), 2.0);
+        project.redo();
+        QCOMPARE(p.pointAt(2).value, 43.0);
+        QCOMPARE(dlg.tableModel()->index(2, 1).data(Qt::EditRole).toDouble(), 43.0);
+    }
+
+    void revertRestoresTheModelValues()
+    {
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QVERIFY(p.setAllPoints(fixture()));
+        QUndoStack project;
+        TimeseriesEditorDialog dlg(&reg, &project, &p);
+        QVERIFY(dlg.tableModel()->setData(dlg.tableModel()->index(1, 1), 42.0));
+        QTRY_COMPARE(dlg.draftSession()->state(), State::Unapplied);
+
+        dlg.findChild<QPushButton *>(QStringLiteral("draftRevert"))->click();
+        QCOMPARE(dlg.draftSession()->state(), State::Clean);
+        QCOMPARE(dlg.editedSeries()->pointAt(1).value, 2.0);
+        QCOMPARE(dlg.undoStack()->count(), 0); // its steps were for the dropped draft
+        QCOMPARE(p.pointAt(1).value, 2.0);
+        QCOMPARE(project.count(), 0);
+    }
+
+    /*! Another view writes the same series: the draft is kept, nothing is
+     *  merged silently, and Apply asks. */
+    void modelChangedElsewhereKeepsTheDraft()
+    {
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QVERIFY(p.setAllPoints(fixture()));
+        QUndoStack project;
+        TimeseriesEditorDialog dlg(&reg, &project, &p);
+        QVERIFY(dlg.tableModel()->setData(dlg.tableModel()->index(1, 1), 42.0));
+        QTRY_COMPARE(dlg.draftSession()->state(), State::Unapplied);
+
+        QVERIFY(p.setValueAt(0, 7.0)); // e.g. the Attribute Table
+        QTRY_COMPARE(dlg.draftSession()->state(), State::Conflict);
+        QCOMPARE(dlg.editedSeries()->pointAt(0).value, 1.0);
+        QCOMPARE(dlg.editedSeries()->pointAt(1).value, 42.0);
+
+        bool seen = false;
+        answerNextPrompt(QStringLiteral("Discard Mine and Reload"), &seen);
+        QVERIFY(dlg.draftSession()->apply());
+        QVERIFY(seen);
+        QCOMPARE(dlg.editedSeries()->pointAt(0).value, 7.0);
+        QCOMPARE(dlg.editedSeries()->pointAt(1).value, 2.0);
+        QCOMPARE(project.count(), 0);
+    }
+
+    void closingWithADraftAsks()
+    {
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QVERIFY(p.setAllPoints(fixture()));
+        QUndoStack project;
+        TimeseriesEditorDialog dlg(&reg, &project, &p);
+        dlg.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&dlg));
+        QVERIFY(dlg.tableModel()->setData(dlg.tableModel()->index(1, 1), 42.0));
+
+        bool seen = false;
+        answerNextPrompt(QStringLiteral("Cancel"), &seen);
+        dlg.close();
+        QVERIFY(seen);
+        QVERIFY(dlg.isVisible());
+        QCOMPARE(dlg.editedSeries()->pointAt(1).value, 42.0);
+
+        seen = false;
+        answerNextPrompt(QStringLiteral("Apply"), &seen);
+        dlg.close();
+        QVERIFY(seen);
+        QTRY_VERIFY(!dlg.isVisible());
+        QCOMPARE(p.pointAt(1).value, 42.0);
+        QCOMPARE(project.count(), 1);
+    }
+
+    /*! An external source needs a file before anything can be applied. */
+    void externalSourceWithoutAFileIsNotApplied()
+    {
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QVERIFY(p.setAllPoints(fixture()));
+        QUndoStack project;
+        TimeseriesEditorDialog dlg(&reg, &project, &p);
+        for (auto *r : dlg.findChildren<QRadioButton *>())
+            if (r->text() == QStringLiteral("External file"))
+                r->setChecked(true);
+        QCOMPARE(dlg.editedSeries()->sourceMode(), TimeseriesProvider::SourceMode::ExternalFile);
+
+        QVERIFY(!dlg.draftSession()->apply());
+        QCOMPARE(dlg.draftSession()->state(), State::Rejected);
+        QCOMPARE(p.sourceMode(), TimeseriesProvider::SourceMode::Inline);
+        QCOMPARE(project.count(), 0);
+    }
+
+    /*! Renaming from the grid header takes effect at once; the draft follows. */
+    void gridHeaderRenameTakesEffectAtOnce()
+    {
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("RAIN_A"));
+        QVERIFY(p.setAllPoints(fixture()));
+        QUndoStack project;
+        TimeseriesEditorDialog dlg(&reg, &project, &p);
+        QVERIFY(dlg.tableModel()->setHeaderData(1, Qt::Horizontal, QStringLiteral("RAIN_B"),
+                                                Qt::EditRole));
+        QCOMPARE(reg.findByName(QStringLiteral("RAIN_B")), &p);
+        QCOMPARE(dlg.editedSeries()->name(), QStringLiteral("RAIN_B"));
+        QCOMPARE(dlg.draftSession()->state(), State::Applied);
+    }
+
+    // ── Geopackage source: an observation copy (D3) ─────────────────────────
+
+    /*! A Choose / Refresh standing in for the observation-dataset flow:
+     *  three hourly points starting at \p base, and a binding recording it. */
+    static openswmmvis::ui::ObservationCopy fakeCopy(double base)
+    {
+        openswmmvis::ui::ObservationCopy c;
+        c.points = {{t(2026, 1, 2, 0), base}, {t(2026, 1, 2, 1), base + 1}, {t(2026, 1, 2, 2), base + 2}};
+        c.binding = QJsonObject{{"datasetTitle", "Gauge data"}, {"seriesTitle", "Flow at 00123"},
+                                {"sourcePath", "/observations/gauge.gpkg"}, {"datasetId", "d1"},
+                                {"seriesId", "s1"}, {"points", 3}, {"targetUnit", "ft3/s"},
+                                {"firstModelTime", "2026-01-02T00:00:00Z"},
+                                {"lastModelTime", "2026-01-02T02:00:00Z"}, {"base", base}};
+        return c;
+    }
+
+    /*! The Geopackage source needs a chosen series before Apply; the copy is
+     *  read-only, applies as one step, refreshes as a draft edit, and detaches
+     *  to Inline keeping its points. */
+    void geopackageSourceAppliesAReadOnlyCopy()
+    {
+        using openswmmvis::ui::ObservationCopy;
+        int chosen = 0;
+        TimeseriesEditorDialog::setObservationSource(
+            [&chosen](QWidget *, const QObject *, const QString &, const QJsonObject &,
+                      ObservationCopy *out, QString *) {
+                ++chosen;
+                *out = fakeCopy(10);
+                return true;
+            },
+            [](QWidget *, const QObject *, const QString &, const QJsonObject &current,
+               ObservationCopy *out, QString *) {
+                *out = fakeCopy(current.value("base").toDouble() + 100);
+                return true;
+            });
+        const auto reset = qScopeGuard([] { TimeseriesEditorDialog::setObservationSource({}, {}); });
+
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("FLOW"));
+        QVERIFY(p.setAllPoints(fixture()));
+        QUndoStack project;
+        TimeseriesEditorDialog dlg(&reg, &project, &p);
+        auto button = [&dlg](const char *name) { return dlg.findChild<QPushButton *>(name); };
+
+        for (auto *r : dlg.findChildren<QRadioButton *>())
+            if (r->text() == QStringLiteral("Geopackage"))
+                r->setChecked(true);
+        QCOMPARE(dlg.editedSeries()->sourceMode(), TimeseriesProvider::SourceMode::GeopackageObserved);
+        QVERIFY(!dlg.draftSession()->apply()); // no series chosen yet
+        QCOMPARE(dlg.draftSession()->state(), State::Rejected);
+        QVERIFY(dlg.draftSession()->message().contains(QStringLiteral("without a series")));
+
+        QVERIFY(button("gpkgChooseBtn")->isEnabled());
+        button("gpkgChooseBtn")->click();
+        QCOMPARE(chosen, 1);
+        QCOMPARE(dlg.editedSeries()->pointCount(), 3);
+        QCOMPARE(dlg.editedSeries()->pointAt(0).value, 10.0);
+        QVERIFY(dlg.findChild<QLabel *>(QStringLiteral("gpkgSourceLabel"))->text().contains("Flow at 00123"));
+        // Read-only, like an external file.
+        QVERIFY(!(dlg.tableModel()->flags(dlg.tableModel()->index(0, 1)) & Qt::ItemIsEditable));
+        QVERIFY(!dlg.tableModel()->setData(dlg.tableModel()->index(0, 1), 99.0));
+        QCOMPARE(p.sourceMode(), TimeseriesProvider::SourceMode::Inline); // model untouched
+
+        QVERIFY(dlg.draftSession()->apply());
+        QCOMPARE(p.sourceMode(), TimeseriesProvider::SourceMode::GeopackageObserved);
+        QCOMPARE(p.pointAt(0).value, 10.0);
+        QCOMPARE(p.observationBinding().value("seriesTitle").toString(), QStringLiteral("Flow at 00123"));
+        QCOMPARE(project.count(), 1);
+
+        // Refresh prepares again from the binding: a draft edit, applied later.
+        QVERIFY(button("gpkgRefreshBtn")->isEnabled());
+        button("gpkgRefreshBtn")->click();
+        QCOMPARE(dlg.editedSeries()->pointAt(0).value, 110.0);
+        QCOMPARE(p.pointAt(0).value, 10.0);
+        QTRY_COMPARE(dlg.draftSession()->state(), State::Unapplied);
+        dlg.draftSession()->revert();
+        QCOMPARE(dlg.editedSeries()->pointAt(0).value, 10.0);
+
+        // Detach keeps the points as an ordinary series.
+        button("gpkgDetachBtn")->click();
+        QCOMPARE(dlg.editedSeries()->sourceMode(), TimeseriesProvider::SourceMode::Inline);
+        QVERIFY(dlg.editedSeries()->observationBinding().isEmpty());
+        QCOMPARE(dlg.editedSeries()->pointAt(0).value, 10.0);
+        QVERIFY(dlg.draftSession()->apply());
+        QCOMPARE(p.sourceMode(), TimeseriesProvider::SourceMode::Inline);
+        QVERIFY(p.observationBinding().isEmpty());
+
+        project.undo(); // back to the observation copy, binding included
+        QCOMPARE(p.sourceMode(), TimeseriesProvider::SourceMode::GeopackageObserved);
+        QCOMPARE(p.observationBinding().value("datasetId").toString(), QStringLiteral("d1"));
+        project.undo(); // back to the original inline series
+        QCOMPARE(p.sourceMode(), TimeseriesProvider::SourceMode::Inline);
+        QCOMPARE(p.pointAt(0).value, 1.0);
+    }
+
+    /*! The simulation start is held as a UTC-labelled wall-clock time, like the
+     *  series points: rows stepped from it across a daylight-saving change keep
+     *  increasing wall-clock times (the engine refuses times that go back). The
+     *  stepping half is a gate only where the local zone changes clocks on
+     *  1990-10-28 (e.g. America/New_York); the zone check holds everywhere. */
+    void simulationStartIsWallClockUtc()
+    {
+        TimeseriesRegistry reg;
+        const QDateTime local(QDate(1990, 10, 28), QTime(0, 0), QTimeZone::LocalTime);
+        reg.setSimulationStart(local);
+
+        TimeseriesProvider &p = *reg.create(QStringLiteral("STEP"));
+        QUndoStack project;
+        TimeseriesEditorDialog dlg(&reg, &project, &p);
+        QAction *add = nullptr;
+        for (auto *a : dlg.findChildren<QAction *>())
+            if (a->text() == QStringLiteral("Add Row"))
+                add = a;
+        QVERIFY(add);
+        for (int i = 0; i < 4; ++i)
+            add->trigger(); // seeded at the start, then one hour apart
+        TimeseriesProvider &d = *dlg.editedSeries();
+        QCOMPARE(d.pointCount(), 4);
+        for (int i = 0; i < 4; ++i)
+            QCOMPARE(d.pointAt(i).time.time().hour(), i); // through the fall-back hour
+
+        QCOMPARE(reg.simulationStart().timeSpec(), Qt::UTC);
+        QCOMPARE(reg.simulationStart().date(), local.date());
+        QCOMPARE(reg.simulationStart().time(), local.time());
+    }
+
+    /*! Without an installed observation source the Geopackage source cannot
+     *  pick a series (the light editor build), and says so. */
+    void geopackageSourceWithoutAnInstalledFlowCannotChoose()
+    {
+        TimeseriesEditorDialog::setObservationSource({}, {});
+        TimeseriesRegistry reg;
+        TimeseriesProvider &p = *reg.create(QStringLiteral("FLOW"));
+        QUndoStack project;
+        TimeseriesEditorDialog dlg(&reg, &project, &p);
+        for (auto *r : dlg.findChildren<QRadioButton *>())
+            if (r->text() == QStringLiteral("Geopackage"))
+                r->setChecked(true);
+        QVERIFY(!dlg.findChild<QPushButton *>("gpkgChooseBtn")->isEnabled());
     }
 };
 

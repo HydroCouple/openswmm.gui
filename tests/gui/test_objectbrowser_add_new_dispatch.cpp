@@ -241,7 +241,11 @@ private slots:
 
         auto *p = reg.findByName(QStringLiteral("RAIN_E"));
         QVERIFY(p);
-        QCOMPARE(int(p->sourceMode()), int(TimeseriesProvider::SourceMode::GeopackageObserved));
+        // The series is created at once; the chosen source is the first edit
+        // of its draft and reaches the model at Apply.
+        QCOMPARE(int(dlg->editedSeries()->sourceMode()),
+                 int(TimeseriesProvider::SourceMode::GeopackageObserved));
+        QCOMPARE(int(p->sourceMode()), int(TimeseriesProvider::SourceMode::Inline));
 
         delete dlg;
     }
@@ -265,7 +269,8 @@ private slots:
         QUndoStack stack;
         TimeseriesEditorDialog dlg(&reg, &stack, &pa);
         QVERIFY(dlg.chartView() != nullptr);
-        QCOMPARE(dlg.chartView()->provider(), &pa);
+        QCOMPARE(dlg.chartView()->provider(), dlg.editedSeries()); // the draft of RAIN_A
+        QCOMPARE(dlg.editedSeries()->name(), pa.name());
 
         dlg.chartView()->setProvider(&pb);
         QCOMPARE(dlg.chartView()->provider(), &pb);
@@ -289,7 +294,8 @@ private slots:
         QCOMPARE(int(dlg.mode()), int(TimeseriesEditorDialog::Mode::Edit));
         QVERIFY(dlg.tableModel() != nullptr);
         QVERIFY(dlg.chartView() != nullptr);
-        QCOMPARE(dlg.chartView()->provider(), &p);
+        QCOMPARE(dlg.chartView()->provider(), dlg.editedSeries()); // the draft of RAIN_F
+        QCOMPARE(dlg.editedSeries()->pointCount(), p.pointCount());
         // No create-card in Edit mode.
         QVERIFY(findCreateNameEdit(&dlg) == nullptr);
         QVERIFY(findCreateBtn(&dlg) == nullptr);

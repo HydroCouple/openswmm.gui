@@ -18,10 +18,13 @@
  *   │            │  filtered by type          │   dimension callouts)  │
  *   └────────────┴────────────────────────────┴────────────────────────┘
  *
- * MVC contract: every mutation goes through InletProvider / InletRegistry,
- * wrapped in a QUndoCommand when the dialog has a QUndoStack (see
- * inletundocommands.h); the list, the tree and the drawing all re-render from
- * the provider's signals.
+ * MVC contract: the type, property tree, comments and drawing edit a DRAFT copy
+ * of each inlet the user opens; the model's inlet changes only at Apply, as
+ * one step on the dialog's QUndoStack (workplans/DATA_OBJECT_APPLY_REVERT_PLAN_2026-11-11.md).
+ * Draft edits undo step by step on the editor's own stack (toolbar Undo / Redo).
+ * Add, delete and rename take effect at once through the commands in
+ * inletundocommands.h. The list, the tree and the drawing re-render from
+ * their provider's signals.
  *
  * Entry points mirror the transect editor: `createNew` (modeless, starts on a
  * fresh design), `openForInlet` (modeless, selects a design by name — used by
@@ -38,6 +41,7 @@
 
 #include <QDialog>
 #include <QPointer>
+#include <QVector>
 
 class QComboBox;
 class QLabel;
@@ -66,6 +70,8 @@ namespace openswmmvis::ui
 class InletDrawingView;
 class InletListModel;
 class InletPropertyBag;
+class DataObjectDraftSession;
+class DraftMarkProxyModel;
 
 class InletEditorDialog : public QDialog
 {
@@ -81,13 +87,11 @@ public:
      * @param[in] layer Borrowed optional model supplying engine/curve context, guarded through
      * QPointer.
      * @param[in] undoStack Borrowed optional undo owner guarded through QPointer; non-null
-     * routes add/delete/name/type/comment/design edits through commands, null uses direct
-     * provider/registry edits.
+     * receives add/delete/rename commands and one step per Apply; null applies without history.
      * @param[in] parent Optional Qt owner of the floating dialog and child models/widgets.
      * @details GUI-thread editor subscribes provider state and invalidates when
      * registry/model/undo owner is destroyed or the model engine closes. Selects the first
-     * registry entry when present; closing the editor does not roll back already-applied
-     * changes.
+     * registry entry when present. Closing with a draft asks Apply / Discard / Cancel.
      */
     InletEditorDialog(openswmmvis::inlet::InletRegistry *registry, SWMMModelLayer *layer,
                       QUndoStack *undoStack, QWidget *parent = nullptr);
@@ -159,6 +163,16 @@ public:
      */
     openswmmvis::inlet::InletProvider *currentProvider() const noexcept;
 
+    /*! Apply / Revert state of this editor's drafts. */
+    DataObjectDraftSession *draftSession() const noexcept { return m_session; }
+    /*! The draft copy the form edits for the current inlet, or null. Exposed for tests. */
+    openswmmvis::inlet::InletProvider *editedInlet() const noexcept { return m_edited.data(); }
+
+public slots:
+    /// With unapplied drafts, ask Apply / Discard / Cancel before closing.
+    void done(int result) override;
+
+public:
     // ── Test hooks ──────────────────────────────────────────────────────────
     /**
      * @brief Borrow the inlet list widget.
@@ -399,6 +413,30 @@ private:
      */
     bool passesShapeFilter_(openswmmvis::inlet::InletProvider *p) const;
 
+    // ── Drafts (Apply / Revert) ─────────────────────────────────────────────
+    /*! One inlet opened here: the model's provider, the copy the form edits,
+     *  and the model values the copy was last taken from. */
+    struct Draft {
+        QPointer<openswmmvis::inlet::InletProvider> live;
+        openswmmvis::inlet::InletProvider *copy = nullptr;
+        openswmmvis::inlet::InletProvider::Params base;
+    };
+    /// The draft copy of \p live, made on first use; null for null.
+    openswmmvis::inlet::InletProvider *copyFor_(openswmmvis::inlet::InletProvider *live);
+    /// The model's inlet changed: follow it when unedited, else report the conflict.
+    void onLiveChanged_(openswmmvis::inlet::InletProvider *live);
+    /// The model's inlet is going away: drop its draft.
+    void dropDraft_(openswmmvis::inlet::InletProvider *live);
+    int dirtyCount_() const;
+    bool applyDrafts_(QString *reason);
+    void revertDrafts_();
+
+    QVector<Draft> m_drafts;
+    QPointer<openswmmvis::inlet::InletProvider> m_edited; ///< Copy bound to the form.
+    QUndoStack *m_draftUndo = nullptr; ///< Step-by-step undo of draft edits (toolbar Undo/Redo).
+    DataObjectDraftSession *m_session = nullptr;
+    bool m_applying = false;
+
     bool m_contextValid = true;
     QPointer<openswmmvis::inlet::InletRegistry> m_registry;
     QPointer<SWMMModelLayer> m_layer;
@@ -412,6 +450,7 @@ private:
     // Left pane.
     QListView *m_listView = nullptr;
     InletListModel *m_listModel = nullptr;
+    DraftMarkProxyModel *m_draftMarks = nullptr; ///< Marks rows holding unapplied changes.
     QPushButton *m_addBtn = nullptr;
     QPushButton *m_delBtn = nullptr;
 

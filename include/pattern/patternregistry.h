@@ -128,9 +128,14 @@ public:
      *  \param engineHandle Opaque pointer to SWMM_Engine. Passed as void*
      *                      so this header stays free of the engine C header.
      *  \returns the number of providers added.
-     * @details Does not attach engineHandle; live mirroring still uses the separately attached engine. Invalid/missing factors may leave identity defaults; existing names are skipped. Null returns zero.
+     * @details Does not attach engineHandle; live mirroring still uses the separately attached engine. Factors the engine does not list (a file with fewer than the type needs) are 1.0, as legacy SWMM reads them; extra ones are dropped. Existing names are skipped. Null returns zero.
      */
     int loadFromEngine(void *engineHandle);
+
+    /*! Refresh the existing pattern \p onlyName's factors from the engine,
+     *  quietly: what Apply compares its target with. Missing factors are 1.0.
+     * @return 1 when refreshed, 0 when the pattern is missing in either. */
+    int loadFromEngine(void *engineHandle, const QString &onlyName);
 
     /*! \brief Push every provider's factors back to the engine via
      *  `swmm_pattern_set_factors`. New providers (missing from the engine)

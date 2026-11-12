@@ -127,7 +127,8 @@ void TimeseriesProvider::reconcileRelativeAfterMutation_(TimeMode prevMode)
 
 void TimeseriesProvider::notifyInlineEdit()
 {
-    if (m_sourceMode == SourceMode::Inline)
+    // Inline and observation copies own their points; a file series' points are a cache.
+    if (m_sourceMode != SourceMode::ExternalFile)
         emit storageChanged();
 }
 
@@ -329,6 +330,82 @@ void TimeseriesProvider::setSourceMode(SourceMode mode)
     m_sourceMode = mode;
     emit storageChanged();
     emit sourceModeChanged(prev, m_sourceMode);
+}
+
+bool TimeseriesProvider::Content::sameAs(const Content &o) const
+{
+    if (sourceMode != o.sourceMode || unitsLabel != o.unitsLabel || description != o.description)
+        return false;
+    if (sourceMode == SourceMode::ExternalFile)
+        return filePath == o.filePath && columnSelector == o.columnSelector;
+    if (sourceMode == SourceMode::GeopackageObserved && observationBinding != o.observationBinding)
+        return false;
+    if (relativeCount != o.relativeCount || allRelative != o.allRelative)
+        return false;
+    if ((relativeCount > 0 || allRelative) && relativeAnchor != o.relativeAnchor)
+        return false;
+    if (points.size() != o.points.size())
+        return false;
+    if (points.constData() == o.points.constData())
+        return true; // still sharing one copy
+    for (qsizetype i = 0; i < points.size(); ++i)
+        if (points[i].value != o.points[i].value || points[i].time != o.points[i].time)
+            return false;
+    return true;
+}
+
+TimeseriesProvider::Content TimeseriesProvider::content() const
+{
+    return {m_points,        m_sourceMode,    m_filePath,       m_columnSelector,
+            m_fileMTime,     m_relativeCount, m_allRelative,    m_relativeAnchor,
+            m_unitsLabel,    m_description,   m_observationBinding};
+}
+
+void TimeseriesProvider::setContent(const Content &c)
+{
+    const Content before = content();
+    const TimeMode prevMode = timeMode();
+    const bool pointsShared =
+        m_points.size() == c.points.size() && m_points.constData() == c.points.constData();
+
+    m_points = c.points;
+    m_sourceMode = c.sourceMode;
+    m_filePath = c.filePath;
+    m_columnSelector = c.columnSelector;
+    m_fileMTime = c.fileMTime;
+    m_allRelative = c.allRelative;
+    m_relativeCount = qBound(0, c.relativeCount, static_cast<int>(m_points.size()));
+    m_relativeAnchor = c.relativeAnchor;
+    m_unitsLabel = c.unitsLabel;
+    m_description = c.description;
+    m_observationBinding = c.observationBinding;
+
+    if (!pointsShared) {
+        if (!before.points.isEmpty())
+            emit pointsRemoved(0, before.points.size());
+        if (!m_points.isEmpty())
+            emit pointsInserted(0, m_points.size());
+    }
+    if (before.sourceMode != m_sourceMode)
+        emit sourceModeChanged(before.sourceMode, m_sourceMode);
+    if (timeMode() != prevMode || before.relativeAnchor != m_relativeAnchor)
+        emit timeModeChanged();
+    if (before.filePath != m_filePath || before.columnSelector != m_columnSelector ||
+        before.fileMTime != m_fileMTime || before.unitsLabel != m_unitsLabel ||
+        before.description != m_description || before.observationBinding != m_observationBinding)
+        emit metadataChanged();
+    if (!before.sameAs(c))
+        emit storageChanged();
+}
+
+void TimeseriesProvider::setObservationBinding(QJsonObject binding)
+{
+    if (binding == m_observationBinding)
+        return;
+    m_observationBinding = std::move(binding);
+    if (m_sourceMode == SourceMode::GeopackageObserved)
+        emit storageChanged();
+    emit metadataChanged();
 }
 
 void TimeseriesProvider::setFileSource(QString path, QString columnSelector, QDateTime mtime)

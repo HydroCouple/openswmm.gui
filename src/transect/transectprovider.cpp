@@ -244,4 +244,87 @@ void TransectProvider::removePointsAt(QVector<int> indices)
     }
 }
 
+namespace
+{
+bool samePoints(const QVector<TransectPoint> &a, const QVector<TransectPoint> &b, double relTol)
+{
+    if (a.size() != b.size())
+        return false;
+    const auto close = [relTol](double x, double y) {
+        return relTol == 0.0 ? x == y
+                             : std::abs(x - y) <= relTol * std::max({1.0, std::abs(x), std::abs(y)});
+    };
+    for (qsizetype i = 0; i < a.size(); ++i)
+        if (!close(a[i].station, b[i].station) || !close(a[i].elevation, b[i].elevation))
+            return false;
+    return true;
+}
+} // namespace
+
+bool TransectProvider::Params::operator==(const Params &o) const
+{
+    return comments == o.comments && nLeft == o.nLeft && nRight == o.nRight &&
+           nChannel == o.nChannel && xLeftBank == o.xLeftBank && xRightBank == o.xRightBank &&
+           xLeftEncroach == o.xLeftEncroach && xRightEncroach == o.xRightEncroach &&
+           xFactor == o.xFactor && yFactor == o.yFactor && lengthFactor == o.lengthFactor &&
+           samePoints(points, o.points, 0.0);
+}
+
+bool TransectProvider::Params::sameAs(const Params &o, double relTol) const
+{
+    const auto close = [relTol](double x, double y) {
+        return std::abs(x - y) <= relTol * std::max({1.0, std::abs(x), std::abs(y)});
+    };
+    return comments == o.comments && close(nLeft, o.nLeft) && close(nRight, o.nRight) &&
+           close(nChannel, o.nChannel) && close(xLeftBank, o.xLeftBank) &&
+           close(xRightBank, o.xRightBank) && close(xLeftEncroach, o.xLeftEncroach) &&
+           close(xRightEncroach, o.xRightEncroach) && close(xFactor, o.xFactor) &&
+           close(yFactor, o.yFactor) && close(lengthFactor, o.lengthFactor) &&
+           samePoints(points, o.points, relTol);
+}
+
+TransectProvider::Params TransectProvider::params() const
+{
+    return {m_comments,     m_nLeft,          m_nRight,  m_nChannel, m_xLeftBank,
+            m_xRightBank,   m_xLeftEncroach,  m_xRightEncroach,      m_xFactor,
+            m_yFactor,      m_lengthFactor,   m_points};
+}
+
+void TransectProvider::setParams(const Params &p)
+{
+    const Params before = params();
+    if (p == before)
+        return;
+    m_comments = p.comments;
+    m_nLeft = p.nLeft;
+    m_nRight = p.nRight;
+    m_nChannel = p.nChannel;
+    m_xLeftBank = p.xLeftBank;
+    m_xRightBank = p.xRightBank;
+    m_xLeftEncroach = p.xLeftEncroach;
+    m_xRightEncroach = p.xRightEncroach;
+    m_xFactor = p.xFactor;
+    m_yFactor = p.yFactor;
+    m_lengthFactor = p.lengthFactor;
+    m_points = p.points;
+
+    if (before.comments != m_comments)
+        emit commentsChanged();
+    if (before.nLeft != m_nLeft || before.nRight != m_nRight || before.nChannel != m_nChannel)
+        emit roughnessChanged();
+    if (before.xLeftBank != m_xLeftBank || before.xRightBank != m_xRightBank)
+        emit bankStationsChanged();
+    if (before.xLeftEncroach != m_xLeftEncroach || before.xRightEncroach != m_xRightEncroach)
+        emit encroachmentStationsChanged();
+    if (before.xFactor != m_xFactor || before.yFactor != m_yFactor ||
+        before.lengthFactor != m_lengthFactor)
+        emit modifiersChanged();
+    if (!samePoints(before.points, m_points, 0.0)) {
+        if (!before.points.isEmpty())
+            emit pointsRemoved(0, int(before.points.size()));
+        if (!m_points.isEmpty())
+            emit pointsInserted(0, int(m_points.size()));
+    }
+}
+
 } // namespace openswmmvis::transect

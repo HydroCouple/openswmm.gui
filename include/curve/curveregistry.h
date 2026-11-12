@@ -98,6 +98,18 @@ public:
      */
     int loadFromEngine(void *engineHandle);
 
+    /*! Refresh the existing curve \p onlyName from the engine (type and
+     *  points), quietly: what Apply compares its target with.
+     * @return 1 when refreshed, 0 when the curve or its engine table is missing. */
+    int loadFromEngine(void *engineHandle, const QString &onlyName);
+
+    /*! Engine table index of the curve \p name, or -1 (a time series of the
+     *  same name never matches); e.g. for swmm_table_analyze_impact. */
+    static int engineTableIndex(void *engineHandle, const QString &name);
+
+    /*! The engine this registry mirrors to (set by loadFromEngine / saveToEngine). */
+    void *engineHandle() const noexcept { return m_engineHandle; }
+
     /*! \brief Push every provider back to the engine via
      *  `swmm_curve_add` (if new) + `swmm_table_clear` + `swmm_table_add_point`.
      * @param[in] engineHandle Borrowed engine retained for later mutations; null returns zero without changing the cached handle.

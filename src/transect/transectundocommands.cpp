@@ -232,22 +232,28 @@ void DeleteStationsCommand::undo()
 
 RenameTransectCommand::RenameTransectCommand(TransectRegistry *registry, TransectProvider *provider,
                                              QString newName, QUndoCommand *parent)
-    : QUndoCommand(parent), m_registry(registry), m_provider(provider),
+    : QUndoCommand(parent), m_registry(registry),
       m_oldName(provider ? provider->name() : QString()), m_newName(std::move(newName))
 {
     setText(QCoreApplication::translate("transect", "Rename Transect"));
 }
 
+// By name, not by the provider seen at construction: the transect may have
+// been deleted and brought back by Undo since, as a new provider.
 void RenameTransectCommand::redo()
 {
-    if (m_registry && m_provider)
-        m_registry->rename(m_provider, m_newName);
+    if (!m_registry || m_oldName.isEmpty())
+        return;
+    if (TransectProvider *p = m_registry->findByName(m_oldName))
+        m_registry->rename(p, m_newName);
 }
 
 void RenameTransectCommand::undo()
 {
-    if (m_registry && m_provider)
-        m_registry->rename(m_provider, m_oldName);
+    if (!m_registry || m_oldName.isEmpty())
+        return;
+    if (TransectProvider *p = m_registry->findByName(m_newName))
+        m_registry->rename(p, m_oldName);
 }
 
 } // namespace openswmmvis::transect

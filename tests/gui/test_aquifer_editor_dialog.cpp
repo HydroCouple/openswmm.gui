@@ -31,6 +31,10 @@
 #include "ui/sectionview/aquiferdiagram.h"
 #include "ui/sectionview/sectionpreviewwidget.h"
 
+#include "ui/editors/dataobjectdraftsession.h"
+
+#include <QUndoStack>
+
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_subcatchments.h>
 
@@ -176,6 +180,7 @@ private slots:
     void evapPatternRoundTripsToEngine();
     void softValidationWarnings();
     void diagramTracksForm();
+    void draftsHeldUntilApplyAsOneUndoStep();
 };
 
 /** @brief Verify the first aquifer populates every spin, legal range, US unit suffix and evaporation pattern without warnings. */
@@ -296,7 +301,7 @@ void TestAquiferEditorDialog::deleteReportsImpactAndReachesEngine()
     QCOMPARE(dlg.currentProvider()->name(), QStringLiteral("AQ2"));
 }
 
-/** @brief Verify spin changes update provider values, clamp illegal fractions, flush conductivity and rehydrate when selecting another aquifer. */
+/** @brief Verify spin changes reach the provider and engine at Apply, clamp illegal fractions, and rehydrate when selecting another aquifer. */
 void TestAquiferEditorDialog::spinEditsReachProvider()
 {
     EngineFixture fx(QStringLiteral("spinsync"));
@@ -310,17 +315,17 @@ void TestAquiferEditorDialog::spinEditsReachProvider()
     dlg.spinBox(AquiferProvider::Porosity)->setValue(0.45);
     dlg.spinBox(AquiferProvider::Conductivity)->setValue(7.25);
     dlg.spinBox(AquiferProvider::BottomElev)->setValue(-12.5);
-    QCOMPARE(aq1->param(AquiferProvider::Porosity), 0.45);
-    QCOMPARE(aq1->param(AquiferProvider::Conductivity), 7.25);
-    QCOMPARE(aq1->param(AquiferProvider::BottomElev), -12.5);
-
     // Out-of-range entry is clamped by the spin box, so the provider only
     // ever sees engine-legal values.
     dlg.spinBox(AquiferProvider::WiltingPoint)->setValue(1.7);
+    QCOMPARE(aq1->param(AquiferProvider::Porosity), 0.5); // held in the draft
+    QVERIFY(dlg.draftSession()->apply());
+    QCOMPARE(aq1->param(AquiferProvider::Porosity), 0.45);
+    QCOMPARE(aq1->param(AquiferProvider::Conductivity), 7.25);
+    QCOMPARE(aq1->param(AquiferProvider::BottomElev), -12.5);
     QCOMPARE(aq1->param(AquiferProvider::WiltingPoint), 1.0);
 
-    // Through to the engine on save.
-    reg.saveToEngine(fx.engine);
+    // Apply wrote the engine.
     double v = 0.0;
     const int idx = swmm_aquifer_index(fx.engine, "AQ1");
     QVERIFY(idx >= 0);
@@ -330,7 +335,7 @@ void TestAquiferEditorDialog::spinEditsReachProvider()
     // Switching the bound aquifer re-reads the form from the other provider.
     auto *aq2 = reg.findByName(QStringLiteral("AQ2"));
     QVERIFY(aq2);
-    dlg.listView()->setCurrentIndex(dlg.listModel()->index(1));
+    dlg.listView()->setCurrentIndex(dlg.listView()->model()->index(1, 0));
     QCOMPARE(dlg.currentProvider(), aq2);
     QCOMPARE(dlg.spinBox(AquiferProvider::Porosity)->value(), 0.4);
     QCOMPARE(dlg.evapPatternCombo()->currentIndex(), 0); // "(none)"
@@ -358,16 +363,17 @@ void TestAquiferEditorDialog::evapPatternRoundTripsToEngine()
     QCOMPARE(combo->currentText(), QStringLiteral("EVAP1"));
     QCOMPARE(aq1->evapPattern(), QStringLiteral("EVAP1"));
 
-    // Clear it → provider empty → engine empty after save.
+    // Clear it → provider and engine empty at Apply.
     combo->setCurrentIndex(0);
+    QCOMPARE(aq1->evapPattern(), QStringLiteral("EVAP1")); // held in the draft
+    QVERIFY(dlg.draftSession()->apply());
     QVERIFY(aq1->evapPattern().isEmpty());
-    reg.saveToEngine(fx.engine);
     QVERIFY(engineEvapPattern(fx.engine, "AQ1").isEmpty());
 
     // Set it back → engine sees the name again.
     combo->setCurrentIndex(combo->findText(QStringLiteral("EVAP1")));
+    QVERIFY(dlg.draftSession()->apply());
     QCOMPARE(aq1->evapPattern(), QStringLiteral("EVAP1"));
-    reg.saveToEngine(fx.engine);
     QCOMPARE(engineEvapPattern(fx.engine, "AQ1"), QStringLiteral("EVAP1"));
 
     // The pattern name rides along on the diagram's ETu callout.
@@ -469,6 +475,60 @@ void TestAquiferEditorDialog::diagramTracksForm()
     QVERIFY(none.diagram()->model().isEmpty());
     QVERIFY(none.validationWarnings().isEmpty());
     QVERIFY(!none.spinBox(AquiferProvider::Porosity)->isEnabled());
+}
+
+/** @brief Edits wait in a draft per aquifer (kept across switching), Apply writes every draft as
+ *  one undo step that reaches the engine, an edit from another view is not overwritten silently,
+ *  and Revert restores the model's values. */
+void TestAquiferEditorDialog::draftsHeldUntilApplyAsOneUndoStep()
+{
+    using State = openswmmvis::ui::DataObjectDraftSession::State;
+    EngineFixture fx(QStringLiteral("drafts"));
+    QVERIFY(fx.engine);
+    AquiferRegistry reg;
+    reg.loadFromEngine(fx.engine);
+    QUndoStack project;
+    AquiferEditorDialog dlg(&reg, nullptr);
+    dlg.setUndoStack(&project);
+    AquiferProvider *aq1 = reg.findByName(QStringLiteral("AQ1"));
+    AquiferProvider *aq2 = reg.findByName(QStringLiteral("AQ2"));
+    QVERIFY(aq1 && aq2 && dlg.currentProvider() == aq1);
+    const auto engineValue = [&](const char *name, int k) {
+        double v = -1.0;
+        swmm_aquifer_get_param(fx.engine, swmm_aquifer_index(fx.engine, name), k, &v);
+        return v;
+    };
+    const double aq1Before = engineValue("AQ1", AquiferProvider::Conductivity);
+
+    dlg.spinBox(AquiferProvider::Conductivity)->setValue(3.5);
+    dlg.listView()->setCurrentIndex(dlg.listView()->model()->index(1, 0)); // AQ2
+    dlg.spinBox(AquiferProvider::Conductivity)->setValue(4.5);
+    dlg.listView()->setCurrentIndex(dlg.listView()->model()->index(0, 0)); // back to AQ1
+    QCOMPARE(dlg.spinBox(AquiferProvider::Conductivity)->value(), 3.5); // its draft
+    QCOMPARE(dlg.draftSession()->state(), State::Unapplied);
+    QCOMPARE(engineValue("AQ1", AquiferProvider::Conductivity), aq1Before);
+    QCOMPARE(project.count(), 0);
+
+    QVERIFY(dlg.draftSession()->apply());
+    QCOMPARE(project.count(), 1); // two aquifers, one step
+    QCOMPARE(engineValue("AQ1", AquiferProvider::Conductivity), 3.5);
+    QCOMPARE(engineValue("AQ2", AquiferProvider::Conductivity), 4.5);
+    project.undo(); // reaches the engine, and the form follows
+    QCOMPARE(engineValue("AQ1", AquiferProvider::Conductivity), aq1Before);
+    QCOMPARE(dlg.spinBox(AquiferProvider::Conductivity)->value(), aq1Before);
+    project.redo();
+    QCOMPARE(engineValue("AQ2", AquiferProvider::Conductivity), 4.5);
+
+    // Another view writes AQ1 while it has a draft: kept, reported, not merged.
+    dlg.spinBox(AquiferProvider::Porosity)->setValue(0.33);
+    aq1->setParam(AquiferProvider::FieldCapacity, 0.21);
+    QCOMPARE(dlg.draftSession()->state(), State::Conflict);
+    QCOMPARE(dlg.spinBox(AquiferProvider::Porosity)->value(), 0.33);
+
+    dlg.draftSession()->revert();
+    QCOMPARE(dlg.draftSession()->state(), State::Clean);
+    QCOMPARE(dlg.spinBox(AquiferProvider::Porosity)->value(), aq1->param(AquiferProvider::Porosity));
+    QCOMPARE(dlg.spinBox(AquiferProvider::FieldCapacity)->value(), 0.21);
 }
 
 QTEST_MAIN(TestAquiferEditorDialog)

@@ -283,6 +283,32 @@ private:
     QDateTime m_anchor;
 };
 
+/*! \brief Replace a series' whole content (points, source, bindings) — used
+ *  where one user action changes several of them at once, such as choosing,
+ *  refreshing or detaching an observation copy. */
+class SetContentCommand : public QUndoCommand
+{
+public:
+    /**
+     * @brief Capture the provider's current content as the undo state.
+     * @param[in] provider Non-null borrowed raw provider pointer that must outlive all undo/redo uses.
+     * @param[in] content Replacement content applied by redo().
+     * @param[in] text Undo history label.
+     * @param[in] parent Optional QUndoCommand owner.
+     */
+    SetContentCommand(TimeseriesProvider *provider, TimeseriesProvider::Content content,
+                      const QString &text, QUndoCommand *parent = nullptr);
+    /** @brief Restore the captured content. */
+    void undo() override;
+    /** @brief Apply the replacement content. */
+    void redo() override;
+
+private:
+    TimeseriesProvider *m_provider;
+    TimeseriesProvider::Content m_before;
+    TimeseriesProvider::Content m_after;
+};
+
 } // namespace openswmmvis::timeseries
 
 #endif // OPENSWMMVIS_TIMESERIES_TIMESERIESUNDOCOMMANDS_H

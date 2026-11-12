@@ -38,6 +38,8 @@
 #include <QPointer>
 #include <QVector>
 
+#include <functional>
+
 class QUndoStack;
 
 namespace openswmmvis::timeseries
@@ -104,6 +106,14 @@ public:
      *   commands unchanged.
      */
     void setUndoStack(QUndoStack *stack) { m_undoStack = stack; }
+
+    /*! \brief Route header renames through the owner (the registry renames the
+     *  engine table too). Without it a header rename only renames the provider. */
+    void setRenameHandler(
+        std::function<bool(openswmmvis::timeseries::TimeseriesProvider *, const QString &)> handler)
+    {
+        m_rename = std::move(handler);
+    }
     /**
      * @return Borrowed raw currently assigned stack, possibly null; no liveness check.
      */
@@ -223,6 +233,7 @@ private:
     QVector<QPointer<openswmmvis::timeseries::TimeseriesProvider>> m_providers;
     LayoutMode m_layout = LayoutMode::SharedGrid;
     QUndoStack *m_undoStack = nullptr;
+    std::function<bool(openswmmvis::timeseries::TimeseriesProvider *, const QString &)> m_rename;
 
     /*! \brief Walks providers; returns true iff all share the same time grid.
      * @brief Store SharedGrid by default, switch Divergent on later missing provider, differing

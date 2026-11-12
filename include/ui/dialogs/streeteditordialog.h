@@ -33,7 +33,10 @@
 #ifndef OPENSWMMVIS_UI_DIALOGS_STREETEDITORDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_STREETEDITORDIALOG_H
 
+#include "street/streetprovider.h" // Params held per draft
+
 #include <QDialog>
+#include <QHash>
 #include <QPointer>
 #include <QWidget>
 
@@ -44,6 +47,7 @@ class QListView;
 class QPushButton;
 class QRadioButton;
 class QSplitter;
+class QUndoStack;
 
 class SWMMModelLayer;
 
@@ -57,6 +61,8 @@ namespace openswmmvis::ui
 {
 
 class StreetListModel;
+class DataObjectDraftSession;
+class DraftMarkProxyModel;
 
 /*! \brief Lightweight schematic preview of a street cross-section. Draws
  *  the road crown, curb, depressed gutter and (optionally) backing from a
@@ -71,14 +77,14 @@ public:
      */
     explicit StreetSectionPreview(QWidget *parent = nullptr);
     /**
-     * @brief Change the guarded street whose parameters drive the preview.
+     * @brief Show street \p p (its name, and its model values until showParams()).
      * @param[in] p Borrowed nullable provider, stored through QPointer; null displays the
      * no-selection placeholder.
-     * @details Same-pointer calls do nothing. Disconnects previous provider-to-preview signals,
-     * subscribes the new provider's paramsChanged to QWidget::update and schedules repaint; no
-     * provider mutation or ownership transfer.
+     * @details No provider mutation or ownership transfer; the editor drives later repaints.
      */
     void setProvider(openswmmvis::street::StreetProvider *p);
+    /** @brief Draw \p values (the editor's draft or the model's) and repaint. */
+    void showParams(const openswmmvis::street::StreetProvider::Params &values);
 
 protected:
     /**
@@ -96,6 +102,7 @@ protected:
 
 private:
     QPointer<openswmmvis::street::StreetProvider> m_provider;
+    openswmmvis::street::StreetProvider::Params m_shown; ///< What is drawn.
 };
 
 class StreetEditorDialog : public QDialog
@@ -112,9 +119,11 @@ public:
      * @param[in] layer Borrowed optional model context stored through QPointer; engine
      * closure/destruction invalidates the editor.
      * @param[in] parent Optional Qt owner of the dialog and children.
-     * @details GUI-thread editor selects the first available provider, subscribes registry
-     * events and commits edits immediately to providers. Closing does not undo changes. Registry
-     * destruction also invalidates the context before later focus-out edits can use it.
+     * @details GUI-thread editor selects the first available provider and subscribes registry
+     * events. Field edits are held in a draft per street until Apply, which writes them to the
+     * model as one step on the stack given to setUndoStack(); create, delete and rename take
+     * effect at once. Closing with a draft asks Apply / Discard / Cancel. Registry destruction
+     * invalidates the context before later focus-out edits can use it.
      */
     StreetEditorDialog(openswmmvis::street::StreetRegistry *registry, SWMMModelLayer *layer,
                        QWidget *parent = nullptr);
@@ -148,6 +157,17 @@ public:
      * the selected street.
      */
     Mode mode() const noexcept { return m_mode; }
+
+    /*! The project's undo stack: one Apply becomes one step on it. */
+    void setUndoStack(QUndoStack *stack);
+    /*! Apply / Revert state of this editor's drafts. */
+    DataObjectDraftSession *draftSession() const noexcept { return m_session; }
+
+public slots:
+    /// With unapplied drafts, ask Apply / Discard / Cancel before closing.
+    void done(int result) override;
+
+public:
     /**
      * @brief Borrow the guarded current street provider.
      * @return Registry-owned pointer or null after unbinding, provider destruction or context
@@ -309,6 +329,19 @@ private:
      */
     QString suggestUniqueName_() const;
 
+    /// Draft the form's values for the current street (dropped again when equal to the model).
+    void draftFromForm_();
+    /// What the form shows for \p p: its draft if it has one, else the model's values.
+    openswmmvis::street::StreetProvider::Params shown_(openswmmvis::street::StreetProvider *p) const;
+    bool applyDrafts_(QString *reason);
+    void revertDrafts_();
+
+    QHash<openswmmvis::street::StreetProvider *, openswmmvis::street::StreetProvider::Params>
+        m_drafts;
+    DataObjectDraftSession *m_session = nullptr;
+    QPointer<QUndoStack> m_undo;
+    bool m_applying = false;
+
     bool m_contextValid = true;
     QPointer<openswmmvis::street::StreetRegistry> m_registry;
     QPointer<SWMMModelLayer> m_layer;
@@ -320,6 +353,7 @@ private:
     // Left pane.
     QListView *m_listView = nullptr;
     StreetListModel *m_listModel = nullptr;
+    DraftMarkProxyModel *m_draftMarks = nullptr; ///< Marks rows holding unapplied changes.
     QPushButton *m_addBtn = nullptr;
     QPushButton *m_delBtn = nullptr;
 

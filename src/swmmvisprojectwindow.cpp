@@ -18,6 +18,7 @@
  */
 
 #include "swmmvisprojectwindow.h"
+#include "ui/editors/dataobjectdraftsession.h"
 #include "project/profilesectionstore.h"
 #include "project/groundwaterrecipestore.h"
 #include "plugins/extensionstateregistry.h"
@@ -114,6 +115,7 @@
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_spatial.h>
 #include <openswmm/engine/openswmm_model.h>
+#include <openswmm/engine/openswmm_tables.h>
 
 SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace, const QString &filePath,
                                            QWidget *parent, const QUuid &instanceId,
@@ -2502,6 +2504,24 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
         for (int i = engineWarnsBefore; i < engineWarnsAfter; ++i)
             mLastSaveWarnings.append(
                 QString::fromUtf8(swmm_get_warning_at(mModelLayer->engine(), i)).trimmed());
+        // Neither file format can hold a series without rows, so the name
+        // is not written. Say so instead of dropping it silently.
+        const int tableCount = swmm_table_count(mModelLayer->engine());
+        for (int i = 0; i < tableCount; ++i) {
+            int type = -1, points = -1;
+            char resolved[1024] = {}, authored[1024] = {};
+            const char *id = swmm_table_id(mModelLayer->engine(), i);
+            if (!id || swmm_table_get_type(mModelLayer->engine(), i, &type) != SWMM_OK ||
+                type != 0 /* TIMESERIES */ ||
+                swmm_table_get_point_count(mModelLayer->engine(), i, &points) != SWMM_OK ||
+                points != 0)
+                continue;
+            swmm_file_path_get(mModelLayer->engine(), SWMM_FILE_TIMESERIES_DATA, id, resolved,
+                               int(sizeof(resolved)), authored, int(sizeof(authored)));
+            if (authored[0] == '\0' && resolved[0] == '\0')
+                mLastSaveWarnings.append(
+                    tr("Time series '%1' has no rows and was not saved.").arg(QString::fromUtf8(id)));
+        }
     }
     if (rc != 0) {
         // The engine forwards its writer diagnostics (the failing file and
@@ -2766,6 +2786,19 @@ void SWMMVisProjectWindow::closeEvent(QCloseEvent *event)
     if (mClosePromptActive) {
         event->ignore();
         return;
+    }
+
+    // Editors with unapplied changes lose them when the project closes. Ask
+    // first; an Apply then makes the project dirty, so the save prompt follows.
+    if (mModelLayer) {
+        mClosePromptActive = true;
+        const bool proceed = openswmmvis::ui::resolveUnappliedChanges(
+            mModelLayer, openswmmvis::ui::UnappliedAction::Close, this);
+        mClosePromptActive = false;
+        if (!proceed) {
+            event->ignore();
+            return;
+        }
     }
 
     // Untitled projects live only in memory, so closing one always prompts

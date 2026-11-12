@@ -257,6 +257,26 @@ public:
      */
     void removePointsAt(QVector<int> indices);
 
+    /*! Everything the transect editor changes (all but the name): an editor's
+     *  draft, and the before / after of one Apply. */
+    struct Params {
+        QString comments;
+        double nLeft = 0.030, nRight = 0.030, nChannel = 0.030;
+        double xLeftBank = 0.0, xRightBank = 0.0;
+        double xLeftEncroach = 0.0, xRightEncroach = 0.0;
+        double xFactor = 1.0, yFactor = 0.0, lengthFactor = 1.0;
+        QVector<TransectPoint> points;
+        bool operator==(const Params &o) const;
+        /*! Equal within \p relTol relative (absolute near zero) for every
+         *  number, comments exactly. */
+        bool sameAs(const Params &other, double relTol) const;
+    };
+    /** @return Copy of everything but the name. */
+    Params params() const;
+    /** @brief Replace everything but the name at once. Listeners are told after the whole
+     *  state is in place, one signal per group that changed (points as removed + inserted). */
+    void setParams(const Params &params);
+
 signals:
     /**
      * @brief Notify observers after the stored identifier changes.

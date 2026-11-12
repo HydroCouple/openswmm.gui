@@ -214,6 +214,22 @@ public:
      */
     void setType(CurveType t);
 
+    /*! Everything but the name, as one value: what an editor's draft holds and
+     *  what Apply and its Undo write
+     *  (workplans/DATA_OBJECT_APPLY_REVERT_PLAN_2026-11-11.md, Phase 5). */
+    struct Params {
+        CurveType type = CurveType::Storage;
+        QVector<CurvePoint> points;
+        bool operator==(const Params &o) const;
+        /*! Same type and points within \p relTol relative to each coordinate's size. */
+        bool sameAs(const Params &o, double relTol) const;
+    };
+    /*! The type and the points. */
+    Params params() const { return {m_type, m_points}; }
+    /*! Set the type, then the points, each with its usual signal.
+     * @return False when the points were refused (see setAllPoints). */
+    bool setParams(const Params &p);
+
 signals:
     /*! \brief Points in [firstIndex, firstIndex+count) had their (x,y) updated.
      * @param[in] firstIndex First changed zero-based point index.

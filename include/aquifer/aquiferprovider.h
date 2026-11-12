@@ -20,6 +20,8 @@
 #include <QObject>
 #include <QString>
 
+#include <array>
+
 namespace openswmmvis::aquifer
 {
 
@@ -95,6 +97,21 @@ public:
      * @details Identical text is a no-op; performs no engine write.
      */
     void setEvapPattern(QString pattern);
+
+    /*! Every value the aquifer editor changes: an editor's draft, and the
+     *  before / after of one Apply. */
+    struct Params {
+        std::array<double, ParamCount> values{};
+        QString evapPattern;
+        bool operator==(const Params &) const = default;
+        /*! Equal within \p relTol relative (absolute near zero); the engine
+         *  converts units on the way in and out. */
+        bool sameAs(const Params &other, double relTol) const;
+    };
+    /** @return Copy of all parameters and the evaporation pattern. */
+    Params params() const;
+    /** @brief Replace all parameters at once; one paramsChanged() when anything differs. */
+    void setParams(const Params &params);
 
 signals:
     /**

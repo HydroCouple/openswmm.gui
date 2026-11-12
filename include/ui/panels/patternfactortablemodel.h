@@ -27,6 +27,7 @@
 
 #include <QAbstractTableModel>
 #include <QPointer>
+#include <QUndoStack>
 
 namespace openswmmvis::pattern
 {
@@ -65,6 +66,8 @@ public:
      * @return Borrowed guarded provider or null, no ownership transfer/lifetime pin.
      */
     openswmmvis::pattern::PatternProvider *provider() const noexcept;
+    /** @brief Cell edits become undo steps on \a stack (null: not undoable). Borrowed. */
+    void setUndoStack(QUndoStack *stack) { m_undoStack = stack; }
 
     /**
      * @param[in] parent Any valid parent suppresses rows for flat model.
@@ -135,6 +138,7 @@ private slots:
 
 private:
     QPointer<openswmmvis::pattern::PatternProvider> m_provider;
+    QPointer<QUndoStack> m_undoStack;
 };
 
 } // namespace openswmmvis::ui

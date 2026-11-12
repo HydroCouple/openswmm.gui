@@ -12,6 +12,7 @@
 #include <QCoreApplication>
 
 #include <algorithm>
+#include <cmath>
 #include <numeric>
 
 namespace openswmmvis::pattern
@@ -100,6 +101,23 @@ bool PatternProvider::setFactorLive(int i, double v)
     m_factors[i] = v;
     emit factorChanged(i);
     return true;
+}
+
+bool PatternProvider::Params::sameAs(const Params &o, double relTol) const
+{
+    if (factors.size() != o.factors.size())
+        return false;
+    for (int i = 0; i < factors.size(); ++i) {
+        const double a = factors[i], b = o.factors[i];
+        if (std::abs(a - b) > relTol * std::max({1.0, std::abs(a), std::abs(b)}))
+            return false;
+    }
+    return true;
+}
+
+bool PatternProvider::setParams(const Params &p)
+{
+    return p.factors == m_factors || setAllFactors(p.factors);
 }
 
 bool PatternProvider::setAllFactors(QVector<double> f, QString *reasonOut)

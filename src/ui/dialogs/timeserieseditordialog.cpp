@@ -21,6 +21,9 @@
 #include "timeseries/timeseriesundocommands.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
 #include "ui/delegates/datetimedelegate.h"
+#include "ui/editors/dataobjectdraftsession.h"
+#include "ui/editors/dataobjectstructureedit.h"
+#include "ui/models/draftmarkproxymodel.h"
 #include "ui/panels/timeseriestablemodel.h"
 #include "ui/widgets/interactivechartview.h"
 #include "ui/widgets/chartaxisformatcontroller.h"
@@ -36,7 +39,6 @@
 #include <QComboBox>
 #include <QDateTime>
 #include <QDateTimeEdit>
-#include <QDialogButtonBox>
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QElapsedTimer>
@@ -68,6 +70,7 @@
 #include <QStatusBar>
 #include <QTextStream>
 #include <QTableView>
+#include <QTimer>
 #include <QToolBar>
 #include <QToolButton>
 #include <QUndoStack>
@@ -78,6 +81,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <utility>
 
 // Debug instrumentation for the .dat-file load stall investigation.
 // Enable with: QT_LOGGING_RULES="openswmm.ts-load.*=true"
@@ -103,8 +107,23 @@ TimeseriesEditorDialog::TimeseriesEditorDialog(TimeseriesRegistry *registry, QUn
       // caller's stack still only decides whether undo is offered at all, and
       // its destruction still invalidates the editor (below).
       ,
-      m_undoStack(undoStack ? new QUndoStack(this) : nullptr), m_registry(registry)
+      m_projectUndo(undoStack), m_undoStack(undoStack ? new QUndoStack(this) : nullptr),
+      m_registry(registry)
 {
+    // Edits go to a draft copy of each series; the model changes at Apply.
+    m_session = new DataObjectDraftSession({[this] { commitOpenCell_(); },
+                                            [this] { return dirtyCount_(); },
+                                            [this](QString *why) { return applyDrafts_(why); },
+                                            [this] { revertDrafts_(); }},
+                                           this);
+    if (registry) // the registry belongs to the model layer
+        m_session->setModel(registry->parent()); // Save / Run / Close ask about drafts
+    // A paste or drag emits one signal per row; compare drafts once per batch.
+    m_draftCheck = new QTimer(this);
+    m_draftCheck->setSingleShot(true);
+    m_draftCheck->setInterval(0);
+    connect(m_draftCheck, &QTimer::timeout, m_session, &DataObjectDraftSession::noteEdited);
+
     // Default the relative-path display anchor from the registry, which the
     // model layer keeps pointed at the project's .inp directory. setProjectAnchor
     // had no production caller, so m_projectAnchor was permanently empty and
@@ -136,9 +155,9 @@ TimeseriesEditorDialog::TimeseriesEditorDialog(TimeseriesRegistry *registry, QUn
     // 2-pane variants), so a null initialSelection just leaves grid + chart
     // empty until the user picks a series from the left list.
     if (initialSelection)
-        m_providers.push_back(QPointer<TimeseriesProvider>(initialSelection));
+        m_providers.push_back(QPointer<TimeseriesProvider>(draftFor_(initialSelection)));
 
-    buildUi_(initialSelection ? QVector<TimeseriesProvider *>{initialSelection}
+    buildUi_(initialSelection ? QVector<TimeseriesProvider *>{m_providers.first().data()}
                               : QVector<TimeseriesProvider *>{});
     buildListPane_();
     wireProviderSignals_();
@@ -148,7 +167,7 @@ TimeseriesEditorDialog::TimeseriesEditorDialog(TimeseriesRegistry *registry, QUn
         const int row = m_listModel->rowOf(initialSelection);
         if (row >= 0) {
             const QModelIndex src = m_listModel->index(row, 0);
-            const QModelIndex prx = m_listProxy ? m_listProxy->mapFromSource(src) : src;
+            const QModelIndex prx = viewIndexOf(m_listView, src);
             m_listView->setCurrentIndex(prx);
         }
     }
@@ -162,17 +181,25 @@ TimeseriesEditorDialog::TimeseriesEditorDialog(TimeseriesRegistry *registry, QUn
     // the app-wide DialogLayoutWatcher (restore on first Show, save on
     // Hide/Close); the hard-coded defaults above are the first-run values.
     setAccessibleDescription(
-        undoStack
-            ? tr("Changes are applied immediately. Closing this editor does not undo changes. Use Undo to reverse an edit.")
-            : tr("Changes are applied immediately. Closing this editor does not undo changes."));
+        tr("Changes are held until you choose Apply, which writes them to the model as one "
+           "undoable step. Creating, deleting and renaming a series take effect at once."));
     if (m_table)
         m_table->setAccessibleName(tr("Time series values"));
     if (m_listView)
         m_listView->setAccessibleName(tr("Time series objects"));
     if (m_chartView)
         m_chartView->setAccessibleName(tr("Time series preview"));
-    if (registry)
+    if (registry) {
         connect(registry, &QObject::destroyed, this, &TimeseriesEditorDialog::invalidateContext);
+        connect(registry, &TimeseriesRegistry::aboutToFlushEdits, this,
+                &TimeseriesEditorDialog::commitOpenCell_);
+        connect(registry, &TimeseriesRegistry::providerAboutToBeRemoved, this,
+                &TimeseriesEditorDialog::dropDraft_);
+        connect(registry, &TimeseriesRegistry::providerRenamed, this,
+                [this](TimeseriesProvider *, const QString &from, const QString &to) {
+                    m_session->noteApplied(tr("Renamed %1 to %2").arg(from, to));
+                });
+    }
     // Registries outlive an engine reload; their owning layer announces the
     // close before any cached engine handle becomes invalid.
     if (registry && registry->parent() &&
@@ -198,6 +225,9 @@ void TimeseriesEditorDialog::invalidateContext()
         if (provider)
             provider->disconnect(this);
     m_providers.clear();
+    for (const auto &draft : std::as_const(m_drafts))
+        if (draft.live)
+            draft.live->disconnect(this);
     if (m_tableModel) {
         m_tableModel->setProviders({});
         m_tableModel->setUndoStack(nullptr);
@@ -211,25 +241,326 @@ void TimeseriesEditorDialog::invalidateContext()
     reject();
 }
 
+void TimeseriesEditorDialog::commitOpenCell_()
+{
+    if (!m_contextValid || !m_table)
+        return;
+    // A title-bar close or a Save can arrive while the cell delegate still owns the typed value.
+    const auto index = m_table->currentIndex();
+    if (auto *editor = m_table->indexWidget(index)) {
+        auto *delegate = m_table->itemDelegateForIndex(index);
+        emit delegate->commitData(editor);
+        emit delegate->closeEditor(editor);
+    }
+}
+
 void TimeseriesEditorDialog::done(int result)
 {
-    if (m_contextValid && m_table) {
-        // The title-bar close can arrive while the cell delegate still owns the typed value.
-        const auto index = m_table->currentIndex();
-        if (auto *editor = m_table->indexWidget(index)) {
-            auto *delegate = m_table->itemDelegateForIndex(index);
-            emit delegate->commitData(editor);
-            emit delegate->closeEditor(editor);
-        }
-    }
+    if (m_contextValid && !m_session->resolveBeforeClose())
+        return;
+    QDialog::done(result);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Drafts — the views edit a copy; Apply writes it to the model
+// ─────────────────────────────────────────────────────────────────────────────
+
+namespace
+{
+
+/*! The installed Choose / Refresh behind the Geopackage source. */
+std::pair<ObservationSourceFn, ObservationSourceFn> &observationSource()
+{
+    static std::pair<ObservationSourceFn, ObservationSourceFn> fns;
+    return fns;
+}
+
+/*! Put \p content into the model's series and its engine table. Used for Apply,
+ *  for that Apply's undo / redo, which may run after the editor has closed,
+ *  and to restore a deleted series when Undo brings it back. The series is
+ *  \p live, or, once that one was deleted and brought back by Undo, the
+ *  series named \p name.
+ * @return False when the series or its engine is gone or the engine refused. */
+bool writeSeries(const QPointer<TimeseriesRegistry> &registry,
+                 const QPointer<TimeseriesProvider> &series, const QString &name, void *engine,
+                 const TimeseriesProvider::Content &content)
+{
+    if ((registry ? registry->engineHandle() : nullptr) != engine)
+        return false;
+    TimeseriesProvider *live = registry ? stepTarget(registry.data(), series, name) : series.data();
+    if (!live)
+        return false;
+    live->setContent(content);
+    if (!engine)
+        return true; // a registry without an engine is the whole model
+    // Nothing of an external source without a file reaches the model file
+    // (TimeseriesRegistry::flushPendingEdit skips it the same way).
+    if (content.sourceMode == TimeseriesProvider::SourceMode::ExternalFile &&
+        content.filePath.isEmpty())
+        return true;
+    return registry->saveProviderToEngine(live);
+}
+
+/*! Rename \p live to \p name as one step on the project undo stack. */
+bool renameSeries(TimeseriesRegistry *registry, QUndoStack *undo, TimeseriesProvider *live,
+                  const QString &name)
+{
+    if (!registry || !live)
+        return false;
+    const QString from = live->name();
+    if (from == name)
+        return true;
+    return DataObjectDraftSession::commit(
+        {renameObjectEdit(registry, from, name)}, undo,
+        QCoreApplication::translate("TimeseriesEditorDialog", "Rename time series %1 to %2")
+            .arg(from, name));
+}
+
+} // namespace
+
+void TimeseriesEditorDialog::setObservationSource(ObservationSourceFn choose,
+                                                  ObservationSourceFn refresh)
+{
+    observationSource() = {std::move(choose), std::move(refresh)};
+}
+
+bool TimeseriesEditorDialog::useObservationCopy(const ObservationCopy &copy)
+{
+    auto *draft = editedSeries();
+    if (!draft)
+        return false;
+    TimeseriesProvider::Content c = draft->content();
+    c.points = copy.points;
+    c.sourceMode = TimeseriesProvider::SourceMode::GeopackageObserved;
+    c.observationBinding = copy.binding;
+    c.filePath.clear();
+    c.columnSelector.clear();
+    c.fileMTime = {};
+    c.relativeCount = 0; // observation times are absolute
+    c.allRelative = false;
+    const QString text = tr("Use observations in %1").arg(draft->name());
+    if (m_undoStack)
+        m_undoStack->push(new openswmmvis::timeseries::SetContentCommand(draft, c, text));
+    else
+        draft->setContent(c);
+    refreshSourceModeCardForProvider_();
+    updateStatusBar_();
+    if (m_chartView && draft->pointCount() > 0)
+        m_chartView->zoomToExtent();
+    return true;
+}
+
+void TimeseriesEditorDialog::onChooseObservations_()
+{
+    auto *draft = editedSeries();
+    const auto &choose = observationSource().first;
+    if (!draft || !choose ||
+        draft->sourceMode() != TimeseriesProvider::SourceMode::GeopackageObserved)
+        return;
+    ObservationCopy copy;
     QString error;
-    if (m_registry && !m_registry->flushPendingEdits(&error)) {
-        m_status->showMessage(error);
+    const QObject *model = m_registry ? m_registry->parent() : nullptr;
+    if (choose(this, model, draft->name(), draft->observationBinding(), &copy, &error)) {
+        if (editedSeries() == draft) // the user may have switched series meanwhile
+            useObservationCopy(copy);
+    } else if (!error.isEmpty() && m_status) {
+        m_status->showMessage(error, 8000);
+    }
+}
+
+void TimeseriesEditorDialog::onRefreshObservations_()
+{
+    auto *draft = editedSeries();
+    const auto &refresh = observationSource().second;
+    if (!draft || !refresh || draft->observationBinding().isEmpty() ||
+        draft->sourceMode() != TimeseriesProvider::SourceMode::GeopackageObserved)
+        return;
+    ObservationCopy copy;
+    QString error;
+    QApplication::setOverrideCursor(Qt::WaitCursor);
+    const QObject *model = m_registry ? m_registry->parent() : nullptr;
+    const bool ok = refresh(this, model, draft->name(), draft->observationBinding(), &copy, &error);
+    QApplication::restoreOverrideCursor();
+    if (!ok) {
+        if (m_status)
+            m_status->showMessage(error.isEmpty() ? tr("Refresh cancelled.") : error, 8000);
         return;
     }
-    if (!m_providers.isEmpty() && m_providers.first())
-        m_providers.first()->disposePointCache();
-    QDialog::done(result);
+    if (editedSeries() == draft)
+        useObservationCopy(copy);
+    if (m_status)
+        m_status->showMessage(tr("Prepared %n point(s) again from the dataset.", nullptr,
+                                 int(copy.points.size())),
+                              4000);
+}
+
+void TimeseriesEditorDialog::onDetachObservations_()
+{
+    auto *draft = editedSeries();
+    if (!draft || draft->sourceMode() != TimeseriesProvider::SourceMode::GeopackageObserved)
+        return;
+    TimeseriesProvider::Content c = draft->content();
+    c.sourceMode = TimeseriesProvider::SourceMode::Inline;
+    c.observationBinding = {};
+    const QString text = tr("Detach %1 from observations").arg(draft->name());
+    if (m_undoStack)
+        m_undoStack->push(new openswmmvis::timeseries::SetContentCommand(draft, c, text));
+    else
+        draft->setContent(c);
+    refreshSourceModeCardForProvider_();
+    if (m_status)
+        m_status->showMessage(tr("Detached from the dataset — the points are now inline."), 4000);
+}
+
+TimeseriesProvider *TimeseriesEditorDialog::editedSeries() const
+{
+    return m_providers.isEmpty() ? nullptr : m_providers.first().data();
+}
+
+TimeseriesProvider *TimeseriesEditorDialog::draftFor_(TimeseriesProvider *live)
+{
+    if (!live)
+        return nullptr;
+    for (const auto &d : std::as_const(m_drafts))
+        if (d.live == live)
+            return d.copy;
+    Draft d;
+    d.live = live;
+    d.base = live->content();
+    d.copy = new TimeseriesProvider(live->name(), this);
+    d.copy->setContent(d.base);
+    m_drafts.push_back(d);
+
+    TimeseriesProvider *copy = d.copy;
+    for (auto signal : {&TimeseriesProvider::storageChanged, &TimeseriesProvider::metadataChanged,
+                        &TimeseriesProvider::timeModeChanged}) {
+        connect(copy, signal, this, [this] { m_draftCheck->start(); });
+        connect(live, signal, this, [this, live] { onLiveChanged_(live); });
+    }
+    // Renames take effect at once (registry); the copy follows.
+    connect(live, &TimeseriesProvider::nameChanged, copy,
+            [copy](const QString &, const QString &now) { copy->setName(now); });
+    return copy;
+}
+
+TimeseriesProvider *TimeseriesEditorDialog::liveFor_(const TimeseriesProvider *copy) const
+{
+    for (const auto &d : m_drafts)
+        if (d.copy == copy)
+            return d.live.data();
+    return nullptr;
+}
+
+void TimeseriesEditorDialog::onLiveChanged_(TimeseriesProvider *live)
+{
+    if (m_applying)
+        return;
+    for (auto &d : m_drafts) {
+        if (d.live != live)
+            continue;
+        if (!d.copy->content().sameAs(d.base)) {
+            m_session->noteExternalChange(); // keep the user's draft; Apply asks
+            return;
+        }
+        d.base = live->content();
+        if (!d.copy->content().sameAs(d.base)) {
+            d.copy->setContent(d.base);
+            // The editor's steps were recorded against the content just replaced.
+            if (m_undoStack)
+                m_undoStack->clear();
+        }
+        return;
+    }
+}
+
+void TimeseriesEditorDialog::dropDraft_(TimeseriesProvider *live)
+{
+    for (int i = 0; i < m_drafts.size(); ++i) {
+        if (m_drafts.at(i).live != live)
+            continue;
+        TimeseriesProvider *copy = m_drafts.at(i).copy;
+        m_drafts.remove(i);
+        live->disconnect(this);
+        if (editedSeries() == copy)
+            rebindActiveProvider_(nullptr);
+        if (m_undoStack)
+            m_undoStack->clear(); // steps may refer to the dropped copy
+        copy->deleteLater();
+        m_draftCheck->start();
+        return;
+    }
+}
+
+int TimeseriesEditorDialog::dirtyCount_() const
+{
+    int n = 0;
+    for (const auto &d : m_drafts)
+        if (d.live && !d.copy->content().sameAs(d.live->content()))
+            ++n;
+    return n;
+}
+
+bool TimeseriesEditorDialog::applyDrafts_(QString *why)
+{
+    void *engine = m_registry ? m_registry->engineHandle() : nullptr;
+    QVector<DataObjectDraftSession::Edit> edits;
+    QStringList names;
+    for (const auto &d : std::as_const(m_drafts)) {
+        if (!d.live)
+            continue;
+        const auto before = d.live->content();
+        const auto after = d.copy->content();
+        if (after.sameAs(before))
+            continue;
+        if (after.sourceMode == TimeseriesProvider::SourceMode::ExternalFile &&
+            after.filePath.isEmpty()) {
+            *why = tr("%1 has an external source without a file. Choose a file, or switch it "
+                      "back to Inline.")
+                       .arg(d.live->name());
+            return false;
+        }
+        if (after.sourceMode == TimeseriesProvider::SourceMode::GeopackageObserved &&
+            after.observationBinding.isEmpty()) {
+            *why = tr("%1 has a Geopackage source without a series. Choose a series, or switch "
+                      "it back to Inline.")
+                       .arg(d.live->name());
+            return false;
+        }
+        names << d.live->name();
+        edits.push_back({[registry = m_registry, live = d.live, name = d.live->name(), engine,
+                          before, after](bool forward) {
+            return writeSeries(registry, live, name, engine, forward ? after : before);
+        }});
+    }
+    if (edits.isEmpty())
+        return true;
+    const QString text = names.size() == 1 ? tr("Edit time series %1").arg(names.first())
+                                           : tr("Edit %n time series", nullptr, names.size());
+    m_applying = true;
+    const bool ok = DataObjectDraftSession::commit(edits, m_projectUndo, text);
+    m_applying = false;
+    if (!ok) {
+        *why = tr("the model refused the changes to %1; nothing was applied")
+                   .arg(names.join(QStringLiteral(", ")));
+        return false;
+    }
+    for (auto &d : m_drafts)
+        if (d.live)
+            d.base = d.live->content();
+    return true;
+}
+
+void TimeseriesEditorDialog::revertDrafts_()
+{
+    for (auto &d : m_drafts) {
+        if (!d.live)
+            continue;
+        d.base = d.live->content();
+        if (!d.copy->content().sameAs(d.base))
+            d.copy->setContent(d.base);
+    }
+    if (m_undoStack)
+        m_undoStack->clear();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -387,14 +718,21 @@ void TimeseriesEditorDialog::onCreateNewSubmit_()
     if (name.isEmpty() || m_registry->hasName(name) || !openswmmvis::isValidSwmmIdentifier(name))
         return;
 
-    TimeseriesProvider *p = m_registry->create(name);
-    if (!p)
+    if (!DataObjectDraftSession::commit(
+            {createObjectEdit(m_registry.data(), name, [](TimeseriesProvider *) { return true; })},
+            m_projectUndo, tr("Create time series %1").arg(name)))
         return; // registry refused (race on uniqueness)
+    TimeseriesProvider *p = m_registry->findByName(name);
+    if (!p)
+        return;
+    m_session->noteApplied(tr("Created %1").arg(name));
 
+    // The series is created Inline; another source is the first draft edit
+    // (an external source has nothing to apply until a file is chosen).
     if (m_sourceModeCombo) {
         const auto mode =
             static_cast<TimeseriesProvider::SourceMode>(m_sourceModeCombo->currentData().toInt());
-        p->setSourceMode(mode);
+        draftFor_(p)->setSourceMode(mode);
     }
     bindNewProvider_(p);
 }
@@ -403,6 +741,7 @@ void TimeseriesEditorDialog::bindNewProvider_(TimeseriesProvider *p)
 {
     if (!p)
         return;
+    p = draftFor_(p); // the views edit the draft
 
     m_providers.clear();
     m_providers.push_back(QPointer<TimeseriesProvider>(p));
@@ -570,6 +909,10 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
     m_table = new QTableView(m_splitter);
     m_tableModel = new TimeseriesTableModel(this);
     m_tableModel->setUndoStack(m_undoStack);
+    m_tableModel->setRenameHandler([this](TimeseriesProvider *draft, const QString &name) {
+        // Renames take effect at once (an undoable step); the draft follows.
+        return renameSeries(m_registry.data(), m_projectUndo.data(), liveFor_(draft), name);
+    });
     m_tableModel->setProviders(providers);
     m_table->setModel(m_tableModel);
     // Column 0 is the time stamp in every layout mode. The default delegate
@@ -639,17 +982,14 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
     // overwritten anyway. setSizes() in buildListPane_ overrides sizeHints so
     // the chart isn't squeezed to a sliver by the grid's larger sizeHint.
 
-    // ── Close row ───────────────────────────────────────────────────────────
-    // Enter in a value cell should commit the cell without dismissing the editor.
-    auto *closeBox = new QDialogButtonBox(QDialogButtonBox::Close, this);
-    closeBox->setObjectName(QStringLiteral("ts_closeBox"));
-    closeBox->setContentsMargins(8, 6, 8, 6); // outer runs at 0 margins
-    auto *closeBtn = closeBox->button(QDialogButtonBox::Close);
-    closeBtn->setObjectName(QStringLiteral("ts_closeBtn"));
-    closeBtn->setAutoDefault(false);
-    closeBtn->setDefault(false);
-    connect(closeBox, &QDialogButtonBox::rejected, this, &QDialog::close);
-    outer->addWidget(closeBox);
+    // ── Apply status + Revert / Apply / Close ───────────────────────────────
+    // Enter in a value cell commits the cell only; no footer button is a default.
+    auto *footer = new DataObjectDraftFooter(m_session, this);
+    footer->setObjectName(QStringLiteral("ts_draftFooter"));
+    footer->setContentsMargins(8, 6, 8, 6); // outer runs at 0 margins
+    footer->closeButton()->setObjectName(QStringLiteral("ts_closeBtn"));
+    connect(footer, &DataObjectDraftFooter::closeRequested, this, &QDialog::close);
+    outer->addWidget(footer);
 
     // ── Status bar ──────────────────────────────────────────────────────────
     m_status = new QStatusBar(this);
@@ -936,10 +1276,10 @@ void TimeseriesEditorDialog::onAddRowTriggered_()
     auto *first = m_providers.first().data();
     if (!first)
         return;
-    if (first->sourceMode() == TimeseriesProvider::SourceMode::ExternalFile) {
+    if (first->sourceMode() != TimeseriesProvider::SourceMode::Inline) {
         if (m_status)
-            m_status->showMessage(tr("Add Row disabled: this series is linked to an external file. "
-                                     "Use Convert-to-Inline first."),
+            m_status->showMessage(tr("Add Row disabled: this series comes from an external file or "
+                                     "observation dataset. Detach it to Inline first."),
                                   4000);
         return;
     }
@@ -1026,9 +1366,10 @@ void TimeseriesEditorDialog::onDeleteRowsTriggered_()
         return;
     }
     auto *first = m_providers.first().data();
-    if (first && first->sourceMode() == TimeseriesProvider::SourceMode::ExternalFile) {
+    if (first && first->sourceMode() != TimeseriesProvider::SourceMode::Inline) {
         if (m_status)
-            m_status->showMessage(tr("Delete disabled: this series is linked to an external file."),
+            m_status->showMessage(tr("Delete disabled: this series comes from an external file or "
+                                     "observation dataset."),
                                   4000);
         return;
     }
@@ -1095,9 +1436,10 @@ void TimeseriesEditorDialog::onPasteRowsTriggered_()
     auto *first = m_providers.first().data();
     if (!first)
         return;
-    if (first->sourceMode() == TimeseriesProvider::SourceMode::ExternalFile) {
+    if (first->sourceMode() != TimeseriesProvider::SourceMode::Inline) {
         if (m_status)
-            m_status->showMessage(tr("Paste disabled: this series is linked to an external file."),
+            m_status->showMessage(tr("Paste disabled: this series comes from an external file or "
+                                     "observation dataset."),
                                   4000);
         return;
     }
@@ -1243,6 +1585,10 @@ void TimeseriesEditorDialog::buildSourceModeCard_()
     m_radioInline = new QRadioButton(tr("Inline"), m_sourceCard);
     m_radioExternal = new QRadioButton(tr("External file"), m_sourceCard);
     m_radioGeopackage = new QRadioButton(tr("Geopackage"), m_sourceCard);
+    m_radioGeopackage->setToolTip(
+        tr("A copy of an observation series from a native GeoPackage dataset. The copy is "
+           "saved with the model; the project remembers where it came from so it can be "
+           "refreshed."));
     modeGroup->addButton(m_radioInline);
     modeGroup->addButton(m_radioExternal);
     modeGroup->addButton(m_radioGeopackage);
@@ -1251,15 +1597,8 @@ void TimeseriesEditorDialog::buildSourceModeCard_()
     row1->addWidget(m_radioGeopackage);
     row1->addStretch(1);
 
-    // Geopackage placeholder sits next to the radios in row 1 (visible only
-    // when Geopackage is selected).
-    m_gpkgPlaceholderLbl =
-        new QLabel(tr("(GeoPackage observed series — follow-up sub-phase)"), m_sourceCard);
-    m_gpkgPlaceholderLbl->setStyleSheet(openswmmvis::ui::theme::hintItalicStyle());
-    m_gpkgPlaceholderLbl->hide();
-    row1->addWidget(m_gpkgPlaceholderLbl);
-
     cardLayout->addLayout(row1);
+
 
     // Row 2 — External-file sub-controls (visible only in External mode).
     auto *row2 = new QHBoxLayout();
@@ -1298,6 +1637,33 @@ void TimeseriesEditorDialog::buildSourceModeCard_()
     extRowHolder->setLayout(row2);
     extRowHolder->setObjectName(QStringLiteral("extRowHolder"));
     cardLayout->addWidget(extRowHolder);
+
+    // Row — Geopackage source (an observation copy): where it came from and
+    // Choose / Refresh / Detach (visible only in Geopackage mode).
+    auto *gpkgRow = new QHBoxLayout();
+    gpkgRow->addWidget(new QLabel(tr("Observations:"), m_sourceCard));
+    m_gpkgSourceLbl = new QLabel(m_sourceCard);
+    m_gpkgSourceLbl->setObjectName(QStringLiteral("gpkgSourceLabel"));
+    m_gpkgSourceLbl->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    m_gpkgSourceLbl->setWordWrap(true);
+    gpkgRow->addWidget(m_gpkgSourceLbl, /*stretch=*/1);
+    m_gpkgChooseBtn = new QPushButton(tr("Choose Series…"), m_sourceCard);
+    m_gpkgChooseBtn->setObjectName(QStringLiteral("gpkgChooseBtn"));
+    m_gpkgChooseBtn->setToolTip(
+        tr("Pick a series in a native observation GeoPackage and review its units and clock"));
+    gpkgRow->addWidget(m_gpkgChooseBtn);
+    m_gpkgRefreshBtn = new QPushButton(tr("Refresh"), m_sourceCard);
+    m_gpkgRefreshBtn->setObjectName(QStringLiteral("gpkgRefreshBtn"));
+    m_gpkgRefreshBtn->setToolTip(tr("Prepare the copy again from the dataset, with the same choices"));
+    gpkgRow->addWidget(m_gpkgRefreshBtn);
+    m_gpkgDetachBtn = new QPushButton(tr("Detach → Inline"), m_sourceCard);
+    m_gpkgDetachBtn->setObjectName(QStringLiteral("gpkgDetachBtn"));
+    m_gpkgDetachBtn->setToolTip(tr("Keep the points as an ordinary editable series"));
+    gpkgRow->addWidget(m_gpkgDetachBtn);
+    auto *gpkgRowHolder = new QWidget(m_sourceCard);
+    gpkgRowHolder->setLayout(gpkgRow);
+    gpkgRowHolder->setObjectName(QStringLiteral("gpkgRowHolder"));
+    cardLayout->addWidget(gpkgRowHolder);
 
     // Row 3 — time mode (Inline series only). SWMM [TIMESERIES] rows are
     // either dated or elapsed-time-from-simulation-start; the grid always
@@ -1348,6 +1714,12 @@ void TimeseriesEditorDialog::buildSourceModeCard_()
             &TimeseriesEditorDialog::onReloadExternalFile_);
     connect(m_extDetachBtn, &QPushButton::clicked, this,
             &TimeseriesEditorDialog::onDetachToInline_);
+    connect(m_gpkgChooseBtn, &QPushButton::clicked, this,
+            &TimeseriesEditorDialog::onChooseObservations_);
+    connect(m_gpkgRefreshBtn, &QPushButton::clicked, this,
+            &TimeseriesEditorDialog::onRefreshObservations_);
+    connect(m_gpkgDetachBtn, &QPushButton::clicked, this,
+            &TimeseriesEditorDialog::onDetachObservations_);
     connect(m_timeModeCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
             &TimeseriesEditorDialog::onTimeModeComboChanged_);
 
@@ -1392,7 +1764,31 @@ void TimeseriesEditorDialog::refreshSourceModeCardForProvider_()
     // some are hidden but others stay).
     if (auto *extHolder = m_sourceCard->findChild<QWidget *>(QStringLiteral("extRowHolder")))
         extHolder->setVisible(isExternal);
-    m_gpkgPlaceholderLbl->setVisible(isGpkg);
+    if (auto *gpkgHolder = m_sourceCard->findChild<QWidget *>(QStringLiteral("gpkgRowHolder")))
+        gpkgHolder->setVisible(isGpkg);
+    if (isGpkg) {
+        const QJsonObject b = p->observationBinding();
+        if (b.isEmpty()) {
+            m_gpkgSourceLbl->setText(tr("Choose a series — the grid and chart are read-only in "
+                                        "this mode"));
+        } else {
+            m_gpkgSourceLbl->setText(
+                tr("%1 · %2 · %3 → %4 · %5 point(s) in %6")
+                    .arg(b.value(QStringLiteral("datasetTitle")).toString(),
+                         b.value(QStringLiteral("seriesTitle")).toString(),
+                         b.value(QStringLiteral("firstModelTime")).toString(),
+                         b.value(QStringLiteral("lastModelTime")).toString())
+                    .arg(b.value(QStringLiteral("points")).toInt())
+                    .arg(b.value(QStringLiteral("targetUnit")).toString()));
+            m_gpkgSourceLbl->setToolTip(b.value(QStringLiteral("sourcePath")).toString());
+        }
+        if (!observationSource().first)
+            m_gpkgChooseBtn->setToolTip(tr("Observation datasets are not available here."));
+    }
+    const QJsonObject binding = p->observationBinding();
+    m_gpkgChooseBtn->setEnabled(isGpkg && bool(observationSource().first));
+    m_gpkgRefreshBtn->setEnabled(isGpkg && !binding.isEmpty() && bool(observationSource().second));
+    m_gpkgDetachBtn->setEnabled(isGpkg && !binding.isEmpty());
 
     if (isExternal) {
         const bool hasFile = !p->filePath().isEmpty();
@@ -1450,7 +1846,7 @@ void TimeseriesEditorDialog::refreshSourceModeCardForProvider_()
     // see at a glance that edits are blocked (not just silently no-op'd).
     // The chart's mouse handlers and the table model's setData already refuse
     // in External mode; this just gives them a visual cue.
-    const bool editsBlocked = isExternal;
+    const bool editsBlocked = isExternal || isGpkg;
     if (m_actEdit)
         m_actEdit->setEnabled(!editsBlocked);
     if (m_actRotate)
@@ -2156,9 +2552,10 @@ void TimeseriesEditorDialog::onApplyRotateClicked_()
     if (m_providers.isEmpty() || !m_providers.first() || !m_chartView)
         return;
     auto *p = m_providers.first().data();
-    if (p->sourceMode() == TimeseriesProvider::SourceMode::ExternalFile) {
+    if (p->sourceMode() != TimeseriesProvider::SourceMode::Inline) {
         if (m_status)
-            m_status->showMessage(tr("Rotate disabled: this series is linked to an external file."),
+            m_status->showMessage(tr("Rotate disabled: this series comes from an external file or "
+                                     "observation dataset."),
                                   4000);
         return;
     }
@@ -2219,9 +2616,10 @@ void TimeseriesEditorDialog::onApplyScaleClicked_()
     if (m_providers.isEmpty() || !m_providers.first() || !m_chartView)
         return;
     auto *p = m_providers.first().data();
-    if (p->sourceMode() == TimeseriesProvider::SourceMode::ExternalFile) {
+    if (p->sourceMode() != TimeseriesProvider::SourceMode::Inline) {
         if (m_status)
-            m_status->showMessage(tr("Scale disabled: this series is linked to an external file."),
+            m_status->showMessage(tr("Scale disabled: this series comes from an external file or "
+                                     "observation dataset."),
                                   4000);
         return;
     }
@@ -2290,8 +2688,23 @@ void TimeseriesEditorDialog::buildListPane_()
     // List view over a filter proxy that wraps the registry-backed model.
     m_listModel = new TimeseriesListModel(this);
     m_listModel->setRegistry(m_registry);
+    m_listModel->setRenameHandler([this](TimeseriesProvider *live, const QString &name) {
+        return renameSeries(m_registry.data(), m_projectUndo.data(), live, name);
+    });
+    // Rows whose series holds an unapplied draft read in italics.
+    m_draftMarks = new DraftMarkProxyModel(this);
+    m_draftMarks->setSourceModel(m_listModel);
+    m_draftMarks->setHasDraft([this](int row) {
+        TimeseriesProvider *live = m_listModel->providerAt(row);
+        for (const auto &d : std::as_const(m_drafts))
+            if (live && d.live == live)
+                return !d.copy->content().sameAs(live->content());
+        return false;
+    });
+    connect(m_session, &DataObjectDraftSession::changed, m_draftMarks,
+            &DraftMarkProxyModel::refreshMarks);
     m_listProxy = new QSortFilterProxyModel(this);
-    m_listProxy->setSourceModel(m_listModel);
+    m_listProxy->setSourceModel(m_draftMarks);
     m_listProxy->setFilterCaseSensitivity(Qt::CaseInsensitive);
     m_listProxy->setSortCaseSensitivity(Qt::CaseInsensitive);
     m_listProxy->sort(0, Qt::AscendingOrder);
@@ -2370,15 +2783,8 @@ void TimeseriesEditorDialog::rebindActiveProvider_(TimeseriesProvider *p)
 {
     if (!m_contextValid)
         p = nullptr;
-    // Step F — dispose the outgoing provider's in-memory cache if it's
-    // ExternalFile-backed. The file path stays on the provider, so a future
-    // re-bind (or the user clicking the Reload button) re-reads from disk.
-    // Inline / Gpkg providers are unaffected (disposePointCache is a no-op).
-    if (!m_providers.isEmpty()) {
-        if (auto *prev = m_providers.first().data())
-            if (prev != p && (!m_registry || m_registry->flushPendingEdit(prev)))
-                prev->disposePointCache();
-    }
+    // The outgoing draft keeps its points: an unapplied draft is the user's
+    // work, and an unedited one shares its points with the model's series.
 
     // The toolbar carries every mutation (Edit / Rotate / Scale / Add Row /
     // Delete Row / Paste / Undo / Redo), so its enabled state belongs to
@@ -2403,6 +2809,7 @@ void TimeseriesEditorDialog::rebindActiveProvider_(TimeseriesProvider *p)
         refreshSourceModeCardForProvider_();
         return;
     }
+    p = draftFor_(p); // the views edit the draft
     m_providers.clear();
     m_providers.push_back(QPointer<TimeseriesProvider>(p));
 
@@ -2497,19 +2904,26 @@ void TimeseriesEditorDialog::onNewSeriesClicked_()
     QString name = QStringLiteral("TS1");
     for (int i = 2; i < 9999 && m_registry->hasName(name); ++i)
         name = QStringLiteral("TS%1").arg(i);
-    auto *p = m_registry->create(name);
-    if (!p)
-        return;
     // New inline series default to the SWMM time-only form (elapsed times
     // from the simulation start) — the legacy GUI's blank-date default.
     // Requires a known simulation start; otherwise the series stays
     // Absolute and the user can flip it once START_DATE is set.
-    if (m_registry->simulationStart().isValid())
-        p->setTimeMode(TimeseriesProvider::TimeMode::Relative, m_registry->simulationStart());
+    const auto setup = [start = m_registry->simulationStart()](TimeseriesProvider *p) {
+        if (start.isValid())
+            p->setTimeMode(TimeseriesProvider::TimeMode::Relative, start);
+        return true;
+    };
+    if (!DataObjectDraftSession::commit({createObjectEdit(m_registry.data(), name, setup)},
+                                        m_projectUndo, tr("Create time series %1").arg(name)))
+        return;
+    auto *p = m_registry->findByName(name);
+    if (!p)
+        return;
+    m_session->noteApplied(tr("Created %1").arg(name));
     const int row = m_listModel ? m_listModel->rowOf(p) : -1;
     if (row >= 0 && m_listView) {
         const QModelIndex src = m_listModel->index(row, 0);
-        const QModelIndex prx = m_listProxy ? m_listProxy->mapFromSource(src) : src;
+        const QModelIndex prx = viewIndexOf(m_listView, src);
         m_listView->setCurrentIndex(prx);
         m_listView->edit(prx);
     }
@@ -2527,15 +2941,30 @@ void TimeseriesEditorDialog::onDeleteSeriesClicked_()
     if (!p)
         return;
 
-    const auto choice = QMessageBox::question(
-        this, tr("Delete time series"),
-        tr("Delete time series “%1”? This cannot be undone via the editor's Undo stack.")
-            .arg(p->name()),
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    // Plan D8 — say what the engine detaches, and that Undo will not re-attach it.
+    QString text = tr("Delete time series “%1”?").arg(p->name());
+    void *engine = m_registry->engineHandle();
+    const QString uses = dataObjectUses(engine, swmm_table_analyze_impact,
+                                        TimeseriesRegistry::engineTableIndex(engine, p->name()));
+    if (!uses.isEmpty())
+        text += QLatin1String("\n\n") + uses + QLatin1Char(' ') +
+                tr("Those uses are removed or cleared with it; Undo brings back the series and "
+                   "its data, but not those uses.");
+    const auto choice = QMessageBox::question(this, tr("Delete time series"), text,
+                                              QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
     if (choice != QMessageBox::Yes || !m_contextValid || !m_registry || !p)
         return;
 
-    m_registry->remove(p); // also fires providerAboutToBeRemoved → list updates
+    const QString name = p->name();
+    // Also fires providerAboutToBeRemoved → list updates, draft dropped.
+    const auto restore = [registry = m_registry, name, engine = m_registry->engineHandle(),
+                          kept = p->content()](TimeseriesProvider *revived) {
+        return writeSeries(registry, revived, name, engine, kept);
+    };
+    if (!DataObjectDraftSession::commit({deleteObjectEdit(m_registry.data(), name, restore)},
+                                        m_projectUndo, tr("Delete time series %1").arg(name)))
+        return;
+    m_session->noteApplied(tr("Deleted %1").arg(name));
     // Selection auto-clears; rebind to whatever's now-current (or null).
     onListSelectionChanged_();
 }

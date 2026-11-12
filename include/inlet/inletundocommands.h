@@ -128,7 +128,8 @@ public:
      * @brief Capture names for registry-managed rename undo/redo.
      * @param[in] registry Borrowed registry guarded by QPointer; must own provider.
      * @param[in] newName Requested replacement name; rename rejections are ignored by the command.
-     * @param[in] provider Borrowed provider guarded by QPointer; destruction turns later applications into no-ops.
+     * @param[in] provider Inlet whose current name is renamed; only its name is kept (undo/redo
+     *   find the inlet by name). Null makes later applications no-ops.
      * @param[in] parent Optional QUndoCommand owner.
      */
     RenameInletCommand(InletRegistry *registry, InletProvider *provider, QString newName,
@@ -144,7 +145,6 @@ public:
 
 private:
     QPointer<InletRegistry> m_registry;
-    QPointer<InletProvider> m_provider;
     QString m_oldName;
     QString m_newName;
 };
@@ -194,7 +194,8 @@ public:
     DeleteInletCommand(InletRegistry *registry, InletProvider *provider,
                        QUndoCommand *parent = nullptr);
     /**
-     * @brief Recreate the captured design/comments under its old name when available; engine parameter flush is separate.
+     * @brief Recreate the captured design/comments under its old name when available, in the
+     *   registry's engine too.
      */
     void undo() override;
     /**

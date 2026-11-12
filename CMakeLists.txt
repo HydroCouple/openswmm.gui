@@ -813,6 +813,7 @@ set(
 
         # ── UI editors (Slice BM.0-Browse-Edit) ──────────────────────────────
         include/ui/editors/comprehensiveeditorregistry.h
+        include/ui/editors/dataobjectdraftsession.h
 
         # ── Connections ──────────────────────────────────────────────────────
         include/connections/basemapconnection.h
@@ -1658,6 +1659,7 @@ set(
 
         # UI editors (Slice BM.0-Browse-Edit)
         src/ui/editors/comprehensiveeditorregistry.cpp
+        src/ui/editors/dataobjectdraftsession.cpp
 
         # Dialogs
         # Shared confirm → convert → summary flow for node/link type changes.

@@ -292,7 +292,8 @@ public:
      * @brief Capture names for registry-managed rename undo/redo.
      * @param[in] registry Borrowed raw registry pointer that must outlive command use and own provider.
      * @param[in] newName New identifier; rename failures are ignored by undo/redo.
-     * @param[in] provider Borrowed raw provider pointer; a non-null provider must outlive all command uses. Null makes later applications no-ops.
+     * @param[in] provider Transect whose current name is renamed; only its name is kept (undo/redo
+     *   find the transect by name). Null makes later applications no-ops.
      * @param[in] parent Optional QUndoCommand owner.
      */
     RenameTransectCommand(TransectRegistry *registry, TransectProvider *provider, QString newName,
@@ -308,7 +309,6 @@ public:
 
 private:
     TransectRegistry *m_registry;
-    TransectProvider *m_provider;
     QString m_oldName;
     QString m_newName;
 };

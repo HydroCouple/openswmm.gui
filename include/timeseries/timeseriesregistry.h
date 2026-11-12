@@ -25,9 +25,11 @@
 
 #include <QDateTime>
 #include <QHash>
+#include <QJsonArray>
 #include <QObject>
 #include <QSet>
 #include <QString>
+#include <QTimeZone>
 #include <QVector>
 
 namespace openswmmvis::timeseries
@@ -103,6 +105,11 @@ public:
      */
     bool rename(TimeseriesProvider *p, const QString &newName);
 
+    /*! \brief Engine table index of the series \p name (curves of the same
+     *  name never match), or -1; e.g. for swmm_table_analyze_impact.
+     * @param[in] engineHandle Borrowed engine; null returns -1. */
+    static int engineTableIndex(void *engineHandle, const QString &name);
+
     // ── Engine I/O (Phase 6.7.3.8 — minimum load path) ─────────────────────
 
     /*! \brief Populate the registry from a live SWMM engine handle. Walks
@@ -140,8 +147,9 @@ public:
      *  TIMESERIES_DATA file-path slot (B4), so the .inp emits
      *  `name FILE "path:col"` and dependents referencing the series by name
      *  resolve to that file column. An unchanged reference is left verbatim
-     *  (a relative token stays relative). Pathless ExternalFile and
-     *  GeopackageObserved providers are still skipped.
+     *  (a relative token stays relative). Pathless ExternalFile providers
+     *  are still skipped; GeopackageObserved providers (observation copies)
+     *  are written as ordinary rows.
      *
      *  \returns the number of providers written.
      *
@@ -161,7 +169,7 @@ public:
      *  single series: flushing every series instead made a batch of N new
      *  series cost O(N × all series points). \p engineHandle defaults to the
      *  bound handle. Returns false when \p p is not in this registry, is not
-     *  persisted (pathless external / observed), or the write failed.
+     *  persisted (pathless external), or the write failed.
      * @param[in] p Owned provider to write; null/nonmember is rejected.
      * @param[in] engineHandle Borrowed engine to use and cache; null falls back to the cached handle.
      * @return True when the provider persistence operation reports success; false for no engine, unsupported mode, unresolved import, or write failure.
@@ -184,6 +192,19 @@ public:
 
     /// Stop pending editor writes when the owning model closes its engine.
     void detachEngine();
+
+    /*! \brief Bindings of the observation-copy (GeopackageObserved) series,
+     *  for the project's .oswp `timeSeriesAssignments`: each is the series'
+     *  binding plus `"binding": true` and `"modelSeries": <name>`.
+     * @return One entry per bound series, in registry order. */
+    QJsonArray observationBindings() const;
+
+    /*! \brief Put saved bindings back on their series (by name) after a
+     *  project opens. Entries without `"binding": true` are ignored. This is
+     *  not an edit: no engine write, no dirty mark.
+     * @param[in] entries `timeSeriesAssignments` entries.
+     * @return Names of bound series that are no longer in the model. */
+    QStringList restoreObservationBindings(const QJsonArray &entries);
 
 
     /*! \brief The engine handle currently bound to this registry (the one
@@ -217,19 +238,26 @@ public:
      *  timeseries dialog already receives the registry. Seeded (and
      *  re-seeded) by SWMMModelLayer::ensureTimeseriesRegistry(), which also
      *  forwards START_DATE / START_TIME option edits. Invalid = unknown.
+     *  Held as a UTC-labelled wall-clock time, like the series points.
      * @return Copied cached simulation start, invalid when unknown.
      */
     QDateTime simulationStart() const { return m_simulationStart; }
     /**
      * @brief Update the cached project time anchor without shifting provider samples.
-     * @param[in] start Absolute project start or invalid when unknown.
-     * @details Identical timestamps are a no-op; otherwise emits simulationStartChanged() after assignment.
+     * @param[in] start Project start or invalid when unknown; its date and time of day are kept
+     *   and labelled UTC, whatever zone it carried.
+     * @details Series points are UTC-labelled wall-clock times (the engine has no time zone). A
+     *   local-time start stepped across a daylight-saving change gave wall-clock times that go
+     *   backwards, which the engine refuses. Identical timestamps are a no-op; otherwise emits
+     *   simulationStartChanged() after assignment.
      */
     void setSimulationStart(const QDateTime &start)
     {
-        if (start == m_simulationStart)
+        const QDateTime wallClock =
+            start.isValid() ? QDateTime(start.date(), start.time(), QTimeZone::UTC) : start;
+        if (wallClock == m_simulationStart)
             return;
-        m_simulationStart = start;
+        m_simulationStart = wallClock;
         emit simulationStartChanged(m_simulationStart);
     }
 
@@ -238,6 +266,10 @@ signals:
      * @param[in] now Newly cached project start, possibly invalid.
      */
     void simulationStartChanged(const QDateTime &now);
+
+    /// Edits are about to be published (Save, editor close): editors commit
+    /// a value still being typed in a cell so it is part of the flush.
+    void aboutToFlushEdits();
 
     /// The edited series is available to engine-backed views.
     void editsPublished(openswmmvis::timeseries::TimeseriesProvider *provider);

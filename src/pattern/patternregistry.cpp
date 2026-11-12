@@ -9,6 +9,8 @@
 
 #include "pattern/patternregistry.h"
 
+#include <QSignalBlocker>
+
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_tables.h>
 
@@ -188,11 +190,35 @@ int PatternRegistry::loadFromEngine(void *engineHandle)
                 v = 0.0;
             factors.push_back(v);
         }
-        if (factors.size() == p->factorCount())
-            p->setAllFactors(std::move(factors));
+        // A file may list fewer factors than the type needs: the missing ones
+        // are 1.0, as legacy SWMM and the engine's inflow routine read them.
+        factors.resize(p->factorCount(), 1.0);
+        p->setAllFactors(std::move(factors));
         ++added;
     }
     return added;
+}
+
+int PatternRegistry::loadFromEngine(void *engineHandle, const QString &onlyName)
+{
+    PatternProvider *p = findByName(onlyName);
+    if (!engineHandle || !p)
+        return 0;
+    auto *eng = static_cast<SWMM_Engine>(engineHandle);
+    const int idx = swmm_pattern_index(eng, onlyName.toUtf8().constData());
+    int n = 0;
+    if (idx < 0 || swmm_pattern_get_factor_count(eng, idx, &n) != SWMM_OK)
+        return 0;
+    PatternProvider::Params now;
+    for (int j = 0; j < n; ++j) {
+        double v = 0.0;
+        swmm_pattern_get_factor(eng, idx, j, &v);
+        now.factors.push_back(v);
+    }
+    now.factors.resize(p->factorCount(), 1.0); // missing factors are 1.0, as on load
+    const QSignalBlocker quiet(p); // the engine already holds it: no mirroring back
+    p->setParams(now);
+    return 1;
 }
 
 int PatternRegistry::saveToEngine(void *engineHandle)

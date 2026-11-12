@@ -28,6 +28,26 @@
 namespace openswmmvis::pollutant
 {
 
+/*! Every editable value of a pollutant except its name. An editor holds one as
+ *  its unapplied draft; Apply and Undo copy one into the provider. */
+struct PollutantParams {
+    int units = 0;
+    double rainConc = 0.0;
+    double gwConc = 0.0;
+    double initConc = 0.0;
+    double rdiiConc = 0.0;
+    double kDecay = 0.0;
+    double mwt = 1.0; // the model's default; it refuses a weight that is not positive
+    bool snowOnly = false;
+    QString coPollutant;
+    double coFraction = 0.0;
+
+    bool operator==(const PollutantParams &) const = default;
+    /*! Equal within \p relTol on the real fields (the engine stores decay per
+     *  second, so a value read back is not always bit-identical). */
+    bool sameAs(const PollutantParams &other, double relTol) const;
+};
+
 class PollutantProvider : public QObject
 {
     Q_OBJECT
@@ -105,6 +125,11 @@ public:
      * @return Dimensionless co-pollutant contribution factor.
      */
     double coFraction() const noexcept { return m_coFraction; }
+
+    /*! All editable values at once. */
+    PollutantParams params() const;
+    /*! Replace all editable values; emits paramsChanged once if anything changed. */
+    void setParams(const PollutantParams &params);
 
     // ── Mutators (emit changed signals) ─────────────────────────────────────
     /**
@@ -195,7 +220,7 @@ private:
     double m_initConc = 0.0;
     double m_rdiiConc = 0.0;
     double m_kDecay = 0.0;
-    double m_mwt = 0.0;
+    double m_mwt = 1.0; // as the model starts a new pollutant
     bool m_snowOnly = false;
     QString m_coPollutant;
     double m_coFraction = 0.0;

@@ -125,7 +125,8 @@ int TimeseriesTableModel::providerIndex_(const TimeseriesProvider *p) const
 bool TimeseriesTableModel::anyExternal_() const
 {
     for (const auto &p : m_providers)
-        if (p && p->sourceMode() == TimeseriesProvider::SourceMode::ExternalFile)
+        // Read-only: a file's cached rows, or a copy prepared from observations.
+        if (p && p->sourceMode() != TimeseriesProvider::SourceMode::Inline)
             return true;
     return false;
 }
@@ -299,6 +300,8 @@ bool TimeseriesTableModel::setHeaderData(int section, Qt::Orientation orientatio
     if (!p)
         return false;
 
+    if (m_rename)
+        return m_rename(p, newName);
     if (m_undoStack)
         m_undoStack->push(new RenameTimeseriesCommand(p, newName));
     else

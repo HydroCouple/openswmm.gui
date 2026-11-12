@@ -182,6 +182,22 @@ public:
      */
     void setType(PatternType t);
 
+    /*! What an editor's draft holds and what Apply and its Undo write: the
+     *  factors. The type is chosen at creation and has no engine setter, so
+     *  it is not part of an edit (Phase 5 of
+     *  workplans/DATA_OBJECT_APPLY_REVERT_PLAN_2026-11-11.md). */
+    struct Params {
+        QVector<double> factors;
+        bool operator==(const Params &o) const { return factors == o.factors; }
+        /*! Same factors within \p relTol relative to each factor's size. */
+        bool sameAs(const Params &o, double relTol) const;
+    };
+    /*! The factors. */
+    Params params() const { return {m_factors}; }
+    /*! Set the factors (factorsChanged when they differ).
+     * @return False when they were refused (see setAllFactors). */
+    bool setParams(const Params &p);
+
 signals:
     /*! \brief One factor at index \p i had its value changed.
      * @param[in] i Zero-based factor whose new value is already stored.

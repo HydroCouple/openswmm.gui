@@ -55,8 +55,10 @@
 #include "dialog_a11y_checks.h"
 #include "transect/transectprovider.h"
 #include "transect/transectregistry.h"
+#include "ui/util/tableclipboard.h"
 #include "transect/transectundocommands.h"
 #include "ui/dialogs/transecteditordialog.h"
+#include "ui/editors/dataobjectdraftsession.h"
 #include "ui/dialogs/transectpropertybag.h"
 #include "ui/models/transectlistmodel.h"
 #include "ui/models/transectstationtablemodel.h"
@@ -684,6 +686,62 @@ private slots:
      * layer; no engine persistence or actual mouse click is used.
      *
      */
+    /**
+     * @brief Require an Excel station block to replace rows as a whole (stations must stay
+     * increasing), append rows past the end, refuse a block that breaks the order without
+     * changing anything, and paste elevation-only blocks cell by cell.
+     */
+    void dialog_PasteStationBlock()
+    {
+        TransectRegistry reg;
+        auto *p = reg.create(QStringLiteral("Paste"));
+        QVERIFY(p->setAllPoints({{0.0, 10.0}, {5.0, 0.0}, {10.0, 10.0}}));
+        QUndoStack stack;
+        TransectEditorDialog dlg(&reg, /*layer*/ nullptr, &stack);
+        QCOMPARE(dlg.currentProvider(), p);
+        auto *d = dlg.editedTransect(); // the draft the table edits
+        QVERIFY(d);
+        const auto clips = dlg.findChildren<openswmmvis::ui::TableClipboard *>();
+        QCOMPARE(clips.size(), 1);
+        auto *clip = clips.first();
+        auto *view = qobject_cast<QTableView *>(clip->parent());
+        QVERIFY(view);
+        const auto selectRow = [view](int row) {
+            view->selectionModel()->select(view->model()->index(row, 0),
+                                           QItemSelectionModel::ClearAndSelect |
+                                               QItemSelectionModel::Rows);
+        };
+
+        // Row 1 onward: 5 → 4 and 10 → 12 would each break the order cell by
+        // cell against the old neighbours; as a block they are valid.
+        selectRow(1);
+        QVERIFY(clip->pasteText(QStringLiteral("Station\tElevation\n4\t1\n12\t5\n15\t9\n")));
+        QCOMPARE(d->pointCount(), 4);
+        QCOMPARE(d->pointAt(1).station, 4.0);
+        QCOMPARE(d->pointAt(2).station, 12.0);
+        QCOMPARE(d->pointAt(3).station, 15.0);
+        QCOMPARE(d->pointAt(3).elevation, 9.0);
+
+        // A block that breaks the order is refused as a whole.
+        selectRow(0);
+        QVERIFY(!clip->pasteText(QStringLiteral("20\t1")));
+        QCOMPARE(d->pointAt(0).station, 0.0);
+        QVERIFY(clip->lastMessage().contains(QStringLiteral("rejected")));
+
+        // Elevations alone have no order to keep.
+        view->selectionModel()->select(view->model()->index(0, 1),
+                                       QItemSelectionModel::ClearAndSelect);
+        QVERIFY(clip->pasteText(QStringLiteral("7\n8")));
+        QCOMPARE(d->pointAt(0).elevation, 7.0);
+        QCOMPARE(d->pointAt(1).elevation, 8.0);
+        QCOMPARE(d->pointAt(1).station, 4.0);
+        // The model's transect changes at Apply.
+        QCOMPARE(p->pointCount(), 3);
+        QVERIFY(dlg.draftSession()->apply());
+        QCOMPARE(p->pointCount(), 4);
+        QCOMPARE(p->pointAt(1).elevation, 8.0);
+    }
+
     void dialog_BindsFirstProvider_AndSelectionRebinds()
     {
         TransectRegistry reg;
@@ -705,10 +763,13 @@ private slots:
         QCOMPARE(dlg.tableModel()->rowCount(), 3);
 
         // Select row 1 → bind p2.
-        dlg.listView()->setCurrentIndex(dlg.listModel()->index(1));
+        dlg.listView()->setCurrentIndex(dlg.listView()->model()->index(1, 0));
         QCOMPARE(dlg.currentProvider(), p2);
-        QCOMPARE(dlg.tableModel()->provider(), p2);
-        QCOMPARE(dlg.chartView()->provider(), p2);
+        // The table and chart edit p2's draft copy.
+        QCOMPARE(dlg.tableModel()->provider(), dlg.editedTransect());
+        QCOMPARE(dlg.chartView()->provider(), dlg.editedTransect());
+        QCOMPARE(dlg.editedTransect()->name(), p2->name());
+        QCOMPARE(dlg.editedTransect()->pointAt(0).elevation, 20.0);
     }
 
     /**
@@ -1056,9 +1117,7 @@ private slots:
         dlg.show();
         QVERIFY(QTest::qWaitForWindowExposed(&dlg));
 
-        auto *box = dlg.findChild<QDialogButtonBox *>(QStringLiteral("transect_closeBox"));
-        QVERIFY(box);
-        auto *btn = box->button(QDialogButtonBox::Close);
+        auto *btn = dlg.findChild<QPushButton *>(QStringLiteral("transect_closeBtn"));
         QVERIFY(btn);
         QVERIFY(!btn->isDefault());
         QVERIFY(!btn->autoDefault());
@@ -1066,6 +1125,62 @@ private slots:
 
         btn->click();
         QTRY_VERIFY(!dlg.isVisible());
+    }
+
+    /*! Station edits wait in the draft and undo step by step on the editor's
+     *  own stack; Apply is one step on the project stack, which still undoes
+     *  after the editor has closed. (Plan Phase 4.) */
+    void draftStationsUndoLocallyAndApplyAsOneStep()
+    {
+        TransectRegistry reg;
+        auto *p = reg.create(QStringLiteral("T1"));
+        QVERIFY(p->setAllPoints({{0.0, 10.0}, {5.0, 0.0}, {10.0, 10.0}}));
+        QUndoStack project;
+        auto *dlg = new TransectEditorDialog(&reg, /*layer*/ nullptr, &project);
+        auto *d = dlg->editedTransect();
+        QVERIFY(d);
+
+        // Two station edits through the editor's own commands.
+        QVERIFY(QMetaObject::invokeMethod(dlg, "onChartInsertRequested_", Qt::DirectConnection,
+                                          Q_ARG(double, 7.5), Q_ARG(double, 2.0)));
+        QVERIFY(QMetaObject::invokeMethod(dlg, "onAddRowClicked_", Qt::DirectConnection));
+        QCOMPARE(d->pointCount(), 5);
+        QCOMPARE(p->pointCount(), 3); // model untouched
+        QCOMPARE(project.count(), 0);
+        QCOMPARE(dlg->draftUndoStack()->count(), 2);
+        dlg->draftUndoStack()->undo(); // the added row
+        QCOMPARE(d->pointCount(), 4);
+        QVERIFY(dlg->draftSession()->hasDraft());
+
+        QVERIFY(dlg->draftSession()->apply());
+        QCOMPARE(p->pointCount(), 4);
+        QCOMPARE(p->pointAt(2).station, 7.5);
+        QCOMPARE(project.count(), 1);
+        QVERIFY(!dlg->draftSession()->hasDraft());
+
+        delete dlg; // the step must not depend on the editor
+        project.undo();
+        QCOMPARE(p->pointCount(), 3);
+        project.redo();
+        QCOMPARE(p->pointCount(), 4);
+    }
+
+    /*! Revert drops the draft (and its undo steps); the model was never touched. */
+    void revertRestoresTheModelStations()
+    {
+        TransectRegistry reg;
+        auto *p = reg.create(QStringLiteral("T1"));
+        QVERIFY(p->setAllPoints({{0.0, 10.0}, {5.0, 0.0}, {10.0, 10.0}}));
+        QUndoStack project;
+        TransectEditorDialog dlg(&reg, /*layer*/ nullptr, &project);
+        QVERIFY(QMetaObject::invokeMethod(&dlg, "onChartDeleteRequested_", Qt::DirectConnection,
+                                          Q_ARG(int, 1)));
+        QCOMPARE(dlg.editedTransect()->pointCount(), 2);
+        dlg.draftSession()->revert();
+        QCOMPARE(dlg.editedTransect()->pointCount(), 3);
+        QCOMPARE(dlg.draftUndoStack()->count(), 0);
+        QCOMPARE(p->pointCount(), 3);
+        QCOMPARE(project.count(), 0);
     }
 };
 

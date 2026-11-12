@@ -121,6 +121,11 @@ SWMM_InletDesign toEngineDesign(const InletDesignData &d)
 
 InletRegistry::InletRegistry(QObject *parent) : QObject(parent) {}
 
+InletDesignData InletRegistry::storedDesign(const InletDesignData &design)
+{
+    return fromEngineDesign(toEngineDesign(design));
+}
+
 InletRegistry::~InletRegistry() = default;
 
 InletProvider *InletRegistry::findByName(const QString &name) const

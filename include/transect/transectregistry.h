@@ -96,19 +96,22 @@ public:
      * @brief Import engine objects whose names are not already registered.
      * @param[in] engineHandle Borrowed valid SWMM_Engine, retained for later synchronization; null is a no-op and preserves the previous cached handle.
      * @return Number of new providers loaded; zero for null/empty engine data.
-     * @details Existing providers are neither refreshed nor removed. Loading emits providerAdded() and parameter notifications through ordinary setters; getter failures may leave defaults. Call on the registry/engine owning thread.
+     * @param[in] onlyName Optional name: refresh that existing provider from the engine instead
+     * (returns 1 when found, 0 otherwise).
+     * @details Without \p onlyName, existing providers are neither refreshed nor removed. Loading emits providerAdded() and parameter notifications through ordinary setters; getter failures may leave defaults. Call on the registry/engine owning thread.
      * @details Unreadable station samples are skipped. Nonmonotone imported lists are rejected by setAllPoints() and logged as a warning, leaving an empty local list.
      */
-    int loadFromEngine(void *engineHandle);
+    int loadFromEngine(void *engineHandle, const QString &onlyName = {});
 
     /*! \brief Push every provider back to the engine via clear+re-add of
      *  the stations + setters for the scalar fields. Caches \p engineHandle.
      * @brief Write current authoring providers through a borrowed engine handle.
      * @param[in] engineHandle Valid SWMM_Engine retained for later calls; null is a no-op preserving the previous handle.
+     * @param[in] onlyName Optional name restricting writes to that provider.
      * @return Number of providers whose engine object was found or added and whose setter calls were attempted; not a count of confirmed setter success.
      * @details Comment/metadata setters, station clear, and point-add return codes are ignored. A counted provider can have rejected or partially replaced engine data; no rollback is attempted.
      */
-    int saveToEngine(void *engineHandle);
+    int saveToEngine(void *engineHandle, const QString &onlyName = {});
 
     /*! \brief Flush against the engine handle cached by the most recent
      *  `loadFromEngine` / `saveToEngine(handle)` call. No-op if neither

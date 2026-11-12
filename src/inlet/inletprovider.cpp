@@ -9,6 +9,9 @@
 
 #include "inlet/inletprovider.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace openswmmvis::inlet
 {
 
@@ -110,6 +113,26 @@ void InletProvider::setComments(QString text)
         return;
     m_comments = std::move(text);
     emit commentsChanged();
+}
+
+bool InletProvider::Params::sameAs(const Params &o, double relTol) const
+{
+    const auto close = [relTol](double a, double b) {
+        return std::abs(a - b) <= relTol * std::max({1.0, std::abs(a), std::abs(b)});
+    };
+    const InletDesignData &a = design, &b = o.design;
+    return comments == o.comments && a.type == b.type && a.grateType == b.grateType &&
+           a.throat == b.throat && a.curveId == b.curveId && a.curveKind == b.curveKind &&
+           close(a.grateLength, b.grateLength) && close(a.grateWidth, b.grateWidth) &&
+           close(a.openArea, b.openArea) && close(a.splashVeloc, b.splashVeloc) &&
+           close(a.curbLength, b.curbLength) && close(a.curbHeight, b.curbHeight) &&
+           close(a.slotLength, b.slotLength) && close(a.slotWidth, b.slotWidth);
+}
+
+void InletProvider::setParams(const Params &p)
+{
+    setDesign(p.design);
+    setComments(p.comments);
 }
 
 void InletProvider::setDesign(const InletDesignData &d)

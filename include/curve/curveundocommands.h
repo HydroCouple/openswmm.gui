@@ -5,11 +5,9 @@
  * @license   GPL-3.0-or-later
  * @brief     QUndoCommand subclasses for graphical edits on a CurveProvider.
  *
- * Scope (per user direction): undo coverage is intentionally limited to the
- * **graphical** edits driven from `CurveEditChartView` (drag completion).
- * Right-click insert / delete on the chart and table-cell edits continue to
- * mutate the provider directly — matching the existing curve-editor
- * behaviour. Adding undo for those code paths is a future slice.
+ * Graphical edits driven from `CurveEditChartView` (drag completion) use
+ * `BulkSetCurvePointsCommand`; the editor's table, row, paste and type edits
+ * use `SetCurveParamsCommand`.
  *
  * Live in-flight drag uses `CurveProvider::setPointAt` per frame (validated,
  * MVC signals fire so every view re-renders). On mouse release the chart
@@ -23,6 +21,7 @@
 
 #include "curve/curveprovider.h"
 
+#include <QPointer>
 #include <QString>
 #include <QUndoCommand>
 #include <QVector>
@@ -70,6 +69,24 @@ private:
     QVector<int> m_indices;
     QVector<CurvePoint> m_oldPoints;
     QVector<CurvePoint> m_newPoints;
+};
+
+/*! \brief Replace a curve's type and points with a captured state (table cell, row, paste and
+ *  type edits in the curve editor). Pushed after the edit has been made: the first redo finds
+ *  the curve already in the new state and changes nothing. A deleted curve makes it a no-op. */
+class SetCurveParamsCommand : public QUndoCommand
+{
+public:
+    SetCurveParamsCommand(CurveProvider *provider, CurveProvider::Params before,
+                          CurveProvider::Params after, QString description,
+                          QUndoCommand *parent = nullptr);
+    void undo() override;
+    void redo() override;
+
+private:
+    QPointer<CurveProvider> m_provider;
+    CurveProvider::Params m_before;
+    CurveProvider::Params m_after;
 };
 
 } // namespace openswmmvis::curve

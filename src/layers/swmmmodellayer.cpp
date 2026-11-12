@@ -8076,6 +8076,12 @@ QObject *SWMMModelLayer::ensureTimeseriesRegistry()
 
     auto *reg = qobject_cast<TimeseriesRegistry *>(m_tsRegistry);
     if (!reg || m_tsRegistryEngineHandle != eng) {
+        // Observation-copy bindings live on the series, not in the engine:
+        // carry them over a rebuild, and pick up any the .oswp restored first.
+        QJsonArray bindings = std::exchange(m_pendingObservationBindings, {});
+        if (reg)
+            for (const auto &binding : reg->observationBindings())
+                bindings.append(binding);
         if (m_tsRegistry)
             m_tsRegistry->deleteLater();
         reg = new TimeseriesRegistry(this);
@@ -8083,6 +8089,10 @@ QObject *SWMMModelLayer::ensureTimeseriesRegistry()
         m_tsRegistryEngineHandle = eng;
         connect(this, &SWMMModelLayer::engineAboutToClose, reg, &TimeseriesRegistry::detachEngine);
         reg->loadFromEngine(eng);
+        for (const QString &name : reg->restoreObservationBindings(bindings))
+            qCWarning(lcLoadModel).noquote()
+                << "Time series" << name
+                << "is no longer in the model; its link to observations was dropped.";
         // Anchor for relative-path DISPLAY in the timeseries editor. Refreshed
         // below on every call too, so it follows a Save As.
         // Connect AFTER the initial seed so the bulk providerAdded burst
@@ -8139,6 +8149,23 @@ QObject *SWMMModelLayer::ensureTimeseriesRegistry()
         getOption(QByteArrayLiteral("START_DATE"), QString()),
         getOption(QByteArrayLiteral("START_TIME"), QStringLiteral("00:00:00"))));
     return reg;
+}
+
+QJsonArray SWMMModelLayer::timeseriesObservationBindings() const
+{
+    using openswmmvis::timeseries::TimeseriesRegistry;
+    if (auto *reg = liveRegistry<TimeseriesRegistry>(m_tsRegistry, m_tsRegistryEngineHandle, m_engine))
+        return reg->observationBindings();
+    return m_pendingObservationBindings;
+}
+
+QStringList SWMMModelLayer::restoreTimeseriesObservationBindings(const QJsonArray &bindings)
+{
+    using openswmmvis::timeseries::TimeseriesRegistry;
+    if (auto *reg = liveRegistry<TimeseriesRegistry>(m_tsRegistry, m_tsRegistryEngineHandle, m_engine))
+        return reg->restoreObservationBindings(bindings);
+    m_pendingObservationBindings = bindings; // applied when the registry is created
+    return {};
 }
 
 QObject *SWMMModelLayer::ensurePatternRegistry()
@@ -8245,22 +8272,19 @@ bool SWMMModelLayer::flushDataObjectRegistries(QString *error)
     SWMM_Engine eng = engine();
     if (!eng)
         return true;
-    using openswmmvis::curve::CurveRegistry;
     using openswmmvis::lid::LidControlRegistry;
-    using openswmmvis::pattern::PatternRegistry;
     using openswmmvis::timeseries::TimeseriesRegistry;
     if (auto *series = liveRegistry<TimeseriesRegistry>(m_tsRegistry, m_tsRegistryEngineHandle, eng);
         series && !series->flushPendingEdits(error))
         return false;
-    if (auto *curves = qobject_cast<CurveRegistry *>(m_curveRegistry);
-        curves && m_curveRegistryEngineHandle == eng)
-        curves->saveToEngine(eng);
-    if (auto *patterns = qobject_cast<PatternRegistry *>(m_patternRegistry);
-        patterns && m_patternRegistryEngineHandle == eng)
-        patterns->saveToEngine(eng);
     if (auto *lids = liveRegistry<LidControlRegistry>(m_lidControlRegistry,
                                                       m_lidControlRegistryEngineHandle, eng))
         lids->saveToEngine(eng);
+    // Not the curve, pattern, transect, street, pollutant, aquifer and inlet
+    // registries: their editors write the model at Apply, so the registries
+    // hold nothing the engine lacks, and writing them here put a stale copy
+    // over engine edits made around them (Properties panel adapters).
+    // Apply/Revert plan §9.
     return true;
 }
 

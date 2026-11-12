@@ -16,6 +16,10 @@
 #include "layers/swmmmodellayer.h" // complete type for QPointer<SWMMModelLayer>
 #include "pattern/patternregistry.h"
 #include "ui/dialogs/patterneditordialog.h"
+#include "ui/editors/dataobjectdraftsession.h"
+#include "ui/editors/dataobjectstructureedit.h"
+#include "ui/models/draftmarkproxymodel.h"
+#include "ui/editors/paramsdraftedit.h"
 #include "ui/models/aquiferlistmodel.h"
 #include "ui/sectionview/aquiferdiagram.h"
 #include "ui/sectionview/sectionpreviewwidget.h"
@@ -26,7 +30,6 @@
 #include <openswmm/engine/openswmm_tables.h>
 
 #include <QComboBox>
-#include <QDialogButtonBox>
 #include <QDoubleSpinBox>
 #include <QEvent>
 #include <QFormLayout>
@@ -39,6 +42,7 @@
 #include <QMessageBox>
 #include <QPushButton>
 #include <QSplitter>
+#include <QUndoStack>
 #include <QVBoxLayout>
 
 #include <initializer_list>
@@ -51,6 +55,11 @@ using openswmmvis::aquifer::AquiferRegistry;
 
 namespace
 {
+
+bool sameAquifer(const AquiferProvider::Params &now, const AquiferProvider::Params &target)
+{
+    return now.sameAs(target, 1e-9);
+}
 
 //! Per-parameter form spec, indexed by AquiferProvider::Param. Ranges are the
 //! engine's hard bounds (fractions in [0,1]; elevations may be negative; the
@@ -162,6 +171,22 @@ AquiferEditorDialog::AquiferEditorDialog(AquiferRegistry *registry, SWMMModelLay
     if (m_registry) {
         connect(m_registry, &AquiferRegistry::providerRenamed, this,
                 &AquiferEditorDialog::onProviderRenamed_);
+        // Changed from another view (or an Undo): with a draft that is a
+        // conflict to resolve at Apply, otherwise the form follows the model.
+        connect(m_registry, &AquiferRegistry::providerParamsChanged, this,
+                [this](AquiferProvider *p) {
+                    if (m_applying)
+                        return;
+                    if (m_drafts.contains(p))
+                        m_session->noteExternalChange();
+                    else if (p == m_current)
+                        bindProvider_(p);
+                });
+        connect(m_registry, &AquiferRegistry::providerAboutToBeRemoved, this,
+                [this](AquiferProvider *p) {
+                    if (m_drafts.remove(p))
+                        m_session->noteEdited();
+                });
         m_listModel->setRegistry(m_registry);
         if (m_registry->providerCount() > 0)
             selectProviderInList_(m_registry->providers().first());
@@ -209,7 +234,12 @@ void AquiferEditorDialog::buildUi_()
     leftLay->setContentsMargins(0, 0, 0, 0);
     m_listView = new QListView(leftPane);
     m_listModel = new AquiferListModel(this);
-    m_listView->setModel(m_listModel);
+    // Rows whose object holds an unapplied draft read in italics.
+    m_draftMarks = new DraftMarkProxyModel(this);
+    m_draftMarks->setSourceModel(m_listModel);
+    m_draftMarks->setHasDraft(
+        [this](int row) { return m_drafts.contains(m_listModel->providerAt(row)); });
+    m_listView->setModel(m_draftMarks);
     m_listView->setEditTriggers(QAbstractItemView::DoubleClicked |
                                 QAbstractItemView::EditKeyPressed);
     leftLay->addWidget(m_listView, 1);
@@ -310,10 +340,19 @@ void AquiferEditorDialog::buildUi_()
 
     outer->addWidget(m_splitter, 1);
 
-    auto *bb = new QDialogButtonBox(QDialogButtonBox::Close, this);
-    connect(bb, &QDialogButtonBox::rejected, this, &QDialog::accept);
-    connect(bb, &QDialogButtonBox::accepted, this, &QDialog::accept);
-    outer->addWidget(bb);
+    m_session = new DataObjectDraftSession({{}, // every field commits to the draft as edited
+                                            [this] { return int(m_drafts.size()); },
+                                            [this](QString *why) { return applyDrafts_(why); },
+                                            [this] { revertDrafts_(); }},
+                                           this);
+    connect(m_session, &DataObjectDraftSession::changed, m_draftMarks,
+            &DraftMarkProxyModel::refreshMarks);
+    m_session->setModel(m_layer); // Save / Run / Close ask about unapplied drafts
+    auto *footer = new DataObjectDraftFooter(m_session, this);
+    connect(footer, &DataObjectDraftFooter::closeRequested, this, &QDialog::accept);
+    outer->addWidget(footer);
+    setAccessibleDescription(tr("Changes are held until you choose Apply, which writes them to "
+                                "the model as one undoable step."));
 
     // ── Wiring ──────────────────────────────────────────────────────────────
     connect(m_listView->selectionModel(), &QItemSelectionModel::selectionChanged, this,
@@ -383,10 +422,11 @@ void AquiferEditorDialog::bindProvider_(AquiferProvider *p)
     m_patternBtn->setEnabled(enabled && !m_layer.isNull());
 
     if (p) {
+        const AquiferProvider::Params v = shown_(p);
         m_nameEdit->setText(p->name());
         for (int k = 0; k < m_spins.size(); ++k)
-            m_spins[k]->setValue(p->param(k));
-        populatePatternCombo_(p->evapPattern());
+            m_spins[k]->setValue(v.values[k]);
+        populatePatternCombo_(v.evapPattern);
     } else {
         m_nameEdit->clear();
         populatePatternCombo_(QString());
@@ -411,7 +451,7 @@ void AquiferEditorDialog::selectProviderInList_(AquiferProvider *p)
         bindProvider_(p);
         return;
     }
-    const QModelIndex idx = m_listModel->index(row);
+    const QModelIndex idx = viewIndexOf(m_listView, m_listModel->index(row));
     m_listView->selectionModel()->setCurrentIndex(idx, QItemSelectionModel::ClearAndSelect);
 }
 
@@ -435,27 +475,44 @@ void AquiferEditorDialog::onAddClicked_()
 {
     if (!m_registry)
         return;
-    AquiferProvider *p = m_registry->create(suggestUniqueName_());
-    if (p)
+    const QString name = suggestUniqueName_();
+    if (!DataObjectDraftSession::commit(
+            {createObjectEdit(m_registry.data(), name, [](AquiferProvider *) { return true; })},
+            m_undo, tr("Create aquifer %1").arg(name)))
+        return;
+    if (AquiferProvider *p = m_registry->findByName(name)) {
+        m_session->noteApplied(tr("Created %1").arg(name));
         selectProviderInList_(p);
+    }
 }
 
 void AquiferEditorDialog::onDeleteClicked_()
 {
     if (!m_registry || !m_current)
         return;
-    // Plan D5 — say what the engine-side delete will clear before doing it.
+    // Plans D5 / D8 — say what the engine-side delete will clear before doing
+    // it, and that Undo will not put it back.
     QString text = tr("Delete aquifer \"%1\"?").arg(m_current->name());
     const QString impact = m_registry->impactSummary(m_current);
     if (!impact.isEmpty())
-        text += QLatin1String("\n\n") + impact;
+        text += QLatin1String("\n\n") + impact + QLatin1Char(' ') +
+                tr("Undo brings back the aquifer and its settings, but not those references.");
     const auto answer = QMessageBox::question(this, tr("Delete Aquifer"), text);
     if (answer != QMessageBox::Yes)
         return;
 
     AquiferProvider *victim = m_current;
+    const QString removedName = victim->name();
+    const auto restore = [registry = m_registry, kept = victim->params()](AquiferProvider *p) {
+        return registry && writeParams(registry.data(), p, kept, sameAquifer);
+    };
     m_current = nullptr;
-    m_registry->remove(victim);
+    if (!DataObjectDraftSession::commit({deleteObjectEdit(m_registry.data(), removedName, restore)},
+                                        m_undo, tr("Delete aquifer %1").arg(removedName))) {
+        bindProvider_(m_registry->findByName(removedName));
+        return;
+    }
+    m_session->noteApplied(tr("Deleted %1").arg(removedName));
     if (m_registry->providerCount() > 0)
         selectProviderInList_(m_registry->providers().first());
     else
@@ -474,22 +531,80 @@ void AquiferEditorDialog::onNameEdited_()
         m_nameEdit->setText(m_current->name());
         return;
     }
-    if (!m_registry->rename(m_current, newName)) {
+    if (!DataObjectDraftSession::commit(
+            {renameObjectEdit(m_registry.data(), m_current->name(), newName)}, m_undo,
+            tr("Rename aquifer %1 to %2").arg(m_current->name(), newName))) {
         QMessageBox::warning(this, tr("Rename Aquifer"),
                              tr("An aquifer named \"%1\" already exists.").arg(newName));
         m_nameEdit->setText(m_current->name());
+        return;
     }
+    m_session->noteApplied(tr("Renamed to %1").arg(newName));
 }
 
 void AquiferEditorDialog::onFieldEdited_()
 {
     if (m_suppressFieldSync || !m_current)
         return;
+    AquiferProvider::Params v;
     for (int k = 0; k < m_spins.size(); ++k)
-        m_current->setParam(k, m_spins[k]->value());
-    m_current->setEvapPattern(m_patternCombo->currentIndex() > 0 ? m_patternCombo->currentText()
-                                                                 : QString());
+        v.values[k] = m_spins[k]->value();
+    v.evapPattern =
+        m_patternCombo->currentIndex() > 0 ? m_patternCombo->currentText() : QString();
+    if (v == m_current->params())
+        m_drafts.remove(m_current); // edited back to the model's values
+    else
+        m_drafts.insert(m_current, v);
+    m_session->noteEdited();
     refreshDiagram_();
+}
+
+void AquiferEditorDialog::setUndoStack(QUndoStack *stack)
+{
+    m_undo = stack;
+}
+
+void AquiferEditorDialog::done(int result)
+{
+    if (m_registry && !m_session->resolveBeforeClose())
+        return;
+    QDialog::done(result);
+}
+
+AquiferProvider::Params AquiferEditorDialog::shown_(AquiferProvider *p) const
+{
+    const auto draft = m_drafts.constFind(p);
+    return draft != m_drafts.cend() ? draft.value() : p->params();
+}
+
+bool AquiferEditorDialog::applyDrafts_(QString *reason)
+{
+    QVector<DataObjectDraftSession::Edit> edits;
+    QStringList names;
+    for (auto it = m_drafts.cbegin(); it != m_drafts.cend(); ++it) {
+        names << it.key()->name();
+        edits.append(paramsDraftEdit(m_registry.data(), m_layer.data(), it.key(), it.key()->params(),
+                                     it.value(), sameAquifer));
+    }
+    m_applying = true;
+    const bool ok = DataObjectDraftSession::commit(
+        edits, m_undo, names.size() == 1 ? tr("Edit aquifer %1").arg(names.first())
+                                         : tr("Edit %n aquifer(s)", nullptr, int(names.size())));
+    m_applying = false;
+    if (!ok) {
+        *reason = tr("the model did not accept the values for %1; nothing was changed")
+                      .arg(names.join(QStringLiteral(", ")));
+        return false;
+    }
+    m_drafts.clear();
+    bindProvider_(m_current);
+    return true;
+}
+
+void AquiferEditorDialog::revertDrafts_()
+{
+    m_drafts.clear();
+    bindProvider_(m_current);
 }
 
 void AquiferEditorDialog::onPatternPickClicked_()
@@ -630,9 +745,7 @@ QString AquiferEditorDialog::pickAquifer(AquiferRegistry *registry, SWMMModelLay
         dlg.m_listView->selectionModel()->clear();
         dlg.bindProvider_(nullptr);
     }
-    dlg.exec();
-    if (dlg.m_registry)
-        dlg.m_registry->saveToEngine();
+    dlg.exec(); // closing with a draft asks Apply / Discard first
 
     auto *p = dlg.currentProvider();
     return p ? p->name() : QString();

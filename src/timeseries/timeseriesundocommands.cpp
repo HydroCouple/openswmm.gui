@@ -225,4 +225,25 @@ void SetTimeModeCommand::undo()
     m_provider->setRelativeInfo(m_oldCount, m_oldAnchor, m_oldAllRelative ? 1 : 0);
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// SetContentCommand
+// ─────────────────────────────────────────────────────────────────────────────
+
+SetContentCommand::SetContentCommand(TimeseriesProvider *provider,
+                                     TimeseriesProvider::Content content, const QString &text,
+                                     QUndoCommand *parent)
+    : QUndoCommand(text, parent), m_provider(provider), m_before(provider->content()),
+      m_after(std::move(content))
+{
+}
+
+void SetContentCommand::redo()
+{
+    m_provider->setContent(m_after);
+}
+void SetContentCommand::undo()
+{
+    m_provider->setContent(m_before);
+}
+
 } // namespace openswmmvis::timeseries

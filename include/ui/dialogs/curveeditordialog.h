@@ -30,8 +30,12 @@
 #ifndef OPENSWMMVIS_UI_DIALOGS_CURVEEDITORDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_CURVEEDITORDIALOG_H
 
+#include "curve/curveprovider.h" // Params held per draft
+
 #include <QDialog>
+#include <QMetaObject>
 #include <QPointer>
+#include <QVector>
 
 class QChart;
 class QAction;
@@ -71,6 +75,7 @@ namespace openswmmvis::ui
 {
 
 class CurvePointTableModel;
+class DataObjectDraftSession;
 
 class CurveEditorDialog : public QDialog
 {
@@ -177,6 +182,16 @@ public:
      * @return Borrowed model; lifetime is the dialog's, with rows following current provider.
      */
     CurvePointTableModel *tableModel() const noexcept { return m_tableModel; }
+
+    /*! The draft session behind the Apply / Revert footer. */
+    DataObjectDraftSession *draftSession() const noexcept { return m_session; }
+    /*! The copy of the current curve that the table, chart and type edit (its draft). */
+    openswmmvis::curve::CurveProvider *editedCurve() const noexcept { return m_edited.data(); }
+    /*! Step-by-step undo of draft edits (chart drags), behind the toolbar's Undo / Redo. */
+    QUndoStack *draftUndoStack() const noexcept { return m_draftUndo; }
+
+    /*! Closing with unapplied changes asks Apply / Discard / Cancel first. */
+    void done(int result) override;
 
     /**
      * @brief Read the create-card text trimmed without validating identifier or uniqueness.
@@ -456,6 +471,33 @@ private:
      * uses 0..1. Does not convert stored x/y values or preserve prior zoom/axis-lock range.
      */
     void refreshChart_();
+
+    // ── Drafts (Apply / Revert) ─────────────────────────────────────────────
+    /*! One curve opened here: the model's provider, the copy the editor
+     *  edits, and the model values the copy was last taken from. */
+    struct Draft {
+        QPointer<openswmmvis::curve::CurveProvider> live;
+        openswmmvis::curve::CurveProvider *copy = nullptr;
+        openswmmvis::curve::CurveProvider::Params base;
+    };
+    /// The draft copy of \p live, made on first use; null for null.
+    openswmmvis::curve::CurveProvider *copyFor_(openswmmvis::curve::CurveProvider *live);
+    /// The model's curve changed: follow it when unedited, else report the conflict.
+    void onLiveChanged_(openswmmvis::curve::CurveProvider *live);
+    /// The model's curve is going away: drop its draft.
+    void dropDraft_(openswmmvis::curve::CurveProvider *live);
+    int dirtyCount_() const;
+    bool applyDrafts_(QString *reason);
+    void revertDrafts_();
+    /// Italic list rows for curves holding unapplied changes.
+    void refreshDraftMarks_();
+
+    QVector<Draft> m_drafts;
+    QPointer<openswmmvis::curve::CurveProvider> m_edited; ///< Draft copy of m_current.
+    DataObjectDraftSession *m_session = nullptr;
+    QUndoStack *m_draftUndo = nullptr; ///< Step-by-step undo of draft edits (toolbar Undo/Redo).
+    QList<QMetaObject::Connection> m_bindConnections; ///< View wiring to the bound copy.
+    bool m_applying = false;
     /**
      * @brief Show current provider point count or clear the permanent count label.
      * No-op without label; no data mutation, transient error clearing or file I/O.

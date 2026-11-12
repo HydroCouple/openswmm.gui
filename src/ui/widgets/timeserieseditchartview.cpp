@@ -160,7 +160,8 @@ void TimeseriesEditChartView::setEditMode(EditMode m)
 
 bool TimeseriesEditChartView::isEditingAllowed_() const
 {
-    return m_provider && m_provider->sourceMode() != TimeseriesProvider::SourceMode::ExternalFile;
+    // File rows and observation copies are read-only; only Inline series edit.
+    return m_provider && m_provider->sourceMode() == TimeseriesProvider::SourceMode::Inline;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
