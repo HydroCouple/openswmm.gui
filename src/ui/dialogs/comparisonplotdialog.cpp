@@ -1950,7 +1950,9 @@ void ComparisonPlotDialog::rebuildCharts()
                 bool gap = false;
                 for (std::size_t i = 0; i < std::min(data.timesJulian.size(),data.values.size()); ++i) {
                     const QDateTime dt =
-                        openswmmvis::core::swmmDateTimeToMilliseconds(data.timesJulian[i]);
+                        data.recordedReportDates
+                            ? openswmmvis::core::swmmReportDateTimeToQDateTime(data.timesJulian[i])
+                            : openswmmvis::core::swmmDateTimeToMilliseconds(data.timesJulian[i]);
                     const double v = data.values[i];
                     if (!dt.isValid() || !std::isfinite(v)) { gap = !points.isEmpty(); continue; }
                     if (gap && !data.pointsOnly) {

@@ -217,6 +217,7 @@ void SwmmOutRunLayer::fetchSeriesByCode_(const ObjectRef &ref, int varCode, Seri
         out.timesJulian[i] = time;
         out.values[i] = static_cast<double>(values[i]);
     }
+    out.recordedReportDates = snowTimes.empty(); // the snow process clock has no offset
     out.ok = true;
 }
 
@@ -349,6 +350,7 @@ void SwmmOutRunLayer::loadSeries_(const ObjectRef &ref, const QString &species, 
     const std::size_t from = std::size_t(std::clamp(out.firstPeriod, 0, int(n)));
     out.timesJulian.assign(flow.timesJulian.begin() + from, flow.timesJulian.begin() + n);
     out.values.assign(values.begin() + from, values.begin() + n);
+    out.recordedReportDates = flow.recordedReportDates;
     out.ok = true;
 }
 
