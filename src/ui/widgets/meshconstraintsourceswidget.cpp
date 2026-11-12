@@ -74,7 +74,7 @@ MeshConstraintSourcesWidget::MeshConstraintSourcesWidget(QWidget *parent) : QWid
         rebuildSources();
         emit policiesChanged();
     });
-    auto *note = new QLabel(tr("Include layers on the Sources tab. Unchecked limits inherit the default above. Feature attributes override these source settings. Shared paths use the stricter owner protections. Unmatched shared samples are retained conservatively."), this);
+    auto *note = new QLabel(tr("Include layers on the Sources tab. Unchecked limits inherit the Boundaries defaults. Feature attributes override these source settings. Shared paths use the stricter owner protections. Unmatched shared samples are retained conservatively."), this);
     note->setWordWrap(true);
     form->addRow(note);
     connect(m_source, &QComboBox::currentIndexChanged, this, [this] { loadCurrent(); });

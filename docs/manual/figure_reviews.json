@@ -258,8 +258,8 @@
     "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
   },
   "19_generate_mesh_quality.png": {
-    "reviewedAt": "2026-10-01T18:44:47.183431+00:00",
-    "sha256": "19d6936ad9501679186a8f8c456bc4560e306ad5fe07579c82dc38b473e45a54",
+    "reviewedAt": "2026-11-12T19:02:43.263820+00:00",
+    "sha256": "735424bdac6bacf358836c205952a59b8fc2240d1fcb03ca60a7755d4afa5eea",
     "baseline": "workflows-site",
     "notes": "Visually checked against the figure caption. Real application capture; controls and labels visible. Not a claim of complete workflow or numerical validation."
   },

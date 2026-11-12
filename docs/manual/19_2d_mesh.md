@@ -166,7 +166,7 @@ is selected.
 
 Select a category on the left to show its settings on the right: **Cell size**,
 **Local refinement**, **Terrain accuracy**, **Terrain features**, **Cell shape**,
-**Quads and regions**, **Corridors**, **Boundaries**, or **Limits**. Only the selected
+**Quads and regions**, **Corridors**, **Boundaries**, **Source limits**, or **Limits**. Only the selected
 page scrolls; the category list and generation buttons remain available.
 The region and corridor links in Local refinement open the corresponding page.
 
@@ -322,9 +322,11 @@ existing recipes keep their previous mode until changed.
 In preserve/bounded modes, auxiliary line features can override the default through `mesh_simplify`
 (`inherit`, `preserve`, or `simplify`), `mesh_xy_tol` (mesh horizontal units), and
 `mesh_z_tol` (mesh elevation units, after the configured source conversion). Invalid
-override values stop the run. **Source-specific limits** sets preserve/simplify
+override values stop the run. **Quality → Source limits** sets preserve/simplify
 and optional XY, elevation, corner, ring-area and clearance limits for a boundary
-source or line layer. An unchecked limit inherits the default. Feature attributes
+source or line layer. These limits are used only when the **Boundaries** default
+geometry policy is **Preserve authored geometry** or **Bounded simplification**;
+the page links back to it otherwise. An unchecked limit inherits the **Boundaries** default. Feature attributes
 take precedence over the source settings. Conduits inherit preservation unless
 explicitly changed. Selecting a source here does not include it: include layers
 on **Sources**. These overrides are saved with the project in physical units;
