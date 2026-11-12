@@ -18,6 +18,7 @@
 #include "plot/pollutantload.h"
 #include "plot/swmmoutrunlayer.h"
 #include "ui/theme/iconfactory.h"
+#include "ui/util/tableclipboard.h"
 
 #include <openswmm/engine/openswmm_output.h>
 
@@ -149,6 +150,7 @@ void TabularResultsDialog::buildUi()
     // Table.
     m_model = new QStandardItemModel(this);
     m_tableView = new QTableView(this);
+    openswmmvis::ui::TableClipboard::install(m_tableView, {.copyOnly = true});
     m_tableView->setModel(m_model);
     m_tableView->setSortingEnabled(true);
     m_tableView->setAlternatingRowColors(true);

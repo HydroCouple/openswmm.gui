@@ -16,6 +16,7 @@
 #include "core/displaynumber.h"
 #include "ui/uiscrollhelpers.h"
 #include "layers/swmmmodellayer.h"
+#include "ui/util/tableclipboard.h"
 
 #include <openswmm/engine/openswmm_subcatchments.h>
 #include <openswmm/engine/openswmm_pollutants.h>     // loadings rows
@@ -167,6 +168,7 @@ void SubcatchCompoundEditDialog::buildLandUsePage()
     m_luTable->setEditTriggers(QAbstractItemView::DoubleClicked |
                                QAbstractItemView::EditKeyPressed |
                                QAbstractItemView::SelectedClicked);
+    openswmmvis::ui::TableClipboard::install(m_luTable);
     vlay->addWidget(m_luTable, 1);
 
     connect(m_luTable, &QTableWidget::itemChanged, this, [this](QTableWidgetItem *item) {
@@ -222,6 +224,7 @@ void SubcatchCompoundEditDialog::buildLoadingsPage()
     m_loadTable->setEditTriggers(QAbstractItemView::DoubleClicked |
                                  QAbstractItemView::EditKeyPressed |
                                  QAbstractItemView::SelectedClicked);
+    openswmmvis::ui::TableClipboard::install(m_loadTable);
     vlay->addWidget(m_loadTable, 1);
 
     connect(m_loadTable, &QTableWidget::itemChanged, this, [this](QTableWidgetItem *item) {
@@ -272,6 +275,7 @@ void SubcatchCompoundEditDialog::buildLidUsagePage()
     vlay->addWidget(m_lidSummary);
 
     m_lidTable = new QTableWidget(0, 6, page);
+    openswmmvis::ui::TableClipboard::install(m_lidTable, {.copyOnly = true});
     m_lidTable->setAccessibleName(tr("Low impact development usage"));
     m_lidTable->setHorizontalHeaderLabels(
         {tr("LID Control"), tr("#"), tr("Area"), tr("Width"), tr("Init.Sat"), tr("%Imperv")});

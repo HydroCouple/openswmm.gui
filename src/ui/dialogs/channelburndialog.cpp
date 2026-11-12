@@ -51,6 +51,7 @@
 #include <QTableWidget>
 #include <QHeaderView>
 #include "project/generatedmeshartifacts.h"
+#include "ui/util/tableclipboard.h"
 #include <ogr_spatialref.h>
 
 #include <algorithm>
@@ -254,6 +255,7 @@ ChannelBurnDialog::ChannelBurnDialog(SWMMVisProjectWindow *project, QWidget *par
                 }
             });
     m_quality = new QTableWidget(6, 2, this);
+    openswmmvis::ui::TableClipboard::install(m_quality, {.copyOnly = true});
     m_quality->setHorizontalHeaderLabels({tr("Before"), tr("After")});
     m_quality->setVerticalHeaderLabels({tr("Affected cells"), tr("Quads"), tr("Minimum angle"),
                                         tr("Minimum edge"), tr("Cells below 25°"),

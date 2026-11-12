@@ -11,6 +11,16 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Test)
 
 set(GUI_TEST_DATA_DIR ${CMAKE_CURRENT_SOURCE_DIR}/data)
 
+# Excel-style copy / paste for editor tables. The editor dialogs that GUI tests
+# compile install it on their tables, so it is built once and linked into every
+# GUI test instead of being listed at each call site.
+add_library(swmmvis_tableclipboard STATIC
+    ${CMAKE_SOURCE_DIR}/include/ui/util/tableclipboard.h
+    ${CMAKE_SOURCE_DIR}/src/ui/util/tableclipboard.cpp)
+set_target_properties(swmmvis_tableclipboard PROPERTIES AUTOMOC ON)
+target_include_directories(swmmvis_tableclipboard PUBLIC ${CMAKE_SOURCE_DIR}/include)
+target_link_libraries(swmmvis_tableclipboard PUBLIC Qt6::Core Qt6::Gui Qt6::Widgets)
+
 # Helper: register a QtTest binary that links against the same sources as the
 # main app so it can drive real classes (no .cpp duplication needed because the
 # test sources include the .cpp files they exercise directly when small enough,
@@ -69,6 +79,7 @@ function(add_swmmvis_gui_test TEST_NAME)
     target_link_libraries(${TEST_NAME} PRIVATE
         meshkit::runtime
         openswmmvis_extensions
+        swmmvis_tableclipboard
         Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test
     )
     if("${CMAKE_SOURCE_DIR}/src/ui/dialogs/aboutdialog.cpp" IN_LIST ARGN)
@@ -2799,6 +2810,12 @@ add_swmmvis_gui_test(test_climatologydialog
     # path convention applies to it like every other secondary file reference.
     ${CMAKE_SOURCE_DIR}/include/ui/widgets/relativepathpicker.h
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/relativepathpicker.cpp
+)
+
+# Excel-style copy / paste for editor tables. The helper itself comes from the
+# swmmvis_tableclipboard library every GUI test links.
+add_swmmvis_gui_test(test_tableclipboard
+    test_tableclipboard.cpp
 )
 
 # Phase B.1 of docs/RENDERING_5M_PLAN.md — interactive spike that

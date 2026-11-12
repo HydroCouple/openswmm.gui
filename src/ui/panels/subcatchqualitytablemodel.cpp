@@ -1,5 +1,6 @@
 #include "ui/panels/subcatchqualitytablemodel.h"
 #include "layers/swmmmodellayer.h"
+#include "ui/util/tableclipboard.h"
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_subcatchments.h>
@@ -438,6 +439,9 @@ void buildSubcatchQualityEditor(QWidget *host, const SubcatchCompoundEditRef &re
     table->horizontalHeader()->setStretchLastSection(true);
     table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     layout->addWidget(table, 1);
+    openswmmvis::ui::TableClipboardOptions clip;
+    clip.undoStack = ref.undoStack; // one paste, one Undo step
+    openswmmvis::ui::TableClipboard::install(table, clip);
     auto *status = new QLabel(model->summary(), host);
     status->setObjectName("subcatchQualityFeedback");
     status->setWordWrap(true);

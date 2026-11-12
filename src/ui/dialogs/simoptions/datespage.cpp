@@ -33,6 +33,7 @@
 #include "ui/dialogs/simulationoptionsdialog.h"
 #include "ui/widgets/fractionaltimespan.h"
 #include "ui/theme/themehelpers.h"
+#include "ui/util/tableclipboard.h"
 
 namespace openswmmvis::ui
 {
@@ -277,6 +278,12 @@ void DatesPage::buildUi()
     m_eventsTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_eventsTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_eventsTable->setEditTriggers(QAbstractItemView::AllEditTriggers);
+    openswmmvis::ui::TableClipboardOptions eventsClip;
+    eventsClip.appendRow = [this] {
+        addEventRow();
+        return true;
+    };
+    openswmmvis::ui::TableClipboard::install(m_eventsTable, eventsClip);
     evLay->addWidget(m_eventsTable);
 
     auto *evBtnRow = new QHBoxLayout();

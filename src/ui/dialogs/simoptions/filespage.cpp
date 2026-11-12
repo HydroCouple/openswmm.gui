@@ -67,6 +67,7 @@
 #include <QSet> // Slice RC.4 — built-in plugin-id lookup
 #include <QSettings>
 #include "core/enginestring.h"
+#include "ui/util/tableclipboard.h"
 #include <QLineEdit>
 #include <QSpinBox>
 #include <QTableView>
@@ -651,6 +652,8 @@ void FilesPage::buildUi()
     m_hotstartSavesView->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_hotstartSavesView->setSelectionMode(QAbstractItemView::SingleSelection);
     m_hotstartSavesView->setEditTriggers(QAbstractItemView::AllEditTriggers);
+    // New saves start from a file dialog, so a paste fills existing rows.
+    openswmmvis::ui::TableClipboard::install(m_hotstartSavesView);
     m_hotstartSavesView->setToolTip(
         tr("Each row schedules one hot-start save during the run.\n"
            "Leave Datetime empty (\"(end of run)\") to save at the end of the\n"
@@ -901,6 +904,9 @@ void FilesPage::buildUi()
     m_pluginsView->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_pluginsView->setSelectionMode(QAbstractItemView::SingleSelection);
     m_pluginsView->setEditTriggers(QAbstractItemView::AllEditTriggers);
+    openswmmvis::ui::TableClipboardOptions pluginsClip;
+    pluginsClip.appendRow = [this] { return m_pluginsModel->appendRow(QString(), QString()) >= 0; };
+    openswmmvis::ui::TableClipboard::install(m_pluginsView, pluginsClip);
     {
         auto *hdr = m_pluginsView->horizontalHeader();
         hdr->setSectionResizeMode(QHeaderView::Interactive);
@@ -1025,6 +1031,11 @@ void FilesPage::buildUi()
     m_componentsView->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_componentsView->setSelectionMode(QAbstractItemView::SingleSelection);
     m_componentsView->setEditTriggers(QAbstractItemView::AllEditTriggers);
+    openswmmvis::ui::TableClipboardOptions componentsClip;
+    componentsClip.appendRow = [this] {
+        return m_componentsModel->appendRow(QString(), QString()) >= 0;
+    };
+    openswmmvis::ui::TableClipboard::install(m_componentsView, componentsClip);
     {
         auto *hdr = m_componentsView->horizontalHeader();
         hdr->setSectionResizeMode(QHeaderView::Interactive);

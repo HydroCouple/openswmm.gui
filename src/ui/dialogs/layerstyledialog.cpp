@@ -53,6 +53,7 @@
 #include <QUndoStack>
 #include <QFileDialog>
 #include "ui/util/fileopendialog.h"
+#include "ui/util/tableclipboard.h"
 #include <QFormLayout>
 #include <QMessageBox>
 #include <QGroupBox>
@@ -1072,6 +1073,7 @@ void LayerStyleDialog::buildMetadataTab()
     // minimum section size keeps both columns readable on a narrow dialog
     // (PLAN_2D_GUI_FIXES Issue 1 convention) rather than squishing.
     m_metadataTable = new QTableWidget(0, 2, page);
+    openswmmvis::ui::TableClipboard::install(m_metadataTable, {.copyOnly = true});
     m_metadataTable->setHorizontalHeaderLabels({tr("Property"), tr("Value")});
     m_metadataTable->verticalHeader()->setVisible(false);
     m_metadataTable->setAlternatingRowColors(true);

@@ -13,6 +13,7 @@
 #include "ui/precisenumericvalue.h"
 
 #include "ui/widgets/reactionexpressionedit.h"
+#include "ui/util/tableclipboard.h"
 
 #include <openswmm/engine/openswmm_process_components.h>
 #include <openswmm/engine/openswmm_reactions.h>
@@ -332,6 +333,7 @@ QWidget *ReactionSystemEditorDialog::buildSpeciesTab()
     auto *lay = new QVBoxLayout(w);
 
     m_speciesTable = new QTableWidget(0, 5, w);
+    openswmmvis::ui::TableClipboard::install(m_speciesTable, {.copyOnly = true});
     m_speciesTable->setObjectName(QStringLiteral("rx_speciesTable"));
     m_speciesTable->setHorizontalHeaderLabels(
         {tr("Kind"), tr("Name"), tr("Units"), tr("Atol"), tr("Rtol")});
@@ -376,6 +378,7 @@ QWidget *ReactionSystemEditorDialog::buildCoefficientsTab()
     m_coeffTable->verticalHeader()->setVisible(false);
     m_coeffTable->horizontalHeader()->setStretchLastSection(false);
     m_coeffTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    openswmmvis::ui::TableClipboard::install(m_coeffTable);
     lay->addWidget(m_coeffTable, 1);
 
     auto *addRow = new QHBoxLayout;
@@ -432,6 +435,7 @@ QWidget *ReactionSystemEditorDialog::buildTermsTab()
             loadTerms();
         }
     });
+    openswmmvis::ui::TableClipboard::install(m_termTable);
     lay->addWidget(m_termTable, 1);
 
     auto *addRow = new QHBoxLayout;
@@ -500,6 +504,7 @@ QWidget *ReactionSystemEditorDialog::buildExpressionsTab()
             loadExpressions();
         }
     });
+    openswmmvis::ui::TableClipboard::install(m_exprTable);
     lay->addWidget(m_exprTable, 1);
     return w;
 }
@@ -517,6 +522,7 @@ QWidget *ReactionSystemEditorDialog::buildInitialQualityTab()
     m_initGlobalTable->verticalHeader()->setVisible(false);
     m_initGlobalTable->horizontalHeader()->setStretchLastSection(false);
     m_initGlobalTable->setSelectionMode(QAbstractItemView::NoSelection);
+    openswmmvis::ui::TableClipboard::install(m_initGlobalTable);
     lay->addWidget(m_initGlobalTable);
 
     lay->addWidget(
@@ -528,6 +534,12 @@ QWidget *ReactionSystemEditorDialog::buildInitialQualityTab()
         {tr("Scope"), tr("Element"), tr("Species"), tr("Value")});
     m_initOverrideTable->verticalHeader()->setVisible(false);
     m_initOverrideTable->horizontalHeader()->setStretchLastSection(false);
+    openswmmvis::ui::TableClipboardOptions overrideClip;
+    overrideClip.appendRow = [this] {
+        onAddInitOverride();
+        return true;
+    };
+    openswmmvis::ui::TableClipboard::install(m_initOverrideTable, overrideClip);
     lay->addWidget(m_initOverrideTable, 1);
 
     auto *btnRow = new QHBoxLayout;
@@ -619,6 +631,13 @@ QWidget *ReactionSystemEditorDialog::buildSourcesPlaceholderTab()
         table->setHorizontalHeaderLabels(spec.second);
         table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
         table->setSelectionBehavior(QAbstractItemView::SelectRows);
+        openswmmvis::ui::TableClipboardOptions clip;
+        clip.appendRow = [this, table] {
+            table->insertRow(table->rowCount());
+            m_configurationDirty = true;
+            return true;
+        };
+        openswmmvis::ui::TableClipboard::install(table, clip);
         box->addWidget(table);
         m_configurationTables.insert(spec.first, table);
         connect(table, &QTableWidget::itemChanged, this, [this] {

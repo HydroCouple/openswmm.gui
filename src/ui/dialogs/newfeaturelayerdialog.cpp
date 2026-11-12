@@ -19,6 +19,7 @@
 #include "map/spatialreferencesystem.h"
 #include "ui/dialogs/featurefieldeditor.h"
 #include "ui/uiscrollhelpers.h"
+#include "ui/util/tableclipboard.h"
 
 #include <QButtonGroup>
 #include <QCheckBox>
@@ -236,6 +237,7 @@ void NewFeatureLayerDialog::buildUi()
         m_fieldTable->setSelectionMode(QAbstractItemView::SingleSelection);
         m_fieldTable->setEditTriggers(QAbstractItemView::NoEditTriggers);
         m_fieldTable->setMinimumHeight(160);
+        openswmmvis::ui::TableClipboard::install(m_fieldTable);
         lay->addWidget(m_fieldTable);
 
         auto *btns = new QHBoxLayout();

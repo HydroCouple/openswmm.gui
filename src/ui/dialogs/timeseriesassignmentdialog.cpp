@@ -13,6 +13,7 @@
 #include "sdk/IEditScope.hpp"
 #include "core/unitsystem.h"
 #include "ui/properties/dataobjectref.h"
+#include "ui/util/tableclipboard.h"
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDateTimeEdit>
@@ -155,6 +156,7 @@ TimeSeriesAssignmentDialog::TimeSeriesAssignmentDialog(SWMMVisProjectWindow *pro
     form->addRow(tr("Rainfall format"),m_rainFormat); form->addRow(tr("Rainfall interval"),m_rainInterval);
     layout->addLayout(form);
     m_preview = new QTableWidget(0,2,this); m_preview->setHorizontalHeaderLabels({tr("Model time"),tr("Value")});
+    openswmmvis::ui::TableClipboard::install(m_preview, {.copyOnly = true});
     m_preview->setEditTriggers(QAbstractItemView::NoEditTriggers); m_preview->horizontalHeader()->setStretchLastSection(true); m_preview->setMaximumHeight(150); layout->addWidget(m_preview);
     m_status = new QLabel(tr("Review the units and time interpretation, then Prepare preview."),this); m_status->setWordWrap(true); m_status->setTextInteractionFlags(Qt::TextSelectableByMouse); layout->addWidget(m_status);
     auto *buttons = new QDialogButtonBox(QDialogButtonBox::Cancel, this);

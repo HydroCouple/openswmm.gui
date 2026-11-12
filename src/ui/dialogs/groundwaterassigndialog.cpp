@@ -53,6 +53,7 @@
 #include <QScopeGuard>
 #include <QSignalBlocker>
 #include "ui/util/numerictablewidgetitem.h"
+#include "ui/util/tableclipboard.h"
 #include <QVBoxLayout>
 #include <QUuid>
 #include <QtConcurrent/QtConcurrentRun>
@@ -789,6 +790,12 @@ GroundwaterAssignDialog::GroundwaterAssignDialog(SWMMModelLayer *model, SWMM2DMe
                                         tr("Feature field (points)")});
     m_terms->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_terms->setMaximumHeight(135);
+    openswmmvis::ui::TableClipboardOptions termClip;
+    termClip.appendRow = [this] {
+        addSpeciesTerm();
+        return true;
+    };
+    openswmmvis::ui::TableClipboard::install(m_terms, termClip);
     sourceForm->addRow(m_terms);
     auto *termButtons = new QWidget(m_sourceControls);
     auto *termLayout = new QHBoxLayout(termButtons);
@@ -952,6 +959,7 @@ GroundwaterAssignDialog::GroundwaterAssignDialog(SWMMModelLayer *model, SWMM2DMe
     m_status->setTextFormat(Qt::PlainText);
     outer->addWidget(m_status);
     m_table = new QTableWidget(0, 3, this);
+    openswmmvis::ui::TableClipboard::install(m_table, {.copyOnly = true});
     m_table->setObjectName("gwAssignmentPreview");
     m_table->horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
     m_table->setSortingEnabled(true);

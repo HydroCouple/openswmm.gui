@@ -15,6 +15,7 @@
 #include <QDialogButtonBox>
 #include <QFileDialog>
 #include "ui/util/fileopendialog.h"
+#include "ui/util/tableclipboard.h"
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLineEdit>
@@ -50,6 +51,12 @@ void CalibrationDataDialog::buildUi()
         {tr("Object kind"), tr("Object name"), tr("Attribute"), tr("Observed file"), tr("Column")});
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_table->horizontalHeader()->setStretchLastSection(false);
+    openswmmvis::ui::TableClipboardOptions clip;
+    clip.appendRow = [this] {
+        onAddClicked();
+        return true;
+    };
+    openswmmvis::ui::TableClipboard::install(m_table, clip);
     root->addWidget(m_table, 1);
 
     auto *btnRow = new QHBoxLayout;

@@ -12,6 +12,7 @@
 
 #include "core/preferencesmanager.h"
 #include "ui/widgets/colorbutton.h"
+#include "ui/util/tableclipboard.h"
 
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -204,6 +205,7 @@ void ColorRampEditorDialog::buildUi()
         m_stopTable->verticalHeader()->setVisible(false);
         m_stopTable->setSelectionBehavior(QAbstractItemView::SelectRows);
         m_stopTable->setSelectionMode(QAbstractItemView::SingleSelection);
+        openswmmvis::ui::TableClipboard::install(m_stopTable);
         lay->addWidget(m_stopTable, 1);
 
         auto *row = new QHBoxLayout;

@@ -20,6 +20,7 @@
 #include "ui/precisenumericvalue.h"
 #include "ui/hydrothermalconfiguration.h"
 #include "ui/widgets/relativepathpicker.h"
+#include "ui/util/tableclipboard.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -82,6 +83,7 @@ QTableWidget *makeMonthlyTable(const QString &header)
     t->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     for (int i = 0; i < 12; ++i)
         t->setItem(i, 0, new QTableWidgetItem(QStringLiteral("0")));
+    openswmmvis::ui::TableClipboard::install(t);
     return t;
 }
 
@@ -516,6 +518,7 @@ void ClimatologyDialog::onPreviewEvaporation()
     layout->addWidget(summaryLabel);
 
     auto *table = new QTableWidget(0, 5, &dialog);
+    openswmmvis::ui::TableClipboard::install(table, {.copyOnly = true});
     table->setObjectName(QStringLiteral("clim_evapPreviewTable"));
     const QString unit = isSI() ? tr("mm/day") : tr("in/day");
     table->setHorizontalHeaderLabels({tr("Date and time"), tr("Source (%1)").arg(unit),
@@ -1036,6 +1039,7 @@ void ClimatologyDialog::buildAdcTab(QTabWidget *tabs)
         ratios << QString::number(i * 0.1, 'f', 1);
     m_adc->setVerticalHeaderLabels(ratios);
     m_adc->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    openswmmvis::ui::TableClipboard::install(m_adc);
     for (int r = 0; r < 10; ++r)
         for (int c = 0; c < 2; ++c)
             m_adc->setItem(r, c, new QTableWidgetItem(QStringLiteral("1")));
@@ -1082,6 +1086,7 @@ void ClimatologyDialog::buildAdjustmentsTab(QTabWidget *tabs)
         rows << QString::fromLatin1(m);
     m_adjust->setVerticalHeaderLabels(rows);
     m_adjust->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    openswmmvis::ui::TableClipboard::install(m_adjust);
     for (int r = 0; r < 12; ++r)
         for (int c = 0; c < 4; ++c)
             m_adjust->setItem(r, c, new QTableWidgetItem(QStringLiteral("%1").arg(c == 0 ? 0 : 1)));

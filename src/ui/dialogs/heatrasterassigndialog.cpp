@@ -14,6 +14,7 @@
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
 #include "map/spatialreferencesystem.h"
+#include "ui/util/tableclipboard.h"
 #include <QApplication>
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -80,6 +81,7 @@ HeatRasterAssignDialog::HeatRasterAssignDialog(SWMMModelLayer *model, MapCanvas 
     form->addRow(tr("Samples per conduit:"), samples);
     layout->addLayout(form);
     auto *table = new QTableWidget(0, 4, this);
+    openswmmvis::ui::TableClipboard::install(table, {.copyOnly = true});
     table->setHorizontalHeaderLabels(
         {tr("Object"), tr("Before override"), tr("After override"), tr("Source")});
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);

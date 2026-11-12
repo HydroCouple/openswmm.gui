@@ -11,6 +11,7 @@
 #include "ui/widgets/meshregiondefaultswidget.h"
 
 #include "ui/theme/themehelpers.h"
+#include "ui/util/tableclipboard.h"
 
 #include <QComboBox>
 #include <QDoubleValidator>
@@ -256,7 +257,8 @@ MeshRegionDefaultsWidget::MeshRegionDefaultsWidget(QWidget *parent) : QWidget(pa
                                         tr("P4"), tr("P5"), tr("Destination")});
     m_table->verticalHeader()->setVisible(false);
     m_table->setSelectionBehavior(QAbstractItemView::SelectItems);
-    m_table->setSelectionMode(QAbstractItemView::SingleSelection);
+    // Several cells / rows can be selected for Excel copy / paste.
+    m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_table->setEditTriggers(QAbstractItemView::DoubleClicked | QAbstractItemView::SelectedClicked |
                              QAbstractItemView::EditKeyPressed | QAbstractItemView::AnyKeyPressed);
     m_table->setAlternatingRowColors(true);
@@ -264,6 +266,7 @@ MeshRegionDefaultsWidget::MeshRegionDefaultsWidget(QWidget *parent) : QWidget(pa
     m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
     m_table->horizontalHeader()->setSectionResizeMode(ColRegion, QHeaderView::Interactive);
     m_table->setMinimumHeight(140);
+    openswmmvis::ui::TableClipboard::install(m_table);
     lay->addWidget(m_table, 1);
 
     auto *hint = new QLabel(tr("The * row applies to every cell. Region rows are added when "

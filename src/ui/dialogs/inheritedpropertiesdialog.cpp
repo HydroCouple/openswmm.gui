@@ -2,6 +2,7 @@
 #include "ui/panels/swmmaggregateselection.h"
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
+#include "ui/util/tableclipboard.h"
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_links.h>
 #include <QComboBox>
@@ -134,6 +135,8 @@ QDialog *openInheritedPropertiesDialog(SWMMModelLayer *layer, const QList<SWMMOb
     table->setModel(model); table->setItemDelegate(new Delegate(table));
     table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
     table->horizontalHeader()->setStretchLastSection(true); layout->addWidget(table, 1);
+    openswmmvis::ui::TableClipboardOptions clip; clip.undoStack = undo;
+    openswmmvis::ui::TableClipboard::install(table, clip);
     auto *feedback = new QLabel(dialog); feedback->setObjectName("inheritedPropertiesFeedback"); feedback->setWordWrap(true);
     if (!undo) feedback->setText(QObject::tr("The project Undo history is unavailable. Reopen this editor from the project."));
     layout->addWidget(feedback);

@@ -18,6 +18,7 @@
 #include "map/meshprofileoverlay.h"
 #include "map/spatialreferencesystem.h"
 #include "swmmvisprojectwindow.h"
+#include "ui/util/tableclipboard.h"
 #include <QComboBox>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -297,6 +298,7 @@ void MeshProfilePlotDialog::buildSectionControls(QVBoxLayout *layout)
     tabs->addTab(m_seriesEditor, tr("Series and styles"));
     m_samplesModel = new MeshProfileSamplesModel(this);
     m_samplesTable = new QTableView(tabs);
+    openswmmvis::ui::TableClipboard::install(m_samplesTable, {.copyOnly = true});
     m_samplesTable->setObjectName("sectionSamples");
     auto *samplesProxy = new QSortFilterProxyModel(m_samplesTable);
     samplesProxy->setSourceModel(m_samplesModel);

@@ -12,6 +12,7 @@
 #include "ui/widgets/nodecouplingselector.h"
 
 #include "layers/swmmmodellayer.h"
+#include "ui/util/tableclipboard.h"
 
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -414,6 +415,7 @@ QTableView *NodeCouplingSelectorDialog::buildEditor(QWidget *host, NodeCouplingT
     view->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     view->horizontalHeader()->setStretchLastSection(true);
     view->verticalHeader()->hide();
+    openswmmvis::ui::TableClipboard::install(view);
     lay->addWidget(view, 1);
 
     // Selected rows in SOURCE-model coordinates.

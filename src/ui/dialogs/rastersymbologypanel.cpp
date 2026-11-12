@@ -18,6 +18,7 @@
 #include "ui/dialogs/editors/classificationbindings.h"
 #include "ui/widgets/classificationeditor.h"
 #include "ui/widgets/colorcelldelegate.h"
+#include "ui/util/tableclipboard.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -171,6 +172,7 @@ QWidget *RasterSymbologyPanel::buildPalettedPage()
     m_palTable->verticalHeader()->setVisible(false);
     m_palTable->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_palTable->setMinimumHeight(160);
+    openswmmvis::ui::TableClipboard::install(m_palTable);
     lay->addWidget(m_palTable, 1);
 
     auto *btnRow = new QHBoxLayout;
@@ -433,7 +435,7 @@ void RasterSymbologyPanel::pushPalettedTable()
     classes.reserve(m_palModel->rowCount());
     for (int r = 0; r < m_palModel->rowCount(); ++r) {
         PalettedRasterRenderer::Class c;
-        c.value = m_palModel->item(r, kColValue)->text().toInt();
+        c.value = m_palModel->item(r, kColValue)->data(Qt::EditRole).toInt();
         c.label = m_palModel->item(r, kColLabel)->text();
         c.color = m_palModel->item(r, kColColor)->data(Qt::BackgroundRole).value<QColor>();
         classes.append(c);
@@ -473,7 +475,11 @@ void RasterSymbologyPanel::rebuildPalettedTable()
     if (!p)
         return;
     for (const auto &c : p->classes()) {
-        auto *value = new QStandardItem(QString::number(c.value));
+        // Stored as an integer so the cell edits with an integer spin box:
+        // typed or pasted text that is not a whole number is refused rather
+        // than read as 0.
+        auto *value = new QStandardItem;
+        value->setData(c.value, Qt::EditRole);
         auto *label = new QStandardItem(c.label);
         auto *color = new QStandardItem;
         color->setData(c.color, Qt::BackgroundRole);

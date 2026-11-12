@@ -20,6 +20,7 @@
 #include "ui/widgets/chartaxisformatcontroller.h"
 #include "ui/widgets/interactivechartview.h"
 #include "ui/widgets/patterneditchartview.h"
+#include "ui/util/tableclipboard.h"
 
 #include <QApplication>
 #include <QButtonGroup>
@@ -343,6 +344,7 @@ void PatternEditorDialog::buildUi_()
         m_table->verticalHeader()->setDefaultSectionSize(22);
         m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
         m_table->setAlternatingRowColors(true);
+        openswmmvis::ui::TableClipboard::install(m_table);
         centerLay->addWidget(m_table, /*stretch=*/1);
 
         // Normalize row.

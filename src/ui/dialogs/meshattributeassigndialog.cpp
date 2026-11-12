@@ -36,6 +36,7 @@
 #include <QDoubleSpinBox>
 #include <QFileDialog>
 #include "ui/util/fileopendialog.h"
+#include "ui/util/tableclipboard.h"
 #include <QFileInfo>
 #include <QFormLayout>
 #include <QGroupBox>
@@ -146,6 +147,12 @@ void MeshAttributeAssignDialog::buildTargetGroup(const QString &depthUnitLabel)
             tr("One row per parameter: pick the mesh parameter and the raster "
                "band (or vector field) that supplies it. All rows are written "
                "as a single undoable assignment."));
+        openswmmvis::ui::TableClipboardOptions targetClip;
+        targetClip.appendRow = [this] {
+            onAddTargetRow();
+            return true;
+        };
+        openswmmvis::ui::TableClipboard::install(m_targetTable, targetClip);
         v->addWidget(m_targetTable);
 
         auto *row = new QHBoxLayout;
@@ -205,6 +212,12 @@ void MeshAttributeAssignDialog::buildLookupGroup()
            "its positional parameters (in project units, exactly as in "
            "[INFILTRATION]) and destination. The first row is the fallback "
            "applied to keys the table does not list."));
+    openswmmvis::ui::TableClipboardOptions lookupClip;
+    lookupClip.appendRow = [this] {
+        onAddLookupRow();
+        return true;
+    };
+    openswmmvis::ui::TableClipboard::install(m_lookupTable, lookupClip);
     v->addWidget(m_lookupTable);
 
     auto *row = new QHBoxLayout;

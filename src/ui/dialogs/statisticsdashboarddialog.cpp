@@ -23,6 +23,7 @@
 #include "plot/seriesintegration.h"
 #include "plot/swmmoutrunlayer.h"
 #include "ui/theme/iconfactory.h"
+#include "ui/util/tableclipboard.h"
 
 #include <openswmm/engine/openswmm_output.h>
 
@@ -413,6 +414,7 @@ void StatisticsDashboardDialog::buildUi()
     m_nodeProxy->setSourceModel(m_nodeModel);
     m_nodeProxy->setSortRole(Qt::EditRole);
     m_nodeTable = new QTableView(this);
+    openswmmvis::ui::TableClipboard::install(m_nodeTable, {.copyOnly = true});
     m_nodeTable->setModel(m_nodeProxy);
     m_nodeTable->setSortingEnabled(true);
     m_nodeTable->setObjectName(QStringLiteral("nodeTable"));
@@ -430,6 +432,7 @@ void StatisticsDashboardDialog::buildUi()
     m_linkProxy->setSourceModel(m_linkModel);
     m_linkProxy->setSortRole(Qt::EditRole);
     m_linkTable = new QTableView(this);
+    openswmmvis::ui::TableClipboard::install(m_linkTable, {.copyOnly = true});
     m_linkTable->setModel(m_linkProxy);
     m_linkTable->setSortingEnabled(true);
     m_linkTable->setObjectName(QStringLiteral("linkTable"));
@@ -450,6 +453,7 @@ void StatisticsDashboardDialog::buildUi()
     m_subProxy->setSourceModel(m_subModel);
     m_subProxy->setSortRole(Qt::EditRole);
     m_subTable = new QTableView(this);
+    openswmmvis::ui::TableClipboard::install(m_subTable, {.copyOnly = true});
     m_subTable->setModel(m_subProxy);
     m_subTable->setSortingEnabled(true);
     m_subTable->setObjectName(QStringLiteral("subTable"));
@@ -488,6 +492,7 @@ void StatisticsDashboardDialog::buildUi()
     m_meshProxy->setSourceModel(m_meshModel);
     m_meshProxy->setSortRole(Qt::EditRole);
     m_meshTable = new QTableView(m_meshPage);
+    openswmmvis::ui::TableClipboard::install(m_meshTable, {.copyOnly = true});
     m_meshTable->setModel(m_meshProxy);
     m_meshTable->setSortingEnabled(true);
     m_meshTable->setObjectName(QStringLiteral("meshTable"));
@@ -894,6 +899,11 @@ void StatisticsDashboardDialog::onTableContextMenuRequested(const QPoint &pos)
     zoom->setEnabled(m_canvas && m_modelLayer && table->selectionModel() &&
                      !table->selectionModel()->selectedRows().isEmpty());
     connect(zoom, &QAction::triggered, this, &StatisticsDashboardDialog::onZoomToSelected);
+    if (auto *clip = table->findChild<openswmmvis::ui::TableClipboard *>(
+            QString(), Qt::FindDirectChildrenOnly)) {
+        menu.addSeparator();
+        menu.addAction(clip->copyAction());
+    }
     menu.exec(table->viewport()->mapToGlobal(pos));
 }
 

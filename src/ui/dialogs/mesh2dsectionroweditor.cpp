@@ -10,6 +10,7 @@
 #include "ui/dialogs/mesh2dsectionroweditor.h"
 
 #include "ui/dialogs/mesh2dsectionrowmodel.h"
+#include "ui/util/tableclipboard.h"
 
 #include <QComboBox>
 #include <QHBoxLayout>
@@ -74,6 +75,9 @@ Mesh2DSectionRowEditor::Mesh2DSectionRowEditor(Mesh2DSectionRowModel *model, con
         tr("Select a row with the arrow keys. Press F2 to edit the current cell."));
     m_view->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_view->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
+    openswmmvis::ui::TableClipboardOptions clip;
+    clip.appendRow = [this] { return m_model->appendRow() >= 0; };
+    openswmmvis::ui::TableClipboard::install(m_view, clip);
     layout->addWidget(m_view, 1);
 
     m_note = new QLabel(this);

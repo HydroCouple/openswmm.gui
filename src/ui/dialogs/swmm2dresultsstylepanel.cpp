@@ -47,6 +47,7 @@
 #include "ui/widgets/classificationeditor.h"
 #include "ui/widgets/colorbutton.h"
 #include "ui/widgets/dashstylecombo.h"
+#include "ui/util/tableclipboard.h"
 
 #include <QCheckBox>
 #include <QButtonGroup>
@@ -1501,6 +1502,7 @@ void Swmm2DResultsStylePanel::buildScalarDataTab(OpenSWMM::Render::ResultScalarS
     status->setAccessibleName(tr("Result availability"));
     form->addRow(status);
     auto *table = new QTableWidget(0, 4, page);
+    openswmmvis::ui::TableClipboard::install(table, {.copyOnly = true});
     table->setObjectName("additionalResultInspection");
     table->setMaximumHeight(90);
     table->setAccessibleName(tr("Selected cell result"));

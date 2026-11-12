@@ -15,6 +15,8 @@
 #include "layers/hydrographmodels.h"
 #include "ui/widgets/chartaxisformatcontroller.h"
 #include "ui/widgets/interactivechartview.h"
+#include "ui/util/tableclipboard.h"
+#include "map/mapcanvas.h"
 
 #include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_inflows.h>
@@ -59,6 +61,15 @@ namespace
 {
 
 constexpr int kPlotSamples = 200;
+
+/** @brief Excel copy / paste; a paste is one step on the layer's undo stack. */
+void installClipboard(QTableView *view, SWMMModelLayer *layer)
+{
+    openswmmvis::ui::TableClipboardOptions clip;
+    if (layer && layer->editCanvas())
+        clip.undoStack = layer->editCanvas()->undoStack();
+    openswmmvis::ui::TableClipboard::install(view, clip);
+}
 
 // Slice AT.3 palette colours (matches the comparison-plot conventions). For
 // a non-aggressive editor we lower the alpha so triangle interiors don't
@@ -382,6 +393,7 @@ QWidget *HydrographGroupEditor::buildMiddlePane()
         m_rtkView->horizontalHeader()->setStretchLastSection(false);
         m_rtkView->setSelectionBehavior(QAbstractItemView::SelectItems);
         m_rtkView->setAlternatingRowColors(true);
+        installClipboard(m_rtkView, m_layer);
         pv->addWidget(m_rtkView, /*stretch=*/1);
 
         m_tabs->addTab(page, tr("RTK"));
@@ -411,6 +423,7 @@ QWidget *HydrographGroupEditor::buildMiddlePane()
         m_iaView->horizontalHeader()->setStretchLastSection(false);
         m_iaView->setSelectionBehavior(QAbstractItemView::SelectItems);
         m_iaView->setAlternatingRowColors(true);
+        installClipboard(m_iaView, m_layer);
         linV->addWidget(m_iaView);
         pv->addWidget(linGroup);
 
@@ -445,6 +458,7 @@ QWidget *HydrographGroupEditor::buildMiddlePane()
         m_decayView->horizontalHeader()->setStretchLastSection(false);
         m_decayView->setSelectionBehavior(QAbstractItemView::SelectItems);
         m_decayView->setAlternatingRowColors(true);
+        installClipboard(m_decayView, m_layer);
         expV->addWidget(m_decayView);
         pv->addWidget(expGroup);
 

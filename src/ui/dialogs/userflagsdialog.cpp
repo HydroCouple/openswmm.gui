@@ -8,6 +8,7 @@
  */
 
 #include "ui/dialogs/userflagsdialog.h"
+#include "ui/util/tableclipboard.h"
 
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -74,6 +75,12 @@ UserFlagsDialog::UserFlagsDialog(UserFlagsModel *model, QWidget *parent)
     m_table->verticalHeader()->setVisible(false);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);
+    openswmmvis::ui::TableClipboardOptions clip;
+    clip.appendRow = [this] {
+        addRow(QString(), FlagType::String, QString());
+        return true;
+    };
+    openswmmvis::ui::TableClipboard::install(m_table, clip);
 
     m_addButton = new QPushButton(tr("Add"), this);
     m_removeButton = new QPushButton(tr("Remove"), this);

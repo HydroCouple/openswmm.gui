@@ -10,6 +10,7 @@
  */
 
 #include "ui/dialogs/initialbedqualitydialog.h"
+#include "ui/util/tableclipboard.h"
 
 #include <openswmm/engine/openswmm_2d.h>
 #include <openswmm/engine/openswmm_heat.h>
@@ -187,6 +188,12 @@ void InitialBedQualityDialog::buildUi()
     table_->verticalHeader()->setVisible(false);
     table_->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     table_->horizontalHeader()->setStretchLastSection(true);
+    openswmmvis::ui::TableClipboardOptions clip;
+    clip.appendRow = [this] {
+        addRow();
+        return true;
+    };
+    openswmmvis::ui::TableClipboard::install(table_, clip);
     layout->addWidget(table_);
 
     auto *rowButtons = new QHBoxLayout;

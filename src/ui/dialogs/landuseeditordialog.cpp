@@ -20,6 +20,7 @@
 #include "ui/models/landuselistmodel.h"
 #include "ui/models/qualityfunctiontablemodels.h"
 #include "ui/theme/iconfactory.h"
+#include "ui/util/tableclipboard.h"
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_quality.h>
@@ -176,7 +177,12 @@ void LandUseEditorDialog::buildUi_()
         view->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
         view->horizontalHeader()->setStretchLastSection(false);
         view->verticalHeader()->setVisible(false);
-        view->setSelectionMode(QAbstractItemView::SingleSelection);
+        // Several rows can be selected for Excel copy / paste.
+        view->setSelectionMode(QAbstractItemView::ExtendedSelection);
+        openswmmvis::ui::TableClipboardOptions clip;
+        if (m_layer && m_layer->editCanvas())
+            clip.undoStack = m_layer->editCanvas()->undoStack();
+        openswmmvis::ui::TableClipboard::install(view, clip);
         return view;
     };
     m_buildupModel = new BuildupTableModel(this);m_buildupModel->setProjectContext(m_layer);

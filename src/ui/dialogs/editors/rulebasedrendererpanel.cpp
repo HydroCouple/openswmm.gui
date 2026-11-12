@@ -30,6 +30,7 @@
 #include "render/rule.h"
 #include "render/symbolstyle.h"
 #include "ui/theme/iconfactory.h"
+#include "ui/util/tableclipboard.h"
 
 #include <QColor>
 #include <QColorDialog>
@@ -207,6 +208,7 @@ public:
         m_table->setAlternatingRowColors(true);
         m_table->setItemDelegateForColumn(2, new RuleColorDelegate(m_table));
         m_table->setMinimumHeight(180);
+        openswmmvis::ui::TableClipboard::install(m_table);
         vlay->addWidget(m_table, 1);
 
         auto *btnRow = new QHBoxLayout;

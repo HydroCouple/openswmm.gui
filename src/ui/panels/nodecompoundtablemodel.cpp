@@ -3,6 +3,7 @@
 #include "layers/speciesattributes.h"
 #include "ui/widgets/treatmentexpressionedit.h"
 #include "ui/properties/dataobjectpickereditor.h"
+#include "ui/util/tableclipboard.h"
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_inflows.h>
@@ -904,6 +905,9 @@ void buildNodeCompoundTableEditor(QWidget *host, const NodeCompoundEditRef &ref)
     table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
     table->horizontalHeader()->setStretchLastSection(true);
     layout->addWidget(table, 1);
+    openswmmvis::ui::TableClipboardOptions clip;
+    clip.undoStack = ref.undoStack; // one paste, one Undo step
+    openswmmvis::ui::TableClipboard::install(table, clip);
     auto *feedback = new QLabel(host);
     feedback->setObjectName("nodeCompoundFeedback");
     feedback->setWordWrap(true);

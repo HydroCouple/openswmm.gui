@@ -14,6 +14,7 @@
 #include "map/mapundostack.h"
 #include "selection/selectionmanager.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
+#include "ui/util/tableclipboard.h"
 
 #include <QCheckBox>
 #include <QComboBox>
@@ -186,6 +187,7 @@ void AssignRainGagesDialog::buildUi()
 
     // ── Preview ─────────────────────────────────────────────────────────
     m_preview = new QTableWidget(this);
+    openswmmvis::ui::TableClipboard::install(m_preview, {.copyOnly = true});
     m_preview->setObjectName(QStringLiteral("AssignRainGagesPreview"));
     m_preview->setColumnCount(5);
     m_preview->setHorizontalHeaderLabels(
