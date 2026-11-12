@@ -4555,18 +4555,38 @@ void MeshGenerationDialog::buildUi()
                "original vertices."));
         f->addRow(tr("Trim boundary vertices: max &deviation:"), m_trimDeviationSpin);
 
-        auto *sources = new QGroupBox(tr("Source-specific limits"), g);
+        // Its own page: together with the defaults above it does not fit one
+        // page without scrolling.
+        auto *sources = new QGroupBox(tr("Source-specific limits"), qualityPage);
         auto *sourceLayout = new QVBoxLayout(sources);
+        // The policy that disables these limits is on another page, so say
+        // which one and link to it.
+        auto *policyHint = new QLabel(
+            tr("Source limits are not used with \"Use existing trimming settings\". Choose "
+               "another default geometry policy on <a href=\"boundaries\">Boundaries</a> to "
+               "edit them."),
+            sources);
+        policyHint->setObjectName("meshSourceLimitsPolicyHint");
+        policyHint->setTextFormat(Qt::RichText);
+        policyHint->setWordWrap(true);
+        connect(policyHint, &QLabel::linkActivated, this,
+                [this] { m_resolutionWidget->showSettingsPage(m_geometryModeCombo); });
+        sourceLayout->addWidget(policyHint);
         m_constraintSources = new MeshConstraintSourcesWidget(sources);
         m_constraintSources->setObjectName("meshConstraintSources");
         sourceLayout->addWidget(m_constraintSources);
-        f->addRow(sources);
+        const auto syncPolicyHint = [this, policyHint] {
+            policyHint->setHidden(m_geometryModeCombo->currentIndex() != 0);
+        };
+        connect(m_geometryModeCombo, &QComboBox::currentIndexChanged, policyHint, syncPolicyHint);
+        syncPolicyHint();
         for (auto *spin : {m_trimTurnSpin, m_trimDeviationSpin, m_geometryZSpin,
                            m_geometryAreaSpin, m_minCellSizeSpin})
             connect(spin, &QDoubleSpinBox::valueChanged, this, [syncGeometry] { syncGeometry(); });
         syncGeometry();
 
         m_resolutionWidget->addSettingsPage(tr("Boundaries"), g);
+        m_resolutionWidget->addSettingsPage(tr("Source limits"), sources);
     }
     {
         auto *g = new QGroupBox(tr("Large meshes"), qualityPage);

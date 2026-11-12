@@ -418,10 +418,10 @@ private slots:
     }
 
     /**
-     * @brief Verify all nine meshing categories, keyboard navigation, crosslinks and
+     * @brief Verify all ten meshing categories, keyboard navigation, crosslinks and
      * enlarged-font labels remain usable.
      * @note Shows live dialog, checks category/page synchronization and no horizontal overflow;
-     * screenshots mesh-quality-options.png,mesh-quality-0..8.png,mesh-category-large-font.png
+     * screenshots mesh-quality-options.png,mesh-quality-0..9.png,mesh-category-large-font.png
      * written under review root. Tests 12/24 point category text width via QTRYevents and
      * region/corridorlinks before focus. Requires GUI painting; modifies local controls only, no
      * meshing or model files.
@@ -446,7 +446,8 @@ private slots:
         auto *pages = seam<QStackedWidget>(&dialog, "meshSettingsPages");
         const QStringList names = {"Cell size",        "Local refinement", "Terrain accuracy",
                                    "Terrain features", "Cell shape",       "Quads and regions",
-                                   "Corridors",        "Boundaries",       "Limits"};
+                                   "Corridors",        "Boundaries",       "Source limits",
+                                   "Limits"};
         QCOMPARE(categories->topLevelItemCount(), names.size());
         categories->setFocus();
         for (int i = 0; i < names.size(); ++i) {
@@ -490,6 +491,52 @@ private slots:
             QCOMPARE(categories->horizontalScrollBar()->maximum(), 0);
         }
         QVERIFY(dialog.grab().save(QDir(m_output).filePath("mesh-category-large-font.png")));
+    }
+
+    /**
+     * @brief Verify the Source limits page says why it is disabled and links to the policy.
+     * @note The default policy (existing trimming settings) disables the limits and shows the
+     * hint; its link opens Boundaries; another policy enables the limits and hides the hint.
+     * Screenshot mesh-source-limits-hint.png under the review root.
+     */
+    void sourceLimitsExplainDisabledPolicy()
+    {
+        m_window->setMeshGenerationOptions({});
+        MeshGenerationDialog dialog(m_window, m_window);
+        auto *tabs = dialog.findChild<QTabWidget *>();
+        QVERIFY(tabs);
+        for (int i = 0; i < tabs->count(); ++i)
+            if (tabs->tabText(i).contains("Quality"))
+                tabs->setCurrentIndex(i);
+        dialog.show();
+        QTest::qWait(100);
+        auto *categories = seam<QTreeWidget>(&dialog, "meshSettingsCategories");
+        auto *policy = seam<QComboBox>(&dialog, "meshGeometryPolicy");
+        auto *hint = seam<QLabel>(&dialog, "meshSourceLimitsPolicyHint");
+        auto *limits = seam<QWidget>(&dialog, "meshConstraintSources");
+        QVERIFY(categories && policy && hint && limits);
+        const auto showSourceLimits = [categories] {
+            categories->setCurrentItem(
+                categories->findItems(QStringLiteral("Source limits"), Qt::MatchExactly).value(0));
+            QCoreApplication::processEvents();
+            return categories->currentItem()->text(0) == QStringLiteral("Source limits");
+        };
+
+        QCOMPARE(policy->currentIndex(), 0);
+        QVERIFY(showSourceLimits());
+        QVERIFY(hint->isVisible());
+        QVERIFY(!limits->isEnabled());
+        QVERIFY(dialog.grab().save(QDir(m_output).filePath("mesh-source-limits-hint.png")));
+        QVERIFY(QMetaObject::invokeMethod(hint, "linkActivated", Qt::DirectConnection,
+                                          Q_ARG(QString, "boundaries")));
+        QCOMPARE(categories->currentItem()->text(0), QString("Boundaries"));
+        QVERIFY(policy->isVisible());
+
+        policy->setCurrentIndex(1);
+        QVERIFY(showSourceLimits());
+        QVERIFY(!hint->isVisible());
+        QVERIFY(limits->isEnabled());
+        m_window->setMeshGenerationOptions({});
     }
 
 private:

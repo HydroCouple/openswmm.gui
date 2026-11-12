@@ -20,6 +20,10 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Changed
 
+- In the mesh generation dialog, the source-specific geometry limits moved from
+  **Quality → Boundaries** to their own page, **Source limits**, so every Quality page
+  fits without scrolling. While the default geometry policy is **Use existing trimming
+  settings**, the page says why its limits are unavailable and links to that policy.
 - The finite-volume **Slot celerity** shows two decimals, so an SI model reads the
   engine's default of 100 ft/s as 30.48 m/s rather than 30.5. Requires the matching
   engine update.
