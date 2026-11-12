@@ -10,6 +10,7 @@
 
 #include "ui/dialogs/featurefieldeditor.h"
 #include "ui/util/tableclipboard.h"
+#include "ui/util/tableselection.h"
 
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -89,7 +90,7 @@ FeatureFieldEditor::FeatureFieldEditor(QWidget *parent) : QDialog(parent)
     m_choices->horizontalHeader()->setStretchLastSection(false);
     m_choices->verticalHeader()->setVisible(false);
     m_choices->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_choices->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_choices->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_choices->setMinimumHeight(120);
     openswmmvis::ui::TableClipboardOptions clip;
     clip.appendRow = [this] {
@@ -182,8 +183,7 @@ void FeatureFieldEditor::onAddChoice()
 
 void FeatureFieldEditor::onRemoveChoice()
 {
-    const int row = m_choices->currentRow();
-    if (row >= 0)
+    for (const int row : openswmmvis::ui::selectedRowsDescending(m_choices))
         m_choices->removeRow(row);
     refreshDefaultChoices();
 }

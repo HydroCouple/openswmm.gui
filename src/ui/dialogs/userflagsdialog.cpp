@@ -9,6 +9,7 @@
 
 #include "ui/dialogs/userflagsdialog.h"
 #include "ui/util/tableclipboard.h"
+#include "ui/util/tableselection.h"
 
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -74,7 +75,7 @@ UserFlagsDialog::UserFlagsDialog(UserFlagsModel *model, QWidget *parent)
     m_table->setColumnWidth(ColType, 90);
     m_table->verticalHeader()->setVisible(false);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_table->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
     openswmmvis::ui::TableClipboardOptions clip;
     clip.appendRow = [this] {
         addRow(QString(), FlagType::String, QString());
@@ -145,26 +146,37 @@ void UserFlagsDialog::onAddClicked()
 
 void UserFlagsDialog::onRemoveClicked()
 {
-    const int row = m_table->currentRow();
-    if (row < 0)
+    const QList<int> rows = openswmmvis::ui::selectedRowsDescending(m_table);
+    if (rows.isEmpty())
         return;
 
-    const QString name = m_table->item(row, ColName)
-                             ? m_table->item(row, ColName)->text().trimmed().toUpper()
-                             : QString();
+    QStringList defined;
+    for (const int row : rows) {
+        const QString name = m_table->item(row, ColName)
+                                 ? m_table->item(row, ColName)->text().trimmed().toUpper()
+                                 : QString();
+        if (m_model && !name.isEmpty() && m_model->isDefined(name))
+            defined.prepend(QStringLiteral("\"%1\"").arg(name));
+    }
     // Removing a flag that exists in the engine also removes every value
     // assigned to objects — confirm before staging the removal.
-    if (m_confirmationsEnabled && m_model && !name.isEmpty() && m_model->isDefined(name)) {
-        const auto answer =
-            QMessageBox::question(this, tr("Remove User Flag"),
-                                  tr("Removing the flag \"%1\" also removes every value assigned "
-                                     "to objects. Remove it?")
-                                      .arg(name),
-                                  QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (m_confirmationsEnabled && !defined.isEmpty()) {
+        const QString text =
+            defined.size() == 1
+                ? tr("Removing the flag %1 also removes every value assigned "
+                     "to objects. Remove it?")
+                      .arg(defined.first())
+                : tr("Removing the flags %1 also removes every value assigned "
+                     "to objects. Remove them?")
+                      .arg(defined.join(QStringLiteral(", ")));
+        const auto answer = QMessageBox::question(this, tr("Remove User Flag"), text,
+                                                  QMessageBox::Yes | QMessageBox::No,
+                                                  QMessageBox::No);
         if (answer != QMessageBox::Yes)
             return;
     }
-    m_table->removeRow(row);
+    for (const int row : rows)
+        m_table->removeRow(row);
 }
 
 bool UserFlagsDialog::applyChanges(QString *outError)

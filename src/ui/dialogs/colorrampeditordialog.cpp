@@ -13,6 +13,7 @@
 #include "core/preferencesmanager.h"
 #include "ui/widgets/colorbutton.h"
 #include "ui/util/tableclipboard.h"
+#include "ui/util/tableselection.h"
 
 #include <QComboBox>
 #include <QDialogButtonBox>
@@ -204,7 +205,7 @@ void ColorRampEditorDialog::buildUi()
         m_stopTable->horizontalHeader()->setSectionResizeMode(kColColor, QHeaderView::Interactive);
         m_stopTable->verticalHeader()->setVisible(false);
         m_stopTable->setSelectionBehavior(QAbstractItemView::SelectRows);
-        m_stopTable->setSelectionMode(QAbstractItemView::SingleSelection);
+        m_stopTable->setSelectionMode(QAbstractItemView::ExtendedSelection);
         openswmmvis::ui::TableClipboard::install(m_stopTable);
         lay->addWidget(m_stopTable, 1);
 
@@ -346,18 +347,22 @@ void ColorRampEditorDialog::onAddStop()
 
 void ColorRampEditorDialog::onRemoveStop()
 {
-    const int row = m_stopTable->currentRow();
-    if (row < 0 || m_stopTable->rowCount() <= 2)
+    const QList<int> rows = selectedRowsDescending(m_stopTable);
+    if (rows.isEmpty() || m_stopTable->rowCount() - rows.size() < 2)
         return; // a ramp needs at least two stops
     // Position edits re-sort the ramp but leave the table's rows where they
-    // are, so remove the stop this row shows, not the stop at its index.
-    const auto *posSpin = qobject_cast<QDoubleSpinBox *>(m_stopTable->cellWidget(row, kColPos));
-    const auto *colBtn = qobject_cast<ColorButton *>(m_stopTable->cellWidget(row, kColColor));
-    if (!posSpin || !colBtn)
-        return;
-    const QGradientStop selected{posSpin->value(), colBtn->color()};
+    // are, so remove the stops these rows show, not the stops at their index.
+    QGradientStops selected;
+    for (const int row : rows) {
+        const auto *posSpin = qobject_cast<QDoubleSpinBox *>(m_stopTable->cellWidget(row, kColPos));
+        const auto *colBtn = qobject_cast<ColorButton *>(m_stopTable->cellWidget(row, kColColor));
+        if (!posSpin || !colBtn)
+            return;
+        selected.append({posSpin->value(), colBtn->color()});
+    }
     readStopsFromTable();
-    m_ramp.stops.removeOne(selected);
+    for (const QGradientStop &stop : selected)
+        m_ramp.stops.removeOne(stop);
     markCustomised();
     rebuildStopTable();
 }

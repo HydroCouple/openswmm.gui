@@ -68,6 +68,7 @@
 #include <QSettings>
 #include "core/enginestring.h"
 #include "ui/util/tableclipboard.h"
+#include "ui/util/tableselection.h"
 #include <QLineEdit>
 #include <QSpinBox>
 #include <QTableView>
@@ -650,7 +651,7 @@ void FilesPage::buildUi()
     }
     m_hotstartSavesView->verticalHeader()->setVisible(false);
     m_hotstartSavesView->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_hotstartSavesView->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_hotstartSavesView->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_hotstartSavesView->setEditTriggers(QAbstractItemView::AllEditTriggers);
     // New saves start from a file dialog, so a paste fills existing rows.
     openswmmvis::ui::TableClipboard::install(m_hotstartSavesView);
@@ -902,7 +903,7 @@ void FilesPage::buildUi()
     m_pluginsView->setItemDelegateForColumn(PluginsTableModel::ColPath, m_pluginsPathDel);
     m_pluginsView->verticalHeader()->setVisible(false);
     m_pluginsView->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_pluginsView->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_pluginsView->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_pluginsView->setEditTriggers(QAbstractItemView::AllEditTriggers);
     openswmmvis::ui::TableClipboardOptions pluginsClip;
     pluginsClip.appendRow = [this] { return m_pluginsModel->appendRow(QString(), QString()) >= 0; };
@@ -953,13 +954,6 @@ void FilesPage::buildUi()
         const int row = m_pluginsModel->appendRow(QString(), QString());
         m_pluginsView->setCurrentIndex(m_pluginsModel->index(row, PluginsTableModel::ColPath));
     });
-    connect(m_pluginsRemoveBtn, &QPushButton::clicked, this, [this] {
-        if (!m_pluginsModel || !m_pluginsView)
-            return;
-        const QModelIndex cur = m_pluginsView->currentIndex();
-        if (cur.isValid())
-            m_pluginsModel->removeRows(cur.row(), 1);
-    });
     // Slice RC.4 — Plugins tab honours `is_builtin` from the engine's
     // plugin discovery API. Built-ins (today: Default Input / Output /
     // Report / StateIO + GeoPackage when OPENSWMM_HAS_GEOPACKAGE) are
@@ -976,6 +970,15 @@ void FilesPage::buildUi()
         }
         return ids;
     }();
+    // Remove takes every selected row except the built-ins, which a
+    // multi-row selection can include even when the button is enabled.
+    connect(m_pluginsRemoveBtn, &QPushButton::clicked, this, [this, builtInPluginIds] {
+        if (!m_pluginsModel || !m_pluginsView)
+            return;
+        for (const int row : openswmmvis::ui::selectedRowsDescending(m_pluginsView))
+            if (!builtInPluginIds.contains(m_pluginsModel->pathAt(row).trimmed()))
+                m_pluginsModel->removeRows(row, 1);
+    });
     connect(m_pluginsView->selectionModel(), &QItemSelectionModel::currentChanged, this,
             [this, builtInPluginIds](const QModelIndex &cur, const QModelIndex &) {
                 if (!cur.isValid()) {
@@ -1029,7 +1032,7 @@ void FilesPage::buildUi()
             tr("library path, relative to the model"), this));
     m_componentsView->verticalHeader()->setVisible(false);
     m_componentsView->setSelectionBehavior(QAbstractItemView::SelectRows);
-    m_componentsView->setSelectionMode(QAbstractItemView::SingleSelection);
+    m_componentsView->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_componentsView->setEditTriggers(QAbstractItemView::AllEditTriggers);
     openswmmvis::ui::TableClipboardOptions componentsClip;
     componentsClip.appendRow = [this] {
@@ -1065,9 +1068,8 @@ void FilesPage::buildUi()
         m_componentsView->edit(idx);
     });
     connect(m_componentsRemoveBtn, &QPushButton::clicked, this, [this] {
-        const QModelIndex cur = m_componentsView->currentIndex();
-        if (cur.isValid())
-            m_componentsModel->removeRows(cur.row(), 1);
+        for (const int row : openswmmvis::ui::selectedRowsDescending(m_componentsView))
+            m_componentsModel->removeRows(row, 1);
     });
     connect(m_componentsView->selectionModel(), &QItemSelectionModel::currentChanged, this,
             [this](const QModelIndex &cur, const QModelIndex &) {
@@ -1403,11 +1405,8 @@ void FilesPage::onHotstartSaveRemoveRow()
 {
     if (!m_hotstartSavesModel || !m_hotstartSavesView)
         return;
-    const QModelIndex cur = m_hotstartSavesView->currentIndex();
-    const int row = cur.isValid() ? cur.row() : -1;
-    if (row < 0)
-        return;
-    m_hotstartSavesModel->removeRows(row, 1);
+    for (const int row : openswmmvis::ui::selectedRowsDescending(m_hotstartSavesView))
+        m_hotstartSavesModel->removeRows(row, 1);
 }
 
 void FilesPage::onHotstartSaveMoveRowUp()
