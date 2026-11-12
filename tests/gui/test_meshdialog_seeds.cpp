@@ -270,6 +270,15 @@ private slots:
             seam<QCheckBox>(&dialog, "meshConduitsBox")->setChecked(false);
             seam<QSpinBox>(&dialog, "meshTerrainCacheSpin")->setValue(128);
             seam<QSpinBox>(&dialog, "meshMaxCellsSpin")->setValue(10'000'000);
+            // Initial condition as a water-surface elevation: the value field
+            // then accepts elevations below the datum.
+            auto *initMode = seam<QComboBox>(&dialog, "meshInitialConditionCombo");
+            auto *initValue = seam<QDoubleSpinBox>(&dialog, "meshInitialDepthSpin");
+            QCOMPARE(initMode->currentIndex(), 0);
+            QCOMPARE(initValue->minimum(), 0.0);
+            initMode->setCurrentIndex(1);
+            QVERIFY(initValue->minimum() < 0.0);
+            initValue->setValue(-2.5);
             auto *regions = dialog.findChild<MeshRegionDefaultsWidget *>();
             QVERIFY(regions);
             auto rows = regions->rows();
@@ -292,6 +301,8 @@ private slots:
             QVERIFY(!seam<QCheckBox>(&dialog, "meshConduitsBox")->isChecked());
             QCOMPARE(seam<QSpinBox>(&dialog, "meshTerrainCacheSpin")->value(), 128);
             QCOMPARE(seam<QSpinBox>(&dialog, "meshMaxCellsSpin")->value(), 10'000'000);
+            QCOMPARE(seam<QComboBox>(&dialog, "meshInitialConditionCombo")->currentIndex(), 1);
+            QCOMPARE(seam<QDoubleSpinBox>(&dialog, "meshInitialDepthSpin")->value(), -2.5);
             auto *regions = dialog.findChild<MeshRegionDefaultsWidget *>();
             QVERIFY(regions);
             QCOMPARE(regions->rows()[0].infil.method, mesh::InfilMethod::Constant);

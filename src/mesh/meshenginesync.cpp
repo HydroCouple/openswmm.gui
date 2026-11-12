@@ -230,6 +230,8 @@ QString validateMeshSaveData(const MeshResult &mesh, const QVector<MeshEdgeBC> &
             return cellError(i, tr("roughness must be finite and greater than zero, or unset"));
         if (!std::isnan(c.initDepth) && (!std::isfinite(c.initDepth) || c.initDepth < 0.0))
             return cellError(i, tr("initial depth must be finite and nonnegative, or unset"));
+        if (std::isinf(c.initHgl))
+            return cellError(i, tr("initial HGL must be finite, or unset"));
         for (int e = 0; e < count; ++e) {
             const auto &b = bcs[edgeSlot(i, e)];
             QString reason;
@@ -436,6 +438,15 @@ bool pushMeshEditsToEngine(SWMM_Engine engine, const MeshResult &mesh,
                               "cell initial depth", t))
                     return false;
             }
+#ifdef SWMM_2D_HAS_INIT_HGL // engines that read [2D_INITIAL_HGL]
+            // Initial HGL is an elevation on the vertex Z datum, so it takes the
+            // same factor. Always pushed: NaN (unset) clears a prescription the
+            // engine still holds from the file it loaded.
+            if (!accepted(
+                    swmm_2d_set_triangle_init_hgl(engine, t, mesh.triangles[t].initHgl * factor),
+                    "cell initial HGL", t))
+                return false;
+#endif
             if (!accepted(
                     swmm_2d_set_triangle_tag(engine, t, mesh.triangles[t].tag.toUtf8().constData()),
                     "cell tag", t))

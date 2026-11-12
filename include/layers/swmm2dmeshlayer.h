@@ -768,7 +768,7 @@ public:
      * @note Effective change bumps attribute revision, queues legend refresh, emits cell attributeChanged()/repaintRequested(). Does not update engine/file or independently set divergence flag.
      */
     bool applyMeshTriangleMannings(int triIdx, double mannings);
-    /*! Restore the absence of a per-cell roughness or initial-depth override on undo. */
+    /*! Restore the absence of a per-cell roughness, initial-depth or initial-HGL value. */
     bool clearMeshTriangleParam(int triIdx, const QByteArray &key);
 
     /*! \brief Set a triangle's initial water depth in m ([2D_TRIANGLES]
@@ -780,6 +780,16 @@ public:
      * @note Effective change bumps attribute revision, queues legend refresh, emits cell attributeChanged()/repaintRequested(). Does not update engine/file or independently set divergence flag.
      */
     bool applyMeshTriangleInitDepth(int triIdx, double depth);
+
+    /*! \brief Prescribe a cell's initial water-surface elevation
+     *  ([2D_INITIAL_HGL]), the alternative to its initial depth. Emits
+     *  attributeChanged with the cell ref name.
+     * @param[in] triIdx Original zero-based cell index, including quads.
+     * @param[in] hgl Finite elevation in mesh length units on the vertex Z datum; NaN/infinite rejected. Use clearMeshTriangleParam("initHgl") to remove the prescription.
+     * @return False invalid/value rejected; true unchanged or applied.
+     * @note Effective change bumps attribute revision, queues legend refresh, emits cell attributeChanged()/repaintRequested(). Does not touch the cell's initial depth, the engine or the file.
+     */
+    bool applyMeshTriangleInitHgl(int triIdx, double hgl);
 
     /*! \brief Set a triangle's descriptive tag ([2D_TRIANGLES] TAG column).
      *  Emits attributeChanged with the cell ref name.

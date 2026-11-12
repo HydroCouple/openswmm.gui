@@ -130,6 +130,16 @@ struct CellParamSpec {
  */
 [[nodiscard]] double cellParamValue(const MeshResult &mesh, int tri, const QByteArray &key);
 
+/**
+ * @brief Name the alternative initial-condition key of \p key.
+ * @return "initHgl" for "initDepth", "initDepth" for "initHgl", empty for every other key.
+ *
+ * @details A cell's initial state is authored either as a depth or as a water-surface
+ * elevation. Edit commands use this to clear the one the user did not just set, so a cell
+ * never carries both.
+ */
+[[nodiscard]] QByteArray initialConditionCounterpart(const QByteArray &key);
+
 } // namespace mesh
 
 #endif // OPENSWMMVIS_MESH_MESHCELLPARAMS_H

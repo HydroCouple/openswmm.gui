@@ -30,6 +30,12 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Added
 
+- **Initial water surface elevation for 2D cells.** A cell's starting water can be
+  given as an **Initial HGL** instead of an initial depth: in the mesh generation
+  dialog (**Initial condition**, mesh-wide and per region), the mesh attribute
+  table, the properties panel and cell styling. It is stored in the new
+  `[2D_INITIAL_HGL]` section. The engine converts the elevation to a depth and a
+  cell whose bed is above it starts dry. Requires the matching engine update.
 - **Hot-start save format.** The scheduled hot-start saves table has a **Format**
   column (Auto / Legacy / Native) backed by the engine's `[FILES] SAVE HOTSTART …
   LEGACY|NATIVE` keyword. Native keeps water age, reaction species, the aquifer,

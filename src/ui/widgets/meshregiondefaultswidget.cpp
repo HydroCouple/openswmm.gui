@@ -94,15 +94,16 @@ struct NumericRange {
  *  boxes verbatim so the '*' row and a region row cannot disagree on what is
  *  an acceptable value.
  * @param[in] column Hydraulic or infiltration numeric column.
- * @return Manning [0.001,1], depth [0,1000] (four decimals), or infiltration [0,1e9] (six decimals), in the draft's raw units.
+ * @param[in] initIsHgl True when the initial-condition column holds water-surface elevations.
+ * @return Manning [0.001,1], depth [0,1000] or elevation [-1e5,1e5] (four decimals), or infiltration [0,1e9] (six decimals), in the draft's raw units.
  */
-NumericRange rangeFor(int column)
+NumericRange rangeFor(int column, bool initIsHgl)
 {
     switch (column) {
     case ColMannings:
         return {0.001, 1.0, 4};
     case ColInitDepth:
-        return {0.0, 1000.0, 4};
+        return initIsHgl ? NumericRange{-100000.0, 100000.0, 4} : NumericRange{0.0, 1000.0, 4};
     default:
         return {0.0, 1.0e9, 6}; // infiltration parameters
     }
@@ -155,7 +156,7 @@ public:
             return combo;
         }
 
-        const NumericRange r = rangeFor(col);
+        const NumericRange r = rangeFor(col, initIsHgl());
         auto *edit = new QLineEdit(parent);
         auto *val = new QDoubleValidator(r.lo, r.hi, r.decimals, edit);
         val->setNotation(QDoubleValidator::StandardNotation);
@@ -225,8 +226,15 @@ public:
             return;
         // QDoubleValidator lets an out-of-range prefix through as Intermediate,
         // so the range is only really enforced here.
-        const NumericRange r = rangeFor(idx.column());
+        const NumericRange r = rangeFor(idx.column(), initIsHgl());
         model->setData(idx, qBound(r.lo, v, r.hi), kRoleValue);
+    }
+
+private:
+    /*! The owning table carries the widget's initial-condition mode. */
+    [[nodiscard]] bool initIsHgl() const
+    {
+        return parent() && parent()->property("initIsHgl").toBool();
     }
 };
 
@@ -260,8 +268,9 @@ MeshRegionDefaultsWidget::MeshRegionDefaultsWidget(QWidget *parent) : QWidget(pa
 
     auto *hint = new QLabel(tr("The * row applies to every cell. Region rows are added when "
                                "\"Subcatchments → triangle regions\" is on (Sources tab); each one "
-                               "applies to the cells inside that subcatchment. Blank roughness / "
-                               "depth cells inherit the * row. Leaving a method at \"None\" writes "
+                               "applies to the cells inside that subcatchment. Blank roughness or "
+                               "initial-condition cells inherit the * row. Leaving a method at "
+                               "\"None\" writes "
                                "no infiltration data at all."),
                             this);
     hint->setWordWrap(true);
@@ -286,8 +295,18 @@ MeshRegionDefaultsWidget::MeshRegionDefaultsWidget(QWidget *parent) : QWidget(pa
 
 void MeshRegionDefaultsWidget::setDepthUnit(const QString &unit)
 {
-    if (QTableWidgetItem *h = m_table->horizontalHeaderItem(ColInitDepth))
-        h->setText(unit.isEmpty() ? tr("Initial depth") : tr("Initial depth (%1)").arg(unit));
+    m_depthUnit = unit;
+    if (QTableWidgetItem *h = m_table->horizontalHeaderItem(ColInitDepth)) {
+        const QString name = m_initIsHgl ? tr("Initial HGL") : tr("Initial depth");
+        h->setText(unit.isEmpty() ? name : QStringLiteral("%1 (%2)").arg(name, unit));
+    }
+}
+
+void MeshRegionDefaultsWidget::setInitialConditionIsHgl(bool hgl)
+{
+    m_initIsHgl = hgl;
+    m_table->setProperty("initIsHgl", hgl);
+    setDepthUnit(m_depthUnit);
 }
 
 void MeshRegionDefaultsWidget::setStarHydraulics(double manningsN, double initDepth)

@@ -61,6 +61,7 @@ public:
         Elevation = 0, ///< bed elevation — the historic default
         Mannings,      ///< "mannings"
         InitDepth,     ///< "initDepth"
+        InitHgl,       ///< "initHgl"
         // Per-cell infiltration (GUI plan §3.5(5)). The METHOD is categorical
         // and colours through categoryColorForValue(); the parameters are
         // ordinary graduated attributes. Values resolve through

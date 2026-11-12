@@ -2739,10 +2739,11 @@ bool SWMM2DMeshLayer::applyMeshTriangleMannings(int triIdx, double mannings)
 bool SWMM2DMeshLayer::clearMeshTriangleParam(int triIdx, const QByteArray &key)
 {
     if (triIdx < 0 || triIdx >= m_mesh.triangles.size() ||
-        (key != "mannings" && key != "initDepth"))
+        (key != "mannings" && key != "initDepth" && key != "initHgl"))
         return false;
-    double &value = key == "mannings" ? m_mesh.triangles[triIdx].mannings
-                                       : m_mesh.triangles[triIdx].initDepth;
+    double &value = key == "mannings"    ? m_mesh.triangles[triIdx].mannings
+                    : key == "initDepth" ? m_mesh.triangles[triIdx].initDepth
+                                         : m_mesh.triangles[triIdx].initHgl;
     if (std::isnan(value)) return true;
     value = std::numeric_limits<double>::quiet_NaN();
     ++m_attrRevision;
@@ -2761,6 +2762,22 @@ bool SWMM2DMeshLayer::applyMeshTriangleInitDepth(int triIdx, double depth)
     if (m_mesh.triangles[triIdx].initDepth == depth)
         return true;
     m_mesh.triangles[triIdx].initDepth = depth;
+    ++m_attrRevision;
+    scheduleLegendInputRefresh();
+    emit attributeChanged(mesh::MeshObjectRef::cell(m_sourcePath, triIdx).name);
+    emit repaintRequested();
+    return true;
+}
+
+bool SWMM2DMeshLayer::applyMeshTriangleInitHgl(int triIdx, double hgl)
+{
+    if (triIdx < 0 || triIdx >= m_mesh.triangles.size())
+        return false;
+    if (!std::isfinite(hgl))
+        return false;
+    if (m_mesh.triangles[triIdx].initHgl == hgl)
+        return true;
+    m_mesh.triangles[triIdx].initHgl = hgl;
     ++m_attrRevision;
     scheduleLegendInputRefresh();
     emit attributeChanged(mesh::MeshObjectRef::cell(m_sourcePath, triIdx).name);

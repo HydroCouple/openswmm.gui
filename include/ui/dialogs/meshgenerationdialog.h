@@ -310,6 +310,10 @@ public:
         // Mesh 2D ribbon (cell editor / Cell Data assignment).
         double manningsN = 0.035;
         double initDepth = 0.0; // mesh length units
+        // True: initDepth (and every region row's value) is an initial
+        // water-surface elevation, stamped as MeshTriangle::initHgl
+        // ([2D_INITIAL_HGL]) with the cells' initial depth left at 0.
+        bool initIsHgl = false;
 
         // ── Region defaults (GG0d, GUI plan §3.3) ────────────────────────
         // Read out of MeshRegionDefaultsWidget by collectInputs() and copied
@@ -677,6 +681,7 @@ private:
     // below mirrors them read-only (GG0d, GUI plan §3.3).
     QDoubleSpinBox *m_manningsValueSpin = nullptr;
     QDoubleSpinBox *m_initDepthSpin = nullptr;
+    QComboBox *m_initModeCombo = nullptr; // initial condition: depth | HGL
 
     // ── Region defaults table (GG0d) ────────────────────────────────
     MeshRegionDefaultsWidget *m_regionDefaults = nullptr;

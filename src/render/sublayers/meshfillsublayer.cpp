@@ -29,7 +29,7 @@ namespace
  *  without breaking saved styles — but it must stay in lockstep with the
  *  CellAttribute enumerators, which are what indexes it. */
 constexpr const char *kAttrKeys[] = {
-    "elevation",   "mannings",      "initDepth",      "infil.method",  "infil.f0",  "infil.fmin",
+    "elevation",   "mannings",      "initDepth",      "initHgl",       "infil.method",  "infil.f0",  "infil.fmin",
     "infil.decay", "infil.dryTime", "infil.Fmax",     "infil.suction", "infil.Ks",  "infil.IMD",
     "infil.CN",    "infil.rate",    "gw.Ks",          "gw.zs",         "gw.thetaS", "gw.hu0",
     "gw.hg0",      "infil.owner",   "infil.conflict", "tag",

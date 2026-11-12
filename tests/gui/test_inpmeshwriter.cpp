@@ -11,6 +11,7 @@
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
+#include <cmath>
 #include <QtTest>
 #include <QDir>
 #include <QFile>
@@ -430,6 +431,48 @@ private slots:
      * default values for the fixture map.
      *
      */
+    /*! [2D_INITIAL_HGL]: absent when no cell carries an HGL, one `*` row when
+     *  every cell shares one, otherwise a row per prescribed cell — and the
+     *  text reads back to the same per-cell values. */
+    void buildSectionText_initialHgl()
+    {
+        MeshResult m = sampleMesh();
+        QVERIFY(m.triangles.size() >= 2);
+        const QString sec = QStringLiteral("[2D_INITIAL_HGL]");
+        QVERIFY(!InpMeshWriter::buildSectionText(m, sampleCoupling()).contains(sec));
+
+        for (MeshTriangle &t : m.triangles)
+            t.initHgl = 12.5;
+        const QString uniform = InpMeshWriter::buildSectionText(m, sampleCoupling());
+        QVERIFY(uniform.contains(sec));
+        QVERIFY2(uniform.mid(uniform.indexOf(sec)).contains(QStringLiteral("*  12.5")),
+                 qPrintable(uniform));
+
+        m.triangles[0].initHgl = std::numeric_limits<double>::quiet_NaN();
+        m.triangles[1].initHgl = -0.75;
+        const QString partial = InpMeshWriter::buildSectionText(m, sampleCoupling());
+        const QString body = partial.mid(partial.indexOf(sec));
+        QVERIFY2(!body.contains(QLatin1Char('*')), qPrintable(body));
+        QVERIFY2(body.contains(QStringLiteral("1  -0.75")), qPrintable(body));
+
+        const QString dir = QCoreApplication::applicationDirPath() + "/inpmeshwriter_hgl";
+        QVERIFY(QDir().mkpath(dir));
+        const QString path = dir + "/partial.inp";
+        QFile f(path);
+        QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        f.write(partial.toUtf8());
+        f.close();
+        const auto back = InpMeshReader::read(path);
+        QVERIFY2(back.errorMsg.isEmpty(), qPrintable(back.errorMsg));
+        QCOMPARE(back.mesh.triangles.size(), m.triangles.size());
+        for (int i = 0; i < m.triangles.size(); ++i) {
+            if (std::isnan(m.triangles[i].initHgl))
+                QVERIFY(std::isnan(back.mesh.triangles[i].initHgl));
+            else
+                QCOMPARE(back.mesh.triangles[i].initHgl, m.triangles[i].initHgl);
+        }
+    }
+
     void buildSectionText_vertexMapCarriesCdArea()
     {
         MeshResult m = sampleMesh();

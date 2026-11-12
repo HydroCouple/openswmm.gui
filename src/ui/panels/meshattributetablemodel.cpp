@@ -339,6 +339,22 @@ private:
         if (!m_layer)
             return;
         mesh::AttributeEditBatch batch(m_layer, m_indices.size());
+        // An initial depth displaces the cell's initial HGL (they are
+        // alternatives); undo puts the HGL back.
+        if (m_key == "initDepth") {
+            if (!undo) {
+                m_oldHgl.resize(m_indices.size());
+                for (int i = 0; i < m_indices.size(); ++i) {
+                    m_oldHgl[i] = m_layer->mesh().triangles[m_indices[i]].initHgl;
+                    if (std::isfinite(m_oldHgl[i]))
+                        m_layer->clearMeshTriangleParam(m_indices[i], "initHgl");
+                }
+            } else {
+                for (int i = 0; i < m_indices.size() && i < m_oldHgl.size(); ++i)
+                    if (std::isfinite(m_oldHgl[i]))
+                        m_layer->applyMeshTriangleInitHgl(m_indices[i], m_oldHgl[i]);
+            }
+        }
         for (int i = 0; i < m_indices.size(); ++i) {
             const double value = undo ? m_old[i] : m_value;
             const int index = m_indices[i];
@@ -358,6 +374,7 @@ private:
     QByteArray m_key;
     QVector<int> m_indices;
     QVector<double> m_old;
+    QVector<double> m_oldHgl; ///< initDepth edits: displaced initial HGL per cell
     double m_value;
 };
 
@@ -1216,6 +1233,8 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
         }
         if (key.startsWith("infil.") && !std::isfinite(value))
             return missing(tr("No inherited or explicit value is available."));
+        if (key == "initHgl" && !std::isfinite(value))
+            return missing(tr("Not set: the cell starts from its initial depth."));
         // Manning's n and initial depth retain their established engine defaults.
         return std::isfinite(value) ? value : cs->defaultValue;
     }
@@ -1890,7 +1909,10 @@ void MeshAttributeTableModel::setDataForRows(int column, const QList<int> &sourc
                 : m_kind == Kind::Edge ? m_layer->edgeBCs()[index].conveyance
                 : key == "mannings" ? m_layer->mesh().triangles[row].mannings
                                      : m_layer->mesh().triangles[row].initDepth;
-            if (std::isfinite(before) && before == number)
+            // An unchanged depth still displaces a prescribed initial HGL.
+            const bool displacesHgl = m_kind == Kind::Cell && key == "initDepth" &&
+                                      std::isfinite(m_layer->mesh().triangles[row].initHgl);
+            if (std::isfinite(before) && before == number && !displacesHgl)
                 continue;
             indices.append(index);
             oldValues.append(before);
