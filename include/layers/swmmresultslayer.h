@@ -25,6 +25,7 @@
 #include <QDateTime>
 #include <QHash>
 #include <QPen>
+#include <QPointer>
 #include <QSet>
 #include <QString>
 #include <QVariantMap>
@@ -33,6 +34,7 @@
 #include <memory>
 
 class OpenSWMMVisWorkspace;
+class SWMMModelLayer; // undeclared here when swmmmodellayer.h is included first
 class SpatialReferenceSystem;
 class QGraphicsItem;           // Slice §Y.2 — m_itemByFeature stores QGraphicsItem*
 class QGraphicsSimpleTextItem; // L-1 — m_labelByFeature stores label items
@@ -151,9 +153,9 @@ public:
     /*! The SWMM model layer that supplies network topology + attributes
      *  for this run.  Categorized rendering on results layers reads
      *  categorical strings ("tag", "Link type", …) through here.
-     * @return Borrowed original geometry source or null; no ownership/lifetime guard is acquired.
+     * @return Borrowed original geometry source, or null once that model has been deleted.
      */
-    [[nodiscard]] class SWMMModelLayer *modelLayer() const { return m_modelLayer; }
+    [[nodiscard]] class SWMMModelLayer *modelLayer() const;
 
     /*! Pick this output's visible network categories independently of model visibility.
      * @param[in] mapX,mapY Finite canvas-map coordinates in the model layer's currently established transform target.
@@ -1284,7 +1286,10 @@ private:
     QPen m_profileMaxEglLinePen;
 
     // Model layer (non-owning) --------------------------------------------
-    class SWMMModelLayer *m_modelLayer = nullptr;
+    // Guarded: canvases do not own their layers, so a results layer can outlive
+    // its project's model, and a deferred range scan may land after it is gone.
+    // ::-qualified: OpenSWMMVisLayer's layer-type enum has a SWMMModelLayer enumerator.
+    QPointer<::SWMMModelLayer> m_modelLayer;
 
     // Animation state -----------------------------------------------------
     int m_currentStep = 0;

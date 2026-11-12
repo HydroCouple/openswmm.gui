@@ -1338,6 +1338,22 @@ private slots:
                 }
     }
 
+    /** @brief Canvases do not own layers, so a results layer outlives its project's model.
+     * It must see the model is gone, and restyling it afterwards (what a range scan that
+     * finishes after the project closed does) must not touch the deleted model. */
+    void resultsLayerOutlivesItsModel()
+    {
+        auto model = std::make_unique<SWMMModelLayer>(path("first.inp"));
+        QList<QString> warnings, errors;
+        QVERIFY(model->loadModel(warnings, errors));
+        SWMMResultsLayer output(path("run.out"), model.get());
+        QVERIFY(output.openResults(warnings, errors));
+        QCOMPARE(output.modelLayer(), model.get());
+        model.reset();
+        QVERIFY(!output.modelLayer());
+        setSingleColor(output, SWMMModelLayer::CatJunctions);
+    }
+
     /** @brief A coupled 1D profile samples the active 2D layer's run maximum, and its option
      * (Display properties) binds and unbinds it, with the synchronous and the worker surface. */
     void profileSamplesMax2DInundation()
