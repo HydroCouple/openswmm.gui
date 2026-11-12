@@ -124,7 +124,7 @@ station).
 
 | Region | Contents |
 |--------|----------|
-| Toolbar | **Select**, **Zoom In**, **Zoom Out**, **Pan**, **Fit to Path**; **Sources**; **2D Inundation**; **Tracks**; **Export PNG…**; **Display Options…** |
+| Toolbar | **Select**, **Zoom In**, **Zoom Out**, **Pan**, **Fit to Path**; **Sources**; **2D Inundation**, **Max 2D Inundation**; **Tracks**; **Export PNG…**; **Display Options…** |
 | Header | *Path: N nodes, M links · Length: …* |
 | Chart | The profile itself |
 | **Display Options…** | Ground source; HGL and EGL; maximum envelopes; node/link labels and other appearance settings |
