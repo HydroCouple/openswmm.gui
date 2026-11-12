@@ -21,6 +21,7 @@
 
 #include <QComboBox>
 #include <QObject>
+#include <QPushButton>
 #include <QTableWidget>
 #include <QTest>
 
@@ -220,6 +221,41 @@ private slots:
         QVERIFY(!err.isEmpty());
         QVERIFY(model.defs().isEmpty());
         QVERIFY(!dlg.wroteAnyChanges());
+
+        swmm_engine_destroy(eng);
+    }
+
+    /**
+     * @brief Require Remove to drop every selected row (not only the current
+     * one) and Apply to undefine exactly those flags.
+     */
+    void removeTakesEverySelectedRow()
+    {
+        SWMM_Engine eng = swmm_engine_new();
+        QVERIFY(eng != nullptr);
+        UserFlagsModel model(eng);
+        for (const char *name : {"FLAG_A", "FLAG_B", "FLAG_C"})
+            QVERIFY(model.define(QString::fromLatin1(name), FlagType::String, QString()));
+
+        UserFlagsDialog dlg(&model);
+        dlg.setConfirmationsEnabled(false);
+        QTableWidget *t = dlg.table();
+        QCOMPARE(t->selectionMode(), QAbstractItemView::ExtendedSelection);
+        t->setCurrentCell(0, ColName);
+        t->setRangeSelected(QTableWidgetSelectionRange(2, 0, 2, ColDescription), true);
+
+        QPushButton *remove = nullptr;
+        for (QPushButton *b : dlg.findChildren<QPushButton *>())
+            if (b->text() == QStringLiteral("Remove"))
+                remove = b;
+        QVERIFY(remove);
+        remove->click();
+
+        QCOMPARE(t->rowCount(), 1);
+        QCOMPARE(t->item(0, ColName)->text(), QStringLiteral("FLAG_B"));
+        QVERIFY(dlg.applyChanges());
+        QCOMPARE(model.defs().size(), 1);
+        QCOMPARE(model.defs()[0].name, QStringLiteral("FLAG_B"));
 
         swmm_engine_destroy(eng);
     }

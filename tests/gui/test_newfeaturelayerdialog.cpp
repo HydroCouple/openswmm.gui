@@ -23,6 +23,7 @@
 #include <QDir>
 #include <QDoubleSpinBox>
 #include <QFile>
+#include <QPushButton>
 #include <QTableWidget>
 #include <QTest>
 
@@ -183,6 +184,27 @@ private slots:
         editor.setField(choiceField());
         QCOMPARE(editor.field(), choiceField());
         QVERIFY(editor.validationError().isEmpty());
+    }
+
+    /** @brief Verify the choice table's Remove drops every selected choice, not only the current one. */
+    void theFieldEditorRemovesSelectedChoices()
+    {
+        FeatureFieldEditor editor;
+        editor.setField(choiceField()); // paved, grass, bare
+        auto *choices = editor.findChild<QTableWidget *>(QStringLiteral("featureFieldChoices"));
+        QVERIFY(choices);
+        QCOMPARE(choices->selectionMode(), QAbstractItemView::ExtendedSelection);
+        choices->setCurrentCell(0, 0);
+        choices->setRangeSelected(QTableWidgetSelectionRange(2, 0, 2, 1), true);
+        QPushButton *remove = nullptr;
+        for (QPushButton *b : editor.findChildren<QPushButton *>())
+            if (b->text() == QStringLiteral("Remove"))
+                remove = b;
+        QVERIFY(remove);
+        remove->click();
+        const QVector<FieldChoice> left = editor.field().choices;
+        QCOMPARE(left.size(), 1);
+        QCOMPARE(left.first().value, QStringLiteral("grass"));
     }
 
     /** @brief Verify Region starts two-dimensional/collapsed, Breakline promotes raster-sourced Z and later General keeps the expanded section. */

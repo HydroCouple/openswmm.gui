@@ -21,16 +21,20 @@
  */
 
 #include "layers/swmmmodellayer.h"
+#include "ui/dialogs/hotstartsavesmodel.h"
+#include "ui/dialogs/pluginstablemodel.h"
 #include "ui/dialogs/processcomponentsmodel.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_process_components.h>
+#include <openswmm/plugin_sdk/PluginDiscovery.hpp>
 
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDir>
+#include <QPushButton>
 #include <QTableView>
 #include <QTableWidget>
 #include <QTest>
@@ -109,6 +113,41 @@ QString ext(SWMM_Engine e, const char *key)
 template <class W> W *child(QObject *root, const char *name)
 {
     return root->findChild<W *>(QLatin1String(name));
+}
+
+/** @brief The table view under @p root whose model is a @p M, or nullptr. */
+template <class M> QTableView *viewOf(QObject *root)
+{
+    const auto views = root->findChildren<QTableView *>();
+    for (QTableView *v : views)
+        if (qobject_cast<M *>(v->model()))
+            return v;
+    return nullptr;
+}
+
+/** @brief The "Remove" button next to @p view (same parent widget), or nullptr. */
+QPushButton *removeButtonBeside(QTableView *view)
+{
+    const auto buttons =
+        view->parentWidget()->findChildren<QPushButton *>(QString(), Qt::FindDirectChildrenOnly);
+    for (QPushButton *b : buttons)
+        if (b->text() == QStringLiteral("Remove"))
+            return b;
+    return nullptr;
+}
+
+/**
+ * @brief Make @p current the current row (as a click would, so Remove buttons
+ * enable) and select exactly @p rows.
+ */
+void selectRows(QTableView *view, int current, const QList<int> &rows)
+{
+    view->setCurrentIndex(view->model()->index(current, 0));
+    QItemSelection sel;
+    const int lastCol = view->model()->columnCount() - 1;
+    for (const int r : rows)
+        sel.select(view->model()->index(r, 0), view->model()->index(r, lastCol));
+    view->selectionModel()->select(sel, QItemSelectionModel::ClearAndSelect);
 }
 
 } // namespace
@@ -293,6 +332,74 @@ private slots:
         QVERIFY(model2->removeRows(0, 1));
         QVERIFY(QMetaObject::invokeMethod(&dlg2, "onApply", Qt::DirectConnection));
         QCOMPARE(swmm_process_component_find(e, kReactions), -1);
+    }
+
+    /**
+     * @brief Files page tables (components, plugins, hot-start saves) select
+     * several rows and Remove takes all of them; Plugins keeps built-in rows.
+     */
+    void filesPageRemoveTakesEverySelectedRow()
+    {
+        auto layer = openLayer(fixture(QStringLiteral("typed_selection_fixture.inp")));
+        QVERIFY(layer);
+        SimulationOptionsDialog dlg(layer->engine(), layer.get(), QStringLiteral("6.0.0"), nullptr,
+                                    nullptr);
+
+        // Components.
+        auto *compView = child<QTableView>(&dlg, "processComponentsView");
+        QVERIFY(compView);
+        QCOMPARE(compView->selectionMode(), QAbstractItemView::ExtendedSelection);
+        auto *comps = qobject_cast<ProcessComponentsModel *>(compView->model());
+        QVERIFY(comps);
+        const int c0 = comps->rowCount();
+        comps->appendRow(QStringLiteral("comp.a"), QString());
+        comps->appendRow(QStringLiteral("comp.b"), QString());
+        comps->appendRow(QStringLiteral("comp.c"), QString());
+        selectRows(compView, c0, {c0, c0 + 2});
+        child<QPushButton>(&dlg, "processComponentsRemoveBtn")->click();
+        QCOMPARE(comps->rowCount(), c0 + 1);
+        QCOMPARE(comps->index(c0, ProcessComponentsModel::ColId).data(Qt::EditRole).toString(),
+                 QStringLiteral("comp.b"));
+
+        // Plugins: a built-in row in the selection stays.
+        QString builtIn;
+        for (const auto &p : openswmm::discover_plugins_by_id())
+            if (p.is_builtin) {
+                builtIn = QString::fromStdString(p.plugin_id);
+                break;
+            }
+        QVERIFY2(!builtIn.isEmpty(), "the engine reports no built-in plugin");
+        QTableView *plView = viewOf<PluginsTableModel>(&dlg);
+        QVERIFY(plView);
+        QCOMPARE(plView->selectionMode(), QAbstractItemView::ExtendedSelection);
+        auto *plugins = qobject_cast<PluginsTableModel *>(plView->model());
+        const int p0 = plugins->rowCount();
+        plugins->appendRow(builtIn, QString());
+        plugins->appendRow(QStringLiteral("liba.dylib"), QString());
+        plugins->appendRow(QStringLiteral("libb.dylib"), QString());
+        selectRows(plView, p0 + 1, {p0, p0 + 1, p0 + 2});
+        QPushButton *plRemove = removeButtonBeside(plView);
+        QVERIFY(plRemove);
+        QVERIFY(plRemove->isEnabled());
+        plRemove->click();
+        QCOMPARE(plugins->rowCount(), p0 + 1);
+        QCOMPARE(plugins->pathAt(p0), builtIn);
+
+        // Hot-start saves.
+        QTableView *hsView = viewOf<HotstartSavesModel>(&dlg);
+        QVERIFY(hsView);
+        QCOMPARE(hsView->selectionMode(), QAbstractItemView::ExtendedSelection);
+        auto *saves = qobject_cast<HotstartSavesModel *>(hsView->model());
+        const int h0 = saves->rowCount();
+        saves->appendRow(QStringLiteral("a.hsf"), 0.0);
+        saves->appendRow(QStringLiteral("b.hsf"), 0.0);
+        saves->appendRow(QStringLiteral("c.hsf"), 0.0);
+        selectRows(hsView, h0 + 1, {h0 + 1, h0 + 2});
+        QPushButton *hsRemove = removeButtonBeside(hsView);
+        QVERIFY(hsRemove);
+        hsRemove->click();
+        QCOMPARE(saves->rowCount(), h0 + 1);
+        QCOMPARE(saves->pathAt(h0), QStringLiteral("a.hsf"));
     }
 };
 

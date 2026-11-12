@@ -89,6 +89,39 @@ private slots:
         QCOMPARE(left.at(0).second, QColor(Qt::red));
         QCOMPARE(left.at(1).second, QColor(Qt::blue));
     }
+
+    void removeStopRemovesEverySelectedRow()
+    {
+        RasterColorRamp ramp;
+        ramp.stops = {{0.0, QColor(Qt::red)},
+                      {0.25, QColor(Qt::yellow)},
+                      {0.5, QColor(Qt::green)},
+                      {1.0, QColor(Qt::blue)}};
+        ColorRampEditorDialog dlg(ramp);
+        auto *table = dlg.findChild<QTableWidget *>();
+        QVERIFY(table);
+        QCOMPARE(table->selectionMode(), QAbstractItemView::ExtendedSelection);
+        table->setCurrentCell(1, 0);
+        table->setRangeSelected(QTableWidgetSelectionRange(2, 0, 2, 1), true);
+        removeButton(dlg)->click();
+        const QGradientStops left = dlg.ramp().stops;
+        QCOMPARE(left.size(), 2);
+        QCOMPARE(left.at(0).second, QColor(Qt::red));
+        QCOMPARE(left.at(1).second, QColor(Qt::blue));
+    }
+
+    void removeStopKeepsAtLeastTwoStops()
+    {
+        RasterColorRamp ramp;
+        ramp.stops = {{0.0, QColor(Qt::red)}, {0.5, QColor(Qt::green)}, {1.0, QColor(Qt::blue)}};
+        ColorRampEditorDialog dlg(ramp);
+        auto *table = dlg.findChild<QTableWidget *>();
+        QVERIFY(table);
+        table->setCurrentCell(0, 0);
+        table->setRangeSelected(QTableWidgetSelectionRange(1, 0, 1, 1), true);
+        removeButton(dlg)->click();
+        QCOMPARE(dlg.ramp().stops.size(), 3); // two of three would leave one stop
+    }
 };
 
 QTEST_MAIN(TestColorRampEditorDialog)
