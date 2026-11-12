@@ -654,6 +654,11 @@ bool FlowParticleSystem::integrate(FlowParticleReference<false> &p, int &budget,
             if (orbitTolerance <= 0 ||
                 (!p.zeroCells.empty() && norm(p.position - p.crossingAnchor) > orbitTolerance))
                 p.zeroCells.clear();
+        } else if (edge >= 0) {
+            // A crossing shorter than the time resolution must still reach the
+            // face: at high scene speeds 1e-12 s spans more than the barycentric
+            // tolerance, and the neighbour would reject the unmoved position.
+            p.position += (next - p.position) * fraction;
         }
         if (p.age >= p.lifetime - 1e-10) {
             p.age = p.lifetime;

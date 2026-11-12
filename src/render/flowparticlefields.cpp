@@ -41,6 +41,94 @@ QPointF toScene(const FlowParticleNativeTriangle &in, const FlowParticleMesh &me
     return (mesh.vertices[ids[1]] - mesh.vertices[ids[0]]) * (cross(v, ac) / det) +
            (mesh.vertices[ids[2]] - mesh.vertices[ids[0]]) * (cross(ab, v) / det);
 }
+/** @brief Outward normal of the edge opposite a corner, scaled by the edge length.
+ * @param in Native triangle with finite metre coordinates.
+ * @param e Corner index in [0,2]; the edge joins the other two corners.
+ * @return Metre-space normal pointing away from corner e; zero for a degenerate edge. */
+QPointF outwardNormal(const FlowParticleNativeTriangle &in, int e)
+{
+    const auto edge = in.metres[(e + 2) % 3] - in.metres[(e + 1) % 3];
+    QPointF n(edge.y(), -edge.x());
+    if (QPointF::dotProduct(n, in.metres[e] - in.metres[(e + 1) % 3]) > 0)
+        n = -n;
+    return n;
+}
+/** @brief Test whether a stored cell velocity can move particles.
+ * @param in Native triangle packet.
+ * @param cutoff Depth threshold in metres.
+ * @return True for an available velocity-only packet with finite coordinates, a finite
+ * nondegenerate area, finite velocity and mean depth above the cutoff. */
+bool wetVelocity(const FlowParticleNativeTriangle &in, double cutoff)
+{
+    if (!in.velocityOnly || !in.available || !std::isfinite(in.meanDepth) ||
+        in.meanDepth <= cutoff || !std::isfinite(in.velocitySI.x()) ||
+        !std::isfinite(in.velocitySI.y()))
+        return false;
+    for (auto p : in.metres)
+        if (!std::isfinite(p.x()) || !std::isfinite(p.y()))
+            return false;
+    const double area2 = std::abs(cross(in.metres[1] - in.metres[0], in.metres[2] - in.metres[0]));
+    return std::isfinite(area2) && area2 >= 1e-20;
+}
+/** @brief Average stored cell velocities onto shared mesh vertices.
+ * @param in Capture whose mesh adjacency is prepared.
+ * @param[out] walls Per triangle, bit e marks a closed wall on the edge opposite corner e.
+ * @return Metre-space velocity (m/s) per mesh vertex. Each wet velocity-only triangle votes
+ * with weight meanDepth x corner angle, so splitting a quad along a diagonal does not change
+ * the vote of the cell. Vertices without a wet vote stay zero. On a wall (no wet neighbour
+ * and a known native face flux that is not outward) the outward normal component is removed
+ * at both edge vertices, so particles slide along the wall instead of stopping on it. Edges
+ * with unknown native flux are left open, because they may be outflow boundaries. */
+std::vector<QPointF> vertexVelocities(const FlowParticleNativeInput &in,
+                                      std::vector<unsigned char> &walls)
+{
+    const auto &mesh = *in.mesh;
+    std::vector<QPointF> velocity(size_t(mesh.vertices.size()));
+    std::vector<double> weight(velocity.size(), 0);
+    walls.assign(in.triangles.size(), 0);
+    for (size_t i = 0; i < in.triangles.size(); ++i) {
+        const auto &t = in.triangles[i];
+        if (!wetVelocity(t, in.cutoff))
+            continue;
+        for (int k = 0; k < 3; ++k) {
+            const auto u = t.metres[(k + 1) % 3] - t.metres[k],
+                       w = t.metres[(k + 2) % 3] - t.metres[k];
+            const double vote =
+                t.meanDepth * std::atan2(std::abs(cross(u, w)), QPointF::dotProduct(u, w));
+            const int v = mesh.triangles[i][k];
+            velocity[size_t(v)] += t.velocitySI * vote;
+            weight[size_t(v)] += vote;
+        }
+        for (int e = 0; e < 3; ++e) {
+            const int neighbor = mesh.neighbors[i][e];
+            const bool open = neighbor < 0
+                                  ? !(t.residentEdges & (1 << e)) // regional cut, not a wall
+                                  : wetVelocity(in.triangles[size_t(neighbor)], in.cutoff);
+            if (!open && std::isfinite(t.flux[e]) && t.flux[e] <= 1e-12)
+                walls[i] |= 1 << e;
+        }
+    }
+    for (size_t v = 0; v < velocity.size(); ++v)
+        if (weight[v] > 0)
+            velocity[v] /= weight[v];
+    // Two passes settle corners where two walls meet.
+    for (int pass = 0; pass < 2; ++pass)
+        for (size_t i = 0; i < in.triangles.size(); ++i)
+            for (int e = 0; e < 3; ++e) {
+                if (!(walls[i] & (1 << e)))
+                    continue;
+                const auto n = outwardNormal(in.triangles[i], e);
+                const double length = std::hypot(n.x(), n.y());
+                if (length <= 1e-12)
+                    continue;
+                const auto unit = n / length;
+                for (int k : {(e + 1) % 3, (e + 2) % 3}) {
+                    auto &v = velocity[size_t(mesh.triangles[i][k])];
+                    v -= unit * std::max(0., QPointF::dotProduct(v, unit));
+                }
+            }
+    return velocity;
+}
 }
 std::shared_ptr<const FlowParticleSnapshot>
 buildFlowParticleField(const FlowParticleNativeInput &in, const std::atomic_bool &cancelled)
@@ -56,6 +144,15 @@ buildFlowParticleField(const FlowParticleNativeInput &in, const std::atomic_bool
     out->revision = in.revision;
     out->fields.resize(in.triangles.size());
     std::vector<std::array<QPointF, 3>> discharge(in.triangles.size());
+    // Stored cell velocities are piecewise constant; interpolating shared vertex
+    // averages makes the field continuous, so trails do not kink at every face.
+    std::vector<QPointF> vertexVelocity;
+    std::vector<unsigned char> walls;
+    if (std::any_of(in.triangles.begin(), in.triangles.end(),
+                    [](const auto &t) { return t.velocityOnly; }))
+        vertexVelocity = vertexVelocities(in, walls);
+    if (cancelled.load())
+        return {};
     for (size_t i = 0; i < in.triangles.size(); ++i) {
         if (i % 4096 == 0 && cancelled.load())
             return {};
@@ -69,15 +166,21 @@ buildFlowParticleField(const FlowParticleNativeInput &in, const std::atomic_bool
         const double area2 = std::abs(cross(t.metres[1] - t.metres[0], t.metres[2] - t.metres[0]));
         if (!std::isfinite(area2) || area2 < 1e-20 || !std::isfinite(t.meanDepth))
             f.available = false;
+        const auto &ids = in.mesh->triangles[i];
         if (t.velocityOnly) {
             if (!std::isfinite(t.velocitySI.x()) || !std::isfinite(t.velocitySI.y()))
                 f.available = false;
-            const double orientation =
-                cross(t.metres[1] - t.metres[0], t.metres[2] - t.metres[0]) > 0 ? 1 : -1;
+            // Not a conservative flux: the largest outward discharge along the
+            // edge. Its sign opens exactly the faces the interpolated field leaves.
             for (int e = 0; e < 3; ++e) {
-                const auto edge = t.metres[(e + 2) % 3] - t.metres[(e + 1) % 3];
-                t.flux[e] = t.meanDepth * orientation *
-                            (t.velocitySI.x() * edge.y() - t.velocitySI.y() * edge.x());
+                const auto n = outwardNormal(t, e);
+                t.flux[e] = walls[i] & (1 << e)
+                                ? 0
+                                : t.meanDepth *
+                                      std::max(QPointF::dotProduct(
+                                                   vertexVelocity[size_t(ids[(e + 1) % 3])], n),
+                                               QPointF::dotProduct(
+                                                   vertexVelocity[size_t(ids[(e + 2) % 3])], n));
             }
         }
         for (double flux : t.flux)
@@ -92,6 +195,14 @@ buildFlowParticleField(const FlowParticleNativeInput &in, const std::atomic_bool
         for (int e = 0; e < 3; ++e)
             if (t.flux[e] > 0)
                 f.exits |= 1 << e;
+        if (t.velocityOnly) {
+            for (int k = 0; k < 3; ++k) {
+                const auto v = vertexVelocity[size_t(ids[k])];
+                f.velocity[k] = toScene(t, *in.mesh, int(i), v);
+                f.speed[k] = float(std::hypot(v.x(), v.y()));
+            }
+            continue;
+        }
         for (int k = 0; k < 3; ++k) {
             for (int e = 0; e < 3; ++e)
                 discharge[i][k] += (t.metres[k] - t.metres[e]) * (t.flux[e] / area2);

@@ -891,9 +891,9 @@ void TwoDPage::buildUi()
          "Mesh2_face_depth / Mesh2_face_head — depth fill, contour bands and "
          "lines, cell depth / HGL plots. Always written."},
         {"VELOCITY", "Velocity (per cell)",
-         "Mesh2_face_vx / Mesh2_face_vy — cell-centred velocity components "
-         "(exported for external post-processing; the GUI reconstructs velocity "
-         "from edge fluxes)."},
+         "Mesh2_face_vx / Mesh2_face_vy — cell-centred velocity components. "
+         "When written, flow streaks use them (interpolated through mesh vertices); "
+         "otherwise the GUI reconstructs velocity from edge fluxes."},
         {"EDGE_FLUX", "Edge fluxes (per edge)",
          "Mesh2_edge_flux — velocity vectors and velocity magnitude symbology, "
          "edge flow / flux plots, velocity plots."},

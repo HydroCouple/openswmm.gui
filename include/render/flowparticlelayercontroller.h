@@ -180,7 +180,8 @@ private:
      * @return True after coherent probe/hydraulic validation and cache update, or a
      * matching cache reuse. False for no probes or failed/mismatched reads/topology.
      * Wet samples use reconstructed water surfaces; flux least-squares velocities are
-     * only for prefetch, while integration later uses native RT0 fields. A wholly dry
+     * only for prefetch, while integration later uses the native field (stored cell
+     * velocities interpolated from shared vertices, else RT0 from edge flux). A wholly dry
      * probe set keeps one zero-weight support seed. Updates overview layout revision on rebuild. */
     bool prepareOverviewSeeds(const QRectF &view, double scale, int capacity);
     /** @brief Convert cached overview seeds into padded motion-prefetch tile support.

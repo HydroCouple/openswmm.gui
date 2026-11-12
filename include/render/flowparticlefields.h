@@ -45,8 +45,11 @@ struct FlowParticleNativeInput {
  * @return Shared immutable snapshot carrying geometry/revision, or null for missing
  * mesh, count mismatch or observed cancellation. Invalid/degenerate hydraulic
  * triangles are marked unavailable; dry triangles retain metadata without moving
- * velocities. velocityOnly packets synthesize face flux from mean velocity/depth.
- * RT0 normal discharge is preserved; compatible wet neighboring flux packets
+ * velocities. velocityOnly packets are averaged onto shared vertices (weight mean
+ * depth x corner angle over wet packets) and interpolated linearly, so the field is
+ * continuous across faces; closed walls with a known zero native flux lose their
+ * outward component, and an edge opens where the interpolated flow leaves it. For
+ * flux packets RT0 normal discharge is preserved; compatible wet neighboring flux packets
  * receive tangential corrections. Allocation errors propagate without a snapshot;
  * mesh preparation effects are not rolled back. */
 std::shared_ptr<const FlowParticleSnapshot>
