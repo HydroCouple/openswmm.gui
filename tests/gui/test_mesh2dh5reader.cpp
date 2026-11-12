@@ -795,6 +795,108 @@ private slots:
     }
 
     /**
+     * @brief Require a whole-frame chunk to be decompressed once per frame read.
+     * @note The engine writes one chunk per report frame. Here a 2,000,000-cell frame is one
+     * 8 MB deflated chunk, over HDF5's 1 MiB default chunk cache; reading it in 65,536-cell
+     * blocks used to inflate the whole chunk once per block (31 times; 15-25 s per 6M-cell
+     * frame). The reader's read is compared with one direct H5Dread of the same row, best of
+     * three each, so machine load cancels. Writes large_frame_chunk.h5 in the review directory.
+     */
+    void largeFrameChunkDecompressesOncePerRead()
+    {
+        constexpr hsize_t cells = 2000000;
+        const QString path =
+            QFileInfo(fixturePath_).absoluteDir().filePath("large_frame_chunk.h5");
+        struct Handle {
+            hid_t id;
+            herr_t (*close)(hid_t);
+            /** @brief Close the owned HDF5 resource when id is nonnegative. */
+            ~Handle()
+            {
+                if (id >= 0)
+                    close(id);
+            }
+        };
+        std::vector<float> row(cells);
+        for (hsize_t i = 0; i < cells; ++i)
+            row[i] = float(std::sin(double(i) * 1e-3) + 1.5);
+        {
+            Handle file{H5Fcreate(path.toUtf8().constData(), H5F_ACC_TRUNC, H5P_DEFAULT,
+                                  H5P_DEFAULT),
+                        H5Fclose};
+            QVERIFY(file.id >= 0);
+            const double times[] = {0, 60};
+            const hsize_t timeCount = 2, nodeDims[] = {cells, 3};
+            Handle timeSpace{H5Screate_simple(1, &timeCount, nullptr), H5Sclose};
+            Handle time{H5Dcreate2(file.id, "time", H5T_NATIVE_DOUBLE, timeSpace.id, H5P_DEFAULT,
+                                   H5P_DEFAULT, H5P_DEFAULT),
+                        H5Dclose};
+            QVERIFY(H5Dwrite(time.id, H5T_NATIVE_DOUBLE, H5S_ALL, H5S_ALL, H5P_DEFAULT, times) >=
+                    0);
+            // Only the face count is read; keep the unused connectivity tiny on disk.
+            Handle nodeSpace{H5Screate_simple(2, nodeDims, nullptr), H5Sclose};
+            Handle nodeProps{H5Pcreate(H5P_DATASET_CREATE), H5Pclose};
+            QVERIFY(H5Pset_chunk(nodeProps.id, 2, nodeDims) >= 0);
+            QVERIFY(H5Pset_deflate(nodeProps.id, 1) >= 0);
+            Handle nodes{H5Dcreate2(file.id, "Mesh2_face_nodes", H5T_NATIVE_INT, nodeSpace.id,
+                                    H5P_DEFAULT, nodeProps.id, H5P_DEFAULT),
+                         H5Dclose};
+            QVERIFY(nodes.id >= 0);
+            // The engine's layout: one {1, cells} chunk per frame, shuffle + deflate 4.
+            const hsize_t dims[] = {2, cells}, chunk[] = {1, cells};
+            Handle space{H5Screate_simple(2, dims, nullptr), H5Sclose};
+            Handle props{H5Pcreate(H5P_DATASET_CREATE), H5Pclose};
+            QVERIFY(H5Pset_chunk(props.id, 2, chunk) >= 0);
+            QVERIFY(H5Pset_shuffle(props.id) >= 0);
+            QVERIFY(H5Pset_deflate(props.id, 4) >= 0);
+            Handle depth{H5Dcreate2(file.id, "Mesh2_face_depth", H5T_NATIVE_FLOAT, space.id,
+                                    H5P_DEFAULT, props.id, H5P_DEFAULT),
+                         H5Dclose};
+            QVERIFY(depth.id >= 0);
+            for (hsize_t t = 0; t < 2; ++t) {
+                const hsize_t offset[] = {t, 0}, count[] = {1, cells};
+                QVERIFY(H5Sselect_hyperslab(space.id, H5S_SELECT_SET, offset, nullptr, count,
+                                            nullptr) >= 0);
+                Handle memory{H5Screate_simple(1, &cells, nullptr), H5Sclose};
+                QVERIFY(H5Dwrite(depth.id, H5T_NATIVE_FLOAT, memory.id, space.id, H5P_DEFAULT,
+                                 row.data()) >= 0);
+            }
+        }
+        const auto directMs = [&] {
+            Handle file{H5Fopen(path.toUtf8().constData(), H5F_ACC_RDONLY, H5P_DEFAULT), H5Fclose};
+            Handle data{H5Dopen2(file.id, "Mesh2_face_depth", H5P_DEFAULT), H5Dclose};
+            Handle space{H5Dget_space(data.id), H5Sclose};
+            const hsize_t offset[] = {1, 0}, count[] = {1, cells};
+            H5Sselect_hyperslab(space.id, H5S_SELECT_SET, offset, nullptr, count, nullptr);
+            Handle memory{H5Screate_simple(1, &cells, nullptr), H5Sclose};
+            std::vector<float> out(cells);
+            QElapsedTimer timer;
+            timer.start();
+            const herr_t read =
+                H5Dread(data.id, H5T_NATIVE_FLOAT, memory.id, space.id, H5P_DEFAULT, out.data());
+            const double ms = timer.nsecsElapsed() / 1e6;
+            return read >= 0 && out == row ? ms : -1.;
+        };
+        Mesh2DH5Reader reader;
+        QVERIFY(reader.open(path));
+        double direct = 1e300, viaReader = 1e300;
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            const double ms = directMs();
+            QVERIFY(ms >= 0);
+            direct = std::min(direct, ms);
+            std::vector<float> values;
+            QElapsedTimer timer;
+            timer.start();
+            QVERIFY(reader.readFaceFieldAt("Mesh2_face_depth", 1, values));
+            viaReader = std::min(viaReader, timer.nsecsElapsed() / 1e6);
+            QVERIFY(values == row);
+        }
+        // One inflate plus decoding is a few times the direct read; one inflate per block is 31.
+        QVERIFY2(viaReader < 8 * direct + 50,
+                 qPrintable(QStringLiteral("reader %1 ms vs direct %2 ms").arg(viaReader).arg(direct)));
+    }
+
+    /**
      * @brief Verify domain/zone identities, native units and static/held temporal
      * classifications remain independent.
      * @note SurfaceNO 3 ug/Lknown, saturatedNO 3 units unresolved/keydistinct,

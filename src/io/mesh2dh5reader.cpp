@@ -132,6 +132,64 @@ struct PropertyGuard {
 };
 
 /**
+ * @brief Open a dataset with a chunk cache large enough for one of its chunks.
+ * @details The engine writes one chunk per report frame. A large mesh's frame does not fit
+ * HDF5's default 1 MiB chunk cache, so every partial read of it decompressed the whole frame
+ * again (about 92 times for 6 million cells read in 65,536-cell blocks).
+ * @param[in] file Borrowed file handle; caller holds the HDF5 mutex.
+ * @param[in] name Non-null dataset path.
+ * @return Owned dataset handle, or negative when the dataset cannot be opened (HDF5 errors
+ * are suppressed). Falls back to the default cache when the cache cannot be configured.
+ */
+hid_t openCachingChunk(hid_t file, const char *name)
+{
+    hid_t data = -1;
+    H5E_BEGIN_TRY
+    {
+        data = H5Dopen2(file, name, H5P_DEFAULT);
+    }
+    H5E_END_TRY;
+    if (data < 0)
+        return data;
+    size_t bytes = 0;
+    {
+        PropertyGuard create(H5Dget_create_plist(data));
+        DataTypeGuard type(H5Dget_type(data));
+        hsize_t chunk[H5S_MAX_RANK];
+        const int rank = create.id >= 0 && H5Pget_layout(create.id) == H5D_CHUNKED
+                             ? H5Pget_chunk(create.id, H5S_MAX_RANK, chunk)
+                             : -1;
+        if (rank > 0 && type.id >= 0) {
+            bytes = H5Tget_size(type.id);
+            for (int axis = 0; axis < rank; ++axis)
+                bytes *= size_t(chunk[axis]);
+        }
+    }
+    constexpr size_t defaultCache = size_t(1) << 20;
+    if (bytes <= defaultCache)
+        return data;
+    PropertyGuard access(H5Pcreate(H5P_DATASET_ACCESS));
+    if (access.id < 0 || H5Pset_chunk_cache(access.id, H5D_CHUNK_CACHE_NSLOTS_DEFAULT,
+                                            bytes + defaultCache, H5D_CHUNK_CACHE_W0_DEFAULT) < 0)
+        return data;
+    // An already open dataset keeps its cache, so close before reopening.
+    H5Dclose(data);
+    H5E_BEGIN_TRY
+    {
+        data = H5Dopen2(file, name, access.id);
+    }
+    H5E_END_TRY;
+    if (data < 0) {
+        H5E_BEGIN_TRY
+        {
+            data = H5Dopen2(file, name, H5P_DEFAULT);
+        }
+        H5E_END_TRY;
+    }
+    return data;
+}
+
+/**
  * @brief Check that an attribute contains exactly one element.
  * @param[in] attribute Borrowed HDF5 attribute handle.
  * @return True for a readable dataspace with one point; false otherwise.
@@ -531,12 +589,7 @@ bool readCellSlice(hid_t file, const char *name, int cells, int rank, int time, 
         error = QString::fromUtf8(name) + QStringLiteral(": ") + why;
         return false;
     };
-    hid_t data = -1;
-    H5E_BEGIN_TRY
-    {
-        data = H5Dopen2(file, name, H5P_DEFAULT);
-    }
-    H5E_END_TRY;
+    const hid_t data = openCachingChunk(file, name);
     DataSetGuard guard(data);
     if (data < 0)
         return fail(QStringLiteral("dataset unavailable"));
