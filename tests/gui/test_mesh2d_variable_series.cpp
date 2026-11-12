@@ -26,6 +26,7 @@
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
+#include "core/swmmdatetime.h"
 #include "gwresults_fixture.h"
 #include "layers/swmm2dresultslayer.h"
 #include "plot/comparisonplotmodel.h"
@@ -218,6 +219,16 @@ public:
     }
 };
 
+// The same frames 100 ms apart: a model that reports faster than once a second.
+class SubSecondMeshSource : public CatalogMeshSource
+{
+public:
+    QDateTime simTimeAt(int t) const override
+    {
+        return QDateTime(QDate(2026, 1, 1), QTime(0, 0), QTimeZone::UTC).addMSecs(qint64(t) * 100);
+    }
+};
+
 /**
  * @brief Find the first mesh-variable descriptor with an exact user-label match.
  * @param[in] list Stable descriptor values, preserved.
@@ -277,6 +288,9 @@ private slots:
      * @note Writes runlayer_saved_gw.2d.h5 (two cells, three reports) to GW_RESULTS_TEST_OUTPUT.
      */
     void savedRunServesGroundwaterLedgerAndNodeExchange();
+    /** @brief Frames under a second apart keep their own times in fixed-attribute and
+     * catalog-variable series (they were rounded to whole seconds and stacked). */
+    void subSecondFramesKeepTheirMilliseconds();
 };
 
 void TestMesh2DVariableSeries::cellDescriptorsListTimeVaryingCatalogVariables()
@@ -483,6 +497,27 @@ void TestMesh2DVariableSeries::savedRunServesGroundwaterLedgerAndNodeExchange()
     for (const auto kind : {ObjectRef::Kind::System, ObjectRef::Kind::Node})
         for (const auto &d : liveRun.resultDescriptorsForKind(kind))
             QVERIFY(!d.isMeshVariable());
+}
+
+void TestMesh2DVariableSeries::subSecondFramesKeepTheirMilliseconds()
+{
+    SWMM2DResultsLayer layer;
+    layer.setSource(std::make_unique<SubSecondMeshSource>());
+    Mesh2DRunLayer run(&layer);
+    const auto descriptors = run.resultDescriptorsForKind(ObjectRef::Kind::Mesh2DCell);
+    QVERIFY(!descriptors.isEmpty());
+    const auto table =
+        findByLabel(descriptors, QStringLiteral("Groundwater — water table elevation"));
+    QVERIFY(table.isValid());
+    for (const auto &descriptor : {descriptors.first(), table}) {
+        SeriesData series;
+        run.getSeriesAt(ObjectRef::forMesh2DCell(0), descriptor, series);
+        QVERIFY2(series.ok, qPrintable(series.errorMessage));
+        QCOMPARE(int(series.timesJulian.size()), CatalogMeshSource::kFrames);
+        for (int t = 0; t < CatalogMeshSource::kFrames; ++t)
+            QCOMPARE(openswmmvis::core::swmmDateTimeToMilliseconds(series.timesJulian[size_t(t)]),
+                     layer.source()->simTimeAt(t));
+    }
 }
 
 QTEST_MAIN(TestMesh2DVariableSeries)
