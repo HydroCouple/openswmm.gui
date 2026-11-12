@@ -19,6 +19,8 @@
 
 #include "map/swmm2dresultsqsgrenderer.h"
 #include "map/flowparticlenode.h"
+#include "map/scalarbandmaterial.h"
+#include "map/scalarfillmaterial.h"
 #include <QCoreApplication>
 #include "render/classificationcolorsampler.h"
 #include "render/watergeometrychunks.h"
@@ -145,6 +147,40 @@ QSGGeometryNode *makeWaterFillNode()
     material->setFlag(QSGMaterial::NoBatching);
     node->setMaterial(material);
     return node;
+}
+
+/**
+ * @return New caller-owned node with empty indexed (16-bit) ScalarFillVertex triangle geometry and
+ *   its own ScalarBandMaterial; the parent assumes ownership when attached.
+ */
+QSGGeometryNode *makeScalarBandNode()
+{
+    auto *node = new QSGGeometryNode();
+    auto *geo = new QSGGeometry(scalarFillAttributes(), 0, 0, QSGGeometry::UnsignedShortType);
+    geo->setDrawingMode(QSGGeometry::DrawTriangles);
+    node->setGeometry(geo);
+    node->setFlag(QSGNode::OwnsGeometry);
+    node->setMaterial(new ScalarBandMaterial());
+    node->setFlag(QSGNode::OwnsMaterial);
+    return node;
+}
+
+/** @brief Remove and delete every child of node. */
+void deleteChildren(QSGNode *node)
+{
+    while (auto *child = node->firstChild()) {
+        node->removeChildNode(child);
+        delete child;
+    }
+}
+
+/**
+ * @return False when OPENSWMM_QSG_GPU_BANDS=0: filled contours of the fast surface are then marched
+ *   on the CPU as on smaller meshes (parity checks, or a GPU driver without these shaders).
+ */
+bool gpuBandsEnabled()
+{
+    return qEnvironmentVariable("OPENSWMM_QSG_GPU_BANDS") != QLatin1String("0");
 }
 
 /**
@@ -333,6 +369,22 @@ public:
         directReferences_ += chunk.indices.size();
         directBytes_ +=
             vertices.size() * sizeof(vertices[0]) + chunk.indices.size() * sizeof(quint16);
+    }
+    /**
+     * @param[in] vertices Premultiplied anchored vertices, at most 65,532.
+     * @param[in] indices Nonempty valid 16 bit triangle references into vertices.
+     * @brief Upload one ready indexed chunk directly, like appendIndexedChunk; do not mix with
+     *   the push_back path in one session.
+     */
+    void appendColoredChunk(const std::vector<QSGGeometry::ColoredPoint2D> &vertices,
+                            const std::vector<quint16> &indices)
+    {
+        if (indices.empty())
+            return;
+        flush(vertices, indices);
+        directVertices_ += vertices.size();
+        directReferences_ += indices.size();
+        directBytes_ += vertices.size() * sizeof(vertices[0]) + indices.size() * sizeof(quint16);
     }
     /**
      * @return Flushed unique builder vertices plus direct uploaded vertices, counting duplicates
@@ -591,6 +643,7 @@ struct ResultsRootNode : QSGTransformNode {
     QSGGeometryNode *cellFillNode = nullptr;
     QSGGeometryNode *smoothFillNode = nullptr;
     QSGGeometryNode *bandNode = nullptr;
+    QSGNode *gpuBandNode = nullptr; // fast-surface filled contours, ScalarBandMaterial chunks
     QSGGeometryNode *isoNode = nullptr;
     QSGGeometryNode *isoIndexNode = nullptr;
     QSGOpacityNode *isoLabels = nullptr; // the isoline pass's opacity
@@ -689,6 +742,7 @@ struct SWMM2DResultsQSGRenderer::ContourFrame {
     ContourJobKey key;
     std::shared_ptr<const OpenSWMM::Render::FlowParticleNativeInput> particles;
     bool immediate = false;
+    bool sharedCorners = false; // captured from the layer's fast surface
     std::shared_ptr<const std::vector<std::array<float, 3>>> scalars;
     // Only dynamic attributes are retained; geometry stays shared by revision.
     std::vector<std::array<float, 4>> cellValues; // depth, vx, vy, speed per display tri
@@ -827,6 +881,67 @@ void SWMM2DResultsQSGRenderer::clearLabelTextureCache()
     m_labelTextureCache.clear();
 }
 
+bool SWMM2DResultsQSGRenderer::ensureSharedFillChunks(double ox, double oy)
+{
+    auto &sf = m_sharedFill;
+    if (!m_layer)
+        return false;
+    const auto rev = m_layer->geomRevision();
+    if (sf.geomRev == rev && sf.anchorX == ox && sf.anchorY == oy)
+        return !sf.vertices.empty();
+    sf = {};
+    const auto &ids = m_layer->triVertexIndices();
+    const auto &points = m_layer->m_sceneVerts;
+    const size_t nTri = size_t(m_layer->m_sceneTris.size());
+    if (ids.size() != nTri || points.isEmpty() || m_chunksRev != rev || m_chunks.chunks().isEmpty())
+        return false;
+    sf.triChunk.assign(nTri, -1);
+    sf.triLocal.resize(nTri);
+    std::vector<int> local(size_t(points.size()), -1), used;
+    auto startChunk = [&] {
+        for (int v : used)
+            local[size_t(v)] = -1;
+        used.clear();
+        sf.vertices.emplace_back();
+    };
+    startChunk();
+    for (const auto &chunk : m_chunks.chunks())
+        for (int t : chunk.cellIds) {
+            if (t < 0 || size_t(t) >= nTri)
+                continue;
+            const auto &tri = ids[size_t(t)];
+            bool valid = true;
+            int fresh = 0;
+            for (int v : tri) {
+                valid = valid && v >= 0 && v < points.size();
+                fresh += valid && local[size_t(v)] < 0;
+            }
+            if (!valid)
+                continue;
+            if (int(sf.vertices.back().size()) + fresh > kMaxVertsPerNode)
+                startChunk();
+            auto &vertices = sf.vertices.back();
+            for (size_t k = 0; k < 3; ++k) {
+                const int v = tri[k];
+                if (local[size_t(v)] < 0) {
+                    local[size_t(v)] = int(vertices.size());
+                    used.push_back(v);
+                    QSGGeometry::ColoredPoint2D p;
+                    p.set(float(points[v].x() - ox), float(points[v].y() - oy), 0, 0, 0, 0);
+                    vertices.push_back(p);
+                }
+                sf.triLocal[size_t(t)][k] = quint16(local[size_t(v)]);
+            }
+            sf.triChunk[size_t(t)] = int(sf.vertices.size()) - 1;
+        }
+    sf.frameVertices.resize(sf.vertices.size());
+    sf.frameIndices.resize(sf.vertices.size());
+    sf.geomRev = rev;
+    sf.anchorX = ox;
+    sf.anchorY = oy;
+    return true;
+}
+
 void SWMM2DResultsQSGRenderer::setLayer(SWMM2DResultsLayer *layer)
 {
     if (m_layer == layer)
@@ -840,6 +955,7 @@ void SWMM2DResultsQSGRenderer::setLayer(SWMM2DResultsLayer *layer)
         QObject::disconnect(m_layer, nullptr, this, nullptr);
     }
     m_layer = layer;
+    m_sharedFill = {}; // keyed by geometry revision, which is per layer
     if (m_layer) {
         // Edge styling must refresh even in the same frame as selection or
         // animation. Pure animation keeps its existing Data-only fast path.
@@ -1023,6 +1139,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         cellFillNode = root->cellFillNode = makeWaterFillNode();
         smoothFillNode = root->smoothFillNode = makeWaterFillNode();
         bandNode = root->bandNode = makeWaterFillNode();
+        root->gpuBandNode = new QSGNode();
         isoNode = root->isoNode = makeFlatNode(QColor(10, 10, 10, 220));
         isoIndexNode = root->isoIndexNode = makeFlatNode(QColor(10, 10, 10, 220));
         isoLabels = root->isoLabels = new QSGOpacityNode();
@@ -1035,6 +1152,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         root->appendChildNode(cellFillNode);
         root->appendChildNode(smoothFillNode);
         root->appendChildNode(bandNode);
+        root->appendChildNode(root->gpuBandNode);
         root->appendChildNode(isoNode);
         root->appendChildNode(isoIndexNode);
         root->appendChildNode(isoLabels);
@@ -1113,6 +1231,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         uploadColoredVerts(cellFillNode, empty_c);
         uploadColoredVerts(smoothFillNode, empty_c);
         uploadColoredVerts(bandNode, empty_c);
+        deleteChildren(root->gpuBandNode);
         for (auto *node : root->resultScalarNodes) {
             uploadColoredVerts(node->fill, empty_c);
             uploadColoredVerts(node->smooth, empty_c);
@@ -1552,6 +1671,13 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                 stats.visibleCells = qint64(visibleCells.size());
         }
 
+        // Fast vertex surface: classify the filled contours per fragment on the GPU
+        // (ScalarBandMaterial) instead of marching them. Same boundaries on linearly
+        // interpolated triangles, without the positions/scalars snapshot or a job.
+        const bool gpuBands = smoothBands && bandLevels.size() >= 2 &&
+                              bandLevels.size() <= size_t(ScalarBandMaterial::kMaxBands) + 1 &&
+                              m_layer->fastSurfacePublished() && gpuBandsEnabled() &&
+                              ensureSharedFillChunks(ox, oy);
         ContourJobKey key;
         key.time = m_layer->currentTimeIndex();
         key.frameRev = m_layer->frameRevision();
@@ -1563,7 +1689,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         key.smoothBands = smoothBands;
         key.snapshotTriangles = (cellSub && cellSub->isVisible()) ||
                                 (smoothSub && smoothSub->isVisible()) ||
-                                (bandsVisible && !smoothBands) || key.velocity;
+                                (bandsVisible && !smoothBands) || gpuBands || key.velocity;
         key.isoLevels = isoLevels;
         if (bs)
             key.contourStyle.insert(QStringLiteral("bands"), bs->toJson());
@@ -1571,12 +1697,13 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
             key.contourStyle.insert(QStringLiteral("isolines"), is->toJson());
         key.contourStyle.insert(QStringLiteral("bandsVisible"), bandsVisible);
         key.contourStyle.insert(QStringLiteral("isolinesVisible"), isoVisible);
+        key.contourStyle.insert(QStringLiteral("gpuBands"), gpuBands);
         key.coverage = cullRect;
         m_requestedContourKey = key;
         const bool compatible = m_contourFrame && m_contourFrame->key.samePresentation(key) &&
                                 (!m_contourFrame->immediate || m_contourFrame->key == key);
         const bool needsMarching =
-            (smoothBands && key.bandLevels.size() >= 2) || !key.isoLevels.empty();
+            (smoothBands && !gpuBands && key.bandLevels.size() >= 2) || !key.isoLevels.empty();
         // Large bootstrap and range/style changes must not march inline.
         // Keep the historical small-mesh bootstrap for immediate previews.
         const bool background = asyncContoursEnabled(nTri) && needsMarching &&
@@ -1636,30 +1763,61 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
             auto &waterCells =
                 needsMarching ? m_contourSelectionScratch : frame->immediateTriangles;
             waterCells.clear();
-            for (int i : visibleCells) {
+            const auto wet = [&tris](int i) {
                 const auto &t = tris[i];
-                if (std::isfinite(t.dv0) && std::isfinite(t.dv1) && std::isfinite(t.dv2))
-                    waterCells.push_back(i);
+                return std::isfinite(t.dv0) && std::isfinite(t.dv1) && std::isfinite(t.dv2);
+            };
+            if (visibleCells.size() * 8 >= size_t(nTri)) {
+                // A view holding much of the mesh: mark and sweep in index
+                // order. Sorting millions of chunk-ordered IDs every frame
+                // dominated six-million-cell syncs; the sweep also reads the
+                // triangles sequentially.
+                // Chunk IDs are unique, so a full-size list is every triangle.
+                const bool all = visibleCells.size() == size_t(nTri);
+                std::vector<unsigned char> shown(all ? 0 : size_t(nTri), 0);
+                if (!all)
+                    for (int i : visibleCells)
+                        shown[size_t(i)] = 1;
+                for (int i = 0; i < nTri; ++i)
+                    if ((all || shown[size_t(i)]) && wet(i))
+                        waterCells.push_back(i);
+            } else {
+                for (int i : visibleCells)
+                    if (wet(i))
+                        waterCells.push_back(i);
+                // Only water snapshots need ordered IDs.
+                std::sort(waterCells.begin(), waterCells.end());
             }
-            // Only water snapshots need ordered IDs. Sorting the entire dry
-            // domain here otherwise dominates sparse six-million-cell views.
-            std::sort(waterCells.begin(), waterCells.end());
+            std::shared_ptr<std::vector<ContourJobInput::TriPos>> positions;
             if (needsMarching &&
                 (!m_contourPositions || !m_contourTriangles || *m_contourTriangles != waterCells)) {
                 // The rendered packet owns its coordinates. Only an active
                 // worker can still read this source array across a pan/zoom.
                 // Keep capacity when it has no readers, rather than repeatedly
                 // freeing/reallocating full-domain positions on zoom changes.
-                auto positions = m_contourPositions && m_contourPositions.use_count() == 1
-                                     ? m_contourPositions
-                                     : std::make_shared<std::vector<ContourJobInput::TriPos>>();
+                positions = m_contourPositions && m_contourPositions.use_count() == 1
+                                ? m_contourPositions
+                                : std::make_shared<std::vector<ContourJobInput::TriPos>>();
                 positions->resize(waterCells.size());
+            }
+            if (needsMarching) {
+                scalars->resize(waterCells.size());
+                if (key.snapshotTriangles)
+                    frame->cellValues.resize(waterCells.size());
+                // One pass over the triangles for every per-frame copy (positions
+                // only when the wet set changed, as it does while water spreads).
                 for (size_t i = 0; i < waterCells.size(); ++i) {
                     const auto &t = tris[waterCells[i]];
-                    (*positions)[i] = {float(t.a.x() - ox), float(t.a.y() - oy),
-                                       float(t.b.x() - ox), float(t.b.y() - oy),
-                                       float(t.c.x() - ox), float(t.c.y() - oy)};
+                    if (positions)
+                        (*positions)[i] = {float(t.a.x() - ox), float(t.a.y() - oy),
+                                           float(t.b.x() - ox), float(t.b.y() - oy),
+                                           float(t.c.x() - ox), float(t.c.y() - oy)};
+                    (*scalars)[i] = {t.dv0, t.dv1, t.dv2};
+                    if (key.snapshotTriangles)
+                        frame->cellValues[i] = {t.depth, t.vx, t.vy, t.vmag};
                 }
+            }
+            if (positions) {
                 m_contourPositions = std::move(positions);
                 m_contourTriangles = std::make_shared<const std::vector<int>>(waterCells);
             }
@@ -1669,18 +1827,8 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                 m_contourTriangles.reset();
             }
             frame->key = key;
+            frame->sharedCorners = m_layer->fastSurfacePublished();
             frame->depthSamples.clear();
-            if (needsMarching) {
-                scalars->resize(waterCells.size());
-                if (key.snapshotTriangles)
-                    frame->cellValues.resize(waterCells.size());
-                for (size_t i = 0; i < waterCells.size(); ++i) {
-                    const auto &t = tris[waterCells[i]];
-                    (*scalars)[i] = {t.dv0, t.dv1, t.dv2};
-                    if (key.snapshotTriangles)
-                        frame->cellValues[i] = {t.depth, t.vx, t.vy, t.vmag};
-                }
-            }
             frame->scalars = key.snapshotTriangles ? scalars : nullptr;
             const OpenSWMM::Render::ScalarFillStyle *fillStyles[] = {
                 cellSub && cellSub->isVisible() ? cellSub->fillStyle() : nullptr,
@@ -1701,7 +1849,8 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
             ContourJobInput input;
             input.positions = m_contourPositions;
             input.scalars = std::move(scalars);
-            input.bandLevels = smoothBands ? key.bandLevels : std::vector<double>{};
+            input.bandLevels =
+                smoothBands && !gpuBands ? key.bandLevels : std::vector<double>{};
             input.isoLevels = key.isoLevels;
             input.minimumVisibleValue = dryDepth;
             input.packBands = true;
@@ -1825,6 +1974,107 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                    vis(edgeSub), vis(nodeSub));
         }
 
+        // Filled contours of a fast-surface frame on the GPU: one ScalarBandMaterial node per
+        // shared-vertex chunk holding wet triangles; each frame writes those chunks' positions,
+        // the wet corners' depths and the wet triangles' indices straight into the nodes.
+        const bool frameGpuBands = frame.sharedCorners &&
+                                   frame.key.contourStyle.value(QStringLiteral("gpuBands")).toBool();
+        auto drawGpuBands = [&](const std::vector<double> &levels, const QVector<QColor> &colors) {
+            std::vector<std::array<float, 4>> premultiplied;
+            premultiplied.reserve(size_t(colors.size()));
+            for (const auto &c : colors) {
+                const float a = float(c.alphaF());
+                premultiplied.push_back(
+                    {float(c.redF()) * a, float(c.greenF()) * a, float(c.blueF()) * a, a});
+            }
+            auto &sf = m_sharedFill;
+            const double lower = std::max(levels.front(), dryDepth);
+            // A triangle whose corners are all below the first level or at/below the cutoff
+            // draws no fragment; skip it.
+            auto drawn = [&](const std::array<float, 3> &d) {
+                if (!std::isfinite(d[0]) || !std::isfinite(d[1]) || !std::isfinite(d[2]))
+                    return false;
+                const double top = std::max({d[0], d[1], d[2]});
+                return top >= lower && top > dryDepth;
+            };
+            // Corner depths of the k-th frame triangle, read in place: the layer's triangles
+            // for an immediate frame, else the frame's snapshot (stored in the same order).
+            auto cornersOf = [&](size_t k) -> std::array<float, 3> {
+                if (frame.immediate) {
+                    const auto &t = tris[frameTriangles[k]];
+                    return {t.dv0, t.dv1, t.dv2};
+                }
+                return (*frame.scalars)[k];
+            };
+            std::vector<int> indexCount(sf.vertices.size(), 0);
+            for (size_t k = 0; k < frameTriangles.size(); ++k) {
+                const int chunk = sf.triChunk[size_t(frameTriangles[k])];
+                if (chunk >= 0 && drawn(cornersOf(k)))
+                    indexCount[size_t(chunk)] += 3;
+            }
+            std::vector<QSGGeometryNode *> nodeOf(sf.vertices.size(), nullptr);
+            std::vector<int> written(sf.vertices.size(), 0);
+            QSGNode *reuse = root->gpuBandNode->firstChild();
+            qint64 vertices = 0, bytes = 0;
+            for (size_t chunk = 0; chunk < sf.vertices.size(); ++chunk) {
+                if (!indexCount[chunk])
+                    continue;
+                QSGGeometryNode *node;
+                if (reuse) {
+                    node = static_cast<QSGGeometryNode *>(reuse);
+                    reuse = reuse->nextSibling();
+                } else {
+                    node = makeScalarBandNode();
+                    root->gpuBandNode->appendChildNode(node);
+                }
+                const auto &positions = sf.vertices[chunk];
+                auto *geo = node->geometry();
+                geo->allocate(int(positions.size()), indexCount[chunk]);
+                auto *data = static_cast<ScalarFillVertex *>(geo->vertexData());
+                for (size_t v = 0; v < positions.size(); ++v)
+                    data[v] = {positions[v].x, positions[v].y, 0.f};
+                static_cast<ScalarBandMaterial *>(node->material())
+                    ->setBands(levels, dryDepth, premultiplied);
+                // Material too: an emptied node has no batch, and the classification changes.
+                node->markDirty(QSGNode::DirtyGeometry | QSGNode::DirtyMaterial);
+                nodeOf[chunk] = node;
+                vertices += qint64(positions.size());
+                bytes += qint64(positions.size() * sizeof(ScalarFillVertex) +
+                                size_t(indexCount[chunk]) * sizeof(quint16));
+            }
+            while (reuse) { // surplus nodes from a wetter frame
+                QSGNode *next = reuse->nextSibling();
+                root->gpuBandNode->removeChildNode(reuse);
+                delete reuse;
+                reuse = next;
+            }
+            for (size_t k = 0; k < frameTriangles.size(); ++k) {
+                const int i = frameTriangles[k];
+                const int chunk = sf.triChunk[size_t(i)];
+                if (chunk < 0)
+                    continue;
+                const auto d = cornersOf(k);
+                if (!drawn(d))
+                    continue;
+                auto *geo = nodeOf[size_t(chunk)]->geometry();
+                auto *data = static_cast<ScalarFillVertex *>(geo->vertexData());
+                quint16 *index = geo->indexDataAsUShort() + written[size_t(chunk)];
+                for (int c = 0; c < 3; ++c) {
+                    const quint16 local = sf.triLocal[size_t(i)][size_t(c)];
+                    data[local].value = d[size_t(c)]; // shared corner: every triangle writes the same
+                    index[c] = local;
+                }
+                written[size_t(chunk)] += 3;
+            }
+            for (auto *node : nodeOf)
+                if (node) {
+                    node->geometry()->markVertexDataDirty();
+                    node->geometry()->markIndexDataDirty();
+                }
+            if (statsOn)
+                stats.addPass(QStringLiteral("bands(gpu)"), vertices, bytes);
+        };
+
         // ---- Pass 2: filled contour bands -------------------------------
         if (rebuildFills) {
             if (bandsVisible && maxDepth > dryDepth) {
@@ -1873,7 +2123,9 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                         }
                     };
 
-                    if (smoothBands) {
+                    if (smoothBands && frameGpuBands) {
+                        drawGpuBands(levels, bandColors);
+                    } else if (smoothBands) {
                         for (const auto &chunk : frame.contours().packedBands)
                             bandVerts.appendIndexedChunk(chunk, bandColors);
                     } else {
@@ -1882,11 +2134,14 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                     }
                 }
                 bandVerts.finish();
+                if (!(smoothBands && frameGpuBands && levels.size() >= 2))
+                    deleteChildren(root->gpuBandNode);
                 if (statsOn)
                     stats.addPass(QStringLiteral("bands"), qint64(bandVerts.size()),
                                   qint64(bandVerts.bytes()));
             } else {
                 uploadColoredVerts(bandNode, std::vector<QSGGeometry::ColoredPoint2D>{});
+                deleteChildren(root->gpuBandNode);
             }
         }
 
@@ -1932,6 +2187,63 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                 c.setAlphaF(c.alphaF() * op);
                 return c;
             };
+            // Fast surface: corners are shared vertex values, so colour each shared vertex
+            // once from a lookup table and draw the wet triangles indexed, without clipping
+            // or per-vertex deduplication. A corner at or below the visible minimum is
+            // transparent, so the waterline fades across its triangle.
+            if (perVertex && frame.sharedCorners && ensureSharedFillChunks(ox, oy)) {
+                constexpr int kLut = 1024;
+                std::array<std::array<quint8, 4>, kLut> lut;
+                const double span = vMax > vMin ? vMax - vMin : 0.;
+                for (int j = 0; j < kLut; ++j) {
+                    const QColor c = colorAt(vMin + span * (j + .5) / kLut);
+                    const quint8 a = quint8(c.alpha());
+                    lut[size_t(j)] = {premul(quint8(c.red()), a), premul(quint8(c.green()), a),
+                                      premul(quint8(c.blue()), a), a};
+                }
+                const double floor = std::max(dryDepth, vMin);
+                auto &sf = m_sharedFill;
+                std::vector<int> touched;
+                for (int i : frameTriangles) {
+                    const int chunk = sf.triChunk[size_t(i)];
+                    if (chunk < 0)
+                        continue;
+                    const auto t = frameTri(i);
+                    const float d[3] = {t.dv0, t.dv1, t.dv2};
+                    if (!std::isfinite(d[0]) || !std::isfinite(d[1]) || !std::isfinite(d[2]) ||
+                        std::max({d[0], d[1], d[2]}) <= floor)
+                        continue;
+                    auto &indices = sf.frameIndices[size_t(chunk)];
+                    auto &vertices = sf.frameVertices[size_t(chunk)];
+                    if (indices.empty()) {
+                        touched.push_back(chunk);
+                        vertices = sf.vertices[size_t(chunk)];
+                    }
+                    for (int k = 0; k < 3; ++k) {
+                        const quint16 local = sf.triLocal[size_t(i)][size_t(k)];
+                        indices.push_back(local);
+                        auto &v = vertices[local];
+                        if (d[k] <= floor) {
+                            v.r = v.g = v.b = v.a = 0;
+                            continue;
+                        }
+                        const int j = span > 0 ? std::clamp(int((d[k] - vMin) / span * kLut), 0,
+                                                            kLut - 1)
+                                               : 0;
+                        const auto &c = lut[size_t(j)];
+                        v.r = c[0];
+                        v.g = c[1];
+                        v.b = c[2];
+                        v.a = c[3];
+                    }
+                }
+                for (int chunk : touched) {
+                    out.appendColoredChunk(sf.frameVertices[size_t(chunk)],
+                                           sf.frameIndices[size_t(chunk)]);
+                    sf.frameIndices[size_t(chunk)].clear();
+                }
+                return;
+            }
             out.reserve(visibleCells.size() * 3);
             auto pushV = [&](const QPointF &p, const QColor &c) {
                 QSGGeometry::ColoredPoint2D v;

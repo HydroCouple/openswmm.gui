@@ -70,9 +70,11 @@
 #include <QPointer>
 #include <QQuickItem>
 #include <QRectF>
+#include <QSGGeometry>
 #include <QSet>
 #include <QString>
 
+#include <array>
 #include <limits>
 #include <memory>
 #include <vector>
@@ -318,6 +320,28 @@ private:
     /*! Render chunk index over tri/edge bboxes, keyed by geomRevision. */
     OpenSWMM::Render::MeshRenderChunkIndex m_chunks;
     quint64 m_chunksRev = ~quint64(0);
+
+    /*! Smooth depth fill of the layer's fast surface, whose corners are shared vertex
+     *  values: display triangles grouped (in render-chunk order) into upload chunks of at
+     *  most 65,532 shared vertices, built once per geometry revision and anchor. A frame
+     *  writes only vertex colours and the indices of its wet triangles. */
+    struct SharedFillChunks {
+        quint64 geomRev = ~quint64(0);
+        double anchorX = 0, anchorY = 0;
+        std::vector<std::vector<QSGGeometry::ColoredPoint2D>> vertices; // anchored XY
+        std::vector<int> triChunk;                                       // per display triangle
+        std::vector<std::array<quint16, 3>> triLocal;                    // per display triangle
+        std::vector<std::vector<QSGGeometry::ColoredPoint2D>> frameVertices; // per-frame colours
+        std::vector<std::vector<quint16>> frameIndices;                       // per-frame wet tris
+    } m_sharedFill;
+    /**
+     * @brief Build m_sharedFill for the current geometry revision and anchor when stale.
+     * @param[in] ox Anchor X subtracted from scene positions.
+     * @param[in] oy Anchor Y subtracted from scene positions.
+     * @return True when chunks cover the layer's display triangles; false when the layer's
+     *   shared-vertex caches or the render chunk index are unavailable.
+     */
+    bool ensureSharedFillChunks(double ox, double oy);
 
     // Large meshes use the worker even for their first frame and changed
     // ranges/settings. Automatic range growth accepts completed intermediate

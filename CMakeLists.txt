@@ -369,6 +369,7 @@ set(
         include/render/resultscalargeometry.h
         include/render/scalarramplut.h
         include/map/scalarfillmaterial.h
+        include/map/scalarbandmaterial.h
         include/map/flowparticlenode.h
 
         # ── Plot ─────────────────────────────────────────────────────────────
@@ -1142,6 +1143,7 @@ set(
         src/render/resultscalargeometry.cpp
         # QSG-2D-1M Phase 8 — GPU scalar-fill material (ramp LUT texture).
         src/map/scalarfillmaterial.cpp
+        src/map/scalarbandmaterial.cpp
         src/map/flowparticlenode.cpp
         # Slice Z.14-paint — runtime clip-path resolver impl.
         src/render/maskclipresolver.cpp
@@ -1870,6 +1872,8 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
         FILES
             resources/shaders/scalarfill.vert
             resources/shaders/scalarfill.frag
+            resources/shaders/scalarband.vert
+            resources/shaders/scalarband.frag
             resources/shaders/flowparticle.vert
             resources/shaders/flowparticle.frag
             resources/shaders/mapmask.frag
