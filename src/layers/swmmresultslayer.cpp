@@ -961,7 +961,7 @@ int recordedPeriodForTime(SWMM_Output handle, int count, const QDateTime &time, 
         double value = 0;
         if (swmm_output_get_period_time(handle, period, &value) != 0)
             return QDateTime{};
-        return openswmmvis::core::swmmDateTimeToMilliseconds(value);
+        return openswmmvis::core::swmmReportDateTimeToQDateTime(value);
     };
     int lo = 0, hi = count;
     while (lo < hi) {
@@ -1149,11 +1149,11 @@ int SWMMResultsLayer::refreshLive()
             double reportedStartJulian = 0.0;
             swmm_output_get_period_time(m_handle, 0, &reportedStartJulian);
             m_reportedStartDateTime =
-                openswmmvis::core::swmmDateTimeToMilliseconds(reportedStartJulian);
+                openswmmvis::core::swmmReportDateTimeToQDateTime(reportedStartJulian);
         }
         double endJulian = 0.0;
         swmm_output_get_period_time(m_handle, m_totalSteps - 1, &endJulian);
-        m_endDateTime = openswmmvis::core::swmmDateTimeToMilliseconds(endJulian);
+        m_endDateTime = openswmmvis::core::swmmReportDateTimeToQDateTime(endJulian);
 
         // Whole-file aggregates are stale the moment a period is appended.
         // Per-step result buffers are keyed by step and stay valid.
@@ -1231,13 +1231,13 @@ bool SWMMResultsLayer::finishOpen(qint64 msOpen, QList<QString> &warnings, QList
     double reportedStartJulian = startJulian;
     if (m_totalSteps > 0)
         swmm_output_get_period_time(m_handle, 0, &reportedStartJulian);
-    m_reportedStartDateTime = openswmmvis::core::swmmDateTimeToMilliseconds(reportedStartJulian);
+    m_reportedStartDateTime = openswmmvis::core::swmmReportDateTimeToQDateTime(reportedStartJulian);
 
     // End datetime from last period time.
     double endJulian = reportedStartJulian;
     if (m_totalSteps > 0)
         swmm_output_get_period_time(m_handle, m_totalSteps - 1, &endJulian);
-    m_endDateTime = openswmmvis::core::swmmDateTimeToMilliseconds(endJulian);
+    m_endDateTime = openswmmvis::core::swmmReportDateTimeToQDateTime(endJulian);
 
     const qint64 msMeta = loadTimer.elapsed(); // header scalars read
 
@@ -2517,7 +2517,7 @@ QDateTime SWMMResultsLayer::currentDateTime() const
 
     double t = 0.0;
     swmm_output_get_period_time(m_handle, m_currentStep, &t);
-    return openswmmvis::core::swmmDateTimeToMilliseconds(t);
+    return openswmmvis::core::swmmReportDateTimeToQDateTime(t);
 }
 
 int SWMMResultsLayer::totalTimeSteps() const

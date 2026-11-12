@@ -2321,7 +2321,8 @@ QDateTime HDF5Mesh2DSource::simTimeAt(int timeIdx) const
     }
     if (timeIdx >= static_cast<int>(cached_times_.size()))
         return {};
-    return openswmmvis::core::swmmDateTimeToMilliseconds(cached_times_[timeIdx]);
+    // A recorded report date: drop SWMM's +1 ms like the 1D results clock.
+    return openswmmvis::core::swmmReportDateTimeToQDateTime(cached_times_[timeIdx]);
 }
 
 // ===========================================================================

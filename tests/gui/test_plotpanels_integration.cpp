@@ -362,6 +362,12 @@ private slots:
             QCOMPARE(data.timesJulian[period], expected[period]);
         QCOMPARE(openswmmvis::core::swmmDateTimeToQDateTime(data.timesJulian.front()),
                  output.currentDateTime());
+        // Recorded report dates sit 1 ms past the report instant (SWMM's
+        // getDateTime offset). The cursor clock drops it, so a whole-second
+        // report time selects its own period rather than the one before.
+        QCOMPARE(output.periodIndexForDateTimeAsOf(
+                     openswmmvis::core::swmmDateTimeToQDateTime(expected[1])),
+                 1);
         SeriesData tail;
         tail.firstPeriod = 1;
         adapter.getSeriesAt(ObjectRef::forNode("J"), PlotAttribute::NodeDepth, tail);

@@ -28,7 +28,9 @@
 #include <cmath>
 
 using openswmmvis::core::qDateTimeToSwmmDateTime;
+using openswmmvis::core::swmmDateTimeToMilliseconds;
 using openswmmvis::core::swmmDateTimeToQDateTime;
+using openswmmvis::core::swmmReportDateTimeToQDateTime;
 
 namespace
 {
@@ -184,4 +186,26 @@ TEST(SwmmDateTime, InvalidInputs)
 {
     EXPECT_FALSE(swmmDateTimeToQDateTime(std::nan("")).isValid());
     EXPECT_TRUE(std::isnan(qDateTimeToSwmmDateTime(QDateTime())));
+}
+
+// SWMM records each report date as StartDateTime + (elapsedMsec + 1) / 1000 s
+// (legacy getDateTime). At millisecond resolution it must read the report
+// instant itself, for whole-second and sub-second report steps alike.
+/**
+ *
+ * @brief Verify recorded report dates decode without the legacy +1 ms offset.
+ *
+ */
+TEST(SwmmDateTime, ReportDateDropsLegacyMillisecond)
+{
+    const double start = engineEncode(2026, 1, 1, 0, 0, 0);
+    const QDateTime origin(QDate(2026, 1, 1), QTime(0, 0), Qt::UTC);
+    for (const double elapsedMs : {60000.0, 3660000.0, 100.0, 86399900.0}) {
+        double stamp = 0.0;
+        ASSERT_EQ(swmm_datetime_add_seconds(start, (elapsedMs + 1.0) / 1000.0, &stamp), 0);
+        const QDateTime report = swmmReportDateTimeToQDateTime(stamp);
+        EXPECT_EQ(report, origin.addMSecs(static_cast<qint64>(elapsedMs))) << elapsedMs;
+        EXPECT_EQ(swmmDateTimeToMilliseconds(stamp), report.addMSecs(1)) << elapsedMs;
+    }
+    EXPECT_FALSE(swmmReportDateTimeToQDateTime(std::nan("")).isValid());
 }

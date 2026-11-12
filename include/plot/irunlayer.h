@@ -268,6 +268,9 @@ struct SeriesData {
     bool displayOnly = false; ///< Decimated data: never consume for statistics or export.
     bool allowPairing = true; ///< False until observation clock/statistic pairing is explicitly prepared.
     bool pointsOnly = false; ///< Irregular/calendar data require explicit continuity before connecting.
+    /// timesJulian are recorded SWMM report dates, written 1 ms past each report instant;
+    /// at millisecond resolution decode them with core::swmmReportDateTimeToQDateTime.
+    bool recordedReportDates = false;
     QString displayNote; ///< Honest explanation of view reduction or temporal support.
     std::optional<SeriesStatistics> fullStatistics; ///< Exact full-resolution summary for the returned window.
     QDateTime statisticsFrom, statisticsTo; ///< Inclusive display window summarized above.

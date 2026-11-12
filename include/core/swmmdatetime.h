@@ -96,6 +96,25 @@ inline QDateTime swmmDateTimeToMilliseconds(double value)
     return QDateTime(date, QTime(0, 0), Qt::UTC).addMSecs(millis);
 }
 
+/**
+ * @brief Decode a recorded report-period date at millisecond resolution.
+ * @param[in] value Report date as stored in a .out period record or a 2D results `/time`
+ *        entry. SWMM writes it as StartDateTime + (elapsedMsec + 1) / 1000 s: the
+ *        legacy getDateTime() offset (swmm5.c) that keeps whole-second decoding on the
+ *        right second, reproduced by the engine for parity.
+ * @return swmmDateTimeToMilliseconds(value) less that 1 ms, so a report at 00:01:00
+ *         reads 00:01:00.000 rather than .001, agreeing with swmmDateTimeToQDateTime()
+ *         and with unbiased clocks (START_DATE, live 2D frames, observed data), while
+ *         sub-second report steps keep their exact times. Invalid for invalid input.
+ * @note Only for recorded report dates; START_DATE/END_DATE and other absolute
+ *       dates carry no offset and use swmmDateTimeToMilliseconds().
+ */
+inline QDateTime swmmReportDateTimeToQDateTime(double value)
+{
+    const QDateTime time = swmmDateTimeToMilliseconds(value);
+    return time.isValid() ? time.addMSecs(-1) : time;
+}
+
 /*! \brief QDateTime → SWMM DateTime double.
  *
  *  Reads the calendar components directly (no timezone conversion) and encodes
