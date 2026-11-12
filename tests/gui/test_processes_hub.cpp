@@ -182,7 +182,9 @@ private slots:
         auto *cell2D =
             table->item(SWMM_TRANSPORT_DOMAIN_SURFACE_2D, SWMM_TRANSPORT_CLASS_POLLUTANTS);
         QVERIFY(cell2D);
-        QVERIFY2(cell2D->text().startsWith(QStringLiteral("on")), qPrintable(cell2D->text()));
+        // An enabled cell reads "Planned (n)": runtime activity is only known
+        // after initialization (13daff4f4).
+        QVERIFY2(cell2D->text().startsWith(QStringLiteral("Planned")), qPrintable(cell2D->text()));
         QCOMPARE(cell2D->checkState(), Qt::Checked);
         // Groundwater is n/a with a reason.
         auto *gw = table->item(SWMM_TRANSPORT_DOMAIN_GROUNDWATER, SWMM_TRANSPORT_CLASS_POLLUTANTS);
