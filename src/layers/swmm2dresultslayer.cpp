@@ -2983,7 +2983,7 @@ void SWMM2DResultsLayer::publishSurface_(SurfaceJob &job, quint64 seq)
         std::vector<CellWaterGeometry::CornerDepths>().swap(cellFlowDepths_);
         install(surfaceDepths_, job.smooth);
         if (job.sceneCorners.size() == size_t(m_sceneTris.size()))
-            installSceneCorners_(job.sceneCorners, job.sceneCornerPeak);
+            installSceneCorners_(job.sceneCorners, job.sceneCornerPeak, !job.live);
         else
             fillSceneCorners_();
         applyCurrentFlux_(&job.velocityX, &job.velocityY);
@@ -5075,17 +5075,20 @@ void SWMM2DResultsLayer::sceneCornersFor_(
 }
 
 void SWMM2DResultsLayer::installSceneCorners_(const std::vector<std::array<float, 3>> &corners,
-                                              double peak)
+                                              double peak, bool parallel)
 {
-    const int count = int(std::min(size_t(m_sceneTris.size()), corners.size()));
-    for (int i = 0; i < count; ++i) {
-        auto &t = m_sceneTris[i];
-        const auto &d = corners[size_t(i)];
-        t.depth = current_depths_[size_t(triCell_[size_t(i)])];
-        t.dv0 = d[0];
-        t.dv1 = d[1];
-        t.dv2 = d[2];
-    }
+    const size_t count = std::min(size_t(m_sceneTris.size()), corners.size());
+    SceneTri *tris = m_sceneTris.data(); // detach once, before any block writes
+    forBlocks(count, parallel, [&](size_t first, size_t last) {
+        for (size_t i = first; i < last; ++i) {
+            auto &t = tris[i];
+            const auto &d = corners[i];
+            t.depth = current_depths_[size_t(triCell_[i])];
+            t.dv0 = d[0];
+            t.dv1 = d[1];
+            t.dv2 = d[2];
+        }
+    });
     if (!max_depth_user_set_)
         max_depth_ = std::max(max_depth_, peak);
 }
