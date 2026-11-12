@@ -1056,17 +1056,19 @@ private slots:
      */
     void fastVertexSurfaceIsIndependentOfThreadCount();
     /**
-     * @brief Require filled contours of the fast surface to be classified on the GPU: one sync,
-     * no contour job, ScalarBandMaterial nodes indexing exactly the wet triangles with their
-     * shared corner depths, and no CPU band geometry. OPENSWMM_QSG_GPU_BANDS=0 restores the
-     * marched CPU bands for the same frame.
+     * @brief Require depth contours of the fast surface to be drawn on the GPU: filled contours,
+     * isolines without labels and classified smooth fills each take one sync with no contour
+     * job, ScalarBandMaterial nodes index exactly the wet triangles with their shared corner
+     * depths, and no CPU geometry is left. OPENSWMM_QSG_GPU_BANDS=0 restores marched bands and
+     * isolines; a continuous smooth fill stays on the CPU path.
      */
     void fastSurfaceBandsClassifyOnTheGpu();
     /**
-     * @brief Opt-in (VFR_TEST_GPU=1, a real window): GPU-classified bands of the fast surface
-     * look like the marched CPU bands of the same frame. At most 2% of coloured pixels may differ
-     * by more than 24 levels in a channel (rasterization along band edges). Saves both images
-     * and the difference to VFR_TEST_ARTIFACTS or tests/output/gpu_bands_2026-11-12.
+     * @brief Opt-in (VFR_TEST_GPU=1, a real window): GPU contours of the fast surface look like
+     * the marched ones of the same frame. Bands: at most 2% of coloured pixels may differ by more
+     * than 24 levels in a channel (rasterization along band edges). Isolines: at least 95% of
+     * either image's line pixels have a line pixel of the other within one pixel. Saves the
+     * images to VFR_TEST_ARTIFACTS or tests/output/gpu_bands_2026-11-12.
      */
     void gpuBandsMatchMarchedBandsOnScreen();
 };
@@ -1780,9 +1782,9 @@ void Test2DResultsVizFixes::fastSurfaceBandsClassifyOnTheGpu()
         QSGNode *sync(QSGNode *old) { return updatePaintNode(old, nullptr); }
     };
     struct Counts {
-        int gpuNodes = 0, gpuIndices = 0, cpuVertices = 0;
+        int gpuNodes = 0, gpuIsolineNodes = 0, gpuIndices = 0, cpuVertices = 0, cpuLineVertices = 0;
         float minValue = 1e30f, maxValue = -1e30f;
-        size_t interior = 0, colors = 0;
+        size_t levels = 0, colors = 0;
     };
     auto count = [](QSGNode *root) {
         Counts c;
@@ -1797,7 +1799,9 @@ void Test2DResultsVizFixes::fastSurfaceBandsClassifyOnTheGpu()
             if (!g || !node->material())
                 continue;
             if (node->material()->type() == ScalarBandMaterial().type()) {
+                const auto *m = static_cast<const ScalarBandMaterial *>(node->material());
                 ++c.gpuNodes;
+                c.gpuIsolineNodes += m->isolines();
                 c.gpuIndices += g->indexCount();
                 const auto *v = static_cast<const ScalarFillVertex *>(g->vertexData());
                 const quint16 *index = g->indexDataAsUShort();
@@ -1805,12 +1809,13 @@ void Test2DResultsVizFixes::fastSurfaceBandsClassifyOnTheGpu()
                     c.minValue = std::min(c.minValue, v[index[i]].value);
                     c.maxValue = std::max(c.maxValue, v[index[i]].value);
                 }
-                const auto *m = static_cast<const ScalarBandMaterial *>(node->material());
-                c.interior = m->interiorLevels().size();
+                c.levels = m->levels().size();
                 c.colors = m->colors().size();
             } else if (g->attributeCount() == 2) {
                 for (int i = 0; i < g->vertexCount(); ++i)
                     c.cpuVertices += g->vertexDataAsColoredPoint2D()[i].a > 0;
+            } else if (g->attributeCount() == 1) {
+                c.cpuLineVertices += g->vertexCount();
             }
         }
         return c;
@@ -1820,10 +1825,6 @@ void Test2DResultsVizFixes::fastSurfaceBandsClassifyOnTheGpu()
     layer.setSource(std::make_unique<LargeStripSource>());
     QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(), 120000);
     QVERIFY(layer.fastSurfacePublished());
-    for (auto *s : layer.sublayers())
-        s->setVisible(false);
-    layer.contourBandSublayer()->bandStyle()->setSmoothBands(true);
-    layer.contourBandSublayer()->setVisible(true);
     layer.setVisible(true);
     const auto box = layer.m_sceneBBox;
     const MapExtent extent(box.left(), -box.bottom(), box.right(), -box.top());
@@ -1834,8 +1835,38 @@ void Test2DResultsVizFixes::fastSurfaceBandsClassifyOnTheGpu()
         else
             qputenv("OPENSWMM_QSG_GPU_BANDS", previous);
     });
-    for (bool gpu : {true, false}) {
-        if (gpu)
+    enum class Show { Bands, Isolines, ClassifiedFill, ContinuousFill };
+    struct Case {
+        const char *name;
+        Show show;
+        bool gpu;
+    };
+    const Case cases[] = {{"bands", Show::Bands, true},
+                          {"bands, GPU off", Show::Bands, false},
+                          {"isolines", Show::Isolines, true},
+                          {"isolines, GPU off", Show::Isolines, false},
+                          {"classified smooth fill", Show::ClassifiedFill, true},
+                          {"continuous smooth fill", Show::ContinuousFill, true}};
+    for (const auto &k : cases) {
+        for (auto *s : layer.sublayers())
+            s->setVisible(false);
+        switch (k.show) {
+        case Show::Bands:
+            layer.contourBandSublayer()->bandStyle()->setSmoothBands(true);
+            layer.contourBandSublayer()->setVisible(true);
+            break;
+        case Show::Isolines:
+            layer.isolineSublayer()->isolineStyle()->setLabels(false);
+            layer.isolineSublayer()->setVisible(true);
+            break;
+        case Show::ClassifiedFill:
+        case Show::ContinuousFill:
+            layer.smoothDepthFillSublayer()->fillStyle()->setClassified(k.show ==
+                                                                        Show::ClassifiedFill);
+            layer.smoothDepthFillSublayer()->setVisible(true);
+            break;
+        }
+        if (k.gpu)
             qunsetenv("OPENSWMM_QSG_GPU_BANDS");
         else
             qputenv("OPENSWMM_QSG_GPU_BANDS", "0");
@@ -1846,22 +1877,27 @@ void Test2DResultsVizFixes::fastSurfaceBandsClassifyOnTheGpu()
         renderer.setLayer(&layer);
         QSignalSpy ready(&renderer, &SWMM2DResultsQSGRenderer::contentReady);
         std::unique_ptr<QSGNode> root(renderer.sync(nullptr));
-        if (!gpu) { // marched in the background on a mesh this size
-            QVERIFY(ready.wait(120000));
+        const bool marched = !k.gpu && (k.show == Show::Bands || k.show == Show::Isolines);
+        if (marched) { // marched in the background on a mesh this size
+            QVERIFY2(ready.wait(120000), k.name);
             root.reset(renderer.sync(root.release()));
         }
         const auto c = count(root.get());
-        if (gpu) {
-            QCOMPARE(ready.count(), 0); // no contour job
-            QVERIFY(c.gpuNodes > 0);
-            QCOMPARE(c.gpuIndices, 3 * LargeStripSource::kSquares); // the wet triangles
-            QVERIFY(c.minValue >= .3f - 1e-6f && c.maxValue <= .5f + 1e-6f);
-            QVERIFY(c.colors >= 1);
-            QCOMPARE(c.interior + 1, c.colors);
-            QCOMPARE(c.cpuVertices, 0);
+        if (!k.gpu || k.show == Show::ContinuousFill) {
+            QVERIFY2(c.gpuNodes == 0, k.name);
+            QVERIFY2(c.cpuVertices + c.cpuLineVertices > 0, k.name);
+            continue;
+        }
+        QVERIFY2(ready.count() == 0, k.name); // no contour job
+        QVERIFY2(c.gpuNodes > 0, k.name);
+        QVERIFY2(c.gpuIndices == 3 * LargeStripSource::kSquares, k.name); // the wet triangles
+        QVERIFY2(c.minValue >= .3f - 1e-6f && c.maxValue <= .5f + 1e-6f, k.name);
+        QVERIFY2(c.cpuVertices == 0 && c.cpuLineVertices == 0, k.name);
+        if (k.show == Show::Isolines) {
+            QVERIFY2(c.gpuIsolineNodes == c.gpuNodes && c.levels >= 1 && c.colors == 1, k.name);
         } else {
-            QCOMPARE(c.gpuNodes, 0);
-            QVERIFY(c.cpuVertices > 0);
+            QVERIFY2(c.gpuIsolineNodes == 0, k.name);
+            QVERIFY2(c.colors >= 1 && c.levels + 1 == c.colors, k.name);
         }
     }
 }
@@ -1894,10 +1930,9 @@ void Test2DResultsVizFixes::gpuBandsMatchMarchedBandsOnScreen()
         else
             qputenv("OPENSWMM_QSG_GPU_BANDS", previous);
     });
-    QImage images[2];
-    const char *names[2] = {"gpu", "marched"};
-    for (int run = 0; run < 2; ++run) {
-        if (run == 0)
+    // Render the current displays once with GPU contours and once marched.
+    auto capture = [&](bool gpu, const QString &stem) -> QImage {
+        if (gpu)
             qunsetenv("OPENSWMM_QSG_GPU_BANDS");
         else
             qputenv("OPENSWMM_QSG_GPU_BANDS", "0");
@@ -1912,17 +1947,26 @@ void Test2DResultsVizFixes::gpuBandsMatchMarchedBandsOnScreen()
         renderer->setLayer(&layer);
         renderer->setMapExtent(extent);
         window.show();
-        QVERIFY(QTest::qWaitForWindowExposed(&window));
-        QTRY_COMPARE_WITH_TIMEOUT(renderer->displayedFrameRevision(), layer.frameRevision(),
-                                  60000);
+        if (!QTest::qWaitForWindowExposed(&window))
+            return {};
+        if (!QTest::qWaitFor(
+                [&] { return renderer->displayedFrameRevision() == layer.frameRevision(); },
+                60000))
+            return {};
         QSignalSpy swapped(&window, &QQuickWindow::frameSwapped);
         renderer->update();
-        QTRY_VERIFY_WITH_TIMEOUT(swapped.count() > 0, 10000);
-        images[run] = window.grabWindow().convertToFormat(QImage::Format_ARGB32);
-        QVERIFY(!images[run].isNull());
-        QVERIFY(images[run].save(dir + QStringLiteral("/bands-%1.png").arg(names[run])));
+        if (!QTest::qWaitFor([&] { return swapped.count() > 0; }, 10000))
+            return {};
+        auto image = window.grabWindow().convertToFormat(QImage::Format_ARGB32);
+        image.save(dir + QStringLiteral("/%1-%2.png").arg(stem, gpu ? "gpu" : "marched"));
         window.close();
-    }
+        return image;
+    };
+    auto white = [](QRgb p) { return qRed(p) > 245 && qGreen(p) > 245 && qBlue(p) > 245; };
+
+    // Filled contours: the same pixels except along band edges.
+    QImage images[2] = {capture(true, "bands"), capture(false, "bands")};
+    QVERIFY(!images[0].isNull() && !images[1].isNull());
     QCOMPARE(images[0].size(), images[1].size());
     QImage diff(images[0].size(), QImage::Format_ARGB32);
     diff.fill(Qt::white);
@@ -1945,6 +1989,40 @@ void Test2DResultsVizFixes::gpuBandsMatchMarchedBandsOnScreen()
              qPrintable(QStringLiteral("only %1 coloured pixels").arg(coloured)));
     QVERIFY2(differing * 50 <= coloured,
              qPrintable(QStringLiteral("%1 of %2 coloured pixels differ").arg(differing).arg(coloured)));
+
+    // Isolines: the GPU lines are antialiased and the marched ones are not, so compare where
+    // lines are: at least 95% of each image's line pixels have a line pixel of the other
+    // within one pixel.
+    layer.contourBandSublayer()->setVisible(false);
+    layer.isolineSublayer()->isolineStyle()->setLabels(false);
+    layer.isolineSublayer()->setVisible(true);
+    const QImage lines[2] = {capture(true, "isolines"), capture(false, "isolines")};
+    QVERIFY(!lines[0].isNull() && !lines[1].isNull());
+    auto near = [&](const QImage &image, int x, int y) {
+        for (int dy = -1; dy <= 1; ++dy)
+            for (int dx = -1; dx <= 1; ++dx) {
+                const int xx = x + dx, yy = y + dy;
+                if (xx >= 0 && yy >= 0 && xx < image.width() && yy < image.height() &&
+                    !white(image.pixel(xx, yy)))
+                    return true;
+            }
+        return false;
+    };
+    for (int side = 0; side < 2; ++side) {
+        qint64 line = 0, matched = 0;
+        for (int yy = 0; yy < lines[side].height(); ++yy)
+            for (int xx = 0; xx < lines[side].width(); ++xx)
+                if (!white(lines[side].pixel(xx, yy))) {
+                    ++line;
+                    matched += near(lines[1 - side], xx, yy);
+                }
+        QVERIFY2(line > 500, qPrintable(QStringLiteral("only %1 line pixels").arg(line)));
+        QVERIFY2(matched * 100 >= line * 95,
+                 qPrintable(QStringLiteral("%1 %2 of %3 line pixels have no line nearby")
+                                .arg(side ? "marched:" : "GPU:")
+                                .arg(line - matched)
+                                .arg(line)));
+    }
 }
 
 void Test2DResultsVizFixes::largeMeshesShowTheFastVertexSurface()

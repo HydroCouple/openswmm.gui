@@ -643,7 +643,9 @@ struct ResultsRootNode : QSGTransformNode {
     QSGGeometryNode *cellFillNode = nullptr;
     QSGGeometryNode *smoothFillNode = nullptr;
     QSGGeometryNode *bandNode = nullptr;
+    QSGNode *gpuFillNode = nullptr; // fast-surface classified smooth fill, ScalarBandMaterial
     QSGNode *gpuBandNode = nullptr; // fast-surface filled contours, ScalarBandMaterial chunks
+    QSGNode *gpuIsoNode = nullptr;  // fast-surface isolines, ScalarBandMaterial chunks
     QSGGeometryNode *isoNode = nullptr;
     QSGGeometryNode *isoIndexNode = nullptr;
     QSGOpacityNode *isoLabels = nullptr; // the isoline pass's opacity
@@ -1139,7 +1141,9 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         cellFillNode = root->cellFillNode = makeWaterFillNode();
         smoothFillNode = root->smoothFillNode = makeWaterFillNode();
         bandNode = root->bandNode = makeWaterFillNode();
+        root->gpuFillNode = new QSGNode();
         root->gpuBandNode = new QSGNode();
+        root->gpuIsoNode = new QSGNode();
         isoNode = root->isoNode = makeFlatNode(QColor(10, 10, 10, 220));
         isoIndexNode = root->isoIndexNode = makeFlatNode(QColor(10, 10, 10, 220));
         isoLabels = root->isoLabels = new QSGOpacityNode();
@@ -1151,10 +1155,12 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         // Fills first → they paint UNDER the bands/edges/isolines.
         root->appendChildNode(cellFillNode);
         root->appendChildNode(smoothFillNode);
+        root->appendChildNode(root->gpuFillNode);
         root->appendChildNode(bandNode);
         root->appendChildNode(root->gpuBandNode);
         root->appendChildNode(isoNode);
         root->appendChildNode(isoIndexNode);
+        root->appendChildNode(root->gpuIsoNode);
         root->appendChildNode(isoLabels);
         root->appendChildNode(edgeNode);
         root->appendChildNode(nodeMarkNode);
@@ -1231,7 +1237,9 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         uploadColoredVerts(cellFillNode, empty_c);
         uploadColoredVerts(smoothFillNode, empty_c);
         uploadColoredVerts(bandNode, empty_c);
+        deleteChildren(root->gpuFillNode);
         deleteChildren(root->gpuBandNode);
+        deleteChildren(root->gpuIsoNode);
         for (auto *node : root->resultScalarNodes) {
             uploadColoredVerts(node->fill, empty_c);
             uploadColoredVerts(node->smooth, empty_c);
@@ -1678,6 +1686,12 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                               bandLevels.size() <= size_t(ScalarBandMaterial::kMaxBands) + 1 &&
                               m_layer->fastSurfacePublished() && gpuBandsEnabled() &&
                               ensureSharedFillChunks(ox, oy);
+        // Isolines likewise, unless labels are shown: those are placed along marched lines.
+        const bool gpuIsolines = isoVisible && !isoLevels.empty() &&
+                                 isoLevels.size() <= size_t(ScalarBandMaterial::kMaxBands) &&
+                                 !(is && is->labels() && lod.drawContourLabels) &&
+                                 m_layer->fastSurfacePublished() && gpuBandsEnabled() &&
+                                 ensureSharedFillChunks(ox, oy);
         ContourJobKey key;
         key.time = m_layer->currentTimeIndex();
         key.frameRev = m_layer->frameRevision();
@@ -1689,7 +1703,8 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         key.smoothBands = smoothBands;
         key.snapshotTriangles = (cellSub && cellSub->isVisible()) ||
                                 (smoothSub && smoothSub->isVisible()) ||
-                                (bandsVisible && !smoothBands) || gpuBands || key.velocity;
+                                (bandsVisible && !smoothBands) || gpuBands || gpuIsolines ||
+                                key.velocity;
         key.isoLevels = isoLevels;
         if (bs)
             key.contourStyle.insert(QStringLiteral("bands"), bs->toJson());
@@ -1698,12 +1713,14 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         key.contourStyle.insert(QStringLiteral("bandsVisible"), bandsVisible);
         key.contourStyle.insert(QStringLiteral("isolinesVisible"), isoVisible);
         key.contourStyle.insert(QStringLiteral("gpuBands"), gpuBands);
+        key.contourStyle.insert(QStringLiteral("gpuIsolines"), gpuIsolines);
         key.coverage = cullRect;
         m_requestedContourKey = key;
         const bool compatible = m_contourFrame && m_contourFrame->key.samePresentation(key) &&
                                 (!m_contourFrame->immediate || m_contourFrame->key == key);
         const bool needsMarching =
-            (smoothBands && !gpuBands && key.bandLevels.size() >= 2) || !key.isoLevels.empty();
+            (smoothBands && !gpuBands && key.bandLevels.size() >= 2) ||
+            (!gpuIsolines && !key.isoLevels.empty());
         // Large bootstrap and range/style changes must not march inline.
         // Keep the historical small-mesh bootstrap for immediate previews.
         const bool background = asyncContoursEnabled(nTri) && needsMarching &&
@@ -1851,7 +1868,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
             input.scalars = std::move(scalars);
             input.bandLevels =
                 smoothBands && !gpuBands ? key.bandLevels : std::vector<double>{};
-            input.isoLevels = key.isoLevels;
+            input.isoLevels = gpuIsolines ? std::vector<double>{} : key.isoLevels;
             input.minimumVisibleValue = dryDepth;
             input.packBands = true;
             input.bandCoverage = cullLocal;
@@ -1979,18 +1996,19 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         // the wet corners' depths and the wet triangles' indices straight into the nodes.
         const bool frameGpuBands = frame.sharedCorners &&
                                    frame.key.contourStyle.value(QStringLiteral("gpuBands")).toBool();
-        auto drawGpuBands = [&](const std::vector<double> &levels, const QVector<QColor> &colors) {
-            std::vector<std::array<float, 4>> premultiplied;
-            premultiplied.reserve(size_t(colors.size()));
-            for (const auto &c : colors) {
-                const float a = float(c.alphaF());
-                premultiplied.push_back(
-                    {float(c.redF()) * a, float(c.greenF()) * a, float(c.blueF()) * a, a});
-            }
+        const bool frameGpuIsolines =
+            frame.sharedCorners &&
+            frame.key.contourStyle.value(QStringLiteral("gpuIsolines")).toBool();
+        auto premultipliedOf = [](const QColor &c) -> std::array<float, 4> {
+            const float a = float(c.alphaF());
+            return {float(c.redF()) * a, float(c.greenF()) * a, float(c.blueF()) * a, a};
+        };
+        // Draw the frame's wet triangles into container with one ScalarBandMaterial node per
+        // touched chunk; configure(material) sets bands or isolines. Triangles whose corners are
+        // all below lower or at/below the dry cutoff draw no fragment and are skipped.
+        auto drawGpuScalar = [&](QSGNode *container, const auto &configure, double lower,
+                                 const QString &pass) {
             auto &sf = m_sharedFill;
-            const double lower = std::max(levels.front(), dryDepth);
-            // A triangle whose corners are all below the first level or at/below the cutoff
-            // draws no fragment; skip it.
             auto drawn = [&](const std::array<float, 3> &d) {
                 if (!std::isfinite(d[0]) || !std::isfinite(d[1]) || !std::isfinite(d[2]))
                     return false;
@@ -2014,7 +2032,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
             }
             std::vector<QSGGeometryNode *> nodeOf(sf.vertices.size(), nullptr);
             std::vector<int> written(sf.vertices.size(), 0);
-            QSGNode *reuse = root->gpuBandNode->firstChild();
+            QSGNode *reuse = container->firstChild();
             qint64 vertices = 0, bytes = 0;
             for (size_t chunk = 0; chunk < sf.vertices.size(); ++chunk) {
                 if (!indexCount[chunk])
@@ -2025,7 +2043,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                     reuse = reuse->nextSibling();
                 } else {
                     node = makeScalarBandNode();
-                    root->gpuBandNode->appendChildNode(node);
+                    container->appendChildNode(node);
                 }
                 const auto &positions = sf.vertices[chunk];
                 auto *geo = node->geometry();
@@ -2033,8 +2051,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                 auto *data = static_cast<ScalarFillVertex *>(geo->vertexData());
                 for (size_t v = 0; v < positions.size(); ++v)
                     data[v] = {positions[v].x, positions[v].y, 0.f};
-                static_cast<ScalarBandMaterial *>(node->material())
-                    ->setBands(levels, dryDepth, premultiplied);
+                configure(static_cast<ScalarBandMaterial *>(node->material()));
                 // Material too: an emptied node has no batch, and the classification changes.
                 node->markDirty(QSGNode::DirtyGeometry | QSGNode::DirtyMaterial);
                 nodeOf[chunk] = node;
@@ -2044,7 +2061,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
             }
             while (reuse) { // surplus nodes from a wetter frame
                 QSGNode *next = reuse->nextSibling();
-                root->gpuBandNode->removeChildNode(reuse);
+                container->removeChildNode(reuse);
                 delete reuse;
                 reuse = next;
             }
@@ -2072,7 +2089,17 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                     node->geometry()->markIndexDataDirty();
                 }
             if (statsOn)
-                stats.addPass(QStringLiteral("bands(gpu)"), vertices, bytes);
+                stats.addPass(pass, vertices, bytes);
+        };
+        auto drawGpuBands = [&](const std::vector<double> &levels, const QVector<QColor> &colors) {
+            std::vector<std::array<float, 4>> premultiplied;
+            premultiplied.reserve(size_t(colors.size()));
+            for (const auto &c : colors)
+                premultiplied.push_back(premultipliedOf(c));
+            drawGpuScalar(
+                root->gpuBandNode,
+                [&](ScalarBandMaterial *m) { m->setBands(levels, dryDepth, premultiplied); },
+                std::max(levels.front(), dryDepth), QStringLiteral("bands(gpu)"));
         };
 
         // ---- Pass 2: filled contour bands -------------------------------
@@ -2151,6 +2178,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         // each cell from its cell-centre depth; `perVertex=true` colours each
         // mesh vertex from its (interpolated) depth and lets the GPU
         // interpolate across the triangle (Gouraud).
+        bool gpuFillDrawn = false; // this frame's smooth fill went to root->gpuFillNode
         auto buildFillPass = [&](const OpenSWMM::Render::ScalarFillStyle *style, qreal subOpacity,
                                  bool perVertex, ColoredVertexUpload &out) {
             double vMin = dryDepth, vMax = maxDepth;
@@ -2192,6 +2220,25 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
             // or per-vertex deduplication. A corner at or below the visible minimum is
             // transparent, so the waterline fades across its triangle.
             if (perVertex && frame.sharedCorners && ensureSharedFillChunks(ox, oy)) {
+                // A classified fill is classified per fragment on the GPU, so class edges stay
+                // crisp; colouring vertices would blend neighbouring classes across triangles.
+                if (classified && levels.size() >= 2 &&
+                    levels.size() <= size_t(ScalarBandMaterial::kMaxBands) + 1 &&
+                    gpuBandsEnabled()) {
+                    std::vector<std::array<float, 4>> classColors;
+                    for (int idx = 0; idx < bandCount; ++idx) {
+                        QColor c = colors.classColor(idx);
+                        c.setAlphaF(c.alphaF() * op);
+                        classColors.push_back(premultipliedOf(c));
+                    }
+                    const double floor = std::max(dryDepth, vMin);
+                    drawGpuScalar(
+                        root->gpuFillNode,
+                        [&](ScalarBandMaterial *m) { m->setBands(levels, floor, classColors); },
+                        std::max(levels.front(), floor), QStringLiteral("smoothFill(gpu)"));
+                    gpuFillDrawn = true;
+                    return;
+                }
                 constexpr int kLut = 1024;
                 std::array<std::array<quint8, 4>, kLut> lut;
                 const double span = vMax > vMin ? vMax - vMin : 0.;
@@ -2319,6 +2366,8 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
             ColoredVertexUpload smoothVerts(smoothFillNode);
             if (smoothWanted)
                 buildFillPass(smoothSub->fillStyle(), smoothSub->opacity(), true, smoothVerts);
+            if (!gpuFillDrawn)
+                deleteChildren(root->gpuFillNode);
             smoothVerts.finish();
             if (statsOn && !smoothVerts.empty())
                 stats.addPass(QStringLiteral("smoothFill"), qint64(smoothVerts.size()),
@@ -2651,7 +2700,42 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
 
         // ---- Pass 3 + 3b: isolines, index contours, labels ---------------
         if (rebuildFills) {
-            if (isoVisible && maxDepth > dryDepth) {
+            // Fast-surface isolines without labels: drawn per fragment on the GPU with the
+            // same width, index-contour and colour rules as the marched lines below.
+            const bool gpuIsoDrawn = isoVisible && maxDepth > dryDepth && frameGpuIsolines &&
+                                     !isoLevels.empty();
+            if (gpuIsoDrawn) {
+                const int idxEvery = is ? is->indexEvery() : 0;
+                const double widthPx = is ? std::max(0.5, is->lineWidthPx()) : 1.0;
+                const double indexPx = is ? std::max(widthPx, is->indexWidthPx()) : widthPx;
+                // The shader measures device pixels; the marched lines are logical pixels wide.
+                const double dpr = window() ? window()->effectiveDevicePixelRatio() : 1.0;
+                std::vector<float> halfWidths(isoLevels.size());
+                for (size_t i = 0; i < isoLevels.size(); ++i) {
+                    bool index = false;
+                    if (is && idxEvery >= 2) {
+                        if (is->levelMode() ==
+                            OpenSWMM::Render::IsolineStyle::LevelMode::FixedInterval)
+                            index = std::lround((isoLevels[i] - is->baseLevel()) /
+                                                std::max(is->levelInterval(), 1e-12)) %
+                                        idxEvery ==
+                                    0;
+                        else
+                            index = (int(i) + 1) % idxEvery == 0;
+                    }
+                    halfWidths[i] = float(0.5 * (index ? indexPx : widthPx) * dpr);
+                }
+                QColor isoColor = is ? is->color() : QColor(10, 10, 10, 220);
+                isoColor.setAlpha(int(qBound(0.0, isoColor.alpha() * isoSub->opacity(), 255.0)));
+                const auto color = premultipliedOf(isoColor);
+                drawGpuScalar(
+                    root->gpuIsoNode,
+                    [&](ScalarBandMaterial *m) { m->setIsolines(isoLevels, halfWidths, color); },
+                    -std::numeric_limits<double>::infinity(), QStringLiteral("isolines(gpu)"));
+            } else {
+                deleteChildren(root->gpuIsoNode);
+            }
+            if (isoVisible && maxDepth > dryDepth && !gpuIsoDrawn) {
                 using namespace OpenSWMM::Contour;
                 const auto &levels = isoLevels;
                 if (!levels.empty()) {

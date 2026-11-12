@@ -2,7 +2,7 @@
 
 /**
  * @file      scalarbandmaterial.cpp
- * @brief     Scene graph material that classifies an interpolated scalar into filled contour bands.
+ * @brief     Scene graph material that draws filled contours or isolines of an interpolated scalar.
  *
  * See scalarbandmaterial.h. The .qsb shaders are compiled by qt_add_shaders from
  * resources/shaders/scalarband.{vert,frag}.
@@ -23,8 +23,8 @@
 namespace
 {
 // std140 layout of `buf` in scalarband.{vert,frag}.
-constexpr int kMatrix = 0, kOpacity = 64, kLower = 68, kCutoff = 72, kCount = 76, kLevels = 80,
-              kColors = kLevels + 16 * ScalarBandMaterial::kMaxBands,
+constexpr int kMatrix = 0, kOpacity = 64, kLower = 68, kCutoff = 72, kCount = 76, kMode = 80,
+              kLevels = 96, kColors = kLevels + 16 * ScalarBandMaterial::kMaxBands,
               kSize = kColors + 16 * ScalarBandMaterial::kMaxBands;
 
 class ScalarBandShader : public QSGMaterialShader
@@ -56,13 +56,18 @@ public:
         }
         const auto *material = static_cast<const ScalarBandMaterial *>(newMaterial);
         const float lower = material->lowerLimit(), cutoff = material->cutoff(),
-                    count = float(material->interiorLevels().size());
+                    count = float(material->levels().size()),
+                    mode = material->isolines() ? 1.f : 0.f;
         std::memcpy(data + kLower, &lower, 4);
         std::memcpy(data + kCutoff, &cutoff, 4);
         std::memcpy(data + kCount, &count, 4);
-        const auto &levels = material->interiorLevels();
-        for (size_t i = 0; i < levels.size(); ++i)
-            std::memcpy(data + kLevels + 16 * int(i), &levels[i], 4); // .x of a vec4
+        std::memcpy(data + kMode, &mode, 4);
+        const auto &levels = material->levels();
+        const auto &widths = material->halfWidthsPx();
+        for (size_t i = 0; i < levels.size(); ++i) {
+            const float level[2] = {levels[i], i < widths.size() ? widths[i] : 0.f};
+            std::memcpy(data + kLevels + 16 * int(i), level, 8); // .x level, .y half width
+        }
         const auto &colors = material->colors();
         for (size_t i = 0; i < colors.size(); ++i)
             std::memcpy(data + kColors + 16 * int(i), colors[i].data(), 16);
@@ -101,9 +106,26 @@ bool ScalarBandMaterial::setBands(const std::vector<double> &levels, double cuto
     if (levels.size() < 2 || levels.size() > size_t(kMaxBands) + 1 ||
         colors.size() != levels.size() - 1)
         return false;
+    m_isolines = false;
     m_lowerLimit = float(std::max(levels.front(), cutoff));
     m_cutoff = float(cutoff);
-    m_interior.assign(levels.begin() + 1, levels.end() - 1);
+    m_levels.assign(levels.begin() + 1, levels.end() - 1);
+    m_halfWidths.clear();
     m_colors = colors;
+    return true;
+}
+
+bool ScalarBandMaterial::setIsolines(const std::vector<double> &levels,
+                                     const std::vector<float> &halfWidthsPx,
+                                     const std::array<float, 4> &color)
+{
+    if (levels.empty() || levels.size() > size_t(kMaxBands) ||
+        halfWidthsPx.size() != levels.size())
+        return false;
+    m_isolines = true;
+    m_lowerLimit = m_cutoff = 0;
+    m_levels.assign(levels.begin(), levels.end());
+    m_halfWidths = halfWidthsPx;
+    m_colors = {color};
     return true;
 }
