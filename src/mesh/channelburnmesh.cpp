@@ -564,6 +564,7 @@ burnChannelsIntoMesh(const MeshResult &old, ChannelMeshBurnInputs in,
                 if (source >= 0) {
                     const auto &previous = old.triangles[source];
                     cell.initDepth = previous.initDepth;
+                    cell.initHgl = previous.initHgl;
                     if (!std::isfinite(cell.mannings) || cell.mannings <= 0)
                         cell.mannings = previous.mannings;
                     if (cell.tag.isEmpty())

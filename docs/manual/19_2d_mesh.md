@@ -400,7 +400,13 @@ result appear in the Quality tab.
 | Control | What it does | Writes |
 | --- | --- | --- |
 | **Roughness (Manning's n)** | Written to every generated cell | `[2D_TRIANGLES]` MANNINGS_N |
-| **Initial depth** | Standing water depth at the start of the run; 0 starts the cell dry | `[2D_TRIANGLES]` INIT_DEPTH |
+| **Initial condition** — **Depth** | Standing water depth at the start of the run; 0 starts the cell dry | `[2D_TRIANGLES]` INIT_DEPTH |
+| **Initial condition** — **Water surface elevation (HGL)** | Water surface elevation at the start of the run, on the mesh's vertical datum. Cells whose bed is above it start dry | `[2D_INITIAL_HGL]` |
+
+With **Water surface elevation (HGL)** selected, the region table's initial-condition
+column also holds elevations, so each region can start at its own level. The
+engine turns the elevation into a depth cell by cell and never produces a
+negative depth: a cell whose bed is above the elevation simply starts dry.
 
 **Region defaults** — one row per region tag the mesh will carry (subcatchment
 tags, when **Subcatchments → triangle regions** is on), plus a `*` row that is
@@ -672,8 +678,13 @@ The editable per-cell parameters are:
 | --- | --- | --- |
 | **Manning's n** | Surface roughness | `[2D_TRIANGLES]` MANNINGS_N |
 | **Initial Depth** | Standing water depth at t = 0; 0 starts the cell dry | `[2D_TRIANGLES]` INIT_DEPTH |
+| **Initial HGL** | Water surface elevation at t = 0, as an alternative to the initial depth; blank when not set. A cell whose bed is above it starts dry | `[2D_INITIAL_HGL]` |
 | **Infiltration Method** | Per-cell infiltration model; inherited from the cell's region tag until it is set here | `[2D_INFILTRATION]` METHOD |
 | The method's parameters | Positional, in project units; a parameter the resolved method does not use reads `—` and refuses edits | `[2D_INFILTRATION]` P1…P5 |
+
+**Initial Depth** and **Initial HGL** are alternatives. Setting one on a cell
+clears the other, and Undo restores it; to return a cell from an elevation to a
+depth, enter the depth.
 
 Values read back **resolved**, not raw: a cell with no override reads its region
 tag's numbers (or the `*` row's), which is what the engine will run. Editing one

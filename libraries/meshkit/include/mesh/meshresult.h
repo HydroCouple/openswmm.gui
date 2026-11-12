@@ -72,6 +72,11 @@ struct MeshTriangle {
     /// the engine default 0 (dry) and omitted on write unless any triangle
     /// carries a depth or a tag (TAG position must stay unambiguous).
     double initDepth = std::numeric_limits<double>::quiet_NaN();
+    /// Initial water-surface elevation in mesh length units on the vertex Z
+    /// datum ([2D_INITIAL_HGL]). NaN = not prescribed: the cell starts from
+    /// initDepth. A finite value overrides initDepth; the engine converts it
+    /// to a depth and clamps it at the cell invert when the run starts.
+    double initHgl = std::numeric_limits<double>::quiet_NaN();
 
     /**
      * @brief Classify the cell solely by whether a fourth vertex identifier is present.

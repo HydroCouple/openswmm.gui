@@ -28,6 +28,7 @@
 #include "mesh/meshbctype.h"
 #include "mesh/meshcellgeom.h"
 
+#include <cmath>
 #include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
@@ -127,6 +128,11 @@ private slots:
     void quads_bcRowOnQuadEdge3();
     void quads_conveyanceOnQuadQuadEdge();
     void profileExternalMesh();
+    void initialHgl_starThenCellRows();
+    void initialHgl_sectionBeforeCellsAndAbsent();
+    void initialHgl_externalSectionReplacesInline();
+    void initialHgl_badRowsAreErrors_data();
+    void initialHgl_badRowsAreErrors();
 };
 
 /**
@@ -701,6 +707,83 @@ void TestInpMeshReader::profileExternalMesh()
 
     QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
     QVERIFY(r.hasMesh);
+}
+
+/** A `*` row assigns every cell; a later cell row overrides it (file order, last wins). */
+void TestInpMeshReader::initialHgl_starThenCellRows()
+{
+    const QString p = writeFixture(QStringLiteral("hgl_star.inp"),
+                                   baseMesh() + QStringLiteral("[2D_INITIAL_HGL]\n"
+                                                               ";; CELL  HGL\n"
+                                                               "*  12.5\n"
+                                                               "1  -0.75 ; below datum is legal\n"));
+    const mesh::InpMeshReadResult r = mesh::InpMeshReader::read(p);
+    QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
+    QCOMPARE(r.mesh.triangles.size(), 2);
+    QCOMPARE(r.mesh.triangles[0].initHgl, 12.5);
+    QCOMPARE(r.mesh.triangles[1].initHgl, -0.75);
+}
+
+/** The section may precede the cell sections; without it every cell reads back unset. */
+void TestInpMeshReader::initialHgl_sectionBeforeCellsAndAbsent()
+{
+    const QString before = writeFixture(
+        QStringLiteral("hgl_before.inp"),
+        QStringLiteral("[2D_INITIAL_HGL]\n0 11.25\n7 99\n\n") + baseMesh());
+    const mesh::InpMeshReadResult r = mesh::InpMeshReader::read(before);
+    QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
+    QCOMPARE(r.mesh.triangles[0].initHgl, 11.25);
+    QVERIFY(std::isnan(r.mesh.triangles[1].initHgl)); // no row; cell 7 does not exist
+
+    const mesh::InpMeshReadResult none =
+        mesh::InpMeshReader::read(writeFixture(QStringLiteral("hgl_none.inp"), baseMesh()));
+    QVERIFY2(none.errorMsg.isEmpty(), qPrintable(none.errorMsg));
+    for (const mesh::MeshTriangle &t : none.mesh.triangles)
+        QVERIFY(std::isnan(t.initHgl));
+}
+
+/** With an external mesh file its section wins; an .inp section is the fallback. */
+void TestInpMeshReader::initialHgl_externalSectionReplacesInline()
+{
+    const QString inlineHgl = QStringLiteral("[2D_INITIAL_HGL]\n* 5\n");
+    QVERIFY(!writeFixture(QStringLiteral("hgl_ext.2dm"),
+                          baseMesh() + QStringLiteral("[2D_INITIAL_HGL]\n1 8\n"))
+                 .isEmpty());
+    const auto ext = mesh::InpMeshReader::read(writeFixture(
+        QStringLiteral("hgl_ext.inp"),
+        QStringLiteral("[2D_MESH_FILE]\nFILE hgl_ext.2dm\n\n") + inlineHgl));
+    QVERIFY2(ext.errorMsg.isEmpty(), qPrintable(ext.errorMsg));
+    QVERIFY(ext.isExternal);
+    QVERIFY(std::isnan(ext.mesh.triangles[0].initHgl));
+    QCOMPARE(ext.mesh.triangles[1].initHgl, 8.0);
+
+    QVERIFY(!writeFixture(QStringLiteral("hgl_ext_plain.2dm"), baseMesh()).isEmpty());
+    const auto fallback = mesh::InpMeshReader::read(writeFixture(
+        QStringLiteral("hgl_ext_fallback.inp"),
+        QStringLiteral("[2D_MESH_FILE]\nFILE hgl_ext_plain.2dm\n\n") + inlineHgl));
+    QVERIFY2(fallback.errorMsg.isEmpty(), qPrintable(fallback.errorMsg));
+    QCOMPARE(fallback.mesh.triangles[0].initHgl, 5.0);
+    QCOMPARE(fallback.mesh.triangles[1].initHgl, 5.0);
+}
+
+void TestInpMeshReader::initialHgl_badRowsAreErrors_data()
+{
+    QTest::addColumn<QString>("row");
+    QTest::newRow("missing elevation") << QStringLiteral("0");
+    QTest::newRow("text elevation") << QStringLiteral("0 high");
+    QTest::newRow("nan elevation") << QStringLiteral("0 nan");
+    QTest::newRow("negative cell") << QStringLiteral("-1 2.0");
+    QTest::newRow("text cell") << QStringLiteral("all 2.0");
+}
+
+void TestInpMeshReader::initialHgl_badRowsAreErrors()
+{
+    QFETCH(QString, row);
+    const QString p = writeFixture(QStringLiteral("hgl_bad.inp"),
+                                   baseMesh() + QStringLiteral("[2D_INITIAL_HGL]\n") + row +
+                                       QStringLiteral("\n"));
+    const mesh::InpMeshReadResult r = mesh::InpMeshReader::read(p);
+    QVERIFY2(r.errorMsg.contains(QStringLiteral("[2D_INITIAL_HGL]")), qPrintable(r.errorMsg));
 }
 
 QTEST_MAIN(TestInpMeshReader)

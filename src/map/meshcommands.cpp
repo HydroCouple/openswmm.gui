@@ -65,6 +65,8 @@ bool applyCellParam(SWMM2DMeshLayer *layer, int tri, const QByteArray &key, doub
         return layer->applyMeshTriangleMannings(tri, value);
     if (key == "initDepth")
         return layer->applyMeshTriangleInitDepth(tri, value);
+    if (key == "initHgl")
+        return layer->applyMeshTriangleInitHgl(tri, value);
     if (key.startsWith("infil.")) {
         // Single-parameter write into the cell's infiltration row. The row is
         // read back RESOLVED (override > tag > '*'), the one field is
@@ -126,7 +128,7 @@ void MeshSetTriangleAttributeCommand::apply(const QVector<double> &values)
         // applyMeshTriangle* would reject and leave the edited value in place).
         if (std::isfinite(v)) {
             applyCellParam(m_layer, m_tris[i], m_key, v);
-        } else if (m_key == "mannings" || m_key == "initDepth") {
+        } else if (m_key == "mannings" || m_key == "initDepth" || m_key == "initHgl") {
             m_layer->clearMeshTriangleParam(m_tris[i], m_key);
         } else if (const mesh::CellParamSpec *s = mesh::cellParamSpec(m_key)) {
             applyCellParam(m_layer, m_tris[i], m_key, s->defaultValue);
@@ -137,9 +139,29 @@ void MeshSetTriangleAttributeCommand::apply(const QVector<double> &values)
 void MeshSetTriangleAttributeCommand::undo()
 {
     apply(m_oldValues);
+    // Put back the alternative initial condition redo() displaced.
+    const QByteArray other = mesh::initialConditionCounterpart(m_key);
+    if (!m_layer || other.isEmpty())
+        return;
+    mesh::AttributeEditBatch batch(m_layer, m_tris.size());
+    for (int i = 0; i < m_tris.size() && i < m_oldCounterpart.size(); ++i)
+        if (std::isfinite(m_oldCounterpart[i]))
+            applyCellParam(m_layer, m_tris[i], other, m_oldCounterpart[i]);
 }
 void MeshSetTriangleAttributeCommand::redo()
 {
+    // Initial depth and initial HGL are alternatives: authoring one on a cell
+    // clears the other, so the cell never carries two initial conditions.
+    const QByteArray other = mesh::initialConditionCounterpart(m_key);
+    if (m_layer && !other.isEmpty()) {
+        mesh::AttributeEditBatch batch(m_layer, m_tris.size());
+        m_oldCounterpart.resize(m_tris.size());
+        for (int i = 0; i < m_tris.size(); ++i) {
+            m_oldCounterpart[i] = mesh::cellParamValue(m_layer->mesh(), m_tris[i], other);
+            if (std::isfinite(m_oldCounterpart[i]))
+                m_layer->clearMeshTriangleParam(m_tris[i], other);
+        }
+    }
     apply(m_newValues);
 }
 
@@ -429,7 +451,11 @@ int pushEdits(SWMM2DMeshLayer *layer, const QVector<int> &triangles, const QVect
         if (key.startsWith("infil.") && !layer->surfaceInfiltrationEditable(t))
             continue;
         const double prev = cellParamValue(m, t, key);
-        if (std::isfinite(prev) && prev == v)
+        // Unchanged — unless the cell's alternative initial condition is set,
+        // in which case the edit still has to displace it.
+        const QByteArray other = initialConditionCounterpart(key);
+        const bool displaces = !other.isEmpty() && std::isfinite(cellParamValue(m, t, other));
+        if (std::isfinite(prev) && prev == v && !displaces)
             continue; // already there
         tris.append(t);
         newV.append(v);

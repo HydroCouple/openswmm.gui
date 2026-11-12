@@ -3115,9 +3115,16 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     // the '*' values on that region's cells. regionHydraulics is empty unless
     // the user edited one, in which case this loop is exactly the loop it has
     // always been.
+    // The initial condition is either a depth or, when in.initIsHgl, a
+    // water-surface elevation: the cell then carries initHgl and a zero depth,
+    // and the engine clamps the resulting depth at the cell invert.
+    const auto stampInitial = [&in](mesh::MeshTriangle &t, double value) {
+        t.initDepth = in.initIsHgl ? 0.0 : value;
+        t.initHgl = in.initIsHgl ? value : std::numeric_limits<double>::quiet_NaN();
+    };
     for (mesh::MeshTriangle &t : result.triangles) {
         t.mannings = in.manningsN;
-        t.initDepth = in.initDepth;
+        stampInitial(t, in.initDepth);
 
         if (in.regionHydraulics.isEmpty() || t.tag.isEmpty())
             continue;
@@ -3125,7 +3132,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
         if (rh == in.regionHydraulics.constEnd())
             continue;
         t.mannings = rh->manningsN;
-        t.initDepth = rh->initDepth;
+        stampInitial(t, rh->initDepth);
     }
 
     // ── Region infiltration defaults (GG0d, GUI plan §3.3) ───────────
@@ -3333,7 +3340,9 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
         if (!std::isfinite(cell.mannings))
             cell.mannings = coupling.triangleMannings.value(i, in.manningsN);
         if (!std::isfinite(cell.initDepth))
-            cell.initDepth = in.initDepth;
+            cell.initDepth = in.initIsHgl ? 0.0 : in.initDepth;
+        if (in.initIsHgl && !std::isfinite(cell.initHgl))
+            cell.initHgl = in.initDepth;
     }
 
     QString intendedMeshPath;
@@ -4611,6 +4620,15 @@ void MeshGenerationDialog::buildUi()
 
         const QString dLbl =
             m_pw && m_pw->unitSystem() ? m_pw->unitSystem()->depthLabel() : QStringLiteral("m");
+        m_initModeCombo = new QComboBox(g);
+        m_initModeCombo->setObjectName(QStringLiteral("meshInitialConditionCombo"));
+        m_initModeCombo->addItem(tr("Depth"));
+        m_initModeCombo->addItem(tr("Water surface elevation (HGL)"));
+        m_initModeCombo->setToolTip(
+            tr("How the initial water on the mesh is specified: as a depth above each cell's "
+               "bed, or as a water surface elevation. With an elevation, cells whose bed is "
+               "above it start dry."));
+
         m_initDepthSpin = new QDoubleSpinBox(g);
         m_initDepthSpin->setRange(0.0, 1000.0);
         m_initDepthSpin->setDecimals(4);
@@ -4618,7 +4636,25 @@ void MeshGenerationDialog::buildUi()
         m_initDepthSpin->setSuffix(QStringLiteral(" ") + dLbl);
         m_initDepthSpin->setToolTip(tr("Standing water depth written to every generated cell "
                                        "([2D_TRIANGLES] INIT_DEPTH). 0 starts the surface dry."));
-        form->addRow(tr("Initial depth:"), m_initDepthSpin);
+        // Mode and value share one row so the tab keeps its height.
+        auto *initRow = new QHBoxLayout;
+        initRow->setContentsMargins(0, 0, 0, 0);
+        initRow->addWidget(m_initModeCombo);
+        initRow->addWidget(m_initDepthSpin, 1);
+        form->addRow(tr("Initial condition:"), initRow);
+        connect(m_initModeCombo, &QComboBox::currentIndexChanged, this, [this](int index) {
+            const bool hgl = index == 1;
+            // Elevations may be negative; depths may not.
+            m_initDepthSpin->setRange(hgl ? -100000.0 : 0.0, hgl ? 100000.0 : 1000.0);
+            m_initDepthSpin->setToolTip(
+                hgl ? tr("Water surface elevation written to every generated cell "
+                         "([2D_INITIAL_HGL]), on the same datum as the mesh elevations. A cell "
+                         "whose bed is above it starts dry.")
+                    : tr("Standing water depth written to every generated cell "
+                         "([2D_TRIANGLES] INIT_DEPTH). 0 starts the surface dry."));
+            if (m_regionDefaults)
+                m_regionDefaults->setInitialConditionIsHgl(hgl);
+        });
 
         // ── Region defaults (GG0d, GUI plan §3.3) ────────────────────
         // The two spin boxes above remain the '*' row's editors — the table
@@ -4837,6 +4873,8 @@ void MeshGenerationDialog::seedDefaults()
     if (m_quadRegionSubcatchEdit)
         m_quadRegionSubcatchEdit->clear();
     m_manningsValueSpin->setValue(t.meshManningsN);
+    if (m_initModeCombo)
+        m_initModeCombo->setCurrentIndex(0); // the stored default is a depth
     m_initDepthSpin->setValue(t.meshInitDepth);
     m_outputExternal->setChecked(t.meshOutputExternal);
     updateUnitDisplay(); // set suffixes and tooltip after values are seeded
@@ -4960,6 +4998,13 @@ void MeshGenerationDialog::saveOptions()
                                        {QStringLiteral("destination"), int(row.infil.dest)}});
         }
     options[QStringLiteral("regions")] = regions;
+    // Region "depthM" values are elevations when this is set. The mesh-wide
+    // elevation is kept with it: unlike a depth it has no preference default
+    // to fall back to when the dialog reopens.
+    const bool initIsHgl = m_initModeCombo && m_initModeCombo->currentIndex() == 1;
+    options[QStringLiteral("initIsHgl")] = initIsHgl;
+    if (initIsHgl)
+        options[QStringLiteral("initHglM")] = m_initDepthSpin->value() * toSI;
     if (m_corridorSources && m_pw->modelLayer()) {
         QVector<mesh::CorridorSource> corridors;
         QJsonObject recipe;
@@ -5083,6 +5128,10 @@ void MeshGenerationDialog::restoreOptions()
         m_terrainReportLabel->setText(migration.toHtmlEscaped() + "<br>" +
                                       m_terrainReportLabel->text());
     refreshRegionRows();
+    if (m_initModeCombo && options.value(QStringLiteral("initIsHgl")).toBool()) {
+        m_initModeCombo->setCurrentIndex(1);
+        m_initDepthSpin->setValue(options.value(QStringLiteral("initHglM")).toDouble() * fromSI);
+    }
     if (m_regionDefaults) {
         QVector<MeshRegionDefaultsWidget::RegionRow> rows;
         for (const auto &value : options.value(QStringLiteral("regions")).toArray()) {
@@ -5983,6 +6032,7 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut, b
     out->meshOutputPath = m_meshPathEdit->text().trimmed();
     out->manningsN = m_manningsValueSpin->value();
     out->initDepth = m_initDepthSpin->value();
+    out->initIsHgl = m_initModeCombo && m_initModeCombo->currentIndex() == 1;
 
     // ── Region defaults (GG0d, GUI plan §3.3) ────────────────────────
     // Read on the GUI thread and copied BY VALUE — the worker never touches

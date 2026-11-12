@@ -171,6 +171,9 @@ private:
     QVector<int> m_tris;
     QVector<double> m_newValues;
     QVector<double> m_oldValues;
+    /// For "initDepth"/"initHgl": the alternative initial condition each cell
+    /// carried before redo() cleared it (NaN = none); undo() restores it.
+    QVector<double> m_oldCounterpart;
 };
 
 /*!

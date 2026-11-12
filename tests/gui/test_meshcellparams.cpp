@@ -163,6 +163,26 @@ private slots:
 
     /*! Editor configuration must be usable as-is: a default inside the range,
      *  a positive step, and enough decimals to express the step. */
+    /*! Initial HGL is a live per-cell parameter; unset reads back NaN, and it
+     *  and the initial depth name each other as alternatives. */
+    void initialHgl_isLiveAndPairsWithInitialDepth()
+    {
+        const CellParamSpec *s = cellParamSpec("initHgl");
+        QVERIFY(s);
+        QVERIFY(s->enabled);
+        QVERIFY(s->lengthUnit);
+        QVERIFY2(s->min < 0.0, "an elevation may be below the datum");
+
+        MeshResult m = sampleMesh();
+        QVERIFY(std::isnan(cellParamValue(m, 0, "initHgl")));
+        m.triangles[0].initHgl = 12.5;
+        QCOMPARE(cellParamValue(m, 0, "initHgl"), 12.5);
+
+        QCOMPARE(initialConditionCounterpart("initDepth"), QByteArray("initHgl"));
+        QCOMPARE(initialConditionCounterpart("initHgl"), QByteArray("initDepth"));
+        QVERIFY(initialConditionCounterpart("mannings").isEmpty());
+    }
+
     void specs_editorConfigurationIsSelfConsistent()
     {
         for (const CellParamSpec &s : cellParamSpecs()) {

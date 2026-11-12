@@ -107,6 +107,13 @@ const QVector<CellParamSpec> &cellParamSpecs()
                   /*enabled=*/true,
                   tr("Standing water depth at the start of the run "
                      "([2D_TRIANGLES] INIT_DEPTH). 0 starts the cell dry.")});
+        v.append({"initHgl", tr("Initial HGL"), QStringLiteral("HGL="),
+                  /*lengthUnit=*/true, -100000.0, 100000.0, 0.05, 0.0, 4,
+                  /*enabled=*/true,
+                  tr("Water surface elevation at the start of the run "
+                     "([2D_INITIAL_HGL]), an alternative to the initial depth. "
+                     "While set it replaces the cell's initial depth; a cell whose "
+                     "bed is above this elevation starts dry.")});
 
         for (const auto &key : {QByteArray("infil.owner"), QByteArray("infil.conflict")}) {
             CellParamSpec s;
@@ -372,6 +379,8 @@ double cellParamValue(const MeshResult &mesh, int tri, const QByteArray &key)
         return t.mannings;
     if (key == "initDepth")
         return t.initDepth;
+    if (key == "initHgl")
+        return t.initHgl;
     if (key.startsWith("infil.")) {
         // Resolved, not raw: a cell with no per-cell override reads back its
         // region tag's (or the '*' row's) numbers, which is what the engine
@@ -383,6 +392,15 @@ double cellParamValue(const MeshResult &mesh, int tri, const QByteArray &key)
         return slot < 0 ? nan : r.row.p[slot]; // NaN = this method has no such slot
     }
     return nan; // unknown or engine-pending key carries no stored value
+}
+
+QByteArray initialConditionCounterpart(const QByteArray &key)
+{
+    if (key == "initDepth")
+        return QByteArrayLiteral("initHgl");
+    if (key == "initHgl")
+        return QByteArrayLiteral("initDepth");
+    return {};
 }
 
 } // namespace mesh

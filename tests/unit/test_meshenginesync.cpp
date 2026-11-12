@@ -39,6 +39,8 @@
 #include "mesh/meshbctype.h"
 #include "mesh/meshenginesync.h"
 
+#include <cmath>
+
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_2d.h>
@@ -226,6 +228,8 @@ TEST(MeshEngineSync, CellCouplingRowsPersistThroughEngine)
     const int sharedTri = (vaultTri == 0) ? 1 : 0;
     meshState.cellCouplings.append({sharedTri, QStringLiteral("J1"), 0.65, 2.0});
     meshState.cellCouplings.append({sharedTri, QStringLiteral("OUT1"), 0.65, 2.0});
+    // An initial water-surface elevation prescribed on one cell only.
+    meshState.triangles[sharedTri].initHgl = 12.345;
 
     // OPENED, not INITIALIZED — the state the GUI saves from.
     SWMM_Engine e = swmm_engine_create();
@@ -242,6 +246,18 @@ TEST(MeshEngineSync, CellCouplingRowsPersistThroughEngine)
     ASSERT_EQ(swmm_2d_triangle_coupling_rows(e, &engineRows), 0);
     EXPECT_EQ(engineRows, 3) << "push must re-author every row, not just the last";
 
+#ifdef SWMM_2D_HAS_INIT_HGL
+    // The prescribed initial HGL reached the engine; cells without one stay unset.
+    for (int t = 0; t < meshState.triangles.size(); ++t) {
+        double hgl = 0.0;
+        ASSERT_EQ(swmm_2d_triangle_get_init_hgl(e, t, &hgl), 0);
+        if (t == sharedTri)
+            EXPECT_DOUBLE_EQ(hgl, 12.345);
+        else
+            EXPECT_TRUE(std::isnan(hgl)) << "cell " << t;
+    }
+#endif
+
     ASSERT_EQ(swmm_model_write(e, outPath.toUtf8().constData()), 0);
     swmm_engine_destroy(e);
 
@@ -249,6 +265,15 @@ TEST(MeshEngineSync, CellCouplingRowsPersistThroughEngine)
     const mesh::InpMeshReadResult back = mesh::InpMeshReader::read(outPath);
     ASSERT_TRUE(back.hasMesh) << back.errorMsg.toStdString();
     ASSERT_EQ(back.mesh.cellCouplings.size(), 3);
+#ifdef SWMM_2D_HAS_INIT_HGL
+    // ...and through the engine's writer back into the layer-side reader.
+    for (int t = 0; t < back.mesh.triangles.size(); ++t) {
+        if (t == sharedTri)
+            EXPECT_DOUBLE_EQ(back.mesh.triangles[t].initHgl, 12.345);
+        else
+            EXPECT_TRUE(std::isnan(back.mesh.triangles[t].initHgl)) << "cell " << t;
+    }
+#endif
 
     int sharedCount = 0;
     bool vaultBack = false;

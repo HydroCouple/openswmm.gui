@@ -3219,6 +3219,9 @@ NODE C interior
         inputs.subcatchSeeds = {{"J1", {16, 16}}};
         inputs.manningsN = 0.045;
         inputs.initDepth = 0.7;
+        // The inline row authors the initial condition as a water-surface
+        // elevation instead of a depth.
+        inputs.initIsHgl = !external;
         const QByteArray modelBytes("[TITLE]\nSaved model sentinel\n[OPTIONS]\nFLOW_UNITS CMS\n");
         const QByteArray meshBytes("saved mesh sentinel\n");
         {
@@ -3247,7 +3250,13 @@ NODE C interior
         }
         for (const auto &cell : generated.meshResult.triangles) {
             QCOMPARE(cell.mannings, inputs.manningsN);
-            QCOMPARE(cell.initDepth, inputs.initDepth);
+            if (inputs.initIsHgl) {
+                QCOMPARE(cell.initHgl, inputs.initDepth);
+                QCOMPARE(cell.initDepth, 0.0);
+            } else {
+                QCOMPARE(cell.initDepth, inputs.initDepth);
+                QVERIFY(std::isnan(cell.initHgl));
+            }
         }
         QFile model(inputs.inpPath);
         QVERIFY(model.open(QIODevice::ReadOnly));

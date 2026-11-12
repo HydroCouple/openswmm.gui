@@ -296,7 +296,7 @@ QString meshGroupName(MeshAttributeTableModel::Kind kind, const QString &key)
     if (key.startsWith("coupl"))
         return kind == Kind::Cell ? PropertiesPanel::tr("Coupled 1D nodes")
                                   : PropertiesPanel::tr("Node coupling");
-    if (key == "mannings" || key == "initDepth" || key == "conveyance")
+    if (key == "mannings" || key == "initDepth" || key == "initHgl" || key == "conveyance")
         return PropertiesPanel::tr("Hydraulics");
     if (kind == Kind::Edge && key != "Edge" && key != "Length" && key != "Boundary")
         return PropertiesPanel::tr("Boundary condition");

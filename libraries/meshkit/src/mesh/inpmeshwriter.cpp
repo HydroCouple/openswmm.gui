@@ -60,6 +60,9 @@ constexpr const char *kSecMeshFile = "[2D_MESH_FILE]";
 constexpr const char *kSecInfilOptions = "[2D_INFILTRATION_OPTIONS]";
 constexpr const char *kSecInfilDefaults = "[2D_INFILTRATION_DEFAULTS]";
 constexpr const char *kSecInfil = "[2D_INFILTRATION]";
+// Initial water-surface elevation per cell; a per-cell mesh attribute, so it
+// follows the mesh like the infiltration sections.
+constexpr const char *kSecInitHgl = "[2D_INITIAL_HGL]";
 
 /**
  * @brief Serialize ordered raw xyz vertices and optional tags with finite-double round-trip
@@ -459,6 +462,46 @@ QString formatInfilSections(const MeshResult &mesh)
 }
 
 /**
+ * @brief Serialize the cells' prescribed initial water-surface elevations as `[2D_INITIAL_HGL]`.
+ * @param[in] mesh Borrowed cells in engine order, unchanged.
+ * @return Owned section text, empty when no cell carries a finite MeshTriangle::initHgl. A mesh
+ * whose cells all share one elevation writes the single `*` row; otherwise one `CELL HGL` row
+ * per prescribed cell, CELL zero-based. Values are raw mesh length units, like vertex Z.
+ */
+QString formatInitHgl(const MeshResult &mesh)
+{
+    int count = 0;
+    bool uniform = true;
+    double first = 0.0;
+    for (const MeshTriangle &t : mesh.triangles) {
+        if (!std::isfinite(t.initHgl))
+            continue;
+        if (count == 0)
+            first = t.initHgl;
+        else if (t.initHgl != first)
+            uniform = false;
+        ++count;
+    }
+    if (count == 0)
+        return {};
+
+    QString out;
+    QTextStream s(&out);
+    s.setRealNumberNotation(QTextStream::SmartNotation);
+    s.setRealNumberPrecision(kPersistencePrecision);
+    s << kSecInitHgl << "\n;; CELL   HGL\n";
+    if (uniform && count == mesh.triangles.size()) {
+        s << "*  " << first << "\n";
+    } else {
+        for (int i = 0; i < mesh.triangles.size(); ++i)
+            if (std::isfinite(mesh.triangles[i].initHgl))
+                s << i << "  " << mesh.triangles[i].initHgl << "\n";
+    }
+    s << "\n";
+    return out;
+}
+
+/**
  * @brief Remove selected bracketed sections and normalize surviving final newlines in owned
  * text.
  * @param[in] originalText Borrowed whole input, unchanged; first-semicolon tails stripped only
@@ -531,6 +574,7 @@ QString stripExistingMeshSections(const QString &originalText, bool alsoMeshFile
         QStringLiteral("[2D_INFILTRATION_OPTIONS]"),
         QStringLiteral("[2D_INFILTRATION_DEFAULTS]"),
         QStringLiteral("[2D_INFILTRATION]"),
+        QStringLiteral("[2D_INITIAL_HGL]"), // per-cell, follows the mesh
     };
     if (alsoMeshFileRef)
         ours.append(QStringLiteral("[2D_MESH_FILE]"));
@@ -730,6 +774,7 @@ QString InpMeshWriter::buildSectionText(const MeshResult &mesh, const CouplingMa
     // whichever file this text lands in (the .2dm in external mode, the .inp
     // inline). Omitted entirely when the mesh carries no infiltration data.
     out += formatInfilSections(mesh);
+    out += formatInitHgl(mesh);
     return out;
 }
 
@@ -1507,7 +1552,8 @@ bool patchAttributeText(const QString &text, const MeshResult &mesh, QString *pa
                                        QLatin1String(kSecTriangleNodeMap),
                                        // Infiltration follows the GUI-owned mesh attributes.
                                        QLatin1String(kSecInfilOptions),
-                                       QLatin1String(kSecInfilDefaults), QLatin1String(kSecInfil)});
+                                       QLatin1String(kSecInfilDefaults), QLatin1String(kSecInfil),
+                                       QLatin1String(kSecInitHgl)});
     if (!patched.endsWith(QChar('\n')))
         patched.append(QChar('\n'));
     QString header;
@@ -1523,6 +1569,7 @@ bool patchAttributeText(const QString &text, const MeshResult &mesh, QString *pa
     patched.append(formatVertexNodeMap(mesh, cm));
     patched.append(formatTriangleNodeMap(mesh, cm));
     patched.append(formatInfilSections(mesh));
+    patched.append(formatInitHgl(mesh));
     *patchedOut = patched;
     return true;
 }

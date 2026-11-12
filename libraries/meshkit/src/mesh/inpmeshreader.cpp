@@ -55,6 +55,7 @@ constexpr const char *kSecConveyance = "[2D_EDGE_CONVEYANCE]";        // Engine 
 constexpr const char *kSecInfilOptions = "[2D_INFILTRATION_OPTIONS]"; // GG0a
 constexpr const char *kSecInfilDefaults = "[2D_INFILTRATION_DEFAULTS]"; // GG0a
 constexpr const char *kSecInfil = "[2D_INFILTRATION]";                  // GG0a
+constexpr const char *kSecInitHgl = "[2D_INITIAL_HGL]"; // initial water-surface elevation
 
 /*! Per-row pre-mesh BC accumulator: (cell, local edge, value). Resolved to
  *  a flat slot (`edgeSlot(cell, e)`) in a sized QVector<MeshEdgeBC> after the
@@ -78,6 +79,16 @@ struct ConveyanceRow {
     double conv = 1.0;
 };
 using ConveyanceRowList = QVector<ConveyanceRow>;
+
+/*! One `[2D_INITIAL_HGL]` row: `CELL HGL`, CELL a zero-based cell index or
+ *  `*` (cell = -1) for every cell. The section may precede the cell sections
+ *  or sit in the other file of an external mesh, so rows are collected and
+ *  applied, in file order, once the cells are known. */
+struct InitHglRow {
+    int cell = -1;
+    double hgl = 0.0;
+};
+using InitHglRowList = QVector<InitHglRow>;
 
 /**
  * @brief Read a whole existing file as raw bytes, dropping every carriage return.
@@ -969,6 +980,7 @@ enum class SectionKind {
     MeshFile,   ///< Body collected, first FILE row wins.
     BC,         ///< Body collected into deferred BC rows.
     Conveyance, ///< Body collected into deferred conveyance rows.
+    InitHgl,    ///< Body collected into deferred initial-HGL rows.
     Body,       ///< Body collected and handed to parseSection.
     Ignored,    ///< Any other section: parseSection would ignore it, so nothing is kept.
 };
@@ -990,6 +1002,8 @@ SectionKind sectionKind(const QString &name)
         return SectionKind::BC;
     if (is(kSecConveyance))
         return SectionKind::Conveyance;
+    if (is(kSecInitHgl))
+        return SectionKind::InitHgl;
     if (is(kSecVertexNodeMap) || is(kSecTriangleNodeMap) || is(kSecInfilOptions) ||
         is(kSecInfilDefaults) || is(kSecInfil))
         return SectionKind::Body;
@@ -1071,7 +1085,8 @@ qsizetype countRowsUntilHeader(const char *p, const char *end)
  */
 QString parseSectionsFromBytes(const QByteArray &bytes, MeshResult &out, bool &sawVertices,
                                bool &sawTriangles, QString *meshFileRefOut, BCRowList *bcRowsOut,
-                               ConveyanceRowList *conveyOut, HeaderComments *headers)
+                               ConveyanceRowList *conveyOut, HeaderComments *headers,
+                               InitHglRowList *hglOut)
 {
     sawVertices = sawTriangles = false;
     if (meshFileRefOut)
@@ -1126,6 +1141,31 @@ QString parseSectionsFromBytes(const QByteArray &bytes, MeshResult &out, bool &s
                 }
             }
             break;
+        case SectionKind::InitHgl:
+            // CELL HGL — CELL is a zero-based cell index or `*`. The upper
+            // bound is checked when the rows are applied to the loaded cells.
+            if (hglOut) {
+                for (const QString &raw : body) {
+                    const QStringList tok = tokenize(raw);
+                    if (tok.isEmpty())
+                        continue;
+                    InitHglRow row;
+                    bool okc = tok[0] == QLatin1String("*");
+                    if (!okc)
+                        row.cell = tok[0].toInt(&okc);
+                    bool okh = false;
+                    if (tok.size() >= 2)
+                        row.hgl = tok[1].toDouble(&okh);
+                    if (!okc || (tok[0] != QLatin1String("*") && row.cell < 0) || !okh ||
+                        !std::isfinite(row.hgl))
+                        return QStringLiteral("[2D_INITIAL_HGL] needs CELL HGL with a "
+                                              "zero-based cell index or * and a finite "
+                                              "elevation (got: %1)")
+                            .arg(raw.trimmed());
+                    hglOut->append(row);
+                }
+            }
+            break;
         case SectionKind::Body:
             return parseSection(currentSection, body, out);
         default:
@@ -1177,6 +1217,7 @@ QString parseSectionsFromBytes(const QByteArray &bytes, MeshResult &out, bool &s
             case SectionKind::MeshFile:
             case SectionKind::BC:
             case SectionKind::Conveyance:
+            case SectionKind::InitHgl:
             case SectionKind::Body:
                 body.append(raw);
                 break;
@@ -1232,6 +1273,7 @@ QString parseSectionsFromBytes(const QByteArray &bytes, MeshResult &out, bool &s
         case SectionKind::MeshFile:
         case SectionKind::BC:
         case SectionKind::Conveyance:
+        case SectionKind::InitHgl:
         case SectionKind::Body:
             body.append(QString::fromLatin1(ls, le - ls));
             break;
@@ -1292,6 +1334,21 @@ void applyBCRows(const MeshResult &mesh, const BCRowList &rows, QVector<MeshEdge
  * Rows whose vertex pair doesn't match any edge are silently dropped (the writer canonicalises
  * on the lower vertex pair, but the engine accepts either order).
  */
+/*! Stamp collected `[2D_INITIAL_HGL]` rows onto the loaded cells, in file
+ *  order (last row wins; `*` assigns every cell). A row naming a cell the
+ *  mesh does not have is skipped, as BC rows are. */
+void applyInitHglRows(MeshResult &mesh, const InitHglRowList &rows)
+{
+    for (const InitHglRow &row : rows) {
+        if (row.cell < 0) {
+            for (MeshTriangle &t : mesh.triangles)
+                t.initHgl = row.hgl;
+        } else if (row.cell < mesh.triangles.size()) {
+            mesh.triangles[row.cell].initHgl = row.hgl;
+        }
+    }
+}
+
 void applyConveyanceRows(const MeshResult &mesh, const ConveyanceRowList &rows,
                          QVector<MeshEdgeBC> &edgeBCs)
 {
@@ -1381,9 +1438,10 @@ InpMeshReadResult InpMeshReader::read(const QString &inpPath)
     BCRowList inlineBCs;          // §V.VD.1 — collected from any [2D_BOUNDARY_CONDITIONS]
     ConveyanceRowList inlineConv; // Engine §11A — [2D_EDGE_CONVEYANCE]
     HeaderComments inlineHeaders;
+    InitHglRowList inlineHgl; // [2D_INITIAL_HGL]
     const QString inpErr =
         parseSectionsFromBytes(inpBytes, inlineMesh, sawInlineVerts, sawInlineTris, &meshFileRef,
-                               &inlineBCs, &inlineConv, &inlineHeaders);
+                               &inlineBCs, &inlineConv, &inlineHeaders, &inlineHgl);
     inpBytes = QByteArray();
 
     // The inline headers apply even when the parse failed; the external-file
@@ -1428,8 +1486,10 @@ InpMeshReadResult InpMeshReader::read(const QString &inpPath)
         BCRowList extBCs;
         ConveyanceRowList extConv; // Engine §11A — [2D_EDGE_CONVEYANCE]
         HeaderComments extHeaders;
+        InitHglRowList extHgl;
         const QString extErr = parseSectionsFromBytes(meshBytes, extMesh, sawExtVerts, sawExtTris,
-                                                      nullptr, &extBCs, &extConv, &extHeaders);
+                                                      nullptr, &extBCs, &extConv, &extHeaders,
+                                                      &extHgl);
         // Release the file bytes before the edge-BC array below is allocated.
         meshBytes = QByteArray();
 
@@ -1463,6 +1523,8 @@ InpMeshReadResult InpMeshReader::read(const QString &inpPath)
                 result.mesh.infilOverrides = inlineMesh.infilOverrides;
             if (!(result.mesh.infilOptions.infilStep > 0.0))
                 result.mesh.infilOptions = inlineMesh.infilOptions;
+            // Initial HGL: the external file's section replaces the inline one.
+            applyInitHglRows(result.mesh, extHgl.isEmpty() ? inlineHgl : extHgl);
 
             // Resolve BCs: start Wall-defaults of size edgeSlotCount(n_cells)
             // (stride kEdgeStride; slot 3 of a triangle is padding), then
@@ -1490,6 +1552,7 @@ InpMeshReadResult InpMeshReader::read(const QString &inpPath)
         result.sourcePath = inpPath;
         result.isExternal = false;
         result.hasMesh = true;
+        applyInitHglRows(result.mesh, inlineHgl);
 
         const int nslots = edgeSlotCount(result.mesh.triangles.size());
         result.edgeBCs.resize(nslots); // value-initialised to MeshEdgeBC{}

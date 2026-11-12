@@ -80,6 +80,13 @@ public:
      */
     void setDepthUnit(const QString &unit);
 
+    /*! Choose what the initial-condition column holds: a depth above the bed
+     *  (default) or a water-surface elevation (HGL). Changes the column
+     *  header and the accepted range only; stored values are not converted.
+     * @param[in] hgl True for water-surface elevations.
+     */
+    void setInitialConditionIsHgl(bool hgl);
+
     /*! Mirror the dialog's roughness / initial-depth fields onto the `*` row
      *  and re-render every region row that is still inheriting them.
      * @param[in] manningsN Mesh-wide roughness in the host's Manning coefficient convention, copied without validation.
@@ -182,6 +189,8 @@ private:
     QTableWidget *m_table = nullptr;
     double m_starMannings = 0.035;
     double m_starDepth = 0.0;
+    QString m_depthUnit;
+    bool m_initIsHgl = false; ///< initial-condition column holds HGL, not depth
     /*! Re-entrancy guard: every programmatic write to the table goes through
      *  QTableWidgetItem::setData, which re-emits itemChanged. */
     bool m_updating = false;

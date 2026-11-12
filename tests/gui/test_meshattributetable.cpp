@@ -2391,6 +2391,49 @@ private slots:
         QCOMPARE(rig.canvas.undoStack()->count(), 2);
     }
 
+    /*! Initial HGL and initial depth are alternatives: authoring one on a
+     *  cell clears the other, and undo puts both back. An unset HGL shows as
+     *  blank with a reason rather than as a misleading 0. */
+    void initialHglAndDepthDisplaceEachOtherWithUndo()
+    {
+        auto mesh = aggregateMesh();
+        mesh.triangles[0].initDepth = 0.3;
+        AggregateRig rig(mesh, "initial_hgl.2dm");
+        rig.table.setSource(&rig.layer, Kind::Cell);
+        const int hglCol = colFor(rig.table, "initHgl");
+        const int depthCol = colFor(rig.table, "initDepth");
+        QVERIFY(hglCol >= 0);
+
+        const QModelIndex hgl = rig.table.index(0, hglCol);
+        QVERIFY(!rig.table.data(hgl).isValid());
+        QVERIFY(!rig.table.data(hgl, Qt::ToolTipRole).toString().isEmpty());
+        QVERIFY(rig.table.flags(hgl) & Qt::ItemIsEditable);
+
+        // Set an HGL: the depth is displaced.
+        QVERIFY(rig.table.setData(hgl, 12.5, Qt::EditRole));
+        QCOMPARE(rig.layer.mesh().triangles[0].initHgl, 12.5);
+        QVERIFY(std::isnan(rig.layer.mesh().triangles[0].initDepth));
+        QCOMPARE(rig.table.data(hgl).toDouble(), 12.5);
+
+        // Set a depth through the bulk route: the HGL is displaced.
+        rig.table.setDataForRows(depthCol, {0}, 0.2);
+        QCOMPARE(rig.layer.mesh().triangles[0].initDepth, 0.2);
+        QVERIFY(std::isnan(rig.layer.mesh().triangles[0].initHgl));
+
+        // Undo each step: HGL back, then the original depth back.
+        rig.canvas.undoStack()->undo();
+        QCOMPARE(rig.layer.mesh().triangles[0].initHgl, 12.5);
+        QVERIFY(std::isnan(rig.layer.mesh().triangles[0].initDepth));
+        rig.canvas.undoStack()->undo();
+        QVERIFY(std::isnan(rig.layer.mesh().triangles[0].initHgl));
+        QCOMPARE(rig.layer.mesh().triangles[0].initDepth, 0.3);
+
+        // Redo reapplies the HGL and displaces the depth again.
+        rig.canvas.undoStack()->redo();
+        QCOMPARE(rig.layer.mesh().triangles[0].initHgl, 12.5);
+        QVERIFY(std::isnan(rig.layer.mesh().triangles[0].initDepth));
+    }
+
     void aggregateUndoRestoresInheritedCellValues()
     {
         auto mesh = aggregateMesh();
