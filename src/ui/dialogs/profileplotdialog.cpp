@@ -554,14 +554,18 @@ void ProfilePlotDialog::buildLayout()
             syncTracksAxes();
         }
         // 2D inundation overlay follows its option (Display Options tree or
-        // the toolbar toggle — both write the same property).
-        const bool want2D = m_options->show2DInundation();
-        if (m_actShow2D && m_actShow2D->isChecked() != want2D) {
+        // the toolbar toggle — both write the same property). The stations
+        // serve the current and the max surface, so either keeps them bound.
+        const bool show2D = m_options->show2DInundation();
+        if (m_actShow2D && m_actShow2D->isChecked() != show2D) {
             QSignalBlocker b(m_actShow2D);
-            m_actShow2D->setChecked(want2D);
+            m_actShow2D->setChecked(show2D);
         }
+        const bool want2D = show2D || m_options->showMax2DInundation();
         if (want2D != (m_surface2DLayer != nullptr))
             rebuildSurface2DStations();
+        else if (m_options->showMax2DInundation() && !m_surface2DMaxApplied)
+            requestSurface2DEnvelope();
         // A plot-level line style the user just edited has to reach the
         // sources before the series are rebuilt from them — otherwise the
         // edit is invisible (see pushEditedPlotStylesToSources).
@@ -1929,6 +1933,7 @@ void ProfilePlotDialog::forEachPathStation(
 void ProfilePlotDialog::rebuildSurface2DStations()
 {
     m_surface2D.clear();
+    m_surface2DMaxApplied = false;
     if (m_surface2DLayer)
         disconnect(m_surface2DLayer.data(), nullptr, this, nullptr);
     m_surface2DLayer = nullptr;
@@ -1938,7 +1943,7 @@ void ProfilePlotDialog::rebuildSurface2DStations()
      * bindings are handled by the enclosing rebuild.
      */
     auto clearPlot = [this] { m_plot->setSurface2DSamples({}); };
-    if (!m_options || !m_options->show2DInundation()) {
+    if (!m_options || !(m_options->show2DInundation() || m_options->showMax2DInundation())) {
         clearPlot();
         return;
     }
@@ -2001,11 +2006,52 @@ void ProfilePlotDialog::rebuildSurface2DStations()
         else
             refreshSurface2DDepths();
     });
+    // The temporal maximum is fitted by the layer (on its worker when async);
+    // new frames can only raise it, so ask again whenever they arrive.
+    connect(results, &SWMM2DResultsLayer::envelopeReady, this,
+            &ProfilePlotDialog::applySurface2DEnvelope);
+    connect(results, &SWMM2DResultsLayer::timeRangeChanged, this,
+            &ProfilePlotDialog::requestSurface2DEnvelope);
     connect(results, &QObject::destroyed, this, [this] {
         m_surface2D.clear();
         m_surface2DLayer = nullptr;
         m_plot->setSurface2DSamples({});
     });
+    refreshSurface2DDepths();
+    requestSurface2DEnvelope();
+}
+
+void ProfilePlotDialog::requestSurface2DEnvelope()
+{
+    m_surface2DMaxApplied = false;
+    if (!m_options || !m_options->showMax2DInundation() || !m_surface2DLayer ||
+        m_surface2D.isEmpty())
+        return;
+    if (m_surface2DGeometryRevision != m_surface2DLayer->geomRevision()) {
+        rebuildSurface2DStations(); // requests again on the new stations
+        return;
+    }
+    // Complete already (always so without the worker): sample it now.
+    // Otherwise the layer fits the missing frames and envelopeReady applies it.
+    if (m_surface2DLayer->envelopeComplete())
+        applySurface2DEnvelope();
+    else
+        m_surface2DLayer->requestEnvelope();
+}
+
+void ProfilePlotDialog::applySurface2DEnvelope()
+{
+    if (!m_options || !m_options->showMax2DInundation() || !m_surface2DLayer ||
+        m_surface2D.isEmpty() || m_surface2DGeometryRevision != m_surface2DLayer->geomRevision())
+        return;
+    const auto maxima = m_surface2DLayer->maxSurfaceDepths();
+    for (Surface2DStation &st : m_surface2D)
+        st.signedMaxDepth =
+            maxima.empty() || st.displayTriIdx < 0
+                ? std::numeric_limits<double>::quiet_NaN()
+                : MeshProfileSampler::signedMaxWaterDepth(m_surface2DLayer, st.displayTriIdx,
+                                                          st.boundaryTriIdx, st.scenePt, maxima);
+    m_surface2DMaxApplied = true;
     refreshSurface2DDepths();
 }
 
@@ -2027,6 +2073,7 @@ void ProfilePlotDialog::refreshSurface2DDepths()
             s.wse = st.bed +
                     scale * MeshProfileSampler::signedWaterDepth(m_surface2DLayer, st.displayTriIdx,
                                                                  st.boundaryTriIdx, st.scenePt);
+            s.maxWse = st.bed + scale * st.signedMaxDepth;
             out.push_back(s);
         }
     }

@@ -607,8 +607,9 @@ void ProfilePlotWidget::setSurface2DSamples(const QVector<Surface2DSample> &samp
     // frame to frame as the flood rises (only ever widens; setPath resets).
     double mx = m_surface2DMaxWse;
     for (const auto &s : m_surface2D)
-        if (isFinite(s.wse) && (!isFinite(mx) || s.wse > mx))
-            mx = s.wse;
+        for (const double w : {s.wse, s.maxWse})
+            if (isFinite(w) && (!isFinite(mx) || w > mx))
+                mx = w;
     const bool widen = isFinite(mx) && (!isFinite(m_surface2DMaxWse) || mx > m_surface2DMaxWse);
     m_surface2DMaxWse = mx;
     // A cleared / new station set changes what the legend and extent show.
@@ -903,7 +904,8 @@ void ProfilePlotWidget::recomputeBounds()
     }
     // 2D overlay: only the wettest WSE seen so far widens the extent (the
     // sampled ground, mesh or DEM, is already in terrainSamples above).
-    if (isFinite(m_surface2DMaxWse) && (!m_options || m_options->show2DInundation()))
+    if (isFinite(m_surface2DMaxWse) &&
+        (!m_options || m_options->show2DInundation() || m_options->showMax2DInundation()))
         yMax = std::max(yMax, m_surface2DMaxWse);
     if (!isFinite(yMin) || !isFinite(yMax)) {
         yMin = 0.0;
@@ -2172,14 +2174,22 @@ void ProfilePlotWidget::paintSurface2D(QPainter &p) const
 {
     if (m_surface2D.isEmpty())
         return;
+    // The maximum is never below the current surface: draw it first so the
+    // current band and line stay on top of it.
+    if (m_options && m_options->showMax2DInundation())
+        paintSurface2DLevel(p, &Surface2DSample::maxWse, m_options->maxInundation2DLinePen(),
+                            m_options->maxInundation2DFillBrush());
     if (m_options && !m_options->show2DInundation())
         return;
+    paintSurface2DLevel(
+        p, &Surface2DSample::wse,
+        m_options ? m_options->inundation2DLinePen() : QPen(QColor(0x00, 0x8B, 0x8B), 1.6),
+        m_options ? m_options->inundation2DFillBrush() : QBrush(QColor(0x20, 0xB2, 0xAA, 90)));
+}
 
-    const QPen pen =
-        m_options ? m_options->inundation2DLinePen() : QPen(QColor(0x00, 0x8B, 0x8B), 1.6);
-    const QBrush brush =
-        m_options ? m_options->inundation2DFillBrush() : QBrush(QColor(0x20, 0xB2, 0xAA, 90));
-
+void ProfilePlotWidget::paintSurface2DLevel(QPainter &p, double Surface2DSample::*wse,
+                                            const QPen &pen, const QBrush &brush) const
+{
     // Clip each owned interval against both the result bed and the drawn
     // ground. Split at ground/axis knots too, so a DEM kink or a compressed
     // link cannot move the intersection. Never join across missing cells.
@@ -2194,7 +2204,8 @@ void ProfilePlotWidget::paintSurface2D(QPainter &p) const
     groundKnots.erase(std::unique(groundKnots.begin(), groundKnots.end()), groundKnots.end());
     for (int i = 1; i < m_surface2D.size(); ++i) {
         const auto &a = m_surface2D[i - 1], &b = m_surface2D[i];
-        if (b.breakBefore || !(b.chainage > a.chainage) || !isFinite(a.wse) || !isFinite(b.wse) ||
+        const double aw = a.*wse, bw = b.*wse;
+        if (b.breakBefore || !(b.chainage > a.chainage) || !isFinite(aw) || !isFinite(bw) ||
             !isFinite(a.bed) || !isFinite(b.bed))
             continue;
         QVector<double> knots{a.chainage};
@@ -2207,7 +2218,7 @@ void ProfilePlotWidget::paintSurface2D(QPainter &p) const
         };
         for (int k = 1; k < knots.size(); ++k) {
             const double x0 = knots[k - 1], x1 = knots[k];
-            const double w0 = lerpAt(x0, a.wse, b.wse), w1 = lerpAt(x1, a.wse, b.wse);
+            const double w0 = lerpAt(x0, aw, bw), w1 = lerpAt(x1, aw, bw);
             const double z0 = groundElevAtReal(x0), z1 = groundElevAtReal(x1);
             double lo, hi, bedLo, bedHi;
             if (!CellWaterGeometry::wetInterval(w0 - z0, w1 - z1, 0.0, lo, hi) ||
@@ -3801,6 +3812,19 @@ void ProfilePlotWidget::paintLegend(QPainter &p) const
             m_options ? m_options->inundation2DFillBrush() : QBrush(QColor(0x20, 0xB2, 0xAA, 90));
         r.linePen =
             m_options ? m_options->inundation2DLinePen() : QPen(QColor(0x00, 0x8B, 0x8B), 1.6);
+        r.hasFill = (r.fillBrush.style() != Qt::NoBrush);
+        r.hasLine = (r.linePen.style() != Qt::NoPen);
+        if (r.hasFill || r.hasLine)
+            rows.push_back(r);
+    }
+    // Its temporal maximum — only once the envelope has reached the stations.
+    if (m_options && m_options->showMax2DInundation() &&
+        std::any_of(m_surface2D.cbegin(), m_surface2D.cend(),
+                    [](const Surface2DSample &s) { return isFinite(s.maxWse); })) {
+        Row r;
+        r.text = tr("Max 2D water surface");
+        r.fillBrush = m_options->maxInundation2DFillBrush();
+        r.linePen = m_options->maxInundation2DLinePen();
         r.hasFill = (r.fillBrush.style() != Qt::NoBrush);
         r.hasLine = (r.linePen.style() != Qt::NoPen);
         if (r.hasFill || r.hasLine)

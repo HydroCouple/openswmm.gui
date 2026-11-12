@@ -118,6 +118,8 @@ private slots:
      */
     void inundationRespectsGroundKnotsAndDryGaps();
     void inundationAtJunctionCrown();
+    /** @brief The max 2D band paints beneath the current band and follows its own options. */
+    void maxInundationFollowsItsOptions();
 };
 
 void TestProfilePlotAxisEdges::profilePlotHitTestsAndSetsEdges()
@@ -185,15 +187,19 @@ namespace
  * @return Owned700x360 premultiplied image; widget borrows stack options only during scope, no
  * retained
  * caller pointers, engine/results source or file output. Requires GUI-thread QApplication.
+ * @param[in] configure Optional extra option edits applied after the fixture defaults.
  */
 QImage renderInundation(const QVector<ProfilePlotWidget::Surface2DSample> &samples,
-                        const QVector<QPointF> &ground)
+                        const QVector<QPointF> &ground,
+                        void (*configure)(ProfilePlotOptions &) = nullptr)
 {
     ProfilePlotOptions opts;
     opts.setShow2DInundation(true);
     opts.setLegendVisible(false);
     opts.setInundation2DLinePen(QPen(Qt::NoPen));
     opts.setInundation2DFillBrush(QBrush(QColor(255, 0, 0, 128)));
+    if (configure)
+        configure(opts);
     ProfileBuilder::PathStatic path;
     ProfileBuilder::NodeStatic n;
     n.invertElev = -1;
@@ -304,6 +310,89 @@ void TestProfilePlotAxisEdges::inundationRespectsGroundKnotsAndDryGaps()
     QCOMPARE(lastWaterColumn(dryBed), -1); // a lower DEM cannot wet a dry result bed
     saveInundation(gap, QStringLiteral("profile-dry-gap.png"));
     saveInundation(kink, QStringLiteral("profile-ground-kink.png"));
+}
+
+namespace
+{
+/** @brief Opaque current (red) and max (blue) fills, no lines, so pixels classify exactly. */
+void opaqueBands(ProfilePlotOptions &o)
+{
+    o.setInundation2DFillBrush(QBrush(Qt::red));
+    o.setShowMax2DInundation(true);
+    o.setMaxInundation2DLinePen(QPen(Qt::NoPen));
+    o.setMaxInundation2DFillBrush(QBrush(Qt::blue));
+}
+/** @brief Pure-colour pixel counts in the chainage-6 column (x = 64 + 620·6/12). */
+struct BandRows {
+    int red = 0, blue = 0, green = 0;
+    int lowestBlue = -1, highestRed = std::numeric_limits<int>::max();
+};
+BandRows bandRows(const QImage &img)
+{
+    BandRows r;
+    for (int y = 0; y < img.height(); ++y) {
+        const QColor c = img.pixelColor(374, y);
+        if (c.red() > 200 && c.green() < 60 && c.blue() < 60) {
+            ++r.red;
+            r.highestRed = std::min(r.highestRed, y);
+        }
+        if (c.blue() > 200 && c.red() < 60 && c.green() < 60) {
+            ++r.blue;
+            r.lowestBlue = std::max(r.lowestBlue, y);
+        }
+        if (c.green() > 100 && c.red() < 60 && c.blue() < 60)
+            ++r.green;
+    }
+    return r;
+}
+}
+
+void TestProfilePlotAxisEdges::maxInundationFollowsItsOptions()
+{
+    using S = ProfilePlotWidget::Surface2DSample;
+    // Flat bed at 0: current surface 0.5, run maximum 1.5 (y axis −1..2).
+    const QVector<S> samples{S{0, 0, 0.5, false, 1.5}, S{12, 0, 0.5, false, 1.5}};
+    const QVector<QPointF> ground{{0, 0}, {12, 0}};
+
+    const auto bothImg = renderInundation(samples, ground, opaqueBands);
+    const auto both = bandRows(bothImg);
+    QVERIFY(both.red > 10);
+    // Max band is twice as tall as the current band and lies entirely above it:
+    // the current surface paints on top of the maximum.
+    QVERIFY(both.blue > both.red);
+    QVERIFY(both.lowestBlue <= both.highestRed);
+    saveInundation(bothImg, QStringLiteral("profile-max-2d-under-current.png"));
+
+    const auto maxOff = bandRows(renderInundation(samples, ground, [](ProfilePlotOptions &o) {
+        opaqueBands(o);
+        o.setShowMax2DInundation(false);
+    }));
+    QCOMPARE(maxOff.blue, 0);
+    QCOMPARE(maxOff.red, both.red);
+
+    // Max alone: no current band, and the max fills down to the bed.
+    const auto maxOnly = bandRows(renderInundation(samples, ground, [](ProfilePlotOptions &o) {
+        opaqueBands(o);
+        o.setShow2DInundation(false);
+    }));
+    QCOMPARE(maxOnly.red, 0);
+    QVERIFY(maxOnly.blue > both.blue);
+
+    // The envelope has not reached the stations yet: nothing extra draws.
+    const QVector<S> noMax{S{0, 0, 0.5}, S{12, 0, 0.5}};
+    const auto pending = bandRows(renderInundation(noMax, ground, opaqueBands));
+    QCOMPARE(pending.blue, 0);
+    QCOMPARE(pending.red, both.red);
+
+    // Line-only styling comes from the max pen.
+    const auto lineOnly = bandRows(renderInundation(samples, ground, [](ProfilePlotOptions &o) {
+        opaqueBands(o);
+        o.setShow2DInundation(false);
+        o.setMaxInundation2DFillBrush(QBrush(Qt::NoBrush));
+        o.setMaxInundation2DLinePen(QPen(QColor(0, 160, 0), 3));
+    }));
+    QCOMPARE(lineOnly.blue, 0);
+    QVERIFY(lineOnly.green > 0);
 }
 
 namespace

@@ -215,6 +215,7 @@ public:
      *        painting, like terrain samples). `bed` is the mesh bed elevation
      *        at the station; `wse` is the signed reconstructed surface, including
      *        its continuation below the bed for exact shoreline clipping.
+     *        `maxWse` is the same surface's temporal maximum over the run.
      *        NaN denotes a dry cell / off-mesh / no data (a gap).
      */
     struct Surface2DSample {
@@ -222,6 +223,7 @@ public:
         double bed = std::numeric_limits<double>::quiet_NaN();
         double wse = std::numeric_limits<double>::quiet_NaN();
         bool breakBefore = false; // start of a separately owned mesh interval
+        double maxWse = std::numeric_limits<double>::quiet_NaN(); // NaN until the envelope arrives
     };
 
     /*!
@@ -231,7 +233,7 @@ public:
      *        animation tick; `ProfilePlotOptions::show2DInundation` gates
      *        drawing. Widens the y-extent to the wettest station.
      * @param[in] samples Real-chainage stations copied with bed/WSE in profile elevation units and breakBefore for independent intervals. Empty clears current stations, while the remembered peak remains until setPath().
-     * @note Tracks the greatest finite WSE ever supplied for a stable fitted upper extent. Recomputes bounds only for a higher remembered WSE or changed vector size, retaining manual view. Same-sized station/bed edits without a higher WSE only repaint.
+     * @note Tracks the greatest finite WSE or maxWse ever supplied for a stable fitted upper extent. Recomputes bounds only for a higher remembered WSE or changed vector size, retaining manual view. Same-sized station/bed edits without a higher WSE only repaint.
      */
     void setSurface2DSamples(const QVector<Surface2DSample> &samples);
     /**
@@ -813,11 +815,21 @@ private:
     // 2D water surface plus a WSE line, per contiguous wet run of stations.
     // Drawn after the soil so it reads as water standing on the ground,
     // and before the 1D fills/lines so the network's own HGL stays on top.
+    // The temporal-maximum band (when enabled) paints first, beneath it.
     /**
-     * @brief Clip each finite independent overlay interval against both source bed and drawn ground, splitting at ground/axis knots and mapping real chainage to virtual X; draw compound wet fill/line below 1D graphics.
+     * @brief Paint the enabled maximum then current 2D water surfaces below 1D graphics.
      * @param[in,out] p Active painter in logical widget pixels; data is read only from current snapshots/options, without model/result-source IO.
      */
     void paintSurface2D(QPainter &p) const;
+    /**
+     * @brief Clip each finite independent overlay interval of one water surface against both source bed and drawn ground, splitting at ground/axis knots and mapping real chainage to virtual X; draw compound wet fill/line with junction shafts excluded.
+     * @param[in,out] p Active painter in logical widget pixels.
+     * @param[in] wse Surface member to draw (Surface2DSample::wse or ::maxWse).
+     * @param[in] pen Water-surface line pen; NoPen skips the line.
+     * @param[in] brush Inundation fill brush; NoBrush skips the fill.
+     */
+    void paintSurface2DLevel(QPainter &p, double Surface2DSample::*wse, const QPen &pen,
+                             const QBrush &brush) const;
     // Elevation of the DRAWN ground line at a real chainage — the sampled
     // ground (DEM / 2D mesh) or rim-to-rim — so the 2D band fills exactly
     // to it.

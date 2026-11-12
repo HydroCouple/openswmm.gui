@@ -28,6 +28,9 @@
 #include <QPointF>
 #include <QVector>
 
+#include <array>
+#include <vector>
+
 class SWMM2DMeshLayer;
 class SWMM2DResultsLayer;
 
@@ -87,6 +90,19 @@ void applyMaximum(MeshProfile &profile, SWMM2DResultsLayer *results, double vert
  */
 [[nodiscard]] double signedWaterDepth(SWMM2DResultsLayer *results, int displayTri, int boundaryTri,
                                       const QPointF &scenePoint);
+
+/*! Signed temporal-maximum surface at an exact interval station: the larger
+ *  finite side of a shared edge, so water seen on either side is kept.
+ * @param[in] results Required borrowed results layer with compatible display geometry.
+ * @param[in] displayTri Primary display-triangle index.
+ * @param[in] boundaryTri Alternate boundary-side triangle, possibly -1.
+ * @param[in] scenePoint Sample station in layer scene coordinates.
+ * @param[in] maxima Per-cell signed corner maxima from SWMM2DResultsLayer::maxSurfaceDepths().
+ * @return Larger finite signed depth of the two sides in metres, NaN when neither is finite. No profile unit scaling is applied.
+ */
+[[nodiscard]] double signedMaxWaterDepth(SWMM2DResultsLayer *results, int displayTri,
+                                         int boundaryTri, const QPointF &scenePoint,
+                                         const std::vector<std::array<double, 4>> &maxima);
 
 } // namespace MeshProfileSampler
 

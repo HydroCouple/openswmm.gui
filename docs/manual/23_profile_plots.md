@@ -106,7 +106,9 @@ Along the horizontal chainage axis, from the bottom up:
   bearing and flow direction;
 - optionally, the **2D inundation** water surface of the active 2D results layer,
   sampled along the path and drawn as a band above the ground with its own
-  surface line — nothing draws when the project has no active 2D results layer;
+  surface line, and beneath it the **max 2D inundation** — the same surface's
+  maximum over the run, the 2D counterpart of the maximum HGL — nothing draws
+  when the project has no active 2D results layer;
 - **node** and **link** labels on a secondary axis, vertical, diagonal or
   horizontal, or inline over the node glyphs;
 - a **legend** and a **time label** showing the animation cursor's date and time.
@@ -207,7 +209,7 @@ Selected controls worth knowing:
 | Layer visibility | **HGL line**, **HGL fill**, **EGL**, **Max HGL band**, **Max HGL line**, **Max EGL line** |
 | Labels | **Node labels**, **Link labels**, **Inline node labels**, **Orientation** (Vertical / Horizontal / Diagonal) and an explicit **angle** |
 | Ground | **Ground source** — Auto / Node rims / Mesh 2D / Terrain DEM |
-| 2D inundation | **Show 2D inundation** plus the band's line pen and fill brush |
+| 2D inundation | **Show 2D inundation** plus the band's line pen and fill brush; **Show max 2D inundation** plus the maximum's line pen and fill brush |
 | Connectivity | **Show branch stubs**, **Show node roses** |
 | Flooding | Wedge **radius**, **sweep angle** and **colour** |
 | Theming | Fill and outline colours per node type and per link type; the virtual-junction pen; soil and bedding fills; a pen per result line and a brush per result fill |
