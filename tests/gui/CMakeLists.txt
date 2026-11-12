@@ -2612,6 +2612,20 @@ add_swmmvis_gui_test(test_colorramp
     ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
 )
 
+# ColorRampEditorDialog stop table: Remove Stop removes the selected row's
+# stop, also after a position edit reordered the ramp under the table.
+add_swmmvis_gui_test(test_colorrampeditordialog
+    test_colorrampeditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/colorrampeditordialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/colorrampeditordialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/widgets/colorbutton.h
+    ${CMAKE_SOURCE_DIR}/src/ui/widgets/colorbutton.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
+)
+
 # LOAD_PERF Phase 1 — OpenProgressModel weighting / monotonicity contract.
 # Self-contained: pulls in loadprogress.cpp only.
 add_swmmvis_gui_test(test_openprogress
