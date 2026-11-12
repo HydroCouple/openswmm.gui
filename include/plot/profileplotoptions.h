@@ -136,6 +136,14 @@ public:
                    changed)
     Q_PROPERTY(QBrush inundation2DFillBrush READ inundation2DFillBrush WRITE
                    setInundation2DFillBrush NOTIFY changed)
+    // Temporal maximum of that water surface (the 2D counterpart of the Max
+    // HGL envelope), static over the run and drawn beneath the current band.
+    Q_PROPERTY(bool showMax2DInundation READ showMax2DInundation WRITE setShowMax2DInundation NOTIFY
+                   changed)
+    Q_PROPERTY(QPen maxInundation2DLinePen READ maxInundation2DLinePen WRITE
+                   setMaxInundation2DLinePen NOTIFY changed)
+    Q_PROPERTY(QBrush maxInundation2DFillBrush READ maxInundation2DFillBrush WRITE
+                   setMaxInundation2DFillBrush NOTIFY changed)
 
     // ── Node connectivity ───────────────────────────────────────────────
     // What ELSE meets each node on the path: truncated stubs of the links
@@ -376,6 +384,21 @@ public:
      * @return 2D inundation fill brush with its alpha/pattern retained. Returns a value copy; no data-unit conversion occurs.
      */
     QBrush inundation2DFillBrush() const { return m_inundation2DFillBrush; }
+    /**
+     * @brief Read per-plot display state without inspecting live geometry/results.
+     * @return Whether to draw the temporal-maximum 2D water surface of the active 2D results layer; it does not load a source. Returns a value copy; no data-unit conversion occurs.
+     */
+    bool showMax2DInundation() const { return m_showMax2DInundation; }
+    /**
+     * @brief Read per-plot display state without inspecting live geometry/results.
+     * @return Maximum 2D water-surface outline pen, including logical-pixel width, dash/cap/join and colour. Returns a value copy; no data-unit conversion occurs.
+     */
+    QPen maxInundation2DLinePen() const { return m_maxInundation2DLinePen; }
+    /**
+     * @brief Read per-plot display state without inspecting live geometry/results.
+     * @return Maximum 2D inundation fill brush with its alpha/pattern retained. Returns a value copy; no data-unit conversion occurs.
+     */
+    QBrush maxInundation2DFillBrush() const { return m_maxInundation2DFillBrush; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
      * @return Whether off-path incident links are rendered as truncated connections at structures. Returns a value copy; no data-unit conversion occurs.
@@ -772,6 +795,24 @@ public slots:
     void setInundation2DFillBrush(const QBrush &b);
     /**
      * @brief Update this plot's rendering preference.
+     * @param[in] v Whether to draw the temporal-maximum 2D water surface; the host requests the layer's envelope only while this is on.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     */
+    void setShowMax2DInundation(bool v);
+    /**
+     * @brief Update this plot's rendering preference.
+     * @param[in] p Maximum 2D water-surface outline pen, including logical-pixel width, dash/cap/join and colour.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     */
+    void setMaxInundation2DLinePen(const QPen &p);
+    /**
+     * @brief Update this plot's rendering preference.
+     * @param[in] b Maximum 2D inundation fill brush with its alpha/pattern retained.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     */
+    void setMaxInundation2DFillBrush(const QBrush &b);
+    /**
+     * @brief Update this plot's rendering preference.
      * @param[in] v Whether off-path incident links are rendered as truncated connections at structures.
      * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
@@ -1106,6 +1147,10 @@ private:
     // Teal, distinct from the HGL blues so the two water surfaces read apart.
     QPen m_inundation2DLinePen = QPen(QColor(0x00, 0x8B, 0x8B), 1.6, Qt::SolidLine);
     QBrush m_inundation2DFillBrush{QColor(0x20, 0xB2, 0xAA, 90), Qt::SolidPattern};
+    // Max envelope: same teal, dashed and lighter — the Max HGL convention.
+    bool m_showMax2DInundation = true;
+    QPen m_maxInundation2DLinePen = QPen(QColor(0x00, 0x8B, 0x8B), 1.2, Qt::DashLine);
+    QBrush m_maxInundation2DFillBrush{QColor(0x20, 0xB2, 0xAA, 50), Qt::SolidPattern};
     bool m_showBranchStubs = true;
     bool m_showNodeRoses = true;
 

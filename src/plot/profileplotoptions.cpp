@@ -86,6 +86,10 @@ QString ProfilePlotOptions::displayLabelFor(const QString &propertyName) const
         {QStringLiteral("show2DInundation"), QObject::tr("Show 2D inundation (active 2D results)")},
         {QStringLiteral("inundation2DLinePen"), QObject::tr("2D water surface line pen")},
         {QStringLiteral("inundation2DFillBrush"), QObject::tr("2D inundation fill brush")},
+        {QStringLiteral("showMax2DInundation"),
+         QObject::tr("Show max 2D inundation (active 2D results)")},
+        {QStringLiteral("maxInundation2DLinePen"), QObject::tr("Max 2D water surface line pen")},
+        {QStringLiteral("maxInundation2DFillBrush"), QObject::tr("Max 2D inundation fill brush")},
         // Flooding indicator
         {QStringLiteral("showFloodingGlyphs"), QObject::tr("Show surcharge / flooding glyphs")},
         {QStringLiteral("floodRadiusPx"), QObject::tr("Flooding glyph radius (px)")},
@@ -260,6 +264,18 @@ void ProfilePlotOptions::setInundation2DLinePen(const QPen &p)
 void ProfilePlotOptions::setInundation2DFillBrush(const QBrush &b)
 {
     SET_OBJ(m_inundation2DFillBrush, b);
+}
+void ProfilePlotOptions::setShowMax2DInundation(bool v)
+{
+    SET_PRIM(m_showMax2DInundation, v);
+}
+void ProfilePlotOptions::setMaxInundation2DLinePen(const QPen &p)
+{
+    SET_OBJ(m_maxInundation2DLinePen, p);
+}
+void ProfilePlotOptions::setMaxInundation2DFillBrush(const QBrush &b)
+{
+    SET_OBJ(m_maxInundation2DFillBrush, b);
 }
 void ProfilePlotOptions::setShowBranchStubs(bool v)
 {

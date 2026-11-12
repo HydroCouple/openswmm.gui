@@ -40,6 +40,7 @@
 #include <QVector>
 
 #include <functional>
+#include <limits>
 #include <memory>
 
 class AnimationController;
@@ -387,6 +388,8 @@ private:
         int boundaryTriIdx = -1; ///< opposite side of a shared-edge trace
         double bed = 0.0;        ///< result bed in profile elevation units
         bool breakBefore = false;
+        /// signed temporal-maximum depth in metres; NaN until the envelope is applied
+        double signedMaxDepth = std::numeric_limits<double>::quiet_NaN();
     };
 
     /*!
@@ -415,7 +418,21 @@ private:
      */
     void refreshSurface2DDepths();
 
+    /**
+     * @brief Ask the bound 2D layer for its temporal maximum while the max overlay is on.
+     * Applies at once when the envelope is already complete; otherwise envelopeReady applies it.
+     * Rebuilds stations on a geometry-revision change; marks the cached maximum stale when off.
+     */
+    void requestSurface2DEnvelope();
+    /**
+     * @brief Sample the layer's per-cell signed corner maxima at every cached station, then
+     * republish the overlay. No-op without stations, with the option off, or on a stale geometry
+     * revision.
+     */
+    void applySurface2DEnvelope();
+
     QVector<Surface2DStation> m_surface2D;
+    bool m_surface2DMaxApplied = false; ///< stations hold the envelope as of the latest frames
     quint64 m_surface2DGeometryRevision = 0;
     QPointer<class SWMM2DResultsLayer> m_surface2DLayer;
     QAction *m_actShow2D = nullptr;

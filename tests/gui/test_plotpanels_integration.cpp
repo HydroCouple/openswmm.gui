@@ -1332,6 +1332,94 @@ private slots:
                 }
     }
 
+    /** @brief A coupled 1D profile samples the active 2D layer's run maximum, and its option
+     * (Display properties) binds and unbinds it, with the synchronous and the worker surface. */
+    void profileSamplesMax2DInundation()
+    {
+        // Flat bed (z = 10) under the J (0,0) → O (10,10) conduit; uniform depths
+        // 0.2, 1.0, 0.4 m, so the run maximum is 1.0 m everywhere on the path.
+        class Source : public IMesh2DSource
+        {
+        public:
+            int vertexCount() const override { return 4; }
+            int triangleCount() const override { return 2; }
+            int timeCount() const override { return 3; }
+            bool readMeshGeometry(std::vector<double> &x, std::vector<double> &y,
+                                  std::vector<double> &z,
+                                  std::vector<std::array<int, 3>> &cells) override
+            {
+                x = {-10, 25, 25, -10};
+                y = {-10, -10, 25, 25};
+                z = {10, 10, 10, 10};
+                cells = {{0, 1, 3}, {1, 2, 3}}; // shared edge crosses the path at (7.5, 7.5)
+                return true;
+            }
+            bool readDepthsAt(int t, std::vector<float> &values) override
+            {
+                static const float depth[] = {.2f, 1.f, .4f};
+                if (t < 0 || t > 2)
+                    return false;
+                values.assign(2, depth[t]);
+                return true;
+            }
+        };
+        // One window for both surfaces: each pass adds its own 2D layer, makes it
+        // the active one and opens a fresh profile on it.
+        PlotTestWindow app;
+        app.resize(1200, 850);
+        app.show();
+        auto *project = open(app, "first.inp");
+        QVERIFY(project);
+        auto *dock = app.findChild<PlotDock *>("dockWidgetProfiles1D");
+        QVERIFY(dock);
+        for (const bool async : {false, true}) {
+            auto *water = new SWMM2DResultsLayer;
+            water->setAsyncSurface(async);
+            water->setSource(std::make_unique<Source>());
+            project->canvas()->addLayer(water, true);
+            project->setActive2DResultsLayer(water);
+            QCOMPARE(project->active2DResultsLayer(), water);
+            QVERIFY(profile(app, project));
+            auto *dialog = qobject_cast<ProfilePlotDialog *>(dock->tabs()->currentWidget());
+            QVERIFY(dialog);
+            auto *plot = dialog->findChild<ProfilePlotWidget *>();
+            auto *options = dialog->findChild<ProfilePlotOptions *>();
+            QVERIFY(plot && options);
+            // Max is on by default. The current band's toolbar toggle is restored
+            // from the saved dialog layout, so set it explicitly.
+            QVERIFY(options->showMax2DInundation());
+            options->setShow2DInundation(true);
+
+            const double scale = water->depthToMeshUnits();
+            auto maxima = [plot] {
+                int n = 0;
+                for (const auto &s : plot->surface2DSamples())
+                    n += std::isfinite(s.maxWse);
+                return n;
+            };
+            QTRY_VERIFY_WITH_TIMEOUT(maxima() > 0, 20000);
+            for (const auto &s : plot->surface2DSamples()) {
+                if (!std::isfinite(s.maxWse))
+                    continue;
+                QVERIFY2(std::abs(s.maxWse - s.bed - scale) < 1e-3 * scale,
+                         qPrintable(QString("max depth %1 at %2, async %3")
+                                        .arg(s.maxWse - s.bed)
+                                        .arg(s.chainage)
+                                        .arg(async)));
+                QVERIFY(!std::isfinite(s.wse) || s.wse <= s.maxWse + 1e-6);
+            }
+
+            // Both 2D surfaces off: the overlay unbinds. Max alone rebinds it and
+            // samples the envelope again.
+            options->setShow2DInundation(false);
+            options->setShowMax2DInundation(false);
+            QVERIFY(plot->surface2DSamples().isEmpty());
+            options->setShowMax2DInundation(true);
+            QVERIFY(!plot->surface2DSamples().isEmpty());
+            QTRY_VERIFY_WITH_TIMEOUT(maxima() > 0, 20000);
+        }
+    }
+
     /** @brief Back-and-forth dock clicks must not change the GPU map's document. */
     void dockTabRoundTripsKeepTheGpuMapDocument()
     {

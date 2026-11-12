@@ -182,16 +182,22 @@ void applyMaximum(MeshProfile &profile, SWMM2DResultsLayer *results, double vert
     for (auto &s : profile.samples) {
         if (s.displayTriIdx < 0)
             continue; // off-mesh end markers carry no surface
-        s.signedMaxDepth =
-            results->signedDepthAtDisplayTriangle(s.displayTriIdx, s.scenePt, maxima) * scale;
-        const double boundaryMax =
-            results->signedDepthAtDisplayTriangle(s.boundaryTriIdx, s.scenePt, maxima) * scale;
-        if (std::isfinite(boundaryMax) &&
-            (!std::isfinite(s.signedMaxDepth) || boundaryMax > s.signedMaxDepth))
-            s.signedMaxDepth = boundaryMax;
-        s.signedMaxDepth *= verticalScale;
+        s.signedMaxDepth = signedMaxWaterDepth(results, s.displayTriIdx, s.boundaryTriIdx,
+                                               s.scenePt, maxima) *
+                           scale * verticalScale;
         s.maxDepth = std::max(0.0, s.signedMaxDepth);
     }
+}
+
+double signedMaxWaterDepth(SWMM2DResultsLayer *results, int displayTri, int boundaryTri,
+                           const QPointF &scenePoint,
+                           const std::vector<std::array<double, 4>> &maxima)
+{
+    const double primary = results->signedDepthAtDisplayTriangle(displayTri, scenePoint, maxima);
+    const double boundary = results->signedDepthAtDisplayTriangle(boundaryTri, scenePoint, maxima);
+    if (std::isfinite(boundary) && (!std::isfinite(primary) || boundary > primary))
+        return boundary;
+    return primary;
 }
 
 MeshProfile buildMeshProfile(SWMM2DMeshLayer *mesh, SWMM2DResultsLayer *results,
