@@ -593,7 +593,7 @@ bool Mesh2DRunLayer::extractCellFrames_(IMesh2DSource &src, const QVector<Series
         const QDateTime time = src.simTimeAt(t);
         if (!time.isValid())
             continue;
-        const double julian = core::qDateTimeToSwmmDateTime(time);
+        const double julian = core::qDateTimeToSwmmDateTimeMilliseconds(time);
         // Existing result files use whole-frame chunks. Read each one once,
         // then gather all selected cells without repeatedly decompressing it.
         const bool depthOk = needDepth && src.readDepthsAt(t, depths);
@@ -868,7 +868,7 @@ void Mesh2DRunLayer::getSeriesAtUncached(const ObjectRef &ref, PlotAttribute att
                     value = (attr == PlotAttribute::Mesh2DDepth) ? d : d + zVtx;
                 }
             }
-            out.timesJulian.push_back(core::qDateTimeToSwmmDateTime(dt));
+            out.timesJulian.push_back(core::qDateTimeToSwmmDateTimeMilliseconds(dt));
             out.values.push_back(value);
         }
         out.ok = !out.timesJulian.empty();
@@ -933,7 +933,7 @@ void Mesh2DRunLayer::getSeriesAtUncached(const ObjectRef &ref, PlotAttribute att
                 const double flux = static_cast<double>(fbuf[flat]); // F_e, m³/s
                 value = wantUnitFlux ? (edgeLen > 1e-9 ? flux / edgeLen : std::nan("")) : flux;
             }
-            out.timesJulian.push_back(core::qDateTimeToSwmmDateTime(dt));
+            out.timesJulian.push_back(core::qDateTimeToSwmmDateTimeMilliseconds(dt));
             out.values.push_back(value);
         }
         out.ok = !out.timesJulian.empty();
@@ -995,7 +995,7 @@ void Mesh2DRunLayer::getSeriesAtUncached(const ObjectRef &ref, PlotAttribute att
                     continue;
                 value = (cum[triIdx] - last.second) / (area * seconds) * 3600000.0; // m/s → mm/hr
             }
-            out.timesJulian.push_back(core::qDateTimeToSwmmDateTime(dt));
+            out.timesJulian.push_back(core::qDateTimeToSwmmDateTimeMilliseconds(dt));
             out.values.push_back(value);
         }
         out.ok = !out.timesJulian.empty();
@@ -1090,7 +1090,7 @@ void Mesh2DRunLayer::getSeriesAtUncached(const ObjectRef &ref, PlotAttribute att
             // dry cells leave value as NaN — rendered as a gap in the chart.
         }
 
-        out.timesJulian.push_back(core::qDateTimeToSwmmDateTime(dt));
+        out.timesJulian.push_back(core::qDateTimeToSwmmDateTimeMilliseconds(dt));
         out.values.push_back(value);
     }
 
@@ -1169,7 +1169,7 @@ void Mesh2DRunLayer::getRegionSeries(const QVector<results::MeshRegion> &regions
         const QDateTime time = src->simTimeAt(t);
         if (!time.isValid())
             continue;
-        const double julian = core::qDateTimeToSwmmDateTime(time);
+        const double julian = core::qDateTimeToSwmmDateTimeMilliseconds(time);
         bool ok = depthField ? src->readDepthsAt(t, values)
                              : src->readFaceVariableAt(variable, t, values, status);
         if (ok && mass)

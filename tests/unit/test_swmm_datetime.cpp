@@ -28,6 +28,7 @@
 #include <cmath>
 
 using openswmmvis::core::qDateTimeToSwmmDateTime;
+using openswmmvis::core::qDateTimeToSwmmDateTimeMilliseconds;
 using openswmmvis::core::swmmDateTimeToMilliseconds;
 using openswmmvis::core::swmmDateTimeToQDateTime;
 using openswmmvis::core::swmmReportDateTimeToQDateTime;
@@ -207,5 +208,31 @@ TEST(SwmmDateTime, ReportDateDropsLegacyMillisecond)
         EXPECT_EQ(report, origin.addMSecs(static_cast<qint64>(elapsedMs))) << elapsedMs;
         EXPECT_EQ(swmmDateTimeToMilliseconds(stamp), report.addMSecs(1)) << elapsedMs;
     }
+    // A date already on a whole second was written without the offset.
+    EXPECT_EQ(swmmReportDateTimeToQDateTime(engineEncode(2026, 1, 1, 0, 5, 0)),
+              origin.addSecs(300));
     EXPECT_FALSE(swmmReportDateTimeToQDateTime(std::nan("")).isValid());
+}
+
+// Plot clocks keep sub-second frames apart; whole seconds encode exactly as the
+// engine-facing encoder does.
+/**
+ *
+ * @brief Verify millisecond encoding round-trips and matches whole-second encoding.
+ *
+ */
+TEST(SwmmDateTime, MillisecondEncodingRoundTrips)
+{
+    const QDateTime day(QDate(2026, 1, 1), QTime(0, 0), Qt::UTC);
+    for (const qint64 ms : {100LL, 60100LL, 3600999LL, 86399900LL}) {
+        const QDateTime time = day.addMSecs(ms);
+        EXPECT_EQ(swmmDateTimeToMilliseconds(qDateTimeToSwmmDateTimeMilliseconds(time)), time)
+            << ms;
+    }
+    for (const QTime clock : {QTime(0, 0), QTime(0, 15), QTime(12, 0), QTime(23, 59, 59)}) {
+        const QDateTime time(QDate(2000, 2, 29), clock, Qt::UTC);
+        EXPECT_EQ(qDateTimeToSwmmDateTimeMilliseconds(time), qDateTimeToSwmmDateTime(time))
+            << clock.toString().toStdString();
+    }
+    EXPECT_TRUE(std::isnan(qDateTimeToSwmmDateTimeMilliseconds(QDateTime())));
 }

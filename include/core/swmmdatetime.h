@@ -107,12 +107,31 @@ inline QDateTime swmmDateTimeToMilliseconds(double value)
  *         and with unbiased clocks (START_DATE, live 2D frames, observed data), while
  *         sub-second report steps keep their exact times. Invalid for invalid input.
  * @note Only for recorded report dates; START_DATE/END_DATE and other absolute
- *       dates carry no offset and use swmmDateTimeToMilliseconds().
+ *       dates carry no offset and use swmmDateTimeToMilliseconds(). A value that
+ *       already lies on a whole second was written without the offset (test fixtures,
+ *       other writers) and is returned unchanged.
  */
 inline QDateTime swmmReportDateTimeToQDateTime(double value)
 {
     const QDateTime time = swmmDateTimeToMilliseconds(value);
-    return time.isValid() ? time.addMSecs(-1) : time;
+    return time.isValid() && time.time().msec() != 0 ? time.addMSecs(-1) : time;
+}
+
+/**
+ * @brief Encode a QDateTime as a SWMM date at millisecond resolution.
+ * @param[in] dt Calendar date and clock, read without timezone conversion.
+ * @return Days since 1899-12-30 plus the millisecond fraction of the day, the inverse of
+ *         swmmDateTimeToMilliseconds(); NaN for an invalid QDateTime. Whole seconds
+ *         encode exactly as qDateTimeToSwmmDateTime() does.
+ * @note For plot clocks whose frames can be less than a second apart. Values handed to
+ *       the engine use qDateTimeToSwmmDateTime(), which rounds to its whole seconds.
+ */
+inline double qDateTimeToSwmmDateTimeMilliseconds(const QDateTime &dt)
+{
+    if (!dt.isValid())
+        return std::numeric_limits<double>::quiet_NaN();
+    return static_cast<double>(QDate(1899, 12, 30).daysTo(dt.date())) +
+           dt.time().msecsSinceStartOfDay() / 86400000.0;
 }
 
 /*! \brief QDateTime → SWMM DateTime double.
