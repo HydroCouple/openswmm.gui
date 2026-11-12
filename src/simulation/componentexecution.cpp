@@ -110,7 +110,8 @@ void ComposerSimulationRunner::begin(){
         }
         if(!lease_->add(request_.directory,true,&error))throw std::runtime_error(error.toStdString());
         std::unique_ptr<void,decltype(&swmm_engine_destroy)> metadata(swmm_engine_create(),swmm_engine_destroy);
-        if(!metadata||swmm_engine_open_metadata(metadata.get(),request_.model.toUtf8().constData())!=SWMM_OK)throw std::runtime_error("Cannot inspect the saved model for component execution.");
+        // Only the start and end times are read here: the period open leaves the 2D mesh unread.
+        if(!metadata||swmm_engine_open_simulation_period(metadata.get(),request_.model.toUtf8().constData())!=SWMM_OK)throw std::runtime_error("Cannot inspect the saved model for component execution.");
         double first=0,last=0;
         if(swmm_get_start_time(metadata.get(),&first)||swmm_get_end_time(metadata.get(),&last)||!std::isfinite(first)||!std::isfinite(last)||last<=first)throw std::runtime_error("Model simulation period is unavailable.");
         epoch_=first+2415018.5;
