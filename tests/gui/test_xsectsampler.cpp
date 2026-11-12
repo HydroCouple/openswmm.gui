@@ -150,7 +150,7 @@ private slots:
      */
     void irregularRejectsBadInput();
     /**
-     * @brief Verify metric street sampler builds positive depth with engine-open false and
+     * @brief Verify metric street sampler builds positive depth with engine-open true and
      * rejects zero width/invalid side count.
      * @note Local RAII section sampler handles; numeric geometry in metric model convention, no
      * engine model/source file mutations. Icon cases require QApplication/pixmap support. Tests
@@ -463,13 +463,11 @@ void TestXsectSampler::streetFromParameters()
 
     const XsectFullProps p = s.fullProps();
     QVERIFY(p.yFull > 0.0);
-    // A street is NOT an open section as far as the engine is concerned: its
-    // isOpen() whitelist covers RECT_OPEN / TRAPEZOIDAL / TRIANGULAR /
-    // PARABOLIC / POWER / IRREGULAR only, and STREET_XSECT falls to the
-    // default. Verified live for exactly these parameters (is_open=false,
-    // full_depth=0.2, full_area=1.22). The preview therefore strokes a street
-    // as a closed outline — pinned here so a future engine change is noticed.
-    QVERIFY(!p.open);
+    // A street is an open section to the engine: since engine d08a4348 its
+    // isOpen() covers STREET_XSECT, as legacy xsect_isOpen() (Amax = 1.0)
+    // does. The profile and preview draw it open-topped from this flag —
+    // pinned here so a future engine change is noticed.
+    QVERIFY(p.open);
     QVERIFY(s.outline(128).size() >= 3);
 
     // A street with no width is not a street.

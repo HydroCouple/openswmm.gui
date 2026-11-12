@@ -287,12 +287,8 @@ double linkFullDepth(SWMM_Engine engine, int linkIdx, int shape, double g1, doub
     const bool needsSampler = (shape == SWMM_XSECT_STREET) || (shape == SWMM_XSECT_IRREGULAR) ||
                               (shape == SWMM_XSECT_CUSTOM);
 
-    // A street is hydraulically closed to the solver but must be DRAWN open:
-    // the engine's isOpen() whitelist omits STREET_XSECT by design, and
-    // tests/gui/test_xsectsampler.cpp pins that, so the difference belongs
-    // here in presentation rather than in the engine.
-    const bool streetOpen = (shape == SWMM_XSECT_STREET);
-
+    // The engine calls a STREET open (engine d08a4348, as legacy xsect_isOpen),
+    // so the sampler's flag decides; tests/gui/test_xsectsampler.cpp pins it.
     if (!needsSampler) {
         if (outOpenTop) {
             const XsectSampler s = XsectSampler::fromShape(shape, g1, g2, g3, g4, si);
@@ -305,15 +301,16 @@ double linkFullDepth(SWMM_Engine engine, int linkIdx, int shape, double g1, doub
     if (!s.isValid()) {
         // Unresolvable geometry (BUILDING lifecycle, missing table). Report no
         // depth rather than the index that sits in g1 — a crown drawn at
-        // invert + streetIndex is worse than no crown at all.
+        // invert + streetIndex is worse than no crown at all. With no sampler
+        // to ask, a street keeps the engine's answer (open).
         if (outOpenTop)
-            *outOpenTop = streetOpen;
+            *outOpenTop = (shape == SWMM_XSECT_STREET);
         return 0.0;
     }
 
     const XsectFullProps p = s.fullProps();
     if (outOpenTop)
-        *outOpenTop = p.open || streetOpen;
+        *outOpenTop = p.open;
     return p.yFull;
 }
 
