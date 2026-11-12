@@ -349,9 +349,15 @@ void ColorRampEditorDialog::onRemoveStop()
     const int row = m_stopTable->currentRow();
     if (row < 0 || m_stopTable->rowCount() <= 2)
         return; // a ramp needs at least two stops
+    // Position edits re-sort the ramp but leave the table's rows where they
+    // are, so remove the stop this row shows, not the stop at its index.
+    const auto *posSpin = qobject_cast<QDoubleSpinBox *>(m_stopTable->cellWidget(row, kColPos));
+    const auto *colBtn = qobject_cast<ColorButton *>(m_stopTable->cellWidget(row, kColColor));
+    if (!posSpin || !colBtn)
+        return;
+    const QGradientStop selected{posSpin->value(), colBtn->color()};
     readStopsFromTable();
-    if (row < m_ramp.stops.size())
-        m_ramp.stops.removeAt(row);
+    m_ramp.stops.removeOne(selected);
     markCustomised();
     rebuildStopTable();
 }
