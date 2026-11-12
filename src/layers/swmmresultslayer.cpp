@@ -741,6 +741,11 @@ SWMMResultsLayer::~SWMMResultsLayer()
     }
 }
 
+SWMMModelLayer *SWMMResultsLayer::modelLayer() const
+{
+    return m_modelLayer;
+}
+
 // ---------------------------------------------------------------------------
 // Results file
 // ---------------------------------------------------------------------------
@@ -3612,6 +3617,10 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
 {
     const int idx = static_cast<int>(c);
     if (idx < 0 || idx >= static_cast<int>(SWMMModelLayer::NumCategories))
+        return;
+    // A range scan that finishes after the project closed arrives here with
+    // the model already deleted; there is nothing left to style.
+    if (!m_modelLayer)
         return;
 
     m_kindFeatureColors[idx].clear();
