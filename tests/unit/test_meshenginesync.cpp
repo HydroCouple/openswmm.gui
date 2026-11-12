@@ -64,6 +64,22 @@ QString readAll(const QString &path)
     return QString::fromUtf8(f.readAll());
 }
 
+/**
+ * @brief Whether any whitespace-separated token of @p text parses to exactly @p value.
+ * @note The engine writes round-trip precision (0.41 as 0.40999999999999998), so a
+ * substring search for the authored digits misses values that were persisted.
+ */
+bool hasNumber(const QString &text, double value)
+{
+    static const QRegularExpression ws(QStringLiteral("\\s+"));
+    for (const QString &tok : text.split(ws, Qt::SkipEmptyParts)) {
+        bool ok = false;
+        if (tok.toDouble(&ok) == value && ok)
+            return true;
+    }
+    return false;
+}
+
 } // namespace
 
 TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
@@ -98,7 +114,9 @@ TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
     ASSERT_EQ(swmm_engine_open(e, inPath.toUtf8().constData(), "mesh_sync_fixture.rpt",
                                "mesh_sync_fixture.out", nullptr),
               0);
-    ASSERT_EQ(swmm_engine_initialize(e), 0);
+    // OPENED only, as in the GUI: the model layer never initializes its engine
+    // (runs use their own), and an initialized engine refuses boundary edits on
+    // interior edges, which the sync sends as the default Wall.
 
     int nv = 0, nt = 0;
     ASSERT_EQ(swmm_2d_vertex_count(e, &nv), 0);
@@ -139,19 +157,19 @@ TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
     // ---- Assert the edits landed in the written .inp ---------------------
     const QString text = readAll(outPath);
     ASSERT_FALSE(text.isEmpty());
-    EXPECT_TRUE(text.contains(QStringLiteral("555.5"))) // vertex Z
+    EXPECT_TRUE(hasNumber(text, kZ)) // vertex Z
         << "edited vertex elevation not persisted";
-    EXPECT_TRUE(text.contains(QStringLiteral("0.25"))) // conveyance
+    EXPECT_TRUE(hasNumber(text, kC)) // conveyance
         << "edited edge conveyance not persisted";
-    EXPECT_TRUE(text.contains(QStringLiteral("97.7"))) // stage head
+    EXPECT_TRUE(hasNumber(text, kH)) // stage head
         << "edited edge stage BC not persisted";
-    EXPECT_TRUE(text.contains(QStringLiteral("0.077"))) // specified flow
+    EXPECT_TRUE(hasNumber(text, kF)) // specified flow
         << "edited specified-flow BC not persisted";
-    EXPECT_TRUE(text.contains(QStringLiteral("0.099"))) // Manning's n
+    EXPECT_TRUE(hasNumber(text, kN)) // Manning's n
         << "edited triangle Manning's n not persisted";
     // INIT_DEPTH carries the mesh's length units, so an SI deck round-trips
     // the authored number verbatim (no conversion on either side).
-    EXPECT_TRUE(text.contains(QStringLiteral("0.313"))) // initial depth
+    EXPECT_TRUE(hasNumber(text, kD)) // initial depth
         << "edited triangle initial depth not persisted";
     EXPECT_TRUE(text.contains(QStringLiteral("REGION_X"))) // triangle tag
         << "edited triangle tag not persisted";
@@ -192,7 +210,7 @@ TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
     }
 
     // ---- Assert no regression on data the GUI model does not carry -------
-    EXPECT_TRUE(text.contains(QStringLiteral("0.018")))
+    EXPECT_TRUE(hasNumber(text, 0.018))
         << "per-triangle Manning's n was flattened (regression)";
     EXPECT_TRUE(text.contains(QStringLiteral("[2D_VERTEX_NODE_MAP]")))
         << "vertex coupling map dropped (regression)";
@@ -333,11 +351,11 @@ TEST(MeshEngineSync, EditsPersistInOpenedState)
 
     const QString text = readAll(outPath);
     ASSERT_FALSE(text.isEmpty());
-    EXPECT_TRUE(text.contains(QStringLiteral("333.3")))
+    EXPECT_TRUE(hasNumber(text, 333.3))
         << "vertex Z edit not saved in OPENED state";
-    EXPECT_TRUE(text.contains(QStringLiteral("0.41")))
+    EXPECT_TRUE(hasNumber(text, 0.41))
         << "edge conveyance edit not saved in OPENED state";
-    EXPECT_TRUE(text.contains(QStringLiteral("88.8")))
+    EXPECT_TRUE(hasNumber(text, 88.8))
         << "edge stage BC edit not saved in OPENED state";
 }
 
