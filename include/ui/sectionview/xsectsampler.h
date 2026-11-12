@@ -205,8 +205,7 @@ public:
     /*! Bank-full properties; all zeros when invalid.
      * @return Copied bank-full geometry: y/r/w display length, areas length², section factor engine
      *   display length^(8/3), and hydraulic open flag. All zero/false if absent/full-property API
-     *   fails; open-query failure alone retains geometry with false. STREET hydraulic open flag
-     *   differs from drawing predicate used by linkFullDepth. No source mutation.
+     *   fails; open-query failure alone retains geometry with false. No source mutation.
      */
     [[nodiscard]] XsectFullProps fullProps() const;
 
@@ -343,7 +342,7 @@ private:
  * @return Ordinary-shape g1 returned VERBATIM without geometry validation, including
  *   invalid/nonfinite/negative values; table/custom shapes return resolved full depth or 0 on
  *   failure. No logging/error distinction.
- * @note Optional outOpenTop receives sampled hydraulic open flag OR STREET. Ordinary shape only
+ * @note Optional outOpenTop receives sampled hydraulic open flag. Ordinary shape only
  *   constructs sampler when output pointer requested; failed sampler reports false while g1 still
  *   returned. STREET remains visually open even unresolved. Does not mutate engine.
  */

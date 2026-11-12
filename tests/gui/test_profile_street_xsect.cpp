@@ -188,14 +188,14 @@ void TestProfileStreetXsect::streetIsDrawnOpenTopped()
     QVERIFY2(openTop, "a street must be DRAWN open-topped; drawn with a soffit it reads "
                       "as a box culvert");
 
-    // …while the ENGINE still classifies it closed. The difference is a
-    // deliberate presentation choice living in linkFullDepth, not a divergence
-    // from the engine — tests/gui/test_xsectsampler.cpp pins the engine side.
+    // …because the ENGINE classifies it open (engine d08a4348, as legacy
+    // xsect_isOpen) and linkFullDepth draws what the engine says —
+    // tests/gui/test_xsectsampler.cpp pins the engine side.
     const auto sampler = samplerForLink(m_engine, idx, shape, g1, g2, g3, g4, /*si=*/false);
     QVERIFY(sampler.isValid());
-    QVERIFY2(!sampler.fullProps().open,
-             "engine now calls a street open — drop the STREET special case in "
-             "linkFullDepth rather than keeping two sources of truth");
+    QVERIFY2(sampler.fullProps().open,
+             "engine no longer calls a street open — linkFullDepth needs a STREET "
+             "case again so a street is still drawn open-topped");
 }
 
 void TestProfileStreetXsect::closedPipeKeepsGeom1AndStaysClosed()
