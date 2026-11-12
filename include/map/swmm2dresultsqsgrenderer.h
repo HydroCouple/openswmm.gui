@@ -324,15 +324,21 @@ private:
     /*! Smooth depth fill of the layer's fast surface, whose corners are shared vertex
      *  values: display triangles grouped (in render-chunk order) into upload chunks of at
      *  most 65,532 shared vertices, built once per geometry revision and anchor. A frame
-     *  writes only vertex colours and the indices of its wet triangles. */
+     *  writes only vertex values or colours and the indices of its wet triangles.
+     *  One scan per sync (scan*) collects each chunk's wet triangles and vertex depths for
+     *  every fast-surface pass; chunks are independent, so the scan can run in parallel. */
     struct SharedFillChunks {
         quint64 geomRev = ~quint64(0);
         double anchorX = 0, anchorY = 0;
         std::vector<std::vector<QSGGeometry::ColoredPoint2D>> vertices; // anchored XY
         std::vector<int> triChunk;                                       // per display triangle
         std::vector<std::array<quint16, 3>> triLocal;                    // per display triangle
+        std::vector<std::vector<int>> chunkTris; // per chunk: its display triangles, ascending
+        std::vector<int> frameSlot; // per display triangle: position in the scanned frame or -1
+        std::vector<std::vector<float>> scanValues;    // per chunk: depth per local vertex
+        std::vector<std::vector<quint16>> scanIndices; // per chunk: wet triangles above dry
         std::vector<std::vector<QSGGeometry::ColoredPoint2D>> frameVertices; // per-frame colours
-        std::vector<std::vector<quint16>> frameIndices;                       // per-frame wet tris
+        std::vector<std::vector<quint16>> frameIndices; // per-frame triangles above a floor
     } m_sharedFill;
     /**
      * @brief Build m_sharedFill for the current geometry revision and anchor when stale.
@@ -403,6 +409,7 @@ private:
     std::shared_ptr<std::vector<OpenSWMM::Render::ContourJobInput::TriPos>> m_contourPositions;
     std::shared_ptr<const std::vector<int>> m_contourTriangles;
     std::vector<int> m_visibleCellsScratch, m_contourSelectionScratch;
+    std::vector<std::vector<int>> m_sweepBlocks; // per block of the wet sweep; capacity kept
     // A buffer is writable only while the pool is its sole owner. Completed
     // frames and workers may keep independent immutable readers across seeks.
     std::vector<std::shared_ptr<std::vector<std::array<float, 3>>>> m_contourScalarBuffers;

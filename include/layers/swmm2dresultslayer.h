@@ -2759,8 +2759,11 @@ private:
     /**
      * @param[in] corners Output of sceneCornersFor_ for the current geometry.
      * @param[in] peak Its largest finite corner depth; grows the automatic depth range.
+     * @param[in] parallel Spread fixed blocks of triangles over the global thread pool (saved
+     *   results); the result does not depend on it.
      */
-    void installSceneCorners_(const std::vector<std::array<float, 3>> &corners, double peak);
+    void installSceneCorners_(const std::vector<std::array<float, 3>> &corners, double peak,
+                              bool parallel = false);
     /**
      * @param[in] frame Retained source frame index; invalid index still creates a key with source
      *   revision fallback0.

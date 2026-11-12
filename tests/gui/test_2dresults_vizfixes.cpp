@@ -1051,8 +1051,8 @@ private slots:
     void largeMeshesShowTheFastVertexSurface();
     /**
      * @brief Require the fast surface spread over the thread pool to equal the one-thread result
-     * bit for bit: its per-cell and per-triangle blocks write disjoint elements, and the shared
-     * vertex scatters stay serial.
+     * bit for bit, as installed on the display triangles (corner and cell depths): its per-cell
+     * and per-triangle blocks write disjoint elements, and the shared vertex scatters stay serial.
      */
     void fastVertexSurfaceIsIndependentOfThreadCount();
     /**
@@ -1063,6 +1063,14 @@ private slots:
      * isolines; a continuous smooth fill stays on the CPU path.
      */
     void fastSurfaceBandsClassifyOnTheGpu();
+    /**
+     * @brief Require the fast-surface passes to share one wet-triangle scan without changing what
+     * each draws: classified fill, filled contours and isolines shown together give exactly the
+     * geometry each gives alone; the geometry of every pass is identical with one or several pool
+     * threads; and filled contours read from a marched frame's snapshot (labelled isolines at mid
+     * zoom) equal those of an immediate frame.
+     */
+    void fastSurfacePassesShareOneScan();
     /**
      * @brief Opt-in (VFR_TEST_GPU=1, a real window): GPU contours of the fast surface look like
      * the marched ones of the same frame. Bands: at most 2% of coloured pixels may differ by more
@@ -1755,7 +1763,7 @@ void Test2DResultsVizFixes::fastVertexSurfaceIsIndependentOfThreadCount()
     auto *pool = QThreadPool::globalInstance();
     const int threads = pool->maxThreadCount();
     const auto restore = qScopeGuard([pool, threads] { pool->setMaxThreadCount(threads); });
-    std::vector<std::array<float, 3>> corners[2];
+    std::vector<std::array<float, 4>> corners[2]; // corner depths and the cell depth
     for (int run = 0; run < 2; ++run) {
         pool->setMaxThreadCount(run == 0 ? 1 : std::max(threads, 4));
         SWMM2DResultsLayer layer;
@@ -1764,7 +1772,7 @@ void Test2DResultsVizFixes::fastVertexSurfaceIsIndependentOfThreadCount()
         QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(), 120000);
         QVERIFY(layer.fastSurfacePublished());
         for (const auto &t : layer.m_sceneTris)
-            corners[run].push_back({t.dv0, t.dv1, t.dv2});
+            corners[run].push_back({t.dv0, t.dv1, t.dv2, t.depth});
     }
     QCOMPARE(corners[0].size(), corners[1].size());
     QVERIFY(std::memcmp(corners[0].data(), corners[1].data(),
@@ -1900,6 +1908,113 @@ void Test2DResultsVizFixes::fastSurfaceBandsClassifyOnTheGpu()
             QVERIFY2(c.colors >= 1 && c.levels + 1 == c.colors, k.name);
         }
     }
+}
+
+void Test2DResultsVizFixes::fastSurfacePassesShareOneScan()
+{
+    class Renderer : public SWMM2DResultsQSGRenderer
+    {
+    public:
+        /* @brief Expose the protected scene-graph synchronization hook for this test.
+         * @param[in,out] old Previous owned root or null; ownership passes in and back out.
+         * @return Updated root owned by the caller. */
+        QSGNode *sync(QSGNode *old) { return updatePaintNode(old, nullptr); }
+    };
+    SWMM2DResultsLayer layer;
+    layer.setAsyncSurface(true);
+    layer.setSource(std::make_unique<LargeGridSource>());
+    QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(), 120000);
+    QVERIFY(layer.fastSurfacePublished());
+    layer.setVisible(true);
+    const auto box = layer.m_sceneBBox;
+    const MapExtent extent(box.left(), -box.bottom(), box.right(), -box.top());
+    enum Pass { Bands = 1, Isolines = 2, ClassifiedFill = 4, ContinuousFill = 8, Labels = 16 };
+    // Vertex and index bytes of every indexed geometry node in tree order; with gpuOnly, only
+    // ScalarBandMaterial nodes.
+    auto render = [&](int passes, int sizePx, bool gpuOnly) {
+        for (auto *s : layer.sublayers())
+            s->setVisible(false);
+        if (passes & Bands) {
+            auto *style = layer.contourBandSublayer()->bandStyle();
+            style->setSmoothBands(true);
+            // Like the fills below: a first level above the dry cutoff drops scanned triangles.
+            style->setUseCustomRange(true);
+            style->setRangeMin(.2);
+            style->setRangeMax(.65);
+            layer.contourBandSublayer()->setVisible(true);
+        }
+        if (passes & Isolines) {
+            layer.isolineSublayer()->isolineStyle()->setLabels((passes & Labels) != 0);
+            layer.isolineSublayer()->setVisible(true);
+        }
+        if (passes & (ClassifiedFill | ContinuousFill)) {
+            auto *style = layer.smoothDepthFillSublayer()->fillStyle();
+            style->setClassified((passes & ClassifiedFill) != 0);
+            // A floor above the dry cutoff: the fills drop scanned triangles below it.
+            style->setUseCustomRange(true);
+            style->setRangeMin(.3);
+            style->setRangeMax(.65);
+            layer.smoothDepthFillSublayer()->setVisible(true);
+        }
+        Renderer renderer;
+        renderer.setWidth(sizePx);
+        renderer.setHeight(sizePx);
+        renderer.setMapExtent(extent);
+        renderer.setLayer(&layer);
+        QSignalSpy ready(&renderer, &SWMM2DResultsQSGRenderer::contentReady);
+        std::unique_ptr<QSGNode> root(renderer.sync(nullptr));
+        QList<QByteArray> out;
+        if (passes & Labels) { // labelled isolines are marched; bands then read the snapshot
+            if (!ready.wait(120000))
+                return out;
+            root.reset(renderer.sync(root.release()));
+        }
+        QVector<QSGNode *> pending{root.get()};
+        while (!pending.isEmpty()) { // depth-first, children in order
+            QSGNode *n = pending.takeLast();
+            QVector<QSGNode *> children;
+            for (auto *child = n->firstChild(); child; child = child->nextSibling())
+                children.append(child);
+            for (auto it = children.crbegin(); it != children.crend(); ++it)
+                pending.append(*it);
+            if (n->type() != QSGNode::GeometryNodeType)
+                continue;
+            auto *node = static_cast<QSGGeometryNode *>(n);
+            const auto *g = node->geometry();
+            const bool gpu =
+                node->material() && node->material()->type() == ScalarBandMaterial().type();
+            if (!g || g->indexCount() == 0 || (gpuOnly && !gpu))
+                continue;
+            out << QByteArray(static_cast<const char *>(g->vertexData()),
+                              qsizetype(g->vertexCount()) * g->sizeOfVertex()) +
+                       QByteArray(static_cast<const char *>(g->indexData()),
+                                  qsizetype(g->indexCount()) * g->sizeOfIndex());
+        }
+        return out;
+    };
+    constexpr int kFar = 1000, kMid = 3000; // about 4 and 35 px per triangle
+    const auto fill = render(ClassifiedFill, kFar, true);
+    const auto bands = render(Bands, kFar, true);
+    const auto isolines = render(Isolines, kFar, true);
+    QVERIFY(!fill.isEmpty() && !bands.isEmpty() && !isolines.isEmpty());
+    QVERIFY(render(ClassifiedFill | Bands | Isolines, kFar, true) == fill + bands + isolines);
+
+    auto *pool = QThreadPool::globalInstance();
+    const int threads = pool->maxThreadCount();
+    const auto restore = qScopeGuard([pool, threads] { pool->setMaxThreadCount(threads); });
+    QList<QByteArray> runs[2];
+    for (int run = 0; run < 2; ++run) {
+        pool->setMaxThreadCount(run == 0 ? 1 : std::max(threads, 4));
+        runs[run] = render(ClassifiedFill | Bands | Isolines, kFar, false) +
+                    render(ContinuousFill, kFar, false);
+    }
+    QVERIFY(runs[0].size() > fill.size() + bands.size() + isolines.size()); // + continuous fill
+    QVERIFY(runs[0] == runs[1]);
+
+    const auto immediate = render(Bands, kMid, true);
+    const auto snapshot = render(Bands | Isolines | Labels, kMid, true);
+    QVERIFY(!immediate.isEmpty());
+    QVERIFY2(snapshot == immediate, "bands of a marched frame differ from an immediate frame");
 }
 
 void Test2DResultsVizFixes::gpuBandsMatchMarchedBandsOnScreen()

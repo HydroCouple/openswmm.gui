@@ -57,6 +57,7 @@
 #include <QSGTexture>
 #include <QSGTransformNode>
 #include <QSGVertexColorMaterial>
+#include <QtConcurrent/QtConcurrentMap>
 #include <QtConcurrent/QtConcurrentRun>
 #include <QtMath>
 
@@ -65,6 +66,7 @@
 #include <cmath>
 #include <cstring>
 #include <functional>
+#include <numeric>
 #include <utility>
 #include <vector>
 
@@ -181,6 +183,31 @@ void deleteChildren(QSGNode *node)
 bool gpuBandsEnabled()
 {
     return qEnvironmentVariable("OPENSWMM_QSG_GPU_BANDS") != QLatin1String("0");
+}
+
+/*! Block size of per-frame passes split over the thread pool. */
+constexpr size_t kPassBlock = 65536;
+
+/** @return Number of kPassBlock-sized blocks covering n elements. */
+constexpr size_t blockCount(size_t n)
+{
+    return (n + kPassBlock - 1) / kPassBlock;
+}
+
+/**
+ * @brief Call body(c) once for every c in [0, n): on the global thread pool when parallel, else
+ *   in order on this thread. Each call must touch only its own c's data.
+ */
+template <typename Body> void forEachIndex(size_t n, bool parallel, const Body &body)
+{
+    if (!parallel || n < 2) {
+        for (size_t c = 0; c < n; ++c)
+            body(c);
+        return;
+    }
+    std::vector<size_t> ids(n);
+    std::iota(ids.begin(), ids.end(), size_t(0));
+    QtConcurrent::blockingMap(ids, [&body](size_t c) { body(c); });
 }
 
 /**
@@ -936,6 +963,12 @@ bool SWMM2DResultsQSGRenderer::ensureSharedFillChunks(double ox, double oy)
             }
             sf.triChunk[size_t(t)] = int(sf.vertices.size()) - 1;
         }
+    sf.chunkTris.resize(sf.vertices.size());
+    for (size_t t = 0; t < nTri; ++t) // ascending: a frame's wet triangles in id order
+        if (sf.triChunk[t] >= 0)
+            sf.chunkTris[size_t(sf.triChunk[t])].push_back(int(t));
+    sf.scanValues.resize(sf.vertices.size());
+    sf.scanIndices.resize(sf.vertices.size());
     sf.frameVertices.resize(sf.vertices.size());
     sf.frameIndices.resize(sf.vertices.size());
     sf.geomRev = rev;
@@ -1659,9 +1692,10 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         auto &visibleCells = m_visibleCellsScratch;
         visibleCells.clear();
         if (rebuildFills || rebuildVel || rebuildMarkers) {
-            for (int cid : chunkQ.fullyInside)
-                for (int t : m_chunks.chunks()[cid].cellIds)
-                    visibleCells.push_back(t);
+            for (int cid : chunkQ.fullyInside) {
+                const auto &ids = m_chunks.chunks()[cid].cellIds;
+                visibleCells.insert(visibleCells.end(), ids.cbegin(), ids.cend());
+            }
             for (int cid : chunkQ.boundary) {
                 for (int t : m_chunks.chunks()[cid].cellIds) {
                     const auto &tt = tris[t];
@@ -1692,6 +1726,9 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                                  !(is && is->labels() && lod.drawContourLabels) &&
                                  m_layer->fastSurfacePublished() && gpuBandsEnabled() &&
                                  ensureSharedFillChunks(ox, oy);
+        // Per-frame passes over millions of triangles use the global pool for saved results; a
+        // live run keeps its cores for the engine.
+        const bool parallelPasses = !(m_layer->source() && m_layer->source()->isLive());
         ContourJobKey key;
         key.time = m_layer->currentTimeIndex();
         key.frameRev = m_layer->frameRevision();
@@ -1795,9 +1832,23 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                 if (!all)
                     for (int i : visibleCells)
                         shown[size_t(i)] = 1;
-                for (int i = 0; i < nTri; ++i)
-                    if ((all || shown[size_t(i)]) && wet(i))
-                        waterCells.push_back(i);
+                // Fixed blocks, swept in parallel for saved results and joined in order.
+                auto &blocks = m_sweepBlocks;
+                blocks.resize(blockCount(size_t(nTri)));
+                forEachIndex(blocks.size(), parallelPasses, [&](size_t b) {
+                    auto &out = blocks[b];
+                    out.clear();
+                    const int last = int(std::min(size_t(nTri), (b + 1) * kPassBlock));
+                    for (int i = int(b * kPassBlock); i < last; ++i)
+                        if ((all || shown[size_t(i)]) && wet(i))
+                            out.push_back(i);
+                });
+                size_t total = 0;
+                for (const auto &out : blocks)
+                    total += out.size();
+                waterCells.reserve(total);
+                for (const auto &out : blocks)
+                    waterCells.insert(waterCells.end(), out.cbegin(), out.cend());
             } else {
                 for (int i : visibleCells)
                     if (wet(i))
@@ -2003,39 +2054,92 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
             const float a = float(c.alphaF());
             return {float(c.redF()) * a, float(c.greenF()) * a, float(c.blueF()) * a, a};
         };
+        // Shared-vertex chunks of a fast-surface frame, scanned once per sync for every pass
+        // below: each chunk's frame triangles with finite corners above the dry cutoff
+        // (scanIndices, ascending triangle id) and its vertex depths (scanValues; corners are
+        // shared vertex values, so every triangle writes the same depth). Chunks are scanned
+        // in parallel for saved results; a live run keeps its cores for the engine.
+        auto &sf = m_sharedFill;
+        bool scanned = false;
+        auto scanSharedChunks = [&] {
+            if (scanned)
+                return;
+            scanned = true;
+            // Frame triangles are unique, so blocks write disjoint slots.
+            const size_t nSlots = size_t(nTri), nFrame = frameTriangles.size();
+            sf.frameSlot.resize(nSlots);
+            forEachIndex(blockCount(nSlots), parallelPasses, [&](size_t b) {
+                const auto first = sf.frameSlot.begin() + std::ptrdiff_t(b * kPassBlock);
+                std::fill(first, first + std::ptrdiff_t(std::min(kPassBlock, nSlots - b * kPassBlock)),
+                          -1);
+            });
+            forEachIndex(blockCount(nFrame), parallelPasses, [&](size_t b) {
+                const size_t last = std::min(nFrame, (b + 1) * kPassBlock);
+                for (size_t k = b * kPassBlock; k < last; ++k)
+                    sf.frameSlot[size_t(frameTriangles[k])] = int(k);
+            });
+            forEachIndex(sf.chunkTris.size(), parallelPasses, [&](size_t c) {
+                auto &values = sf.scanValues[c];
+                auto &indices = sf.scanIndices[c];
+                values.assign(sf.vertices[c].size(), 0.f);
+                indices.clear();
+                for (int i : sf.chunkTris[c]) {
+                    const int k = sf.frameSlot[size_t(i)];
+                    if (k < 0)
+                        continue;
+                    // The layer's triangles for an immediate frame, else the frame's
+                    // snapshot (stored in frame order).
+                    std::array<float, 3> d;
+                    if (frame.immediate) {
+                        const auto &t = tris[i];
+                        d = {t.dv0, t.dv1, t.dv2};
+                    } else {
+                        d = (*frame.scalars)[size_t(k)];
+                    }
+                    if (!std::isfinite(d[0]) || !std::isfinite(d[1]) || !std::isfinite(d[2]) ||
+                        std::max({d[0], d[1], d[2]}) <= dryDepth)
+                        continue;
+                    for (size_t j = 0; j < 3; ++j) {
+                        const quint16 local = sf.triLocal[size_t(i)][j];
+                        values[local] = d[j];
+                        indices.push_back(local);
+                    }
+                }
+            });
+        };
+        // out = the scanned triangles of chunk c whose top corner depth passes keep(top).
+        auto keepScanned = [&](size_t c, const auto &keep, std::vector<quint16> &out) {
+            const auto &values = sf.scanValues[c];
+            const auto &indices = sf.scanIndices[c];
+            out.clear();
+            for (size_t k = 0; k + 2 < indices.size(); k += 3)
+                if (keep(std::max({values[indices[k]], values[indices[k + 1]],
+                                   values[indices[k + 2]]})))
+                    out.insert(out.end(), indices.begin() + std::ptrdiff_t(k),
+                               indices.begin() + std::ptrdiff_t(k + 3));
+        };
         // Draw the frame's wet triangles into container with one ScalarBandMaterial node per
         // touched chunk; configure(material) sets bands or isolines. Triangles whose corners are
         // all below lower or at/below the dry cutoff draw no fragment and are skipped.
         auto drawGpuScalar = [&](QSGNode *container, const auto &configure, double lower,
                                  const QString &pass) {
-            auto &sf = m_sharedFill;
-            auto drawn = [&](const std::array<float, 3> &d) {
-                if (!std::isfinite(d[0]) || !std::isfinite(d[1]) || !std::isfinite(d[2]))
-                    return false;
-                const double top = std::max({d[0], d[1], d[2]});
-                return top >= lower && top > dryDepth;
+            scanSharedChunks();
+            // The scan already dropped triangles at/below the dry cutoff.
+            const bool filter = lower > dryDepth;
+            if (filter)
+                forEachIndex(sf.scanIndices.size(), parallelPasses, [&](size_t c) {
+                    keepScanned(c, [lower](double top) { return top >= lower; },
+                                sf.frameIndices[c]);
+                });
+            auto drawnIndices = [&](size_t c) -> const std::vector<quint16> & {
+                return filter ? sf.frameIndices[c] : sf.scanIndices[c];
             };
-            // Corner depths of the k-th frame triangle, read in place: the layer's triangles
-            // for an immediate frame, else the frame's snapshot (stored in the same order).
-            auto cornersOf = [&](size_t k) -> std::array<float, 3> {
-                if (frame.immediate) {
-                    const auto &t = tris[frameTriangles[k]];
-                    return {t.dv0, t.dv1, t.dv2};
-                }
-                return (*frame.scalars)[k];
-            };
-            std::vector<int> indexCount(sf.vertices.size(), 0);
-            for (size_t k = 0; k < frameTriangles.size(); ++k) {
-                const int chunk = sf.triChunk[size_t(frameTriangles[k])];
-                if (chunk >= 0 && drawn(cornersOf(k)))
-                    indexCount[size_t(chunk)] += 3;
-            }
             std::vector<QSGGeometryNode *> nodeOf(sf.vertices.size(), nullptr);
-            std::vector<int> written(sf.vertices.size(), 0);
             QSGNode *reuse = container->firstChild();
             qint64 vertices = 0, bytes = 0;
             for (size_t chunk = 0; chunk < sf.vertices.size(); ++chunk) {
-                if (!indexCount[chunk])
+                const auto &indices = drawnIndices(chunk);
+                if (indices.empty())
                     continue;
                 QSGGeometryNode *node;
                 if (reuse) {
@@ -2045,19 +2149,15 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                     node = makeScalarBandNode();
                     container->appendChildNode(node);
                 }
-                const auto &positions = sf.vertices[chunk];
-                auto *geo = node->geometry();
-                geo->allocate(int(positions.size()), indexCount[chunk]);
-                auto *data = static_cast<ScalarFillVertex *>(geo->vertexData());
-                for (size_t v = 0; v < positions.size(); ++v)
-                    data[v] = {positions[v].x, positions[v].y, 0.f};
+                const size_t count = sf.vertices[chunk].size();
+                node->geometry()->allocate(int(count), int(indices.size()));
                 configure(static_cast<ScalarBandMaterial *>(node->material()));
                 // Material too: an emptied node has no batch, and the classification changes.
                 node->markDirty(QSGNode::DirtyGeometry | QSGNode::DirtyMaterial);
                 nodeOf[chunk] = node;
-                vertices += qint64(positions.size());
-                bytes += qint64(positions.size() * sizeof(ScalarFillVertex) +
-                                size_t(indexCount[chunk]) * sizeof(quint16));
+                vertices += qint64(count);
+                bytes += qint64(count * sizeof(ScalarFillVertex) +
+                                indices.size() * sizeof(quint16));
             }
             while (reuse) { // surplus nodes from a wetter frame
                 QSGNode *next = reuse->nextSibling();
@@ -2065,24 +2165,19 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                 delete reuse;
                 reuse = next;
             }
-            for (size_t k = 0; k < frameTriangles.size(); ++k) {
-                const int i = frameTriangles[k];
-                const int chunk = sf.triChunk[size_t(i)];
-                if (chunk < 0)
-                    continue;
-                const auto d = cornersOf(k);
-                if (!drawn(d))
-                    continue;
-                auto *geo = nodeOf[size_t(chunk)]->geometry();
+            forEachIndex(nodeOf.size(), parallelPasses, [&](size_t c) {
+                if (!nodeOf[c])
+                    return;
+                auto *geo = nodeOf[c]->geometry();
+                const auto &positions = sf.vertices[c];
+                const auto &values = sf.scanValues[c];
                 auto *data = static_cast<ScalarFillVertex *>(geo->vertexData());
-                quint16 *index = geo->indexDataAsUShort() + written[size_t(chunk)];
-                for (int c = 0; c < 3; ++c) {
-                    const quint16 local = sf.triLocal[size_t(i)][size_t(c)];
-                    data[local].value = d[size_t(c)]; // shared corner: every triangle writes the same
-                    index[c] = local;
-                }
-                written[size_t(chunk)] += 3;
-            }
+                for (size_t v = 0; v < positions.size(); ++v)
+                    data[v] = {positions[v].x, positions[v].y, values[v]};
+                const auto &indices = drawnIndices(c);
+                std::memcpy(geo->indexDataAsUShort(), indices.data(),
+                            indices.size() * sizeof(quint16));
+            });
             for (auto *node : nodeOf)
                 if (node) {
                     node->geometry()->markVertexDataDirty();
@@ -2249,32 +2344,29 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                                       premul(quint8(c.blue()), a), a};
                 }
                 const double floor = std::max(dryDepth, vMin);
-                auto &sf = m_sharedFill;
-                std::vector<int> touched;
-                for (int i : frameTriangles) {
-                    const int chunk = sf.triChunk[size_t(i)];
-                    if (chunk < 0)
-                        continue;
-                    const auto t = frameTri(i);
-                    const float d[3] = {t.dv0, t.dv1, t.dv2};
-                    if (!std::isfinite(d[0]) || !std::isfinite(d[1]) || !std::isfinite(d[2]) ||
-                        std::max({d[0], d[1], d[2]}) <= floor)
-                        continue;
-                    auto &indices = sf.frameIndices[size_t(chunk)];
-                    auto &vertices = sf.frameVertices[size_t(chunk)];
-                    if (indices.empty()) {
-                        touched.push_back(chunk);
-                        vertices = sf.vertices[size_t(chunk)];
-                    }
-                    for (int k = 0; k < 3; ++k) {
-                        const quint16 local = sf.triLocal[size_t(i)][size_t(k)];
-                        indices.push_back(local);
+                scanSharedChunks();
+                // Triangles whose top corner is at/below floor are not drawn; the scan already
+                // dropped those at/below the dry cutoff.
+                const bool filter = floor > dryDepth;
+                auto drawnIndices = [&](size_t c) -> const std::vector<quint16> & {
+                    return filter ? sf.frameIndices[c] : sf.scanIndices[c];
+                };
+                forEachIndex(sf.scanIndices.size(), parallelPasses, [&](size_t c) {
+                    if (filter)
+                        keepScanned(c, [floor](double top) { return top > floor; },
+                                    sf.frameIndices[c]);
+                    const auto &indices = drawnIndices(c);
+                    if (indices.empty())
+                        return;
+                    const auto &values = sf.scanValues[c];
+                    auto &vertices = sf.frameVertices[c];
+                    vertices = sf.vertices[c];
+                    for (const quint16 local : indices) {
                         auto &v = vertices[local];
-                        if (d[k] <= floor) {
-                            v.r = v.g = v.b = v.a = 0;
-                            continue;
-                        }
-                        const int j = span > 0 ? std::clamp(int((d[k] - vMin) / span * kLut), 0,
+                        const float d = values[local];
+                        if (d <= floor)
+                            continue; // transparent, as copied
+                        const int j = span > 0 ? std::clamp(int((d - vMin) / span * kLut), 0,
                                                             kLut - 1)
                                                : 0;
                         const auto &c = lut[size_t(j)];
@@ -2283,12 +2375,9 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                         v.b = c[2];
                         v.a = c[3];
                     }
-                }
-                for (int chunk : touched) {
-                    out.appendColoredChunk(sf.frameVertices[size_t(chunk)],
-                                           sf.frameIndices[size_t(chunk)]);
-                    sf.frameIndices[size_t(chunk)].clear();
-                }
+                });
+                for (size_t c = 0; c < sf.scanIndices.size(); ++c)
+                    out.appendColoredChunk(sf.frameVertices[c], drawnIndices(c));
                 return;
             }
             out.reserve(visibleCells.size() * 3);
