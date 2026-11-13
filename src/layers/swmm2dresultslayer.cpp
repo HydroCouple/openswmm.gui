@@ -2967,7 +2967,7 @@ void SWMM2DResultsLayer::publishSurface_(SurfaceJob &job, quint64 seq)
         install(current_depths_, job.depths);
         install(current_flux_, job.flux);
         if (!max_depth_user_set_ && !current_depths_.empty()) {
-            const float peak = *std::max_element(current_depths_.begin(), current_depths_.end());
+            const float peak = job.depthPeak; // the worker's max_element of these depths
             if (std::isfinite(peak) && peak > max_depth_)
                 max_depth_ = peak;
         }
@@ -2982,9 +2982,11 @@ void SWMM2DResultsLayer::publishSurface_(SurfaceJob &job, quint64 seq)
         }
         std::vector<CellWaterGeometry::CornerDepths>().swap(cellFlowDepths_);
         install(surfaceDepths_, job.smooth);
-        if (job.sceneCorners.size() == size_t(m_sceneTris.size()))
+        if (job.sceneCorners.size() == size_t(m_sceneTris.size())) {
             installSceneCorners_(job.sceneCorners, job.sceneCornerPeak, !job.live);
-        else
+            if (job.key.fast) // see fastSceneCorners()
+                install(fast_scene_corners_, job.sceneCorners);
+        } else
             fillSceneCorners_();
         applyCurrentFlux_(&job.velocityX, &job.velocityY);
     }
@@ -3063,6 +3065,10 @@ void SWMM2DResultsLayer::fitSurface_(SurfaceJob &job,
             fitSurfaceFields_(job.depths, job.flux, job.policy, surfaces, job.flow, job.smooth,
                               workspace);
         sceneCornersFor_(job.smooth, job.sceneCorners, job.sceneCornerPeak, !job.live);
+        // Found here rather than at publish: a scan of every depth on the GUI thread.
+        job.depthPeak = job.depths.empty()
+                            ? std::numeric_limits<float>::quiet_NaN()
+                            : *std::max_element(job.depths.begin(), job.depths.end());
         return;
     }
     const auto &region = *job.region;
@@ -3268,6 +3274,7 @@ void SWMM2DResultsLayer::cancelSurfaceJobs_()
     surface_cache_.clear();
     surface_cache_bytes_ = 0;
     published_key_ = SurfaceKey{};
+    std::vector<std::array<float, 3>>().swap(fast_scene_corners_);
     published_seq_ = request_seq_; // nothing is in flight any more
 }
 
@@ -5078,6 +5085,7 @@ void SWMM2DResultsLayer::installSceneCorners_(const std::vector<std::array<float
                                               double peak, bool parallel)
 {
     const size_t count = std::min(size_t(m_sceneTris.size()), corners.size());
+    fast_scene_corners_.clear(); // a fast publish copies its corners again after this
     SceneTri *tris = m_sceneTris.data(); // detach once, before any block writes
     forBlocks(count, parallel, [&](size_t first, size_t last) {
         for (size_t i = first; i < last; ++i) {
