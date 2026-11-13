@@ -62,6 +62,8 @@ public:
         Mannings,      ///< "mannings"
         InitDepth,     ///< "initDepth"
         InitHgl,       ///< "initHgl"
+        InitU,         ///< "initU" (m/s)
+        InitV,         ///< "initV" (m/s)
         // Per-cell infiltration (GUI plan §3.5(5)). The METHOD is categorical
         // and colours through categoryColorForValue(); the parameters are
         // ordinary graduated attributes. Values resolve through

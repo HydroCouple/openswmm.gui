@@ -183,6 +183,29 @@ private slots:
         QVERIFY(initialConditionCounterpart("mannings").isEmpty());
     }
 
+    /*! Initial velocity is two live per-cell parameters in m/s whatever the project units
+     *  (the file and engine store m/s); the default is at rest, and neither displaces the
+     *  initial depth or HGL. */
+    void initialVelocity_isLiveInMetresPerSecond()
+    {
+        MeshResult m = sampleMesh();
+        for (const QByteArray key : {QByteArray("initU"), QByteArray("initV")}) {
+            const CellParamSpec *s = cellParamSpec(key);
+            QVERIFY2(s, key.constData());
+            QVERIFY(s->enabled);
+            QVERIFY(!s->lengthUnit);
+            QVERIFY2(s->label.contains(QStringLiteral("m/s")), qPrintable(s->label));
+            QVERIFY2(s->min < 0.0, "a velocity component may be negative");
+            QCOMPARE(s->defaultValue, 0.0);
+            QCOMPARE(cellParamValue(m, 0, key), 0.0);
+            QVERIFY(initialConditionCounterpart(key).isEmpty());
+        }
+        m.triangles[0].initU = 0.5;
+        m.triangles[0].initV = -0.25;
+        QCOMPARE(cellParamValue(m, 0, "initU"), 0.5);
+        QCOMPARE(cellParamValue(m, 0, "initV"), -0.25);
+    }
+
     void specs_editorConfigurationIsSelfConsistent()
     {
         for (const CellParamSpec &s : cellParamSpecs()) {

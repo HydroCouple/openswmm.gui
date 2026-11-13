@@ -77,6 +77,11 @@ struct MeshTriangle {
     /// initDepth. A finite value overrides initDepth; the engine converts it
     /// to a depth and clamps it at the cell invert when the run starts.
     double initHgl = std::numeric_limits<double>::quiet_NaN();
+    /// Initial velocity components in m/s whatever the project units
+    /// ([2D_INITIAL_VELOCITY] U and V). 0, 0 = at rest, the engine default;
+    /// only moving cells are written.
+    double initU = 0.0;
+    double initV = 0.0;
 
     /**
      * @brief Classify the cell solely by whether a fourth vertex identifier is present.

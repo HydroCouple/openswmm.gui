@@ -473,6 +473,61 @@ private slots:
         }
     }
 
+    /*! [2D_INITIAL_VELOCITY]: absent while every cell is at rest, otherwise one `CELL U V` row
+     *  per moving cell. A later attribute patch replaces the file's section rather than adding
+     *  a second one, and drops it once every cell is back at rest. */
+    void initialVelocity_buildAndPatchRoundTrip()
+    {
+        MeshResult m = sampleMesh();
+        QVERIFY(m.triangles.size() >= 2);
+        const QString sec = QStringLiteral("[2D_INITIAL_VELOCITY]");
+        QVERIFY(!InpMeshWriter::buildSectionText(m, sampleCoupling()).contains(sec));
+
+        m.triangles[1].initU = 0.5;
+        m.triangles[1].initV = -0.25;
+        const QString text = InpMeshWriter::buildSectionText(m, sampleCoupling());
+        const QString body = text.mid(text.indexOf(sec));
+        QVERIFY2(text.contains(sec), qPrintable(text));
+        QVERIFY2(body.contains(QStringLiteral("1  0.5  -0.25")), qPrintable(body));
+        QVERIFY2(!body.contains(QStringLiteral("\n0  ")), qPrintable(body)); // cell 0 is at rest
+
+        ReviewableTestDir dir;
+        QVERIFY(dir.isValid());
+        const QString inpPath = dir.filePath("velocity.inp");
+        const QString meshPath = dir.filePath("velocity.2dm");
+        {
+            QFile inp(inpPath);
+            QVERIFY(inp.open(QIODevice::WriteOnly | QIODevice::Text));
+            inp.write("[TITLE]\nVelocity\n\n[OPTIONS]\nFLOW_UNITS  CMS\n\n");
+        }
+        QVERIFY(InpMeshWriter::writeExternal(inpPath, meshPath, m, sampleCoupling(), 0.035));
+        InpMeshReadResult r = InpMeshReader::read(inpPath);
+        QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
+        QCOMPARE(r.mesh.triangles[0].initU, 0.0);
+        QCOMPARE(r.mesh.triangles[1].initU, 0.5);
+        QCOMPARE(r.mesh.triangles[1].initV, -0.25);
+
+        // Move the velocity to cell 0 only: the patched file must not keep cell 1's row.
+        MeshResult edited = r.mesh;
+        edited.triangles[1].initU = edited.triangles[1].initV = 0.0;
+        edited.triangles[0].initU = 1.0 / 3.0;
+        QString err;
+        QVERIFY2(InpMeshWriter::patchAttributeSections(meshPath, edited, &err), qPrintable(err));
+        r = InpMeshReader::read(inpPath);
+        QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
+        QCOMPARE(r.mesh.triangles[0].initU, 1.0 / 3.0); // full precision survives
+        QCOMPARE(r.mesh.triangles[0].initV, 0.0);
+        QCOMPARE(r.mesh.triangles[1].initU, 0.0);
+        QCOMPARE(r.mesh.triangles[1].initV, 0.0);
+
+        // Back at rest everywhere: the section goes.
+        edited.triangles[0].initU = 0.0;
+        QVERIFY2(InpMeshWriter::patchAttributeSections(meshPath, edited, &err), qPrintable(err));
+        QFile f(meshPath);
+        QVERIFY(f.open(QIODevice::ReadOnly | QIODevice::Text));
+        QVERIFY(!QString::fromUtf8(f.readAll()).contains(sec, Qt::CaseInsensitive));
+    }
+
     void buildSectionText_vertexMapCarriesCdArea()
     {
         MeshResult m = sampleMesh();
@@ -1694,11 +1749,13 @@ private slots:
                                   "[2D_INITIAL_QUALITY]\n* Lead 1\n"
                                   "[2D_COVERAGES]\n* Residential 100\n"
                                   "[2D_LOADINGS]\n* Lead 1\n"
-                                  "[2D_CURB_LENGTH]\n* 0\n"
-                                  "[2D_INITIAL_VELOCITY]\n; no authored rows\n";
+                                  "[2D_CURB_LENGTH]\n* 0\n";
+        // An empty velocity section must not block the replacement either. The mesh owns that
+        // section, so the replacement rewrites it from the new cells (all at rest: no section).
+        const QByteArray emptyVelocity = "[2D_INITIAL_VELOCITY]\n; no authored rows\n";
         QFile f(path);
         QVERIFY(f.open(QIODevice::WriteOnly));
-        f.write(config);
+        f.write(config + emptyVelocity);
         f.close();
         QString error;
         QVERIFY2(InpMeshWriter::validateTopologyReplacement(path, &error), qPrintable(error));
@@ -1707,7 +1764,9 @@ private slots:
                      path, mesh, QVector<MeshEdgeBC>(edgeSlotCount(mesh.triangles.size())), &error),
                  qPrintable(error));
         QVERIFY(f.open(QIODevice::ReadOnly));
-        QVERIFY(f.readAll().contains(config));
+        const QByteArray written = f.readAll();
+        QVERIFY(written.contains(config));
+        QVERIFY(!written.contains("[2D_INITIAL_VELOCITY]"));
     }
 
     /**

@@ -133,6 +133,10 @@ private slots:
     void initialHgl_externalSectionReplacesInline();
     void initialHgl_badRowsAreErrors_data();
     void initialHgl_badRowsAreErrors();
+    void initialVelocity_cellRowsAndAbsent();
+    void initialVelocity_externalSectionReplacesInline();
+    void initialVelocity_badRowsAreErrors_data();
+    void initialVelocity_badRowsAreErrors();
 };
 
 /**
@@ -784,6 +788,78 @@ void TestInpMeshReader::initialHgl_badRowsAreErrors()
                                        QStringLiteral("\n"));
     const mesh::InpMeshReadResult r = mesh::InpMeshReader::read(p);
     QVERIFY2(r.errorMsg.contains(QStringLiteral("[2D_INITIAL_HGL]")), qPrintable(r.errorMsg));
+}
+
+/** `CELL U V` rows set both components (m/s, last row wins); cells without a row, and every
+ *  cell of a file without the section, start at rest. The section may precede the cells. */
+void TestInpMeshReader::initialVelocity_cellRowsAndAbsent()
+{
+    const QString p = writeFixture(
+        QStringLiteral("velocity_rows.inp"),
+        QStringLiteral("[2D_INITIAL_VELOCITY]\n;; TRI  U  V\n1  0.5  -0.25 ; inline comment\n"
+                       "7  1  1\n\n") +
+            baseMesh() + QStringLiteral("[2D_INITIAL_VELOCITY]\n1  0.75  -0.125\n"));
+    const mesh::InpMeshReadResult r = mesh::InpMeshReader::read(p);
+    QVERIFY2(r.errorMsg.isEmpty(), qPrintable(r.errorMsg));
+    QCOMPARE(r.mesh.triangles.size(), 2);
+    QCOMPARE(r.mesh.triangles[0].initU, 0.0);
+    QCOMPARE(r.mesh.triangles[0].initV, 0.0);
+    QCOMPARE(r.mesh.triangles[1].initU, 0.75);
+    QCOMPARE(r.mesh.triangles[1].initV, -0.125);
+
+    const mesh::InpMeshReadResult none =
+        mesh::InpMeshReader::read(writeFixture(QStringLiteral("velocity_none.inp"), baseMesh()));
+    QVERIFY2(none.errorMsg.isEmpty(), qPrintable(none.errorMsg));
+    for (const mesh::MeshTriangle &t : none.mesh.triangles) {
+        QCOMPARE(t.initU, 0.0);
+        QCOMPARE(t.initV, 0.0);
+    }
+}
+
+/** With an external mesh file its section wins; an .inp section is the fallback. */
+void TestInpMeshReader::initialVelocity_externalSectionReplacesInline()
+{
+    const QString inlineRows = QStringLiteral("[2D_INITIAL_VELOCITY]\n0 2 3\n");
+    QVERIFY(!writeFixture(QStringLiteral("velocity_ext.2dm"),
+                          baseMesh() + QStringLiteral("[2D_INITIAL_VELOCITY]\n1 0.5 0.25\n"))
+                 .isEmpty());
+    const auto ext = mesh::InpMeshReader::read(writeFixture(
+        QStringLiteral("velocity_ext.inp"),
+        QStringLiteral("[2D_MESH_FILE]\nFILE velocity_ext.2dm\n\n") + inlineRows));
+    QVERIFY2(ext.errorMsg.isEmpty(), qPrintable(ext.errorMsg));
+    QVERIFY(ext.isExternal);
+    QCOMPARE(ext.mesh.triangles[0].initU, 0.0);
+    QCOMPARE(ext.mesh.triangles[1].initU, 0.5);
+    QCOMPARE(ext.mesh.triangles[1].initV, 0.25);
+
+    QVERIFY(!writeFixture(QStringLiteral("velocity_ext_plain.2dm"), baseMesh()).isEmpty());
+    const auto fallback = mesh::InpMeshReader::read(writeFixture(
+        QStringLiteral("velocity_ext_fallback.inp"),
+        QStringLiteral("[2D_MESH_FILE]\nFILE velocity_ext_plain.2dm\n\n") + inlineRows));
+    QVERIFY2(fallback.errorMsg.isEmpty(), qPrintable(fallback.errorMsg));
+    QCOMPARE(fallback.mesh.triangles[0].initU, 2.0);
+    QCOMPARE(fallback.mesh.triangles[0].initV, 3.0);
+    QCOMPARE(fallback.mesh.triangles[1].initU, 0.0);
+}
+
+void TestInpMeshReader::initialVelocity_badRowsAreErrors_data()
+{
+    QTest::addColumn<QString>("row");
+    QTest::newRow("missing v") << QStringLiteral("0 1.0");
+    QTest::newRow("text u") << QStringLiteral("0 fast 1.0");
+    QTest::newRow("nan v") << QStringLiteral("0 1.0 nan");
+    QTest::newRow("negative cell") << QStringLiteral("-1 1.0 1.0");
+    QTest::newRow("star cell") << QStringLiteral("* 1.0 1.0");
+}
+
+void TestInpMeshReader::initialVelocity_badRowsAreErrors()
+{
+    QFETCH(QString, row);
+    const QString p = writeFixture(QStringLiteral("velocity_bad.inp"),
+                                   baseMesh() + QStringLiteral("[2D_INITIAL_VELOCITY]\n") + row +
+                                       QStringLiteral("\n"));
+    const mesh::InpMeshReadResult r = mesh::InpMeshReader::read(p);
+    QVERIFY2(r.errorMsg.contains(QStringLiteral("[2D_INITIAL_VELOCITY]")), qPrintable(r.errorMsg));
 }
 
 QTEST_MAIN(TestInpMeshReader)

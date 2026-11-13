@@ -67,6 +67,14 @@ bool applyCellParam(SWMM2DMeshLayer *layer, int tri, const QByteArray &key, doub
         return layer->applyMeshTriangleInitDepth(tri, value);
     if (key == "initHgl")
         return layer->applyMeshTriangleInitHgl(tri, value);
+    if (key == "initU" || key == "initV") {
+        // One component at a time; the other keeps its current value.
+        if (tri < 0 || tri >= layer->mesh().triangles.size())
+            return false;
+        const mesh::MeshTriangle &t = layer->mesh().triangles[tri];
+        return key == "initU" ? layer->applyMeshTriangleInitVelocity(tri, value, t.initV)
+                              : layer->applyMeshTriangleInitVelocity(tri, t.initU, value);
+    }
     if (key.startsWith("infil.")) {
         // Single-parameter write into the cell's infiltration row. The row is
         // read back RESOLVED (override > tag > '*'), the one field is

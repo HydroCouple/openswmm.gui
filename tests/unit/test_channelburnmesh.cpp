@@ -42,6 +42,8 @@ static MeshResult grid(int n = 20, double h = 2)
             t.tag = "soil";
             t.mannings = 0.04;
             t.initDepth = 0.2;
+            t.initU = 0.5;
+            t.initV = -0.25;
             m.triangles.append(t);
             t.v1 = c;
             t.v2 = d;
@@ -191,6 +193,17 @@ TEST(ChannelBurnMesh, ChannelQuadsInheritRoughnessWhenTransectHasNone)
     ASSERT_GT(result.mesh.quadCount(), 0);
     for (const auto &cell : result.mesh.triangles)
         EXPECT_DOUBLE_EQ(cell.mannings, 0.04);
+}
+
+TEST(ChannelBurnMesh, CellsKeepTheInitialVelocityOfTheCellTheyReplace)
+{
+    auto result = burnChannelsIntoMesh(grid(), channel());
+    ASSERT_TRUE(result.ok) << result.error.toStdString();
+    ASSERT_GT(result.mesh.quadCount(), 0);
+    for (const auto &cell : result.mesh.triangles) {
+        EXPECT_DOUBLE_EQ(cell.initU, 0.5);
+        EXPECT_DOUBLE_EQ(cell.initV, -0.25);
+    }
 }
 
 TEST(ChannelBurnMesh, CancellationDuringFinalChecksCannotReturnSuccess)

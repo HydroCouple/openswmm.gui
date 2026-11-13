@@ -248,6 +248,9 @@ TEST(MeshEngineSync, CellCouplingRowsPersistThroughEngine)
     meshState.cellCouplings.append({sharedTri, QStringLiteral("OUT1"), 0.65, 2.0});
     // An initial water-surface elevation prescribed on one cell only.
     meshState.triangles[sharedTri].initHgl = 12.345;
+    // An initial velocity (m/s) on the same cell only.
+    meshState.triangles[sharedTri].initU = 0.375;
+    meshState.triangles[sharedTri].initV = -1.0 / 3.0;
 
     // OPENED, not INITIALIZED — the state the GUI saves from.
     SWMM_Engine e = swmm_engine_create();
@@ -256,9 +259,21 @@ TEST(MeshEngineSync, CellCouplingRowsPersistThroughEngine)
                                "mesh_sync_cellcoupling.out", nullptr),
               0);
 
+    // A velocity the engine holds but the layer does not (the layer has the cell at rest) must
+    // be cleared by the push, as a velocity the user zeroed would be.
+    ASSERT_EQ(swmm_2d_set_triangle_init_velocity(e, vaultTri, 9.0, 9.0), 0);
+
     QStringList warnings;
     ASSERT_TRUE(mesh::pushMeshEditsToEngine(e, meshState, bcs, &warnings));
     EXPECT_TRUE(warnings.isEmpty()) << warnings.join("; ").toStdString();
+
+    // The initial velocity reached the engine; every other cell is at rest.
+    for (int t = 0; t < meshState.triangles.size(); ++t) {
+        double u = -99.0, v = -99.0;
+        ASSERT_EQ(swmm_2d_triangle_get_init_velocity(e, t, &u, &v), 0);
+        EXPECT_DOUBLE_EQ(u, t == sharedTri ? 0.375 : 0.0) << "cell " << t;
+        EXPECT_DOUBLE_EQ(v, t == sharedTri ? -1.0 / 3.0 : 0.0) << "cell " << t;
+    }
 
     int engineRows = -1;
     ASSERT_EQ(swmm_2d_triangle_coupling_rows(e, &engineRows), 0);
@@ -283,6 +298,11 @@ TEST(MeshEngineSync, CellCouplingRowsPersistThroughEngine)
     const mesh::InpMeshReadResult back = mesh::InpMeshReader::read(outPath);
     ASSERT_TRUE(back.hasMesh) << back.errorMsg.toStdString();
     ASSERT_EQ(back.mesh.cellCouplings.size(), 3);
+    // The engine's [2D_INITIAL_VELOCITY] rows read back into the layer-side mesh, exactly.
+    for (int t = 0; t < back.mesh.triangles.size(); ++t) {
+        EXPECT_EQ(back.mesh.triangles[t].initU, t == sharedTri ? 0.375 : 0.0) << "cell " << t;
+        EXPECT_EQ(back.mesh.triangles[t].initV, t == sharedTri ? -1.0 / 3.0 : 0.0) << "cell " << t;
+    }
 #ifdef SWMM_2D_HAS_INIT_HGL
     // ...and through the engine's writer back into the layer-side reader.
     for (int t = 0; t < back.mesh.triangles.size(); ++t) {

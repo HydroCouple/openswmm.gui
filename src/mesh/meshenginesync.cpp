@@ -232,6 +232,8 @@ QString validateMeshSaveData(const MeshResult &mesh, const QVector<MeshEdgeBC> &
             return cellError(i, tr("initial depth must be finite and nonnegative, or unset"));
         if (std::isinf(c.initHgl))
             return cellError(i, tr("initial HGL must be finite, or unset"));
+        if (!std::isfinite(c.initU) || !std::isfinite(c.initV))
+            return cellError(i, tr("initial velocity must be finite"));
         for (int e = 0; e < count; ++e) {
             const auto &b = bcs[edgeSlot(i, e)];
             QString reason;
@@ -447,6 +449,13 @@ bool pushMeshEditsToEngine(SWMM_Engine engine, const MeshResult &mesh,
                     "cell initial HGL", t))
                 return false;
 #endif
+            // Initial velocity is m/s in the file and the engine whatever the project units,
+            // so it is pushed unscaled. Always pushed: 0, 0 clears a velocity the engine still
+            // holds from the file it loaded (and allocates nothing while every cell is at rest).
+            if (!accepted(swmm_2d_set_triangle_init_velocity(engine, t, mesh.triangles[t].initU,
+                                                             mesh.triangles[t].initV),
+                          "cell initial velocity", t))
+                return false;
             if (!accepted(
                     swmm_2d_set_triangle_tag(engine, t, mesh.triangles[t].tag.toUtf8().constData()),
                     "cell tag", t))
