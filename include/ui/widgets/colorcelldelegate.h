@@ -19,8 +19,40 @@
 
 #include <QStyledItemDelegate>
 
+class QColor;
+class QStandardItem;
+
 namespace openswmmvis::ui
 {
+
+/**
+ * @brief Text a screen reader announces for a colour swatch cell (A-05).
+ * @param[in] color Swatch colour.
+ * @return "Colour #rrggbb", with ", N% opaque" appended for a translucent colour; empty for an
+ *   invalid colour.
+ */
+[[nodiscard]] QString colorCellAccessibleText(const QColor &color);
+
+/**
+ * @brief Write a swatch colour and its accessible text into one cell as a single change.
+ * @details Every swatch write goes through here so the text never goes stale. Both roles are
+ *   written by one setItemData(), so a QStandardItemModel reports one itemChanged and a panel
+ *   that commits on itemChanged commits once.
+ * @param[in,out] model Required model owning \p index.
+ * @param[in] index Target cell.
+ * @param[in] color Colour stored as-is in Qt::BackgroundRole; Qt::AccessibleTextRole gets
+ *   colorCellAccessibleText() (removed for an invalid colour).
+ * @return The model's setItemData() result.
+ */
+bool setColorCell(QAbstractItemModel *model, const QModelIndex &index, const QColor &color);
+
+/**
+ * @brief QStandardItem form of setColorCell(), for rows built before they are inserted.
+ * @param[in,out] item Required item; when it already belongs to a model the write goes through
+ *   that model as one change.
+ * @param[in] color Swatch colour.
+ */
+void setColorCell(QStandardItem *item, const QColor &color);
 
 class ColorCellDelegate : public QStyledItemDelegate
 {

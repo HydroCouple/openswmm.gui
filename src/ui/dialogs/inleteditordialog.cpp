@@ -8,6 +8,7 @@
  */
 
 #include "ui/dialogs/inleteditordialog.h"
+#include "ui/util/usernotice.h"
 #include "ui/editors/dataobjectdraftsession.h"
 #include "ui/editors/paramsdraftedit.h"
 #include "ui/models/draftmarkproxymodel.h"
@@ -768,8 +769,7 @@ void InletEditorDialog::commitDesign_(const InletDesignData &before, const Inlet
 
     QString reason;
     if (!validateDesign(after, curves, &reason)) {
-        if (m_status)
-            m_status->showMessage(reason, 5000);
+        notifyUser(this, NoticeSeverity::Warning, reason, m_status, 5000);
         // Re-sync the bag so the tree shows the design the draft actually holds.
         if (m_propertyBag)
             m_propertyBag->bind(m_edited.data());
@@ -802,8 +802,7 @@ void InletEditorDialog::onNameEdited_()
     }
     // Feedback C10 — refuse names that cannot survive an .inp round trip.
     if (const QString why = openswmmvis::swmmIdentifierProblem(newName); !why.isEmpty()) {
-        if (m_status)
-            m_status->showMessage(why, 6000);
+        notifyUser(this, NoticeSeverity::Warning, why, m_status, 6000);
         const QSignalBlocker b(m_nameEdit);
         m_nameEdit->setText(m_current->name());
         return;

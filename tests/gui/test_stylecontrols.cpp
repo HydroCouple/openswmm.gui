@@ -1233,6 +1233,67 @@ private slots:
         QCOMPARE(opened, 2);
     }
 
+    /*! A-05: a colour swatch is announced as its colour. The text is written with the colour
+     *  when a classification table is built and when the class colour picker changes it, and it
+     *  is what the table's accessible cell reports to a screen reader. */
+    void colourCellsExposeTheColourAsAccessibleText()
+    {
+        QCOMPARE(colorCellAccessibleText(QColor(0x1f, 0x77, 0xb4)),
+                 QStringLiteral("Colour #1f77b4"));
+        QCOMPARE(colorCellAccessibleText(QColor(255, 0, 0, 128)),
+                 QStringLiteral("Colour #ff0000, 50% opaque"));
+        QVERIFY(colorCellAccessibleText(QColor()).isEmpty());
+
+        TestClassificationBinding binding;
+        binding.value.setMethod(OpenSWMM::Render::BinMethod::Manual);
+        binding.value.setManualBreaks({3.0, 7.0});
+        ClassificationEditor editor(&binding);
+        auto *table = editor.findChild<QTableView *>();
+        QVERIFY(table);
+        QAbstractItemModel *model = table->model();
+        QVERIFY(model->rowCount() > 0);
+        for (int r = 0; r < model->rowCount(); ++r) {
+            const QModelIndex cell = model->index(r, 2);
+            const QColor c = cell.data(Qt::BackgroundRole).value<QColor>();
+            QVERIFY(c.isValid());
+            QCOMPARE(cell.data(Qt::AccessibleTextRole).toString(), colorCellAccessibleText(c));
+        }
+        QAccessibleInterface *view = QAccessible::queryAccessibleInterface(table);
+        QVERIFY(view && view->tableInterface());
+        QAccessibleInterface *first = view->tableInterface()->cellAt(0, 2);
+        QVERIFY(first);
+        QCOMPARE(first->text(QAccessible::Name),
+                 model->index(0, 2).data(Qt::AccessibleTextRole).toString());
+
+        // The shared class colour picker writes the text with the colour it picks.
+        QWidget host;
+        auto *swatches = new QStandardItemModel(1, 1, &host);
+        setColorCell(swatches, swatches->index(0, 0), QColor(Qt::blue));
+        QCOMPARE(swatches->index(0, 0).data(Qt::AccessibleTextRole).toString(),
+                 QStringLiteral("Colour #0000ff"));
+        auto *swatchView = new QTableView(&host);
+        swatchView->setModel(swatches);
+        swatchView->setItemDelegate(new ColorCellDelegate(swatchView));
+        host.resize(240, 140);
+        host.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&host));
+        QTimer poll;
+        connect(&poll, &QTimer::timeout, this, [] {
+            if (auto *picker = qobject_cast<QColorDialog *>(QApplication::activeModalWidget())) {
+                picker->setCurrentColor(QColor(Qt::red));
+                picker->accept();
+            }
+        });
+        poll.start(10);
+        const QPoint centre = swatchView->visualRect(swatches->index(0, 0)).center();
+        // The view hands a double click to the delegate only after a press on the same cell.
+        QTest::mouseClick(swatchView->viewport(), Qt::LeftButton, {}, centre);
+        QTest::mouseDClick(swatchView->viewport(), Qt::LeftButton, {}, centre);
+        QTest::mouseRelease(swatchView->viewport(), Qt::LeftButton, {}, centre);
+        QTRY_COMPARE(swatches->index(0, 0).data(Qt::AccessibleTextRole).toString(),
+                     QStringLiteral("Colour #ff0000"));
+    }
+
     /**
      *
      * @brief Require three distinct nonempty label-color accessible names including halo and

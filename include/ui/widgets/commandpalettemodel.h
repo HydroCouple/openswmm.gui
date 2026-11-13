@@ -44,6 +44,7 @@ public:
         ShortcutRole = Qt::UserRole + 1,
         CategoryRole,
         EnabledRole,
+        DisabledReasonRole, ///< Why a disabled command is unavailable; empty when it is enabled.
     };
 
     /**
@@ -80,13 +81,16 @@ public:
     /**
      * @brief Read cached command/category text and current action icon/shortcut/enabled state.
      * @param[in] index Existing nonnegative visible row from this model.
-     * @param[in] role DisplayRole, DecorationRole, ShortcutRole (native text), CategoryRole or EnabledRole.
+     * @param[in] role DisplayRole, DecorationRole, ShortcutRole (native text), CategoryRole,
+     *   EnabledRole, or DisabledReasonRole / ToolTipRole (the registry's disabled reason while the
+     *   action is disabled; empty otherwise).
      * @return Requested value, or invalid QVariant for an invalid row/unsupported role. Action pointers must still be alive.
      */
     QVariant data(const QModelIndex &index, int role) const override;
 
 private:
     struct Row {
+        QString id; // registry id, for the disabled reason
         QAction *action;
         QString cleanText; // ampersand-stripped
         QString category;

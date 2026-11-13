@@ -27,6 +27,7 @@
 #include "map/swmm2dmeshqsgrenderer.h"
 #include "map/swmm2dresultsqsgrenderer.h"
 #include "render/renderers/categorizedrenderer.h"
+#include "render/renderers/rulebasedrenderer.h"
 #include "render/markersymbollayer.h"
 #include "swmmvis.h"
 #include "swmmvisprojectwindow.h"
@@ -46,6 +47,7 @@
 #include "ui/toolbars/mesheditingtoolbar.h"
 #include "ui/models/userflagsmodel.h"
 #include "ui/widgets/labelconfigeditor.h"
+#include "ui/widgets/colorcelldelegate.h"
 #include "ui/dialogs/rulesymbologytab.h"
 #include "ui/dialogs/statusreportdialog.h"
 #include "render/rulelist.h"
@@ -104,6 +106,7 @@
 #include <QTimer>
 #include <QScopeGuard>
 #include <QTableView>
+#include <QColorDialog>
 #include <QChart>
 #include <QChartView>
 #include <QAction>
@@ -1388,6 +1391,79 @@ private slots:
         QVERIFY(OpenSWMM::Render::RuleListIO::load(path, results.ruleList()).ok);
         QCOMPARE(results.kindRenderer(SWMMModelLayer::CatConduits)->rendererId(),
                  QString("categorized"));
+    }
+    /** @brief A-05: the categorized and rule-based colour columns carry each swatch's colour as accessible text. */
+    void rendererColourColumnsExposeAccessibleText()
+    {
+        SWMMModelLayer layer(fixture());
+        QList<QString> warnings, errors;
+        QVERIFY(layer.loadModel(warnings, errors));
+        // Pick red in the panel's colour dialog: the swatch's text must follow the pick.
+        const auto pickRedInFirstRow = [this](IRendererPanel *panel) {
+            auto *view = panel->findChild<QTableView *>();
+            if (!view)
+                return false;
+            panel->resize(480, 360);
+            panel->show();
+            if (!QTest::qWaitForWindowExposed(panel))
+                return false;
+            QTimer poll;
+            connect(&poll, &QTimer::timeout, this, [] {
+                if (auto *picker = qobject_cast<QColorDialog *>(QApplication::activeModalWidget())) {
+                    picker->setCurrentColor(QColor(Qt::red));
+                    picker->accept();
+                }
+            });
+            poll.start(10);
+            const QPoint centre = view->visualRect(view->model()->index(0, 2)).center();
+            // The view hands a double click to the delegate only after a press on the cell.
+            QTest::mouseClick(view->viewport(), Qt::LeftButton, {}, centre);
+            QTest::mouseDClick(view->viewport(), Qt::LeftButton, {}, centre);
+            QTest::mouseRelease(view->viewport(), Qt::LeftButton, {}, centre);
+            return QTest::qWaitFor([view] {
+                return view->model()->index(0, 2).data(Qt::AccessibleTextRole).toString() ==
+                       QStringLiteral("Colour #ff0000");
+            }, 3000);
+        };
+        const auto colourColumnReadable = [](IRendererPanel *panel) {
+            auto *view = panel->findChild<QTableView *>();
+            if (!view || !view->model() || view->model()->rowCount() < 2)
+                return false;
+            for (int r = 0; r < view->model()->rowCount(); ++r) {
+                const QModelIndex cell = view->model()->index(r, 2);
+                const QColor c = cell.data(Qt::BackgroundRole).value<QColor>();
+                if (!c.isValid() ||
+                    cell.data(Qt::AccessibleTextRole).toString() != colorCellAccessibleText(c))
+                    return false;
+            }
+            return true;
+        };
+
+        auto categorized = std::make_unique<OpenSWMM::Render::CategorizedRenderer>();
+        categorized->setClassifyAttribute("maxDepth");
+        // No symbol colours: the panel gives each row its own swatch colour.
+        categorized->addCategory({QStringLiteral("1"), {}, {}});
+        categorized->addCategory({QStringLiteral("2"), {}, {}});
+        layer.setKindRenderer(SWMMModelLayer::CatJunctions, std::move(categorized));
+        const auto *catEntry = RendererPanelRegistry::instance().find("categorized");
+        QVERIFY(catEntry);
+        std::unique_ptr<IRendererPanel> catPanel(catEntry->factory(
+            RendererPanelContext::resolve(&layer, SWMMModelLayer::CatJunctions), nullptr));
+        QVERIFY(catPanel);
+        QVERIFY(colourColumnReadable(catPanel.get()));
+        QVERIFY(pickRedInFirstRow(catPanel.get()));
+
+        auto rules = std::make_unique<OpenSWMM::Render::RuleBasedRenderer>();
+        rules->addRule({QStringLiteral("maxDepth > 1"), QStringLiteral("deep"), {}});
+        rules->addRule({QString(), QStringLiteral("other"), {}});
+        layer.setKindRenderer(SWMMModelLayer::CatJunctions, std::move(rules));
+        const auto *ruleEntry = RendererPanelRegistry::instance().find("rule");
+        QVERIFY(ruleEntry);
+        std::unique_ptr<IRendererPanel> rulePanel(ruleEntry->factory(
+            RendererPanelContext::resolve(&layer, SWMMModelLayer::CatJunctions), nullptr));
+        QVERIFY(rulePanel);
+        QVERIFY(colourColumnReadable(rulePanel.get()));
+        QVERIFY(pickRedInFirstRow(rulePanel.get()));
     }
     /** @brief Verify graduated and categorized panels expose base-symbol controls and graduated size-by-value toggles their enabled state. */
     void classifiedRenderersKeepBaseSymbolControls()

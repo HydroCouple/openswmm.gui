@@ -29,11 +29,16 @@
 
 #include "swmmvis.h"
 #include "ui/actioncatalog.h"
+#include "ui/actionregistry.h"
+#include "ui/util/usernotice.h"
 #include "ui/toolbars/compacttoolbarcontroller.h"
 #include "ui/toolbars/ribbonsplitbutton.h"
 
+#include <QAbstractItemView>
 #include <QAction>
+#include <QApplication>
 #include <QDockWidget>
+#include <QKeySequence>
 #include <QMainWindow>
 #include <QMenu>
 #include <QString>
@@ -89,6 +94,76 @@ private slots:
             delete m_win;
             m_win = nullptr;
         }
+    }
+
+    /*! A-07/A-27: the main window installs its Message Log as the notice sink, so a notice
+     *  from any editor is kept there with its severity. */
+    void noticesReachTheMessageLog()
+    {
+        auto *view = m_win->findChild<QAbstractItemView *>(QStringLiteral("treeViewMessageLogs"));
+        QVERIFY(view && view->model());
+        const int before = view->model()->rowCount();
+        openswmmvis::ui::notifyUser(nullptr, openswmmvis::ui::NoticeSeverity::Warning,
+                                    QStringLiteral("A-27 probe notice"));
+        QCOMPARE(view->model()->rowCount(), before + 1);
+        QCOMPARE(view->model()->index(before, 1).data().toString(), QStringLiteral("Warning"));
+        QCOMPARE(view->model()->index(before, 2).data().toString(),
+                 QStringLiteral("A-27 probe notice"));
+    }
+
+    /*! A-13: a panel's shortcut moves keyboard focus into the panel when it is open and opens
+     *  it when it is closed; it never hides it. The shortcuts moved from the View > Panels
+     *  toggles (which keep hiding a panel, with no default key) to "Go to" commands. */
+    void panelShortcutsFocusInsteadOfHiding()
+    {
+        const QList<QPair<QString, QString>> keys = {
+            {"layers", "Ctrl+Alt+1"},       {"objectBrowser", "Ctrl+Alt+2"},
+            {"properties", "Ctrl+Alt+3"},   {"attributeTable", "Ctrl+Alt+4"},
+            {"legend", "Ctrl+Alt+5"},       {"simulationStatus", "Ctrl+Alt+6"},
+            {"messageLogs", "Ctrl+Alt+7"},  {"sectionView", "Ctrl+Alt+9"},
+            {"features", "Ctrl+Alt+0"}};
+        const auto catalogShortcut = [](const QString &id) -> QString {
+            for (const auto &e : openswmmvis::ui::kActionCatalog)
+                if (QString::fromLatin1(e.id) == id)
+                    return QString::fromLatin1(e.defaultShortcut);
+            return QStringLiteral("<missing>");
+        };
+        auto *registry = openswmmvis::ui::ActionRegistry::instance();
+        auto *goMenu = m_win->findChild<QMenu *>(QStringLiteral("menuViewGoToPanel"));
+        QVERIFY2(goMenu, "View > Panels has no Go to Panel menu");
+        for (const auto &[panel, key] : keys) {
+            const QString focusId = QStringLiteral("view.focus.") + panel;
+            const QString toggleId = QStringLiteral("view.dock.") + panel;
+            QCOMPARE(catalogShortcut(focusId), key);
+            QCOMPARE(catalogShortcut(toggleId), QString());
+            QAction *go = registry->action(focusId);
+            QVERIFY2(go, qPrintable(focusId));
+            QCOMPARE(go->shortcut(), QKeySequence(key));
+            QVERIFY2(goMenu->actions().contains(go), qPrintable(focusId));
+            QVERIFY2(registry->action(toggleId) && registry->action(toggleId)->shortcut().isEmpty(),
+                     qPrintable(toggleId));
+        }
+
+        auto *dock = m_win->findChild<QDockWidget *>(QStringLiteral("dockWidgetFeatures"));
+        QVERIFY(dock);
+        QAction *go = registry->action(QStringLiteral("view.focus.features"));
+        m_win->show();
+        m_win->activateWindow();
+        QVERIFY(QTest::qWaitForWindowActive(m_win));
+        const auto focusInDock = [dock] {
+            QWidget *focus = QApplication::focusWidget();
+            return focus && dock->isAncestorOf(focus);
+        };
+        dock->show();
+        go->trigger();
+        QVERIFY(dock->isVisible());
+        QTRY_VERIFY(focusInDock());
+        go->trigger(); // pressed again on an open, focused panel: it stays open
+        QVERIFY(dock->isVisible());
+        dock->hide();
+        go->trigger(); // on a closed panel: it opens with the focus in it
+        QVERIFY(dock->isVisible());
+        QTRY_VERIFY(focusInDock());
     }
 
     /*! 1 — the dock exists, is named (so saveState/restoreState keep it) and

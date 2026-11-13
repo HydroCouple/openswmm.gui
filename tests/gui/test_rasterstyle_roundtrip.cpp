@@ -34,6 +34,7 @@
 #include "ui/dialogs/layerstyledialog.h"
 #include "ui/dialogs/rastersymbologypanel.h"
 #include "ui/widgets/classificationeditor.h"
+#include "ui/widgets/colorcelldelegate.h"
 
 #include <gdal_priv.h>
 #include <ogr_spatialref.h>
@@ -618,6 +619,23 @@ private slots:
      * restoration of the opening full style snapshot.
      *
      */
+    /*! A-05: the paletted raster's colour column carries each class colour as accessible text. */
+    void palettedColourColumnExposesAccessibleText()
+    {
+        GISRasterLayer layer(fixture("landuse_ct.tif"));
+        RasterSymbologyPanel panel(&layer);
+        auto *table = panel.findChild<QTableView *>(QStringLiteral("rasterPalettedTable"));
+        QVERIFY(table && table->model());
+        QCOMPARE(table->model()->rowCount(), 4);
+        for (int r = 0; r < table->model()->rowCount(); ++r) {
+            const QModelIndex cell = table->model()->index(r, 2);
+            const QColor c = cell.data(Qt::BackgroundRole).value<QColor>();
+            QVERIFY(c.isValid());
+            QCOMPARE(cell.data(Qt::AccessibleTextRole).toString(),
+                     openswmmvis::ui::colorCellAccessibleText(c));
+        }
+    }
+
     void dialog_mountsPanelSwitchesRendererAndCancels()
     {
         GISRasterLayer layer(fixture("gradient_f32.tif"));

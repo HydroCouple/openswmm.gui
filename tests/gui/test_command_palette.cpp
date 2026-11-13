@@ -14,7 +14,9 @@
 
 #include <QtTest/QtTest>
 
+#include <QAccessible>
 #include <QAction>
+#include <QLabel>
 #include <QLineEdit>
 #include <QListView>
 #include <QMainWindow>
@@ -41,6 +43,7 @@ private slots:
     void enterTriggersFilteredAction();
     void escapeCloses();
     void disabledActionNotTriggerable();
+    void disabledReasonIsShownAndAnnounced();
 
 private:
     QMainWindow *mWindow = nullptr;
@@ -163,6 +166,77 @@ void TestCommandPalette::disabledActionNotTriggerable()
     QTest::keyClick(palette.filterEdit(), Qt::Key_Return);
     QCOMPARE(spy.count(), 0);     // grayed row, Enter refuses
     QVERIFY(!palette.isHidden()); // palette stays up for another pick
+}
+
+namespace
+{
+QStringList g_announcements;
+
+/*! Accessibility update handler recording what would be announced to a screen reader. */
+void recordAnnouncement(QAccessibleEvent *event)
+{
+    if (event->type() == QAccessible::Announcement)
+        g_announcements.append(static_cast<QAccessibleAnnouncementEvent *>(event)->message());
+}
+} // namespace
+
+/*! A-15: the palette says why a command is unavailable. The highlighted disabled command's
+ *  reason shows under the list, its tooltip carries it, and Enter on it keeps the palette open
+ *  and announces the reason instead of doing nothing. */
+void TestCommandPalette::disabledReasonIsShownAndAnnounced()
+{
+    auto *registry = ActionRegistry::instance();
+    const QString reason = QStringLiteral("Open a model first.");
+    registry->setDisabledReason(QStringLiteral("file.saveAs"), reason);
+
+    CommandPaletteModel model;
+    model.reload();
+    model.setFilterPattern(QStringLiteral("save as"));
+    QVERIFY(model.rowCount() >= 1);
+    QCOMPARE(model.actionAt(model.index(0, 0)), mSaveAs);
+    QCOMPARE(model.data(model.index(0, 0), CommandPaletteModel::DisabledReasonRole).toString(),
+             reason);
+    QCOMPARE(model.data(model.index(0, 0), Qt::ToolTipRole).toString(), reason);
+    model.setFilterPattern(QStringLiteral("execute"));
+    QCOMPARE(model.actionAt(model.index(0, 0)), mRun);
+    QVERIFY(model.data(model.index(0, 0), CommandPaletteModel::DisabledReasonRole)
+                .toString()
+                .isEmpty());
+
+    CommandPalette palette(mWindow);
+    palette.popup();
+    QVERIFY(QTest::qWaitForWindowExposed(&palette));
+    auto *status = palette.findChild<QLabel *>(QStringLiteral("commandPaletteStatus"));
+    QVERIFY(status);
+    QVERIFY(!status->accessibleName().isEmpty());
+
+    // Highlighting the disabled command says why, before anything is pressed.
+    QTest::keyClicks(palette.filterEdit(), QStringLiteral("save as"));
+    QVERIFY(status->isVisible());
+    QVERIFY2(status->text().contains(reason), qPrintable(status->text()));
+
+    // Enter on it is refused out loud.
+    g_announcements.clear();
+    const auto previous = QAccessible::installUpdateHandler(recordAnnouncement);
+    QSignalSpy spy(mSaveAs, &QAction::triggered);
+    QTest::keyClick(palette.filterEdit(), Qt::Key_Return);
+    QAccessible::installUpdateHandler(previous);
+    QCOMPARE(spy.count(), 0);
+    QVERIFY(!palette.isHidden());
+    QCOMPARE(g_announcements.size(), 1);
+    QVERIFY2(g_announcements.first().contains(reason), qPrintable(g_announcements.first()));
+
+    // An available command clears the line.
+    palette.filterEdit()->clear();
+    QTest::keyClicks(palette.filterEdit(), QStringLiteral("execute"));
+    QVERIFY(status->isHidden());
+
+    // A disabled command with no recorded reason still says it is unavailable.
+    registry->setDisabledReason(QStringLiteral("file.saveAs"), QString());
+    palette.filterEdit()->clear();
+    QTest::keyClicks(palette.filterEdit(), QStringLiteral("save as"));
+    QVERIFY(status->isVisible());
+    QVERIFY(!status->text().isEmpty());
 }
 
 QTEST_MAIN(TestCommandPalette)

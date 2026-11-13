@@ -394,6 +394,10 @@ button in the Home tab's **Window** group, which opens the same list, including
 **Time Series**, **1D Profiles** and **2D Profiles**. Hiding a plot panel retains its plot tabs so they are available
 when you show it again. **Layer Styling** has its own View-menu entry and shortcut.
 
+A panel's shortcut belongs to its **View → Panels → Go to Panel ▸** command: it opens the
+panel if it is closed and moves the keyboard focus into it, and pressing it again leaves the
+panel open. Hide a panel with its toggle in **View → Panels**, which has no default shortcut.
+
 | Panel | Shortcut | What it shows | Chapter |
 |---|---|---|---|
 | **Layers** | `Ctrl+Alt+1` | The layer tree — ordered; groupable; per-layer visibility and opacity; filter box. Clicking a SWMM kind row focuses that category in the Object Browser | \ref manual_layers |

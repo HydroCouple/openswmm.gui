@@ -30,6 +30,7 @@
 #include "render/rule.h"
 #include "render/symbolstyle.h"
 #include "ui/theme/iconfactory.h"
+#include "ui/widgets/colorcelldelegate.h"
 #include "ui/util/tableclipboard.h"
 
 #include <QColor>
@@ -121,7 +122,7 @@ public:
                                    QObject::tr("Rule colour"), QColorDialog::ShowAlphaChannel);
         if (!picked.isValid())
             return true;
-        m->setData(idx, picked, Qt::BackgroundRole);
+        setColorCell(m, idx, picked);
         return true;
     }
 };
@@ -402,7 +403,7 @@ private:
                 const double hue = std::fmod(idx * 0.137, 1.0);
                 sw = QColor::fromHsvF(hue, 0.55, 0.85);
             }
-            colorItem->setData(sw, Qt::BackgroundRole);
+            setColorCell(colorItem, sw);
             colorItem->setEditable(true);
             m_model->appendRow({exprItem, labelItem, colorItem});
             ++idx;

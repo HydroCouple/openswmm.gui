@@ -90,6 +90,7 @@
 #include <cpl_conv.h> // CPLGetLastErrorMsg — GDAL open-failure detail
 
 #include "swmmvis.h"
+#include "ui/util/usernotice.h"
 #include "plugins/extensionstateregistry.h"
 #include "plugins/extensionactivityui.h"
 #include "plugins/extensionmanager.h"
@@ -418,6 +419,29 @@ public:
     }
 };
 
+/*! A-13: open a dock panel if it is closed, bring it to the front of its tab group and move
+ *  the keyboard focus to its first focusable control. A panel shortcut never hides its panel.
+ * @param[in,out] dock Required live dock of the main window. */
+void focusDockPanel(QDockWidget *dock)
+{
+    dock->show();
+    dock->raise();
+    if (dock->isFloating())
+        dock->activateWindow();
+    QWidget *contents = dock->widget();
+    if (!contents)
+        return;
+    const auto focusable = [dock](QWidget *w) {
+        return (w->focusPolicy() & Qt::TabFocus) && w->isEnabled() && w->isVisibleTo(dock);
+    };
+    QWidget *target = focusable(contents) ? contents : nullptr;
+    for (QWidget *w = contents->nextInFocusChain(); !target && w && w != contents;
+         w = w->nextInFocusChain())
+        if (contents->isAncestorOf(w) && focusable(w))
+            target = w;
+    (target ? target : contents)->setFocus(Qt::ShortcutFocusReason);
+}
+
 } // namespace
 
 SWMMVis::SWMMVis(QWidget *parent) : QMainWindow(parent), ui(new Ui::SWMMVis)
@@ -555,6 +579,7 @@ SWMMVis::SWMMVis(QWidget *parent) : QMainWindow(parent), ui(new Ui::SWMMVis)
 
 SWMMVis::~SWMMVis()
 {
+    openswmmvis::ui::setNoticeSink({}); // the Message Log goes with this window
     mRunControllerShuttingDown = true;
     openswmmvis::ExtensionManager::instance()->shutdown();
     // Keep the controller and projects alive until the native workers publish
@@ -4904,6 +4929,15 @@ void SWMMVis::initializeMessageLogDockWidget()
     mLogMessagesModel = new QStandardItemModel(0, 3, this);
     mLogMessagesModel->setHorizontalHeaderLabels({"Time", "Type", "Message"});
     ui->treeViewMessageLogs->setModel(mLogMessagesModel);
+    // A-07/A-27: every notifyUser() notice (editor rejections and failures) is kept here too,
+    // so it does not vanish with the status message that showed it.
+    openswmmvis::ui::setNoticeSink(
+        [this](openswmmvis::ui::NoticeSeverity severity, const QString &text) {
+            using S = openswmmvis::ui::NoticeSeverity;
+            onLogMessage(text, severity == S::Error     ? OpenSWMMVisLogMessage::Error
+                               : severity == S::Warning ? OpenSWMMVisLogMessage::Warning
+                                                        : OpenSWMMVisLogMessage::Information);
+        });
 
     // 2026-06-04 — right-click copy (selected rows or the entire log).
     // The view's contextMenuPolicy is Qt::ActionsContextMenu (set in
@@ -5401,32 +5435,47 @@ void SWMMVis::initializeMenus()
         struct PanelEntry {
             QDockWidget *dock;
             const char *toggleName;
+            const char *focusName; // the panel's "Go to" command (A-13)
         };
         const PanelEntry panelDocks[] = {
-            {ui->dockWidgetAnalysisToolBox, "actionToggleDockToolbox"},
-            {ui->dockWidgetSWMMLayers, "actionToggleDockLayers"},
+            {ui->dockWidgetAnalysisToolBox, "actionToggleDockToolbox", "actionFocusDockToolbox"},
+            {ui->dockWidgetSWMMLayers, "actionToggleDockLayers", "actionFocusDockLayers"},
             {findChild<QDockWidget *>(QStringLiteral("dockWidgetObjectBrowser")),
-             "actionToggleDockObjectBrowser"},
-            {mPropertiesPanel, "actionToggleDockProperties"},
-            {mSectionViewPanel, "actionToggleDockSectionView"},
+             "actionToggleDockObjectBrowser", "actionFocusDockObjectBrowser"},
+            {mPropertiesPanel, "actionToggleDockProperties", "actionFocusDockProperties"},
+            {mSectionViewPanel, "actionToggleDockSectionView", "actionFocusDockSectionView"},
             {findChild<QDockWidget *>(QStringLiteral("dockWidgetAttributeTable")),
-             "actionToggleDockAttributeTable"},
-            {mFeatureDock, "actionToggleDockFeatures"},
-            {mTimeSeriesDock, "actionToggleDockTimeSeries"},
-            {mProfiles1DDock, "actionToggleDockProfiles1D"},
-            {mProfiles2DDock, "actionToggleDockProfiles2D"},
-            {mTerrainProfilesDock, "actionToggleDockTerrainProfiles"},
-            {mLegendDock, "actionToggleDockLegend"},
-            {ui->dockWidgetSimulationStatus, "actionToggleDockSimulationStatus"},
-            {ui->dockWidgetLogs, "actionToggleDockMessageLogs"},
+             "actionToggleDockAttributeTable", "actionFocusDockAttributeTable"},
+            {mFeatureDock, "actionToggleDockFeatures", "actionFocusDockFeatures"},
+            {mTimeSeriesDock, "actionToggleDockTimeSeries", "actionFocusDockTimeSeries"},
+            {mProfiles1DDock, "actionToggleDockProfiles1D", "actionFocusDockProfiles1D"},
+            {mProfiles2DDock, "actionToggleDockProfiles2D", "actionFocusDockProfiles2D"},
+            {mTerrainProfilesDock, "actionToggleDockTerrainProfiles", "actionFocusDockTerrainProfiles"},
+            {mLegendDock, "actionToggleDockLegend", "actionFocusDockLegend"},
+            {ui->dockWidgetSimulationStatus, "actionToggleDockSimulationStatus", "actionFocusDockSimulationStatus"},
+            {ui->dockWidgetLogs, "actionToggleDockMessageLogs", "actionFocusDockMessageLogs"},
         };
+        auto *goMenu = new QMenu(tr("&Go to Panel"), panelsMenu);
+        goMenu->setObjectName(QStringLiteral("menuViewGoToPanel"));
         for (const PanelEntry &e : panelDocks) {
             if (!e.dock)
                 continue;
             QAction *toggle = e.dock->toggleViewAction();
             toggle->setObjectName(QString::fromLatin1(e.toggleName));
             panelsMenu->addAction(toggle);
+            // The panel's shortcut lives here (catalog view.focus.*): it opens the panel if
+            // needed and moves the focus into it, so pressing it never hides the panel.
+            QString title = e.dock->windowTitle();
+            title.remove(QLatin1Char('&'));
+            QAction *go = goMenu->addAction(tr("Go to %1").arg(title));
+            go->setObjectName(QString::fromLatin1(e.focusName));
+            connect(go, &QAction::triggered, this, [dock = QPointer<QDockWidget>(e.dock)] {
+                if (dock)
+                    focusDockPanel(dock);
+            });
         }
+        panelsMenu->addSeparator();
+        panelsMenu->addMenu(goMenu);
         ui->menuView->insertMenu(ui->actionLayerStylingDock, panelsMenu);
         ui->menuView->insertSeparator(ui->actionLayerStylingDock);
     }

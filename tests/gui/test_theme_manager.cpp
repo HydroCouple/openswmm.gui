@@ -15,8 +15,16 @@
 #include <QtTest/QtTest>
 
 #include <QApplication>
+#include <functional>
+#include <QImage>
+#include <QLineEdit>
+#include <QListWidget>
 #include <QPalette>
 #include <QSignalSpy>
+#include <QStyleFactory>
+#include <QTableWidget>
+#include <QTreeWidget>
+#include <QVBoxLayout>
 
 #include "ui/theme/thememanager.h"
 #include "ui/theme/themetokens.h"
@@ -61,6 +69,7 @@ private slots:
      *
      */
     void modeStringRoundTrip();
+    void focusedItemViewsShowTheFocusRing();
 };
 
 void TestThemeManager::systemModeFallsBackToLightOffscreen()
@@ -120,6 +129,57 @@ void TestThemeManager::modeStringRoundTrip()
              ThemeManager::Mode::Dark);
     // Unknown input degrades to System, never crashes or picks Dark.
     QCOMPARE(ThemeManager::modeFromString(QStringLiteral("Sepia")), ThemeManager::Mode::System);
+}
+
+/*! A-11: with the theme applied, a table, list or tree reached by Tab draws the theme's focus
+ *  ring around its current cell. Fusion alone marks it with a faint fill only. */
+void TestThemeManager::focusedItemViewsShowTheFocusRing()
+{
+    qApp->setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
+    auto *theme = ThemeManager::instance();
+    theme->setMode(ThemeManager::Mode::Light);
+    theme->apply();
+    const QColor ring = theme->colors().focusRing;
+    const auto ringPixels = [ring](const QImage &img) {
+        int n = 0;
+        for (int y = 0; y < img.height(); ++y)
+            for (int x = 0; x < img.width(); ++x) {
+                const QColor c = img.pixelColor(x, y);
+                if (std::abs(c.red() - ring.red()) + std::abs(c.green() - ring.green()) +
+                        std::abs(c.blue() - ring.blue()) < 60)
+                    ++n;
+            }
+        return n;
+    };
+    const QList<std::function<QAbstractItemView *()>> views = {
+        [] { return new QTableWidget(3, 2); },
+        [] {
+            auto *list = new QListWidget;
+            list->addItems({QStringLiteral("a"), QStringLiteral("b")});
+            return list;
+        },
+        [] {
+            auto *tree = new QTreeWidget;
+            tree->addTopLevelItem(new QTreeWidgetItem({QStringLiteral("a")}));
+            return tree;
+        }};
+    for (const auto &make : views) {
+        QWidget window;
+        auto *layout = new QVBoxLayout(&window);
+        auto *before = new QLineEdit(&window);
+        QAbstractItemView *view = make();
+        layout->addWidget(before);
+        layout->addWidget(view);
+        window.resize(260, 200);
+        window.show();
+        window.activateWindow();
+        QVERIFY(QTest::qWaitForWindowActive(&window));
+        before->setFocus();
+        QTest::keyClick(before, Qt::Key_Tab);
+        QTRY_VERIFY(view->hasFocus());
+        const QImage img = view->grab().toImage().convertToFormat(QImage::Format_RGB32);
+        QVERIFY2(ringPixels(img) > 100, view->metaObject()->className());
+    }
 }
 
 QTEST_MAIN(TestThemeManager)

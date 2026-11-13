@@ -73,6 +73,7 @@ void CommandPaletteModel::reload()
             continue;
         const ActionCatalogEntry *entry = registry->catalogEntry(id);
         Row row;
+        row.id = id;
         row.action = act;
         row.cleanText = act->text();
         row.cleanText.remove(QLatin1Char('&'));
@@ -146,6 +147,15 @@ QVariant CommandPaletteModel::data(const QModelIndex &index, int role) const
         return row.category;
     case EnabledRole:
         return row.action->isEnabled();
+    case DisabledReasonRole:
+    case Qt::ToolTipRole: {
+        if (row.action->isEnabled())
+            return {};
+        const QString reason = ActionRegistry::instance()->disabledReason(row.id);
+        if (reason.isEmpty() && role == Qt::ToolTipRole)
+            return {};
+        return reason;
+    }
     default:
         return {};
     }

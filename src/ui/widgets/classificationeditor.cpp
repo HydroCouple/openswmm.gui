@@ -466,7 +466,7 @@ void ClassificationEditor::rebuildTable()
         upperItem->setData(upperItem->text(), Qt::UserRole + 1);
         upperItem->setEditable(i < n - 1); // last upper is the range max (fixed)
         auto *colorItem = new QStandardItem;
-        colorItem->setData(s.colorForClass(i, n), Qt::BackgroundRole);
+        setColorCell(colorItem, s.colorForClass(i, n));
         colorItem->setEditable(true);
         const QString lbl = s.labelOverride(i);
         auto *labelItem = new QStandardItem(lbl.isEmpty() ? tr("Class %1").arg(i + 1) : lbl);

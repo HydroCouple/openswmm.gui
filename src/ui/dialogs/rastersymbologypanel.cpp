@@ -482,7 +482,7 @@ void RasterSymbologyPanel::rebuildPalettedTable()
         value->setData(c.value, Qt::EditRole);
         auto *label = new QStandardItem(c.label);
         auto *color = new QStandardItem;
-        color->setData(c.color, Qt::BackgroundRole);
+        setColorCell(color, c.color);
         color->setEditable(false);
         m_palModel->appendRow({value, label, color});
     }
