@@ -203,8 +203,8 @@ void TwoDPage::buildUi()
 
     // MOMENTUM_EQUATION (engine 2026-09-06): the marcher's momentum closure.
     m_momentum2DCombo = new QComboBox(m_marcherGroup);
-    m_momentum2DCombo->addItem(tr("Local inertial (default)"), QStringLiteral("LOCAL_INERTIAL"));
-    m_momentum2DCombo->addItem(tr("Full shallow-water (HLLC, shock capturing)"),
+    m_momentum2DCombo->addItem(tr("Local inertial"), QStringLiteral("LOCAL_INERTIAL"));
+    m_momentum2DCombo->addItem(tr("Full shallow-water (HLLC, shock capturing; default)"),
                                QStringLiteral("FULL_SWE"));
     m_momentum2DCombo->addItem(tr("Diffusive wave"), QStringLiteral("DIFFUSIVE_WAVE"));
     m_momentum2DCombo->setToolTip(
@@ -1530,7 +1530,7 @@ void TwoDPage::read()
     m_hMoveSpin->setValue(extDouble("H_MOVE", t.hMove));
     m_froudeMaxSpin->setValue(extDouble("FROUDE_MAX", t.froudeMax));
     selectComboByData(m_momentum2DCombo,
-                      getExt("MOMENTUM_EQUATION", QStringLiteral("LOCAL_INERTIAL")));
+                      getExt("MOMENTUM_EQUATION", QStringLiteral("FULL_SWE")));
     m_reconOrder2DSpin->setValue(extInt("RECONSTRUCTION_ORDER", 1));
     const QString coriolis = getExt("CORIOLIS", QString());
     const bool momentumPhysicsSupported = !coriolis.isEmpty() &&

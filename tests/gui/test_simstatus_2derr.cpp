@@ -154,6 +154,7 @@ private slots:
                     "C1      CIRCULAR  1      0      0      0      1\n"
                     "\n"
                     "[2D_OPTIONS]\n"
+                    "MOMENTUM_EQUATION LOCAL_INERTIAL\n" // the telemetry below is LI's (not the default since 2026-11-13)
                     "MAX_TIMESTEP     5\n"
                     "DRY_DEPTH        0.002\n"
                     "COUPLING_CD      0.7\n"
