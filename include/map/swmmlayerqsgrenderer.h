@@ -182,7 +182,7 @@ private:
     double m_anchorY = 0.0;
 
     // m_contentDirty — set on geometry / symbology / visibility / zoom changes.
-    // Triggers a full rebuild of all 15 top-level geometry buffers in updatePaintNode.
+    // Triggers a full rebuild of all 18 top-level geometry buffers in updatePaintNode.
     // Pure pan does NOT set this flag.
     bool m_contentDirty = true;
 

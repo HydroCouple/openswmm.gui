@@ -8,6 +8,7 @@
  */
 
 #include "core/preferencesmanager.h"
+#include "render/selectioncasing.h"
 #include "connections/basemapconnection.h"
 #include "connections/basemapconnectionstore.h"
 #include "layers/swmmmodellayer.h"
@@ -106,6 +107,8 @@
 #include <QTimer>
 #include <QScopeGuard>
 #include <QTableView>
+#include <algorithm>
+#include <QElapsedTimer>
 #include <QColorDialog>
 #include <QChart>
 #include <QChartView>
@@ -385,6 +388,34 @@ QString meshEdgeArtifact(const QString &name)
 /** @brief Resolve a repository example model relative to the configured fixture directory.
  * @param[in] rel Path appended below examples without sanitization or existence checks.
  * @return Absolute joined path rooted three levels above SWMMVIS_GUI_TEST_DATA. */
+/** @brief Write the A-18 two-tone selection model: one junction, outfall, conduit,
+ *  subcatchment and rain gage.
+ * @return artifactPath("selection_two_tone.inp"), rewritten on every call; empty if it cannot
+ *   be written. */
+QString twoToneModel()
+{
+    const QString path = artifactPath("selection_two_tone.inp");
+    {
+        QFile model(path);
+        if (!model.open(QIODevice::WriteOnly | QIODevice::Truncate))
+            return {};
+        model.write("[TITLE]\nA-18 two-tone selection\n\n[OPTIONS]\nFLOW_UNITS CFS\n"
+                    "INFILTRATION HORTON\nFLOW_ROUTING KINWAVE\nSTART_DATE 01/01/2026\n"
+                    "START_TIME 00:00:00\nEND_DATE 01/01/2026\nEND_TIME 01:00:00\n\n"
+                    "[RAINGAGES]\nRG1 INTENSITY 0:15 1.0 TIMESERIES TS1\n\n"
+                    "[SUBCATCHMENTS]\nS1 RG1 J1 1.0 25 500 0.5 0\n\n"
+                    "[SUBAREAS]\nS1 0.01 0.1 0.05 0.05 25 OUTLET\n\n"
+                    "[INFILTRATION]\nS1 3.0 0.5 4 7 0\n\n"
+                    "[JUNCTIONS]\nJ1 100 10 0 0 0\n\n[OUTFALLS]\nO1 95 FREE NO\n\n"
+                    "[CONDUITS]\nC1 J1 O1 100 0.013 0 0 0 0\n\n"
+                    "[XSECTIONS]\nC1 CIRCULAR 1 0 0 0 1\n\n"
+                    "[TIMESERIES]\nTS1 0:00 0.5\nTS1 1:00 0.0\n\n"
+                    "[COORDINATES]\nJ1 20 20\nO1 80 80\n\n"
+                    "[POLYGONS]\nS1 5 30\nS1 15 30\nS1 15 45\nS1 5 45\n\n"
+                    "[SYMBOLS]\nRG1 40 60\n");
+    }
+    return path;
+}
 QString examplePath(const QString &rel)
 {
     return QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA"))
@@ -994,6 +1025,206 @@ private slots:
         root.reset(renderer.updatePaintNode(root.release(), nullptr));
         QVERIFY(!hasVertexColor(root.get(), symbol.outlineColor));
     }
+    /** @brief A-18: a selection draws in two tones in both rebuild paths. A contrasting casing sits
+     *  just under each selection overlay (link halo, subcatchment edge, gage glyph) and rings the
+     *  selected node glyph; nothing of it is drawn while nothing is selected. */
+    void qsgSelectionDrawsTwoTone()
+    {
+        QCOMPARE(OpenSWMM::Render::selectionCasingColor(QColor(255, 255, 0)), QColor(0x1D, 0x1D, 0x1F));
+        QCOMPARE(OpenSWMM::Render::selectionCasingColor(QColor(0, 184, 217)), QColor(0x1D, 0x1D, 0x1F));
+        QCOMPARE(OpenSWMM::Render::selectionCasingColor(QColor(0, 0, 128)), QColor(Qt::white));
+
+        const QString path = twoToneModel();
+        QVERIFY(!path.isEmpty());
+        MapCanvas canvas;
+        canvas.resize(800, 600);
+        auto *layer = new SWMMModelLayer(path);
+        QList<QString> warnings, errors;
+        QVERIFY2(layer->loadModel(warnings, errors), qPrintable(errors.join("; ")));
+        canvas.addLayer(layer, false);
+        layer->setGlRenderingEnabled(true);
+        FeedbackRenderer renderer;
+        renderer.setWidth(800);
+        renderer.setHeight(600);
+        renderer.setLayer(layer);
+        renderer.setMapExtent(canvas.extent());
+
+        const QColor casing(0x1D, 0x1D, 0x1F); // default selection colours are yellow
+        // Flat-colour overlays in draw order: (colour, vertex count).
+        const auto flatNodes = [](QSGNode *root) {
+            QList<QPair<QColor, int>> out;
+            for (QSGNode *c = root->firstChild(); c; c = c->nextSibling()) {
+                if (c->type() != QSGNode::GeometryNodeType)
+                    continue;
+                auto *g = static_cast<QSGGeometryNode *>(c);
+                if (auto *flat = dynamic_cast<QSGFlatColorMaterial *>(g->material()))
+                    out.append({flat->color(), g->geometry()->vertexCount()});
+            }
+            return out;
+        };
+        // Every drawn casing must sit directly under a drawn selection overlay.
+        const auto casingsUnderSelection = [&](QSGNode *root) {
+            const auto nodes = flatNodes(root);
+            int casings = 0;
+            for (int i = 0; i < nodes.size(); ++i) {
+                if (nodes[i].first != casing || nodes[i].second == 0)
+                    continue;
+                if (i + 1 >= nodes.size() || nodes[i + 1].second == 0 ||
+                    nodes[i + 1].first == casing)
+                    return -1;
+                ++casings;
+            }
+            return casings;
+        };
+
+        std::unique_ptr<QSGNode> root(renderer.updatePaintNode(nullptr, nullptr));
+        QVERIFY(root);
+        QCOMPARE(casingsUnderSelection(root.get()), 0);
+        QVERIFY(!hasVertexColor(root.get(), casing));
+
+        // Selection-only rebuild.
+        layer->setSelectedElementNames({"C1", "J1", "S1", "RG1"});
+        root.reset(renderer.updatePaintNode(root.release(), nullptr));
+        QCOMPARE(casingsUnderSelection(root.get()), 3); // link halo, subcatchment edge, gage
+        QVERIFY(hasVertexColor(root.get(), casing));    // selected node glyph ring
+
+        // Full rebuild with the selection in place.
+        renderer.forceRebuild();
+        root.reset(renderer.updatePaintNode(root.release(), nullptr));
+        QCOMPARE(casingsUnderSelection(root.get()), 3);
+        QVERIFY(hasVertexColor(root.get(), casing));
+
+        // Cleared again: no casing left behind.
+        layer->setSelectedElementNames({});
+        root.reset(renderer.updatePaintNode(root.release(), nullptr));
+        QCOMPARE(casingsUnderSelection(root.get()), 0);
+        QVERIFY(!hasVertexColor(root.get(), casing));
+    }
+
+    /** @brief A-18: the painter path draws the same two tones. Rendering the model with a
+     *  selection adds casing-tone pixels around the selected link, subcatchment, node and gage;
+     *  clearing the selection removes them again. */
+    void cpuSelectionDrawsTwoTone()
+    {
+        MapCanvas canvas;
+        canvas.resize(800, 600);
+        canvas.setExtent(MapExtent(0, 0, 100, 100), false);
+        const QString path = twoToneModel();
+        QVERIFY(!path.isEmpty());
+        SWMMModelLayer layer(path);
+        QList<QString> warnings, errors;
+        QVERIFY2(layer.loadModel(warnings, errors), qPrintable(errors.join("; ")));
+        QGraphicsScene scene(&canvas);
+        scene.addItem(new SWMMLayerItem(&layer));
+        const auto render = [&] {
+            QImage image(800, 600, QImage::Format_ARGB32_Premultiplied);
+            image.fill(Qt::white);
+            QPainter painter(&image);
+            scene.render(&painter, QRectF(0, 0, 800, 600), QRectF(0, -100, 100, 100));
+            return image;
+        };
+        const QColor casing(0x1D, 0x1D, 0x1F);
+        const auto casingPixels = [&](const QImage &image) {
+            int n = 0;
+            for (int y = 0; y < image.height(); ++y)
+                for (int x = 0; x < image.width(); ++x) {
+                    const QColor c = image.pixelColor(x, y);
+                    if (std::abs(c.red() - casing.red()) + std::abs(c.green() - casing.green()) +
+                            std::abs(c.blue() - casing.blue()) < 24)
+                        ++n;
+                }
+            return n;
+        };
+        const int before = casingPixels(render());
+        layer.setSelectedElementNames({"C1", "J1", "S1", "RG1"});
+        const QImage selected = render();
+        const int during = casingPixels(selected);
+        QVERIFY(selected.save(artifactPath("selection-two-tone-cpu.png")));
+        QVERIFY2(during > before + 200,
+                 qPrintable(QStringLiteral("casing pixels %1 -> %2").arg(before).arg(during)));
+        layer.setSelectedElementNames({});
+        QCOMPARE(casingPixels(render()), before);
+    }
+
+    /** @brief A-18 timing, opt-in (set SWMMVIS_SELECTION_PERF to a label such as "before" or
+     *  "after"): median updatePaintNode time on Bellinge for a full rebuild with nothing selected,
+     *  a full rebuild with every object selected, and a selection-only rebuild selecting every
+     *  object. Results go to tests/output/gui_review_2026-11-13/a18_perf/<label>.txt. */
+    void selectionRenderTiming()
+    {
+        const QString label = qEnvironmentVariable("SWMMVIS_SELECTION_PERF");
+        if (label.isEmpty())
+            QSKIP("set SWMMVIS_SELECTION_PERF=<label> to time selection rendering");
+        MapCanvas canvas;
+        canvas.resize(1600, 1000);
+        auto *layer = new SWMMModelLayer(examplePath("bellinge_2d/BellingeSWMM_v021_nopervious.inp"));
+        QList<QString> warnings, errors;
+        QVERIFY2(layer->loadModel(warnings, errors), qPrintable(errors.join("; ")));
+        canvas.addLayer(layer, false);
+        canvas.zoomToFullExtent();
+        layer->setGlRenderingEnabled(true);
+        FeedbackRenderer renderer;
+        renderer.setWidth(1600);
+        renderer.setHeight(1000);
+        renderer.setLayer(layer);
+        renderer.setMapExtent(canvas.extent());
+        QStringList all;
+        int objects = 0;
+        for (auto cat : {SWMMModelLayer::CatJunctions, SWMMModelLayer::CatOutfalls,
+                         SWMMModelLayer::CatStorage, SWMMModelLayer::CatDividers,
+                         SWMMModelLayer::CatConduits, SWMMModelLayer::CatPumps,
+                         SWMMModelLayer::CatOrifices, SWMMModelLayer::CatWeirs,
+                         SWMMModelLayer::CatOutlets, SWMMModelLayer::CatSubcatchments,
+                         SWMMModelLayer::CatRainGages})
+            for (int i = 0; i < layer->categoryCount(cat); ++i, ++objects)
+                all << layer->objectNameAt(cat, i);
+        std::unique_ptr<QSGNode> root(renderer.updatePaintNode(nullptr, nullptr));
+        const auto median = [](QList<double> v) {
+            std::sort(v.begin(), v.end());
+            return v[v.size() / 2];
+        };
+        constexpr int kRuns = 21;
+        QElapsedTimer timer;
+        QList<double> fullNone, fullAll, selectAll;
+        for (int r = 0; r < kRuns; ++r) {
+            renderer.forceRebuild();
+            timer.start();
+            root.reset(renderer.updatePaintNode(root.release(), nullptr));
+            fullNone << timer.nsecsElapsed() / 1e6;
+        }
+        layer->setSelectedElementNames(all);
+        for (int r = 0; r < kRuns; ++r) {
+            renderer.forceRebuild();
+            timer.start();
+            root.reset(renderer.updatePaintNode(root.release(), nullptr));
+            fullAll << timer.nsecsElapsed() / 1e6;
+        }
+        for (int r = 0; r < kRuns; ++r) {
+            layer->setSelectedElementNames({});
+            root.reset(renderer.updatePaintNode(root.release(), nullptr));
+            layer->setSelectedElementNames(all);
+            timer.start();
+            root.reset(renderer.updatePaintNode(root.release(), nullptr));
+            selectAll << timer.nsecsElapsed() / 1e6;
+        }
+        const QString dir = QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA"))
+                                .absoluteFilePath("../../output/gui_review_2026-11-13/a18_perf");
+        QVERIFY(QDir().mkpath(dir));
+        QFile out(dir + "/" + label + ".txt");
+        QVERIFY(out.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        const QString text =
+            QStringLiteral("objects %1, runs %2, median ms\nfull rebuild, nothing selected: %3\n"
+                           "full rebuild, everything selected: %4\n"
+                           "selection-only rebuild, select everything: %5\n")
+                .arg(objects)
+                .arg(kRuns)
+                .arg(median(fullNone), 0, 'f', 2)
+                .arg(median(fullAll), 0, 'f', 2)
+                .arg(median(selectAll), 0, 'f', 2);
+        out.write(text.toUtf8());
+        qInfo().noquote() << text;
+    }
+
     /** @brief Register active and inactive mesh edge rendering for the CPU scene path. */
     void cpuMeshEdgesApplyLiveColorAndWidth_data()
     {

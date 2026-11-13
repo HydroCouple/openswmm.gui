@@ -11,6 +11,7 @@
 #include "map/swmmlayeritem.h"
 
 #include "core/preferencesmanager.h"
+#include "render/selectioncasing.h"
 #include "layers/swmmmodellayer.h"
 // Labeling overhaul — shared screen-space label painter + scale gating.
 #include "map/mapcanvas.h"
@@ -490,6 +491,23 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
                 painter->setBrush(QBrush(fade(col.isValid() ? col : sym.fillColor)));
             }
             painter->drawPath(poly);
+            if (sel) {
+                // A-18 two-tone: a contrasting casing under the selection outline.
+                const QPen selPen =
+                    PreferencesManager::instance()->selectionPen(QStringLiteral("subcatchment"));
+                QPen casingPen(OpenSWMM::Render::selectionCasingColor(selPen.color()),
+                               selPen.widthF() + 2.0 * OpenSWMM::Render::kSelectionCasingPx);
+                casingPen.setCosmetic(true);
+                QPen outlinePen = selPen;
+                outlinePen.setCosmetic(true);
+                const QPen basePen = painter->pen();
+                painter->setBrush(Qt::NoBrush);
+                painter->setPen(casingPen);
+                painter->drawPath(poly);
+                painter->setPen(outlinePen);
+                painter->drawPath(poly);
+                painter->setPen(basePen);
+            }
             if (sel || catchOverrides)
                 painter->setBrush(QBrush(fade(sym.fillColor)));
         }
@@ -806,6 +824,13 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
             if (selPen.style() != Qt::SolidLine)
                 hi.setStyle(selPen.style());
             hi.setCosmetic(true);
+            // A-18 two-tone: a solid contrasting casing just under the halo.
+            QPen casing = hi;
+            casing.setColor(OpenSWMM::Render::selectionCasingColor(selPen.color()));
+            casing.setWidthF(hi.widthF() + 2.0 * OpenSWMM::Render::kSelectionCasingPx);
+            casing.setStyle(Qt::SolidLine);
+            painter->setPen(casing);
+            drawDevicePath(selPathsByType[size_t(t)]);
             painter->setPen(hi);
             drawDevicePath(selPathsByType[size_t(t)]);
         }
@@ -1062,9 +1087,13 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
             if (!b.selPts.isEmpty()) {
                 auto *prefs = PreferencesManager::instance();
                 QPen pen = prefs->selectionPen(QStringLiteral("node"));
+                const QBrush brush = prefs->selectionBrush(QStringLiteral("node"));
+                if (pen.color() == brush.color()) // A-18: two-tone unless customised
+                    pen.setColor(OpenSWMM::Render::selectionCasingColor(brush.color()));
+                pen.setWidthF(std::max(pen.widthF(), 1.5));
                 pen.setCosmetic(true);
                 painter->setPen(pen);
-                painter->setBrush(prefs->selectionBrush(QStringLiteral("node")));
+                painter->setBrush(brush);
                 for (const QPointF &c : b.selPts)
                     devGlyph(c, r, kindShape);
             }
@@ -1189,9 +1218,13 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
         if (!selPts.isEmpty()) {
             auto *prefs = PreferencesManager::instance();
             QPen pen = prefs->selectionPen(QStringLiteral("gage"));
+            const QBrush brush = prefs->selectionBrush(QStringLiteral("gage"));
+            if (pen.color() == brush.color()) // A-18: two-tone unless customised
+                pen.setColor(OpenSWMM::Render::selectionCasingColor(brush.color()));
+            pen.setWidthF(std::max(pen.widthF(), 1.5));
             pen.setCosmetic(true);
             painter->setPen(pen);
-            painter->setBrush(prefs->selectionBrush(QStringLiteral("gage")));
+            painter->setBrush(brush);
             for (const QPointF &sp : selPts)
                 devGlyph(sp, r, gageShape);
         }
