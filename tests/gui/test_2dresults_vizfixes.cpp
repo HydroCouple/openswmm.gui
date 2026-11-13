@@ -1056,6 +1056,15 @@ private slots:
      */
     void fastVertexSurfaceIsIndependentOfThreadCount();
     /**
+     * @brief Require the fast surface's compact corner depths (fastSceneCorners, read by the
+     * renderer's per-frame passes) to equal the display triangles' corners bit for bit after each
+     * publish, including frames that hand their buffers over as a 6M frame does, to vanish with
+     * the source, and to be absent from a synchronous layer's fitted surface. Also require a
+     * later frame's deepest cell, found on the worker, to grow the automatic depth range past
+     * every vertex average.
+     */
+    void fastSurfaceKeepsCompactCornerDepths();
+    /**
      * @brief Require depth contours of the fast surface to be drawn on the GPU: filled contours,
      * isolines without labels and classified smooth fills each take one sync with no contour
      * job, ScalarBandMaterial nodes index exactly the wet triangles with their shared corner
@@ -1777,6 +1786,56 @@ void Test2DResultsVizFixes::fastVertexSurfaceIsIndependentOfThreadCount()
     QCOMPARE(corners[0].size(), corners[1].size());
     QVERIFY(std::memcmp(corners[0].data(), corners[1].data(),
                         corners[0].size() * sizeof(corners[0][0])) == 0);
+}
+
+void Test2DResultsVizFixes::fastSurfaceKeepsCompactCornerDepths()
+{
+    auto source = std::make_unique<LargeStripSource>();
+    auto *raw = source.get();
+    SWMM2DResultsLayer layer;
+    layer.setAsyncSurface(true);
+    layer.setSurfaceCacheBytes(0); // every frame hands its buffers over, as a 6M frame does
+    layer.setSource(std::move(source));
+    QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(), 120000);
+    QVERIFY(layer.fastSurfacePublished());
+    auto mirrors = [](const SWMM2DResultsLayer &layer) {
+        const auto *corners = layer.fastSceneCorners();
+        if (!corners || corners->size() != size_t(layer.m_sceneTris.size()))
+            return false;
+        for (qsizetype i = 0; i < layer.m_sceneTris.size(); ++i) {
+            const auto &t = layer.m_sceneTris[i];
+            const std::array<float, 3> scene{t.dv0, t.dv1, t.dv2};
+            if (std::memcmp(scene.data(), (*corners)[size_t(i)].data(), sizeof scene) != 0)
+                return false;
+        }
+        return true;
+    };
+    QVERIFY(mirrors(layer));
+    // A frame appended later (as a live run grows) with one cell deeper than any so far.
+    auto deeper = raw->frames[0];
+    deeper[7] = 2.5f;
+    raw->frames.push_back(deeper);
+    QVERIFY(layer.maxDepth() < 2.5);
+    layer.setCurrentTimeIndex(1);
+    QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy() && layer.currentTimeIndex() == 1, 120000);
+    QVERIFY(mirrors(layer)); // the first frame's corner buffer went back to the worker
+    float cornerPeak = 0.f;
+    for (const auto &t : layer.m_sceneTris)
+        for (float d : {t.dv0, t.dv1, t.dv2})
+            if (std::isfinite(d))
+                cornerPeak = std::max(cornerPeak, d);
+    QVERIFY(cornerPeak < 2.5f); // vertex averages: only the cell's own depth reaches 2.5
+    QCOMPARE(layer.maxDepth(), 2.5);
+    layer.closeSource();
+    QVERIFY(!layer.fastSceneCorners());
+
+    // A synchronous layer (the application's are asynchronous) fits even a large mesh in place,
+    // under a key that still reads fast: it has no compact copy, so the renderer reads its
+    // fitted triangles.
+    SWMM2DResultsLayer direct;
+    direct.setSource(std::make_unique<LargeStripSource>());
+    QVERIFY(direct.fastSurfacePublished());
+    QVERIFY(!direct.fastSceneCorners());
 }
 
 void Test2DResultsVizFixes::fastSurfaceBandsClassifyOnTheGpu()

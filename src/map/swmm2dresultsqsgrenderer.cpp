@@ -1495,6 +1495,9 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
     // ---- QSG-2D-1M: LOD decision + dirty-domain resolution ------------------
     const auto &tris = m_layer->m_sceneTris;
     const int nTri = int(tris.size());
+    // A fast surface's corner depths in 12 bytes per triangle (the same values as tris): the
+    // per-frame wet sweep and chunk scan read these, not the whole triangle records.
+    const auto *fastCorners = m_layer->fastSceneCorners();
     const QRectF &bb = m_layer->m_sceneBBox;
     // Display triangle → owning cell (a quad owns two consecutive fan
     // triangles); identity when the layer has no map yet.
@@ -1817,7 +1820,11 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
             auto &waterCells =
                 needsMarching ? m_contourSelectionScratch : frame->immediateTriangles;
             waterCells.clear();
-            const auto wet = [&tris](int i) {
+            const auto wet = [&tris, fastCorners](int i) {
+                if (fastCorners) {
+                    const auto &d = (*fastCorners)[size_t(i)];
+                    return std::isfinite(d[0]) && std::isfinite(d[1]) && std::isfinite(d[2]);
+                }
                 const auto &t = tris[i];
                 return std::isfinite(t.dv0) && std::isfinite(t.dv1) && std::isfinite(t.dv2);
             };
@@ -2090,7 +2097,9 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                     // The layer's triangles for an immediate frame, else the frame's
                     // snapshot (stored in frame order).
                     std::array<float, 3> d;
-                    if (frame.immediate) {
+                    if (frame.immediate && fastCorners) {
+                        d = (*fastCorners)[size_t(i)];
+                    } else if (frame.immediate) {
                         const auto &t = tris[i];
                         d = {t.dv0, t.dv1, t.dv2};
                     } else {

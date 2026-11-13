@@ -1775,6 +1775,17 @@ public:
      *  in a view too large for a regional fit): every wet corner value is shared by all cells
      *  at that vertex. */
     [[nodiscard]] bool fastSurfacePublished() const noexcept { return published_key_.fast; }
+    /*! Corner depths {dv0, dv1, dv2} of every display triangle of the published fast surface,
+     *  equal to m_sceneTris' values in 12 bytes per triangle instead of a whole record; the
+     *  renderer's per-frame passes read these. nullptr unless the displayed frame is a fast
+     *  surface of the current geometry. Valid until the next publish or geometry change. */
+    [[nodiscard]] const std::vector<std::array<float, 3>> *fastSceneCorners() const noexcept
+    {
+        return published_key_.fast && published_key_.geomRev == m_geomRevision &&
+                       fast_scene_corners_.size() == size_t(m_sceneTris.size())
+                   ? &fast_scene_corners_
+                   : nullptr;
+    }
 
     /*! \brief Whether the run carries per-edge flux data at all, independent of
      *  the current frame. Probes the source once (cached) and is the correct
@@ -2728,6 +2739,7 @@ private:
         std::vector<CellWaterGeometry::CornerDepths> flow, smooth; // outputs
         std::vector<std::array<float, 3>> sceneCorners;            // per display triangle
         double sceneCornerPeak = 0;                                // largest finite corner depth
+        float depthPeak = std::numeric_limits<float>::quiet_NaN(); // max_element of depths
         double readMs = 0, fitMs = 0;                              // worker cost of this fit
     };
     /**
@@ -2921,6 +2933,7 @@ private:
     std::shared_ptr<SurfaceJob> pending_surface_;       // latest request not yet fitted
     std::shared_ptr<const SurfaceJob> envelope_newest_; // newest frame; never frozen
     SurfaceKey published_key_, requested_key_;
+    std::vector<std::array<float, 3>> fast_scene_corners_; // see fastSceneCorners()
     quint64 policy_revision_ = 0, request_seq_ = 0, published_seq_ = 0, surface_epoch_ = 0;
     int requested_time_idx_ = -1, surface_fit_count_ = 0, live_min_fit_interval_ms_ = 1000;
     SurfaceTiming last_surface_timing_;
