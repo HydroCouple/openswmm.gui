@@ -14,6 +14,7 @@
 #include "swmmvisprojectwindow.h"
 #include "core/unitsystem.h"
 #include "layers/gisvectorlayer.h"
+#include "layers/gisrasterlayer.h"
 #include "layers/unavailablelayer.h"
 #include "ui/panels/layertreepanel.h"
 #include "layers/xyztilelayer.h"
@@ -24,6 +25,9 @@
 #include <QFileInfo>
 #include <QIcon>
 #include <QJsonDocument>
+#include <QMenu>
+#include <QSortFilterProxyModel>
+#include <QTreeView>
 #include <QtTest>
 #include <memory>
 #include <QQmlEngine>
@@ -498,6 +502,155 @@ private slots:
         QCOMPARE(savedUnreadable.value("id").toString(), QStringLiteral("layer-unreadable"));
         QCOMPARE(savedUnreadable.value("path").toString(), QStringLiteral("../not-geojson.geojson"));
         QCOMPARE(savedUnreadable.value("filterExpression").toString(), QStringLiteral("AREA > 1"));
+    }
+
+    /** @brief "Repair Data Source…" on a layer whose file was missing reopens it from the chosen
+     *  file in place: same id, name, visibility, opacity and saved style; a file that cannot be
+     *  opened leaves the placeholder; the next save writes the new path. */
+    void repairDataSourceReopensAMissingLayerInPlace()
+    {
+        const QString dir = output("repair-data-source");
+        QDir(dir).removeRecursively();
+        QDir().mkpath(dir);
+        const auto write = [&dir](const QString &name, const QByteArray &text) {
+            QFile f(dir + QLatin1Char('/') + name);
+            if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+                f.write(text);
+            return f.fileName();
+        };
+        QDir().mkpath(dir + "/found");
+        const QString dem = write("found/dem.asc", "ncols 3\nnrows 3\nxllcorner 0\nyllcorner 0\ncellsize 10\n"
+                               "NODATA_value -9999\n1 2 3\n4 5 6\n7 8 9\n");
+        const QString parcels = write(
+            "found/parcels.geojson",
+            R"({"type":"FeatureCollection","features":[{"type":"Feature","properties":{"AREA":2},)"
+            R"("geometry":{"type":"Polygon","coordinates":[[[0,0],[10,0],[10,10],[0,0]]]}}]})");
+        const QString junk = write("found/junk.geojson", "this is not GeoJSON");
+
+        // A saved project whose raster and vector files are missing.
+        std::unique_ptr<OpenSWMMVisWorkspace> workspace(
+            OpenSWMMVisWorkspace::newInstance({}, nullptr));
+        SWMMVisProjectWindow first(workspace.get(), {});
+        QVERIFY(initialize(first));
+        QString error;
+        const QString oswp = dir + "/project.oswp";
+        QVERIFY2(ProjectSerializer::saveToFile(oswp, &first, &error), qPrintable(error));
+        QFile file(oswp);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QJsonObject json = QJsonDocument::fromJson(file.readAll()).object();
+        file.close();
+        const QJsonObject rasterStyle{{"ramp", "terrain"}};
+        json["gisLayers"] = QJsonArray{
+            QJsonObject{{"type", "raster"}, {"path", "old/dem.asc"}, {"name", "DEM"},
+                        {"visible", false}, {"opacity", 0.5}, {"id", "layer-dem"},
+                        {"rasterStyle", rasterStyle}},
+            QJsonObject{{"type", "vector"}, {"path", "old/parcels.geojson"}, {"name", "Parcels"},
+                        {"id", "layer-parcels"}, {"filterExpression", "AREA > 1"}}};
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        file.write(QJsonDocument(json).toJson());
+        file.close();
+
+        SWMMVisProjectWindow second(workspace.get(), {});
+        QVERIFY(initialize(second));
+        QStringList warnings;
+        QVERIFY2(ProjectSerializer::applyFromFile(oswp, &second, &error, &warnings),
+                 qPrintable(error));
+        MapCanvas *canvas = second.canvas();
+        const auto layerWithId = [canvas](const QString &id) -> OpenSWMMVisLayer * {
+            for (OpenSWMMVisLayer *l : canvas->layers())
+                if (l->layerId() == id)
+                    return l;
+            return nullptr;
+        };
+        auto *demPlaceholder = qobject_cast<UnavailableLayer *>(layerWithId("layer-dem"));
+        auto *parcelsPlaceholder = qobject_cast<UnavailableLayer *>(layerWithId("layer-parcels"));
+        QVERIFY(demPlaceholder && parcelsPlaceholder);
+        const int layerCount = canvas->layers().size();
+
+        // The tree offers the repair on the placeholder's row, and only there.
+        LayerTreePanel panel;
+        panel.setCanvas(canvas);
+        panel.resize(400, 600);
+        panel.show();
+        auto *tree = panel.findChild<QTreeView *>();
+        auto *proxy = qobject_cast<QSortFilterProxyModel *>(tree->model());
+        QVERIFY(tree && proxy);
+        QSignalSpy requested(&panel, &LayerTreePanel::repairDataSourceRequested);
+        const QModelIndex row = proxy->mapFromSource(panel.model()->indexForLayer(demPlaceholder));
+        QVERIFY(row.isValid());
+        tree->scrollTo(row);
+        bool offered = false;
+        QTimer::singleShot(0, &panel, [&offered] {
+            auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+            if (!menu)
+                return;
+            for (QAction *action : menu->actions())
+                if (action->objectName() == QStringLiteral("repairDataSourceAction")) {
+                    offered = action->text() == QStringLiteral("Repair Data Source…");
+                    QTest::mouseClick(menu, Qt::LeftButton, Qt::NoModifier,
+                                      menu->actionGeometry(action).center());
+                    return;
+                }
+            menu->close();
+        });
+        emit tree->customContextMenuRequested(tree->visualRect(row).center());
+        QVERIFY(offered);
+        QCOMPARE(requested.count(), 1);
+        QCOMPARE(requested.first().first().value<UnavailableLayer *>(), demPlaceholder);
+        panel.setCanvas(nullptr);
+
+        // A file that cannot be opened either: the placeholder stays, the reason comes back.
+        bool called = false;
+        QString failure;
+        ProjectSerializer::relinkUnavailableLayer(
+            parcelsPlaceholder, junk, canvas,
+            [&](OpenSWMMVisLayer *layer, const QString &why) {
+                called = true;
+                failure = layer ? QString() : why;
+            });
+        QTRY_VERIFY_WITH_TIMEOUT(called, 10000);
+        QVERIFY2(failure.contains(QStringLiteral("could not be opened")), qPrintable(failure));
+        QCOMPARE(layerWithId("layer-parcels"), parcelsPlaceholder);
+        QCOMPARE(canvas->layers().size(), layerCount);
+
+        // The raster and the vector reopen in place with their saved state.
+        OpenSWMMVisLayer *reopenedDem = nullptr, *reopenedParcels = nullptr;
+        ProjectSerializer::relinkUnavailableLayer(
+            demPlaceholder, dem, canvas,
+            [&](OpenSWMMVisLayer *layer, const QString &) { reopenedDem = layer; });
+        ProjectSerializer::relinkUnavailableLayer(
+            parcelsPlaceholder, parcels, canvas,
+            [&](OpenSWMMVisLayer *layer, const QString &) { reopenedParcels = layer; });
+        QTRY_VERIFY_WITH_TIMEOUT(reopenedDem && reopenedParcels, 10000);
+        auto *raster = qobject_cast<GISRasterLayer *>(layerWithId("layer-dem"));
+        auto *vector = qobject_cast<GISVectorLayer *>(layerWithId("layer-parcels"));
+        QVERIFY(raster && vector);
+        QCOMPARE(raster, reopenedDem);
+        QCOMPARE(raster->name(), QStringLiteral("DEM"));
+        QVERIFY(!raster->isVisible());
+        QCOMPARE(raster->opacity(), 0.5);
+        QCOMPARE(vector->name(), QStringLiteral("Parcels"));
+        QCOMPARE(vector->filterExpression(), QStringLiteral("AREA > 1"));
+        QCOMPARE(canvas->layers().size(), layerCount);
+        for (OpenSWMMVisLayer *l : canvas->layers())
+            QVERIFY(!qobject_cast<UnavailableLayer *>(l));
+
+        // Saved, the entries point at the new files; reopened, they load.
+        QVERIFY2(ProjectSerializer::saveToFile(oswp, &second, &error), qPrintable(error));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QJsonArray saved = QJsonDocument::fromJson(file.readAll()).object()["gisLayers"].toArray();
+        file.close();
+        QStringList paths;
+        for (const QJsonValue &v : saved)
+            paths << v.toObject().value("path").toString();
+        paths.sort();
+        QCOMPARE(paths, (QStringList{QStringLiteral("found/dem.asc"), QStringLiteral("found/parcels.geojson")}));
+        SWMMVisProjectWindow third(workspace.get(), {});
+        QVERIFY(initialize(third));
+        QVERIFY2(ProjectSerializer::applyFromFile(oswp, &third, &error, &warnings), qPrintable(error));
+        QTRY_VERIFY_WITH_TIMEOUT(third.canvas()->layers().size() >= layerCount, 10000);
+        for (OpenSWMMVisLayer *l : third.canvas()->layers())
+            QVERIFY2(!qobject_cast<UnavailableLayer *>(l), qPrintable(l->name()));
     }
 };
 QTEST_MAIN(TestPhase35ProjectPersistence)

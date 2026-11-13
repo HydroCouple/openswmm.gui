@@ -36,11 +36,13 @@
 #include <QJsonObject>
 #include <QString>
 #include <QVector>
+#include <functional>
 
 class SWMMVisProjectWindow;
 class SWMMVisProject;
 class OpenSWMMVisLayer;
 class MapCanvas;
+class UnavailableLayer;
 
 class ProjectSerializer
 {
@@ -264,6 +266,21 @@ public:
         b.connectorLength = op.value(QStringLiteral("connectorLength")).toDouble(b.connectorLength);
         return s;
     }
+
+    /**
+     * @brief Repair a layer whose file was missing: reopen its saved entry from \p newPath.
+     * @param[in] placeholder Layer to repair; borrowed, it must be in \p canvas.
+     * @param[in] newPath The file to read instead; absolute or relative to the working directory.
+     * @param[in,out] canvas Canvas holding \p placeholder; also the lifetime of the callback.
+     * @param[in] done Called once: with the reopened layer, which has replaced the placeholder
+     *   (same id, name, visibility, opacity and saved style), or with null and the reason the
+     *   file could not be opened (the placeholder then stays as it was).
+     * @note Raster and vector files open asynchronously, so \p done may run later. No undo
+     *   command; the caller marks the project modified. The next save writes the new path.
+     */
+    static void relinkUnavailableLayer(UnavailableLayer *placeholder, const QString &newPath,
+                                       MapCanvas *canvas,
+                                       std::function<void(OpenSWMMVisLayer *, const QString &)> done);
 
 private:
     /**

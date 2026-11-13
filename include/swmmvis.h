@@ -100,6 +100,7 @@ class QDragMoveEvent;
 class QDropEvent;
 class QMimeData;
 class OpenSWMMVisLayer; // Slice BI-MK.LT — onLayerKindStyleRequested signature
+class UnavailableLayer;
 class QMdiSubWindow;
 class QAction;
 class QMenu;
@@ -1049,6 +1050,16 @@ private slots:
      * No batch rollback, retarget on tab switch or input-file save.
      */
     void onAddRasterLayer();
+
+    /**
+     * @brief "Repair Data Source…": ask for the file of a layer that could not be reopened
+     *   and reopen it in place (ProjectSerializer::relinkUnavailableLayer).
+     * @param[in] layer Borrowed placeholder in the active project's canvas; ignored otherwise.
+     * @note The dialog starts at the missing file's folder with its name filled in. A file that
+     *   still cannot be opened leaves the placeholder and says why; success marks the project
+     *   modified so the next save writes the new path. Not an undo step.
+     */
+    void repairDataSource(UnavailableLayer *layer);
 
     /**
      * @brief Queue selected 1D output opens on the original guarded model project.

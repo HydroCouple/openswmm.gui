@@ -85,6 +85,8 @@
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QPointer>
+#include <QUuid>
+#include <memory>
 #include <QScopeGuard>
 #include <utility>
 
@@ -2182,6 +2184,58 @@ QJsonObject ProjectSerializer::serializeGisLayer(OpenSWMMVisLayer *layer, const 
     if (!obj.isEmpty())
         obj["id"] = layer->layerId();
     return obj;
+}
+
+void ProjectSerializer::relinkUnavailableLayer(
+    UnavailableLayer *placeholder, const QString &newPath, MapCanvas *canvas,
+    std::function<void(OpenSWMMVisLayer *, const QString &)> done)
+{
+    if (!placeholder || !canvas || !canvas->layers().contains(placeholder)) {
+        done(nullptr, QObject::tr("The layer is no longer in the map."));
+        return;
+    }
+    const QString type = placeholder->entry().value(kGisType).toString();
+    if (type != QStringLiteral("raster") && type != QStringLiteral("vector") &&
+        type != QStringLiteral("feature")) {
+        done(nullptr, QObject::tr("This kind of layer cannot be reopened from another file."));
+        return;
+    }
+    // The saved entry (type, style, filter, feature table, ...) with the new
+    // file and the current display state. A temporary id tells the reopened
+    // layer apart from the placeholder until the placeholder has gone.
+    QJsonObject obj = placeholder->entry();
+    obj[kGisPath] = QDir::cleanPath(QFileInfo(newPath).absoluteFilePath());
+    obj[kGisName] = placeholder->name();
+    obj[kGisVisible] = placeholder->isVisible();
+    obj[kGisOpacity] = placeholder->opacity();
+    const QString id = placeholder->layerId();
+    const QString marker = QStringLiteral("relink-") + QUuid::createUuid().toString(QUuid::WithoutBraces);
+    obj["id"] = marker;
+    const QPointer<UnavailableLayer> old(placeholder);
+    const QPointer<MapCanvas> target(canvas);
+    auto connection = std::make_shared<QMetaObject::Connection>();
+    *connection = QObject::connect(
+        canvas, &MapCanvas::layerAdded, canvas,
+        [connection, marker, id, old, target, done](OpenSWMMVisLayer *added) {
+            if (!added || added->layerId() != marker || !target)
+                return;
+            QObject::disconnect(*connection);
+            if (auto *failed = qobject_cast<UnavailableLayer *>(added)) {
+                // Not readable either: drop the new placeholder, keep the old one.
+                const QString reason = failed->reason();
+                if (OpenSWMMVisLayer *taken = target->takeLayer(target->layers().indexOf(failed), false))
+                    taken->deleteLater();
+                done(nullptr, reason);
+                return;
+            }
+            if (old) {
+                if (OpenSWMMVisLayer *taken = target->takeLayer(target->layers().indexOf(old), false))
+                    taken->deleteLater();
+            }
+            added->restoreLayerId(id); // references to the layer keep working
+            done(added, QString());
+        });
+    deserializeGisLayer(obj, canvas, QString());
 }
 
 void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj, MapCanvas *canvas,

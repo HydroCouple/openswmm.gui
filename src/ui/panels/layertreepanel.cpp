@@ -34,6 +34,11 @@
 // All 2D sublayer concrete types are dispatched by ISublayer::Kind enum
 // (kept opaque) so the per-class headers aren't required here.
 #include "render/sublayers/feature/featuresublayer.h"
+#include "render/sublayers/contourbandsublayer.h"
+#include "render/sublayers/isolinesublayer.h"
+#include "render/sublayers/resultscalarsublayer.h"
+#include "render/sublayers/resultvectorsublayer.h"
+#include "ui/theme/iconfactory.h"
 #include "layers/swmm_category.h"
 #include "ui/dialogs/layerstyledialog.h"
 
@@ -259,6 +264,64 @@ const char *iconAliasForSwmmCategory(OpenSWMMVis::SwmmCategory c)
  * @return Resource alias: 1D feature category glyph, otherwise sublayer kind
  *   mesh/droplet/profile/move, generic fallback. No source write or resource-availability check.
  */
+/**
+ * @param[in] key 2D result variable key ("surface:Mesh2_face_depth", "derived:gw_theta_unsat_mean", ...).
+ * @return Resource alias of the icon for what the variable measures; generic colour ramp otherwise.
+ */
+QString iconAliasForResultKey(const QString &key)
+{
+    const QString k = key.section(QLatin1Char(':'), -1).toLower();
+    const auto has = [&k](std::initializer_list<const char *> parts) {
+        for (const char *part : parts)
+            if (k.contains(QLatin1String(part)))
+                return true;
+        return false;
+    };
+    if (has({"temperature", "energy", "heat_capacity"}))
+        return QStringLiteral(":/swmmvis/Thermometer");
+    if (has({"conc", "species", "buildup", "layer_mass", "age_"}))
+        return QStringLiteral(":/swmmvis/Concentration");
+    if (has({"snow"}))
+        return QStringLiteral(":/swmmvis/Snow");
+    if (has({"rain"}))
+        return QStringLiteral(":/swmmvis/Rainfall");
+    if (has({"et_", "_et", "evapor"}))
+        return QStringLiteral(":/swmmvis/Evaporation");
+    if (has({"infil", "dunne", "reject"}))
+        return QStringLiteral(":/swmmvis/Infiltration");
+    if (has({"theta", "moisture"}))
+        return QStringLiteral(":/swmmvis/SoilMoisture");
+    if (has({"gw_qx", "gw_qy", "darcy", "gw_lateral"}))
+        return QStringLiteral(":/swmmvis/GroundwaterFlow");
+    if (has({"gw_"}))
+        return QStringLiteral(":/swmmvis/GroundwaterTable");
+    if (has({"continuity", "closure"}))
+        return QStringLiteral(":/swmmvis/BalanceError");
+    if (has({"eddy", "strain"}))
+        return QStringLiteral(":/swmmvis/Turbulence");
+    if (has({"mannings", "rough"}))
+        return QStringLiteral(":/swmmvis/Roughness");
+    if (has({"flux", "exchange", "net_source", "seepage", "recharge", "coupling"}))
+        return QStringLiteral(":/swmmvis/Exchange");
+    if (has({"depth"}))
+        return QStringLiteral(":/swmmvis/DepthFill");
+    if (has({"head", "wse", "water_surface", "stage"}))
+        return QStringLiteral(":/swmmvis/WaterSurface");
+    if (has({"velocity", "speed", "_vx", "_vy"}))
+        return QStringLiteral(":/swmmvis/VelocityMagnitude");
+    if (k.endsWith(QLatin1String("_z")) || has({"elev"}))
+        return QStringLiteral(":/swmmvis/MeshTerrain");
+    return QStringLiteral(":/swmmvis/ResultRamp");
+}
+
+/**
+ * @param[in] s Optional borrowed sublayer, null generic Layers.
+ * @param[in] parentLayer Optional borrowed host used for 1D FeatureSublayer category dispatch.
+ * @return Resource alias: 1D feature category glyph; for 2D mesh and output layers the icon of
+ *   what the row draws (terrain, edges, vertices, boundary conditions, couplings, contours of
+ *   elevation or depth, vectors, streaks, and per-variable icons for result rows); generic
+ *   fallback. No source write or resource-availability check.
+ */
 QString iconAliasForSublayer(const OpenSWMM::Render::ISublayer *s, OpenSWMMVisLayer *parentLayer)
 {
     if (!s)
@@ -271,31 +334,79 @@ QString iconAliasForSublayer(const OpenSWMM::Render::ISublayer *s, OpenSWMMVisLa
             return QString::fromLatin1(iconAliasForSwmmCategory(fs->category()));
     }
 
-    // 2D path: dispatch by Kind. MarkerKind/LineKind/FillKind on the 2D
-    // mesh-based layer all denote mesh primitives, hence the create-mesh
-    // glyph; ramp/contour/isoline/vector each get a domain-suggestive
-    // icon already in the resource bundle.
-    using K = OpenSWMM::Render::ISublayer::Kind;
+    // 2D mesh instance and 2D output rows: by what the row draws. Several of
+    // these share an ISublayer::Kind (a mesh fill and a coupled-cell fill are
+    // both FillKind), so the class decides, then the variable for result rows.
+    using namespace OpenSWMM::Render;
+    if (auto *scalar = qobject_cast<const ResultScalarSublayer *>(s))
+        return iconAliasForResultKey(scalar->variableKey());
+    if (auto *vector = qobject_cast<const ResultVectorSublayer *>(s)) {
+        const QString key = vector->vectorKey().toLower();
+        return key.contains(QLatin1String("gw")) || key.contains(QLatin1String("darcy"))
+                   ? QStringLiteral(":/swmmvis/GroundwaterFlow")
+                   : QStringLiteral(":/swmmvis/VelocityVectors");
+    }
+    const auto elevation = [](const QString &attribute) {
+        return attribute.compare(QLatin1String("elevation"), Qt::CaseInsensitive) == 0;
+    };
+    if (auto *bands = qobject_cast<const ContourBandSublayer *>(s))
+        return elevation(bands->bandStyle() ? bands->bandStyle()->attribute() : QString())
+                   ? QStringLiteral(":/swmmvis/ElevationBands")
+                   : QStringLiteral(":/swmmvis/DepthBands");
+    if (auto *lines = qobject_cast<const IsolineSublayer *>(s))
+        return elevation(lines->isolineStyle() ? lines->isolineStyle()->attribute() : QString())
+                   ? QStringLiteral(":/swmmvis/ElevationIsolines")
+                   : QStringLiteral(":/swmmvis/DepthIsolines");
+    // The remaining classes by name (no header needed for an icon choice).
+    static const QHash<QByteArray, QString> byClass{
+        {"OpenSWMM::Render::MeshFillSublayer", QStringLiteral(":/swmmvis/MeshTerrain")},
+        {"OpenSWMM::Render::MeshEdgeSublayer", QStringLiteral(":/swmmvis/MeshEdges")},
+        {"OpenSWMM::Render::MeshNodeSublayer", QStringLiteral(":/swmmvis/MeshVertices")},
+        {"OpenSWMM::Render::MeshBcSublayer", QStringLiteral(":/swmmvis/MeshBoundary")},
+        {"OpenSWMM::Render::CoupledNodeSublayer", QStringLiteral(":/swmmvis/CoupledNodes")},
+        {"OpenSWMM::Render::CoupledCellSublayer", QStringLiteral(":/swmmvis/CoupledCells")},
+        {"OpenSWMM::Render::GroundwaterMarkerSublayer", QStringLiteral(":/swmmvis/GroundwaterWell")},
+        {"OpenSWMM::Render::DepthColorRampSublayer", QStringLiteral(":/swmmvis/DepthFill")},
+        {"OpenSWMM::Render::CellDepthFillSublayer", QStringLiteral(":/swmmvis/DepthFill")},
+        {"OpenSWMM::Render::SmoothDepthFillSublayer", QStringLiteral(":/swmmvis/DepthFill")},
+        {"OpenSWMM::Render::VelocityVectorSublayer", QStringLiteral(":/swmmvis/VelocityVectors")},
+        {"OpenSWMM::Render::FlowArrowSublayer", QStringLiteral(":/swmmvis/FlowArrows")},
+        {"OpenSWMM::Render::FlowStreakSublayer", QStringLiteral(":/swmmvis/FlowStreaks")},
+    };
+    if (const auto it = byClass.constFind(QByteArray(s->metaObject()->className()));
+        it != byClass.cend())
+        return it.value();
+
+    // Anything else: by Kind, as before.
+    using K = ISublayer::Kind;
     switch (s->kind()) {
     case K::ColorRampFillKind:
-        return QStringLiteral(":/swmmvis/Droplet");
+        return QStringLiteral(":/swmmvis/ResultRamp");
     case K::IsolineKind:
-        return QStringLiteral(":/swmmvis/Profile");
+        return QStringLiteral(":/swmmvis/DepthIsolines");
     case K::ContourBandKind:
-        return QStringLiteral(":/swmmvis/Profile");
+        return QStringLiteral(":/swmmvis/DepthBands");
     case K::VectorGlyphKind:
-        return QStringLiteral(":/swmmvis/Move");
     case K::ArrowKind:
-        return QStringLiteral(":/swmmvis/Move");
+        return QStringLiteral(":/swmmvis/VelocityVectors");
     case K::FillKind:
     case K::LineKind:
     case K::MarkerKind:
-        // On 2D layers these denote mesh-fill / mesh-edge / mesh-node
-        // primitives. On 1D layers the FeatureSublayer branch above
-        // already handled them.
         return QStringLiteral(":/swmmvis/CreateMesh");
     }
     return QStringLiteral(":/swmmvis/Layers");
+}
+
+/** @return The themed icon (glyph grey follows the theme) for a ":/swmmvis/" resource path. */
+QIcon themedSublayerIcon(const QString &resource)
+{
+    const QString prefix = QStringLiteral(":/swmmvis/");
+    if (resource.startsWith(prefix)) {
+        const QIcon themed = openswmmvis::ui::IconFactory::icon(resource.mid(prefix.size()));
+        if (!themed.isNull())
+            return themed;
+    }
+    return QIcon(resource);
 }
 
 // ---------------------------------------------------------------------------
@@ -972,7 +1083,7 @@ QVariant LayerTreeModel::data(const QModelIndex &index, int role) const
                 // Slice LTR-2026-05-30 — per-class glyph (per-Category for
                 // 1D FeatureSublayers, per-Kind for 2D sublayers) instead
                 // of the generic Layers icon.
-                return QIcon(iconAliasForSublayer(s, sr->layer));
+                return themedSublayerIcon(iconAliasForSublayer(s, sr->layer));
             case Qt::ToolTipRole:
                 // The dynamic flag is the perf-relevant attribute users
                 // care about — surface it inline.
@@ -2769,6 +2880,17 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
     const auto tableTarget = openswmmvis::ui::attributeTableTarget(layerRow);
     const auto exportTarget = openswmmvis::ui::layerExportTarget(layerRow);
 
+    // A layer whose file could not be reopened: repairing it comes first.
+    auto *missing = qobject_cast<UnavailableLayer *>(layer);
+    QAction *actRepair = nullptr;
+    if (missing) {
+        actRepair = menu.addAction(QIcon(QStringLiteral(":/swmmvis/Browse")),
+                                   tr("Repair Data Source…"));
+        actRepair->setObjectName(QStringLiteral("repairDataSourceAction"));
+        actRepair->setToolTip(missing->reason());
+        menu.addSeparator();
+    }
+
     // Group 1 — navigation
     QAction *actZoom =
         menu.addAction(QIcon(QStringLiteral(":/swmmvis/Extent")), tr("Zoom to Layer"));
@@ -2902,7 +3024,11 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
     QAction *picked = menu.exec(m_treeView->viewport()->mapToGlobal(pos));
     if (!picked)
         return;
-    if (picked == actZoom)
+    if (actRepair && picked == actRepair) {
+        if (m_canvas && m_canvas->layers().contains(missing)) // still there after the menu
+            emit repairDataSourceRequested(missing);
+    }
+    else if (picked == actZoom)
         zoomToLayer(layer);
     else if (picked == actAttrTable)
         emit attributeTableRequested(tableTarget);
