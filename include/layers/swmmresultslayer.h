@@ -1249,19 +1249,19 @@ private:
     /**
      * @param[in] outCode Scope-appropriate output code; negative/closed/zero-period source returns[0,1].
      * @return Cached native-unit full-run min/max or immediate[0,1] placeholder. First uncached code schedules a private-reader background scan, with one pending marker per scope/code.
-     * @note GUI-thread entry; completion on application thread inserts range, removes marker, reclassifies matching fixed-over-run kind renderers and requests repaint. Guarded layer lifetime prevents dead-object writes, but no source-generation/live-growth guard prevents an older scan from filling a newer cache. Pending markers are not reset by closeResults().
+     * @note GUI-thread entry; completion on application thread inserts range, removes marker, reclassifies matching fixed-over-run kind renderers and requests repaint. A scan that finishes after the caches were cleared (live growth, close, reopen) is dropped, and clearing also resets the pending markers.
      */
     QPair<double, double> ensureNodeAttributeRange(int outCode);
     /**
      * @param[in] outCode Scope-appropriate output code; negative/closed/zero-period source returns[0,1].
      * @return Cached native-unit full-run min/max or immediate[0,1] placeholder. First uncached code schedules a private-reader background scan, with one pending marker per scope/code.
-     * @note GUI-thread entry; completion on application thread inserts range, removes marker, reclassifies matching fixed-over-run kind renderers and requests repaint. Guarded layer lifetime prevents dead-object writes, but no source-generation/live-growth guard prevents an older scan from filling a newer cache. Pending markers are not reset by closeResults().
+     * @note GUI-thread entry; completion on application thread inserts range, removes marker, reclassifies matching fixed-over-run kind renderers and requests repaint. A scan that finishes after the caches were cleared (live growth, close, reopen) is dropped, and clearing also resets the pending markers.
      */
     QPair<double, double> ensureLinkAttributeRange(int outCode);
     /**
      * @param[in] outCode Scope-appropriate output code; negative/closed/zero-period source returns[0,1].
      * @return Cached native-unit full-run min/max or immediate[0,1] placeholder. First uncached code schedules a private-reader background scan, with one pending marker per scope/code.
-     * @note GUI-thread entry; completion on application thread inserts range, removes marker, reclassifies matching fixed-over-run kind renderers and requests repaint. Guarded layer lifetime prevents dead-object writes, but no source-generation/live-growth guard prevents an older scan from filling a newer cache. Pending markers are not reset by closeResults().
+     * @note GUI-thread entry; completion on application thread inserts range, removes marker, reclassifies matching fixed-over-run kind renderers and requests repaint. A scan that finishes after the caches were cleared (live growth, close, reopen) is dropped, and clearing also resets the pending markers.
      */
     QPair<double, double> ensureSubcatchAttributeRange(int outCode);
 
@@ -1474,6 +1474,9 @@ private:
     QSet<int> m_nodeRangePending;
     QSet<int> m_linkRangePending;
     QSet<int> m_subcatchRangePending;
+    /// Bumped whenever the range caches are cleared (live growth, close, reopen);
+    /// a scan that finishes under an older value is dropped.
+    quint64 m_rangeScanEpoch = 0;
 
     // Name → output-file index maps (built once on openResults) -----------
     QHash<QString, int> m_nodeOutputIdx;

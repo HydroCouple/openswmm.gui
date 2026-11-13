@@ -48,6 +48,11 @@
 #include <QComboBox>
 #include <QDateTimeEdit>
 #include <QDoubleSpinBox>
+#include <QLineEdit>
+#include <QLocale>
+#include <QScopeGuard>
+#include <QTimeZone>
+#include <ctime>
 #include <openswmm/engine/openswmm_gw2d.h>
 #include <openswmm/engine/openswmm_gw_transport.h>
 #include <openswmm/engine/openswmm_model.h>
@@ -192,6 +197,8 @@ private slots:
     void heatConfigurationSharesOuterUndoAndCancelSegment();
     void runtimeOverviewNavigatesToTwoDSettings();
     void hotstartSaveFormatsSurviveFilesPage();
+    void durationAcrossDaylightSavingIsWallClock();
+    void routingStepTypedUnderDecimalCommaLocaleIsWritten();
 };
 
 namespace
@@ -316,7 +323,8 @@ void TestSimulationOptionsGates::reportStartReloadsEarlierSimulationWindow()
     // read() also runs after Apply: clear the old bounds before loading values.
     QVERIFY(setWindow("10/13/2026", "09:00:00", "10:00:00", "09:30:07"));
     page.read();
-    QCOMPARE(report->dateTime(), QDateTime(QDate(2026, 10, 13), QTime(9, 30, 7)));
+    // SWMM dates are UTC-labelled wall clock (owner rule 2026-11-12, review E-14).
+    QCOMPARE(report->dateTime(), QDateTime(QDate(2026, 10, 13), QTime(9, 30, 7), QTimeZone::UTC));
     page.write();
     QCOMPARE(ctx.option("REPORT_START_DATE"), QStringLiteral("10/13/2026"));
     QCOMPARE(ctx.option("REPORT_START_TIME"), QStringLiteral("09:30:07"));
@@ -324,7 +332,7 @@ void TestSimulationOptionsGates::reportStartReloadsEarlierSimulationWindow()
     // Expanding the window later must also release its previous upper bound.
     QVERIFY(setWindow("10/15/2026", "14:00:00", "17:00:00", "16:00:03"));
     page.read();
-    QCOMPARE(report->dateTime(), QDateTime(QDate(2026, 10, 15), QTime(16, 0, 3)));
+    QCOMPARE(report->dateTime(), QDateTime(QDate(2026, 10, 15), QTime(16, 0, 3), QTimeZone::UTC));
     page.write();
     QCOMPARE(ctx.option("REPORT_START_TIME"), QStringLiteral("16:00:03"));
 }
@@ -1440,4 +1448,87 @@ void TestSimulationOptionsGates::hotstartSaveFormatsSurviveFilesPage()
     QVERIFY2(text.contains(QStringLiteral("\"../../warm.hsf\"")),
              qPrintable(text.section(QStringLiteral("[FILES]"), 1, 1).left(400)));
     QVERIFY(text.contains(QStringLiteral("\"../../end_auto.hsf\" NATIVE")));
+}
+
+/*! Review E-14 (workplans/GUI_COMPREHENSIVE_REVIEW_2026-11-12.md): the page's
+ *  dates are local-time QDateTimes, so a window spanning a daylight-saving
+ *  change measured 47 h for two wall-clock days. The engine counts wall clock. */
+void TestSimulationOptionsGates::durationAcrossDaylightSavingIsWallClock()
+{
+    const QByteArray oldTz = qgetenv("TZ");
+    qputenv("TZ", "America/New_York");
+    tzset();
+    auto restore = qScopeGuard([&oldTz] {
+        if (oldTz.isNull())
+            qunsetenv("TZ");
+        else
+            qputenv("TZ", oldTz);
+        tzset();
+    });
+
+    auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
+    QVERIFY(layer);
+    auto e = layer->engine();
+    // US clocks spring forward at 02:00 on Sunday 2024-03-10.
+    QVERIFY(swmm_options_set(e, "START_DATE", "03/09/2024") == SWMM_OK);
+    QVERIFY(swmm_options_set(e, "START_TIME", "00:00:00") == SWMM_OK);
+    QVERIFY(swmm_options_set(e, "END_DATE", "03/11/2024") == SWMM_OK);
+    QVERIFY(swmm_options_set(e, "END_TIME", "00:00:00") == SWMM_OK);
+    QVERIFY(swmm_options_set(e, "REPORT_START_DATE", "03/09/2024") == SWMM_OK);
+    QVERIFY(swmm_options_set(e, "REPORT_START_TIME", "00:00:00") == SWMM_OK);
+    openswmmvis::ui::SimOptionsContext ctx(e, nullptr, nullptr, {});
+    openswmmvis::ui::DatesPage page(ctx);
+    page.read();
+    QCOMPARE(page.durationSeconds(), qint64(2 * 86400));
+
+    // A start inside the spring-forward hour does not exist in local time; it
+    // must still read and write back unchanged (it was moved to 03:30).
+    QVERIFY(swmm_options_set(e, "START_DATE", "03/10/2024") == SWMM_OK);
+    QVERIFY(swmm_options_set(e, "START_TIME", "02:30:00") == SWMM_OK);
+    QVERIFY(swmm_options_set(e, "REPORT_START_DATE", "03/10/2024") == SWMM_OK);
+    QVERIFY(swmm_options_set(e, "REPORT_START_TIME", "02:30:00") == SWMM_OK);
+    openswmmvis::ui::DatesPage gapPage(ctx);
+    gapPage.read();
+    gapPage.write();
+    QCOMPARE(option(e, "START_DATE"), QStringLiteral("03/10/2024"));
+    QCOMPARE(option(e, "START_TIME"), QStringLiteral("02:30:00"));
+    QCOMPARE(option(e, "REPORT_START_TIME"), QStringLiteral("02:30:00"));
+}
+
+/*! Review E-17: the routing-step box validated in the SYSTEM locale but was
+ *  parsed in the C locale. Under a decimal-comma locale the box accepted
+ *  "0,5", the C-locale parse failed and the value was silently not written.
+ *  Contract: a comma is never accepted, and what is written is what is shown. */
+void TestSimulationOptionsGates::routingStepTypedUnderDecimalCommaLocaleIsWritten()
+{
+    const QLocale oldDefault;
+    QLocale::setDefault(QLocale(QLocale::German, QLocale::Germany));
+    auto restore = qScopeGuard([&oldDefault] { QLocale::setDefault(oldDefault); });
+
+    auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
+    QVERIFY(layer);
+    auto e = layer->engine();
+    openswmmvis::ui::SimOptionsContext ctx(e, nullptr, nullptr, {});
+    openswmmvis::ui::DatesPage page(ctx);
+    page.read();
+    QLineEdit *routing = nullptr;
+    for (auto *edit : page.findChildren<QLineEdit *>())
+        if (edit->property("optionKey").toString().split(',').contains(QLatin1String("ROUTING_STEP")))
+            routing = edit;
+    QVERIFY(routing);
+
+    routing->clear();
+    QTest::keyClicks(routing, QStringLiteral("0,5"));
+    QVERIFY2(!routing->text().contains(QLatin1Char(',')), qPrintable(routing->text()));
+    page.write();
+    bool shownOk = false;
+    const double shown = QLocale::c().toDouble(routing->text(), &shownOk);
+    QVERIFY(shownOk);
+    QCOMPARE(option(e, "ROUTING_STEP").toDouble(), shown);
+
+    routing->clear();
+    QTest::keyClicks(routing, QStringLiteral("0.5"));
+    QCOMPARE(routing->text(), QStringLiteral("0.5"));
+    page.write();
+    QCOMPARE(option(e, "ROUTING_STEP").toDouble(), 0.5);
 }

@@ -8,6 +8,8 @@
  */
 
 #include "simulation/simulationstatusmodel.h"
+#include "ui/theme/thememanager.h"
+#include "ui/theme/themetokens.h"
 #include "swmmvisprojectwindow.h"
 
 #include <QApplication>
@@ -421,10 +423,13 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
         if (role == Qt::ToolTipRole && index.column() == 0)
             return rec.warnings.at(index.row());
         if (role == Qt::ForegroundRole) {
-            // The failure row (finishJob) is red; warnings stay amber.
+            // The failure row (finishJob) uses the error colour; warnings the
+            // warning colour. Theme tokens keep text contrast on light and
+            // dark themes (the fixed hex values were below 4.5:1).
+            const auto &c = openswmmvis::ui::ThemeManager::instance()->colors();
             if (rec.warnings.at(index.row()).startsWith(QLatin1String("ERROR ")))
-                return QBrush(QColor(0xC0, 0x00, 0x00));
-            return QBrush(QColor(0xD0, 0x6F, 0x00)); // amber for warnings
+                return QBrush(c.error);
+            return QBrush(c.warning);
         }
         // Not-color-alone (UI redesign P9): a warning glyph carries the
         // severity for color-blind users and assistive tech.
@@ -549,17 +554,20 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
     }
 
     if (role == Qt::ForegroundRole) {
+        // Theme tokens, not fixed hex: those were below 4.5:1 on the dark theme
+        // (and amber on white), review A-17.
+        const auto &c = openswmmvis::ui::ThemeManager::instance()->colors();
         switch (rec.status) {
         case SimulationJobStatus::Idle:
             return {};
         case SimulationJobStatus::Running:
-            return QBrush(QColor(0x00, 0x70, 0xC0));
+            return QBrush(c.info);
         case SimulationJobStatus::Success:
-            return QBrush(QColor(0x00, 0x80, 0x00));
+            return QBrush(c.success);
         case SimulationJobStatus::Failed:
-            return QBrush(QColor(0xC0, 0x00, 0x00));
+            return QBrush(c.error);
         case SimulationJobStatus::Cancelled:
-            return QBrush(QColor(0x60, 0x60, 0x60));
+            return QBrush(c.hintText);
         }
     }
 

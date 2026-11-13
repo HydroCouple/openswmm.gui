@@ -95,38 +95,66 @@ void fillLinkSeries(SWMM_Output handle, int outputIdx, int var, int periodCount,
 
 } // namespace
 
-ProfileBuilder::SourceSeries fetch(SWMMResultsLayer *resultsLayer,
-                                   const ProfileBuilder::PathStatic &path, const QString &sourceId)
+FetchPlan plan(SWMMResultsLayer *resultsLayer, const ProfileBuilder::PathStatic &path)
+{
+    FetchPlan p;
+    if (!resultsLayer || !resultsLayer->outputHandle())
+        return p;
+    p.open = true;
+    p.resultsPath = resultsLayer->resultsFilePath();
+    p.periodCount = resultsLayer->totalTimeSteps();
+    p.reportStepSec = resultsLayer->reportStepSeconds();
+    p.startTime = resultsLayer->startDateTime();
+    p.nodeOutputIdx.reserve(path.nodes.size());
+    for (const auto &node : path.nodes)
+        p.nodeOutputIdx << resultsLayer->nodeOutputIndex(node.name);
+    p.linkOutputIdx.reserve(path.links.size());
+    for (const auto &link : path.links)
+        p.linkOutputIdx << resultsLayer->linkOutputIndex(link.name);
+    p.speciesNames = resultsLayer->speciesNames();
+    return p;
+}
+
+ProfileBuilder::SourceSeries fetch(const FetchPlan &plan, const ProfileBuilder::PathStatic &path,
+                                   const QString &sourceId)
 {
     ProfileBuilder::SourceSeries out;
     out.sourceId = sourceId;
-    if (!resultsLayer)
+    if (!plan.open || plan.nodeOutputIdx.size() != path.nodes.size() ||
+        plan.linkOutputIdx.size() != path.links.size())
         return out;
 
-    const auto reader = openProfileReader(resultsLayer);
+    const QByteArray file = plan.resultsPath.toUtf8();
+    const OutputReader reader(swmm_output_open_live(file.constData()), &swmm_output_close);
     SWMM_Output handle = reader.get();
     if (!handle)
         return out;
 
-    const int periodCount = resultsLayer->totalTimeSteps();
+    const int periodCount = plan.periodCount;
     out.periodCount = periodCount;
-    out.reportStepSec = resultsLayer->reportStepSeconds();
-    out.startTime = resultsLayer->startDateTime();
+    out.reportStepSec = plan.reportStepSec;
+    out.startTime = plan.startTime;
 
     out.nodeHead.resize(path.nodes.size());
     out.nodeDepth.resize(path.nodes.size());
     out.linkVelocity.resize(path.links.size());
 
     for (int i = 0; i < path.nodes.size(); ++i) {
-        const int idx = resultsLayer->nodeOutputIndex(path.nodes[i].name);
+        const int idx = plan.nodeOutputIdx[i];
         fillNodeSeries(handle, idx, SWMM_OUT_NODE_HEAD, periodCount, out.nodeHead[i]);
         fillNodeSeries(handle, idx, SWMM_OUT_NODE_DEPTH, periodCount, out.nodeDepth[i]);
     }
     for (int i = 0; i < path.links.size(); ++i) {
-        const int idx = resultsLayer->linkOutputIndex(path.links[i].name);
+        const int idx = plan.linkOutputIdx[i];
         fillLinkSeries(handle, idx, SWMM_OUT_LINK_VELOCITY, periodCount, out.linkVelocity[i]);
     }
     return out;
+}
+
+ProfileBuilder::SourceSeries fetch(SWMMResultsLayer *resultsLayer,
+                                   const ProfileBuilder::PathStatic &path, const QString &sourceId)
+{
+    return fetch(plan(resultsLayer, path), path, sourceId);
 }
 
 namespace

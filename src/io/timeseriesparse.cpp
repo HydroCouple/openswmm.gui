@@ -13,6 +13,7 @@
 
 #include "core/swmmdatetime.h"
 
+#include <QTimeZone>
 #include <QDateTime>
 #include <QRegularExpression>
 #include <QStringList>
@@ -34,6 +35,32 @@ QChar guessDelimiter(const QString &sampleLine)
         return QLatin1Char(';');
     return QLatin1Char(',');
 }
+
+namespace
+{
+/** @brief Parse @p text with @p fmt as SWMM wall-clock time, labelled UTC.
+ *  QDateTime::fromString() labels the result local time, which moves or drops
+ *  a stamp inside a daylight-saving gap. SWMM times have no zone, so the date
+ *  and time are parsed separately and joined under UTC (no conversion). */
+QDateTime parseWallClock(const QString &text, const QString &fmt)
+{
+    qsizetype fmtSep = fmt.indexOf(QLatin1Char(' '));
+    if (fmtSep < 0)
+        fmtSep = fmt.indexOf(QLatin1Char('T'));
+    if (fmtSep < 0) { // date only
+        const QDate d = QDate::fromString(text, fmt);
+        return d.isValid() ? QDateTime(d, QTime(0, 0), QTimeZone::UTC) : QDateTime();
+    }
+    const qsizetype textSep = text.indexOf(fmt.at(fmtSep));
+    if (textSep < 0)
+        return {};
+    const QDate d = QDate::fromString(text.left(textSep), fmt.left(fmtSep));
+    const QTime t = QTime::fromString(text.mid(textSep + 1), fmt.mid(fmtSep + 1));
+    if (!d.isValid() || !t.isValid())
+        return {};
+    return QDateTime(d, t, QTimeZone::UTC);
+}
+} // namespace
 
 bool tryParseTimestamp(const QString &s, double &jOut, double fallbackBase)
 {
@@ -71,13 +98,9 @@ bool tryParseTimestamp(const QString &s, double &jOut, double fallbackBase)
     if (meridiem.hasMatch())
         trimmed = trimmed.left(meridiem.capturedStart(2)).trimmed();
     for (const QString &fmt : kFormats) {
-        QDateTime dt = QDateTime::fromString(trimmed, fmt);
+        const QDateTime dt = parseWallClock(trimmed, fmt);
         if (!dt.isValid())
             continue;
-        // qDateTimeToSwmmDateTime() reads calendar components directly and
-        // never converts via toUTC()/toLocalTime(), so fromString()'s default
-        // Qt::LocalTime label (there's no timezone in these formats) doesn't
-        // need correcting here (GH #2 review — see swmmdatetime.h).
         jOut = openswmmvis::core::qDateTimeToSwmmDateTime(dt);
         return std::isfinite(jOut);
     }

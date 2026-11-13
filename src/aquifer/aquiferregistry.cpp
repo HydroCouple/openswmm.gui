@@ -113,6 +113,15 @@ void AquiferRegistry::remove(AquiferProvider *p)
     p->deleteLater();
 }
 
+void AquiferRegistry::followPatternReference(const QString &from, const QString &to)
+{
+    if (from.isEmpty())
+        return;
+    for (AquiferProvider *p : std::as_const(m_providers))
+        if (p->evapPattern() == from)
+            p->setEvapPattern(to);
+}
+
 bool AquiferRegistry::rename(AquiferProvider *p, const QString &newName)
 {
     if (!p || newName.isEmpty())

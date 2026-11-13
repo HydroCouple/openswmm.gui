@@ -1322,21 +1322,8 @@ void SWMMModelLayer::buildFromEngine(SWMM_Engine engine, qint64 *soaMsOut, qint6
     // ---- Nodes ----
     int nodeCount = swmm_node_count(engine);
     m_nodes.reserve(nodeCount);
-    for (int i = 0; i < nodeCount; ++i) {
-        NodeGeom g;
-        g.name = QString::fromUtf8(swmm_node_id(engine, i));
-        swmm_node_get_type(engine, i, &g.nodeType);
-        g.objectType = 0;
-        swmm_node_is_virtual(engine, i, &g.isVirtual);
-        // Inlet junctions are virtual junctions with a usage row; the flag
-        // is a separate engine query (older engines leave it 0).
-        swmm_node_is_inlet(engine, i, &g.isInlet);
-        double x = 0, y = 0;
-        swmm_spatial_get_node_coord(engine, i, &x, &y);
-        g.x = x;
-        g.y = y;
-        m_nodes.append(g);
-    }
+    for (int i = 0; i < nodeCount; ++i)
+        m_nodes.append(nodeGeomFromEngine(engine, i));
 
     soaNodes = loadTimer.elapsed();
 
@@ -1347,77 +1334,16 @@ void SWMMModelLayer::buildFromEngine(SWMM_Engine engine, qint64 *soaMsOut, qint6
     // automatically affects all attached links without patching vertex arrays.
     int linkCount = swmm_link_count(engine);
     m_links.reserve(linkCount);
-    for (int i = 0; i < linkCount; ++i) {
-        LinkGeom g;
-        g.name = QString::fromUtf8(swmm_link_id(engine, i));
-        swmm_link_get_type(engine, i, &g.linkType);
-
-        int fromIdx = -1, toIdx = -1;
-        swmm_link_get_from_node(engine, i, &fromIdx);
-        swmm_link_get_to_node(engine, i, &toIdx);
-        g.fromNodeIdx = fromIdx;
-        g.toNodeIdx = toIdx;
-
-        // GET returns the full polyline: [from-node, interior..., to-node].
-        // SET accepts only interior points.  Strip the two endpoint slots so
-        // m_links[].vertices holds interior bend points only; cachedLinkPolyline
-        // re-prepends / re-appends the node positions dynamically.
-        int vertCount = 0;
-        swmm_spatial_get_link_vertex_count(engine, i, &vertCount);
-        if (vertCount > 0) {
-            QVector<double> vx(vertCount), vy(vertCount);
-            swmm_spatial_get_link_vertices(engine, i, vx.data(), vy.data(), vertCount);
-
-            // Clean the FULL polyline [from-node, interior..., to-node] so a
-            // bend point coincident with a node endpoint (or a neighbour) is
-            // collapsed too, then strip the endpoints back off. m_links[]
-            // stays interior-only; cachedLinkPolyline re-adds node positions.
-            QVector<QPointF> full(vertCount);
-            for (int v = 0; v < vertCount; ++v)
-                full[v] = QPointF(vx[v], vy[v]); // [0]=from-node, [last]=to-node
-            full = EditGeometry::cleanPolyline(full);
-            if (full.size() > 2) {
-                QVector<QPointF> interior = full.mid(1, full.size() - 2);
-                // GIS-imported models often digitize a link opposite to its
-                // from/to-node assignment, leaving [VERTICES] running to→from;
-                // the assembled [from, interior, to] polyline then doubles back
-                // and renders as self-crossing loops. Orient the interior to the
-                // link's from→to direction (no-op for correctly-ordered data).
-                const bool fromOk = (fromIdx >= 0 && fromIdx < m_nodes.size());
-                const bool toOk = (toIdx >= 0 && toIdx < m_nodes.size());
-                if (fromOk && toOk)
-                    interior = EditGeometry::orientInteriorToEndpoints(
-                        interior, QPointF(m_nodes[fromIdx].x, m_nodes[fromIdx].y),
-                        QPointF(m_nodes[toIdx].x, m_nodes[toIdx].y));
-                g.vertices = interior;
-            }
-        }
-
-        m_links.append(g);
-    }
+    for (int i = 0; i < linkCount; ++i)
+        m_links.append(linkGeomFromEngine(engine, i));
 
     soaLinks = loadTimer.elapsed();
 
     // ---- Subcatchments ----
     int catchCount = swmm_subcatch_count(engine);
     m_catchments.reserve(catchCount);
-    for (int i = 0; i < catchCount; ++i) {
-        CatchGeom g;
-        g.name = QString::fromUtf8(swmm_subcatch_id(engine, i));
-
-        int polyCount = 0;
-        swmm_spatial_get_subcatch_polygon_count(engine, i, &polyCount);
-        if (polyCount > 0) {
-            QVector<double> px(polyCount), py(polyCount);
-            swmm_spatial_get_subcatch_polygon(engine, i, px.data(), py.data(), polyCount);
-            QVector<QPointF> ring(polyCount);
-            for (int v = 0; v < polyCount; ++v)
-                ring[v] = QPointF(px[v], py[v]);
-            // Collapse coincident vertices and drop a redundant closing point.
-            g.vertices = cleanSubcatchmentVertices(ring);
-        }
-        m_catchments.append(g);
-    }
+    for (int i = 0; i < catchCount; ++i)
+        m_catchments.append(catchGeomFromEngine(engine, i));
 
     soaCatch = loadTimer.elapsed();
 
@@ -7594,7 +7520,8 @@ void SWMMModelLayer::syncLinkEndpointIndicesFromEngine()
 // Delete operations (engine cascade + cache rebuild)
 // ---------------------------------------------------------------------------
 
-bool SWMMModelLayer::applyNodeDelete(const QString &name, QStringList *cascadeLinkNames)
+bool SWMMModelLayer::applyNodeDelete(const QString &name, QStringList *cascadeLinkNames,
+                                     SWMM_DeleteRecord *record)
 {
     if (!m_engine)
         return false;
@@ -7614,7 +7541,7 @@ bool SWMMModelLayer::applyNodeDelete(const QString &name, QStringList *cascadeLi
     // defers only derived work), those indices address m_links directly with
     // no translation.
     SWMM_ImpactReport report{};
-    if (swmm_node_delete(m_engine, nodeIdx, &report) != 0) {
+    if (swmm_node_delete_recorded(m_engine, nodeIdx, &report, record) != 0) {
         swmm_impact_report_free(&report);
         return false;
     }
@@ -7662,7 +7589,7 @@ bool SWMMModelLayer::applyNodeDelete(const QString &name, QStringList *cascadeLi
     return true;
 }
 
-bool SWMMModelLayer::applyLinkDelete(const QString &name)
+bool SWMMModelLayer::applyLinkDelete(const QString &name, SWMM_DeleteRecord *record)
 {
     if (!m_engine)
         return false;
@@ -7671,7 +7598,7 @@ bool SWMMModelLayer::applyLinkDelete(const QString &name)
     if (linkIdx < 0)
         return false;
 
-    if (swmm_link_delete(m_engine, linkIdx, nullptr) != 0)
+    if (swmm_link_delete_recorded(m_engine, linkIdx, nullptr, record) != 0)
         return false;
 
     m_links.removeAt(linkIdx);
@@ -7688,7 +7615,7 @@ bool SWMMModelLayer::applyLinkDelete(const QString &name)
     return true;
 }
 
-bool SWMMModelLayer::applyGageDelete(const QString &name)
+bool SWMMModelLayer::applyGageDelete(const QString &name, SWMM_DeleteRecord *record)
 {
     if (!m_engine)
         return false;
@@ -7697,7 +7624,7 @@ bool SWMMModelLayer::applyGageDelete(const QString &name)
     if (idx < 0)
         return false;
 
-    if (swmm_gage_delete(m_engine, idx, nullptr) != 0)
+    if (swmm_gage_delete_recorded(m_engine, idx, nullptr, record) != 0)
         return false;
 
     m_gages.removeAt(idx);
@@ -7714,9 +7641,142 @@ bool SWMMModelLayer::applyGageDelete(const QString &name)
     return true;
 }
 
+SWMMModelLayer::CatchGeom SWMMModelLayer::catchGeomFromEngine(SWMM_Engine engine, int i)
+{
+    CatchGeom g;
+    g.name = QString::fromUtf8(swmm_subcatch_id(engine, i));
+
+    int polyCount = 0;
+    swmm_spatial_get_subcatch_polygon_count(engine, i, &polyCount);
+    if (polyCount > 0) {
+        QVector<double> px(polyCount), py(polyCount);
+        swmm_spatial_get_subcatch_polygon(engine, i, px.data(), py.data(), polyCount);
+        QVector<QPointF> ring(polyCount);
+        for (int v = 0; v < polyCount; ++v)
+            ring[v] = QPointF(px[v], py[v]);
+        // Collapse coincident vertices and drop a redundant closing point.
+        g.vertices = cleanSubcatchmentVertices(ring);
+    }
+    return g;
+}
+
+SWMMModelLayer::NodeGeom SWMMModelLayer::nodeGeomFromEngine(SWMM_Engine engine, int i)
+{
+    NodeGeom g;
+    g.name = QString::fromUtf8(swmm_node_id(engine, i));
+    swmm_node_get_type(engine, i, &g.nodeType);
+    g.objectType = 0;
+    swmm_node_is_virtual(engine, i, &g.isVirtual);
+    // Inlet junctions are virtual junctions with a usage row; the flag
+    // is a separate engine query (older engines leave it 0).
+    swmm_node_is_inlet(engine, i, &g.isInlet);
+    double x = 0, y = 0;
+    swmm_spatial_get_node_coord(engine, i, &x, &y);
+    g.x = x;
+    g.y = y;
+    return g;
+}
+
+SWMMModelLayer::LinkGeom SWMMModelLayer::linkGeomFromEngine(SWMM_Engine engine, int i) const
+{
+    LinkGeom g;
+    g.name = QString::fromUtf8(swmm_link_id(engine, i));
+    swmm_link_get_type(engine, i, &g.linkType);
+
+    int fromIdx = -1, toIdx = -1;
+    swmm_link_get_from_node(engine, i, &fromIdx);
+    swmm_link_get_to_node(engine, i, &toIdx);
+    g.fromNodeIdx = fromIdx;
+    g.toNodeIdx = toIdx;
+
+    // GET returns the full polyline: [from-node, interior..., to-node].
+    // SET accepts only interior points.  Strip the two endpoint slots so
+    // m_links[].vertices holds interior bend points only; cachedLinkPolyline
+    // re-prepends / re-appends the node positions dynamically.
+    int vertCount = 0;
+    swmm_spatial_get_link_vertex_count(engine, i, &vertCount);
+    if (vertCount > 0) {
+        QVector<double> vx(vertCount), vy(vertCount);
+        swmm_spatial_get_link_vertices(engine, i, vx.data(), vy.data(), vertCount);
+
+        // Clean the FULL polyline [from-node, interior..., to-node] so a
+        // bend point coincident with a node endpoint (or a neighbour) is
+        // collapsed too, then strip the endpoints back off. m_links[]
+        // stays interior-only; cachedLinkPolyline re-adds node positions.
+        QVector<QPointF> full(vertCount);
+        for (int v = 0; v < vertCount; ++v)
+            full[v] = QPointF(vx[v], vy[v]); // [0]=from-node, [last]=to-node
+        full = EditGeometry::cleanPolyline(full);
+        if (full.size() > 2) {
+            QVector<QPointF> interior = full.mid(1, full.size() - 2);
+            // GIS-imported models often digitize a link opposite to its
+            // from/to-node assignment, leaving [VERTICES] running to→from;
+            // the assembled [from, interior, to] polyline then doubles back
+            // and renders as self-crossing loops. Orient the interior to the
+            // link's from→to direction (no-op for correctly-ordered data).
+            const bool fromOk = (fromIdx >= 0 && fromIdx < m_nodes.size());
+            const bool toOk = (toIdx >= 0 && toIdx < m_nodes.size());
+            if (fromOk && toOk)
+                interior = EditGeometry::orientInteriorToEndpoints(
+                    interior, QPointF(m_nodes[fromIdx].x, m_nodes[fromIdx].y),
+                    QPointF(m_nodes[toIdx].x, m_nodes[toIdx].y));
+            g.vertices = interior;
+        }
+    }
+    return g;
+}
+
+bool SWMMModelLayer::applyDeleteRestore(SWMM_DeleteRecord record)
+{
+    if (!m_engine || !record)
+        return false;
+    if (swmm_delete_record_restore(m_engine, record) != 0)
+        return false;
+
+    // The engine put every object back at its index and kept the survivors in
+    // order, so walk engine and cache together: keep each survivor's entry and
+    // read only the restored objects. The bulk close rebuilds what derives from them.
+    BulkEdit guard(this);
+    const auto merge = [this](auto &cache, int count, auto idFn, auto readFn) {
+        if (cache.size() == count)
+            return;
+        std::remove_reference_t<decltype(cache)> merged;
+        merged.reserve(count);
+        int r = 0;
+        for (int i = 0; i < count; ++i) {
+            const QString id = QString::fromUtf8(idFn(m_engine, i));
+            if (r < cache.size() && cache[r].name == id)
+                merged.append(std::move(cache[r++]));
+            else
+                merged.append(readFn(i));
+        }
+        cache = std::move(merged);
+    };
+    merge(m_gages, swmm_gage_count(m_engine), swmm_gage_id, [this](int i) {
+        NodeGeom g;
+        g.name = QString::fromUtf8(swmm_gage_id(m_engine, i));
+        g.objectType = 4; // RainGage, as applyGageAdd
+        g.nodeType = 0;
+        g.x = g.y = 0.0;
+        swmm_spatial_get_gage_coord(m_engine, i, &g.x, &g.y);
+        return g;
+    });
+    // Nodes before links: a restored link's cache entry reads its end nodes from m_nodes.
+    merge(m_nodes, swmm_node_count(m_engine), swmm_node_id,
+          [this](int i) { return nodeGeomFromEngine(m_engine, i); });
+    merge(m_links, swmm_link_count(m_engine), swmm_link_id,
+          [this](int i) { return linkGeomFromEngine(m_engine, i); });
+    merge(m_catchments, swmm_subcatch_count(m_engine), swmm_subcatch_id,
+          [this](int i) { return catchGeomFromEngine(m_engine, i); });
+    m_bulkDirty = true;
+    return true;
+}
+
 bool SWMMModelLayer::applyDeleteMany(const QStringList &nodeNames, const QStringList &linkNames,
                                      const QStringList &subcatchNames, const QStringList &gageNames,
-                                     QStringList *cascadeLinkNames)
+                                     QStringList *cascadeLinkNames, SWMM_DeleteRecord *gageRecord,
+                                     SWMM_DeleteRecord *linkRecord, SWMM_DeleteRecord *nodeRecord,
+                                     SWMM_DeleteRecord *subcatchRecord)
 {
     // Perf-plan Phase A2: one swmm_*_delete_many engine call per kind (one
     // name-index rebuild per batch instead of one per delete — the measured
@@ -7768,7 +7828,8 @@ bool SWMMModelLayer::applyDeleteMany(const QStringList &nodeNames, const QString
     if (!nodeNames.isEmpty()) {
         const QVector<int> idxs = resolve(nodeNames, swmm_node_index);
         if (!idxs.isEmpty() &&
-            swmm_node_delete_many(m_engine, idxs.constData(), idxs.size(), nullptr) == 0) {
+            swmm_node_delete_many_recorded(m_engine, idxs.constData(), idxs.size(), nullptr,
+                                           nodeRecord) == 0) {
             sweep(
                 m_nodes, swmm_node_count(m_engine),
                 [this](int i) { return swmm_node_id(m_engine, i); }, nullptr);
@@ -7781,7 +7842,8 @@ bool SWMMModelLayer::applyDeleteMany(const QStringList &nodeNames, const QString
     if (!linkNames.isEmpty()) {
         const QVector<int> idxs = resolve(linkNames, swmm_link_index);
         if (!idxs.isEmpty() &&
-            swmm_link_delete_many(m_engine, idxs.constData(), idxs.size(), nullptr) == 0) {
+            swmm_link_delete_many_recorded(m_engine, idxs.constData(), idxs.size(), nullptr,
+                                           linkRecord) == 0) {
             sweep(
                 m_links, swmm_link_count(m_engine),
                 [this](int i) { return swmm_link_id(m_engine, i); }, nullptr);
@@ -7791,7 +7853,8 @@ bool SWMMModelLayer::applyDeleteMany(const QStringList &nodeNames, const QString
     if (!subcatchNames.isEmpty()) {
         const QVector<int> idxs = resolve(subcatchNames, swmm_subcatch_index);
         if (!idxs.isEmpty() &&
-            swmm_subcatch_delete_many(m_engine, idxs.constData(), idxs.size(), nullptr) == 0) {
+            swmm_subcatch_delete_many_recorded(m_engine, idxs.constData(), idxs.size(), nullptr,
+                                               subcatchRecord) == 0) {
             sweep(
                 m_catchments, swmm_subcatch_count(m_engine),
                 [this](int i) { return swmm_subcatch_id(m_engine, i); }, nullptr);
@@ -7801,7 +7864,8 @@ bool SWMMModelLayer::applyDeleteMany(const QStringList &nodeNames, const QString
     if (!gageNames.isEmpty()) {
         const QVector<int> idxs = resolve(gageNames, swmm_gage_index);
         if (!idxs.isEmpty() &&
-            swmm_gage_delete_many(m_engine, idxs.constData(), idxs.size(), nullptr) == 0) {
+            swmm_gage_delete_many_recorded(m_engine, idxs.constData(), idxs.size(), nullptr,
+                                           gageRecord) == 0) {
             sweep(
                 m_gages, swmm_gage_count(m_engine),
                 [this](int i) { return swmm_gage_id(m_engine, i); }, nullptr);
@@ -7814,7 +7878,7 @@ bool SWMMModelLayer::applyDeleteMany(const QStringList &nodeNames, const QString
     return any;
 }
 
-bool SWMMModelLayer::applySubcatchDelete(const QString &name)
+bool SWMMModelLayer::applySubcatchDelete(const QString &name, SWMM_DeleteRecord *record)
 {
     if (!m_engine)
         return false;
@@ -7823,7 +7887,7 @@ bool SWMMModelLayer::applySubcatchDelete(const QString &name)
     if (idx < 0)
         return false;
 
-    if (swmm_subcatch_delete(m_engine, idx, nullptr) != 0)
+    if (swmm_subcatch_delete_recorded(m_engine, idx, nullptr, record) != 0)
         return false;
 
     m_catchments.removeAt(idx);
@@ -8839,6 +8903,22 @@ QObject *SWMMModelLayer::ensureAquiferRegistry()
         // flush-time signal would dirty an untouched project and force a full
         // .inp rewrite on the next run.
         connect(reg, &AquiferRegistry::providerParamsChanged, this, &SWMMModelLayer::markEdited);
+        // Evaporation patterns are referenced by name. The engine rewrites the
+        // reference on a pattern rename and clears it on a delete; follow both
+        // or the next save writes the stale name back.
+        using openswmmvis::pattern::PatternProvider;
+        using openswmmvis::pattern::PatternRegistry;
+        if (auto *patterns = qobject_cast<PatternRegistry *>(ensurePatternRegistry())) {
+            connect(patterns, &PatternRegistry::providerRenamed, reg,
+                    [reg](PatternProvider *, const QString &prev, const QString &now) {
+                        reg->followPatternReference(prev, now);
+                    });
+            connect(patterns, &PatternRegistry::providerAboutToBeRemoved, reg,
+                    [reg](PatternProvider *p) {
+                        if (p)
+                            reg->followPatternReference(p->name(), QString());
+                    });
+        }
     }
     return reg;
 }
@@ -8899,6 +8979,15 @@ QObject *SWMMModelLayer::ensureInletRegistry()
         // flush-time signal would dirty an untouched project and force a full
         // .inp rewrite on the next run.
         connect(reg, &InletRegistry::providerParamsChanged, this, &SWMMModelLayer::markEdited);
+        // Custom capture curves are referenced by name; the engine rewrites
+        // the reference on a curve rename, so the cached name must follow.
+        using openswmmvis::curve::CurveProvider;
+        using openswmmvis::curve::CurveRegistry;
+        if (auto *curves = qobject_cast<CurveRegistry *>(ensureCurveRegistry()))
+            connect(curves, &CurveRegistry::providerRenamed, reg,
+                    [reg](CurveProvider *, const QString &prev, const QString &now) {
+                        reg->followCurveReference(prev, now);
+                    });
     }
     return reg;
 }

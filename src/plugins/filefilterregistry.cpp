@@ -154,8 +154,7 @@ void FileFilterRegistry::registerBuiltinFilters()
                      true,
                      false,
                      true});
-    // .xlsx is conditionally available based on QXlsx; registered by the
-    // tabular layer module at startup if linked, not here.
+    // No .xlsx entry: TabularDataLayer cannot read workbooks.
 
     // Map export.
     entries_.append({tr("Portable Network Graphics"),
@@ -165,34 +164,9 @@ void FileFilterRegistry::registerBuiltinFilters()
                      false,
                      true,
                      true});
-    entries_.append({tr("Scalable Vector Graphics"),
-                     {QStringLiteral("*.svg")},
-                     FilterKind::MapExportWrite,
-                     {},
-                     false,
-                     true,
-                     true});
-    entries_.append({tr("AutoCAD DXF"),
-                     {QStringLiteral("*.dxf")},
-                     FilterKind::MapExportWrite,
-                     {},
-                     false,
-                     true,
-                     true});
-    entries_.append({tr("Enhanced Metafile"),
-                     {QStringLiteral("*.emf")},
-                     FilterKind::MapExportWrite,
-                     {},
-                     false,
-                     true,
-                     true});
-    entries_.append({tr("EPA SWMM Map"),
-                     {QStringLiteral("*.map")},
-                     FilterKind::MapExportWrite,
-                     {},
-                     false,
-                     true,
-                     true});
+    // SVG, DXF, EMF and EPA .map export are not implemented yet; offering them
+    // only to refuse after the user picked a path was review finding E-23.
+    // Add each back here when onExportMap() can write it.
 
     // Process-component config sidecars (G-D1; GUI plan §4.1).
     entries_.append({tr("Reaction System Config"),

@@ -5950,10 +5950,16 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut, b
             return fail(tr("Included constraint coordinates could not be transformed to the mesh CRS (%1 points, %2 line vertices). Repair their CRS or geometry before using preserve/bounded policies.")
                 .arg(nAuxPointsUnprojectable).arg(nAuxLineVertsUnprojectable));
         // Not fatal — these are optional constraints, and the mesh is valid
-        // without them. But dropping input silently is not acceptable either.
+        // without them. But dropping input silently is not acceptable either:
+        // the note reaches the run log, not only the developer log.
         qCWarning(lcMeshPerf) << "[Mesh] aux geometry dropped, could not reproject to the mesh"
                               << "CRS:" << nAuxPointsUnprojectable << "point(s),"
                               << nAuxLineVertsUnprojectable << "line vertex/vertices";
+        out->inputNotes << tr("Constraint geometry could not be transformed to the mesh CRS and "
+                              "was left out: %1 point(s), %2 line vertex/vertices. Repair the "
+                              "layer's CRS or geometry to include it.")
+                               .arg(nAuxPointsUnprojectable)
+                               .arg(nAuxLineVertsUnprojectable);
     }
 
     // ── Region marker seeds (subcatchments) ──────────────────────────
@@ -6195,6 +6201,8 @@ void MeshGenerationDialog::startPipeline(bool previewOnly)
     // Show embedded progress bar and switch Generate→disabled, Cancel→"Stop".
     inputs.events = std::make_shared<meshkit::EventChannel>();
     m_runLog->beginRun(inputs.events);
+    for (const QString &note : std::as_const(inputs.inputNotes))
+        m_runLog->addNote(meshkit::Severity::Warning, note);
     m_tabs->setCurrentWidget(m_runLog);
     m_progressBar->setValue(0);
     m_progressLabel->setText(tr("Starting…"));

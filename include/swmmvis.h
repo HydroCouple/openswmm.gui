@@ -896,13 +896,6 @@ private slots:
     void onShowWelcomeScreen();
 
     /**
-     * @brief Perform no operation in this currently empty slot.
-     * Does not close the active project or main window, prompt, save settings or cancel jobs;
-     * actual close handling is provided by project/main-window closeEvent paths.
-     */
-    void onClose();
-
-    /**
      * @brief Acquire or release one nested indeterminate-progress request and recompute shared
      * bar state.
      * @param busy True increments busy reference count; false decrements with floor zero.

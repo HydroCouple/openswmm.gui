@@ -11,6 +11,7 @@
 #include "ui/dialogs/hotstartsavesmodel.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
 
+#include <QTimeZone>
 #include <QComboBox>
 #include <QDateTime>
 #include <QDateTimeEdit>
@@ -215,6 +216,7 @@ QWidget *HotstartSavesDateTimeDelegate::createEditor(QWidget *parent,
                                                      const QModelIndex & /*idx*/) const
 {
     auto *w = new QDateTimeEdit(parent);
+    w->setTimeZone(QTimeZone::UTC); // SWMM wall clock (qDateTimeFromOaDate is UTC)
     w->setDisplayFormat(QStringLiteral("MM/dd/yyyy HH:mm:ss"));
     // OA date 0.0 (1899-12-30 00:00) renders as the "(end of run)" special
     // value — same sentinel the legacy cell-widget table used.

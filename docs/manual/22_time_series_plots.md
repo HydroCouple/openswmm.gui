@@ -109,7 +109,7 @@ layouts and view-toggle defaults. Switching tabs preserves each plot's current
 state. Unsaved plot tabs themselves are not restored after restarting the app.
 
 The toolbar's **Series Panel**, **Range Slider**, **Stats Panel** and **1v1
-Plots** toggles hide and show each region; **Charts Only** (`Ctrl+Shift+F`) hides
+Plots** toggles hide and show each region; **Charts Only** (`Ctrl+Shift+K`) hides
 the first three at once and restores your previous widths when you toggle it back.
 
 ### The series tree

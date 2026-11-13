@@ -26,6 +26,7 @@
 #include "layers/gisrasterlayer.h"
 #include "layers/gisvectorlayer.h"
 #include "layers/timeserieslayer.h"
+#include "layers/unavailablelayer.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmm2dmeshlayer.h"
 #include "layers/swmm2dresultslayer.h"
@@ -2110,6 +2111,17 @@ QJsonObject ProjectSerializer::serializeGisLayer(OpenSWMMVisLayer *layer, const 
     if (!layer || layer->isTemporary())
         return obj;
 
+    if (auto *missing = qobject_cast<UnavailableLayer *>(layer)) {
+        // A layer that did not reopen keeps its saved entry, so the project
+        // still lists it once the file is back.
+        obj = missing->entry();
+        obj[kGisPath] = toRelativePath(missing->sourcePath(), oswpPath);
+        obj[kGisName] = missing->name();
+        obj[kGisVisible] = missing->isVisible();
+        obj[kGisOpacity] = missing->opacity();
+        obj["id"] = missing->layerId();
+        return obj;
+    }
     if (auto *series = qobject_cast<TimeSeriesLayer *>(layer)) {
         if (series->sourcePath().isEmpty()) return obj;
         obj[kGisType] = QStringLiteral("timeseries");
@@ -2204,16 +2216,26 @@ void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj, MapCanvas *c
         canvas->addLayer(layer, false);
         return;
     }
+    // A layer that cannot be reopened stays in the tree as a placeholder that
+    // shows why, and the next save writes its entry back unchanged.
+    const auto keepUnavailable = [obj, path](MapCanvas *target, const QString &reason) {
+        auto *placeholder = new UnavailableLayer(obj, path, reason);
+        placeholder->restoreLayerId(obj.value("id").toString());
+        target->addLayer(placeholder, /*pushUndo=*/false);
+    };
+    const bool knownType = type == QStringLiteral("raster") || type == QStringLiteral("vector") ||
+                           type == QStringLiteral("feature");
     if (!QFile::exists(path)) {
-        if (warningsOut) {
-            // The label used to read "Vector" for every non-raster type; with
-            // a third type that would be actively wrong.
-            const QString kindLabel = type == QStringLiteral("raster")    ? QObject::tr("Raster")
-                                      : type == QStringLiteral("feature") ? QObject::tr("Feature")
-                                                                          : QObject::tr("Vector");
+        // The label used to read "Vector" for every non-raster type; with
+        // a third type that would be actively wrong.
+        const QString kindLabel = type == QStringLiteral("raster")    ? QObject::tr("Raster")
+                                  : type == QStringLiteral("feature") ? QObject::tr("Feature")
+                                                                      : QObject::tr("Vector");
+        if (warningsOut)
             *warningsOut
-                << QObject::tr("%1 layer file not found — layer skipped: %2").arg(kindLabel, path);
-        }
+                << QObject::tr("%1 layer file not found — layer not loaded: %2").arg(kindLabel, path);
+        if (knownType)
+            keepUnavailable(canvas, QObject::tr("Not loaded: file not found\n%1").arg(path));
         return;
     }
 
@@ -2240,7 +2262,7 @@ void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj, MapCanvas *c
         const QJsonObject style = obj.value(kRasterStyle).toObject();
         QObject::connect(
             layer, &GISRasterLayer::openFinished, canvas,
-            [canvas, layer, applyCommon, style](bool ok) {
+            [canvas, layer, applyCommon, style, keepUnavailable, path](bool ok) {
                 if (ok) {
                     applyCommon(layer);
                     if (!style.isEmpty())
@@ -2248,6 +2270,10 @@ void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj, MapCanvas *c
                     canvas->addLayer(layer, /*pushUndo=*/false);
                 } else {
                     layer->deleteLater();
+                    qWarning("Raster layer could not be opened: %s", qPrintable(path));
+                    keepUnavailable(canvas, QObject::tr("Not loaded: the raster could not be "
+                                                        "opened\n%1")
+                                                .arg(path));
                 }
             },
             static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
@@ -2259,7 +2285,7 @@ void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj, MapCanvas *c
         const auto filter = obj.value("filterExpression").toString();
         QObject::connect(
             layer, &GISVectorLayer::openFinished, canvas,
-            [canvas, layer, applyCommon, style, filter](bool ok) {
+            [canvas, layer, applyCommon, style, filter, keepUnavailable, path](bool ok) {
                 if (ok) {
                     applyCommon(layer);
                     if (!style.isEmpty()) OpenSWMM::Render::StyleFileIO::applyStyleJson(layer, style);
@@ -2267,6 +2293,10 @@ void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj, MapCanvas *c
                     canvas->addLayer(layer, /*pushUndo=*/false);
                 } else {
                     layer->deleteLater();
+                    qWarning("Vector layer could not be opened: %s", qPrintable(path));
+                    keepUnavailable(canvas, QObject::tr("Not loaded: the vector data could not "
+                                                        "be opened\n%1")
+                                                .arg(path));
                 }
             },
             static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
@@ -2284,9 +2314,12 @@ void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj, MapCanvas *c
         if (!layer->openTable(path, table, &err)) {
             if (warningsOut)
                 *warningsOut << QObject::tr(
-                                    "Feature layer \"%1\" could not be opened — layer skipped: %2")
+                                    "Feature layer \"%1\" could not be opened — layer not loaded: %2")
                                     .arg(table, err);
             layer->deleteLater();
+            keepUnavailable(canvas, QObject::tr("Not loaded: feature layer \"%1\" could not be "
+                                                "opened: %2\n%3")
+                                        .arg(table, err, path));
             return;
         }
         layer->applyJson(obj); // role, zPolicy, symbol

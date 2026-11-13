@@ -33,6 +33,7 @@
 #include <openswmm/engine/openswmm_infrastructure.h> // SWMM_InletUsage
 
 #include "layers/nodecoupling2d.h" // 1D↔2D coupling state
+#include "ui/properties/fieldwriter.h"
 #include "ui/properties/usageeditref.h"
 #include "ui/properties/dataobjectref.h"
 #include "ui/properties/initialqualityeditref.h"
@@ -1022,6 +1023,15 @@ public slots:
      */
     void updateStoredName(const QString &newName) { m_name = newName; }
 
+    /**
+     * @brief Send field writes through the project's checked, undoable edit path (review C-01).
+     * @param[in] writer Installed by PropertiesPanel; an empty writer restores direct engine writes.
+     */
+    void setFieldWriter(openswmmvis::properties::FieldWriter writer)
+    {
+        m_fieldWriter = std::move(writer);
+    }
+
     // ------------------------------------------------------------------
     // Slice QA.2 — stats-source dispatch
     // ------------------------------------------------------------------
@@ -1099,6 +1109,16 @@ protected:
      */
     [[nodiscard]] int nodeIdx() const;
 
+    /**
+     * @brief Offer one write to the installed field writer.
+     * @param[in] fieldKey Attribute Table field key for this node's category.
+     * @param[in] value Value in the table's representation.
+     * @return True when the writer took the edit (applied, or refused with its reason shown); the
+     *   view is refreshed either way. False without a writer or when the field is not routed: the
+     *   caller then writes the engine directly.
+     */
+    bool routeField(const char *fieldKey, const QVariant &value);
+
     /*! Read-modify-write of this node's SWMM_InletUsage row as ONE undoable
      *  step (SetInletUsageCommand via SWMMModelLayer::pushInletUsageEdit).
      *  \p mutate receives the current row — or an engine-default one when
@@ -1134,6 +1154,7 @@ protected:
 
     SWMM_Engine m_engine;
     QString m_name;
+    openswmmvis::properties::FieldWriter m_fieldWriter; ///< review C-01: shared edit path
     QMetaObject::Connection m_modelClose, m_modelDestroyed;
     SWMMModelLayer *m_layer = nullptr; ///< DB.4c — for compound-cell pickers
 

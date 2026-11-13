@@ -813,10 +813,10 @@ private slots:
     /**
      * @note Missing canvas/target no-op. Sublayer selection only removes TraceSublayer via
      *   removeAnalysisSublayer, never its host; other sublayers no-op. Layer/kind selection finds
-     *   host canvas index, calls takeLayer with default undo enabled then deleteLater on returned
-     *   layer. Deferred deletion means layer lifetime is not preserved solely by removal history;
-     *   caller cannot assume removal undo can restore it. No confirmation or engine-table deletion
-     *   here.
+     *   host canvas index and calls takeLayer with default undo enabled. A non-temporary layer is
+     *   left alive for the RemoveLayerCommand to restore on Undo; only a temporary layer (removed
+     *   without a command) is deleteLater'd. The project's SWMMModelLayer (or one of its kind rows)
+     *   is never removed. No confirmation or engine-table deletion here.
      */
     void onRemoveSelectedLayer();
     /**

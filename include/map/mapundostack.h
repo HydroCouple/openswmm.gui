@@ -24,83 +24,6 @@
 #include "layers/swmmmodellayer.h" // SWMMModelLayer::Category used by ReorderCategoriesCommand below
 #include "selection/selectionmanager.h" // SWMMObjectRef used by DeleteDataObjectCommand below
 
-// ---------------------------------------------------------------------------
-// Plain-data snapshots used by delete / undo
-// ---------------------------------------------------------------------------
-
-/*! Supported node-property subset captured for deletion replay; not a complete engine snapshot. */
-struct NodeSnapshot {
-    QString name;
-    QString tag;
-    int nodeType = 0;
-    double x = 0, y = 0;
-    double invertElev = 0;
-    double maxDepth = 0;
-    double initDepth = 0;
-    double surchargeDepth = 0;
-    double pondedArea = 0;
-    double storageArea = 0;
-    // virtual junction: the flag plus its rendering-only ground depth. Without
-    // these, undoing the delete of a virtual junction resurrected a plain
-    // junction (and the drawn ground line with it).
-    int isVirtual = 0;
-    double rimDepth = 0;
-    // inlet junction: the second flag plus the [INLET_USAGE] row it owns.
-    // Without them, undoing the delete of an inlet junction resurrected a
-    // plain virtual junction and silently dropped the inlet.
-    int isInlet = 0;
-    bool hasInletUsage = false;
-    SWMM_InletUsage inletUsage{};
-    QString inletDesignId; ///< resolved by name — indices shift
-    QString captureNodeId; ///< resolved by name — indices shift
-    // outfall-specific
-    int outfallType = 0;
-    int outfallFlapGate = 0;
-    // storage-specific
-    double seepRate = 0;
-    // divider-specific
-    int dividerType = 0;
-};
-
-/*! Supported link-property subset captured for deletion replay; references/subtype fields may be omitted. */
-struct LinkSnapshot {
-    QString name;
-    int linkType = 0;
-    QString fromNode;
-    QString toNode;
-    QVector<QPointF> interiorVertices;
-    double length = 0;
-    double roughness = 0;
-    double offsetUp = 0;
-    double offsetDn = 0;
-    double crestHeight = 0;
-    double dischargeCoeff = 0;
-    double endContractions = 0;
-    int flapGate = 0;
-    int pumpInitState = 0;
-    QString tag;
-    int shape = -1, barrels = 1, culvertCode = 0;
-    double geom[4] = {};
-    double initialFlow = 0, maxFlow = 0, seepRate = 0;
-    double lossIn = 0, lossOut = 0, lossAverage = 0;
-};
-
-/*! Minimal snapshot for a deleted rain gage. */
-struct GageSnapshot {
-    QString name;
-    double x = 0, y = 0;
-};
-
-/*! Minimal snapshot for a deleted subcatchment. */
-struct SubcatchSnapshot {
-    QString name;
-    QVector<QPointF> polygon;
-    double area = 0;
-    double width = 0;
-    double slope = 0;
-    double impervPct = 0;
-};
-
 /*!
  * \class MapUndoStack
  * \brief An undo/redo stack for map operations with a configurable maximum depth.
@@ -359,14 +282,18 @@ private:
 /*!
  * \class RemoveLayerCommand
  * \brief Records removing a layer from the canvas layer stack.
+ * \details While its removal can still be undone the command keeps the layer alive. When the
+ *          command is destroyed with the layer still off the canvas (it fell off the undo
+ *          limit, the stack was cleared, or the canvas closed) it frees the layer with
+ *          deleteLater() (owner decision 2026-11-12, review E-02).
  */
 class RemoveLayerCommand : public MapCommand
 {
 public:
     /**
      * @brief Capture layer identity and stack position for reversible remove.
-     * @param[in] layer Borrowed raw layer owned externally/project; command never deletes it and
-     *   cannot detect destruction.
+     * @param[in] layer Layer to remove; guarded, so deletion elsewhere is detected. Freed by the
+     *   destructor only if this command's redo() removed it and the canvas does not hold it.
      * @param[in] position Insertion index used on restoration; canvas handles invalid/out-of-range
      *   position.
      * @param[in] canvas Optional borrowed raw canvas; caller keeps it alive during command
@@ -377,9 +304,15 @@ public:
      */
     RemoveLayerCommand(OpenSWMMVisLayer *layer, int position, MapCanvas *canvas,
                        QUndoCommand *parent = nullptr);
+    /**
+     * @brief Free the layer if it is still removed: this command's redo() took it and the canvas
+     *   does not hold it. Requires a live canvas; MapCanvas clears its stack in its destructor.
+     */
+    ~RemoveLayerCommand() override;
 
     /**
-     * @brief Reinsert borrowed layer at stored position without nested undo; null pointers no-op.
+     * @brief Reinsert the layer at the stored position without nested undo; a deleted layer or
+     *   null canvas no-ops.
      */
     void undo() override;
     /**
@@ -389,8 +322,9 @@ public:
     void redo() override;
 
 private:
-    OpenSWMMVisLayer *m_layer;
+    QPointer<OpenSWMMVisLayer> m_layer;
     int m_position;
+    bool m_removed = false; ///< redo() took the layer and undo() has not put it back
 };
 
 /*!
@@ -496,6 +430,7 @@ public:
         int linkIdx;
         double oldLen;
         double newLen;
+        QString linkName{}; ///< filled by the command; the index is re-resolved from it
     };
 
     /**
@@ -552,6 +487,7 @@ public:
 private:
     SWMMModelLayer *m_layer = nullptr;
     int m_nodeIdx = -1;
+    QString m_nodeName; ///< resolved to the current index on each redo/undo
     double m_oldX = 0.0;
     double m_oldY = 0.0;
     double m_newX = 0.0;
@@ -618,6 +554,7 @@ public:
 private:
     SWMMModelLayer *m_layer = nullptr;
     int m_gageIdx = -1;
+    QString m_gageName; ///< resolved to the current index on each redo/undo
     double m_oldX = 0.0;
     double m_oldY = 0.0;
     double m_newX = 0.0;
@@ -678,6 +615,7 @@ public:
 private:
     SWMMModelLayer *m_layer = nullptr;
     int m_linkIdx = -1;
+    QString m_linkName; ///< resolved to the current index on each redo/undo
     QVector<QPointF> m_oldInterior;
     QVector<QPointF> m_newInterior;
     double m_oldLen = 0.0;
@@ -732,6 +670,7 @@ public:
 private:
     SWMMModelLayer *m_layer = nullptr;
     int m_linkIdx = -1;
+    QString m_linkName; ///< resolved to the current index on each redo/undo
 };
 
 /*!
@@ -783,6 +722,7 @@ public:
 private:
     SWMMModelLayer *m_layer = nullptr;
     int m_catchIdx = -1;
+    QString m_catchName; ///< resolved to the current index on each redo/undo
     QVector<QPointF> m_old;
     QVector<QPointF> m_new;
     double m_oldArea = 0.0;
@@ -1276,52 +1216,39 @@ private:
 /*!
  * \class DeleteObjectCommand
  * \brief Undoable deletion of a node, link, rain gage, or subcatchment.
- * \details The constructor snapshots the object's represented property subset
- *          (before redo() deletes it). undo() re-creates the object and
- *          restores that subset. For node deletion, cascade-deleted
- *          links are also re-created on undo.
+ * \details The object is deleted through the engine's recorded delete (review
+ *          E-04): undo puts it back at its index with every field and every
+ *          reference the delete cleared, and a node's cascade-deleted links with it.
  */
 class DeleteObjectCommand : public MapCommand
 {
 public:
     enum TargetKind { DeleteNode, DeleteLink, DeleteGage, DeleteSubcatch };
 
-    /*! Constructor for node deletion. Snapshots the node + identifies cascade links.
-     * @brief Snapshot supported spatial-object subset and node cascade links before deletion.
+    /*!
+     * @brief Prepare the deletion of the named object; redo() performs it.
      * @param[in] layer Borrowed raw model pointer, must outlive command and refer to intended
      *   engine during replay; GUI-thread access.
-     * @param[in] name Exact existing target identifier; unknown name leaves default/empty snapshot.
-     * @param[in] kind DeleteNode/Link/Gage/Subcatch selects snapshot/delete/restore path.
+     * @param[in] name Exact existing target identifier; an unknown name deletes nothing.
+     * @param[in] kind DeleteNode/Link/Gage/Subcatch selects the delete and restore calls.
      * @param[in] canvas Optional borrowed raw canvas; caller keeps it alive during command
      *   lifetime.
      * @param[in] parent Optional QUndoCommand owner; otherwise stack owns after push.
-     * @note Requires live model during construction/replay. Snapshot structs capture only
-     *   represented fields, not complete engine object state: e.g. gage configuration and most
-     *   subcatchment attributes are absent. Missing getter values retain defaults, and replay
-     *   statuses ignored. Node cascade links may duplicate other batch snapshots; caller must plan
-     *   targets/order coherently.
-     * @note Constructor stores/snapshots state without applying. Normal QUndoStack push immediately
-     *   invokes redo; errors do not automatically reverse the stack index.
+     * @note Requires live model during replay. Normal QUndoStack push immediately invokes redo;
+     *   errors do not automatically reverse the stack index.
      */
     DeleteObjectCommand(SWMMModelLayer *layer, const QString &name, TargetKind kind,
                         MapCanvas *canvas, QUndoCommand *parent = nullptr);
-
-    /*! Batch mode (perf-plan Phase A2): the owning BatchDeleteCommand's one
-     *  swmm_*_delete_many call performs the deletion, so this child keeps
-     *  only its snapshot + undo role and redo() becomes a no-op.
-     * @param[in] b True makes redo a no-op because owning batch performs deletion; undo always
-     *   restores snapshot.
-     * @note Stores flag only; no deletion, validation or snapshot change.
-     */
-    void setEngineAppliedByBatch(bool b) { m_engineAppliedByBatch = b; }
+    /*! Releases the engine's delete record, if one is held. */
+    ~DeleteObjectCommand() override;
 
     /**
-     * @brief Restore selected snapshot subset and node cascade links as applicable; no defaults
-     *   applied. Live model required, setter failures can leave partial restoration.
+     * @brief Restore the object from the engine's record; no defaults applied. Live model
+     *   required.
      */
     void undo() override;
     /**
-     * @brief If not externally batch-applied, delete snapshot name through selected model mutation.
+     * @brief Delete the named object through the engine's recorded delete, keeping a fresh record.
      *   Live model required, return status ignored.
      */
     void redo() override;
@@ -1334,100 +1261,28 @@ public:
 
 private:
     /**
-     * @brief Read common node scalar/tag/geometry/virtual/inlet fields and supported subtype
-     *   fields, then impact-analyzed cascade link snapshots.
-     * @param[in] name Exact existing engine identifier; unknown index returns without populating
-     *   snapshot.
-     * @note Requires live raw model/engine, serial GUI access. Getter failures generally retain
-     *   initialized defaults; no capture-success flag, UI or model mutation. Subtype/related fields
-     *   outside snapshot remain unrecorded.
+     * @brief Put the object back from the engine's delete record.
+     * @note If the engine refuses (the model no longer matches the state the delete left), logs a
+     *   warning and marks the command obsolete so the stack drops it.
      */
-    void snapshotNode(const QString &name);
-    /**
-     * @brief Read named link through snapshotLinkByIdx, including represented
-     *   scalar/geometry/conduit fields.
-     * @param[in] name Exact existing engine identifier; unknown index returns without populating
-     *   snapshot.
-     * @note Requires live raw model/engine, serial GUI access. Getter failures generally retain
-     *   initialized defaults; no capture-success flag, UI or model mutation. Subtype/related fields
-     *   outside snapshot remain unrecorded.
-     */
-    void snapshotLink(const QString &name);
-    /**
-     * @brief Read gage name and native coordinate only; rainfall/source configuration is not
-     *   captured.
-     * @param[in] name Exact existing engine identifier; unknown index returns without populating
-     *   snapshot.
-     * @note Requires live raw model/engine, serial GUI access. Getter failures generally retain
-     *   initialized defaults; no capture-success flag, UI or model mutation. Subtype/related fields
-     *   outside snapshot remain unrecorded.
-     */
-    void snapshotGage(const QString &name);
-    /**
-     * @brief Read polygon, area, width, slope percent and impervious percent only.
-     * @param[in] name Exact existing engine identifier; unknown index returns without populating
-     *   snapshot.
-     * @note Requires live raw model/engine, serial GUI access. Getter failures generally retain
-     *   initialized defaults; no capture-success flag, UI or model mutation. Subtype/related fields
-     *   outside snapshot remain unrecorded.
-     */
-    void snapshotSubcatch(const QString &name);
-    /**
-     * @brief Re-add node and cascade links by names, restore represented scalar fields, then
-     *   virtual/inlet role and usage.
-     * @note Node/common depths in project length, ponded area square length, seep rain-rate units.
-     *   Flags restored after conduits so rules can pass; inlet design/capture IDs resolved anew.
-     *   Add and most setter errors ignored, possibly modifying an existing same-name object after
-     *   rejected add. Unsnapshotted subtype data/references are not reconstructed. Requires live
-     *   raw model/engine; no atomic rollback or success return.
-     */
-    void restoreNode();
-    /**
-     * @brief Re-add named link/bends then restore represented scalar and conduit properties.
-     * @note Resolves fresh link index after add regardless of add success; an existing same-name
-     *   object may receive writes. Missing resulting link aborts. No preferences/auto-length;
-     *   unsnapshotted pump/curve/inlet references are not reconstructed. Requires live raw
-     *   model/engine; no atomic rollback or success return.
-     */
-    void restoreLink();
-    /**
-     * @brief Re-add gage name and native coordinate only.
-     * @note Does not restore rain format/interval/factors/source-series/file fields; caller can
-     *   layer ConfigureGageCommand for its supported subset. Add failure ignored. Requires live raw
-     *   model/engine; no atomic rollback or success return.
-     */
-    void restoreGage();
-    /**
-     * @brief Re-add named polygon then restore area/width/slope/impervious subset.
-     * @note Area acres/hectares, width project length, slope/impervious percentages. Resolves index
-     *   even if add fails; remaining infiltration/runoff/source/routing fields retain engine
-     *   defaults or existing values. No setter-status checking. Requires live raw model/engine; no
-     *   atomic rollback or success return.
-     */
-    void restoreSubcatch();
+    void restoreFromRecord();
 
     SWMMModelLayer *m_layer = nullptr;
     TargetKind m_kind;
-    bool m_engineAppliedByBatch = false;
-    NodeSnapshot m_node;
-    QVector<LinkSnapshot> m_cascadeLinks; // cascade-deleted links when a node is deleted
-    LinkSnapshot m_link;
-    GageSnapshot m_gage;
-    SubcatchSnapshot m_subcatch;
+    QString m_name;                       ///< the object deleted through a record
+    SWMM_DeleteRecord m_record = nullptr; ///< owned; set by redo(), spent by undo()
 };
 
 /*!
  * \class BatchDeleteCommand
  * \brief Undoable bulk deletion (perf-plan Phase A2): one engine
  *        swmm_*_delete_many call per kind instead of K per-object deletes.
- * \details The constructor creates one snapshot-only DeleteObjectCommand
- *          child per target — every snapshot is taken BEFORE anything is
- *          deleted, while all indices are still pre-batch — with
- *          setEngineAppliedByBatch(true) so the children's redo() are
- *          no-ops.  redo() performs the whole deletion through
+ * \details redo() performs the whole deletion through
  *          SWMMModelLayer::applyDeleteMany inside the inherited BulkEdit
- *          scope; undo() is inherited: children restore per-object in
- *          reverse order (the rare direction — documented as O(K·N)).
+ *          scope, and the engine records each kind's batch (E-04). undo()
+ *          restores the records in the opposite order to the deletion (gages,
+ *          subcatchments, links, nodes), so each record finds the model exactly
+ *          as its batch left it.
  */
 class BatchDeleteCommand : public BulkEditCommand
 {
@@ -1438,36 +1293,42 @@ public:
     };
 
     /**
-     * @brief Snapshot all requested targets as child restore commands before one per-kind bulk
-     *   deletion.
-     * @param[in] layer Required live model at construction; guarded pointer gates later redo, child
-     *   restore pointers are raw.
-     * @param[in] targets Ordered names/kinds, all snapshotted before editing; caller avoids
-     *   duplicate/cascading overlap that cannot restore cleanly.
+     * @brief Group the targets by kind for one per-kind bulk deletion in redo().
+     * @param[in] layer Required live model; guarded pointer gates later redo/undo.
+     * @param[in] targets Names/kinds; a link the node batch already cascaded is skipped.
      * @param[in] text Undo-menu label copied unchanged.
-     * @param[in] canvas Optional borrowed raw canvas; caller keeps it alive during command
-     *   lifetime.
-     * @note Children have engineAppliedByBatch so redo no-ops; inherited undo restores reverse
-     *   construction order inside BulkEdit. Bulk deletion status ignored; failed deletions do not
-     *   prune snapshots and undo may try to recreate objects not removed.
-     * @note Constructor stores/snapshots state without applying. Normal QUndoStack push immediately
-     *   invokes redo; errors do not automatically reverse the stack index.
+     * @param[in] canvas Unused; kept for callers.
+     * @note Constructor stores names without applying. Normal QUndoStack push immediately invokes
+     *   redo; errors do not automatically reverse the stack index.
      */
     BatchDeleteCommand(SWMMModelLayer *layer, const QList<Target> &targets, MapCanvas *canvas,
                        const QString &text);
 
     /**
-     * @brief In one BulkEdit call model applyDeleteMany for grouped names then redo snapshot-only
-     *   children.
+     * @brief In one BulkEdit call model applyDeleteMany for the grouped names, keeping a fresh
+     *   engine record per kind.
      * @note Deleted guarded model no-op. Status ignored; deletion can partially succeed across
-     *   kinds. This override does not create preference BatchScope but children do no writes. Undo
-     *   inherited from BulkEditCommand.
+     *   kinds.
      */
     void redo() override;
+    /**
+     * @brief In one BulkEdit scope, restore the records in reverse deletion order: gages,
+     *   subcatchments, links, nodes. A refused record restore is logged and skipped.
+     */
+    void undo() override;
+    /*! Releases the engine's delete records, if any are held. */
+    ~BatchDeleteCommand() override;
 
 private:
+    /*! Restore one record through the layer; false (logged) when the engine refuses. */
+    bool restoreRecord(SWMM_DeleteRecord &record, const char *what, int count);
+
     QPointer<SWMMModelLayer> m_layer;
     QStringList m_nodeNames, m_linkNames, m_subcatchNames, m_gageNames;
+    SWMM_DeleteRecord m_gageRecord = nullptr; ///< owned; set by redo(), spent by undo()
+    SWMM_DeleteRecord m_linkRecord = nullptr; ///< owned; set by redo(), spent by undo()
+    SWMM_DeleteRecord m_nodeRecord = nullptr; ///< owned; set by redo(), spent by undo()
+    SWMM_DeleteRecord m_subcatchRecord = nullptr; ///< owned; set by redo(), spent by undo()
 };
 
 /*!

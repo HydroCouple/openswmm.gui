@@ -15,6 +15,7 @@
 
 #include "ui/dialogs/simulationoptionsdialog.h"
 
+#include <QTimeZone>
 #include <QDateTime>
 #include <QDateTimeEdit>
 #include <QItemSelectionModel>
@@ -135,13 +136,14 @@ void TestSimulationOptionsDialog::formatEngineDateTimeMatchesInpFormat()
 /** @brief Require year-start and year-end second-resolution Qt dates to survive dialog date/time string conversion. */
 void TestSimulationOptionsDialog::parseEngineDateTimeRoundTrips()
 {
-    QDateTime original(QDate(2026, 1, 1), QTime(0, 0, 0));
+    // SWMM dates are UTC-labelled wall clock (owner rule 2026-11-12, review E-14).
+    QDateTime original(QDate(2026, 1, 1), QTime(0, 0, 0), QTimeZone::UTC);
     QString d, t;
     SimulationOptionsDialog::formatEngineDateTime(original, d, t);
     QDateTime parsed = SimulationOptionsDialog::parseEngineDateTime(d, t);
     QCOMPARE(parsed, original);
 
-    QDateTime later(QDate(2026, 12, 31), QTime(23, 59, 59));
+    QDateTime later(QDate(2026, 12, 31), QTime(23, 59, 59), QTimeZone::UTC);
     SimulationOptionsDialog::formatEngineDateTime(later, d, t);
     parsed = SimulationOptionsDialog::parseEngineDateTime(d, t);
     QCOMPARE(parsed, later);
@@ -167,7 +169,7 @@ void TestSimulationOptionsDialog::parseEngineDateTimeRejectsMalformed()
 void TestSimulationOptionsDialog::oaDateEpochIsZero()
 {
     // Anchor: 1899-12-30 00:00 must round-trip to 0.0.
-    const QDateTime epoch(QDate(1899, 12, 30), QTime(0, 0, 0));
+    const QDateTime epoch(QDate(1899, 12, 30), QTime(0, 0, 0), QTimeZone::UTC);
     QCOMPARE(SimulationOptionsDialog::oaDateFromQDateTime(epoch), 0.0);
     QCOMPARE(SimulationOptionsDialog::qDateTimeFromOaDate(0.0), epoch);
 }
@@ -178,14 +180,14 @@ void TestSimulationOptionsDialog::oaDateMatchesKnownSwmmAnchor()
     // Engine convention (engine src/engine/core/DateTime.hpp): integer 1
     // is 1899-12-31, and noon adds 0.5.  Test a couple of fixed anchors
     // to lock the convention against future drift.
-    const QDateTime a(QDate(1899, 12, 31), QTime(0, 0, 0));
+    const QDateTime a(QDate(1899, 12, 31), QTime(0, 0, 0), QTimeZone::UTC);
     QCOMPARE(SimulationOptionsDialog::oaDateFromQDateTime(a), 1.0);
 
-    const QDateTime b(QDate(1900, 1, 1), QTime(12, 0, 0));
+    const QDateTime b(QDate(1900, 1, 1), QTime(12, 0, 0), QTimeZone::UTC);
     QCOMPARE(SimulationOptionsDialog::oaDateFromQDateTime(b), 2.5);
 
     // Modern SWMM-typical date (2026-01-01 00:00).
-    const QDateTime c(QDate(2026, 1, 1), QTime(0, 0, 0));
+    const QDateTime c(QDate(2026, 1, 1), QTime(0, 0, 0), QTimeZone::UTC);
     const double oa = SimulationOptionsDialog::oaDateFromQDateTime(c);
     QCOMPARE(SimulationOptionsDialog::qDateTimeFromOaDate(oa), c);
 }
@@ -196,10 +198,10 @@ void TestSimulationOptionsDialog::oaDateRoundTripsArbitraryDates()
     // HH:MM precision per legacy SWMM 5 dialog: keep test inputs on
     // whole-minute boundaries so the floating-point round-trip is exact.
     const QList<QDateTime> samples = {
-        QDateTime(QDate(2000, 2, 29), QTime(6, 15)),  // leap-day morning
-        QDateTime(QDate(2024, 7, 4), QTime(23, 59)),  // last minute of day
-        QDateTime(QDate(2026, 5, 21), QTime(14, 30)), // slice-creation date
-        QDateTime(QDate(2099, 1, 1), QTime(0, 0)),    // far-future midnight
+        QDateTime(QDate(2000, 2, 29), QTime(6, 15), QTimeZone::UTC),  // leap-day morning
+        QDateTime(QDate(2024, 7, 4), QTime(23, 59), QTimeZone::UTC),  // last minute of day
+        QDateTime(QDate(2026, 5, 21), QTime(14, 30), QTimeZone::UTC), // slice-creation date
+        QDateTime(QDate(2099, 1, 1), QTime(0, 0), QTimeZone::UTC),    // far-future midnight
     };
     for (const auto &dt : samples) {
         const double oa = SimulationOptionsDialog::oaDateFromQDateTime(dt);

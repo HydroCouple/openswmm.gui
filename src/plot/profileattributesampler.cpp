@@ -18,6 +18,7 @@
 #include <openswmm/engine/openswmm_output.h>
 
 #include <cmath>
+#include <memory>
 #include <limits>
 
 namespace ProfileAttributeSampler
@@ -85,9 +86,71 @@ void envelope(const QVector<float> &row, float &mn, float &mx)
 // isNodeAttribute / isTrackableAttribute are inline in the header — see
 // the note there (keeps UI/tests free of this file's link dependencies).
 
+namespace
+{
+/** @brief Fill per-path rows for one variable through a private reader on plan.resultsPath. */
+AttributeProfile readRows(const ProfileSourceFetcher::FetchPlan &plan,
+                          const ProfileBuilder::PathStatic &path, bool node, int var,
+                          AttributeProfile out)
+{
+    const QVector<int> &outputIdx = node ? plan.nodeOutputIdx : plan.linkOutputIdx;
+    const int count = node ? path.nodes.size() : path.links.size();
+    if (!plan.open || outputIdx.size() != count)
+        return out;
+    // A private reader: the layer's own reader is used (and can be closed or
+    // reopened) by the GUI thread while this runs on a worker.
+    const QByteArray file = plan.resultsPath.toUtf8();
+    const std::unique_ptr<void, decltype(&swmm_output_close)> reader(
+        swmm_output_open_live(file.constData()), &swmm_output_close);
+    SWMM_Output handle = reader.get();
+    if (!handle)
+        return out;
+
+    out.periodCount = plan.periodCount;
+    out.byPath.resize(count);
+    out.minByPath.resize(count);
+    out.maxByPath.resize(count);
+    for (int i = 0; i < count; ++i) {
+        fillSeries(handle, node, outputIdx[i], var, plan.periodCount, out.byPath[i]);
+        envelope(out.byPath[i], out.minByPath[i], out.maxByPath[i]);
+    }
+    return out;
+}
+} // namespace
+
+AttributeProfile fetch(const ProfileSourceFetcher::FetchPlan &plan,
+                       const ProfileBuilder::PathStatic &path, PlotAttribute attr)
+{
+    AttributeProfile out;
+    out.attribute = attr;
+    out.isNodeAttribute = isNodeAttribute(attr);
+    if (!isTrackableAttribute(attr))
+        return out;
+    const bool node = out.isNodeAttribute;
+    const int var = SwmmOutRunLayer::variableCodeFor(attr, node ? ObjectRef::Kind::Node
+                                                                : ObjectRef::Kind::Link);
+    return readRows(plan, path, node, var, out);
+}
+
+AttributeProfile fetchSpecies(const ProfileSourceFetcher::FetchPlan &plan,
+                              const ProfileBuilder::PathStatic &path, const QString &species,
+                              bool nodeScope)
+{
+    AttributeProfile out;
+    out.isNodeAttribute = nodeScope;
+    if (species.isEmpty())
+        return out;
+    // -1 when the run doesn't carry the species — fillSeries then leaves
+    // every row empty, never zero-filled or pointed at a wrong column.
+    const int var = SwmmOutRunLayer::speciesVariableCodeFor(
+        species, plan.speciesNames, nodeScope ? ObjectRef::Kind::Node : ObjectRef::Kind::Link);
+    return readRows(plan, path, nodeScope, var, out);
+}
+
 /**
- * @brief Read a fixed node/link attribute along path-indexed object names.
- * @param[in] resultsLayer Optional borrowed stable layer; callers serialize its shared output-reader access.
+ * @brief Read a fixed node/link attribute along path-indexed object names. GUI thread only (reads
+ *   the layer); a worker uses the FetchPlan overload.
+ * @param[in] resultsLayer Optional borrowed layer.
  * @param[in] path Ordered node/link names, not modified.
  * @param[in] attr One of the eleven trackable quantities; an unsupported value yields no rows.
  * @return Owned raw-output-unit rows and finite-only extrema; null/unopened sources return no rows and individual missing/read-failed objects retain empty rows with NaN extrema.
@@ -95,73 +158,14 @@ void envelope(const QVector<float> &row, float &mn, float &mx)
 AttributeProfile fetch(SWMMResultsLayer *resultsLayer, const ProfileBuilder::PathStatic &path,
                        PlotAttribute attr)
 {
-    AttributeProfile out;
-    out.attribute = attr;
-    out.isNodeAttribute = isNodeAttribute(attr);
-    if (!resultsLayer || !isTrackableAttribute(attr))
-        return out;
-
-    SWMM_Output handle = resultsLayer->outputHandle();
-    if (!handle)
-        return out;
-
-    const int periodCount = resultsLayer->totalTimeSteps();
-    out.periodCount = periodCount;
-
-    const bool node = out.isNodeAttribute;
-    const int var = SwmmOutRunLayer::variableCodeFor(attr, node ? ObjectRef::Kind::Node
-                                                                : ObjectRef::Kind::Link);
-
-    const int count = node ? path.nodes.size() : path.links.size();
-    out.byPath.resize(count);
-    out.minByPath.resize(count);
-    out.maxByPath.resize(count);
-
-    for (int i = 0; i < count; ++i) {
-        const QString &name = node ? path.nodes[i].name : path.links[i].name;
-        const int idx =
-            node ? resultsLayer->nodeOutputIndex(name) : resultsLayer->linkOutputIndex(name);
-        fillSeries(handle, node, idx, var, periodCount, out.byPath[i]);
-        envelope(out.byPath[i], out.minByPath[i], out.maxByPath[i]);
-    }
-    return out;
+    return fetch(ProfileSourceFetcher::plan(resultsLayer, path), path, attr);
 }
 
 AttributeProfile fetchSpecies(SWMMResultsLayer *resultsLayer,
                               const ProfileBuilder::PathStatic &path, const QString &species,
                               bool nodeScope)
 {
-    AttributeProfile out;
-    out.isNodeAttribute = nodeScope;
-    if (!resultsLayer || species.isEmpty())
-        return out;
-
-    SWMM_Output handle = resultsLayer->outputHandle();
-    if (!handle)
-        return out;
-
-    const int periodCount = resultsLayer->totalTimeSteps();
-    out.periodCount = periodCount;
-
-    // -1 when the run doesn't carry the species — fillSeries then leaves
-    // every row empty, never zero-filled or pointed at a wrong column.
-    const int var = SwmmOutRunLayer::speciesVariableCodeFor(species, resultsLayer->speciesNames(),
-                                                            nodeScope ? ObjectRef::Kind::Node
-                                                                      : ObjectRef::Kind::Link);
-
-    const int count = nodeScope ? path.nodes.size() : path.links.size();
-    out.byPath.resize(count);
-    out.minByPath.resize(count);
-    out.maxByPath.resize(count);
-
-    for (int i = 0; i < count; ++i) {
-        const QString &name = nodeScope ? path.nodes[i].name : path.links[i].name;
-        const int idx =
-            nodeScope ? resultsLayer->nodeOutputIndex(name) : resultsLayer->linkOutputIndex(name);
-        fillSeries(handle, nodeScope, idx, var, periodCount, out.byPath[i]);
-        envelope(out.byPath[i], out.minByPath[i], out.maxByPath[i]);
-    }
-    return out;
+    return fetchSpecies(ProfileSourceFetcher::plan(resultsLayer, path), path, species, nodeScope);
 }
 
 } // namespace ProfileAttributeSampler

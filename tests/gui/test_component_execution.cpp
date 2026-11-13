@@ -135,6 +135,15 @@ private slots:
         write(work_+"/previous.out","previous results");ComposerSimulationRunner run(1,"cancel",r);QSignalSpy done(&run,&SimulationRunner::finished);
         connect(&run,&SimulationRunner::progressChanged,&run,[&run]{run.cancel();});run.start();QTRY_COMPARE_WITH_TIMEOUT(done.count(),1,30000);QVERIFY(!done[0][1].toBool());QCOMPARE(done[0][2].toInt(),0);QCOMPARE(read(work_+"/previous.out"),QByteArray("previous results"));QVERIFY(RunPathLease::activePaths().isEmpty());
     }
+    // Review E-12: a 5.x run goes to the external legacy worker, which never
+    // reads the pause flag and is killed on Stop, so it must not offer Pause or
+    // promise partial results.
+    void legacyRunsOfferNeitherPauseNorPartialResults(){
+        SimulationRunner modern(1,"modern","a.inp","a.rpt","a.out","6.0.0");
+        QVERIFY(modern.supportsPause());QVERIFY(modern.supportsPartialResults());
+        SimulationRunner legacy(2,"legacy","a.inp","a.rpt","a.out","5.2.4");
+        QVERIFY(!legacy.supportsPause());QVERIFY(!legacy.supportsPartialResults());
+    }
 };
 QTEST_MAIN(ComponentExecutionTest)
 #include "test_component_execution.moc"

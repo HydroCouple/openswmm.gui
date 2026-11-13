@@ -1161,10 +1161,15 @@ int SWMMResultsLayer::refreshLive()
         m_endDateTime = openswmmvis::core::swmmReportDateTimeToQDateTime(endJulian);
 
         // Whole-file aggregates are stale the moment a period is appended.
-        // Per-step result buffers are keyed by step and stay valid.
+        // Per-step result buffers are keyed by step and stay valid. Scans in
+        // flight read fewer periods: drop them and let the next draw rescan.
         m_nodeAttributeRange.clear();
         m_linkAttributeRange.clear();
         m_subcatchAttributeRange.clear();
+        ++m_rangeScanEpoch;
+        m_nodeRangePending.clear();
+        m_linkRangePending.clear();
+        m_subcatchRangePending.clear();
         m_linkStats.clear();
         m_subcatchStats.clear();
         m_nodeStats.clear();
@@ -1442,6 +1447,10 @@ void SWMMResultsLayer::clearResults()
     m_nodeAttributeRange.clear();
     m_linkAttributeRange.clear();
     m_subcatchAttributeRange.clear();
+    ++m_rangeScanEpoch; // in-flight scans belong to the closed file
+    m_nodeRangePending.clear();
+    m_linkRangePending.clear();
+    m_subcatchRangePending.clear();
 
     // Aggregated node / link / subcatchment summary statistics are keyed by
     // output index, so they MUST go with the file that defined those indices.
@@ -2151,14 +2160,15 @@ QPair<double, double> SWMMResultsLayer::ensureNodeAttributeRange(int outCode)
 
     const QString path = m_resultsFilePath;
     const int totalSteps = m_totalSteps;
+    const quint64 epoch = m_rangeScanEpoch;
     QPointer<SWMMResultsLayer> self(this);
-    QtConcurrent::run([self, path, totalSteps, outCode]() {
+    QtConcurrent::run([self, path, totalSteps, outCode, epoch]() {
         const auto range = scanRangeBlocking(path, RangeKind::Node, outCode, totalSteps);
         QMetaObject::invokeMethod(
             qApp,
-            [self, outCode, range]() {
-                if (!self)
-                    return;
+            [self, outCode, range, epoch]() {
+                if (!self || epoch != self->m_rangeScanEpoch)
+                    return; // scanned a file / period count that is gone
                 self->m_nodeAttributeRange.insert(outCode, range);
                 self->m_nodeRangePending.remove(outCode);
                 // Gap A2.2 — FixedOverRun renderers classified against the
@@ -2184,14 +2194,15 @@ QPair<double, double> SWMMResultsLayer::ensureLinkAttributeRange(int outCode)
 
     const QString path = m_resultsFilePath;
     const int totalSteps = m_totalSteps;
+    const quint64 epoch = m_rangeScanEpoch;
     QPointer<SWMMResultsLayer> self(this);
-    QtConcurrent::run([self, path, totalSteps, outCode]() {
+    QtConcurrent::run([self, path, totalSteps, outCode, epoch]() {
         const auto range = scanRangeBlocking(path, RangeKind::Link, outCode, totalSteps);
         QMetaObject::invokeMethod(
             qApp,
-            [self, outCode, range]() {
-                if (!self)
-                    return;
+            [self, outCode, range, epoch]() {
+                if (!self || epoch != self->m_rangeScanEpoch)
+                    return; // scanned a file / period count that is gone
                 self->m_linkAttributeRange.insert(outCode, range);
                 self->m_linkRangePending.remove(outCode);
                 self->reclassifyKindsForResolvedRange(1, outCode); // Gap A2.2
@@ -2215,14 +2226,15 @@ QPair<double, double> SWMMResultsLayer::ensureSubcatchAttributeRange(int outCode
 
     const QString path = m_resultsFilePath;
     const int totalSteps = m_totalSteps;
+    const quint64 epoch = m_rangeScanEpoch;
     QPointer<SWMMResultsLayer> self(this);
-    QtConcurrent::run([self, path, totalSteps, outCode]() {
+    QtConcurrent::run([self, path, totalSteps, outCode, epoch]() {
         const auto range = scanRangeBlocking(path, RangeKind::Subcatch, outCode, totalSteps);
         QMetaObject::invokeMethod(
             qApp,
-            [self, outCode, range]() {
-                if (!self)
-                    return;
+            [self, outCode, range, epoch]() {
+                if (!self || epoch != self->m_rangeScanEpoch)
+                    return; // scanned a file / period count that is gone
                 self->m_subcatchAttributeRange.insert(outCode, range);
                 self->m_subcatchRangePending.remove(outCode);
                 self->reclassifyKindsForResolvedRange(2, outCode); // Gap A2.2

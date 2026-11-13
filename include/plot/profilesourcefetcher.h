@@ -19,12 +19,49 @@
 
 #include "plot/profilebuilder.h"
 
+#include <QDateTime>
 #include <QString>
+#include <QStringList>
+#include <QVector>
 
 class SWMMResultsLayer;
 
 namespace ProfileSourceFetcher
 {
+
+/*!
+ * \brief Everything \ref fetch needs from a results layer, read on the GUI
+ *        thread. The worker that runs the fetch then never touches the layer,
+ *        whose path, period count and output-index maps the GUI thread clears
+ *        and rebuilds on a live refresh or reopen.
+ */
+struct FetchPlan {
+    bool open = false;          ///< the layer had an open output when planned
+    QString resultsPath;        ///< file the private reader opens
+    int periodCount = 0;
+    int reportStepSec = 0;
+    QDateTime startTime;
+    QVector<int> nodeOutputIdx; ///< per path node; -1 = not in the output
+    QVector<int> linkOutputIdx; ///< per path link; -1 = not in the output
+    QStringList speciesNames;   ///< the run's species, for species track variable codes
+};
+
+/*!
+ * \brief Capture a \ref FetchPlan for \p path. GUI thread only.
+ * @param[in] resultsLayer Optional borrowed layer; null or no open output gives open = false.
+ * @param[in] path Ordered node/link names the index vectors follow.
+ */
+[[nodiscard]] FetchPlan plan(SWMMResultsLayer *resultsLayer, const ProfileBuilder::PathStatic &path);
+
+/*!
+ * \brief Read the series a \ref FetchPlan describes. Safe on any thread: it
+ *        touches no layer, only a private output reader on plan.resultsPath.
+ * @return As \ref fetch(SWMMResultsLayer*,...); periodCount 0 when the plan is
+ *         not open or the file cannot be reopened.
+ */
+[[nodiscard]] ProfileBuilder::SourceSeries fetch(const FetchPlan &plan,
+                                                 const ProfileBuilder::PathStatic &path,
+                                                 const QString &sourceId);
 
 /*!
  * \brief Pulls `NodeHead` / `NodeDepth` (per path node) and `LinkVelocity`
@@ -45,7 +82,7 @@ namespace ProfileSourceFetcher
  * @param[in] path Ordered node/link names; output rows use these path indices.
  * @param[in] sourceId Identity copied verbatim into the returned value.
  * @return Owned head/depth/velocity rows in raw output units plus copied report count/step/start. Private-reader open failure yields periodCount zero; individual bulk-read failures leave that row empty without failing the whole result.
- * @note Opens/closes its own live output reader, avoiding shared file-cursor interference. This protects the reader, not concurrent destruction/mutation of the supplied layer's metadata.
+ * @note Opens/closes its own live output reader, avoiding shared file-cursor interference. Reads the layer's metadata, so call it on the GUI thread; a worker thread uses \ref plan + \ref fetch(const FetchPlan&,...).
  */
 [[nodiscard]] ProfileBuilder::SourceSeries fetch(SWMMResultsLayer *resultsLayer,
                                                  const ProfileBuilder::PathStatic &path,

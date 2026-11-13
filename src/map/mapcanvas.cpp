@@ -758,8 +758,17 @@ MapCanvas::MapCanvas(QWidget *parent)
 
 MapCanvas::~MapCanvas()
 {
-    cancelRenderJob();
+    // Layers outlive the canvas; no render worker may still be drawing them.
+    waitForRenderWorkers();
     stopVisibleComposition();
+
+    // Destroy the undo commands while this canvas is still whole. The stack is a
+    // QObject child, so otherwise QWidget's destructor deletes it after this body,
+    // when a command that inspects the canvas (RemoveLayerCommand frees a layer it
+    // removed) would read destroyed members. Signals are blocked: listeners of
+    // index/clean changes must not run against a closing window.
+    m_undoStack->blockSignals(true);
+    m_undoStack->clear();
 
     // Hand every layer its scene item back before m_scene (our child) is
     // destroyed and deletes those items itself.
@@ -955,8 +964,13 @@ MapExtent MapCanvas::extent() const
 
 void MapCanvas::setExtent(const MapExtent &extent, bool pushUndo)
 {
-    m_requestedExtent = extent;
     MapExtent fitExtent = arCorrectedExtent(extent);
+    // A request the aspect correction cannot make valid (a point, inverted or
+    // non-finite) is refused: it used to become the extent and every later
+    // division by its width/height went infinite.
+    if (!fitExtent.isValid())
+        return;
+    m_requestedExtent = extent.isValid() ? extent : fitExtent;
 
     if (fitExtent == m_extent)
         return;
@@ -1300,6 +1314,11 @@ OpenSWMMVisLayer *MapCanvas::takeLayer(int index, bool pushUndo)
     }
 
     stopVisibleComposition();
+    // Render workers draw raster layers off the GUI thread and outlive a
+    // cancelled job; the caller may delete this layer as soon as it returns.
+    const bool raster = m_layers.at(index)->isRasterLayer();
+    if (raster)
+        waitForRenderWorkers();
     OpenSWMMVisLayer *layer = m_layers.takeAt(index);
     if (auto *series = qobject_cast<TimeSeriesLayer *>(layer))
         series->bindCanvas(nullptr);
@@ -1337,6 +1356,8 @@ OpenSWMMVisLayer *MapCanvas::takeLayer(int index, bool pushUndo)
     updateLayerZValues();
 
     emit layerRemoved(layer);
+    if (raster) // the cancelled render still showed it; redraw without it
+        invalidate(Raster, QStringLiteral("layer-removed"));
     update();
     return layer;
 }
@@ -2483,6 +2504,12 @@ void MapCanvas::cancelRenderJob()
         m_renderJob->cancel();
         // The job will still deliver finished() — disconnect to ignore it.
         disconnect(m_renderJob, &MapRenderJob::finished, this, &MapCanvas::onRenderJobFinished);
+        // The worker keeps calling into its raster layers after the job is
+        // gone; remember it so a layer removal can wait (waitForRenderWorkers).
+        m_detachedRenderWorkers.removeIf([](const QFuture<void> &f) { return f.isFinished(); });
+        if (const QFuture<void> worker = m_renderJob->workerFuture();
+            worker.isValid() && !worker.isFinished())
+            m_detachedRenderWorkers.append(worker);
         // deleteLater is safe here: MapRenderJob::start() captures all worker
         // state by value into the lambda and uses a shared_ptr cancel flag
         // and QPointer for the finished-emit callback. The worker is fully
@@ -2491,6 +2518,14 @@ void MapCanvas::cancelRenderJob()
         m_renderJob->deleteLater();
         m_renderJob = nullptr;
     }
+}
+
+void MapCanvas::waitForRenderWorkers()
+{
+    cancelRenderJob();
+    for (QFuture<void> &worker : m_detachedRenderWorkers)
+        worker.waitForFinished(); // cancelled: stops after the layer it is drawing
+    m_detachedRenderWorkers.clear();
 }
 
 void MapCanvas::onRenderJobFinished(QImage result)
@@ -4001,7 +4036,13 @@ bool MapCanvas::isPanning() const
 
 MapExtent MapCanvas::arCorrectedExtent(const MapExtent &ext) const
 {
-    if (width() <= 0 || height() <= 0 || !ext.isValid())
+    // A zero-width or zero-height request (a zoom drag along one pixel row or
+    // column) is widened to the view aspect around its centre below. A point,
+    // inverted or non-finite extent is returned unchanged.
+    const bool fittable = std::isfinite(ext.width()) && std::isfinite(ext.height()) &&
+                          ext.width() >= 0.0 && ext.height() >= 0.0 &&
+                          (ext.width() > 0.0 || ext.height() > 0.0);
+    if (width() <= 0 || height() <= 0 || !fittable)
         return ext;
 
     double viewAspect = static_cast<double>(width()) / height();

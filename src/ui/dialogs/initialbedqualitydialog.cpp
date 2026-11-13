@@ -475,7 +475,10 @@ void InitialBedQualityDialog::acceptDraft()
         SWMM_HeatSnapshot snapshot = swmm_heat_snapshot_create(engine_);
         if (!snapshot) {
             QMessageBox::warning(this, tr("Initial Mesh-Bed Quality"),
-                                 tr("Could not protect the current model settings."));
+                                 tr("Nothing was changed: a copy of the current settings could "
+                                    "not be taken to restore them if applying failed. The model "
+                                    "cannot be edited while a simulation is running: try again "
+                                    "when the run has finished."));
             return;
         }
         auto restore = [this, snapshot]() { swmm_heat_snapshot_restore(engine_, snapshot); };

@@ -11,6 +11,7 @@
 #ifndef PROPERTIESPANEL_H
 #define PROPERTIESPANEL_H
 
+#include "ui/properties/fieldwriter.h"
 #include "layers/swmmmodellayer.h"
 
 #include <QDockWidget>
@@ -386,6 +387,14 @@ private:
     void bindDataAggregate(SWMMModelLayer *layer, int category, const QStringList &names, QUndoStack *undo);
     void updateAggregateBar();
     void showAggregateEditResult(const QString &error);
+    /**
+     * @brief Build the writer single-object spatial adapters use for the shared edit path (C-01).
+     * @param[in] category Attribute Table category of the displayed object.
+     * @return Writer that applies a field through SWMMAttributeTableModel::applyScalarEdits on the
+     *   model's edit-canvas undo stack (one undo step), shows a refusal in the panel, and reports
+     *   NotRouted when the category has no such field or there is no edit canvas.
+     */
+    openswmmvis::properties::FieldWriter spatialFieldWriter(int category);
     /**
      * @param[in] watched Borrowed QObject being filtered; nonwidget/outside property tree forwarded
      *   to dock base.

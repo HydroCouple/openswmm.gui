@@ -327,6 +327,7 @@ private:
      * @param[in] layer Borrowed GIS layer; null, temporary, unsupported or pathless layers yield empty JSON.
      * @param[in] oswpPath Destination sidecar anchor for relative dataset references.
      * @return JSON carrying stable layer ID, type/path/name/visibility/opacity and supported sublayer/style/feature metadata.
+     *   An UnavailableLayer returns its saved entry with the path re-anchored and current name/visibility/opacity.
      */
     static QJsonObject serializeGisLayer(OpenSWMMVisLayer *layer, const QString &oswpPath);
     /**
@@ -335,7 +336,7 @@ private:
      * @param[in,out] canvas Borrowed target canvas and async callback lifetime context; null is ignored.
      * @param[in] oswpPath Sidecar anchor for the source reference.
      * @param[in,out] warningsOut Optional list for missing files or synchronous feature-table failures.
-     * @note Raster/vector layers open asynchronously, are adopted on success and scheduled for deletion on failure. Feature tables open synchronously. Unknown types and empty references are ignored.
+     * @note Raster/vector layers open asynchronously and are adopted on success. Feature tables open synchronously. A raster/vector/feature whose file is missing or fails to open is added as an UnavailableLayer holding \p obj, so a later save keeps the entry. Unknown types and empty references are ignored.
      */
     static void deserializeGisLayer(const QJsonObject &obj, MapCanvas *canvas,
                                     const QString &oswpPath, QStringList *warningsOut = nullptr);

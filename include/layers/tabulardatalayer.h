@@ -1,12 +1,12 @@
 /**
  * @file      tabulardatalayer.h
- * @brief     Non-spatial tabular layer for CSV / TSV (and later XLSX) imports.
+ * @brief     Non-spatial tabular layer for CSV / TSV imports.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
  *
- * Slice Z.4 — Non-spatial tabular layer for CSV / TSV (and later
- * XLSX) imports.  Participates in the Layer Tree (so visibility /
+ * Slice Z.4 — Non-spatial tabular layer for CSV / TSV imports.
+ * Participates in the Layer Tree (so visibility /
  * order / properties round-trip through the standard pipe) but
  * has no scene representation — `render()` is a no-op.
  *
@@ -96,8 +96,8 @@ public:
     bool loadDelimited(const QString &path, QChar delimiter, QString *errorOut = nullptr);
 
     /*! Convenience: pick the delimiter from the file extension
-     *  (`.csv` → `,`; `.tsv` → `\t`).  XLSX falls through to a
-     *  not-yet-implemented stub (queued for QXlsx integration).
+     *  (`.csv` → `,`; `.tsv` → `\t`).  An `.xlsx` workbook is refused with
+     *  a message asking for a CSV export.
      * @param[in] path File whose case-insensitive extension selects tab for tsv/tab, comma for csv/unknown; xlsx returns false.
      * @param[out] errorOut Optional failure description; unchanged on success.
      * @return loadDelimited() result or false for unsupported xlsx, retaining prior data on that explicit failure. Parsing, replacement and dataLoaded() semantics follow loadDelimited().

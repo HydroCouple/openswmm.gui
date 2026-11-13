@@ -468,6 +468,7 @@ set(
         include/layers/speciesattributes.h
         include/layers/swmmresultslayer.h
         include/layers/tabulardatalayer.h
+        include/layers/unavailablelayer.h
         include/layers/xyztilelayer.h
         include/layers/annotationtextitem.h
         include/layers/annotationfeatures.h
@@ -1283,6 +1284,7 @@ set(
         src/layers/gwsourcesummary.cpp
         src/layers/swmmresultslayer.cpp
         src/layers/tabulardatalayer.cpp
+        src/layers/unavailablelayer.cpp
         src/layers/xyztilelayer.cpp
         src/layers/annotationtextitem.cpp
         src/layers/annotationfeatures.cpp

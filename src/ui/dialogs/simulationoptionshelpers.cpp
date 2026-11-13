@@ -16,6 +16,7 @@
 
 #include "core/swmmdatetime.h"
 
+#include <QTimeZone>
 #include <QDate>
 #include <QDateTime>
 #include <QItemSelectionModel>
@@ -81,7 +82,7 @@ QDateTime SimulationOptionsDialog::parseEngineDateTime(const QString &date, cons
     QTime t = QTime::fromString(time.trimmed(), QStringLiteral("HH:mm:ss"));
     if (!d.isValid() || !t.isValid())
         return {};
-    return QDateTime(d, t);
+    return QDateTime(d, t, QTimeZone::UTC); // SWMM wall clock: no zone, no DST
 }
 
 // ---------------------------------------------------------------------------
@@ -92,18 +93,15 @@ QDateTime SimulationOptionsDialog::parseEngineDateTime(const QString &date, cons
 //
 // Delegate the actual conversion arithmetic to the canonical
 // openswmmvis::core converter (Phase 3 of the datetime consolidation) so
-// this file no longer hand-rolls the epoch/rounding math. The canonical
-// converter always returns a Qt::UTC-labelled QDateTime; every OTHER
-// QDateTime in this dialog (m_startEdit/m_endEdit via parseEngineDateTime(),
-// the [EVENTS] table via this function) is built with the DEFAULT
-// (Qt::LocalTime) spec, and validateEvents()/writeEventsToEngine() compare
-// them directly. Re-labelling here to match keeps every comparison in this
-// file on one consistent basis — using the canonical converter's UTC label
-// as-is would silently shift those comparisons by the local UTC offset on
-// any machine not in the UTC zone. Only the LABEL changes here, not the
-// calendar values, so this is not the "no timezone conversion" contract
-// core/swmmdatetime.h documents — it's this file's pre-existing convention
-// preserved on top of the fixed arithmetic.
+// this file no longer hand-rolls the epoch/rounding math.
+//
+// SWMM dates are plain wall clock with no zone and no daylight saving, so
+// every QDateTime in this dialog is labelled UTC (offset 0) and nothing is
+// converted (owner rule, 2026-11-12). The dialog used to label them local
+// time, which made a window spanning a daylight-saving change an hour short
+// and rewrote a start time inside the spring-forward gap
+// (workplans/GUI_COMPREHENSIVE_REVIEW_2026-11-12.md, E-14). The date editors
+// are set to UTC too, so they display these values without conversion.
 // ---------------------------------------------------------------------------
 
 double SimulationOptionsDialog::oaDateFromQDateTime(const QDateTime &dt)
@@ -115,10 +113,7 @@ double SimulationOptionsDialog::oaDateFromQDateTime(const QDateTime &dt)
 
 QDateTime SimulationOptionsDialog::qDateTimeFromOaDate(double oa)
 {
-    const QDateTime utc = openswmmvis::core::swmmDateTimeToQDateTime(oa);
-    if (!utc.isValid())
-        return {};
-    return QDateTime(utc.date(), utc.time()); // re-label: see file-header note
+    return openswmmvis::core::swmmDateTimeToQDateTime(oa); // UTC wall clock: see file-header note
 }
 
 qint64 SimulationOptionsDialog::parseStepSeconds(const QString &s, qint64 fallback)

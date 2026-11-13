@@ -132,11 +132,13 @@ LabelConfigEditor::LabelConfigEditor(QWidget *parent) : QWidget(parent)
     m_boldBtn->setIcon(IconFactory::icon(QStringLiteral("Bold")));
     m_boldBtn->setCheckable(true);
     m_boldBtn->setToolTip(tr("Bold"));
+    m_boldBtn->setAccessibleName(tr("Bold"));
     sizeRow->addWidget(m_boldBtn);
     m_italicBtn = new QToolButton(this);
     m_italicBtn->setIcon(IconFactory::icon(QStringLiteral("Italic")));
     m_italicBtn->setCheckable(true);
     m_italicBtn->setToolTip(tr("Italic"));
+    m_italicBtn->setAccessibleName(tr("Italic"));
     sizeRow->addWidget(m_italicBtn);
     sizeRow->addStretch();
     // No ampersand: addRow(QString, QLayout *) cannot make a buddy, so Qt

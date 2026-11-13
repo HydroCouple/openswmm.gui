@@ -224,9 +224,9 @@ public:
      * @brief Parse trimmed engine date/time fields with explicit numeric formats.
      * @param date Borrowed MM/dd/yyyy text.
      * @param time Borrowed HH:mm:ss text, including seconds.
-     * @return QDateTime constructed with the default local-time specification, or invalid
-     * when either calendar/clock parse fails. No UTC conversion, alternate format or
-     * fallback date is applied; local timezone/DST validity follows Qt construction.
+     * @return UTC-labelled wall-clock QDateTime (SWMM dates have no zone or daylight saving),
+     * or invalid when either calendar/clock parse fails. No conversion, alternate format or
+     * fallback date is applied.
      */
     [[nodiscard]] static QDateTime parseEngineDateTime(const QString &date, const QString &time);
 
@@ -241,13 +241,12 @@ public:
     [[nodiscard]] static double oaDateFromQDateTime(const QDateTime &dt);
 
     /**
-     * @brief Decode SWMM/OA decimal days into local-labeled wall-clock editor fields.
+     * @brief Decode SWMM/OA decimal days into UTC-labelled wall-clock editor fields.
      * @param oa Absolute fractional days since 1899-12-30, not elapsed seconds; expected
      * within the engine decoder's supported calendar range.
-     * @return Invalid for nonfinite/invalid canonical decode, otherwise a QDateTime built
-     * from decoded date/time using Qt's default local specification. Canonical rounding
-     * is to whole seconds with end-of-day clamping. Relabels fields without converting
-     * a UTC instant to local time; DST validity follows Qt's local constructor.
+     * @return Invalid for nonfinite/invalid canonical decode, otherwise the canonical
+     * converter's UTC-labelled wall-clock QDateTime. Canonical rounding is to whole seconds
+     * with end-of-day clamping. No conversion to local time.
      */
     [[nodiscard]] static QDateTime qDateTimeFromOaDate(double oa);
 

@@ -43,6 +43,7 @@
 
 #include <QComboBox>
 #include <QDir>
+#include <QFile>
 #include <QElapsedTimer>
 #include <QObject>
 #include <QSignalSpy>
@@ -56,6 +57,7 @@
 #include <utility>
 
 #include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_spatial.h>
 
@@ -81,6 +83,415 @@ QString dataDir()
  * canvas ownership transfer or source INP write.
  *
  */
+// One link of every kind; GUT1 (a street conduit, index 1) is a divider's diverted link and
+// has an inlet usage, losses, bend vertices, a tag and initial quality (review E-04).
+const char *kLinksInp = R"([TITLE]
+Delete/undo round trip for links
+
+[OPTIONS]
+FLOW_UNITS           CFS
+INFILTRATION         HORTON
+FLOW_ROUTING         DYNWAVE
+START_DATE           01/01/2024
+START_TIME           00:00:00
+END_DATE             01/01/2024
+END_TIME             06:00:00
+ROUTING_STEP         0:00:30
+
+[JUNCTIONS]
+J3      11  5  0  0  0
+J4      10  5  0  0  0
+J5      10  5  0  0  0
+
+[OUTFALLS]
+O1      8  FREE  *  NO
+
+[DIVIDERS]
+D1      12  GUT1  CUTOFF  0.5  5  0  0  0
+
+[CONDUITS]
+C1      D1  J3  300  0.013  0  0
+GUT1    D1  J4  300  0.016  0  0
+C3      J4  O1  300  0.013  0  0
+
+[PUMPS]
+P1      J3  J4  PC1  ON  0  0
+
+[ORIFICES]
+OR1     J3  J5  SIDE  0  0.65  NO  0
+
+[WEIRS]
+W1      J3  J4  TRANSVERSE  1.0  3.33  NO  0  0  YES
+
+[OUTLETS]
+OL1     J5  O1  0  FUNCTIONAL/DEPTH  10  0.5  NO
+
+[XSECTIONS]
+C1      CIRCULAR   1    0  0  0  1
+GUT1    STREET     ST_A
+C3      CIRCULAR   2    0  0  0  1
+OR1     CIRCULAR   1    0  0  0
+W1      RECT_OPEN  1.0  2.0  0  0
+
+[LOSSES]
+GUT1    0.5  0.5  0.1  NO  0.01
+
+[STREETS]
+ST_A    20.0  0.5  4  0.016  0  0  2  20.0  0.04  0.016
+
+[INLETS]
+IN_A    GRATE  2.0  2.0  P_BAR-50
+
+[INLET_USAGE]
+GUT1    IN_A  J5  1  10  0  0  0  ON_GRADE
+
+[POLLUTANTS]
+TSS     MG/L  0  0  0  0  NO  *  0  0  0
+
+[INITIAL_QUALITY]
+LINK    GUT1  TSS  5
+LINK    C3    TSS  7
+
+[CURVES]
+PC1     Pump2  0  0
+PC1            5  10
+
+[TAGS]
+Link    GUT1   Gutter
+
+[COORDINATES]
+D1      0    0
+J3      300  0
+J4      300  100
+J5      600  0
+O1      600  100
+
+[VERTICES]
+GUT1    100  50
+GUT1    200  80
+)";
+
+// N2 (a storage node) is referred to at both ends of its links (one a divider's diverted link),
+// by a subcatchment outlet, an inlet usage capture node, inflow, DWF and treatment rows, a tag and
+// initial quality; D1 and O1 after it are renumbered by its delete (review E-04).
+const char *kNodesInp = R"([TITLE]
+Delete/undo round trip for nodes
+
+[OPTIONS]
+FLOW_UNITS           CFS
+INFILTRATION         HORTON
+FLOW_ROUTING         DYNWAVE
+START_DATE           01/01/2024
+START_TIME           00:00:00
+END_DATE             01/01/2024
+END_TIME             06:00:00
+ROUTING_STEP         0:00:30
+
+[RAINGAGES]
+G1      INTENSITY  0:15  1.0  TIMESERIES TS1
+
+[SUBCATCHMENTS]
+S1      G1  N2  1  50  100  0.5  0
+
+[SUBAREAS]
+S1      0.01  0.1  0.05  0.05  25  OUTLET
+
+[INFILTRATION]
+S1      3.0  0.5  4  7  0
+
+[JUNCTIONS]
+J1      12  5  0  0  0
+J3      11  5  0  0  0
+J4      10  5  0  0  0
+
+[STORAGE]
+N2      9  6  1  FUNCTIONAL  0  0  100  0  0
+
+[DIVIDERS]
+D1      8  DV  CUTOFF  0.5  5  0  0  0
+
+[OUTFALLS]
+O1      6  FREE  *  NO
+
+[CONDUITS]
+C1      J1  N2  300  0.013  0  0
+C2      N2  D1  300  0.013  0  0
+DV      D1  N2  300  0.013  0  0
+C4      D1  O1  300  0.013  0  0
+GUT     J3  J4  300  0.016  0  0
+
+[PUMPS]
+P1      N2  J3  PC1  ON  0  0
+
+[XSECTIONS]
+C1      CIRCULAR  1  0  0  0  1
+C2      CIRCULAR  1  0  0  0  1
+DV      CIRCULAR  1  0  0  0  1
+C4      CIRCULAR  1  0  0  0  1
+GUT     STREET    ST_A
+
+[STREETS]
+ST_A    20.0  0.5  4  0.016  0  0  2  20.0  0.04  0.016
+
+[INLETS]
+IN_A    GRATE  2.0  2.0  P_BAR-50
+
+[INLET_USAGE]
+GUT     IN_A  N2  1  10  0  0  0  ON_GRADE
+
+[POLLUTANTS]
+TSS     MG/L  0  0  0  0  NO  *  0  0  0
+
+[INFLOWS]
+J4      FLOW  TS1  FLOW    1.0  1.0  1
+N2      FLOW  TS1  FLOW    1.0  1.0  2
+D1      FLOW  TS1  FLOW    1.0  1.0  3
+
+[DWF]
+N2      FLOW  1.5
+D1      FLOW  0.5
+
+[TREATMENT]
+N2      TSS  R = 0.5
+D1      TSS  R = 0.25
+
+[INITIAL_QUALITY]
+NODE    N2  TSS  3
+
+[CURVES]
+PC1     Pump2  0  0
+PC1            5  10
+
+[TIMESERIES]
+TS1     0:00  0.5
+TS1     1:00  0.0
+
+[TAGS]
+Node    N2  Tank
+
+[COORDINATES]
+J1      0    0
+J3      100  0
+J4      200  0
+N2      100  100
+D1      200  100
+O1      300  100
+
+[POLYGONS]
+S1      0    200
+S1      100  200
+S1      100  300
+
+[SYMBOLS]
+G1      50   250
+)";
+
+
+// S2 is referred to by S1 (drains to it), an outfall's Route To, a LID usage drain-to and a
+// snowpack removal; it owns LID usage rows, coverages, loadings, a groundwater flow expression,
+// a polygon and a tag. S3 after it carries the same kinds of rows and S4 drains to it (E-04).
+const char *kSubcatchInp = R"([TITLE]
+Delete/undo round trip for subcatchments
+
+[OPTIONS]
+FLOW_UNITS           CFS
+INFILTRATION         HORTON
+FLOW_ROUTING         KINWAVE
+START_DATE           01/01/2024
+START_TIME           00:00:00
+END_DATE             01/01/2024
+END_TIME             06:00:00
+
+[RAINGAGES]
+G1      INTENSITY  0:15  1.0  TIMESERIES TS1
+
+[SNOWPACKS]
+SP1     PLOWABLE    0.001 0.001 32 0.1 0 0 0
+SP1     IMPERVIOUS  0.001 0.001 32 0.1 0 0 0
+SP1     PERVIOUS    0.001 0.001 32 0.1 0 0 0
+SP1     REMOVAL     1.0  0  0  0  0  0  S2
+
+[SUBCATCHMENTS]
+S1      G1  S2  1  50  100  0.5  0
+S2      G1  J1  2  40  200  0.5  10  SP1
+S3      G1  J1  3  30  300  0.5  0
+S4      G1  S3  4  20  400  0.5  0
+
+[SUBAREAS]
+S1      0.01  0.1  0.05  0.05  25  OUTLET
+S2      0.01  0.1  0.05  0.05  25  OUTLET
+S3      0.01  0.1  0.05  0.05  25  OUTLET
+S4      0.01  0.1  0.05  0.05  25  OUTLET
+
+[INFILTRATION]
+S1      3.0  0.5  4  7  0
+S2      3.1  0.5  4  7  0
+S3      3.2  0.5  4  7  0
+S4      3.3  0.5  4  7  0
+
+[AQUIFERS]
+A1      0.5  0.15  0.30  0.1  12  15  0.35  14  0  0  4  0.3
+
+[GROUNDWATER]
+S2      A1  J1  6  1  1  0  0  0  0  *
+S3      A1  J1  6  1  1  0  0  0  0  *
+
+[GWF]
+S2      LATERAL  0.001*HGW
+
+[LID_CONTROLS]
+RB      RB
+RB      STORAGE  36  0.75  0  0  YES
+RB      DRAIN    0   0.5   0  6
+
+[LID_USAGE]
+S1      RB  1  100  0  0  100  0  *  S2
+S2      RB  1  100  0  0  100  0
+S3      RB  1  100  0  0  100  0
+
+[JUNCTIONS]
+J1      0  5  0  0  0
+
+[OUTFALLS]
+O1      -1  FREE  NO  S2
+O2      -2  FREE  NO  S3
+
+[CONDUITS]
+C1      J1  O1  100  0.01  0  0  0  0
+C2      J1  O2  100  0.01  0  0  0  0
+
+[XSECTIONS]
+C1      CIRCULAR  1  0  0  0  1
+C2      CIRCULAR  1  0  0  0  1
+
+[POLLUTANTS]
+TSS     MG/L  0  0  0  0  NO  *  0  0  0
+
+[LANDUSES]
+LU1     0  0  0
+
+[COVERAGES]
+S2      LU1  60
+S3      LU1  100
+
+[LOADINGS]
+S2      TSS  1.5
+S3      TSS  2.5
+
+[TIMESERIES]
+TS1     0:00  0.5
+TS1     1:00  0.0
+
+[TAGS]
+Subcatch  S2  Big
+
+[COORDINATES]
+J1      0    0
+O1      100  0
+O2      100  50
+
+[POLYGONS]
+S1      0    200
+S1      50   200
+S1      50   250
+S2      0    100
+S2      50   100
+S2      50   150
+S3      100  100
+S3      150  100
+S3      150  150
+S4      100  200
+S4      150  200
+S4      150  250
+
+[SYMBOLS]
+G1      10   10
+)";
+
+/** @brief Save the model to dir/name and return the file's bytes (empty on failure). */
+QByteArray saveInp(SWMM_Engine e, const QDir &dir, const QString &name)
+{
+    const QString path = dir.filePath(name);
+    if (swmm_model_write(e, path.toUtf8().constData()) != 0)
+        return {};
+    QFile f(path);
+    return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+}
+
+/** @brief Link names in engine order. */
+QStringList engineLinks(SWMM_Engine e)
+{
+    QStringList names;
+    for (int i = 0; i < swmm_link_count(e); ++i)
+        names << QString::fromUtf8(swmm_link_id(e, i));
+    return names;
+}
+
+/** @brief True when every link category row names the engine link at its SoA index. */
+bool linkCacheMatchesEngine(const SWMMModelLayer &layer)
+{
+    SWMM_Engine e = layer.engine();
+    int rows = 0;
+    for (auto c : {SWMMModelLayer::CatConduits, SWMMModelLayer::CatPumps, SWMMModelLayer::CatOrifices,
+                   SWMMModelLayer::CatWeirs, SWMMModelLayer::CatOutlets}) {
+        for (int row = 0; row < layer.categoryCount(c); ++row, ++rows) {
+            const int soa = layer.soaIndexAt(c, row);
+            if (soa < 0 || layer.objectNameAt(c, row) != QString::fromUtf8(swmm_link_id(e, soa)))
+                return false;
+        }
+    }
+    return rows == swmm_link_count(e) && layer.cachedLinkCount() == rows &&
+           layer.renderLinkCount() == rows;
+}
+
+/** @brief Node names in engine order. */
+QStringList engineNodes(SWMM_Engine e)
+{
+    QStringList names;
+    for (int i = 0; i < swmm_node_count(e); ++i)
+        names << QString::fromUtf8(swmm_node_id(e, i));
+    return names;
+}
+
+/** @brief True when every node category row names the engine node at its SoA index. */
+bool nodeCacheMatchesEngine(const SWMMModelLayer &layer)
+{
+    SWMM_Engine e = layer.engine();
+    int rows = 0;
+    for (auto c : {SWMMModelLayer::CatJunctions, SWMMModelLayer::CatOutfalls,
+                   SWMMModelLayer::CatStorage, SWMMModelLayer::CatDividers}) {
+        for (int row = 0; row < layer.categoryCount(c); ++row, ++rows) {
+            const int soa = layer.soaIndexAt(c, row);
+            if (soa < 0 || layer.objectNameAt(c, row) != QString::fromUtf8(swmm_node_id(e, soa)))
+                return false;
+        }
+    }
+    return rows == swmm_node_count(e) && layer.cachedNodeCount() == rows;
+}
+
+/** @brief Subcatchment names in engine order. */
+QStringList engineSubcatches(SWMM_Engine e)
+{
+    QStringList names;
+    for (int i = 0; i < swmm_subcatch_count(e); ++i)
+        names << QString::fromUtf8(swmm_subcatch_id(e, i));
+    return names;
+}
+
+/** @brief True when every subcatchment row names the engine subcatchment at its SoA index. */
+bool subcatchCacheMatchesEngine(const SWMMModelLayer &layer)
+{
+    SWMM_Engine e = layer.engine();
+    const auto c = SWMMModelLayer::CatSubcatchments;
+    for (int row = 0; row < layer.categoryCount(c); ++row) {
+        const int soa = layer.soaIndexAt(c, row);
+        if (soa < 0 || layer.objectNameAt(c, row) != QString::fromUtf8(swmm_subcatch_id(e, soa)))
+            return false;
+    }
+    return layer.categoryCount(c) == swmm_subcatch_count(e) &&
+           layer.cachedSubcatchCount() == swmm_subcatch_count(e);
+}
+
 std::unique_ptr<SWMMModelLayer> openLayer()
 {
     auto layer = std::make_unique<SWMMModelLayer>(
@@ -520,6 +931,205 @@ private slots:
         // reason.
         stack.undo();
         QCOMPARE(layer->renderLinkCount(), layer->cachedLinkCount());
+    }
+
+    //! Review E-04: undoing a link delete, single or batch, restores the model exactly: the saved
+    //! .inp is byte-identical and the layer's link cache matches the engine index for index. In
+    //! a batch that also deletes a node, the link record is undone before the node's (partial)
+    //! snapshot restore, so the link still lands at its index. Files go to
+    //! tests/output/delete_undo_2026-11-12/link_delete_undo/.
+    void deleteUndoRestoresLinksExactly()
+    {
+        const QDir dir(QStringLiteral(SWMMVIS_DELETE_UNDO_OUTPUT_DIR "/link_delete_undo"));
+        QVERIFY(QDir().mkpath(dir.path()));
+        {
+            QFile inp(dir.filePath(QStringLiteral("input.inp")));
+            QVERIFY(inp.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            inp.write(kLinksInp);
+        }
+        auto layer = std::make_unique<SWMMModelLayer>(dir.filePath(QStringLiteral("input.inp")),
+                                                      nullptr);
+        QList<QString> warnings, errors;
+        QVERIFY2(layer->loadModel(warnings, errors), qPrintable(errors.join('\n')));
+        SWMM_Engine e = layer->engine();
+        const QByteArray original = saveInp(e, dir, QStringLiteral("1_original.inp"));
+        QVERIFY(!original.isEmpty());
+        const QStringList links = engineLinks(e);
+        QCOMPARE(links.size(), 7);
+        QVERIFY(linkCacheMatchesEngine(*layer));
+
+        MapUndoStack stack;
+        // One link (Object Browser).
+        stack.push(new DeleteObjectCommand(layer.get(), QStringLiteral("GUT1"),
+                                           DeleteObjectCommand::DeleteLink, nullptr));
+        QCOMPARE(swmm_link_index(e, "GUT1"), -1);
+        QVERIFY(linkCacheMatchesEngine(*layer));
+        stack.undo();
+        QCOMPARE(engineLinks(e), links);
+        QVERIFY(linkCacheMatchesEngine(*layer));
+        QCOMPARE(saveInp(e, dir, QStringLiteral("2_single_undo.inp")), original);
+        stack.redo();
+        stack.undo();
+        QCOMPARE(saveInp(e, dir, QStringLiteral("3_single_redo_undo.inp")), original);
+
+        // A batch with one link of every kind (map Delete key, Attribute Table).
+        QList<BatchDeleteCommand::Target> targets;
+        for (const char *n : {"C1", "GUT1", "P1", "OR1", "W1", "OL1"})
+            targets.append({QString::fromLatin1(n), DeleteObjectCommand::DeleteLink});
+        stack.push(new BatchDeleteCommand(layer.get(), targets, nullptr, QStringLiteral("Delete")));
+        QCOMPARE(engineLinks(e), QStringList{QStringLiteral("C3")});
+        QVERIFY(linkCacheMatchesEngine(*layer));
+        stack.undo();
+        QCOMPARE(engineLinks(e), links);
+        QVERIFY(linkCacheMatchesEngine(*layer));
+        QCOMPARE(saveInp(e, dir, QStringLiteral("4_batch_undo.inp")), original);
+
+        // A node and a link together: J5 cascades OR1 and OL1 and loses GUT1's inlet usage.
+        stack.push(new BatchDeleteCommand(
+            layer.get(),
+            {{QStringLiteral("J5"), DeleteObjectCommand::DeleteNode},
+             {QStringLiteral("GUT1"), DeleteObjectCommand::DeleteLink}},
+            nullptr, QStringLiteral("Delete")));
+        QCOMPARE(swmm_link_index(e, "GUT1"), -1);
+        stack.undo();
+        QCOMPARE(saveInp(e, dir, QStringLiteral("5_mixed_undo.inp")), original);
+        QCOMPARE(engineLinks(e), links);
+        QVERIFY(linkCacheMatchesEngine(*layer));
+        QVERIFY(nodeCacheMatchesEngine(*layer));
+    }
+
+    void deleteUndoRestoresNodesExactly()
+    {
+        const QDir dir(QStringLiteral(SWMMVIS_DELETE_UNDO_OUTPUT_DIR "/node_delete_undo"));
+        QVERIFY(QDir().mkpath(dir.path()));
+        {
+            QFile inp(dir.filePath(QStringLiteral("input.inp")));
+            QVERIFY(inp.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            inp.write(kNodesInp);
+        }
+        auto layer = std::make_unique<SWMMModelLayer>(dir.filePath(QStringLiteral("input.inp")),
+                                                      nullptr);
+        QList<QString> warnings, errors;
+        QVERIFY2(layer->loadModel(warnings, errors), qPrintable(errors.join('\n')));
+        SWMM_Engine e = layer->engine();
+        const QByteArray original = saveInp(e, dir, QStringLiteral("1_original.inp"));
+        QVERIFY(!original.isEmpty());
+        const QStringList nodes = engineNodes(e), links = engineLinks(e);
+        QCOMPARE(nodes.size(), 6);
+        QVERIFY(nodeCacheMatchesEngine(*layer));
+        QVERIFY(linkCacheMatchesEngine(*layer));
+
+        MapUndoStack stack;
+        // One node (Object Browser): its four links go with it.
+        stack.push(new DeleteObjectCommand(layer.get(), QStringLiteral("N2"),
+                                           DeleteObjectCommand::DeleteNode, nullptr));
+        QCOMPARE(swmm_node_index(e, "N2"), -1);
+        QCOMPARE(engineLinks(e), (QStringList{QStringLiteral("C4"), QStringLiteral("GUT")}));
+        QVERIFY(nodeCacheMatchesEngine(*layer));
+        QVERIFY(linkCacheMatchesEngine(*layer));
+        stack.undo();
+        QCOMPARE(engineNodes(e), nodes);
+        QCOMPARE(engineLinks(e), links);
+        QVERIFY(nodeCacheMatchesEngine(*layer));
+        QVERIFY(linkCacheMatchesEngine(*layer));
+        QCOMPARE(saveInp(e, dir, QStringLiteral("2_single_undo.inp")), original);
+        stack.redo();
+        stack.undo();
+        QCOMPARE(saveInp(e, dir, QStringLiteral("3_single_redo_undo.inp")), original);
+
+        // A batch with a node from every subtype table (map Delete key, Attribute Table).
+        QList<BatchDeleteCommand::Target> targets;
+        for (const char *n : {"J1", "N2", "D1", "O1"})
+            targets.append({QString::fromLatin1(n), DeleteObjectCommand::DeleteNode});
+        stack.push(new BatchDeleteCommand(layer.get(), targets, nullptr, QStringLiteral("Delete")));
+        QCOMPARE(engineNodes(e), (QStringList{QStringLiteral("J3"), QStringLiteral("J4")}));
+        QVERIFY(nodeCacheMatchesEngine(*layer));
+        stack.undo();
+        QCOMPARE(engineNodes(e), nodes);
+        QCOMPARE(engineLinks(e), links);
+        QVERIFY(nodeCacheMatchesEngine(*layer));
+        QVERIFY(linkCacheMatchesEngine(*layer));
+        QCOMPARE(saveInp(e, dir, QStringLiteral("4_batch_undo.inp")), original);
+
+        // Nodes, a link and a rain gage together: each record restores in reverse order.
+        stack.push(new BatchDeleteCommand(
+            layer.get(),
+            {{QStringLiteral("N2"), DeleteObjectCommand::DeleteNode},
+             {QStringLiteral("J3"), DeleteObjectCommand::DeleteNode},
+             {QStringLiteral("C4"), DeleteObjectCommand::DeleteLink},
+             {QStringLiteral("G1"), DeleteObjectCommand::DeleteGage}},
+            nullptr, QStringLiteral("Delete")));
+        QCOMPARE(engineLinks(e), QStringList{});
+        stack.undo();
+        QCOMPARE(saveInp(e, dir, QStringLiteral("5_mixed_undo.inp")), original);
+        QCOMPARE(engineNodes(e), nodes);
+        QCOMPARE(engineLinks(e), links);
+        QVERIFY(nodeCacheMatchesEngine(*layer));
+        QVERIFY(linkCacheMatchesEngine(*layer));
+    }
+
+    void deleteUndoRestoresSubcatchmentsExactly()
+    {
+        const QDir dir(QStringLiteral(SWMMVIS_DELETE_UNDO_OUTPUT_DIR "/subcatch_delete_undo"));
+        QVERIFY(QDir().mkpath(dir.path()));
+        {
+            QFile inp(dir.filePath(QStringLiteral("input.inp")));
+            QVERIFY(inp.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            inp.write(kSubcatchInp);
+        }
+        auto layer = std::make_unique<SWMMModelLayer>(dir.filePath(QStringLiteral("input.inp")),
+                                                      nullptr);
+        QList<QString> warnings, errors;
+        QVERIFY2(layer->loadModel(warnings, errors), qPrintable(errors.join('\n')));
+        SWMM_Engine e = layer->engine();
+        const QByteArray original = saveInp(e, dir, QStringLiteral("1_original.inp"));
+        QVERIFY(!original.isEmpty());
+        const QStringList subcatches = engineSubcatches(e);
+        QCOMPARE(subcatches.size(), 4);
+        QVERIFY(subcatchCacheMatchesEngine(*layer));
+
+        MapUndoStack stack;
+        // One subcatchment (Object Browser).
+        stack.push(new DeleteObjectCommand(layer.get(), QStringLiteral("S2"),
+                                           DeleteObjectCommand::DeleteSubcatch, nullptr));
+        QCOMPARE(swmm_subcatch_index(e, "S2"), -1);
+        QVERIFY(subcatchCacheMatchesEngine(*layer));
+        stack.undo();
+        QCOMPARE(engineSubcatches(e), subcatches);
+        QVERIFY(subcatchCacheMatchesEngine(*layer));
+        QCOMPARE(saveInp(e, dir, QStringLiteral("2_single_undo.inp")), original);
+        stack.redo();
+        stack.undo();
+        QCOMPARE(saveInp(e, dir, QStringLiteral("3_single_redo_undo.inp")), original);
+
+        // A batch of subcatchments (map Delete key, Attribute Table).
+        QList<BatchDeleteCommand::Target> targets;
+        for (const char *n : {"S1", "S2", "S3"})
+            targets.append({QString::fromLatin1(n), DeleteObjectCommand::DeleteSubcatch});
+        stack.push(new BatchDeleteCommand(layer.get(), targets, nullptr, QStringLiteral("Delete")));
+        QCOMPARE(engineSubcatches(e), QStringList{QStringLiteral("S4")});
+        QVERIFY(subcatchCacheMatchesEngine(*layer));
+        stack.undo();
+        QCOMPARE(engineSubcatches(e), subcatches);
+        QVERIFY(subcatchCacheMatchesEngine(*layer));
+        QCOMPARE(saveInp(e, dir, QStringLiteral("4_batch_undo.inp")), original);
+
+        // Every kind together: a subcatchment, the node it drains to, a link and the rain gage.
+        stack.push(new BatchDeleteCommand(
+            layer.get(),
+            {{QStringLiteral("S2"), DeleteObjectCommand::DeleteSubcatch},
+             {QStringLiteral("S3"), DeleteObjectCommand::DeleteSubcatch},
+             {QStringLiteral("J1"), DeleteObjectCommand::DeleteNode},
+             {QStringLiteral("C2"), DeleteObjectCommand::DeleteLink},
+             {QStringLiteral("G1"), DeleteObjectCommand::DeleteGage}},
+            nullptr, QStringLiteral("Delete")));
+        QCOMPARE(swmm_node_index(e, "J1"), -1);
+        stack.undo();
+        QCOMPARE(saveInp(e, dir, QStringLiteral("5_mixed_undo.inp")), original);
+        QCOMPARE(engineSubcatches(e), subcatches);
+        QVERIFY(subcatchCacheMatchesEngine(*layer));
+        QVERIFY(nodeCacheMatchesEngine(*layer));
+        QVERIFY(linkCacheMatchesEngine(*layer));
     }
 
     // ── Profiling probe (perf-plan Phase 0; skipped unless env-gated) ──────

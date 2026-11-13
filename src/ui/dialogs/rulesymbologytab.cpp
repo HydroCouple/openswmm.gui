@@ -113,6 +113,7 @@ RuleSymbologyTab::RuleSymbologyTab(RuleList *ruleList, QWidget *parent)
     m_btnAdd = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")), QString(),
                                topRow);
     m_btnAdd->setToolTip(tr("Add rule"));
+    m_btnAdd->setAccessibleName(tr("Add rule"));
     m_btnDuplicate = new QPushButton(
         openswmmvis::ui::IconFactory::icon(QStringLiteral("Duplicate")), tr("Duplicate"), topRow);
     m_btnDelete = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")),
@@ -120,9 +121,11 @@ RuleSymbologyTab::RuleSymbologyTab(RuleList *ruleList, QWidget *parent)
     m_btnUp = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("MoveUp")),
                               QString(), topRow);
     m_btnUp->setToolTip(tr("Move rule up"));
+    m_btnUp->setAccessibleName(tr("Move rule up"));
     m_btnDown = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("MoveDown")),
                                 QString(), topRow);
     m_btnDown->setToolTip(tr("Move rule down"));
+    m_btnDown->setAccessibleName(tr("Move rule down"));
     for (QPushButton *b : {m_btnAdd, m_btnDuplicate, m_btnDelete, m_btnUp, m_btnDown}) {
         b->setAutoDefault(false);
         topLay->addWidget(b);

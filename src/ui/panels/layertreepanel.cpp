@@ -23,6 +23,7 @@
 #include "layers/swmmresultslayer.h"    // Slice OUT.3 — output-layer kind sub-rows
 #include "layers/swmm2dresultslayer.h"  // active 2D analysis layer (context menu)
 #include "layers/gisvectorlayer.h"      // zoom retry once async open finishes
+#include "layers/unavailablelayer.h"    // saved layer that did not reopen
 #include "render/attributecandidates.h" // Slice CTX.3 — grey out empty Style items
 #include "render/ifeaturerenderer.h"    // Slice CTX.2 — checkmark active style
 // Slice S3 — sublayer-row pattern under ISublayerHost layers without kind rows.
@@ -1095,7 +1096,15 @@ QVariant LayerTreeModel::data(const QModelIndex &index, int role) const
             return layer->name();
         case Qt::CheckStateRole:
             return layer->isVisible() ? Qt::Checked : Qt::Unchecked;
+        case Qt::ToolTipRole:
+        case Qt::AccessibleDescriptionRole:
+            // A saved layer that did not reopen says why (owner, 2026-11-12).
+            if (const auto *missing = qobject_cast<const UnavailableLayer *>(layer))
+                return missing->reason();
+            return {};
         case Qt::DecorationRole: {
+            if (qobject_cast<const UnavailableLayer *>(layer))
+                return QApplication::style()->standardIcon(QStyle::SP_MessageBoxWarning);
             // Per-layer-type icon from the Qt resource bundle. Aliases live in
             // resources/swmmvis.qrc under the :/swmmvis/ prefix.
             switch (layer->layerType()) {
@@ -2052,13 +2061,18 @@ void LayerTreePanel::onRemoveSelectedLayer()
         return; // Never resolve a child removal to its entire output layer.
     }
     OpenSWMMVisLayer *sel = selectedLayer();
-    if (!sel)
-        return;
+    if (!sel || qobject_cast<SWMMModelLayer *>(sel))
+        return; // the project's model layer stays (owner decision 2026-11-12)
 
     for (int i = 0; i < m_canvas->layerCount(); ++i) {
         if (m_canvas->layerAt(i) == sel) {
+            // A non-temporary layer goes to a RemoveLayerCommand that puts it
+            // back on Undo, so it must stay alive. Only a temporary layer is
+            // removed outright with nothing else holding it.
+            const bool undoable = !sel->isTemporary();
             OpenSWMMVisLayer *taken = m_canvas->takeLayer(i);
-            taken->deleteLater();
+            if (taken && !undoable)
+                taken->deleteLater();
             return;
         }
     }
@@ -2830,6 +2844,7 @@ void LayerTreePanel::onContextMenuRequested(const QPoint &pos)
     actDuplicate->setEnabled(false); // pending feature
     QAction *actRemove =
         menu.addAction(QIcon(QStringLiteral(":/swmmvis/Clear")), tr("Remove Layer"));
+    actRemove->setEnabled(!qobject_cast<SWMMModelLayer *>(layer)); // the project's model stays
     menu.addSeparator();
 
     // Group 5 — query

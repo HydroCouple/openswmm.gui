@@ -942,6 +942,7 @@ void PropertiesPanel::setupUi()
     m_openEditorButton = new QPushButton(central);
     m_openEditorButton->setIcon(QIcon(QStringLiteral(":/swmmvis/Layers")));
     m_openEditorButton->setToolTip(tr("Open this object in its dedicated editor."));
+    m_openEditorButton->setAccessibleName(tr("Open in editor"));
     m_openEditorButton->hide();
     vlay->addWidget(m_openEditorButton);
     connect(m_openEditorButton, &QPushButton::clicked, this,
@@ -1246,6 +1247,27 @@ void PropertiesPanel::showAggregateEditResult(const QString &error)
 {
     m_meshNote->setText(error);
     m_meshNote->setVisible(!error.isEmpty());
+}
+
+openswmmvis::properties::FieldWriter PropertiesPanel::spatialFieldWriter(int category)
+{
+    using openswmmvis::properties::FieldWrite;
+    return [layer = QPointer<SWMMModelLayer>(m_swmmLayer), self = QPointer<PropertiesPanel>(this),
+            category](const QString &name, const QString &key, const QVariant &value) {
+        if (!layer || !layer->editCanvas())
+            return FieldWrite::NotRouted;
+        SWMMAttributeTableModel table;
+        table.setSource(layer, static_cast<SWMMModelLayer::Category>(category));
+        if (!table.columnKeys().contains(key))
+            return FieldWrite::NotRouted;
+        QString error;
+        const bool ok = table.applyScalarEdits(QStringList{name}, {{key, value}},
+                                               layer->editCanvas()->undoStack(), &error);
+        if (self)
+            self->showAggregateEditResult(
+                ok ? QString() : (error.isEmpty() ? tr("The edit was not applied.") : error));
+        return ok ? FieldWrite::Applied : FieldWrite::Refused;
+    };
 }
 
 void PropertiesPanel::bindDataAggregate(SWMMModelLayer *layer, int category,
@@ -2206,6 +2228,13 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
             // pickers (Inflows TS / Pattern, DWF patterns, RDII UH)
             // can call back into `layer->createDataObject(...)`.
             m_nodeAdapter->setModelLayer(m_swmmLayer);
+            // Review C-01: writes go through the same checked, undoable
+            // path as the Attribute Table.
+            m_nodeAdapter->setFieldWriter(spatialFieldWriter(
+                nodeKind == SWMM_NODE_OUTFALL   ? SWMMModelLayer::CatOutfalls
+                : nodeKind == SWMM_NODE_STORAGE ? SWMMModelLayer::CatStorage
+                : nodeKind == SWMM_NODE_DIVIDER ? SWMMModelLayer::CatDividers
+                                                : SWMMModelLayer::CatJunctions));
             // Slice QA.2 — thread the per-project stats registry into
             // the adapter so its statMax* getters can dispatch through
             // a loaded SWMMResultsLayer. Refresh the combo immediately
@@ -2407,6 +2436,14 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
             // pointer so DataObjectRef-typed Q_PROPERTYs (pumpCurve) can
             // construct refs with the right layer for the picker editor.
             m_linkAdapter->setModelLayer(m_swmmLayer);
+            // Review C-01: writes go through the same checked, undoable
+            // path as the Attribute Table.
+            m_linkAdapter->setFieldWriter(spatialFieldWriter(
+                linkKind == 1   ? SWMMModelLayer::CatPumps
+                : linkKind == 2 ? SWMMModelLayer::CatOrifices
+                : linkKind == 3 ? SWMMModelLayer::CatWeirs
+                : linkKind == 4 ? SWMMModelLayer::CatOutlets
+                                : SWMMModelLayer::CatConduits));
             // Thread the per-project stats registry so the statMax* rows
             // can dispatch through the bound run (mirror of the node
             // adapter wiring below).
@@ -2492,6 +2529,9 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
             // USER_FLAGS Phase 4 — layer binding so the User Flags row
             // reaches the shared UserFlagsModel.
             m_subcatchAdapter->setModelLayer(m_swmmLayer);
+            // Review C-01: writes go through the same checked, undoable
+            // path as the Attribute Table.
+            m_subcatchAdapter->setFieldWriter(spatialFieldWriter(SWMMModelLayer::CatSubcatchments));
             // Stats registry so the stat* rows follow the bound run.
             m_subcatchAdapter->setStatsRegistry(m_statsRegistry);
             refreshStatsSourceCombo();
@@ -2712,6 +2752,10 @@ void PropertiesPanel::showDataObject(SWMMModelLayer *layer, int objectKind, cons
         // Rain gages have no DataCategory entry / no comprehensive editor;
         // the in-place property tree is the only edit surface.
         m_dataAdapter = new SWMMRainGagePropertyAdapter(eng, name, this);
+        // Review C-01: a gage is a spatial object; its writes go through the
+        // same checked, undoable path as the Attribute Table.
+        static_cast<SWMMRainGagePropertyAdapter *>(m_dataAdapter)
+            ->setFieldWriter(spatialFieldWriter(SWMMModelLayer::CatRainGages));
         break;
     default:
         // Caller passed a spatial kind (Node/Link/Subcatchment) or

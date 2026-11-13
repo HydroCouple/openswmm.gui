@@ -2890,6 +2890,8 @@ add_swmmvis_gui_test(test_simstatus_2derr
     ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
     ${CMAKE_SOURCE_DIR}/src/io/lidstates.cpp
     ${CMAKE_SOURCE_DIR}/src/simulation/simulationstatusmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
     ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
     ${CMAKE_SOURCE_DIR}/include/simulation/simulationrunner.h
@@ -2908,6 +2910,8 @@ add_swmmvis_gui_test(test_simrunner_failures
     ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
     ${CMAKE_SOURCE_DIR}/src/io/lidstates.cpp
     ${CMAKE_SOURCE_DIR}/src/simulation/simulationstatusmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
     ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
     ${CMAKE_SOURCE_DIR}/include/simulation/simulationrunner.h
@@ -2956,6 +2960,8 @@ if(TARGET openswmm_legacy_worker_524)
         ${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp
     ${CMAKE_SOURCE_DIR}/src/io/lidstates.cpp
         ${CMAKE_SOURCE_DIR}/src/simulation/simulationstatusmodel.cpp
+        ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+        ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
         ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
         ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
         ${CMAKE_SOURCE_DIR}/include/simulation/simulationrunner.h
@@ -3966,6 +3972,9 @@ add_swmmvis_gui_test(test_raingagecoords
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_raingagecoords)
+# Delete/undo round trips (review E-04) write their input and saved .inp files here.
+target_compile_definitions(test_raingagecoords PRIVATE
+    SWMMVIS_DELETE_UNDO_OUTPUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/delete_undo_2026-11-12")
 
 # Rainfall Visualization dialog — engine-resolved gage series across all three
 # source kinds (inline [TIMESERIES], standard .dat rain file, multi-column
@@ -4014,6 +4023,9 @@ add_swmmvis_gui_test(test_bulkdelete
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_bulkdelete)
+# Delete/undo round trips (review E-04) write their input and saved .inp files here.
+target_compile_definitions(test_bulkdelete PRIVATE
+    SWMMVIS_DELETE_UNDO_OUTPUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/delete_undo_2026-11-12")
 
 # Link direction flip — swapping node1/node2 is the easy half. Interior
 # vertices are stored upstream -> downstream, so a flip that does not reverse
@@ -4750,6 +4762,8 @@ set_property(TEST test_checkpointapplication APPEND PROPERTY ENVIRONMENT "QT_QUI
 add_swmmvis_gui_test(test_simulationstatus_snow
     test_simulationstatus_snow.cpp
     ${CMAKE_SOURCE_DIR}/src/simulation/simulationstatusmodel.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
     ${CMAKE_SOURCE_DIR}/include/simulation/simulationstatusmodel.h
 )
 
@@ -4976,3 +4990,24 @@ add_swmmvis_gui_test(test_unified2dresults
 swmmvis_link_full_app_deps(test_unified2dresults)
 target_compile_definitions(test_unified2dresults PRIVATE
     SWMMVIS_UNIFIED_2D_RESULTS_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/unified_2d_results_2026-11-01")
+
+# Review E-05 (workplans/GUI_COMPREHENSIVE_REVIEW_2026-11-12.md): renaming a
+# pollutant must keep the co-pollutant links that name it through the next
+# saveToEngine (the rename used to leave them on the old name, saved as none).
+add_swmmvis_gui_test(test_pollutantregistry_rename
+    test_pollutantregistry_rename.cpp
+    ${CMAKE_SOURCE_DIR}/include/pollutant/pollutantprovider.h
+    ${CMAKE_SOURCE_DIR}/src/pollutant/pollutantprovider.cpp
+    ${CMAKE_SOURCE_DIR}/include/pollutant/pollutantregistry.h
+    ${CMAKE_SOURCE_DIR}/src/pollutant/pollutantregistry.cpp
+)
+
+# Review E-05 follow-ups: an aquifer's ET pattern and a custom inlet's capture
+# curve are stored by name; a pattern/curve rename (and a pattern delete) must
+# reach the cached providers or the next save writes the stale name back.
+add_swmmvis_gui_test(test_dataobject_reference_follow
+    test_dataobject_reference_follow.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_dataobject_reference_follow)

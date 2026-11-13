@@ -60,6 +60,17 @@ bool SWMMLinkPropertyAdapter::ownedRegulatorEdit(const QString &setter, const QV
     return true;
 }
 
+bool SWMMLinkPropertyAdapter::routeField(const char *fieldKey, const QVariant &value)
+{
+    if (!m_fieldWriter)
+        return false;
+    if (m_fieldWriter(m_name, QString::fromLatin1(fieldKey), value) ==
+        openswmmvis::properties::FieldWrite::NotRouted)
+        return false;
+    emit changed(); // applied: show the stored value; refused: put the editor back
+    return true;
+}
+
 void SWMMLinkPropertyAdapter::setFromNodeRef(const LinkEndpointRef &ref)
 {
     if (ref.engine != m_engine || ref.linkName != m_name || !ref.upstream)
@@ -739,32 +750,36 @@ InitialQualityEditRef SWMMLinkPropertyAdapter::initialQualityRef() const
     return r;
 }
 
-#define SETTER_D(method, engineSet)                                                                \
+// fieldKey: the Attribute Table key the shared edit path writes (review C-01).
+// Offsets and crest height use the same linkoffsetdisplay accessors on both sides.
+#define SETTER_D(method, fieldKey, engineSet)                                                      \
     void SWMMLinkPropertyAdapter::method(double v)                                                 \
     {                                                                                              \
         const int idx = linkIdx();                                                                 \
         if (idx < 0)                                                                               \
             return;                                                                                \
+        if (routeField(fieldKey, v))                                                               \
+            return;                                                                                \
         if (engineSet(m_engine, idx, v) == SWMM_OK)                                                \
             emit changed();                                                                        \
     }
-SETTER_D(setLength, swmm_link_set_length)
-SETTER_D(setRoughness, swmm_link_set_roughness)
-SETTER_D(setOffsetUp, linkoffsetdisplay::setOffsetUp)
-SETTER_D(setOffsetDn, linkoffsetdisplay::setOffsetDn)
-SETTER_D(setCrestHeight, linkoffsetdisplay::setCrestHeight)
+SETTER_D(setLength, "Length", swmm_link_set_length)
+SETTER_D(setRoughness, "Roughness", swmm_link_set_roughness)
+SETTER_D(setOffsetUp, "Offset up", linkoffsetdisplay::setOffsetUp)
+SETTER_D(setOffsetDn, "Offset dn", linkoffsetdisplay::setOffsetDn)
+SETTER_D(setCrestHeight, "Crest height", linkoffsetdisplay::setCrestHeight)
 void SWMMLinkPropertyAdapter::setDischargeCoeff(double v)
 {
     if (ownedRegulatorEdit("link_discharge_coeff", v)) return;
     const int idx = linkIdx();
     if (idx >= 0 && swmm_link_set_discharge_coeff(m_engine, idx, v) == SWMM_OK) emit changed();
 }
-SETTER_D(setEndContractions, swmm_link_set_end_contractions)
+SETTER_D(setEndContractions, "End contractions", swmm_link_set_end_contractions)
 // Slice SB — scalar setters. Init / max flow + seepage round-trip
 // through their dedicated single-double setters.
-SETTER_D(setInitialFlow, swmm_link_set_initial_flow)
-SETTER_D(setMaxFlow, swmm_link_set_max_flow)
-SETTER_D(setSeepRate, swmm_link_set_seep_rate)
+SETTER_D(setInitialFlow, "Init flow", swmm_link_set_initial_flow)
+SETTER_D(setMaxFlow, "Max flow", swmm_link_set_max_flow)
+SETTER_D(setSeepRate, "Seep rate", swmm_link_set_seep_rate)
 
 // Slice SB — loss-coefficient setters. The engine API only exposes a
 // single triple-write (`swmm_link_set_loss_coeff(inlet, outlet, avg)`),
@@ -779,6 +794,8 @@ void SWMMLinkPropertyAdapter::setLossInlet(double v)
     const int idx = linkIdx();
     if (idx < 0)
         return;
+    if (routeField("Loss inlet", v))
+        return;
     double inlet = 0.0, outlet = 0.0, avg = 0.0;
     swmm_link_get_loss_coeff(m_engine, idx, &inlet, &outlet, &avg);
     if (swmm_link_set_loss_coeff(m_engine, idx, v, outlet, avg) == SWMM_OK)
@@ -789,6 +806,8 @@ void SWMMLinkPropertyAdapter::setLossOutlet(double v)
     const int idx = linkIdx();
     if (idx < 0)
         return;
+    if (routeField("Loss outlet", v))
+        return;
     double inlet = 0.0, outlet = 0.0, avg = 0.0;
     swmm_link_get_loss_coeff(m_engine, idx, &inlet, &outlet, &avg);
     if (swmm_link_set_loss_coeff(m_engine, idx, inlet, v, avg) == SWMM_OK)
@@ -798,6 +817,8 @@ void SWMMLinkPropertyAdapter::setLossAvg(double v)
 {
     const int idx = linkIdx();
     if (idx < 0)
+        return;
+    if (routeField("Loss avg", v))
         return;
     double inlet = 0.0, outlet = 0.0, avg = 0.0;
     swmm_link_get_loss_coeff(m_engine, idx, &inlet, &outlet, &avg);
@@ -810,6 +831,8 @@ void SWMMLinkPropertyAdapter::setBarrels(int v)
     const int idx = linkIdx();
     if (idx < 0 || v < 1)
         return; // engine contract: barrels >= 1
+    if (routeField("Barrels", v))
+        return;
     if (swmm_link_set_barrels(m_engine, idx, v) == SWMM_OK)
         emit changed();
 }
@@ -833,6 +856,8 @@ void SWMMLinkPropertyAdapter::writeXsectGeom(int ordinal, double v)
     if (swmm_link_get_xsect(m_engine, idx, &shape, &g[0], &g[1], &g[2], &g[3]) != SWMM_OK)
         return;
     if (openswmmvis::xsectGeomIsPickerIndex(shape, ordinal))
+        return;
+    if (routeField(QByteArray("Geom ").append(QByteArray::number(ordinal)).constData(), v))
         return;
     g[ordinal - 1] = v;
     if (swmm_link_set_xsect(m_engine, idx, shape, g[0], g[1], g[2], g[3]) == SWMM_OK)
@@ -884,6 +909,8 @@ void SWMMLinkPropertyAdapter::setTag(const QString &t)
     const int idx = linkIdx();
     if (idx < 0)
         return;
+    if (routeField("Tag", t))
+        return;
     const QByteArray bytes = t.toUtf8();
     if (swmm_link_set_tag(m_engine, idx, bytes.constData()) == SWMM_OK)
         emit changed();
@@ -894,6 +921,8 @@ void SWMMLinkPropertyAdapter::setFlapGate(FlapGate v)
     const int idx = linkIdx();
     if (idx < 0)
         return;
+    if (routeField("Flap gate", static_cast<int>(v)))
+        return;
     if (swmm_link_set_flap_gate(m_engine, idx, static_cast<int>(v)) == SWMM_OK)
         emit changed();
 }
@@ -902,6 +931,8 @@ void SWMMLinkPropertyAdapter::setPumpInitState(PumpInitState v)
 {
     const int idx = linkIdx();
     if (idx < 0)
+        return;
+    if (routeField("Initial state", static_cast<int>(v)))
         return;
     if (swmm_link_set_pump_init_state(m_engine, idx, static_cast<int>(v)) == SWMM_OK)
         emit changed();
@@ -955,6 +986,8 @@ void SWMMLinkPropertyAdapter::setPumpStartupDepth(double v)
     const int idx = linkIdx();
     if (idx < 0)
         return;
+    if (routeField("Startup depth", v))
+        return;
     if (swmm_link_set_pump_startup_depth(m_engine, idx, v) == SWMM_OK)
         emit changed();
 }
@@ -964,6 +997,8 @@ void SWMMLinkPropertyAdapter::setPumpShutoffDepth(double v)
     const int idx = linkIdx();
     if (idx < 0)
         return;
+    if (routeField("Shutoff depth", v))
+        return;
     if (swmm_link_set_pump_shutoff_depth(m_engine, idx, v) == SWMM_OK)
         emit changed();
 }
@@ -972,6 +1007,8 @@ void SWMMLinkPropertyAdapter::setOrificeOpenCloseRate(double v)
 {
     const int idx = linkIdx();
     if (idx < 0)
+        return;
+    if (routeField("Open/close rate", v))
         return;
     if (swmm_link_set_orifice_open_close_rate(m_engine, idx, v) == SWMM_OK)
         emit changed();

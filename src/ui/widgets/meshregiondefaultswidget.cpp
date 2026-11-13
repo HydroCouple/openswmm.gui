@@ -161,6 +161,11 @@ public:
         auto *edit = new QLineEdit(parent);
         auto *val = new QDoubleValidator(r.lo, r.hi, r.decimals, edit);
         val->setNotation(QDoubleValidator::StandardNotation);
+        // Filled (formatValue) and parsed (toDouble) in the C locale: validate
+        // in it too, or a decimal-comma locale accepts "0,5" that the parse drops.
+        QLocale cLocale = QLocale::c();
+        cLocale.setNumberOptions(QLocale::RejectGroupSeparator);
+        val->setLocale(cLocale);
         edit->setValidator(val);
         // An inheriting hydraulic cell already displays the '*' value; showing
         // it as the placeholder makes clear that clearing the field is how you

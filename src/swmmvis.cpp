@@ -749,6 +749,30 @@ MapCanvas *SWMMVis::activeCanvas() const
 namespace
 {
 
+/// Published GUI documentation (docs/ built by doxygen, .github/workflows/documentation.yml).
+constexpr const char *kGuiDocsUrl = "https://www.hydrocouple.org/openswmm.gui/";
+
+/**
+ * @brief URL of a published manual page from its doxygen `@page` name.
+ * @param[in] page Page name as written after `@page` in docs/manual (e.g. "user_manual").
+ * @return Absolute URL under kGuiDocsUrl.
+ * @details docs/Doxyfile sets CREATE_SUBDIRS with CREATE_SUBDIRS_LEVEL 8, so doxygen files
+ * each page under d<x>/d<yy>/ taken from bytes 14 and 15 of the MD5 of its name.
+ */
+QString manualPageUrl(const char *page)
+{
+    const QByteArray name(page);
+    const QByteArray md5 = QCryptographicHash::hash(name, QCryptographicHash::Md5);
+    return QStringLiteral("%1d%2/d%3/%4.html")
+        .arg(QString::fromUtf8(kGuiDocsUrl))
+        .arg(uchar(md5.at(14)) & 0xf, 0, 16)
+        .arg(uchar(md5.at(15)), 2, 16, QLatin1Char('0'))
+        .arg(QString::fromUtf8(name));
+}
+
+/// The user manual opened by Help > Help and the Welcome page's "User Manual" link.
+QString userManualUrl() { return manualPageUrl("user_manual"); }
+
 /**
  * @brief Proxy style that forces tab-close buttons to render on the
  * RIGHT side of the tab. macOS's native Qt style defaults to
@@ -951,17 +975,19 @@ void SWMMVis::initializeWelcomeScreen()
         layout->setSpacing(2);
         struct Link {
             const char *text;
-            const char *url;
+            QString url;
         };
         const Link links[] = {
-            {"User Manual", "https://www.hydrocouple.org/openswmm.engine/d3/dae/manuals.html"},
-            {"Engine API Reference", "https://www.hydrocouple.org/openswmm.engine"},
-            {"Report an Issue", "https://github.com/HydroCouple/openswmm.engine/issues"},
+            {"User Manual", userManualUrl()},
+            {"GUI Reference", QString::fromUtf8(kGuiDocsUrl)},
+            {"Engine API Reference", QStringLiteral("https://www.hydrocouple.org/openswmm.engine")},
+            {"Report an Issue",
+             QStringLiteral("https://github.com/HydroCouple/openswmm.engine/issues")},
         };
         for (const auto &lk : links) {
             auto *btn = new QCommandLinkButton(tr(lk.text), frame);
             btn->setIcon(QIcon(QStringLiteral(":/swmmvis/Help")));
-            const QString url = QString::fromUtf8(lk.url);
+            const QString url = lk.url;
             connect(btn, &QCommandLinkButton::clicked, this,
                     [url] { QDesktopServices::openUrl(QUrl(url)); });
             layout->addWidget(btn);
@@ -4931,6 +4957,8 @@ void SWMMVis::initializeMenus()
     connect(ui->actionSaveAs, &QAction::triggered, this, &SWMMVis::onSaveAs);
     connect(ui->actionExportMap, &QAction::triggered, this, &SWMMVis::onExportMap);
     connect(ui->actionAbout, &QAction::triggered, this, &SWMMVis::onAbout);
+    connect(ui->actionHelp, &QAction::triggered, this,
+            [] { QDesktopServices::openUrl(QUrl(userManualUrl())); });
 
     connect(ui->menuOpenRecent, &QMenu::triggered, this, &SWMMVis::onOpenRecentFile);
 
@@ -6284,10 +6312,9 @@ void SWMMVis::onExportMap()
     if (path.isEmpty())
         return;
 
-    // First-cut: PNG via QWidget::grab(). SVG / DXF / EMF / .map are
-    // surfaced in the filter list but routed to Slice AP (Print/Export)
-    // for a proper renderer; user gets a clear log message in the
-    // meantime.
+    // PNG only (the filter offers nothing else); SVG / DXF / EMF / .map wait
+    // for Slice AP (Print/Export). A different suffix typed by hand still gets
+    // the explanation below.
     const QString suffix = QFileInfo(path).suffix().toLower();
     if (suffix == QStringLiteral("png")) {
         QString error;
@@ -6331,7 +6358,6 @@ void SWMMVis::onShowWelcomeScreen()
         ui->mdiAreaCentral->setActiveSubWindow(sub);
     }
 }
-void SWMMVis::onClose() {}
 
 void SWMMVis::onFlowUnitsChanged(int comboIndex)
 {

@@ -46,6 +46,10 @@
 #include "ui/toolbars/mesheditingtoolbar.h"
 #include "ui/models/userflagsmodel.h"
 #include "ui/widgets/labelconfigeditor.h"
+#include "ui/dialogs/rulesymbologytab.h"
+#include "ui/dialogs/statusreportdialog.h"
+#include "render/rulelist.h"
+#include "dialog_a11y_checks.h"
 // Batch 3 (C1–C15)
 #include "core/editgeometry.h"
 #include "core/noderenderingprefs.h"
@@ -565,6 +569,42 @@ private slots:
                 if (combo->itemText(i) == name)
                     ++count;
         QCOMPARE(count, 1);
+    }
+    /** @brief Review E-22: no Add Basemap "Edit" button is offered (their slots did nothing). */
+    void addBasemapOffersNoInertEditButton()
+    {
+        AddBasemapDialog dialog;
+        for (auto *button : dialog.findChildren<QPushButton *>())
+            if (button->text() == QStringLiteral("Edit"))
+                QVERIFY2(button->isHidden(), "an Add Basemap Edit button is still shown");
+    }
+    /** @brief Review A-04: icon-only buttons in these widgets expose an accessible Name, not only a tooltip. */
+    void iconOnlyButtonsAreNamed()
+    {
+        LabelConfigEditor labels;
+        swmmvis_test::assertIconButtonsNamed(&labels);
+        if (QTest::currentTestFailed())
+            return;
+
+        OpenSWMM::Render::RuleList rules;
+        openswmmvis::ui::RuleSymbologyTab ruleTab(&rules);
+        swmmvis_test::assertIconButtonsNamed(&ruleTab);
+        if (QTest::currentTestFailed())
+            return;
+
+        // A readable report: a missing one would raise a blocking warning box.
+        QDir out(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")));
+        out.cdUp();
+        out.cdUp();
+        const QString dir = out.filePath(QStringLiteral("output/gui_review_2026-11-12/a11y"));
+        QVERIFY(QDir().mkpath(dir));
+        const QString rpt = dir + QStringLiteral("/minimal.rpt");
+        QFile file(rpt);
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text));
+        file.write("  EPA STORM WATER MANAGEMENT MODEL\n");
+        file.close();
+        openswmmvis::ui::StatusReportDialog report(rpt);
+        swmmvis_test::assertIconButtonsNamed(&report);
     }
     /** @brief Verify the shared labels editor propagates an emitted expression-config change to its model layer. */
     void labelsTabExposesSharedExpressionEditor()

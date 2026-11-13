@@ -209,10 +209,23 @@ QString SWMMSubcatchPropertyAdapter::tag() const
     return QString::fromUtf8(buf);
 }
 
+bool SWMMSubcatchPropertyAdapter::routeField(const char *fieldKey, const QVariant &value)
+{
+    if (!m_fieldWriter)
+        return false;
+    if (m_fieldWriter(m_name, QString::fromLatin1(fieldKey), value) ==
+        openswmmvis::properties::FieldWrite::NotRouted)
+        return false;
+    emit changed(); // applied: show the stored value; refused: put the editor back
+    return true;
+}
+
 void SWMMSubcatchPropertyAdapter::setTag(const QString &t)
 {
     const int i = idx();
     if (i < 0)
+        return;
+    if (routeField("Tag", t))
         return;
     const QByteArray bytes = t.toUtf8();
     if (swmm_subcatch_set_tag(m_engine, i, bytes.constData()) == SWMM_OK)
@@ -231,24 +244,27 @@ UserFlagsEditRef SWMMSubcatchPropertyAdapter::userFlagsRef() const
     return r;
 }
 
-#define S(method, engineSet)                                                                       \
+// fieldKey: the Attribute Table key the shared edit path writes (review C-01).
+#define S(method, fieldKey, engineSet)                                                             \
     void SWMMSubcatchPropertyAdapter::method(double v)                                             \
     {                                                                                              \
         const int i = idx();                                                                       \
         if (i < 0)                                                                                 \
             return;                                                                                \
+        if (routeField(fieldKey, v))                                                               \
+            return;                                                                                \
         if (engineSet(m_engine, i, v) == SWMM_OK)                                                  \
             emit changed();                                                                        \
     }
-S(setArea, swmm_subcatch_set_area)
-S(setWidth, swmm_subcatch_set_width)
-S(setSlope, swmm_subcatch_set_slope)
-S(setImpervPct, swmm_subcatch_set_imperv_pct)
-S(setPctZeroImperv, swmm_subcatch_set_zero_imperv_pct)
-S(setNImperv, swmm_subcatch_set_n_imperv)
-S(setNPerv, swmm_subcatch_set_n_perv)
-S(setDsImperv, swmm_subcatch_set_ds_imperv)
-S(setDsPerv, swmm_subcatch_set_ds_perv)
+S(setArea, "Area", swmm_subcatch_set_area)
+S(setWidth, "Width", swmm_subcatch_set_width)
+S(setSlope, "Slope", swmm_subcatch_set_slope)
+S(setImpervPct, "Imperv %", swmm_subcatch_set_imperv_pct)
+S(setPctZeroImperv, "Zero-imperv %", swmm_subcatch_set_zero_imperv_pct)
+S(setNImperv, "N-Imperv", swmm_subcatch_set_n_imperv)
+S(setNPerv, "N-Perv", swmm_subcatch_set_n_perv)
+S(setDsImperv, "Ds-Imperv", swmm_subcatch_set_ds_imperv)
+S(setDsPerv, "Ds-Perv", swmm_subcatch_set_ds_perv)
 
 // ---------------------------------------------------------------------------
 // Precipitation scale factors.
@@ -277,6 +293,8 @@ void SWMMSubcatchPropertyAdapter::setRainScaleFactor(double v)
     const int i = idx();
     if (i < 0)
         return;
+    if (routeField("Rainfall scale", v))
+        return;
     if (swmm_subcatch_set_rain_scale_factor(m_engine, i, v) == SWMM_OK)
         emit changed();
 }
@@ -297,6 +315,8 @@ void SWMMSubcatchPropertyAdapter::setSnowScaleFactor(double v)
         return;
     const int i = idx();
     if (i < 0)
+        return;
+    if (routeField("Snow scale", v))
         return;
     if (swmm_subcatch_set_snow_scale_factor(m_engine, i, v) == SWMM_OK)
         emit changed();
@@ -328,6 +348,8 @@ void SWMMSubcatchPropertyAdapter::setRainGageRef(const DataObjectRef &r)
     const int i = idx();
     if (i < 0 || r.currentName.isEmpty())
         return; // gage is required; ignore clear
+    if (routeField("Rain gage", QVariant::fromValue(r)))
+        return;
     const int g = swmm_gage_index(m_engine, r.currentName.toUtf8().constData());
     if (g < 0)
         return;
@@ -367,6 +389,8 @@ void SWMMSubcatchPropertyAdapter::setOutletRef(const DataObjectRef &r)
     const int i = idx();
     if (i < 0 || r.currentName.isEmpty())
         return;
+    if (routeField("Outlet", QVariant::fromValue(r)))
+        return;
     const QByteArray nm = r.currentName.toUtf8();
     // Nodes take precedence on a name collision. set_outlet and
     // set_outlet_subcatch are mutually exclusive in the engine.
@@ -398,6 +422,8 @@ void SWMMSubcatchPropertyAdapter::setInfilModel(InfilModel m)
 {
     const int i = idx();
     if (i < 0)
+        return;
+    if (routeField("Infil. model", static_cast<int>(m)))
         return;
     if (swmm_subcatch_set_infil_model(m_engine, i, static_cast<int>(m)) == SWMM_OK)
         emit changed();
@@ -449,6 +475,8 @@ void SWMMSubcatchPropertyAdapter::setHortonF0(double v)
     const int i = idx();
     if (i < 0)
         return;
+    if (routeField("Max. rate", v))
+        return;
     double f0 = 0, fmin = 0, decay = 0, dry = 0;
     int model = 0;
     swmm_subcatch_get_infil_horton(m_engine, i, &f0, &fmin, &decay, &dry);
@@ -462,6 +490,8 @@ void SWMMSubcatchPropertyAdapter::setHortonFmin(double v)
 {
     const int i = idx();
     if (i < 0)
+        return;
+    if (routeField("Min. rate", v))
         return;
     double f0 = 0, fmin = 0, decay = 0, dry = 0;
     int model = 0;
@@ -477,6 +507,8 @@ void SWMMSubcatchPropertyAdapter::setHortonDecay(double v)
     const int i = idx();
     if (i < 0)
         return;
+    if (routeField("Decay", v))
+        return;
     double f0 = 0, fmin = 0, decay = 0, dry = 0;
     int model = 0;
     swmm_subcatch_get_infil_horton(m_engine, i, &f0, &fmin, &decay, &dry);
@@ -490,6 +522,8 @@ void SWMMSubcatchPropertyAdapter::setHortonDryTime(double v)
 {
     const int i = idx();
     if (i < 0)
+        return;
+    if (routeField("Dry time", v))
         return;
     double f0 = 0, fmin = 0, decay = 0, dry = 0;
     int model = 0;
@@ -534,6 +568,8 @@ void SWMMSubcatchPropertyAdapter::setGaSuction(double v)
     const int i = idx();
     if (i < 0)
         return;
+    if (routeField("Suction", v))
+        return;
     double s = 0, k = 0, d = 0;
     int model = 0;
     swmm_subcatch_get_infil_green_ampt(m_engine, i, &s, &k, &d);
@@ -548,6 +584,8 @@ void SWMMSubcatchPropertyAdapter::setGaConductivity(double v)
     const int i = idx();
     if (i < 0)
         return;
+    if (routeField("Conduct.", v))
+        return;
     double s = 0, k = 0, d = 0;
     int model = 0;
     swmm_subcatch_get_infil_green_ampt(m_engine, i, &s, &k, &d);
@@ -561,6 +599,8 @@ void SWMMSubcatchPropertyAdapter::setGaInitDeficit(double v)
 {
     const int i = idx();
     if (i < 0)
+        return;
+    if (routeField("Init.def.", v))
         return;
     double s = 0, k = 0, d = 0;
     int model = 0;
@@ -607,10 +647,14 @@ void SWMMSubcatchPropertyAdapter::writeCurveNumber(double cn, double dryTime)
 }
 void SWMMSubcatchPropertyAdapter::setCnNumber(double v)
 {
+    if (routeField("Curve no.", v))
+        return;
     writeCurveNumber(v, cnDryTime());
 }
 void SWMMSubcatchPropertyAdapter::setCnDryTime(double v)
 {
+    if (routeField("CN dry time", v))
+        return;
     writeCurveNumber(cnNumber(), v);
 }
 
@@ -654,6 +698,8 @@ void SWMMSubcatchPropertyAdapter::setSnowPackRef(const DataObjectRef &r)
     const int i = idx();
     if (i < 0 || r.currentName == snowPackRef().currentName)
         return;
+    if (routeField("Snow pack", QVariant::fromValue(r)))
+        return;
     if (swmm_subcatch_set_snowpack(m_engine, i, r.currentName.toUtf8().constData()) == SWMM_OK)
         emit changed();
 }
@@ -678,6 +724,8 @@ void SWMMSubcatchPropertyAdapter::setAquiferRef(const DataObjectRef &r)
 {
     const int i = idx();
     if (i < 0)
+        return;
+    if (routeField("Aquifer", QVariant::fromValue(r)))
         return;
     // Empty pick clears the assignment (-1); unknown name is ignored.
     int aq = -1;

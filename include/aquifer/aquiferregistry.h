@@ -89,6 +89,16 @@ public:
      */
     bool rename(AquiferProvider *p, const QString &newName);
 
+    /**
+     * @brief Repoint every aquifer whose evaporation pattern is @p from to @p to.
+     * @param[in] from Previous pattern name, matched exactly as the engine's pattern rename does;
+     *   empty is a no-op.
+     * @param[in] to New pattern name; empty clears the reference (pattern deleted).
+     * @details Keeps the cached names in step with the engine, which rewrites (rename) or clears
+     *   (delete) the reference itself; otherwise the next saveToEngine writes the old name back.
+     */
+    void followPatternReference(const QString &from, const QString &to);
+
     /*! Human-readable summary of what deleting \p p would affect, from
      *  swmm_aquifer_analyze_impact (e.g. "3 subcatchment(s) reference this
      *  aquifer and will lose it."). Empty when nothing references it or

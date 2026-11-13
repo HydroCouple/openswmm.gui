@@ -145,10 +145,23 @@ double SWMMRainGagePropertyAdapter::currentRainfall() const
     return v;
 }
 
+bool SWMMRainGagePropertyAdapter::routeField(const char *fieldKey, const QVariant &value)
+{
+    if (!m_fieldWriter)
+        return false;
+    if (m_fieldWriter(m_name, QString::fromLatin1(fieldKey), value) ==
+        openswmmvis::properties::FieldWrite::NotRouted)
+        return false;
+    emit changed(); // applied: show the stored value; refused: put the editor back
+    return true;
+}
+
 void SWMMRainGagePropertyAdapter::setRainType(int v)
 {
     const int i = idx();
     if (i < 0)
+        return;
+    if (routeField("Rain type", v))
         return;
     if (swmm_gage_set_rain_type(m_engine, i, v) == SWMM_OK)
         emit changed();
@@ -158,6 +171,8 @@ void SWMMRainGagePropertyAdapter::setDataSource(int v)
 {
     const int i = idx();
     if (i < 0)
+        return;
+    if (routeField("Data source", v))
         return;
     if (swmm_gage_set_data_source(m_engine, i, v) == SWMM_OK)
         emit changed();
@@ -208,6 +223,8 @@ void SWMMRainGagePropertyAdapter::setSnowFactor(double v)
     const int i = idx();
     if (i < 0)
         return;
+    if (routeField("Snow catch factor", v))
+        return;
     if (swmm_gage_set_snow_factor(m_engine, i, v) == SWMM_OK)
         emit changed();
 }
@@ -233,6 +250,8 @@ void SWMMRainGagePropertyAdapter::setScaleFactor(double v)
     const int i = idx();
     if (i < 0)
         return;
+    if (routeField("Rainfall scale factor", v))
+        return;
     if (swmm_gage_set_scale_factor(m_engine, i, v) == SWMM_OK)
         emit changed();
 }
@@ -257,6 +276,8 @@ void SWMMRainGagePropertyAdapter::setSeriesNameRef(const DataObjectRef &r)
     const int i = idx();
     if (i < 0 || r.currentName.isEmpty())
         return;
+    if (routeField("Series name", QVariant::fromValue(r)))
+        return;
     if (swmm_gage_set_timeseries(m_engine, i, r.currentName.toUtf8().constData()) == SWMM_OK)
         emit changed();
 }
@@ -277,6 +298,8 @@ void SWMMRainGagePropertyAdapter::setStationId(const QString &s)
     const int i = idx();
     if (i < 0)
         return;
+    if (routeField("Station ID", s))
+        return;
     if (swmm_gage_set_station_id(m_engine, i, s.toUtf8().constData()) == SWMM_OK)
         emit changed();
 }
@@ -295,6 +318,8 @@ void SWMMRainGagePropertyAdapter::setRainUnits(int v)
 {
     const int i = idx();
     if (i < 0)
+        return;
+    if (routeField("Rain units", v))
         return;
     if (swmm_gage_set_rain_units(m_engine, i, v) == SWMM_OK)
         emit changed();
@@ -378,6 +403,8 @@ void SWMMRainGagePropertyAdapter::setFileColumn(const QString &c)
 {
     const int i = idx();
     if (i < 0)
+        return;
+    if (routeField("Rain file column", c))
         return;
     if (swmm_gage_set_file_column(m_engine, i, c.toUtf8().constData()) == SWMM_OK)
         emit changed();

@@ -255,6 +255,17 @@ QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
     return {};
 }
 
+bool SWMMNodePropertyAdapter::routeField(const char *fieldKey, const QVariant &value)
+{
+    if (!m_fieldWriter)
+        return false;
+    if (m_fieldWriter(m_name, QString::fromLatin1(fieldKey), value) ==
+        openswmmvis::properties::FieldWrite::NotRouted)
+        return false;
+    emit changed(); // applied: show the stored value; refused: put the editor back
+    return true;
+}
+
 int SWMMNodePropertyAdapter::nodeIdx() const
 {
     if (!m_engine || m_name.isEmpty())
@@ -606,6 +617,8 @@ void SWMMNodePropertyAdapter::setTag(const QString &t)
     const int idx = nodeIdx();
     if (idx < 0)
         return;
+    if (routeField("Tag", t))
+        return;
     const QByteArray bytes = t.toUtf8();
     if (swmm_node_set_tag(m_engine, idx, bytes.constData()) == SWMM_OK)
         emit changed();
@@ -760,6 +773,8 @@ void SWMMNodePropertyAdapter::setOutfallType(OutfallType v)
     const int idx = nodeIdx();
     if (idx < 0)
         return;
+    if (routeField("Outfall type", static_cast<int>(v)))
+        return;
     if (swmm_node_set_outfall_type(m_engine, idx, static_cast<int>(v)) == SWMM_OK)
         emit changed();
 }
@@ -769,6 +784,8 @@ void SWMMNodePropertyAdapter::setOutfallFlapGate(FlapGate v)
     const int idx = nodeIdx();
     if (idx < 0)
         return;
+    if (routeField("Flap gate", static_cast<int>(v)))
+        return;
     if (swmm_node_set_outfall_flap_gate(m_engine, idx, static_cast<int>(v)) == SWMM_OK)
         emit changed();
 }
@@ -777,6 +794,8 @@ void SWMMNodePropertyAdapter::setDividerType(DividerType v)
 {
     const int idx = nodeIdx();
     if (idx < 0)
+        return;
+    if (routeField("Divider type", static_cast<int>(v)))
         return;
     if (swmm_node_set_divider_type(m_engine, idx, static_cast<int>(v)) == SWMM_OK)
         emit changed();
@@ -904,24 +923,28 @@ double SWMMNodePropertyAdapter::yCoord() const
     return y;
 }
 
-#define SETTER(method, engineSet)                                                                  \
+// fieldKey: the Attribute Table key the shared edit path writes (review C-01);
+// nullptr where the table has no such field, which stays a direct write.
+#define SETTER(method, fieldKey, engineSet)                                                        \
     void SWMMNodePropertyAdapter::method(double v)                                                 \
     {                                                                                              \
         const int idx = nodeIdx();                                                                 \
         if (idx < 0)                                                                               \
             return;                                                                                \
+        if (const char *key = fieldKey; key && routeField(key, v))                                 \
+            return;                                                                                \
         if (engineSet(m_engine, idx, v) == SWMM_OK)                                                \
             emit changed();                                                                        \
     }
 
-SETTER(setInvertElev, swmm_node_set_invert_elev)
-SETTER(setMaxDepth, swmm_node_set_max_depth)
-SETTER(setRimDepth, swmm_node_set_rim_depth)
-SETTER(setInitialDepth, swmm_node_set_initial_depth)
-SETTER(setSurchargeDepth, swmm_node_set_surcharge_depth)
-SETTER(setPondedArea, swmm_node_set_pond_area)
-SETTER(setStorageArea, swmm_node_set_storage_area)
-SETTER(setSeepRate, swmm_node_set_storage_seep_rate)
+SETTER(setInvertElev, "Invert elev", swmm_node_set_invert_elev)
+SETTER(setMaxDepth, "Max depth", swmm_node_set_max_depth)
+SETTER(setRimDepth, nullptr, swmm_node_set_rim_depth) // no table field yet (plan Part A gap)
+SETTER(setInitialDepth, "Init depth", swmm_node_set_initial_depth)
+SETTER(setSurchargeDepth, "Surcharge depth", swmm_node_set_surcharge_depth)
+SETTER(setPondedArea, "Ponded area", swmm_node_set_pond_area)
+SETTER(setStorageArea, "Storage area", swmm_node_set_storage_area)
+SETTER(setSeepRate, "Seep rate", swmm_node_set_storage_seep_rate)
 
 void SWMMNodePropertyAdapter::setXCoord(double v)
 {
@@ -1176,6 +1199,8 @@ void SWMMNodePropertyAdapter::setOutfallStage(double v)
         return;
     // Engine setter also flips outfall_type to FIXED — that's intentional;
     // setting a stage value only makes sense for a FIXED outfall.
+    if (routeField("Stage elev", v))
+        return;
     if (swmm_node_set_outfall_stage(m_engine, idx, v) == SWMM_OK)
         emit changed();
 }
@@ -1184,6 +1209,8 @@ void SWMMNodePropertyAdapter::setOutfallTidalCurveRef(const DataObjectRef &r)
 {
     const int idx = nodeIdx();
     if (idx < 0 || r.currentName.isEmpty())
+        return;
+    if (routeField("Tidal curve", QVariant::fromValue(r)))
         return;
     const int curveIdx = swmm_table_index(m_engine, r.currentName.toUtf8().constData());
     if (curveIdx < 0)
@@ -1196,6 +1223,8 @@ void SWMMNodePropertyAdapter::setOutfallTimeseriesRef(const DataObjectRef &r)
 {
     const int idx = nodeIdx();
     if (idx < 0 || r.currentName.isEmpty())
+        return;
+    if (routeField("Stage series", QVariant::fromValue(r)))
         return;
     const int tsIdx = swmm_table_index(m_engine, r.currentName.toUtf8().constData());
     if (tsIdx < 0)
@@ -1373,6 +1402,8 @@ void SWMMNodePropertyAdapter::setStorageParam1(double v)
     const int idx = nodeIdx();
     if (idx < 0)
         return;
+    if (routeField("Shape param 1", v))
+        return;
     double p1 = 0.0, p2 = 0.0, p3 = 0.0;
     swmm_node_get_storage_geometry(m_engine, idx, &p1, &p2, &p3);
     if (swmm_node_set_storage_geometry(m_engine, idx, v, p2, p3) == SWMM_OK)
@@ -1384,6 +1415,8 @@ void SWMMNodePropertyAdapter::setStorageParam2(double v)
     const int idx = nodeIdx();
     if (idx < 0)
         return;
+    if (routeField("Shape param 2", v))
+        return;
     double p1 = 0.0, p2 = 0.0, p3 = 0.0;
     swmm_node_get_storage_geometry(m_engine, idx, &p1, &p2, &p3);
     if (swmm_node_set_storage_geometry(m_engine, idx, p1, v, p3) == SWMM_OK)
@@ -1394,6 +1427,8 @@ void SWMMNodePropertyAdapter::setStorageParam3(double v)
 {
     const int idx = nodeIdx();
     if (idx < 0)
+        return;
+    if (routeField("Shape param 3", v))
         return;
     double p1 = 0.0, p2 = 0.0, p3 = 0.0;
     swmm_node_get_storage_geometry(m_engine, idx, &p1, &p2, &p3);
@@ -1412,6 +1447,8 @@ void SWMMNodePropertyAdapter::setStorageCurveRef(const DataObjectRef &r)
             emit changed();
         return;
     }
+    if (routeField("Storage curve", QVariant::fromValue(r)))
+        return;
     const int curveIdx = swmm_table_index(m_engine, r.currentName.toUtf8().constData());
     if (curveIdx < 0)
         return;
@@ -1426,6 +1463,8 @@ void SWMMNodePropertyAdapter::setStorageCoeffA(double v)
     const int idx = nodeIdx();
     if (idx < 0)
         return;
+    if (routeField("Func coeff A", v))
+        return;
     double a = 0.0, b = 0.0, c = 0.0;
     swmm_node_get_storage_functional(m_engine, idx, &a, &b, &c);
     if (swmm_node_set_storage_functional(m_engine, idx, v, b, c) == SWMM_OK)
@@ -1437,6 +1476,8 @@ void SWMMNodePropertyAdapter::setStorageExpB(double v)
     const int idx = nodeIdx();
     if (idx < 0)
         return;
+    if (routeField("Func exp B", v))
+        return;
     double a = 0.0, b = 0.0, c = 0.0;
     swmm_node_get_storage_functional(m_engine, idx, &a, &b, &c);
     if (swmm_node_set_storage_functional(m_engine, idx, a, v, c) == SWMM_OK)
@@ -1447,6 +1488,8 @@ void SWMMNodePropertyAdapter::setStorageConstC(double v)
 {
     const int idx = nodeIdx();
     if (idx < 0)
+        return;
+    if (routeField("Func const C", v))
         return;
     double a = 0.0, b = 0.0, c = 0.0;
     swmm_node_get_storage_functional(m_engine, idx, &a, &b, &c);

@@ -7,6 +7,7 @@
  * @license   GPL-3.0-or-later
  */
 
+#include <QScopeGuard>
 #include <QSet>
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "layers/swmmmodellayer.h"
@@ -466,9 +467,14 @@ void TraceController::startJob(const QString &id, QVector<Request> requests,
                             digestError = QString::fromUtf8(e.what());
                         }
                     });
-                    int code = swmm_trace_prepare(handle.get(), scanPath.toUtf8().constData(),
+                    int code = -1;
+                    {
+                        // Join even if the prepare path throws: destroying a
+                        // joinable std::thread calls std::terminate.
+                        const auto joinHasher = qScopeGuard([&hasher] { hasher.join(); });
+                        code = swmm_trace_prepare(handle.get(), scanPath.toUtf8().constData(),
                                                   nullptr, nullptr, cb, &p);
-                    hasher.join();
+                    }
                     mark(QStringLiteral("prepare+fingerprint"),
                          QStringLiteral("bytes=%1").arg(QFileInfo(scanPath).size()));
                     require(code == 0, QString::fromUtf8(swmm_trace_error(handle.get())));

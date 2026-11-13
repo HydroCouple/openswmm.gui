@@ -101,6 +101,7 @@
 #include <QSortFilterProxyModel>
 #include <QStandardItemModel>
 #include <QTableView>
+#include <QSaveFile>
 #include <QTextStream>
 #include <QTimer>
 #include <QUndoStack>
@@ -2844,8 +2845,10 @@ void AttributeTablePanel::onExportCsvClicked()
     if (path.isEmpty())
         return;
 
-    QFile f(path);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate | QIODevice::Text)) {
+    // QSaveFile: a failed write (disk full, lost share) leaves any existing file
+    // untouched and is reported, instead of a silently truncated CSV.
+    QSaveFile f(path);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
         QMessageBox::warning(this, tr("Export failed"),
                              tr("Cannot write %1: %2").arg(path, f.errorString()));
         return;
@@ -2883,7 +2886,10 @@ void AttributeTablePanel::onExportCsvClicked()
                 m_proxy->data(m_proxy->index(r, c), openswmmvis::kAttributeValueRole).toString());
         out << cells.join(sep) << '\n';
     }
-    f.close();
+    out.flush();
+    if (out.status() != QTextStream::Ok || !f.commit())
+        QMessageBox::warning(this, tr("Export failed"),
+                             tr("Cannot write %1: %2").arg(path, f.errorString()));
 }
 
 // ---------------------------------------------------------------------------

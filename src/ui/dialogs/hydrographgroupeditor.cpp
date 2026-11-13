@@ -848,7 +848,11 @@ void HydrographGroupEditor::onDeleteGroup()
         return;
 
     if (!removeGroupUndoably_(name)) {
-        QMessageBox::warning(this, tr("Delete Unit Hydrograph"), tr("Engine rejected the delete."));
+        QMessageBox::warning(this, tr("Delete Unit Hydrograph"),
+                             tr("The model did not delete \"%1\"; nothing was changed. The "
+                                "model cannot be edited while a simulation is running: try again "
+                                "when the run has finished.")
+                                 .arg(name));
     }
 }
 
