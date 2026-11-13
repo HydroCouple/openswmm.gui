@@ -1333,6 +1333,27 @@ void SWMMVis::openTerrainProfilePlotFor(const QVector<QPointF> &scenePolyline)
  * notification and guarded node/edge undo against engine/mesh revisions, invalidating context
  * on engine close/destruction or mesh revision change.
  */
+void SWMMVis::openSurfaceQualityDialog(const QList<QPair<int, int>> &edges)
+{
+    auto *pw = activeProjectWindow();
+    SWMM_Engine engine = (pw && pw->modelLayer()) ? pw->modelLayer()->engine() : nullptr;
+    openswmmvis::ui::Mesh2DSurfaceQualityDialog dlg(engine, this, pw ? pw->unitSystem() : nullptr);
+    if (pw && pw->modelLayer()) {
+        connect(pw->modelLayer(), &SWMMModelLayer::engineAboutToClose, &dlg,
+                &openswmmvis::ui::Mesh2DSurfaceQualityDialog::invalidateContext);
+        connect(pw->modelLayer(), &QObject::destroyed, &dlg,
+                &openswmmvis::ui::Mesh2DSurfaceQualityDialog::invalidateContext);
+        connect(&dlg, &openswmmvis::ui::Mesh2DSurfaceQualityDialog::changesMayHaveBeenApplied, pw,
+                [pw] { pw->setHasChanges(true); });
+        // The edge table's Inflow Quality column follows a successful Apply.
+        connect(&dlg, &openswmmvis::ui::Mesh2DSurfaceQualityDialog::applied, pw->modelLayer(),
+                &SWMMModelLayer::markEdited);
+    }
+    if (!edges.isEmpty())
+        dlg.setTargetEdges(edges);
+    dlg.exec();
+}
+
 void SWMMVis::openGroundwaterDialog(int page, const QList<QPair<int, int>> &edges)
 {
     auto *pw = activeProjectWindow();
@@ -1795,19 +1816,9 @@ void SWMMVis::initializeMeshEditingToolBar()
     actSurfaceQuality->setToolTip(tr("Mesh surface quality: land-use coverages, initial buildup, "
                                      "curb length and initial concentrations."));
     connect(actSurfaceQuality, &QAction::triggered, this, [this] {
-        auto *pw = activeProjectWindow();
-        SWMM_Engine engine = (pw && pw->modelLayer()) ? pw->modelLayer()->engine() : nullptr;
-        openswmmvis::ui::Mesh2DSurfaceQualityDialog dlg(engine, this,
-                                                        pw ? pw->unitSystem() : nullptr);
-        if (pw && pw->modelLayer()) {
-            connect(pw->modelLayer(), &SWMMModelLayer::engineAboutToClose, &dlg,
-                    &openswmmvis::ui::Mesh2DSurfaceQualityDialog::invalidateContext);
-            connect(pw->modelLayer(), &QObject::destroyed, &dlg,
-                    &openswmmvis::ui::Mesh2DSurfaceQualityDialog::invalidateContext);
-            connect(&dlg, &openswmmvis::ui::Mesh2DSurfaceQualityDialog::changesMayHaveBeenApplied,
-                    pw, [pw] { pw->setHasChanges(true); });
-        }
-        dlg.exec();
+        // Opened on the boundary inflow of the edges selected on the map, when there are any.
+        openSurfaceQualityDialog(mMeshEditingToolbar ? mMeshEditingToolbar->selectedEdges()
+                                                     : QList<QPair<int, int>>{});
     });
 
     // Groundwater pages for edge boundaries and node beds: the same editor,
@@ -4795,6 +4806,15 @@ void SWMMVis::initializePropertiesPanelDockWidget()
     connect(mPropertiesPanel, &PropertiesPanel::groundwaterEdgesRequested, this, openGroundwaterEdges);
     connect(mAttributeTablePanel, &AttributeTablePanel::groundwaterEdgesRequested, this,
             openGroundwaterEdges);
+    const auto openSurfaceQualityEdges = [this](SWMM2DMeshLayer *mesh,
+                                                const QList<QPair<int, int>> &edges) {
+        if (mesh && mesh->isActiveMesh() && !edges.isEmpty())
+            openSurfaceQualityDialog(edges);
+    };
+    connect(mPropertiesPanel, &PropertiesPanel::surfaceQualityEdgesRequested, this,
+            openSurfaceQualityEdges);
+    connect(mAttributeTablePanel, &AttributeTablePanel::surfaceQualityEdgesRequested, this,
+            openSurfaceQualityEdges);
     auto *tableDock = new QDockWidget(tr("Attribute Table"), this);
     tableDock->setObjectName(QStringLiteral("dockWidgetAttributeTable"));
     tableDock->setWidget(mAttributeTablePanel);

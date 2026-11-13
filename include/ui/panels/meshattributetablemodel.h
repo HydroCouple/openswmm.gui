@@ -381,11 +381,19 @@ private:
     /** @brief Re-read the aquifer edge records after a model edit; repaints their columns
      *  only when a record changed, so other edits keep their single refresh. */
     void refreshGroundwaterBoundaries();
+    /** @return Boundary inflow concentrations ("TSS 25; Tracer 1.5", engine row order) keyed by
+     *  (cell << 3 | local edge), read once per model edit (Phase 4d). */
+    [[nodiscard]] const QHash<quint64, QString> &boundaryInflowQuality() const;
+    /** @brief Re-read boundary inflow quality after a model edit; repaints its column only when
+     *  a row changed. */
+    void refreshBoundaryInflowQuality();
 
     QPointer<SWMM2DMeshLayer> m_layer;
     QHash<int, QStringList> m_cellCoupledNodes;
     mutable QHash<quint64, GwEdgeBoundary> m_gwBoundaries;
     mutable bool m_gwBoundariesBuilt = false;
+    mutable QHash<quint64, QString> m_sqBoundaries;
+    mutable bool m_sqBoundariesBuilt = false;
     QMetaObject::Connection m_modelEdited;
     /// Boundary segment tag by sorted vertex pair, rebuilt when the geometry revision moves.
     mutable QHash<QPair<int, int>, QString> m_segmentTags;

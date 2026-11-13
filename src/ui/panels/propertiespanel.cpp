@@ -289,6 +289,8 @@ QString meshGroupName(MeshAttributeTableModel::Kind kind, const QString &key)
         return PropertiesPanel::tr("Surface ownership");
     if (key.startsWith("gwBoundary."))
         return PropertiesPanel::tr("Aquifer boundary");
+    if (key.startsWith("sqBoundary."))
+        return PropertiesPanel::tr("Boundary inflow quality");
     if (key.startsWith("gw."))
         return PropertiesPanel::tr("Groundwater");
     if (key.startsWith("snow."))
@@ -334,6 +336,48 @@ QPushButton *aquiferBoundaryButton(PropertiesPanel *panel, QWidget *parent,
     QObject::connect(layer, &SWMM2DMeshLayer::activeMeshChanged, button, update);
     QObject::connect(button, &QPushButton::clicked, panel,
                      [panel, layer, edges] { emit panel->groundwaterEdgesRequested(layer, edges); });
+    return button;
+}
+
+/*! Boundary inflow quality Edit… (Phase 4d): requests the Surface Quality Boundary inflow tab on
+ *  the selected edges; needs the active mesh of an open model, a boundary edge in the selection
+ *  and water quality switched on (plan §5). */
+QPushButton *boundaryInflowButton(PropertiesPanel *panel, QWidget *parent,
+                                  MeshAttributeTableModel *source, SWMM2DMeshLayer *layer,
+                                  const QList<int> &rows, SWMMModelLayer *model)
+{
+    QList<QPair<int, int>> edges;
+    int boundary = 0;
+    for (int row : rows) {
+        int cell = -1, local = -1;
+        QString ignored;
+        if (!mesh::MeshObjectRef::parseEdge(source->refForRow(row), &ignored, &cell, &local))
+            continue;
+        edges.append({cell, local});
+        boundary += layer->isBoundaryEdge(cell, local) ? 1 : 0;
+    }
+    auto *button = new QPushButton(PropertiesPanel::tr("Edit boundary inflow quality…"), parent);
+    button->setObjectName("editMeshBoundaryInflow");
+    const QPointer<SWMMModelLayer> owner(model);
+    const auto update = [button, layer, owner, boundary] {
+        const QString locked = owner && owner->engine()
+                                   ? openswmmvis::ui::processLockReason(
+                                         owner->engine(), openswmmvis::ui::LockableProcess::SurfaceQuality)
+                                   : QString();
+        button->setEnabled(owner && owner->engine() && layer->isActiveMesh() && boundary > 0 &&
+                           locked.isEmpty());
+        button->setToolTip(locked.isEmpty()
+                               ? PropertiesPanel::tr("Opens the Surface Quality Boundary inflow tab "
+                                                     "on the selected boundary edges (%1) of the "
+                                                     "active mesh.")
+                                     .arg(boundary)
+                               : locked);
+    };
+    update();
+    QObject::connect(layer, &SWMM2DMeshLayer::activeMeshChanged, button, update);
+    QObject::connect(button, &QPushButton::clicked, panel, [panel, layer, edges] {
+        emit panel->surfaceQualityEdgesRequested(layer, edges);
+    });
     return button;
 }
 
@@ -1712,6 +1756,8 @@ void PropertiesPanel::showMeshSelection(MapCanvas *canvas, const QList<SWMMObjec
                 });
             } else if (kind == Kind::Edge && group->name() == tr("Aquifer boundary")) {
                 button = aquiferBoundaryButton(this, m_treeView, source, layer, rows, m_swmmLayer);
+            } else if (kind == Kind::Edge && group->name() == tr("Boundary inflow quality")) {
+                button = boundaryInflowButton(this, m_treeView, source, layer, rows, m_swmmLayer);
             } else if (kind == Kind::Edge && group->name() == tr("Boundary condition")) {
                 int boundary = 0;
                 for (int row : rows) {
@@ -1868,6 +1914,8 @@ void PropertiesPanel::showMeshObject(MapCanvas *canvas, const SWMMObjectRef &ref
                         [this, source, row] { source->editCoupledNodes({row}, this); });
             } else if (kind == Kind::Edge && group->name() == tr("Aquifer boundary")) {
                 button = aquiferBoundaryButton(this, m_treeView, source, layer, {row}, m_swmmLayer);
+            } else if (kind == Kind::Edge && group->name() == tr("Boundary inflow quality")) {
+                button = boundaryInflowButton(this, m_treeView, source, layer, {row}, m_swmmLayer);
             } else if (kind == Kind::Edge && group->name() == tr("Boundary condition") &&
                        layer->isBoundaryEdge(element, local)) {
                 button = new QPushButton(tr("Edit surface boundary condition…"), m_treeView);

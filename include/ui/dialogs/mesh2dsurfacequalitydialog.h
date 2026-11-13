@@ -21,18 +21,25 @@
 
 #include <QDialog>
 #include <QList>
+#include <QPair>
 
 #include <openswmm/engine/openswmm_engine.h>
 
+class QComboBox;
 class QDialogButtonBox;
 class QLabel;
+class QLineEdit;
+class QPushButton;
 class QTabWidget;
+class QTableView;
+class QWidget;
 class UnitSystem;
 
 namespace openswmmvis::ui
 {
 
 class Mesh2DSectionRowModel;
+class Mesh2DBoundaryQualityModel;
 class Mesh2DSectionRowEditor;
 
 class Mesh2DSurfaceQualityDialog : public QDialog
@@ -48,6 +55,14 @@ public:
      */
     explicit Mesh2DSurfaceQualityDialog(SWMM_Engine engine, QWidget *parent = nullptr,
                                         const UnitSystem *units = nullptr);
+
+    /**
+     * @brief Open the Boundary inflow tab on selected edges (process-boundaries Phase 4d).
+     * @details Shows how many of @p edges are exterior, interior or not on the mesh, selects the
+     *   rows those edges already have, and offers to set one species on the exterior ones.
+     * @param[in] edges (cell, local edge) pairs, typically the map's edge selection.
+     */
+    void setTargetEdges(const QList<QPair<int, int>> &edges);
 
 public slots:
     /** Drop the borrowed engine and close; earlier Applies stay applied. */
@@ -70,6 +85,18 @@ private:
     QDialogButtonBox *m_buttons = nullptr;
     QList<Mesh2DSectionRowModel *> m_models;
     QList<Mesh2DSectionRowEditor *> m_editors;
+    // Boundary inflow tab (Phase 4d).
+    Mesh2DBoundaryQualityModel *m_boundary = nullptr;
+    QWidget *m_boundaryPage = nullptr;
+    QTableView *m_boundaryTable = nullptr;
+    QWidget *m_targetBar = nullptr;
+    QLabel *m_targetSummary = nullptr;
+    QComboBox *m_targetSpecies = nullptr;
+    QLineEdit *m_targetValue = nullptr;
+    QPushButton *m_targetSet = nullptr;
+    QPushButton *m_addRow = nullptr;
+    QPushButton *m_removeRow = nullptr;
+    QList<QPair<int, int>> m_targetExterior;
 };
 
 } // namespace openswmmvis::ui

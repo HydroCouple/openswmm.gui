@@ -19,10 +19,12 @@
 #include "ui/dialogs/mesh2dgwsourcemodel.h"
 #include "ui/dialogs/mesh2dsectionrowmodel.h"
 #include "ui/dialogs/mesh2dsurfacequalitydialog.h"
+#include "ui/dialogs/mesh2dboundaryqualitymodel.h"
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_gw2d.h>
 #include <openswmm/engine/openswmm_gw_transport.h>
+#include <openswmm/engine/openswmm_2d.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_sq2d.h>
 
@@ -35,6 +37,8 @@
 #include <QPushButton>
 #include <QSignalSpy>
 #include <QTabWidget>
+#include <QLineEdit>
+#include <QComboBox>
 #include <QTimer>
 #include <QtTest/QtTest>
 
@@ -43,6 +47,7 @@ using openswmmvis::ui::Mesh2DGwSourceModel;
 using openswmmvis::ui::Mesh2DGwSourceTermModel;
 using openswmmvis::ui::Mesh2DSectionRowModel;
 using openswmmvis::ui::Mesh2DSurfaceQualityDialog;
+using openswmmvis::ui::Mesh2DBoundaryQualityModel;
 using Section = Mesh2DSectionRowModel::Section;
 
 namespace
@@ -694,7 +699,7 @@ private slots:
         Mesh2DSurfaceQualityDialog dialog(engine.handle);
         auto *tabs = dialog.findChild<QTabWidget *>();
         QVERIFY(tabs);
-        QCOMPARE(tabs->count(), 4);
+        QCOMPARE(tabs->count(), 5); // the four section tabs and Boundary inflow (Phase 4d)
         auto *curb = dialog.findChild<Mesh2DSectionRowModel *>(QStringLiteral("sqCurbLength"));
         QVERIFY(curb);
         QVERIFY(set(*curb, 0, 2, QStringLiteral("20")));
@@ -767,6 +772,143 @@ private slots:
      * @brief The Bellinge groundwater-quality example shows its authored rows in each editor.
      * Opened read-only: report/output go to the output folder and nothing is written back.
      */
+    /** Phase 4d (review G-03): [2D_BOUNDARY_QUALITY] rows load, are refused on interior or
+     *  unknown edges, unknown species, negative values and duplicate keys, are set on exterior
+     *  edges, apply, survive save and reopen, and are restored after a failed apply. The fixture's
+     *  two triangles share one diagonal: exterior edges (0,0) (0,2) (1,0) (1,1), interior (0,1)
+     *  (1,2). */
+    void boundaryQualityRowsValidateApplyAndReopen()
+    {
+        QByteArray deck(kDeck);
+        deck += "\n[2D_BOUNDARY_QUALITY]\n0  0  TSS  25\n";
+        const QString inp = writeDeck(QStringLiteral("boundary_quality"), deck);
+        const QString dir = QFileInfo(inp).absolutePath();
+        Engine engine;
+        QVERIFY(openModel(engine, inp, dir));
+        Mesh2DBoundaryQualityModel model;
+        QCOMPARE(model.load(engine.handle), QString());
+        QCOMPARE(model.rows().size(), 1);
+        QCOMPARE(model.rows()[0].cell, 0);
+        QCOMPARE(model.rows()[0].edge, 0);
+        QCOMPARE(model.rows()[0].species, QStringLiteral("TSS"));
+        QCOMPARE(model.rows()[0].concentration, 25.0);
+        QVERIFY(!model.isDirty());
+        QVERIFY(model.species().contains(QStringLiteral("Tracer")));
+
+        const auto scope = Mesh2DBoundaryQualityModel::classifyEdges(
+            engine.handle, {{0, 0}, {0, 1}, {0, 2}, {1, 2}, {1, 0}, {9, 0}, {0, 0}});
+        QCOMPARE(scope.exterior, (QList<QPair<int, int>>{{0, 0}, {0, 2}, {1, 0}}));
+        QCOMPARE(scope.interior, 2);
+        QCOMPARE(scope.invalid, 1);
+
+        const auto refused = [&](Mesh2DBoundaryQualityModel::Row row, const QString &why) {
+            model.addRow(row);
+            const QString error = model.validateCommit(engine.handle);
+            model.removeRowAt(int(model.rows().size()) - 1);
+            if (error.isEmpty())
+                return QStringLiteral("accepted");
+            return error.contains(why) ? QString() : error;
+        };
+        QCOMPARE(refused({0, 1, QStringLiteral("Tracer"), 1.0}, QStringLiteral("interior")),
+                 QString());
+        QCOMPARE(refused({9, 0, QStringLiteral("Tracer"), 1.0}, QStringLiteral("not an edge")),
+                 QString());
+        QCOMPARE(refused({1, 0, QStringLiteral("Lead"), 1.0}, QStringLiteral("not a species")),
+                 QString());
+        QCOMPARE(refused({1, 0, QStringLiteral("Tracer"), -1.0}, QStringLiteral("not negative")),
+                 QString());
+        QCOMPARE(refused({0, 0, QStringLiteral("TSS"), 30.0}, QStringLiteral("already has")),
+                 QString());
+        QVERIFY(!model.isDirty());
+
+        QCOMPARE(model.setForEdges(scope.exterior, QStringLiteral("Tracer"), 2.5), 3);
+        QCOMPARE(model.setForEdges({{0, 0}}, QStringLiteral("TSS"), 40.0), 1); // replaces 25
+        QCOMPARE(model.setForEdges({{0, 0}}, QStringLiteral("TSS"), 40.0), 0); // unchanged
+        QCOMPARE(model.rows().size(), 4);
+        QVERIFY(model.isDirty());
+        QCOMPARE(model.validateCommit(engine.handle), QString());
+        QCOMPARE(model.commit(engine.handle), QString());
+        model.acceptChanges();
+        QVERIFY(!model.isDirty());
+
+        const QString saved = QDir(dir).filePath(QStringLiteral("saved.inp"));
+        QCOMPARE(swmm_model_write(engine.handle, saved.toUtf8().constData()), SWMM_OK);
+        QCOMPARE(sectionRows(saved, QStringLiteral("[2D_BOUNDARY_QUALITY]")).size(), 4);
+        Engine reopened;
+        QVERIFY(openModel(reopened, saved, QDir(dir).filePath(QStringLiteral("reopened"))));
+        Mesh2DBoundaryQualityModel back;
+        QCOMPARE(back.load(reopened.handle), QString());
+        QCOMPARE(back.rows(), model.rows());
+
+        // A failed apply puts back what was loaded.
+        Mesh2DBoundaryQualityModel again;
+        QCOMPARE(again.load(engine.handle), QString());
+        again.addRow({0, 2, QStringLiteral("TSS"), 5.0});
+        QCOMPARE(again.commit(engine.handle), QString());
+        int count = 0;
+        QCOMPARE(swmm_2d_boundary_quality_count(engine.handle, &count), SWMM_OK);
+        QCOMPARE(count, 5);
+        QCOMPARE(again.restoreLoaded(engine.handle), QString());
+        QCOMPARE(swmm_2d_boundary_quality_count(engine.handle, &count), SWMM_OK);
+        QCOMPARE(count, 4);
+    }
+
+    /** Phase 4d: opened on selected edges, the Boundary inflow tab counts them, sets a species
+     *  on the exterior ones only and applies with the other tabs; switched-off quality leaves it
+     *  read-only, still showing the counts. */
+    void surfaceQualityDialogTargetsBoundaryInflow()
+    {
+        const QString inp = writeDeck(QStringLiteral("dialog_boundary"));
+        Engine engine;
+        QVERIFY(openModel(engine, inp, QFileInfo(inp).absolutePath()));
+        const QList<QPair<int, int>> target{{0, 0}, {0, 1}, {1, 0}, {7, 0}};
+        {
+            Mesh2DSurfaceQualityDialog dialog(engine.handle);
+            dialog.setTargetEdges(target);
+            auto *tabs = dialog.findChild<QTabWidget *>();
+            QVERIFY(tabs);
+            QCOMPARE(tabs->currentWidget()->objectName(), QStringLiteral("sqBoundaryInflowPage"));
+            auto *summary = dialog.findChild<QLabel *>(QStringLiteral("sqBoundaryTargetSummary"));
+            QVERIFY(summary && !summary->isHidden());
+            QVERIFY2(summary->text().contains(
+                         QStringLiteral("4 selected edges: 2 exterior, 1 interior, 1 not on the mesh")),
+                     qPrintable(summary->text()));
+            auto *species = dialog.findChild<QComboBox *>(QStringLiteral("sqBoundaryTargetSpecies"));
+            auto *value = dialog.findChild<QLineEdit *>(QStringLiteral("sqBoundaryTargetValue"));
+            auto *set = dialog.findChild<QPushButton *>(QStringLiteral("sqBoundaryTargetSet"));
+            QVERIFY(species && value && set);
+            QVERIFY(set->isEnabled());
+            species->setCurrentText(QStringLiteral("Tracer"));
+            value->setText(QStringLiteral("4"));
+            set->click();
+            auto *model =
+                dialog.findChild<Mesh2DBoundaryQualityModel *>(QStringLiteral("sqBoundaryInflow"));
+            QVERIFY(model);
+            QCOMPARE(model->rows().size(), 2);
+            QSignalSpy applied(&dialog, &Mesh2DSurfaceQualityDialog::applied);
+            dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Apply)->click();
+            QCOMPARE(applied.count(), 1);
+            int count = 0;
+            QCOMPARE(swmm_2d_boundary_quality_count(engine.handle, &count), SWMM_OK);
+            QCOMPARE(count, 2);
+            int cell = -1, edge = -1;
+            char name[64]{};
+            double conc = 0.0;
+            QCOMPARE(swmm_2d_get_boundary_quality(engine.handle, 1, &cell, &edge, name, 64, &conc),
+                     SWMM_OK);
+            QCOMPARE(cell, 1);
+            QCOMPARE(edge, 0);
+            QCOMPARE(QString::fromUtf8(name), QStringLiteral("Tracer"));
+            QCOMPARE(conc, 4.0);
+        }
+        QCOMPARE(swmm_options_set(engine.handle, "IGNORE_QUALITY", "YES"), SWMM_OK);
+        Mesh2DSurfaceQualityDialog locked(engine.handle);
+        locked.setTargetEdges(target);
+        auto *set = locked.findChild<QPushButton *>(QStringLiteral("sqBoundaryTargetSet"));
+        QVERIFY(set && !set->isEnabled());
+        QVERIFY(!locked.findChild<QLabel *>(QStringLiteral("sqBoundaryTargetSummary"))->isHidden());
+    }
+
     void bellingeModelShowsItsRows()
     {
         const QString inp = QStringLiteral(SWMMVIS_BELLINGE_GW_QUALITY_INP);

@@ -40,7 +40,9 @@
 #include "map/mapcanvas.h"
 #include "core/unitsystem.h"
 #include "ui/dialogs/groundwaterassigndialog.h"
+#include <openswmm/engine/openswmm_2d.h>
 #include <openswmm/engine/openswmm_gw2d.h>
+#include <openswmm/engine/openswmm_model.h>
 #include <QDoubleSpinBox>
 #include <QTableWidget>
 #include "mesh/inpmeshreader.h"
@@ -1258,6 +1260,100 @@ private slots:
         // Only the active mesh carries the engine's aquifer boundaries.
         meshLayer.setActiveMesh(false);
         QVERIFY(!edit->isEnabled());
+    }
+
+    /** Phase 4d (review G-03): boundary inflow quality is summarised read-only on edges in the
+     *  table and Properties (Mixed where several edges differ), follows a model edit, and Edit…
+     *  requests the Surface Quality Boundary inflow tab on exactly the selected edges of the
+     *  active mesh; it is disabled while water quality is switched off. */
+    void boundaryInflowSummaryAndEditRoutes()
+    {
+        const QString dir = QCoreApplication::applicationDirPath() + "/mesh_editor_roundtrip";
+        QVERIFY(QDir().mkpath(dir));
+        QFile input(QFINDTESTDATA("data/mini_2d.inp"));
+        QVERIFY(input.open(QIODevice::ReadOnly));
+        const QString path = dir + "/boundary_inflow_summary.inp";
+        QFile fixture(path);
+        QVERIFY(fixture.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        fixture.write(input.readAll());
+        fixture.close();
+        SWMMModelLayer model(path);
+        QList<QString> warnings, errors;
+        QVERIFY2(model.loadModel(warnings, errors), qPrintable(errors.join(' ')));
+        const auto parsed = mesh::InpMeshReader::read(path);
+        QVERIFY(parsed.hasMesh);
+        SWMM2DMeshLayer meshLayer(parsed.mesh, path);
+        MapCanvas canvas;
+        canvas.addLayer(&meshLayer, false);
+        meshLayer.setActiveMesh(true);
+        QVERIFY(meshLayer.isBoundaryEdge(0, 0) && meshLayer.isBoundaryEdge(0, 2));
+        QVERIFY(!meshLayer.isBoundaryEdge(0, 1));
+        QCOMPARE(swmm_2d_set_boundary_quality(model.engine(), 0, 0, "TSS", 25.0), SWMM_OK);
+        QCOMPARE(swmm_2d_set_boundary_quality(model.engine(), 0, 0, "Tracer", 1.5), SWMM_OK);
+
+        MeshAttributeTableModel edges;
+        edges.setModelLayer(&model);
+        edges.setSource(&meshLayer, MeshAttributeTableModel::Kind::Edge);
+        const auto at = [&](int cell, int local) {
+            return edges.index(edges.rowForRef(mesh::MeshObjectRef::edge(path, cell, local)),
+                               colFor(edges, "sqBoundary.inflow"));
+        };
+        QCOMPARE(at(0, 0).data().toString(), QString("TSS 25; Tracer 1.5"));
+        QVERIFY(!at(0, 2).data().isValid()); // exterior, no rows
+        QVERIFY(!at(0, 1).data().isValid()); // interior
+        QVERIFY(!(edges.flags(at(0, 0)) & Qt::ItemIsEditable));
+
+        // A model edit (the dialog's Apply marks one) refreshes the column.
+        QCOMPARE(swmm_2d_set_boundary_quality(model.engine(), 0, 2, "TSS", 10.0), SWMM_OK);
+        QSignalSpy changed(&edges, &QAbstractItemModel::dataChanged);
+        model.markEdited();
+        QVERIFY(changed.count() >= 1);
+        QCOMPARE(at(0, 2).data().toString(), QString("TSS 10"));
+
+        PropertiesPanel properties;
+        properties.setProject(&model);
+        properties.show();
+        const auto fieldText = [&] {
+            const auto label = edges.headerData(colFor(edges, "sqBoundary.inflow"), Qt::Horizontal);
+            auto *tree = properties.findChild<QTreeView *>()->model();
+            for (int i = 0; i < tree->rowCount(); ++i) {
+                const auto group = tree->index(i, 0);
+                for (int j = 0; j < tree->rowCount(group); ++j)
+                    if (tree->index(j, 0, group).data() == label)
+                        return tree->index(j, 1, group).data().toString();
+            }
+            return QStringLiteral("<missing>");
+        };
+        using EdgeList = QList<QPair<int, int>>;
+        QSignalSpy request(&properties, &PropertiesPanel::surfaceQualityEdgesRequested);
+        properties.showMeshObject(&canvas, mesh::MeshObjectRef::edge(path, 0, 0));
+        QCOMPARE(fieldText(), QString("TSS 25; Tracer 1.5"));
+        auto *edit = properties.findChild<QPushButton *>("editMeshBoundaryInflow");
+        QVERIFY(edit && edit->isEnabled());
+        edit->click();
+        QCOMPARE(request.count(), 1);
+        QCOMPARE(request.last().at(0).value<SWMM2DMeshLayer *>(), &meshLayer);
+        QCOMPARE(request.last().at(1).value<EdgeList>(), (EdgeList{{0, 0}}));
+
+        properties.showMeshSelection(&canvas, {mesh::MeshObjectRef::edge(path, 0, 0),
+                                               mesh::MeshObjectRef::edge(path, 0, 2),
+                                               mesh::MeshObjectRef::edge(path, 0, 1)});
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QCOMPARE(fieldText(), QString("Mixed"));
+        QCOMPARE(properties.findChildren<QPushButton *>("editMeshBoundaryInflow").size(), 1);
+        edit = properties.findChild<QPushButton *>("editMeshBoundaryInflow");
+        QVERIFY(edit && edit->isEnabled());
+        edit->click();
+        QCOMPARE(request.count(), 2);
+        QCOMPARE(request.last().at(1).value<EdgeList>(), (EdgeList{{0, 0}, {0, 2}, {0, 1}}));
+
+        // Water quality switched off: inspectable, not editable (plan §5).
+        QCOMPARE(swmm_options_set(model.engine(), "IGNORE_QUALITY", "YES"), SWMM_OK);
+        properties.showMeshObject(&canvas, mesh::MeshObjectRef::edge(path, 0, 2));
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        edit = properties.findChild<QPushButton *>("editMeshBoundaryInflow");
+        QVERIFY(edit && !edit->isEnabled());
+        QVERIFY(!edit->toolTip().isEmpty());
     }
 
     /** Process locks (plan §5, Phase 4): with 2D groundwater switched off, the Properties

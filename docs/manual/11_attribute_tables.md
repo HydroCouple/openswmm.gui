@@ -757,7 +757,7 @@ enter the boundary data and press Enter to apply it.
 
 Right-click an edge and choose **Edit surface boundary condition…** to edit its type and parameter. The dialog counts eligible boundary edges. Each committed field updates those edges immediately as one undo step, preserving the group and conveyance on each edge. **Close** dismisses the editor; use **Undo** to revert a committed change. In Properties, choose **Edit…** beside **Boundary condition** for a picked boundary edge, including the fourth edge of a quad.
 
-The **Aquifer Boundary**, **Aquifer Head**, **Aquifer Inflow**, **Aquifer Series** and **Aquifer Chemistry** columns summarise each exterior edge's groundwater boundary and are read-only. Right-click and choose **Edit aquifer boundaries…** to open the aquifer **Edge boundaries** page on the selected edges (see chapter 19, *Aquifer boundaries on selected edges*).
+The **Aquifer Boundary**, **Aquifer Head**, **Aquifer Inflow**, **Aquifer Series** and **Aquifer Chemistry** columns summarise each exterior edge's groundwater boundary and are read-only. Right-click and choose **Edit aquifer boundaries…** to open the aquifer **Edge boundaries** page on the selected edges (see chapter 19, *Aquifer boundaries on selected edges*). The read-only **Inflow Quality** column lists the concentrations of the water entering through each exterior edge; **Edit boundary inflow quality…** in the row menu opens the Surface Quality **Boundary inflow** tab on the selected edges (chapter 19, *Boundary inflow quality on selected edges*).
 
 **Group** is independent of the type and stays available on any boundary edge.
 A value typed under a previous type is kept but hidden, so flipping back brings

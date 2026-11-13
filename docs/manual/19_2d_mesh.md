@@ -1132,6 +1132,33 @@ written until **Apply** or **OK** in the editor, which runs the page's usual
 checks and records one undo step. The summary fields update after Apply, Undo
 and Redo.
 
+#### Boundary inflow quality on selected edges
+
+Water that enters the mesh through an outer edge can carry a fixed concentration
+of each species (`[2D_BOUNDARY_QUALITY]`). The **Boundary inflow** tab of
+**Surface Quality…** lists these rows: **Cell**, **Edge** (the cell's local
+edge), **Species** and **Concentration**, in the species' own units (temperature
+in °C, the only value that may be negative). Interior edges take no inflow.
+
+The edge table and Properties show the rows of each exterior edge in one
+read-only field, **Inflow Quality** (for example *TSS 25; Tracer 1.5*); with
+several edges selected a field they do not share reads *Mixed*. To edit, select
+the edges with the **Edges** tool and use **Surface Quality…** in the **Surface
+Quality** process group, **Edit…** beside **Boundary inflow quality** in
+Properties, or **Edit boundary inflow quality…** in the edge table's row menu.
+The tab then counts the selection ("4 selected edges: 2 exterior, 1 interior,
+1 not on the mesh"), highlights the rows those edges already have, and **Set for
+exterior edges** writes one species and concentration on the exterior ones
+only, replacing that species' value where an edge already has one.
+
+Rows are written with the dialog's other tabs on **Apply** or **OK**, after
+checking that each row names an outer edge, a species of the model, and a
+concentration that is not negative; if a write fails, the earlier rows are put
+back. Like the other Surface Quality tabs, the change has no undo step. The tab
+is read-only while water quality is switched off or a run is active. Inflow
+concentrations given by a time series, mass or heat fluxes through surface edges
+are not available yet.
+
 The matching development engine supports standalone CPU FULL_SWE reconstruction
 order 2 with CLOSED_FORM, ENSLAVED or SIGMA aquifers, bulk or SIGMA-layered
 pollutant/MSX/age/water-temperature transport, and symmetric aquifer/surface reactions. Water temperature uses surface HEAT_MODEL TRANSPORT_ONLY and groundwater THERMAL_MODEL WATER_ONLY; cold Celsius values are supported. This

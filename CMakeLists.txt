@@ -899,6 +899,7 @@ set(
         include/ui/dialogs/mesh2dsectionroweditor.h
         include/ui/dialogs/mesh2dsectionrowmodel.h
         include/ui/dialogs/mesh2dsurfacequalitydialog.h
+        include/ui/dialogs/mesh2dboundaryqualitymodel.h
         include/ui/dialogs/assignraingagesdialog.h
         include/ui/dialogs/meshattributeassigndialog.h
         include/ui/dialogs/infilassigntoselectiondialog.h
@@ -1678,6 +1679,7 @@ set(
         src/ui/dialogs/mesh2dsectionroweditor.cpp
         src/ui/dialogs/mesh2dsectionrowmodel.cpp
         src/ui/dialogs/mesh2dsurfacequalitydialog.cpp
+        src/ui/dialogs/mesh2dboundaryqualitymodel.cpp
         src/ui/dialogs/assignraingagesdialog.cpp
         src/ui/dialogs/meshattributeassigndialog.cpp
         src/ui/dialogs/infilassigntoselectiondialog.cpp

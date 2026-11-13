@@ -2993,6 +2993,19 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
                                m_layer->engine());
             connect(editGw, &QAction::triggered, this,
                     [this, edges] { emit groundwaterEdgesRequested(m_meshModel->layer(), edges); });
+            auto *editSq = meshMenu.addAction(tr("Edit boundary inflow quality…"));
+            const QString qualityLocked =
+                m_layer && m_layer->engine()
+                    ? openswmmvis::ui::processLockReason(m_layer->engine(),
+                                                         openswmmvis::ui::LockableProcess::SurfaceQuality)
+                    : QString();
+            editSq->setEnabled(boundary && mesh && mesh->isActiveMesh() && m_layer &&
+                               m_layer->engine() && qualityLocked.isEmpty());
+            if (!qualityLocked.isEmpty())
+                editSq->setToolTip(qualityLocked);
+            connect(editSq, &QAction::triggered, this, [this, edges] {
+                emit surfaceQualityEdgesRequested(m_meshModel->layer(), edges);
+            });
         }
         const bool clickedEditable =
             srcIdx.isValid() && (m_meshModel->flags(srcIdx) & Qt::ItemIsEditable);
