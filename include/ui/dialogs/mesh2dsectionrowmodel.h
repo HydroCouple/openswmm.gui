@@ -43,6 +43,16 @@ namespace openswmmvis::ui
 QStringList meshCellTags(SWMM_Engine engine);
 
 /**
+ * @brief Surface species a quality row may name: pollutants, then aqueous reaction species, then
+ *   the reserved __WATER_AGE__ / __TEMPERATURE__ names when that transport is on and @p reserved
+ *   is set.
+ * @param[in] engine Borrowed engine; null yields an empty list.
+ * @param[in] reserved Include the reserved names.
+ * @return Names in that order, without duplicates.
+ */
+QStringList surfaceSpeciesNames(SWMM_Engine engine, bool reserved);
+
+/**
  * @brief Read the time-series names of the model ([TIMESERIES] tables only).
  * @param[in] engine Borrowed engine; null yields an empty list.
  * @return Series names in registry order.

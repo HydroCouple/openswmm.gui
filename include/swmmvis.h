@@ -1855,6 +1855,12 @@ private:
      * @param edges Zero-based (cell, local edge) pairs; the Edge boundaries page opens on them.
      */
     void openGroundwaterDialog(int page, const QList<QPair<int, int>> &edges = {});
+    /**
+     * @brief Open the 2D Surface Quality editor; with \p edges, on its Boundary inflow tab
+     *   targeted at those edges of the active mesh (process-boundaries Phase 4d).
+     * @param edges Zero-based (cell, local edge) pairs; empty opens the dialog as before.
+     */
+    void openSurfaceQualityDialog(const QList<QPair<int, int>> &edges = {});
 
     Ui::SWMMVis *ui;
     QStringList mRecentFiles;

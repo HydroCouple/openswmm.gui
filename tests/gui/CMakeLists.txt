@@ -4833,6 +4833,8 @@ add_swmmvis_gui_test(test_gwqualityroweditors
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2dgwsourcemodel.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/mesh2dsurfacequalitydialog.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2dsurfacequalitydialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/mesh2dboundaryqualitymodel.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2dboundaryqualitymodel.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/mesh2daquifermodel.h
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2daquifermodel.cpp
     ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h

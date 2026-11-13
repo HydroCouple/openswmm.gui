@@ -245,6 +245,8 @@ signals:
     /** @brief Open the aquifer Edge boundaries page on \a edges ((cell, local edge) pairs) of
      *  \a mesh, from the edge row menu (process-aware plan Phase 4). */
     void groundwaterEdgesRequested(SWMM2DMeshLayer *mesh, const QList<QPair<int, int>> &edges);
+    /** @brief Open the 2D Surface Quality Boundary inflow tab on these edges (Phase 4d). */
+    void surfaceQualityEdgesRequested(SWMM2DMeshLayer *mesh, const QList<QPair<int, int>> &edges);
     /**
      * @brief Forward a retained SWMM, mesh or data-object model's accepted cell-edit
      * notification.

@@ -53,6 +53,7 @@
 #include <cmath>
 #include <limits>
 #include <memory>
+#include <openswmm/engine/openswmm_2d.h>
 #include <openswmm/engine/openswmm_nodes.h>
 
 using openswmmvis::ColumnSpec;
@@ -443,9 +444,13 @@ void MeshAttributeTableModel::setModelLayer(SWMMModelLayer *layer)
     // Apply, undo and redo of the aquifer editor all mark the model edited.
     disconnect(m_modelEdited);
     m_modelEdited = layer ? connect(layer, &SWMMModelLayer::modelEdited, this,
-                                    &MeshAttributeTableModel::refreshGroundwaterBoundaries)
+                                    [this] {
+                                        refreshGroundwaterBoundaries();
+                                        refreshBoundaryInflowQuality();
+                                    })
                           : QMetaObject::Connection();
     m_gwBoundariesBuilt = false;
+    m_sqBoundariesBuilt = false;
     rebuildColumns();
     endResetModel();
 }
@@ -491,6 +496,45 @@ void MeshAttributeTableModel::refreshGroundwaterBoundaries()
         }
     if (first >= 0)
         emit dataChanged(index(0, first), index(rowCount() - 1, last));
+}
+
+const QHash<quint64, QString> &MeshAttributeTableModel::boundaryInflowQuality() const
+{
+    if (m_sqBoundariesBuilt)
+        return m_sqBoundaries;
+    m_sqBoundaries.clear();
+    m_sqBoundariesBuilt = true;
+    SWMM_Engine engine = m_modelLayer ? m_modelLayer->engine() : nullptr;
+    int count = 0;
+    if (!engine || swmm_2d_boundary_quality_count(engine, &count) != SWMM_OK)
+        return m_sqBoundaries;
+    for (int i = 0; i < count; ++i) {
+        int cell = -1, edge = -1;
+        char species[128]{};
+        double concentration = 0.0;
+        if (swmm_2d_get_boundary_quality(engine, i, &cell, &edge, species, int(sizeof species),
+                                         &concentration) != SWMM_OK)
+            continue;
+        QString &text = m_sqBoundaries[(quint64(quint32(cell)) << 3) | quint32(edge)];
+        if (!text.isEmpty())
+            text += QStringLiteral("; ");
+        text += QStringLiteral("%1 %2").arg(QString::fromUtf8(species),
+                                            QString::number(concentration, 'g', 6));
+    }
+    return m_sqBoundaries;
+}
+
+void MeshAttributeTableModel::refreshBoundaryInflowQuality()
+{
+    if (!m_sqBoundariesBuilt)
+        return; // never read: the next read is fresh anyway
+    const auto before = m_sqBoundaries;
+    m_sqBoundariesBuilt = false;
+    if (m_kind != Kind::Edge || rowCount() == 0 || boundaryInflowQuality() == before)
+        return;
+    for (int c = 0; c < m_columnSpecs.size(); ++c)
+        if (m_columnSpecs[c].key == QLatin1String("sqBoundary.inflow"))
+            emit dataChanged(index(0, c), index(rowCount() - 1, c));
 }
 
 bool MeshAttributeTableModel::canPick() const
@@ -694,7 +738,14 @@ void MeshAttributeTableModel::rebuildColumns()
             << ro(QStringLiteral("gwBoundary.chemistry"), tr("Aquifer Chemistry"),
                   UnitKind::None,
                   tr("Species terms on the edge: concentration (CONC), series concentration "
-                     "(TS), mass flux or heat flux."));
+                     "(TS), mass flux or heat flux."))
+            // Surface inflow quality ([2D_BOUNDARY_QUALITY]), edited on the 2D Surface Quality
+            // dialog's Boundary inflow tab (Phase 4d).
+            << ro(QStringLiteral("sqBoundary.inflow"), tr("Inflow Quality"), UnitKind::None,
+                  tr("Concentrations of the water entering the mesh through this exterior edge, "
+                     "in each species' own units. Edit boundary inflow quality… (Properties or "
+                     "the row menu) opens the Surface Quality Boundary inflow tab on the "
+                     "selected edges."));
         break;
 
     case Kind::Cell:
@@ -1080,6 +1131,17 @@ QVariant MeshAttributeTableModel::data(const QModelIndex &index, int role) const
                 m_segmentTagsBuilt = true;
             }
             return m_segmentTags.value({qMin(va, vb), qMax(va, vb)});
+        }
+        if (spec.key == QLatin1String("sqBoundary.inflow")) {
+            if (!m_layer->isBoundaryEdge(tri, e))
+                return missing(tr("Not applicable on an interior edge."));
+            if (!m_layer->isActiveMesh() || !m_modelLayer || !m_modelLayer->engine())
+                return missing(tr("Boundary inflow quality belongs to the active mesh of an open "
+                                  "model."));
+            const auto &records = boundaryInflowQuality();
+            const auto it = records.constFind((quint64(quint32(tri)) << 3) | quint32(e));
+            return it == records.cend() ? missing(tr("No inflow concentrations."))
+                                        : QVariant(*it);
         }
         if (spec.key.startsWith(QLatin1String("gwBoundary."))) {
             if (!m_layer->isBoundaryEdge(tri, e))

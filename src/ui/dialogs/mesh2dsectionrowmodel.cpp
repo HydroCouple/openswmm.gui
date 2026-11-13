@@ -109,6 +109,11 @@ QStringList surfaceSpecies(SWMM_Engine engine, bool reserved)
 
 } // namespace
 
+QStringList surfaceSpeciesNames(SWMM_Engine engine, bool reserved)
+{
+    return engine ? surfaceSpecies(engine, reserved) : QStringList();
+}
+
 QStringList meshCellTags(SWMM_Engine engine)
 {
     int cells = 0;
