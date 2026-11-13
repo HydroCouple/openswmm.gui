@@ -15,6 +15,12 @@
 #include <QDoubleValidator>
 #include <QComboBox>
 #include <QDoubleSpinBox>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QHBoxLayout>
+#include <QHeaderView>
+#include <QSignalBlocker>
+#include <QTableView>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QLabel>
@@ -25,10 +31,22 @@
 #include <QVBoxLayout>
 
 #include "ui/dialogs/initialqualitydialog.h"
+#include "ui/dialogs/mesh2dsectionroweditor.h"
+#include "ui/dialogs/simoptions/ardtransportmodels.h"
+#include "ui/util/tableclipboard.h"
+#include "ui/util/usernotice.h"
 #include "swmmvisprojectwindow.h"
 #include "layers/swmmmodellayer.h"
 #include "ui/dialogs/simulationoptionsdialog.h"
 #include "ui/dialogs/wateragesourcesdialog.h"
+
+#include <openswmm/engine/openswmm_process_components.h>
+#include <openswmm/engine/openswmm_transport.h>
+
+#include <algorithm>
+#include <cmath>
+#include <functional>
+#include <utility>
 
 namespace openswmmvis::ui
 {
@@ -129,16 +147,12 @@ void QualityPage::buildUi()
     // ── Eulerian ARD ───────────────────────────────────────────────────
     auto *ardGroup = new QGroupBox(tr("Eulerian ARD"), ardTab);
     auto *ardLay = new QVBoxLayout(ardGroup);
-    auto *ardNote =
-        new QLabel(tr("Dispersion and transport mesh spacing for the Eulerian ARD "
-                      "engine are configured in its component file (<i>model.ard</i>: "
-                      "[TRANSPORT_OPTIONS], [CONDUIT_DISPERSION]), bound on the Files / "
-                      "Output / Plugins page; a component file also overrides the "
-                      "scalar scheme below. The Lagrangian solver's dispersion is the "
-                      "DISPERSION option in its own group."),
-                   ardGroup);
-    ardNote->setWordWrap(true);
-    ardLay->addWidget(ardNote);
+    // G-02: the engine keeps these settings in the transport component's file; the label says
+    // which file (readArd), and Apply registers one named after the model when needed.
+    m_ardFileLabel = new QLabel(ardGroup);
+    m_ardFileLabel->setObjectName(QStringLiteral("ardFileLabel"));
+    m_ardFileLabel->setWordWrap(true);
+    ardLay->addWidget(m_ardFileLabel);
 
     // FV_SCALAR_SCHEME lives here, not on the Routing & Hydraulics page: its
     // only live consumer is the ARD engine, which reads it under any routing
@@ -153,8 +167,148 @@ void QualityPage::buildUi()
            "mesh (FV_SCALAR_SCHEME). Read under any routing model; a bound "
            "component file's [TRANSPORT_OPTIONS] SCALAR_SCHEME overrides it."));
     ardForm->addRow(tr("Scalar scheme:"), m_fvScalarSchemeCombo);
+
+    m_ardDispersionCombo = new QComboBox(ardGroup);
+    m_ardDispersionCombo->setObjectName(QStringLiteral("ardDispersionCombo"));
+    m_ardDispersionCombo->addItem(tr("Off"), int(SWMM_DISPERSION_OFF));
+    m_ardDispersionCombo->addItem(tr("Fischer (from the hydraulics)"), int(SWMM_DISPERSION_FISCHER));
+    m_ardDispersionCombo->addItem(tr("Fixed coefficient"), int(SWMM_DISPERSION_VALUE));
+    m_ardDispersionCombo->setToolTip(
+        tr("Longitudinal dispersion on every conduit ([TRANSPORT_OPTIONS] DISPERSION). Rows in "
+           "Conduit dispersion below replace it on their conduits."));
+    ardForm->addRow(tr("&Dispersion:"), m_ardDispersionCombo);
+
+    const auto numberField = [ardGroup](const QString &name) {
+        auto *edit = new QLineEdit(ardGroup);
+        edit->setObjectName(name);
+        auto *validator = new QDoubleValidator(0.0, 1e300, 17, edit);
+        validator->setLocale(QLocale::c());
+        validator->setNotation(QDoubleValidator::ScientificNotation);
+        edit->setValidator(validator);
+        return edit;
+    };
+    const auto withUnits = [ardGroup](QWidget *field, QLabel **units) {
+        auto *row = new QHBoxLayout;
+        row->addWidget(field, 1);
+        *units = new QLabel(ardGroup);
+        row->addWidget(*units);
+        return row;
+    };
+    m_ardDispersionValue = numberField(QStringLiteral("ardDispersionValue"));
+    m_ardDispersionValue->setToolTip(tr("The coefficient used when Dispersion is Fixed."));
+    ardForm->addRow(tr("Co&efficient:"), withUnits(m_ardDispersionValue, &m_ardCoefficientUnits));
+    m_ardTargetDx = numberField(QStringLiteral("ardTargetDx"));
+    m_ardTargetDx->setToolTip(
+        tr("Length of the transport cells the conduits are divided into. 0 lets the engine "
+           "choose."));
+    ardForm->addRow(tr("Transport cell &spacing:"), withUnits(m_ardTargetDx, &m_ardSpacingUnits));
+
+    m_ardDetailedOutput = new QLineEdit(ardGroup);
+    m_ardDetailedOutput->setObjectName(QStringLiteral("ardDetailedOutput"));
+    m_ardDetailedOutput->setPlaceholderText(tr("Off"));
+    m_ardDetailedOutput->setToolTip(
+        tr("CSV file for per-cell transport results. Empty turns it off. A relative path is "
+           "taken from the folder the program runs in; Browse gives a full path."));
+    auto *browse = new QPushButton(tr("Browse…"), ardGroup);
+    browse->setAutoDefault(false);
+    connect(browse, &QPushButton::clicked, this, [this] {
+        const QString start = m_ardDetailedOutput->text().trimmed();
+        const QString path = QFileDialog::getSaveFileName(this, tr("Detailed transport output"),
+                                                          start, tr("CSV files (*.csv)"));
+        if (!path.isEmpty())
+            m_ardDetailedOutput->setText(path);
+    });
+    auto *outputRow = new QHBoxLayout;
+    outputRow->addWidget(m_ardDetailedOutput, 1);
+    outputRow->addWidget(browse);
+    ardForm->addRow(tr("Detailed &output:"), outputRow);
+    connect(m_ardDispersionCombo, &QComboBox::currentIndexChanged, this, [this] {
+        m_ardDispersionValue->setEnabled(m_ardDispersionCombo->currentData().toInt() ==
+                                         SWMM_DISPERSION_VALUE);
+    });
     ardLay->addLayout(ardForm);
     ardTabLay->addWidget(ardGroup);
+
+    // Per-conduit dispersion, boundaries and sources: staged tables, written on Apply.
+    m_ardConduits = new ArdConduitDispersionModel(this);
+    m_ardConduits->setObjectName(QStringLiteral("ardConduitDispersion"));
+    m_ardBoundaries = new ArdTransportRowModel(ArdTransportRowModel::Kind::Boundary, this);
+    m_ardBoundaries->setObjectName(QStringLiteral("ardBoundaries"));
+    m_ardSources = new ArdTransportRowModel(ArdTransportRowModel::Kind::Source, this);
+    m_ardSources->setObjectName(QStringLiteral("ardSources"));
+    auto *ardTables = new QTabWidget(ardTab);
+    ardTables->setObjectName(QStringLiteral("ardTables"));
+    const auto tablePage = [this, ardTables](QAbstractItemModel *model, const char *key,
+                                             const QString &accessibleName,
+                                             const std::function<void()> &add,
+                                             const std::function<void(int)> &remove) {
+        auto *page = new QWidget(ardTables);
+        auto *layout = new QVBoxLayout(page);
+        auto *view = new QTableView(page);
+        view->setObjectName(model->objectName() + QStringLiteral("Table"));
+        view->setModel(model);
+        view->setItemDelegate(new Mesh2DChoiceDelegate(view));
+        view->setAccessibleName(accessibleName);
+        view->setSelectionBehavior(QAbstractItemView::SelectRows);
+        view->verticalHeader()->setVisible(false);
+        view->horizontalHeader()->setStretchLastSection(true);
+        TableClipboard::install(view);
+        tagOption(view, key);
+        layout->addWidget(view, 1);
+        auto *buttons = new QHBoxLayout;
+        auto *addButton = new QPushButton(tr("Add"), page);
+        addButton->setObjectName(model->objectName() + QStringLiteral("Add"));
+        addButton->setAutoDefault(false);
+        auto *removeButton = new QPushButton(tr("Remove"), page);
+        removeButton->setObjectName(model->objectName() + QStringLiteral("Remove"));
+        removeButton->setAutoDefault(false);
+        connect(addButton, &QPushButton::clicked, this, [view, model, add] {
+            add();
+            view->setCurrentIndex(model->index(model->rowCount() - 1, 0));
+        });
+        connect(removeButton, &QPushButton::clicked, this, [view, remove] {
+            if (view->currentIndex().isValid())
+                remove(view->currentIndex().row());
+        });
+        buttons->addWidget(addButton);
+        buttons->addWidget(removeButton);
+        buttons->addStretch();
+        layout->addLayout(buttons);
+        return std::make_pair(page, addButton);
+    };
+    auto conduits = tablePage(
+        m_ardConduits, "CONDUIT_DISPERSION", tr("Conduit dispersion"),
+        [this] { m_ardConduits->addRow({m_ardConduits->conduits().value(0), 0.0}); },
+        [this](int row) { m_ardConduits->removeRowAt(row); });
+    auto boundaries = tablePage(
+        m_ardBoundaries, "TRANSPORT_BOUNDARIES", tr("Transport boundaries"),
+        [this] {
+            m_ardBoundaries->addRow({m_ardBoundaries->elements().value(0),
+                                     m_ardBoundaries->species().value(0), false, 0.0, {}});
+        },
+        [this](int row) { m_ardBoundaries->removeRowAt(row); });
+    auto sources = tablePage(
+        m_ardSources, "TRANSPORT_SOURCES", tr("Transport sources"),
+        [this] {
+            m_ardSources->addRow({m_ardSources->elements().value(0),
+                                  m_ardSources->species().value(0), false, 0.0, {}});
+        },
+        [this](int row) { m_ardSources->removeRowAt(row); });
+    m_ardConduitAdd = conduits.second;
+    m_ardBoundaryAdd = boundaries.second;
+    m_ardSourceAdd = sources.second;
+    ardTables->addTab(conduits.first, tr("Conduit dispersion"));
+    ardTables->addTab(boundaries.first, tr("Boundaries"));
+    ardTables->addTab(sources.first, tr("Sources"));
+    ardTabLay->addWidget(ardTables, 1);
+    m_ardSpeciesHint = new QLabel(
+        tr("Boundaries and sources apply to the species of the Reaction System, and this model "
+           "has none. Add them in the Reaction System editor; pollutants enter through "
+           "inflows."),
+        ardTab);
+    m_ardSpeciesHint->setObjectName(QStringLiteral("ardSpeciesHint"));
+    m_ardSpeciesHint->setWordWrap(true);
+    ardTabLay->addWidget(m_ardSpeciesHint);
 
     // ── Lagrangian (LARD) ──────────────────────────────────────────────
     auto *lardGroup = new QGroupBox(tr("Lagrangian (LARD)"), lardTab);
@@ -332,6 +486,11 @@ void QualityPage::tagWidgets()
     for (const auto &[key, edit] : std::as_const(m_heatConstants))
         tagOption(edit, key.toLatin1().constData());
     tagOption(m_fvScalarSchemeCombo, "FV_SCALAR_SCHEME");
+    for (QWidget *w : {static_cast<QWidget *>(m_ardDispersionCombo),
+                       static_cast<QWidget *>(m_ardDispersionValue),
+                       static_cast<QWidget *>(m_ardTargetDx),
+                       static_cast<QWidget *>(m_ardDetailedOutput)})
+        tagOption(w, "TRANSPORT_OPTIONS");
 }
 
 void QualityPage::refreshGates()
@@ -420,6 +579,7 @@ void QualityPage::read()
     }
     selectComboByData(m_fvScalarSchemeCombo,
                       ctx_.option("FV_SCALAR_SCHEME", QStringLiteral("MUSCL")));
+    readArd();
     ctx_.captureEditors(this);
 }
 
@@ -446,8 +606,205 @@ int QualityPage::write()
         if (edit->hasAcceptableInput())
             n += writeOption(key.toLatin1().constData(), edit->text().trimmed());
     n += writeOption("FV_SCALAR_SCHEME", m_fvScalarSchemeCombo->currentData().toString());
+    n += writeArd();
     ctx_.captureEditors(this);
     return n;
+}
+
+// ---------------------------------------------------------------------------
+// Eulerian ARD transport settings (review G-02)
+// ---------------------------------------------------------------------------
+
+namespace
+{
+constexpr const char *kArdComponentId = "org.hydrocouple.openswmm.transport.ard";
+
+QString ardNumberText(double value)
+{
+    return QLocale::c().toString(value, 'g', QLocale::FloatingPointShortest);
+}
+} // namespace
+
+QString QualityPage::transportFileName() const
+{
+    const SWMMModelLayer *layer = ctx_.modelLayer();
+    const QString stem =
+        layer ? QFileInfo(layer->modelFilePath()).completeBaseName() : QString();
+    return (stem.isEmpty() ? QStringLiteral("model") : stem) + QStringLiteral(".ard");
+}
+
+QualityPage::ArdOptions QualityPage::ardDraft(bool *ok) const
+{
+    ArdOptions draft;
+    draft.mode = m_ardDispersionCombo->currentData().toInt();
+    bool okValue = true, okDx = true;
+    const QString value = m_ardDispersionValue->text().trimmed();
+    const QString dx = m_ardTargetDx->text().trimmed();
+    draft.value = value.isEmpty() ? 0.0 : QLocale::c().toDouble(value, &okValue);
+    draft.dx = dx.isEmpty() ? 0.0 : QLocale::c().toDouble(dx, &okDx);
+    draft.detailed = m_ardDetailedOutput->text().trimmed();
+    *ok = okValue && okDx && std::isfinite(draft.value) && std::isfinite(draft.dx) &&
+          draft.value >= 0.0 && draft.dx >= 0.0;
+    return draft;
+}
+
+void QualityPage::readArd()
+{
+    if (!m_ardDispersionCombo)
+        return;
+    SWMM_Engine engine = ctx_.engine();
+    ArdOptions loaded;
+    QString file;
+    if (engine) {
+        swmm_transport_get_dispersion_mode(engine, &loaded.mode);
+        swmm_transport_get_dispersion_value(engine, &loaded.value);
+        swmm_transport_get_target_dx(engine, &loaded.dx);
+        char path[4096]{};
+        if (swmm_transport_get_detailed_output(engine, path, sizeof path) == SWMM_OK)
+            loaded.detailed = QString::fromUtf8(path);
+        const int component = swmm_process_component_find(engine, kArdComponentId);
+        char id[256]{}, config[4096]{}, resolved[4096]{};
+        if (component >= 0 &&
+            swmm_process_component_get(engine, component, id, sizeof id, config, sizeof config,
+                                       resolved, sizeof resolved) == SWMM_OK)
+            file = QFileInfo(QString::fromUtf8(config[0] ? config : resolved)).fileName();
+    }
+    m_ardLoaded = loaded;
+    {
+        const QSignalBlocker block(m_ardDispersionCombo);
+        m_ardDispersionCombo->setCurrentIndex(
+            std::max(0, m_ardDispersionCombo->findData(loaded.mode)));
+    }
+    m_ardDispersionValue->setText(ardNumberText(loaded.value));
+    m_ardDispersionValue->setEnabled(loaded.mode == SWMM_DISPERSION_VALUE);
+    m_ardTargetDx->setText(ardNumberText(loaded.dx));
+    m_ardDetailedOutput->setText(loaded.detailed);
+
+    // Coefficient and spacing are stored in the model's units, US or SI by flow units.
+    const QString flowUnits = ctx_.option("FLOW_UNITS", QStringLiteral("CFS")).toUpper();
+    const bool si = flowUnits == QLatin1String("CMS") || flowUnits == QLatin1String("LPS") ||
+                    flowUnits == QLatin1String("MLD");
+    const QString area = si ? QStringLiteral("m²/s") : QStringLiteral("ft²/s");
+    m_ardCoefficientUnits->setText(area);
+    m_ardSpacingUnits->setText(si ? QStringLiteral("m") : QStringLiteral("ft"));
+    m_ardConduits->setUnits(area);
+
+    QStringList problems;
+    for (const QString &error :
+         {m_ardConduits->load(engine), m_ardBoundaries->load(engine), m_ardSources->load(engine)})
+        if (!error.isEmpty())
+            problems << error;
+    QString text = file.isEmpty()
+                       ? tr("These settings are saved in a transport file beside the model, %1, "
+                            "registered when you apply a change and written when the model is "
+                            "saved.")
+                             .arg(transportFileName())
+                       : tr("These settings are saved in the model's transport file, %1, written "
+                            "when the model is saved.")
+                             .arg(file);
+    if (!problems.isEmpty())
+        text += QLatin1Char('\n') + problems.join(QLatin1Char('\n'));
+    m_ardFileLabel->setText(text);
+    refreshArdButtons();
+}
+
+void QualityPage::refreshArdButtons()
+{
+    const bool species = !m_ardBoundaries->species().isEmpty();
+    m_ardConduitAdd->setEnabled(!m_ardConduits->conduits().isEmpty());
+    m_ardBoundaryAdd->setEnabled(species && !m_ardBoundaries->elements().isEmpty());
+    m_ardSourceAdd->setEnabled(species && !m_ardSources->elements().isEmpty());
+    m_ardSpeciesHint->setVisible(!species);
+}
+
+bool QualityPage::validate(QString *warn)
+{
+    if (!m_ardDispersionCombo)
+        return true;
+    bool ok = false;
+    ardDraft(&ok);
+    QString problem;
+    if (!ok)
+        problem = tr("Eulerian ARD: the dispersion coefficient and the transport cell spacing "
+                     "must be numbers that are not negative.");
+    for (const QString &error : {m_ardConduits->validateCommit(ctx_.engine()),
+                                 m_ardBoundaries->validateCommit(ctx_.engine()),
+                                 m_ardSources->validateCommit(ctx_.engine())})
+        if (problem.isEmpty() && !error.isEmpty())
+            problem = tr("Eulerian ARD: %1").arg(error);
+    if (problem.isEmpty())
+        return true;
+    if (warn)
+        *warn = problem;
+    return false;
+}
+
+int QualityPage::writeArd()
+{
+    m_ardWrote = false;
+    SWMM_Engine engine = ctx_.engine();
+    if (!engine || !m_ardDispersionCombo)
+        return 0;
+    int n = 0;
+    QStringList refused;
+    bool ok = false;
+    const ArdOptions draft = ardDraft(&ok);
+    if (ok && draft != m_ardLoaded) {
+        const QByteArray path = draft.detailed.toUtf8();
+        if (draft.value != m_ardLoaded.value &&
+            swmm_transport_set_dispersion_value(engine, draft.value) != SWMM_OK)
+            refused << tr("the dispersion coefficient");
+        if (draft.mode != m_ardLoaded.mode &&
+            swmm_transport_set_dispersion_mode(engine, draft.mode) != SWMM_OK)
+            refused << tr("the dispersion mode");
+        if (draft.dx != m_ardLoaded.dx && swmm_transport_set_target_dx(engine, draft.dx) != SWMM_OK)
+            refused << tr("the transport cell spacing");
+        if (draft.detailed != m_ardLoaded.detailed &&
+            swmm_transport_set_detailed_output(
+                engine, draft.detailed.isEmpty() ? nullptr : path.constData()) != SWMM_OK)
+            refused << tr("the detailed output file");
+        ctx_.recordWrittenKey("TRANSPORT_OPTIONS");
+        ++n;
+    }
+    const auto commitTable = [&](auto *model, const char *key) {
+        if (!model->isDirty())
+            return;
+        const QString error = model->commit(engine);
+        if (!error.isEmpty()) {
+            refused << error;
+            return;
+        }
+        model->acceptChanges();
+        ctx_.recordWrittenKey(key);
+        ++n;
+    };
+    commitTable(m_ardConduits, "CONDUIT_DISPERSION");
+    commitTable(m_ardBoundaries, "TRANSPORT_BOUNDARIES");
+    commitTable(m_ardSources, "TRANSPORT_SOURCES");
+    if (!refused.isEmpty())
+        notifyUser(this, NoticeSeverity::Error,
+                   tr("Eulerian ARD: the engine refused %1.").arg(refused.join(tr("; "))));
+    m_ardWrote = n > 0;
+    return n;
+}
+
+int QualityPage::registerTransportFile()
+{
+    SWMM_Engine engine = ctx_.engine();
+    const bool wrote = std::exchange(m_ardWrote, false);
+    int configured = 0;
+    if (!wrote || !engine || swmm_transport_get_configured(engine, &configured) != SWMM_OK ||
+        !configured || swmm_process_component_find(engine, kArdComponentId) >= 0)
+        return 0;
+    if (swmm_process_component_register(engine, kArdComponentId,
+                                        transportFileName().toUtf8().constData()) != SWMM_OK) {
+        notifyUser(this, NoticeSeverity::Error,
+                   tr("Eulerian ARD: the settings were applied, but %1 could not be registered, "
+                      "so saving the model will not keep them.")
+                       .arg(transportFileName()));
+        return 0;
+    }
+    return 1;
 }
 
 } // namespace openswmmvis::ui

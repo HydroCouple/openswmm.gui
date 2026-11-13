@@ -757,6 +757,9 @@ int SimulationOptionsDialog::writeToEngine()
     int n = 0;
     for (openswmmvis::ui::SimOptionsPage *p : m_pageOrder)
         n += p->write();
+    // G-02: after every page, so the Files page's component table cannot drop the new row.
+    if (m_qualityPage)
+        n += m_qualityPage->registerTransportFile();
     if (n > 0) {
         m_wroteChanges = true;
         emit changesApplied();
