@@ -669,6 +669,7 @@ jobs:
             -DSWMMVIS_BUILD_TESTS=OFF \
             -DOPENSWMMENGINE_INSTALL_DIR="${{ github.workspace }}/openswmm.engine/install/${{ matrix.cmake_preset }}" \
             -DSWMMVIS_ENABLE_ENGINE_524=ON \
+            -DMESHKIT_REQUIRE_PINNED=ON \
             -DFETCHCONTENT_SOURCE_DIR_OPENSWMM_ENGINE_524="${{ github.workspace }}/openswmm.engine.v524" \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }} \
             -DCMAKE_C_COMPILER_LAUNCHER=$CMAKE_COMPILER_LAUNCHER \

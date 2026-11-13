@@ -229,6 +229,3 @@ examples/channel_burn_boundary/*
 /build-burn/
 /build-mesh-policies/
 
-# MeshKit owns standard C++ public headers and its shared kernel implementation.
-!libraries/meshkit/include/meshkit/**/*.hpp
-!libraries/meshkit/src/native/*.hpp
