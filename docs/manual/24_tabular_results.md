@@ -15,7 +15,7 @@ the engine's own text report. Then get any of it out as CSV or into the clipboar
 | **Tabular View** | **Analysis → Tabular View** | **Analysis → Report** | `Ctrl+Shift+A` |
 | **Summarize Results** | **Analysis → Summarize Results** | **Analysis → Report** | — |
 | **Report** | **Analysis → Report** | **Analysis → Report** | — |
-| Attribute Table dock | **View → Panels → Attribute Table** | **View** | `Ctrl+Alt+4` |
+| Attribute Table dock | **View → Panels → Attribute Table** | **View** | `Ctrl+4` |
 
 ## Step-by-step
 
@@ -162,7 +162,7 @@ them:
 - **Result columns are empty before a run.** They read engine statistics, which do
   not exist until a simulation has been initialised.
 - **`Ctrl+Shift+A` focuses a dock, not a window.** If nothing seems to happen,
-  check that the Attribute Table dock is visible (`Ctrl+Alt+4`).
+  check that the Attribute Table dock is visible (`Ctrl+4`).
 - **The query bar is shared.** The same expression syntax works in the attribute
   table and in the statistics dashboard, and column names with spaces must be
   quoted: `"Max depth" > 5`.

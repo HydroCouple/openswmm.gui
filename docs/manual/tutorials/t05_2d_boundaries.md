@@ -118,7 +118,7 @@ table's row context menu.
 
 With the edges still selected, click **Edit in Table** in the **Mesh 2D →
 Select** group: the attribute table opens on the mesh layer's **Edge** rows.
-(You can also open it with **Ctrl+Alt+4**, or **View → Panels → Attribute
+(You can also open it with **Ctrl+4**, or **View → Panels → Attribute
 Table**, and switch it to the **Edge** rows.) The edge columns are:
 
 | Column | Meaning | Writes |

@@ -12,10 +12,10 @@ then save a style you like and reuse it.
 | Surface | How to open it | Shortcut |
 |---------|----------------|----------|
 | **Layer Properties** (the style dialog) | Layer right-click → **Properties…**, or **Styles ▸ Edit Symbology…**, or double-click a kind row | — |
-| **Layer Styling** dock | **View → Layer Styling** (ribbon **View**) | `Ctrl+Alt+8` |
+| **Layer Styling** dock | **View → Layer Styling** (ribbon **View**) | `Ctrl+8` |
 | **Style Manager** | **Tools → Style Manager** (ribbon **View**) | — |
 | **Set Style** | **Animation → Set Style** (ribbon **Animation**) | — |
-| **Legend** dock | **View → Panels → Legend** | `Ctrl+Alt+5` |
+| **Legend** dock | **View → Panels → Legend** | `Ctrl+5` |
 | On-canvas legend | **View → Show Legend** (ribbon **Animation**) | — |
 | **Legend Properties** | Right-click the on-canvas legend → **Properties…** | — |
 | Annotation style | Place or click a text annotation with the **Add Text** tool | — |
@@ -371,7 +371,7 @@ immediately and the setting survives a project round-trip.
 
 There are two legend surfaces, driven by the same data.
 
-**The Legend dock** (`Ctrl+Alt+5`) is a tree of every visible layer's legend
+**The Legend dock** (`Ctrl+5`) is a tree of every visible layer's legend
 rows, grouped Layer → Item, with three columns — **Item**, **Color** and
 **Size**. The Color column is click-to-edit, and each edit is pushed onto the
 canvas undo stack, so `Ctrl+Z` reverses it uniformly across the dock, the

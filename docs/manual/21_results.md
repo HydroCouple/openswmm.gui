@@ -19,7 +19,7 @@ as an animation on a shared time cursor.
 | Which run is active | The **Results Layers** group at the head of the **Analysis** ribbon tab — **1D results:** and **2D results:** combos |
 | Playback | The **Results** menu and the **Animation** ribbon tab |
 | Styling | **Animation → Set Style**, or right-click a layer → **Properties…** |
-| Legend | **Animation → Show Legend** (canvas overlay); **View → Panels → Legend** (`Ctrl+Alt+5`) for the dock |
+| Legend | **Animation → Show Legend** (canvas overlay); **View → Panels → Legend** (`Ctrl+5`) for the dock |
 
 ## Step-by-step
 
@@ -117,7 +117,7 @@ the colours stay comparable frame to frame.
 
 - **Animation → Show Legend** toggles a legend **overlay** drawn on the map canvas
   itself. Its right-click menu includes *Hide legend*, which unchecks the action.
-- **View → Panels → Legend** (`Ctrl+Alt+5`) opens the dockable **Legend** panel,
+- **View → Panels → Legend** (`Ctrl+5`) opens the dockable **Legend** panel,
   which lists each visible layer's classes and lets you edit a class's style in
   place (**Edit Style…** on the class row).
 

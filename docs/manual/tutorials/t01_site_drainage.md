@@ -100,9 +100,9 @@ Three panels answer three different questions.
 
 | Panel | Shortcut | Answers |
 | ----- | -------- | ------- |
-| **Object Browser** | `Ctrl+Alt+2` | *What objects exist?* — every category, every name |
-| **Properties** | `Ctrl+Alt+3` | *What is this one object?* — one selected object, editable |
-| **Attribute Table** | `Ctrl+Alt+4` | *How do they compare?* — one row per object, sortable and queryable |
+| **Object Browser** | `Ctrl+2` | *What objects exist?* — every category, every name |
+| **Properties** | `Ctrl+3` | *What is this one object?* — one selected object, editable |
+| **Attribute Table** | `Ctrl+4` | *How do they compare?* — one row per object, sortable and queryable |
 
 Expand **Subcatchments** in the Object Browser and click `S5`. The Properties
 dock retitles itself **Properties — S5** and shows the area, imperviousness,
@@ -124,7 +124,7 @@ Open the **Attribute Table** dock and choose the conduits category in
 
 \fig{t01_attribute_table.png, The conduit attribute table sorted by length}
 
-Select a conduit and look at the **Section View** dock (`Ctrl+Alt+9`): the
+Select a conduit and look at the **Section View** dock (`Ctrl+9`): the
 **Section** button draws the cross-section — a 3 ft deep trapezoid for the
 swales, a 4.75 ft circle for `C11` — and **Profile** draws the longitudinal
 section between its end nodes with `Rim`, `Inv` and `Crown` annotations. The
@@ -244,8 +244,8 @@ keeps whatever its `.inp` declares until you change the combo — `CFS` here. Se
 pending edits first — **Run** always uses the `.inp` on disk — and logs
 *Auto-saved before running.* if it had to.
 
-The **Simulation Status** dock (`Ctrl+Alt+6`) shows the running job and its
-progress; **Message Logs** (`Ctrl+Alt+7`) collects engine warnings. **Pause**
+The **Simulation Status** dock (`Ctrl+6`) shows the running job and its
+progress; **Message Logs** (`Ctrl+7`) collects engine warnings. **Pause**
 and **Stop** (`Ctrl+.`) act on the selected job. When the run finishes the
 results attach to the project as a results layer in the **Layers** panel.
 If output already exists, **Overwrite output?** lists the files that will be

@@ -117,11 +117,11 @@ private slots:
     void panelShortcutsFocusInsteadOfHiding()
     {
         const QList<QPair<QString, QString>> keys = {
-            {"layers", "Ctrl+Alt+1"},       {"objectBrowser", "Ctrl+Alt+2"},
-            {"properties", "Ctrl+Alt+3"},   {"attributeTable", "Ctrl+Alt+4"},
-            {"legend", "Ctrl+Alt+5"},       {"simulationStatus", "Ctrl+Alt+6"},
-            {"messageLogs", "Ctrl+Alt+7"},  {"sectionView", "Ctrl+Alt+9"},
-            {"features", "Ctrl+Alt+0"}};
+            {"layers", "Ctrl+1"},       {"objectBrowser", "Ctrl+2"},
+            {"properties", "Ctrl+3"},   {"attributeTable", "Ctrl+4"},
+            {"legend", "Ctrl+5"},       {"simulationStatus", "Ctrl+6"},
+            {"messageLogs", "Ctrl+7"},  {"sectionView", "Ctrl+9"},
+            {"features", "Ctrl+0"}};
         const auto catalogShortcut = [](const QString &id) -> QString {
             for (const auto &e : openswmmvis::ui::kActionCatalog)
                 if (QString::fromLatin1(e.id) == id)

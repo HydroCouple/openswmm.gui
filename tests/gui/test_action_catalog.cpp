@@ -38,6 +38,7 @@ private slots:
     void requiredFieldsPresent();
     void defaultShortcutsResolve();
     void noDuplicateDefaultShortcuts();
+    void noDefaultUsesCtrlAlt();
     void tabsAreKnown();
     void iconAliasesResolveInQrc();
 };
@@ -142,6 +143,23 @@ void TestActionCatalog::noDuplicateDefaultShortcuts()
             seen.insert(key, id);
         }
     }
+}
+
+/*! A-13: no default may use Ctrl+Alt. On Windows AltGr arrives as Ctrl+Alt, so a Ctrl+Alt+key
+ *  default swallows characters such as { [ ] } @ on German, Polish and other layouts. */
+void TestActionCatalog::noDefaultUsesCtrlAlt()
+{
+    auto *registry = ActionRegistry::instance();
+    QStringList offenders;
+    for (const ActionCatalogEntry &e : kActionCatalog)
+        for (const QKeySequence &seq : registry->defaultShortcuts(QLatin1String(e.id)))
+            for (int i = 0; i < seq.count(); ++i) {
+                const Qt::KeyboardModifiers mods = seq[i].keyboardModifiers();
+                if ((mods & Qt::ControlModifier) && (mods & Qt::AltModifier))
+                    offenders << QStringLiteral("%1 (%2)").arg(
+                        QLatin1String(e.id), seq.toString(QKeySequence::PortableText));
+            }
+    QVERIFY2(offenders.isEmpty(), qPrintable(offenders.join(QStringLiteral(", "))));
 }
 
 /**

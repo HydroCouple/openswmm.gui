@@ -783,7 +783,7 @@ the friction-law coefficient (Hazen-Williams C or Darcy-Weisbach roughness
 height), not a dimension. `DUMMY` has no geometry at all — it lets a link be
 routed without conveyance.
 
-The **Section View** dock (**View → Panels → Section View**, `Ctrl+Alt+9`) shows
+The **Section View** dock (**View → Panels → Section View**, `Ctrl+9`) shows
 the same drawing for whatever link is currently selected, without opening a
 dialog.
 

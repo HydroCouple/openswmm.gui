@@ -102,7 +102,7 @@ The **Terrain** ribbon tab appears once a raster is loaded, with an
 ### 3. Inspect and style the mesh layer
 
 Select the mesh layer and open its **Symbology** tab (or use the **Layer
-Styling** dock, `Ctrl+Alt+8`). The mesh style panel has seven tabs:
+Styling** dock, `Ctrl+8`). The mesh style panel has seven tabs:
 
 | Tab | What it draws |
 | --- | ------------- |
@@ -136,7 +136,7 @@ Turn on **Coupled Nodes** to see the single coupled vertex at the bowl centre.
 
 ### 4. Read the mesh attribute tables
 
-Open the **Attribute Table** dock (`Ctrl+Alt+4`). Its **Category:** combo now
+Open the **Attribute Table** dock (`Ctrl+4`). Its **Category:** combo now
 carries three mesh entries in the form *△ Mesh &lt;name&gt; — Vertices (81)*,
 *△ Mesh &lt;name&gt; — Edges (n)* and *△ Mesh &lt;name&gt; — Cells (128)*. A
 layer-tree right-click on the mesh has **Open Attribute Table**, which jumps

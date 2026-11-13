@@ -14,9 +14,9 @@ node drawn to scale.
 
 | Dock | Menu | Shortcut |
 |---|---|---|
-| **Object Browser** | **View → Panels → Object Browser** | `Ctrl+Alt+2` |
-| **Properties** | **View → Panels → Properties** | `Ctrl+Alt+3` |
-| **Section View** | **View → Panels → Section View** | `Ctrl+Alt+9` |
+| **Object Browser** | **View → Panels → Object Browser** | `Ctrl+2` |
+| **Properties** | **View → Panels → Properties** | `Ctrl+3` |
+| **Section View** | **View → Panels → Section View** | `Ctrl+9` |
 
 **Edit → Search** (`Ctrl+F`) raises the Object Browser and focuses its filter
 box. All three docks bind to the **active project tab** and re-bind on every

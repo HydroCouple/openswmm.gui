@@ -63,10 +63,10 @@ synthetic slope raster.
 
 **File → Open…** → a working copy of `vfr_slope.inp`.
 
-Open the Object Browser (**Ctrl+Alt+2**). The Junctions, Outfalls, Conduits,
+Open the Object Browser (**Ctrl+2**). The Junctions, Outfalls, Conduits,
 Pumps, Orifices, Weirs, Outlets, Storage and Subcatchments categories are all
 empty. The only model objects are one rain gage and the mesh. The Layers panel
-(**Ctrl+Alt+1**) shows a **Meshes** entry and, once results are loaded, a
+(**Ctrl+1**) shows a **Meshes** entry and, once results are loaded, a
 **SWMM 2D Outputs** entry; the **SWMM 1D Outputs** category stays hidden
 because it is empty.
 
@@ -200,7 +200,7 @@ Press **Ctrl+R**. Because this is a 2D-only model there is no `.out` content of
 interest; the interesting product is `vfr_slope.2d.h5`, written because
 `[2D_OPTIONS]` sets `REPORT_2D YES` and `OUTPUT_FILE vfr_slope.2d.h5`.
 
-While it runs, watch the **Simulation Status** panel (**Ctrl+Alt+6**). Its
+While it runs, watch the **Simulation Status** panel (**Ctrl+6**). Its
 columns are **Name**, **Status**, **Progress**, **Sim Start**, **Sim Current**,
 **Sim End**, **Runoff Err (%)**, **Routing Err (%)**, **2D Err (%)**,
 **Duration**, **Avg Timestep** and **Engine Version**. The **2D Err (%)**

@@ -16,7 +16,7 @@ model objects (\ref manual_map_editing).
 
 - **Features** ribbon: Select; New Layer; Edit Mode; Delete; Point; Line;
   Polygon; Add Part; Add Hole; Edit Vertices; Move.
-- **View → Panels → Features** (`Ctrl+Alt+0`): layers, fields, attributes,
+- **View → Panels → Features** (`Ctrl+0`): layers, fields, attributes,
   vertex coordinates and elevation controls.
 - **Model → Feature Layers**: the corresponding layer and editing commands.
 
