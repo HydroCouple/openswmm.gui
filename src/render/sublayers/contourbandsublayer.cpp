@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 namespace OpenSWMM::Render
 {
@@ -224,6 +225,13 @@ QList<LegendSymbolItem> ContourBandSublayer::legendSymbolItems() const
         item.symbol.layers.append(fill);
         item.symbol.opacity = m_opacity;
         out.append(item);
+    }
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    m_style->scheme().addOutsideRangeLegendItems(out, haveRange ? m_style->rangeMin() : nan,
+                                                 haveRange ? m_style->rangeMax() : nan);
+    for (auto &item : out) {
+        item.sublayerId = m_id;
+        item.symbol.opacity = m_opacity;
     }
     return out;
 }

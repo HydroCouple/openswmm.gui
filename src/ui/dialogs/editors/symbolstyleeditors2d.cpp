@@ -551,7 +551,11 @@ MeshNodeSymbolStyleEditor::MeshNodeSymbolStyleEditor(MeshNodeSymbolStyleAdapter 
     QFormLayout *f = nullptr;
     auto *box = group(this, tr("Mesh Vertices"), f);
     m_shape = new MarkerShapeCombo(box);
-    m_shape->populateCanonical();
+    // The four shapes the 2D renderers draw (MeshNodeStyle::MarkerShape, same values).
+    m_shape->addShape(int(MarkerShape::Circle), tr("Circle"));
+    m_shape->addShape(int(MarkerShape::Square), tr("Square"));
+    m_shape->addShape(int(MarkerShape::Triangle), tr("Triangle (right)"));
+    m_shape->addShape(int(MarkerShape::Diamond), tr("Diamond"));
     f->addRow(tr("Shape:"), m_shape);
     m_size = dspin(box, 0.5, 60.0, 1, 0.5, tr(" px"));
     f->addRow(tr("Si&ze:"), m_size);

@@ -16,6 +16,7 @@
 
 #include <cmath>
 #include <iterator>
+#include <limits>
 
 namespace OpenSWMM::Render
 {
@@ -343,7 +344,18 @@ QList<LegendSymbolItem> MeshFillSublayer::legendSymbolItems() const
 
     item.symbol.layers.append(fill);
     item.symbol.opacity = m_opacity;
-    return {item};
+    QList<LegendSymbolItem> out{item};
+    if (m_style->useElevationRamp() && (m_style->colorsByElevation() || m_attributeHasData)) {
+        const ClassificationScheme &scheme = m_style->scheme();
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        scheme.addOutsideRangeLegendItems(out, scheme.useCustomRange() ? scheme.rangeMin() : nan,
+                                          scheme.useCustomRange() ? scheme.rangeMax() : nan);
+        for (auto &row : out) {
+            row.sublayerId = m_id;
+            row.symbol.opacity = m_opacity;
+        }
+    }
+    return out;
 }
 
 QSGNode *MeshFillSublayer::buildOrUpdateNode(QSGNode *existing, const SublayerContext &ctx)
