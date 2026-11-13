@@ -312,6 +312,10 @@ private:
     QLabel *m_advection2DStatusLabel = nullptr;
     QComboBox *m_backend2DCombo = nullptr; ///< BACKEND
     QCheckBox *m_couplingAreaAutoBox = nullptr;
+    QCheckBox *m_couplingInFloodingBox = nullptr;  ///< COUPLING_IN_FLOODING
+    QComboBox *m_frontRebuildCombo = nullptr;      ///< FRONT_REBUILD: AUTO | YES | NO
+    QComboBox *m_heatSurfaceCombo = nullptr;       ///< HEAT_SURFACE_EXCHANGE: AUTO | YES | NO
+    QComboBox *m_heatRadiativeCombo = nullptr;     ///< HEAT_RADIATIVE_EXCHANGE: AUTO | YES | NO
     QDoubleSpinBox *m_dryDepthSpin = nullptr;
     QDoubleSpinBox *m_limiterEpsSpin = nullptr;
     QDoubleSpinBox *m_fluxDhEpsSpin = nullptr;

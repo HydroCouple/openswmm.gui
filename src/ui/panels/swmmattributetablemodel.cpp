@@ -1138,16 +1138,15 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             intCol("Barrels", "Barrels", "link_barrels", 1, 1000),
             enumCol("Flap gate", "Flap Gate", "link_flap_gate", yesNoValues()),
             enumCol("Culvert code", "Culvert Code", "link_culvert_code", culvertCodeValues()),
-            // ATTRIBUTE_EDITOR_WIRING parity pass (2026-06-04) —
-            // browser parity; placeholder page until BO 6.5.8 deepens.
+            // Opens the link editor's Inlet Usage page (design, capture node, count,
+            // clogging; undoable through pushInletUsageEdit).
             compoundCol("Inlet usage", "Inlet Usage", "link_inlet_usage_ref"),
         };
     case SWMMModelLayer::CatPumps:
         // SWMM5 [PUMPS]: Name | FromNode | ToNode | PumpCurve | Status | Startup | Shutoff.
         // ATTRIBUTE_EDITOR_WIRING Phase 1 — Tag + Startup/Shutoff rows
         // (PumpProps rows 4, 7-8 in objprops.txt; BN-LINK-05 engine
-        // accessors). PumpCurve stays Property-Browser-only (DataObjectRef
-        // picker); the table has no picker delegate yet.
+        // accessors). The pump curve is a picker cell below.
         return {
             nameCol(),
             ro("Link type", "Link Type"),

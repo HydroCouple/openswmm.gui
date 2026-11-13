@@ -109,6 +109,8 @@ void FilesPage::read()
     readWriterCombosFromEngine();
     readReportContentsFromEngine();
     readOutputPathsFromSettings();
+    m_absolutePathsBox->setChecked(SimulationOptionsDialog::parseEngineBool(ctx_.option(
+                                       "WRITE_ABSOLUTE_PATHS", QStringLiteral("NO"))) == Qt::Checked);
     ctx_.captureEditors(this);
 }
 
@@ -121,6 +123,8 @@ int FilesPage::write()
     n += writeWriterCombosToEngine();
     n += writeReportContentsToEngine();
     n += writeOutputPathsToSettings();
+    n += writeOption("WRITE_ABSOLUTE_PATHS",
+                     SimulationOptionsDialog::engineBoolString(m_absolutePathsBox->isChecked()));
     ctx_.captureEditors(this);
     return n;
 }
@@ -131,6 +135,7 @@ void FilesPage::tagWidgets()
     tagOption(m_outputWriterCombo, "IO_OUTPUT_WRITER");
     tagOption(m_reportWriterCombo, "IO_REPORT_WRITER");
     tagOption(m_singleContainerBox, "IO_SINGLE_CONTAINER");
+    tagOption(m_absolutePathsBox, "WRITE_ABSOLUTE_PATHS");
     tagOption(m_reportFilePathEdit, "IO_REPORT_PATH");
     tagOption(m_outputFilePathEdit, "IO_OUTPUT_PATH");
 
@@ -812,6 +817,13 @@ void FilesPage::buildUi()
            "Input writer's plugin id."));
     m_singleContainerBox->setEnabled(false);
     writerForm->addRow(QString(), m_singleContainerBox);
+
+    m_absolutePathsBox = new QCheckBox(tr("Save file references as absolute paths"), writerGroup);
+    m_absolutePathsBox->setToolTip(
+        tr("Write rain, inflow, hot-start and other file references with full paths "
+           "(WRITE_ABSOLUTE_PATHS). Off (default) writes them relative to the saved input file, "
+           "so a project folder can be moved."));
+    writerForm->addRow(QString(), m_absolutePathsBox);
 
     connect(m_inputWriterCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             [this](int) { updateSingleContainerEnabled(); });

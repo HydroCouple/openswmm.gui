@@ -298,6 +298,14 @@ void HydraulicsPage::buildUi()
            "in slot program R2b."));
     fvForm->addRow(QString(), m_fvPressImplicitBox);
 
+    m_fvNodeFeedbackBox = new QCheckBox(
+        tr("Limit the step by junction feedback (FV_NODE_FEEDBACK_DT)"), m_fvGroup);
+    m_fvNodeFeedbackBox->setToolTip(
+        tr("Bound the finite-volume step by how fast each junction responds. Steadies flows at "
+           "stiff junctions and culverts, but can make pressurized networks run 10-14 times "
+           "longer. Off by default."));
+    fvForm->addRow(QString(), m_fvNodeFeedbackBox);
+
     // Not surfaced here on purpose: FV_DISPERSION (inert on every path — the
     // engine warns at open),
     // and the retired FV_NODE_COUPLING / FV_NODE_DT / FV_NODE_PICARD, which
@@ -597,6 +605,7 @@ void HydraulicsPage::tagWidgets()
     tagOption(m_fvSlotCeleritySpin, "FV_SLOT_CELERITY");
     tagOption(m_fvPressureClosureCombo, "FV_PRESSURE_CLOSURE");
     tagOption(m_fvPressImplicitBox, "FV_PRESSURIZED_IMPLICIT");
+    tagOption(m_fvNodeFeedbackBox, "FV_NODE_FEEDBACK_DT");
     tagOption(m_fvStructCouplingCombo, "FV_STRUCTURE_COUPLING");
     tagOption(m_fvCompactionBox, "FV_COMPACTION");
     tagOption(m_fvBackendCombo, "FV_BACKEND");
@@ -690,6 +699,9 @@ void HydraulicsPage::read()
     m_fvPressImplicitBox->setChecked(
         SimulationOptionsDialog::parseEngineBool(
             ctx_.option("FV_PRESSURIZED_IMPLICIT", QStringLiteral("NO"))) == Qt::Checked);
+    m_fvNodeFeedbackBox->setChecked(
+        SimulationOptionsDialog::parseEngineBool(
+            ctx_.option("FV_NODE_FEEDBACK_DT", QStringLiteral("NO"))) == Qt::Checked);
     // FV_SCALAR_SCHEME is NOT here: it stays on Quality & Transport >
     // Eulerian ARD (PLAN §1.4), even though it is an FV_* key.
     selectComboByData(m_fvStructCouplingCombo,
@@ -775,6 +787,8 @@ int HydraulicsPage::write()
                              m_fvPressureClosureCombo->currentData().toString());
     n += writeOption("FV_PRESSURIZED_IMPLICIT", SimulationOptionsDialog::engineBoolString(
                                                             m_fvPressImplicitBox->isChecked()));
+    n += writeOption("FV_NODE_FEEDBACK_DT", SimulationOptionsDialog::engineBoolString(
+                                                        m_fvNodeFeedbackBox->isChecked()));
     // FV_SCALAR_SCHEME is edited on the Quality & Transport page (ARD group)
     // but is an FV_* key; written with its siblings so the engine sees one
     // coherent FV block.

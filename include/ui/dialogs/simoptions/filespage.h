@@ -377,6 +377,7 @@ private:
     openswmmvis::ui::RelativePathPicker *m_runoffPathEdit = nullptr;
     QCheckBox *m_signedHeadsCheck = nullptr;
     QCheckBox *m_singleContainerBox = nullptr;
+    QCheckBox *m_absolutePathsBox = nullptr; ///< WRITE_ABSOLUTE_PATHS
     class QGroupBox *m_writersGroup = nullptr; ///< Tab 7 — writer / container group.
 };
 

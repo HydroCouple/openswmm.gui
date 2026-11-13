@@ -10,6 +10,9 @@
 #include "ui/dialogs/simoptions/qualitypage.h"
 
 #include <QCheckBox>
+#include <QLocale>
+#include <QLineEdit>
+#include <QDoubleValidator>
 #include <QComboBox>
 #include <QDoubleSpinBox>
 #include <QFormLayout>
@@ -199,6 +202,33 @@ void QualityPage::buildUi()
                                       "__TEMPERATURE__, reported in °C (option HEAT_TRANSPORT)."));
     resLay->addWidget(m_waterAgeBox);
     resLay->addWidget(m_heatTransportBox);
+    // Constants of the heat budget (CSH Table 4.1 names and defaults). Plain C-locale text:
+    // the wind coefficients are ~1e-8, which a spin box cannot show.
+    auto *heatForm = new QFormLayout;
+    const struct { const char *key; const char *label; const char *tip; } heatKeys[] = {
+        {"WATER_DENSITY", QT_TR_NOOP("Water density (kg/m³):"), QT_TR_NOOP("WATER_DENSITY; default 1000.")},
+        {"WATER_SPECIFIC_HEAT_CAPACITY", QT_TR_NOOP("Specific heat (J/kg·K):"),
+         QT_TR_NOOP("WATER_SPECIFIC_HEAT_CAPACITY; default 4184.")},
+        {"WIND_FUNC_COEFF_A", QT_TR_NOOP("Wind function A:"),
+         QT_TR_NOOP("WIND_FUNC_COEFF_A of the evaporative wind function; default 1.505e-8.")},
+        {"WIND_FUNC_COEFF_B", QT_TR_NOOP("Wind function B:"),
+         QT_TR_NOOP("WIND_FUNC_COEFF_B of the evaporative wind function; default 1.6e-8.")},
+        {"PRESSURE_RATIO", QT_TR_NOOP("Pressure ratio:"),
+         QT_TR_NOOP("PRESSURE_RATIO, local to sea-level air pressure; default 1.")},
+    };
+    for (const auto &k : heatKeys) {
+        auto *edit = new QLineEdit(resGroup);
+        auto *validator = new QDoubleValidator(0.0, 1e30, 17, edit);
+        validator->setNotation(QDoubleValidator::ScientificNotation);
+        QLocale c = QLocale::c();
+        c.setNumberOptions(QLocale::RejectGroupSeparator);
+        validator->setLocale(c);
+        edit->setValidator(validator);
+        edit->setToolTip(tr(k.tip));
+        heatForm->addRow(tr(k.label), edit);
+        m_heatConstants.append({QString::fromLatin1(k.key), edit});
+    }
+    resLay->addLayout(heatForm);
     // Both feed the dialog's "is there anything to transport?" row gate.
     connect(m_waterAgeBox, &QCheckBox::toggled, this, [this](bool) { emit gateInputsChanged(); });
     connect(m_heatTransportBox, &QCheckBox::toggled, this,
@@ -299,6 +329,8 @@ void QualityPage::tagWidgets()
     tagOption(m_rwptSeedSpin, "RWPT_SEED");
     tagOption(m_waterAgeBox, "WATER_AGE");
     tagOption(m_heatTransportBox, "HEAT_TRANSPORT");
+    for (const auto &[key, edit] : std::as_const(m_heatConstants))
+        tagOption(edit, key.toLatin1().constData());
     tagOption(m_fvScalarSchemeCombo, "FV_SCALAR_SCHEME");
 }
 
@@ -381,6 +413,11 @@ void QualityPage::read()
                                   ctx_.option("WATER_AGE", QStringLiteral("NO"))) == Qt::Checked);
     m_heatTransportBox->setChecked(SimulationOptionsDialog::parseEngineBool(ctx_.option(
                                        "HEAT_TRANSPORT", QStringLiteral("NO"))) == Qt::Checked);
+    for (const auto &[key, edit] : std::as_const(m_heatConstants)) {
+        bool ok = false;
+        const double v = ctx_.option(key.toLatin1().constData(), QString()).toDouble(&ok);
+        edit->setText(ok ? QString::number(v, 'g', 17) : QString());
+    }
     selectComboByData(m_fvScalarSchemeCombo,
                       ctx_.option("FV_SCALAR_SCHEME", QStringLiteral("MUSCL")));
     ctx_.captureEditors(this);
@@ -405,6 +442,9 @@ int QualityPage::write()
                              SimulationOptionsDialog::engineBoolString(m_waterAgeBox->isChecked()));
     n += writeOption("HEAT_TRANSPORT", SimulationOptionsDialog::engineBoolString(
                                                    m_heatTransportBox->isChecked()));
+    for (const auto &[key, edit] : std::as_const(m_heatConstants))
+        if (edit->hasAcceptableInput())
+            n += writeOption(key.toLatin1().constData(), edit->text().trimmed());
     n += writeOption("FV_SCALAR_SCHEME", m_fvScalarSchemeCombo->currentData().toString());
     ctx_.captureEditors(this);
     return n;
