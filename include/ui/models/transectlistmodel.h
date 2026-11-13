@@ -17,6 +17,7 @@
 
 #include <QAbstractListModel>
 #include <QPointer>
+#include <QVector>
 
 namespace openswmmvis::transect
 {
@@ -136,6 +137,8 @@ private:
     int indexOf_(openswmmvis::transect::TransectProvider *p) const;
 
     QPointer<openswmmvis::transect::TransectRegistry> m_registry;
+    /// Rows as last announced to views; changes only between begin*Rows and end*Rows.
+    QVector<openswmmvis::transect::TransectProvider *> m_rows;
 };
 
 } // namespace openswmmvis::ui

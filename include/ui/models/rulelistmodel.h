@@ -39,6 +39,7 @@
 
 #include <QAbstractListModel>
 #include <QPointer>
+#include <QVector>
 
 class SWMMModelLayer;
 
@@ -175,6 +176,10 @@ private:
     openswmmvis::controls::ControlRuleRegistry *registry_() const;
 
     QPointer<SWMMModelLayer> m_layer;
+    /// Registry the rows came from; null once it is destroyed.
+    QPointer<openswmmvis::controls::ControlRuleRegistry> m_bound;
+    /// Rows as last announced to views; changes only between begin*Rows and end*Rows.
+    QVector<openswmmvis::controls::ControlRuleProvider *> m_rows;
 };
 
 } // namespace openswmmvis::ui

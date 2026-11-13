@@ -12,6 +12,7 @@
 
 #include <QAbstractListModel>
 #include <QPointer>
+#include <QVector>
 
 namespace openswmmvis::inlet
 {
@@ -126,6 +127,8 @@ private:
     int indexOf_(openswmmvis::inlet::InletProvider *p) const;
 
     QPointer<openswmmvis::inlet::InletRegistry> m_registry;
+    /// Rows as last announced to views; changes only between begin*Rows and end*Rows.
+    QVector<openswmmvis::inlet::InletProvider *> m_rows;
 };
 
 } // namespace openswmmvis::ui
