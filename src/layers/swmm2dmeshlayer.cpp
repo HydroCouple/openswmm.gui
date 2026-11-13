@@ -345,7 +345,17 @@ public:
             fillRampName.isEmpty() ||
             fillRampName.compare(QLatin1String("terrain"), Qt::CaseInsensitive) == 0;
         const bool fillSchemeDrives = attrMode || fillClassified || fillScheme.useCustomRange() ||
-                                      fillScheme.invertRamp() || !fillDefaultRamp;
+                                      fillScheme.invertRamp() || !fillDefaultRamp ||
+                                      fillScheme.logScale() || fillScheme.belowColor().isValid() ||
+                                      fillScheme.aboveColor().isValid();
+        // Where the ramp starts: the log floor under a log scale, else the range minimum.
+        double fillRampStart = fillColorRange.first;
+        if (fillScheme.logScale()) {
+            const double floor = OpenSWMM::Render::ClassificationScheme::logFloor(
+                fillColorRange.first, fillColorRange.second);
+            if (std::isfinite(floor) && fillColorRange.second > floor)
+                fillRampStart = std::max(fillRampStart, floor);
+        }
         const QVector<double> fillClassEdges =
             fillClassified ? fillScheme.levelEdges(cMin, cMax, {}) : QVector<double>{};
 
@@ -366,7 +376,10 @@ public:
                     if (cValOk)
                         cVal = double(attrVals[attrIdx]);
                 }
-                if (!catMode && cValOk && (!std::isfinite(cVal) || cVal < fillColorRange.first))
+                // Below the ramp: the scheme's below colour when set, otherwise not drawn.
+                if (!catMode && cValOk &&
+                    (!std::isfinite(cVal) ||
+                     (cVal < fillRampStart && !fillScheme.belowColor().isValid())))
                     return false;
                 if (attrMode && !cValOk) {
                     const QColor nc = attrIdx >= 0 ? noDataColor : flatFill;
@@ -379,12 +392,10 @@ public:
                     cg = cc.green();
                     cb = cc.blue();
                 } else if (fillSchemeDrives) {
-                    const QColor sc =
-                        fillClassified ? fillScheme.colorForClass(
-                                             OpenSWMM::Render::ClassificationScheme::classIndexFor(
-                                                 cVal, fillClassEdges),
-                                             std::max(1, int(fillClassEdges.size()) - 1))
-                                       : fillScheme.colorForValue(cVal, cMin, cMax);
+                    // Log scale and below / above colours come with the scheme.
+                    const QColor sc = fillClassified
+                                          ? fillScheme.colorForClassified(cVal, fillClassEdges)
+                                          : fillScheme.colorForValue(cVal, cMin, cMax);
                     cr = sc.red();
                     cg = sc.green();
                     cb = sc.blue();
@@ -522,20 +533,37 @@ public:
                 v1 = t.z1;
                 v2 = t.z2;
             };
+            // The scheme's below / above colours: outer bands from the data's minimum to the
+            // first level and from the last level to the data's maximum (QSG parity).
+            const QColor belowCol = bandStyle ? bandStyle->scheme().belowColor() : QColor();
+            const QColor aboveCol = bandStyle ? bandStyle->scheme().aboveColor() : QColor();
+            const bool outerBelow = belowCol.isValid() && levels.size() >= 2 && zMin < levels.front();
+            const bool outerAbove = aboveCol.isValid() && levels.size() >= 2 && zMax > levels.back();
+            std::vector<double> marchLevels = levels;
+            if (outerBelow)
+                marchLevels.insert(marchLevels.begin(), zMin);
+            if (outerAbove)
+                marchLevels.push_back(zMax);
+            const int marchBands = int(marchLevels.size()) - 1;
             // "Interpolate band boundaries": off fills each cell flat with its band colour.
             const auto bands =
                 !bandStyle || bandStyle->smoothBands()
-                    ? OpenSWMM::Contour::marchingTrianglesIsobands(contourTris, levels, extract)
-                    : OpenSWMM::Contour::flatTriangleBands(contourTris, levels, extract);
+                    ? OpenSWMM::Contour::marchingTrianglesIsobands(contourTris, marchLevels, extract)
+                    : OpenSWMM::Contour::flatTriangleBands(contourTris, marchLevels, extract);
 
             p->setPen(Qt::NoPen);
             for (const auto &bp : bands) {
                 if (bp.verts.size() < 3)
                     continue;
-                const int idx = std::min(bp.bandIndex, nBands - 1);
+                const bool isBelow = outerBelow && bp.bandIndex == 0;
+                const bool isAbove = outerAbove && bp.bandIndex == marchBands - 1;
+                const int idx = std::clamp(bp.bandIndex - (outerBelow ? 1 : 0), 0, nBands - 1);
                 QColor col =
-                    bandStyle ? bandStyle->colorForBand(idx, nBands)
-                              : OpenSWMM::Contour::viridisAt((double(idx) + 0.5) / double(nBands));
+                    isBelow   ? belowCol
+                    : isAbove ? aboveCol
+                    : bandStyle
+                        ? bandStyle->colorForBand(idx, nBands)
+                        : OpenSWMM::Contour::viridisAt((double(idx) + 0.5) / double(nBands));
                 // Multiply, don't overwrite: the band colour's own alpha (a
                 // fully transparent class must vanish) composes with the
                 // sublayer opacity slider.
@@ -3373,6 +3401,7 @@ void SWMM2DMeshLayer::buildRuleListLazy() const
                                                         Writer write) {
         auto b = std::make_shared<RuleStyleBinding>();
         b->rule = ruleHandles[index];
+        b->name = ruleHandles[index]->name();
         b->kind = kind;
         b->defaults = seeds[index].build;
         b->read = std::move(read);
@@ -3386,22 +3415,48 @@ void SWMM2DMeshLayer::buildRuleListLazy() const
         QObject::connect(ruleHandles[index], &Rule::rendererReplaced, self,
                          [b] { applyRuleEdit(*b); });
         m_ruleBindings.append(b);
+        return b;
     };
     const auto rgb = [](const QVariant &v) { return v.value<QColor>(); };
+    // The dock's colour pickers mean "none" by a fully transparent colour.
+    const auto optionalColor = [](const QColor &c) { return c.isValid() ? c : QColor(0, 0, 0, 0); };
+    const auto fromOptional = [](const QVariant &v) {
+        const QColor c = v.value<QColor>();
+        return c.isValid() && c.alpha() > 0 ? c : QColor();
+    };
 
-    // ── Mesh fill: the elevation ramp (two colours, fixed range) ────────
+    // ── Mesh fill: the fill's attribute and classification (two colours, fixed range, log
+    //    scale, colours outside the range) ───────────────────────────────
     bind(0, SymbolLayerKind::RasterColorRamp, m_meshFillSublayer,
-         [self] {
-             const auto &sc = self->m_meshFillSublayer->fillStyle()->scheme();
-             return Props{{QStringLiteral("lowColor"), sc.lowColor()},
+         [self, optionalColor] {
+             const auto *st = self->m_meshFillSublayer->fillStyle();
+             const auto &sc = st->scheme();
+             return Props{{QStringLiteral("attribute"),
+                           QString::fromLatin1(MeshFillStyle::attributeKey(st->colorByAttribute()))},
+                          {QStringLiteral("lowColor"), sc.lowColor()},
                           {QStringLiteral("highColor"), sc.highColor()},
                           {QStringLiteral("minValue"), sc.rangeMin()},
-                          {QStringLiteral("maxValue"), sc.rangeMax()}};
+                          {QStringLiteral("maxValue"), sc.rangeMax()},
+                          {QStringLiteral("useLogScale"), sc.logScale()},
+                          {QStringLiteral("belowMinColor"), optionalColor(sc.belowColor())},
+                          {QStringLiteral("aboveMaxColor"), optionalColor(sc.aboveColor())}};
          },
-         [self, rgb](const QString &key, const QVariant &v) {
+         [self, rgb, fromOptional](const QString &key, const QVariant &v) {
              auto *st = self->m_meshFillSublayer->fillStyle();
+             if (key == QLatin1String("attribute")) {
+                 // The cell attribute the fill colours by (elevation, mannings, initDepth, …).
+                 st->setColorByAttribute(
+                     MeshFillStyle::attributeFromKey(v.toString().trimmed().toLatin1()));
+                 return;
+             }
              auto sc = st->scheme();
-             if (key == QLatin1String("lowColor") || key == QLatin1String("highColor")) {
+             if (key == QLatin1String("useLogScale")) {
+                 sc.setLogScale(v.toBool());
+             } else if (key == QLatin1String("belowMinColor")) {
+                 sc.setBelowColor(fromOptional(v));
+             } else if (key == QLatin1String("aboveMaxColor")) {
+                 sc.setAboveColor(fromOptional(v));
+             } else if (key == QLatin1String("lowColor") || key == QLatin1String("highColor")) {
                  // Picked colours replace a named ramp: the two-colour gradient.
                  sc.setRampName(QString());
                  key == QLatin1String("lowColor") ? sc.setLowColor(rgb(v)) : sc.setHighColor(rgb(v));
@@ -3451,14 +3506,18 @@ void SWMM2DMeshLayer::buildRuleListLazy() const
          [self] { return contourBandProps(*self->m_contourBandSublayer->bandStyle()); },
          [self](const QString &key, const QVariant &v) {
              writeContourBandProp(self->m_contourBandSublayer->bandStyle(), key, v);
-         });
+         })
+        ->ignored = {{QStringLiteral("attribute"),
+                      tr("The bands contour the bed elevation.")}};
 
     // ── Contour lines ───────────────────────────────────────────────────
     bind(3, SymbolLayerKind::Contour, m_isolineSublayer,
          [self] { return isolineProps(*self->m_isolineSublayer->isolineStyle()); },
          [self](const QString &key, const QVariant &v) {
              writeIsolineProp(self->m_isolineSublayer->isolineStyle(), key, v);
-         });
+         })
+        ->ignored = {{QStringLiteral("attribute"),
+                      tr("The contour lines follow the bed elevation.")}};
 
     // ── Mesh edges ──────────────────────────────────────────────────────
     bind(4, SymbolLayerKind::MeshEdge, m_meshEdgeSublayer,
@@ -3468,11 +3527,34 @@ void SWMM2DMeshLayer::buildRuleListLazy() const
          });
 
     // ── Mesh nodes (MeshNodeStyle draws Circle / Square / Triangle / Diamond)
+    //    Tagged vertices are the coupled vertices: the Coupled Vertices row draws them.
     bind(5, SymbolLayerKind::MeshNode, m_meshNodeSublayer,
-         [self] { return meshNodeProps(*self->m_meshNodeSublayer->nodeStyle()); },
+         [self] {
+             Props props = meshNodeProps(*self->m_meshNodeSublayer->nodeStyle());
+             if (auto *coupled = self->m_coupledNodeSublayer) {
+                 props.insert(QStringLiteral("highlightTagged"), coupled->isVisible());
+                 props.insert(QStringLiteral("taggedColor"), coupled->coupledStyle()->color());
+                 props.insert(QStringLiteral("taggedSizePx"),
+                              coupled->coupledStyle()->markerSizePx());
+             }
+             return props;
+         },
          [self](const QString &key, const QVariant &v) {
-             writeMeshNodeProp(self->m_meshNodeSublayer->nodeStyle(), key, v);
+             auto *coupled = self->m_coupledNodeSublayer;
+             if (coupled && key == QLatin1String("highlightTagged"))
+                 coupled->setVisible(v.toBool());
+             else if (coupled && key == QLatin1String("taggedColor"))
+                 coupled->coupledStyle()->setColor(v.value<QColor>());
+             else if (coupled && key == QLatin1String("taggedSizePx"))
+                 coupled->coupledStyle()->setMarkerSizePx(v.toDouble());
+             else
+                 writeMeshNodeProp(self->m_meshNodeSublayer->nodeStyle(), key, v);
          });
+
+    // Style Manager → Apply replaces every rule: bind the loaded ones by name.
+    QObject::connect(m_ruleList.get(), &RuleList::ruleListChanged, self, [self] {
+        rebindRuleBindings(self->m_ruleList.get(), self->m_ruleBindings, self);
+    });
 }
 
 std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>> SWMM2DMeshLayer::styleSubjects()

@@ -12,6 +12,7 @@
 #include "render/attributesource.h"
 #include "render/intervalbinner.h"
 #include "ui/dialogs/editors/classificationbindings.h"
+#include "ui/widgets/colorbutton.h"
 #include "ui/widgets/colorcelldelegate.h"
 #include "ui/widgets/colorrampcombobox.h"
 #include "ui/precisenumericvalue.h"
@@ -192,6 +193,58 @@ void ClassificationEditor::buildUi()
         l->addWidget(m_rangeMaxSpin, 1);
     }
     form->addRow(m_customRangeRow);
+
+    // Log scale and the colours of values outside the range (opt-in per host).
+    m_outsideRow = new QWidget(box);
+    {
+        auto *grid = new QFormLayout(m_outsideRow);
+        grid->setContentsMargins(0, 0, 0, 0);
+        m_logCheck = new QCheckBox(tr("Logarithmic scale"), m_outsideRow);
+        m_logCheck->setObjectName(QStringLiteral("classificationLogScale"));
+        m_logCheck->setToolTip(tr("Space the colour ramp and equal-interval classes "
+                                  "logarithmically. A range starting at or below zero starts at "
+                                  "a thousandth of its maximum."));
+        grid->addRow(m_logCheck);
+        const auto outsideRow = [&](const QString &text, const QString &name, QCheckBox *&check,
+                                    ColorButton *&button, const QColor &initial) {
+            auto *row = new QWidget(m_outsideRow);
+            auto *l = new QHBoxLayout(row);
+            l->setContentsMargins(0, 0, 0, 0);
+            check = new QCheckBox(text, row);
+            check->setObjectName(name + QStringLiteral("Check"));
+            button = new ColorButton(row);
+            button->setObjectName(name + QStringLiteral("Color"));
+            button->setShowAlpha(true);
+            button->setColor(initial);
+            button->setAccessibleName(text);
+            l->addWidget(check);
+            l->addWidget(button);
+            l->addStretch();
+            grid->addRow(row);
+        };
+        outsideRow(tr("Colour values below the range"), QStringLiteral("classificationBelow"),
+                   m_belowCheck, m_belowBtn, QColor(170, 170, 170));
+        outsideRow(tr("Colour values above the range"), QStringLiteral("classificationAbove"),
+                   m_aboveCheck, m_aboveBtn, QColor(60, 60, 60));
+        m_belowCheck->setToolTip(tr("Unchecked, values below the range are not drawn."));
+        m_aboveCheck->setToolTip(tr("Unchecked, values above the range take the top colour."));
+    }
+    m_outsideRow->setVisible(false);
+    form->addRow(m_outsideRow);
+    connect(m_logCheck, &QCheckBox::toggled, this,
+            [this](bool on) { mutateScheme([&](ClassificationScheme &s) { s.setLogScale(on); }); });
+    const auto pushOutside = [this] {
+        mutateScheme([&](ClassificationScheme &s) {
+            s.setBelowColor(m_belowCheck->isChecked() ? m_belowBtn->color() : QColor());
+            s.setAboveColor(m_aboveCheck->isChecked() ? m_aboveBtn->color() : QColor());
+        });
+        m_belowBtn->setEnabled(m_belowCheck->isChecked());
+        m_aboveBtn->setEnabled(m_aboveCheck->isChecked());
+    };
+    connect(m_belowCheck, &QCheckBox::toggled, this, pushOutside);
+    connect(m_aboveCheck, &QCheckBox::toggled, this, pushOutside);
+    connect(m_belowBtn, &ColorButton::colorChanged, this, pushOutside);
+    connect(m_aboveBtn, &ColorButton::colorChanged, this, pushOutside);
 
     // Label number format (decimal places vs significant figures) — GIS-style
     // control over how class-edge values are rendered in the table + legend.
@@ -379,10 +432,30 @@ void ClassificationEditor::refresh()
         m_labelFormatCombo->setCurrentIndex(m_labelFormatCombo->findData(int(s.labelFormat())));
         m_labelPrecisionSpin->setValue(s.labelPrecision());
     }
+    {
+        QSignalBlocker bl(m_logCheck), bb(m_belowCheck), ba(m_aboveCheck), cb(m_belowBtn),
+            ca(m_aboveBtn);
+        m_logCheck->setChecked(s.logScale());
+        m_belowCheck->setChecked(s.belowColor().isValid());
+        m_aboveCheck->setChecked(s.aboveColor().isValid());
+        if (s.belowColor().isValid())
+            m_belowBtn->setColor(s.belowColor());
+        if (s.aboveColor().isValid())
+            m_aboveBtn->setColor(s.aboveColor());
+        m_belowBtn->setEnabled(s.belowColor().isValid());
+        m_aboveBtn->setEnabled(s.aboveColor().isValid());
+    }
 
     applyVisibility();
     rebuildTable();
     m_suppress = false;
+}
+
+void ClassificationEditor::setOutsideRangeControlsVisible(bool on)
+{
+    m_outsideControls = on;
+    if (m_outsideRow)
+        m_outsideRow->setVisible(on);
 }
 
 void ClassificationEditor::applyVisibility()

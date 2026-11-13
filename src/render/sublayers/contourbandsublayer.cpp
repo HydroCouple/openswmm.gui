@@ -77,15 +77,19 @@ void ContourBandStyle::setHighColor(const QColor &v)
 }
 void ContourBandStyle::setBelowMinColor(const QColor &v)
 {
-    if (m_belowMinColor != v) {
-        m_belowMinColor = v;
+    // Transparent means unset: values below the range are not drawn.
+    const QColor c = v.isValid() && v.alpha() > 0 ? v : QColor();
+    if (m_scheme.belowColor() != c) {
+        m_scheme.setBelowColor(c);
         setDirty();
     }
 }
 void ContourBandStyle::setAboveMaxColor(const QColor &v)
 {
-    if (m_aboveMaxColor != v) {
-        m_aboveMaxColor = v;
+    // Transparent means unset: values above the range take the last band.
+    const QColor c = v.isValid() && v.alpha() > 0 ? v : QColor();
+    if (m_scheme.aboveColor() != c) {
+        m_scheme.setAboveColor(c);
         setDirty();
     }
 }
@@ -135,8 +139,6 @@ QJsonObject ContourBandStyle::toJson() const
 {
     QJsonObject obj;
     obj.insert(QStringLiteral("attribute"), m_attribute);
-    obj.insert(QStringLiteral("belowMinColor"), m_belowMinColor.name(QColor::HexArgb));
-    obj.insert(QStringLiteral("aboveMaxColor"), m_aboveMaxColor.name(QColor::HexArgb));
     obj.insert(QStringLiteral("smoothBands"), m_smoothBands);
     obj.insert(QStringLiteral("classification"), m_scheme.toJson());
     return obj;
@@ -147,20 +149,20 @@ void ContourBandStyle::fromJson(const QJsonObject &j)
     m_attribute = j.value(QStringLiteral("attribute")).toString(m_attribute);
     m_smoothBands = j.value(QStringLiteral("smoothBands")).toBool(m_smoothBands);
 
-    auto readColor = [&](const char *key, QColor &slot) {
-        const QString t = j.value(QString::fromLatin1(key)).toString();
-        if (!t.isEmpty()) {
-            const QColor c(t);
-            if (c.isValid())
-                slot = c;
-        }
-    };
-    readColor("belowMinColor", m_belowMinColor);
-    readColor("aboveMaxColor", m_aboveMaxColor);
-
     if (j.contains(QStringLiteral("classification")))
         m_scheme =
             ClassificationScheme::fromJson(j.value(QStringLiteral("classification")).toObject());
+
+    // Older files kept below / above colours here, which nothing drew. A value other than
+    // those defaults (transparent / RGBA(255,255,255,200)) was set on purpose: it carries over.
+    const auto legacy = [&](const char *key, const QColor &oldDefault) {
+        const QColor c(j.value(QLatin1String(key)).toString());
+        return c.isValid() && c.alpha() > 0 && c != oldDefault ? c : QColor();
+    };
+    if (!m_scheme.belowColor().isValid())
+        m_scheme.setBelowColor(legacy("belowMinColor", QColor(0, 0, 0, 0)));
+    if (!m_scheme.aboveColor().isValid())
+        m_scheme.setAboveColor(legacy("aboveMaxColor", QColor(255, 255, 255, 200)));
 
     setDirty();
 }

@@ -5013,6 +5013,8 @@ add_swmmvis_gui_test(test_2dstyle_render_gaps
     ${SWMMVIS_TEST_EXTRA_SOURCES}
 )
 swmmvis_link_full_app_deps(test_2dstyle_render_gaps)
+target_compile_definitions(test_2dstyle_render_gaps PRIVATE
+    SWMMVIS_STYLE_GAPS_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/style_render_gaps_2026-11-13")
 
 # Review E-05 (workplans/GUI_COMPREHENSIVE_REVIEW_2026-11-12.md): renaming a
 # pollutant must keep the co-pollutant links that name it through the next

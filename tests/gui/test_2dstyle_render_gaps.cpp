@@ -27,6 +27,7 @@
 #include "render/isublayerhost.h"
 #include "render/rule.h"
 #include "render/rulelist.h"
+#include "render/rulelistio.h"
 #include "render/sublayers/contourbandsublayer.h"
 #include "render/sublayers/isolinesublayer.h"
 #include "render/sublayers/meshbcsublayer.h"
@@ -35,10 +36,17 @@
 #include "render/sublayers/meshnodesublayer.h"
 #include "render/sublayers/resultvectorsublayer.h"
 #include "render/sublayers/scalarfillsublayer.h"
+#include "render/classificationcolorsampler.h"
+#include "render/classificationscheme.h"
+#include "render/sublayers/couplednodesublayer.h"
 #include "render/symbolstyleadapter.h"
+#include "ui/dialogs/istyleeditorwidget.h"
 #include "ui/dialogs/swmm2dresultsstylepanel.h"
 
 #include <QCheckBox>
+#include <QAbstractSpinBox>
+#include <QLineEdit>
+#include <QDir>
 #include <QDoubleSpinBox>
 #include <QGraphicsScene>
 #include <QImage>
@@ -51,6 +59,8 @@
 
 using namespace OpenSWMM::Render;
 using namespace openswmmvis::io;
+using openswmmvis::ui::IStyleEditorWidget;
+using openswmmvis::ui::StyleEditorRegistry;
 using V = Mesh2DResultVariable;
 using S = Mesh2DValueStatus;
 
@@ -201,6 +211,7 @@ public:
     QVector<V> catalog{variable("Mesh2_face_depth", "Surface — overland flow depth", "m"),
                        variable("Mesh2_face_vx", "Surface — cell velocity X", "m s-1"),
                        variable("Mesh2_face_vy", "Surface — cell velocity Y", "m s-1")};
+    std::vector<double> bed{0, 0, 0, 0}; // vertex bed elevations
     QHash<QString, std::vector<float>> values{{"Mesh2_face_depth", {1, 2}},
                                               {"Mesh2_face_vx", {1, 3}},
                                               {"Mesh2_face_vy", {0, 4}}};
@@ -212,7 +223,7 @@ public:
     {
         x = {0, 1, 1, 0};
         y = {0, 0, 1, 1};
-        z = {0, 0, 0, 0};
+        z = bed;
         tris = {{0, 1, 2}, {0, 2, 3}};
         return true;
     }
@@ -260,6 +271,13 @@ public:
         return ref;
     }
 };
+/** @return A path in the suite's reviewable output folder (tests/output/...). */
+QString outputPath(const QString &name)
+{
+    const QString dir = QStringLiteral(SWMMVIS_STYLE_GAPS_OUTPUT);
+    QDir().mkpath(dir);
+    return dir + QLatin1Char('/') + name;
+}
 /** @return The layer's rule by name. */
 Rule *ruleNamed(RuleList *rules, const QString &name)
 {
@@ -441,6 +459,31 @@ private slots:
         QVERIFY(layer.contourBandSublayer()->bandStyle()->colorRampName().isEmpty());
     }
 
+    /** @brief Style Manager → Apply (a saved rule list loaded into the layer's list) restores the
+     *  saved styles, and the dock still edits the layer afterwards. */
+    void styleManagerApplyReachesTheStyles()
+    {
+        SWMM2DMeshLayer layer(squareMesh(), "style-apply.2dm");
+        auto *st = layer.meshEdgeSublayer()->edgeStyle();
+        st->setColor(QColor(220, 20, 30));
+        st->setLineWidthPx(3);
+        const QString path = outputPath("mesh_edges.swmm-rule.json");
+        QVERIFY(RuleListIO::save(layer.ruleList(), path).ok);
+        st->setColor(QColor(20, 60, 220));
+        st->setLineWidthPx(1);
+        QVERIFY(RuleListIO::load(path, layer.ruleList()).ok); // what Style Manager → Apply does
+        QCOMPARE(st->color(), QColor(220, 20, 30));
+        QCOMPARE(st->lineWidthPx(), 3.);
+        Rule *rule = ruleNamed(layer.ruleList(), "Mesh edges");
+        QVERIFY(rule);
+        std::unique_ptr<QObject> adapter(SymbolStyleAdapter::createFor(rule));
+        auto *edges = qobject_cast<MeshEdgeSymbolStyleAdapter *>(adapter.get());
+        QVERIFY(edges);
+        edges->setLineWidthPx(5);
+        QCOMPARE(st->lineWidthPx(), 5.);
+        QCOMPARE(st->color(), QColor(220, 20, 30));
+    }
+
     // ── Results layer ───────────────────────────────────────────────────────
     /** @brief The results terrain row draws nothing, so it is not listed. */
     void resultsTerrainRowNotListed()
@@ -572,6 +615,251 @@ private slots:
         QVERIFY(rangeMin->isEnabled());
         vs->setSizeMode(ResultVectorStyle::SizeMode::Constant);
         QVERIFY(!shortest->isEnabled() && !rangeMin->isEnabled());
+    }
+
+    // ── Round 2 (owner decisions D1–D6) ─────────────────────────────────────
+    /** @brief The colour scheme's log scale, outside-the-range colours and their JSON. */
+    void schemeLogScaleAndOutsideColours()
+    {
+        ClassificationScheme sc;
+        sc.setMode(ClassificationScheme::ClassMode::Continuous);
+        sc.setRampName(QString());
+        sc.setLowColor(Qt::black);
+        sc.setHighColor(Qt::white);
+        QCOMPARE(ClassificationScheme::logFloor(0.0, 10.0), 0.01); // three decades
+        QCOMPARE(ClassificationScheme::logFloor(2.0, 10.0), 2.0);
+        QVERIFY(std::isnan(ClassificationScheme::logFloor(-1.0, 0.0)));
+        // Linear: 10 of [0, 100] is 10 % up the ramp; log from 0.1: a third.
+        QVERIFY(qAbs(sc.rampPosition(10, 0, 100) - 0.1) < 1e-12);
+        sc.setLogScale(true);
+        QVERIFY(qAbs(sc.rampPosition(10, 0, 100) - 2.0 / 3.0) < 1e-12);
+        QVERIFY(sc.rampPosition(0.05, 0, 100) < 0); // below the floor
+        QCOMPARE(sc.colorForValue(0.05, 0, 100).alpha(), 0); // not drawn
+        sc.setBelowColor(QColor(0, 200, 0));
+        sc.setAboveColor(QColor(200, 0, 0));
+        QCOMPARE(sc.colorForValue(0.05, 0, 100), QColor(0, 200, 0));
+        sc.setUseCustomRange(true);
+        sc.setRangeMin(1);
+        sc.setRangeMax(50);
+        QCOMPARE(sc.colorForValue(80, 0, 100), QColor(200, 0, 0));
+        // Equal-interval classes are log-spaced.
+        sc.setMode(ClassificationScheme::ClassMode::Classified);
+        sc.setClassCount(2);
+        sc.setRangeMin(1);
+        sc.setRangeMax(100);
+        const auto edges = sc.levelEdges(0, 1000, {});
+        QCOMPARE(edges.size(), 3);
+        QVERIFY(qAbs(edges[1] - 10.0) < 1e-9);
+        QCOMPARE(sc.colorForClassified(0.5, edges), QColor(0, 200, 0));
+        QCOMPARE(sc.colorForClassified(500, edges), QColor(200, 0, 0));
+        // Saved and read back; files without them read as before.
+        const auto back = ClassificationScheme::fromJson(sc.toJson());
+        QVERIFY(back == sc);
+        QVERIFY(back.logScale());
+        QCOMPARE(back.belowColor(), QColor(0, 200, 0));
+        QVERIFY(!ClassificationScheme().toJson().contains("logScale"));
+        QVERIFY(!ClassificationScheme().toJson().contains("belowColor"));
+    }
+    /** @brief The mesh fill draws cells below its range in the below colour. */
+    void meshFillDrawsBelowTheRange()
+    {
+        auto mesh = squareMesh();
+        mesh.triangles[0].mannings = .02; // below the range
+        mesh.triangles[1].mannings = .08;
+        SWMM2DMeshLayer layer(mesh, "fill-below.2dm");
+        showOnly(layer, {layer.meshFillSublayer()});
+        auto *st = layer.meshFillSublayer()->fillStyle();
+        st->setColorByAttribute(MeshFillStyle::CellAttribute::Mannings);
+        auto sc = st->scheme();
+        sc.setMode(ClassificationScheme::ClassMode::Continuous);
+        sc.setUseCustomRange(true);
+        sc.setRangeMin(.05);
+        sc.setRangeMax(.1);
+        st->setScheme(sc);
+        MeshRenderer renderer;
+        attach(renderer, layer);
+        std::unique_ptr<QSGNode> root(renderer.sync());
+        QCOMPARE(coloredVertices(root.get()), 3); // the cell below the range is not drawn
+        sc.setBelowColor(QColor(0, 220, 0));
+        st->setScheme(sc);
+        root.reset(renderer.sync(root.release()));
+        QCOMPARE(coloredVertices(root.get()), 6);
+        QCOMPARE(coloredWhere(root.get(), [](const auto &v) { return v.g > 2 * v.r && v.g > 2 * v.b; }), 3);
+    }
+    /** @brief The results depth fill draws below its range (below colour) and log-scales. */
+    void resultsDepthFillOutsideAndLog()
+    {
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<FieldSource>()); // depths 1 and 2 at t0
+        layer.setCurrentTimeIndex(0);
+        for (auto *sub : layer.sublayers())
+            sub->setVisible(false);
+        auto *cell = layer.cellDepthFillSublayer();
+        cell->setVisible(true);
+        auto *st = cell->fillStyle();
+        st->setClassified(false);
+        st->setUseCustomRange(true);
+        st->setRangeMin(1.5);
+        st->setRangeMax(3);
+        ResultsRenderer renderer;
+        attach(renderer, layer);
+        std::unique_ptr<QSGNode> root(renderer.sync());
+        const int inRange = coloredVertices(root.get());
+        QVERIFY(inRange > 0);
+        auto sc = st->scheme();
+        sc.setBelowColor(QColor(0, 220, 0));
+        st->setScheme(sc);
+        root.reset(renderer.sync(root.release()));
+        QVERIFY(coloredVertices(root.get()) > inRange);
+        QVERIFY(coloredWhere(root.get(), [](const auto &v) { return v.g > 2 * v.r && v.g > 2 * v.b; }) > 0);
+        // The sampler the fills use follows the log scale over the custom range [1.5, 3].
+        sc.setLogScale(true);
+        const ClassificationColorSampler sampler(sc, 0, 100);
+        QVERIFY(sampler.logScale());
+        QVERIFY(qAbs(sampler.position(1.5)) < 1e-12);
+        QVERIFY(qAbs(sampler.position(3.0) - 1.0) < 1e-12);
+        QVERIFY(qAbs(sampler.position(std::sqrt(1.5 * 3.0)) - 0.5) < 1e-12); // geometric middle
+        QVERIFY(qAbs(sampler.valueAt(0.5) - std::sqrt(1.5 * 3.0)) < 1e-9);
+    }
+    /** @brief Band below / above colours fill the regions outside the band range. */
+    void bandsDrawOutsideTheirRange()
+    {
+        SWMM2DMeshLayer layer(squareMesh(), "bands-outside.2dm"); // bed 0 … 2
+        showOnly(layer, {layer.contourBandSublayer()});
+        auto *st = layer.contourBandSublayer()->bandStyle();
+        st->setSmoothBands(false);
+        auto sc = st->scheme();
+        sc.setUseCustomRange(true);
+        sc.setRangeMin(1.5); // both cells (mean bed 1) lie below
+        sc.setRangeMax(2);
+        st->setScheme(sc);
+        MeshRenderer renderer;
+        attach(renderer, layer);
+        std::unique_ptr<QSGNode> root(renderer.sync());
+        QCOMPARE(coloredVertices(root.get()), 0);
+        st->setBelowMinColor(QColor(0, 220, 0)); // what the dock band rule writes
+        QVERIFY(st->scheme().belowColor().isValid());
+        root.reset(renderer.sync(root.release()));
+        QCOMPARE(coloredWhere(root.get(), [](const auto &v) { return v.g > 2 * v.r && v.g > 2 * v.b; }), 6);
+        // The old default above colour (never drawn) does not come back from a file.
+        QJsonObject old = st->toJson();
+        old.insert("aboveMaxColor", "#c8ffffff");
+        st->fromJson(old);
+        QVERIFY(!st->scheme().aboveColor().isValid());
+    }
+    /** @brief Results edges widen steep edges (slope emphasis) on QSG and the CPU path, and the
+     *  results Edges tab edits it. */
+    void resultsSlopeEmphasisDraws()
+    {
+        auto source = std::make_unique<FieldSource>();
+        source->bed = {0, 0, 1, 1}; // edges (1,0)-(1,1) and (0,1)-(0,0) are the steepest
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::move(source));
+        layer.setCurrentTimeIndex(0);
+        for (auto *sub : layer.sublayers())
+            sub->setVisible(false);
+        layer.meshEdgeSublayer()->setVisible(true);
+        auto *es = layer.meshEdgeSublayer()->edgeStyle();
+        const QColor red(220, 20, 30), blue(20, 60, 220);
+        es->setColor(red);
+        es->setLineWidthPx(2);
+        es->setUseSlopeDrivenWidth(true);
+        es->setSlopeBreak(.9);
+        es->setWideColor(blue);
+        es->setWideWidthPx(6);
+        ResultsRenderer renderer;
+        attach(renderer, layer);
+        std::unique_ptr<QSGNode> root(renderer.sync());
+        QCOMPARE(flatVertices(root.get(), blue), 12); // two steep edges
+        QCOMPARE(flatVertices(root.get(), red), 18);  // three others
+        QVERIFY(pixels(paint(layer), blue) > 0);
+        es->setUseSlopeDrivenWidth(false);
+        root.reset(renderer.sync(root.release()));
+        QCOMPARE(flatVertices(root.get(), blue), 0);
+
+        openswmmvis::ui::Swmm2DResultsStylePanel panel(&layer);
+        QVERIFY(panel.focusResult(layer.meshEdgeSublayer()->id()));
+        auto *check = panel.findChild<QCheckBox *>("resultEdgeSlopeDriven");
+        QVERIFY(check);
+        check->setChecked(true);
+        QVERIFY(es->useSlopeDrivenWidth());
+    }
+    /** @brief The results dock lists no Hillshade rule (the results draw no terrain). */
+    void resultsRulesHaveNoHillshade()
+    {
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<FieldSource>());
+        QCOMPARE(layer.ruleList()->count(), 6);
+        QVERIFY(!ruleNamed(layer.ruleList(), "Hillshade"));
+        QVERIFY(ruleNamed(layer.ruleList(), "Depth color ramp"));
+    }
+    /** @brief The colour-ramp rules write the log scale, the colours outside the range and (mesh)
+     *  the fill's attribute; controls a layer does not draw are greyed in the dock's editor. */
+    void dockRampRulesWriteTheNewFields()
+    {
+        SWMM2DMeshLayer mesh(squareMesh(), "dock-ramp.2dm");
+        std::unique_ptr<QObject> adapter(
+            SymbolStyleAdapter::createFor(ruleNamed(mesh.ruleList(), "Mesh fill")));
+        auto *ramp = qobject_cast<RasterColorRampSymbolStyleAdapter *>(adapter.get());
+        QVERIFY(ramp);
+        ramp->setUseLogScale(true);
+        ramp->setBelowMinColor(QColor(0, 220, 0));
+        ramp->setAttribute("mannings");
+        auto *fill = mesh.meshFillSublayer()->fillStyle();
+        QVERIFY(fill->scheme().logScale());
+        QCOMPARE(fill->scheme().belowColor(), QColor(0, 220, 0));
+        QCOMPARE(fill->colorByAttribute(), MeshFillStyle::CellAttribute::Mannings);
+        ramp->setBelowMinColor(QColor(0, 0, 0, 0)); // transparent: none
+        QVERIFY(!fill->scheme().belowColor().isValid());
+
+        SWMM2DResultsLayer results;
+        results.setSource(std::make_unique<FieldSource>());
+        std::unique_ptr<QObject> depthAdapter(
+            SymbolStyleAdapter::createFor(ruleNamed(results.ruleList(), "Depth color ramp")));
+        auto *depth = qobject_cast<RasterColorRampSymbolStyleAdapter *>(depthAdapter.get());
+        QVERIFY(depth);
+        depth->setAboveMaxColor(QColor(200, 0, 0));
+        QCOMPARE(results.cellDepthFillSublayer()->fillStyle()->scheme().aboveColor(),
+                 QColor(200, 0, 0));
+        // Greyed with the reason: the results Attribute; enabled on the mesh layer.
+        const auto attributeEdit = [](QWidget *editor) -> QLineEdit * {
+            for (auto *edit : editor->findChildren<QLineEdit *>())
+                if (!qobject_cast<QAbstractSpinBox *>(edit->parentWidget()))
+                    return edit; // the Attribute field, not a spin box's text
+            return nullptr;
+        };
+        std::unique_ptr<IStyleEditorWidget> editor(
+            StyleEditorRegistry::instance().createEditorFor(depthAdapter.get(), nullptr));
+        QVERIFY(editor);
+        auto *attr = attributeEdit(editor.get());
+        QVERIFY(attr && !attr->isEnabled() && !attr->toolTip().isEmpty());
+        std::unique_ptr<IStyleEditorWidget> meshEditor(
+            StyleEditorRegistry::instance().createEditorFor(adapter.get(), nullptr));
+        QVERIFY(meshEditor && attributeEdit(meshEditor.get())->isEnabled());
+    }
+    /** @brief The vertex rule's tagged settings drive the mesh layer's Coupled Vertices row;
+     *  on results they are greyed. */
+    void dockTaggedSettingsDriveCoupledVertices()
+    {
+        SWMM2DMeshLayer mesh(squareMesh(), "dock-tagged.2dm");
+        mesh.coupledNodeSublayer()->setVisible(true);
+        std::unique_ptr<QObject> adapter(
+            SymbolStyleAdapter::createFor(ruleNamed(mesh.ruleList(), "Mesh nodes")));
+        auto *nodes = qobject_cast<MeshNodeSymbolStyleAdapter *>(adapter.get());
+        QVERIFY(nodes);
+        QVERIFY(nodes->highlightTagged()); // seeded from the row
+        nodes->setTaggedColor(QColor(10, 200, 220));
+        nodes->setTaggedSizePx(11);
+        nodes->setHighlightTagged(false);
+        QCOMPARE(mesh.coupledNodeSublayer()->coupledStyle()->color(), QColor(10, 200, 220));
+        QCOMPARE(mesh.coupledNodeSublayer()->coupledStyle()->markerSizePx(), 11.);
+        QVERIFY(!mesh.coupledNodeSublayer()->isVisible());
+
+        SWMM2DResultsLayer results;
+        results.setSource(std::make_unique<FieldSource>());
+        std::unique_ptr<QObject> resultsAdapter(
+            SymbolStyleAdapter::createFor(ruleNamed(results.ruleList(), "Mesh nodes")));
+        QVERIFY(resultsAdapter->property("ignoredKeys").toMap().contains("taggedColor"));
     }
 };
 

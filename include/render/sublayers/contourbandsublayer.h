@@ -85,12 +85,18 @@ public:
     /** @brief Read the two-color ramp upper endpoint.
      * @return Stored/forwarded value; initially RGBA(200,220,255,200). */
     [[nodiscard]] QColor highColor() const { return m_scheme.highColor(); }
-    /** @brief Read the below-range fallback color.
-     * @return Stored/forwarded value; initially transparent. */
-    [[nodiscard]] QColor belowMinColor() const { return m_belowMinColor; }
-    /** @brief Read the above-range fallback color.
-     * @return Stored/forwarded value; initially RGBA(255,255,255,200). */
-    [[nodiscard]] QColor aboveMaxColor() const { return m_aboveMaxColor; }
+    /** @brief Read the colour of values below the band range (the scheme's below colour).
+     * @return Transparent when unset (nothing drawn there), the initial state. */
+    [[nodiscard]] QColor belowMinColor() const
+    {
+        return m_scheme.belowColor().isValid() ? m_scheme.belowColor() : QColor(0, 0, 0, 0);
+    }
+    /** @brief Read the colour of values above the band range (the scheme's above colour).
+     * @return Transparent when unset (the last band then saturates), the initial state. */
+    [[nodiscard]] QColor aboveMaxColor() const
+    {
+        return m_scheme.aboveColor().isValid() ? m_scheme.aboveColor() : QColor(0, 0, 0, 0);
+    }
     /** @brief Read the within-band gradient switch.
      * @return Stored/forwarded value; initially true. */
     [[nodiscard]] bool smoothBands() const { return m_smoothBands; }
@@ -200,8 +206,6 @@ public:
 
 private:
     QString m_attribute = QStringLiteral("depth");
-    QColor m_belowMinColor = QColor(0, 0, 0, 0);
-    QColor m_aboveMaxColor = QColor(255, 255, 255, 200);
     bool m_smoothBands = true;
     ClassificationScheme m_scheme;
 };

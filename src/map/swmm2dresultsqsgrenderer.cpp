@@ -712,6 +712,7 @@ struct ResultsRootNode : QSGTransformNode {
     QSGGeometryNode *isoIndexNode = nullptr;
     QSGOpacityNode *isoLabels = nullptr; // the isoline pass's opacity
     QSGGeometryNode *edgeNode = nullptr;
+    QSGGeometryNode *edgeWideNode = nullptr; // slope emphasis: steep edges
     QSGGeometryNode *nodeMarkNode = nullptr;
     QSGGeometryNode *velNode = nullptr;
     QSGGeometryNode *hiFillNode = nullptr;
@@ -1183,6 +1184,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
     //        isoIndexNode    (Pass 3: index contours)
     //        isoLabels       (Pass 3b: along-line labels)
     //        edgeNode        (Pass 3c: mesh wireframe — MeshEdgeSublayer)
+    //        edgeWideNode    (Pass 3c: its steep edges — slope emphasis)
     //        nodeMarkNode    (Pass 3d: mesh-vertex markers — MeshNodeSublayer)
     //        velNode         (Pass 4: velocity-vector glyphs)
     //        hiFillNode      (Pass 6: highlight fill)
@@ -1195,6 +1197,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
     QSGGeometryNode *isoIndexNode = nullptr;
     QSGOpacityNode *isoLabels = nullptr;
     QSGGeometryNode *edgeNode = nullptr;     // mesh wireframe overlay
+    QSGGeometryNode *edgeWideNode = nullptr; // its steep edges (slope emphasis)
     QSGGeometryNode *nodeMarkNode = nullptr; // mesh-vertex markers
     QSGGeometryNode *velNode = nullptr;
     QSGGeometryNode *hiFillNode = nullptr;
@@ -1223,6 +1226,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         isoIndexNode = root->isoIndexNode = makeFlatNode(QColor(10, 10, 10, 220));
         isoLabels = root->isoLabels = new QSGOpacityNode();
         edgeNode = root->edgeNode = makeFlatNode(QColor(0, 0, 0, 130));
+        edgeWideNode = root->edgeWideNode = makeFlatNode(QColor(0, 0, 0, 210));
         nodeMarkNode = root->nodeMarkNode = makeColoredNode(); // fill + outline colours
         velNode = root->velNode = makeColoredNode();
         hiFillNode = root->hiFillNode = makeFlatNode(kHiFillColor);
@@ -1238,6 +1242,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         root->appendChildNode(root->gpuIsoNode);
         root->appendChildNode(isoLabels);
         root->appendChildNode(edgeNode);
+        root->appendChildNode(edgeWideNode);
         root->appendChildNode(nodeMarkNode);
         root->appendChildNode(velNode);
         root->appendChildNode(hiFillNode);
@@ -1250,6 +1255,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         isoIndexNode = root->isoIndexNode;
         isoLabels = root->isoLabels;
         edgeNode = root->edgeNode;
+        edgeWideNode = root->edgeWideNode;
         nodeMarkNode = root->nodeMarkNode;
         velNode = root->velNode;
         hiFillNode = root->hiFillNode;
@@ -1333,6 +1339,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
             delete c;
         }
         uploadFlatVerts(edgeNode, empty_p);
+        uploadFlatVerts(edgeWideNode, empty_p);
         uploadColoredVerts(nodeMarkNode, empty_c);
         uploadColoredVerts(velNode, empty_c);
         uploadFlatVerts(hiFillNode, empty_p);
@@ -1412,6 +1419,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
             if (addedEdge)
                 return;
             appendNode(edgeNode);
+            appendNode(edgeWideNode);
             addedEdge = true;
         };
         auto addNodeMarkers = [&]() {
@@ -1686,11 +1694,25 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         const bool smoothBands =
             bandsVisible && (!bs || bs->smoothBands()) && lod.exactContourBands;
         std::vector<double> bandLevels, isoLevels;
+        bool bandOuterBelow = false, bandOuterAbove = false;
         if (bandsVisible && maxDepth > dryDepth) {
             if (bs) {
                 const auto edges = bs->scheme().levelEdges(
                     dryDepth, maxDepth, m_layer->depthClassificationSamples(bs->scheme()));
                 bandLevels.assign(edges.cbegin(), edges.cend());
+                // The scheme's below / above colours: outer bands from the dry depth to the
+                // first level and from the last level to the run's maximum. Every band path
+                // (contour job, GPU bands, flat cells) then draws them as ordinary bands.
+                if (bandLevels.size() >= 2) {
+                    if (bs->scheme().belowColor().isValid() && dryDepth < bandLevels.front()) {
+                        bandLevels.insert(bandLevels.begin(), dryDepth);
+                        bandOuterBelow = true;
+                    }
+                    if (bs->scheme().aboveColor().isValid() && maxDepth > bandLevels.back()) {
+                        bandLevels.push_back(maxDepth);
+                        bandOuterAbove = true;
+                    }
+                }
             } else {
                 bandLevels = OpenSWMM::Contour::evenlySpacedLevelsInclusive(dryDepth, maxDepth, 9);
             }
@@ -2269,9 +2291,23 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                     const qreal bandOp = std::clamp<qreal>(bandSub->opacity(), 0.0, 1.0);
                     QVector<QColor> bandColors;
                     bandColors.reserve(bandCount);
+                    // Outer bands (below / above colours) wrap the scheme's own classes.
+                    const bool outerBelow = bs && bandOuterBelow && bandCount >= 2;
+                    const bool outerAbove = bs && bandOuterAbove && bandCount >= 2;
+                    const int schemeBands = std::max(
+                        1, bandCount - (outerBelow ? 1 : 0) - (outerAbove ? 1 : 0));
                     for (int i = 0; i < bandCount; ++i) {
-                        QColor c = bs ? bs->colorForBand(i, bandCount)
-                                      : OpenSWMM::Contour::viridisAt((double(i) + 0.5) / bandCount);
+                        QColor c;
+                        if (outerBelow && i == 0)
+                            c = bs->scheme().belowColor();
+                        else if (outerAbove && i == bandCount - 1)
+                            c = bs->scheme().aboveColor();
+                        else if (bs)
+                            c = bs->colorForBand(
+                                std::clamp(i - (outerBelow ? 1 : 0), 0, schemeBands - 1),
+                                schemeBands);
+                        else
+                            c = OpenSWMM::Contour::viridisAt((double(i) + 0.5) / bandCount);
                         c.setAlphaF(c.alphaF() * bandOp);
                         bandColors.append(c);
                     }
@@ -2355,20 +2391,21 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
             const qreal op = std::clamp<qreal>(subOpacity, 0.0, 1.0);
             const OpenSWMM::Render::ClassificationColorSampler colors(style->scheme(), vMin, vMax,
                                                                       classified ? bandCount : 0);
+            const QVector<double> classEdges(levels.cbegin(), levels.cend());
+            // The scheme's log scale and below / above colours apply (the sampler holds them).
             auto colorAt = [&](double value) -> QColor {
-                QColor c;
-                if (classified && levels.size() >= 2) {
-                    int idx =
-                        int(std::upper_bound(levels.begin() + 1, levels.end() - 1, double(value)) -
-                            (levels.begin() + 1));
-                    idx = std::clamp(idx, 0, bandCount - 1);
-                    c = colors.classColor(idx);
-                } else {
-                    c = colors.valueColor(double(value));
-                }
+                QColor c = classified && levels.size() >= 2
+                               ? colors.classifiedColor(double(value), classEdges)
+                               : colors.valueColor(double(value));
                 c.setAlphaF(c.alphaF() * op);
                 return c;
             };
+            // Where the ramp starts (the log floor under a log scale); below it the scheme's
+            // below colour when set, otherwise nothing.
+            const double lowCut = colors.lowerBound();
+            QColor belowColor = colors.belowColor();
+            if (belowColor.isValid())
+                belowColor.setAlphaF(belowColor.alphaF() * op);
             // Fast surface: corners are shared vertex values, so colour each shared vertex
             // once from a lookup table and draw the wet triangles indexed, without clipping
             // or per-vertex deduplication. A corner at or below the visible minimum is
@@ -2376,33 +2413,55 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
             if (perVertex && frame.sharedCorners && ensureSharedFillChunks(ox, oy)) {
                 // A classified fill is classified per fragment on the GPU, so class edges stay
                 // crisp; colouring vertices would blend neighbouring classes across triangles.
-                if (classified && levels.size() >= 2 &&
-                    levels.size() <= size_t(ScalarBandMaterial::kMaxBands) + 1 &&
-                    gpuBandsEnabled()) {
-                    std::vector<std::array<float, 4>> classColors;
+                // Below / above colours draw as outer bands: from the dry cutoff to the first
+                // level, and past the last (the material saturates its last band).
+                std::vector<double> bandLevels = levels;
+                std::vector<std::array<float, 4>> classColors;
+                double cutoff = std::max(dryDepth, vMin);
+                if (classified && levels.size() >= 2) {
                     for (int idx = 0; idx < bandCount; ++idx) {
                         QColor c = colors.classColor(idx);
                         c.setAlphaF(c.alphaF() * op);
                         classColors.push_back(premultipliedOf(c));
                     }
-                    const double floor = std::max(dryDepth, vMin);
+                    if (belowColor.isValid() && dryDepth < levels.front()) {
+                        bandLevels.insert(bandLevels.begin(), dryDepth);
+                        classColors.insert(classColors.begin(), premultipliedOf(belowColor));
+                        cutoff = dryDepth;
+                    }
+                    if (QColor above = colors.aboveColor(); above.isValid()) {
+                        above.setAlphaF(above.alphaF() * op);
+                        bandLevels.push_back(levels.back() +
+                                             std::max(1e-9, levels.back() - levels.front()));
+                        classColors.push_back(premultipliedOf(above));
+                    }
+                }
+                if (classified && levels.size() >= 2 &&
+                    bandLevels.size() <= size_t(ScalarBandMaterial::kMaxBands) + 1 &&
+                    gpuBandsEnabled()) {
+                    const double floor = cutoff;
                     drawGpuScalar(
                         root->gpuFillNode,
-                        [&](ScalarBandMaterial *m) { m->setBands(levels, floor, classColors); },
-                        std::max(levels.front(), floor), QStringLiteral("smoothFill(gpu)"));
+                        [&](ScalarBandMaterial *m) { m->setBands(bandLevels, floor, classColors); },
+                        std::max(bandLevels.front(), floor), QStringLiteral("smoothFill(gpu)"));
                     gpuFillDrawn = true;
                     return;
                 }
+                // The table spans ramp positions (log-spaced under a log scale).
                 constexpr int kLut = 1024;
                 std::array<std::array<quint8, 4>, kLut> lut;
-                const double span = vMax > vMin ? vMax - vMin : 0.;
-                for (int j = 0; j < kLut; ++j) {
-                    const QColor c = colorAt(vMin + span * (j + .5) / kLut);
+                const auto quad = [](const QColor &c) {
                     const quint8 a = quint8(c.alpha());
-                    lut[size_t(j)] = {premul(quint8(c.red()), a), premul(quint8(c.green()), a),
-                                      premul(quint8(c.blue()), a), a};
-                }
-                const double floor = std::max(dryDepth, vMin);
+                    return std::array<quint8, 4>{premul(quint8(c.red()), a),
+                                                 premul(quint8(c.green()), a),
+                                                 premul(quint8(c.blue()), a), a};
+                };
+                for (int j = 0; j < kLut; ++j)
+                    lut[size_t(j)] = quad(colorAt(colors.valueAt((j + .5) / kLut)));
+                const bool outsideColors = belowColor.isValid() || colors.aboveColor().isValid();
+                // At or below the floor: transparent; a below colour draws down to the dry cutoff.
+                const double floor =
+                    belowColor.isValid() ? dryDepth : std::max(dryDepth, std::max(vMin, lowCut));
                 scanSharedChunks();
                 // Triangles whose top corner is at/below floor are not drawn; the scan already
                 // dropped those at/below the dry cutoff.
@@ -2425,10 +2484,10 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                         const float d = values[local];
                         if (d <= floor)
                             continue; // transparent, as copied
-                        const int j = span > 0 ? std::clamp(int((d - vMin) / span * kLut), 0,
-                                                            kLut - 1)
-                                               : 0;
-                        const auto &c = lut[size_t(j)];
+                        const double f = colors.position(d);
+                        const int j = std::clamp(int(f * kLut), 0, kLut - 1);
+                        const auto c = outsideColors && (f < 0.0 || f > 1.0) ? quad(colorAt(d))
+                                                                            : lut[size_t(j)];
                         v.r = c[0];
                         v.g = c[1];
                         v.b = c[2];
@@ -2456,16 +2515,19 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
             auto emitPolygon = [&](const auto &pts, const auto &vals) {
                 for (size_t k = 1; k + 1 < pts.size(); ++k)
                     for (size_t j : {size_t(0), k, k + 1})
-                        pushV(pts[j], colorAt(std::max(vals[j], vMin)));
+                        pushV(pts[j], colorAt(std::max(vals[j], lowCut)));
             };
             for (int i : frameTriangles) {
                 const auto t = frameTri(i);
-                if (!perVertex && (!std::isfinite(t.depth) || t.depth < vMin))
+                // Flat cells: below the range only with a below colour (colorAt says).
+                const QColor cellColor =
+                    perVertex || !std::isfinite(t.depth) ? QColor() : colorAt(t.depth);
+                if (!perVertex && cellColor.alpha() == 0)
                     continue;
                 const auto wet =
                     CellWaterGeometry::clipTriangle(t.a, t.b, t.c, t.dv0, t.dv1, t.dv2, dryDepth);
                 if (!perVertex) {
-                    const QColor color = colorAt(t.depth);
+                    const QColor &color = cellColor;
                     for (int k = 1; k + 1 < wet.size; ++k)
                         for (int j : {0, k, k + 1})
                             pushV(wet.vertices[j].point, color);
@@ -2480,7 +2542,15 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                 // Clip the scalar field, not its colors: transparent endpoints
                 // bleed below the minimum and saturated endpoints shift the
                 // maximum crossing when the GPU interpolates the triangle.
-                OpenSWMM::Contour::detail::clipHalfplane(points, values, vMin, true, clipped,
+                // The part below the ramp's start: the below colour, flat, when set.
+                if (belowColor.isValid()) {
+                    OpenSWMM::Contour::detail::clipHalfplane(points, values, lowCut, false, part,
+                                                             partValues);
+                    for (size_t k = 1; k + 1 < part.size(); ++k)
+                        for (size_t j : {size_t(0), k, k + 1})
+                            pushV(part[j], belowColor);
+                }
+                OpenSWMM::Contour::detail::clipHalfplane(points, values, lowCut, true, clipped,
                                                          clippedValues);
                 if (clipped.empty())
                     continue;
@@ -3225,17 +3295,29 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                 const Qt::PenStyle stroke = es ? es->dashPattern() : Qt::SolidLine;
                 const QVector<qreal> dash = dashPatternOf(stroke);
                 const float dashUnit = float(std::max(1.0, w)) * invView;
+                // Slope emphasis (as on the mesh layer): edges steeper than the slope break,
+                // as a fraction of the steepest edge, take the wide width and colour.
+                const float maxSlope = m_layer->m_maxEdgeSlope;
+                const bool slopeOn = es && es->useSlopeDrivenWidth() && maxSlope > 0.f;
+                const float splitSlope = slopeOn ? float(es->slopeBreak()) * maxSlope : 0.f;
+                const double wideW = es ? std::max(0.1, es->wideWidthPx()) : w;
+                const float wideHw = float(0.5 * wideW) * invView;
+                const float wideUnit = float(std::max(1.0, wideW)) * invView;
+                QColor wideCol = es ? es->wideColor() : col;
+                wideCol.setAlpha(int(qBound(0.0, wideCol.alpha() * op, 255.0)));
 
                 const auto &edges = m_layer->m_sceneEdges;
-                std::vector<QSGGeometry::Point2D> edgeSegs;
+                std::vector<QSGGeometry::Point2D> edgeSegs, wideSegs;
                 qint64 visEdgeCount = 0;
                 auto emitEdge = [&](int i) {
                     if (stroke == Qt::NoPen)
                         return;
                     const auto &e = edges[i];
-                    appendDashedThickSeg(edgeSegs, float(e.a.x() - ox), float(e.a.y() - oy),
-                                         float(e.b.x() - ox), float(e.b.y() - oy), hw, dash,
-                                         dashUnit);
+                    const bool wide = slopeOn && e.slope > splitSlope;
+                    appendDashedThickSeg(wide ? wideSegs : edgeSegs, float(e.a.x() - ox),
+                                         float(e.a.y() - oy), float(e.b.x() - ox),
+                                         float(e.b.y() - oy), wide ? wideHw : hw, dash,
+                                         wide ? wideUnit : dashUnit);
                     ++visEdgeCount;
                 };
                 for (int cid : chunkQ.fullyInside)
@@ -3256,6 +3338,8 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                 }
                 uploadFlatVerts(edgeNode, edgeSegs);
                 setFlatColor(edgeNode, col);
+                uploadFlatVerts(edgeWideNode, wideSegs);
+                setFlatColor(edgeWideNode, wideCol);
                 if (statsOn) {
                     stats.visibleEdges = visEdgeCount;
                     stats.addPass(QStringLiteral("edges"), qint64(edgeSegs.size()),
@@ -3263,6 +3347,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                 }
             } else {
                 uploadFlatVerts(edgeNode, std::vector<QSGGeometry::Point2D>{});
+                uploadFlatVerts(edgeWideNode, std::vector<QSGGeometry::Point2D>{});
             }
         }
 

@@ -237,10 +237,12 @@ QWidget *Swmm2DMeshStylePanel::buildTerrainFillTab(QWidget *parent)
                 [st](const QString &name) { st->setCategoryPalette(name); });
 
         // ── Classification (ramp / method / class table) ────────────────
-        lay->addWidget(makeMeshClassEditor(
+        auto *fillEditor = makeMeshClassEditor(
             L, [st] { return st->scheme(); },
             [st](const OpenSWMM::Render::ClassificationScheme &s) { st->setScheme(s); },
-            /*continuous=*/true, page));
+            /*continuous=*/true, page);
+        fillEditor->setOutsideRangeControlsVisible(true); // both fill renderers draw them
+        lay->addWidget(fillEditor);
 
         // ── Hillshade (sun lighting) ────────────────────────────────────
         // The sun parameters live on the LAYER's Q_PROPERTYs (the renderer
@@ -345,10 +347,12 @@ QWidget *Swmm2DMeshStylePanel::buildBandTab(QWidget *parent)
     lay->addWidget(makeSublayerHeader(page, sub, tr("Show filled elevation bands")));
 
     if (st) {
-        lay->addWidget(makeMeshClassEditor(
+        auto *bandEditor = makeMeshClassEditor(
             m_layer.data(), [st] { return st->scheme(); },
             [st](const OpenSWMM::Render::ClassificationScheme &s) { st->setScheme(s); },
-            /*continuous=*/false, page));
+            /*continuous=*/false, page);
+        bandEditor->setOutsideRangeControlsVisible(true); // both band renderers draw them
+        lay->addWidget(bandEditor);
 
         auto *renderBox = new QGroupBox(tr("Rendering"), page);
         auto *renderForm = new QFormLayout(renderBox);

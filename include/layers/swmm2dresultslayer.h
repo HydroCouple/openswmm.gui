@@ -2401,6 +2401,8 @@ public:
         float slope = 0.0f;
     };
     QVector<SceneEdge> m_sceneEdges;
+    /// Steepest edge slope of m_sceneEdges: slope emphasis splits edges at a fraction of it.
+    float m_maxEdgeSlope = 0.0f;
 
     /*! QSG-2D-1M — shared scene-space vertex positions (parallel to the
      *  source vertex arrays). Built in rebuildSceneGeometry_; lets the QSG
@@ -3464,8 +3466,8 @@ private:
     /**
      * @brief Construct default decoration rules and connect first-SingleSymbol-layer replacement
      *   propagation to supported sublayer style fields.
-     * @note Seven seeds: depth colour ramp (the drawn depth fill), hillshade (carried, not
-     *   drawn), bands, lines, edges, nodes and velocity (the velocity row's arrows). Wrong
+     * @note Six seeds: depth colour ramp (the drawn depth fill), bands, lines, edges, nodes and
+     *   velocity (the velocity row's arrows); no hillshade (the results draw no terrain). Wrong
      *   renderer/kind/empty layer is ignored.
      *   Each rule is bound to the live style it mirrors (render/rulestylesync.h): ruleList()
      *   reseeds the symbols, and an edit writes back only the props it changed. GUI-thread only.
