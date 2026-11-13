@@ -143,10 +143,12 @@ include(FetchOpenSWMMEngine)
 include(FetchHydroCoupleOgc)
 include(GuiExtensionSdk)
 include(FetchOpenSWMMData)
-add_subdirectory(libraries/meshkit EXCLUDE_FROM_ALL)
-install(FILES libraries/meshkit/LICENSE libraries/meshkit/NOTICE libraries/meshkit/RELICENSING.md
+# MeshKit: the pinned release (cmake/FetchMeshKit.cmake); a sibling ../MeshKit
+# checkout while developing it alongside.
+include(FetchMeshKit)
+install(FILES ${meshkit_SOURCE_DIR}/LICENSE ${meshkit_SOURCE_DIR}/NOTICE ${meshkit_SOURCE_DIR}/RELICENSING.md
     DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/MeshKit)
-install(FILES libraries/meshkit/vendor/predicates/LICENSE
+install(FILES ${meshkit_SOURCE_DIR}/vendor/predicates/LICENSE
     DESTINATION ${CMAKE_INSTALL_DATADIR}/licenses/MeshKit RENAME predicates.txt)
 
 # ── Additional engine versions shipped as subprocess workers ────────────────
