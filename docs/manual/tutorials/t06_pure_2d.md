@@ -28,7 +28,7 @@ share a projected coordinate system. These coordinates do not locate a real site
 
 Run a model that has **no 1D network at all** — no junctions, no conduits, no
 outfalls, no subcatchments. Just a triangulated surface, a rain gage, and the
-explicit local-inertial marcher. You will open a 3 % tilted plane, confirm that
+explicit 2D marcher. You will open a 3 % tilted plane, confirm that
 the Object Browser really is empty of network objects, style the mesh by bed
 elevation, follow rainfall onto the cells, animate depth and velocity, pull a
 time series out of a single cell, read the 2D mass balance, and then experiment
