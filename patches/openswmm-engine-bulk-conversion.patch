@@ -41,12 +41,11 @@
 +#include <algorithm>
  #include <cstring>
  #include <cstdlib>
- #include <vector>
-@@ -109,6 +113,189 @@
- // ============================================================================
+ #include <memory>
+@@ -111,6 +115,189 @@
  // extern "C" API
  // ============================================================================
-+
+ 
 +namespace {
 +using namespace openswmm;
 +
@@ -229,10 +228,11 @@
 +    std::unordered_set<int> hosted, receivers;
 +};
 +} // namespace
- 
- extern "C" {
- 
-@@ -574,6 +761,23 @@
++
+ // ---------------------------------------------------------------------------
+ // Recorded deletes — the handle pairs a record with the engine that made it.
+ // ---------------------------------------------------------------------------
+@@ -702,6 +889,23 @@
      return SWMM_OK;
  }
  
@@ -256,7 +256,7 @@
  SWMM_ENGINE_API int swmm_link_convert(SWMM_Engine engine, int idx, int new_type,
                                        SWMM_ConversionResult* result_out) {
      CHECK_HANDLE(engine);
-@@ -589,6 +793,11 @@
+@@ -717,6 +921,11 @@
      if (ctx.links.type[ui] == internal_new)
          return SWMM_ERR_BADPARAM; // same type — no-op
  
