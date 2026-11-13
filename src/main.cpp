@@ -11,6 +11,7 @@
 #include <QDateTime>
 #include <QDir>
 #include <QFile>
+#include <QLibraryInfo>
 #include <QLocale>
 #include <QMutex>
 #include <QStandardPaths>
@@ -271,15 +272,16 @@ int main(int argc, char *argv[])
 
     QScopedPointer<QCoreApplication> application(applicationInstance);
 
-    QTranslator translator;
-    const QStringList uiLanguages = QLocale::system().uiLanguages();
-    for (const QString &locale : uiLanguages) {
-        const QString baseName = "SWMMVis_" + QLocale(locale).name();
-        if (translator.load(":/i18n/" + baseName)) {
-            application->installTranslator(&translator);
-            break;
-        }
-    }
+    // The application's strings (compiled from translation/*.ts and embedded under :/i18n by
+    // qt_add_translations) and Qt's own dialogs and widgets (qtbase), each in the first of the
+    // user's languages that has a translation.
+    QTranslator appTranslator, qtTranslator;
+    if (appTranslator.load(QLocale::system(), QStringLiteral("SWMMVis"), QStringLiteral("_"),
+                           QStringLiteral(":/i18n")))
+        application->installTranslator(&appTranslator);
+    if (qtTranslator.load(QLocale::system(), QStringLiteral("qtbase"), QStringLiteral("_"),
+                          QLibraryInfo::path(QLibraryInfo::TranslationsPath)))
+        application->installTranslator(&qtTranslator);
 
     return application->exec();
 }
