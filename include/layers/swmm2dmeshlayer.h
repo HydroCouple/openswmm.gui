@@ -57,6 +57,7 @@ namespace OpenSWMM::Render
 {
 class IFeatureRenderer;
 class RuleList; // Slice B.5b — see ruleList() override below.
+struct RuleStyleBinding;
 class MeshFillSublayer;
 class MeshEdgeSublayer;
 class MeshNodeSublayer;
@@ -1119,6 +1120,12 @@ public:
      */
     void onSublayersJsonLoaded(const QJsonObject &sublayersJson) override;
 
+    /*! Layer-level display settings the style panel edits beside the sublayers: the edge /
+     *  vertex zoom thresholds and the hillshade light, saved with the sublayers so a project
+     *  and a style file keep them ("meshDisplay"); onSublayersJsonLoaded() restores them.
+     * @param[in,out] j Snapshot being built by ISublayerHost::saveSublayersToJson(). */
+    void saveSublayersJsonState(QJsonObject &j) const override;
+
     /*! Slice US.3 — bed-elevation range of the loaded mesh, the data range the
      *  contour-band / isoline classification scheme classifies over.
      * @return Cached minimum native bed elevation; incremental edits expand but never tighten until full rebuild. Empty geometry can retain extreme initialization sentinel.
@@ -1443,13 +1450,15 @@ private:
     void rebuildOverview();
     /**
      * @brief Seed six default SingleSymbol decoration rules and attach per-rule replacement propagation.
-     * @note Mesh fill/hillshade/bands/lines/edges/nodes use typed first-layer specs; unsupported renderer/kind/empty layer is ignored. Hillshade handler sets zExag then strength, which share a storage knob. No hooks for externally reloaded/replaced Rule objects or reverse synchronization from ordinary sublayer setters are installed. GUI-thread only.
+     * @note Mesh fill/hillshade/bands/lines/edges/nodes use typed first-layer specs; unsupported renderer/kind/empty layer is ignored. Hillshade handler sets zExag then strength, which share a storage knob. Each rule is bound to its live style (render/rulestylesync.h): ruleList() reseeds the symbols from the styles, and an edit writes back only the props it changed. GUI-thread only.
      */
     void buildRuleListLazy() const; // Slice B.5b — lazy ruleList init.
 
     // Slice B.5b — Rule Model mirror over the mesh layer's decoration
     // state. Lazy-built on first ruleList() call.
     mutable std::unique_ptr<OpenSWMM::Render::RuleList> m_ruleList;
+    /// Each seed rule bound to the live style it mirrors; built with m_ruleList.
+    mutable QList<std::shared_ptr<OpenSWMM::Render::RuleStyleBinding>> m_ruleBindings;
 
     // §V.VA — keep m_bc sized to mesh::edgeSlotCount(n_cells) in sync with the mesh,
     // and rebuild the vertex→triangles adjacency used by sampleZAt /

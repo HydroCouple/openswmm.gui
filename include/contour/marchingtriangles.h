@@ -444,6 +444,41 @@ marchingTrianglesIsobands(const TriRange &tris, const std::vector<double> &level
     return out;
 }
 
+/**
+ * @brief Bands drawn flat per cell: each triangle is one polygon in the band of its mean value
+ *   (the "Interpolate band boundaries" off setting; marchingTrianglesIsobands is the on setting).
+ * @param[in] levels Ascending breaks; a mean below the first or above the last is clamped to the
+ *   first / last band, as the classified fill does.
+ * @return One polygon per triangle with finite values; empty for fewer than two levels.
+ */
+template <typename TriRange, typename Extract>
+std::vector<IsoBandPolygon> flatTriangleBands(const TriRange &tris,
+                                              const std::vector<double> &levels, Extract extract)
+{
+    std::vector<IsoBandPolygon> out;
+    if (levels.size() < 2)
+        return out;
+    const int bands = int(levels.size()) - 1;
+    for (const auto &t : tris) {
+        QPointF p0, p1, p2;
+        double v0 = 0, v1 = 0, v2 = 0;
+        extract(t, p0, p1, p2, v0, v1, v2);
+        const double mean = (v0 + v1 + v2) / 3.0;
+        if (!std::isfinite(mean))
+            continue;
+        const int index = std::clamp(
+            int(std::upper_bound(levels.begin(), levels.end(), mean) - levels.begin()) - 1, 0,
+            bands - 1);
+        IsoBandPolygon polygon;
+        polygon.verts = {p0, p1, p2};
+        polygon.bandLo = levels[size_t(index)];
+        polygon.bandHi = levels[size_t(index) + 1];
+        polygon.bandIndex = index;
+        out.push_back(std::move(polygon));
+    }
+    return out;
+}
+
 } // namespace OpenSWMM::Contour
 
 #endif // OPENSWMMVIS_CONTOUR_MARCHINGTRIANGLES_H

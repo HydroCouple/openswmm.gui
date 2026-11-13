@@ -290,6 +290,9 @@ int bottomEdgeWidth(const QImage &image, QColor color)
             ++pixels;
     return pixels;
 }
+/** Mesh renderer child order: fill, bands, thin edges, wide edges, boundary walls, then one
+ *  pass per non-Wall boundary condition type (the first is Normal Flow). */
+constexpr int kFirstBcPass = 5;
 /** @brief Borrow a direct geometry child by render-pass position.
  * @param[in] root Nullable scene-graph root; ownership is retained by its tree.
  * @param[in] index Zero-based child position; negative values select the first child.
@@ -1107,7 +1110,7 @@ private slots:
         renderer.setMapExtent(MapExtent(-.1, -.1, 1.1, 1.1));
         std::unique_ptr<QSGTransformNode> root(
             static_cast<QSGTransformNode *>(renderer.updatePaintNode(nullptr, nullptr)));
-        QCOMPARE(meshEdgePass(root.get(), 4)->geometry()->vertexCount(), 6);
+        QCOMPARE(meshEdgePass(root.get(), kFirstBcPass)->geometry()->vertexCount(), 6);
         if (pendingSelection) layer.setHighlightedEdges(selection);
         QVERIFY(tree->model()->setData(field("BC Type"), int(mesh::MeshBCTypes::Type::NormalFlow)));
         QVERIFY(tree->model()->setData(field("Friction Slope"), .007));
@@ -1117,17 +1120,17 @@ private slots:
             QCOMPARE(layer.edgeBCs()[slot].slope, .007);
         }
         root.reset(static_cast<QSGTransformNode *>(renderer.updatePaintNode(root.release(), nullptr)));
-        QCOMPARE(meshEdgePass(root.get(), 4)->geometry()->vertexCount(), 18);
+        QCOMPARE(meshEdgePass(root.get(), kFirstBcPass)->geometry()->vertexCount(), 18);
         layer.setHighlightedEdges({});
         canvas.undoStack()->undo();
         canvas.undoStack()->undo();
         root.reset(static_cast<QSGTransformNode *>(renderer.updatePaintNode(root.release(), nullptr)));
-        QCOMPARE(meshEdgePass(root.get(), 4)->geometry()->vertexCount(), 6);
+        QCOMPARE(meshEdgePass(root.get(), kFirstBcPass)->geometry()->vertexCount(), 6);
         layer.setHighlightedEdges(selection);
         canvas.undoStack()->redo();
         canvas.undoStack()->redo();
         root.reset(static_cast<QSGTransformNode *>(renderer.updatePaintNode(root.release(), nullptr)));
-        QCOMPARE(meshEdgePass(root.get(), 4)->geometry()->vertexCount(), 18);
+        QCOMPARE(meshEdgePass(root.get(), kFirstBcPass)->geometry()->vertexCount(), 18);
     }
 
     void meshAttributesRenderWithPendingSelection()
@@ -1163,12 +1166,13 @@ private slots:
         root.reset(static_cast<QSGTransformNode *>(renderer.updatePaintNode(root.release(), nullptr)));
         QVERIFY(color() != before);
         // Vertex coupling uses attributeChanged without a per-cell revision.
-        constexpr int coupledPass = 4 + OpenSWMM::Render::MeshBcStyle::kBcTypeCount - 1 + 3;
+        constexpr int coupledPass = kFirstBcPass + OpenSWMM::Render::MeshBcStyle::kBcTypeCount - 1 + 3;
         QCOMPARE(meshEdgePass(root.get(), coupledPass)->geometry()->vertexCount(), 0);
         layer.setHighlightedVertices({0});
         QVERIFY(layer.applyMeshVertexCoupledNode(0, "J1"));
         root.reset(static_cast<QSGTransformNode *>(renderer.updatePaintNode(root.release(), nullptr)));
-        QCOMPARE(meshEdgePass(root.get(), coupledPass)->geometry()->vertexCount(), 6);
+        // One marker in the vertex style's default Circle shape: an octagon, six triangles.
+        QCOMPARE(meshEdgePass(root.get(), coupledPass)->geometry()->vertexCount(), 18);
         layer.setHighlightedVertices({});
         QVERIFY(layer.applyMeshVertexCoupledNode(0, {}));
         root.reset(static_cast<QSGTransformNode *>(renderer.updatePaintNode(root.release(), nullptr)));
@@ -1270,7 +1274,7 @@ private slots:
         QVERIFY(qAbs(bottomEdgeWidth(renderMeshEdges(scene), purple) - 6) <= 1);
         std::unique_ptr<QSGTransformNode> root(
             static_cast<QSGTransformNode *>(renderer.updatePaintNode(nullptr, nullptr)));
-        auto *normal = meshEdgePass(root.get(), 4);
+        auto *normal = meshEdgePass(root.get(), kFirstBcPass);
         QVERIFY(normal);
         QCOMPARE(static_cast<QSGFlatColorMaterial *>(normal->material())->color(), purple);
         QVERIFY(qAbs(meshStrokeWidth(root.get(), normal) - 6) < .01);
@@ -1281,7 +1285,7 @@ private slots:
         QVERIFY(qAbs(bottomEdgeWidth(renderMeshEdges(scene), orange) - 12) <= 1);
         root.reset(
             static_cast<QSGTransformNode *>(renderer.updatePaintNode(root.release(), nullptr)));
-        normal = meshEdgePass(root.get(), 4);
+        normal = meshEdgePass(root.get(), kFirstBcPass);
         QVERIFY(normal);
         QCOMPARE(static_cast<QSGFlatColorMaterial *>(normal->material())->color(), orange);
         QVERIFY(qAbs(meshStrokeWidth(root.get(), normal) - 12) < .01);

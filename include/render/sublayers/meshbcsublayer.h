@@ -42,9 +42,10 @@ namespace OpenSWMM::Render
 class MeshBcStyle : public SublayerStyle
 {
     Q_OBJECT
-    // Wall governs the mesh INTERIOR: when the sublayer is visible and
-    // wallVisible is on, interior wireframe edges are recoloured with
-    // wallColor (the legacy colorByBC behaviour). Wall has no width — Wall
+    // Wall marks the walls of the mesh BOUNDARY: when the sublayer is visible and
+    // wallVisible is on, boundary edges whose BC is Wall are drawn in wallColor.
+    // Interior edges (Wall by construction) keep MeshEdgeStyle's colours
+    // (owner 2026-11-13: the edge colour must show). Wall has no width — Wall
     // edges ARE the wireframe and keep MeshEdgeStyle's line widths.
     Q_PROPERTY(bool wallVisible READ wallVisible WRITE setWallVisible NOTIFY styleChanged)
     Q_PROPERTY(QColor wallColor READ wallColor WRITE setWallColor NOTIFY styleChanged)
@@ -80,8 +81,8 @@ class MeshBcStyle : public SublayerStyle
     Q_PROPERTY(double ratingCurveWidthPx READ ratingCurveWidthPx WRITE setRatingCurveWidthPx NOTIFY
                    styleChanged)
 
-    Q_CLASSINFO("group:wallVisible", "Wall / interior")
-    Q_CLASSINFO("group:wallColor", "Wall / interior")
+    Q_CLASSINFO("group:wallVisible", "Wall (boundary)")
+    Q_CLASSINFO("group:wallColor", "Wall (boundary)")
     Q_CLASSINFO("group:normalFlowVisible", "Normal depth")
     Q_CLASSINFO("group:normalFlowColor", "Normal depth")
     Q_CLASSINFO("group:normalFlowWidthPx", "Normal depth")

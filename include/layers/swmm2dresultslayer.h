@@ -69,6 +69,7 @@ class ResultScalarSublayer;
 class ResultVectorSublayer;
 class IFeatureRenderer;
 class RuleList; // Slice B.5b — see ruleList() override below.
+struct RuleStyleBinding;
 }
 
 // Slice S5.6 (RENDERING_OUTPUT_SUBLAYERS_PLAN.md) — 2D sublayer foundation.
@@ -2265,6 +2266,14 @@ public:
      *   can yield empty list.
      */
     [[nodiscard]] QVector<double> currentDepthSamples(bool includeDry = false) const;
+    /*! Wettest finite depth of the current frame in metres (0 when dry or unread); cached per
+     *  frame, source and history generation (regional mode reads the frame once). */
+    [[nodiscard]] double currentFrameMaxDepth() const;
+    /*! The depth range a depth fill (cell or smooth) is coloured over: its custom range when
+     *  set; under "Per-frame auto-stretch", \p dryDepth to the current frame's wettest depth;
+     *  otherwise \p dryDepth to the whole run's maximum (maxDepth()). Both renderers use it. */
+    [[nodiscard]] std::pair<double, double>
+    depthFillRange(const OpenSWMM::Render::ScalarFillStyle *style, double dryDepth) const;
     // Fixed classifications use one temporal peak mean-depth sample per cell.
     /**
      * @param[in] scheme Classification method/range policy to supply statistics for.
@@ -3005,6 +3014,11 @@ private:
     mutable int cellMaxFramesDone_ = 0;
     mutable const IMesh2DSource *cellMaxSource_ = nullptr;
     mutable int cellMaxGeneration_ = -1;
+    // currentFrameMaxDepth() cache.
+    mutable double frameMaxDepth_ = 0.0;
+    mutable int frameMaxIndex_ = -1;
+    mutable int frameMaxGeneration_ = -1;
+    mutable const IMesh2DSource *frameMaxSource_ = nullptr;
     double dry_depth_ = 1e-4;       // fixed fallback; populated from model
     double thin_film_depth_ = -1.0; // inherit model threshold
     bool show_thin_films_ = false;
@@ -3450,12 +3464,16 @@ private:
     /**
      * @brief Construct default decoration rules and connect first-SingleSymbol-layer replacement
      *   propagation to supported sublayer style fields.
-     * @note Seven seeds include inert retired depth-ramp rule plus
-     *   hillshade/bands/lines/edges/nodes/velocity. Wrong renderer/kind/empty layer is ignored.
-     *   Ordinary sublayer changes do not reverse-sync seed specs; GUI-thread only.
+     * @note Seven seeds: depth colour ramp (the drawn depth fill), hillshade (carried, not
+     *   drawn), bands, lines, edges, nodes and velocity (the velocity row's arrows). Wrong
+     *   renderer/kind/empty layer is ignored.
+     *   Each rule is bound to the live style it mirrors (render/rulestylesync.h): ruleList()
+     *   reseeds the symbols, and an edit writes back only the props it changed. GUI-thread only.
      */
     void buildRuleListLazy() const;
     mutable std::unique_ptr<OpenSWMM::Render::RuleList> m_ruleList;
+    /// Each seed rule bound to the live style it mirrors; built with m_ruleList.
+    mutable QList<std::shared_ptr<OpenSWMM::Render::RuleStyleBinding>> m_ruleBindings;
 };
 
 #endif // OPENSWMMVIS_LAYERS_SWMM2DRESULTSLAYER_H

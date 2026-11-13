@@ -479,7 +479,8 @@ void addIsolineLineRows(QFormLayout *form, QWidget *owner, IsolineStyle *st, Iso
     form->addRow(pass ? QObject::tr("Co&lour:") : QObject::tr("Line and label colour (shared):"),
                  color);
     auto *width = bindDouble(
-        makeDSpin(owner, pass ? 0.25 : 0.1, 20.0, 0.25, 2, st->lineWidthPx(), QObject::tr(" px")),
+        // The pass renderers draw at least 0.5 px; rows draw the width as set.
+        makeDSpin(owner, pass ? 0.5 : 0.1, 20.0, 0.25, 2, st->lineWidthPx(), QObject::tr(" px")),
         st, &IsolineStyle::lineWidthPx, &IsolineStyle::setLineWidthPx);
     width->setAccessibleName(QObject::tr("Line width"));
     form->addRow(QObject::tr("&Width:"), width);
@@ -494,7 +495,7 @@ void addIsolineLineRows(QFormLayout *form, QWidget *owner, IsolineStyle *st, Iso
     every->setToolTip(QObject::tr("Emphasise every Nth contour (topographic "
                                   "index contours); 0 disables"));
     form->addRow(QObject::tr("I&ndex contour every:"), every);
-    auto *indexWidth = bindDouble(makeDSpin(owner, pass ? 0.25 : 0.1, 20.0, 0.25, 2,
+    auto *indexWidth = bindDouble(makeDSpin(owner, pass ? 0.5 : 0.1, 20.0, 0.25, 2,
                                             st->indexWidthPx(), QObject::tr(" px")),
                                   st, &IsolineStyle::indexWidthPx, &IsolineStyle::setIndexWidthPx);
     form->addRow(QObject::tr("Inde&x width:"), indexWidth);
@@ -1781,19 +1782,45 @@ void Swmm2DResultsStylePanel::buildVectorTabs(OpenSWMM::Render::ResultVectorSubl
     scaling->addItem(tr("Square root"), int(Style::LengthScaling::SquareRoot));
     scaling->addItem(tr("Logarithmic"), int(Style::LengthScaling::Log));
     bindCombo(scaling, style, &Style::lengthScaling, &Style::setLengthScaling);
+    scaling->setObjectName("additionalResultSizeScaling");
     sizeForm->addRow(tr("Scaling:"), scaling);
-    number(sizeBox, sizeForm, tr("Shortest arrow (px)"), 0, 1000, 1, &Style::minLengthPx,
-           &Style::setMinLengthPx);
+    auto *shortest = number(sizeBox, sizeForm, tr("Shortest arrow (px)"), 0, 1000, 1,
+                            &Style::minLengthPx, &Style::setMinLengthPx);
+    shortest->setObjectName("additionalResultShortestArrow");
     number(sizeBox, sizeForm, tr("Longest arrow (px)"), 1, 1000, 1, &Style::maxLengthPx,
            &Style::setMaxLengthPx);
     auto *customRange = bindCheck(new QCheckBox(tr("Fixed size range"), sizeBox), style,
                                   &Style::sizeUseCustomRange, &Style::setSizeUseCustomRange);
     customRange->setObjectName("additionalResultSizeCustomRange");
     sizeForm->addRow(customRange);
-    number(sizeBox, sizeForm, tr("Range minimum"), -1e12, 1e12, 6, &Style::sizeRangeMin,
-           &Style::setSizeRangeMin);
-    number(sizeBox, sizeForm, tr("Range maximum"), -1e12, 1e12, 6, &Style::sizeRangeMax,
-           &Style::setSizeRangeMax);
+    auto *rangeMin = number(sizeBox, sizeForm, tr("Range minimum"), -1e12, 1e12, 6,
+                            &Style::sizeRangeMin, &Style::setSizeRangeMin);
+    rangeMin->setObjectName("additionalResultSizeRangeMin");
+    auto *rangeMax = number(sizeBox, sizeForm, tr("Range maximum"), -1e12, 1e12, 6,
+                            &Style::sizeRangeMax, &Style::setSizeRangeMax);
+    rangeMax->setObjectName("additionalResultSizeRangeMax");
+    // Grey what the size mode ignores (ResultVectorStyle::lengthPxFor): a constant arrow is
+    // the longest; a fixed scale maps speed directly; only a ranged mode reads the range.
+    const auto syncSizeUse = [style, scaling, shortest, customRange, rangeMin, rangeMax] {
+        const auto mode = style->sizeMode();
+        const bool ranged = mode == Style::SizeMode::Magnitude || mode == Style::SizeMode::Scalar;
+        const auto use = [](QWidget *w, bool used) {
+            w->setEnabled(used);
+            w->setToolTip(used ? QString() : tr("Not used by the current \"Size by\" mode."));
+        };
+        use(scaling, mode != Style::SizeMode::Constant);
+        use(shortest, mode != Style::SizeMode::Constant);
+        use(customRange, ranged);
+        use(rangeMin, ranged && style->sizeUseCustomRange());
+        use(rangeMax, ranged && style->sizeUseCustomRange());
+        if (ranged && !style->sizeUseCustomRange()) {
+            const QString off = tr("Used when \"Fixed size range\" is checked.");
+            rangeMin->setToolTip(off);
+            rangeMax->setToolTip(off);
+        }
+    };
+    syncSizeUse();
+    connect(style, &SublayerStyle::styleChanged, sizeBox, syncSizeUse);
     auto *shapeBox = new QGroupBox(tr("Shape"), arrows);
     auto *shapeForm = new QFormLayout(shapeBox);
     arrowsLayout->addWidget(shapeBox);
@@ -1873,8 +1900,20 @@ void Swmm2DResultsStylePanel::buildVectorTabs(OpenSWMM::Render::ResultVectorSubl
                     guarded->setColorKey(colorKey->itemData(i).toString());
             });
     auto *constant = bindColor(new ColorButton(colour), style, &Style::color, &Style::setColor);
+    constant->setObjectName("additionalResultConstantColor");
     constant->setAccessibleName(tr("Constant colour"));
     colorForm->addRow(tr("Constant colour:"), constant);
+    // ResultVectorSublayer::colorFor reads the constant colour only in Constant mode.
+    // (The classification editor's enabled state is set in m_refreshResultData alone.)
+    const auto syncConstant = [style, constant] {
+        const bool used = style->colorMode() == Style::ColorMode::Constant;
+        constant->setEnabled(used);
+        constant->setToolTip(used ? QString()
+                                  : tr("Used when \"Colour by\" is Constant; other modes take "
+                                       "colours from the classification below."));
+    };
+    syncConstant();
+    connect(style, &SublayerStyle::styleChanged, constant, syncConstant);
     auto colorRange = [layer, sub] {
         double lo = std::numeric_limits<double>::quiet_NaN(), hi = lo;
         if (layer && sub)

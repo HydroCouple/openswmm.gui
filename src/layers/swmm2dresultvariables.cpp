@@ -458,6 +458,9 @@ bool SWMM2DResultsLayer::staticWaterCacheable() const
 
 bool SWMM2DResultsLayer::sublayerListed(const OpenSWMM::Render::ISublayer *sublayer) const
 {
+    // Neither renderer draws the terrain under results; the mesh layer's Terrain Fill does.
+    if (sublayer && sublayer == m_meshFillSublayer)
+        return false;
     if (!sublayer || !isEngineId(sublayer->id()))
         return true;
     // Without a velocity row (edge fluxes reported without cell velocities)

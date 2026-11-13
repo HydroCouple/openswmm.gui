@@ -449,9 +449,9 @@ QWidget *Swmm2DMeshStylePanel::buildMeshEdgeTab(QWidget *parent)
         lay->addWidget(symBox);
 
         auto *colourNote =
-            new QLabel(tr("While Boundary Conditions is shown, its Wall / interior edges "
-                          "colour overrides these colours. Turn that row off to use the "
-                          "Mesh Edges colours."),
+            new QLabel(tr("While Boundary Conditions is shown, edges on the mesh boundary "
+                          "take its colours (walls its Wall colour); every other edge uses "
+                          "these colours."),
                        page);
         colourNote->setWordWrap(true);
         lay->addWidget(colourNote);
@@ -574,12 +574,13 @@ QWidget *Swmm2DMeshStylePanel::buildBcTab(QWidget *parent)
 
             QString label = mesh::MeshBCTypes::label(mesh::MeshBCTypes::Type(t));
             if (t == 0)
-                label = tr("%1 / interior edges").arg(label);
+                label = tr("%1 (boundary edges)").arg(label);
             auto *vis = new QCheckBox(label, grid);
             vis->setChecked(st->bcTypeVisible(t));
             if (t == 0)
-                vis->setToolTip(tr("Recolours the interior wireframe with the "
-                                   "Wall colour while this sublayer is shown."));
+                vis->setToolTip(tr("Draws wall edges on the mesh boundary in the Wall colour "
+                                   "while this sublayer is shown; interior edges keep the "
+                                   "Mesh Edges colours."));
             // Types not present in the mesh stay editable but are greyed so
             // the user can see which rows currently draw nothing.
             if (!present.contains(t))

@@ -37,11 +37,13 @@
 #include "render/rastersymbollayers.h"
 #include "render/renderers/singlesymbolrenderer.h"
 #include "render/rule.h"
+#include "render/rulestylesync.h"
 #include "render/rulelist.h"
 #include "render/symbollayer.h"
 #include "render/symbolstyle.h"
 // Slice Z.14-paint — polygon clip mask.
 #include "render/maskclipresolver.h"
+#include "render/markershape.h"
 #include "ui/dialogs/ilayerstylesubject.h"
 
 #include <QScopedValueRollback>
@@ -527,8 +529,11 @@ public:
                 const auto *isoStyle = (isolineSub && isolineSub->isolineStyle())
                                            ? isolineSub->isolineStyle()
                                            : nullptr;
+                // The classification method's samples (Quantile / Jenks / StdDev), as on QSG.
                 std::vector<double> levels =
-                    isoStyle ? isoStyle->levelsForRange(dryDepth, maxDepth)
+                    isoStyle ? isoStyle->levelsForRange(
+                                   dryDepth, maxDepth,
+                                   layer_->depthClassificationSamples(isoStyle->scheme()))
                              : evenlySpacedLevels(dryDepth, maxDepth, layer_->isolinesLevels());
                 levels.erase(std::remove_if(levels.begin(), levels.end(),
                                             [dryDepth](double level) {
@@ -581,7 +586,7 @@ public:
                             linePen.setStyle(isoStyle->dashPattern());
                         QPen indexPen = linePen;
                         if (isoStyle)
-                            indexPen.setWidthF(std::max(isoWidthPx, isoStyle->indexWidthPx()));
+                            indexPen.setWidthF(std::max(0.5, isoStyle->indexWidthPx())); // as set
                         p->setPen(linePen);
                         p->setBrush(Qt::NoBrush);
                         for (const auto &s : segs)
@@ -749,18 +754,19 @@ public:
                 const double scale = std::max(std::abs(wt.m11()), 1e-9);
                 const double rScene = (szPx * 0.5) / scale;
 
+                // The style's shape, as the QSG renderer and the mesh layer draw it.
+                const auto shape = static_cast<OpenSWMM::Render::MarkerShape>(ns ? int(ns->shape()) : 0);
+                QPen outline(Qt::NoPen);
+                if (outPx > 0.0) {
+                    outline = QPen(outC);
+                    outline.setCosmetic(true);
+                    outline.setWidthF(outPx);
+                }
                 p->save();
                 p->setOpacity(p->opacity() * subOp);
-                if (outPx > 0.0) {
-                    QPen pen(outC);
-                    pen.setCosmetic(true);
-                    pen.setWidthF(outPx);
-                    p->setPen(pen);
-                } else {
-                    p->setPen(Qt::NoPen);
-                }
-                p->setBrush(col);
-                auto drawMarker = [&](const QPointF &pt) { p->drawEllipse(pt, rScene, rScene); };
+                auto drawMarker = [&](const QPointF &pt) {
+                    OpenSWMM::Render::drawMarkerShape(p, shape, pt, 2.0 * rScene, col, outline);
+                };
                 for (const auto &t : tris) {
                     const double minX = std::min({t.a.x(), t.b.x(), t.c.x()});
                     const double maxX = std::max({t.a.x(), t.b.x(), t.c.x()});
@@ -781,11 +787,8 @@ public:
         // polygon as the native renderer, retaining the sublayer paint order.
         const auto paintCellFill = [&](OpenSWMM::Render::CellDepthFillSublayer *sub) {
             const auto *style = sub->fillStyle();
-            double lo = dryDepth, hi = maxDepth;
-            if (style->useCustomRange() && style->rangeMax() > style->rangeMin()) {
-                lo = style->rangeMin();
-                hi = style->rangeMax();
-            }
+            // Custom range, the current frame (Per-frame auto-stretch) or the whole run.
+            const auto [lo, hi] = layer_->depthFillRange(style, dryDepth);
             if (hi <= lo)
                 return;
             QVector<double> levels;
@@ -829,11 +832,8 @@ public:
         };
         const auto paintSmoothFill = [&](OpenSWMM::Render::SmoothDepthFillSublayer *sub) {
             const auto *style = sub->fillStyle();
-            double lo = dryDepth, hi = maxDepth;
-            if (style->useCustomRange() && style->rangeMax() > style->rangeMin()) {
-                lo = style->rangeMin();
-                hi = style->rangeMax();
-            }
+            // Custom range, the current frame (Per-frame auto-stretch) or the whole run.
+            const auto [lo, hi] = layer_->depthFillRange(style, dryDepth);
             if (hi <= lo || sub->opacity() <= 0)
                 return;
             const auto transform = p->deviceTransform();
@@ -4437,6 +4437,38 @@ QVector<double> SWMM2DResultsLayer::currentDepthSamples(bool includeDry) const
     return samples;
 }
 
+double SWMM2DResultsLayer::currentFrameMaxDepth() const
+{
+    const int generation = source_ ? source_->historyGeneration() : -1;
+    if (frameMaxIndex_ == current_time_idx_ && frameMaxGeneration_ == generation &&
+        frameMaxSource_ == source_.get())
+        return frameMaxDepth_;
+    std::vector<float> full;
+    if (published_region_ && source_)
+        source_->readDepthsAt(current_time_idx_, full);
+    const auto &depths = published_region_ ? full : current_depths_;
+    double wettest = 0.0;
+    for (float d : depths)
+        if (std::isfinite(d) && d > wettest)
+            wettest = d;
+    frameMaxDepth_ = wettest;
+    frameMaxIndex_ = current_time_idx_;
+    frameMaxGeneration_ = generation;
+    frameMaxSource_ = source_.get();
+    return wettest;
+}
+
+std::pair<double, double>
+SWMM2DResultsLayer::depthFillRange(const OpenSWMM::Render::ScalarFillStyle *style,
+                                   double dryDepth) const
+{
+    if (style && style->useCustomRange() && style->rangeMax() > style->rangeMin())
+        return {style->rangeMin(), style->rangeMax()};
+    if (style && style->scheme().rangeMode() == OpenSWMM::Render::RangeMode::PerFrameAutoStretch)
+        return {dryDepth, currentFrameMaxDepth()};
+    return {dryDepth, maxDepth()};
+}
+
 QVector<double> SWMM2DResultsLayer::depthClassificationSamples(
     const OpenSWMM::Render::ClassificationScheme &scheme) const
 {
@@ -5678,15 +5710,17 @@ SWMM2DResultsLayer::availableAttributes(OpenSWMMVis::SwmmCategory /*cat*/) const
 
 OpenSWMM::Render::RuleList *SWMM2DResultsLayer::ruleList()
 {
-    if (!m_ruleList)
-        buildRuleListLazy();
-    return m_ruleList.get();
+    return const_cast<OpenSWMM::Render::RuleList *>(std::as_const(*this).ruleList());
 }
 
 const OpenSWMM::Render::RuleList *SWMM2DResultsLayer::ruleList() const
 {
     if (!m_ruleList)
         buildRuleListLazy();
+    // Whoever opens the rules (the Layer Styling dock, the style manager)
+    // sees the live styles.
+    for (const auto &binding : std::as_const(m_ruleBindings))
+        OpenSWMM::Render::seedRuleFromStyle(*binding);
     return m_ruleList.get();
 }
 
@@ -5697,7 +5731,7 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
     auto *self = const_cast<SWMM2DResultsLayer *>(this);
     m_ruleList = std::make_unique<RuleList>(self);
 
-    // Six seed Rules covering the result-layer decoration set. Parallel to
+    // Seven seed Rules covering the result-layer decoration set. Parallel to
     // SWMM2DMeshLayer's Rule List (Slice B.5b/Z.6a). The propagation
     // handlers below translate dialog edits on each Rule back to the
     // matching legacy sublayer style fields, which the existing paint
@@ -5724,10 +5758,7 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
          }},
         {"Mesh edges", [] { return MeshEdgeSymbolLayerSpec{}.toSymbolLayer(); }},
         {"Mesh nodes", [] { return MeshNodeSymbolLayerSpec{}.toSymbolLayer(); }},
-        // Slice AN.3 — 7th seed rule for the velocity-vector sublayer.
-        // The painter (SWMM2DVelocityArrowsItem) already consumes
-        // VelocityVectorStyle each frame; this rule + the back-prop
-        // lambda below give the user a Symbology-tab editor surface.
+        // Slice AN.3 — 7th seed rule: the velocity row's arrows (below).
         {"Velocity vectors", [] { return VelocityVectorSymbolLayerSpec{}.toSymbolLayer(); }},
     };
 
@@ -5744,196 +5775,172 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
         ruleHandles.append(r);
     }
 
-    // ── Slice Z.6a step 3 — Rule → legacy-style propagation ─────────────
+    // ── Rule ↔ live style (render/rulestylesync.h) ──────────────────────
     //
-    // Same pattern as SWMM2DMeshLayer: each Rule's rendererReplaced signal
-    // extracts the typed spec from the first SymbolLayer and writes the
-    // relevant fields back onto the matching legacy sublayer style.
-    // setDirty on the style triggers invalidated(), which the constructor
-    // wired to graphics_item_->geometryChanged() — the next paint reads
-    // the updated legacy fields.
-    auto firstLayer = [](Rule *r) -> const SymbolLayer * {
-        if (!r)
-            return nullptr;
-        auto *single = dynamic_cast<const SingleSymbolRenderer *>(r->renderer());
-        if (!single)
-            return nullptr;
-        if (single->symbol().layers.isEmpty())
-            return nullptr;
-        return &single->symbol().layers.first();
+    // Each rule mirrors the style the renderers draw. ruleList() reseeds the
+    // rules from the live styles, and an edit in the Layer Styling dock writes
+    // back only the props it changed, so editing one field never resets the
+    // others. Renderer swaps (graduated / categorised) write nothing.
+    using Props = QVariantMap;
+    using Writer = std::function<void(const QString &, const QVariant &)>;
+    using Resolve = std::function<ISublayer *()>;
+    const auto bind = [this, self, &ruleHandles, &seeds](int index, SymbolLayerKind kind,
+                                                        Resolve sublayer,
+                                                        std::function<Props()> read,
+                                                        Writer write) {
+        auto b = std::make_shared<RuleStyleBinding>();
+        b->rule = ruleHandles[index];
+        b->kind = kind;
+        b->defaults = seeds[index].build;
+        b->read = std::move(read);
+        b->write = std::move(write);
+        b->readOpacity = [sublayer] {
+            auto *s = sublayer();
+            return s ? s->opacity() : 1.0;
+        };
+        b->writeOpacity = [sublayer](qreal o) {
+            if (auto *s = sublayer())
+                s->setOpacity(o);
+        };
+        QObject::connect(ruleHandles[index], &Rule::rendererReplaced, self,
+                         [b] { applyRuleEdit(*b); });
+        m_ruleBindings.append(b);
     };
 
-    // ── Depth color ramp — REMOVED (2026-06-21) ─────────────────────────
-    // The depth-ramp sublayer was removed (redundant with contour bands,
-    // which now provide the depth fill). ruleHandles[0] ("Depth color ramp"
-    // seed) is left as an inert entry with no propagation handler so the
-    // handlers below keep their existing [1..6] indices (avoids a risky
-    // blind reindex). FOLLOW-UP: drop the seed entry and reindex
-    // ruleHandles[1..6] → [0..5] in a build-verified pass.
+    // ── Depth color ramp: the depth fill being drawn (smooth or flat) ───
+    const auto depthSmooth = [self] {
+        const auto *depth = self->depthResultSublayer();
+        return depth && depth->fillStyle()->smoothFill();
+    };
+    const Resolve depthFill = [self, depthSmooth]() -> ISublayer * {
+        if (depthSmooth())
+            return self->m_smoothDepthFillSublayer;
+        return self->m_cellDepthFillSublayer;
+    };
+    const auto depthFillStyle = [self, depthSmooth]() -> ScalarFillStyle * {
+        if (depthSmooth())
+            return self->m_smoothDepthFillSublayer ? self->m_smoothDepthFillSublayer->fillStyle()
+                                                   : nullptr;
+        return self->m_cellDepthFillSublayer ? self->m_cellDepthFillSublayer->fillStyle() : nullptr;
+    };
+    bind(0, SymbolLayerKind::RasterColorRamp, depthFill,
+         [depthFillStyle] {
+             const auto *st = depthFillStyle();
+             if (!st)
+                 return Props{};
+             return Props{{QStringLiteral("lowColor"), st->lowColor()},
+                          {QStringLiteral("highColor"), st->highColor()},
+                          {QStringLiteral("minValue"), st->rangeMin()},
+                          {QStringLiteral("maxValue"), st->rangeMax()}};
+         },
+         [depthFillStyle](const QString &key, const QVariant &v) {
+             auto *st = depthFillStyle();
+             if (!st)
+                 return;
+             if (key == QLatin1String("lowColor") || key == QLatin1String("highColor")) {
+                 // Picked colours replace a named ramp: the two-colour gradient.
+                 st->setColorRampName(QString());
+                 key == QLatin1String("lowColor") ? st->setLowColor(v.value<QColor>())
+                                                  : st->setHighColor(v.value<QColor>());
+             } else if (key == QLatin1String("minValue") || key == QLatin1String("maxValue")) {
+                 st->setUseCustomRange(true);
+                 key == QLatin1String("minValue") ? st->setRangeMin(v.toDouble())
+                                                  : st->setRangeMax(v.toDouble());
+             }
+         });
 
-    // ── Hillshade (HillshadeSpec) — results layer doesn't paint hillshade
-    //    in the QPainter path, but we still wire the strength multiplier
-    //    onto the carried MeshFillStyle so it round-trips and a future
-    //    hillshaded-results renderer can read it.
-    //    Slice AN.4 — extended to write fillColor + useElevationRamp from
-    //    the HillshadeSymbolStyleAdapter's prop keys. ────────────────
-    QObject::connect(
-        ruleHandles[1], &Rule::rendererReplaced, self, [self, ruleHandles, firstLayer]() {
-            const SymbolLayer *layer = firstLayer(ruleHandles[1]);
-            if (!layer || layer->kind != SymbolLayerKind::Hillshade)
-                return;
-            const auto spec = HillshadeSymbolLayerSpec::fromSymbolLayer(*layer);
-            if (auto *fill = self->m_meshFillSublayer; fill && fill->fillStyle()) {
-                auto *st = fill->fillStyle();
-                st->setHillshadeStrength(spec.strength);
-                const auto &p = layer->props;
-                if (p.contains(QStringLiteral("fillColor"))) {
-                    const QColor c = p.value(QStringLiteral("fillColor")).value<QColor>();
-                    if (c.isValid())
-                        st->setFillColor(c);
-                }
-                if (p.contains(QStringLiteral("useElevationRamp")))
-                    st->setUseElevationRamp(p.value(QStringLiteral("useElevationRamp")).toBool());
-            }
-        });
+    // ── Hillshade: carried terrain style (the results renderers draw no
+    //    terrain; it round-trips with the project) ──────────────────────
+    bind(1, SymbolLayerKind::Hillshade, [self]() -> ISublayer * { return self->m_meshFillSublayer; },
+         [self] {
+             const auto *st = self->m_meshFillSublayer->fillStyle();
+             return Props{{QStringLiteral("fillColor"), st->fillColor()},
+                          {QStringLiteral("hillshadeStrength"), st->hillshadeStrength()},
+                          {QStringLiteral("strength"), st->hillshadeStrength()},
+                          {QStringLiteral("useElevationRamp"), st->useElevationRamp()}};
+         },
+         [self](const QString &key, const QVariant &v) {
+             auto *st = self->m_meshFillSublayer->fillStyle();
+             if (key == QLatin1String("fillColor"))
+                 st->setFillColor(v.value<QColor>());
+             else if (key == QLatin1String("hillshadeStrength") || key == QLatin1String("strength"))
+                 st->setHillshadeStrength(v.toDouble());
+             else if (key == QLatin1String("useElevationRamp"))
+                 st->setUseElevationRamp(v.toBool());
+         });
 
-    // ── Contour bands (ContourSpec mode=Filled) ─────────────────────────
-    // Slice AN.4 — extended to write attribute / bandCount /
-    // belowMinColor / aboveMaxColor / direct lowColor / highColor from
-    // the ContourBandSymbolStyleAdapter's prop keys.
-    QObject::connect(
-        ruleHandles[2], &Rule::rendererReplaced, self, [self, ruleHandles, firstLayer]() {
-            const SymbolLayer *layer = firstLayer(ruleHandles[2]);
-            if (!layer || layer->kind != SymbolLayerKind::Contour)
-                return;
-            const auto spec = ContourSymbolLayerSpec::fromSymbolLayer(*layer);
-            if (auto *sub = self->m_contourBandSublayer; sub && sub->bandStyle()) {
-                auto *st = sub->bandStyle();
-                const auto &p = layer->props;
-                st->setBandCount(p.contains(QStringLiteral("bandCount"))
-                                     ? p.value(QStringLiteral("bandCount")).toInt()
-                                     : spec.binner.binCount());
-                st->setSmoothBands(spec.smoothBands);
-                const QColor specLow =
-                    !spec.ramp.stops.isEmpty() ? spec.ramp.stops.first().second : QColor(0, 0, 255);
-                const QColor specHigh =
-                    !spec.ramp.stops.isEmpty() ? spec.ramp.stops.last().second : QColor(255, 0, 0);
-                st->setLowColor(p.contains(QStringLiteral("lowColor"))
-                                    ? p.value(QStringLiteral("lowColor")).value<QColor>()
-                                    : specLow);
-                st->setHighColor(p.contains(QStringLiteral("highColor"))
-                                     ? p.value(QStringLiteral("highColor")).value<QColor>()
-                                     : specHigh);
-                if (p.contains(QStringLiteral("belowMinColor")))
-                    st->setBelowMinColor(p.value(QStringLiteral("belowMinColor")).value<QColor>());
-                if (p.contains(QStringLiteral("aboveMaxColor")))
-                    st->setAboveMaxColor(p.value(QStringLiteral("aboveMaxColor")).value<QColor>());
-                if (p.contains(QStringLiteral("attribute")))
-                    st->setAttribute(p.value(QStringLiteral("attribute")).toString());
-            }
-        });
+    // ── Contour bands and lines: the depth row's passes ─────────────────
+    bind(2, SymbolLayerKind::Contour,
+         [self]() -> ISublayer * { return self->m_contourBandSublayer; },
+         [self] { return contourBandProps(*self->m_contourBandSublayer->bandStyle()); },
+         [self](const QString &key, const QVariant &v) {
+             writeContourBandProp(self->m_contourBandSublayer->bandStyle(), key, v);
+         });
+    bind(3, SymbolLayerKind::Contour, [self]() -> ISublayer * { return self->m_isolineSublayer; },
+         [self] { return isolineProps(*self->m_isolineSublayer->isolineStyle()); },
+         [self](const QString &key, const QVariant &v) {
+             writeIsolineProp(self->m_isolineSublayer->isolineStyle(), key, v);
+         });
 
-    // ── Contour lines (ContourSpec mode=Lines) ──────────────────────────
-    // Slice AN.4 — extended to write attribute + dashPattern (from
-    // IsolineSymbolStyleAdapter) and to honour explicit isoValueCount /
-    // color / lineWidthPx / labels overrides from the prop bag.
-    QObject::connect(
-        ruleHandles[3], &Rule::rendererReplaced, self, [self, ruleHandles, firstLayer]() {
-            const SymbolLayer *layer = firstLayer(ruleHandles[3]);
-            if (!layer || layer->kind != SymbolLayerKind::Contour)
-                return;
-            const auto spec = ContourSymbolLayerSpec::fromSymbolLayer(*layer);
-            if (auto *sub = self->m_isolineSublayer; sub && sub->isolineStyle()) {
-                auto *st = sub->isolineStyle();
-                const auto &p = layer->props;
-                st->setIsoValueCount(p.contains(QStringLiteral("isoValueCount"))
-                                         ? p.value(QStringLiteral("isoValueCount")).toInt()
-                                         : spec.binner.binCount());
-                st->setColor(p.contains(QStringLiteral("color"))
-                                 ? p.value(QStringLiteral("color")).value<QColor>()
-                                 : spec.lineColor);
-                st->setLineWidthPx(p.contains(QStringLiteral("width"))
-                                       ? p.value(QStringLiteral("width")).toDouble()
-                                       : spec.lineWidthPx);
-                st->setLabels(p.contains(QStringLiteral("labels"))
-                                  ? p.value(QStringLiteral("labels")).toBool()
-                                  : spec.labelEveryN > 0);
-                if (p.contains(QStringLiteral("penStyle")))
-                    st->setDashPattern(
-                        static_cast<Qt::PenStyle>(p.value(QStringLiteral("penStyle")).toInt()));
-                if (p.contains(QStringLiteral("attribute")))
-                    st->setAttribute(p.value(QStringLiteral("attribute")).toString());
-            }
-        });
+    // ── Mesh edges: colour, width and stroke (the results renderers draw
+    //    no slope-driven widths; those keys are not written) ────────────
+    bind(4, SymbolLayerKind::MeshEdge, [self]() -> ISublayer * { return self->m_meshEdgeSublayer; },
+         [self] { return meshEdgeProps(*self->m_meshEdgeSublayer->edgeStyle()); },
+         [self](const QString &key, const QVariant &v) {
+             if (key == QLatin1String("color") || key == QLatin1String("width") ||
+                 key == QLatin1String("penStyle"))
+                 writeMeshEdgeProp(self->m_meshEdgeSublayer->edgeStyle(), key, v);
+         });
 
-    // ── Mesh edges (MeshEdgeSpec) ───────────────────────────────────────
-    QObject::connect(ruleHandles[4], &Rule::rendererReplaced, self,
-                     [self, ruleHandles, firstLayer]() {
-                         const SymbolLayer *layer = firstLayer(ruleHandles[4]);
-                         if (!layer || layer->kind != SymbolLayerKind::MeshEdge)
-                             return;
-                         const auto spec = MeshEdgeSymbolLayerSpec::fromSymbolLayer(*layer);
-                         if (auto *sub = self->m_meshEdgeSublayer; sub && sub->edgeStyle()) {
-                             auto *st = sub->edgeStyle();
-                             st->setColor(spec.color);
-                             st->setLineWidthPx(spec.width);
-                             st->setDashPattern(spec.penStyle);
-                             st->setUseSlopeDrivenWidth(spec.useSlopeDrivenWidth);
-                             st->setSlopeBreak(spec.slopeBreak);
-                             st->setWideWidthPx(spec.wideWidthPx);
-                             st->setWideColor(spec.wideColor);
-                         }
-                     });
+    // ── Mesh nodes ──────────────────────────────────────────────────────
+    bind(5, SymbolLayerKind::MeshNode, [self]() -> ISublayer * { return self->m_meshNodeSublayer; },
+         [self] { return meshNodeProps(*self->m_meshNodeSublayer->nodeStyle()); },
+         [self](const QString &key, const QVariant &v) {
+             writeMeshNodeProp(self->m_meshNodeSublayer->nodeStyle(), key, v);
+         });
 
-    // ── Mesh nodes (MeshNodeSpec wraps MarkerSpec) ──────────────────────
-    // The Slice AN.4 tagged-vertex prop back-prop is gone: tagged styling
-    // moved to CoupledNodeStyle (mesh layer's coupled-node sublayer), and
-    // the results renderer never honoured it anyway.
-    QObject::connect(ruleHandles[5], &Rule::rendererReplaced, self,
-                     [self, ruleHandles, firstLayer]() {
-                         const SymbolLayer *layer = firstLayer(ruleHandles[5]);
-                         if (!layer || layer->kind != SymbolLayerKind::MeshNode)
-                             return;
-                         const auto spec = MeshNodeSymbolLayerSpec::fromSymbolLayer(*layer);
-                         if (auto *sub = self->m_meshNodeSublayer; sub && sub->nodeStyle()) {
-                             auto *st = sub->nodeStyle();
-                             st->setColor(spec.marker.fillColor);
-                             st->setMarkerSizePx(spec.marker.sizePx);
-                             st->setOutlineColor(spec.marker.outlineColor);
-                             st->setOutlineWidthPx(spec.marker.outlineWidth);
-                             int shapeIdx = static_cast<int>(spec.marker.shape);
-                             if (shapeIdx < 0 || shapeIdx > 3)
-                                 shapeIdx = 0;
-                             st->setShape(static_cast<MeshNodeStyle::MarkerShape>(shapeIdx));
-                         }
-                     });
-
-    // ── (Slice DM.3 IAttributeProvider impl follows the rule wiring
-    //    block — search for "availableAttributes" below.) ─────────────
-
-    // ── Velocity vectors (VelocityVectorSymbolLayerSpec) — Slice AN.3.
-    //    Extracts the typed spec from the rule's first SymbolLayer and
-    //    writes it onto VelocityVectorStyle. The existing painter
-    //    (SWMM2DVelocityArrowsItem in swmm2dresultslayer.cpp) re-reads
-    //    those fields each frame, so edits take effect on the next
-    //    animation tick. ───────────────────────────────────────────────
-    QObject::connect(
-        ruleHandles[6], &Rule::rendererReplaced, self, [self, ruleHandles, firstLayer]() {
-            const SymbolLayer *layer = firstLayer(ruleHandles[6]);
-            if (!layer || layer->kind != SymbolLayerKind::VectorGlyph)
-                return;
-            const auto spec = VelocityVectorSymbolLayerSpec::fromSymbolLayer(*layer);
-            if (auto *sub = self->m_velocityVectorSublayer; sub && sub->vectorStyle()) {
-                auto *st = sub->vectorStyle();
-                st->setGlyphLengthScalePxPerMps(spec.glyphLengthScalePxPerMps);
-                st->setGlyphLengthMinPx(spec.glyphLengthMinPx);
-                st->setGlyphLengthMaxPx(spec.glyphLengthMaxPx);
-                st->setGlyphSpacingPx(spec.glyphSpacingPx);
-                st->setHeadSizePx(spec.headSizePx);
-                st->setColor(spec.color);
-                st->setDryDepthCutoff(spec.dryDepthCutoff);
-            }
-        });
+    // ── Velocity vectors: the velocity row's arrows (its ResultVectorStyle).
+    //    A picked colour means one colour for every arrow, and a picked
+    //    scale a fixed px per m/s, so each switches its mode to take effect.
+    const auto velocityStyle = [self]() -> ResultVectorStyle * {
+        auto *row = self->velocityResultSublayer();
+        return row ? row->vectorStyle() : nullptr;
+    };
+    bind(6, SymbolLayerKind::VectorGlyph,
+         [self]() -> ISublayer * { return self->velocityResultSublayer(); },
+         [velocityStyle] {
+             const auto *st = velocityStyle();
+             if (!st)
+                 return Props{};
+             return Props{{QStringLiteral("color"), st->color()},
+                          {QStringLiteral("glyphLengthScalePxPerMps"), st->scalePxPerUnit()},
+                          {QStringLiteral("glyphLengthMinPx"), st->minLengthPx()},
+                          {QStringLiteral("glyphLengthMaxPx"), st->maxLengthPx()},
+                          {QStringLiteral("glyphSpacingPx"), st->spacingPx()},
+                          {QStringLiteral("headSizePx"), st->headSizePx()},
+                          {QStringLiteral("dryDepthCutoff"), st->dryDepthCutoff()}};
+         },
+         [velocityStyle](const QString &key, const QVariant &v) {
+             auto *st = velocityStyle();
+             if (!st)
+                 return;
+             if (key == QLatin1String("color")) {
+                 st->setColor(v.value<QColor>());
+                 st->setColorMode(ResultVectorStyle::ColorMode::Constant);
+             } else if (key == QLatin1String("glyphLengthScalePxPerMps")) {
+                 st->setScalePxPerUnit(v.toDouble());
+                 st->setSizeMode(ResultVectorStyle::SizeMode::FixedScale);
+             } else if (key == QLatin1String("glyphLengthMinPx"))
+                 st->setMinLengthPx(v.toDouble());
+             else if (key == QLatin1String("glyphLengthMaxPx"))
+                 st->setMaxLengthPx(v.toDouble());
+             else if (key == QLatin1String("glyphSpacingPx"))
+                 st->setSpacingPx(v.toDouble());
+             else if (key == QLatin1String("headSizePx"))
+                 st->setHeadSizePx(v.toDouble());
+             else if (key == QLatin1String("dryDepthCutoff"))
+                 st->setDryDepthCutoff(v.toDouble());
+         });
 }
 
 std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>

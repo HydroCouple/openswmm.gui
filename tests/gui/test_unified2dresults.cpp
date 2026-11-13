@@ -2157,8 +2157,8 @@ private slots:
         }
         QCOMPARE(headings, (QStringList{"Surface water — Vector", "Surface water — Scalar",
                                         "Groundwater — Vector", "Groundwater — Scalar"}));
-        QCOMPARE(rows, (QStringList{"results2d.meshVertices", "results2d.meshEdges",
-                                    "results2d.mesh"}));
+        // The terrain draws nothing under results and is not listed.
+        QCOMPARE(rows, (QStringList{"results2d.meshVertices", "results2d.meshEdges"}));
     }
 };
 

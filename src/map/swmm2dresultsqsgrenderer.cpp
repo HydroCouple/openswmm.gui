@@ -29,6 +29,7 @@
 #include "contour/marchingtriangles.h"
 #include "layers/swmm2dresultslayer.h"
 #include "render/qsg2drenderstats.h"
+#include "render/qsgmarkergeometry.h"
 #include "render/qsgpremultiply.h"
 #include "render/sublayers/contourbandsublayer.h"
 #include "render/sublayers/isolinesublayer.h"
@@ -585,6 +586,40 @@ void appendThickSeg(std::vector<QSGGeometry::Point2D> &out, float ax, float ay, 
 }
 
 /**
+ * @brief appendThickSeg broken into the dashes of a pen style (QPainter parity).
+ * @param[in] dash QPen::dashPattern() (on/off lengths in pen widths); empty = solid.
+ * @param[in] unit Scene length of one pen width (thinner than 1 px dashes like a 1 px pen).
+ */
+void appendDashedThickSeg(std::vector<QSGGeometry::Point2D> &out, float ax, float ay, float bx,
+                          float by, float hw, const QVector<qreal> &dash, float unit)
+{
+    if (dash.isEmpty() || unit <= 0.f) {
+        appendThickSeg(out, ax, ay, bx, by, hw);
+        return;
+    }
+    const float dx = bx - ax, dy = by - ay;
+    const float len = std::sqrt(dx * dx + dy * dy);
+    if (len < 1e-9f)
+        return;
+    float at = 0.f;
+    for (int part = 0; at < len; ++part) {
+        const float next = std::min(len, at + std::max(1e-6f, float(dash[part % dash.size()]) * unit));
+        if (part % 2 == 0)
+            appendThickSeg(out, ax + dx * (at / len), ay + dy * (at / len), ax + dx * (next / len),
+                           ay + dy * (next / len), hw);
+        at = next;
+    }
+}
+
+/** @return The dash pattern QPainter would use for \p style; empty for solid (and NoPen). */
+QVector<qreal> dashPatternOf(Qt::PenStyle style)
+{
+    if (style == Qt::SolidLine || style == Qt::NoPen)
+        return {};
+    return QPen(style).dashPattern();
+}
+
+/**
  * @brief Append a constant-colour butt-cap stroke quad without clearing prior triangles.
  * @param[in,out] out Append-only premultiplied vertex list; six vertices per accepted segment.
  * @param[in] ax First endpoint X in anchored scene units.
@@ -999,6 +1034,13 @@ void SWMM2DResultsQSGRenderer::setLayer(SWMM2DResultsLayer *layer)
                 m_dirty.noteStyleChanged();
                 noteContentChanged();
             });
+        // Vertex markers likewise: a style change in the same sync as an animation tick
+        // resolved to Data only, and the markers kept the old style.
+        if (auto *markers = m_layer->meshNodeSublayer())
+            connect(markers, &OpenSWMM::Render::ISublayer::invalidated, this, [this] {
+                m_dirty.noteStyleChanged();
+                noteContentChanged();
+            });
         connect(m_layer, &SWMM2DResultsLayer::flowStreaksChanged, this, [this] {
             if (!m_separateFlow || m_waitingForParticles) {
                 if (m_waitingForParticles)
@@ -1181,7 +1223,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         isoIndexNode = root->isoIndexNode = makeFlatNode(QColor(10, 10, 10, 220));
         isoLabels = root->isoLabels = new QSGOpacityNode();
         edgeNode = root->edgeNode = makeFlatNode(QColor(0, 0, 0, 130));
-        nodeMarkNode = root->nodeMarkNode = makeFlatNode(QColor(40, 40, 40, 220));
+        nodeMarkNode = root->nodeMarkNode = makeColoredNode(); // fill + outline colours
         velNode = root->velNode = makeColoredNode();
         hiFillNode = root->hiFillNode = makeFlatNode(kHiFillColor);
         hiEdgeNode = root->hiEdgeNode = makeFlatNode(kHiEdgeColor);
@@ -1291,7 +1333,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
             delete c;
         }
         uploadFlatVerts(edgeNode, empty_p);
-        uploadFlatVerts(nodeMarkNode, empty_p);
+        uploadColoredVerts(nodeMarkNode, empty_c);
         uploadColoredVerts(velNode, empty_c);
         uploadFlatVerts(hiFillNode, empty_p);
         uploadFlatVerts(hiEdgeNode, empty_p);
@@ -1727,6 +1769,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         const bool gpuIsolines = isoVisible && !isoLevels.empty() &&
                                  isoLevels.size() <= size_t(ScalarBandMaterial::kMaxBands) &&
                                  !(is && is->labels() && lod.drawContourLabels) &&
+                                 !(is && is->dashPattern() != Qt::SolidLine) &&
                                  m_layer->fastSurfacePublished() && gpuBandsEnabled() &&
                                  ensureSharedFillChunks(ox, oy);
         // Per-frame passes over millions of triangles use the global pool for saved results; a
@@ -1750,6 +1793,12 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
             key.contourStyle.insert(QStringLiteral("bands"), bs->toJson());
         if (is)
             key.contourStyle.insert(QStringLiteral("isolines"), is->toJson());
+        // The depth fills' styles too: a per-frame classification captures this frame's
+        // samples with the job, so a change while paused must start one.
+        if (cellSub && cellSub->isVisible() && cellSub->fillStyle())
+            key.contourStyle.insert(QStringLiteral("cellFill"), cellSub->fillStyle()->toJson());
+        if (smoothSub && smoothSub->isVisible() && smoothSub->fillStyle())
+            key.contourStyle.insert(QStringLiteral("smoothFill"), smoothSub->fillStyle()->toJson());
         key.contourStyle.insert(QStringLiteral("bandsVisible"), bandsVisible);
         key.contourStyle.insert(QStringLiteral("isolinesVisible"), isoVisible);
         key.contourStyle.insert(QStringLiteral("gpuBands"), gpuBands);
@@ -1986,6 +2035,10 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                                 !m_layer->prepareFlowParticlesForPresentation(frame.particles);
         if (m_waitingForParticles) {
             m_dirty.noteDataChanged();
+            // Keep a pending static rebuild (edge / marker style, zoom bucket, selection)
+            // for the frame that does render; noting Data alone dropped it.
+            if (bits & (D::Style | D::Lod | D::Selection))
+                m_dirty.noteStyleChanged();
             applyTransform();
             syncStreaks();
             return root;
@@ -2285,11 +2338,8 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         bool gpuFillDrawn = false; // this frame's smooth fill went to root->gpuFillNode
         auto buildFillPass = [&](const OpenSWMM::Render::ScalarFillStyle *style, qreal subOpacity,
                                  bool perVertex, ColoredVertexUpload &out) {
-            double vMin = dryDepth, vMax = maxDepth;
-            if (style->useCustomRange() && style->rangeMax() > style->rangeMin()) {
-                vMin = style->rangeMin();
-                vMax = style->rangeMax();
-            }
+            // Custom range, the current frame (Per-frame auto-stretch) or the whole run.
+            const auto [vMin, vMax] = m_layer->depthFillRange(style, dryDepth);
             const bool classified = style->classified();
             std::vector<double> levels;
             int bandCount = 1;
@@ -2805,7 +2855,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
             if (gpuIsoDrawn) {
                 const int idxEvery = is ? is->indexEvery() : 0;
                 const double widthPx = is ? std::max(0.5, is->lineWidthPx()) : 1.0;
-                const double indexPx = is ? std::max(widthPx, is->indexWidthPx()) : widthPx;
+                const double indexPx = is ? std::max(0.5, is->indexWidthPx()) : widthPx;
                 // The shader measures device pixels; the marched lines are logical pixels wide.
                 const double dpr = window() ? window()->effectiveDevicePixelRatio() : 1.0;
                 std::vector<float> halfWidths(isoLevels.size());
@@ -2872,20 +2922,29 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                     };
 
                     const double widthPx = is ? std::max(0.5, is->lineWidthPx()) : 1.0;
-                    const double indexPx = is ? std::max(widthPx, is->indexWidthPx()) : widthPx;
+                    const double indexPx = is ? std::max(0.5, is->indexWidthPx()) : widthPx;
                     const float lineHW = float(0.5 * widthPx) * invView;
                     const float indexHW = float(0.5 * indexPx) * invView;
+                    // The style's stroke style (QPainter parity); NoPen draws no lines.
+                    const Qt::PenStyle stroke = is ? is->dashPattern() : Qt::SolidLine;
+                    const QVector<qreal> dash = dashPatternOf(stroke);
+                    const float lineUnit = float(std::max(1.0, widthPx)) * invView;
+                    const float indexUnit = float(std::max(1.0, indexPx)) * invView;
 
                     std::vector<QSGGeometry::Point2D> lineVerts, indexVerts;
                     lineVerts.reserve(visSegs.size() * 6);
                     for (const auto *sp : visSegs) {
+                        if (stroke == Qt::NoPen)
+                            break;
                         const auto &s = *sp;
                         if (isIndexLevel(s.level))
-                            appendThickSeg(indexVerts, float(s.a.x()), float(s.a.y()),
-                                           float(s.b.x()), float(s.b.y()), indexHW);
+                            appendDashedThickSeg(indexVerts, float(s.a.x()), float(s.a.y()),
+                                                 float(s.b.x()), float(s.b.y()), indexHW, dash,
+                                                 indexUnit);
                         else
-                            appendThickSeg(lineVerts, float(s.a.x()), float(s.a.y()),
-                                           float(s.b.x()), float(s.b.y()), lineHW);
+                            appendDashedThickSeg(lineVerts, float(s.a.x()), float(s.a.y()),
+                                                 float(s.b.x()), float(s.b.y()), lineHW, dash,
+                                                 lineUnit);
                     }
                     uploadFlatVerts(isoNode, lineVerts);
                     uploadFlatVerts(isoIndexNode, indexVerts);
@@ -3162,14 +3221,21 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                 const qreal op = std::clamp<qreal>(edgeSub->opacity(), 0.0, 1.0);
                 col.setAlpha(int(qBound(0.0, col.alpha() * op, 255.0)));
                 const float hw = float(0.5 * w) * invView;
+                // The edge style's stroke style (QPainter parity); NoPen draws no edges.
+                const Qt::PenStyle stroke = es ? es->dashPattern() : Qt::SolidLine;
+                const QVector<qreal> dash = dashPatternOf(stroke);
+                const float dashUnit = float(std::max(1.0, w)) * invView;
 
                 const auto &edges = m_layer->m_sceneEdges;
                 std::vector<QSGGeometry::Point2D> edgeSegs;
                 qint64 visEdgeCount = 0;
                 auto emitEdge = [&](int i) {
+                    if (stroke == Qt::NoPen)
+                        return;
                     const auto &e = edges[i];
-                    appendThickSeg(edgeSegs, float(e.a.x() - ox), float(e.a.y() - oy),
-                                   float(e.b.x() - ox), float(e.b.y() - oy), hw);
+                    appendDashedThickSeg(edgeSegs, float(e.a.x() - ox), float(e.a.y() - oy),
+                                         float(e.b.x() - ox), float(e.b.y() - oy), hw, dash,
+                                         dashUnit);
                     ++visEdgeCount;
                 };
                 for (int cid : chunkQ.fullyInside)
@@ -3213,22 +3279,17 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                 const qreal op = std::clamp<qreal>(nodeSub->opacity(), 0.0, 1.0);
                 col.setAlpha(int(qBound(0.0, col.alpha() * op, 255.0)));
                 const float r = float(0.5 * sz) * invView;
+                // The style's shape and outline, as the QPainter path draws them.
+                const int shape = ns ? int(ns->shape()) : 0;
+                QColor outline = ns ? ns->outlineColor() : QColor(Qt::transparent);
+                outline.setAlpha(int(qBound(0.0, outline.alpha() * op, 255.0)));
+                const float outlineHW = ns ? float(0.5 * ns->outlineWidthPx()) * invView : 0.f;
 
-                std::vector<QSGGeometry::Point2D> markVerts;
+                std::vector<QSGGeometry::ColoredPoint2D> markVerts;
                 qint64 visVertCount = 0;
                 auto emitQuad = [&](float cx, float cy) {
-                    auto V = [](float x, float y) {
-                        QSGGeometry::Point2D p;
-                        p.x = x;
-                        p.y = y;
-                        return p;
-                    };
-                    markVerts.push_back(V(cx - r, cy - r));
-                    markVerts.push_back(V(cx + r, cy - r));
-                    markVerts.push_back(V(cx - r, cy + r));
-                    markVerts.push_back(V(cx + r, cy - r));
-                    markVerts.push_back(V(cx + r, cy + r));
-                    markVerts.push_back(V(cx - r, cy + r));
+                    OpenSWMM::Render::appendMarkerGeometry(markVerts, cx, cy, r, shape, col,
+                                                           outline, outlineHW);
                     ++visVertCount;
                 };
                 const auto &verts = m_layer->m_sceneVerts;
@@ -3247,15 +3308,14 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                         emitQuad(float(t.c.x() - ox), float(t.c.y() - oy));
                     }
                 }
-                uploadFlatVerts(nodeMarkNode, markVerts);
-                setFlatColor(nodeMarkNode, col);
+                uploadColoredVerts(nodeMarkNode, markVerts);
                 if (statsOn) {
                     stats.visibleVertices = visVertCount;
                     stats.addPass(QStringLiteral("markers"), qint64(markVerts.size()),
-                                  qint64(markVerts.size() * sizeof(QSGGeometry::Point2D)));
+                                  qint64(markVerts.size() * sizeof(QSGGeometry::ColoredPoint2D)));
                 }
             } else {
-                uploadFlatVerts(nodeMarkNode, std::vector<QSGGeometry::Point2D>{});
+                uploadColoredVerts(nodeMarkNode, std::vector<QSGGeometry::ColoredPoint2D>{});
             }
         }
 
