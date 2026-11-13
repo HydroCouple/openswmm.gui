@@ -924,7 +924,7 @@ QWidget *Mesh2DGroundwaterDialog::buildStatePage()
     m_ledgerView = new QTableView(saved);
     openswmmvis::ui::TableClipboard::install(m_ledgerView, {.copyOnly = true});
     m_ledgerView->setModel(m_ledger);
-    m_ledgerView->setAccessibleName(tr("Saved groundwater water and species ledgers"));
+    m_ledgerView->setAccessibleName(tr("Saved groundwater ledgers"));
     m_ledgerView->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_ledgerView->setSelectionMode(QAbstractItemView::ExtendedSelection);
     m_ledgerView->setEditTriggers(QAbstractItemView::NoEditTriggers);

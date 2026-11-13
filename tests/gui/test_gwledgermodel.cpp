@@ -12,7 +12,10 @@
  *   - species rows take their names (and concentration units) from the
  *     aquifer concentration datasets, as the engine writes them;
  *   - a file without ledgers, or with unresolvable identities, shows
- *     "unavailable" rows with the reason — never zeros, never a series.
+ *     "unavailable" rows with the reason — never zeros, never a series;
+ *   - review G-07: the layered-transport ledger and the aquifer boundary
+ *     water and species totals (summed over boundary edges) are rows too,
+ *     present only when the run wrote them.
  *
  * Synthetic fixtures are written to GW_RESULTS_TEST_OUTPUT. Set GW_PROBE_H5
  * to a real engine `.2d.h5` to also run the read-only probe check.
@@ -82,6 +85,60 @@ QString writeLedgers(const QString &name, const QVector<int> &order, bool specie
         gwfixture::stringAttr(f, "Mesh2_face_gw_sat_conc", "species_names", "SurfPoll,GWTracer");
         gwfixture::stringAttr(f, "Mesh2_face_gw_sat_conc", "species_units", "MG/L,MG/L");
     }
+    H5Fclose(f);
+    return gwfixture::path(name);
+}
+
+/**
+ * @brief Add the layered-transport ledger and the aquifer boundary totals (review G-07) to a
+ * writeLedgers() fixture, in the engine's shapes and attributes.
+ * @details Transport [time, species, term]: 1000 + 100*species + 10*frame + term.
+ * Boundary water [time, boundary, term] over two edges: (boundary+1)*(frame+1)*(term+1), so the
+ * summed final accepted_in (term 2) is 27. Boundary species [time, species, boundary, term]:
+ * 1000*species + 100*boundary + 10*frame + term, except SurfPoll's frame-2 advective_out on
+ * boundary 1, which is NaN.
+ * @param[in] name Fixture file name.
+ * @return Fixture path.
+ */
+QString writeTransportAndBoundaries(const QString &name)
+{
+    writeLedgers(name, {0, 1, 2, 3});
+    hid_t f = H5Fopen(gwfixture::path(name).toUtf8().constData(), H5F_ACC_RDWR, H5P_DEFAULT);
+    std::vector<double> transport;
+    for (int frame = 0; frame < 3; ++frame)
+        for (int s = 0; s < 2; ++s)
+            for (int k = 0; k < 3; ++k)
+                transport.push_back(1000.0 + 100.0 * s + 10.0 * frame + k);
+    gwfixture::doubles(f, "groundwater_transport_ledger", {3, 2, 3}, transport);
+    gwfixture::stringAttr(f, "groundwater_transport_ledger", "terms", "init,storage,boundary_in");
+    gwfixture::stringAttr(f, "groundwater_transport_ledger", "layout",
+                          "[time,species,term]; native concentration x m3");
+
+    std::vector<double> water;
+    for (int frame = 0; frame < 3; ++frame)
+        for (int b = 0; b < 2; ++b)
+            for (int k = 0; k < 4; ++k)
+                water.push_back(double((b + 1) * (frame + 1) * (k + 1)));
+    gwfixture::doubles(f, "groundwater_boundary_water", {3, 2, 4}, water);
+    gwfixture::stringAttr(f, "groundwater_boundary_water", "terms",
+                          "requested_in,requested_out,accepted_in,accepted_out");
+    gwfixture::stringAttr(f, "groundwater_boundary_water", "layout",
+                          "[time,boundary,term]; gross cumulative m3");
+    gwfixture::stringAttr(f, "groundwater_boundary_water", "cell_local_edge", "4:0,7:2");
+
+    std::vector<double> mass;
+    for (int frame = 0; frame < 3; ++frame)
+        for (int s = 0; s < 2; ++s)
+            for (int b = 0; b < 2; ++b)
+                for (int k = 0; k < 4; ++k)
+                    mass.push_back(frame == 2 && s == 0 && b == 1 && k == 1
+                                       ? std::nan("")
+                                       : 1000.0 * s + 100.0 * b + 10.0 * frame + k);
+    gwfixture::doubles(f, "groundwater_boundary_species", {3, 2, 2, 4}, mass);
+    gwfixture::stringAttr(f, "groundwater_boundary_species", "terms",
+                          "advective_in,advective_out,imposed_in,imposed_out");
+    gwfixture::stringAttr(f, "groundwater_boundary_species", "layout",
+                          "[time,species,boundary,term]; gross cumulative native concentration x m3");
     H5Fclose(f);
     return gwfixture::path(name);
 }
@@ -216,6 +273,109 @@ private slots:
         QVERIFY(model.data(model.index(0, 0), Qt::ToolTipRole).toString().contains("term"));
         QVERIFY(model.data(model.index(1, 0), Qt::ToolTipRole).toString().contains("species"));
         QVERIFY(model.descriptors().isEmpty());
+    }
+
+    /**
+     * @brief G-07: the layered-transport ledger and the aquifer boundary totals follow the
+     * water and species ledgers, keyed by name, with boundaries summed and NaN kept missing.
+     */
+    void transportAndBoundaryTotalsAreRows()
+    {
+        GwLedgerModel model;
+        QVERIFY(model.load(writeTransportAndBoundaries("ledger_transport_boundary.h5")));
+        // water 4 + species 2x3 + transport 2x3 + boundary water 4 + boundary species 2x4
+        QCOMPARE(model.rowCount(), 4 + 6 + 6 + 4 + 8);
+        QCOMPARE(model.descriptors().size(), 28);
+        QCOMPARE(model.key(10), QStringLiteral("gwledger:transport:SurfPoll:init"));
+        QCOMPARE(model.key(16), QStringLiteral("gwledger:boundary:water:requested_in"));
+        QCOMPARE(model.key(20), QStringLiteral("gwledger:boundary:species:SurfPoll:advective_in"));
+        // The earlier ledgers keep their keys and values.
+        QCOMPARE(model.finalValue(model.rowForKey("gwledger:species:GWTracer:storage")), 121.0);
+
+        const int transport = model.rowForKey("gwledger:transport:GWTracer:boundary_in");
+        QCOMPARE(model.finalValue(transport), 1122.0);
+        QCOMPARE(model.data(model.index(transport, GwLedgerModel::ColLedger)).toString(),
+                 QStringLiteral("Transport: GWTracer"));
+        QCOMPARE(model.data(model.index(transport, GwLedgerModel::ColUnits)).toString(),
+                 QStringLiteral("MG/L·m3"));
+
+        const int accepted = model.rowForKey("gwledger:boundary:water:accepted_in");
+        QCOMPARE(model.finalValue(accepted), 27.0);
+        QCOMPARE(model.data(model.index(accepted, GwLedgerModel::ColLedger)).toString(),
+                 QStringLiteral("Boundary water"));
+        QCOMPARE(model.data(model.index(accepted, GwLedgerModel::ColUnits)).toString(), "m3");
+        QVERIFY(model.data(model.index(accepted, 0), Qt::ToolTipRole)
+                    .toString()
+                    .contains("2 aquifer boundary edges"));
+        openswmmvis::plot::SeriesData out;
+        QVERIFY(model.series(accepted, out));
+        QCOMPARE(out.timesJulian, kTimes);
+        QCOMPARE(out.values, (std::vector<double>{9.0, 18.0, 27.0}));
+
+        // 2 x (1000 + 10*2 + 2) + 100: both edges of GWTracer's imposed_in at the last report.
+        const int imposed = model.rowForKey("gwledger:boundary:species:GWTracer:imposed_in");
+        QCOMPARE(model.finalValue(imposed), 2144.0);
+        QCOMPARE(model.data(model.index(imposed, GwLedgerModel::ColLedger)).toString(),
+                 QStringLiteral("Boundary: GWTracer"));
+        QCOMPARE(model.data(model.index(imposed, GwLedgerModel::ColUnits)).toString(),
+                 QStringLiteral("MG/L·m3"));
+        // One edge's missing value makes the total missing, not a partial sum.
+        const int partial = model.rowForKey("gwledger:boundary:species:SurfPoll:advective_out");
+        QVERIFY(std::isnan(model.finalValue(partial)));
+        QCOMPARE(model.data(model.index(partial, GwLedgerModel::ColFinal)).toString(), "missing");
+        openswmmvis::plot::SeriesData earlier;
+        QVERIFY(model.series(partial, earlier));
+        QCOMPARE(earlier.values[1], 2.0 * (10.0 + 1.0) + 100.0);
+
+        const auto d = model.descriptor(imposed);
+        QVERIFY(d.isMeshVariable());
+        QCOMPARE(d.variableKey, QStringLiteral("gwledger:boundary:species:GWTracer:imposed_in"));
+        QVERIFY(d.variableLabel.contains("Boundary: GWTracer") &&
+                d.variableLabel.contains("imposed_in"));
+    }
+
+    /**
+     * @brief A transport or boundary dataset that is present but unreadable is one unavailable
+     * row with the reason; an absent one adds no row (readsTermsByNameWithFinalValues).
+     */
+    void unreadableOptionalLedgersAreUnavailable()
+    {
+        const QString name = "ledger_optional_bad.h5";
+        writeLedgers(name, {0, 1, 2, 3});
+        hid_t f = H5Fopen(gwfixture::path(name).toUtf8().constData(), H5F_ACC_RDWR, H5P_DEFAULT);
+        // Three species rows, but the files name two.
+        gwfixture::doubles(f, "groundwater_transport_ledger", {3, 3, 1},
+                           std::vector<double>(9, 1.0));
+        gwfixture::stringAttr(f, "groundwater_transport_ledger", "terms", "storage");
+        // Two term names for four columns.
+        gwfixture::doubles(f, "groundwater_boundary_water", {3, 1, 4},
+                           std::vector<double>(12, 1.0));
+        gwfixture::stringAttr(f, "groundwater_boundary_water", "terms", "accepted_in,accepted_out");
+        // No boundary edges to sum (the buffer is only non-null for the empty write).
+        gwfixture::doubles(f, "groundwater_boundary_species", {3, 2, 0, 4},
+                           std::vector<double>(1, 0.0));
+        gwfixture::stringAttr(f, "groundwater_boundary_species", "terms",
+                              "advective_in,advective_out,imposed_in,imposed_out");
+        H5Fclose(f);
+
+        GwLedgerModel model;
+        QVERIFY(model.load(gwfixture::path(name)));
+        QCOMPARE(model.rowCount(), 10 + 3);
+        QCOMPARE(model.descriptors().size(), 10);
+        const QStringList ledgers = {"Transport", "Boundary water", "Boundary species"};
+        const QStringList reasons = {"species", "term", "no boundary edges"};
+        for (int i = 0; i < 3; ++i) {
+            const int row = 10 + i;
+            QCOMPARE(model.data(model.index(row, GwLedgerModel::ColLedger)).toString(),
+                     ledgers[i]);
+            QCOMPARE(model.data(model.index(row, GwLedgerModel::ColFinal)).toString(),
+                     "unavailable");
+            QVERIFY(model.key(row).isEmpty());
+            QVERIFY2(model.data(model.index(row, 0), Qt::ToolTipRole)
+                         .toString()
+                         .contains(reasons[i]),
+                     qPrintable(model.data(model.index(row, 0), Qt::ToolTipRole).toString()));
+        }
     }
 
     /**

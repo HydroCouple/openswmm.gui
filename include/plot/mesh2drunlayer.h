@@ -190,12 +190,12 @@ public:
     /*! \brief V6: one series per region — \p aggregate of the cell field
      *  \p descriptor over the region's cells at every report frame
      *  (results/meshregionaggregate.h). Each frame is read once for all
-     *  regions. Supports the fixed cell depth and the source's catalog
-     *  variables; Mass needs a surface species concentration (and reads the
-     *  depth too). A region with no contributing cell at a frame gets a NaN
+     *  regions. Supports the fixed cell depth, the source's catalog
+     *  variables and heatBudgetDescriptors(); Mass needs a surface species
+     *  concentration (and reads the depth too). A region with no contributing cell at a frame gets a NaN
      *  sample (blank, never zero). Reads synchronously on the calling thread.
      * @param[in] regions Engine cell indices per region; out-of-range cells are ignored.
-     * @param[in] descriptor Mesh2DDepth or a catalog variable key.
+     * @param[in] descriptor Mesh2DDepth, a catalog variable key or a heat-budget key.
      * @param[in] aggregate Sum, Mean, AreaWeightedMean or Mass.
      * @param[out] out One response per region, ok false with the reason when
      *   the variable/aggregate is unavailable.
@@ -210,6 +210,14 @@ public:
     /*! \brief True when Mass (conc x depth x area) can be formed for
      *  \p descriptor (a surface species concentration with mass units). */
     bool massAvailable(const ResultDescriptor &descriptor) const;
+    /*! \brief Review G-07: the saved run's per-cell cumulative heat budgets
+     *  as region-only descriptors, one per term of `/mesh_heat_budget`
+     *  ("Surface heat budget — <term>, cumulative") and `/ground_heat_budget`
+     *  ("Ground heat budget — …"), keyed `heatbudget:<dataset>:<term>`, units
+     *  as stored (J). getRegionSeries() aggregates them (Sum is the region
+     *  total); they are not per-cell plot variables. Empty for a live run or
+     *  a file without budgets. Reads the file synchronously. */
+    QVector<ResultDescriptor> heatBudgetDescriptors() const;
 
     /*! \brief Interactive consumers (the comparison plot) turn this on so an
      *  uncached saved-file cell series is queued for a worker instead of read

@@ -1095,6 +1095,29 @@ reapply or automatically refresh the source layer. Exterior groundwater
 HEAD/FLOW edges require their own hydraulic binding and explicit inflow
 chemistry; quality rows do not create water flow.
 
+#### Saved run ledgers
+
+After a run, the **State** tab's **Saved run ledgers** table reads the
+cumulative aquifer balances from the 2D results file (`.2d.h5`) of the active
+2D results layer. They remain available after the run ends and after the model
+is reopened. Each row is one term, with its value at the last report:
+
+| Ledger | Rows | Units |
+| --- | --- | --- |
+| **Water** | The domain water balance: recharge, lateral, deep, node and link exchange, storage, the continuity residual and the other stored terms | m³ |
+| *Species name* | The same balance for each species | the species' concentration unit × m³ |
+| **Transport: *species*** | The layered-transport ledger, including boundary inflow and outflow | concentration × m³ |
+| **Boundary water** | Requested and accepted inflow and outflow through the aquifer boundary edges, summed over the edges | m³ |
+| **Boundary: *species*** | Advective and imposed inflow and outflow of the species through those edges, summed over the edges | concentration × m³ |
+
+The transport and boundary rows appear only when the run used layered
+transport or aquifer boundaries. A value the file does not hold reads
+*missing*. A ledger the file holds but cannot read reads *unavailable*, and
+its tooltip gives the reason. Neither is shown as zero. If any boundary edge
+lacks a value, that total reads *missing* instead of a partial sum. To plot
+cumulative series over the run, select rows and choose **Plot Selected in
+Comparison Plot**.
+
 #### Aquifer boundaries on selected edges
 
 The edge table and Properties summarise each exterior edge's aquifer boundary in

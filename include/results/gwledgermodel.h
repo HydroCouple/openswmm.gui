@@ -20,6 +20,12 @@
  * never by column position. A ledger the file does not carry, or whose
  * identities cannot be resolved, is one "unavailable" row with the reason —
  * never a block of zeros.
+ *
+ * Review G-07 adds the layered-transport ledger (`/groundwater_transport_ledger`)
+ * and the aquifer boundary water and species totals (`/groundwater_boundary_*`,
+ * summed over the boundary edges). The run writes those only for layered
+ * transport or aquifer boundaries, so an absent one adds no row; one that is
+ * present but unreadable is an unavailable row like the others.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -33,6 +39,7 @@
 #include <QString>
 #include <QVector>
 
+#include <array>
 #include <vector>
 
 namespace openswmmvis::results
@@ -52,11 +59,14 @@ public:
     explicit GwLedgerModel(QObject *parent = nullptr);
 
     /*!
-     * \brief Replace the contents with both ledgers of the saved 2D results
-     *        file \p h5Path (one model reset).
-     * \returns true when at least one ledger was read. Either ledger that is
-     *          absent or unresolvable becomes one unavailable row carrying
-     *          the reason; an unreadable file leaves only status().
+     * \brief Replace the contents with the ledgers of the saved 2D results
+     *        file \p h5Path (one model reset): water, species, then the
+     *        transport ledger and boundary totals when the file has them.
+     * \returns true when at least one ledger was read. A water or species
+     *          ledger that is absent or unresolvable, and a transport or
+     *          boundary dataset that is present but unresolvable, becomes one
+     *          unavailable row carrying the reason; an unreadable file leaves
+     *          only status().
      */
     bool load(const QString &h5Path);
     /*! \brief Drop every row and the loaded path (one model reset). */
@@ -69,7 +79,10 @@ public:
 
     /*!
      * \brief Stable identity of \p row for the comparison plot:
-     *        `gwledger:water:<term>` or `gwledger:species:<name>:<term>`.
+     *        `gwledger:water:<term>`, `gwledger:species:<name>:<term>`,
+     *        `gwledger:transport:<name>:<term>`,
+     *        `gwledger:boundary:water:<term>` or
+     *        `gwledger:boundary:species:<name>:<term>`.
      * \returns empty for an unavailable row or an invalid index.
      */
     QString key(int row) const;
@@ -105,20 +118,22 @@ public:
                         int role = Qt::DisplayRole) const override;
 
 private:
+    /*! Saved ledger a row reads, in row order. */
+    enum Source { Water, Species, Transport, BoundaryWater, BoundarySpecies, SourceCount };
     struct Row {
-        QString ledger;     ///< "Water" or the species name
+        QString ledger;     ///< display label: "Water", the species name, "Transport: <name>", …
         QString term;       ///< stored term name; empty for an unavailable row
         QString units;      ///< display units; empty = unresolved
         QString tooltip;    ///< long_name / layout, or the unavailability reason
-        int species = -1;   ///< species row in the species ledger; -1 = water
+        int species = -1;   ///< species row in its ledger; -1 for a ledger without species
         int column = -1;    ///< term column; -1 = unavailable
+        Source source = Water;
     };
     QVector<Row> m_rows;
     QString m_path;
     QString m_status;
     std::vector<double> m_times; ///< `/time`, SWMM DateTime days
-    io::GroundwaterLedger m_water;
-    io::GroundwaterLedger m_species;
+    std::array<io::GroundwaterLedger, SourceCount> m_ledgers;
 
     /** @return Stored value of \p r at \p frame; NaN when unavailable or out of range. */
     double value_(const Row &r, int frame) const;

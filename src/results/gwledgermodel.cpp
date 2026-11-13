@@ -30,8 +30,7 @@ void GwLedgerModel::clear()
     m_path.clear();
     m_status.clear();
     m_times.clear();
-    m_water = {};
-    m_species = {};
+    m_ledgers = {};
     endResetModel();
 }
 
@@ -40,8 +39,7 @@ bool GwLedgerModel::load(const QString &h5Path)
     beginResetModel();
     m_rows.clear();
     m_times.clear();
-    m_water = {};
-    m_species = {};
+    m_ledgers = {};
     m_path = h5Path;
     io::Mesh2DH5Reader reader;
     if (h5Path.isEmpty() || !reader.open(h5Path)) {
@@ -54,36 +52,59 @@ bool GwLedgerModel::load(const QString &h5Path)
     }
     reader.readTimes(m_times);
 
-    // Water ledger: one row per stored term, or one unavailable row.
-    const bool water = reader.readGroundwaterLedger(m_water);
-    if (water) {
-        const QString tip = m_water.longName + QStringLiteral("\n") + m_water.layout;
-        for (int t = 0; t < m_water.terms.size(); ++t)
-            m_rows.append({tr("Water"), m_water.terms[t], m_water.units, tip, -1, t});
-    } else {
-        m_rows.append({tr("Water"), QString(), QString(), reader.lastError(), -1, -1});
-    }
-
-    // Species ledger: mass is the species' concentration unit × m3.
-    const bool species = reader.readGroundwaterSpeciesLedger(m_species);
-    if (species) {
-        const QString tip = m_species.longName + QStringLiteral("\n") + m_species.layout;
-        for (int s = 0; s < m_species.species.size(); ++s) {
-            const QString &conc = m_species.speciesUnits[s];
-            const QString units = conc.isEmpty() ? QString() : conc + QStringLiteral("·m3");
-            for (int t = 0; t < m_species.terms.size(); ++t)
-                m_rows.append({m_species.species[s], m_species.terms[t], units, tip, s, t});
+    // One row per stored term (per species and term in a per-species ledger, whose mass is the
+    // species' concentration unit × m3), or one unavailable row with the reader's reason.
+    using Read = bool (io::Mesh2DH5Reader::*)(io::GroundwaterLedger &) const;
+    const auto add = [&](Source source, Read read, const QString &label) {
+        io::GroundwaterLedger &l = m_ledgers[source];
+        if (!(reader.*read)(l)) {
+            m_rows.append({label, QString(), QString(), reader.lastError(), -1, -1, source});
+            return false;
         }
-    } else {
-        m_rows.append({tr("Species"), QString(), QString(), reader.lastError(), -1, -1});
-    }
+        QStringList tip = {l.longName, l.layout};
+        if (l.boundaries == 1)
+            tip.append(tr("Sum over 1 aquifer boundary edge."));
+        else if (l.boundaries > 1)
+            tip.append(tr("Sum over %1 aquifer boundary edges.").arg(l.boundaries));
+        tip.removeAll(QString());
+        const QString tooltip = tip.join(QLatin1Char('\n'));
+        if (l.species.isEmpty()) {
+            for (int t = 0; t < l.terms.size(); ++t)
+                m_rows.append({label, l.terms[t], l.units, tooltip, -1, t, source});
+            return true;
+        }
+        for (int s = 0; s < l.species.size(); ++s) {
+            const QString &conc = l.speciesUnits[s];
+            const QString units = conc.isEmpty() ? QString() : conc + QStringLiteral("·m3");
+            const QString name = source == Transport         ? tr("Transport: %1").arg(l.species[s])
+                                 : source == BoundarySpecies ? tr("Boundary: %1").arg(l.species[s])
+                                                             : l.species[s];
+            for (int t = 0; t < l.terms.size(); ++t)
+                m_rows.append({name, l.terms[t], units, tooltip, s, t, source});
+        }
+        return true;
+    };
+    bool read = add(Water, &io::Mesh2DH5Reader::readGroundwaterLedger, tr("Water"));
+    read |= add(Species, &io::Mesh2DH5Reader::readGroundwaterSpeciesLedger, tr("Species"));
+    // Written only for layered transport or aquifer boundaries, so an absent one adds no row
+    // (hasFaceField() is the reader's cached root-dataset probe).
+    if (reader.hasFaceField("groundwater_transport_ledger"))
+        read |= add(Transport, &io::Mesh2DH5Reader::readGroundwaterTransportLedger,
+                     tr("Transport"));
+    if (reader.hasFaceField("groundwater_boundary_water"))
+        read |= add(BoundaryWater, &io::Mesh2DH5Reader::readGroundwaterBoundaryWater,
+                     tr("Boundary water"));
+    if (reader.hasFaceField("groundwater_boundary_species"))
+        read |= add(BoundarySpecies, &io::Mesh2DH5Reader::readGroundwaterBoundarySpecies,
+                     tr("Boundary species"));
 
     const QString file = QFileInfo(h5Path).fileName();
-    if (!water && !species) {
+    if (!read) {
         m_status = tr("%1 has no groundwater ledger.").arg(file);
     } else {
-        const int frames = std::min<int>(int(m_times.size()), water ? m_water.frames
-                                                                    : m_species.frames);
+        const auto first = std::find_if(m_rows.cbegin(), m_rows.cend(),
+                                        [](const Row &r) { return r.column >= 0; });
+        const int frames = first != m_rows.cend() ? frames_(*first) : 0;
         const QDateTime last = frames > 0 ? core::swmmDateTimeToQDateTime(m_times[frames - 1])
                                           : QDateTime();
         m_status = tr("%1 — cumulative totals at %2 (report %3 of %3).")
@@ -91,22 +112,22 @@ bool GwLedgerModel::load(const QString &h5Path)
                        .arg(frames);
     }
     endResetModel();
-    return water || species;
+    return read;
 }
 
 int GwLedgerModel::frames_(const Row &r) const
 {
-    const io::GroundwaterLedger &ledger = r.species < 0 ? m_water : m_species;
-    return std::min<int>(int(m_times.size()), ledger.frames);
+    return std::min<int>(int(m_times.size()), m_ledgers[r.source].frames);
 }
 
 double GwLedgerModel::value_(const Row &r, int frame) const
 {
     if (r.column < 0 || frame < 0 || frame >= frames_(r))
         return std::numeric_limits<double>::quiet_NaN();
-    const io::GroundwaterLedger &ledger = r.species < 0 ? m_water : m_species;
+    const io::GroundwaterLedger &ledger = m_ledgers[r.source];
     const std::size_t terms = std::size_t(ledger.terms.size());
-    const std::size_t rowsPerFrame = r.species < 0 ? 1 : std::size_t(ledger.species.size());
+    const std::size_t rowsPerFrame =
+        ledger.species.isEmpty() ? 1 : std::size_t(ledger.species.size());
     const std::size_t at = (std::size_t(frame) * rowsPerFrame + std::size_t(std::max(r.species, 0))) *
                                terms +
                            std::size_t(r.column);
@@ -120,8 +141,22 @@ QString GwLedgerModel::key(int row) const
     if (row < 0 || row >= m_rows.size() || m_rows[row].column < 0)
         return {};
     const Row &r = m_rows[row];
-    return r.species < 0 ? QStringLiteral("gwledger:water:") + r.term
-                         : QStringLiteral("gwledger:species:%1:%2").arg(r.ledger, r.term);
+    const QString name = m_ledgers[r.source].species.value(r.species);
+    switch (r.source) {
+    case Water:
+        return QStringLiteral("gwledger:water:") + r.term;
+    case Species:
+        return QStringLiteral("gwledger:species:%1:%2").arg(name, r.term);
+    case Transport:
+        return QStringLiteral("gwledger:transport:%1:%2").arg(name, r.term);
+    case BoundaryWater:
+        return QStringLiteral("gwledger:boundary:water:") + r.term;
+    case BoundarySpecies:
+        return QStringLiteral("gwledger:boundary:species:%1:%2").arg(name, r.term);
+    case SourceCount:
+        break;
+    }
+    return {};
 }
 
 int GwLedgerModel::rowForKey(const QString &key) const
@@ -140,7 +175,7 @@ plot::ResultDescriptor GwLedgerModel::descriptor(int row) const
     if (k.isEmpty())
         return {};
     const Row &r = m_rows[row];
-    const QString ledger = r.species < 0 ? tr("water") : r.ledger;
+    const QString ledger = r.source == Water ? tr("water") : r.ledger;
     return plot::ResultDescriptor::forMeshVariable(
         k, tr("Groundwater ledger — %1 — %2, cumulative").arg(ledger, r.term), r.units);
 }

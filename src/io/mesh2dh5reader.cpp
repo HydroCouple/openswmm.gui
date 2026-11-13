@@ -20,6 +20,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <mutex>
 
@@ -909,6 +910,92 @@ bool readLedgerDataset(hid_t file, const char *name, int rank, GroundwaterLedger
     readStringAttr(data, "long_name", out.longName);
     readStringAttr(data, "layout", out.layout);
     out.frames = int(dims[0]);
+    return true;
+}
+
+/**
+ * @brief Name the species rows of an aquifer per-species dataset.
+ * @details The engine writes one species list for all aquifer per-species datasets. The
+ *   dataset's own `species_names` win, then those of the species ledger and of the saturated
+ *   and unsaturated concentration datasets; `species_units` come from the same source.
+ * @param[in] file Borrowed file handle; caller holds the HDF5 mutex.
+ * @param[in] own The dataset being read.
+ * @param[in] rows Stored species count; a list of another length is not used.
+ * @param[out] out `species` and `speciesUnits` on success.
+ * @return False when no source names exactly @p rows unique species.
+ */
+bool resolveGroundwaterSpecies(hid_t file, const char *own, int rows, GroundwaterLedger &out)
+{
+    const char *const sources[] = {own, "groundwater_species_ledger", "Mesh2_face_gw_sat_conc",
+                                   "Mesh2_face_gw_unsat_conc"};
+    for (const char *source : sources) {
+        if (source != own && std::strcmp(source, own) == 0)
+            continue;
+        hid_t data = -1;
+        H5E_BEGIN_TRY
+        {
+            data = H5Dopen2(file, source, H5P_DEFAULT);
+        }
+        H5E_END_TRY;
+        DataSetGuard guard(data);
+        QString names;
+        QStringList species;
+        if (data < 0 || !readStringAttr(data, "species_names", names) ||
+            !splitIdentities(names, species) || species.size() != rows)
+            continue;
+        QString unitText;
+        QStringList units;
+        if (readStringAttr(data, "species_units", unitText))
+            units = unitText.split(',', Qt::KeepEmptyParts);
+        out.species = species;
+        for (int s = 0; s < rows; ++s)
+            out.speciesUnits.append(units.size() == rows ? units[s].trimmed() : QString());
+        return true;
+    }
+    return false;
+}
+
+/**
+ * @brief Read one aquifer ledger dataset, name its species rows and sum away its boundary axis.
+ * @param[in] file Borrowed file handle; caller holds the HDF5 mutex.
+ * @param[in] name Root dataset name.
+ * @param[in] rank Stored rank, time first and terms last.
+ * @param[in] species True when axis 1 is the species axis.
+ * @param[in] boundary True when the axis before the terms holds boundary edges; they are summed
+ *   (NaN on any edge makes the total NaN) and `boundaries` is set to their count.
+ * @param[out] out The ledger on success; partially filled on failure.
+ * @param[out] error Diagnostic on failure.
+ * @return False when the dataset is absent, misshapen, has no edges to sum, or its terms or
+ *   species cannot be resolved.
+ */
+bool readAquiferLedger(hid_t file, const char *name, int rank, bool species, bool boundary,
+                       GroundwaterLedger &out, QString &error)
+{
+    std::vector<hsize_t> dims;
+    if (!readLedgerDataset(file, name, rank, out, dims, error))
+        return false;
+    if (species && !resolveGroundwaterSpecies(file, name, int(dims[1]), out)) {
+        error = QStringLiteral(
+                    "%1: species identities are missing or do not match the stored species")
+                    .arg(QString::fromUtf8(name));
+        return false;
+    }
+    if (boundary) {
+        const std::size_t edges = std::size_t(dims[dims.size() - 2]);
+        const std::size_t terms = std::size_t(dims.back());
+        if (edges == 0) {
+            error = QStringLiteral("%1 has no boundary edges").arg(QString::fromUtf8(name));
+            return false;
+        }
+        const std::size_t outer = out.values.size() / (edges * terms);
+        std::vector<double> sum(outer * terms, 0.0);
+        for (std::size_t o = 0; o < outer; ++o)
+            for (std::size_t b = 0; b < edges; ++b)
+                for (std::size_t k = 0; k < terms; ++k)
+                    sum[o * terms + k] += out.values[(o * edges + b) * terms + k];
+        out.values = std::move(sum);
+        out.boundaries = int(edges);
+    }
     return true;
 }
 
@@ -1951,43 +2038,58 @@ bool Mesh2DH5Reader::readGroundwaterSpeciesLedger(GroundwaterLedger &out) const
     out = GroundwaterLedger{};
     if (file_id_ < 0)
         return setError_(QStringLiteral("Mesh2DH5Reader: not open"));
-    const hid_t file = hid_t(file_id_);
-    std::vector<hsize_t> dims;
     QString error;
-    if (!readLedgerDataset(file, "groundwater_species_ledger", 3, out, dims, error)) {
+    if (readAquiferLedger(hid_t(file_id_), "groundwater_species_ledger", 3, true, false, out,
+                          error))
+        return true;
+    out = GroundwaterLedger{};
+    return setError_(error);
+}
+
+bool Mesh2DH5Reader::readGroundwaterTransportLedger(GroundwaterLedger &out) const
+{
+    const Hdf5Lock lock(hdf5Mutex());
+    out = GroundwaterLedger{};
+    if (file_id_ < 0)
+        return setError_(QStringLiteral("Mesh2DH5Reader: not open"));
+    QString error;
+    if (readAquiferLedger(hid_t(file_id_), "groundwater_transport_ledger", 3, true, false, out,
+                          error))
+        return true;
+    out = GroundwaterLedger{};
+    return setError_(error);
+}
+
+bool Mesh2DH5Reader::readGroundwaterBoundaryWater(GroundwaterLedger &out) const
+{
+    const Hdf5Lock lock(hdf5Mutex());
+    out = GroundwaterLedger{};
+    if (file_id_ < 0)
+        return setError_(QStringLiteral("Mesh2DH5Reader: not open"));
+    QString error;
+    if (!readAquiferLedger(hid_t(file_id_), "groundwater_boundary_water", 3, false, true, out,
+                           error)) {
         out = GroundwaterLedger{};
         return setError_(error);
     }
-    // The ledger's species rows follow the aquifer concentration datasets'
-    // species_names (one engine list); prefer the ledger's own attribute.
-    const int rows = int(dims[1]);
-    for (const char *source :
-         {"groundwater_species_ledger", "Mesh2_face_gw_sat_conc", "Mesh2_face_gw_unsat_conc"}) {
-        hid_t data = -1;
-        H5E_BEGIN_TRY
-        {
-            data = H5Dopen2(file, source, H5P_DEFAULT);
-        }
-        H5E_END_TRY;
-        DataSetGuard guard(data);
-        QString names;
-        QStringList species;
-        if (data < 0 || !readStringAttr(data, "species_names", names) ||
-            !splitIdentities(names, species) || species.size() != rows)
-            continue;
-        QString unitText;
-        QStringList units;
-        if (readStringAttr(data, "species_units", unitText))
-            units = unitText.split(',', Qt::KeepEmptyParts);
-        out.species = species;
-        for (int s = 0; s < rows; ++s)
-            out.speciesUnits.append(units.size() == rows ? units[s].trimmed() : QString());
-        return true;
-    }
+    // The engine states the unit in `layout` ("gross cumulative m3"), not in `units`.
+    if (out.units.isEmpty())
+        out.units = QStringLiteral("m3");
+    return true;
+}
+
+bool Mesh2DH5Reader::readGroundwaterBoundarySpecies(GroundwaterLedger &out) const
+{
+    const Hdf5Lock lock(hdf5Mutex());
     out = GroundwaterLedger{};
-    return setError_(QStringLiteral(
-        "groundwater_species_ledger: species identities are missing or do not match the stored "
-        "species"));
+    if (file_id_ < 0)
+        return setError_(QStringLiteral("Mesh2DH5Reader: not open"));
+    QString error;
+    if (readAquiferLedger(hid_t(file_id_), "groundwater_boundary_species", 4, true, true, out,
+                          error))
+        return true;
+    out = GroundwaterLedger{};
+    return setError_(error);
 }
 
 bool Mesh2DH5Reader::readGroundwaterExchangeNodes(QStringList &nodes, QString &units,
@@ -2055,6 +2157,73 @@ bool Mesh2DH5Reader::readGroundwaterExchangeColumn(int column,
         return setError_(
             QStringLiteral("cannot read groundwater_node_exchange_cum column %1").arg(column));
     cumulative.swap(values);
+    return true;
+}
+
+bool Mesh2DH5Reader::readHeatBudgetTerms(const char *dataset, QStringList &terms,
+                                         QString &units) const
+{
+    const Hdf5Lock lock(hdf5Mutex());
+    terms.clear();
+    units.clear();
+    if (file_id_ < 0 || !dataset)
+        return setError_(QStringLiteral("Mesh2DH5Reader: not open"));
+    const QString name = QString::fromUtf8(dataset);
+    hid_t data = -1;
+    H5E_BEGIN_TRY
+    {
+        data = H5Dopen2(hid_t(file_id_), dataset, H5P_DEFAULT);
+    }
+    H5E_END_TRY;
+    DataSetGuard guard(data);
+    if (data < 0)
+        return setError_(QStringLiteral("%1 is not in this file").arg(name));
+    std::vector<hsize_t> dims;
+    if (!datasetShape(data, dims) || dims.size() != 3 || dims[1] != hsize_t(triangleCount()))
+        return setError_(QStringLiteral("%1 is not [time, face, term] over this mesh").arg(name));
+    QString text;
+    QStringList names;
+    if (!readStringAttr(data, "terms", text) || !splitIdentities(text, names) ||
+        names.size() != int(dims[2]))
+        return setError_(
+            QStringLiteral("%1: term names are missing or do not match the stored columns")
+                .arg(name));
+    terms = names;
+    readStringAttr(data, "units", units);
+    return true;
+}
+
+bool Mesh2DH5Reader::readHeatBudgetAt(const char *dataset, int timeIdx, int term,
+                                      std::vector<float> &values) const
+{
+    const Hdf5Lock lock(hdf5Mutex());
+    values.clear();
+    if (file_id_ < 0 || !dataset)
+        return setError_(QStringLiteral("Mesh2DH5Reader: not open"));
+    const QString name = QString::fromUtf8(dataset);
+    hid_t data = -1;
+    H5E_BEGIN_TRY
+    {
+        data = H5Dopen2(hid_t(file_id_), dataset, H5P_DEFAULT);
+    }
+    H5E_END_TRY;
+    DataSetGuard guard(data);
+    std::vector<hsize_t> dims;
+    if (data < 0 || !datasetShape(data, dims) || dims.size() != 3 || timeIdx < 0 ||
+        hsize_t(timeIdx) >= dims[0] || term < 0 || hsize_t(term) >= dims[2])
+        return setError_(
+            QStringLiteral("%1 report %2 term %3 is unavailable").arg(name).arg(timeIdx).arg(term));
+    DataSpaceGuard fileSpace(H5Dget_space(data));
+    const hsize_t offset[3] = {hsize_t(timeIdx), 0, hsize_t(term)};
+    const hsize_t count[3] = {1, dims[1], 1};
+    const hsize_t cells = dims[1];
+    DataSpaceGuard memory(H5Screate_simple(1, &cells, nullptr));
+    std::vector<float> out(std::size_t(cells), 0.0f);
+    if (fileSpace.id < 0 || memory.id < 0 ||
+        H5Sselect_hyperslab(fileSpace.id, H5S_SELECT_SET, offset, nullptr, count, nullptr) < 0 ||
+        H5Dread(data, H5T_NATIVE_FLOAT, memory.id, fileSpace.id, H5P_DEFAULT, out.data()) < 0)
+        return setError_(QStringLiteral("cannot read %1 report %2").arg(name).arg(timeIdx));
+    values.swap(out);
     return true;
 }
 

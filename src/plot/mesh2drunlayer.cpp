@@ -11,6 +11,7 @@
 #include "plot/mesh2drunlayer.h"
 
 #include "core/swmmdatetime.h"
+#include "io/mesh2dh5reader.h"
 #include "layers/swmm2dresultslayer.h"
 #include "mesh/meshcellgeom.h"
 
@@ -1111,7 +1112,54 @@ io::Mesh2DResultVariable catalogVariable(const IMesh2DSource &src, const ResultD
                 return v;
     return {};
 }
+
+/*! A saved run's per-cell heat budgets (review G-07): dataset and label stem. */
+constexpr std::array<std::pair<const char *, const char *>, 2> kHeatBudgets{
+    {{"mesh_heat_budget", "Surface heat budget"}, {"ground_heat_budget", "Ground heat budget"}}};
+
+/*! Open the saved file behind a `heatbudget:<dataset>:<term>` key (heatBudgetDescriptors()).
+ *  @return Empty on success, otherwise why the term cannot be read. */
+QString openHeatBudget(IMesh2DSource *src, const QString &key, io::Mesh2DH5Reader &reader,
+                       QByteArray &dataset, int &term)
+{
+    auto *h5 = dynamic_cast<HDF5Mesh2DSource *>(src);
+    if (!h5 || !reader.open(h5->path()))
+        return QStringLiteral("Heat budgets are read from the saved 2D results once the run has "
+                              "finished");
+    const QStringList parts = key.split(QLatin1Char(':'));
+    if (parts.size() != 3)
+        return QStringLiteral("'%1' is not a heat budget term").arg(key);
+    dataset = parts[1].toUtf8();
+    QStringList terms;
+    QString units;
+    if (!reader.readHeatBudgetTerms(dataset.constData(), terms, units))
+        return reader.lastError();
+    term = int(terms.indexOf(parts[2]));
+    if (term < 0)
+        return QStringLiteral("'%1' is not in this run's %2").arg(parts[2], parts[1]);
+    return {};
+}
 } // namespace
+
+QVector<ResultDescriptor> Mesh2DRunLayer::heatBudgetDescriptors() const
+{
+    QVector<ResultDescriptor> out;
+    auto *h5 = m_layer ? dynamic_cast<HDF5Mesh2DSource *>(m_layer->source()) : nullptr;
+    io::Mesh2DH5Reader reader;
+    if (!h5 || !reader.open(h5->path()))
+        return out;
+    for (const auto &[dataset, stem] : kHeatBudgets) {
+        QStringList terms;
+        QString units;
+        if (!reader.readHeatBudgetTerms(dataset, terms, units))
+            continue; // the run wrote no such budget
+        for (const QString &term : std::as_const(terms))
+            out.append(ResultDescriptor::forMeshVariable(
+                QStringLiteral("heatbudget:%1:%2").arg(QLatin1String(dataset), term),
+                QStringLiteral("%1 — %2, cumulative").arg(QLatin1String(stem), term), units));
+    }
+    return out;
+}
 
 bool Mesh2DRunLayer::massAvailable(const ResultDescriptor &descriptor) const
 {
@@ -1145,8 +1193,22 @@ void Mesh2DRunLayer::getRegionSeries(const QVector<results::MeshRegion> &regions
     }
     const bool depthField = !descriptor.isMeshVariable() &&
                             descriptor.attr == PlotAttribute::Mesh2DDepth;
+    // Review G-07: a heat-budget term is read from the saved file itself.
+    io::Mesh2DH5Reader heatReader;
+    QByteArray heatDataset;
+    int heatTerm = -1;
+    if (descriptor.isMeshVariable() &&
+        descriptor.variableKey.startsWith(QLatin1String("heatbudget:"))) {
+        const QString why =
+            openHeatBudget(src, descriptor.variableKey, heatReader, heatDataset, heatTerm);
+        if (!why.isEmpty()) {
+            fail(why);
+            return;
+        }
+    }
+    const bool heat = heatTerm >= 0;
     const io::Mesh2DResultVariable variable = catalogVariable(*src, descriptor);
-    if (!depthField && variable.dataset.isEmpty()) {
+    if (!depthField && !heat && variable.dataset.isEmpty()) {
         fail(descriptor.isMeshVariable()
                  ? QStringLiteral("'%1' is not in this run's 2D results").arg(descriptor.label())
                  : QStringLiteral("Region aggregates cover the cell depth and the 2D result "
@@ -1171,7 +1233,8 @@ void Mesh2DRunLayer::getRegionSeries(const QVector<results::MeshRegion> &regions
             continue;
         const double julian = core::qDateTimeToSwmmDateTimeMilliseconds(time);
         bool ok = depthField ? src->readDepthsAt(t, values)
-                             : src->readFaceVariableAt(variable, t, values, status);
+                  : heat ? heatReader.readHeatBudgetAt(heatDataset.constData(), t, heatTerm, values)
+                         : src->readFaceVariableAt(variable, t, values, status);
         if (ok && mass)
             ok = src->readDepthsAt(t, depth);
         if (!ok)
@@ -1180,7 +1243,8 @@ void Mesh2DRunLayer::getRegionSeries(const QVector<results::MeshRegion> &regions
             int missing = 0;
             out[r].timesJulian.push_back(julian);
             out[r].values.push_back(results::aggregateFrame(
-                values, depthField ? nullptr : &status, m_cellArea, mass ? &depth : nullptr,
+                values, depthField || heat ? nullptr : &status, m_cellArea,
+                mass ? &depth : nullptr,
                 regions[r].cells, aggregate, massFactor, nullptr, &missing));
             if (missing > 0)
                 ++partial[std::size_t(r)];
