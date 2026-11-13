@@ -1882,7 +1882,11 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
             resources/shaders/flowparticle.frag
             resources/shaders/mapmask.frag
     )
-    qt_add_translation(QM_FILES ${TS_FILES})
+    # Compile translation/*.ts and embed the .qm files under :/i18n, where main.cpp's loader
+    # looks; also gives translators the SWMMVis_lupdate / update_translations targets.
+    qt_add_translations(SWMMVis
+        TS_FILES ${TS_FILES}
+        RESOURCE_PREFIX "/i18n")
 else()
     if(ANDROID)
         add_library(SWMMVis SHARED ${PROJECT_SOURCES})
