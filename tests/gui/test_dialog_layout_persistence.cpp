@@ -23,8 +23,17 @@
 #include <QDialog>
 #include <QDir>
 #include <QDockWidget>
+#include <QComboBox>
+#include <QFormLayout>
+#include <QGridLayout>
+#include <QGroupBox>
 #include <QHeaderView>
 #include <QLabel>
+#include <QLineEdit>
+#include <QListView>
+#include <QSpinBox>
+#include <QTableView>
+#include <QTreeView>
 #include <QMainWindow>
 #include <QSettings>
 #include <QSignalSpy>
@@ -141,6 +150,7 @@ private slots:
     void watcherPersistsAcrossInstances();
     void watcherRespectsOptOutProperty();
     void watcherRestoresOncePerInstance();
+    void watcherNamesUnlabelledViewsAndPairsInlineLabels();
 
 private:
     QTemporaryDir mSettingsDir; // member: path must outlive every test
@@ -703,6 +713,89 @@ void TestDialogLayoutPersistence::watcherRestoresOncePerInstance()
     QVERIFY(QTest::qWaitForWindowExposed(&f.dialog));
     QCOMPARE(f.dialog.geometry(), before);
     f.dialog.hide();
+
+    qApp->removeEventFilter(&watcher);
+}
+
+/*! A-02/A-03/A-14: on a window's first show the watcher names what a screen reader would
+ *  otherwise announce only by kind. A "Label:" just before a field in its row, grid or form
+ *  becomes that field's buddy (and its name when it has none); an unnamed table, list or tree
+ *  is named from its label, else its group box, else its window or dock title. Names already
+ *  set and Qt's own internal views are left alone. Unnamed dialogs get this too. */
+void TestDialogLayoutPersistence::watcherNamesUnlabelledViewsAndPairsInlineLabels()
+{
+    DialogLayoutWatcher watcher;
+    qApp->installEventFilter(&watcher);
+
+    QDialog dlg; // no objectName: no layout persistence, still made readable
+    dlg.setWindowTitle(QStringLiteral("Curve Editor[*]"));
+    auto *root = new QVBoxLayout(&dlg);
+    auto *row = new QHBoxLayout;
+    auto *nameLabel = new QLabel(QStringLiteral("&Name:"), &dlg);
+    auto *nameEdit = new QLineEdit(&dlg);
+    row->addWidget(nameLabel);
+    row->addWidget(nameEdit);
+    root->addLayout(row);
+    auto *grid = new QGridLayout;
+    auto *stepLabel = new QLabel(QStringLiteral("Step:"), &dlg);
+    auto *stepSpin = new QSpinBox(&dlg);
+    grid->addWidget(stepLabel, 0, 0);
+    grid->addWidget(stepSpin, 0, 1);
+    root->addLayout(grid);
+    auto *form = new QFormLayout;
+    auto *unitLabel = new QLabel(QStringLiteral("Units:"), &dlg);
+    auto *unitCombo = new QComboBox(&dlg);
+    unitCombo->addItem(QStringLiteral("m"));
+    unitCombo->setAccessibleName(QStringLiteral("Length units"));
+    form->addRow(unitLabel, unitCombo);
+    root->addLayout(form);
+    auto *note = new QLabel(QStringLiteral("Values are in m/s."), &dlg); // not a field label
+    auto *afterNote = new QLineEdit(&dlg);
+    root->addWidget(note);
+    root->addWidget(afterNote);
+    auto *curvesLabel = new QLabel(QStringLiteral("Curves:"), &dlg);
+    auto *curves = new QListView(&dlg);
+    root->addWidget(curvesLabel);
+    root->addWidget(curves);
+    auto *group = new QGroupBox(QStringLiteral("&Points"), &dlg);
+    auto *groupLayout = new QVBoxLayout(group);
+    auto *points = new QTableView(group);
+    groupLayout->addWidget(points);
+    root->addWidget(group);
+    auto *loose = new QTreeView(&dlg);
+    root->addWidget(loose);
+    auto *named = new QTableView(&dlg);
+    named->setAccessibleName(QStringLiteral("Keep me"));
+    root->addWidget(named);
+    dlg.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&dlg));
+
+    QCOMPARE(nameLabel->buddy(), nameEdit);
+    QCOMPARE(nameEdit->accessibleName(), QStringLiteral("Name"));
+    QCOMPARE(stepLabel->buddy(), stepSpin);
+    QCOMPARE(stepSpin->accessibleName(), QStringLiteral("Step"));
+    QCOMPARE(unitLabel->buddy(), unitCombo);
+    QCOMPARE(unitCombo->accessibleName(), QStringLiteral("Length units")); // kept
+    QCOMPARE(note->buddy(), nullptr);
+    QVERIFY(afterNote->accessibleName().isEmpty());
+    QCOMPARE(curvesLabel->buddy(), curves);
+    QCOMPARE(curves->accessibleName(), QStringLiteral("Curves"));
+    QCOMPARE(points->accessibleName(), QStringLiteral("Points table"));
+    QCOMPARE(loose->accessibleName(), QStringLiteral("Curve Editor tree"));
+    QCOMPARE(named->accessibleName(), QStringLiteral("Keep me"));
+    QVERIFY(unitCombo->view()->accessibleName().isEmpty()); // Qt's internal popup view
+    dlg.hide();
+
+    // Dock panels: a title that already says what the view is is not repeated.
+    QMainWindow main;
+    auto *dock = new QDockWidget(QStringLiteral("Attribute Table"), &main);
+    auto *table = new QTableView(dock);
+    dock->setWidget(table);
+    main.addDockWidget(Qt::RightDockWidgetArea, dock);
+    main.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&main));
+    QTRY_COMPARE(table->accessibleName(), QStringLiteral("Attribute Table"));
+    main.hide();
 
     qApp->removeEventFilter(&watcher);
 }

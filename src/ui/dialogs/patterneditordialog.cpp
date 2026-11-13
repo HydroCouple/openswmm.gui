@@ -8,6 +8,7 @@
  */
 
 #include "ui/dialogs/patterneditordialog.h"
+#include "ui/util/usernotice.h"
 #include "core/swmmidentifier.h"
 #include "ui/theme/iconfactory.h"
 #include "ui/theme/themehelpers.h"
@@ -908,8 +909,7 @@ void PatternEditorDialog::onNormalizeClicked_()
     QString reason;
     const PatternProvider::Params before = m_edited->params();
     if (!m_edited->normalize(target, &reason)) {
-        if (m_status)
-            m_status->showMessage(reason, 4000);
+        notifyUser(this, NoticeSeverity::Warning, reason, m_status, 4000);
         return;
     }
     if (!(m_edited->params() == before))
@@ -997,8 +997,7 @@ void PatternEditorDialog::onProviderTypeChanged_()
 
 void PatternEditorDialog::onMutationRejected_(const QString &reason)
 {
-    if (m_status)
-        m_status->showMessage(reason, 4000);
+    notifyUser(this, NoticeSeverity::Warning, reason, m_status, 4000);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1067,8 +1066,9 @@ void PatternEditorDialog::onListItemRenamed_(QStandardItem *item)
         m_suppressListItemRename = true;
         item->setText(p->name());
         m_suppressListItemRename = false;
-        if (m_status)
-            m_status->showMessage(tr("A pattern named “%1” already exists.").arg(newName), 4000);
+        notifyUser(this, NoticeSeverity::Warning,
+                   tr("A pattern named “%1” already exists.").arg(newName),
+                   m_status, 4000);
     }
 }
 

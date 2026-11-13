@@ -17,9 +17,39 @@
 #include <QPainter>
 #include <QPersistentModelIndex>
 #include <QPointer>
+#include <QStandardItem>
 
 namespace openswmmvis::ui
 {
+
+QString colorCellAccessibleText(const QColor &color)
+{
+    if (!color.isValid())
+        return {};
+    const QString hex = color.name(QColor::HexRgb);
+    if (color.alpha() == 255)
+        return QObject::tr("Colour %1").arg(hex);
+    return QObject::tr("Colour %1, %2% opaque").arg(hex).arg(qRound(color.alphaF() * 100.0));
+}
+
+bool setColorCell(QAbstractItemModel *model, const QModelIndex &index, const QColor &color)
+{
+    const QString text = colorCellAccessibleText(color);
+    return model->setItemData(index, {{Qt::BackgroundRole, color},
+                                      {Qt::AccessibleTextRole,
+                                       text.isEmpty() ? QVariant() : QVariant(text)}});
+}
+
+void setColorCell(QStandardItem *item, const QColor &color)
+{
+    if (item->model()) {
+        setColorCell(item->model(), item->index(), color);
+        return;
+    }
+    item->setData(color, Qt::BackgroundRole);
+    const QString text = colorCellAccessibleText(color);
+    item->setData(text.isEmpty() ? QVariant() : QVariant(text), Qt::AccessibleTextRole);
+}
 
 void ColorCellDelegate::paint(QPainter *p, const QStyleOptionViewItem &opt,
                               const QModelIndex &idx) const
@@ -77,7 +107,7 @@ bool ColorCellDelegate::editorEvent(QEvent *e, QAbstractItemModel *m, const QSty
             const QModelIndex target =
                 index.isValid() ? QModelIndex(index) : model->index(row, column);
             if (target.isValid())
-                model->setData(target, picked, Qt::BackgroundRole);
+                setColorCell(model, target, picked);
         },
         Qt::QueuedConnection);
     return true;

@@ -9,6 +9,7 @@
  */
 
 #include "ui/dialogs/timeserieseditordialog.h"
+#include "ui/util/usernotice.h"
 #include "core/swmmidentifier.h"
 #include "ui/theme/iconfactory.h"
 #include "ui/theme/themehelpers.h"
@@ -363,8 +364,8 @@ void TimeseriesEditorDialog::onChooseObservations_()
     if (choose(this, model, draft->name(), draft->observationBinding(), &copy, &error)) {
         if (editedSeries() == draft) // the user may have switched series meanwhile
             useObservationCopy(copy);
-    } else if (!error.isEmpty() && m_status) {
-        m_status->showMessage(error, 8000);
+    } else if (!error.isEmpty()) {
+        notifyUser(this, NoticeSeverity::Error, error, m_status, 8000);
     }
 }
 
@@ -382,8 +383,10 @@ void TimeseriesEditorDialog::onRefreshObservations_()
     const bool ok = refresh(this, model, draft->name(), draft->observationBinding(), &copy, &error);
     QApplication::restoreOverrideCursor();
     if (!ok) {
-        if (m_status)
-            m_status->showMessage(error.isEmpty() ? tr("Refresh cancelled.") : error, 8000);
+        if (!error.isEmpty())
+            notifyUser(this, NoticeSeverity::Error, error, m_status, 8000);
+        else if (m_status)
+            m_status->showMessage(tr("Refresh cancelled."), 8000);
         return;
     }
     if (editedSeries() == draft)
@@ -1156,8 +1159,7 @@ void TimeseriesEditorDialog::onSnapToggled_(bool on)
 void TimeseriesEditorDialog::onMutationRejected_(const QString &reason)
 {
     qCWarning(lcTsLoadDialog) << "onMutationRejected_:" << reason;
-    if (m_status)
-        m_status->showMessage(reason, 4000);
+    notifyUser(this, NoticeSeverity::Warning, reason, m_status, 4000);
 }
 
 void TimeseriesEditorDialog::onProviderPointsChanged_()
@@ -1277,10 +1279,10 @@ void TimeseriesEditorDialog::onAddRowTriggered_()
     if (!first)
         return;
     if (first->sourceMode() != TimeseriesProvider::SourceMode::Inline) {
-        if (m_status)
-            m_status->showMessage(tr("Add Row disabled: this series comes from an external file or "
-                                     "observation dataset. Detach it to Inline first."),
-                                  4000);
+        notifyUser(this, NoticeSeverity::Warning,
+                   tr("Add Row disabled: this series comes from an external file or "
+                      "observation dataset. Detach it to Inline first."),
+                   m_status, 4000);
         return;
     }
 
@@ -1367,10 +1369,10 @@ void TimeseriesEditorDialog::onDeleteRowsTriggered_()
     }
     auto *first = m_providers.first().data();
     if (first && first->sourceMode() != TimeseriesProvider::SourceMode::Inline) {
-        if (m_status)
-            m_status->showMessage(tr("Delete disabled: this series comes from an external file or "
-                                     "observation dataset."),
-                                  4000);
+        notifyUser(this, NoticeSeverity::Warning,
+                   tr("Delete disabled: this series comes from an external file or "
+                      "observation dataset."),
+                   m_status, 4000);
         return;
     }
 
@@ -1437,10 +1439,10 @@ void TimeseriesEditorDialog::onPasteRowsTriggered_()
     if (!first)
         return;
     if (first->sourceMode() != TimeseriesProvider::SourceMode::Inline) {
-        if (m_status)
-            m_status->showMessage(tr("Paste disabled: this series comes from an external file or "
-                                     "observation dataset."),
-                                  4000);
+        notifyUser(this, NoticeSeverity::Warning,
+                   tr("Paste disabled: this series comes from an external file or "
+                      "observation dataset."),
+                   m_status, 4000);
         return;
     }
 
@@ -1952,23 +1954,22 @@ void TimeseriesEditorDialog::onTimeModeComboChanged_(int index)
     if (newMode == TimeseriesProvider::TimeMode::Relative) {
         anchor = m_registry ? m_registry->simulationStart() : QDateTime();
         if (!anchor.isValid()) {
-            if (m_status)
-                m_status->showMessage(tr("Cannot switch to relative times: the project has no "
-                                         "simulation START_DATE."),
-                                      5000);
+            notifyUser(this, NoticeSeverity::Warning,
+                       tr("Cannot switch to relative times: the project has no "
+                          "simulation START_DATE."),
+                       m_status, 5000);
             refreshTimeModeRow_();
             return;
         }
         if (p->pointCount() > 0 && p->pointAt(0).time < anchor) {
-            if (m_status)
-                m_status->showMessage(
-                    tr("Cannot switch to relative times: the first point "
-                       "(%1) precedes the simulation start (%2), so its "
-                       "elapsed time would be negative.")
-                        .arg(p->pointAt(0).time.toString(
-                                 openswmmvis::core::swmmDateTimeDisplayFormat()),
-                             anchor.toString(openswmmvis::core::swmmDateTimeDisplayFormat())),
-                    6000);
+            notifyUser(this, NoticeSeverity::Warning,
+                       tr("Cannot switch to relative times: the first point "
+                          "(%1) precedes the simulation start (%2), so its "
+                          "elapsed time would be negative.")
+                           .arg(p->pointAt(0).time.toString(
+                                    openswmmvis::core::swmmDateTimeDisplayFormat()),
+                                anchor.toString(openswmmvis::core::swmmDateTimeDisplayFormat())),
+                       m_status, 6000);
             refreshTimeModeRow_();
             return;
         }
@@ -2030,8 +2031,8 @@ int TimeseriesEditorDialog::linkExternalFile(const QString &path, const QString 
         loadExternalFileIntoProvider_(p, path, columnSelector, &headers, &error, &fabricated);
     populateColumnCombo_(headers, columnSelector, fabricated);
     refreshSourceModeCardForProvider_();
-    if (!error.isEmpty() && m_status)
-        m_status->showMessage(error, 6000);
+    if (!error.isEmpty())
+        notifyUser(this, NoticeSeverity::Error, error, m_status, 6000);
     return n;
 }
 
@@ -2126,15 +2127,14 @@ void TimeseriesEditorDialog::onBrowseExternalFile_()
     if (!fabricated && !headers.isEmpty())
         p->setFileSource(path, headers.first(), QFileInfo(path).lastModified());
     refreshSourceModeCardForProvider_();
-    if (m_status) {
-        if (!error.isEmpty())
-            m_status->showMessage(error, 6000);
-        else if (n > 0)
-            m_status->showMessage(
-                tr("Loaded %1 point(s) from %2").arg(n).arg(QFileInfo(path).fileName()), 4000);
-        else
-            m_status->showMessage(tr("File parse returned 0 points — check format."), 4000);
-    }
+    if (!error.isEmpty())
+        notifyUser(this, NoticeSeverity::Error, error, m_status, 6000);
+    else if (n <= 0)
+        notifyUser(this, NoticeSeverity::Warning,
+                   tr("File parse returned 0 points — check format."), m_status, 4000);
+    else if (m_status)
+        m_status->showMessage(
+            tr("Loaded %1 point(s) from %2").arg(n).arg(QFileInfo(path).fileName()), 4000);
 }
 
 void TimeseriesEditorDialog::onColumnSelectorChanged_(int index)
@@ -2150,12 +2150,12 @@ void TimeseriesEditorDialog::onColumnSelectorChanged_(int index)
     // selector). Refuse the pick instead of writing a token the engine
     // cannot resolve (review B-4 / risk R1).
     if (m_extHeadersFabricated && index > 0) {
-        if (m_status)
-            m_status->showMessage(tr("%1 has no header row, so only its first column can be "
-                                     "selected — a \"col_N\" name cannot be saved or read back. "
-                                     "Add a header row to bind another column.")
-                                      .arg(QFileInfo(p->filePath()).fileName()),
-                                  8000);
+        notifyUser(this, NoticeSeverity::Warning,
+                   tr("%1 has no header row, so only its first column can be "
+                      "selected — a \"col_N\" name cannot be saved or read back. "
+                      "Add a header row to bind another column.")
+                       .arg(QFileInfo(p->filePath()).fileName()),
+                   m_status, 8000);
         // Refuse the pick: put the combo back on the item that matches what
         // the provider actually holds, so display and state stay equal.
         QSignalBlocker b(m_extColumnCombo);
@@ -2170,8 +2170,8 @@ void TimeseriesEditorDialog::onColumnSelectorChanged_(int index)
     QString error;
     loadExternalFileIntoProvider_(p, p->filePath(), col, /*headersOut=*/nullptr, &error);
     refreshSourceModeCardForProvider_();
-    if (!error.isEmpty() && m_status)
-        m_status->showMessage(error, 6000);
+    if (!error.isEmpty())
+        notifyUser(this, NoticeSeverity::Error, error, m_status, 6000);
 }
 
 void TimeseriesEditorDialog::onReloadExternalFile_()

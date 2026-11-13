@@ -21,6 +21,7 @@
 
 #include <QDialog>
 
+class QLabel;
 class QLineEdit;
 class QListView;
 class QMainWindow;
@@ -83,7 +84,11 @@ private:
      * @brief Trigger the selected enabled QAction after hiding the palette.
      * @note Invalid/disabled selections are ignored and leave the palette visible; triggering checkable actions follows QAction semantics.
      */
+    /*! Run the highlighted command; a disabled one is refused out loud: its reason is shown
+     *  and announced to assistive technology, and the palette stays open (A-15). */
     void triggerCurrent();
+    /*! Show why the highlighted command is unavailable, or hide the line when it is available. */
+    void updateStatus();
     /**
      * @brief Move the current result selection within visible row bounds.
      * @param[in] delta Signed row offset, clamped to first/last result; empty models are ignored.
@@ -93,6 +98,7 @@ private:
     CommandPaletteModel *mModel = nullptr;
     QLineEdit *mFilter = nullptr;
     QListView *mList = nullptr;
+    QLabel *mStatus = nullptr; ///< Why the highlighted command is unavailable.
 };
 
 } // namespace openswmmvis::ui

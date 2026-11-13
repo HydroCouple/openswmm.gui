@@ -14,9 +14,11 @@
 #include "ui/dialogs/dialoglayoutwatcher.h"
 #include "ui/widgets/commandpalettemodel.h"
 
+#include <QAccessible>
 #include <QAction>
 #include <QEvent>
 #include <QKeyEvent>
+#include <QLabel>
 #include <QLineEdit>
 #include <QListView>
 #include <QMainWindow>
@@ -154,13 +156,24 @@ CommandPalette::CommandPalette(QMainWindow *parent)
     mList->setAccessibleName(tr("Command list"));
     layout->addWidget(mList);
 
+    mStatus = new QLabel(this);
+    mStatus->setObjectName(QStringLiteral("commandPaletteStatus"));
+    mStatus->setTextFormat(Qt::PlainText);
+    mStatus->setWordWrap(true);
+    mStatus->setAccessibleName(tr("Command availability"));
+    mStatus->hide();
+    layout->addWidget(mStatus);
+
     mFilter->installEventFilter(this);
     connect(mFilter, &QLineEdit::textChanged, this, [this](const QString &text) {
         mModel->setFilterPattern(text);
         if (mModel->rowCount() > 0)
             mList->setCurrentIndex(mModel->index(0, 0));
+        updateStatus();
     });
     connect(mList, &QListView::activated, this, [this](const QModelIndex &) { triggerCurrent(); });
+    connect(mList->selectionModel(), &QItemSelectionModel::currentChanged, this,
+            [this] { updateStatus(); });
 }
 
 void CommandPalette::popup()
@@ -170,6 +183,7 @@ void CommandPalette::popup()
     mModel->setFilterPattern(QString());
     if (mModel->rowCount() > 0)
         mList->setCurrentIndex(mModel->index(0, 0));
+    updateStatus();
 
     if (auto *parent = parentWidget()) {
         const QPoint center =
@@ -224,10 +238,32 @@ void CommandPalette::triggerCurrent()
 {
     const QModelIndex index = mList->currentIndex();
     QAction *action = mModel->actionAt(index);
-    if (!action || !action->isEnabled())
+    if (!action)
         return;
+    if (!action->isEnabled()) {
+        updateStatus();
+        QAccessibleAnnouncementEvent announcement(mStatus, mStatus->text());
+        QAccessible::updateAccessibility(&announcement);
+        return;
+    }
     hide();
     action->trigger();
+}
+
+void CommandPalette::updateStatus()
+{
+    const QModelIndex index = mList->currentIndex();
+    QAction *action = mModel->actionAt(index);
+    if (!action || action->isEnabled()) {
+        mStatus->clear();
+        mStatus->hide();
+        return;
+    }
+    const QString title = index.data(Qt::DisplayRole).toString();
+    const QString reason = index.data(CommandPaletteModel::DisabledReasonRole).toString();
+    mStatus->setText(reason.isEmpty() ? tr("%1 is not available right now.").arg(title)
+                                      : tr("%1 is not available: %2").arg(title, reason));
+    mStatus->show();
 }
 
 void CommandPalette::moveSelection(int delta)

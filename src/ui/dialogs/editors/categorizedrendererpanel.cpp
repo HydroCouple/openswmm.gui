@@ -33,6 +33,7 @@
 #include "render/sublayers/feature/featuresublayer.h"
 #include "render/symbolstyle.h"
 #include "ui/dialogs/editors/basesymbolgroup.h" // feedback C2
+#include "ui/widgets/colorcelldelegate.h"
 #include "ui/widgets/dashstylecombo.h"
 #include "ui/widgets/markershapecombo.h"
 #include "ui/theme/iconfactory.h"
@@ -151,7 +152,7 @@ public:
                                    QObject::tr("Category colour"), QColorDialog::ShowAlphaChannel);
         if (!picked.isValid())
             return true;
-        m->setData(idx, picked, Qt::BackgroundRole);
+        setColorCell(m, idx, picked);
         return true;
     }
 };
@@ -650,7 +651,7 @@ private:
                 swatch = QColor::fromHsvF((m_model->rowCount() * 0.137) -
                                               std::floor(m_model->rowCount() * 0.137),
                                           0.55, 0.85);
-            colorItem->setData(swatch, Qt::BackgroundRole);
+            setColorCell(colorItem, swatch);
             colorItem->setEditable(true);
 
             m_model->appendRow({valItem, labelItem, colorItem});

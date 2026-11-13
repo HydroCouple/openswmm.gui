@@ -19,12 +19,19 @@
  * palette does — it is deliberately fixed-size). Unnamed dialogs are
  * implicitly out.
  *
+ * Accessibility defaults (review A-02/A-03/A-14): on the first Show of every
+ * top-level dialog (named or not) and every dock panel, applyAccessibilityDefaults()
+ * pairs inline "Label:" texts with the field after them and names unnamed item views,
+ * so a screen reader announces what they are rather than only their kind.
+ *
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  * @license   GPL-3.0-or-later
  */
 
 #include <QObject>
+
+class QWidget;
 
 namespace openswmmvis::ui
 {
@@ -33,6 +40,22 @@ namespace openswmmvis::ui
 inline constexpr char kNoLayoutPersistenceProp[] = "noLayoutPersistence";
 /// Instance property marking that the first-show restore already ran.
 inline constexpr char kLayoutRestoredOnceProp[] = "layoutRestoredOnce";
+/// Instance property marking that the accessibility defaults already ran.
+inline constexpr char kAccessibilityDefaultsProp[] = "accessibilityDefaultsApplied";
+
+/**
+ * @brief Give a window's unnamed controls the names a screen reader needs (A-02/A-03/A-14).
+ * @details A QLabel whose plain text ends in ':' and that has no buddy becomes the buddy of
+ *   the field right after it in its row, grid cell or form row (line edit, spin box, combo
+ *   box, text edit, slider or item view); that field takes the label text as its accessible
+ *   name when it has none. An item view without an accessible name is named from such a
+ *   label, else "<group box title> table|list|tree", else "<window title> table|list|tree"
+ *   (the kind is not repeated when the title already ends with it). Existing names and
+ *   buddies are kept; views inside combo boxes and calendars, qt_-named views and controls
+ *   of nested dialogs or docks are left alone.
+ * @param[in,out] root Window or dock panel whose descendants are inspected.
+ */
+void applyAccessibilityDefaults(QWidget *root);
 
 class DialogLayoutWatcher : public QObject
 {

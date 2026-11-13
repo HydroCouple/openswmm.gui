@@ -8,6 +8,7 @@
  */
 
 #include "ui/dialogs/curveeditordialog.h"
+#include "ui/util/usernotice.h"
 #include "core/swmmidentifier.h"
 #include "core/unitsystem.h"
 #include "ui/theme/iconfactory.h"
@@ -983,8 +984,9 @@ void CurveEditorDialog::onAddRowClicked_()
     const CurveProvider::Params before = m_edited->params();
     const int newRow = m_edited->insertPoint(newX, newY, &reason);
     if (newRow < 0) {
-        if (m_status)
-            m_status->showMessage(tr("Add row rejected: %1").arg(reason), 4000);
+        notifyUser(this, NoticeSeverity::Warning,
+                   tr("Add row rejected: %1").arg(reason),
+                   m_status, 4000);
         return;
     }
     recordDraftEdit(m_draftUndo, m_edited, before, tr("Add row"));
@@ -1092,8 +1094,9 @@ void CurveEditorDialog::onPasteRowsClicked_()
         parsed.push_back({*x, *y});
     }
     if (parsed.isEmpty()) {
-        if (m_status)
-            m_status->showMessage(tr("No valid X,Y rows in clipboard."), 3000);
+        notifyUser(this, NoticeSeverity::Warning,
+                   tr("No valid X,Y rows in clipboard."),
+                   m_status, 3000);
         return;
     }
 
@@ -1135,8 +1138,9 @@ void CurveEditorDialog::onPasteRowsClicked_()
     QString reason;
     const CurveProvider::Params before = m_edited->params();
     if (!m_edited->setAllPoints(newPts, &reason)) {
-        if (m_status)
-            m_status->showMessage(tr("Paste rejected: %1").arg(reason), 4000);
+        notifyUser(this, NoticeSeverity::Warning,
+                   tr("Paste rejected: %1").arg(reason),
+                   m_status, 4000);
         return;
     }
     recordDraftEdit(m_draftUndo, m_edited, before, tr("Paste rows"));
@@ -1265,8 +1269,7 @@ void CurveEditorDialog::onProviderTypeChanged_()
 
 void CurveEditorDialog::onMutationRejected_(const QString &reason)
 {
-    if (m_status)
-        m_status->showMessage(reason, 4000);
+    notifyUser(this, NoticeSeverity::Warning, reason, m_status, 4000);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1338,8 +1341,9 @@ void CurveEditorDialog::onListItemRenamed_(QStandardItem *item)
         m_suppressListItemRename = true;
         item->setText(p->name());
         m_suppressListItemRename = false;
-        if (m_status)
-            m_status->showMessage(tr("A curve named “%1” already exists.").arg(newName), 4000);
+        notifyUser(this, NoticeSeverity::Warning,
+                   tr("A curve named “%1” already exists.").arg(newName),
+                   m_status, 4000);
     }
 }
 

@@ -31,13 +31,16 @@
 #include "ui/dialogs/curveeditordialog.h"
 #include "ui/editors/dataobjectdraftsession.h"
 #include "ui/panels/curvepointtablemodel.h"
+#include "ui/util/usernotice.h"
 #include "ui/widgets/curveeditchartview.h"
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_tables.h>
 
+#include <QAccessible>
 #include <QChartView>
+#include <QStatusBar>
 #include <QComboBox>
 #include <QAction>
 #include <QClipboard>
@@ -65,9 +68,22 @@ using openswmmvis::curve::CurveRegistry;
 using openswmmvis::curve::CurveType;
 using openswmmvis::ui::CurveEditorDialog;
 using openswmmvis::ui::CurvePointTableModel;
+using openswmmvis::ui::NoticeSeverity;
 
 namespace
 {
+QStringList g_announcements;
+QList<QAccessible::AnnouncementPoliteness> g_politeness;
+
+/*! Accessibility update handler recording what would be announced to a screen reader. */
+void recordAnnouncement(QAccessibleEvent *event)
+{
+    if (event->type() != QAccessible::Announcement)
+        return;
+    auto *announcement = static_cast<QAccessibleAnnouncementEvent *>(event);
+    g_announcements.append(announcement->message());
+    g_politeness.append(announcement->politeness());
+}
 
 /**
  *
@@ -422,6 +438,74 @@ private slots:
      * A second curve is present; no window exposure, list selection change or persistence.
      *
      */
+    /*! A-07/A-27: notifyUser() shows the text on the given status bar, records it with the
+     *  window title in the Message Log sink and announces it (assertively for an error); with
+     *  no sink, no status bar or no context it still does the rest. */
+    void notifyUserReachesStatusLogAndScreenReader()
+    {
+        QWidget window;
+        window.setWindowTitle(QStringLiteral("Curve Editor[*]"));
+        auto *status = new QStatusBar(&window);
+        QList<QPair<NoticeSeverity, QString>> notices;
+        openswmmvis::ui::setNoticeSink(
+            [&](NoticeSeverity s, const QString &t) { notices.append({s, t}); });
+        g_announcements.clear();
+        g_politeness.clear();
+        const auto previous = QAccessible::installUpdateHandler(recordAnnouncement);
+        openswmmvis::ui::notifyUser(&window, NoticeSeverity::Warning,
+                                    QStringLiteral("Paste rejected: no rows"), status, 4000);
+        openswmmvis::ui::notifyUser(&window, NoticeSeverity::Error,
+                                    QStringLiteral("File could not be read"));
+        openswmmvis::ui::notifyUser(nullptr, NoticeSeverity::Information,
+                                    QStringLiteral("No context"));
+        openswmmvis::ui::setNoticeSink({});
+        openswmmvis::ui::notifyUser(&window, NoticeSeverity::Warning,
+                                    QStringLiteral("Not logged"), status);
+        QAccessible::installUpdateHandler(previous);
+
+        QCOMPARE(status->currentMessage(), QStringLiteral("Not logged"));
+        QCOMPARE(notices.size(), 3);
+        QCOMPARE(notices[0].first, NoticeSeverity::Warning);
+        QCOMPARE(notices[0].second, QStringLiteral("Curve Editor: Paste rejected: no rows"));
+        QCOMPARE(notices[1].first, NoticeSeverity::Error);
+        QCOMPARE(notices[2].second, QStringLiteral("No context"));
+        QCOMPARE(g_announcements,
+                 QStringList({QStringLiteral("Paste rejected: no rows"),
+                              QStringLiteral("File could not be read"),
+                              QStringLiteral("Not logged")}));
+        QCOMPARE(g_politeness[1], QAccessible::AnnouncementPoliteness::Assertive);
+        QCOMPARE(g_politeness[0], QAccessible::AnnouncementPoliteness::Polite);
+    }
+
+    /*! A-27: a rejected curve rename no longer vanishes with the status message: it reaches
+     *  the Message Log with the editor's title and is announced. */
+    void renameCollisionIsLoggedAndAnnounced()
+    {
+        CurveRegistry reg;
+        QVERIFY(reg.create(QStringLiteral("CV_A"), CurveType::Storage));
+        QVERIFY(reg.create(QStringLiteral("CV_B"), CurveType::Storage));
+        QUndoStack stack;
+        CurveEditorDialog dlg(&reg, &stack);
+        QList<QPair<NoticeSeverity, QString>> notices;
+        openswmmvis::ui::setNoticeSink(
+            [&](NoticeSeverity s, const QString &t) { notices.append({s, t}); });
+        g_announcements.clear();
+        const auto previous = QAccessible::installUpdateHandler(recordAnnouncement);
+        auto *list = dlg.listView()->model();
+        list->setData(list->index(1, 0), QStringLiteral("CV_A"));
+        QAccessible::installUpdateHandler(previous);
+        openswmmvis::ui::setNoticeSink({});
+
+        QVERIFY(reg.findByName(QStringLiteral("CV_B")));
+        QCOMPARE(notices.size(), 1);
+        QCOMPARE(notices[0].first, NoticeSeverity::Warning);
+        QVERIFY2(notices[0].second.contains(QStringLiteral("CV_A")) &&
+                     notices[0].second.startsWith(dlg.windowTitle().remove(QStringLiteral("[*]"))),
+                 qPrintable(notices[0].second));
+        QCOMPARE(g_announcements.size(), 1);
+        QVERIFY(g_announcements[0].contains(QStringLiteral("already exists")));
+    }
+
     void dialog_OpensAndBindsFirstProvider()
     {
         CurveRegistry reg;

@@ -134,10 +134,14 @@ void ThemeManager::apply()
     // Minimal overlay — NOT a re-skin. Only what the palette cannot
     // express: a visible keyboard-focus ring under Fusion (whose default
     // focus rect is a faint dotted line) and toolbar breathing room.
+    // Item views draw the outline around their current cell; Fusion alone gives that cell only
+    // a faint fill (review A-11). Buttons and combo boxes keep Fusion's own focus frame: QSS
+    // `outline` does not change how they are drawn.
     const QString focus = c.focusRing.name(QColor::HexRgb);
     app->setStyleSheet(
         QStringLiteral("QToolButton:focus, QPushButton:focus, QComboBox:focus, "
-                       "QTabBar::tab:focus { outline: 2px solid %1; outline-offset: -2px; }\n"
+                       "QTabBar::tab:focus, QAbstractItemView:focus "
+                       "{ outline: 2px solid %1; outline-offset: -2px; }\n"
                        "QToolBar { spacing: 3px; }\n")
             .arg(focus));
 
