@@ -53,7 +53,7 @@ RAIN INTENSITY 0:05 1 TIMESERIES STORM
     text += '\n[REPORT]\nINPUT NO\nCONTROLS NO\nSUBCATCHMENTS ALL\nNODES ALL\nLINKS ALL\n\n[COORDINATES]\n'
     text += '\n'.join(f'{n} {x} {y}' for n,z,depth,x,y in nodes)
     text += '\nOUT1 130 0\n' if name=='terrain_bowl' else '\nOUT1 70 20\n'
-    text += f'\n[2D_OPTIONS]\nINTEGRATOR EXPLICIT\nMAX_TIMESTEP 2\nCFL_NUMBER 0.7\nRAINFALL_MODE SYSTEM\nREPORT_2D YES\nOUTPUT_FILE {name}.2d.h5\nDRY_DEPTH 0.001\nCELL_CLOSURE FLAT\nFACE_RECONSTRUCTION MEAN\n\n[2D_VERTICES]\n'
+    text += f'\n[2D_OPTIONS]\nINTEGRATOR EXPLICIT\nMOMENTUM_EQUATION LOCAL_INERTIAL\nMAX_TIMESTEP 2\nCFL_NUMBER 0.7\nRAINFALL_MODE SYSTEM\nREPORT_2D YES\nOUTPUT_FILE {name}.2d.h5\nDRY_DEPTH 0.001\nCELL_CLOSURE FLAT\nFACE_RECONSTRUCTION MEAN\n\n[2D_VERTICES]\n'
     text += '\n'.join(f'{x:g} {y:g} {elevation(x,y):.6f}' for k,(x,y) in enumerate(vertices))
     text += '\n\n[2D_TRIANGLES]\n'
     for j in range(ny-1):
