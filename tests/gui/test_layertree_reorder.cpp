@@ -35,6 +35,7 @@
 #include "layers/annotationlayer.h"
 #include "layers/swmm2dresultslayer.h"
 #include "layers/swmm2dmeshlayer.h"
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshresult.h"
 #include "render/sublayers/contourbandsublayer.h"
 #include "render/sublayers/isolinesublayer.h"
@@ -54,6 +55,38 @@ using openswmmvis::ui::CatFeatureLayers;
 using openswmmvis::ui::CatSwmm2DOutputs;
 using openswmmvis::ui::CatTables;
 using openswmmvis::ui::CatCount;
+
+namespace
+{
+/** Two cells with an edge-flux feed and no result variables: the 2D results layer lists its
+ *  vertex, edge and flow-streak rows flat, its unlisted passes interleaved among them. */
+class FluxOnlySource : public IMesh2DSource
+{
+public:
+    int vertexCount() const override { return 4; }
+    int triangleCount() const override { return 2; }
+    int timeCount() const override { return 1; }
+    bool readMeshGeometry(std::vector<double> &x, std::vector<double> &y, std::vector<double> &z,
+                          std::vector<std::array<int, 3>> &tris) override
+    {
+        x = {0, 1, 1, 0};
+        y = {0, 0, 1, 1};
+        z = {0, 0, 0, 0};
+        tris = {{0, 1, 2}, {0, 2, 3}};
+        return true;
+    }
+    bool readDepthsAt(int, std::vector<float> &depths) override
+    {
+        depths = {0.f, 0.f};
+        return true;
+    }
+    bool readEdgeFluxAt(int, std::vector<float> &flux) override
+    {
+        flux.assign(size_t(mesh::edgeSlotCount(triangleCount())), 0.f);
+        return true;
+    }
+};
+} // namespace
 
 class TestLayerTreeReorder : public QObject
 {
@@ -358,6 +391,7 @@ private slots:
     void sublayerDropBetweenRowsAndOntoRows()
     {
         SWMM2DResultsLayer res(QStringLiteral("res"));
+        res.setSource(std::make_unique<FluxOnlySource>()); // three flat rows (see the source)
         SWMM2DResultsLayer other(QStringLiteral("other")); // used at the end
         MapCanvas canvas;
         canvas.addLayer(&res, false);

@@ -5002,6 +5002,16 @@ swmmvis_link_full_app_deps(test_unified2dresults)
 target_compile_definitions(test_unified2dresults PRIVATE
     SWMMVIS_UNIFIED_2D_RESULTS_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/unified_2d_results_2026-11-01")
 
+# Style controls of the 2D mesh / results sublayers reach what is drawn (QSG and
+# QPainter), the Layer Styling dock rules write only the edited field, and the
+# vector page greys what a mode ignores (style→render gap audit, 2026-11-13).
+add_swmmvis_gui_test(test_2dstyle_render_gaps
+    test_2dstyle_render_gaps.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_2dstyle_render_gaps)
+
 # Review E-05 (workplans/GUI_COMPREHENSIVE_REVIEW_2026-11-12.md): renaming a
 # pollutant must keep the co-pollutant links that name it through the next
 # saveToEngine (the rename used to leave them on the old name, saved as none).

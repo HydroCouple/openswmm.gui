@@ -28,6 +28,7 @@
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
 
+#include "render/rulestylesync.h"
 #include "render/ifeaturerenderer.h"
 // Contour generation for the iso-band / iso-line sublayer passes.
 #include "contour/marchingtriangles.h"
@@ -318,28 +319,72 @@ public:
             fillStyleQ ? fillStyleQ->scheme() : OpenSWMM::Render::ClassificationScheme();
         const bool fillClassified =
             fillScheme.mode() == OpenSWMM::Render::ClassificationScheme::ClassMode::Classified;
+        // Colour source (QSG parity): bed elevation, or the per-cell attribute the style
+        // picks ("Colour by"); a categorical attribute takes one palette colour per value;
+        // a cell without a value takes the no-data colour.
+        const bool attrMode = useRampFill && fillStyleQ && !fillStyleQ->colorsByElevation();
+        const bool catMode = attrMode && fillStyleQ->colorsByCategory();
+        const QByteArray attrKey = attrMode ? fillStyleQ->colorByAttributeKey() : QByteArray();
+        static const QVector<float> kNoAttrValues;
+        const QVector<float> &attrVals =
+            attrMode ? m_layer->cellAttributeValues(attrKey) : kNoAttrValues;
+        double cMin = zMin, cMax = zMax;
+        if (attrMode) {
+            double aMin = 0.0, aMax = 1.0;
+            const bool attrHasData = m_layer->cellAttributeRange(attrKey, &aMin, &aMax);
+            cMin = attrHasData ? aMin : 0.0;
+            cMax = attrHasData ? aMax : 1.0;
+            if (!(cMax > cMin))
+                cMax = cMin + 1.0;
+        }
+        const QColor noDataColor =
+            fillStyleQ ? fillStyleQ->noDataColor() : QColor(205, 205, 205, 120);
+        const auto fillColorRange = fillScheme.effectiveRange(cMin, cMax);
         const QString fillRampName = fillScheme.rampName();
         const bool fillDefaultRamp =
             fillRampName.isEmpty() ||
             fillRampName.compare(QLatin1String("terrain"), Qt::CaseInsensitive) == 0;
-        const bool fillSchemeDrives = fillClassified || fillScheme.useCustomRange() ||
+        const bool fillSchemeDrives = attrMode || fillClassified || fillScheme.useCustomRange() ||
                                       fillScheme.invertRamp() || !fillDefaultRamp;
         const QVector<double> fillClassEdges =
-            fillClassified ? fillScheme.levelEdges(zMin, zMax, {}) : QVector<double>{};
+            fillClassified ? fillScheme.levelEdges(cMin, cMax, {}) : QVector<double>{};
 
         // \p ca — the class colour's own alpha (255 for continuous ramps and
         // the flat fill): a fully transparent classified class must vanish.
-        auto fillColor = [&](const SWMM2DMeshLayer::SceneTri &t, int &cr, int &cg, int &cb,
-                             int &ca) {
+        // \p attrIdx indexes the per-cell attribute values (parallel to m_sceneTris); -1 for
+        // overview quads, which carry no attribute and fall back to the flat fill colour.
+        // @return False when the cell is not drawn (below the style's range).
+        auto fillColor = [&](const SWMM2DMeshLayer::SceneTri &t, int attrIdx, int &cr, int &cg,
+                             int &cb, int &ca) -> bool {
             ca = 255;
-            if (hasElev && useRampFill) {
-                if (fillSchemeDrives) {
+            if ((hasElev || attrMode) && useRampFill) {
+                double cVal = double(t.zAvg);
+                bool cValOk = true;
+                if (attrMode) {
+                    cValOk = attrIdx >= 0 && attrIdx < attrVals.size() &&
+                             std::isfinite(attrVals[attrIdx]);
+                    if (cValOk)
+                        cVal = double(attrVals[attrIdx]);
+                }
+                if (!catMode && cValOk && (!std::isfinite(cVal) || cVal < fillColorRange.first))
+                    return false;
+                if (attrMode && !cValOk) {
+                    const QColor nc = attrIdx >= 0 ? noDataColor : flatFill;
+                    cr = nc.red();
+                    cg = nc.green();
+                    cb = nc.blue();
+                } else if (catMode) {
+                    const QColor cc = fillStyleQ->categoryColorForValue(int(std::lround(cVal)));
+                    cr = cc.red();
+                    cg = cc.green();
+                    cb = cc.blue();
+                } else if (fillSchemeDrives) {
                     const QColor sc =
                         fillClassified ? fillScheme.colorForClass(
                                              OpenSWMM::Render::ClassificationScheme::classIndexFor(
-                                                 double(t.zAvg), fillClassEdges),
+                                                 cVal, fillClassEdges),
                                              std::max(1, int(fillClassEdges.size()) - 1))
-                                       : fillScheme.colorForValue(double(t.zAvg), zMin, zMax);
+                                       : fillScheme.colorForValue(cVal, cMin, cMax);
                     cr = sc.red();
                     cg = sc.green();
                     cb = sc.blue();
@@ -374,13 +419,15 @@ public:
                 cg = flatFill.green();
                 cb = flatFill.blue();
             }
+            return true;
         };
 
         // ---- Pass 1: filled triangles (MeshFillSublayer) ---------------------
         if (fillVisible && useLod) {
-            auto drawTri = [&](const SWMM2DMeshLayer::SceneTri &t) {
+            auto drawTri = [&](const SWMM2DMeshLayer::SceneTri &t, int attrIdx) {
                 int cr, cg, cb, ca;
-                fillColor(t, cr, cg, cb, ca);
+                if (!fillColor(t, attrIdx, cr, cg, cb, ca))
+                    return;
                 const int fa = qBound(0, int(fillAlpha * fillOpacity * (ca / 255.0) + 0.5), 255);
                 p->setBrush(QColor(cr, cg, cb, fa));
                 const QPointF pts[3] = {t.a, t.b, t.c};
@@ -395,7 +442,7 @@ public:
             for (const SWMM2DMeshLayer::SceneTri &t : overview) {
                 if (exposedRejects(t))
                     continue;
-                drawTri(t);
+                drawTri(t, -1);
             }
 
             // (b) On top, the real cells still large enough to matter on
@@ -417,14 +464,16 @@ public:
                     break; // sorted desc → rest smaller
                 if (exposedRejects(t))
                     continue;
-                drawTri(t);
+                drawTri(t, idx);
             }
         } else if (fillVisible) {
             for (int i = 0; i < triCount; ++i) {
-                const SWMM2DMeshLayer::SceneTri &t = useTriIdx ? tris[visibleTris[i]] : tris[i];
+                const int triIdx = useTriIdx ? visibleTris[i] : i;
+                const SWMM2DMeshLayer::SceneTri &t = tris[triIdx];
 
                 int cr, cg, cb, ca;
-                fillColor(t, cr, cg, cb, ca); // style-driven; same math as LOD pass
+                if (!fillColor(t, triIdx, cr, cg, cb, ca)) // style-driven; same math as LOD pass
+                    continue;
                 const int fa = qBound(0, int(fillAlpha * fillOpacity * (ca / 255.0) + 0.5), 255);
 
                 p->setBrush(QColor(cr, cg, cb, fa));
@@ -473,8 +522,11 @@ public:
                 v1 = t.z1;
                 v2 = t.z2;
             };
+            // "Interpolate band boundaries": off fills each cell flat with its band colour.
             const auto bands =
-                OpenSWMM::Contour::marchingTrianglesIsobands(contourTris, levels, extract);
+                !bandStyle || bandStyle->smoothBands()
+                    ? OpenSWMM::Contour::marchingTrianglesIsobands(contourTris, levels, extract)
+                    : OpenSWMM::Contour::flatTriangleBands(contourTris, levels, extract);
 
             p->setPen(Qt::NoPen);
             for (const auto &bp : bands) {
@@ -538,9 +590,9 @@ public:
         constexpr int kBcTypes = OpenSWMM::Render::MeshBcStyle::kBcTypeCount;
 
         if (edgesVisible && !useLod) {
-            // Wall colouring has the same precedence as in the GPU renderer.
-            if (slotsUsable && bcStyle->wallVisible())
-                thinColor = wideColor = bcStyle->wallColor();
+            // The BC Wall colour marks walls on the mesh BOUNDARY only (GPU parity,
+            // owner 2026-11-13); interior edges keep the Mesh Edges colours.
+            const bool wallRecolour = slotsUsable && bcStyle->wallVisible();
             QPen thinPen(withOpacity(thinColor, edgeOpacity));
             thinPen.setWidthF(edgeStyle ? edgeStyle->lineWidthPx() : 0.35);
             thinPen.setCosmetic(true);
@@ -549,22 +601,32 @@ public:
             QPen widePen(thinPen);
             widePen.setColor(withOpacity(wideColor, edgeOpacity));
             widePen.setWidthF(edgeStyle ? edgeStyle->wideWidthPx() : 0.9);
+            QPen wallThinPen(thinPen), wallWidePen(widePen);
+            if (bcStyle) {
+                wallThinPen.setColor(withOpacity(bcStyle->wallColor(), bcOpacity));
+                wallWidePen.setColor(withOpacity(bcStyle->wallColor(), bcOpacity));
+            }
             for (int i = 0; i < edgeCount; ++i) {
                 const int ei = useEdgeIdx ? visibleEdges[i] : i;
                 const SWMM2DMeshLayer::SceneEdge &e = edges[ei];
 
                 // BC-typed edges are drawn by the ring pass below (a hidden
                 // BC type degrades to a plain wireframe edge, QSG parity).
+                bool boundaryWall = false;
                 if (slotsUsable) {
                     const qint32 slot = edgeSlots[ei];
                     const int t =
                         (slot >= 0 && slot < edgeBCs.size()) ? int(edgeBCs[slot].type) : 0;
                     if (t > 0 && t < kBcTypes && bcStyle->bcTypeVisible(t))
                         continue;
+                    boundaryWall = wallRecolour && t == 0 && slot >= 0 &&
+                                   m_layer->isBoundaryEdge(slot / mesh::kEdgeStride,
+                                                           slot % mesh::kEdgeStride);
                 }
 
                 const bool wide = useSlopeWidth && hasElev && (e.slope * invSlope > slopeBreak);
-                p->setPen(wide ? widePen : thinPen);
+                p->setPen(boundaryWall ? (wide ? wallWidePen : wallThinPen)
+                                       : (wide ? widePen : thinPen));
                 p->setBrush(Qt::NoBrush);
                 p->drawLine(e.line);
             }
@@ -640,6 +702,37 @@ public:
             p->setBrush(Qt::NoBrush);
             for (const auto &s : segs)
                 p->drawLine(s.a, s.b);
+
+            // Pass 3b: one label per level at the centroid of its segments, white halo
+            // (QSG parity: same text, font and placement).
+            if (isoStyle && isoStyle->labels() && !segs.empty()) {
+                QHash<double, QPair<QPointF, int>> byLevel;
+                for (const auto &s : segs) {
+                    auto &acc = byLevel[s.level];
+                    acc.first += 0.5 * (s.a + s.b);
+                    ++acc.second;
+                }
+                QFont font;
+                font.setPointSizeF(9.0);
+                font.setBold(true);
+                p->save();
+                const QTransform toDevice = p->worldTransform();
+                p->resetTransform();
+                p->setRenderHint(QPainter::Antialiasing, true);
+                p->setOpacity(p->opacity() * qBound(0.0, isoSub->opacity(), 1.0));
+                QPen halo(QColor(255, 255, 255, 230));
+                halo.setWidthF(3.0);
+                halo.setJoinStyle(Qt::RoundJoin);
+                for (auto it = byLevel.cbegin(); it != byLevel.cend(); ++it) {
+                    QPainterPath path;
+                    path.addText(0, 0, font, QString::number(it.key(), 'g', 4));
+                    path.translate(toDevice.map(it.value().first / it.value().second) -
+                                   path.boundingRect().center());
+                    p->strokePath(path, halo);
+                    p->fillPath(path, lineCol);
+                }
+                p->restore();
+            }
         }
 
         // ---- Pass 5: mesh-vertex markers (MeshNodeSublayer) + ----------------
@@ -666,16 +759,25 @@ public:
             const QColor baseUsed = withOpacity(baseC, nodeOp);
             const QColor coupledUsed = withOpacity(coupledC, coupledOp);
 
-            p->setPen(Qt::NoPen);
+            // The style's shape and outline (GPU parity); coupled vertices share the shape.
+            const auto shape = static_cast<OpenSWMM::Render::MarkerShape>(
+                nodeStyle ? int(nodeStyle->shape()) : 0); // same values 0..3
+            QPen outline(Qt::NoPen);
+            if (nodeStyle && nodeStyle->outlineWidthPx() > 0.0 &&
+                nodeStyle->outlineColor().alpha() > 0) {
+                outline = QPen(withOpacity(nodeStyle->outlineColor(), nodeOp));
+                outline.setCosmetic(true);
+                outline.setWidthF(nodeStyle->outlineWidthPx());
+            }
             for (const SWMM2DMeshLayer::SceneNode &n : nodes) {
                 if (haveExposed && !exposed.contains(n.pt))
                     continue;
                 const bool coupled = coupledVisible && n.tagged;
                 if (!coupled && !nodesVisible)
                     continue;
-                const double r = 0.5 * (coupled ? coupledSzPx : baseSzPx) * pxToScene;
-                p->setBrush(coupled ? coupledUsed : baseUsed);
-                p->drawEllipse(n.pt, r, r);
+                OpenSWMM::Render::drawMarkerShape(
+                    p, shape, n.pt, (coupled ? coupledSzPx : baseSzPx) * pxToScene,
+                    coupled ? coupledUsed : baseUsed, coupled ? QPen(Qt::NoPen) : outline);
             }
         }
 
@@ -926,6 +1028,10 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult result, const QString &sourceP
     // "Colour by" choice, not only attribute edits.
     if (auto *fs = m_meshFillSublayer->fillStyle())
         QObject::connect(fs, &OpenSWMM::Render::SublayerStyle::styleChanged, this,
+                         [this]() { scheduleLegendInputRefresh(); });
+    // The BC legend's Wall row is drawn at the wireframe width.
+    if (auto *es = m_meshEdgeSublayer ? m_meshEdgeSublayer->edgeStyle() : nullptr)
+        QObject::connect(es, &OpenSWMM::Render::SublayerStyle::styleChanged, this,
                          [this]() { scheduleLegendInputRefresh(); });
 
     if (!m_mesh.vertices.isEmpty()) {
@@ -3183,15 +3289,17 @@ void SWMM2DMeshLayer::onCanvasCRSChanged(const SpatialReferenceSystem *newCanvas
 
 OpenSWMM::Render::RuleList *SWMM2DMeshLayer::ruleList()
 {
-    if (!m_ruleList)
-        buildRuleListLazy();
-    return m_ruleList.get();
+    return const_cast<OpenSWMM::Render::RuleList *>(std::as_const(*this).ruleList());
 }
 
 const OpenSWMM::Render::RuleList *SWMM2DMeshLayer::ruleList() const
 {
     if (!m_ruleList)
         buildRuleListLazy();
+    // Whoever opens the rules (the Layer Styling dock, the style manager)
+    // sees the live styles.
+    for (const auto &binding : std::as_const(m_ruleBindings))
+        OpenSWMM::Render::seedRuleFromStyle(*binding);
     return m_ruleList.get();
 }
 
@@ -3248,141 +3356,123 @@ void SWMM2DMeshLayer::buildRuleListLazy() const
         ruleHandles.append(r);
     }
 
-    // ── Slice Z.6a step 3 — Rule → legacy-style propagation ─────────────
+    // ── Rule ↔ live style (render/rulestylesync.h) ──────────────────────
     //
-    // When the user edits a Rule's SymbolStyle props through the dialog
-    // (SymbolStyleAdapter → notifyRendererStateChanged), rendererReplaced
-    // fires. Each handler below extracts the typed spec from the Rule's
-    // first SymbolLayer and writes the relevant fields back onto the
-    // matching legacy sublayer style (or onto the mesh layer's hillshade
-    // members). Setting those fields emits invalidated() on the SublayerStyle,
-    // which the ctor's wire() lambda routes to repaintRequested(); the
-    // SWMM2DMeshQSGRenderer then re-samples those legacy fields into its
-    // per-frame specs on the next rebuild.
-    //
-    // Renderer swaps (graduated / categorised) silently no-op: the typed
-    // mesh-decoration specs don't apply to those classes, and the paint
-    // pipeline continues reading the current legacy field values.
-    auto firstLayer = [](Rule *r) -> const SymbolLayer * {
-        if (!r)
-            return nullptr;
-        auto *single = dynamic_cast<const SingleSymbolRenderer *>(r->renderer());
-        if (!single)
-            return nullptr;
-        if (single->symbol().layers.isEmpty())
-            return nullptr;
-        return &single->symbol().layers.first();
+    // Each rule mirrors a sublayer style the renderers read. ruleList()
+    // reseeds the rules from the live styles, and an edit in the Layer
+    // Styling dock writes back only the props it changed (keys as the dock's
+    // SymbolStyleAdapters write them, plus the specs' own keys where they
+    // differ), so editing one field never resets the others. Renderer swaps
+    // (graduated / categorised) write nothing: the mesh decorations draw from
+    // the sublayer styles.
+    using Props = QVariantMap;
+    using Writer = std::function<void(const QString &, const QVariant &)>;
+    const auto bind = [this, self, &ruleHandles, &seeds](int index, SymbolLayerKind kind,
+                                                        ISublayer *sublayer,
+                                                        std::function<Props()> read,
+                                                        Writer write) {
+        auto b = std::make_shared<RuleStyleBinding>();
+        b->rule = ruleHandles[index];
+        b->kind = kind;
+        b->defaults = seeds[index].build;
+        b->read = std::move(read);
+        b->write = std::move(write);
+        const QPointer<ISublayer> sub(sublayer);
+        b->readOpacity = [sub] { return sub ? sub->opacity() : 1.0; };
+        b->writeOpacity = [sub](qreal o) {
+            if (sub)
+                sub->setOpacity(o);
+        };
+        QObject::connect(ruleHandles[index], &Rule::rendererReplaced, self,
+                         [b] { applyRuleEdit(*b); });
+        m_ruleBindings.append(b);
     };
+    const auto rgb = [](const QVariant &v) { return v.value<QColor>(); };
 
-    // ── Mesh fill (RasterColorRampSpec) ────────────────────────────────
-    QObject::connect(ruleHandles[0], &Rule::rendererReplaced, self,
-                     [self, ruleHandles, firstLayer]() {
-                         const SymbolLayer *layer = firstLayer(ruleHandles[0]);
-                         if (!layer || layer->kind != SymbolLayerKind::RasterColorRamp)
-                             return;
-                         const auto spec = RasterColorRampSymbolLayerSpec::fromSymbolLayer(*layer);
-                         if (auto *sub = self->m_meshFillSublayer) {
-                             sub->setOpacity(spec.opacity);
-                             if (auto *st = sub->fillStyle())
-                                 st->setFillColor(spec.noDataColor);
-                         }
-                     });
+    // ── Mesh fill: the elevation ramp (two colours, fixed range) ────────
+    bind(0, SymbolLayerKind::RasterColorRamp, m_meshFillSublayer,
+         [self] {
+             const auto &sc = self->m_meshFillSublayer->fillStyle()->scheme();
+             return Props{{QStringLiteral("lowColor"), sc.lowColor()},
+                          {QStringLiteral("highColor"), sc.highColor()},
+                          {QStringLiteral("minValue"), sc.rangeMin()},
+                          {QStringLiteral("maxValue"), sc.rangeMax()}};
+         },
+         [self, rgb](const QString &key, const QVariant &v) {
+             auto *st = self->m_meshFillSublayer->fillStyle();
+             auto sc = st->scheme();
+             if (key == QLatin1String("lowColor") || key == QLatin1String("highColor")) {
+                 // Picked colours replace a named ramp: the two-colour gradient.
+                 sc.setRampName(QString());
+                 key == QLatin1String("lowColor") ? sc.setLowColor(rgb(v)) : sc.setHighColor(rgb(v));
+             } else if (key == QLatin1String("minValue") || key == QLatin1String("maxValue")) {
+                 sc.setUseCustomRange(true);
+                 key == QLatin1String("minValue") ? sc.setRangeMin(v.toDouble())
+                                                  : sc.setRangeMax(v.toDouble());
+             } else {
+                 return;
+             }
+             st->setScheme(sc);
+         });
 
-    // ── Hillshade (HillshadeSpec) — drives both the mesh-layer hillshade
-    //    transform (azimuth / altitude / zexag / shadow floor) and the
-    //    fill-style's hillshade-strength multiplier. ─────────────────────
-    QObject::connect(ruleHandles[1], &Rule::rendererReplaced, self,
-                     [self, ruleHandles, firstLayer]() {
-                         const SymbolLayer *layer = firstLayer(ruleHandles[1]);
-                         if (!layer || layer->kind != SymbolLayerKind::Hillshade)
-                             return;
-                         const auto spec = HillshadeSymbolLayerSpec::fromSymbolLayer(*layer);
-                         self->setHillshadeAzimuth(spec.azimuthDeg);
-                         self->setHillshadeAltitude(spec.altitudeDeg);
-                         self->setHillshadeZExag(spec.zExaggeration);
-                         self->setHillshadeMinLit(spec.shadowFloor);
-                         if (auto *fill = self->m_meshFillSublayer; fill && fill->fillStyle())
-                             fill->fillStyle()->setHillshadeStrength(spec.strength);
-                     });
+    // ── Hillshade: the terrain fill colour and the layer's sun ──────────
+    bind(1, SymbolLayerKind::Hillshade, m_meshFillSublayer,
+         [self] {
+             const auto *st = self->m_meshFillSublayer->fillStyle();
+             return Props{{QStringLiteral("fillColor"), st->fillColor()},
+                          {QStringLiteral("hillshadeStrength"), st->hillshadeStrength()},
+                          {QStringLiteral("strength"), st->hillshadeStrength()},
+                          {QStringLiteral("useElevationRamp"), st->useElevationRamp()},
+                          {QStringLiteral("azimuthDeg"), self->hillshadeAzimuth()},
+                          {QStringLiteral("altitudeDeg"), self->hillshadeAltitude()},
+                          {QStringLiteral("zExaggeration"), self->hillshadeZExag()},
+                          {QStringLiteral("shadowFloor"), self->hillshadeMinLit()}};
+         },
+         [self, rgb](const QString &key, const QVariant &v) {
+             auto *st = self->m_meshFillSublayer->fillStyle();
+             if (key == QLatin1String("fillColor"))
+                 st->setFillColor(rgb(v));
+             else if (key == QLatin1String("hillshadeStrength") || key == QLatin1String("strength"))
+                 st->setHillshadeStrength(v.toDouble());
+             else if (key == QLatin1String("useElevationRamp"))
+                 st->setUseElevationRamp(v.toBool());
+             else if (key == QLatin1String("azimuthDeg"))
+                 self->setHillshadeAzimuth(v.toDouble());
+             else if (key == QLatin1String("altitudeDeg"))
+                 self->setHillshadeAltitude(v.toDouble());
+             else if (key == QLatin1String("zExaggeration"))
+                 self->setHillshadeZExag(v.toDouble());
+             else if (key == QLatin1String("shadowFloor"))
+                 self->setHillshadeMinLit(v.toDouble());
+         });
 
-    // ── Contour bands (ContourSpec mode=Filled) ─────────────────────────
-    QObject::connect(ruleHandles[2], &Rule::rendererReplaced, self,
-                     [self, ruleHandles, firstLayer]() {
-                         const SymbolLayer *layer = firstLayer(ruleHandles[2]);
-                         if (!layer || layer->kind != SymbolLayerKind::Contour)
-                             return;
-                         const auto spec = ContourSymbolLayerSpec::fromSymbolLayer(*layer);
-                         if (auto *sub = self->m_contourBandSublayer; sub && sub->bandStyle()) {
-                             auto *st = sub->bandStyle();
-                             st->setBandCount(spec.binner.binCount());
-                             st->setSmoothBands(spec.smoothBands);
-                             if (!spec.ramp.stops.isEmpty()) {
-                                 st->setLowColor(spec.ramp.stops.first().second);
-                                 st->setHighColor(spec.ramp.stops.last().second);
-                             }
-                         }
-                     });
+    // ── Contour bands ───────────────────────────────────────────────────
+    bind(2, SymbolLayerKind::Contour, m_contourBandSublayer,
+         [self] { return contourBandProps(*self->m_contourBandSublayer->bandStyle()); },
+         [self](const QString &key, const QVariant &v) {
+             writeContourBandProp(self->m_contourBandSublayer->bandStyle(), key, v);
+         });
 
-    // ── Contour lines (ContourSpec mode=Lines) ──────────────────────────
-    QObject::connect(ruleHandles[3], &Rule::rendererReplaced, self,
-                     [self, ruleHandles, firstLayer]() {
-                         const SymbolLayer *layer = firstLayer(ruleHandles[3]);
-                         if (!layer || layer->kind != SymbolLayerKind::Contour)
-                             return;
-                         const auto spec = ContourSymbolLayerSpec::fromSymbolLayer(*layer);
-                         if (auto *sub = self->m_isolineSublayer; sub && sub->isolineStyle()) {
-                             auto *st = sub->isolineStyle();
-                             st->setIsoValueCount(spec.binner.binCount());
-                             st->setColor(spec.lineColor);
-                             st->setLineWidthPx(spec.lineWidthPx);
-                             st->setLabels(spec.labelEveryN > 0);
-                         }
-                     });
+    // ── Contour lines ───────────────────────────────────────────────────
+    bind(3, SymbolLayerKind::Contour, m_isolineSublayer,
+         [self] { return isolineProps(*self->m_isolineSublayer->isolineStyle()); },
+         [self](const QString &key, const QVariant &v) {
+             writeIsolineProp(self->m_isolineSublayer->isolineStyle(), key, v);
+         });
 
-    // ── Mesh edges (MeshEdgeSpec) ───────────────────────────────────────
-    QObject::connect(ruleHandles[4], &Rule::rendererReplaced, self,
-                     [self, ruleHandles, firstLayer]() {
-                         const SymbolLayer *layer = firstLayer(ruleHandles[4]);
-                         if (!layer || layer->kind != SymbolLayerKind::MeshEdge)
-                             return;
-                         const auto spec = MeshEdgeSymbolLayerSpec::fromSymbolLayer(*layer);
-                         if (auto *sub = self->m_meshEdgeSublayer; sub && sub->edgeStyle()) {
-                             auto *st = sub->edgeStyle();
-                             st->setColor(spec.color);
-                             st->setLineWidthPx(spec.width);
-                             st->setDashPattern(spec.penStyle);
-                             st->setUseSlopeDrivenWidth(spec.useSlopeDrivenWidth);
-                             st->setSlopeBreak(spec.slopeBreak);
-                             st->setWideWidthPx(spec.wideWidthPx);
-                             st->setWideColor(spec.wideColor);
-                         }
-                     });
+    // ── Mesh edges ──────────────────────────────────────────────────────
+    bind(4, SymbolLayerKind::MeshEdge, m_meshEdgeSublayer,
+         [self] { return meshEdgeProps(*self->m_meshEdgeSublayer->edgeStyle()); },
+         [self](const QString &key, const QVariant &v) {
+             writeMeshEdgeProp(self->m_meshEdgeSublayer->edgeStyle(), key, v);
+         });
 
-    // ── Mesh nodes (MeshNodeSpec wraps MarkerSpec) ──────────────────────
-    //
-    // MeshNodeStyle::MarkerShape only models 4 shapes (Circle / Square /
-    // Triangle / Diamond — integer values 0..3 match Render::MarkerShape).
-    // Richer Z.4 shapes round-trip through the SymbolLayer props but fall
-    // back to Circle on the legacy sublayer; a future mesh-node renderer
-    // that consumes the spec directly will pick up the richer value.
-    QObject::connect(ruleHandles[5], &Rule::rendererReplaced, self,
-                     [self, ruleHandles, firstLayer]() {
-                         const SymbolLayer *layer = firstLayer(ruleHandles[5]);
-                         if (!layer || layer->kind != SymbolLayerKind::MeshNode)
-                             return;
-                         const auto spec = MeshNodeSymbolLayerSpec::fromSymbolLayer(*layer);
-                         if (auto *sub = self->m_meshNodeSublayer; sub && sub->nodeStyle()) {
-                             auto *st = sub->nodeStyle();
-                             st->setColor(spec.marker.fillColor);
-                             st->setMarkerSizePx(spec.marker.sizePx);
-                             st->setOutlineColor(spec.marker.outlineColor);
-                             st->setOutlineWidthPx(spec.marker.outlineWidth);
-                             int shapeIdx = static_cast<int>(spec.marker.shape);
-                             if (shapeIdx < 0 || shapeIdx > 3)
-                                 shapeIdx = 0;
-                             st->setShape(static_cast<MeshNodeStyle::MarkerShape>(shapeIdx));
-                         }
-                     });
+    // ── Mesh nodes (MeshNodeStyle draws Circle / Square / Triangle / Diamond)
+    bind(5, SymbolLayerKind::MeshNode, m_meshNodeSublayer,
+         [self] { return meshNodeProps(*self->m_meshNodeSublayer->nodeStyle()); },
+         [self](const QString &key, const QVariant &v) {
+             writeMeshNodeProp(self->m_meshNodeSublayer->nodeStyle(), key, v);
+         });
 }
 
 std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>> SWMM2DMeshLayer::styleSubjects()
@@ -3418,13 +3508,39 @@ std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>> SWMM2DMeshLaye
     add(m_isolineSublayer);
     add(m_meshNodeSublayer);
     add(m_coupledNodeSublayer);
+    add(m_coupledCellSublayer); // was missing: Cancel did not revert its edits
     add(m_gwMarkerSublayer);
 
     return out;
 }
 
+void SWMM2DMeshLayer::saveSublayersJsonState(QJsonObject &j) const
+{
+    j.insert(QStringLiteral("meshDisplay"),
+             QJsonObject{{QStringLiteral("edgeZoomMinCellPx"), m_edgeMinCellPx},
+                         {QStringLiteral("vertexZoomMinCellPx"), m_vertexMinCellPx},
+                         {QStringLiteral("hillshadeAzimuth"), hillshadeAzimuth()},
+                         {QStringLiteral("hillshadeAltitude"), hillshadeAltitude()},
+                         {QStringLiteral("hillshadeZExag"), hillshadeZExag()},
+                         {QStringLiteral("hillshadeMinLit"), hillshadeMinLit()}});
+}
+
 void SWMM2DMeshLayer::onSublayersJsonLoaded(const QJsonObject &sublayersJson)
 {
+    // Layer-level display settings saved beside the sublayers (absent in older files).
+    const QJsonObject display = sublayersJson.value(QStringLiteral("meshDisplay")).toObject();
+    const auto restore = [&display](const char *key, auto &&set) {
+        const QJsonValue v = display.value(QLatin1String(key));
+        if (v.isDouble())
+            set(v.toDouble());
+    };
+    restore("edgeZoomMinCellPx", [this](double v) { setEdgeZoomMinCellPx(v); });
+    restore("vertexZoomMinCellPx", [this](double v) { setVertexZoomMinCellPx(v); });
+    restore("hillshadeAzimuth", [this](double v) { setHillshadeAzimuth(v); });
+    restore("hillshadeAltitude", [this](double v) { setHillshadeAltitude(v); });
+    restore("hillshadeZExag", [this](double v) { setHillshadeZExag(v); });
+    restore("hillshadeMinLit", [this](double v) { setHillshadeMinLit(v); });
+
     // Migration for pre-split projects/styles: BC styling used to live on
     // MeshEdgeStyle ("bc*" keys + colorByBC) and coupled-node styling on
     // MeshNodeStyle ("tagged*" keys). A payload that already carries the

@@ -178,6 +178,7 @@ private:
         QSGGeometryNode *isoband = nullptr;
         QSGGeometryNode *edgeThin = nullptr;
         QSGGeometryNode *edgeWide = nullptr;
+        QSGGeometryNode *edgeWall = nullptr; // boundary Wall edges in the BC Wall colour
         QSGGeometryNode *edgeBc[6] = {}; // non-Wall BC types
         QSGGeometryNode *contour = nullptr;
         QSGNode *contourLabels = nullptr;
@@ -225,6 +226,8 @@ private:
     // QQuickWindow's render thread. Cached so we don't rasterise the
     // same level value every frame.
     mutable QHash<QString, QSGTexture *> m_labelTextureCache;
+    /// Colour and opacity the cached label textures were drawn with; a change empties the cache.
+    QString m_labelTextureStyle;
 
     /**
      * @brief Call deleteLater on every cached nonnull label texture, then discard cache entries
@@ -252,6 +255,7 @@ private:
     double m_isobandCacheZMax = 0.0;
     int m_isobandCacheBands = -1;
     quint64 m_isobandCacheScheme = 0; ///< Slice US.3 — ClassificationScheme::revision()
+    bool m_isobandCacheSmooth = true; ///< ContourBandStyle::smoothBands() of the cached bands
     std::vector<OpenSWMM::Contour::IsoBandPolygon> m_cachedBands;
 
     quint64 m_isolineCacheRev = 0;

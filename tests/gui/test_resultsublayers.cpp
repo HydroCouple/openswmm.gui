@@ -430,12 +430,12 @@ private slots:
         LayerTreeModel *m = panel.model();
         const QModelIndex layerIdx = m->indexForLayer(&layer);
         QVERIFY(layerIdx.isValid());
-        // Listed builtins: terrain, edges and vertices. The depth and velocity
-        // passes are displays of their rows, not rows of their own.
+        // Listed builtins: edges and vertices (the terrain draws nothing under results
+        // and is not listed). The depth and velocity passes are displays of their rows.
         int builtins = 0;
         for (auto *s : layer.sublayers())
             builtins += !qobject_cast<ResultScalarSublayer *>(s) && layer.sublayerListed(s);
-        QCOMPARE(builtins, 3);
+        QCOMPARE(builtins, 2);
         QCOMPARE(m->rowCount(layerIdx), builtins + 2);
         for (int r = 0; r < builtins; ++r) {
             auto *s = m->sublayerForIndex(m->index(r, 0, layerIdx));

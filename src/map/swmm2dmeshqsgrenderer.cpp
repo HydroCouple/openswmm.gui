@@ -29,6 +29,7 @@
 // Slice Z.6a — paint reads from typed Symbol Layer specs.
 #include "render/colorramp.h"
 #include "render/qsg2drenderstats.h"
+#include "render/qsgmarkergeometry.h"
 #include "render/qsgpremultiply.h"
 #include "render/rastersymbollayers.h"
 
@@ -160,6 +161,34 @@ void appendThickSeg(std::vector<QSGGeometry::Point2D> &out, float ax, float ay, 
     out.push_back(v(bx + nx, by + ny));
     out.push_back(v(bx - nx, by - ny));
     out.push_back(v(ax - nx, ay - ny));
+}
+
+/**
+ * @brief appendThickSeg broken into the dashes of a pen style (QPainter parity).
+ * @param[in] dash QPen::dashPattern() of the style (alternating on/off lengths in pen widths);
+ *   empty = solid.
+ * @param[in] unit Scene length of one pen width (Qt draws a cosmetic pen thinner than 1 px with
+ *   the pattern of a 1 px pen).
+ */
+void appendDashedThickSeg(std::vector<QSGGeometry::Point2D> &out, float ax, float ay, float bx,
+                          float by, float hw, const QVector<qreal> &dash, float unit)
+{
+    if (dash.isEmpty() || unit <= 0.f) {
+        appendThickSeg(out, ax, ay, bx, by, hw);
+        return;
+    }
+    const float dx = bx - ax, dy = by - ay;
+    const float len = std::sqrt(dx * dx + dy * dy);
+    if (len < 1e-9f)
+        return;
+    float at = 0.f;
+    for (int part = 0; at < len; ++part) {
+        const float next = std::min(len, at + std::max(1e-6f, float(dash[part % dash.size()]) * unit));
+        if (part % 2 == 0)
+            appendThickSeg(out, ax + dx * (at / len), ay + dy * (at / len), ax + dx * (next / len),
+                           ay + dy * (next / len), hw);
+        at = next;
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -364,7 +393,7 @@ void setFlatColor(QSGGeometryNode *node, QColor c)
  *   facilities synchronously; no GPU texture creation or cache mutation. Empty/allocation-failed
  *   images have no separate error channel.
  */
-QImage rasteriseLabel(const QString &text, const QColor &color, double dpr)
+QImage rasteriseLabel(const QString &text, const QColor &color, double dpr, qreal opacity = 1.0)
 {
     QFont f;
     f.setPointSizeF(9.0);
@@ -383,6 +412,7 @@ QImage rasteriseLabel(const QString &text, const QColor &color, double dpr)
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setRenderHint(QPainter::TextAntialiasing, true);
     p.setFont(f);
+    p.setOpacity(qBound(0.0, opacity, 1.0)); // the isoline sublayer's opacity, halo included
 
     // White halo via one 3 px QPainterPath stroke.
     QPainterPath path;
@@ -501,6 +531,7 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
     //        m_nodes.isoband   (Pass 4: filled contour bands — ContourBandSublayer)
     //        m_nodes.edgeThin  (Pass 2: thin wireframe — MeshEdgeSublayer)
     //        m_nodes.edgeWide  (Pass 2: wide wireframe — slope emphasis)
+    //        m_nodes.edgeWall  (Pass 2: boundary Wall edges — MeshBcSublayer Wall colour)
     //        m_nodes.edgeBc[0..kBcOverlayCount-1]
     //                          (Pass 2b: non-Wall BC edges — MeshBcSublayer)
     //        m_nodes.contour   (Pass 3: isolines — IsolineSublayer)
@@ -540,6 +571,7 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
         m_nodes.isoband = makeColoredNode(); // per-vertex colour for band fill
         m_nodes.edgeThin = makeFlatNode(QColor(0, 0, 0, 130));
         m_nodes.edgeWide = makeFlatNode(QColor(0, 0, 0, 210));
+        m_nodes.edgeWall = makeFlatNode(QColor(0, 0, 0, 0));
         for (int i = 0; i < kBcOverlayCount; ++i)
             m_nodes.edgeBc[i] = makeFlatNode(QColor(0, 0, 0, 0));
         m_nodes.contour = makeFlatNode(QColor(0x1a, 0x1a, 0x1a, 200));
@@ -556,6 +588,7 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
         root->appendChildNode(m_nodes.isoband);
         root->appendChildNode(m_nodes.edgeThin);
         root->appendChildNode(m_nodes.edgeWide);
+        root->appendChildNode(m_nodes.edgeWall);
         for (int i = 0; i < kBcOverlayCount; ++i)
             root->appendChildNode(m_nodes.edgeBc[i]);
         root->appendChildNode(m_nodes.contour);
@@ -575,6 +608,7 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
     QSGGeometryNode *isobandNode = m_nodes.isoband;
     QSGGeometryNode *edgeThinNode = m_nodes.edgeThin;
     QSGGeometryNode *edgeWideNode = m_nodes.edgeWide;
+    QSGGeometryNode *edgeWallNode = m_nodes.edgeWall;
     QSGGeometryNode **edgeBcNode = m_nodes.edgeBc;
     QSGGeometryNode *contourNode = m_nodes.contour;
     QSGNode *contourLabels = m_nodes.contourLabels;
@@ -623,6 +657,7 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             uploadColoredVerts(isobandNode, empty_c);
             uploadFlatVerts(edgeThinNode, empty_p);
             uploadFlatVerts(edgeWideNode, empty_p);
+            uploadFlatVerts(edgeWallNode, empty_p);
             for (int i = 0; i < kBcOverlayCount; ++i)
                 uploadFlatVerts(edgeBcNode[i], empty_p);
             uploadFlatVerts(contourNode, empty_p);
@@ -978,9 +1013,11 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                     // The categorical palette lives outside the scheme, so its
                     // revision does not move when the user switches palettes —
                     // fold the name in or the cache serves the old colours.
+                    // The no-data colour is baked into cells without a value: fold it in too.
                     const quint64 curRev =
                         m_layer->geomRevision() ^ scheme.revision() ^ m_layer->attrRevision() ^
-                        (catMode ? quint64(qHash(fillStyle->categoryPalette())) : 0ull);
+                        (catMode ? quint64(qHash(fillStyle->categoryPalette())) : 0ull) ^
+                        (quint64(noDataColor.rgba()) << 17);
                     const bool fillCacheHit = m_fillCacheValid && m_fillCacheRev == curRev &&
                                               m_fillCacheAttrKey == attrKey &&
                                               m_fillCacheZMin == cMin && m_fillCacheZMax == cMax &&
@@ -1216,6 +1253,8 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             }
             const int nBands = std::max(1, int(levels.size()) - 1);
             const qreal bandOp = qBound(0.0, bandSub->opacity(), 1.0);
+            // "Interpolate band boundaries": off fills each cell flat with its band colour.
+            const bool smoothBands = !bandStyle || bandStyle->smoothBands();
 
             // Contour cache — marching-triangles output is invariant to
             // pan/zoom. Recompute only when (geomRevision, zMin, zMax,
@@ -1224,7 +1263,8 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             const bool bandCacheHit = !m_cachedBands.empty() && m_isobandCacheRev == geomRev &&
                                       m_isobandCacheZMin == zMin && m_isobandCacheZMax == zMax &&
                                       m_isobandCacheBands == nBands &&
-                                      m_isobandCacheScheme == schemeRev;
+                                      m_isobandCacheScheme == schemeRev &&
+                                      m_isobandCacheSmooth == smoothBands;
 
             if (!bandCacheHit) {
                 const auto &sceneTris = m_layer->m_sceneTris;
@@ -1240,12 +1280,15 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 };
 
                 m_cachedBands =
-                    OpenSWMM::Contour::marchingTrianglesIsobands(sceneTris, levels, extract);
+                    smoothBands
+                        ? OpenSWMM::Contour::marchingTrianglesIsobands(sceneTris, levels, extract)
+                        : OpenSWMM::Contour::flatTriangleBands(sceneTris, levels, extract);
                 m_isobandCacheRev = geomRev;
                 m_isobandCacheZMin = zMin;
                 m_isobandCacheZMax = zMax;
                 m_isobandCacheBands = nBands;
                 m_isobandCacheScheme = schemeRev;
+                m_isobandCacheSmooth = smoothBands;
             }
             const auto &bands = m_cachedBands;
 
@@ -1367,15 +1410,26 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             // types (and the style asks for the interior recolour). Without
             // slots every edge is *unknown*, not Wall, so the honest
             // fallback is the legacy slope colouring.
-            if (slotsUsable && bcStyle->wallVisible())
-                thinColor = wideColor = bcStyle->wallColor();
+            // The BC Wall colour marks the walls of the mesh BOUNDARY (owner 2026-11-13).
+            // Interior edges are Wall by construction too, but they are the wireframe
+            // and keep the Mesh Edges colours; recolouring them hid those colours.
+            const bool wallRecolour = slotsUsable && bcStyle->wallVisible();
+            // The edge style's stroke style, as QPainter draws it (pattern in pen widths).
+            QVector<qreal> dash;
+            const Qt::PenStyle stroke = edgeStyle ? edgeStyle->dashPattern() : Qt::SolidLine;
+            if (stroke != Qt::SolidLine && stroke != Qt::NoPen) {
+                QPen pen(stroke);
+                dash = pen.dashPattern();
+            }
+            const float thinUnit = float(std::max(1.0, edgeSpec.width)) * invView;
+            const float wideUnit = float(std::max(1.0, edgeSpec.wideWidthPx)) * invView;
             // Per-type half-width, precomputed once per frame. Index 0
             // (Wall) is never read — Wall edges go to the thin/wide buckets.
             float kBcHW[kBcOverlayCount + 1] = {};
             for (int t = 1; t <= kBcOverlayCount; ++t)
                 kBcHW[t] = float(bcStyle ? bcStyle->bcWidthForType(t) : 2.4) * 0.5f * invView;
 
-            std::vector<QSGGeometry::Point2D> thinSegs, wideSegs;
+            std::vector<QSGGeometry::Point2D> thinSegs, wideSegs, wallSegs;
             std::vector<QSGGeometry::Point2D> bcSegs[kBcOverlayCount];
             thinSegs.reserve(size_t(edgeCount) * 6);
             wideSegs.reserve(size_t(edgeCount) / 8 * 6);
@@ -1389,6 +1443,7 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 const float ax = float(e.line.x1() - ox), ay = float(e.line.y1() - oy);
                 const float bx = float(e.line.x2() - ox), by = float(e.line.y2() - oy);
 
+                bool boundaryWall = false;
                 if (slotsUsable) {
                     const qint32 slot = edgeSlots[ei];
                     const int t =
@@ -1403,19 +1458,23 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                             continue;
                         }
                     }
+                    boundaryWall = wallRecolour && t == 0 && slot >= 0 &&
+                                   m_layer->isBoundaryEdge(slot / mesh::kEdgeStride,
+                                                           slot % mesh::kEdgeStride);
                 }
 
                 // BC-ring pass draws nothing but the ring.
-                if (!wireVisible)
+                if (!wireVisible || stroke == Qt::NoPen)
                     continue;
 
-                if (useSlopeWidth && hasElev && (e.slope * invSlope > kSplit))
-                    appendThickSeg(wideSegs, ax, ay, bx, by, kWideHW);
-                else
-                    appendThickSeg(thinSegs, ax, ay, bx, by, kThinHW);
+                const bool wide = useSlopeWidth && hasElev && (e.slope * invSlope > kSplit);
+                appendDashedThickSeg(boundaryWall ? wallSegs : wide ? wideSegs : thinSegs, ax, ay,
+                                     bx, by, wide ? kWideHW : kThinHW, dash,
+                                     wide ? wideUnit : thinUnit);
             }
             uploadFlatVerts(edgeThinNode, thinSegs);
             uploadFlatVerts(edgeWideNode, wideSegs);
+            uploadFlatVerts(edgeWallNode, wallSegs);
 
             // Wireframe nodes take the edge sublayer's opacity; the BC ring
             // nodes take the BC sublayer's own.
@@ -1428,6 +1487,8 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             };
             setFlatColor(edgeThinNode, withOpacity(thinColor, edgeOp));
             setFlatColor(edgeWideNode, withOpacity(wideColor, edgeOp));
+            if (bcStyle)
+                setFlatColor(edgeWallNode, withOpacity(bcStyle->wallColor(), bcOp));
 
             size_t bcVerts = 0;
             for (int i = 0; i < kBcOverlayCount; ++i) {
@@ -1446,6 +1507,7 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             const std::vector<QSGGeometry::Point2D> empty;
             uploadFlatVerts(edgeThinNode, empty);
             uploadFlatVerts(edgeWideNode, empty);
+            uploadFlatVerts(edgeWallNode, empty);
             for (int i = 0; i < kBcOverlayCount; ++i)
                 uploadFlatVerts(edgeBcNode[i], empty);
         }
@@ -1563,6 +1625,14 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 }
                 const double dpr = window()->effectiveDevicePixelRatio();
                 const QColor labelColor = isoSpec.lineColor;
+                const qreal labelOpacity = isoSub ? isoSub->opacity() : 1.0;
+                // Textures are cached by text: a new line colour or opacity must redraw them.
+                const QString labelStyle =
+                    labelColor.name(QColor::HexArgb) + QLatin1Char('|') + QString::number(labelOpacity);
+                if (labelStyle != m_labelTextureStyle) {
+                    clearLabelTextureCache(); // no label node holds one: they were deleted above
+                    m_labelTextureStyle = labelStyle;
+                }
                 int labelBudget = std::max(1, lod.maxContourLabels);
                 for (auto it = byLevel.constBegin(); it != byLevel.constEnd() && labelBudget > 0;
                      ++it) {
@@ -1574,7 +1644,7 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
 
                     QSGTexture *tex = m_labelTextureCache.value(text, nullptr);
                     if (!tex) {
-                        const QImage img = rasteriseLabel(text, labelColor, dpr);
+                        const QImage img = rasteriseLabel(text, labelColor, dpr, labelOpacity);
                         tex = window()->createTextureFromImage(
                             img, QQuickWindow::TextureHasAlphaChannel);
                         if (tex)
@@ -1638,39 +1708,12 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             if (nodesVisible)
                 nodeVerts.reserve(size_t(nodes.size()) * 6);
 
-            auto emitCenteredQuad = [&](std::vector<QSGGeometry::ColoredPoint2D> &out, float cx,
-                                        float cy, float r, const QColor &c) {
-                const quint8 ca = quint8(c.alpha());
-                const quint8 cr = premul(quint8(c.red()), ca);
-                const quint8 cg = premul(quint8(c.green()), ca);
-                const quint8 cb = premul(quint8(c.blue()), ca);
-                auto V = [&](float x, float y) {
-                    QSGGeometry::ColoredPoint2D v;
-                    v.set(x, y, cr, cg, cb, ca);
-                    return v;
-                };
-                // shape 0/1 = square, shape 2 = triangle, shape 3 = diamond.
-                if (shape == 2) {
-                    out.push_back(V(cx, cy - r));
-                    out.push_back(V(cx + r, cy + r));
-                    out.push_back(V(cx - r, cy + r));
-                } else if (shape == 3) {
-                    out.push_back(V(cx, cy - r));
-                    out.push_back(V(cx + r, cy));
-                    out.push_back(V(cx - r, cy));
-                    out.push_back(V(cx + r, cy));
-                    out.push_back(V(cx, cy + r));
-                    out.push_back(V(cx - r, cy));
-                } else {
-                    out.push_back(V(cx - r, cy - r));
-                    out.push_back(V(cx + r, cy - r));
-                    out.push_back(V(cx - r, cy + r));
-                    out.push_back(V(cx + r, cy - r));
-                    out.push_back(V(cx + r, cy + r));
-                    out.push_back(V(cx - r, cy + r));
-                }
-            };
-
+            // The style's marker shape with its outline, as QPainter's drawMarkerShape draws
+            // it (CPU parity) — see appendMarkerGeometry.
+            const QColor outlineUsed =
+                nodeStyle ? withOp(nodeStyle->outlineColor(), nodeOp) : QColor(Qt::transparent);
+            const float outlineHW =
+                nodeStyle ? float(nodeStyle->outlineWidthPx()) * 0.5f * invView : 0.f;
             qint64 visVertCount = 0;
             for (const auto &n : nodes) {
                 const double nx = n.pt.x();
@@ -1681,13 +1724,16 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 // drawing the base marker beneath it as well would just
                 // muddy the alpha, so the base pass skips it.
                 if (n.tagged && coupledVisible) {
-                    emitCenteredQuad(coupledVerts, float(nx - ox), float(ny - oy), coupledR,
-                                     coupledUsed);
+                    OpenSWMM::Render::appendMarkerGeometry(coupledVerts, float(nx - ox),
+                                                           float(ny - oy), coupledR, shape,
+                                                           coupledUsed, Qt::transparent, 0.f);
                     ++visVertCount;
                     continue;
                 }
                 if (nodesVisible) {
-                    emitCenteredQuad(nodeVerts, float(nx - ox), float(ny - oy), baseR, baseUsed);
+                    OpenSWMM::Render::appendMarkerGeometry(nodeVerts, float(nx - ox),
+                                                           float(ny - oy), baseR, shape, baseUsed,
+                                                           outlineUsed, outlineHW);
                     ++visVertCount;
                 }
             }

@@ -72,7 +72,7 @@ MeshBcStyle::MeshBcStyle(QObject *parent) : SublayerStyle(parent)
     // Tab10-derived defaults, identical to the pre-split MeshEdgeStyle set:
     // stage BCs are cool (blue/cyan), flow BCs are warm (orange/pink),
     // normal-flow green, rating-curve purple. Wall mirrors the default
-    // wireframe colour so recolouring the interior is a no-op until edited.
+    // wireframe colour, so boundary walls look like the wireframe until edited.
     m_colors[0] = QColor(0, 0, 0, 130);          // Wall
     m_colors[1] = QColor(0x2c, 0xa0, 0x2c, 230); // Normal flow      — green
     m_colors[2] = QColor(0x1f, 0x77, 0xb4, 235); // Stage (const)    — blue
@@ -218,7 +218,7 @@ void MeshBcSublayer::setOpacity(qreal o)
 void MeshBcSublayer::setBcTypesPresent(const QSet<int> &types)
 {
     QSet<int> next = types;
-    next.insert(0); // Wall always has a row — it governs the mesh interior
+    next.insert(0); // Wall always has a row — every mesh boundary has walls
     if (m_bcTypesPresent == next)
         return;
     m_bcTypesPresent = next;
