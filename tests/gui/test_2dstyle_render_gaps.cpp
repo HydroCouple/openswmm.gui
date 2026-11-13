@@ -39,9 +39,11 @@
 #include "render/classificationcolorsampler.h"
 #include "render/classificationscheme.h"
 #include "render/sublayers/couplednodesublayer.h"
+#include "render/symbolstyle.h"
 #include "render/symbolstyleadapter.h"
 #include "ui/dialogs/istyleeditorwidget.h"
 #include "ui/dialogs/swmm2dresultsstylepanel.h"
+#include "ui/widgets/markershapecombo.h"
 
 #include <QCheckBox>
 #include <QAbstractSpinBox>
@@ -860,6 +862,80 @@ private slots:
         std::unique_ptr<QObject> resultsAdapter(
             SymbolStyleAdapter::createFor(ruleNamed(results.ruleList(), "Mesh nodes")));
         QVERIFY(resultsAdapter->property("ignoredKeys").toMap().contains("taggedColor"));
+    }
+    /** @brief The dock's vertex Shape list offers only the shapes the 2D renderers draw. */
+    void dockVertexShapesAreTheDrawnOnes()
+    {
+        SWMM2DMeshLayer mesh(squareMesh(), "dock-shapes.2dm");
+        std::unique_ptr<QObject> adapter(
+            SymbolStyleAdapter::createFor(ruleNamed(mesh.ruleList(), "Mesh nodes")));
+        std::unique_ptr<IStyleEditorWidget> editor(
+            StyleEditorRegistry::instance().createEditorFor(adapter.get(), nullptr));
+        QVERIFY(editor);
+        auto *shapes = editor->findChild<openswmmvis::ui::MarkerShapeCombo *>();
+        QVERIFY(shapes);
+        QCOMPARE(shapes->count(), 4);
+        for (int i = 0; i < shapes->count(); ++i)
+            QCOMPARE(shapes->itemData(i).toInt(), i); // Circle, Square, Triangle, Diamond
+        shapes->setShapeValue(int(MarkerShape::Diamond));
+        QCOMPARE(mesh.meshNodeSublayer()->nodeStyle()->shape(), MeshNodeStyle::MarkerShape::Diamond);
+    }
+    /** @brief Legends list the below/above-range colours that are set, around the class rows. */
+    void legendShowsOutsideRangeColours()
+    {
+        const auto colourOf = [](const LegendSymbolItem &row) {
+            return SymbolProps::readColor(row.symbol.layers.value(0).props, "color");
+        };
+        ClassificationScheme sc;
+        sc.setMode(ClassificationScheme::ClassMode::Classified);
+        sc.setUseCustomRange(true);
+        sc.setRangeMin(1);
+        sc.setRangeMax(3);
+        const int classRows = int(sc.legendItems(0, 4).size());
+        sc.setBelowColor(QColor(0, 200, 0));
+        sc.setAboveColor(QColor(200, 0, 0));
+        const auto rows = sc.legendItems(0, 4);
+        QCOMPARE(int(rows.size()), classRows + 2);
+        QCOMPARE(rows.first().label, "< " + sc.formatValue(1));
+        QCOMPARE(colourOf(rows.first()), QColor(0, 200, 0));
+        QVERIFY(rows.first().classKey.isEmpty()); // not an editable class
+        QCOMPARE(rows.last().label, "> " + sc.formatValue(3));
+        QCOMPARE(colourOf(rows.last()), QColor(200, 0, 0));
+
+        // Mesh fill (automatic range): a summary row plus the below row.
+        SWMM2DMeshLayer mesh(squareMesh(), "legend-outside.2dm");
+        auto *fill = mesh.meshFillSublayer()->fillStyle();
+        auto fillScheme = fill->scheme();
+        fillScheme.setBelowColor(QColor(0, 200, 0));
+        fill->setScheme(fillScheme);
+        const auto fillRows = mesh.meshFillSublayer()->legendSymbolItems();
+        QCOMPARE(int(fillRows.size()), 2);
+        QCOMPARE(fillRows.first().label, QStringLiteral("Below range"));
+        QCOMPARE(fillRows.first().sublayerId, mesh.meshFillSublayer()->id());
+
+        // Mesh bands: the above row last.
+        auto *bands = mesh.contourBandSublayer();
+        const int bandRows = int(bands->legendSymbolItems().size());
+        bands->bandStyle()->setAboveMaxColor(QColor(200, 0, 0));
+        const auto bandLegend = bands->legendSymbolItems();
+        QCOMPARE(int(bandLegend.size()), bandRows + 1);
+        QCOMPARE(colourOf(bandLegend.last()), QColor(200, 0, 0));
+        QCOMPARE(bandLegend.last().sublayerId, bands->id());
+
+        // Results depth fill (custom range): "> max" last, stamped like the class rows.
+        SWMM2DResultsLayer results;
+        results.setSource(std::make_unique<FieldSource>());
+        auto *depth = results.cellDepthFillSublayer();
+        auto ds = depth->fillStyle()->scheme();
+        ds.setUseCustomRange(true);
+        ds.setRangeMin(0.5);
+        ds.setRangeMax(2);
+        ds.setAboveColor(QColor(200, 0, 0));
+        depth->fillStyle()->setScheme(ds);
+        const auto depthRows = depth->legendSymbolItems();
+        QCOMPARE(depthRows.last().label, "> " + ds.formatValue(2));
+        QCOMPARE(depthRows.last().sublayerId, depth->id());
+        QCOMPARE(depthRows.last().symbol.opacity, depthRows.first().symbol.opacity);
     }
 };
 

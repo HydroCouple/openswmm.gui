@@ -13,6 +13,7 @@
 
 #include <QJsonObject>
 #include <algorithm>
+#include <limits>
 
 namespace OpenSWMM::Render
 {
@@ -218,6 +219,13 @@ QList<LegendSymbolItem> buildFillLegend(const ScalarFillStyle *style, const QStr
         item.symbol.layers.append(fill);
         item.symbol.opacity = opacity;
         out.append(item);
+    }
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    scheme.addOutsideRangeLegendItems(out, haveRange ? scheme.rangeMin() : nan,
+                                      haveRange ? scheme.rangeMax() : nan);
+    for (auto &item : out) {
+        item.sublayerId = subId;
+        item.symbol.opacity = opacity;
     }
     return out;
 }

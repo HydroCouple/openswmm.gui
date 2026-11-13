@@ -179,6 +179,12 @@ public:
      *  belowColor() (or transparent), above the last aboveColor() (or the last class), else its
      *  class colour. Nonfinite values are transparent. */
     [[nodiscard]] QColor colorForClassified(double value, const QVector<double> &edges) const;
+    /** @brief Add a legend row for each outside-range colour that is set: "< lo" before the
+     *  first row, "> hi" after the last. The rows have no classKey, so they are not class rows.
+     * @param rows Legend rows in ascending order.
+     * @param lo,hi Bounds of the drawn range (under logScale() the lower one is logFloor(lo, hi));
+     *  a nonfinite bound reads "Below range" or "Above range". */
+    void addOutsideRangeLegendItems(QList<LegendSymbolItem> &rows, double lo, double hi) const;
 
     /*! User-authored (custom) ramp payload. `builtin(name)` only knows the
      *  built-in catalogue and silently degrades unknown names to grayscale,
@@ -389,7 +395,8 @@ public:
      * @param dataMin Automatic lower bound in data units.
      * @param dataMax Automatic upper bound in the same units.
      * @param samples Optional data values used by levelEdges().
-     * @return Owned rows in ascending class order. If no edges are available,
+     * @return Owned rows in ascending class order, with the outside-range rows of
+     * addOutsideRangeLegendItems() around them. If no edges are available,
      * including a validation failure, returns classCount() rows labelled Class 1,
      * Class 2, etc. User labels populate userLabel separately from the numeric label.
      */

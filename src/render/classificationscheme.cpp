@@ -566,7 +566,36 @@ QList<LegendSymbolItem> ClassificationScheme::legendItems(double dataMin, double
         item.symbol.layers.append(fill);
         out.append(item);
     }
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    addOutsideRangeLegendItems(out, edges.size() >= 2 ? edges.front() : nan,
+                               edges.size() >= 2 ? edges.back() : nan);
     return out;
+}
+
+void ClassificationScheme::addOutsideRangeLegendItems(QList<LegendSymbolItem> &rows, double lo,
+                                                      double hi) const
+{
+    const auto row = [this](const QColor &color, const QString &label) {
+        LegendSymbolItem item;
+        item.label = label;
+        SymbolLayer fill;
+        fill.kind = SymbolLayerKind::SimpleFill;
+        SymbolProps::writeColor(fill.props, QStringLiteral("color"), color);
+        item.symbol.layers.append(fill);
+        return item;
+    };
+    if (m_logScale)
+        lo = logFloor(lo, hi);
+    if (m_belowColor.isValid())
+        rows.prepend(row(m_belowColor,
+                         std::isfinite(lo)
+                             ? QStringLiteral("< %1").arg(formatValue(lo))
+                             : QCoreApplication::translate("ClassificationScheme", "Below range")));
+    if (m_aboveColor.isValid())
+        rows.append(row(m_aboveColor,
+                        std::isfinite(hi)
+                            ? QStringLiteral("> %1").arg(formatValue(hi))
+                            : QCoreApplication::translate("ClassificationScheme", "Above range")));
 }
 
 QJsonObject ClassificationScheme::toJson() const
