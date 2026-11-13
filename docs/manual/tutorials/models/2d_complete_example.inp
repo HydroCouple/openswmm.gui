@@ -149,7 +149,7 @@ MAX_TIMESTEP            10.0       ;; Max marcher step (s) — caps CFL steps + 
 DRY_DEPTH               0.001      ;; Wet/dry threshold (m)
 LIMITER_EPSILON         1.0e-6     ;; Jawahar-Kamath slope-limiter ε (output gradients)
 COUPLING_CD             0.65       ;; Default discharge coefficient (overridden per-row below)
-INTEGRATOR              EXPLICIT   ;; Explicit local-inertial LTS marcher (the default)
+INTEGRATOR              EXPLICIT   ;; Explicit LTS marcher (MOMENTUM_EQUATION default FULL_SWE)
 THETA                   0.8        ;; Momentum θ-weighting (1 = Bates 2010)
 CFL_NUMBER              0.7        ;; Courant safety factor α
 H_MOVE                  0.003      ;; Movement threshold (m) — lazy source-only below
