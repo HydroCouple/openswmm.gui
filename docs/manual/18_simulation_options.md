@@ -377,11 +377,35 @@ EPANET-style reservoir.
 | Control | Options | Writes |
 | --- | --- | --- |
 | **Scalar scheme** | MUSCL / Upwind / QUICKEST-ULTIMATE | `FV_SCALAR_SCHEME` |
+| **Dispersion** | Off / Fischer (from the hydraulics) / Fixed coefficient | `[TRANSPORT_OPTIONS] DISPERSION` |
+| **Coefficient** | The coefficient for Fixed, in ft²/s or m²/s by the flow units | `[TRANSPORT_OPTIONS] DISPERSION` |
+| **Transport cell spacing** | Length of the transport cells, in ft or m; 0 lets the engine choose | `[TRANSPORT_OPTIONS] TARGET_DX` |
+| **Detailed output** | CSV file for per-cell transport results; empty turns it off. A relative path is taken from the folder the program runs in; **Browse…** gives a full path | `[TRANSPORT_OPTIONS] DETAILED_OUTPUT` |
 
-Dispersion and the transport-mesh spacing for the ARD engine are configured in
-its component file (`model.ard`: `[TRANSPORT_OPTIONS]`,
-`[CONDUIT_DISPERSION]`), bound on the *Files / Output / Plugins* page. A bound
-component file's `SCALAR_SCHEME` overrides the combo above.
+Below the form are three tables, each with **Add** and **Remove** buttons:
+
+| Table | Columns | Writes |
+| --- | --- | --- |
+| **Conduit dispersion** | Conduit, Coefficient: replaces the global dispersion on that conduit | `[CONDUIT_DISPERSION]` |
+| **Boundaries** | Node, Species, Value from (Constant or Time series), Concentration, Time series: the concentration of water entering at that node | `[TRANSPORT_BOUNDARIES]` |
+| **Sources** | Conduit, Species, Value from, Rate (mass/s; a negative rate extracts), Time series: a source spread along that conduit | `[TRANSPORT_SOURCES]` |
+
+Boundaries and sources apply to the species of the Reaction System. Pollutants
+are not offered: they enter through inflows, dry-weather flow and washoff. With
+no Reaction System species, the tab says so and the two tables cannot add rows.
+
+**Apply** first checks every row and names the first one that is wrong: an
+element that is not in the model (or not a conduit), a species that is not a
+Reaction System species, a missing time series, a negative concentration or
+coefficient, or two rows for the same element and species. Nothing is written
+until every row passes. One **Undo** takes back the whole Apply.
+
+These settings are saved in the model's transport file, which the line at the
+top of the tab names. The first Apply that sets one registers
+`<model name>.ard` beside the model (`model.ard` for a model not yet saved) in
+`[PROCESS_COMPONENTS]`; saving the model writes the file. To use another file,
+edit the row on the *Files / Output / Plugins* page. A transport file's
+`SCALAR_SCHEME` overrides the combo above.
 
 #### Lagrangian (LARD)
 

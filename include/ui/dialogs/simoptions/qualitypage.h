@@ -35,12 +35,17 @@
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
+class QLabel;
 class QLineEdit;
+class QPushButton;
 class QSpinBox;
 class QTabWidget;
 
 namespace openswmmvis::ui
 {
+
+class ArdConduitDispersionModel;
+class ArdTransportRowModel;
 
 class QualityPage : public SimOptionsPage
 {
@@ -91,6 +96,27 @@ public:
      * tab gating belongs to the host; this method neither edits the seed nor writes it.
      */
     void refreshGates() override;
+    /**
+     * @brief Refuse an Eulerian ARD draft the engine would refuse (review G-02): a coefficient
+     *   or cell spacing that is not a number at least zero, or a transport table row the
+     *   models' validateCommit() reports.
+     * @param warn Receives the first problem when the draft is refused.
+     * @return False to stop Apply; true otherwise (warn untouched).
+     */
+    bool validate(QString *warn) override;
+    /**
+     * @brief Register the model's transport file once every page has written (review G-02).
+     * @details Only after this page wrote transport settings in the current pass, and only when
+     *   the engine holds transport settings but no `org.hydrocouple.openswmm.transport.ard`
+     *   component: registers `<model name>.ard` (`model.ard` for an unsaved model), which the
+     *   next model save writes. Running after the Files page keeps its component table from
+     *   dropping the new row; a component the user removed there is not re-added unless
+     *   transport settings were also edited.
+     * @return 1 when a component was registered, else 0.
+     */
+    int registerTransportFile();
+    /** @return The transport file name a new registration uses. */
+    [[nodiscard]] QString transportFileName() const;
 
     /*! \brief Tab order, so the dialog can name gates without magic numbers. */
     enum Tab { TabGeneral = 0, TabArd, TabLard, TabReserved };
@@ -171,6 +197,37 @@ private:
     /// WIND_FUNC_COEFF_A, WIND_FUNC_COEFF_B, PRESSURE_RATIO), keyed by option name.
     QList<QPair<QString, QLineEdit *>> m_heatConstants;
     QComboBox *m_fvScalarSchemeCombo = nullptr;  // FV_SCALAR_SCHEME
+
+    // Eulerian ARD transport settings (review G-02), staged until Apply. The engine keeps them
+    // in the transport component's file, not in [OPTIONS].
+    struct ArdOptions {
+        int mode = 0;         ///< SWMM_TransportDispersionMode
+        double value = 0.0;   ///< fixed coefficient, ft2/s or m2/s
+        double dx = 0.0;      ///< transport cell spacing, ft or m; 0 = automatic
+        QString detailed;     ///< detailed-output CSV path; empty = off
+        bool operator==(const ArdOptions &) const = default;
+    };
+    /** @return The ARD form draft; @p ok false when a number field does not parse. */
+    ArdOptions ardDraft(bool *ok) const;
+    void readArd();
+    int writeArd();
+    void refreshArdButtons();
+    QComboBox *m_ardDispersionCombo = nullptr;
+    QLineEdit *m_ardDispersionValue = nullptr;
+    QLineEdit *m_ardTargetDx = nullptr;
+    QLineEdit *m_ardDetailedOutput = nullptr;
+    QLabel *m_ardFileLabel = nullptr;
+    QLabel *m_ardCoefficientUnits = nullptr;
+    QLabel *m_ardSpacingUnits = nullptr;
+    QLabel *m_ardSpeciesHint = nullptr;
+    QPushButton *m_ardConduitAdd = nullptr;
+    QPushButton *m_ardBoundaryAdd = nullptr;
+    QPushButton *m_ardSourceAdd = nullptr;
+    ArdConduitDispersionModel *m_ardConduits = nullptr;
+    ArdTransportRowModel *m_ardBoundaries = nullptr;
+    ArdTransportRowModel *m_ardSources = nullptr;
+    ArdOptions m_ardLoaded;
+    bool m_ardWrote = false; ///< this page wrote transport settings in the current pass
 };
 
 } // namespace openswmmvis::ui

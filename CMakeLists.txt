@@ -927,6 +927,7 @@ set(
         include/ui/dialogs/simoptions/modelspage.h
         include/ui/dialogs/simoptions/performancepage.h
         include/ui/dialogs/simoptions/qualitypage.h
+        include/ui/dialogs/simoptions/ardtransportmodels.h
         include/ui/dialogs/simoptions/spatialpage.h
         include/ui/dialogs/simoptions/titlenotespage.h
         include/ui/dialogs/simoptions/twodpage.h
@@ -1708,6 +1709,7 @@ set(
         src/ui/dialogs/simoptions/modelspage.cpp
         src/ui/dialogs/simoptions/performancepage.cpp
         src/ui/dialogs/simoptions/qualitypage.cpp
+        src/ui/dialogs/simoptions/ardtransportmodels.cpp
         src/ui/dialogs/simoptions/spatialpage.cpp
         src/ui/dialogs/simoptions/titlenotespage.cpp
         src/ui/dialogs/simoptions/twodpage.cpp

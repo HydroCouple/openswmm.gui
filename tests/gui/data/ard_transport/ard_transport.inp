@@ -1,0 +1,50 @@
+[TITLE]
+G-02 fixture: Eulerian ARD transport settings edited on the Simulation Options Quality page
+
+[OPTIONS]
+FLOW_UNITS       CMS
+INFILTRATION     HORTON
+FLOW_ROUTING     DYNWAVE
+QUALITY_SOLVER   EULERIAN_ARD
+START_DATE       01/01/2026
+START_TIME       00:00:00
+END_DATE         01/01/2026
+END_TIME         01:00:00
+REPORT_STEP      0:05:00
+ROUTING_STEP     5
+
+[JUNCTIONS]
+;;Name  Elev  MaxDepth  InitDepth  SurDepth  Aponded
+J1      10    3         0          0         0
+J2      9.5   3         0          0         0
+
+[OUTFALLS]
+;;Name  Elev  Type  Gated
+O1      9     FREE  NO
+
+[CONDUITS]
+;;Name  From  To  Length  Roughness  InOffset  OutOffset  InitFlow
+C1      J1    J2  100     0.013      0         0          0
+C2      J2    O1  100     0.013      0         0          0
+
+[ORIFICES]
+;;Name  From  To  Type  Offset  Qcoeff  Gated  CloseTime
+OR1     J1    O1  SIDE  0       0.65    NO     0
+
+[XSECTIONS]
+;;Link  Shape        Geom1  Geom2  Geom3  Geom4  Barrels
+C1      CIRCULAR     1      0      0      0      1
+C2      CIRCULAR     1      0      0      0      1
+OR1     RECT_CLOSED  0.5    0.5    0      0
+
+[POLLUTANTS]
+;;Name  Units  Crain  Cgw  Crdii  Kdecay  SnowOnly  CoPollutant  CoFrac  Cdwf  Cinit
+TSS     MG/L   0      0    0      0       NO        *            0       0     0
+
+[TIMESERIES]
+;;Name  Time  Value
+TS1     0:00  1.0
+TS1     1:00  2.0
+
+[PROCESS_COMPONENTS]
+org.hydrocouple.openswmm.reactions config="ard_transport.rxn"

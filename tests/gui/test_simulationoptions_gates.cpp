@@ -32,6 +32,14 @@
 #include <openswmm/engine/openswmm_hotstart.h>
 #include "ui/dialogs/simoptions/modelspage.h"
 #include "ui/dialogs/simoptions/qualitypage.h"
+#include "ui/dialogs/simoptions/ardtransportmodels.h"
+#include "ui/dialogs/processcomponentsmodel.h"
+#include <openswmm/engine/openswmm_process_components.h>
+#include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_transport.h>
+#include <QAbstractItemModelTester>
+#include <QDir>
+#include <QLabel>
 #include "ui/dialogs/climatologydialog.h"
 #include "ui/dialogs/mesh2dgroundwaterdialog.h"
 #include "ui/configurationsession.h"
@@ -200,6 +208,14 @@ private slots:
     void durationAcrossDaylightSavingIsWallClock();
     void routingStepTypedUnderDecimalCommaLocaleIsWritten();
     void reviewG05G06OptionsHaveEditorsAndApply();
+    /** @brief Review G-02: the ARD transport table models offer the model's nodes, conduits
+     *  and reaction species, refuse each bad row by name, and write the rows they validate. */
+    void ardTransportRowsAreCheckedBeforeApply();
+    /** @brief Review G-02: the Quality page writes nothing on an unchanged Apply; an edited
+     *  Apply writes the dispersion settings and tables, registers <model>.ard even when the
+     *  Files page edits its component table in the same pass, undoes and redoes as one step,
+     *  and saves the file a reopened model reads back. */
+    void ardTransportPageAppliesUndoesAndSaves();
 };
 
 namespace
@@ -1586,4 +1602,252 @@ void TestSimulationOptionsGates::reviewG05G06OptionsHaveEditorsAndApply()
     QCOMPARE(SimulationOptionsDialog::parseEngineBool(QString::fromLatin1(buf)), Qt::Checked);
     QCOMPARE(swmm_options_get(e, "WRITE_ABSOLUTE_PATHS", buf, sizeof buf), 0);
     QCOMPARE(SimulationOptionsDialog::parseEngineBool(QString::fromLatin1(buf)), Qt::Checked);
+}
+
+namespace
+{
+constexpr const char *kArdComponent = "org.hydrocouple.openswmm.transport.ard";
+
+/** @brief A fresh copy of the G-02 fixture (model + reactions file) in a reviewable folder.
+ * @param[in] name Run folder under tests/output/simulationoptions_gates_g02/.
+ * @return The copied model path; empty when a copy failed. */
+QString ardFixtureCopy(const QString &name)
+{
+    const QString dir = QDir(dataDir()).absoluteFilePath(
+        QStringLiteral("../../output/simulationoptions_gates_g02/") + name);
+    QDir(dir).removeRecursively();
+    if (!QDir().mkpath(dir))
+        return {};
+    for (const char *file : {"ard_transport.inp", "ard_transport.rxn"}) {
+        const QString source = fixture(QStringLiteral("ard_transport/") + QLatin1String(file));
+        if (!QFile::copy(source, QDir(dir).filePath(QLatin1String(file))))
+            return {};
+    }
+    return QDir(dir).filePath(QStringLiteral("ard_transport.inp"));
+}
+
+int ardCount(SWMM_Engine e, int (*count)(SWMM_Engine, int *))
+{
+    int n = -1;
+    return count(e, &n) == SWMM_OK ? n : -1;
+}
+} // namespace
+
+void TestSimulationOptionsGates::ardTransportRowsAreCheckedBeforeApply()
+{
+    using openswmmvis::ui::ArdConduitDispersionModel;
+    using openswmmvis::ui::ArdTransportRowModel;
+    auto layer = openLayer(ardFixtureCopy(QStringLiteral("rows")));
+    QVERIFY2(layer, "ard_transport.inp failed to load");
+    SWMM_Engine e = layer->engine();
+
+    ArdTransportRowModel boundaries(ArdTransportRowModel::Kind::Boundary);
+    QAbstractItemModelTester tester(&boundaries,
+                                    QAbstractItemModelTester::FailureReportingMode::QtTest);
+    QCOMPARE(boundaries.load(e), QString());
+    QCOMPARE(boundaries.rowCount(), 0);
+    QCOMPARE(boundaries.species(), (QStringList{QStringLiteral("NH3"), QStringLiteral("CL2")}));
+    QCOMPARE(boundaries.elements(),
+             (QStringList{QStringLiteral("J1"), QStringLiteral("J2"), QStringLiteral("O1")}));
+    QCOMPARE(boundaries.validateCommit(e), QString()); // clean: nothing to check
+
+    const auto refuses = [&](const QString &text) {
+        const QString error = boundaries.validateCommit(e);
+        return error.contains(QStringLiteral("Boundary row 2")) && error.contains(text);
+    };
+    boundaries.addRow({QStringLiteral("J1"), QStringLiteral("NH3"), false, 2.0, {}});
+    boundaries.addRow({QStringLiteral("C1"), QStringLiteral("CL2"), false, 1.0, {}});
+    QVERIFY2(refuses(QStringLiteral("not a node")), qPrintable(boundaries.validateCommit(e)));
+    QVERIFY(boundaries.setData(boundaries.index(1, ArdTransportRowModel::ElementColumn),
+                               QStringLiteral("J2"), Qt::EditRole));
+    QVERIFY(boundaries.setData(boundaries.index(1, ArdTransportRowModel::SpeciesColumn),
+                               QStringLiteral("TSS"), Qt::EditRole));
+    QVERIFY2(refuses(QStringLiteral("pollutants enter through inflows")),
+             qPrintable(boundaries.validateCommit(e)));
+    QVERIFY(boundaries.setData(boundaries.index(1, ArdTransportRowModel::SpeciesColumn),
+                               QStringLiteral("CL2"), Qt::EditRole));
+    QVERIFY(boundaries.setData(boundaries.index(1, ArdTransportRowModel::ValueFromColumn),
+                               QStringLiteral("Time series"), Qt::EditRole));
+    QVERIFY(!(boundaries.flags(boundaries.index(1, ArdTransportRowModel::ValueColumn)) &
+              Qt::ItemIsEditable));
+    QVERIFY2(refuses(QStringLiteral("choose a time series")),
+             qPrintable(boundaries.validateCommit(e)));
+    QVERIFY(boundaries.setData(boundaries.index(1, ArdTransportRowModel::SeriesColumn),
+                               QStringLiteral("TS1"), Qt::EditRole));
+    QCOMPARE(boundaries.validateCommit(e), QString());
+    boundaries.addRow({QStringLiteral("J1"), QStringLiteral("NH3"), false, 3.0, {}});
+    QVERIFY(boundaries.validateCommit(e).contains(QStringLiteral("already has a row")));
+    QVERIFY(boundaries.setData(boundaries.index(2, ArdTransportRowModel::ElementColumn),
+                               QStringLiteral("O1"), Qt::EditRole));
+    QVERIFY(boundaries.setData(boundaries.index(2, ArdTransportRowModel::ValueColumn),
+                               QStringLiteral("-1"), Qt::EditRole));
+    QVERIFY(boundaries.validateCommit(e).contains(QStringLiteral("cannot be negative")));
+    boundaries.removeRowAt(2);
+    QCOMPARE(boundaries.validateCommit(e), QString());
+    QCOMPARE(boundaries.commit(e), QString());
+    boundaries.acceptChanges();
+    QVERIFY(!boundaries.isDirty());
+    ArdTransportRowModel reread(ArdTransportRowModel::Kind::Boundary);
+    QCOMPARE(reread.load(e), QString());
+    QCOMPARE(reread.rows(), boundaries.rows());
+    // A later commit replaces the engine's rows rather than adding to them.
+    reread.removeRowAt(0);
+    QCOMPARE(reread.commit(e), QString());
+    QCOMPARE(ardCount(e, swmm_transport_boundary_count), 1);
+
+    // Sources: conduits only (the orifice is not offered), negative rates extract.
+    ArdTransportRowModel sources(ArdTransportRowModel::Kind::Source);
+    QCOMPARE(sources.load(e), QString());
+    QCOMPARE(sources.elements(), (QStringList{QStringLiteral("C1"), QStringLiteral("C2")}));
+    sources.addRow({QStringLiteral("OR1"), QStringLiteral("NH3"), false, -0.1, {}});
+    QVERIFY(sources.validateCommit(e).contains(QStringLiteral("not a conduit")));
+    QVERIFY(sources.setData(sources.index(0, 0), QStringLiteral("C1"), Qt::EditRole));
+    QCOMPARE(sources.validateCommit(e), QString());
+    QCOMPARE(sources.commit(e), QString());
+    QCOMPARE(ardCount(e, swmm_transport_source_count), 1);
+
+    ArdConduitDispersionModel conduits;
+    QCOMPARE(conduits.load(e), QString());
+    conduits.addRow({QStringLiteral("OR1"), 1.0});
+    QVERIFY(conduits.validateCommit(e).contains(QStringLiteral("not a conduit")));
+    QVERIFY(conduits.setData(conduits.index(0, 0), QStringLiteral("C2"), Qt::EditRole));
+    QVERIFY(conduits.setData(conduits.index(0, 1), QStringLiteral("-2"), Qt::EditRole));
+    QVERIFY(conduits.validateCommit(e).contains(QStringLiteral("not negative")));
+    QVERIFY(conduits.setData(conduits.index(0, 1), QStringLiteral("0.123456789012345"),
+                             Qt::EditRole));
+    QCOMPARE(conduits.data(conduits.index(0, 1), Qt::EditRole).toString(),
+             QStringLiteral("0.123456789012345")); // the editor sees every digit
+    QCOMPARE(conduits.commit(e), QString());
+    int link = -1;
+    double value = 0.0;
+    QCOMPARE(swmm_transport_get_conduit_disp(e, 0, &link, &value), SWMM_OK);
+    QCOMPARE(QString::fromUtf8(swmm_link_id(e, link)), QStringLiteral("C2"));
+    QCOMPARE(value, 0.123456789012345); // every digit kept
+}
+
+void TestSimulationOptionsGates::ardTransportPageAppliesUndoesAndSaves()
+{
+    using openswmmvis::ui::ArdConduitDispersionModel;
+    using openswmmvis::ui::ArdTransportRowModel;
+    const QString model = ardFixtureCopy(QStringLiteral("apply"));
+    auto layer = openLayer(model);
+    QVERIFY2(layer, "ard_transport.inp failed to load");
+    SWMM_Engine e = layer->engine();
+    QUndoStack stack;
+    SimulationOptionsDialog dlg(e, layer.get(), QStringLiteral("6.0.0"), nullptr, nullptr);
+    dlg.setUndoStack(&stack);
+
+    auto *mode = dlg.findChild<QComboBox *>(QStringLiteral("ardDispersionCombo"));
+    auto *coefficient = dlg.findChild<QLineEdit *>(QStringLiteral("ardDispersionValue"));
+    auto *spacing = dlg.findChild<QLineEdit *>(QStringLiteral("ardTargetDx"));
+    auto *fileLabel = dlg.findChild<QLabel *>(QStringLiteral("ardFileLabel"));
+    auto *speciesHint = dlg.findChild<QLabel *>(QStringLiteral("ardSpeciesHint"));
+    auto *conduits = dlg.findChild<ArdConduitDispersionModel *>(QStringLiteral("ardConduitDispersion"));
+    auto *boundaries = dlg.findChild<ArdTransportRowModel *>(QStringLiteral("ardBoundaries"));
+    auto *sources = dlg.findChild<ArdTransportRowModel *>(QStringLiteral("ardSources"));
+    auto *boundaryAdd = dlg.findChild<QPushButton *>(QStringLiteral("ardBoundariesAdd"));
+    auto *page = dlg.findChild<openswmmvis::ui::QualityPage *>();
+    QVERIFY(mode && coefficient && spacing && fileLabel && speciesHint && conduits &&
+            boundaries && sources && boundaryAdd && page);
+    QVERIFY2(fileLabel->text().contains(QStringLiteral("ard_transport.ard")),
+             qPrintable(fileLabel->text()));
+    QVERIFY(speciesHint->isHidden()); // the fixture has reaction species
+    QVERIFY(boundaryAdd->isEnabled());
+    QVERIFY(!coefficient->isEnabled()); // dispersion is Off
+
+    // An Apply with nothing changed writes no transport setting and registers no file.
+    QVERIFY(QMetaObject::invokeMethod(&dlg, "onApply", Qt::DirectConnection));
+    int configured = -1;
+    QCOMPARE(swmm_transport_get_configured(e, &configured), SWMM_OK);
+    QCOMPARE(configured, 0);
+    QVERIFY(swmm_process_component_find(e, kArdComponent) < 0);
+    for (const char *key : {"TRANSPORT_OPTIONS", "CONDUIT_DISPERSION", "TRANSPORT_BOUNDARIES",
+                            "TRANSPORT_SOURCES"})
+        QVERIFY2(!dlg.lastWriteKeys().contains(QLatin1String(key)), key);
+    const int stepsBefore = stack.count();
+
+    mode->setCurrentIndex(mode->findData(int(SWMM_DISPERSION_VALUE)));
+    QVERIFY(coefficient->isEnabled());
+    coefficient->setText(QStringLiteral("0.25"));
+    spacing->setText(QStringLiteral("10"));
+    conduits->addRow({QStringLiteral("C1"), 1.5});
+    QTest::mouseClick(boundaryAdd, Qt::LeftButton);
+    QCOMPARE(boundaries->rowCount(), 1);
+    QCOMPARE(boundaries->rows().first(),
+             (ArdTransportRowModel::Row{QStringLiteral("J1"), QStringLiteral("NH3"), false, 0.0, {}}));
+    QVERIFY(boundaries->setData(boundaries->index(0, ArdTransportRowModel::ValueColumn),
+                                QStringLiteral("-1"), Qt::EditRole));
+    QString warn;
+    QVERIFY(!page->validate(&warn)); // refused before anything is written
+    QVERIFY2(warn.contains(QStringLiteral("Boundary row 1")) &&
+                 warn.contains(QStringLiteral("negative")),
+             qPrintable(warn));
+    QVERIFY(boundaries->setData(boundaries->index(0, ArdTransportRowModel::ValueColumn),
+                                QStringLiteral("2"), Qt::EditRole));
+    boundaries->addRow({QStringLiteral("J2"), QStringLiteral("CL2"), true, 0.0, QStringLiteral("TS1")});
+    sources->addRow({QStringLiteral("C2"), QStringLiteral("NH3"), false, -0.1, {}});
+    // The Files page edits its component table in the same Apply.
+    auto *components = dlg.findChild<ProcessComponentsModel *>();
+    QVERIFY(components);
+    components->appendRow(QString(), QString());
+
+    QVERIFY(QMetaObject::invokeMethod(&dlg, "onApply", Qt::DirectConnection));
+    const auto applied = [&](SWMM_Engine engine) {
+        int m = -1;
+        double v = 0.0, dx = 0.0;
+        swmm_transport_get_dispersion_mode(engine, &m);
+        swmm_transport_get_dispersion_value(engine, &v);
+        swmm_transport_get_target_dx(engine, &dx);
+        return m == SWMM_DISPERSION_VALUE && v == 0.25 && dx == 10.0 &&
+               ardCount(engine, swmm_transport_conduit_disp_count) == 1 &&
+               ardCount(engine, swmm_transport_boundary_count) == 2 &&
+               ardCount(engine, swmm_transport_source_count) == 1;
+    };
+    QVERIFY(applied(e));
+    const int component = swmm_process_component_find(e, kArdComponent);
+    QVERIFY2(component >= 0, "the transport file was not registered");
+    char id[256]{}, config[1024]{}, resolved[1024]{};
+    QCOMPARE(swmm_process_component_get(e, component, id, sizeof id, config, sizeof config,
+                                        resolved, sizeof resolved),
+             SWMM_OK);
+    QCOMPARE(QString::fromUtf8(config), QStringLiteral("ard_transport.ard"));
+    for (const char *key : {"TRANSPORT_OPTIONS", "CONDUIT_DISPERSION", "TRANSPORT_BOUNDARIES",
+                            "TRANSPORT_SOURCES"})
+        QVERIFY2(dlg.lastWriteKeys().contains(QLatin1String(key)), key);
+    QCOMPARE(stack.count(), stepsBefore + 1);
+
+    // One undo step takes it all back, including the registration; redo restores it.
+    stack.undo();
+    QCOMPARE(swmm_transport_get_configured(e, &configured), SWMM_OK);
+    QCOMPARE(configured, 0);
+    QCOMPARE(ardCount(e, swmm_transport_boundary_count), 0);
+    QCOMPARE(ardCount(e, swmm_transport_conduit_disp_count), 0);
+    QVERIFY(swmm_process_component_find(e, kArdComponent) < 0);
+    stack.redo();
+    QVERIFY(applied(e));
+    QVERIFY(swmm_process_component_find(e, kArdComponent) >= 0);
+
+    // Saving writes the transport file; a reopened model reads the same settings.
+    const QString saved = QFileInfo(model).dir().filePath(QStringLiteral("saved.inp"));
+    QCOMPARE(swmm_model_write(e, saved.toUtf8().constData()), SWMM_OK);
+    QFile ard(QFileInfo(model).dir().filePath(QStringLiteral("ard_transport.ard")));
+    QVERIFY2(ard.open(QIODevice::ReadOnly), "the transport file was not written");
+    const QString text = QString::fromUtf8(ard.readAll());
+    QVERIFY2(text.contains(QStringLiteral("TRANSPORT_BOUNDARIES")) &&
+                 text.contains(QStringLiteral("TS1")),
+             qPrintable(text));
+    auto reopened = openLayer(saved);
+    QVERIFY2(reopened, "the saved model failed to reopen");
+    QVERIFY(applied(reopened->engine()));
+
+    // Removing the component on the Files page sticks when no transport setting changed.
+    QVERIFY(QMetaObject::invokeMethod(&dlg, "onApply", Qt::DirectConnection)); // re-read the pages
+    int row = -1;
+    for (int r = 0; r < components->rowCount(); ++r)
+        if (components->idAt(r) == QLatin1String(kArdComponent))
+            row = r;
+    QVERIFY(row >= 0);
+    QVERIFY(components->removeRows(row, 1));
+    QVERIFY(QMetaObject::invokeMethod(&dlg, "onApply", Qt::DirectConnection));
+    QVERIFY(swmm_process_component_find(e, kArdComponent) < 0);
 }
