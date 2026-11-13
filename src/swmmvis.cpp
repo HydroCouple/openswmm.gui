@@ -142,6 +142,7 @@
 #include "project/openswmmvisworkspace.h"
 #include "project/examplesseeder.h"
 #include "project/projectserializer.h"
+#include "layers/unavailablelayer.h"
 #include "project/saveaspathnormalizer.h"
 #include "simulation/runpathresolver.h" // Slice QB.3
 #include "layers/swmmmodellayer.h"
@@ -2865,6 +2866,10 @@ void SWMMVis::initializeLayersDockWidget()
     // Right-click "Properties…" / double-click on a layer row → open the
     // unified LayerStyleDialog (Slice U-3). Replaces the legacy
     // LayerPropertiesDialog so every layer gets the same multitab dialog.
+    // "Repair Data Source…" on a layer whose file was missing or unreadable:
+    // pick the file again; the layer reopens in place with its saved style.
+    connect(mLayerTreePanel, &LayerTreePanel::repairDataSourceRequested, this,
+            [this](UnavailableLayer *layer) { repairDataSource(layer); });
     connect(mLayerTreePanel, &LayerTreePanel::layerPropertiesRequested, this,
             [this](OpenSWMMVisLayer *layer, const QString &routingId) {
                 if (!layer)
@@ -12507,6 +12512,52 @@ void SWMMVis::onAddRasterLayer()
             static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
         layer->openAsync(path);
     });
+}
+
+void SWMMVis::repairDataSource(UnavailableLayer *layer)
+{
+    SWMMVisProjectWindow *project = activeProjectWindow();
+    MapCanvas *canvas = project ? project->canvas() : nullptr;
+    if (!layer || !canvas || !canvas->layers().contains(layer))
+        return;
+    const QString type = layer->entry().value(QStringLiteral("type")).toString();
+    const QString filter = type == QStringLiteral("raster")
+                               ? openswmmvis::io::gdalcaps::rasterOpenFilter()
+                           : type == QStringLiteral("vector")
+                               ? openswmmvis::io::gdalcaps::vectorOpenFilter()
+                               : tr("GeoPackage (*.gpkg);;All files (*)");
+    // Start where the file was, with its name filled in: a moved folder or a
+    // renamed drive usually keeps the file name.
+    const QFileInfo was(layer->sourcePath());
+    const QString start = was.absoluteDir().exists()
+                              ? was.absoluteFilePath()
+                              : openswmmvis::ui::FileOpenDialog::startDirectory(
+                                    type, QFileInfo(project->modelFilePath()).absolutePath());
+    const QPointer<UnavailableLayer> guard(layer);
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Repair Data Source — %1").arg(layer->name()), start, filter);
+    if (path.isEmpty() || !guard || !canvas->layers().contains(guard.data()))
+        return;
+    openswmmvis::ui::FileOpenDialog::rememberSelection(type, {path});
+    const QPointer<SWMMVisProjectWindow> owner(project);
+    const QPointer<SWMMVis> self(this);
+    const QString name = layer->name();
+    ProjectSerializer::relinkUnavailableLayer(
+        guard.data(), path, canvas,
+        [self, owner, name, path](OpenSWMMVisLayer *reopened, const QString &failure) {
+            if (!self)
+                return;
+            if (!reopened) {
+                QMessageBox::warning(self, tr("Repair Data Source"),
+                                     tr("\"%1\" could not be reopened from\n%2\n\n%3")
+                                         .arg(name, QDir::toNativeSeparators(path), failure));
+                return;
+            }
+            if (owner)
+                owner->setHasChanges(true); // the next save writes the new path
+            self->statusBar()->showMessage(
+                tr("Reopened \"%1\" from %2").arg(name, QDir::toNativeSeparators(path)), 8000);
+        });
 }
 
 void SWMMVis::onAddSWMMResultsLayer()

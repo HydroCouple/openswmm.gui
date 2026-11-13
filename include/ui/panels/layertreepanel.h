@@ -36,6 +36,7 @@ class OpenSWMMVisLayer;
 class OpenSWMMVisWorkspace;
 class SWMMResultsLayer;
 class SWMM2DResultsLayer;
+class UnavailableLayer;
 
 // Slice S3 — sublayer row type forward decl.
 namespace OpenSWMM::Render
@@ -692,6 +693,13 @@ signals:
      *   LayerStyleDialog instead.
      */
     void layerPropertiesRequested(OpenSWMMVisLayer *layer, const QString &routingId = QString());
+
+    /*!
+     * \brief Emitted when the user picks "Repair Data Source…" on a layer whose
+     *        file could not be reopened. SWMMVis asks for the file and relinks it.
+     * @param[in] layer Borrowed placeholder row; request only, the host opens the file dialog.
+     */
+    void repairDataSourceRequested(UnavailableLayer *layer);
 
     /*!
      * \brief Emitted when the user picks "Open Attribute Table" on a layer,

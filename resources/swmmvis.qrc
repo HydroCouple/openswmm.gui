@@ -196,6 +196,34 @@
         <!-- Groundwater (2D) group — pending engine [2D_AQUIFER] support. -->
         <file alias="GW2DParams">images/gw2d_params.svg</file>
         <file alias="GW2DInit">images/gw2d_init.svg</file>
+        <!-- Layer-tree icons for 2D mesh and 2D output sublayers (workplans/sublayer-icons). -->
+        <file alias="MeshTerrain">images/mesh_terrain.svg</file>
+        <file alias="MeshEdges">images/mesh_edges.svg</file>
+        <file alias="MeshVertices">images/mesh_vertices.svg</file>
+        <file alias="MeshBoundary">images/mesh_boundary.svg</file>
+        <file alias="CoupledNodes">images/coupled_nodes.svg</file>
+        <file alias="CoupledCells">images/coupled_cells.svg</file>
+        <file alias="GroundwaterWell">images/groundwater_well.svg</file>
+        <file alias="ElevationBands">images/elevation_bands.svg</file>
+        <file alias="ElevationIsolines">images/elevation_isolines.svg</file>
+        <file alias="DepthFill">images/depth_fill.svg</file>
+        <file alias="DepthBands">images/depth_bands.svg</file>
+        <file alias="DepthIsolines">images/depth_isolines.svg</file>
+        <file alias="VelocityVectors">images/velocity_vectors.svg</file>
+        <file alias="FlowArrows">images/flow_arrows.svg</file>
+        <file alias="FlowStreaks">images/flow_streaks.svg</file>
+        <file alias="WaterSurface">images/water_surface.svg</file>
+        <file alias="VelocityMagnitude">images/velocity_magnitude.svg</file>
+        <file alias="Infiltration">images/infiltration.svg</file>
+        <file alias="GroundwaterTable">images/groundwater_table.svg</file>
+        <file alias="GroundwaterFlow">images/groundwater_flow.svg</file>
+        <file alias="SoilMoisture">images/soil_moisture.svg</file>
+        <file alias="Concentration">images/concentration.svg</file>
+        <file alias="Roughness">images/roughness.svg</file>
+        <file alias="BalanceError">images/balance_error.svg</file>
+        <file alias="Turbulence">images/turbulence.svg</file>
+        <file alias="Exchange">images/exchange.svg</file>
+        <file alias="ResultRamp">images/result_ramp.svg</file>
     </qresource>
     <!-- Slice S.SC.1.a (2026-05-25) — Cross-section thumbnails for the
          LinkCompoundEditDialog XSection page's QListWidget shape palette.

@@ -3535,6 +3535,8 @@ add_swmmvis_gui_test(test_layertree_reorder
     test_layertree_reorder.cpp
     ${SWMMVIS_TEST_SOURCES}
     ${SWMMVIS_TEST_EXTRA_SOURCES}
+    # The sublayer-row icons it checks (sublayerRowsShowWhatTheyDraw).
+    ${CMAKE_SOURCE_DIR}/resources/swmmvis.qrc
 )
 swmmvis_link_full_app_deps(test_layertree_reorder)
 

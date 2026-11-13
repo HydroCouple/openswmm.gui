@@ -34,6 +34,13 @@
 
 #include "layers/annotationlayer.h"
 #include "layers/swmm2dresultslayer.h"
+#include "layers/swmm2dmeshlayer.h"
+#include "mesh/meshresult.h"
+#include "render/sublayers/contourbandsublayer.h"
+#include "render/sublayers/isolinesublayer.h"
+#include "ui/theme/iconfactory.h"
+#include <QIcon>
+#include <QSvgRenderer>
 #include "layers/swmmmodellayer.h"
 #include "layers/tabulardatalayer.h"
 #include "map/mapcanvas.h"
@@ -260,6 +267,94 @@ private slots:
     }
 
     /** @brief Verify sublayer MIME moves track reversed display/paint order, support three undos and reject other hosts. */
+    /*! Owner 2026-11-13: mesh-instance and 2D-output sublayer rows show an icon of what
+     *  they draw (terrain, edges, vertices, boundary conditions, couplings, groundwater,
+     *  contours of elevation or of depth, vectors, streaks), not one shared glyph per kind. */
+    void sublayerRowsShowWhatTheyDraw()
+    {
+        // Every new icon is a valid SVG in the resources.
+        const QStringList icons{
+            "MeshTerrain", "MeshEdges", "MeshVertices", "MeshBoundary", "CoupledNodes", "CoupledCells",
+            "GroundwaterWell", "ElevationBands", "ElevationIsolines", "DepthFill", "DepthBands",
+            "DepthIsolines", "VelocityVectors", "FlowArrows", "FlowStreaks", "WaterSurface",
+            "VelocityMagnitude", "Infiltration", "GroundwaterTable", "GroundwaterFlow", "SoilMoisture",
+            "Concentration", "Roughness", "BalanceError", "Turbulence", "Exchange", "ResultRamp"};
+        for (const QString &alias : icons)
+            QVERIFY2(QSvgRenderer(QStringLiteral(":/swmmvis/") + alias).isValid(), qPrintable(alias));
+
+        mesh::MeshResult triangle;
+        for (const QPointF p : {QPointF(0, 0), QPointF(10, 0), QPointF(0, 10)}) {
+            mesh::MeshVertex v;
+            v.xy = p;
+            triangle.vertices.append(v);
+        }
+        mesh::MeshTriangle t;
+        t.v0 = 0;
+        t.v1 = 1;
+        t.v2 = 2;
+        triangle.triangles.append(t);
+        SWMM2DMeshLayer meshLayer(triangle);
+        SWMM2DResultsLayer results(QStringLiteral("res"));
+        MapCanvas canvas;
+        canvas.addLayer(&meshLayer, false);
+        canvas.addLayer(&results, false);
+        LayerTreePanel panel;
+        panel.setCanvas(&canvas);
+        LayerTreeModel *m = panel.model();
+
+        const auto picture = [](const QIcon &icon) { return icon.pixmap(24, 24).toImage(); };
+        const auto expected = [](const OpenSWMM::Render::ISublayer *s) -> QString {
+            const QByteArray name = s->metaObject()->className();
+            const auto elevation = [](const QString &a) {
+                return a.compare(QLatin1String("elevation"), Qt::CaseInsensitive) == 0;
+            };
+            if (auto *bands = qobject_cast<const OpenSWMM::Render::ContourBandSublayer *>(s))
+                return elevation(bands->bandStyle()->attribute()) ? "ElevationBands" : "DepthBands";
+            if (auto *lines = qobject_cast<const OpenSWMM::Render::IsolineSublayer *>(s))
+                return elevation(lines->isolineStyle()->attribute()) ? "ElevationIsolines"
+                                                                     : "DepthIsolines";
+            const QHash<QByteArray, QString> byClass{
+                {"OpenSWMM::Render::MeshFillSublayer", "MeshTerrain"},
+                {"OpenSWMM::Render::MeshEdgeSublayer", "MeshEdges"},
+                {"OpenSWMM::Render::MeshNodeSublayer", "MeshVertices"},
+                {"OpenSWMM::Render::MeshBcSublayer", "MeshBoundary"},
+                {"OpenSWMM::Render::CoupledNodeSublayer", "CoupledNodes"},
+                {"OpenSWMM::Render::CoupledCellSublayer", "CoupledCells"},
+                {"OpenSWMM::Render::GroundwaterMarkerSublayer", "GroundwaterWell"},
+                {"OpenSWMM::Render::FlowStreakSublayer", "FlowStreaks"},
+                {"OpenSWMM::Render::VelocityVectorSublayer", "VelocityVectors"},
+                {"OpenSWMM::Render::FlowArrowSublayer", "FlowArrows"},
+                {"OpenSWMM::Render::DepthColorRampSublayer", "DepthFill"},
+                {"OpenSWMM::Render::CellDepthFillSublayer", "DepthFill"},
+                {"OpenSWMM::Render::SmoothDepthFillSublayer", "DepthFill"}};
+            return byClass.value(name);
+        };
+        int checked = 0;
+        QSet<QString> seen;
+        const std::function<void(const QModelIndex &)> walk = [&](const QModelIndex &parent) {
+            for (int r = 0; r < m->rowCount(parent); ++r) {
+                const QModelIndex index = m->index(r, 0, parent);
+                if (m->isSublayerIndex(index)) {
+                    OpenSWMM::Render::ISublayer *s = m->sublayerForIndex(index);
+                    const QString alias = expected(s);
+                    QVERIFY2(!alias.isEmpty(), s->metaObject()->className());
+                    QVERIFY2(picture(index.data(Qt::DecorationRole).value<QIcon>()) ==
+                                 picture(openswmmvis::ui::IconFactory::icon(alias)),
+                             qPrintable(s->displayName() + QStringLiteral(" should show ") + alias));
+                    seen.insert(alias);
+                    ++checked;
+                }
+                walk(index);
+            }
+        };
+        walk(QModelIndex());
+        // The mesh instance's own rows each have their own picture.
+        for (const char *alias : {"MeshTerrain", "MeshEdges", "MeshBoundary"})
+            QVERIFY2(seen.contains(QLatin1String(alias)), alias);
+        QVERIFY2(checked >= 5, qPrintable(QString::number(checked)));
+        panel.setCanvas(nullptr);
+    }
+
     void sublayerDropBetweenRowsAndOntoRows()
     {
         SWMM2DResultsLayer res(QStringLiteral("res"));
