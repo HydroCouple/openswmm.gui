@@ -330,6 +330,16 @@ DataObjectDraftFooter::DataObjectDraftFooter(DataObjectDraftSession *session, QW
     refresh();
 }
 
+void DataObjectDraftFooter::showEvent(QShowEvent *event)
+{
+    // Enter in a field commits the field only (plan §4). A spin box passes Enter on to the
+    // dialog, which presses its default button: when none is set, the first auto-default
+    // push button (New, Delete, a layer action). No button of this editor is auto-default.
+    for (QPushButton *button : window()->findChildren<QPushButton *>())
+        button->setAutoDefault(false);
+    QWidget::showEvent(event);
+}
+
 void DataObjectDraftFooter::refresh()
 {
     using State = DataObjectDraftSession::State;

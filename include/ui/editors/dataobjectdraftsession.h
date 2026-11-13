@@ -149,6 +149,11 @@ public:
 signals:
     void closeRequested();
 
+protected:
+    /*! Makes every push button of the editor non-auto-default, so Enter in a field commits
+     *  that field only and presses no button (plan §4). */
+    void showEvent(QShowEvent *event) override;
+
 private:
     void refresh();
 

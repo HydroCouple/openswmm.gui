@@ -8272,19 +8272,17 @@ bool SWMMModelLayer::flushDataObjectRegistries(QString *error)
     SWMM_Engine eng = engine();
     if (!eng)
         return true;
-    using openswmmvis::lid::LidControlRegistry;
     using openswmmvis::timeseries::TimeseriesRegistry;
+    // Time series edits to a LIVE series (not an editor's draft) are published
+    // on the next event-loop turn; publish any still queued.
     if (auto *series = liveRegistry<TimeseriesRegistry>(m_tsRegistry, m_tsRegistryEngineHandle, eng);
         series && !series->flushPendingEdits(error))
         return false;
-    if (auto *lids = liveRegistry<LidControlRegistry>(m_lidControlRegistry,
-                                                      m_lidControlRegistryEngineHandle, eng))
-        lids->saveToEngine(eng);
-    // Not the curve, pattern, transect, street, pollutant, aquifer and inlet
-    // registries: their editors write the model at Apply, so the registries
-    // hold nothing the engine lacks, and writing them here put a stale copy
-    // over engine edits made around them (Properties panel adapters).
-    // Apply/Revert plan §9.
+    // Not the LID control, curve, pattern, transect, street, pollutant, aquifer
+    // and inlet registries: their editors write the model at Apply, so the
+    // registries hold nothing the engine lacks, and writing them here put a
+    // stale copy over engine edits made around them (Properties panel
+    // adapters). Apply/Revert plan §9, Phase 7.
     return true;
 }
 
