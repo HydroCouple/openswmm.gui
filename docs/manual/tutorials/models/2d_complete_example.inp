@@ -121,12 +121,15 @@ TIDAL_TS                 06:00  100.20
 
 [CURVES]
 ;;Name  Type     X-Value   Y-Value
-;; Rating curve for the east-corner outflow edge: stage (m above bed) → flow (m³/s per m of edge).
-DOWN_RC RATING   0.00      0.00
-DOWN_RC          0.25      0.05
-DOWN_RC          0.50      0.18
-DOWN_RC          1.00      0.55
-DOWN_RC          2.00      1.80
+;; Rating curve for the east-corner outflow edge (bed 100.5 → 101.0 m along it):
+;; water-surface stage (m, the mesh datum — not depth) → flow (m³/s per m of edge).
+;; The engine looks the curve up at the boundary cell's water level; no flow below
+;; the edge's mid-bed, 100.75 m.
+DOWN_RC RATING   100.75    0.00
+DOWN_RC          101.00    0.05
+DOWN_RC          101.25    0.18
+DOWN_RC          101.75    0.55
+DOWN_RC          102.75    1.80
 
 
 [REPORT]
