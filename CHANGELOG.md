@@ -20,6 +20,18 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Changed
 
+- **Full shallow water is the default 2D momentum equation.** The 2D options page marks
+  **Full shallow-water** as the default and selects it for a model without
+  `MOMENTUM_EQUATION`, matching the engine. Tutorials 3, 4 and 6 now set local inertial explicitly, because
+  their quoted volumes and screenshots come from local-inertial runs. Requires the
+  matching engine update.
+- **2D mesh files open faster.** The mesh reader makes one pass over the file's bytes
+  instead of decoding it to text and splitting it twice. A 10 M-cell mesh opens 3.9×
+  faster with a 23 % lower peak, and every value reads as before.
+- **Component runs no longer open the whole 2D mesh first.** Before a component run, the
+  launcher reads only the model's start and end times; it used to parse the whole mesh
+  (about 3.5 s and 3 GB at 10 M cells). A broken mesh is now reported by the component
+  run itself. Requires the matching engine update.
 - In the mesh generation dialog, the source-specific geometry limits moved from
   **Quality → Boundaries** to their own page, **Source limits**, so every Quality page
   fits without scrolling. While the default geometry policy is **Use existing trimming
@@ -153,6 +165,10 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Fixed
 
+- **The complete 2D tutorial model's rating curve is written as water-surface stage.**
+  The engine reads a rating curve's x values as stage, and `DOWN_RC` was written as depth
+  above the bed, so the curve drained its boundary cell dry under every momentum
+  equation. It keeps its shape and now starts at the edge's mid-bed elevation, 100.75 m.
 - **Simulation Options › Files paths survive a Save As to another folder.** Paths
   the page wrote (hot-start saves, rainfall, runoff, RDII, inflows, outflows, the
   USE hot start) went to the engine relative to the input file, with nothing to
