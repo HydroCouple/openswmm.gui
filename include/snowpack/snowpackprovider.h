@@ -21,6 +21,8 @@
 #include <QObject>
 #include <QString>
 
+#include <array>
+
 namespace openswmmvis::snowpack
 {
 
@@ -138,6 +140,25 @@ public:
      * @details Emits paramsChanged() on a changed cached default even if an explicit override currently hides it.
      */
     void setDefaultModel(int kind);
+    /** @return The cached project formulation (0 degree-day, 1 UEB) an inheriting pack uses. */
+    int defaultModel() const noexcept { return m_defaultModel; }
+
+    /*! Every value the snow pack editor changes: an editor's draft, and the
+     *  before / after of one Apply. The project default model is not part of
+     *  it (it belongs to the project options). */
+    struct Params {
+        std::array<double, ParamCount> values{};
+        QString removalSubcatch;
+        int modelKind = -1;
+        bool operator==(const Params &) const = default;
+        /*! Equal within \p relTol relative (absolute near zero); the engine
+         *  converts units on the way in and out. */
+        bool sameAs(const Params &other, double relTol) const;
+    };
+    /** @return Copy of all parameters, the removal destination and the model override. */
+    Params params() const;
+    /** @brief Replace all of them at once; one paramsChanged() when anything differs. */
+    void setParams(const Params &params);
 
 signals:
     /**

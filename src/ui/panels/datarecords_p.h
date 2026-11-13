@@ -577,7 +577,7 @@ QStringList remainingOwnedKeys(DC::DataCategory cat, const QString &key, const Q
                 out << k;
         return out;
     }
-    if (key == "_pointAdd" || key == "_pointRemove") {
+    if (key == "_pointAdd" || key == "_pointRemove" || key == "_record") { // _record: an editor's Apply
         for (const auto &k : before.keys() + after.keys())
             if (before.value(k) != after.value(k) && !out.contains(k))
                 out << k;

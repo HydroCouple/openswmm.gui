@@ -29,7 +29,9 @@
 #define OPENSWMMVIS_UI_DIALOGS_RULESEDITORDIALOG_H
 
 #include <QDialog>
+#include <QHash>
 #include <QPointer>
+#include <QString>
 
 class QFrame;
 class QLabel;
@@ -55,6 +57,9 @@ namespace openswmmvis::ui
 
 class RuleCodeEditor;
 class RuleListModel;
+class DataObjectDraftSession;
+class DataObjectDraftFooter;
+class DraftMarkProxyModel;
 
 class RulesEditorDialog : public QDialog
 {
@@ -175,42 +180,32 @@ public:
      */
     void invokeNew();
     /**
-     * @brief For current provider ask irreversible-delete confirmation, then call layer remove by
-     *   captured name when layer still lives.
-     * @note Does not flush pending text first, inspect remove result or display remove diagnostic.
-     *   No-op for missing provider/No; no undo despite supplied stack. Current/provider/list
-     *   refresh occurs through shared registry signals; caller preserves panel through modal
-     *   question.
+     * @brief Ask, then delete the current rule at once as one undo step.
+     * @note Undo puts the rule back in its place in the rule order (which decides between
+     *   conflicting actions of equal priority). Its unapplied text, if any, is dropped.
      */
     void invokeDelete();
     /**
-     * @param[in] newName Raw requested name forwarded unchanged, no local trim/identity check in
-     *   this test hook; layer validates.
-     * @return False without current provider/layer, otherwise layer rename result; diagnostic
-     *   discarded.
-     * @note Flush pending body first so header rewrite can see it, but flush returns no status and
-     *   rename proceeds even after failed flush. Direct mutation, no undo or generic rollback;
-     *   global providerRenamed updates current name label.
+     * @param[in] newName Raw requested name forwarded unchanged; the layer validates.
+     * @return False without current provider/layer or when the layer refuses. A rename takes
+     *   effect at once as one undo step; unapplied text stays a draft under the new name.
      */
     bool renameCurrent(const QString &newName);
     /**
-     * @brief If dirty current provider and layer live, compare editor body to provider and attempt
-     *   direct applyControlRuleReplace.
-     * @note Equal clears dirty without write. Successful replacement clears dirty; failure warns
-     *   and RETAINS dirty/editor text. No validation-state acceptance gate, undo or return status;
-     *   selection/close/rename callers may continue after failure, losing draft or renaming old
-     *   body. Does not validate/persist external source file or force validator completion.
+     * @brief Hand the code editor's text to the current rule's draft. The text is drafted
+     *   as it is typed; nothing reaches the model until Apply.
      */
     void flushPendingEdit();
+    /*! Rule text is held in a draft per rule until Apply (plan
+     *  workplans/DATA_OBJECT_APPLY_REVERT_PLAN_2026-11-11.md). */
+    DataObjectDraftSession *draftSession() const noexcept { return m_session; }
+    /*! Closing with unapplied changes asks Apply / Discard / Cancel first. */
+    void done(int result) override;
 
 protected:
     /**
-     * @param[in] e Required borrowed Qt close event forwarded to base after flush attempt, not
-     *   retained.
-     * @brief Attempt dirty-text flush then close through QDialog regardless of flush success.
-     * @note Close button routes here; direct accept/reject/done may bypass this event. Failure
-     *   warning does not ignore close or protect draft, destructor does not separately flush.
-     *   Already committed CRUD changes remain.
+     * @param[in] e Required borrowed Qt close event forwarded to QDialog, which asks about
+     *   unapplied text (done()) and ignores the close on Cancel.
      */
     void closeEvent(QCloseEvent *e) override;
 
@@ -381,7 +376,19 @@ private:
 
     // Internal state
     bool m_suppressTextSignal = false; ///< prevents echo when we set body programmatically
-    bool m_dirty = false;              ///< true between text changes and flushPendingEdit
+
+    /// The text the editor shows for \p p: its draft if it has one, else the model's.
+    QString shownBody_(openswmmvis::controls::ControlRuleProvider *p) const;
+    /// Follow \p p's text changes from other views (conflict with a draft, else rebind).
+    void watchProvider_(openswmmvis::controls::ControlRuleProvider *p);
+    bool applyDrafts_(QString *reason);
+    void revertDrafts_();
+
+    QHash<openswmmvis::controls::ControlRuleProvider *, QString> m_drafts;
+    DataObjectDraftSession *m_session = nullptr;
+    DataObjectDraftFooter *m_footer = nullptr;
+    DraftMarkProxyModel *m_draftMarks = nullptr; ///< Marks rows holding unapplied text.
+    bool m_applying = false; ///< own model writes: not a change from elsewhere
 };
 
 } // namespace openswmmvis::ui

@@ -92,16 +92,18 @@ public:
      * @brief Import engine objects whose names are not already registered.
      * @param[in] engineHandle Borrowed valid SWMM_Engine, retained for later synchronization; null is a no-op and preserves the previous cached handle.
      * @return Number of new providers loaded; -1 for a null handle, with lastSaveError() set; zero for no added objects.
-     * @details Existing providers are neither refreshed nor removed. Loading emits providerAdded() and parameter notifications through ordinary setters; getter failures may leave defaults. Call on the registry/engine owning thread.
+     * @param[in] onlyName When set, read just that pack (case-insensitive) into its provider, refreshing an existing one: an editor's Apply reads back what the model kept. This read keeps lastSaveError() from the save before it.
+     * @details Without onlyName, existing providers are neither refreshed nor removed. Loading emits providerAdded() and parameter notifications through ordinary setters; getter failures may leave defaults. Call on the registry/engine owning thread.
      */
-    int loadFromEngine(void *engineHandle);
+    int loadFromEngine(void *engineHandle, const QString &onlyName = {});
     /**
      * @brief Write current authoring providers through a borrowed engine handle.
      * @param[in] engineHandle Valid SWMM_Engine retained for later calls; null is a no-op preserving the previous handle.
+     * @param[in] onlyName When set, write just that pack (case-insensitive); the engine keeps the others.
      * @return Number of providers submitted atomically on success, or -1 on missing handle/validation/lifecycle failure; inspect lastSaveError().
-     * @details Clears lastSaveError() on entry and submits all providers through swmm_snowpack_apply(). Rejection preserves the engine batch; current initialized/running lifecycle restrictions are reported through the error string.
+     * @details Clears lastSaveError() on entry and submits the providers through swmm_snowpack_apply(). Rejection preserves the engine batch; current initialized/running lifecycle restrictions are reported through the error string.
      */
-    int saveToEngine(void *engineHandle);
+    int saveToEngine(void *engineHandle, const QString &onlyName = {});
     /**
      * @brief Synchronize using the most recently cached borrowed engine.
      * @return Same count as saveToEngine(void *), or -1 when no handle has been cached.

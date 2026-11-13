@@ -22,7 +22,9 @@
 #define OPENSWMMVIS_UI_DIALOGS_LANDUSEEDITORDIALOG_H
 
 #include <QDialog>
+#include <QHash>
 #include <QPointer>
+#include <QVariantMap>
 
 class QDoubleSpinBox;
 class QLineEdit;
@@ -31,6 +33,7 @@ class QPushButton;
 class QSplitter;
 class QTableView;
 class QTabWidget;
+class QUndoStack;
 
 class SWMMModelLayer;
 
@@ -49,6 +52,9 @@ namespace openswmmvis::ui
 {
 
 class BuildupTableModel;
+class DataObjectDraftSession;
+class DataObjectDraftFooter;
+class DraftMarkProxyModel;
 class LandUseListModel;
 class WashoffTableModel;
 
@@ -172,6 +178,16 @@ public:
      * @details Follow \a registry so the Buildup/Washoff rows re-dimension live as
      *  pollutants are added/removed/renamed (wired by the launch site).
      */
+    /*! Undo stack for Apply, create, delete and rename (one step each). Without
+     *  one the layer's map undo stack is used. */
+    void setUndoStack(QUndoStack *stack);
+    /*! With a model layer, changes are held in a draft until Apply (plan
+     *  workplans/DATA_OBJECT_APPLY_REVERT_PLAN_2026-11-11.md). Without one (a
+     *  bare registry and engine) the editor writes at once, as before. */
+    DataObjectDraftSession *draftSession() const noexcept { return m_session; }
+    /*! Closing with unapplied changes asks Apply / Discard / Cancel first. */
+    void done(int result) override;
+
     void trackPollutantRegistry(openswmmvis::pollutant::PollutantRegistry *registry);
 
 public slots:
@@ -260,6 +276,30 @@ private:
      * LandUse1 without a registry; does not reserve the name.
      */
     QString suggestUniqueName_() const;
+
+    /// A land use's unapplied changes: the model's record when they began, and the edited one.
+    struct Draft {
+        QVariantMap base, record;
+    };
+    /// The record the form and tables show for \p p: its draft, else the model's (layer mode).
+    QVariantMap shownRecord_(openswmmvis::landuse::LandUseProvider *p) const;
+    /// Draft \p key = \p value on the current land use by the shared writer's rules.
+    bool proposeDraft_(const QString &key, const QVariant &value, QString *error);
+    /// Put each draft's edits on the model's current record (pollutants added, removed or
+    /// changed elsewhere since the draft began).
+    void rebaseDrafts_();
+    bool applyDrafts_(QString *reason);
+    void revertDrafts_();
+    void commitOpenCells_();
+    QUndoStack *undoStack_() const;
+
+    QHash<openswmmvis::landuse::LandUseProvider *, Draft> m_drafts;
+    QVariantMap m_record; ///< what the current land use shows (draft or model), layer mode
+    DataObjectDraftSession *m_session = nullptr;
+    DataObjectDraftFooter *m_footer = nullptr;
+    DraftMarkProxyModel *m_draftMarks = nullptr; ///< Marks rows holding unapplied changes.
+    QPointer<QUndoStack> m_undo;
+    bool m_applying = false;
 
     QPointer<openswmmvis::landuse::LandUseRegistry> m_registry;
     QPointer<SWMMModelLayer> m_layer;

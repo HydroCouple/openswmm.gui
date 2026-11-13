@@ -17,6 +17,8 @@
 #include "ui/widgets/interactivechartview.h"
 #include "ui/util/tableclipboard.h"
 #include "map/mapcanvas.h"
+#include "ui/editors/dataobjectdraftsession.h"
+#include "ui/panels/dataobjectattributetablemodel.h"
 
 #include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_inflows.h>
@@ -26,7 +28,6 @@
 #include <QChart>
 #include <QCloseEvent>
 #include <QComboBox>
-#include <QDialogButtonBox>
 #include <QFormLayout>
 #include <QGroupBox>
 #include <QHBoxLayout>
@@ -47,6 +48,7 @@
 #include <QSplitter>
 #include <QTabWidget>
 #include <QTableView>
+#include <QUndoStack>
 #include <QToolBar>
 #include <QToolButton>
 #include <QValueAxis>
@@ -56,20 +58,22 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <memory>
 
 namespace
 {
 
 constexpr int kPlotSamples = 200;
 
-/** @brief Excel copy / paste; a paste is one step on the layer's undo stack. */
-void installClipboard(QTableView *view, SWMMModelLayer *layer)
+/** @brief Excel copy / paste; a paste goes to the editor's draft (Apply is the undo step). */
+void installClipboard(QTableView *view, SWMMModelLayer *)
 {
-    openswmmvis::ui::TableClipboardOptions clip;
-    if (layer && layer->editCanvas())
-        clip.undoStack = layer->editCanvas()->undoStack();
-    openswmmvis::ui::TableClipboard::install(view, clip);
+    openswmmvis::ui::TableClipboard::install(view, openswmmvis::ui::TableClipboardOptions{});
 }
+
+constexpr auto kHydrographs = SWMMModelLayer::DataHydrographs;
+using openswmmvis::ui::DataObjectDraftFooter;
+using openswmmvis::ui::DataObjectDraftSession;
 
 // Slice AT.3 palette colours (matches the comparison-plot conventions). For
 // a non-aggressive editor we lower the alpha so triangle interiors don't
@@ -110,9 +114,26 @@ HydrographGroupEditor::HydrographGroupEditor(SWMMModelLayer *layer, QWidget *par
 
     if (m_layer) {
         m_groupListModel = m_layer->hydrographGroupListModel();
-        m_rtkModel = m_layer->hydrographRtkModel();
-        m_iaModel = m_layer->hydrographIaModel();
-        m_decayModel = m_layer->hydrographDecayModel();
+        // This editor's own tables: they show and edit its draft, so another
+        // editor (a picker) never sees it.
+        m_rtkModel = new HydrographRtkTableModel(m_layer);
+        m_iaModel = new HydrographIaTableModel(m_layer);
+        m_decayModel = new HydrographDecayTableModel(m_layer);
+        const HydrographRecordAccess access{
+            [this] { return m_record; },
+            [this](const QString &key, const QVariant &value) {
+                QString error;
+                const bool taken = proposeDraft_(key, value, &error);
+                if (!taken)
+                    setToolTip(error);
+                return taken;
+            }};
+        m_rtkModel->setParent(this);
+        m_iaModel->setParent(this);
+        m_decayModel->setParent(this);
+        m_rtkModel->setRecordAccess(access);
+        m_iaModel->setRecordAccess(access);
+        m_decayModel->setRecordAccess(access);
     }
 
     m_filterProxy = new QSortFilterProxyModel(this);
@@ -122,8 +143,20 @@ HydrographGroupEditor::HydrographGroupEditor(SWMMModelLayer *layer, QWidget *par
         m_filterProxy->setSourceModel(m_groupListModel);
 
     buildUi();
-    setAccessibleDescription(
-        tr("Changes are applied immediately. Closing this editor does not undo changes."));
+    // Any hydrograph change resets the group list, which drops the selection:
+    // select the same group again so the editor keeps showing it. Connected
+    // after the list view's own reset handling, which clears the current row.
+    connect(m_filterProxy, &QAbstractItemModel::modelReset, this, [this] {
+        if (m_selectedGroup.isEmpty() || !m_groupListModel || !m_groupList)
+            return;
+        const int row = m_groupListModel->indexOf(m_selectedGroup);
+        const QModelIndex index =
+            row < 0 ? QModelIndex() : m_filterProxy->mapFromSource(m_groupListModel->index(row));
+        if (index.isValid())
+            m_groupList->setCurrentIndex(index);
+    });
+    setAccessibleDescription(tr("Changes are held until you choose Apply, which writes them to "
+                                "the model as one undoable step."));
     m_groupList->setAccessibleName(tr("Unit hydrograph groups"));
     m_rtkView->setAccessibleName(tr("Hydrograph response parameters"));
     m_iaView->setAccessibleName(tr("Initial abstraction parameters"));
@@ -136,6 +169,7 @@ HydrographGroupEditor::HydrographGroupEditor(SWMMModelLayer *layer, QWidget *par
     if (m_layer) {
         connect(m_layer, &SWMMModelLayer::hydrographChanged, this,
                 &HydrographGroupEditor::onHydrographChanged);
+        m_session->setModel(m_layer); // Save / Run / Close ask about unapplied drafts
     }
 
     // Iteration 2 (D2) — persistence via the app-wide DialogLayoutWatcher:
@@ -164,6 +198,7 @@ void HydrographGroupEditor::invalidateContext()
     if (!m_contextValid)
         return;
     m_contextValid = false;
+    m_drafts.clear(); // the model is going away: nothing left to apply to
     if (m_layer)
         disconnect(m_layer, nullptr, this, nullptr);
     m_layer = nullptr;
@@ -221,9 +256,8 @@ QString HydrographGroupEditor::pickGroup(SWMMModelLayer *layer, const QString &i
     if (!initialName.isEmpty())
         editor.openForGroup(initialName);
     editor.exec();
-    // Return whatever's currently highlighted — applies to all three
-    // exit paths (Apply, OK, Close). All edits are already persisted
-    // through the MVC layer regardless of which button was used.
+    // Return whatever's currently highlighted. Closing with a draft asked
+    // Apply / Discard first.
     return editor.currentGroupName();
 }
 
@@ -252,20 +286,15 @@ void HydrographGroupEditor::buildUi()
     m_summaryLabel->setForegroundRole(QPalette::PlaceholderText);
     root->addWidget(m_summaryLabel);
 
-    // Action bar — Apply commits any in-flight cell editor + refreshes the
-    // plot; OK does the same + closes; Close just closes (changes already
-    // landed live through the MVC layer).
-    m_buttonBox = new QDialogButtonBox(this);
-    auto *applyBtn = m_buttonBox->addButton(QDialogButtonBox::Apply);
-    auto *okBtn = m_buttonBox->addButton(QDialogButtonBox::Ok);
-    auto *closeBtn = m_buttonBox->addButton(QDialogButtonBox::Close);
-    applyBtn->setToolTip(tr("Commit any open cell editor and refresh the preview plot"));
-    okBtn->setToolTip(tr("Commit any open cell editor, refresh, and close"));
-    closeBtn->setToolTip(tr("Close the editor (edits commit live as you type)"));
-    connect(applyBtn, &QPushButton::clicked, this, &HydrographGroupEditor::onApplyClicked);
-    connect(okBtn, &QPushButton::clicked, this, &HydrographGroupEditor::onOkClicked);
-    connect(closeBtn, &QPushButton::clicked, this, &QDialog::close);
-    root->addWidget(m_buttonBox);
+    // Apply / Revert / Close: the tables and the gage edit a draft per group.
+    m_session = new DataObjectDraftSession({[this] { commitOpenEditors(); },
+                                            [this] { return int(m_drafts.size()); },
+                                            [this](QString *why) { return applyDrafts_(why); },
+                                            [this] { revertDrafts_(); }},
+                                           this);
+    m_footer = new DataObjectDraftFooter(m_session, this);
+    connect(m_footer, &DataObjectDraftFooter::closeRequested, this, &QDialog::close);
+    root->addWidget(m_footer);
 }
 
 QWidget *HydrographGroupEditor::buildLeftPane()
@@ -701,25 +730,17 @@ void HydrographGroupEditor::onGroupSelectionChanged()
     if (!m_contextValid)
         return;
     const QString name = currentGroupName();
+    if (!name.isEmpty())
+        m_selectedGroup = name;
     if (m_nameLabel) {
         m_nameLabel->setText(name.isEmpty() ? tr("(no group selected)") : name);
     }
     populateGageCombo();
-    // Reflect the engine's current rain-gage assignment in the combo.
+    m_record = shownRecord_(name);
+    // Reflect the group's rain gage (its draft's, else the model's) in the combo.
     if (m_gageCombo && m_layer && m_layer->engine() && !name.isEmpty()) {
         m_suppressGageSignal = true;
-        const int gn = swmm_hydrograph_gage_count(m_layer->engine());
-        QString currentGage;
-        for (int i = 0; i < gn; ++i) {
-            char uh[64], gage[64];
-            if (swmm_hydrograph_get_gage(m_layer->engine(), i, uh, sizeof(uh), gage,
-                                         sizeof(gage)) != SWMM_OK)
-                continue;
-            if (name == QString::fromUtf8(uh)) {
-                currentGage = QString::fromUtf8(gage);
-                break;
-            }
-        }
+        const QString currentGage = m_record.value(QStringLiteral("gage")).toString();
         const int idx = currentGage.isEmpty() ? 0 : std::max(0, m_gageCombo->findText(currentGage));
         m_gageCombo->setCurrentIndex(idx);
         m_suppressGageSignal = false;
@@ -765,7 +786,10 @@ void HydrographGroupEditor::onGageChanged(int /*index*/)
     if (name.isEmpty() || !m_layer)
         return;
     const QString newGage = m_gageCombo->currentData().toString();
-    m_layer->applyHydrographSetGage(name, newGage);
+    QString error;
+    if (!proposeDraft_(QStringLiteral("gage"), newGage, &error))
+        setToolTip(error);
+    refreshPreview();
 }
 
 void HydrographGroupEditor::onNewGroup()
@@ -785,8 +809,7 @@ void HydrographGroupEditor::onNewGroup()
     if (!ok || name.isEmpty() || !m_layer || !m_contextValid)
         return;
 
-    if (!m_layer->applyHydrographAddGroup(name, /*gageName=*/QString(),
-                                          /*initialResponse=*/0)) {
+    if (!addGroupUndoably_(name)) {
         QMessageBox::warning(this, tr("New Unit Hydrograph"),
                              tr("Engine rejected the create. The name may already be in use."));
         return;
@@ -816,13 +839,15 @@ void HydrographGroupEditor::onDeleteGroup()
                               tr("Delete unit hydrograph \"%1\"?\n\n"
                                  "This will remove all per-month / per-response parameter rows, "
                                  "the rain-gage assignment, any RDII decay rows, and any [RDII] "
-                                 "node assignments referencing this group.")
+                                 "node assignments referencing this group.\n\nUndo brings back "
+                                 "the group with its gage and parameter rows, but not the [RDII] "
+                                 "node assignments.")
                                   .arg(name),
                               QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
     if (reply != QMessageBox::Yes || !m_layer || !m_contextValid)
         return;
 
-    if (!m_layer->applyHydrographRemoveGroup(name)) {
+    if (!removeGroupUndoably_(name)) {
         QMessageBox::warning(this, tr("Delete Unit Hydrograph"), tr("Engine rejected the delete."));
     }
 }
@@ -838,7 +863,7 @@ void HydrographGroupEditor::onRenameGroup()
                                 .trimmed();
     if (!ok || newName.isEmpty() || newName == name || !m_layer || !m_contextValid)
         return;
-    if (!m_layer->applyHydrographRenameGroup(name, newName)) {
+    if (!renameGroupUndoably_(name, newName)) {
         QMessageBox::warning(this, tr("Rename Unit Hydrograph"),
                              tr("Engine rejected the rename. The name may already be in use."));
         return;
@@ -859,24 +884,19 @@ void HydrographGroupEditor::onHydrographChanged(const QString &uhName)
     // If the changed name doesn't match our current group, only update the
     // summary; everything else keeps its current state.
     const QString cur = currentGroupName();
+    // Changed from another view (or an Undo): with a draft that is a conflict
+    // to resolve at Apply, otherwise the tables follow the model.
+    if (!m_applying && !uhName.isEmpty() && m_drafts.contains(uhName))
+        m_session->noteExternalChange();
     if (uhName.isEmpty() || uhName == cur) {
         if (!cur.isEmpty()) {
-            // Mirror gage from engine.
+            m_record = shownRecord_(cur);
+            rebindModelsToCurrentSelection();
+            // Mirror the shown gage.
             populateGageCombo();
             if (m_layer && m_layer->engine() && m_gageCombo) {
                 m_suppressGageSignal = true;
-                const int gn = swmm_hydrograph_gage_count(m_layer->engine());
-                QString currentGage;
-                for (int i = 0; i < gn; ++i) {
-                    char uh[64], gage[64];
-                    if (swmm_hydrograph_get_gage(m_layer->engine(), i, uh, sizeof(uh), gage,
-                                                 sizeof(gage)) != SWMM_OK)
-                        continue;
-                    if (cur == QString::fromUtf8(uh)) {
-                        currentGage = QString::fromUtf8(gage);
-                        break;
-                    }
-                }
+                const QString currentGage = m_record.value(QStringLiteral("gage")).toString();
                 const int idx =
                     currentGage.isEmpty() ? 0 : std::max(0, m_gageCombo->findText(currentGage));
                 m_gageCombo->setCurrentIndex(idx);
@@ -902,6 +922,7 @@ void HydrographGroupEditor::rebindModelsToCurrentSelection()
 {
     const QString name = currentGroupName();
     const int month = currentMonth();
+    m_record = shownRecord_(name);
     if (m_rtkModel)
         m_rtkModel->setContext(name, month);
     if (m_iaModel)
@@ -952,10 +973,31 @@ void HydrographGroupEditor::refreshPreview()
         std::array<double, 3> mR{}, mT{}, mK{};
         std::array<bool, 3> mP{false, false, false};
 
+        if (!m_record.isEmpty()) // what this editor shows: its draft or the model's record
+            for (int er = 0; er < 3; ++er)
+                for (const int em : {-1, month}) {
+                    const QString p = QStringLiteral("rtk/%1/%2/").arg(em).arg(er);
+                    if (!m_record.value(p + QStringLiteral("present")).toInt())
+                        continue;
+                    const double rr = m_record.value(p + QStringLiteral("0")).toDouble();
+                    const double tt = m_record.value(p + QStringLiteral("1")).toDouble();
+                    const double kk = m_record.value(p + QStringLiteral("2")).toDouble();
+                    if (em == -1) {
+                        aR[er] = rr;
+                        aT[er] = tt;
+                        aK[er] = kk;
+                        aP[er] = isUsable(rr, tt, kk);
+                    } else {
+                        mR[er] = rr;
+                        mT[er] = tt;
+                        mK[er] = kk;
+                        mP[er] = isUsable(rr, tt, kk);
+                    }
+                }
         char buf[64];
         int em, er;
         double r_, t_, k_, dmax_, drec_, dinit_;
-        for (int i = 0; i < n; ++i) {
+        for (int i = 0; m_record.isEmpty() && i < n; ++i) {
             if (swmm_hydrograph_get(m_layer->engine(), i, buf, sizeof(buf), &em, &er, &r_, &t_, &k_,
                                     &dmax_, &drec_, &dinit_) != SWMM_OK)
                 continue;
@@ -1152,24 +1194,172 @@ void HydrographGroupEditor::commitOpenEditors()
         m_summaryLabel->setFocus();
 }
 
-void HydrographGroupEditor::onApplyClicked()
+QVariantMap HydrographGroupEditor::shownRecord_(const QString &group) const
 {
-    if (!m_contextValid)
-        return;
-    commitOpenEditors();
-    // The model's setData fires hydrographChanged → refreshPreview via the
-    // signal chain. Refresh again here defensively in case the user clicked
-    // Apply without any open editor (no-op edit, still refreshes the plot).
-    refreshPreview();
+    const auto draft = m_drafts.constFind(group);
+    if (draft != m_drafts.cend())
+        return draft->record;
+    return m_layer && !group.isEmpty()
+               ? DataObjectAttributeTableModel::dataRecord(m_layer, kHydrographs, group)
+               : QVariantMap{};
 }
 
-void HydrographGroupEditor::onOkClicked()
+bool HydrographGroupEditor::proposeDraft_(const QString &key, const QVariant &value,
+                                          QString *error)
 {
-    if (!m_contextValid)
-        return;
-    commitOpenEditors();
+    const QString group = currentGroupName();
+    if (!m_layer || group.isEmpty() || m_record.isEmpty())
+        return false;
+    QVariantMap after;
+    if (!DataObjectAttributeTableModel::proposeRecord(m_layer, kHydrographs, group, key, value,
+                                                      m_record, &after, error))
+        return false;
+    const auto draft = m_drafts.constFind(group);
+    const QVariantMap base = draft != m_drafts.cend() ? draft->base : m_record;
+    if (after == base)
+        m_drafts.remove(group); // edited back to the model's values
+    else
+        m_drafts.insert(group, {base, after});
+    m_record = after;
+    m_session->noteEdited();
     refreshPreview();
-    close();
+    return true;
+}
+
+bool HydrographGroupEditor::applyDrafts_(QString *reason)
+{
+    QVector<DataObjectDraftSession::Edit> edits;
+    QStringList names;
+    const auto refusal = std::make_shared<QString>();
+    for (auto it = m_drafts.cbegin(); it != m_drafts.cend(); ++it) {
+        // The edits go on what the model holds now (changed elsewhere meanwhile: Apply asked).
+        const QVariantMap now = DataObjectAttributeTableModel::dataRecord(m_layer, kHydrographs, it.key());
+        QVariantMap after = now;
+        for (auto field = it->record.cbegin(); field != it->record.cend(); ++field)
+            if (it->base.value(field.key()) != field.value())
+                after[field.key()] = field.value();
+        for (auto field = it->base.cbegin(); field != it->base.cend(); ++field)
+            if (!it->record.contains(field.key()))
+                after.remove(field.key());
+        if (after == now)
+            continue;
+        names << it.key();
+        edits.append({[layer = m_layer, group = it.key(), before = now, after,
+                       refusal](bool forward) {
+            QString why;
+            const bool ok = layer && DataObjectAttributeTableModel::applyRecord(
+                                         layer, kHydrographs, group, forward ? before : after,
+                                         forward ? after : before, nullptr, &why);
+            if (!ok && refusal->isEmpty())
+                *refusal = why;
+            return ok;
+        }});
+    }
+    m_applying = true;
+    const bool ok = DataObjectDraftSession::commit(
+        edits, undoStack_(),
+        names.size() == 1 ? tr("Edit unit hydrograph %1").arg(names.first())
+                          : tr("Edit %n unit hydrograph(s)", nullptr, int(names.size())));
+    m_applying = false;
+    if (!ok) {
+        const QString which = names.join(QStringLiteral(", "));
+        *reason = refusal->isEmpty()
+                      ? tr("the model did not accept the values for %1; nothing was changed")
+                            .arg(which)
+                      : tr("the model did not accept the values for %1 (%2); nothing was changed")
+                            .arg(which, *refusal);
+        return false;
+    }
+    m_drafts.clear();
+    onGroupSelectionChanged();
+    return true;
+}
+
+void HydrographGroupEditor::revertDrafts_()
+{
+    m_drafts.clear();
+    onGroupSelectionChanged();
+}
+
+bool HydrographGroupEditor::addGroupUndoably_(const QString &name)
+{
+    const DataObjectDraftSession::Edit add{[layer = m_layer, name](bool forward) {
+        return layer && (forward ? layer->applyHydrographAddGroup(name, QString(), 0)
+                                 : layer->applyHydrographRemoveGroup(name));
+    }};
+    m_applying = true;
+    const bool ok =
+        DataObjectDraftSession::commit({add}, undoStack_(), tr("Create unit hydrograph %1").arg(name));
+    m_applying = false;
+    if (ok)
+        m_session->noteApplied(tr("Created %1").arg(name));
+    return ok;
+}
+
+bool HydrographGroupEditor::removeGroupUndoably_(const QString &name)
+{
+    if (!m_layer)
+        return false;
+    // Plan D8: Undo brings the group back with its gage and parameter rows.
+    const DataObjectDraftSession::Edit remove{
+        [layer = m_layer, name,
+         kept = DataObjectAttributeTableModel::dataRecord(m_layer, kHydrographs, name)](bool forward) {
+            if (!layer)
+                return false;
+            if (forward)
+                return layer->applyHydrographRemoveGroup(name);
+            if (!layer->applyHydrographAddGroup(name, kept.value(QStringLiteral("gage")).toString(), 0))
+                return false;
+            return DataObjectAttributeTableModel::applyRecord(
+                layer, kHydrographs, name,
+                DataObjectAttributeTableModel::dataRecord(layer, kHydrographs, name), kept, nullptr);
+        }};
+    m_drafts.remove(name);
+    m_applying = true;
+    const bool ok = DataObjectDraftSession::commit({remove}, undoStack_(),
+                                                   tr("Delete unit hydrograph %1").arg(name));
+    m_applying = false;
+    if (ok)
+        m_session->noteApplied(tr("Deleted %1").arg(name));
+    else
+        m_session->noteEdited();
+    return ok;
+}
+
+bool HydrographGroupEditor::renameGroupUndoably_(const QString &from, const QString &to)
+{
+    const DataObjectDraftSession::Edit rename{[layer = m_layer, from, to](bool forward) {
+        return layer && layer->applyHydrographRenameGroup(forward ? from : to, forward ? to : from);
+    }};
+    m_applying = true;
+    const bool ok = DataObjectDraftSession::commit({rename}, undoStack_(),
+                                                   tr("Rename unit hydrograph %1 to %2").arg(from, to));
+    m_applying = false;
+    if (!ok)
+        return false;
+    if (m_drafts.contains(from)) // unapplied changes follow the group's new name
+        m_drafts.insert(to, m_drafts.take(from));
+    m_session->noteApplied(tr("Renamed to %1").arg(to));
+    return true;
+}
+
+QUndoStack *HydrographGroupEditor::undoStack_() const
+{
+    if (m_undo)
+        return m_undo;
+    return m_layer && m_layer->editCanvas() ? m_layer->editCanvas()->undoStack() : nullptr;
+}
+
+void HydrographGroupEditor::setUndoStack(QUndoStack *stack)
+{
+    m_undo = stack;
+}
+
+void HydrographGroupEditor::done(int result)
+{
+    if (m_contextValid && m_layer && !m_session->resolveBeforeClose())
+        return;
+    QDialog::done(result);
 }
 
 void HydrographGroupEditor::onLegendMarkerClicked()

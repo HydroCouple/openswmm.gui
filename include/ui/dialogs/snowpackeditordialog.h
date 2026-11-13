@@ -15,7 +15,10 @@
 #ifndef OPENSWMMVIS_UI_DIALOGS_SNOWPACKEDITORDIALOG_H
 #define OPENSWMMVIS_UI_DIALOGS_SNOWPACKEDITORDIALOG_H
 
+#include "snowpack/snowpackprovider.h"
+
 #include <QDialog>
+#include <QHash>
 #include <QPointer>
 #include <QVector>
 
@@ -25,6 +28,7 @@ class QListView;
 class QPushButton;
 class QSplitter;
 class QComboBox;
+class QUndoStack;
 
 class SWMMModelLayer;
 
@@ -38,6 +42,9 @@ namespace openswmmvis::ui
 {
 
 class SnowpackListModel;
+class DataObjectDraftSession;
+class DataObjectDraftFooter;
+class DraftMarkProxyModel;
 
 class SnowpackEditorDialog : public QDialog
 {
@@ -129,13 +136,14 @@ public:
      * @details No-ops without registry; does not show the window or change mode().
      */
     void invokeNew();
-    /**
-     * @brief Dismiss the project-owned immediate editor, or validate a standalone registry draft.
-     * @details Without a layer, a negative saveToEngine() result shows lastSaveError() and
-     * keeps the editor open. Otherwise delegates to QDialog::accept(). Does not provide
-     * rollback for previous live provider/registry mutations.
-     */
-    void accept() override;
+    /*! Undo stack for Apply, create, delete and rename (one step each). Without
+     *  one the layer's map undo stack is used. */
+    void setUndoStack(QUndoStack *stack);
+    /*! Changes are held in a draft until Apply (plan
+     *  workplans/DATA_OBJECT_APPLY_REVERT_PLAN_2026-11-11.md). */
+    DataObjectDraftSession *draftSession() const noexcept { return m_session; }
+    /*! Closing with unapplied changes asks Apply / Discard / Cancel first. */
+    void done(int result) override;
 
     /**
      * @brief Show/raise the modeless editor and select an available named provider.
@@ -156,45 +164,42 @@ private slots:
      */
     void onListSelectionChanged_();
     /**
-     * @brief Create an unused SnowpackN provider and select it if the registry accepts it.
-     * @details No-ops without registry. Registry owns/materializes the new object; scalar
-     * parameters remain provider values until their normal save route.
+     * @brief Create an unused SnowpackN pack at once (one undo step) and select it.
+     * @details No-ops without registry.
      */
     void onAddClicked_();
     /**
-     * @brief Confirm deletion, remove the current provider and select the first survivor.
-     * @details Requires a live registry/current provider and stable context through the nested
-     * confirmation. No-op on refusal; an empty registry leaves the form unbound. Does not add
-     * dialog-local undo or report removal status.
+     * @brief Confirm deletion (naming what uses the pack), delete it at once as one undo step
+     * and select the first survivor.
+     * @details Undo brings the pack back with its settings, but not the uses the engine
+     * detached (plan D8). No-op on refusal; an empty registry leaves the form unbound.
      */
     void onDeleteClicked_();
     /**
      * @brief Trim/validate the current name and request registry rename.
      * @details Suppressed during hydration or without registry/provider. Empty/unchanged names
      * do nothing; malformed SWMM identifiers or failed rename produce a warning and restore
-     * current provider text.
+     * current provider text. A rename takes effect at once as one undo step.
      */
     void onNameEdited_();
     /**
-     * @brief Commit the completed parameter when project-owned, or update a standalone draft.
-     * @details Hydration/unbound calls do nothing. Project-owned edits change only the sender's
-     * member through the shared checked writer and canvas Undo stack, preserving inactive values.
-     * Standalone drafts copy the form and promote inherited UEB site edits to an explicit model.
-     * Depth/rate/temperature use input in-or-mm, hours and F-or-C; UEB site heat, energy and
-     * extinction depth use W/m², kJ/m² and metres. No unit conversion occurs.
+     * @brief Draft the completed parameter; nothing reaches the model until Apply.
+     * @details Hydration/unbound calls do nothing. A UEB site edit on an inheriting pack makes
+     * the draft an explicit UEB pack. Depth/rate/temperature use input in-or-mm, hours and
+     * F-or-C; UEB site heat, energy and extinction depth use W/m², kJ/m² and metres. No unit
+     * conversion occurs.
      */
     void onFieldEdited_();
     /**
-     * @brief Commit the model choice and refresh applicable fields.
-     * @details Uses -1 for project default, zero degree-day or one UEB. Project default clears
-     * the native site override as one Undo operation; standalone drafting retains old behavior.
-     * Hydration/unbound calls do nothing.
+     * @brief Draft the model choice and refresh applicable fields.
+     * @details Uses -1 for project default, zero degree-day or one UEB. Project default also
+     * resets the UEB site values to their defaults in the draft. Hydration/unbound calls do
+     * nothing.
      */
     void onModelEdited_();
     /**
-     * @brief Commit a trimmed destination through the typed checked writer when project-owned.
-     * @details Standalone drafting copies the provider string. Suppressed during hydration or
-     * without a provider; no widget-text reference is retained.
+     * @brief Draft the trimmed destination subcatchment.
+     * @details Suppressed during hydration or without a provider.
      */
     void onRemovalSubcatchEdited_();
     /**
@@ -212,8 +217,8 @@ private:
      * @brief Create the owned list and grouped 32-parameter snowpack form once.
      * @details Builds 27 legacy plowable/impervious/pervious/removal fields plus five UEB site
      * fields from ordered specs, using labeled native units and per-field range/precision. Adds
-     * a separate removal ID and model selector; Close uses accept(). Standalone drafts also
-     * receive registry validation. Requires uninitialized child-control pointers.
+     * a separate removal ID and model selector, and the Apply / Revert / Close footer.
+     * Requires uninitialized child-control pointers.
      */
     void buildUi_();
     /**
@@ -246,6 +251,25 @@ private:
      * without a registry.
      */
     QString suggestUniqueName_() const;
+
+    /// Make \p v the current pack's draft (dropped again when equal to the model). Each
+    /// field handler changes only its own value, so display rounding never reaches the model.
+    void setDraft_(const openswmmvis::snowpack::SnowpackProvider::Params &v);
+    /// What the form shows for \p p: its draft if it has one, else the model's values.
+    openswmmvis::snowpack::SnowpackProvider::Params
+    shown_(openswmmvis::snowpack::SnowpackProvider *p) const;
+    bool applyDrafts_(QString *reason);
+    void revertDrafts_();
+    QUndoStack *undoStack_() const;
+
+    QHash<openswmmvis::snowpack::SnowpackProvider *,
+          openswmmvis::snowpack::SnowpackProvider::Params>
+        m_drafts;
+    DataObjectDraftSession *m_session = nullptr;
+    DataObjectDraftFooter *m_footer = nullptr;
+    DraftMarkProxyModel *m_draftMarks = nullptr; ///< Marks rows holding unapplied changes.
+    QPointer<QUndoStack> m_undo;
+    bool m_applying = false;
 
     QPointer<openswmmvis::snowpack::SnowpackRegistry> m_registry;
     QPointer<SWMMModelLayer> m_layer;

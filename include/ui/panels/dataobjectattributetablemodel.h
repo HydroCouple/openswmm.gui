@@ -166,6 +166,22 @@ public:
 
     struct RecordField { openswmmvis::ColumnSpec spec; bool editable=true; QString reason; };
     static QVariantMap dataRecord(SWMMModelLayer *layer,SWMMModelLayer::DataCategory category,const QString &name);
+    /*! A record-based editor's draft step (land use, unit hydrograph, control
+     *  rule; Apply/Revert plan): \p before with \p key set to \p value by the
+     *  same rules as applyValues (derived fields, ranges, references), into
+     *  \p after. Nothing is written. @return False with \p error when refused. */
+    static bool proposeRecord(SWMMModelLayer *layer, SWMMModelLayer::DataCategory category,
+                              const QString &name, const QString &key, const QVariant &value,
+                              const QVariantMap &before, QVariantMap *after,
+                              QString *error = nullptr);
+    /*! A record-based editor's Apply: write the fields where \p after differs
+     *  from \p before, provided the model still holds \p before for them; read
+     *  back, publish and mark the project edited, all or nothing. With \p undo
+     *  it is one undo step; without, it is written without history (the
+     *  editor's own undo step replays it). */
+    static bool applyRecord(SWMMModelLayer *layer, SWMMModelLayer::DataCategory category,
+                            const QString &name, const QVariantMap &before,
+                            const QVariantMap &after, QUndoStack *undo, QString *error = nullptr);
     static QList<RecordField> recordFields(SWMMModelLayer *layer,SWMMModelLayer::DataCategory category,const QStringList &names);
     // QAbstractTableModel ----------------------------------------------------
     /**

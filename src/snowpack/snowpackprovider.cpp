@@ -9,6 +9,9 @@
 
 #include "snowpack/snowpackprovider.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace openswmmvis::snowpack
 {
 
@@ -68,6 +71,39 @@ void SnowpackProvider::setDefaultModel(int kind)
     if (kind < 0 || kind > 1 || kind == m_defaultModel)
         return;
     m_defaultModel = kind;
+    emit paramsChanged();
+}
+
+bool SnowpackProvider::Params::sameAs(const Params &other, double relTol) const
+{
+    if (removalSubcatch != other.removalSubcatch || modelKind != other.modelKind)
+        return false;
+    for (int k = 0; k < ParamCount; ++k) {
+        const double a = values[k], b = other.values[k];
+        if (std::abs(a - b) > relTol * std::max({1.0, std::abs(a), std::abs(b)}))
+            return false;
+    }
+    return true;
+}
+
+SnowpackProvider::Params SnowpackProvider::params() const
+{
+    Params p;
+    for (int k = 0; k < ParamCount; ++k)
+        p.values[k] = m_param[k];
+    p.removalSubcatch = m_removalSubcatch;
+    p.modelKind = m_modelKind;
+    return p;
+}
+
+void SnowpackProvider::setParams(const Params &p)
+{
+    if (p == params() || p.modelKind < -1 || p.modelKind > 1)
+        return;
+    for (int k = 0; k < ParamCount; ++k)
+        m_param[k] = p.values[k];
+    m_removalSubcatch = p.removalSubcatch;
+    m_modelKind = p.modelKind;
     emit paramsChanged();
 }
 

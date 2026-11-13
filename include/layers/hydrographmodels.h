@@ -35,8 +35,21 @@
 #include <QAbstractTableModel>
 #include <QObject>
 #include <QString>
+#include <QVariantMap>
+
+#include <functional>
 
 class SWMMModelLayer;
+
+/*! Draft mode for the unit hydrograph tables (the editor holds its edits
+ *  until Apply; plan workplans/DATA_OBJECT_APPLY_REVERT_PLAN_2026-11-11.md):
+ *  cells read the group's record \p read returns, and an edit goes to
+ *  \p write(key, value), which says whether the draft took it. Empty: the
+ *  tables read and write the engine. */
+struct HydrographRecordAccess {
+    std::function<QVariantMap()> read;
+    std::function<bool(const QString &key, const QVariant &value)> write;
+};
 
 // ---------------------------------------------------------------------------
 // Group list model — one row per UH group name, in engine first-occurrence
@@ -178,6 +191,8 @@ public:
      * @note Equal context is a no-op; changed context is installed inside begin/endResetModel(), invalidating persistent indices. Does not mutate engine rows.
      */
     void setContext(const QString &name, int month);
+    /// Read and write a draft record instead of the engine (HydrographRecordAccess).
+    void setRecordAccess(HydrographRecordAccess access);
 
     /**
      * @return Copied current group context, possibly empty or absent from the engine; no lookup occurs.
@@ -197,6 +212,9 @@ private slots:
 
 private:
     SWMMModelLayer *m_layer = nullptr;
+    HydrographRecordAccess m_record;
+    /// Write one record key: to the draft in draft mode, else through the shared writer.
+    bool writeKey(const QString &key, const QVariant &value);
     QString m_name;
     int m_month = -1;
 };
@@ -264,6 +282,8 @@ public:
      * @note Equal context is a no-op; changed context is installed inside begin/endResetModel(), invalidating persistent indices. Does not mutate engine rows.
      */
     void setContext(const QString &name, int month);
+    /// Read and write a draft record instead of the engine (HydrographRecordAccess).
+    void setRecordAccess(HydrographRecordAccess access);
 
     /**
      * @return Copied current group context, possibly empty or absent from the engine; no lookup occurs.
@@ -283,6 +303,9 @@ private slots:
 
 private:
     SWMMModelLayer *m_layer = nullptr;
+    HydrographRecordAccess m_record;
+    /// Write one record key: to the draft in draft mode, else through the shared writer.
+    bool writeKey(const QString &key, const QVariant &value);
     QString m_name;
     int m_month = -1;
 };
@@ -368,6 +391,8 @@ public:
      * @note Equal context is a no-op; changed context is installed inside begin/endResetModel(), invalidating persistent indices. Does not mutate engine rows.
      */
     void setContext(const QString &name);
+    /// Read and write a draft record instead of the engine (HydrographRecordAccess).
+    void setRecordAccess(HydrographRecordAccess access);
 
     /**
      * @return Copied current group context, possibly empty or absent from the engine; no lookup occurs.
@@ -383,6 +408,9 @@ private slots:
 
 private:
     SWMMModelLayer *m_layer = nullptr;
+    HydrographRecordAccess m_record;
+    /// Write one record key: to the draft in draft mode, else through the shared writer.
+    bool writeKey(const QString &key, const QVariant &value);
     QString m_name;
 };
 
