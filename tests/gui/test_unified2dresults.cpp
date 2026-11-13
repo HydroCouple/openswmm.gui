@@ -48,6 +48,7 @@
 #include <QTreeView>
 #include <QDir>
 #include <QFile>
+#include <QTextStream>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QGraphicsScene>
@@ -1185,28 +1186,87 @@ private slots:
         QVERIFY(layer.staticWaterCacheable());
     }
 
-    /** @brief A vector row without a colour range (streaks only, hidden, nothing moving) leaves
-     * its colour editor disabled, so it never blocks OK/Apply of the style dialog. */
+    /** @brief A vector row's colour editor shows the |v| range of the displayed frame whether or
+     * not the row draws arrows (streaks only, hidden). Without a range (constant colour, no wet
+     * cell) it is disabled, so it never blocks OK/Apply, and shows blank bounds with a note
+     * rather than its range boxes' limits and an error. */
     void vectorColourEditorNeverBlocksAccept()
     {
+        auto owned = std::make_unique<FieldSource>();
+        owned->values["Mesh2_face_depth"] = {.5f, .5f};
+        owned->values["Mesh2_face_vx"] = {1.f, 3.f};
+        owned->values["Mesh2_face_vy"] = {0.f, 4.f}; // |v| = 1 and 5
         SWMM2DResultsLayer layer;
-        layer.setSource(std::make_unique<FieldSource>());
+        layer.setSource(std::move(owned));
         openswmmvis::ui::Swmm2DResultsStylePanel panel(&layer);
         const auto editor = [&panel] {
             return panel.findChild<openswmmvis::ui::ClassificationEditor *>(
                 "additionalResultVectorClassification");
         };
+        /** @return The editor's minimum and maximum range boxes as displayed. */
+        const auto bounds = [&editor] {
+            QString lo, hi;
+            for (auto *spin : editor()->findChildren<QDoubleSpinBox *>()) {
+                if (spin->accessibleName() == QLatin1String("Minimum classification value"))
+                    lo = spin->text();
+                else if (spin->accessibleName() == QLatin1String("Maximum classification value"))
+                    hi = spin->text();
+            }
+            return QStringList{lo, hi};
+        };
+        const auto status = [&editor] {
+            return editor()->findChild<QLabel *>("classificationStatus")->text();
+        };
+        const QString none = openswmmvis::ui::ClassificationEditor::tr(
+            "No values to classify in the displayed data.");
         auto *velocity = layer.velocityResultSublayer();
-        QVERIFY(panel.focusResult(velocity->id())); // streaks only: no colour range
-        QVERIFY(editor() && editor()->hasValidDraft());
-        auto *darcy = vectorRow(layer, kDarcy);
-        darcy->setVisible(false); // shown by default
+        QVERIFY(!velocity->vectorStyle()->arrows() && velocity->vectorStyle()->streaks());
+        QVERIFY(panel.focusResult(velocity->id())); // streaks only
+        QVERIFY(editor() && editor()->isEnabled() && editor()->hasValidDraft());
+        QCOMPARE(bounds(), (QStringList{"1.0000", "5.0000"}));
+        velocity->setVisible(false);
+        QVERIFY(editor()->isEnabled() && editor()->hasValidDraft());
+        QCOMPARE(bounds(), (QStringList{"1.0000", "5.0000"}));
+        velocity->setVisible(true);
+        velocity->vectorStyle()->setColorMode(ResultVectorStyle::ColorMode::Constant);
+        QVERIFY(!editor()->isEnabled() && editor()->hasValidDraft());
+        QCOMPARE(bounds(), (QStringList{"—", "—"}));
+        QCOMPARE(status(), none);
+        velocity->vectorStyle()->setColorMode(ResultVectorStyle::ColorMode::Magnitude);
+        QVERIFY(editor()->isEnabled());
+        QCOMPARE(bounds(), (QStringList{"1.0000", "5.0000"}));
+
+        // No cell is wet in the displayed frame: no range to show.
+        auto dryOwned = std::make_unique<FieldSource>();
+        dryOwned->values["Mesh2_face_vx"] = {1.f, 3.f};
+        SWMM2DResultsLayer dry;
+        dry.setSource(std::move(dryOwned));
+        openswmmvis::ui::Swmm2DResultsStylePanel dryPanel(&dry);
+        QVERIFY(dryPanel.focusResult(dry.velocityResultSublayer()->id()));
+        auto *dryEditor = dryPanel.findChild<openswmmvis::ui::ClassificationEditor *>(
+            "additionalResultVectorClassification");
+        QVERIFY(dryEditor && !dryEditor->isEnabled() && dryEditor->hasValidDraft());
+        QCOMPARE(dryEditor->findChild<QLabel *>("classificationStatus")->text(), none);
+
+        // Nor does a scalar row whose displayed frame cannot be read.
+        auto gaps = std::make_unique<FieldSource>();
+        gaps->missingDataset = QStringLiteral("Mesh2_face_gw_table_elev");
+        gaps->missingTime = 1;
+        SWMM2DResultsLayer gappy;
+        gappy.setSource(std::move(gaps));
+        gappy.setCurrentTimeIndex(1);
+        openswmmvis::ui::Swmm2DResultsStylePanel gapPanel(&gappy);
+        QVERIFY(gapPanel.focusResult(scalarRow(gappy, kTable)->id()));
+        auto *fill = gapPanel.findChild<openswmmvis::ui::ClassificationEditor *>(
+            "additionalResultClassification");
+        QVERIFY(fill && !fill->isEnabled() && fill->hasValidDraft());
+        QCOMPARE(fill->findChild<QLabel *>("classificationStatus")->text(), none);
+
+        auto *darcy = vectorRow(layer, kDarcy); // arrows coloured by magnitude
         QVERIFY(panel.focusResult(darcy->id()));
-        QVERIFY(editor() && !editor()->isEnabled() && editor()->hasValidDraft());
-        darcy->setVisible(true); // arrows coloured by magnitude: a real range
         QVERIFY(editor()->isEnabled() && editor()->hasValidDraft());
         darcy->setVisible(false);
-        QVERIFY(!editor()->isEnabled());
+        QVERIFY(editor()->isEnabled() && editor()->hasValidDraft());
     }
 
     /** @brief The velocity row legends its own arrows; the hidden arrow engine adds no block. */
@@ -2159,6 +2219,97 @@ private slots:
                                         "Groundwater — Vector", "Groundwater — Scalar"}));
         // The terrain draws nothing under results and is not listed.
         QCOMPARE(rows, (QStringList{"results2d.meshVertices", "results2d.meshEdges"}));
+    }
+
+    /** @brief Audit, on a real results file, what every colour classification editor of every
+     * result row shows: enabled state, the bounds in its range boxes and its status line, next
+     * to the frame's own value range. Skips unless CLASSIFICATION_AUDIT_H5 names a .2d.h5 and
+     * CLASSIFICATION_AUDIT_OUT a folder; writes classification_audit.tsv there. */
+    void classificationBoundsAudit()
+    {
+        const QString path = qEnvironmentVariable("CLASSIFICATION_AUDIT_H5"),
+                      out = qEnvironmentVariable("CLASSIFICATION_AUDIT_OUT");
+        if (path.isEmpty() || out.isEmpty())
+            QSKIP("Set CLASSIFICATION_AUDIT_H5 and CLASSIFICATION_AUDIT_OUT");
+        auto file = std::make_unique<HDF5Mesh2DSource>();
+        QVERIFY(file->open(path));
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::move(file));
+        for (const auto &v : layer.resultVariables())
+            if (!scalarRow(layer, v.key()))
+                (void)layer.addResultSublayer(v.key());
+        for (const auto &v : layer.resultVectors())
+            if (!vectorRow(layer, v.key()))
+                (void)layer.addResultVectorSublayer(v.key());
+        QFile tsv(out + "/classification_audit.tsv");
+        QVERIFY(tsv.open(QIODevice::WriteOnly | QIODevice::Text));
+        QTextStream row(&tsv);
+        row << "time\trow\tvisible\tdrawn\tdata_min\tdata_max\teditor\tenabled\tshown\tmin_box\t"
+               "max_box\tstatus\n";
+        const int n = layer.source()->timeCount();
+        for (int t : {0, 1, n / 4, n / 2, n - 1}) {
+            layer.setCurrentTimeIndex(t);
+            Panel panel(&layer);
+            for (auto *s : layer.sublayers()) {
+                auto *scalar = qobject_cast<ResultScalarSublayer *>(s);
+                auto *vector = qobject_cast<ResultVectorSublayer *>(s);
+                if (!scalar && !vector)
+                    continue;
+                // The values the row's colours classify: the frame's range, or |v| over the
+                // cells the vector row draws.
+                double lo = std::numeric_limits<double>::quiet_NaN(), hi = lo;
+                QString drawn = QStringLiteral("-");
+                if (scalar) {
+                    const auto f = layer.resultFrame(scalar->variableKey(), t);
+                    if (f && f->error.isEmpty())
+                        lo = f->minimum, hi = f->maximum;
+                } else {
+                    const auto *style = vector->vectorStyle();
+                    drawn = QStringLiteral("arrows=%1 streaks=%2")
+                                .arg(style->arrows())
+                                .arg(style->streaks());
+                    const auto &d = vector->descriptor();
+                    const auto fx = layer.resultFrame(d.x.key(), t),
+                               fy = layer.resultFrame(d.y.key(), t);
+                    const auto depth = layer.resultFrame(kDepth, t);
+                    const bool surface = d.domain() == Mesh2DResultVariable::Domain::Surface;
+                    for (size_t c = 0; fx->error.isEmpty() && fy->error.isEmpty() &&
+                                       c < fx->values.size() && c < fy->values.size();
+                         ++c) {
+                        if (fx->status[c] != Mesh2DValueStatus::Valid ||
+                            fy->status[c] != Mesh2DValueStatus::Valid)
+                            continue;
+                        if (surface && depth->error.isEmpty() &&
+                            !(depth->values[c] >= style->dryDepthCutoff()))
+                            continue;
+                        const double m = std::hypot(fx->values[c], fy->values[c]);
+                        lo = std::isfinite(lo) ? std::min(lo, m) : m;
+                        hi = std::isfinite(hi) ? std::max(hi, m) : m;
+                    }
+                }
+                QVERIFY(panel.focusResult(s->id()));
+                QCoreApplication::processEvents();
+                for (auto *editor : panel.findChildren<openswmmvis::ui::ClassificationEditor *>()) {
+                    QString name = editor->objectName();
+                    for (QWidget *w = editor->parentWidget(); name.isEmpty() && w;
+                         w = w->parentWidget())
+                        name = w->objectName();
+                    QString lowBox, highBox;
+                    for (auto *spin : editor->findChildren<QDoubleSpinBox *>()) {
+                        if (spin->accessibleName() == QLatin1String("Minimum classification value"))
+                            lowBox = spin->text();
+                        else if (spin->accessibleName() ==
+                                 QLatin1String("Maximum classification value"))
+                            highBox = spin->text();
+                    }
+                    const auto *status = editor->findChild<QLabel *>("classificationStatus");
+                    row << t << '\t' << s->displayName() << '\t' << s->isVisible() << '\t' << drawn
+                        << '\t' << lo << '\t' << hi << '\t' << name << '\t' << editor->isEnabled()
+                        << '\t' << editor->isVisibleTo(&panel) << '\t' << lowBox << '\t' << highBox
+                        << '\t' << (status ? status->text().simplified() : QString()) << '\n';
+                }
+            }
+        }
     }
 };
 

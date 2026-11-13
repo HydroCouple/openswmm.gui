@@ -423,8 +423,16 @@ void ClassificationEditor::refresh()
         QSignalBlocker bmax(m_rangeMaxSpin);
         m_customRangeCheck->setChecked(s.useCustomRange());
         const auto [lo, hi] = m_binding->dataRange();
-        OpenSWMM::Ui::setHydratedValue(m_rangeMinSpin, s.useCustomRange() ? s.rangeMin() : lo);
-        OpenSWMM::Ui::setHydratedValue(m_rangeMaxSpin, s.useCustomRange() ? s.rangeMax() : hi);
+        // Without data the automatic range has no bounds: the boxes read "—", not their limits.
+        const bool noRange = !s.useCustomRange() && !(std::isfinite(lo) && std::isfinite(hi));
+        for (auto *spin : {m_rangeMinSpin, m_rangeMaxSpin})
+            spin->setSpecialValueText(noRange ? QStringLiteral("—") : QString());
+        OpenSWMM::Ui::setHydratedValue(m_rangeMinSpin, noRange ? m_rangeMinSpin->minimum()
+                                                       : s.useCustomRange() ? s.rangeMin()
+                                                                            : lo);
+        OpenSWMM::Ui::setHydratedValue(m_rangeMaxSpin, noRange ? m_rangeMaxSpin->minimum()
+                                                       : s.useCustomRange() ? s.rangeMax()
+                                                                            : hi);
     }
     {
         QSignalBlocker bf(m_labelFormatCombo);
@@ -571,10 +579,15 @@ void ClassificationEditor::updateStatus()
                                                 : m_schemeError;
     const auto s = m_binding->scheme();
     const auto [dataMin, dataMax] = m_binding->dataRange();
-    if (message.isEmpty())
+    // No data to take an automatic range from: a note, not an error to correct.
+    const bool noRange = message.isEmpty() && !s.useCustomRange() &&
+                         !(std::isfinite(dataMin) && std::isfinite(dataMax));
+    if (noRange)
+        message = tr("No values to classify in the displayed data.");
+    else if (message.isEmpty())
         message = s.validationError(dataMin, dataMax);
-    const bool error = !message.isEmpty();
-    if (!error) {
+    const bool error = !noRange && !message.isEmpty();
+    if (!error && !noRange) {
         const auto [lo, hi] = s.effectiveRange(dataMin, dataMax);
         if (lo == hi)
             message = tr("The available data is constant; there are no distinct class boundaries.");
