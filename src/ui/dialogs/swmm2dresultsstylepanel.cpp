@@ -1460,6 +1460,7 @@ void Swmm2DResultsStylePanel::buildScalarTabs(OpenSWMM::Render::ResultScalarSubl
     /**
      * @brief Refresh this row's classification editors (valid drafts only) and enable each only
      * while its own previewed range is finite, so an editor without one never blocks OK/Apply.
+     * An editor being disabled drops its draft, so it shows no stale bounds.
      */
     QPointer<ClassificationEditor> fillGuard = fillEditor, contourGuard = contourEditor;
     const auto refreshEditors = [frameFor, guarded, guardedLine, fillGuard, contourGuard] {
@@ -1469,14 +1470,16 @@ void Swmm2DResultsStylePanel::buildScalarTabs(OpenSWMM::Render::ResultScalarSubl
                    std::isfinite(f->maximum);
         };
         if (fillGuard && guarded) {
-            if (fillGuard->hasValidDraft())
+            const bool on = ranged(guarded->scheme());
+            if (!on || fillGuard->hasValidDraft())
                 fillGuard->refresh();
-            fillGuard->setEnabled(ranged(guarded->scheme()));
+            fillGuard->setEnabled(on);
         }
         if (contourGuard && guardedLine) {
-            if (contourGuard->hasValidDraft())
+            const bool on = ranged(guardedLine->scheme());
+            if (!on || contourGuard->hasValidDraft())
                 contourGuard->refresh();
-            contourGuard->setEnabled(ranged(guardedLine->scheme()));
+            contourGuard->setEnabled(on);
         }
     };
     buildScalarDataTab(row, tabs, refreshEditors);
@@ -1958,12 +1961,13 @@ void Swmm2DResultsStylePanel::buildVectorTabs(OpenSWMM::Render::ResultVectorSubl
                             ? tr("Arrows sample cell values on a screen grid; streaks follow the "
                                  "interpolated field from evenly spaced seeds.")
                             : geometry.error);
-        if (classification->hasValidDraft())
+        // As on the scalar page: without a colour range (constant colour,
+        // nothing moving) an enabled editor would hold an invalid draft and
+        // block OK/Apply. Disabled, it drops its draft and shows no bounds.
+        const bool ranged = std::isfinite(lo) && std::isfinite(hi);
+        if (!ranged || classification->hasValidDraft())
             classification->refresh();
-        // As on the scalar page: without a colour range (hidden row, constant
-        // colour, animated streaks only, nothing moving) an enabled editor
-        // would hold an invalid draft and block OK/Apply.
-        classification->setEnabled(std::isfinite(lo) && std::isfinite(hi));
+        classification->setEnabled(ranged);
     };
     m_refreshResultData();
     // Style and visibility changes both change the colour range.

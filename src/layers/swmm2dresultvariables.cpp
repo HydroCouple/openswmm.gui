@@ -1192,22 +1192,25 @@ SWMM2DResultsLayer::resultVectorGeometry(const ResultVectorSublayer *sub, const 
         *colorMax = nan;
     if (colorUnits)
         colorUnits->clear();
-    if (!sub || !sub->isVisible() || sub->opacity() <= 0 || !(pixelsPerScene > 0) ||
-        !std::isfinite(pixelsPerScene))
+    if (!sub)
         return out;
     const auto *style = sub->vectorStyle();
+    // The presenting surface velocity row animates its streaks on the
+    // flow-streak engine; every other row traces static streaks here.
+    const bool animatedStreaks = sub == velocityResultSublayer();
+    // Nothing drawn here: hidden, or no arrows and streaks off or animated by
+    // the flow-streak engine. The colour range is still reported when asked
+    // (the style editor shows it), otherwise the frame reads are skipped.
+    const bool drawn = sub->isVisible() && sub->opacity() > 0 && pixelsPerScene > 0 &&
+                       std::isfinite(pixelsPerScene) &&
+                       (style->arrows() || (style->streaks() && !animatedStreaks));
+    if (!drawn && !colorMin && !colorMax && !colorUnits)
+        return out;
     const auto &vector = sub->descriptor();
     if (vector.key().isEmpty() || vector.key() != sub->vectorKey()) {
         out.error = tr("Vector result is unavailable: %1").arg(sub->vectorKey());
         return out;
     }
-    // The presenting surface velocity row animates its streaks on the
-    // flow-streak engine; every other row traces static streaks here.
-    const bool animatedStreaks = sub == velocityResultSublayer();
-    // Nothing drawn here: no arrows, and streaks off or animated by the
-    // flow-streak engine. Skip the frame reads.
-    if (!style->arrows() && (!style->streaks() || animatedStreaks))
-        return out;
     const int time = timeIndex >= 0 ? timeIndex : currentTimeIndex();
     const auto fx = resultFrame(vector.x.key(), time), fy = resultFrame(vector.y.key(), time);
     if (!fx->error.isEmpty() || !fy->error.isEmpty() || fx->values.size() != fy->values.size() ||
@@ -1301,6 +1304,8 @@ SWMM2DResultsLayer::resultVectorGeometry(const ResultVectorSublayer *sub, const 
         *colorMax = colorHi;
     if (colorUnits)
         *colorUnits = units;
+    if (!drawn)
+        return out; // only the colour range was asked for
     const auto colorAt = [&](int c, double magnitude) {
         return sub->colorFor(bound(colorFrame, c, magnitude), colorLo, colorHi);
     };
