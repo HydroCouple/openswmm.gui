@@ -945,11 +945,12 @@ Treatment must be enabled before editing its rates or expression. Richards needs
 complete valid materials; switching to gravity resets inactive numerical settings
 and retains the material records.
 
-The project-owned LID editor commits fields immediately. **Close** dismisses it;
-**Undo** reverses a committed edit. Its single-control layer list provides explicit
-Insert, Remove, Up and Down actions, each validated against the complete stack and
-existing outlet anchors. **Initialize materials** replaces porous-layer materials
-with the defaults stated in its tooltip as one reversible action. Review these
+The project-owned LID editor shows the same fields and rules as Properties, but holds
+its changes until **Apply**, which writes every changed control as one Undo step;
+**Revert** drops them, and closing with unapplied changes asks first. Its single-control
+layer list provides explicit Insert, Remove, Up and Down actions, each validated against
+the complete stack and existing outlet anchors. **Initialize materials** replaces
+porous-layer materials with the defaults stated in its tooltip. Review these
 example values and the starter dimensions of newly created controls for the model.
 Inserting a porous layer under Richards gives that new layer the stated example
 material values while preserving existing layers' materials.

@@ -6,8 +6,10 @@
  * @brief     CRUD editor for SWMM LID controls ([LID_CONTROLS]).
  *
  * List pane and property tabs for standard LID controls, with an ordered
- * layer editor for NODE controls. Project-owned edits commit immediately through
- * the shared checked writer and Undo stack. Standalone callers retain a local draft.
+ * layer editor for NODE controls. With a model layer, each control's changes are a
+ * draft (the shared writer's record and field rules) until Apply, which writes every
+ * draft as one project undo step; Revert drops them. Create, delete and rename take
+ * effect at once and are undoable. Standalone callers (no layer) keep a local draft.
  * Existing definitions are loaded through the registry's engine getters.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
@@ -16,11 +18,13 @@
 #define OPENSWMMVIS_UI_DIALOGS_LIDCONTROLEDITORDIALOG_H
 
 #include <QDialog>
+#include <QHash>
 #include <QPointer>
+#include <QVariantMap>
 
 class QComboBox;
 class QListWidget;
-class PropertiesPanel;
+class QUndoStack;
 class QDoubleSpinBox;
 class QLineEdit;
 class QListView;
@@ -51,6 +55,9 @@ namespace openswmmvis::ui
 
 class LidControlListModel;
 class LidNodeLayerModel;
+class DataObjectDraftSession;
+class DataObjectDraftFooter;
+class DraftMarkProxyModel;
 
 class LidControlEditorDialog : public QDialog
 {
@@ -137,15 +144,23 @@ public:
      */
     void openForLidControl(const QString &name);
 
-    /*! Open the control editor as a picker and return the explicitly chosen ID. */
+    /*! Open the control editor as a picker and return the explicitly chosen ID. The button
+     *  reads "Use LID Control", and "Apply and Use" while a draft is held (a refusal keeps
+     *  the picker open). */
     static QString pickLidControl(openswmmvis::lid::LidControlRegistry *registry,
                                   SWMMModelLayer *layer, const QString &initialName,
                                   QWidget *parent);
 
+    /*! Apply / Revert state of the project-owned editor; null without a model layer. */
+    DataObjectDraftSession *draftSession() const noexcept { return m_session; }
+    /*! Stack an Apply, create, delete or rename is pushed to (default: the model's canvas). */
+    void setUndoStack(QUndoStack *stack);
+
 protected:
     /**
-     * @brief Dismiss the project-owned editor; standalone callers first resolve a NODE draft.
-     * @param[in] result Result forwarded to QDialog. Project-owned accepted edits remain live.
+     * @brief Close; with unapplied drafts the project-owned editor asks Apply / Discard /
+     *   Cancel, standalone callers first resolve a NODE draft.
+     * @param[in] result Result forwarded to QDialog.
      */
     void done(int result) override;
 
@@ -309,10 +324,55 @@ private:
      * following bind/close consumes them. Does not undo standard live edits.
      */
     bool finishLayerDraft_();
+    // ---- Project-owned editor (a model layer): a draft record per control ----
     void buildLiveUi_();
     void bindLiveProvider_(openswmmvis::lid::LidControlProvider *provider);
+    /*! Draw the shown record (draft or model) and the selected porous layer's curves. */
     void refreshLivePreview_();
-    PropertiesPanel *m_liveProperties = nullptr;
+    /*! Ordered layers of the shown record; \p select picks a row and opens its tab (-1 keeps
+     *  the current row and tab). */
+    void refreshLiveLayers_(int select = -1);
+    void showLayerTab_(int row);
+    /*! Field editors for the shown record: rebuilt when its fields change (type, layers,
+     *  flow model, treatment flags) or \p rebuild, otherwise only their values. */
+    void refreshForm_(bool rebuild);
+    QWidget *makeFieldEditor_(const QString &key, const QString &label, int editor,
+                              const QVariantList &choices, double minimum, double maximum,
+                              int decimals, bool editable, const QString &tip);
+    /*! A field edit: proposed on the draft by the shared writer's rules (nothing written). */
+    void fieldEdited_(const QString &key, const QVariant &value);
+    /*! Insert / remove / up / down / materials on the draft's ordered layers. */
+    void layerOperation_(const QString &operation, int row, int kind);
+    void setDraftRecord_(const QVariantMap &record, bool layersMoved);
+    QVariantMap shownRecord_(openswmmvis::lid::LidControlProvider *p) const;
+    /*! Put each draft on what the model holds now (fields changed elsewhere are kept unless
+     *  changed here); a NODE draft whose layers the model changed meanwhile is left as is. */
+    void rebaseDrafts_();
+    bool applyDrafts_(QString *reason);
+    void revertDrafts_();
+    void commitOpenEditors_();
+    /*! A change made elsewhere: a conflict for a draft, else the form follows the model. */
+    void followModel_(openswmmvis::lid::LidControlProvider *p);
+    void createControl_(const QString &name, int type);
+    QUndoStack *undoStack_() const;
+    void bindUndoButtons_();
+    struct Draft {
+        QVariantMap base, record; ///< the model's record when the draft began; the draft
+        bool layersMoved = false; ///< layers inserted, removed or moved (whole-profile Apply)
+    };
+    bool m_draftMode = false;
+    QHash<openswmmvis::lid::LidControlProvider *, Draft> m_drafts;
+    QVariantMap m_record; ///< what the form shows for m_current: its draft, else the model
+    DataObjectDraftSession *m_session = nullptr;
+    DataObjectDraftFooter *m_footer = nullptr;
+    DraftMarkProxyModel *m_draftMarks = nullptr;
+    QPointer<QUndoStack> m_undo;
+    QTabWidget *m_fieldTabs = nullptr;
+    QHash<QString, QWidget *> m_fieldEditors;
+    QStringList m_formKeys;
+    QPushButton *m_undoBtn = nullptr, *m_redoBtn = nullptr;
+    QList<QMetaObject::Connection> m_undoWatch;
+    bool m_applying = false;
     QListWidget *m_liveLayers = nullptr;
     QLabel *m_liveStatus = nullptr;
     bool m_layerDraftDirty = false;

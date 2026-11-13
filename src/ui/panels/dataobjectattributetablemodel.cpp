@@ -746,7 +746,9 @@ QString tr(const char *s)
     return QCoreApplication::translate("DataObjectAttributeTableModel", s);
 }
 
-QList<Field> lidFields(SWMMModelLayer *layer)
+// \p draft: an editor's draft record whose layers count too (it may hold more layers of a
+// kind than any control in the model).
+QList<Field> lidFields(SWMMModelLayer *layer, const QVariantMap &draft = {})
 {
     if (layer)
         if (auto *reg = qobject_cast<LidControlRegistry *>(layer->ensureLidControlRegistry()))
@@ -845,6 +847,11 @@ QList<Field> lidFields(SWMMModelLayer *layer)
             for (const auto &kind : o->property("lidAcceptedValues").toMap()["_kinds"].toList()) ++counts[kind.toInt()];
             for (auto it = counts.cbegin(); it != counts.cend(); ++it) maxima[it.key()] = qMax(maxima[it.key()], it.value());
         }
+    {
+        QHash<int, int> counts;
+        for (const auto &kind : draft["_kinds"].toList()) ++counts[kind.toInt()];
+        for (auto it = counts.cbegin(); it != counts.cend(); ++it) maxima[it.key()] = qMax(maxima[it.key()], it.value());
+    }
     const auto isNode = [](QObject *o) { return static_cast<LidControlProvider *>(o)->type() == 8; };
     auto flow = enumField("flowModel", tr("NODE Flow — Model"), pairs({tr("Gravity/backwater"), tr("Richards")}, {0, 1}),
         [](QObject *o) { return o->property("lidAcceptedValues").toMap().value("flowModel"); }, [](QObject *, const QVariant &) {});
@@ -1593,6 +1600,14 @@ bool memberValid(SWMMModelLayer *layer, DC::DataCategory category, const QString
         const int index = swmm_lid_index(engine, name.toUtf8().constData());
         if (record["type"].toInt() == 8)
             return writeLidNode(layer, index, record, true);
+        if (key == "_record") { // an editor's Apply: every field that differs from the model
+            const auto current = lidRecord(layer, name);
+            for (auto it = record.cbegin(); it != record.cend(); ++it)
+                if (!it.key().startsWith('_') && current.value(it.key()) != it.value() &&
+                    !memberValid(layer, category, it.key(), record, name))
+                    return false;
+            return true;
+        }
         if (key == "type")
             return record[key].toInt() < 8 && swmm_lid_validate_type(engine, index, record[key].toInt()) == SWMM_OK;
         if (lidExtraKeys.contains(key)) {
@@ -1865,7 +1880,7 @@ public:
     bool fullRecord() const
     {
         return (category == DC::DataInlets && (key == "type" || key == "curveId")) ||
-            (category == DC::DataLIDControls && key == "_nodeProfile");
+            (category == DC::DataLIDControls && (key == "_nodeProfile" || key == "_record"));
     }
     QStringList ownedKeys(const TargetEdit &target) const
     {
@@ -2126,7 +2141,7 @@ bool applyDataObjectRecord(SWMMModelLayer *layer, DC::DataCategory category, con
     };
     if (!editable(layer))
         return fail(tr("The model is closed or initialized. Reopen the current selection."));
-    if (!remainingCategory(category))
+    if (!remainingCategory(category) && category != DC::DataLIDControls)
         return fail(tr("This data category has no record writer."));
     auto *provider = findProvider(registryFor(layer, category), category, name);
     if (!provider)
@@ -2153,7 +2168,18 @@ bool DataObjectAttributeTableModel::proposeRecord(SWMMModelLayer *layer, DC::Dat
                                                   const QVariant &value, const QVariantMap &before,
                                                   QVariantMap *after, QString *error)
 {
-    if (!after || !editable(layer) || !remainingCategory(category))
+    if (!after || !editable(layer))
+        return false;
+    if (category == DC::DataLIDControls) {
+        // A detached control carrying the draft, so each field's rules follow the draft's
+        // type, layers, flow model and treatment flags (not the model's).
+        LidControlProvider draft(name);
+        draft.setType(before.value("type").toInt());
+        draft.setProperty("lidAcceptedValues", before);
+        return propose(layer, category, &draft, key, value, before, *after, error,
+                       lidFields(layer, before));
+    }
+    if (!remainingCategory(category))
         return false;
     return proposeRemaining(layer, category, name, key, value, before, *after, error);
 }
@@ -2164,6 +2190,32 @@ bool DataObjectAttributeTableModel::applyRecord(SWMMModelLayer *layer, DC::DataC
                                                 QString *error)
 {
     return applyDataObjectRecord(layer, category, name, before, after, undo, error);
+}
+
+QList<DataObjectAttributeTableModel::RecordField>
+DataObjectAttributeTableModel::lidDraftFields(SWMMModelLayer *layer, const QString &name,
+                                              const QVariantMap &record)
+{
+    QList<RecordField> out;
+    if (!editable(layer) || record.isEmpty())
+        return out;
+    LidControlProvider draft(name);
+    draft.setType(record.value("type").toInt());
+    draft.setProperty("lidAcceptedValues", record);
+    for (const auto &f : lidFields(layer, record)) {
+        if (f.spec.key == "nodeLayers")
+            continue; // a count; the editor lists the layers themselves
+        RecordField field;
+        field.spec = f.spec;
+        if (const QString unit = unitLabel(f.spec.unit, layer); !unit.isEmpty())
+            field.spec.label += QStringLiteral(" (%1)").arg(unit);
+        field.applies = !f.applies || f.applies(&draft);
+        field.editable = bool(f.set);
+        if (!field.editable)
+            field.reason = f.spec.tooltip;
+        out << field;
+    }
+    return out;
 }
 
 DataObjectAttributeTableModel::DataObjectAttributeTableModel(QObject *parent)
@@ -2325,7 +2377,18 @@ bool DataObjectAttributeTableModel::editLidProfile(SWMMModelLayer *layer, const 
                                                   QUndoStack *undo, QString *error)
 {
     const auto before = lidProfile(layer, name);
-    if (before.isEmpty() || before["type"].toInt() != 8) return false;
+    QVariantMap after;
+    if (!lidProfileOperation(layer, before, operation, row, kind, &after)) return false;
+    return applyValues(layer, DC::DataLIDControls, {name}, "_nodeProfile",
+                       QVariantMap{{"before", before}, {"after", after}}, undo, error);
+}
+
+bool DataObjectAttributeTableModel::lidProfileOperation(SWMMModelLayer *layer,
+                                                        const QVariantMap &before,
+                                                        const QString &operation, int row,
+                                                        int kind, QVariantMap *result)
+{
+    if (!result || !layer || before.isEmpty() || before["type"].toInt() != 8) return false;
     auto after = before;
     QVariantList kinds = before["_kinds"].toList();
     QList<QVariantMap> rows; QHash<int, int> counts;
@@ -2377,8 +2440,8 @@ bool DataObjectAttributeTableModel::editLidProfile(SWMMModelLayer *layer, const 
         const int k = kinds[i].toInt(); const auto prefix = lidNodePrefix(k, ++counts[k]);
         for (auto it = rows[i].cbegin(); it != rows[i].cend(); ++it) after[prefix + it.key()] = it.value();
     }
-    return applyValues(layer, DC::DataLIDControls, {name}, "_nodeProfile",
-                       QVariantMap{{"before", before}, {"after", after}}, undo, error);
+    *result = after;
+    return true;
 }
 
 bool DataObjectAttributeTableModel::initializeLidDesign(SWMMModelLayer *layer, const QString &name)

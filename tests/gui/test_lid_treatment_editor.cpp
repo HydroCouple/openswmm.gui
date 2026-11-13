@@ -10,8 +10,7 @@
  */
 
 #include "ui/dialogs/lidcontroleditordialog.h"
-#include "ui/panels/propertiespanel.h"
-#include <QTreeView>
+#include "ui/editors/dataobjectdraftsession.h"
 #include <QListWidget>
 #include "ui/widgets/treatmentexpressionedit.h"
 #include "lid/lidcontrolregistry.h"
@@ -56,15 +55,6 @@ static int curvePixels(const QImage &image, const QColor &color)
             if (image.pixelColor(x, y) == color)
                 ++count;
     return count;
-}
-static QModelIndex property(QAbstractItemModel *model, const QString &label, const QModelIndex &parent = {})
-{
-    for (int r=0; r<model->rowCount(parent); ++r) {
-        const auto index=model->index(r,0,parent);
-        if(index.data().toString()==label || index.data().toString().startsWith(label+" (")) return index.siblingAtColumn(1);
-        const auto child=property(model,label,index); if(child.isValid()) return child;
-    }
-    return {};
 }
 
 /**
@@ -259,21 +249,25 @@ int main(int argc, char **argv)
             LidControlEditorDialog::createNew(registry, &model));
         dialog->show();
         app.processEvents();
-        auto *panel = dialog->findChild<PropertiesPanel *>("lidLiveProperties");
-        auto *tree = panel ? panel->findChild<QTreeView *>() : nullptr;
-        check(tree, "Immediate standard LID editor missing");
+        auto *storage = dialog->findChild<QDoubleSpinBox *>("lidField:surfStorage");
+        check(storage && dialog->draftSession(), "Project-owned draft LID editor missing");
         const int standard = swmm_lid_index(model.engine(), "LID2");
         check(standard >= 0, "New LID missing from engine pickers");
         LidControlEditorDialog otherEditor(registry, &model);
         otherEditor.openForLidControl("LID2");
-        check(tree->model()->setData(property(tree->model(), "Surface — Storage Depth"), 1.75, Qt::EditRole), "Depth did not commit");
+        storage->setValue(1.75);
+        auto *type = dialog->findChild<QComboBox *>("lidField:type");
+        check(type, "LID type field missing");
+        type->setCurrentIndex(type->findData(5));
         app.processEvents();
-        check(tree->model()->setData(property(tree->model(), "LID Type"), 5, Qt::EditRole), "Type did not commit");
-        app.processEvents();
-        auto *otherTree = otherEditor.findChild<QTreeView *>();
-        check(otherTree && property(otherTree->model(), "LID Type").data().toString() == "Rain Barrel",
-              "A second open editor did not follow the type change");
         int code = -1;
+        check(swmm_lid_get_type(model.engine(), standard, &code) == SWMM_OK && code == 0,
+              "The type reached the model before Apply");
+        check(dialog->draftSession()->apply(), "Apply refused the depth and type");
+        app.processEvents();
+        auto *otherType = otherEditor.findChild<QComboBox *>("lidField:type");
+        check(otherType && otherType->currentText() == "Rain Barrel",
+              "A second open editor did not follow the applied type change");
         check(swmm_lid_get_type(model.engine(), standard, &code) == SWMM_OK && code == 5,
               "Selecting Rain Barrel did not update the existing control");
         dialog->invokeNew();
@@ -287,9 +281,8 @@ int main(int argc, char **argv)
               "New layered LID was not selected with complete layers");
         check(swmm_lid_get_type(model.engine(), swmm_lid_index(model.engine(), "LID4"), &code) == SWMM_OK && code == 8,
               "New layered LID was registered as a standard control");
-        for (auto *button : dialog->findChildren<QPushButton *>())
-            check(!button->text().contains("Apply"), "Project-owned editor retained an Apply button");
-        check(dialog->grab().save(artifacts.filePath("project-owned-immediate-editor.png")), "Immediate editor screenshot failed");
+        check(dialog->findChild<QPushButton *>("draftApply"), "Project-owned editor has no Apply");
+        check(dialog->grab().save(artifacts.filePath("project-owned-draft-editor.png")), "Draft editor screenshot failed");
         model.flushDataObjectRegistries();
         check(swmm_model_write(model.engine(), saved.constData()) == SWMM_OK,
               "Could not save model");

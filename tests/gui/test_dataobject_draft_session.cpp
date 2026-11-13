@@ -47,6 +47,8 @@
 #include "ui/dialogs/landuseeditordialog.h"
 #include "ui/dialogs/ruleseditordialog.h"
 #include "ui/dialogs/hydrographgroupeditor.h"
+#include "ui/dialogs/lidcontroleditordialog.h"
+#include "lid/lidcontrolregistry.h"
 #include "layers/hydrographmodels.h"
 #include "ui/models/qualityfunctiontablemodels.h"
 #include "snowpack/snowpackprovider.h"
@@ -94,6 +96,7 @@
 #include <QPointer>
 #include <QRadioButton>
 #include <QSpinBox>
+#include <QTabWidget>
 #include <QScopeGuard>
 #include <QTextStream>
 #include <QTimer>
@@ -520,6 +523,27 @@ FamilyProbe familyProbe(const QString &family)
              },
              pressDelete,
              [](QWidget *host) -> QDialog * { return host->findChild<ui::SnowpackEditorDialog *>(); }};
+    } else if (family == QStringLiteral("lid")) {
+        f = {QStringLiteral("data_object_phase7_fixture.inp"), SWMMModelLayer::DataLIDControls,
+             QStringLiteral("BioCell"), 7.5,
+             [](SWMM_Engine e, const QString &n) { return swmm_lid_index(e, n.toUtf8().constData()); },
+             [](SWMM_Engine e) { return swmm_lid_count(e); },
+             [](SWMM_Engine e, const QString &n) { // surface storage depth
+                 double storage = -1, roughness = -1, slope = -1;
+                 swmm_lid_get_surface(e, swmm_lid_index(e, n.toUtf8().constData()), &storage,
+                                      &roughness, &slope);
+                 return storage;
+             },
+             [](QWidget *host, double v) -> DataObjectDraftSession * {
+                 auto *d = host->findChild<ui::LidControlEditorDialog *>();
+                 auto *spin = d ? d->findChild<QDoubleSpinBox *>(QStringLiteral("lidField:surfStorage")) : nullptr;
+                 if (!spin)
+                     return nullptr;
+                 spin->setValue(v);
+                 return d->draftSession();
+             },
+             pressDelete,
+             [](QWidget *host) -> QDialog * { return host->findChild<ui::LidControlEditorDialog *>(); }};
     } else {
         f = {QStringLiteral("single_rain_series.inp"), SWMMModelLayer::DataTimeSeries, kSeries, 5.5,
              [](SWMM_Engine e, const QString &n) {
@@ -1193,7 +1217,7 @@ private slots:
         QTest::addColumn<QString>("family");
         for (const char *family :
              {"pollutant", "aquifer", "street", "inlet", "transect", "timeseries", "snowpack",
-              "landuse"})
+              "landuse", "lid"})
             QTest::newRow(family) << QString::fromLatin1(family);
     }
 
@@ -1255,6 +1279,56 @@ private slots:
 
     void createRenameAndDraftMarks_data() { deleteUndoBringsBackTheObjectAndItsSettings_data(); }
 
+    void enterInAFieldPressesNoButton_data() { deleteUndoBringsBackTheObjectAndItsSettings_data(); }
+
+    /*! Plan §4: Enter in a field commits that field only. A spin box passes Enter on to
+     *  the dialog, which presses its default button: with none set, the first
+     *  auto-default push button (New, in most of these editors). */
+    void enterInAFieldPressesNoButton()
+    {
+        QFETCH(QString, family);
+        const FamilyProbe probe = familyProbe(family);
+        QString why;
+        SWMMVisProjectWindow *w = openFixtureCopy(QStringLiteral("enter_") + family, &why,
+                                                  probe.fixture, QStringLiteral("phase7"));
+        QVERIFY2(w, qPrintable(why));
+        SWMM_Engine eng = w->modelLayer()->engine();
+        QWidget host;
+        QUndoStack undo;
+        ComprehensiveEditorRegistry::instance().openForObject(probe.category, w->modelLayer(), &undo,
+                                                              probe.object, &host);
+        QDialog *dialog = probe.dialog(&host);
+        QVERIFY(dialog);
+        dialog->show();
+        const auto visibleField = [dialog]() -> QAbstractSpinBox * {
+            for (auto *spin : dialog->findChildren<QAbstractSpinBox *>()) {
+                bool inView = false;
+                for (QWidget *up = spin->parentWidget(); up && up != dialog; up = up->parentWidget())
+                    inView = inView || qobject_cast<QAbstractItemView *>(up);
+                if (!inView && spin->isEnabled() && spin->isVisibleTo(dialog))
+                    return spin;
+            }
+            return nullptr;
+        };
+        QAbstractSpinBox *field = visibleField();
+        for (auto *tabs : dialog->findChildren<QTabWidget *>()) // a field on another tab
+            for (int i = 0; !field && i < tabs->count(); ++i) {
+                tabs->setCurrentIndex(i);
+                field = visibleField();
+            }
+        if (!field)
+            QSKIP("this editor has no spin box field outside a table");
+        const int n = probe.count(eng);
+        field->setFocus();
+        QTest::keyClick(field, Qt::Key_Return);
+        QCoreApplication::processEvents();
+        QCOMPARE(probe.count(eng), n);
+        QCOMPARE(undo.count(), 0);
+        QVERIFY(dialog->isVisible());
+        dialog->close();
+        delete w;
+    }
+
     void everyFieldUndoesCompletely_data()
     {
         QTest::addColumn<QString>("family");
@@ -1263,6 +1337,7 @@ private slots:
         QTest::newRow("aquifer") << QStringLiteral("aquifer") << QStringLiteral("[AQUIFERS]");
         QTest::newRow("street") << QStringLiteral("street") << QStringLiteral("[STREETS]");
         QTest::newRow("snowpack") << QStringLiteral("snowpack") << QStringLiteral("[SNOWPACKS]");
+        QTest::newRow("lid") << QStringLiteral("lid") << QStringLiteral("[LID_CONTROLS]");
     }
 
     /*! Plan §9 record-completeness gate: change every field the editor shows,
@@ -1293,7 +1368,16 @@ private slots:
         QVERIFY(dialog);
         DataObjectDraftSession *session = probe.edit(&host, probe.target); // the probed field
         QVERIFY(session);
-        const int changed = changeEveryField(dialog);
+        int changed = 0;
+        if (auto *tabs = dialog->findChild<QTabWidget *>(QStringLiteral("lidDraftFields"))) {
+            for (int i = 0; i < tabs->count(); ++i) { // the LID form: every tab
+                tabs->setCurrentIndex(i);
+                changed += changeEveryField(dialog);
+                QCoreApplication::processEvents();
+            }
+        } else {
+            changed = changeEveryField(dialog);
+        }
         QVERIFY2(changed >= 5, qPrintable(QStringLiteral("only %1 fields changed").arg(changed)));
         QTRY_VERIFY(session->hasDraft());
         QVERIFY2(session->apply(), qPrintable(session->message()));
@@ -1351,6 +1435,8 @@ private slots:
         QAbstractButton *newButton = buttonWithText(dialog, QStringLiteral("New"));
         if (!newButton)
             newButton = buttonWithText(dialog, QStringLiteral("Add"));
+        if (!newButton)
+            newButton = buttonWithText(dialog, QStringLiteral("New standard LID"));
         if (newButton)
             newButton->click();
         else
@@ -1764,6 +1850,238 @@ private slots:
         QCOMPARE(swmm_snowpack_get_removal(eng, pack, &r[0], &r[1], &r[2], &r[3], &r[4], &r[5]),
                  SWMM_OK);
         QCOMPARE(r[0], 3.5);
+    }
+
+    /*! Phase 7, LID controls (plan D7): the form holds the shared writer's fields on a
+     *  draft; their rules follow the draft (a type change shows that type's layers) and
+     *  the model's checks refuse a bad value at once. Nothing reaches the model before
+     *  Apply (one undo step, still undoable after close); a change made elsewhere is
+     *  kept when Apply puts the draft on it; the picker applies first. */
+    void lidStandardDraftRulesConflictAndPicker()
+    {
+        using openswmmvis::ui::LidControlEditorDialog;
+        using Model = DataObjectAttributeTableModel;
+        QString why;
+        SWMMVisProjectWindow *w = openFixtureCopy(QStringLiteral("lid_standard"), &why,
+                                                  QStringLiteral("data_object_phase7_fixture.inp"),
+                                                  QStringLiteral("phase7"));
+        QVERIFY2(w, qPrintable(why));
+        SWMMModelLayer *layer = w->modelLayer();
+        SWMM_Engine eng = layer->engine();
+        auto *reg = qobject_cast<openswmmvis::lid::LidControlRegistry *>(layer->ensureLidControlRegistry());
+        QVERIFY(reg);
+        QUndoStack undo;
+        LidControlEditorDialog dialog(reg, layer);
+        dialog.setUndoStack(&undo);
+        dialog.openForLidControl(QStringLiteral("BioCell"));
+        DataObjectDraftSession *session = dialog.draftSession();
+        QVERIFY(session);
+        const auto field = [&dialog](const QString &key) {
+            return dialog.findChild<QWidget *>(QStringLiteral("lidField:") + key);
+        };
+        const auto surface = [eng](const char *name) {
+            double a = -1, b = -1, c = -1;
+            swmm_lid_get_surface(eng, swmm_lid_index(eng, name), &a, &b, &c);
+            return a;
+        };
+        const auto soilKsat = [eng] {
+            double v[6] = {-1, -1, -1, -1, -1, -1};
+            swmm_lid_get_soil(eng, swmm_lid_index(eng, "BioCell"), &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]);
+            return v[4];
+        };
+        const auto type = [eng](const char *name) {
+            int code = -1;
+            swmm_lid_get_type(eng, swmm_lid_index(eng, name), &code);
+            return code;
+        };
+        // Every field the Properties panel edits is in the form (the record-based writer's list).
+        for (const char *key : {"surfStorage", "surfVegetation", "surfSideSlope", "soilSuction", "storClogging",
+                                "drainDelay", "drainOpen", "drainClose", "drainCoeff"})
+            QVERIFY2(field(QString::fromLatin1(key)), key);
+        auto *storage = qobject_cast<QDoubleSpinBox *>(field(QStringLiteral("surfStorage")));
+        QVERIFY(storage);
+        QCOMPARE(storage->value(), 6.0);
+        storage->setValue(7.5);
+        QTRY_VERIFY(session->hasDraft());
+        QCOMPARE(surface("BioCell"), 6.0); // nothing written before Apply
+        QCOMPARE(Model::lidProfile(layer, QStringLiteral("BioCell"))["surfStorage"].toDouble(), 6.0);
+
+        // The model's checks act on the draft at once: porosity must exceed field capacity.
+        qobject_cast<QDoubleSpinBox *>(field(QStringLiteral("soilPorosity")))->setValue(0.15);
+        QTRY_VERIFY(!dialog.findChild<QLabel *>(QStringLiteral("lidDraftStatus"))->text().isEmpty());
+        QTRY_COMPARE(qobject_cast<QDoubleSpinBox *>(field(QStringLiteral("soilPorosity")))->value(), 0.5);
+        // A standard control does not become a layered one (New layered LID makes those).
+        auto *kind = qobject_cast<QComboBox *>(field(QStringLiteral("type")));
+        kind->setCurrentIndex(kind->findData(8));
+        QTRY_COMPARE(qobject_cast<QComboBox *>(field(QStringLiteral("type")))->currentData().toInt(), 0);
+
+        // The form follows the draft's type: Pave as a bio-retention cell has no Pavement layer.
+        dialog.openForLidControl(QStringLiteral("Pave"));
+        QVERIFY(field(QStringLiteral("paveThick")) && field(QStringLiteral("paveImpervious")));
+        kind = qobject_cast<QComboBox *>(field(QStringLiteral("type")));
+        kind->setCurrentIndex(kind->findData(0));
+        QTRY_VERIFY(field(QStringLiteral("soilThick")) && !field(QStringLiteral("paveThick")));
+        QCOMPARE(type("Pave"), 4);
+
+        // Changed elsewhere (the Properties panel's writer) while BioCell holds a draft.
+        QVERIFY(Model::applyValues(layer, SWMMModelLayer::DataLIDControls, {QStringLiteral("BioCell")},
+                                   QStringLiteral("soilKsat"), 0.75, nullptr));
+        QTRY_COMPARE(session->state(), State::Conflict);
+        bool asked = false;
+        answerNextPrompt(QStringLiteral("Apply My Changes"), &asked);
+        QVERIFY2(session->apply(), qPrintable(session->message()));
+        QVERIFY(asked);
+        QCOMPARE(surface("BioCell"), 7.5);
+        QCOMPARE(soilKsat(), 0.75); // kept: Apply puts the draft on what the model holds
+        QCOMPARE(type("Pave"), 0);
+        QCOMPARE(undo.count(), 1);
+        dialog.close();
+        undo.undo();
+        QCOMPARE(surface("BioCell"), 6.0);
+        QCOMPARE(type("Pave"), 4);
+        QCOMPARE(soilKsat(), 0.75);
+        undo.redo();
+        QCOMPARE(surface("BioCell"), 7.5);
+        QCOMPARE(type("Pave"), 0);
+
+        // The picker: "Use LID Control", "Apply and Use" with a draft (applied first).
+        bool sawUse = false, sawApplyAndUse = false;
+        QTimer::singleShot(0, [&] {
+            auto *picker = qobject_cast<LidControlEditorDialog *>(QApplication::activeModalWidget());
+            if (!picker)
+                return;
+            auto *use = picker->findChild<QPushButton *>(QStringLiteral("draftClose"));
+            sawUse = use && use->text() == QStringLiteral("Use LID Control");
+            if (auto *s = picker->findChild<QDoubleSpinBox *>(QStringLiteral("lidField:surfStorage")))
+                s->setValue(8.25);
+            sawApplyAndUse = use && use->text() == QStringLiteral("Apply and Use");
+            if (use)
+                use->click();
+            else
+                picker->reject();
+        });
+        QCOMPARE(LidControlEditorDialog::pickLidControl(reg, layer, QStringLiteral("BioCell"), nullptr),
+                 QStringLiteral("BioCell"));
+        QVERIFY(sawUse);
+        QVERIFY(sawApplyAndUse);
+        QCOMPARE(surface("BioCell"), 8.25);
+
+        // Save writes the model, not a registry copy: a stale value in the LID registry
+        // (what the Save-time flush used to write over the model) does not reach the file.
+        reg->findByName(QStringLiteral("Pave"))->setSurfStorage(99.0);
+        QString err;
+        const QString path = outDir(QStringLiteral("phase7")) + QStringLiteral("/lid_standard_saved.inp");
+        QFile::remove(path);
+        QVERIFY2(w->saveAs(path, &err), qPrintable(err));
+        const QString lids = inpSection(path, QStringLiteral("[LID_CONTROLS]")).join(QLatin1Char('\n'));
+        QVERIFY2(lids.contains(QStringLiteral("BioCell")) &&
+                     !lids.contains(QRegularExpression(QStringLiteral("Pave\\s+SURFACE\\s+99"))),
+                 qPrintable(lids));
+        delete w;
+    }
+
+    /*! Phase 7, layered (NODE) LID: Insert / Up / Initialize materials, a layer's fields,
+     *  treatment and the Richards flow model all change the draft only; Apply writes the
+     *  whole profile as one undo step (still undoable after close); Revert drops it. */
+    void lidNodeDraftLayersRichardsAndTreatment()
+    {
+        using openswmmvis::ui::LidControlEditorDialog;
+        using Model = DataObjectAttributeTableModel;
+        QString why;
+        SWMMVisProjectWindow *w = openFixtureCopy(QStringLiteral("lid_node"), &why,
+                                                  QStringLiteral("data_object_phase7_fixture.inp"),
+                                                  QStringLiteral("phase7"));
+        QVERIFY2(w, qPrintable(why));
+        SWMMModelLayer *layer = w->modelLayer();
+        SWMM_Engine eng = layer->engine();
+        auto *reg = qobject_cast<openswmmvis::lid::LidControlRegistry *>(layer->ensureLidControlRegistry());
+        QVERIFY(reg);
+        QUndoStack undo;
+        LidControlEditorDialog dialog(reg, layer);
+        dialog.setUndoStack(&undo);
+        dialog.openForLidControl(QStringLiteral("Stack"));
+        DataObjectDraftSession *session = dialog.draftSession();
+        const int control = swmm_lid_index(eng, "Stack");
+        const auto flowModel = [eng, control] {
+            SWMM_LidRichardsOptions options{};
+            swmm_lid_richards_options_get(eng, control, &options);
+            return options.model;
+        };
+        const auto treatmentRemoval = [](const QVariantMap &record) { // SURFACE 1, its one treatment (TSS)
+            for (auto it = record.cbegin(); it != record.cend(); ++it)
+                if (it.key().startsWith(QStringLiteral("node/0/1/t/")) && it.key().endsWith(QStringLiteral("/removal")) &&
+                    record.value(it.key().chopped(7) + QStringLiteral("present")).toInt() == 1)
+                    return it.value().toDouble();
+            return -1.0;
+        };
+        auto *layers = dialog.findChild<QListWidget *>(QStringLiteral("lidLiveLayerOrder"));
+        QVERIFY(layers);
+        QCOMPARE(layers->count(), 3);
+
+        // Insert a MEDIA layer before AGGREGATE 1: the draft only.
+        layers->setCurrentRow(2);
+        dialog.findChild<QComboBox *>(QStringLiteral("lidInsertKind"))->setCurrentIndex(1);
+        dialog.findChild<QPushButton *>(QStringLiteral("lidLayer_insert"))->click();
+        QCOMPARE(layers->count(), 4);
+        QCOMPARE(layers->item(2)->text(), QStringLiteral("MEDIA 2"));
+        QVERIFY(session->hasDraft());
+        QCOMPARE(swmm_lid_node_layer_count(eng, control), 3);
+        // Its fields are in the form; edit its thickness and SURFACE 1's TSS removal.
+        auto *thick = dialog.findChild<QDoubleSpinBox *>(QStringLiteral("lidField:node/1/2/p/0"));
+        QVERIFY(thick);
+        thick->setValue(9);
+        QDoubleSpinBox *removal = nullptr;
+        for (auto *s : dialog.findChildren<QDoubleSpinBox *>())
+            if (s->objectName().startsWith(QStringLiteral("lidField:node/0/1/t/")) &&
+                s->objectName().endsWith(QStringLiteral("/removal")))
+                removal = s;
+        QVERIFY(removal);
+        QCOMPARE(removal->value(), 25.0);
+        removal->setValue(40);
+        // Richards needs complete materials: Initialize materials, then the flow model.
+        dialog.findChild<QPushButton *>(QStringLiteral("lidInitializeMaterials"))->click();
+        QTRY_VERIFY(dialog.findChild<QComboBox *>(QStringLiteral("lidField:flowModel")));
+        auto *flow = dialog.findChild<QComboBox *>(QStringLiteral("lidField:flowModel"));
+        flow->setCurrentIndex(flow->findData(1));
+        QTRY_VERIFY(dialog.findChild<QSpinBox *>(QStringLiteral("lidField:flowCells")));
+        QTRY_VERIFY(dialog.findChild<QWidget *>(QStringLiteral("lidRetentionCurves"))->isVisibleTo(&dialog));
+        QCOMPARE(flowModel(), 0);
+        QCOMPARE(swmm_lid_node_layer_count(eng, control), 3);
+        QVERIFY(dialog.grab().save(outDir(QStringLiteral("phase7")) + QStringLiteral("/lid_node_draft.png")));
+
+        const QVariant revision = reg->findByName(QStringLiteral("Stack"))->property("lidStructureRevision");
+        QVERIFY2(session->apply(), qPrintable(session->message()));
+        QCOMPARE(swmm_lid_node_layer_count(eng, control), 4);
+        // A layer change is a whole-profile step: older per-field steps and held Properties
+        // selections on Stack no longer address the right layers, so they stop applying.
+        QVERIFY(reg->findByName(QStringLiteral("Stack"))->property("lidStructureRevision") != revision);
+        const QVariantMap applied = Model::lidProfile(layer, QStringLiteral("Stack"));
+        QCOMPARE(applied["node/1/2/p/0"].toDouble(), 9.0);
+        QCOMPARE(treatmentRemoval(applied), 40.0);
+        QCOMPARE(flowModel(), 1);
+        QCOMPARE(undo.count(), 1);
+        dialog.close();
+        undo.undo();
+        QCOMPARE(swmm_lid_node_layer_count(eng, control), 3);
+        QCOMPARE(flowModel(), 0);
+        QCOMPARE(treatmentRemoval(Model::lidProfile(layer, QStringLiteral("Stack"))), 25.0);
+        undo.redo();
+        QCOMPARE(swmm_lid_node_layer_count(eng, control), 4);
+
+        // Up on the draft moves MEDIA 2's values above MEDIA 1; Revert drops it.
+        dialog.openForLidControl(QStringLiteral("Stack"));
+        QTRY_COMPARE(layers->count(), 4);
+        layers->setCurrentRow(2);
+        dialog.findChild<QPushButton *>(QStringLiteral("lidLayer_up"))->click();
+        QTRY_COMPARE(dialog.findChild<QDoubleSpinBox *>(QStringLiteral("lidField:node/1/1/p/0"))->value(), 9.0);
+        QCOMPARE(layers->currentRow(), 1);
+        QVERIFY(session->hasDraft());
+        QCOMPARE(Model::lidProfile(layer, QStringLiteral("Stack"))["node/1/1/p/0"].toDouble(), 12.0);
+        session->revert();
+        QVERIFY(!session->hasDraft());
+        QTRY_COMPARE(dialog.findChild<QDoubleSpinBox *>(QStringLiteral("lidField:node/1/1/p/0"))->value(), 12.0);
+        dialog.close();
+        delete w;
     }
 
     /*! Cost of the draft at scale: opening the editor (the draft shares the

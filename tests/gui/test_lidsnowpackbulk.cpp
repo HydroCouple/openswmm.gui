@@ -7,6 +7,7 @@
 #include <openswmm/engine/openswmm_reactions.h>
 #include <QListWidget>
 #include <QPushButton>
+#include <QSpinBox>
 #include "snowpack/snowpackregistry.h"
 #include "ui/dialogs/lidcontroleditordialog.h"
 #include "ui/dialogs/snowpackeditordialog.h"
@@ -393,33 +394,39 @@ private slots:
         removalHistory.undo(); QCOMPARE(removalHistory.count(),0);
         QCOMPARE(Model::lidProfile(layer.get(),"BC_B")["surfStorage"].toDouble(),3.);
     }
-    void immediateOwnedEditorStructureAndRendering()
+    void ownedEditorDraftStructureAndRendering()
     {
+        // Apply/Revert plan Phase 7: the project-owned editor holds layer operations and
+        // field edits in a draft; Apply writes them as one undo step.
         auto layer=fixture(); QVERIFY(layer); MapCanvas canvas; layer->setEditCanvas(&canvas);
         auto *reg=qobject_cast<openswmmvis::lid::LidControlRegistry *>(layer->ensureLidControlRegistry());
         openswmmvis::ui::LidControlEditorDialog editor(reg,layer.get()); editor.openForLidControl("NODE_A"); QCoreApplication::processEvents();
-        for(auto *button:editor.findChildren<QPushButton *>()) QVERIFY(!button->text().contains("Apply"));
+        auto *session=editor.draftSession(); QVERIFY(session); QVERIFY(editor.findChild<QPushButton *>("draftApply"));
         auto *layers=editor.findChild<QListWidget *>("lidLiveLayerOrder"); QVERIFY(layers); QCOMPARE(layers->count(),4);
+        const double alpha=Model::lidProfile(layer.get(),"NODE_A")["node/1/1/r/1"].toDouble();
         auto *materials=editor.findChild<QPushButton *>("lidInitializeMaterials"); QVERIFY(materials); materials->click(); QCoreApplication::processEvents();
-        QCOMPARE(Model::lidProfile(layer.get(),"NODE_A")["node/1/1/r/1"].toDouble(),1.); QCOMPARE(canvas.undoStack()->count(),1);
-        auto *panel=editor.findChild<PropertiesPanel *>("lidLiveProperties"); QVERIFY(panel); auto *tree=panel->findChild<QTreeView *>(); QVERIFY(tree);
-        QVERIFY(tree->model()->setData(findProperty(tree->model(),"NODE Flow — Model"),1,Qt::EditRole));
-        QCoreApplication::processEvents();
-        QVERIFY(findProperty(tree->model(),"NODE Flow — Cells per Layer").isValid());
+        QVERIFY(session->hasDraft()); QCOMPARE(Model::lidProfile(layer.get(),"NODE_A")["node/1/1/r/1"].toDouble(),alpha); QCOMPARE(canvas.undoStack()->count(),0);
+        auto *flow=editor.findChild<QComboBox *>("lidField:flowModel"); QVERIFY(flow); flow->setCurrentIndex(flow->findData(1));
+        QTRY_VERIFY(editor.findChild<QSpinBox *>("lidField:flowCells"));
         QVERIFY(!Model::applyValues(layer.get(),DC::DataLIDControls,{"NODE_A"},"flowCells",1.5,nullptr));
-        const auto physical=findProperty(tree->model(),"MEDIA 1 — Thickness"); QVERIFY(physical.isValid());
-        const auto image=editor.grab().toImage(); tree->scrollTo(physical); tree->edit(physical);
-        auto *spin=tree->findChild<QDoubleSpinBox *>(); QVERIFY(spin); spin->setFocus(); spin->selectAll();
-        QTest::keyClicks(spin,"15"); QTest::keyClick(spin,Qt::Key_Return);
-        QTRY_COMPARE(Model::lidProfile(layer.get(),"NODE_A")["node/1/1/p/0"].toDouble(),15.);
+        auto *physical=editor.findChild<QDoubleSpinBox *>("lidField:node/1/1/p/0"); QVERIFY(physical);
+        layers->setCurrentRow(1); QCoreApplication::processEvents(); // MEDIA 1: its tab shows
+        const auto image=editor.grab().toImage();
+        physical->setFocus(); physical->selectAll();
+        QTest::keyClicks(physical,"15"); QTest::keyClick(physical,Qt::Key_Return);
         QCoreApplication::processEvents(); QVERIFY(editor.grab().toImage()!=image);
-        canvas.undoStack()->undo(); QCoreApplication::processEvents(); QCOMPARE(Model::lidProfile(layer.get(),"NODE_A")["node/1/1/p/0"].toDouble(),10.);
+        QCOMPARE(Model::lidProfile(layer.get(),"NODE_A")["node/1/1/p/0"].toDouble(),10.);
+        QVERIFY2(session->apply(),qPrintable(session->message()));
+        QCOMPARE(Model::lidProfile(layer.get(),"NODE_A")["node/1/1/p/0"].toDouble(),15.); QCOMPARE(Model::lidProfile(layer.get(),"NODE_A")["node/1/1/r/1"].toDouble(),1.);
+        QCOMPARE(Model::lidProfile(layer.get(),"NODE_A")["flowModel"].toInt(),1); QCOMPARE(canvas.undoStack()->count(),1);
+        canvas.undoStack()->undo(); QCoreApplication::processEvents();
+        QCOMPARE(Model::lidProfile(layer.get(),"NODE_A")["node/1/1/p/0"].toDouble(),10.); QCOMPARE(Model::lidProfile(layer.get(),"NODE_A")["flowModel"].toInt(),0);
         const auto beforeInsert=Model::lidProfile(layer.get(),"NODE_A");
         QVERIFY(Model::editLidProfile(layer.get(),"NODE_A","insert",2,1,canvas.undoStack()));
-        QCOMPARE(Model::lidProfile(layer.get(),"NODE_A")["node/1/2/r/1"].toDouble(),1.);
+        QCOMPARE(Model::lidProfile(layer.get(),"NODE_A")["_kinds"].toList().size(),5);
         canvas.undoStack()->undo(); QCOMPARE(Model::lidProfile(layer.get(),"NODE_A"),beforeInsert);
         QCoreApplication::processEvents();
-        QVERIFY(editor.grab().save(QDir(folder()).filePath("immediate-lid-editor.png")));
+        QVERIFY(editor.grab().save(QDir(folder()).filePath("draft-lid-editor.png")));
         const auto review=QDir(folder()).filePath("LID_Complete_Properties_Review.inp");
         QCOMPARE(swmm_model_write(layer->engine(),review.toUtf8()),SWMM_OK);
         editor.close(); QCOMPARE(Model::lidProfile(layer.get(),"NODE_A")["node/1/1/p/0"].toDouble(),10.);

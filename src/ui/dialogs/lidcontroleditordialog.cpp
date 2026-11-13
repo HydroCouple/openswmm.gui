@@ -23,11 +23,18 @@
 #include "ui/theme/iconfactory.h"
 
 #include "ui/models/lidnodelayermodel.h"
-#include "ui/panels/propertiespanel.h"
+#include "ui/editors/dataobjectdraftsession.h"
+#include "ui/editors/dataobjectstructureedit.h"
+#include "ui/models/draftmarkproxymodel.h"
 #include "ui/panels/dataobjectattributetablemodel.h"
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
 #include <QListWidget>
+#include <QCoreApplication>
+#include <QScrollArea>
+#include <QUndoStack>
+#include <algorithm>
+#include <memory>
 #include <QTimer>
 #include <QPainter>
 #include <QPainterPath>
@@ -231,6 +238,90 @@ QVector<SWMM_LidNodeLayer> defaultNodeLayers()
         defaults.append(kind, si);
     return defaults.layers;
 }
+
+constexpr auto kLids = SWMMModelLayer::DataLIDControls;
+const QStringList kLayerKinds{"SURFACE", "MEDIA", "AGGREGATE", "BOTTOM"};
+
+/*! A form value without trailing zeros ("6", "0.02"), at the field's precision. */
+class FieldSpinBox final : public QDoubleSpinBox
+{
+public:
+    using QDoubleSpinBox::QDoubleSpinBox;
+    QString textFromValue(double value) const override
+    {
+        QLocale numbers = locale();
+        numbers.setNumberOptions(numbers.numberOptions() | QLocale::OmitGroupSeparator);
+        QString text = numbers.toString(value, 'f', decimals());
+        const QString point = numbers.decimalPoint();
+        if (text.contains(point)) {
+            while (text.endsWith(QLatin1Char('0')))
+                text.chop(1);
+            if (text.endsWith(point))
+                text.chop(point.size());
+        }
+        return text;
+    }
+};
+
+/*! Ordered layer titles of a NODE record, top to bottom ("SURFACE 1", "MEDIA 1", ...). */
+QStringList layerTitles(const QVariantMap &record)
+{
+    QStringList titles;
+    QHash<int, int> count;
+    for (const auto &kind : record.value("_kinds").toList()) {
+        const int k = qBound(0, kind.toInt(), 3);
+        titles << kLayerKinds[k] + QLatin1Char(' ') + QString::number(++count[k]);
+    }
+    return titles;
+}
+
+/*! A shared writer label split into its form tab and row: "Soil — Porosity" is row
+ *  "Porosity" of tab "Soil"; "MEDIA 1 / TSS — Removal (%)" is row "TSS — Removal (%)" of
+ *  tab "MEDIA 1"; a label without a group goes to "General". */
+QPair<QString, QString> formPlace(const QString &label)
+{
+    const int dash = label.indexOf(QStringLiteral(" — "));
+    if (dash < 0)
+        return {QCoreApplication::translate("LidControlEditorDialog", "General"), label};
+    QString tab = label.left(dash), row = label.mid(dash + 3);
+    if (const int slash = tab.indexOf(QStringLiteral(" / ")); slash >= 0) {
+        row = tab.mid(slash + 3) + QStringLiteral(" — ") + row;
+        tab = tab.left(slash);
+    }
+    return {tab, row};
+}
+
+/*! One Apply step for a control's draft: forward writes \p after over \p before, backward
+ *  the reverse, through the shared writer (a whole-profile step when layers moved). */
+DataObjectDraftSession::Edit lidRecordEdit(LidControlRegistry *registry, SWMMModelLayer *layer,
+                                           LidControlProvider *live, QVariantMap before,
+                                           QVariantMap after, bool layersMoved,
+                                           std::shared_ptr<QString> refusal)
+{
+    return {[registry = QPointer<LidControlRegistry>(registry),
+             layer = QPointer<SWMMModelLayer>(layer), live = QPointer<LidControlProvider>(live),
+             name = live->name(), before = std::move(before), after = std::move(after),
+             layersMoved, refusal](bool forward) {
+        if (!registry || !layer)
+            return false;
+        LidControlProvider *p = stepTarget(registry.data(), live, name);
+        if (!p)
+            return false;
+        const QVariantMap &from = forward ? before : after;
+        const QVariantMap &to = forward ? after : before;
+        QString why;
+        const bool ok =
+            layersMoved
+                ? DataObjectAttributeTableModel::applyValues(
+                      layer, kLids, {p->name()}, QStringLiteral("_nodeProfile"),
+                      QVariantMap{{"before", from}, {"after", to}}, nullptr, &why)
+                : DataObjectAttributeTableModel::applyRecord(layer, kLids, p->name(), from, to,
+                                                             nullptr, &why);
+        if (!ok && refusal && refusal->isEmpty())
+            *refusal = why;
+        return ok;
+    }};
+}
 } // namespace
 
 LidControlEditorDialog::LidControlEditorDialog(LidControlRegistry *registry, SWMMModelLayer *layer,
@@ -243,17 +334,18 @@ LidControlEditorDialog::LidControlEditorDialog(LidControlRegistry *registry, SWM
 
     if (m_layer)
         connect(m_layer, &SWMMModelLayer::engineAboutToClose, this, [this] {
-            m_layerDraftDirty = false; m_current = nullptr; m_registry = nullptr;
+            m_layerDraftDirty = false; m_drafts.clear(); m_record.clear();
+            m_current = nullptr; m_registry = nullptr;
             bindProvider_(nullptr); setEnabled(false);
+            if (m_session) m_session->noteEdited();
         });
 
     if (m_registry) {
         connect(m_registry, &LidControlRegistry::providerParamsChanged, this,
                 [this](LidControlProvider *p) {
-                    if (p == m_current && !m_suppressFieldSync && !m_layerDraftDirty) {
-                        if (m_liveProperties) QTimer::singleShot(0, this, [this] { bindProvider_(m_current); });
-                        else bindProvider_(p);
-                    }
+                    if (m_draftMode) followModel_(p);
+                    else if (p == m_current && !m_suppressFieldSync && !m_layerDraftDirty)
+                        bindProvider_(p);
                 });
         connect(m_registry, &LidControlRegistry::providerRenamed, this,
                 &LidControlEditorDialog::onProviderRenamed_);
@@ -261,9 +353,15 @@ LidControlEditorDialog::LidControlEditorDialog(LidControlRegistry *registry, SWM
         // Rebind after its type and initial ordered layers have both been set.
         connect(m_registry, &LidControlRegistry::providerTypeChanged, this,
                 [this](LidControlProvider *p) {
-                    if (p == m_current && (!m_typeCombo || m_typeCombo->currentIndex() != p->type()))
+                    if (m_draftMode) followModel_(p);
+                    else if (p == m_current && (!m_typeCombo || m_typeCombo->currentIndex() != p->type()))
                         bindProvider_(p);
                 }, Qt::QueuedConnection);
+        if (m_draftMode)
+            connect(m_registry, &LidControlRegistry::providerAboutToBeRemoved, this,
+                    [this](LidControlProvider *p) {
+                        if (m_drafts.remove(p)) m_session->noteEdited();
+                    });
         m_listModel->setRegistry(m_registry);
         if (m_registry->providerCount() > 0)
             selectProviderInList_(m_registry->providers().first());
@@ -293,9 +391,20 @@ QString LidControlEditorDialog::pickLidControl(LidControlRegistry *registry, SWM
     LidControlEditorDialog dialog(registry, layer, parent);
     if (auto *provider = registry->findByName(initialName))
         dialog.selectProviderInList_(provider);
-    auto *buttons = dialog.findChild<QDialogButtonBox *>(QString(), Qt::FindDirectChildrenOnly);
-    auto *use = buttons->addButton(tr("Use LID Control"), QDialogButtonBox::AcceptRole);
-    connect(use, &QPushButton::clicked, &dialog, &QDialog::accept);
+    // "Use LID Control" closes with the selection; with unapplied changes it reads
+    // "Apply and Use" and applies them first (a refusal keeps the picker open).
+    QPushButton *use = dialog.m_footer->closeButton();
+    const auto label = [&dialog, use] {
+        use->setText(dialog.m_session->hasDraft() ? tr("Apply and Use") : tr("Use LID Control"));
+    };
+    label();
+    connect(dialog.m_session, &DataObjectDraftSession::changed, use, label);
+    disconnect(dialog.m_footer, &DataObjectDraftFooter::closeRequested, &dialog, nullptr);
+    connect(dialog.m_footer, &DataObjectDraftFooter::closeRequested, &dialog, [&dialog] {
+        if (dialog.m_session->hasDraft() && !dialog.m_session->apply())
+            return;
+        dialog.accept();
+    });
     if (dialog.exec() != QDialog::Accepted || !dialog.currentProvider())
         return {};
     return dialog.currentProvider()->name();
@@ -309,104 +418,405 @@ LidControlProvider *LidControlEditorDialog::currentProvider() const noexcept
 void LidControlEditorDialog::buildLiveUi_()
 {
     setObjectName("LidControlEditorDialog");
+    m_draftMode = true;
     auto *outer = new QVBoxLayout(this);
-    auto *notice = new QLabel(tr("Edits take effect immediately. Press Enter or leave a field to commit a value; use Undo to reverse it. New controls start with example dimensions that should be reviewed."), this);
+    auto *notice = new QLabel(tr("Changes are held until you choose Apply, which writes them to the model as one undoable step. New controls start with example dimensions that should be reviewed."), this);
     notice->setWordWrap(true); outer->addWidget(notice);
     m_splitter = new QSplitter(this); m_splitter->setObjectName("main");
     m_splitter->setChildrenCollapsible(false); outer->addWidget(m_splitter, 1);
     auto *left = new QWidget(m_splitter); auto *leftLayout = new QVBoxLayout(left);
     m_listView = new QListView(left); m_listModel = new LidControlListModel(this);
-    m_listView->setModel(m_listModel); leftLayout->addWidget(m_listView, 1);
+    // Rows whose control holds an unapplied draft read in italics.
+    m_draftMarks = new DraftMarkProxyModel(this);
+    m_draftMarks->setSourceModel(m_listModel);
+    m_draftMarks->setHasDraft([this](int row) { return m_drafts.contains(m_listModel->providerAt(row)); });
+    m_listView->setModel(m_draftMarks); leftLayout->addWidget(m_listView, 1);
     m_addBtn = new QPushButton(tr("New standard LID"), left);
     m_delBtn = new QPushButton(tr("Delete"), left);
     auto *layered = new QPushButton(tr("New layered LID"), left); layered->setObjectName("newLayeredLid");
     leftLayout->addWidget(m_addBtn); leftLayout->addWidget(layered); leftLayout->addWidget(m_delBtn);
+    auto *history = new QHBoxLayout;
+    m_undoBtn = new QPushButton(tr("Undo"), left); m_undoBtn->setObjectName("lidUndo");
+    m_redoBtn = new QPushButton(tr("Redo"), left); m_redoBtn->setObjectName("lidRedo");
+    history->addWidget(m_undoBtn); history->addWidget(m_redoBtn); leftLayout->addLayout(history);
+    connect(m_undoBtn, &QPushButton::clicked, this, [this] { if (auto *u = undoStack_()) u->undo(); });
+    connect(m_redoBtn, &QPushButton::clicked, this, [this] { if (auto *u = undoStack_()) u->redo(); });
     auto *middle = new QWidget(m_splitter); auto *middleLayout = new QVBoxLayout(middle);
     m_nameEdit = new QLineEdit(middle); m_nameEdit->setObjectName("lidControlName");
     auto *nameLayout = new QFormLayout; nameLayout->addRow(tr("Name"), m_nameEdit); middleLayout->addLayout(nameLayout);
-    m_liveProperties = new PropertiesPanel(middle); m_liveProperties->setObjectName("lidLiveProperties");
-    m_liveProperties->setTitleBarWidget(new QWidget(m_liveProperties));
-    m_liveProperties->setFeatures(QDockWidget::NoDockWidgetFeatures);
-    m_liveProperties->setProject(m_layer);
-    m_liveProperties->findChild<QComboBox *>("propertiesLayerSelector")->hide();
-    m_liveProperties->findChild<QLabel *>("propertiesLayerLabel")->hide();
-    middleLayout->addWidget(m_liveProperties, 1);
+    // The shared writer's fields for the shown control (those the Properties panel edits).
+    m_fieldTabs = new QTabWidget(middle); m_fieldTabs->setObjectName("lidDraftFields");
+    middleLayout->addWidget(m_fieldTabs, 1);
     auto *right = new QWidget(m_splitter); auto *rightLayout = new QVBoxLayout(right);
     m_liveLayers = new QListWidget(right); m_liveLayers->setObjectName("lidLiveLayerOrder");
     rightLayout->addWidget(new QLabel(tr("Ordered layers (top to bottom)"), right)); rightLayout->addWidget(m_liveLayers);
     auto *kind = new QComboBox(right); kind->setObjectName("lidInsertKind");
-    kind->addItems({"SURFACE", "MEDIA", "AGGREGATE", "BOTTOM"}); rightLayout->addWidget(kind);
-    auto operation = [this](const QString &op, int row, int kind) {
-        if (!m_layer || !m_current) return;
-        QString error;
-        auto *undo = m_layer->editCanvas() ? m_layer->editCanvas()->undoStack() : nullptr;
-        const bool ok = DataObjectAttributeTableModel::editLidProfile(m_layer, m_current->name(), op, row, kind, undo, &error);
-        m_liveStatus->setText(ok ? tr("Updated") : (error.isEmpty() ? tr("This layer operation is unavailable.") : error));
-        if (ok) bindLiveProvider_(m_current);
-    };
+    kind->addItems(kLayerKinds); rightLayout->addWidget(kind);
     auto *actions = new QHBoxLayout;
     for (const auto &item : QList<QPair<QString, QString>>{{tr("Insert"), "insert"}, {tr("Remove"), "remove"}, {tr("Up"), "up"}, {tr("Down"), "down"}}) {
         auto *button = new QPushButton(item.first, right); button->setObjectName("lidLayer_" + item.second); actions->addWidget(button);
         if (item.second == "insert") button->setToolTip(tr("Insert a starter layer before the selected row. Under Richards, a porous layer also receives the example material values stated by Initialize materials."));
-        connect(button, &QPushButton::clicked, this, [this, kind, operation, op = item.second] {
+        connect(button, &QPushButton::clicked, this, [this, kind, op = item.second] {
             int row = m_liveLayers->currentRow();
             if (op == "insert" && row < 0) row = m_liveLayers->count();
-            operation(op, row, kind->currentIndex());
+            layerOperation_(op, row, kind->currentIndex());
         });
     }
     rightLayout->addLayout(actions);
     auto *materials = new QPushButton(tr("Initialize materials"), right); materials->setObjectName("lidInitializeMaterials");
-    materials->setToolTip(tr("Set every porous layer to residual water 0.02, alpha 1/m, n 1.6, connectivity 0.5 and specific storage 0.0001/m. This is one reversible design operation."));
+    materials->setToolTip(tr("Set every porous layer to residual water 0.02, alpha 1/m, n 1.6, connectivity 0.5 and specific storage 0.0001/m."));
     rightLayout->addWidget(materials);
-    connect(materials, &QPushButton::clicked, this, [operation] { operation("materials", 0, 0); });
-    m_liveStatus = new QLabel(right); m_liveStatus->setWordWrap(true); rightLayout->addWidget(m_liveStatus);
+    connect(materials, &QPushButton::clicked, this, [this] { layerOperation_("materials", 0, 0); });
+    m_liveStatus = new QLabel(right); m_liveStatus->setObjectName("lidDraftStatus"); m_liveStatus->setWordWrap(true); rightLayout->addWidget(m_liveStatus);
     m_diagram = new openswmmvis::sectionview::SectionPreviewWidget(right); rightLayout->addWidget(m_diagram, 2);
     m_retentionCurves = new RetentionCurves(right); rightLayout->addWidget(m_retentionCurves, 1);
-    connect(m_liveLayers, &QListWidget::currentRowChanged, this, [this] { refreshLivePreview_(); });
+    connect(m_liveLayers, &QListWidget::currentRowChanged, this, [this](int row) {
+        showLayerTab_(row);
+        refreshLivePreview_();
+    });
     m_splitter->setSizes({190, 570, 420});
-    auto *buttons = new QDialogButtonBox(QDialogButtonBox::Close, this);
-    if (auto *canvas = m_layer->editCanvas()) {
-        auto *undo = buttons->addButton(tr("Undo"), QDialogButtonBox::ActionRole);
-        auto *redo = buttons->addButton(tr("Redo"), QDialogButtonBox::ActionRole);
-        connect(undo, &QPushButton::clicked, canvas->undoStack(), &QUndoStack::undo);
-        connect(redo, &QPushButton::clicked, canvas->undoStack(), &QUndoStack::redo);
-        undo->setEnabled(canvas->undoStack()->canUndo()); redo->setEnabled(canvas->undoStack()->canRedo());
-        connect(canvas->undoStack(), &QUndoStack::canUndoChanged, undo, &QPushButton::setEnabled);
-        connect(canvas->undoStack(), &QUndoStack::canRedoChanged, redo, &QPushButton::setEnabled);
-    }
-    outer->addWidget(buttons); connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::close);
+
+    m_session = new DataObjectDraftSession(
+        {[this] { commitOpenEditors_(); }, [this] { return int(m_drafts.size()); },
+         [this](QString *why) { return applyDrafts_(why); }, [this] { revertDrafts_(); }},
+        this);
+    connect(m_session, &DataObjectDraftSession::changed, m_draftMarks, &DraftMarkProxyModel::refreshMarks);
+    m_session->setModel(m_layer); // Save / Run / Close ask about unapplied drafts
+    m_footer = new DataObjectDraftFooter(m_session, this);
+    connect(m_footer, &DataObjectDraftFooter::closeRequested, this, &QDialog::accept);
+    outer->addWidget(m_footer);
+    setAccessibleDescription(tr("Changes are held until you choose Apply, which writes them to the model as one undoable step."));
+    bindUndoButtons_();
+
     connect(m_listView->selectionModel(), &QItemSelectionModel::currentChanged, this, &LidControlEditorDialog::onListSelectionChanged_);
     connect(m_addBtn, &QPushButton::clicked, this, &LidControlEditorDialog::onAddClicked_);
     connect(layered, &QPushButton::clicked, this, &LidControlEditorDialog::addLayeredControl_);
     connect(m_delBtn, &QPushButton::clicked, this, &LidControlEditorDialog::onDeleteClicked_);
     connect(m_nameEdit, &QLineEdit::editingFinished, this, &LidControlEditorDialog::onNameEdited_);
     connect(m_layer, &SWMMModelLayer::attributeChanged, this, [this](const QString &name) {
-        if (m_current && m_current->name() == name) QTimer::singleShot(0, this, [this] { bindProvider_(m_current); });
+        if (m_registry) followModel_(m_registry->findByName(name));
     });
 }
 
 void LidControlEditorDialog::bindLiveProvider_(LidControlProvider *p)
 {
-    const QSignalBlocker nameSignals(m_nameEdit), rows(m_liveLayers);
-    const int selected = m_liveLayers->currentRow();
-    m_nameEdit->setEnabled(p); m_nameEdit->setText(p ? p->name() : QString());
+    {
+        const QSignalBlocker nameSignals(m_nameEdit);
+        m_nameEdit->setEnabled(p); m_nameEdit->setText(p ? p->name() : QString());
+    }
+    m_delBtn->setEnabled(p);
+    m_record = p ? shownRecord_(p) : QVariantMap{};
+    if (p && m_record.isEmpty())
+        m_liveStatus->setText(tr("%1 cannot be read from the model now (it cannot be edited while a simulation runs).").arg(p->name()));
+    refreshForm_(true);
+    refreshLiveLayers_();
+    refreshLivePreview_();
+}
+
+QVariantMap LidControlEditorDialog::shownRecord_(LidControlProvider *p) const
+{
+    const auto draft = m_drafts.constFind(p);
+    if (draft != m_drafts.cend())
+        return draft->record;
+    return m_layer && p ? DataObjectAttributeTableModel::lidProfile(m_layer, p->name()) : QVariantMap{};
+}
+
+void LidControlEditorDialog::showLayerTab_(int row)
+{
+    // The selected layer's fields are in the tab of the same title.
+    if (auto *item = m_liveLayers->item(row))
+        for (int i = 0; i < m_fieldTabs->count(); ++i)
+            if (m_fieldTabs->tabText(i) == item->text()) m_fieldTabs->setCurrentIndex(i);
+}
+
+void LidControlEditorDialog::refreshLiveLayers_(int select)
+{
+    const QSignalBlocker rows(m_liveLayers);
+    const int selected = select >= 0 ? select : m_liveLayers->currentRow();
     m_liveLayers->clear();
-    if (p && m_layer) {
-        DataObjectAttributeTableModel source; source.setSource(m_layer, SWMMModelLayer::DataLIDControls);
-        source.refreshObject(p->name());
-        m_liveProperties->showDataObject(m_layer, int(SWMMObjectRef::LIDControl), p->name());
-        for (auto *button : m_liveProperties->findChildren<QPushButton *>())
-            if (button->text().startsWith(tr("Open "))) button->hide();
-        QHash<int, int> count;
-        for (const auto &row : p->nodeLayers())
-            m_liveLayers->addItem(QStringList{"SURFACE", "MEDIA", "AGGREGATE", "BOTTOM"}[row.kind] + " " + QString::number(++count[row.kind]));
+    const bool node = m_current && m_record.value("type").toInt() == 8;
+    if (node) {
+        m_liveLayers->addItems(layerTitles(m_record));
         m_liveLayers->setCurrentRow(qBound(0, selected, m_liveLayers->count() - 1));
-    } else m_liveProperties->clear();
-    const bool node = p && p->type() == 8;
+    }
     m_liveLayers->setEnabled(node);
+    if (node && select >= 0)
+        showLayerTab_(m_liveLayers->currentRow());
     for (auto *button : findChildren<QPushButton *>())
         if (button->objectName().startsWith("lidLayer_") || button->objectName() == "lidInitializeMaterials") button->setEnabled(node);
+}
+
+QWidget *LidControlEditorDialog::makeFieldEditor_(const QString &key, const QString &label, int editor,
+                                                  const QVariantList &choices, double minimum, double maximum,
+                                                  int decimals, bool editable, const QString &tip)
+{
+    QWidget *widget = nullptr;
+    switch (static_cast<openswmmvis::EditorKind>(editor)) {
+    case openswmmvis::EditorKind::Enum: {
+        auto *combo = new QComboBox;
+        for (const auto &choice : choices) combo->addItem(choice.toList().value(0).toString(), choice.toList().value(1));
+        connect(combo, &QComboBox::currentIndexChanged, this, [this, combo, key](int i) { fieldEdited_(key, combo->itemData(i)); });
+        widget = combo;
+        break;
+    }
+    case openswmmvis::EditorKind::Integer: {
+        auto *spin = new QSpinBox;
+        spin->setRange(int(qMax(-1.e9, minimum)), int(qMin(1.e9, maximum)));
+        spin->setKeyboardTracking(false);
+        connect(spin, &QSpinBox::valueChanged, this, [this, key](int v) { fieldEdited_(key, v); });
+        widget = spin;
+        break;
+    }
+    case openswmmvis::EditorKind::Text: {
+        auto *edit = new QLineEdit;
+        connect(edit, &QLineEdit::editingFinished, this, [this, edit, key] { fieldEdited_(key, edit->text()); });
+        widget = edit;
+        break;
+    }
+    default: {
+        auto *spin = new FieldSpinBox;
+        spin->setDecimals(qBound(0, decimals, 12));
+        spin->setRange(qMax(-1.e12, minimum), qMin(1.e12, maximum));
+        spin->setKeyboardTracking(false);
+        connect(spin, &QDoubleSpinBox::valueChanged, this, [this, key](double v) { fieldEdited_(key, v); });
+        widget = spin;
+    }
+    }
+    widget->setObjectName(QStringLiteral("lidField:") + key);
+    widget->setAccessibleName(label);
+    widget->setToolTip(tip);
+    widget->setEnabled(editable);
+    return widget;
+}
+
+void LidControlEditorDialog::refreshForm_(bool rebuild)
+{
+    if (!m_fieldTabs)
+        return;
+    const auto fields = m_current && m_layer && !m_record.isEmpty()
+        ? DataObjectAttributeTableModel::lidDraftFields(m_layer, m_current->name(), m_record)
+        : QList<DataObjectAttributeTableModel::RecordField>{};
+    QStringList keys;
+    for (const auto &f : fields) if (f.applies) keys << f.spec.key;
+    if (rebuild || keys != m_formKeys) {
+        const QString shownTab = m_fieldTabs->currentIndex() >= 0 ? m_fieldTabs->tabText(m_fieldTabs->currentIndex()) : QString();
+        // Old editors live until deleteLater runs; a late signal must not reach the draft.
+        for (QWidget *editor : std::as_const(m_fieldEditors))
+            disconnect(editor, nullptr, this, nullptr);
+        while (m_fieldTabs->count() > 0) {
+            QWidget *page = m_fieldTabs->widget(0);
+            m_fieldTabs->removeTab(0);
+            page->setParent(nullptr); // out of the dialog now (deleted later: a caller may be in it)
+            page->deleteLater();
+        }
+        m_fieldEditors.clear();
+        m_formKeys = keys;
+        // Tabs in field order, a NODE control's layer tabs in stack order.
+        QStringList tabs; QHash<QString, QFormLayout *> forms;
+        const QStringList layers = layerTitles(m_record);
+        QList<QPair<QString, const DataObjectAttributeTableModel::RecordField *>> placed;
+        for (const auto &f : fields) {
+            if (!f.applies) continue;
+            const auto place = formPlace(f.spec.label);
+            if (!tabs.contains(place.first)) tabs << place.first;
+            placed.append({place.second, &f});
+        }
+        std::stable_sort(tabs.begin(), tabs.end(), [&layers](const QString &a, const QString &b) {
+            return layers.indexOf(a) < layers.indexOf(b); // non-layer tabs (-1) first, in field order
+        });
+        for (const auto &tab : tabs) {
+            auto *scroll = new QScrollArea; scroll->setWidgetResizable(true); scroll->setFrameShape(QFrame::NoFrame);
+            auto *page = new QWidget; forms.insert(tab, new QFormLayout(page));
+            scroll->setWidget(page);
+            m_fieldTabs->addTab(scroll, tab);
+        }
+        for (const auto &[row, f] : placed) {
+            QWidget *editor = makeFieldEditor_(f->spec.key, f->spec.label, int(f->spec.editor), f->spec.enumValues,
+                                               f->spec.minValue, f->spec.maxValue, f->spec.decimals, f->editable,
+                                               f->editable ? f->spec.tooltip : f->reason);
+            forms.value(formPlace(f->spec.label).first)->addRow(row, editor);
+            m_fieldEditors.insert(f->spec.key, editor);
+        }
+        for (int i = 0; i < m_fieldTabs->count(); ++i)
+            if (m_fieldTabs->tabText(i) == shownTab) m_fieldTabs->setCurrentIndex(i);
+    }
+    const QScopedValueRollback<bool> syncing(m_suppressFieldSync, true);
+    for (auto it = m_fieldEditors.cbegin(); it != m_fieldEditors.cend(); ++it) {
+        const QVariant value = m_record.value(it.key());
+        const QSignalBlocker block(it.value());
+        if (auto *combo = qobject_cast<QComboBox *>(it.value())) combo->setCurrentIndex(combo->findData(value));
+        else if (auto *spin = qobject_cast<QSpinBox *>(it.value())) spin->setValue(value.toInt());
+        else if (auto *real = qobject_cast<QDoubleSpinBox *>(it.value())) real->setValue(value.toDouble());
+        else if (auto *edit = qobject_cast<QLineEdit *>(it.value())) edit->setText(value.toString());
+    }
+}
+
+void LidControlEditorDialog::fieldEdited_(const QString &key, const QVariant &value)
+{
+    if (m_suppressFieldSync || !m_current || !m_layer || m_record.isEmpty())
+        return;
+    QVariantMap after; QString error;
+    if (!DataObjectAttributeTableModel::proposeRecord(m_layer, kLids, m_current->name(), key, value, m_record, &after, &error)) {
+        m_liveStatus->setText(error.isEmpty() ? tr("The value was not accepted.") : error);
+        QTimer::singleShot(0, this, [this] { refreshForm_(false); }); // show the draft's value again
+        return;
+    }
+    m_liveStatus->clear();
+    setDraftRecord_(after, false);
+    // Later: the form may rebuild (a field's rules changed), which deletes this editor.
+    QTimer::singleShot(0, this, [this] { refreshForm_(false); refreshLiveLayers_(); refreshLivePreview_(); });
+}
+
+void LidControlEditorDialog::layerOperation_(const QString &operation, int row, int kind)
+{
+    if (!m_current || !m_layer || m_record.isEmpty()) return;
+    QVariantMap after, checked; QString error;
+    if (!DataObjectAttributeTableModel::lidProfileOperation(m_layer, m_record, operation, row, kind, &after)) {
+        m_liveStatus->setText(tr("This layer operation is unavailable."));
+        return;
+    }
+    // The same whole-profile check the model applies (stack order, materials, outlets).
+    if (!DataObjectAttributeTableModel::proposeRecord(m_layer, kLids, m_current->name(), QStringLiteral("_nodeProfile"),
+                                                      QVariantMap{{"before", m_record}, {"after", after}}, m_record, &checked, &error)) {
+        m_liveStatus->setText(error.isEmpty() ? tr("This layer operation is unavailable.") : error);
+        return;
+    }
+    setDraftRecord_(checked, operation != QLatin1String("materials"));
+    m_liveStatus->setText(tr("Changed the draft; Apply writes it to the model."));
+    const int count = checked.value("_kinds").toList().size();
+    const int select = operation == "up" ? row - 1 : operation == "down" ? row + 1
+        : operation == "remove" ? qMin(row, count - 1) : operation == "insert" ? row : -1;
+    refreshForm_(false);
+    refreshLiveLayers_(select < 0 ? -1 : qMax(0, select));
     refreshLivePreview_();
+}
+
+void LidControlEditorDialog::setDraftRecord_(const QVariantMap &record, bool layersMoved)
+{
+    if (!m_current) return;
+    const auto draft = m_drafts.constFind(m_current);
+    const bool had = draft != m_drafts.cend();
+    const QVariantMap base = had ? draft->base : m_record;
+    const bool moved = layersMoved || (had && draft->layersMoved);
+    if (record == base)
+        m_drafts.remove(m_current); // edited back to the model's values
+    else
+        m_drafts.insert(m_current, {base, record, moved});
+    m_record = record;
+    m_session->noteEdited();
+}
+
+void LidControlEditorDialog::rebaseDrafts_()
+{
+    if (!m_layer) return;
+    for (auto it = m_drafts.begin(); it != m_drafts.end(); ++it) {
+        const QVariantMap now = DataObjectAttributeTableModel::lidProfile(m_layer, it.key()->name());
+        if (now.isEmpty() || now == it->base) continue;
+        const bool node = it->record.value("type").toInt() == 8;
+        if (node && (now.value("_kinds") != it->base.value("_kinds") || now.value("type") != it->base.value("type")))
+            continue; // the layers changed here and elsewhere: Apply refuses; Revert starts again
+        QVariantMap edited = now;
+        if (it->layersMoved) {
+            if (now.value("_pollutants") != it->base.value("_pollutants") || now.value("_species") != it->base.value("_species"))
+                continue;
+            for (auto k = edited.begin(); k != edited.end();)
+                k = k.key().startsWith("node/") ? edited.erase(k) : std::next(k);
+            for (auto f = it->record.cbegin(); f != it->record.cend(); ++f)
+                if (f.key().startsWith("node/") || f.key() == "_kinds") edited[f.key()] = f.value();
+        }
+        for (auto f = it->record.cbegin(); f != it->record.cend(); ++f)
+            if (!f.key().startsWith('_') && !(it->layersMoved && f.key().startsWith("node/")) &&
+                it->base.value(f.key()) != f.value() && now.contains(f.key()))
+                edited[f.key()] = f.value();
+        *it = {now, edited, it->layersMoved};
+    }
+    if (m_current && m_drafts.contains(m_current))
+        m_record = m_drafts.value(m_current).record;
+}
+
+bool LidControlEditorDialog::applyDrafts_(QString *reason)
+{
+    rebaseDrafts_(); // the edits go on what the model holds now
+    QVector<DataObjectDraftSession::Edit> edits;
+    QStringList names;
+    const auto refusal = std::make_shared<QString>();
+    for (auto it = m_drafts.cbegin(); it != m_drafts.cend(); ++it) {
+        if (it->record == it->base) continue;
+        names << it.key()->name();
+        edits.append(lidRecordEdit(m_registry.data(), m_layer.data(), it.key(), it->base, it->record, it->layersMoved, refusal));
+    }
+    m_applying = true;
+    const bool ok = edits.isEmpty() || DataObjectDraftSession::commit(
+        edits, undoStack_(),
+        names.size() == 1 ? tr("Edit LID control %1").arg(names.first())
+                          : tr("Edit %n LID control(s)", nullptr, int(names.size())));
+    m_applying = false;
+    if (!ok) {
+        *reason = refusal->isEmpty()
+            ? tr("the model did not accept the values for %1; nothing was changed").arg(names.join(QStringLiteral(", ")))
+            : *refusal;
+        return false;
+    }
+    m_drafts.clear();
+    bindProvider_(m_current);
+    return true;
+}
+
+void LidControlEditorDialog::revertDrafts_()
+{
+    m_drafts.clear();
+    m_liveStatus->clear();
+    bindProvider_(m_current);
+}
+
+void LidControlEditorDialog::commitOpenEditors_()
+{
+    // Spin boxes and text fields commit on Enter or focus loss: hand over a value still typed.
+    for (QWidget *w : std::as_const(m_fieldEditors)) {
+        if (!w->hasFocus()) continue;
+        if (auto *real = qobject_cast<QDoubleSpinBox *>(w)) real->interpretText();
+        else if (auto *spin = qobject_cast<QSpinBox *>(w)) spin->interpretText();
+        else if (auto *edit = qobject_cast<QLineEdit *>(w)) emit edit->editingFinished();
+    }
+    if (m_nameEdit && m_nameEdit->hasFocus()) onNameEdited_();
+}
+
+void LidControlEditorDialog::followModel_(LidControlProvider *p)
+{
+    if (m_applying || !p || !m_session) return;
+    if (m_drafts.contains(p)) {
+        m_session->noteExternalChange();
+        return;
+    }
+    if (p == m_current)
+        QTimer::singleShot(0, this, [this] {
+            if (!m_drafts.contains(m_current)) bindProvider_(m_current);
+        });
+}
+
+QUndoStack *LidControlEditorDialog::undoStack_() const
+{
+    if (m_undo) return m_undo;
+    return m_layer && m_layer->editCanvas() ? m_layer->editCanvas()->undoStack() : nullptr;
+}
+
+void LidControlEditorDialog::setUndoStack(QUndoStack *stack)
+{
+    m_undo = stack;
+    bindUndoButtons_();
+}
+
+void LidControlEditorDialog::bindUndoButtons_()
+{
+    if (!m_undoBtn) return;
+    for (const auto &c : std::as_const(m_undoWatch)) disconnect(c);
+    m_undoWatch.clear();
+    QUndoStack *stack = undoStack_();
+    m_undoBtn->setEnabled(stack && stack->canUndo());
+    m_redoBtn->setEnabled(stack && stack->canRedo());
+    if (!stack) return;
+    m_undoWatch << connect(stack, &QUndoStack::canUndoChanged, m_undoBtn, &QPushButton::setEnabled)
+                << connect(stack, &QUndoStack::canRedoChanged, m_redoBtn, &QPushButton::setEnabled);
 }
 
 void LidControlEditorDialog::refreshLivePreview_()
@@ -414,17 +824,27 @@ void LidControlEditorDialog::refreshLivePreview_()
     namespace sv = openswmmvis::sectionview;
     auto *curves = static_cast<RetentionCurves *>(m_retentionCurves);
     curves->layerLabel.clear(); curves->material = {}; curves->porosity = 0;
-    if (!m_current || !m_layer) { m_diagram->setModel({}); curves->update(); return; }
-    const auto r = DataObjectAttributeTableModel::lidProfile(m_layer, m_current->name());
-    sv::LidDiagramInput in; in.name = m_current->name(); in.type = static_cast<sv::LidType>(m_current->type());
+    const auto &r = m_record;
+    if (!m_current || !m_layer || r.isEmpty()) { m_diagram->setModel({}); curves->update(); return; }
+    sv::LidDiagramInput in; in.name = m_current->name(); in.type = static_cast<sv::LidType>(r["type"].toInt());
     int units = 0; swmm_get_flow_units(m_layer->engine(), &units); in.lengthLabel = units >= 3 ? "mm" : "in";
-    if (m_current->type() == 8) {
-        for (const auto &row : m_current->nodeLayers()) if (row.kind != 3)
-            in.orderedLayers << sv::LidDiagramInput::OrderedLayer{row.kind == 0 ? sv::LidLayer::Surface : row.kind == 1 ? sv::LidLayer::Soil : sv::LidLayer::Storage,
-                row.params[0], row.kind == 0 ? 1-row.params[1] : row.params[1], row.kind == 1 ? row.params[4] : row.kind == 2 ? row.params[2] : 0.};
-        const int row = m_liveLayers->currentRow();
-        if (row >= 0 && row < m_current->retention.size() && (m_current->nodeLayers()[row].kind == 1 || m_current->nodeLayers()[row].kind == 2)) {
-            curves->layerLabel = m_liveLayers->currentItem()->text(); curves->material = m_current->retention[row]; curves->porosity = m_current->nodeLayers()[row].params[1];
+    if (r["type"].toInt() == 8) {
+        // The draft's layers, top to bottom (BOTTOM is a boundary, not drawn).
+        const QStringList titles = layerTitles(r);
+        const auto kinds = r["_kinds"].toList();
+        QHash<int, int> count;
+        for (int row = 0; row < kinds.size(); ++row) {
+            const int k = kinds[row].toInt();
+            const auto prefix = QStringLiteral("node/%1/%2/").arg(k).arg(++count[k]);
+            auto value = [&](const char *member) { return r[prefix + member].toDouble(); };
+            if (k != 3)
+                in.orderedLayers << sv::LidDiagramInput::OrderedLayer{k == 0 ? sv::LidLayer::Surface : k == 1 ? sv::LidLayer::Soil : sv::LidLayer::Storage,
+                    value("p/0"), k == 0 ? 1 - value("p/1") : value("p/1"), k == 1 ? value("p/4") : k == 2 ? value("p/2") : 0.};
+            if (row == m_liveLayers->currentRow() && (k == 1 || k == 2)) {
+                curves->layerLabel = titles.value(row);
+                curves->material = {value("r/0"), value("r/1"), value("r/2"), value("r/3"), value("r/4")};
+                curves->porosity = value("p/1");
+            }
         }
     } else {
         in.surfaceStorage = r["surfStorage"].toDouble(); in.surfaceRoughness = r["surfRoughness"].toDouble(); in.surfaceSlope = r["surfSlope"].toDouble();
@@ -434,7 +854,7 @@ void LidControlEditorDialog::refreshLivePreview_()
         in.pavementThickness = r["paveThick"].toDouble(); in.drainmatThickness = r["matThick"].toDouble();
     }
     m_diagram->setModel(sv::buildLidLayerDiagram(in));
-    curves->setVisible(m_current->type() == 8 && r["flowModel"].toInt() == 1); curves->update();
+    curves->setVisible(r["type"].toInt() == 8 && r["flowModel"].toInt() == 1); curves->update();
 }
 
 void LidControlEditorDialog::buildUi_()
@@ -922,14 +1342,20 @@ bool LidControlEditorDialog::finishLayerDraft_()
 }
 void LidControlEditorDialog::done(int result)
 {
-    if (m_liveProperties || finishLayerDraft_())
+    if (m_draftMode) {
+        if (m_registry && m_session && !m_session->resolveBeforeClose())
+            return; // Cancel, or an Apply the model refused
+        QDialog::done(result);
+        return;
+    }
+    if (finishLayerDraft_())
         QDialog::done(result);
 }
 
 void LidControlEditorDialog::bindProvider_(LidControlProvider *p)
 {
     m_current = p;
-    if (m_liveProperties) { bindLiveProvider_(p); return; }
+    if (m_draftMode) { bindLiveProvider_(p); return; }
 
     const bool prev = m_suppressFieldSync;
     m_suppressFieldSync = true;
@@ -1016,7 +1442,7 @@ void LidControlEditorDialog::selectProviderInList_(LidControlProvider *p)
         bindProvider_(p);
         return;
     }
-    const QModelIndex idx = m_listModel->index(row);
+    const QModelIndex idx = viewIndexOf(m_listView, m_listModel->index(row));
     m_listView->selectionModel()->setCurrentIndex(idx, QItemSelectionModel::ClearAndSelect);
 }
 
@@ -1032,7 +1458,7 @@ QString LidControlEditorDialog::suggestUniqueName_() const
 
 void LidControlEditorDialog::onListSelectionChanged_()
 {
-    if (!m_liveProperties && !finishLayerDraft_()) {
+    if (!m_draftMode && !finishLayerDraft_()) {
         QSignalBlocker blocker(m_listView->selectionModel());
         selectProviderInList_(m_current);
         return;
@@ -1045,27 +1471,46 @@ void LidControlEditorDialog::onAddClicked_()
 {
     if (!m_registry)
         return;
-    LidControlProvider *p = m_registry->create(suggestUniqueName_());
-    if (p) {
-        if (m_layer) { p->clearDirty(); DataObjectAttributeTableModel::initializeLidDesign(m_layer, p->name()); }
-        selectProviderInList_(p);
+    if (m_draftMode) {
+        createControl_(suggestUniqueName_(), 0);
+        return;
     }
+    if (LidControlProvider *p = m_registry->create(suggestUniqueName_()))
+        selectProviderInList_(p);
 }
 
 void LidControlEditorDialog::addLayeredControl_()
 {
     if (!m_registry)
         return;
+    if (m_draftMode) {
+        createControl_(suggestUniqueName_(), 8);
+        return;
+    }
     auto *provider = m_registry->create(suggestUniqueName_(), 8);
     if (!provider)
         return;
-    if (m_layer) {
-        provider->clearDirty();
-        if (!DataObjectAttributeTableModel::initializeLidDesign(m_layer, provider->name())) {
-            m_registry->remove(provider); return;
-        }
-    } else provider->setNodeLayers(defaultNodeLayers());
+    provider->setNodeLayers(defaultNodeLayers());
     selectProviderInList_(provider);
+}
+
+void LidControlEditorDialog::createControl_(const QString &name, int type)
+{
+    // One undo step: the control with its example design (plan D5).
+    const auto make = [type](LidControlRegistry *r, const QString &n) { return r->create(n, type); };
+    const auto setup = [layer = m_layer](LidControlProvider *p) { // a refusal removes it again
+        p->clearDirty();
+        return layer && DataObjectAttributeTableModel::initializeLidDesign(layer, p->name());
+    };
+    if (!DataObjectDraftSession::commit({createObjectEditWith(m_registry.data(), name, make, setup)},
+                                        undoStack_(), tr("Create LID control %1").arg(name))) {
+        m_liveStatus->setText(tr("The model did not create %1.").arg(name));
+        return;
+    }
+    if (LidControlProvider *p = m_registry->findByName(name)) {
+        m_session->noteApplied(tr("Created %1").arg(name));
+        selectProviderInList_(p);
+    }
 }
 
 void LidControlEditorDialog::refreshLayerFields_()
@@ -1171,6 +1616,43 @@ void LidControlEditorDialog::onDeleteClicked_()
 {
     if (!m_registry || !m_current)
         return;
+    if (m_draftMode) {
+        // Plan D8 — say what the engine detaches, and that Undo will not re-attach it.
+        const QString removedName = m_current->name();
+        QString text = tr("Delete LID control \"%1\"?").arg(removedName);
+        if (m_layer && m_layer->engine()) {
+            const QString uses = dataObjectUses(m_layer->engine(), swmm_lid_analyze_impact,
+                                                swmm_lid_index(m_layer->engine(), removedName.toUtf8().constData()));
+            if (!uses.isEmpty())
+                text += QLatin1String("\n\n") + uses + QLatin1Char(' ') +
+                        tr("Those uses are removed with it; Undo brings back the LID control and its "
+                           "settings, but not those uses.");
+        }
+        if (QMessageBox::question(this, tr("Delete LID Control"), text) != QMessageBox::Yes || !m_registry || !m_current)
+            return;
+        // Undo makes the control again and writes the settings the model held (a draft is dropped).
+        const QVariantMap kept = DataObjectAttributeTableModel::lidProfile(m_layer, removedName);
+        const auto make = [type = kept.value("type").toInt()](LidControlRegistry *r, const QString &n) { return r->create(n, type); };
+        const auto restore = [layer = m_layer, kept](LidControlProvider *p) {
+            if (!layer) return false;
+            p->clearDirty();
+            const QVariantMap fresh = DataObjectAttributeTableModel::lidProfile(layer, p->name());
+            return !fresh.isEmpty() && !kept.isEmpty() &&
+                   DataObjectAttributeTableModel::applyRecord(layer, kLids, p->name(), fresh, kept, nullptr);
+        };
+        m_current = nullptr;
+        if (!DataObjectDraftSession::commit({deleteObjectEditWith(m_registry.data(), removedName, make, restore)},
+                                            undoStack_(), tr("Delete LID control %1").arg(removedName))) {
+            bindProvider_(m_registry->findByName(removedName));
+            return;
+        }
+        m_session->noteApplied(tr("Deleted %1").arg(removedName));
+        if (m_registry->providerCount() > 0)
+            selectProviderInList_(m_registry->providers().first());
+        else
+            bindProvider_(nullptr);
+        return;
+    }
     const auto answer = QMessageBox::question(
         this, tr("Delete LID Control"), tr("Delete LID control \"%1\"?").arg(m_current->name()));
     if (answer != QMessageBox::Yes)
@@ -1195,6 +1677,18 @@ void LidControlEditorDialog::onNameEdited_()
     if (const QString why = openswmmvis::swmmIdentifierProblem(newName); !why.isEmpty()) {
         QMessageBox::warning(this, tr("Rename LID Control"), why); // feedback C10
         m_nameEdit->setText(m_current->name());
+        return;
+    }
+    if (m_draftMode) {
+        const QString from = m_current->name();
+        if (!DataObjectDraftSession::commit({renameObjectEdit(m_registry.data(), from, newName)}, undoStack_(),
+                                            tr("Rename LID control %1 to %2").arg(from, newName))) {
+            QMessageBox::warning(this, tr("Rename LID Control"),
+                                 tr("A LID control named \"%1\" already exists.").arg(newName));
+            if (m_current) m_nameEdit->setText(m_current->name());
+            return;
+        }
+        m_session->noteApplied(tr("Renamed to %1").arg(newName));
         return;
     }
     if (!m_registry->rename(m_current, newName)) {

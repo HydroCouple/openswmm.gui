@@ -733,17 +733,16 @@ void openInletsBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
  *   while dialog uses it.
  * @param[in] parent Optional owner used only when constructing a new window; null parent does not
  *   retain model lifetime.
- * @note Unnamed stack argument ignored; this launcher creates no undo command itself.
+ * @note @p stack: one Apply, create, delete or rename becomes one step on it.
  * @brief Ensure typed LidControls registry and invoke createNew factory, returning silently on null
  *   result. New dialog is WA_DeleteOnClose and shown modeless; this launcher does not reuse
  *   existing windows.
- * @note Project-owned fields commit immediately through the shared checked writer. Closing
- *   dismisses the editor without flushing unrelated registry drafts.
+ * @note Edits are a draft until Apply, one step on \p stack; closing with a draft asks.
  * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
  */
-void openLidControlsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+void openLidControlsCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
 {
     if (!layer)
         return;
@@ -753,6 +752,7 @@ void openLidControlsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWi
     auto *dlg = LidControlEditorDialog::createNew(reg, layer, parent);
     if (!dlg)
         return;
+    dlg->setUndoStack(stack);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
 }
@@ -762,17 +762,16 @@ void openLidControlsCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWi
  *   while dialog uses it.
  * @param[in] parent Optional owner used only when constructing a new window; null parent does not
  *   retain model lifetime.
- * @note Unnamed stack argument ignored; this launcher creates no undo command itself.
+ * @note @p stack: one Apply, create, delete or rename becomes one step on it.
  * @brief Ensure typed LidControls registry and construct list editor without deliberately creating
  *   a new entry. New dialog is WA_DeleteOnClose and shown modeless; this launcher does not reuse
  *   existing windows.
- * @note Project-owned fields commit immediately through the shared checked writer. Closing
- *   dismisses the editor without flushing unrelated registry drafts.
+ * @note Edits are a draft until Apply, one step on \p stack; closing with a draft asks.
  * @note GUI-thread only. No success return; layer/registry/factory rejection leaves UI unchanged
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
  */
-void openLidControlsBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+void openLidControlsBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
 {
     if (!layer)
         return;
@@ -780,6 +779,7 @@ void openLidControlsBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidge
     if (!reg)
         return;
     auto *dlg = new LidControlEditorDialog(reg, layer, parent);
+    dlg->setUndoStack(stack);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
     dlg->show();
 }
@@ -1051,15 +1051,15 @@ void openSnowpackForObject(SWMMModelLayer *layer, QUndoStack *stack, const QStri
  * @param[in] name Exact object/group ID passed through; wrapper does not reject empty/unknown name
  *   itself.
  * @param[in] parent Optional window owner, used only on new construction.
- * @note Unnamed stack argument ignored.
+ * @param[in] stack Optional borrowed project undo stack; one Apply becomes one step on it.
  * @brief Ensure typed registry, then use per-kind static QPointer window/registry slots through
  *   openRegistryEditorFor. Registry changes close old window before constructing new; selected
- *   object opening delegated to kind-specific method. Close-time flush guarded by layer/registry
- *   pointers; no success/error return.
+ *   object opening delegated to kind-specific method. No close-time flush: edits reach the
+ *   model at Apply; no success/error return.
  * @note GUI-thread only; registry ensure can initialize model state. Borrowed model/stack must
  *   outlive dialog use; no direct notification/undo command in this wrapper.
  */
-void openLidControlForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/, const QString &name,
+void openLidControlForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
                              QWidget *parent)
 {
     if (!layer)
@@ -1069,6 +1069,8 @@ void openLidControlForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/, cons
     openRegistryEditorFor(editor, editorReg,
                           qobject_cast<LidControlRegistry *>(layer->ensureLidControlRegistry()),
                           layer, parent, &LidControlEditorDialog::openForLidControl, name);
+    if (editor)
+        editor->setUndoStack(stack);
 }
 
 /**

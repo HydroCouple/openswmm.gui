@@ -157,6 +157,13 @@ public:
     static bool editLidProfile(SWMMModelLayer *layer, const QString &name,
                               const QString &operation, int row, int kind,
                               QUndoStack *undo, QString *error = nullptr);
+    /** editLidProfile's \p operation on the NODE record \p before, into \p after, without
+     *  writing or validating (the LID editor's draft; validate with proposeRecord's
+     *  `_nodeProfile`). @return False for a standard control or an operation that does not
+     *  apply (e.g. Up on the top row). */
+    static bool lidProfileOperation(SWMMModelLayer *layer, const QVariantMap &before,
+                                    const QString &operation, int row, int kind,
+                                    QVariantMap *after);
     /** Seed a newly created, empty design with documented complete starter layers. */
     static bool initializeLidDesign(SWMMModelLayer *layer, const QString &name);
     static SWMMModelLayer::DataCategory categoryForType(SWMMObjectRef::ObjectType type);
@@ -164,12 +171,15 @@ public:
     QObject *providerAt(int row) const { return row >= 0 && row < m_rows.size() ? m_rows[row].data() : nullptr; }
 
 
-    struct RecordField { openswmmvis::ColumnSpec spec; bool editable=true; QString reason; };
+    struct RecordField { openswmmvis::ColumnSpec spec; bool editable=true; QString reason; bool applies=true; };
     static QVariantMap dataRecord(SWMMModelLayer *layer,SWMMModelLayer::DataCategory category,const QString &name);
     /*! A record-based editor's draft step (land use, unit hydrograph, control
      *  rule; Apply/Revert plan): \p before with \p key set to \p value by the
      *  same rules as applyValues (derived fields, ranges, references), into
-     *  \p after. Nothing is written. @return False with \p error when refused. */
+     *  \p after. Nothing is written. @return False with \p error when refused.
+     *  LID controls (the LID editor's draft): the field rules follow the draft's own type,
+     *  layers and flow model; key `_nodeProfile` with value {"before": \p before, "after": X}
+     *  checks a whole NODE profile X (layer operations). */
     static bool proposeRecord(SWMMModelLayer *layer, SWMMModelLayer::DataCategory category,
                               const QString &name, const QString &key, const QVariant &value,
                               const QVariantMap &before, QVariantMap *after,
@@ -178,11 +188,19 @@ public:
      *  from \p before, provided the model still holds \p before for them; read
      *  back, publish and mark the project edited, all or nothing. With \p undo
      *  it is one undo step; without, it is written without history (the
-     *  editor's own undo step replays it). */
+     *  editor's own undo step replays it). LID controls: the whole record, provided the model
+     *  still holds all of \p before (layer order changes go through applyValues'
+     *  `_nodeProfile`, which also invalidates older per-field steps on the control). */
     static bool applyRecord(SWMMModelLayer *layer, SWMMModelLayer::DataCategory category,
                             const QString &name, const QVariantMap &before,
                             const QVariantMap &after, QUndoStack *undo, QString *error = nullptr);
     static QList<RecordField> recordFields(SWMMModelLayer *layer,SWMMModelLayer::DataCategory category,const QStringList &names);
+    /*! The shared writer's LID fields (those the Properties panel and Attribute Table edit) as
+     *  they apply to the draft \p record of control \p name: `applies` false when the draft's
+     *  type, layers, flow model or treatment flag leaves the field out; `editable` false (with
+     *  the reason) for read-only fields. Labels end with the unit, e.g. "(in)". */
+    static QList<RecordField> lidDraftFields(SWMMModelLayer *layer, const QString &name,
+                                             const QVariantMap &record);
     // QAbstractTableModel ----------------------------------------------------
     /**
      * @param[in] parent Flat-table parent; valid returns zero.
