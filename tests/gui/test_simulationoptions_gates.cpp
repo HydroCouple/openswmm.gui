@@ -199,6 +199,7 @@ private slots:
     void hotstartSaveFormatsSurviveFilesPage();
     void durationAcrossDaylightSavingIsWallClock();
     void routingStepTypedUnderDecimalCommaLocaleIsWritten();
+    void reviewG05G06OptionsHaveEditorsAndApply();
 };
 
 namespace
@@ -1531,4 +1532,58 @@ void TestSimulationOptionsGates::routingStepTypedUnderDecimalCommaLocaleIsWritte
     QCOMPARE(routing->text(), QStringLiteral("0.5"));
     page.write();
     QCOMPARE(option(e, "ROUTING_STEP").toDouble(), 0.5);
+}
+
+/*! Review G-05/G-06: the [OPTIONS] and [2D_OPTIONS] keys that had no editor now have one that
+ *  reads the engine and writes it back on Apply. TEMPDIR is left out on purpose (the engine
+ *  ignores it); LINK_OFFSETS stays on the status-bar switch, which converts the offsets. */
+void TestSimulationOptionsGates::reviewG05G06OptionsHaveEditorsAndApply()
+{
+    auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
+    QVERIFY2(layer, "mini_2d.inp failed to load");
+    SWMM_Engine e = layer->engine();
+    SimulationOptionsDialog dlg(e, layer.get(), QStringLiteral("6.0.0"), nullptr, nullptr);
+    auto editorFor = [&](const char *key) -> QWidget * {
+        for (QWidget *w : dlg.findChildren<QWidget *>())
+            if (w->property("optionKey").toString().split(QLatin1Char(',')).contains(QLatin1String(key)))
+                return w;
+        return nullptr;
+    };
+    for (const char *key : {"FRONT_REBUILD", "COUPLING_IN_FLOODING", "HEAT_SURFACE_EXCHANGE",
+                            "HEAT_RADIATIVE_EXCHANGE", "WATER_DENSITY",
+                            "WATER_SPECIFIC_HEAT_CAPACITY", "WIND_FUNC_COEFF_A",
+                            "WIND_FUNC_COEFF_B", "PRESSURE_RATIO", "FV_NODE_FEEDBACK_DT",
+                            "WRITE_ABSOLUTE_PATHS"})
+        QVERIFY2(editorFor(key), key);
+
+    auto *flooding = qobject_cast<QCheckBox *>(editorFor("COUPLING_IN_FLOODING"));
+    auto *front = qobject_cast<QComboBox *>(editorFor("FRONT_REBUILD"));
+    auto *density = qobject_cast<QLineEdit *>(editorFor("WATER_DENSITY"));
+    auto *windA = qobject_cast<QLineEdit *>(editorFor("WIND_FUNC_COEFF_A"));
+    auto *feedback = qobject_cast<QCheckBox *>(editorFor("FV_NODE_FEEDBACK_DT"));
+    auto *absolute = qobject_cast<QCheckBox *>(editorFor("WRITE_ABSOLUTE_PATHS"));
+    QVERIFY(flooding && front && density && windA && feedback && absolute);
+    QCOMPARE(density->text().toDouble(), 1000.0);
+    QCOMPARE(windA->text().toDouble(), 1.505e-8);
+    flooding->setChecked(true);
+    front->setCurrentIndex(front->findData(QStringLiteral("YES")));
+    density->setText(QStringLiteral("998.2"));
+    windA->setText(QStringLiteral("2e-8"));
+    feedback->setChecked(true);
+    absolute->setChecked(true);
+    QVERIFY(QMetaObject::invokeMethod(&dlg, "onApply", Qt::DirectConnection));
+
+    char buf[64] = {};
+    QCOMPARE(swmm_options_get_ext(e, "COUPLING_IN_FLOODING", buf, sizeof buf), 0);
+    QCOMPARE(QString::fromLatin1(buf), QStringLiteral("YES"));
+    QCOMPARE(swmm_options_get_ext(e, "FRONT_REBUILD", buf, sizeof buf), 0);
+    QCOMPARE(QString::fromLatin1(buf), QStringLiteral("YES"));
+    QCOMPARE(swmm_options_get(e, "WATER_DENSITY", buf, sizeof buf), 0);
+    QCOMPARE(QString::fromLatin1(buf).toDouble(), 998.2);
+    QCOMPARE(swmm_options_get(e, "WIND_FUNC_COEFF_A", buf, sizeof buf), 0);
+    QCOMPARE(QString::fromLatin1(buf).toDouble(), 2e-8);
+    QCOMPARE(swmm_options_get(e, "FV_NODE_FEEDBACK_DT", buf, sizeof buf), 0);
+    QCOMPARE(SimulationOptionsDialog::parseEngineBool(QString::fromLatin1(buf)), Qt::Checked);
+    QCOMPARE(swmm_options_get(e, "WRITE_ABSOLUTE_PATHS", buf, sizeof buf), 0);
+    QCOMPARE(SimulationOptionsDialog::parseEngineBool(QString::fromLatin1(buf)), Qt::Checked);
 }

@@ -28,9 +28,14 @@
 
 #include "ui/dialogs/simoptions/simoptionspage.h"
 
+#include <QList>
+#include <QPair>
+#include <QString>
+
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
+class QLineEdit;
 class QSpinBox;
 class QTabWidget;
 
@@ -162,6 +167,9 @@ private:
     QSpinBox *m_rwptSeedSpin = nullptr;          // RWPT_SEED (RWPT only)
     QCheckBox *m_waterAgeBox = nullptr;          // WATER_AGE
     QCheckBox *m_heatTransportBox = nullptr;     // HEAT_TRANSPORT
+    /// Heat constants ([OPTIONS] WATER_DENSITY, WATER_SPECIFIC_HEAT_CAPACITY,
+    /// WIND_FUNC_COEFF_A, WIND_FUNC_COEFF_B, PRESSURE_RATIO), keyed by option name.
+    QList<QPair<QString, QLineEdit *>> m_heatConstants;
     QComboBox *m_fvScalarSchemeCombo = nullptr;  // FV_SCALAR_SCHEME
 };
 

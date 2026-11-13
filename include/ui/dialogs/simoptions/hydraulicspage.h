@@ -182,6 +182,7 @@ private:
     QComboBox *m_fvOrderCombo = nullptr;
     class QGroupBox *m_fvPerfGroup = nullptr;
     QCheckBox *m_fvPressImplicitBox = nullptr;     // FV_PRESSURIZED_IMPLICIT (experimental)
+    QCheckBox *m_fvNodeFeedbackBox = nullptr;      // FV_NODE_FEEDBACK_DT
     QComboBox *m_fvPressureClosureCombo = nullptr; // FV_PRESSURE_CLOSURE (SLOT|TPA)
     QComboBox *m_fvRiemannCombo = nullptr;
     QDoubleSpinBox *m_fvSlotCeleritySpin = nullptr; // project length units / s

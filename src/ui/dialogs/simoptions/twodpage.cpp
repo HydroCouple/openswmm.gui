@@ -221,6 +221,31 @@ void TwoDPage::buildUi()
                                       "(Barth–Jespersen) + SSP-RK2 (runs in global-dt mode)."));
     marchForm->addRow(tr("Reconstruction order:"), m_reconOrder2DSpin);
 
+    auto autoYesNo = [this](QComboBox *combo) {
+        combo->addItem(tr("Automatic"), QStringLiteral("AUTO"));
+        combo->addItem(tr("Yes"), QStringLiteral("YES"));
+        combo->addItem(tr("No"), QStringLiteral("NO"));
+    };
+    m_frontRebuildCombo = new QComboBox(m_marcherGroup);
+    autoYesNo(m_frontRebuildCombo);
+    m_frontRebuildCombo->setToolTip(
+        tr("Rebuild the wet-front cell lists every step (FRONT_REBUILD). Automatic lets the "
+           "solver decide from the mesh size; Yes or No forces it."));
+    marchForm->addRow(tr("Wet-front rebuild:"), m_frontRebuildCombo);
+
+    m_heatSurfaceCombo = new QComboBox(m_marcherGroup);
+    autoYesNo(m_heatSurfaceCombo);
+    m_heatSurfaceCombo->setToolTip(
+        tr("Surface (evaporative and convective) heat exchange on the 2D surface "
+           "(HEAT_SURFACE_EXCHANGE). Automatic follows heat transport."));
+    marchForm->addRow(tr("Surface heat exchange:"), m_heatSurfaceCombo);
+    m_heatRadiativeCombo = new QComboBox(m_marcherGroup);
+    autoYesNo(m_heatRadiativeCombo);
+    m_heatRadiativeCombo->setToolTip(
+        tr("Radiative heat exchange on the 2D surface (HEAT_RADIATIVE_EXCHANGE). Automatic "
+           "follows heat transport."));
+    marchForm->addRow(tr("Radiative heat exchange:"), m_heatRadiativeCombo);
+
     m_froudeMaxSpin = new QDoubleSpinBox(m_marcherGroup);
     m_froudeMaxSpin->setRange(0.1, 5.0);
     m_froudeMaxSpin->setDecimals(2);
@@ -527,6 +552,13 @@ void TwoDPage::buildUi()
            "the pipes they feed — oversized areas drive fill-and-spill churn. "
            "Explicit AREA values in the input are replaced while this is on."));
     coupForm->addRow(QString(), m_couplingAreaAutoBox);
+
+    m_couplingInFloodingBox =
+        new QCheckBox(tr("Book 1D-to-2D spill as node flooding (COUPLING_IN_FLOODING)"), coupGroup);
+    m_couplingInFloodingBox->setToolTip(
+        tr("Report water a node spills onto the 2D surface in the node's flooding totals, as "
+           "older versions did. Off (default) books it as 1D-to-2D exchange instead."));
+    coupForm->addRow(QString(), m_couplingInFloodingBox);
 
     t2CplLay->addWidget(coupGroup);
 
@@ -1108,6 +1140,10 @@ void TwoDPage::tagWidgets()
     tagOption(m_advection2DBox, "ADVECTION");
     tagOption(m_backend2DCombo, "BACKEND");
     tagOption(m_couplingAreaAutoBox, "COUPLING_AREA");
+    tagOption(m_couplingInFloodingBox, "COUPLING_IN_FLOODING");
+    tagOption(m_frontRebuildCombo, "FRONT_REBUILD");
+    tagOption(m_heatSurfaceCombo, "HEAT_SURFACE_EXCHANGE");
+    tagOption(m_heatRadiativeCombo, "HEAT_RADIATIVE_EXCHANGE");
     tagOption(m_output2DFileEdit, "OUTPUT_FILE");
     tagOption(m_output2DPrecisionCombo, "OUTPUT_PRECISION");
     tagOption(m_output2DCompressionSpin, "OUTPUT_COMPRESSION");
@@ -1528,6 +1564,13 @@ void TwoDPage::read()
     m_couplingAreaAutoBox->setChecked(
         getExt("COUPLING_AREA", t.couplingAreaAuto ? "AUTO" : "DEFAULT")
             .compare(QStringLiteral("AUTO"), Qt::CaseInsensitive) == 0);
+    m_couplingInFloodingBox->setChecked(
+        SOD::parseEngineBool(getExt("COUPLING_IN_FLOODING", QStringLiteral("NO"))) == Qt::Checked);
+    selectComboByData(m_frontRebuildCombo, getExt("FRONT_REBUILD", QStringLiteral("AUTO")).toUpper());
+    selectComboByData(m_heatSurfaceCombo,
+                      getExt("HEAT_SURFACE_EXCHANGE", QStringLiteral("AUTO")).toUpper());
+    selectComboByData(m_heatRadiativeCombo,
+                      getExt("HEAT_RADIATIVE_EXCHANGE", QStringLiteral("AUTO")).toUpper());
     // An engine that reports nothing for these keys predates them: show the
     // legacy behaviour it runs, not the new-model preference.
     selectComboByData(m_couplingLawCombo, getExt("COUPLING_LAW", QStringLiteral("ORIFICE")));
@@ -1731,6 +1774,10 @@ int TwoDPage::write()
     writeIfChanged("BACKEND", m_backend2DCombo->currentData().toString());
     writeIfChanged("COUPLING_AREA", m_couplingAreaAutoBox->isChecked() ? QStringLiteral("AUTO")
                                                                        : QStringLiteral("DEFAULT"));
+    writeIfChanged("COUPLING_IN_FLOODING", SOD::engineBoolString(m_couplingInFloodingBox->isChecked()));
+    writeIfChanged("FRONT_REBUILD", m_frontRebuildCombo->currentData().toString());
+    writeIfChanged("HEAT_SURFACE_EXCHANGE", m_heatSurfaceCombo->currentData().toString());
+    writeIfChanged("HEAT_RADIATIVE_EXCHANGE", m_heatRadiativeCombo->currentData().toString());
     writeIfChanged("COUPLING_LAW", m_couplingLawCombo->currentData().toString());
     writeIfChanged("COUPLING_COEFFS", m_couplingCoeffsCombo->currentData().toString());
     writeIfChanged("COUPLING_HEAD", m_couplingHeadCombo->currentData().toString());
