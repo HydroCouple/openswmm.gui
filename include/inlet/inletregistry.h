@@ -91,6 +91,16 @@ public:
      */
     bool rename(InletProvider *p, const QString &newName);
 
+    /**
+     * @brief Repoint every inlet design whose custom capture curve is @p from to @p to.
+     * @param[in] from Previous curve name, matched case-insensitively as the engine's table rename
+     *   does; empty is a no-op.
+     * @param[in] to New curve name.
+     * @details Keeps the cached names in step with the engine's own reference rewrite; otherwise
+     *   the next saveToEngine writes the old name back.
+     */
+    void followCurveReference(const QString &from, const QString &to);
+
     /*! \brief Human-readable summary of what references \p p, from
      *  `swmm_inlet_analyze_impact`. Empty when nothing references it (or
      *  when the registry has no engine bound).

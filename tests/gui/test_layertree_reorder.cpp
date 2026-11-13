@@ -22,6 +22,7 @@
  */
 
 #include <QtTest>
+#include <QDir>
 #include <QElapsedTimer>
 #include <QFile>
 #include <QMimeData>
@@ -487,6 +488,125 @@ private slots:
         std::reverse(rev.begin(), rev.end());
         canvas.setLayerGroupOrder(rev);
         QCOMPARE(canvas.layerGroupOrder(), rev);
+    }
+
+    // Review E-01 (2026-11-12): "Remove Layer" in the tree pushed an undoable
+    // RemoveLayerCommand AND deleteLater()'d the layer, so Undo re-inserted a
+    // freed object. The layer must survive while the command can restore it.
+    /** @brief Verify tree removal keeps the layer alive for undo, and undo/redo restore and remove it. */
+    void removeSelectedLayerSurvivesForUndo()
+    {
+        MapCanvas canvas;
+        auto *feat = new OpenSWMMVisAnnotationLayer(QStringLiteral("feat"));
+        const QPointer<OpenSWMMVisLayer> guard(feat);
+        canvas.addLayer(feat, false);
+
+        LayerTreePanel panel;
+        panel.setCanvas(&canvas);
+        QVERIFY(panel.focusLayer(feat));
+        QCOMPARE(panel.selectedLayer(), static_cast<OpenSWMMVisLayer *>(feat));
+        QVERIFY(QMetaObject::invokeMethod(&panel, "onRemoveSelectedLayer"));
+        QVERIFY(!canvas.layers().contains(feat));
+
+        QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
+        QVERIFY2(guard, "removed layer was deleted while its RemoveLayerCommand can still undo it");
+
+        canvas.undoStack()->undo();
+        QVERIFY(canvas.layers().contains(guard.data()));
+        canvas.undoStack()->redo();
+        QVERIFY(!canvas.layers().contains(guard.data()));
+
+        // Deleting it here is safe: the command guards the pointer (E-02).
+        delete guard.data();
+    }
+
+    // Review E-02, owner decision 2026-11-12: a removed layer was never freed.
+    // RemoveLayerCommand now frees it once the removal can no longer be undone.
+    /** @brief Verify a removed layer is freed when its command is cleared, falls off the undo limit or the canvas closes, and an undone removal is not. */
+    void removedLayerIsFreedOnceUndoCannotRestoreIt()
+    {
+        const auto flush = [] { QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete); };
+        {
+            MapCanvas canvas;
+            QPointer<OpenSWMMVisLayer> cleared(new OpenSWMMVisAnnotationLayer(QStringLiteral("cleared")));
+            QPointer<OpenSWMMVisLayer> undone(new OpenSWMMVisAnnotationLayer(QStringLiteral("undone")));
+            canvas.addLayer(cleared, false);
+            canvas.addLayer(undone, false);
+            canvas.takeLayer(canvas.layers().indexOf(cleared.data()));
+            canvas.takeLayer(canvas.layers().indexOf(undone.data()));
+            canvas.undoStack()->undo(); // "undone" is back on the canvas
+            canvas.undoStack()->clear();
+            flush();
+            QVERIFY2(!cleared, "a removed layer survived the clearing of the stack that could restore it");
+            QVERIFY2(undone, "a layer back on the canvas was freed");
+            delete canvas.takeLayer(canvas.layers().indexOf(undone.data()), false);
+        }
+        QPointer<OpenSWMMVisLayer> atClose;
+        {
+            MapCanvas canvas;
+            canvas.undoStack()->setMaxUndoCount(1); // set while the stack is empty
+            QPointer<OpenSWMMVisLayer> first(new OpenSWMMVisAnnotationLayer(QStringLiteral("first")));
+            atClose = new OpenSWMMVisAnnotationLayer(QStringLiteral("atClose"));
+            canvas.addLayer(first, false);
+            canvas.addLayer(atClose, false);
+            canvas.takeLayer(canvas.layers().indexOf(first.data()));
+            canvas.takeLayer(canvas.layers().indexOf(atClose.data())); // pushes "first" off
+            flush();
+            QVERIFY2(!first, "a removal that fell off the undo limit kept its layer");
+            QVERIFY(atClose);
+        }
+        flush();
+        QVERIFY2(!atClose, "a layer still removed when its canvas closed was never freed");
+    }
+
+    // Owner decision 2026-11-12: the project's model layer cannot be removed
+    // from the layer tree (the extension command already refused it).
+    /** @brief Verify the tree's Remove Layer leaves the project's model layer and the undo stack untouched. */
+    void modelLayerCannotBeRemoved()
+    {
+        const QString inp = QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral(".")))
+                                .filePath(QStringLiteral("reference_rename_fixture.inp"));
+        SWMMModelLayer model(inp, nullptr);
+        QList<QString> warnings, errors;
+        QVERIFY2(model.loadModel(warnings, errors), qPrintable(errors.join(QStringLiteral("; "))));
+
+        MapCanvas canvas;
+        canvas.addLayer(&model, false);
+        const int steps = canvas.undoStack()->count();
+
+        LayerTreePanel panel;
+        panel.setCanvas(&canvas);
+        QVERIFY(panel.focusLayer(&model));
+        QCOMPARE(panel.selectedLayer(), static_cast<OpenSWMMVisLayer *>(&model));
+        QVERIFY(QMetaObject::invokeMethod(&panel, "onRemoveSelectedLayer"));
+        QVERIFY2(canvas.layers().contains(&model), "the model layer was removed");
+        QCOMPARE(canvas.undoStack()->count(), steps);
+
+        panel.setCanvas(nullptr);
+        canvas.takeLayer(canvas.layers().indexOf(&model), false);
+    }
+
+    // Review E-20 (2026-11-12): a zoom drag along one pixel row produced a
+    // zero-height request that became the canvas extent (later divided by).
+    /** @brief Verify a one-dimension-zero request is widened to the view aspect and a point request is refused. */
+    void degenerateExtentIsWidenedOrRefused()
+    {
+        MapCanvas canvas;
+        canvas.resize(400, 200); // view aspect 2:1
+        canvas.setExtent(MapExtent(0, 0, 100, 50));
+        QVERIFY(canvas.extent().isValid());
+
+        canvas.setExtent(MapExtent(10, 20, 30, 20)); // zero height
+        QVERIFY(canvas.extent().isValid());
+        QCOMPARE(canvas.extent().width(), 20.0);
+        QCOMPARE(canvas.extent().height(), 10.0);
+        QCOMPARE(canvas.extent().centerY(), 20.0);
+
+        const MapExtent widened = canvas.extent();
+        const int steps = canvas.undoStack()->count();
+        canvas.setExtent(MapExtent(5, 5, 5, 5)); // a point: nothing to fit
+        QVERIFY(canvas.extent() == widened);
+        QCOMPARE(canvas.undoStack()->count(), steps);
     }
 };
 

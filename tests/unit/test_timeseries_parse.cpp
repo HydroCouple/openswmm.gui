@@ -13,6 +13,9 @@
 #include "io/timeseriesparse.h"
 
 #include <QDateTime>
+#include <QTimeZone>
+
+#include <ctime>
 
 #include <cmath>
 #include <vector>
@@ -187,4 +190,38 @@ TEST(TimeseriesParse, TsfRedundantMeridiemKeeps24HourClock)
             QDateTime(QDate(2019, 1, 1), QTime(hour, 15), Qt::UTC));
         EXPECT_DOUBLE_EQ(actual, expected) << stamp.toStdString();
     }
+}
+
+/**
+ *
+ * @brief Review E-15: a timestamp in a daylight-saving gap keeps its wall clock.
+ * The fallback formats used to be parsed as local time, so in a DST zone a row
+ * stamped inside the spring-forward hour was dropped or moved by an hour,
+ * unlike the UTC fast path. SWMM times are zone-less wall clock.
+ *
+ */
+TEST(TimeseriesParse, TryParseTimestamp_DaylightSavingGapKeepsWallClock)
+{
+    const QByteArray oldTz = qgetenv("TZ");
+    qputenv("TZ", "America/New_York");
+    tzset();
+    double gap = std::nan("");
+    double before = std::nan("");
+    const bool parsedGap = ts::tryParseTimestamp(QStringLiteral("03/10/2024 02:30"), gap, std::nan(""));
+    const bool parsedBefore =
+        ts::tryParseTimestamp(QStringLiteral("03/10/2024 01:30"), before, std::nan(""));
+    const bool parsedAmPm =
+        ts::tryParseTimestamp(QStringLiteral("3/10/2024 2:30:00 AM"), gap, std::nan(""));
+    if (oldTz.isNull())
+        qunsetenv("TZ");
+    else
+        qputenv("TZ", oldTz);
+    tzset();
+
+    ASSERT_TRUE(parsedGap);
+    ASSERT_TRUE(parsedBefore);
+    ASSERT_TRUE(parsedAmPm);
+    const QDateTime expected(QDate(2024, 3, 10), QTime(2, 30), QTimeZone::UTC);
+    EXPECT_NEAR(gap, openswmmvis::core::qDateTimeToSwmmDateTime(expected), 1e-9);
+    EXPECT_NEAR(gap - before, 1.0 / 24.0, 1e-9); // one wall-clock hour later
 }

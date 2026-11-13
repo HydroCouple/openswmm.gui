@@ -12,6 +12,7 @@
 
 #include "map/mapextent.h"
 
+#include <QFuture>
 #include <QImage>
 #include <QList>
 #include <QObject>
@@ -111,6 +112,13 @@ public:
      */
     [[nodiscard]] bool isCancelled() const { return m_cancelled->load(); }
 
+    /*!
+     * \brief The worker started by start(); invalid before it.
+     * @return Finishes once the worker has stopped calling into its layers, which can be after
+     *   this job is deleted. MapCanvas waits on it before a raster layer can be destroyed.
+     */
+    [[nodiscard]] QFuture<void> workerFuture() const { return m_future; }
+
 signals:
 
     /*!
@@ -137,6 +145,7 @@ private:
     SpatialReferenceSystem *m_srs;
     QColor m_bgColor;
     bool m_started{false};
+    QFuture<void> m_future;
     // Shared with the worker lambda. Survives the job's destruction so the
     // worker can keep checking it after `delete m_renderJob` from the GUI.
     std::shared_ptr<std::atomic<bool>> m_cancelled{std::make_shared<std::atomic<bool>>(false)};

@@ -30,6 +30,7 @@
 
 #include "plot/plotattribute.h"
 #include "plot/profilebuilder.h"
+#include "plot/profilesourcefetcher.h"
 
 #include <QVector>
 
@@ -136,6 +137,18 @@ struct AttributeProfile {
  * @return Owned rows and finite-only extrema in source units. Missing species leaves correctly sized empty rows/NaN extrema when a handle exists; attribute remains Unknown. No interpolated timestamps or unit conversion are supplied.
  */
 [[nodiscard]] AttributeProfile fetchSpecies(SWMMResultsLayer *resultsLayer,
+                                            const ProfileBuilder::PathStatic &path,
+                                            const QString &species, bool nodeScope);
+
+/*!
+ * \brief Worker-thread forms of \ref fetch / \ref fetchSpecies: read only a plan captured on the
+ *        GUI thread (ProfileSourceFetcher::plan) through a private output reader, never the
+ *        layer or its shared reader, which the GUI thread uses and can close or rebuild.
+ */
+[[nodiscard]] AttributeProfile fetch(const ProfileSourceFetcher::FetchPlan &plan,
+                                     const ProfileBuilder::PathStatic &path,
+                                     openswmmvis::plot::PlotAttribute attr);
+[[nodiscard]] AttributeProfile fetchSpecies(const ProfileSourceFetcher::FetchPlan &plan,
                                             const ProfileBuilder::PathStatic &path,
                                             const QString &species, bool nodeScope);
 

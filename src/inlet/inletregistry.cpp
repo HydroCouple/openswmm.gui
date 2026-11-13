@@ -222,6 +222,15 @@ void InletRegistry::remove(InletProvider *p)
     p->deleteLater();
 }
 
+void InletRegistry::followCurveReference(const QString &from, const QString &to)
+{
+    if (from.isEmpty())
+        return;
+    for (InletProvider *p : std::as_const(m_providers))
+        if (p->curveId().compare(from, Qt::CaseInsensitive) == 0)
+            p->setCurveId(to);
+}
+
 bool InletRegistry::rename(InletProvider *p, const QString &newName)
 {
     if (!p || newName.isEmpty())

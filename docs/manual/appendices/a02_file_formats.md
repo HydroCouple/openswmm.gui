@@ -434,9 +434,9 @@ record applies over `[date, date + step)`.
 
 **File → Import → Delimited** takes `Delimited text (*.csv *.tsv *.txt)`.
 `.csv` is split on commas, `.tsv` and `.tab` on tabs, and an unknown suffix
-falls back to CSV. `.xlsx` is recognised but not enabled in the shipped build —
-it reports *Excel (.xlsx) import requires QXlsx — not yet enabled in this
-build*. PCSWMM `.tsf` files are handled as tab-delimited with an IDs row naming
+falls back to CSV. `.xlsx` workbooks cannot be read: the import reports *Excel
+workbooks (.xlsx) cannot be read. Save the sheet as CSV and import that file.*
+PCSWMM `.tsf` files are handled as tab-delimited with an IDs row naming
 the columns.
 
 ### GIS formats via GDAL / OGR

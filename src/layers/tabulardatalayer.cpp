@@ -1,6 +1,6 @@
 /**
  * @file      tabulardatalayer.cpp
- * @brief     Non-spatial tabular layer for CSV / TSV (and later XLSX) imports.
+ * @brief     Non-spatial tabular layer for CSV / TSV imports.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -204,9 +204,10 @@ bool TabularDataLayer::loadFromFile(const QString &path, QString *errorOut)
     if (suffix == QStringLiteral("tsv") || suffix == QStringLiteral("tab"))
         return loadDelimited(path, QChar('\t'), errorOut);
     if (suffix == QStringLiteral("xlsx")) {
+        // A workbook is a zip archive; read as CSV it would load as garbage.
         if (errorOut)
-            *errorOut = tr("Excel (.xlsx) import requires QXlsx — not yet enabled "
-                           "in this build.");
+            *errorOut = tr("Excel workbooks (.xlsx) cannot be read. Save the sheet as "
+                           "CSV and import that file.");
         return false;
     }
     // Unknown — try CSV as the friendliest default.

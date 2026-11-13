@@ -34,9 +34,12 @@
 
 #include <openswmm/engine/openswmm_gages.h>
 #include <openswmm/engine/openswmm_model.h>
+#include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_spatial.h>
+#include <openswmm/engine/openswmm_subcatchments.h>
 
 #include <QDir>
+#include <QFile>
 #include <QObject>
 #include <QSignalSpy>
 #include <QTest>
@@ -109,6 +112,116 @@ int colForSetter(const QList<ColumnSpec> &specs, const QString &tag)
 
 constexpr double kNewX = 1234.5;
 constexpr double kNewY = -6789.25;
+
+// Every gage field the .inp carries and every reference to a gage (review E-04):
+// subcatchments on both sides of the middle gage's index, a unit-hydrograph group,
+// a user flag and map coordinates.
+const char *kGagesInp = R"([TITLE]
+Delete/undo round trip for rain gages
+
+[OPTIONS]
+FLOW_UNITS           CFS
+INFILTRATION         HORTON
+FLOW_ROUTING         KINWAVE
+START_DATE           01/01/2024
+START_TIME           00:00:00
+END_DATE             01/01/2024
+END_TIME             06:00:00
+
+[RAINGAGES]
+G1      INTENSITY  0:15   1.0   TIMESERIES TS1
+G2      VOLUME     0:05   0.8   FILE "rain.dat" STA42 MM * 2.5
+G3      CUMULATIVE 1:00   1.1   TIMESERIES TS1
+
+[SUBCATCHMENTS]
+S1      G2       J1     1    50      100   0.5    0
+S2      G3       J1     2    40      100   0.5    0
+S3      G2       J1     3    30      100   0.5    0
+
+[SUBAREAS]
+S1      0.01  0.1  0.05  0.05  25  OUTLET
+S2      0.01  0.1  0.05  0.05  25  OUTLET
+S3      0.01  0.1  0.05  0.05  25  OUTLET
+
+[INFILTRATION]
+S1      3.0  0.5  4  7  0
+S2      3.0  0.5  4  7  0
+S3      3.0  0.5  4  7  0
+
+[JUNCTIONS]
+J1      0  5  0  0  0
+
+[OUTFALLS]
+O1      -1  FREE  NO
+
+[CONDUITS]
+C1      J1  O1  100  0.01  0  0  0  0
+
+[XSECTIONS]
+C1      CIRCULAR  1  0  0  0  1
+
+[HYDROGRAPHS]
+UH1     G2
+UH1     ALL  SHORT  0.1  1  2
+
+[TIMESERIES]
+TS1     0:00  0.5
+TS1     1:00  0.0
+
+[USER_FLAGS]
+Owner   STRING
+
+[USER_FLAG_VALUES]
+GAGE    G2   Owner  city
+
+[COORDINATES]
+J1      0    0
+O1      100  0
+
+[SYMBOLS]
+G1      10   10
+G2      20   20
+G3      30   30
+)";
+
+/**
+ * @brief Save the model to dir/name and return the file's bytes (empty on failure).
+ * @param e Live engine. @param dir Output folder. @param name File name in it.
+ */
+QByteArray saveInp(SWMM_Engine e, const QDir &dir, const QString &name)
+{
+    const QString path = dir.filePath(name);
+    if (swmm_model_write(e, path.toUtf8().constData()) != 0)
+        return {};
+    QFile f(path);
+    return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+}
+
+/** @brief Gage names in engine order. */
+QStringList engineGages(SWMM_Engine e)
+{
+    QStringList names;
+    for (int i = 0; i < swmm_gage_count(e); ++i)
+        names << QString::fromUtf8(swmm_gage_id(e, i));
+    return names;
+}
+
+/** @brief Gage names in the layer's cache order (row == SoA index == engine index). */
+QStringList layerGages(const SWMMModelLayer &layer)
+{
+    QStringList names;
+    for (int row = 0; row < layer.categoryCount(SWMMModelLayer::CatRainGages); ++row)
+        names << layer.objectNameAt(SWMMModelLayer::CatRainGages, row);
+    return names;
+}
+
+/** @brief A subcatchment's gage index, or -2 when the getter fails. */
+int subcatchGage(SWMM_Engine e, const char *subcatch)
+{
+    int g = -2;
+    swmm_subcatch_get_gage(e, swmm_subcatch_index(e, subcatch), &g);
+    return g;
+}
 
 } // namespace
 
@@ -312,6 +425,113 @@ private slots:
         QCOMPARE(swmm_spatial_get_gage_coord(e, gi, &ex, &ey), 0);
         QCOMPARE(ex, 30.0);
         QCOMPARE(ey, 40.0);
+    }
+
+    // Review E-03 (workplans/GUI_COMPREHENSIVE_REVIEW_2026-11-12.md): the
+    // move command stored the node's engine index. Undoing a delete re-adds
+    // the node at the END of the list, so the older move then undid onto
+    // whichever node had taken its old index.
+    /** @brief Verify a move undone after delete+undo of the same node moves that node, not its old index's new owner. */
+    void moveUndoFollowsNodeAcrossDeleteUndo()
+    {
+        auto layer = openLayer();
+        QVERIFY(layer);
+        SWMM_Engine e = layer->engine();
+        const int j1 = swmm_node_index(e, "J1");
+        QCOMPARE(j1, 0);
+
+        QUndoStack stack;
+        stack.push(new MoveNodeCommand(layer.get(), j1, 0.0, 0.0, 5.0, 5.0, {}, nullptr));
+        stack.push(new DeleteObjectCommand(layer.get(), QStringLiteral("J1"),
+                                           DeleteObjectCommand::DeleteNode, nullptr));
+        QCOMPARE(swmm_node_index(e, "J1"), -1);
+        stack.undo(); // J1 returns at its own index (E-04 restores in place)
+        QCOMPARE(swmm_node_index(e, "J1"), j1);
+        stack.undo(); // the move
+
+        double x = 0.0, y = 0.0;
+        QCOMPARE(swmm_spatial_get_node_coord(e, swmm_node_index(e, "J1"), &x, &y), 0);
+        QCOMPARE(x, 0.0);
+        QCOMPARE(y, 0.0);
+        QCOMPARE(swmm_spatial_get_node_coord(e, swmm_node_index(e, "X1"), &x, &y), 0);
+        QCOMPARE(x, 1000.0);
+        QCOMPARE(y, 0.0);
+
+        stack.redo(); // move again: J1, not X1
+        QCOMPARE(swmm_spatial_get_node_coord(e, swmm_node_index(e, "J1"), &x, &y), 0);
+        QCOMPARE(x, 5.0);
+        QCOMPARE(swmm_spatial_get_node_coord(e, swmm_node_index(e, "X1"), &x, &y), 0);
+        QCOMPARE(x, 1000.0);
+    }
+
+    /**
+     * @brief Review E-04: undoing a gage delete, single or batch, puts back the model the delete
+     * started from: the saved .inp is byte-identical, gages keep their order in the engine and the
+     * layer cache, and subcatchments point at the same gages again. Redo then undo again too.
+     * Input and saved files go to tests/output/delete_undo_2026-11-12/gage_delete_undo/.
+     */
+    void deleteUndoRestoresGagesExactly()
+    {
+        const QDir dir(QStringLiteral(SWMMVIS_DELETE_UNDO_OUTPUT_DIR "/gage_delete_undo"));
+        QVERIFY(QDir().mkpath(dir.path()));
+        {
+            QFile inp(dir.filePath(QStringLiteral("input.inp")));
+            QVERIFY(inp.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            inp.write(kGagesInp);
+            QFile rain(dir.filePath(QStringLiteral("rain.dat")));
+            QVERIFY(rain.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        }
+        auto layer = std::make_unique<SWMMModelLayer>(dir.filePath(QStringLiteral("input.inp")),
+                                                      nullptr);
+        QList<QString> warnings, errors;
+        QVERIFY2(layer->loadModel(warnings, errors), qPrintable(errors.join('\n')));
+        SWMM_Engine e = layer->engine();
+
+        const QByteArray original = saveInp(e, dir, QStringLiteral("1_original.inp"));
+        QVERIFY(!original.isEmpty());
+        const QStringList order{QStringLiteral("G1"), QStringLiteral("G2"), QStringLiteral("G3")};
+        QCOMPARE(engineGages(e), order);
+        QCOMPARE(layerGages(*layer), order);
+        const auto expectReferences = [&] {
+            QCOMPARE(engineGages(e), order);
+            QCOMPARE(layerGages(*layer), order);
+            // [SUBCATCHMENTS] falls back to a retained gage name when the index is -1,
+            // so the indices are checked directly.
+            QCOMPARE(subcatchGage(e, "S1"), 1);
+            QCOMPARE(subcatchGage(e, "S2"), 2);
+            QCOMPARE(subcatchGage(e, "S3"), 1);
+        };
+
+        QUndoStack stack;
+        // One gage (Object Browser, gage assignment).
+        stack.push(new DeleteObjectCommand(layer.get(), QStringLiteral("G2"),
+                                           DeleteObjectCommand::DeleteGage, nullptr));
+        QCOMPARE(swmm_gage_index(e, "G2"), -1);
+        QCOMPARE(layer->categoryCount(SWMMModelLayer::CatRainGages), 2);
+        stack.undo();
+        expectReferences();
+        QCOMPARE(saveInp(e, dir, QStringLiteral("2_single_undo.inp")), original);
+        stack.redo();
+        QCOMPARE(swmm_gage_index(e, "G2"), -1);
+        stack.undo();
+        expectReferences();
+        QCOMPARE(saveInp(e, dir, QStringLiteral("3_single_redo_undo.inp")), original);
+
+        // A batch (map Delete key, Attribute Table): the first and last gage.
+        stack.push(new BatchDeleteCommand(
+            layer.get(),
+            {{QStringLiteral("G1"), DeleteObjectCommand::DeleteGage},
+             {QStringLiteral("G3"), DeleteObjectCommand::DeleteGage}},
+            nullptr, QStringLiteral("Delete gages")));
+        QCOMPARE(engineGages(e), QStringList{QStringLiteral("G2")});
+        QCOMPARE(layerGages(*layer), QStringList{QStringLiteral("G2")});
+        stack.undo();
+        expectReferences();
+        QCOMPARE(saveInp(e, dir, QStringLiteral("4_batch_undo.inp")), original);
+        stack.redo();
+        stack.undo();
+        expectReferences();
+        QCOMPARE(saveInp(e, dir, QStringLiteral("5_batch_redo_undo.inp")), original);
     }
 };
 

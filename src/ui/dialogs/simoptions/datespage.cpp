@@ -9,6 +9,7 @@
 
 #include "ui/dialogs/simoptions/datespage.h"
 
+#include <QTimeZone>
 #include <QAbstractItemView>
 #include <QDateEdit>
 #include <QDateTimeEdit>
@@ -101,7 +102,9 @@ private:
  */
 QDateTimeEdit *makeEventCellEditor(const QDateTime &dt, QWidget *parent)
 {
-    auto *edit = new QDateTimeEdit(dt, parent);
+    auto *edit = new QDateTimeEdit(parent);
+    edit->setTimeZone(QTimeZone::UTC); // SWMM wall clock: show without conversion
+    edit->setDateTime(dt);
     edit->setCalendarPopup(true);
     edit->setDisplayFormat(QStringLiteral("MM/dd/yyyy HH:mm"));
     edit->setFrame(false);
@@ -159,12 +162,16 @@ void DatesPage::buildUi()
     auto *winGroup = new QGroupBox(tr("Simulation window"), winTab);
     auto *winForm = new QFormLayout(winGroup);
 
+    // SWMM dates are wall clock with no zone or daylight saving: every editor
+    // here is UTC so values are shown and measured without conversion.
     m_startEdit = new QDateTimeEdit(winGroup);
+    m_startEdit->setTimeZone(QTimeZone::UTC);
     m_startEdit->setCalendarPopup(true);
     m_startEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
     winForm->addRow(tr("Start:"), m_startEdit);
 
     m_endEdit = new QDateTimeEdit(winGroup);
+    m_endEdit->setTimeZone(QTimeZone::UTC);
     m_endEdit->setCalendarPopup(true);
     m_endEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
     winForm->addRow(tr("End:"), m_endEdit);
@@ -174,6 +181,7 @@ void DatesPage::buildUi()
     winForm->addRow(tr("Duration:"), m_durationLabel);
 
     m_reportStartEdit = new QDateTimeEdit(winGroup);
+    m_reportStartEdit->setTimeZone(QTimeZone::UTC);
     m_reportStartEdit->setCalendarPopup(true);
     m_reportStartEdit->setDisplayFormat(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
     winForm->addRow(tr("Report start:"), m_reportStartEdit);
@@ -218,6 +226,12 @@ void DatesPage::buildUi()
     m_routingStepEdit = new QLineEdit(stepGroup);
     auto *routingValidator = new QDoubleValidator(0.001, 3600.0, 6, m_routingStepEdit);
     routingValidator->setNotation(QDoubleValidator::StandardNotation);
+    // The box is filled and parsed in the C locale ('.' decimal), so validate
+    // in it too and refuse ',': in a decimal-comma locale the box accepted
+    // "0,5", the C-locale parse failed and the value was silently not written.
+    QLocale cLocale = QLocale::c();
+    cLocale.setNumberOptions(QLocale::RejectGroupSeparator);
+    routingValidator->setLocale(cLocale);
     m_routingStepEdit->setValidator(routingValidator);
     m_routingStepEdit->setPlaceholderText(QStringLiteral("seconds"));
     m_routingStepEdit->setToolTip(tr("Routing step in seconds (ROUTING_STEP)."));
@@ -510,7 +524,8 @@ void DatesPage::addEventRow()
     // Default both columns to (project start, project end) so the user only
     // edits the deltas.  Fall back to "now" when the window edits haven't
     // been populated yet (shouldn't happen — buildUi seeds them).
-    const QDateTime defStart = m_startEdit ? m_startEdit->dateTime() : QDateTime::currentDateTime();
+    const QDateTime defStart =
+        m_startEdit ? m_startEdit->dateTime() : QDateTime::currentDateTimeUtc();
     const QDateTime defEnd = m_endEdit ? m_endEdit->dateTime() : defStart.addDays(1);
     m_eventsTable->setCellWidget(row, 0, makeEventCellEditor(defStart, m_eventsTable));
     m_eventsTable->setCellWidget(row, 1, makeEventCellEditor(defEnd, m_eventsTable));
@@ -591,8 +606,15 @@ bool DatesPage::validate(QString *warn)
         const QString tip = bad ? tr("Start must be earlier than End.") : QString();
         startEdit->setToolTip(tip);
         endEdit->setToolTip(tip);
-        if (bad)
+        startEdit->setAccessibleDescription(tip);
+        endEdit->setAccessibleDescription(tip);
+        if (bad) {
             anyInvalid = true;
+            // Not colour and hover alone (review A-19): the reason also goes
+            // into the page's warning text.
+            if (warn)
+                *warn += tr("Row %1: start must be earlier than end.\n").arg(r + 1);
+        }
     }
 
     if (warn) {

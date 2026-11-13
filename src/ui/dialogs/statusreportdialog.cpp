@@ -410,6 +410,8 @@ void StatusReportDialog::buildUi()
     btnNext->setMinimumWidth(28);
     btnPrev->setToolTip(tr("Previous match (Shift+Enter)"));
     btnNext->setToolTip(tr("Next match (Enter)"));
+    btnPrev->setAccessibleName(tr("Previous match"));
+    btnNext->setAccessibleName(tr("Next match"));
     searchRow->addWidget(btnPrev);
     searchRow->addWidget(btnNext);
 

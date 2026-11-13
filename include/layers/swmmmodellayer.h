@@ -37,6 +37,7 @@ struct SWMMKdTrees;
 
 #include <openswmm/engine/openswmm_callbacks.h>      // SWMM_Engine typedef
 #include <openswmm/engine/openswmm_infrastructure.h> // SWMM_InletUsage (by value)
+#include <openswmm/engine/openswmm_edit.h>           // SWMM_DeleteRecord
 #include <QFont>
 #include <QJsonArray>
 #include <QMap>
@@ -3362,8 +3363,11 @@ public:
      *   ordinary path compacts scenes, rebuilds category maps/order, extent and emits
      *   repaint/geometryChanged. Retained typed selection/hidden names can outlive deleted objects
      *   until explicit cleanup/reuse. No modelEdited/undo itself.
+     * @param[out] record Optional; as for applyGageDelete(), covering the node and every link it
+     *   cascade-deleted. Restore with applyDeleteRestore().
      */
-    bool applyNodeDelete(const QString &name, QStringList *cascadeLinkNames = nullptr);
+    bool applyNodeDelete(const QString &name, QStringList *cascadeLinkNames = nullptr,
+                         SWMM_DeleteRecord *record = nullptr);
 
     /*! Delete a single link.
      * @param[in] name Exact existing link engine namespace identifier.
@@ -3374,8 +3378,9 @@ public:
      *   maps/order, marks scene rebuild and emits repaint/geometryChanged. Does not explicitly
      *   recompute overall extent, remove typed selected/hidden names, emit modelEdited or create
      *   undo.
+     * @param[out] record Optional; as for applyGageDelete(). Restore with applyDeleteRestore().
      */
-    bool applyLinkDelete(const QString &name);
+    bool applyLinkDelete(const QString &name, SWMM_DeleteRecord *record = nullptr);
 
     /*! Delete a rain gage.
      * @param[in] name Exact existing gage engine namespace identifier.
@@ -3386,8 +3391,23 @@ public:
      *   maps/order, marks scene rebuild and emits repaint/geometryChanged. Does not explicitly
      *   recompute overall extent, remove typed selected/hidden names, emit modelEdited or create
      *   undo.
+     * @param[out] record Optional. Receives the engine's record of the delete, which
+     *   applyDeleteRestore() uses to put the gage back exactly; the caller releases it with
+     *   swmm_delete_record_destroy(). Untouched on failure.
      */
-    bool applyGageDelete(const QString &name);
+    bool applyGageDelete(const QString &name, SWMM_DeleteRecord *record = nullptr);
+
+    /*! Undo a recorded delete, single or batch, of gages or links (review E-04).
+     * @param[in] record From applyGageDelete(), applyLinkDelete() or applyDeleteMany(); the engine
+     *   reinserts every object at its original index with all its fields and the references the
+     *   delete cleared.
+     * @return False when the engine refuses because the model no longer matches the state the
+     *   delete left; nothing changes then. On success the record is spent.
+     * @note Inside a BulkEdit scope, merges the restored objects of every kind into the geometry caches
+     *   (survivors keep their entries, restored objects are read from the engine); the scope's
+     *   close rebuilds scene coordinates, category index and flags and emits geometryChanged.
+     */
+    bool applyDeleteRestore(SWMM_DeleteRecord record);
 
     /*! Delete a subcatchment.
      * @param[in] name Exact existing subcatchment engine namespace identifier.
@@ -3398,8 +3418,9 @@ public:
      *   maps/order, marks scene rebuild and emits repaint/geometryChanged. Does not explicitly
      *   recompute overall extent, remove typed selected/hidden names, emit modelEdited or create
      *   undo.
+     * @param[out] record Optional; as for applyGageDelete(). Restore with applyDeleteRestore().
      */
-    bool applySubcatchDelete(const QString &name);
+    bool applySubcatchDelete(const QString &name, SWMM_DeleteRecord *record = nullptr);
 
     /*!
      * \brief Batch deletion (perf-plan Phase A2): one swmm_*_delete_many
@@ -3418,6 +3439,12 @@ public:
      * @param[in] linkNames Link names resolved AFTER node cascade, already-deleted links ignored.
      * @param[in] subcatchNames Catchment names resolved against current engine.
      * @param[in] gageNames Rain-gage names resolved after earlier batches.
+     * @param[out] gageRecord Optional. Receives the engine's record of the gage batch for
+     *   applyDeleteRestore(); set only when the gage batch ran. Caller releases it with
+     *   swmm_delete_record_destroy().
+     * @param[out] linkRecord Optional; the same for the link batch.
+     * @param[out] nodeRecord Optional; the same for the node batch and the links it cascaded.
+     * @param[out] subcatchRecord Optional; the same for the subcatchment batch.
      * @note Executes kind batches node→link→catch→gage inside nested BulkEdit, continues after any
      *   failed kind. True means at least one kind batch succeeded, not every requested object
      *   deleted; false can indicate no matching input or failures. Successful kind sweeps preserve
@@ -3426,7 +3453,11 @@ public:
      */
     bool applyDeleteMany(const QStringList &nodeNames, const QStringList &linkNames,
                          const QStringList &subcatchNames, const QStringList &gageNames,
-                         QStringList *cascadeLinkNames = nullptr);
+                         QStringList *cascadeLinkNames = nullptr,
+                         SWMM_DeleteRecord *gageRecord = nullptr,
+                         SWMM_DeleteRecord *linkRecord = nullptr,
+                         SWMM_DeleteRecord *nodeRecord = nullptr,
+                         SWMM_DeleteRecord *subcatchRecord = nullptr);
 
     // ===== Slice BS Phase 6.9.2 — hydrograph + RDII decay MVC layer ======
     //
@@ -4287,10 +4318,20 @@ private:
         int toNodeIdx = -1;
         QString name;
     };
+    /*! Read link @p i's cache entry from the engine: name, type, end nodes and cleaned interior
+     *  vertices oriented from→to (needs m_nodes loaded). Shared by the model load and
+     *  applyDeleteRestore(). */
+    LinkGeom linkGeomFromEngine(SWMM_Engine engine, int i) const;
+    /*! Read node @p i's cache entry from the engine: name, type, virtual and inlet flags and
+     *  coordinates. Shared by the model load and applyDeleteRestore(). */
+    static NodeGeom nodeGeomFromEngine(SWMM_Engine engine, int i);
     struct CatchGeom {
         QVector<QPointF> vertices;
         QString name;
     };
+    /*! Read subcatchment @p i's cache entry from the engine: name and cleaned polygon. Shared by
+     *  the model load and applyDeleteRestore(). */
+    static CatchGeom catchGeomFromEngine(SWMM_Engine engine, int i);
 
     /*! Scene-space drainage connector: PIA of subcatchment → outlet node/subcatchment. */
     struct OutletLine {

@@ -18,6 +18,7 @@
 
 #include <openswmm/engine/openswmm_engine.h>
 
+#include "ui/properties/fieldwriter.h"
 #include "ui/properties/userflagseditref.h"        // USER_FLAGS Phase 4
 #include "ui/properties/dataobjectref.h"           // Phase 3 — gage / outlet pickers
 #include "ui/properties/subcatchcompoundeditref.h" // Phase 3 — landuse/GW/LID
@@ -547,6 +548,15 @@ public slots:
      */
     void updateStoredName(const QString &newName) { m_name = newName; }
 
+    /**
+     * @brief Send field writes through the project's checked, undoable edit path (review C-01).
+     * @param[in] writer Installed by PropertiesPanel; an empty writer restores direct engine writes.
+     */
+    void setFieldWriter(openswmmvis::properties::FieldWriter writer)
+    {
+        m_fieldWriter = std::move(writer);
+    }
+
 signals:
     /**
      * @brief Request property-model rereads after accepted writes, refresh calls or edit-dialog round trips.
@@ -569,6 +579,14 @@ private:
      * @return Zero-based index, or -1 for missing engine/name/object; no index is cached across renames.
      */
     [[nodiscard]] int idx() const;
+    /**
+     * @brief Offer one write to the installed field writer.
+     * @param[in] fieldKey Attribute Table field key (Subcatchments category).
+     * @param[in] value Value in the table's representation.
+     * @return True when the writer took the edit (applied, or refused with its reason shown); the
+     *   view is refreshed either way. False without a writer or when the field is not routed.
+     */
+    bool routeField(const char *fieldKey, const QVariant &value);
     /*! Curve Number and its drying time share one engine setter, so both
      *  Q_PROPERTY writers funnel through here after re-reading the sibling.
      * @brief Write curve-number and drying-time terms while preserving the selected infiltration model.
@@ -577,6 +595,7 @@ private:
      * @details Missing subcatchment is a no-op. Tuple acceptance triggers a model-code restoration attempt and changed; restoration failure has no separate status.
      */
     void writeCurveNumber(double cn, double dryTime);
+    openswmmvis::properties::FieldWriter m_fieldWriter; ///< review C-01: shared edit path
     SWMM_Engine m_engine;
     QString m_name;
     SWMMModelLayer *m_layer = nullptr; ///< USER_FLAGS Phase 4 — borrow.

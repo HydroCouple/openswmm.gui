@@ -17,6 +17,7 @@
 #include <QHash>
 #include <QElapsedTimer>
 #include <QImage>
+#include <QFuture>
 #include <QList>
 #include <QPointer>
 #include <QRectF>
@@ -1077,6 +1078,13 @@ private:
      *   buffer retained.
      */
     void cancelRenderJob();
+    /**
+     * @brief Cancel the current render and wait for every render worker still running, including
+     *   ones whose job was already cancelled. Afterwards no worker calls into any layer, so a
+     *   removed raster layer can be destroyed. Blocks the GUI thread for at most the layer each
+     *   worker is drawing.
+     */
+    void waitForRenderWorkers();
 
     // Decorations (painted in widget coordinates)
     /**
@@ -1264,6 +1272,8 @@ private:
                                                        into m_mapBufferExtent when the result arrives. */
     QImage m_frameBuffer; /*!< Double-buffer: composite of all layers, blitted in one shot. */
     MapRenderJob *m_renderJob = nullptr;
+    /// Workers of cancelled jobs that may still be drawing (they outlive their job).
+    QList<QFuture<void>> m_detachedRenderWorkers;
 
     // QGIS-style cache for the vector QGraphicsScene (2D mesh, GIS vectors,
     // annotations), used only during an active pan/zoom gesture: the scene is

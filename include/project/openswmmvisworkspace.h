@@ -108,38 +108,6 @@ public:
      * 	*/
     QVector<OpenSWMMVisSession *> layers() const;
 
-    /*!
-     * \brief Saves the workspace project to the given file path.
-     * \param filepath  Destination path (`.oswp` or `.inp`).
-     * \param warnings  Populated with non-fatal save warnings.
-     * \param errors    Populated with error messages on failure.
-     * \return true on success; false otherwise.
-     * \note  Currently unimplemented at the workspace level; per-window save
-     *        is handled by SWMMVisProjectWindow::saveAs(). Calls log a
-     *        warning and append an error explaining the limitation.
-     */
-    bool saveProject(const QString &filepath, QList<QString> &warnings, QList<QString> &errors);
-
-    /*!
-     * \brief Saves the SWMM model file companion (.inp) to the given path.
-     * \param filepath  Destination `.inp` path.
-     * \param warnings  Populated with non-fatal save warnings.
-     * \param errors    Populated with error messages on failure.
-     * \return true on success; false otherwise.
-     * \note  Currently unimplemented; see saveProject() for the same routing
-     *        contract.
-     */
-    bool saveSWMMProject(const QString &filepath, QList<QString> &warnings, QList<QString> &errors);
-
-    /**
-     * @brief Report that workspace-level model opening is currently unavailable.
-     * @param[in] filepath Unused requested input path.
-     * @param[in,out] warnings Unchanged by this stub.
-     * @param[in,out] errors Receives an appended routing diagnostic.
-     * @return Always false; also logs a warning. Open through the application window instead.
-     */
-    bool openSWMMModel(const QString &filepath, QList<QString> &warnings, QList<QString> &errors);
-
     /**
      * @brief Allocate a workspace containing the requested path, without opening any files.
      * @param[in] projectFilepath Initial project path; empty creates an untitled path value.

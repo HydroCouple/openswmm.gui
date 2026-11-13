@@ -33,6 +33,11 @@ void PollutantRegistry::wireProviderSignals_(PollutantProvider *p)
             [this, p](const QString &prev, const QString &now) {
                 m_byLowerName.remove(prev.toLower());
                 m_byLowerName.insert(now.toLower(), p);
+                // Co-pollutant links are stored by name; follow the rename or
+                // saveToEngine finds no such pollutant and writes "none".
+                for (PollutantProvider *other : std::as_const(m_providers))
+                    if (other->coPollutant().compare(prev, Qt::CaseInsensitive) == 0)
+                        other->setCoPollutant(now);
                 emit providerRenamed(p, prev, now);
             });
     connect(p, &PollutantProvider::paramsChanged, this,
@@ -79,6 +84,11 @@ void PollutantRegistry::remove(PollutantProvider *p)
 
     m_byLowerName.remove(p->name().toLower());
     m_providers.removeOne(p);
+    // The engine sets co-pollutant references to the deleted pollutant to none;
+    // the cached names must follow or a later save/apply reads back a mismatch.
+    for (PollutantProvider *other : std::as_const(m_providers))
+        if (other->coPollutant().compare(p->name(), Qt::CaseInsensitive) == 0)
+            other->setCoPollutant(QString());
     p->deleteLater();
 }
 

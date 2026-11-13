@@ -14,12 +14,15 @@
 #include "swmmvisprojectwindow.h"
 #include "core/unitsystem.h"
 #include "layers/gisvectorlayer.h"
+#include "layers/unavailablelayer.h"
+#include "ui/panels/layertreepanel.h"
 #include "layers/xyztilelayer.h"
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
 #include <ogrsf_frmts.h>
 #include <QFile>
 #include <QFileInfo>
+#include <QIcon>
 #include <QJsonDocument>
 #include <QtTest>
 #include <memory>
@@ -402,6 +405,99 @@ private slots:
         QVERIFY(!ProjectSerializer::saveToFile(path, &window, &error));
         QVERIFY(!error.isEmpty());
         QCOMPARE(bytes(path), original);
+    }
+    // Review E-06 (workplans/GUI_COMPREHENSIVE_REVIEW_2026-11-12.md), owner
+    // 2026-11-12: a saved GIS layer that does not reopen used to be dropped
+    // (a failed async open silently) and the next save lost its entry. It now
+    // stays as a placeholder with a warning icon and the reason.
+    /** @brief Verify missing and unreadable GIS layers load as placeholders, show why in the tree and save their entries back. */
+    void unreadableGisLayersKeepTheirEntry()
+    {
+        QDir().mkpath(QFileInfo(output("unavailable-layers/x")).absolutePath());
+        QFile junk(output("unavailable-layers/not-geojson.geojson"));
+        QVERIFY(junk.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        junk.write("this is not GeoJSON");
+        junk.close();
+
+        // A saved project listing one missing raster and one unreadable vector.
+        std::unique_ptr<OpenSWMMVisWorkspace> workspace(
+            OpenSWMMVisWorkspace::newInstance({}, nullptr));
+        SWMMVisProjectWindow first(workspace.get(), {});
+        QVERIFY(initialize(first));
+        QString error;
+        const QString oswp = output("unavailable-layers/project.oswp");
+        QVERIFY2(ProjectSerializer::saveToFile(oswp, &first, &error), qPrintable(error));
+        QFile file(oswp);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QJsonObject json = QJsonDocument::fromJson(file.readAll()).object();
+        file.close();
+        const QJsonObject missing{{"type", "raster"},     {"path", "missing-dem.tif"},
+                                  {"name", "DEM"},        {"visible", false},
+                                  {"opacity", 0.5},       {"id", "layer-missing"},
+                                  {"rasterStyle", QJsonObject{{"ramp", "terrain"}}}};
+        const QJsonObject unreadable{{"type", "vector"},
+                                     {"path", "not-geojson.geojson"},
+                                     {"name", "Parcels"},
+                                     {"id", "layer-unreadable"},
+                                     {"filterExpression", "AREA > 1"}};
+        json["gisLayers"] = QJsonArray{missing, unreadable};
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        file.write(QJsonDocument(json).toJson());
+        file.close();
+
+        SWMMVisProjectWindow second(workspace.get(), {});
+        QVERIFY(initialize(second));
+        QStringList warnings;
+        QVERIFY2(ProjectSerializer::applyFromFile(oswp, &second, &error, &warnings),
+                 qPrintable(error));
+        QVERIFY(warnings.join(QLatin1Char('\n')).contains(QStringLiteral("missing-dem.tif")));
+        const auto placeholder = [&second](const QString &id) -> UnavailableLayer * {
+            for (OpenSWMMVisLayer *l : second.canvas()->layers())
+                if (l->layerId() == id)
+                    return qobject_cast<UnavailableLayer *>(l);
+            return nullptr;
+        };
+        UnavailableLayer *missingLayer = placeholder(QStringLiteral("layer-missing"));
+        QVERIFY2(missingLayer, "a missing raster left no layer behind");
+        QCOMPARE(missingLayer->name(), QStringLiteral("DEM"));
+        QVERIFY(!missingLayer->isVisible());
+        QTRY_VERIFY_WITH_TIMEOUT(placeholder(QStringLiteral("layer-unreadable")), 10000);
+        UnavailableLayer *unreadableLayer = placeholder(QStringLiteral("layer-unreadable"));
+        QVERIFY(unreadableLayer->reason().contains(QStringLiteral("could not be opened")));
+
+        // The tree shows the problem: warning icon, reason as tooltip and accessible description.
+        LayerTreePanel panel;
+        panel.setCanvas(second.canvas());
+        const QModelIndex row = panel.model()->indexForLayer(missingLayer);
+        QVERIFY(row.isValid());
+        QVERIFY(!row.data(Qt::DecorationRole).value<QIcon>().isNull());
+        QVERIFY(row.data(Qt::ToolTipRole).toString().contains(QStringLiteral("file not found")));
+        QCOMPARE(row.data(Qt::AccessibleDescriptionRole), row.data(Qt::ToolTipRole));
+        panel.setCanvas(nullptr);
+
+        // Saved elsewhere, each entry comes back intact with its path re-anchored.
+        missingLayer->setVisible(true);
+        const QString moved = output("unavailable-layers/moved/project.oswp");
+        QDir().mkpath(QFileInfo(moved).absolutePath());
+        QVERIFY2(ProjectSerializer::saveToFile(moved, &second, &error), qPrintable(error));
+        QFile movedFile(moved);
+        QVERIFY(movedFile.open(QIODevice::ReadOnly));
+        const QJsonArray saved =
+            QJsonDocument::fromJson(movedFile.readAll()).object()["gisLayers"].toArray();
+        QCOMPARE(saved.size(), 2);
+        QJsonObject savedMissing, savedUnreadable;
+        for (const QJsonValue &v : saved)
+            (v.toObject()["id"].toString() == QStringLiteral("layer-missing") ? savedMissing
+                                                                              : savedUnreadable) =
+                v.toObject();
+        QCOMPARE(savedMissing.value("type").toString(), QStringLiteral("raster"));
+        QCOMPARE(savedMissing.value("path").toString(), QStringLiteral("../missing-dem.tif"));
+        QCOMPARE(savedMissing.value("visible").toBool(), true);
+        QCOMPARE(savedMissing.value("rasterStyle").toObject(),
+                 missing.value("rasterStyle").toObject());
+        QCOMPARE(savedUnreadable.value("id").toString(), QStringLiteral("layer-unreadable"));
+        QCOMPARE(savedUnreadable.value("path").toString(), QStringLiteral("../not-geojson.geojson"));
+        QCOMPARE(savedUnreadable.value("filterExpression").toString(), QStringLiteral("AREA > 1"));
     }
 };
 QTEST_MAIN(TestPhase35ProjectPersistence)

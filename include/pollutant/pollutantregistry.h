@@ -75,7 +75,7 @@ public:
     /**
      * @brief Unregister an owned provider, request engine deletion, and schedule QObject destruction.
      * @param[in] p Registry-owned provider to remove; null or a nonmember is ignored.
-     * @details Emits providerAboutToBeRemoved() while the pointer is still registered/alive, attempts engine deletion and its reference cleanup, removes the name/list entries, then calls deleteLater(). Engine deletion errors are not reported or rolled back.
+     * @details Emits providerAboutToBeRemoved() while the pointer is still registered/alive, attempts engine deletion and its reference cleanup, removes the name/list entries, clears every other provider's coPollutant() that named it (matching the engine), then calls deleteLater(). Engine deletion errors are not reported or rolled back.
      */
     void remove(PollutantProvider *p);
     /**
@@ -83,7 +83,7 @@ public:
      * @param[in] p Non-null provider expected to belong to this registry.
      * @param[in] newName Nonempty identifier; case-only spelling changes are permitted.
      * @return False for null/empty input, another occupied name, or failure to rename an existing engine object; true also for unchanged text.
-     * @details On an actual local text change, wired nameChanged() updates the lookup and emits providerRenamed(). Membership is a caller precondition, not validated here.
+     * @details On an actual local text change, wired nameChanged() updates the lookup, repoints every provider whose coPollutant() named the old identifier, and emits providerRenamed(). Membership is a caller precondition, not validated here.
      */
     bool rename(PollutantProvider *p, const QString &newName);
 

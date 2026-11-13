@@ -969,7 +969,7 @@ bool UsageTableModel::setData(const QModelIndex &index, const QVariant &v, int r
                 r.number = int(number);
                 break;
             case 5:
-                r.clogged = (1.0 - (1.0 - number / 100.0)) * 100.0;
+                r.clogged = number;
                 break;
             case 6:
                 r.limit = number;
@@ -1083,9 +1083,7 @@ bool applyInletUsageBatch(SWMMModelLayer *layer, const QList<SWMM_InletUsage> &u
         r.design = QString::fromUtf8(swmm_inlet_id(ref.engine, u.design_idx));
         r.capture = QString::fromUtf8(swmm_node_id(ref.engine, u.capture_node_idx));
         r.number = u.num_inlets;
-        r.clogged = u.pct_clogged == before[i].inlet.clogged
-                        ? u.pct_clogged
-                        : (1.0 - (1.0 - u.pct_clogged / 100.0)) * 100.0;
+        r.clogged = u.pct_clogged;
         r.limit = u.flow_limit;
         r.depression = u.local_depress;
         r.width = u.local_width;

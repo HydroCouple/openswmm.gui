@@ -78,8 +78,12 @@ public:
      * @param[in] paused Atomic flag observed by the linked-engine step loop between native steps; legacy process execution does not consult this flag.
      */
     virtual void setPaused(bool paused);
-    virtual bool supportsPause() const { return true; }
-    virtual bool supportsPartialResults() const { return true; }
+    /** @return False for a 5.x run: the external legacy worker never reads the pause flag. */
+    virtual bool supportsPause() const { return !usesLegacyWorker(); }
+    /** @return False for a 5.x run: Stop kills the legacy worker, so its .out is never finalized. */
+    virtual bool supportsPartialResults() const { return !usesLegacyWorker(); }
+    /** @return True when the engine version selects the external 5.x legacy worker. */
+    bool usesLegacyWorker() const { return m_engineVersion.startsWith(QLatin1String("5.")); }
     /**
      * @brief Read the requested pause flag.
      * @return Atomic flag, which does not prove the worker has reached a parked boundary.

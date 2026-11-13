@@ -529,7 +529,9 @@ void ComparisonPlotDialog::buildToolBar()
     m_actChartsOnly->setStatusTip(
         tr("Hide series, slider, and stats panels to show only the charts"));
     m_actChartsOnly->setToolTip(m_actChartsOnly->statusTip());
-    m_actChartsOnly->setShortcut(QKeySequence(tr("Ctrl+Shift+F")));
+    // Not Ctrl+Shift+F: that is Zoom Extent, and with the plot docked both
+    // bindings match, so Qt reports the shortcut as ambiguous and runs neither.
+    m_actChartsOnly->setShortcut(QKeySequence(tr("Ctrl+Shift+K")));
     m_actChartsOnly->setShortcutContext(Qt::WidgetWithChildrenShortcut);
     connect(m_actChartsOnly, &QAction::toggled, this, &ComparisonPlotDialog::onChartsOnlyToggled);
     m_toolBar->addAction(m_actChartsOnly);

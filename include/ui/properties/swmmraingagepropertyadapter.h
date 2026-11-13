@@ -20,6 +20,7 @@
 #define SWMMRAINGAGEPROPERTYADAPTER_H
 
 #include "ui/properties/swmmdataobjectpropertyadapter.h"
+#include "ui/properties/fieldwriter.h"
 #include "ui/properties/userflagseditref.h" // USER_FLAGS Phase 4
 #include "ui/properties/dataobjectref.h"    // DA.2 parity — Series Name picker
 #include "ui/properties/rainintervalref.h"  // DA.2 parity — H:MM interval combo
@@ -297,12 +298,30 @@ signals:
      */
     void coordChangeRequested(double newX, double newY);
 
+public:
+    /**
+     * @brief Send field writes through the project's checked, undoable edit path (review C-01).
+     * @param[in] writer Installed by PropertiesPanel; an empty writer restores direct engine writes.
+     */
+    void setFieldWriter(openswmmvis::properties::FieldWriter writer)
+    {
+        m_fieldWriter = std::move(writer);
+    }
+
 private:
     /**
      * @brief Resolve this stored gage ID against the current engine.
      * @return Zero-based gage index, or -1 for missing engine/name/object.
      */
     [[nodiscard]] int idx() const;
+    /**
+     * @brief Offer one write to the installed field writer (Rain gages table category).
+     * @return True when the writer took the edit (applied, or refused with its reason shown); the
+     *   view is refreshed either way. False without a writer or when the field is not routed.
+     */
+    bool routeField(const char *fieldKey, const QVariant &value);
+
+    openswmmvis::properties::FieldWriter m_fieldWriter; ///< review C-01: shared edit path
 };
 
 #endif // SWMMRAINGAGEPROPERTYADAPTER_H

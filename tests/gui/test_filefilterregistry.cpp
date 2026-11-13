@@ -99,6 +99,16 @@ private slots:
         QCOMPARE(input.inpPath, QStringLiteral("/p/model.inp"));
         QVERIFY(!input.isProject);
     }
+
+    // Review E-23 (workplans/GUI_COMPREHENSIVE_REVIEW_2026-11-12.md): Export
+    // Map listed SVG/DXF/EMF/.map and then refused them after the user chose
+    // a path. Only formats onExportMap() can write may be offered.
+    void mapExportOffersOnlyWritableFormats()
+    {
+        const QStringList patterns =
+            FileFilterRegistry::instance()->patternsFor(FilterKind::MapExportWrite);
+        QCOMPARE(patterns, QStringList{QStringLiteral("*.png")});
+    }
 };
 
 QTEST_GUILESS_MAIN(TestFileFilterRegistry)

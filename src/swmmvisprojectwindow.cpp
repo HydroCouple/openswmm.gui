@@ -2305,6 +2305,8 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
                                 syncWarnings.join(QLatin1String("; ")));
             for (const QString &w : syncWarnings)
                 qWarning().noquote() << w;
+            // Shown with the save's other warnings, not only on stderr.
+            mLastSaveWarnings.append(syncWarnings);
             // GG0a — per-cell infiltration has no engine push path yet (the
             // C API binding lands in GG0f), so the engine writes the
             // [2D_INFILTRATION*] sections from whatever it parsed at open.

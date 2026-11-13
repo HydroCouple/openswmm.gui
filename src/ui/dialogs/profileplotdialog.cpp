@@ -1406,7 +1406,10 @@ void ProfilePlotDialog::rebindSources()
     struct Job {
         QString sourceId;
         QColor color;
-        QPointer<SWMMResultsLayer> layer;
+        // Identity only (cache key): the worker never dereferences it. What
+        // the fetch reads from the layer is captured in `plan` right here.
+        SWMMResultsLayer *layer = nullptr;
+        ProfileSourceFetcher::FetchPlan plan;
         QPen hglLinePen;
         QBrush hglFillBrush;
         QPen eglLinePen;
@@ -1430,7 +1433,8 @@ void ProfilePlotDialog::rebindSources()
                          ? QFileInfo(layer->resultsFilePath()).completeBaseName()
                          : layer->scenarioName();
         j.color = layer->profileLineColor();
-        j.layer = layer;
+        j.layer = layer.data();
+        j.plan = ProfileSourceFetcher::plan(layer, m_pathStatic);
         j.hglLinePen = layer->profileHglLinePen();
         j.hglFillBrush = layer->profileHglFillBrush();
         j.eglLinePen = layer->profileEglLinePen();
@@ -1489,16 +1493,16 @@ void ProfilePlotDialog::rebindSources()
             // without touching the .out file. Cache miss → fetch + compute
             // and return the new entry so the GUI thread can store it.
             std::shared_ptr<ProfileBuilder::SourceDerived> derived;
-            const auto cacheIt = cacheSnapshot.constFind(j.layer.data());
+            const auto cacheIt = cacheSnapshot.constFind(j.layer);
             if (cacheIt != cacheSnapshot.constEnd() && *cacheIt) {
                 derived = *cacheIt;
             } else {
                 auto series = std::make_shared<ProfileBuilder::SourceSeries>(
-                    ProfileSourceFetcher::fetch(j.layer, pathSnapshot, j.sourceId));
+                    ProfileSourceFetcher::fetch(j.plan, pathSnapshot, j.sourceId));
                 derived = std::make_shared<ProfileBuilder::SourceDerived>(
                     ProfileBuilder::compute(pathSnapshot, *series, gravity));
-                result.freshEntries.insert(j.layer.data(), derived);
-                result.freshSeries.insert(j.layer.data(), series);
+                result.freshEntries.insert(j.layer, derived);
+                result.freshSeries.insert(j.layer, series);
             }
 
             /**
@@ -1569,8 +1573,14 @@ void ProfilePlotDialog::rebindSources()
         return result;
     });
 
+    // Jobs carry raw layer keys; a layer deleted while the worker ran must not
+    // be cached or wired on return.
+    QHash<SWMMResultsLayer *, QPointer<SWMMResultsLayer>> liveLayers;
+    for (const Job &j : jobs)
+        liveLayers.insert(j.layer, QPointer<SWMMResultsLayer>(j.layer));
     auto *watcher = new QFutureWatcher<RebindResult>(this);
-    connect(watcher, &QFutureWatcher<RebindResult>::finished, this, [this, watcher, cookie]() {
+    connect(watcher, &QFutureWatcher<RebindResult>::finished, this,
+            [this, watcher, cookie, liveLayers]() {
         --m_rebindsInFlight;
         if (cookie == m_loadCookie) {
             const RebindResult r = watcher->result();
@@ -1578,6 +1588,8 @@ void ProfilePlotDialog::rebindSources()
             // invalidation signals for each so future option toggles
             // hit the cache instead of refetching.
             for (auto it = r.freshEntries.constBegin(); it != r.freshEntries.constEnd(); ++it) {
+                if (!liveLayers.value(it.key()))
+                    continue;
                 m_sourceCache.insert(it.key(), it.value());
                 m_sourceSeriesCache.insert(it.key(), r.freshSeries.value(it.key()));
                 ensureCacheInvalidationWired(it.key());
@@ -2473,7 +2485,11 @@ void ProfilePlotDialog::rebuildTracks()
         QString sourceId;
         QColor color;
         bool primary = false;
-        QPointer<SWMMResultsLayer> layer;
+        QPointer<SWMMResultsLayer> layer; ///< GUI thread only
+        // The worker uses only these: a raw cache key it never dereferences and
+        // what the fetch needs from the layer, captured here on the GUI thread.
+        SWMMResultsLayer *key = nullptr;
+        ProfileSourceFetcher::FetchPlan plan;
     };
     QVector<TrackJob> jobs;
     SWMMResultsLayer *primaryLayer = m_anim ? m_anim->primaryLayer() : nullptr;
@@ -2491,6 +2507,8 @@ void ProfilePlotDialog::rebuildTracks()
         j.color = layer->profileLineColor();
         j.primary = (layer.data() == primaryLayer);
         j.layer = layer;
+        j.key = layer.data();
+        j.plan = ProfileSourceFetcher::plan(layer, m_pathStatic);
         jobs.push_back(j);
     }
     if (jobs.isEmpty()) {
@@ -2586,9 +2604,9 @@ void ProfilePlotDialog::rebuildTracks()
             t.title = spec.title;
             t.pen = spec.pen;
             for (const TrackJob &j : jobs) {
-                if (!j.layer)
+                if (!j.key)
                     continue;
-                const auto key = qMakePair(j.layer.data(), spec.cacheKey);
+                const auto key = qMakePair(j.key, spec.cacheKey);
                 std::shared_ptr<const ProfileAttributeSampler::AttributeProfile> prof;
                 if (const auto it = cacheSnapshot.constFind(key);
                     it != cacheSnapshot.constEnd() && *it) {
@@ -2598,8 +2616,8 @@ void ProfilePlotDialog::rebuildTracks()
                 } else {
                     prof = std::make_shared<const ProfileAttributeSampler::AttributeProfile>(
                         spec.species.isEmpty()
-                            ? ProfileAttributeSampler::fetch(j.layer, pathSnapshot, spec.attr)
-                            : ProfileAttributeSampler::fetchSpecies(j.layer, pathSnapshot,
+                            ? ProfileAttributeSampler::fetch(j.plan, pathSnapshot, spec.attr)
+                            : ProfileAttributeSampler::fetchSpecies(j.plan, pathSnapshot,
                                                                     spec.species, spec.isNode));
                     res.fresh.insert(key, prof);
                 }
@@ -2615,11 +2633,18 @@ void ProfilePlotDialog::rebuildTracks()
         return res;
     });
 
+    // A layer deleted while the worker ran must not be cached or wired.
+    QHash<SWMMResultsLayer *, QPointer<SWMMResultsLayer>> liveLayers;
+    for (const TrackJob &j : jobs)
+        liveLayers.insert(j.key, j.layer);
     auto *watcher = new QFutureWatcher<TracksResult>(this);
-    connect(watcher, &QFutureWatcher<TracksResult>::finished, this, [this, watcher, cookie]() {
+    connect(watcher, &QFutureWatcher<TracksResult>::finished, this,
+            [this, watcher, cookie, liveLayers]() {
         if (cookie == m_trackLoadCookie) {
             const TracksResult r = watcher->result();
             for (auto it = r.fresh.constBegin(); it != r.fresh.constEnd(); ++it) {
+                if (!liveLayers.value(it.key().first))
+                    continue;
                 m_attrCache.insert(it.key(), it.value());
                 ensureCacheInvalidationWired(it.key().first);
             }

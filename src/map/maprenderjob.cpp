@@ -54,7 +54,7 @@ void MapRenderJob::start()
     auto cancelFlag = m_cancelled;
     QPointer<MapRenderJob> self(this);
 
-    QtConcurrent::run([layers, extent, imageSize, dpr, srs, bgColor, cancelFlag, self]() {
+    m_future = QtConcurrent::run([layers, extent, imageSize, dpr, srs, bgColor, cancelFlag, self]() {
         // Allocate the device-pixel-sized backing image but tell Qt its
         // logical size is imageSize (via setDevicePixelRatio). Layer
         // render() then operates in logical coordinates exactly as before,

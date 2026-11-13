@@ -534,6 +534,52 @@ private slots:
         QCOMPARE(inlet(e, UsageTarget::Node, "IJ1"), first);
         QCOMPARE(inlet(e, UsageTarget::Node, "IJC"), control);
     }
+    void cloggingIsStoredAsTyped()
+    {
+        // The engine keeps %Clog as entered. The table and the shared writer used to round it
+        // through 1 - pct/100 first, so a typed 10 was stored and saved as 9.9999999999999982.
+        // Compared with ==: QCOMPARE on doubles would accept that one-ulp drift.
+        auto layer = fixture();
+        QVERIFY(layer);
+        auto e = layer->engine();
+        QUndoStack undo;
+        auto clog = [&](UsageTarget::Kind kind, const char *name) {
+            return inlet(e, kind, name).value("clog").toDouble();
+        };
+        UsageTableModel model(refFor(layer.get(), &undo, 1));
+        QVERIFY2(model.setData(model.index(0, 5), 10.0), qPrintable(model.lastError()));
+        for (auto name : {"C1", "C2"})
+            QVERIFY2(clog(UsageTarget::Link, name) == 10.0,
+                     qPrintable(QString::number(clog(UsageTarget::Link, name), 'g', 17)));
+
+        int row = swmm_inlet_usage_find_node(e, swmm_node_index(e, "IJ1"));
+        SWMM_InletUsage u{};
+        QCOMPARE(swmm_inlet_usage_get(e, row, &u), SWMM_OK);
+        u.pct_clogged = 0.5;
+        QString error;
+        QVERIFY2(applyInletUsageBatch(layer.get(), {u}, false, &undo, &error), qPrintable(error));
+        QVERIFY2(clog(UsageTarget::Node, "IJ1") == 0.5,
+                 qPrintable(QString::number(clog(UsageTarget::Node, "IJ1"), 'g', 17)));
+
+        const QString path = QDir(folder()).filePath("clogging_as_typed.inp");
+        QCOMPARE(swmm_model_write(e, path.toUtf8().constData()), SWMM_OK);
+        QFile saved(path);
+        QVERIFY(saved.open(QIODevice::ReadOnly | QIODevice::Text));
+        QString section;
+        QStringList c1, ij1;
+        for (const QString &line : QString::fromUtf8(saved.readAll()).split('\n')) {
+            const QString t = line.trimmed();
+            if (t.startsWith('['))
+                section = t;
+            const QStringList cols = t.split(' ', Qt::SkipEmptyParts);
+            if (section == "[INLET_USAGE]" && cols.value(0) == "C1")
+                c1 = cols;
+            if (section == "[INLET_JUNCTIONS]" && cols.value(0) == "IJ1")
+                ij1 = cols;
+        }
+        QCOMPARE(c1.value(4), QString("10"));
+        QCOMPARE(ij1.value(6), QString("0.5"));
+    }
     void invalidBatchHasNoPartialWrites()
     {
         auto layer = fixture();

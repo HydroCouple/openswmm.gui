@@ -189,6 +189,11 @@ void AddBasemapDialog::buildConnectionBar(QWidget *parent, QComboBox *&combo, QP
     row->addWidget(newBtn);
     row->addWidget(editBtn);
     row->addWidget(delBtn);
+    // Choosing a saved connection already loads it into the (always editable)
+    // fields, so Edit had nothing to do: its slots are empty. Hidden, not
+    // removed, so the wiring stays put if an edit step is ever added (the WCS
+    // bar never had one).
+    editBtn->setVisible(false);
     qobject_cast<QVBoxLayout *>(parent->layout())->addLayout(row);
 }
 

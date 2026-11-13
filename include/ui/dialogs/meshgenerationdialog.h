@@ -89,6 +89,9 @@ public:
     struct PipelineInputs {
         std::shared_ptr<meshkit::EventChannel>
             events; ///< Per-job bounded diagnostics, no GUI handles.
+        /// Non-fatal input problems found while collecting (e.g. dropped
+        /// constraints); posted to the run log as warnings when the run starts.
+        QStringList inputNotes;
         // Files
         QString inpPath;
         QString dtmPath;

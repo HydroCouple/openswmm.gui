@@ -28,6 +28,7 @@
 #include "transect/transectregistry.h"
 #include "transect/transectprovider.h"
 
+#include <QDebug>
 #include <QSettings>
 #include <QSet>
 
@@ -215,19 +216,30 @@ RemoveLayerCommand::RemoveLayerCommand(OpenSWMMVisLayer *layer, int position, Ma
 {
 }
 
+RemoveLayerCommand::~RemoveLayerCommand()
+{
+    // Once the removal can no longer be undone nothing will put the layer back,
+    // so free it (review E-02). Membership is checked as well, in case the layer
+    // was re-added outside the undo stack.
+    if (m_removed && m_layer && m_canvas && !m_canvas->layers().contains(m_layer.data()))
+        m_layer->deleteLater();
+}
+
 void RemoveLayerCommand::undo()
 {
-    if (m_canvas && m_layer)
+    if (m_canvas && m_layer) {
         m_canvas->insertLayer(m_position, m_layer, /*pushUndo=*/false);
+        m_removed = false;
+    }
 }
 
 void RemoveLayerCommand::redo()
 {
     if (m_canvas && m_layer) {
         const auto &layers = m_canvas->layers();
-        int idx = layers.indexOf(m_layer);
-        if (idx >= 0)
-            m_canvas->takeLayer(idx, /*pushUndo=*/false);
+        int idx = layers.indexOf(m_layer.data());
+        if (idx >= 0 && m_canvas->takeLayer(idx, /*pushUndo=*/false))
+            m_removed = true;
     }
 }
 
@@ -326,6 +338,39 @@ void MoveSublayerCommand::redo()
 }
 
 // ===========================================================================
+// Engine identity for index-taking commands
+// ===========================================================================
+
+namespace
+{
+// Deleting an object renumbers every object after it, and undoing the delete
+// re-adds it at the end, so an index captured when a command was made can
+// name a different object by the time the command runs. Commands keep the
+// object's ID and resolve its current index on every redo/undo. Without an
+// engine (no ID captured) the original index is used, as before.
+using EngineIdFn = const char *(*)(SWMM_Engine, int);
+using EngineIndexFn = int (*)(SWMM_Engine, const char *);
+
+/** @brief Engine ID of object @p idx, or empty without an engine or for a bad index. */
+QString engineIdAt(const SWMMModelLayer *layer, EngineIdFn idOf, int idx)
+{
+    SWMM_Engine eng = layer ? layer->engine() : nullptr;
+    const char *id = (eng && idx >= 0) ? idOf(eng, idx) : nullptr;
+    return id ? QString::fromUtf8(id) : QString();
+}
+
+/** @brief Current index of @p name (-1 if gone), or @p fallback when no ID was captured. */
+int currentIndex(const SWMMModelLayer *layer, EngineIndexFn indexOf, const QString &name,
+                 int fallback)
+{
+    if (name.isEmpty())
+        return fallback;
+    SWMM_Engine eng = layer ? layer->engine() : nullptr;
+    return eng ? indexOf(eng, name.toUtf8().constData()) : -1;
+}
+} // namespace
+
+// ===========================================================================
 // MoveNodeCommand
 // ===========================================================================
 
@@ -333,32 +378,40 @@ MoveNodeCommand::MoveNodeCommand(SWMMModelLayer *layer, int nodeIdx, double oldX
                                  double newX, double newY, QVector<LengthRec> lengthRecs,
                                  MapCanvas *canvas, QUndoCommand *parent)
     : MapCommand(QObject::tr("Move Node"), canvas, parent), m_layer(layer), m_nodeIdx(nodeIdx),
-      m_oldX(oldX), m_oldY(oldY), m_newX(newX), m_newY(newY), m_lengthRecs(std::move(lengthRecs))
+      m_nodeName(engineIdAt(layer, swmm_node_id, nodeIdx)), m_oldX(oldX), m_oldY(oldY),
+      m_newX(newX), m_newY(newY), m_lengthRecs(std::move(lengthRecs))
 {
+    for (LengthRec &rec : m_lengthRecs)
+        rec.linkName = engineIdAt(layer, swmm_link_id, rec.linkIdx);
 }
 
 void MoveNodeCommand::redo()
 {
     if (!m_layer)
         return;
-    m_layer->applyNodeMove(m_nodeIdx, m_newX, m_newY);
+    m_layer->applyNodeMove(currentIndex(m_layer, swmm_node_index, m_nodeName, m_nodeIdx), m_newX,
+                           m_newY);
     for (const LengthRec &rec : m_lengthRecs)
-        m_layer->applyLinkLength(rec.linkIdx, rec.newLen);
+        m_layer->applyLinkLength(currentIndex(m_layer, swmm_link_index, rec.linkName, rec.linkIdx),
+                                 rec.newLen);
 }
 
 void MoveNodeCommand::undo()
 {
     if (!m_layer)
         return;
-    m_layer->applyNodeMove(m_nodeIdx, m_oldX, m_oldY);
+    m_layer->applyNodeMove(currentIndex(m_layer, swmm_node_index, m_nodeName, m_nodeIdx), m_oldX,
+                           m_oldY);
     for (const LengthRec &rec : m_lengthRecs)
-        m_layer->applyLinkLength(rec.linkIdx, rec.oldLen);
+        m_layer->applyLinkLength(currentIndex(m_layer, swmm_link_index, rec.linkName, rec.linkIdx),
+                                 rec.oldLen);
 }
 
 MoveGageCommand::MoveGageCommand(SWMMModelLayer *layer, int gageIdx, double oldX, double oldY,
                                  double newX, double newY, MapCanvas *canvas, QUndoCommand *parent)
     : MapCommand(QObject::tr("Move Rain Gage"), canvas, parent), m_layer(layer), m_gageIdx(gageIdx),
-      m_oldX(oldX), m_oldY(oldY), m_newX(newX), m_newY(newY)
+      m_gageName(engineIdAt(layer, swmm_gage_id, gageIdx)), m_oldX(oldX), m_oldY(oldY),
+      m_newX(newX), m_newY(newY)
 {
 }
 
@@ -366,14 +419,16 @@ void MoveGageCommand::redo()
 {
     if (!m_layer)
         return;
-    m_layer->applyGageMove(m_gageIdx, m_newX, m_newY);
+    m_layer->applyGageMove(currentIndex(m_layer, swmm_gage_index, m_gageName, m_gageIdx), m_newX,
+                           m_newY);
 }
 
 void MoveGageCommand::undo()
 {
     if (!m_layer)
         return;
-    m_layer->applyGageMove(m_gageIdx, m_oldX, m_oldY);
+    m_layer->applyGageMove(currentIndex(m_layer, swmm_gage_index, m_gageName, m_gageIdx), m_oldX,
+                           m_oldY);
 }
 
 bool MoveGageCommand::mergeWith(const QUndoCommand *other)
@@ -381,7 +436,7 @@ bool MoveGageCommand::mergeWith(const QUndoCommand *other)
     if (other->id() != id())
         return false;
     const auto *cmd = static_cast<const MoveGageCommand *>(other);
-    if (cmd->m_layer != m_layer || cmd->m_gageIdx != m_gageIdx)
+    if (cmd->m_layer != m_layer || cmd->m_gageIdx != m_gageIdx || cmd->m_gageName != m_gageName)
         return false;
     // Collapse to the latest terminal coordinate; the original oldX/oldY
     // stays so one undo returns to the pre-drag position.
@@ -395,7 +450,7 @@ bool MoveNodeCommand::mergeWith(const QUndoCommand *other)
     if (other->id() != id())
         return false;
     const auto *cmd = static_cast<const MoveNodeCommand *>(other);
-    if (cmd->m_layer != m_layer || cmd->m_nodeIdx != m_nodeIdx)
+    if (cmd->m_layer != m_layer || cmd->m_nodeIdx != m_nodeIdx || cmd->m_nodeName != m_nodeName)
         return false;
 
     // Collapse the terminal coordinate and merge per-link length history:
@@ -408,7 +463,7 @@ bool MoveNodeCommand::mergeWith(const QUndoCommand *other)
     for (const LengthRec &rec : cmd->m_lengthRecs) {
         bool matched = false;
         for (LengthRec &existing : m_lengthRecs) {
-            if (existing.linkIdx == rec.linkIdx) {
+            if (existing.linkIdx == rec.linkIdx && existing.linkName == rec.linkName) {
                 existing.newLen = rec.newLen;
                 matched = true;
                 break;
@@ -429,7 +484,8 @@ EditVertexCommand::EditVertexCommand(SWMMModelLayer *layer, int linkIdx,
                                      double oldLen, double newLen, bool autoLengthApplied,
                                      MapCanvas *canvas, QUndoCommand *parent)
     : MapCommand(QObject::tr("Edit Link Vertices"), canvas, parent), m_layer(layer),
-      m_linkIdx(linkIdx), m_oldInterior(std::move(oldInterior)),
+      m_linkIdx(linkIdx), m_linkName(engineIdAt(layer, swmm_link_id, linkIdx)),
+      m_oldInterior(std::move(oldInterior)),
       m_newInterior(std::move(newInterior)), m_oldLen(oldLen), m_newLen(newLen),
       m_autoLengthApplied(autoLengthApplied)
 {
@@ -439,18 +495,20 @@ void EditVertexCommand::redo()
 {
     if (!m_layer)
         return;
-    m_layer->applyLinkInteriorVertices(m_linkIdx, m_newInterior);
+    const int linkIdx = currentIndex(m_layer, swmm_link_index, m_linkName, m_linkIdx);
+    m_layer->applyLinkInteriorVertices(linkIdx, m_newInterior);
     if (m_autoLengthApplied)
-        m_layer->applyLinkLength(m_linkIdx, m_newLen);
+        m_layer->applyLinkLength(linkIdx, m_newLen);
 }
 
 void EditVertexCommand::undo()
 {
     if (!m_layer)
         return;
-    m_layer->applyLinkInteriorVertices(m_linkIdx, m_oldInterior);
+    const int linkIdx = currentIndex(m_layer, swmm_link_index, m_linkName, m_linkIdx);
+    m_layer->applyLinkInteriorVertices(linkIdx, m_oldInterior);
     if (m_autoLengthApplied)
-        m_layer->applyLinkLength(m_linkIdx, m_oldLen);
+        m_layer->applyLinkLength(linkIdx, m_oldLen);
 }
 
 // ===========================================================================
@@ -460,7 +518,7 @@ void EditVertexCommand::undo()
 FlipLinkCommand::FlipLinkCommand(SWMMModelLayer *layer, int linkIdx, MapCanvas *canvas,
                                  QUndoCommand *parent)
     : MapCommand(QObject::tr("Flip Link Direction"), canvas, parent), m_layer(layer),
-      m_linkIdx(linkIdx)
+      m_linkIdx(linkIdx), m_linkName(engineIdAt(layer, swmm_link_id, linkIdx))
 {
 }
 
@@ -470,13 +528,13 @@ FlipLinkCommand::FlipLinkCommand(SWMMModelLayer *layer, int linkIdx, MapCanvas *
 void FlipLinkCommand::redo()
 {
     if (m_layer)
-        m_layer->applyLinkFlip(m_linkIdx);
+        m_layer->applyLinkFlip(currentIndex(m_layer, swmm_link_index, m_linkName, m_linkIdx));
 }
 
 void FlipLinkCommand::undo()
 {
     if (m_layer)
-        m_layer->applyLinkFlip(m_linkIdx);
+        m_layer->applyLinkFlip(currentIndex(m_layer, swmm_link_index, m_linkName, m_linkIdx));
 }
 
 // ===========================================================================
@@ -488,7 +546,8 @@ EditSubcatchCommand::EditSubcatchCommand(SWMMModelLayer *layer, int catchIdx,
                                          double oldArea, double newArea, bool applyArea,
                                          MapCanvas *canvas, QUndoCommand *parent)
     : MapCommand(QObject::tr("Edit Subcatchment Vertices"), canvas, parent), m_layer(layer),
-      m_catchIdx(catchIdx), m_old(std::move(oldVertices)), m_new(std::move(newVertices)),
+      m_catchIdx(catchIdx), m_catchName(engineIdAt(layer, swmm_subcatch_id, catchIdx)),
+      m_old(std::move(oldVertices)), m_new(std::move(newVertices)),
       m_oldArea(oldArea), m_newArea(newArea), m_applyArea(applyArea)
 {
 }
@@ -497,18 +556,20 @@ void EditSubcatchCommand::redo()
 {
     if (!m_layer)
         return;
-    m_layer->applySubcatchVertices(m_catchIdx, m_new);
+    const int catchIdx = currentIndex(m_layer, swmm_subcatch_index, m_catchName, m_catchIdx);
+    m_layer->applySubcatchVertices(catchIdx, m_new);
     if (m_applyArea)
-        m_layer->applySubcatchArea(m_catchIdx, m_newArea);
+        m_layer->applySubcatchArea(catchIdx, m_newArea);
 }
 
 void EditSubcatchCommand::undo()
 {
     if (!m_layer)
         return;
-    m_layer->applySubcatchVertices(m_catchIdx, m_old);
+    const int catchIdx = currentIndex(m_layer, swmm_subcatch_index, m_catchName, m_catchIdx);
+    m_layer->applySubcatchVertices(catchIdx, m_old);
     if (m_applyArea)
-        m_layer->applySubcatchArea(m_catchIdx, m_oldArea);
+        m_layer->applySubcatchArea(catchIdx, m_oldArea);
 }
 
 // ===========================================================================
@@ -898,113 +959,6 @@ void ConfigureGageCommand::undo()
 }
 
 // ===========================================================================
-// DeleteObjectCommand (Slice F-2) — helpers
-// ===========================================================================
-
-namespace
-{
-
-// Fetch interior-only vertices from the engine for a link.
-/**
- * @param[in] engine Borrowed live engine, serialized by caller.
- * @param[in] linkIdx Zero-based current engine link index.
- * @brief Read engine polyline excluding first/last endpoint entries.
- * @return Owned native-coordinate interior points; empty if count getter fails or total<=2.
- *   Vertex-copy getter status ignored after allocating zero-initialized vectors, so read failure
- *   can yield zero bends; no error flag or mutation.
- */
-static QVector<QPointF> fetchLinkInteriorVertices(SWMM_Engine engine, int linkIdx)
-{
-    int vcount = 0;
-    if (swmm_spatial_get_link_vertex_count(engine, linkIdx, &vcount) != 0 || vcount <= 2)
-        return {};
-    QVector<double> vx(vcount), vy(vcount);
-    swmm_spatial_get_link_vertices(engine, linkIdx, vx.data(), vy.data(), vcount);
-    QVector<QPointF> interior;
-    interior.reserve(vcount - 2);
-    for (int i = 1; i < vcount - 1; ++i)
-        interior << QPointF(vx[i], vy[i]);
-    return interior;
-}
-
-/**
- * @param[in] engine Borrowed live engine, serialized by caller.
- * @param[in] idx Zero-based existing link index.
- * @brief Copy supported link state for deletion undo, resolving endpoint names before index shifts.
- * @return Value snapshot with type/name/endpoints/interior bends, represented hydraulic scalars,
- *   up-to-4095-byte tag and conduit section/flow/loss fields. Getter failures generally retain
- *   initialized defaults; not a complete subtype/reference snapshot, no success flag or mutation.
- *   Units remain engine project conventions.
- */
-static LinkSnapshot snapshotLinkByIdx(SWMM_Engine engine, int idx)
-{
-    LinkSnapshot s;
-    const char *id = swmm_link_id(engine, idx);
-    s.name = id ? QString::fromUtf8(id) : QString();
-
-    int t = 0;
-    swmm_link_get_type(engine, idx, &t);
-    s.linkType = t;
-
-    int n1 = -1, n2 = -1;
-    swmm_link_get_from_node(engine, idx, &n1);
-    swmm_link_get_to_node(engine, idx, &n2);
-    const char *fn = (n1 >= 0) ? swmm_node_id(engine, n1) : nullptr;
-    const char *tn = (n2 >= 0) ? swmm_node_id(engine, n2) : nullptr;
-    s.fromNode = fn ? QString::fromUtf8(fn) : QString();
-    s.toNode = tn ? QString::fromUtf8(tn) : QString();
-
-    s.interiorVertices = fetchLinkInteriorVertices(engine, idx);
-
-    swmm_link_get_length(engine, idx, &s.length);
-    swmm_link_get_roughness(engine, idx, &s.roughness);
-    swmm_link_get_offset_up(engine, idx, &s.offsetUp);
-    swmm_link_get_offset_dn(engine, idx, &s.offsetDn);
-    swmm_link_get_crest_height(engine, idx, &s.crestHeight);
-    swmm_link_get_discharge_coeff(engine, idx, &s.dischargeCoeff);
-    swmm_link_get_end_contractions(engine, idx, &s.endContractions);
-    swmm_link_get_flap_gate(engine, idx, &s.flapGate);
-    swmm_link_get_pump_init_state(engine, idx, &s.pumpInitState);
-    char tag[4096] = {};
-    if (swmm_link_get_tag(engine, idx, tag, sizeof(tag)) == SWMM_OK)
-        s.tag = QString::fromUtf8(tag);
-    swmm_link_get_xsect(engine, idx, &s.shape, &s.geom[0], &s.geom[1], &s.geom[2], &s.geom[3]);
-    swmm_link_get_barrels(engine, idx, &s.barrels);
-    swmm_link_get_culvert_code(engine, idx, &s.culvertCode);
-    swmm_link_get_initial_flow(engine, idx, &s.initialFlow);
-    swmm_link_get_max_flow(engine, idx, &s.maxFlow);
-    swmm_link_get_seep_rate(engine, idx, &s.seepRate);
-    swmm_link_get_loss_coeff(engine, idx, &s.lossIn, &s.lossOut, &s.lossAverage);
-    return s;
-}
-
-/**
- * @param[in] engine Borrowed live editable engine; caller serializes.
- * @param[in] index Current target link index, assumed coherent with snapshot type.
- * @param[in] s Supported captured link properties, with original engine units.
- * @brief Restore tag on every link type and supported section/flow/seep/loss fields for conduit
- *   snapshot.
- * @note Shape applied only nonnegative; barrels/culvert/initial/max flow/seep/losses then written.
- *   All statuses ignored, no conversion, general defaults, model notifications or rollback.
- */
-static void restoreConduitProperties(SWMM_Engine engine, int index, const LinkSnapshot &s)
-{
-    swmm_link_set_tag(engine, index, s.tag.toUtf8().constData());
-    if (s.linkType != SWMM_LINK_CONDUIT)
-        return;
-    if (s.shape >= 0)
-        swmm_link_set_xsect(engine, index, s.shape, s.geom[0], s.geom[1], s.geom[2], s.geom[3]);
-    swmm_link_set_barrels(engine, index, s.barrels);
-    swmm_link_set_culvert_code(engine, index, s.culvertCode);
-    swmm_link_set_initial_flow(engine, index, s.initialFlow);
-    swmm_link_set_max_flow(engine, index, s.maxFlow);
-    swmm_link_set_seep_rate(engine, index, s.seepRate);
-    swmm_link_set_loss_coeff(engine, index, s.lossIn, s.lossOut, s.lossAverage);
-}
-
-} // namespace
-
-// ===========================================================================
 // DeleteObjectCommand — constructor + redo / undo
 // ===========================================================================
 
@@ -1012,278 +966,52 @@ DeleteObjectCommand::DeleteObjectCommand(SWMMModelLayer *layer, const QString &n
                                          TargetKind kind, MapCanvas *canvas, QUndoCommand *parent)
     : MapCommand(QObject::tr("Delete Object"), canvas, parent), m_layer(layer), m_kind(kind)
 {
-    // Snapshot BEFORE redo() deletes anything.
-    switch (kind) {
-    case DeleteNode:
-        snapshotNode(name);
-        break;
-    case DeleteLink:
-        snapshotLink(name);
-        break;
-    case DeleteGage:
-        snapshotGage(name);
-        break;
-    case DeleteSubcatch:
-        snapshotSubcatch(name);
-        break;
-    }
+    // Nothing to snapshot: redo() takes the engine's record of the delete.
+    m_name = name;
 }
 
-void DeleteObjectCommand::snapshotNode(const QString &name)
+DeleteObjectCommand::~DeleteObjectCommand()
 {
-    SWMM_Engine eng = m_layer->engine();
-    const QByteArray utf8 = name.toUtf8();
-    const int idx = swmm_node_index(eng, utf8.constData());
-    if (idx < 0)
-        return;
-
-    m_node.name = name;
-    char tag[4096] = {};
-    if (swmm_node_get_tag(eng, idx, tag, sizeof(tag)) == SWMM_OK)
-        m_node.tag = QString::fromUtf8(tag);
-    int t = 0;
-    swmm_node_get_type(eng, idx, &t);
-    m_node.nodeType = t;
-    double nx = 0, ny = 0;
-    swmm_spatial_get_node_coord(eng, idx, &nx, &ny);
-    m_node.x = nx;
-    m_node.y = ny;
-    swmm_node_get_invert_elev(eng, idx, &m_node.invertElev);
-    swmm_node_get_max_depth(eng, idx, &m_node.maxDepth);
-    swmm_node_get_initial_depth(eng, idx, &m_node.initDepth);
-    swmm_node_get_surcharge_depth(eng, idx, &m_node.surchargeDepth);
-    swmm_node_get_ponded_area(eng, idx, &m_node.pondedArea);
-    swmm_node_get_storage_area(eng, idx, &m_node.storageArea);
-    swmm_node_is_virtual(eng, idx, &m_node.isVirtual);
-    swmm_node_get_rim_depth(eng, idx, &m_node.rimDepth);
-    // Inlet junction: the flag AND its usage row. The row is stored with the
-    // design / capture-node NAMES because the delete renumbers both arrays.
-    swmm_node_is_inlet(eng, idx, &m_node.isInlet);
-    if (m_node.isInlet) {
-        const int row = swmm_inlet_usage_find_node(eng, idx);
-        if (row >= 0 && swmm_inlet_usage_get(eng, row, &m_node.inletUsage) == SWMM_OK) {
-            m_node.hasInletUsage = true;
-            if (const char *d = swmm_inlet_id(eng, m_node.inletUsage.design_idx))
-                m_node.inletDesignId = QString::fromUtf8(d);
-            if (const char *c = swmm_node_id(eng, m_node.inletUsage.capture_node_idx))
-                m_node.captureNodeId = QString::fromUtf8(c);
-        }
-    }
-    swmm_node_get_outfall_type(eng, idx, &m_node.outfallType);
-    swmm_node_get_outfall_flap_gate(eng, idx, &m_node.outfallFlapGate);
-    swmm_node_get_storage_seep_rate(eng, idx, &m_node.seepRate);
-    swmm_node_get_divider_type(eng, idx, &m_node.dividerType);
-
-    // Snapshot cascade links. This runs BEFORE the delete, so use the
-    // read-only analyzer rather than scanning all L links with two getters
-    // each — the scan cost 2*L engine calls per command constructed, which
-    // for a selection of K nodes is O(K*L) before anything is even deleted.
-    SWMM_ImpactReport report{};
-    if (swmm_node_analyze_impact(eng, idx, &report) == 0) {
-        for (int i = 0; i < report.n_entries; ++i) {
-            const SWMM_ImpactEntry &e = report.entries[i];
-            if (e.obj_type == SWMM_REF_LINK && e.cascaded)
-                m_cascadeLinks << snapshotLinkByIdx(eng, e.obj_idx);
-        }
-    }
-    swmm_impact_report_free(&report);
-}
-
-void DeleteObjectCommand::snapshotLink(const QString &name)
-{
-    SWMM_Engine eng = m_layer->engine();
-    const int idx = swmm_link_index(eng, name.toUtf8().constData());
-    if (idx < 0)
-        return;
-    m_link = snapshotLinkByIdx(eng, idx);
-}
-
-void DeleteObjectCommand::snapshotGage(const QString &name)
-{
-    SWMM_Engine eng = m_layer->engine();
-    const int idx = swmm_gage_index(eng, name.toUtf8().constData());
-    if (idx < 0)
-        return;
-    m_gage.name = name;
-    swmm_spatial_get_gage_coord(eng, idx, &m_gage.x, &m_gage.y);
-}
-
-void DeleteObjectCommand::snapshotSubcatch(const QString &name)
-{
-    SWMM_Engine eng = m_layer->engine();
-    const int idx = swmm_subcatch_index(eng, name.toUtf8().constData());
-    if (idx < 0)
-        return;
-    m_subcatch.name = name;
-    int pcount = 0;
-    swmm_spatial_get_subcatch_polygon_count(eng, idx, &pcount);
-    if (pcount > 0) {
-        QVector<double> vx(pcount), vy(pcount);
-        swmm_spatial_get_subcatch_polygon(eng, idx, vx.data(), vy.data(), pcount);
-        m_subcatch.polygon.reserve(pcount);
-        for (int i = 0; i < pcount; ++i)
-            m_subcatch.polygon << QPointF(vx[i], vy[i]);
-    }
-    swmm_subcatch_get_area(eng, idx, &m_subcatch.area);
-    swmm_subcatch_get_width(eng, idx, &m_subcatch.width);
-    swmm_subcatch_get_slope(eng, idx, &m_subcatch.slope);
-    swmm_subcatch_get_imperv_pct(eng, idx, &m_subcatch.impervPct);
+    swmm_delete_record_destroy(m_record);
 }
 
 void DeleteObjectCommand::redo()
 {
-    // Batch mode: the owning BatchDeleteCommand's swmm_*_delete_many call
-    // already deleted this object — this child exists for its snapshot and
-    // its undo() only.
-    if (m_engineAppliedByBatch)
-        return;
-
+    swmm_delete_record_destroy(m_record);
+    m_record = nullptr;
     switch (m_kind) {
     case DeleteNode:
-        m_layer->applyNodeDelete(m_node.name);
+        m_layer->applyNodeDelete(m_name, nullptr, &m_record);
         break;
     case DeleteLink:
-        m_layer->applyLinkDelete(m_link.name);
+        m_layer->applyLinkDelete(m_name, &m_record);
         break;
     case DeleteGage:
-        m_layer->applyGageDelete(m_gage.name);
+        m_layer->applyGageDelete(m_name, &m_record);
         break;
     case DeleteSubcatch:
-        m_layer->applySubcatchDelete(m_subcatch.name);
+        m_layer->applySubcatchDelete(m_name, &m_record);
         break;
     }
 }
 
 void DeleteObjectCommand::undo()
 {
-    switch (m_kind) {
-    case DeleteNode:
-        restoreNode();
-        break;
-    case DeleteLink:
-        restoreLink();
-        break;
-    case DeleteGage:
-        restoreGage();
-        break;
-    case DeleteSubcatch:
-        restoreSubcatch();
-        break;
-    }
+    restoreFromRecord();
 }
 
-void DeleteObjectCommand::restoreNode()
+void DeleteObjectCommand::restoreFromRecord()
 {
-    // Re-add node; it will be at the new tail index.
-    m_layer->applyNodeAdd(m_node.name, m_node.nodeType, m_node.x, m_node.y);
-
-    SWMM_Engine eng = m_layer->engine();
-    const int idx = swmm_node_index(eng, m_node.name.toUtf8().constData());
-    if (idx >= 0) {
-        swmm_node_set_tag(eng, idx, m_node.tag.toUtf8().constData());
-        swmm_node_set_invert_elev(eng, idx, m_node.invertElev);
-        swmm_node_set_max_depth(eng, idx, m_node.maxDepth);
-        swmm_node_set_initial_depth(eng, idx, m_node.initDepth);
-        swmm_node_set_surcharge_depth(eng, idx, m_node.surchargeDepth);
-        swmm_node_set_pond_area(eng, idx, m_node.pondedArea);
-        if (m_node.nodeType == 0 && !m_node.isVirtual && !m_node.isInlet)
-            swmm_node_set_storage_area(eng, idx, m_node.storageArea);
-        if (m_node.nodeType == 1) { // Outfall
-            swmm_node_set_outfall_type(eng, idx, m_node.outfallType);
-            swmm_node_set_outfall_flap_gate(eng, idx, m_node.outfallFlapGate);
-        }
-        if (m_node.nodeType == 2) // Storage
-            swmm_node_set_storage_seep_rate(eng, idx, m_node.seepRate);
-        if (m_node.nodeType == 3) // Divider
-            swmm_node_set_divider_type(eng, idx, m_node.dividerType);
-    }
-
-    // Re-add cascade links; re-wire by name.
-    for (const LinkSnapshot &ls : m_cascadeLinks) {
-        m_layer->applyLinkAdd(ls.name, ls.linkType, ls.fromNode, ls.toNode, ls.interiorVertices);
-        const int li = swmm_link_index(eng, ls.name.toUtf8().constData());
-        if (li < 0)
-            continue;
-        swmm_link_set_length(eng, li, ls.length);
-        swmm_link_set_roughness(eng, li, ls.roughness);
-        swmm_link_set_offset_up(eng, li, ls.offsetUp);
-        swmm_link_set_offset_dn(eng, li, ls.offsetDn);
-        swmm_link_set_flap_gate(eng, li, ls.flapGate);
-        swmm_link_set_crest_height(eng, li, ls.crestHeight);
-        swmm_link_set_discharge_coeff(eng, li, ls.dischargeCoeff);
-        swmm_link_set_end_contractions(eng, li, ls.endContractions);
-        swmm_link_set_pump_init_state(eng, li, ls.pumpInitState);
-        restoreConduitProperties(eng, li, ls);
-    }
-
-    // Virtual flag LAST: the rule check needs the two conduits back, so it
-    // can only pass once the cascade links above are re-wired. Restoring the
-    // rim depth first keeps the ground line the node was drawn with — the
-    // engine's set-virtual would otherwise carry the max depth into it.
-    if (m_node.isVirtual) {
-        const int idx = swmm_node_index(eng, m_node.name.toUtf8().constData());
-        if (idx >= 0) {
-            swmm_node_set_rim_depth(eng, idx, m_node.rimDepth);
-            m_layer->applySetVirtual(m_node.name, true, nullptr);
-        }
-    }
-
-    // Inlet role LAST of all: swmm_node_set_inlet re-checks the virtual rules
-    // plus 623 (both conduits STREET), so it can only pass once the cascade
-    // links are back and the node is virtual again. The usage row follows —
-    // the flag alone would leave the model failing validation with 633.
-    if (m_node.isInlet && m_layer->applySetInlet(m_node.name, true, nullptr) &&
-        m_node.hasInletUsage) {
-        const int idx = swmm_node_index(eng, m_node.name.toUtf8().constData());
-        const int design = swmm_inlet_index(eng, m_node.inletDesignId.toUtf8().constData());
-        const int capture = swmm_node_index(eng, m_node.captureNodeId.toUtf8().constData());
-        if (idx >= 0 && design >= 0 && capture >= 0) {
-            SWMM_InletUsage u = m_node.inletUsage;
-            u.host_kind = SWMM_INLET_HOST_NODE;
-            u.host_idx = idx;
-            u.design_idx = design;
-            u.capture_node_idx = capture;
-            m_layer->applySetInletUsage(u, nullptr);
-        }
-    }
-}
-
-void DeleteObjectCommand::restoreLink()
-{
-    m_layer->applyLinkAdd(m_link.name, m_link.linkType, m_link.fromNode, m_link.toNode,
-                          m_link.interiorVertices);
-    SWMM_Engine eng = m_layer->engine();
-    const int li = swmm_link_index(eng, m_link.name.toUtf8().constData());
-    if (li < 0)
+    if (!m_record)
         return;
-    swmm_link_set_length(eng, li, m_link.length);
-    swmm_link_set_roughness(eng, li, m_link.roughness);
-    swmm_link_set_offset_up(eng, li, m_link.offsetUp);
-    swmm_link_set_offset_dn(eng, li, m_link.offsetDn);
-    swmm_link_set_flap_gate(eng, li, m_link.flapGate);
-    swmm_link_set_crest_height(eng, li, m_link.crestHeight);
-    swmm_link_set_discharge_coeff(eng, li, m_link.dischargeCoeff);
-    swmm_link_set_end_contractions(eng, li, m_link.endContractions);
-    swmm_link_set_pump_init_state(eng, li, m_link.pumpInitState);
-    restoreConduitProperties(eng, li, m_link);
-}
-
-void DeleteObjectCommand::restoreGage()
-{
-    m_layer->applyGageAdd(m_gage.name, m_gage.x, m_gage.y);
-}
-
-void DeleteObjectCommand::restoreSubcatch()
-{
-    m_layer->applySubcatchAdd(m_subcatch.name, m_subcatch.polygon);
-    SWMM_Engine eng = m_layer->engine();
-    const int idx = swmm_subcatch_index(eng, m_subcatch.name.toUtf8().constData());
-    if (idx < 0)
+    if (!m_layer->applyDeleteRestore(m_record)) {
+        qWarning() << "Undo delete: the engine refused to restore" << m_name
+                   << "because the model changed since the delete; dropping this undo step.";
+        setObsolete(true);
         return;
-    swmm_subcatch_set_area(eng, idx, m_subcatch.area);
-    swmm_subcatch_set_width(eng, idx, m_subcatch.width);
-    swmm_subcatch_set_slope(eng, idx, m_subcatch.slope);
-    swmm_subcatch_set_imperv_pct(eng, idx, m_subcatch.impervPct);
+    }
+    swmm_delete_record_destroy(m_record);
+    m_record = nullptr;
 }
 
 // ===========================================================================
@@ -1341,13 +1069,9 @@ BatchDeleteCommand::BatchDeleteCommand(SWMMModelLayer *layer, const QList<Target
                                        MapCanvas *canvas, const QString &text)
     : BulkEditCommand(layer, text), m_layer(layer)
 {
-    // Children snapshot in construction order, BEFORE anything is deleted,
-    // so every snapshot (and its cascade-link analysis) sees pre-batch
-    // indices.  Their redo() are no-ops; undo() restores per-object in
-    // reverse creation order under the inherited BulkEdit scope.
+    Q_UNUSED(canvas);
+    // Nothing to snapshot: redo() records each kind's batch in the engine.
     for (const Target &t : targets) {
-        auto *child = new DeleteObjectCommand(layer, t.name, t.kind, canvas, this);
-        child->setEngineAppliedByBatch(true);
         switch (t.kind) {
         case DeleteObjectCommand::DeleteNode:
             m_nodeNames << t.name;
@@ -1370,8 +1094,48 @@ void BatchDeleteCommand::redo()
     if (!m_layer)
         return;
     SWMMModelLayer::BulkEdit guard(m_layer);
-    m_layer->applyDeleteMany(m_nodeNames, m_linkNames, m_subcatchNames, m_gageNames);
-    QUndoCommand::redo(); // children are snapshot-only no-ops
+    for (SWMM_DeleteRecord *r : {&m_gageRecord, &m_linkRecord, &m_nodeRecord, &m_subcatchRecord}) {
+        swmm_delete_record_destroy(*r);
+        *r = nullptr;
+    }
+    m_layer->applyDeleteMany(m_nodeNames, m_linkNames, m_subcatchNames, m_gageNames, nullptr,
+                             &m_gageRecord, &m_linkRecord, &m_nodeRecord, &m_subcatchRecord);
+}
+
+bool BatchDeleteCommand::restoreRecord(SWMM_DeleteRecord &record, const char *what, int count)
+{
+    if (!record)
+        return true;
+    if (!m_layer->applyDeleteRestore(record)) {
+        qWarning() << "Undo delete: the engine refused to restore" << count << what
+                   << "because the model changed since the delete.";
+        return false;
+    }
+    swmm_delete_record_destroy(record);
+    record = nullptr;
+    return true;
+}
+
+void BatchDeleteCommand::undo()
+{
+    if (!m_layer)
+        return;
+    SWMMModelLayer::BulkEdit guard(m_layer);
+    ObjectDefaultsApplier::BatchScope defaults;
+    // Reverse of applyDeleteMany's order (nodes, links, subcatchments, gages):
+    // each engine record then finds the model exactly as its batch left it.
+    restoreRecord(m_gageRecord, "rain gage(s)", m_gageNames.size());
+    restoreRecord(m_subcatchRecord, "subcatchment(s)", m_subcatchNames.size());
+    restoreRecord(m_linkRecord, "link(s)", m_linkNames.size());
+    restoreRecord(m_nodeRecord, "node(s)", m_nodeNames.size());
+}
+
+BatchDeleteCommand::~BatchDeleteCommand()
+{
+    swmm_delete_record_destroy(m_gageRecord);
+    swmm_delete_record_destroy(m_linkRecord);
+    swmm_delete_record_destroy(m_nodeRecord);
+    swmm_delete_record_destroy(m_subcatchRecord);
 }
 
 // ===========================================================================

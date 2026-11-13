@@ -25,6 +25,7 @@
 
 #include "ui/properties/culvertcoderef.h" // ATTRIBUTE_EDITOR_WIRING Phase 0
 #include "ui/properties/dataobjectref.h"
+#include "ui/properties/fieldwriter.h"
 #include "ui/properties/linkendpointref.h"
 #include "ui/properties/initialqualityeditref.h" // Initial-quality UI round
 #include "ui/properties/linkcompoundeditref.h"   // Slice SC.1
@@ -677,6 +678,15 @@ public slots:
      */
     void updateStoredName(const QString &newName) { m_name = newName; }
 
+    /**
+     * @brief Send field writes through the project's checked, undoable edit path (review C-01).
+     * @param[in] writer Installed by PropertiesPanel; an empty writer restores direct engine writes.
+     */
+    void setFieldWriter(openswmmvis::properties::FieldWriter writer)
+    {
+        m_fieldWriter = std::move(writer);
+    }
+
     /*! Stats-source dispatch — see SWMMNodePropertyAdapter (Slice QA.2)
      *  for the full contract. The stat* getters read the editing engine's
      *  ambient stats while the id is null, and the registry-resolved
@@ -728,10 +738,19 @@ protected:
      */
     void writeXsectGeom(int ordinal, double v);
     bool ownedRegulatorEdit(const QString &setter, const QVariant &value);
+    /**
+     * @brief Offer one write to the installed field writer.
+     * @param[in] fieldKey Attribute Table field key for this link's category.
+     * @param[in] value Value in the table's representation.
+     * @return True when the writer took the edit (applied, or refused with its reason shown); the
+     *   view is refreshed either way. False without a writer or when the field is not routed.
+     */
+    bool routeField(const char *fieldKey, const QVariant &value);
 private slots:
     void onModelClosed();
 protected:
     QMetaObject::Connection m_modelClose, m_modelDestroyed;
+    openswmmvis::properties::FieldWriter m_fieldWriter; ///< review C-01: shared edit path
     SWMM_Engine m_engine;
     QString m_name;
     SWMMModelLayer *m_layer = nullptr; ///< Bound via setModelLayer.

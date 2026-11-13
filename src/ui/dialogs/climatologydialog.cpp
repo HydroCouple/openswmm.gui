@@ -122,17 +122,23 @@ double oaDate(const QDateTime &dateTime)
 }
 
 /**
- * @brief Decode finite fractional days since 1899-12-30 into local Qt date/time.
+ * @brief Decode finite fractional days since 1899-12-30 into SWMM wall-clock date/time.
  * @param[in] date Finite representable absolute day count; floor handles dates before the epoch
  * and fractional time rounds to milliseconds.
- * @return Owned QDateTime using the constructor's local-time convention; no UTC conversion,
- * range/error check or engine access.
+ * @return Owned UTC-labelled QDateTime (SWMM dates have no zone or daylight saving); no
+ * conversion, range/error check or engine access. Built from date and time-of-day directly:
+ * adding milliseconds to local midnight was an hour off on daylight-saving days.
  */
 QDateTime dateTimeFromOa(double date)
 {
-    const auto day = static_cast<qint64>(std::floor(date));
-    const auto milliseconds = static_cast<qint64>(std::llround((date - day) * 86400000.0));
-    return QDateTime(QDate(1899, 12, 30).addDays(day), QTime(0, 0)).addMSecs(milliseconds);
+    auto day = static_cast<qint64>(std::floor(date));
+    auto milliseconds = static_cast<qint64>(std::llround((date - day) * 86400000.0));
+    if (milliseconds >= 86400000) { // rounded up to midnight
+        ++day;
+        milliseconds -= 86400000;
+    }
+    return QDateTime(QDate(1899, 12, 30).addDays(day),
+                     QTime::fromMSecsSinceStartOfDay(int(milliseconds)), QTimeZone::UTC);
 }
 
 /**
@@ -490,6 +496,8 @@ void ClimatologyDialog::onPreviewEvaporation()
     auto *windowForm = new QFormLayout(window);
     auto *from = new QDateTimeEdit(dateTimeFromOa(modelStart), window);
     auto *to = new QDateTimeEdit(dateTimeFromOa(modelEnd), window);
+    from->setTimeZone(QTimeZone::UTC); // SWMM wall clock: show without conversion
+    to->setTimeZone(QTimeZone::UTC);
     from->setObjectName(QStringLiteral("clim_evapPreviewStart"));
     to->setObjectName(QStringLiteral("clim_evapPreviewEnd"));
     from->setCalendarPopup(true);
@@ -562,7 +570,8 @@ void ClimatologyDialog::onPreviewEvaporation()
         config.temp_timeseries = tempTimeseries.constData();
         config.climate_file_path = climatePath.constData();
         config.climate_file_start = m_tempStartCheck->isChecked()
-                                        ? oaDate(QDateTime(m_tempStartDate->date(), QTime(0, 0)))
+                                        ? oaDate(QDateTime(m_tempStartDate->date(), QTime(0, 0),
+                                                           QTimeZone::UTC))
                                         : 0.0;
         config.climate_file_temp_units = m_tempUnits->currentData().toInt();
         config.latitude = OpenSWMM::Ui::preciseValue(m_latitude);
@@ -1360,7 +1369,8 @@ QString ClimatologyDialog::writeToEngine()
         do {
             if (swmm_climate_set_temp_file_start(
                     m_engine, openswmmvis::core::qDateTimeToSwmmDateTime(
-                                  QDateTime(m_tempStartDate->date(), QTime(0, 0)))) != SWMM_OK)
+                                  QDateTime(m_tempStartDate->date(), QTime(0, 0),
+                                            QTimeZone::UTC))) != SWMM_OK)
                 return tr(
                     "The engine refused the temperature file start. Check the selected data and values.");
         } while (false);
