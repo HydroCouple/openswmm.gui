@@ -17,6 +17,7 @@
 
 #include <QAbstractListModel>
 #include <QPointer>
+#include <QVector>
 
 namespace openswmmvis::street
 {
@@ -131,6 +132,8 @@ private:
     int indexOf_(openswmmvis::street::StreetProvider *p) const;
 
     QPointer<openswmmvis::street::StreetRegistry> m_registry;
+    /// Rows as last announced to views; changes only between begin*Rows and end*Rows.
+    QVector<openswmmvis::street::StreetProvider *> m_rows;
 };
 
 } // namespace openswmmvis::ui

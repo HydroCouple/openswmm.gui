@@ -9,6 +9,10 @@
 
 #include "ui/models/rulelistmodel.h"
 
+#include <algorithm>
+
+#include <QTimer>
+
 #include "controls/controlruleregistry.h"
 #include "controls/controlruleprovider.h"
 #include "layers/swmmmodellayer.h"
@@ -33,8 +37,24 @@ RuleListModel::~RuleListModel() = default;
 void RuleListModel::bindRegistry_()
 {
     auto *reg = registry_();
+    m_bound = reg;
+    m_rows = reg ? reg->providers() : QVector<ControlRuleProvider *>{};
     if (!reg)
         return;
+    // The layer rebuilds its registry when the model's engine changes; drop the old rows with
+    // it and bind the new registry once it exists.
+    connect(reg, &QObject::destroyed, this, [this] {
+        beginResetModel();
+        m_rows.clear();
+        endResetModel();
+        QTimer::singleShot(0, this, [this] {
+            if (m_bound)
+                return;
+            beginResetModel();
+            bindRegistry_();
+            endResetModel();
+        });
+    });
     connect(reg, &ControlRuleRegistry::providerAdded, this, &RuleListModel::onProviderAdded_,
             Qt::UniqueConnection);
     connect(reg, &ControlRuleRegistry::providerAboutToBeRemoved, this,
@@ -61,32 +81,23 @@ ControlRuleRegistry *RuleListModel::registry_() const
 
 int RuleListModel::rowOfProvider_(ControlRuleProvider *p) const
 {
-    auto *reg = registry_();
-    if (!reg || !p)
+    if (!m_bound || !p)
         return -1;
-    const auto vec = reg->providers();
-    for (int i = 0; i < vec.size(); ++i)
-        if (vec[i] == p)
-            return i;
-    return -1;
+    return static_cast<int>(m_rows.indexOf(p));
 }
 
 int RuleListModel::rowCount(const QModelIndex &parent) const
 {
-    if (parent.isValid())
+    if (parent.isValid() || !m_bound)
         return 0;
-    auto *reg = registry_();
-    return reg ? reg->providerCount() : 0;
+    return static_cast<int>(m_rows.size());
 }
 
 QVariant RuleListModel::data(const QModelIndex &index, int role) const
 {
-    auto *reg = registry_();
-    if (!reg)
+    if (!m_bound || !index.isValid() || index.row() < 0 || index.row() >= m_rows.size())
         return {};
-    if (!index.isValid() || index.row() < 0 || index.row() >= reg->providerCount())
-        return {};
-    auto *p = reg->providers().at(index.row());
+    auto *p = m_rows.at(index.row());
     if (!p)
         return {};
 
@@ -122,10 +133,9 @@ bool RuleListModel::setData(const QModelIndex &index, const QVariant &value, int
 {
     if (role != Qt::EditRole)
         return false;
-    auto *reg = registry_();
-    if (!reg || !index.isValid() || index.row() < 0 || index.row() >= reg->providerCount())
+    if (!m_bound || !index.isValid() || index.row() < 0 || index.row() >= m_rows.size())
         return false;
-    auto *p = reg->providers().at(index.row());
+    auto *p = m_rows.at(index.row());
     if (!p)
         return false;
 
@@ -148,10 +158,9 @@ bool RuleListModel::removeRows(int row, int count, const QModelIndex &parent)
 {
     if (parent.isValid() || count != 1)
         return false;
-    auto *reg = registry_();
-    if (!reg || row < 0 || row >= reg->providerCount() || !m_layer)
+    if (!m_bound || row < 0 || row >= m_rows.size() || !m_layer)
         return false;
-    auto *p = reg->providers().at(row);
+    auto *p = m_rows.at(row);
     if (!p)
         return false;
     QString err;
@@ -176,22 +185,19 @@ QVariant RuleListModel::headerData(int section, Qt::Orientation orientation, int
 
 int RuleListModel::indexOf(const QString &name) const
 {
-    auto *reg = registry_();
-    if (!reg)
+    if (!m_bound)
         return -1;
-    const auto vec = reg->providers();
-    for (int i = 0; i < vec.size(); ++i)
-        if (vec[i] && vec[i]->name().compare(name, Qt::CaseInsensitive) == 0)
+    for (int i = 0; i < m_rows.size(); ++i)
+        if (m_rows[i] && m_rows[i]->name().compare(name, Qt::CaseInsensitive) == 0)
             return i;
     return -1;
 }
 
 QString RuleListModel::nameAt(int row) const
 {
-    auto *reg = registry_();
-    if (!reg || row < 0 || row >= reg->providerCount())
+    if (!m_bound || row < 0 || row >= m_rows.size())
         return {};
-    auto *p = reg->providers().at(row);
+    auto *p = m_rows.at(row);
     return p ? p->name() : QString();
 }
 
@@ -199,13 +205,16 @@ QString RuleListModel::nameAt(int row) const
 
 void RuleListModel::onProviderAdded_(ControlRuleProvider *p)
 {
-    auto *reg = registry_();
-    if (!reg || !p)
+    if (!m_bound || !p || m_rows.contains(p))
         return;
-    // The provider is already appended by the registry at this point —
-    // its position is providerCount() - 1.
-    const int row = reg->providerCount() - 1;
+    // The registry has already added p; the model's own rows change only between
+    // beginInsertRows and endInsertRows, as views and proxies expect.
+    const int at = static_cast<int>(m_bound->providers().indexOf(p));
+    if (at < 0)
+        return;
+    const int row = std::min(at, static_cast<int>(m_rows.size()));
     beginInsertRows({}, row, row);
+    m_rows.insert(row, p);
     endInsertRows();
 
     connect(p, &ControlRuleProvider::validationChanged, this,
@@ -216,10 +225,12 @@ void RuleListModel::onProviderAdded_(ControlRuleProvider *p)
 
 void RuleListModel::onProviderAboutToBeRemoved_(ControlRuleProvider *p)
 {
+    // Announced before the registry removes p; the row leaves the model's own list here.
     const int row = rowOfProvider_(p);
     if (row < 0)
         return;
     beginRemoveRows({}, row, row);
+    m_rows.removeAt(row);
     endRemoveRows();
 }
 

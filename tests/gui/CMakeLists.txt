@@ -3775,6 +3775,15 @@ add_swmmvis_gui_test(test_patterntransectbulk
     ${SWMMVIS_TEST_EXTRA_SOURCES})
 swmmvis_link_full_app_deps(test_patterntransectbulk)
 
+# Review E-08: registry-backed list models announce row changes while the rows change.
+add_swmmvis_gui_test(test_registrylistmodels
+    test_registrylistmodels.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_registrylistmodels)
+target_compile_definitions(test_registrylistmodels PRIVATE
+    SWMMVIS_REVIEW_OUTPUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/gui_review_2026-11-13")
+
 add_swmmvis_gui_test(test_landuse_unified_editor
     test_landuse_unified_editor.cpp
     ${SWMMVIS_TEST_SOURCES}

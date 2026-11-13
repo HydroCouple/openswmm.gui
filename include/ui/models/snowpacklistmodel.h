@@ -12,6 +12,7 @@
 
 #include <QAbstractListModel>
 #include <QPointer>
+#include <QVector>
 
 namespace openswmmvis::snowpack
 {
@@ -121,6 +122,8 @@ private:
     int indexOf_(openswmmvis::snowpack::SnowpackProvider *p) const;
 
     QPointer<openswmmvis::snowpack::SnowpackRegistry> m_registry;
+    /// Rows as last announced to views; changes only between begin*Rows and end*Rows.
+    QVector<openswmmvis::snowpack::SnowpackProvider *> m_rows;
 };
 
 } // namespace openswmmvis::ui

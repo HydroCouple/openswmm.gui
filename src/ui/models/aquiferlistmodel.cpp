@@ -9,6 +9,8 @@
 
 #include "ui/models/aquiferlistmodel.h"
 
+#include <algorithm>
+
 #include "aquifer/aquiferprovider.h"
 #include "aquifer/aquiferregistry.h"
 
@@ -40,6 +42,7 @@ void AquiferListModel::setRegistry(AquiferRegistry *registry)
         connect(m_registry, &AquiferRegistry::providerParamsChanged, this,
                 &AquiferListModel::onProviderParamsChanged_);
     }
+    m_rows = m_registry ? m_registry->providers() : QVector<AquiferProvider *>{};
     endResetModel();
 }
 
@@ -50,17 +53,14 @@ AquiferRegistry *AquiferListModel::registry() const noexcept
 
 AquiferProvider *AquiferListModel::providerAt(int row) const
 {
-    if (!m_registry)
-        return nullptr;
-    const auto provs = m_registry->providers();
-    return (row >= 0 && row < provs.size()) ? provs.at(row) : nullptr;
+    return (m_registry && row >= 0 && row < m_rows.size()) ? m_rows.at(row) : nullptr;
 }
 
 int AquiferListModel::rowCount(const QModelIndex &parent) const
 {
     if (parent.isValid() || !m_registry)
         return 0;
-    return m_registry->providerCount();
+    return static_cast<int>(m_rows.size());
 }
 
 QVariant AquiferListModel::data(const QModelIndex &index, int role) const
@@ -116,30 +116,32 @@ int AquiferListModel::indexOf_(AquiferProvider *p) const
 {
     if (!m_registry || !p)
         return -1;
-    const auto provs = m_registry->providers();
-    for (int i = 0; i < provs.size(); ++i)
-        if (provs.at(i) == p)
-            return i;
-    return -1;
+    return static_cast<int>(m_rows.indexOf(p));
 }
 
 void AquiferListModel::onProviderAdded_(AquiferProvider *p)
 {
-    if (!m_registry || !p)
+    if (!m_registry || !p || m_rows.contains(p))
         return;
-    const int row = indexOf_(p);
-    if (row < 0)
+    // The registry has already added p; the model's own rows change only between
+    // beginInsertRows and endInsertRows, as views and proxies expect.
+    const int at = static_cast<int>(m_registry->providers().indexOf(p));
+    if (at < 0)
         return;
+    const int row = std::min(at, static_cast<int>(m_rows.size()));
     beginInsertRows({}, row, row);
+    m_rows.insert(row, p);
     endInsertRows();
 }
 
 void AquiferListModel::onProviderAboutToBeRemoved_(AquiferProvider *p)
 {
+    // Announced before the registry removes p; the row leaves the model's own list here.
     const int row = indexOf_(p);
     if (row < 0)
         return;
     beginRemoveRows({}, row, row);
+    m_rows.removeAt(row);
     endRemoveRows();
 }
 

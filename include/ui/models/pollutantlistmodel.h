@@ -12,6 +12,7 @@
 
 #include <QAbstractListModel>
 #include <QPointer>
+#include <QVector>
 
 namespace openswmmvis::pollutant
 {
@@ -126,6 +127,8 @@ private:
     int indexOf_(openswmmvis::pollutant::PollutantProvider *p) const;
 
     QPointer<openswmmvis::pollutant::PollutantRegistry> m_registry;
+    /// Rows as last announced to views; changes only between begin*Rows and end*Rows.
+    QVector<openswmmvis::pollutant::PollutantProvider *> m_rows;
 };
 
 } // namespace openswmmvis::ui

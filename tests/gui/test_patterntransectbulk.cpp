@@ -268,6 +268,26 @@ private slots:
         undo.undo(); QCOMPARE(bag->nLeftBank(), .02);
         QCOMPARE(editor.currentProvider()->comments().size(), longComment.size());
     }
+    void propertiesFollowRegistryEdits()
+    {
+        // Review C-06 (found not to reproduce): the Transect editor's Apply writes through the
+        // registry (provider then engine), which never emits the layer's transectChanged. The
+        // panel still repaints, because a registry edit marks the model edited and that
+        // refreshes it. This guards that the view is told to repaint after such an edit.
+        auto layer = fixture(); QVERIFY(layer); MapCanvas canvas; layer->setEditCanvas(&canvas);
+        PropertiesPanel panel; panel.setProject(layer.get()); panel.resize(1000, 1000); panel.show();
+        panel.showDataObject(layer.get(), SWMMObjectRef::Transect, "T_A");
+        auto *tree = panel.findChild<QTreeView *>(); QVERIFY(tree);
+        QVERIFY(findProperty(tree->model(), "Roughness — Channel n").isValid());
+        auto *tr = qobject_cast<TransectRegistry *>(layer->ensureTransectRegistry());
+        auto *p = tr->findByName("T_A"); QVERIFY(p);
+        QSignalSpy announced(tree->model(), &QAbstractItemModel::dataChanged);
+        p->setRoughness(p->nLeftBank(), p->nRightBank(), .123); // as the editor's Apply does
+        tr->saveToEngine(tr->engineHandle(), p->name());
+        QTRY_VERIFY(announced.count() > 0);
+        QCOMPARE(findProperty(tree->model(), "Roughness — Channel n").data(Qt::EditRole).toDouble(),
+                 .123);
+    }
     void widgetSubsetsNumberAndText()
     {
         auto layer = fixture(); QVERIFY(layer); MapCanvas canvas; layer->setEditCanvas(&canvas);

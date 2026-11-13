@@ -12,6 +12,7 @@
 
 #include <QAbstractListModel>
 #include <QPointer>
+#include <QVector>
 
 namespace openswmmvis::landuse
 {
@@ -126,6 +127,8 @@ private:
     int indexOf_(openswmmvis::landuse::LandUseProvider *p) const;
 
     QPointer<openswmmvis::landuse::LandUseRegistry> m_registry;
+    /// Rows as last announced to views; changes only between begin*Rows and end*Rows.
+    QVector<openswmmvis::landuse::LandUseProvider *> m_rows;
 };
 
 } // namespace openswmmvis::ui
