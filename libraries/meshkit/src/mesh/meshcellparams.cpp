@@ -114,6 +114,19 @@ const QVector<CellParamSpec> &cellParamSpecs()
                      "([2D_INITIAL_HGL]), an alternative to the initial depth. "
                      "While set it replaces the cell's initial depth; a cell whose "
                      "bed is above this elevation starts dry.")});
+        // m/s whatever the project units: the file and the engine store m/s.
+        v.append({"initU", tr("Initial Velocity U (m/s)"), QStringLiteral("u="),
+                  /*lengthUnit=*/false, -100.0, 100.0, 0.05, 0.0, 4,
+                  /*enabled=*/true,
+                  tr("Water velocity along the map X axis at the start of the run, in "
+                     "m/s whatever the project units ([2D_INITIAL_VELOCITY] U). "
+                     "0 with V at 0 starts the water at rest. A hot start ignores it.")});
+        v.append({"initV", tr("Initial Velocity V (m/s)"), QStringLiteral("v="),
+                  /*lengthUnit=*/false, -100.0, 100.0, 0.05, 0.0, 4,
+                  /*enabled=*/true,
+                  tr("Water velocity along the map Y axis at the start of the run, in "
+                     "m/s whatever the project units ([2D_INITIAL_VELOCITY] V). "
+                     "0 with U at 0 starts the water at rest. A hot start ignores it.")});
 
         for (const auto &key : {QByteArray("infil.owner"), QByteArray("infil.conflict")}) {
             CellParamSpec s;
@@ -381,6 +394,10 @@ double cellParamValue(const MeshResult &mesh, int tri, const QByteArray &key)
         return t.initDepth;
     if (key == "initHgl")
         return t.initHgl;
+    if (key == "initU")
+        return t.initU;
+    if (key == "initV")
+        return t.initV;
     if (key.startsWith("infil.")) {
         // Resolved, not raw: a cell with no per-cell override reads back its
         // region tag's (or the '*' row's) numbers, which is what the engine

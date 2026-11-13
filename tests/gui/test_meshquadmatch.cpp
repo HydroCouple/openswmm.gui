@@ -198,6 +198,8 @@ MeshResult competingRectangleMesh(double angle, double offset)
         triangle.tag = QStringLiteral("river");
         triangle.mannings = 0.035;
         triangle.initDepth = 0.2;
+        triangle.initU = 0.5;
+        triangle.initV = -0.25;
         mesh.triangles.append(triangle);
     }
     mesh.ok = true;
@@ -294,6 +296,8 @@ private slots:
         QCOMPARE(quad.tag, QString("river"));
         QCOMPARE(quad.mannings, 0.035);
         QCOMPARE(quad.initDepth, 0.2);
+        QCOMPARE(quad.initU, 0.5);
+        QCOMPARE(quad.initV, -0.25);
         if (partner == 1) {
             QVERIFY(quad.hasVertex(3));
             QVERIFY(!quad.hasVertex(4));
@@ -668,6 +672,8 @@ private slots:
         a.v2 = 2;
         a.tag = QStringLiteral("t1");
         a.mannings = 0.03;
+        a.initU = 0.75;
+        a.initV = -1.5;
         MeshTriangle b;
         b.v0 = 0;
         b.v1 = 2;
@@ -689,6 +695,8 @@ private slots:
         }
         QCOMPARE(q.tag, QStringLiteral("t1"));
         QCOMPARE(q.mannings, 0.03);
+        QCOMPARE(q.initU, 0.75);
+        QCOMPARE(q.initV, -1.5);
 
         // CW inputs give the same CCW quad.
         MeshTriangle acw = a;

@@ -63,6 +63,7 @@ constexpr const char *kSecInfil = "[2D_INFILTRATION]";
 // Initial water-surface elevation per cell; a per-cell mesh attribute, so it
 // follows the mesh like the infiltration sections.
 constexpr const char *kSecInitHgl = "[2D_INITIAL_HGL]";
+constexpr const char *kSecInitVelocity = "[2D_INITIAL_VELOCITY]";
 
 /**
  * @brief Serialize ordered raw xyz vertices and optional tags with finite-double round-trip
@@ -502,6 +503,31 @@ QString formatInitHgl(const MeshResult &mesh)
 }
 
 /**
+ * @brief Serialize the cells' initial velocities as `[2D_INITIAL_VELOCITY]`.
+ * @param[in] mesh Borrowed cells in engine order, unchanged.
+ * @return Owned section text, empty when every cell is at rest. One `CELL U V` row per moving
+ * cell, CELL zero-based, U and V in m/s (no unit conversion), as the engine writes it.
+ */
+QString formatInitVelocity(const MeshResult &mesh)
+{
+    QString out;
+    QTextStream s(&out);
+    s.setRealNumberNotation(QTextStream::SmartNotation);
+    s.setRealNumberPrecision(kPersistencePrecision);
+    for (int i = 0; i < mesh.triangles.size(); ++i) {
+        const MeshTriangle &t = mesh.triangles[i];
+        if (t.initU == 0.0 && t.initV == 0.0)
+            continue;
+        if (out.isEmpty())
+            s << kSecInitVelocity << "\n;; CELL   U   V\n";
+        s << i << "  " << t.initU << "  " << t.initV << "\n";
+    }
+    if (!out.isEmpty())
+        s << "\n";
+    return out;
+}
+
+/**
  * @brief Remove selected bracketed sections and normalize surviving final newlines in owned
  * text.
  * @param[in] originalText Borrowed whole input, unchanged; first-semicolon tails stripped only
@@ -575,6 +601,7 @@ QString stripExistingMeshSections(const QString &originalText, bool alsoMeshFile
         QStringLiteral("[2D_INFILTRATION_DEFAULTS]"),
         QStringLiteral("[2D_INFILTRATION]"),
         QStringLiteral("[2D_INITIAL_HGL]"), // per-cell, follows the mesh
+        QStringLiteral("[2D_INITIAL_VELOCITY]"), // per-cell, follows the mesh
     };
     if (alsoMeshFileRef)
         ours.append(QStringLiteral("[2D_MESH_FILE]"));
@@ -775,6 +802,7 @@ QString InpMeshWriter::buildSectionText(const MeshResult &mesh, const CouplingMa
     // inline). Omitted entirely when the mesh carries no infiltration data.
     out += formatInfilSections(mesh);
     out += formatInitHgl(mesh);
+    out += formatInitVelocity(mesh);
     return out;
 }
 
@@ -1553,7 +1581,8 @@ bool patchAttributeText(const QString &text, const MeshResult &mesh, QString *pa
                                        // Infiltration follows the GUI-owned mesh attributes.
                                        QLatin1String(kSecInfilOptions),
                                        QLatin1String(kSecInfilDefaults), QLatin1String(kSecInfil),
-                                       QLatin1String(kSecInitHgl)});
+                                       QLatin1String(kSecInitHgl),
+                                       QLatin1String(kSecInitVelocity)});
     if (!patched.endsWith(QChar('\n')))
         patched.append(QChar('\n'));
     QString header;
@@ -1570,6 +1599,7 @@ bool patchAttributeText(const QString &text, const MeshResult &mesh, QString *pa
     patched.append(formatTriangleNodeMap(mesh, cm));
     patched.append(formatInfilSections(mesh));
     patched.append(formatInitHgl(mesh));
+    patched.append(formatInitVelocity(mesh));
     *patchedOut = patched;
     return true;
 }

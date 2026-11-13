@@ -791,6 +791,16 @@ public:
      */
     bool applyMeshTriangleInitHgl(int triIdx, double hgl);
 
+    /*! \brief Set a cell's initial velocity ([2D_INITIAL_VELOCITY]). Emits
+     *  attributeChanged with the cell ref name.
+     * @param[in] triIdx Original zero-based cell index, including quads.
+     * @param[in] u Finite velocity along map X in m/s whatever the project units; NaN/infinite rejected.
+     * @param[in] v Finite velocity along map Y in m/s, same rules. 0, 0 = at rest.
+     * @return False invalid/value rejected; true unchanged or applied.
+     * @note Effective change bumps attribute revision, queues legend refresh, emits cell attributeChanged()/repaintRequested(). Does not touch the cell's initial depth or HGL, the engine or the file.
+     */
+    bool applyMeshTriangleInitVelocity(int triIdx, double u, double v);
+
     /*! \brief Set a triangle's descriptive tag ([2D_TRIANGLES] TAG column).
      *  Emits attributeChanged with the cell ref name.
      * @param[in] triIdx Original zero-based cell index, including quads.

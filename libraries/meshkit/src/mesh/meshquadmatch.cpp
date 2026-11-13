@@ -237,6 +237,8 @@ bool unionQuad(const QVector<MeshVertex> &vertices, const MeshTriangle &t1, cons
     quad.mannings = t1.mannings;
     quad.initDepth = t1.initDepth;
     quad.initHgl = t1.initHgl;
+    quad.initU = t1.initU;
+    quad.initV = t1.initV;
     quad.v0 = shared[0];
     quad.v1 = d;
     quad.v2 = shared[1];
@@ -375,6 +377,8 @@ QuadPairingStats pairTrianglesIntoQuads(MeshResult &mesh, const QVector<int> &ce
             nq.quad.mannings = src.mannings;
             nq.quad.initDepth = src.initDepth;
             nq.quad.initHgl = src.initHgl;
+            nq.quad.initU = src.initU;
+            nq.quad.initV = src.initV;
             nq.quad.v0 = v[0];
             nq.quad.v1 = v[1];
             nq.quad.v2 = v[2];

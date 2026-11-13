@@ -2434,6 +2434,46 @@ private slots:
         QVERIFY(std::isnan(rig.layer.mesh().triangles[0].initDepth));
     }
 
+    /*! Initial velocity is two editable cell columns in m/s. Editing one component leaves the
+     *  other and the initial depth/HGL alone; the bulk route edits several cells as one undo
+     *  step, and undo puts the cells back at rest. */
+    void initialVelocityEditsWithUndo()
+    {
+        auto mesh = aggregateMesh();
+        mesh.triangles[0].initDepth = 0.3;
+        AggregateRig rig(mesh, "initial_velocity.2dm");
+        rig.table.setSource(&rig.layer, Kind::Cell);
+        const int uCol = colFor(rig.table, "initU");
+        const int vCol = colFor(rig.table, "initV");
+        QVERIFY(uCol >= 0);
+        QVERIFY(vCol >= 0);
+        QVERIFY(rig.table.headerData(uCol, Qt::Horizontal).toString().contains("m/s"));
+
+        const QModelIndex u = rig.table.index(0, uCol);
+        QCOMPARE(rig.table.data(u).toDouble(), 0.0);
+        QVERIFY(rig.table.flags(u) & Qt::ItemIsEditable);
+        QVERIFY(rig.table.setData(u, -0.5, Qt::EditRole));
+        QCOMPARE(rig.layer.mesh().triangles[0].initU, -0.5);
+        QCOMPARE(rig.layer.mesh().triangles[0].initV, 0.0);
+        QCOMPARE(rig.layer.mesh().triangles[0].initDepth, 0.3);
+        QCOMPARE(rig.table.data(u).toDouble(), -0.5);
+
+        rig.table.setDataForRows(vCol, {0, 1}, 0.25);
+        QCOMPARE(rig.layer.mesh().triangles[0].initV, 0.25);
+        QCOMPARE(rig.layer.mesh().triangles[1].initV, 0.25);
+        QCOMPARE(rig.layer.mesh().triangles[0].initU, -0.5);
+
+        rig.canvas.undoStack()->undo();
+        QCOMPARE(rig.layer.mesh().triangles[0].initV, 0.0);
+        QCOMPARE(rig.layer.mesh().triangles[1].initV, 0.0);
+        QCOMPARE(rig.layer.mesh().triangles[0].initU, -0.5);
+        rig.canvas.undoStack()->undo();
+        QCOMPARE(rig.layer.mesh().triangles[0].initU, 0.0);
+        QCOMPARE(rig.layer.mesh().triangles[0].initDepth, 0.3);
+        rig.canvas.undoStack()->redo();
+        QCOMPARE(rig.layer.mesh().triangles[0].initU, -0.5);
+    }
+
     void aggregateUndoRestoresInheritedCellValues()
     {
         auto mesh = aggregateMesh();

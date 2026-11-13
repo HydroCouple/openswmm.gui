@@ -2785,6 +2785,24 @@ bool SWMM2DMeshLayer::applyMeshTriangleInitHgl(int triIdx, double hgl)
     return true;
 }
 
+bool SWMM2DMeshLayer::applyMeshTriangleInitVelocity(int triIdx, double u, double v)
+{
+    if (triIdx < 0 || triIdx >= m_mesh.triangles.size())
+        return false;
+    if (!std::isfinite(u) || !std::isfinite(v))
+        return false;
+    mesh::MeshTriangle &t = m_mesh.triangles[triIdx];
+    if (t.initU == u && t.initV == v)
+        return true;
+    t.initU = u;
+    t.initV = v;
+    ++m_attrRevision;
+    scheduleLegendInputRefresh();
+    emit attributeChanged(mesh::MeshObjectRef::cell(m_sourcePath, triIdx).name);
+    emit repaintRequested();
+    return true;
+}
+
 bool SWMM2DMeshLayer::applyMeshTriangleTag(int triIdx, const QString &tag)
 {
     if (triIdx < 0 || triIdx >= m_mesh.triangles.size())

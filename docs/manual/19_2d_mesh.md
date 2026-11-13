@@ -681,6 +681,7 @@ The editable per-cell parameters are:
 | **Manning's n** | Surface roughness | `[2D_TRIANGLES]` MANNINGS_N |
 | **Initial Depth** | Standing water depth at t = 0; 0 starts the cell dry | `[2D_TRIANGLES]` INIT_DEPTH |
 | **Initial HGL** | Water surface elevation at t = 0, as an alternative to the initial depth; blank when not set. A cell whose bed is above it starts dry | `[2D_INITIAL_HGL]` |
+| **Initial Velocity U (m/s)**, **Initial Velocity V (m/s)** | Water velocity at t = 0 along the map X and Y axes, in m/s whatever the project units; 0 and 0 start the water at rest. A hot start ignores it | `[2D_INITIAL_VELOCITY]` |
 | **Infiltration Method** | Per-cell infiltration model; inherited from the cell's region tag until it is set here | `[2D_INFILTRATION]` METHOD |
 | The method's parameters | Positional, in project units; a parameter the resolved method does not use reads `—` and refuses edits | `[2D_INFILTRATION]` P1…P5 |
 
