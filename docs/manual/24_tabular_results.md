@@ -64,14 +64,16 @@ these columns exactly as they do on model attributes, so "every conduit whose
 ### Summarize Results — the statistics dashboard
 
 **Analysis → Summarize Results** opens the **Statistics Dashboard** over the
-active 1D results layer. With no active results layer it says so and stops — set
-one in the Analysis toolbar's **1D results:** selector, or run a simulation.
+active 1D results layer, and over the active 2D results layer when there is
+one. With neither it says so and stops — set one in the Analysis toolbar's
+**1D results:** selector, or run a simulation.
 
 | Tab | Columns |
 |-----|---------|
 | **Nodes** | Node, Max depth, Max head, Max overflow, Volume |
 | **Links** | Link, Max flow, Max depth, Max velocity, Max capacity |
 | **Subcatchments** | Subcatchment, Peak runoff, Total runoff, Total infil, Total evap |
+| **2D regions** | Region, Max, Min, Mean (time-weighted), Final, Time integral |
 
 The current dashboard displays tables only; a histogram is not shown.
 
@@ -80,10 +82,32 @@ The current dashboard displays tables only; a histogram is not shown.
 | **Query** | The same expression language as the attribute table — e.g. `Name LIKE 'J%'`, `"Max depth" > 5`, `"Max flow" >= 10`. **Apply** filters every tab; **Clear** restores. The status text reports *matched of total* |
 | Table selection | Selecting rows selects the same objects on the map, and a map selection highlights the matching rows — the dashboard shares the project's selection bus |
 | Right-click → **Zoom to Selected** | Zooms the map to the selected rows |
-| **Export CSV…** | Writes all three tables (as currently filtered) into one CSV, each preceded by its section name |
+| **Export CSV…** | Writes the tables (as currently filtered) into one CSV, each preceded by its section name |
 | Column sorting | Every column sorts |
 
 \figtodo{24_statistics_dashboard.png, The Statistics Dashboard with the Links tab filtered by a query}
+
+The **2D regions** tab appears with a 2D results layer. Its rows are each
+map-selected cell, the selection as a whole, each mesh tag and the whole
+domain. Choose a **2D variable** and an **Aggregate**:
+
+| Aggregate | Each report value is |
+| --- | --- |
+| **Area-weighted mean** | Σ(value × cell area) ÷ Σ(cell area) over the region's cells |
+| **Mean** | The plain mean of the cell values |
+| **Sum** | The total of the cell values |
+| **Mass** | Concentration × water volume, for surface species concentrations in mass-per-volume units |
+
+The columns summarise those values over the run. A cell without a value at a
+report is left out rather than counted as zero, and the region's tooltip says
+how many reports were affected.
+
+After a run that models heat, the variable list also offers the saved
+**Surface heat budget** and **Ground heat budget** terms (for example
+radiation, sensible, latent or advective energy). Each is the energy, in
+joules, that a cell has received since the run started. Choose **Sum** to
+total it over a region. They are read from the saved 2D results file
+(`.2d.h5`), so they are listed once the run has finished.
 
 ### Report — the engine's text report
 

@@ -121,6 +121,7 @@ struct GroundwaterLedger {
     QString longName;         ///< `long_name` attribute
     QString layout;           ///< `layout` attribute (axis order and term definitions)
     int frames = 0;           ///< stored time rows
+    int boundaries = 0;       ///< edges summed into a boundary total; 0 for the other ledgers
     std::vector<double> values; ///< row-major [frame][species][term]; no species axis for water
 };
 
@@ -466,6 +467,46 @@ public:
     bool readGroundwaterSpeciesLedger(GroundwaterLedger &out) const;
 
     /*!
+     * \brief Read the cumulative layered-transport ledger
+     *        `/groundwater_transport_ledger` [time, species, term] (review G-07).
+     *
+     * Same term and species resolution as readGroundwaterSpeciesLedger();
+     * mass is each species' concentration unit × m3.
+     * \param out Replaced on success (values [frame][species][term]); cleared
+     *            on failure.
+     * \returns false (lastError set) when the dataset is absent or its terms
+     *          or species identities cannot be resolved.
+     */
+    bool readGroundwaterTransportLedger(GroundwaterLedger &out) const;
+
+    /*!
+     * \brief Read `/groundwater_boundary_water` [time, boundary, term] summed
+     *        over the aquifer boundary edges (review G-07).
+     *
+     * The terms are gross cumulative volumes (requested and accepted, in and
+     * out); a NaN on any edge makes that frame's total NaN. Without a `units`
+     * attribute the unit is m3, which the engine states in the `layout`.
+     * \param out Replaced on success: values [frame][term] and
+     *            `boundaries` = edges summed; cleared on failure.
+     * \returns false (lastError set) when the dataset is absent, has no
+     *          edges, or its terms do not name every column once.
+     */
+    bool readGroundwaterBoundaryWater(GroundwaterLedger &out) const;
+
+    /*!
+     * \brief Read `/groundwater_boundary_species` [time, species, boundary,
+     *        term] summed over the aquifer boundary edges (review G-07).
+     *
+     * Species are resolved as in readGroundwaterSpeciesLedger(); NaN on any
+     * edge makes that total NaN.
+     * \param out Replaced on success: values [frame][species][term] and
+     *            `boundaries`; cleared on failure.
+     * \returns false (lastError set) when the dataset is absent, has no
+     *          edges, or its terms or species cannot be resolved.
+     */
+    bool readGroundwaterBoundarySpecies(GroundwaterLedger &out) const;
+
+    /*!
      * \brief Column identities of `/groundwater_node_exchange_cum` [time, bed]
      *        (V3): the cumulative aquifer ↔ 1D node exchange per
      *        `[2D_AQUIFER_NODE]` bed, positive out of the aquifer.
@@ -486,6 +527,33 @@ public:
      * \returns false (lastError set) for an absent dataset or column.
      */
     bool readGroundwaterExchangeColumn(int column, std::vector<double> &cumulative) const;
+
+    // ----- 2D heat budgets (saved runs; review G-07) ------------------------
+
+    /*!
+     * \brief Term identities of a per-cell cumulative heat budget,
+     *        `/mesh_heat_budget` or `/ground_heat_budget` [time, face, term].
+     * \param dataset  Root dataset name.
+     * \param terms    Replaced with the `terms` attribute, one name per stored
+     *                 column.
+     * \param units    Replaced with the `units` attribute ("J"; empty when absent).
+     * \returns false (lastError set, outputs cleared) when the dataset is
+     *          absent, is not [time, face, term] over this mesh's cells, or its
+     *          terms do not name every column once.
+     */
+    bool readHeatBudgetTerms(const char *dataset, QStringList &terms, QString &units) const;
+
+    /*!
+     * \brief One term of a heat budget at one report: every cell's cumulative
+     *        value as stored (non-finite values stay NaN).
+     * \param dataset `/mesh_heat_budget` or `/ground_heat_budget`.
+     * \param timeIdx Stored report row.
+     * \param term    Column, an index into readHeatBudgetTerms().
+     * \param values  Replaced with one value per cell; cleared on failure.
+     * \returns false (lastError set) for an absent dataset, report or term.
+     */
+    bool readHeatBudgetAt(const char *dataset, int timeIdx, int term,
+                          std::vector<float> &values) const;
 
 private:
     QString path_;

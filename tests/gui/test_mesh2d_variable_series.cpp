@@ -32,9 +32,13 @@
 #include "plot/comparisonplotmodel.h"
 #include "plot/mesh2drunlayer.h"
 #include "ui/dialogs/comparisonplotdialog.h"
+#include "ui/dialogs/statisticsdashboarddialog.h"
 
+#include <QComboBox>
 #include <QDateTime>
+#include <QFileInfo>
 #include <QObject>
+#include <QTableView>
 #include <QTest>
 #include <QTimeZone>
 
@@ -288,6 +292,17 @@ private slots:
      * @note Writes runlayer_saved_gw.2d.h5 (two cells, three reports) to GW_RESULTS_TEST_OUTPUT.
      */
     void savedRunServesGroundwaterLedgerAndNodeExchange();
+    /**
+     * @brief Review G-07: a saved run's per-cell heat budgets are region-only descriptors whose
+     * region series sum (or average) the stored cumulative joules per report, leave a missing
+     * cell out and say so, refuse Mass, and reach the Statistics Dashboard's 2D regions page.
+     * @note Writes runlayer_saved_heat.2d.h5 (two cells, three reports) and the malformed
+     * runlayer_saved_heat_bad.2d.h5 to GW_RESULTS_TEST_OUTPUT.
+     */
+    void savedRunSumsHeatBudgetsOverRegions();
+    /** @brief Read-only check of the heat-budget region totals against a real engine file
+     *  (HEAT_PROBE_H5); prints each term's final domain Sum. Skipped by default. */
+    void realHeatBudgetFileWhenProvided();
     /** @brief Frames under a second apart keep their own times in fixed-attribute and
      * catalog-variable series (they were rounded to whole seconds and stacked). */
     void subSecondFramesKeepTheirMilliseconds();
@@ -497,6 +512,173 @@ void TestMesh2DVariableSeries::savedRunServesGroundwaterLedgerAndNodeExchange()
     for (const auto kind : {ObjectRef::Kind::System, ObjectRef::Kind::Node})
         for (const auto &d : liveRun.resultDescriptorsForKind(kind))
             QVERIFY(!d.isMeshVariable());
+}
+
+void TestMesh2DVariableSeries::savedRunSumsHeatBudgetsOverRegions()
+{
+    // Two triangles, three reports; budget value = (cell+1) * 100 * (frame+1) + term, with
+    // cell 1's frame-1 latent_j missing (NaN).
+    const std::vector<double> days = {41089.0, 41089.0 + 300.0 / 86400.0,
+                                      41089.0 + 600.0 / 86400.0};
+    const auto meshFile = [&](const QString &name) {
+        const hid_t f = gwfixture::create(name);
+        gwfixture::doubles(f, "Mesh2_node_x", {4}, {0.0, 1.0, 1.0, 0.0});
+        gwfixture::doubles(f, "Mesh2_node_y", {4}, {0.0, 0.0, 1.0, 1.0});
+        gwfixture::doubles(f, "Mesh2_node_z", {4}, {1.0, 1.0, 1.0, 1.0});
+        const int conn[6] = {0, 1, 2, 0, 2, 3};
+        const hsize_t dims[2] = {2, 3};
+        const hid_t space = H5Screate_simple(2, dims, nullptr);
+        const hid_t data = H5Dcreate2(f, "Mesh2_face_nodes", H5T_NATIVE_INT, space, H5P_DEFAULT,
+                                      H5P_DEFAULT, H5P_DEFAULT);
+        H5Dwrite(data, H5T_NATIVE_INT, H5S_ALL, H5S_ALL, H5P_DEFAULT, conn);
+        H5Dclose(data);
+        H5Sclose(space);
+        gwfixture::times(f, days);
+        gwfixture::doubles(f, "Mesh2_face_depth", {3, 2}, std::vector<double>(6, 0.0));
+        return f;
+    };
+    const auto budget = [&](hid_t f, const char *name, const QString &terms, int termCount,
+                            hsize_t cells = 2) {
+        std::vector<double> values;
+        for (int frame = 0; frame < 3; ++frame)
+            for (hsize_t c = 0; c < cells; ++c)
+                for (int k = 0; k < termCount; ++k)
+                    values.push_back(termCount == 2 && frame == 1 && c == 1 && k == 1
+                                         ? std::nan("")
+                                         : double(c + 1) * 100.0 * (frame + 1) + k);
+        gwfixture::doubles(f, name, {3, cells, hsize_t(termCount)}, values);
+        gwfixture::stringAttr(f, name, "terms", terms);
+        gwfixture::stringAttr(f, name, "units", QStringLiteral("J"));
+        gwfixture::stringAttr(f, name, "layout", QStringLiteral("[time, face, term]"));
+    };
+    hid_t f = meshFile(QStringLiteral("runlayer_saved_heat.2d.h5"));
+    QVERIFY(f >= 0);
+    budget(f, "mesh_heat_budget", QStringLiteral("radiation_j,latent_j"), 2);
+    budget(f, "ground_heat_budget", QStringLiteral("initial_j,advective_j,residual_j"), 3);
+    H5Fclose(f);
+    // Malformed budgets are not offered: a term list one short, and three cells on a
+    // two-cell mesh.
+    f = meshFile(QStringLiteral("runlayer_saved_heat_bad.2d.h5"));
+    QVERIFY(f >= 0);
+    budget(f, "mesh_heat_budget", QStringLiteral("radiation_j"), 2);
+    budget(f, "ground_heat_budget", QStringLiteral("initial_j,advective_j"), 2, 3);
+    H5Fclose(f);
+
+    auto source = std::make_unique<HDF5Mesh2DSource>();
+    QVERIFY(source->open(gwfixture::path(QStringLiteral("runlayer_saved_heat.2d.h5"))));
+    SWMM2DResultsLayer layer;
+    layer.setSource(std::move(source));
+    Mesh2DRunLayer run(&layer);
+
+    const auto budgets = run.heatBudgetDescriptors();
+    QCOMPARE(budgets.size(), 5);
+    QCOMPARE(budgets[0].variableKey, QStringLiteral("heatbudget:mesh_heat_budget:radiation_j"));
+    QCOMPARE(budgets[0].variableLabel, QStringLiteral("Surface heat budget — radiation_j, cumulative"));
+    QCOMPARE(budgets[4].variableKey, QStringLiteral("heatbudget:ground_heat_budget:residual_j"));
+    QCOMPARE(budgets[4].variableLabel, QStringLiteral("Ground heat budget — residual_j, cumulative"));
+    for (const auto &d : budgets)
+        QCOMPARE(d.unitLabel(UnitSystem::SI), QStringLiteral("J"));
+    // Region totals only: not offered as per-cell plot variables.
+    for (const auto &d : run.resultDescriptorsForKind(ObjectRef::Kind::Mesh2DCell))
+        QVERIFY(!d.variableKey.startsWith(QStringLiteral("heatbudget:")));
+
+    using openswmmvis::results::MeshAggregate;
+    const QVector<openswmmvis::results::MeshRegion> regions{
+        {QStringLiteral("Cell 1"), {1}}, openswmmvis::results::domainRegion(2)};
+    QVector<SeriesData> out;
+    run.getRegionSeries(regions, budgets[0], MeshAggregate::Sum, out);
+    QVERIFY2(out[1].ok, qPrintable(out[1].errorMessage));
+    QCOMPARE(out[1].timesJulian.size(), days.size());
+    for (std::size_t t = 0; t < days.size(); ++t)
+        QVERIFY(std::fabs(out[1].timesJulian[t] - days[t]) < 1e-9);
+    QCOMPARE(out[1].values, (std::vector<double>{300.0, 600.0, 900.0}));
+    QCOMPARE(out[0].values, (std::vector<double>{200.0, 400.0, 600.0}));
+    QCOMPARE(run.regionUnits(budgets[0], MeshAggregate::Sum), QStringLiteral("J"));
+
+    run.getRegionSeries(regions, budgets[0], MeshAggregate::Mean, out);
+    QCOMPARE(out[1].values.back(), 450.0);
+
+    // latent_j: cell 1 is missing at frame 1, so that total covers cell 0 only.
+    run.getRegionSeries(regions, budgets[1], MeshAggregate::Sum, out);
+    QVERIFY2(out[1].ok, qPrintable(out[1].errorMessage));
+    QCOMPARE(out[1].values, (std::vector<double>{302.0, 201.0, 902.0}));
+    QVERIFY2(out[1].displayNote.contains(QStringLiteral("1 of 3 frames aggregate without Missing")),
+             qPrintable(out[1].displayNote));
+    QVERIFY(std::isnan(out[0].values[1]));
+
+    run.getRegionSeries(regions, budgets[4], MeshAggregate::Sum, out);
+    QCOMPARE(out[1].values.back(), 904.0);
+
+    run.getRegionSeries(regions, budgets[0], MeshAggregate::Mass, out);
+    QVERIFY(!out[1].ok);
+    QVERIFY(out[1].errorMessage.contains(QStringLiteral("Mass")));
+
+    // A term the file does not carry is refused, never zero.
+    run.getRegionSeries(regions,
+                        ResultDescriptor::forMeshVariable(
+                            QStringLiteral("heatbudget:mesh_heat_budget:sensible_j"), {}, {}),
+                        MeshAggregate::Sum, out);
+    QVERIFY(!out[1].ok && out[1].values.empty());
+    QVERIFY(out[1].errorMessage.contains(QStringLiteral("sensible_j")));
+
+    // The Statistics Dashboard's 2D regions page lists the budget terms and sums them.
+    openswmmvis::ui::StatisticsDashboardDialog stats(nullptr);
+    stats.set2DResults(&layer);
+    auto *meshVariable = stats.findChild<QComboBox *>(QStringLiteral("meshStatsVariable"));
+    auto *meshAggregate = stats.findChild<QComboBox *>(QStringLiteral("meshStatsAggregate"));
+    QVERIFY(meshVariable && meshAggregate);
+    const int item =
+        meshVariable->findText(QStringLiteral("Surface heat budget — radiation_j, cumulative (J)"));
+    QVERIFY(item >= 0);
+    QVERIFY(meshVariable->itemData(item, Qt::ToolTipRole).toString().contains(QStringLiteral("Sum")));
+    meshAggregate->setCurrentIndex(meshAggregate->findData(int(MeshAggregate::Sum)));
+    meshVariable->setCurrentIndex(item);
+    auto *mesh = stats.findChild<QTableView *>(QStringLiteral("meshTable"))->model();
+    int finalColumn = -1;
+    for (int c = 0; c < mesh->columnCount(); ++c)
+        if (mesh->headerData(c, Qt::Horizontal).toString() == QStringLiteral("Final"))
+            finalColumn = c;
+    QVERIFY(finalColumn > 0);
+    int domainRow = -1;
+    for (int r = 0; r < mesh->rowCount(); ++r)
+        if (mesh->index(r, 0).data().toString().startsWith(QStringLiteral("Domain")))
+            domainRow = r;
+    QVERIFY(domainRow >= 0);
+    QCOMPARE(mesh->index(domainRow, finalColumn).data(Qt::EditRole).toDouble(), 900.0);
+
+    auto badSource = std::make_unique<HDF5Mesh2DSource>();
+    QVERIFY(badSource->open(gwfixture::path(QStringLiteral("runlayer_saved_heat_bad.2d.h5"))));
+    SWMM2DResultsLayer bad;
+    bad.setSource(std::move(badSource));
+    QVERIFY(Mesh2DRunLayer(&bad).heatBudgetDescriptors().isEmpty());
+
+    // A live (in-memory) source has no saved budgets.
+    SWMM2DResultsLayer live;
+    live.setSource(std::make_unique<CatalogMeshSource>());
+    QVERIFY(Mesh2DRunLayer(&live).heatBudgetDescriptors().isEmpty());
+}
+
+void TestMesh2DVariableSeries::realHeatBudgetFileWhenProvided()
+{
+    const QString probe = qEnvironmentVariable("HEAT_PROBE_H5");
+    if (probe.isEmpty() || !QFileInfo::exists(probe))
+        QSKIP("Set HEAT_PROBE_H5 to a real .2d.h5 with heat budgets to run this check.");
+    auto source = std::make_unique<HDF5Mesh2DSource>();
+    QVERIFY(source->open(probe));
+    SWMM2DResultsLayer layer;
+    layer.setSource(std::move(source));
+    Mesh2DRunLayer run(&layer);
+    const auto budgets = run.heatBudgetDescriptors();
+    QVERIFY(!budgets.isEmpty());
+    const QVector<openswmmvis::results::MeshRegion> domain{
+        openswmmvis::results::domainRegion(layer.source()->triangleCount())};
+    for (const auto &d : budgets) {
+        QVector<SeriesData> out;
+        run.getRegionSeries(domain, d, openswmmvis::results::MeshAggregate::Sum, out);
+        QVERIFY2(out[0].ok, qPrintable(out[0].errorMessage));
+        QCOMPARE(int(out[0].values.size()), layer.source()->timeCount());
+        qInfo().noquote() << d.variableKey << out[0].values.back() << d.variableUnits;
+    }
 }
 
 void TestMesh2DVariableSeries::subSecondFramesKeepTheirMilliseconds()

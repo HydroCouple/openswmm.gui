@@ -695,10 +695,7 @@ void StatisticsDashboardDialog::refreshMeshVariables()
     m_meshVariable->clear();
     if (m_mesh) {
         const openswmmvis::plot::Mesh2DRunLayer run(m_mesh);
-        const auto cellDescriptors = run.resultDescriptorsForKind(ObjectRef::Kind::Mesh2DCell);
-        for (const ResultDescriptor &d : cellDescriptors) {
-            if (!d.isMeshVariable() && d.attr != PlotAttribute::Mesh2DDepth)
-                continue;
+        const auto add = [this](const ResultDescriptor &d) {
             const QString units = d.unitLabel(openswmmvis::plot::UnitSystem::SI);
             const QString text =
                 units.isEmpty() ? d.label() : QStringLiteral("%1 (%2)").arg(d.label(), units);
@@ -707,6 +704,21 @@ void StatisticsDashboardDialog::refreshMeshVariables()
                                                                      d.variableLabel,
                                                                      d.variableUnits})
                                               : QVariant(int(d.attr)));
+        };
+        const auto cellDescriptors = run.resultDescriptorsForKind(ObjectRef::Kind::Mesh2DCell);
+        for (const ResultDescriptor &d : cellDescriptors) {
+            if (!d.isMeshVariable() && d.attr != PlotAttribute::Mesh2DDepth)
+                continue;
+            add(d);
+        }
+        // Review G-07: the saved run's per-cell heat budgets, totalled over regions.
+        for (const ResultDescriptor &d : run.heatBudgetDescriptors()) {
+            add(d);
+            m_meshVariable->setItemData(
+                m_meshVariable->count() - 1,
+                tr("Energy each cell has received since the run started. Aggregate with Sum for "
+                   "the region total."),
+                Qt::ToolTipRole);
         }
     }
     populateMeshStats();
