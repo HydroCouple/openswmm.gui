@@ -24,8 +24,8 @@ trace the network from them, or delete them in bulk.
 | **Zoom To Selection** | **View → Zoom To Selection** | Home ▸ Navigate | `Ctrl+Shift+J` |
 | **Select Mesh Vertices / Edges** | **Model → Mesh** | Mesh 2D | — |
 
-Selection is also driven from the **Object Browser** (`Ctrl+Alt+2`), the
-**Attribute Table** (`Ctrl+Alt+4`) and the layer tree.
+Selection is also driven from the **Object Browser** (`Ctrl+2`), the
+**Attribute Table** (`Ctrl+4`) and the layer tree.
 
 ## Step-by-step
 

@@ -73,7 +73,7 @@ If the Welcome page is not showing, **View → Show Welcome** brings it back; th
 ### 2. Watch the load
 
 A model this size loads in stages, and the **Message Logs** dock
-(**Ctrl+Alt+7**) narrates each one. The lines to expect:
+(**Ctrl+7**) narrates each one. The lines to expect:
 
 ```
 Scanning …inp for a 2D mesh …
@@ -240,7 +240,7 @@ subtract; **Select by Polygon** finalises with **Return** or a double-click and
 cancels with **Esc**, with Shift for union and Ctrl for subtract.
 
 Then **Zoom To Selection** (**Ctrl+Shift+J**) and open the attribute table
-(**Ctrl+Alt+4**) to work on the subset. **Delete** or **Backspace** in the
+(**Ctrl+4**) to work on the subset. **Delete** or **Backspace** in the
 table deletes the selected rows' objects through the undo stack.
 
 \figtodo{t08_select_upstream.png, An upstream trace from an outfall highlighting a whole sewershed}

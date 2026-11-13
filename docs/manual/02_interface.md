@@ -251,7 +251,7 @@ See \ref manual_selection and \ref manual_map_editing.
 | **Measure** | `Ctrl+Shift+M` | Measures distances and areas on the canvas |
 | **Show Legend** | | Toggles the draggable legend overlay on the active canvas |
 | **Panels ▸** | | The dock toggles, including Time Series, 1D Profiles and 2D Profiles — see the table below |
-| **Layer Styling Dock** | `Ctrl+Alt+8` | Shows or hides the live layer-styling editor; opening it loads the layer selected in **Layers** |
+| **Layer Styling Dock** | `Ctrl+8` | Shows or hides the live layer-styling editor; opening it loads the layer selected in **Layers** |
 | **Appearance ▸** | | **System** / **Light** / **Dark**; mirrors the Preferences Appearance page |
 | **Command Palette…** | `Ctrl+Shift+P` | Opens the palette |
 
@@ -400,16 +400,16 @@ panel open. Hide a panel with its toggle in **View → Panels**, which has no de
 
 | Panel | Shortcut | What it shows | Chapter |
 |---|---|---|---|
-| **Layers** | `Ctrl+Alt+1` | The layer tree — ordered; groupable; per-layer visibility and opacity; filter box. Clicking a SWMM kind row focuses that category in the Object Browser | \ref manual_layers |
-| **Object Browser** | `Ctrl+Alt+2` | Every SWMM object grouped by category; with per-category ordering and the **Add New…** entry points | \ref manual_object_browser |
-| **Properties** | `Ctrl+Alt+3` | The property grid for the current selection. Its title tracks what is selected — *Properties — &lt;name&gt;* or *Properties — &lt;kind&gt; (N features)*. Several 2D mesh elements of one kind are edited together: shared values show, differing ones read **Mixed**, and **Apply** writes the changed fields as one undo step | \ref manual_object_browser |
-| **Attribute Table** | `Ctrl+Alt+4` | The tabular view of a layer's features; with the attribute calculator and selection sync | \ref manual_attribute_tables |
-| **Legend** | `Ctrl+Alt+5` | The docked legend for the active canvas's layers | \ref manual_styling |
-| **Simulation Status** | `Ctrl+Alt+6` | One row per running or finished simulation with progress; selecting a row targets Pause / Stop at that job | \ref manual_running |
-| **Message Logs** | `Ctrl+Alt+7` | Timestamped Information / Warning / Error messages from the GUI and the engine; auto-scrolled to the newest row | \ref manual_running |
-| **Layer Styling** | `Ctrl+Alt+8` | The always-open variant of the Symbology tab; edits apply live to the canvas and follow the layer selected in **Layers** | \ref manual_styling |
-| **Section View** | `Ctrl+Alt+9` | The cross-section drawing for the selected link or transect | \ref manual_object_browser |
-| **Features** | `Ctrl+Alt+0` | Editable GIS layers; fields; feature attributes; vertex coordinates and elevation sources | \ref manual_feature_layers |
+| **Layers** | `Ctrl+1` | The layer tree — ordered; groupable; per-layer visibility and opacity; filter box. Clicking a SWMM kind row focuses that category in the Object Browser | \ref manual_layers |
+| **Object Browser** | `Ctrl+2` | Every SWMM object grouped by category; with per-category ordering and the **Add New…** entry points | \ref manual_object_browser |
+| **Properties** | `Ctrl+3` | The property grid for the current selection. Its title tracks what is selected — *Properties — &lt;name&gt;* or *Properties — &lt;kind&gt; (N features)*. Several 2D mesh elements of one kind are edited together: shared values show, differing ones read **Mixed**, and **Apply** writes the changed fields as one undo step | \ref manual_object_browser |
+| **Attribute Table** | `Ctrl+4` | The tabular view of a layer's features; with the attribute calculator and selection sync | \ref manual_attribute_tables |
+| **Legend** | `Ctrl+5` | The docked legend for the active canvas's layers | \ref manual_styling |
+| **Simulation Status** | `Ctrl+6` | One row per running or finished simulation with progress; selecting a row targets Pause / Stop at that job | \ref manual_running |
+| **Message Logs** | `Ctrl+7` | Timestamped Information / Warning / Error messages from the GUI and the engine; auto-scrolled to the newest row | \ref manual_running |
+| **Layer Styling** | `Ctrl+8` | The always-open variant of the Symbology tab; edits apply live to the canvas and follow the layer selected in **Layers** | \ref manual_styling |
+| **Section View** | `Ctrl+9` | The cross-section drawing for the selected link or transect | \ref manual_object_browser |
+| **Features** | `Ctrl+0` | Editable GIS layers; fields; feature attributes; vertex coordinates and elevation sources | \ref manual_feature_layers |
 | **Time Series** | | Time-series plot tabs; hiding the panel retains the plots | \ref manual_time_series_plots |
 | **1D Profiles** | | Network profile plot tabs | \ref manual_profile_plots |
 | **2D Profiles** | | Mesh profile plot tabs | \ref manual_profile_plots |

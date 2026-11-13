@@ -15,7 +15,7 @@ tables.
 | Route | Notes |
 |---|---|
 | **Analysis → Tabular View** (`Ctrl+Shift+A`) | Raises the dock and focuses it |
-| **View → Panels → Attribute Table** (`Ctrl+Alt+4`) | Toggles the dock |
+| **View → Panels → Attribute Table** (`Ctrl+4`) | Toggles the dock |
 | Layer tree → right-click a layer → **Open Attribute Table** | Jumps straight to that layer's table |
 | Object Browser → right-click a *Pollutants*, *Land Uses*, *Aquifers*, *Streets*, *Inlets*, *Time Patterns*, *Transects*, *LID Controls* or *Snowpacks* category → **Open in Attribute Table** | Jumps to that data-object table |
 

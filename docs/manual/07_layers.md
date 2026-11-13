@@ -9,7 +9,7 @@ hide, inspect and remove it from the **Layers** panel.
 ## Where to find it
 
 - The **Layers** dock. Toggle it with **View → Panels → Layers**
-  (`Ctrl+Alt+1`); it is on the ribbon's **View** tab.
+  (`Ctrl+1`); it is on the ribbon's **View** tab.
 - Everything that *adds* a layer lives under **File → Import**; the same
   commands are on the ribbon's **Home** tab.
 - Right-click any row in the tree for a context menu; the menu differs for a

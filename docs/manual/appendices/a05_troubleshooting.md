@@ -8,8 +8,8 @@ will not generate, results that never appear, and a window layout you want back.
 
 ## Where to find it
 
-The **Message Logs** dock (**Ctrl+Alt+7**) is the first place to look for
-anything. The **Simulation Status** panel (**Ctrl+Alt+6**) carries per-run
+The **Message Logs** dock (**Ctrl+7**) is the first place to look for
+anything. The **Simulation Status** panel (**Ctrl+6**) carries per-run
 detail, and the `.rpt` status report (**Analysis → Report**) carries every
 engine warning and error in full.
 

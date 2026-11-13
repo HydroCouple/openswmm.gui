@@ -92,17 +92,23 @@ separate Find dialog.
 
 ### Panels and view
 
+A **Go to** command opens its panel if it is closed and moves the keyboard focus into it;
+pressing it again leaves the panel open. Hide a panel with its toggle in **View → Panels**, which
+has no default shortcut. These keys used to be Ctrl+Alt+digit, which Windows also produces for
+AltGr+digit, so they took characters such as { [ ] } on German or Polish keyboards.
+
 | Command | Shortcut | Menu |
 |---|---|---|
-| **Layers** | Ctrl+Alt+1 | View → Panels |
-| **Object Browser** | Ctrl+Alt+2 | View → Panels |
-| **Properties** | Ctrl+Alt+3 | View → Panels |
-| **Attribute Table** | Ctrl+Alt+4 | View → Panels |
-| **Legend** | Ctrl+Alt+5 | View → Panels |
-| **Simulation Status** | Ctrl+Alt+6 | View → Panels |
-| **Message Logs** | Ctrl+Alt+7 | View → Panels |
-| **Layer Styling** | Ctrl+Alt+8 | View |
-| **Section View** | Ctrl+Alt+9 | View → Panels |
+| **Go to Layers** | Ctrl+1 | View → Panels → Go to Panel |
+| **Go to Object Browser** | Ctrl+2 | View → Panels → Go to Panel |
+| **Go to Properties** | Ctrl+3 | View → Panels → Go to Panel |
+| **Go to Attribute Table** | Ctrl+4 | View → Panels → Go to Panel |
+| **Go to Legend** | Ctrl+5 | View → Panels → Go to Panel |
+| **Go to Simulation Status** | Ctrl+6 | View → Panels → Go to Panel |
+| **Go to Message Logs** | Ctrl+7 | View → Panels → Go to Panel |
+| **Layer Styling** | Ctrl+8 | View |
+| **Go to Section View** | Ctrl+9 | View → Panels → Go to Panel |
+| **Go to Features** | Ctrl+0 | View → Panels → Go to Panel |
 | **Style Manager** | — | Tools |
 | **Show Legend** | — | View |
 | **Show Welcome** | — | Help |

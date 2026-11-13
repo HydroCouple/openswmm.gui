@@ -65,7 +65,7 @@ ordinary junction or outfall.
 ### 2. See the street cross-section in the Section View
 
 Select conduit `ST_A` on the map and open the **Section View** dock
-(`Ctrl+Alt+9`, or **View → Panels → Section View**). With **Section**
+(`Ctrl+9`, or **View → Panels → Section View**). With **Section**
 pressed, the panel draws the street cross-section it was built from and the
 subtitle reads `STREET — ST_MAIN`. Set **V:H** to **5:1** or **10:1** to see
 the 4 % cross slope and the depressed gutter more clearly. The supplied

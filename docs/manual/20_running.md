@@ -25,9 +25,9 @@ results, make them the active results layer, offer them to the report viewer).
 
 Two docks carry the run:
 
-- **Simulation Status** — **View → Panels → Simulation Status** (`Ctrl+Alt+6`).
+- **Simulation Status** — **View → Panels → Simulation Status** (`Ctrl+6`).
   It is shown and raised automatically when a run starts.
-- **Message Logs** — **View → Panels → Message Logs** (`Ctrl+Alt+7`).
+- **Message Logs** — **View → Panels → Message Logs** (`Ctrl+7`).
 
 The status bar carries a progress bar while any run is in flight, and a
 permanent **Engine version** combo that selects which engine the next run uses.
