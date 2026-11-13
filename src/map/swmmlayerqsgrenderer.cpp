@@ -26,6 +26,7 @@
 #include "map/swmmlayerqsgrenderer.h"
 
 #include "core/preferencesmanager.h"
+#include "render/selectioncasing.h"
 #include "layers/swmmmodellayer.h"
 #include "render/markershape.h"
 #include "render/linkstroke.h"
@@ -985,6 +986,9 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
     QSGGeometryNode *gagesBase = nullptr;
     QSGGeometryNode *lines = nullptr, *linesSel = nullptr;
     QSGGeometryNode *nodesSel = nullptr, *gagesSel = nullptr;
+    // A-18 two-tone selection: a contrasting casing just under each selection overlay.
+    QSGGeometryNode *catchSelEdgeCasing = nullptr, *linesSelCasing = nullptr;
+    QSGGeometryNode *gagesSelCasing = nullptr;
 
     if (!root) {
         // Selection style — pens carry outline colour, brushes carry
@@ -1048,6 +1052,9 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         // FBO setup.
         nodesSel = makeColoredNode(QSGGeometry::DrawTriangles);
         gagesSel = makeFlatColorNode(QSGGeometry::DrawTriangles, selGage);
+        catchSelEdgeCasing = makeFlatColorNode(QSGGeometry::DrawTriangles, OpenSWMM::Render::selectionCasingColor(selPoly));
+        linesSelCasing = makeFlatColorNode(QSGGeometry::DrawTriangles, OpenSWMM::Render::selectionCasingColor(selLine));
+        gagesSelCasing = makeFlatColorNode(QSGGeometry::DrawTriangles, OpenSWMM::Render::selectionCasingColor(selGage));
         // QSG paints children in tree order: earlier siblings draw
         // first (back), later siblings draw on top (front). Layer
         // stacking (back → front):
@@ -1061,9 +1068,11 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         // nodes, which made conduits paint *over* junctions — a
         // standard GIS Z-order bug. The order below matches QGIS /
         // ArcMap conventions for point-over-line.
-        for (auto *n : {catchFill, catchSelFill, catchEdge, catchSelEdge, catchOutletLines,
-                        catchOutletLinesSel, lines, linesSel, junctionsBase, outfallsBase,
-                        storageBase, dividersBase, gagesBase, nodesSel, gagesSel})
+        // Each casing sits directly under the selection overlay it outlines.
+        for (auto *n : {catchFill, catchSelFill, catchEdge, catchSelEdgeCasing, catchSelEdge,
+                        catchOutletLines, catchOutletLinesSel, lines, linesSelCasing, linesSel,
+                        junctionsBase, outfallsBase, storageBase, dividersBase, gagesBase, nodesSel,
+                        gagesSelCasing, gagesSel})
             root->appendChildNode(n);
     } else {
         auto *c = root->firstChild();
@@ -1073,6 +1082,8 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         c = c->nextSibling();
         catchEdge = static_cast<QSGGeometryNode *>(c);
         c = c->nextSibling();
+        catchSelEdgeCasing = static_cast<QSGGeometryNode *>(c);
+        c = c->nextSibling();
         catchSelEdge = static_cast<QSGGeometryNode *>(c);
         c = c->nextSibling();
         catchOutletLines = static_cast<QSGGeometryNode *>(c);
@@ -1080,6 +1091,8 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         catchOutletLinesSel = static_cast<QSGGeometryNode *>(c);
         c = c->nextSibling();
         lines = static_cast<QSGGeometryNode *>(c);
+        c = c->nextSibling();
+        linesSelCasing = static_cast<QSGGeometryNode *>(c);
         c = c->nextSibling();
         linesSel = static_cast<QSGGeometryNode *>(c);
         c = c->nextSibling();
@@ -1094,6 +1107,8 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         gagesBase = static_cast<QSGGeometryNode *>(c);
         c = c->nextSibling();
         nodesSel = static_cast<QSGGeometryNode *>(c);
+        c = c->nextSibling();
+        gagesSelCasing = static_cast<QSGGeometryNode *>(c);
         c = c->nextSibling();
         gagesSel = static_cast<QSGGeometryNode *>(c);
     }
@@ -1190,6 +1205,9 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         // baked into each vertex at upload time, so no material-level
         // setColor is needed (and would crash trying to static_cast).
         setNodeColor(gagesSel, selGage);
+        setNodeColor(catchSelEdgeCasing, OpenSWMM::Render::selectionCasingColor(selPoly));
+        setNodeColor(linesSelCasing, OpenSWMM::Render::selectionCasingColor(selLine));
+        setNodeColor(gagesSelCasing, OpenSWMM::Render::selectionCasingColor(selGage));
 
         // ---- Subcatchments -------------------------------------------------
         // §QSG-1: only render kinds owned by the QSG scope; uploading
@@ -1216,8 +1234,9 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             // #33 Stage 1b — fillBase is vertex-coloured (per-subcatchment
             // override colour); selection fill + edges stay flat.
             std::vector<QSGGeometry::ColoredPoint2D> fillBase;
-            std::vector<QSGGeometry::Point2D> fillSel, edgeBase, edgeSelTris;
+            std::vector<QSGGeometry::Point2D> fillSel, edgeBase, edgeSelTris, edgeSelCasing;
             const float selEdgeHW = 1.5f * invView;
+            const float casingHW = OpenSWMM::Render::kSelectionCasingPx * invView;
             // Feedback C13 — half-width of the outline quads in scene units;
             // zero or negative width draws no outline, matching the CPU pen.
             const float edgeHW = 0.5f * float(m_layer->subcatchmentSymbol().outlineWidth) * invView;
@@ -1279,6 +1298,8 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                                 poly[ring.first + (j - ring.first + 1) % ring.count].x() - ox);
                             const float by = float(
                                 poly[ring.first + (j - ring.first + 1) % ring.count].y() - oy);
+                            appendThickSegment(edgeSelCasing, ax, ay, bx, by,
+                                               selEdgeHW + casingHW);
                             appendThickSegment(edgeSelTris, ax, ay, bx, by, selEdgeHW);
                         }
                 }
@@ -1286,6 +1307,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             uploadColoredVerts(catchFill, fillBase); // #33 Stage 1b — per-feature
             uploadVerts(catchSelFill, fillSel);
             uploadVerts(catchEdge, edgeBase);
+            uploadVerts(catchSelEdgeCasing, edgeSelCasing);
             uploadVerts(catchSelEdge, edgeSelTris);
 
             // Centroid→outlet connector lines (dashed). Built from the
@@ -1335,6 +1357,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             uploadColoredVerts(catchFill, {}); // #33 Stage 1b — colored node
             uploadVerts(catchSelFill, {});
             uploadVerts(catchEdge, {});
+            uploadVerts(catchSelEdgeCasing, {});
             uploadVerts(catchSelEdge, {});
             uploadVerts(catchOutletLines, {});
             uploadVerts(catchOutletLinesSel, {});
@@ -1393,6 +1416,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 (float(m_layer->conduitSymbol().size > 0.0 ? m_layer->conduitSymbol().size : 1.0) +
                  1.0f) *
                 invView;
+            const float casingHW = OpenSWMM::Render::kSelectionCasingPx * invView;
 
             // Per-kind flow-direction arrow config (GPU mirror of the CPU arrow
             // pass in SWMMLayerItem::paint). Styling comes from each kind's
@@ -1465,7 +1489,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             }
 
             std::vector<QSGGeometry::ColoredPoint2D> baseTri;
-            std::vector<QSGGeometry::Point2D> selTri;
+            std::vector<QSGGeometry::Point2D> selTri, selCasing;
             size_t baseSegs = 0, selSegs = 0;
             size_t baseLinks = 0, selLinks = 0;
             for (size_t i = 0; i < counts.size(); ++i) {
@@ -1533,13 +1557,20 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                     v.set(float(point.x()), float(point.y()), lR, lG, lB, lA);
                     baseTri.push_back(v);
                 });
-                if (sel)
+                if (sel) {
+                    OpenSWMM::Render::appendLinkStrokeTriangles(
+                        p, cnt, ox, oy, selHW + casingHW, [&](QPointF point) {
+                            QSGGeometry::Point2D v;
+                            v.set(float(point.x()), float(point.y()));
+                            selCasing.push_back(v);
+                        });
                     OpenSWMM::Render::appendLinkStrokeTriangles(
                         p, cnt, ox, oy, selHW, [&](QPointF point) {
                             QSGGeometry::Point2D v;
                             v.set(float(point.x()), float(point.y()));
                             selTri.push_back(v);
                         });
+                }
                 // Flow-direction arrowhead (collected separately, drawn last).
                 if (anyArrows && astyle[lt].on &&
                     !(astyle[lt].onlyFlowPos && m_layer->linkFlow(int(i)) <= 0.0))
@@ -1551,9 +1582,11 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             // CPU SWMMLayerItem draw order).
             baseTri.insert(baseTri.end(), arrowTri.begin(), arrowTri.end());
             uploadColoredVerts(lines, baseTri); // #33 Stage 1b — per-feature
+            uploadVerts(linesSelCasing, selCasing);
             uploadVerts(linesSel, selTri);
         } else {
             uploadColoredVerts(lines, {}); // #33 Stage 1b — colored node
+            uploadVerts(linesSelCasing, {});
             uploadVerts(linesSel, {});
         }
 
@@ -1734,8 +1767,11 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 if (size_t(i) < nSel.size() && nSel[i]) {
                     const QPen selection =
                         PreferencesManager::instance()->selectionPen(QStringLiteral("node"));
-                    outline = selection.color();
-                    outlineWidth = float(selection.widthF());
+                    // A-18: ring the selected glyph in the casing tone, unless the user chose
+                    // an outline colour of their own (one that differs from the selection fill).
+                    const QColor fill = selBrushColor("node");
+                    outline = selection.color() == fill ? OpenSWMM::Render::selectionCasingColor(fill) : selection.color();
+                    outlineWidth = std::max(float(selection.widthF()), 1.5f);
                 } else {
                     outline.setAlphaF(outline.alphaF() * m_layer->categoryOpacity(cat));
                 }
@@ -1781,7 +1817,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             const QColor gFill = m_layer->rainGageSymbol().fillColor;
             const qreal gKop = m_layer->categoryOpacity(SWMMModelLayer::CatRainGages);
             std::vector<QSGGeometry::ColoredPoint2D> base;
-            std::vector<QSGGeometry::Point2D> sel;
+            std::vector<QSGGeometry::Point2D> sel, selCasing;
             {
                 const auto &gps = m_layer->m_gageScenePts;
                 const auto &gages = m_layer->m_gages;
@@ -1824,14 +1860,20 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                                                        invView,
                                                    gShape, outline);
                     }
-                    if (size_t(i) < gSel.size() && gSel[i])
+                    if (size_t(i) < gSel.size() && gSel[i]) {
+                        appendGageTriangles(
+                            selCasing, fx, fy,
+                            r + 1.5f * OpenSWMM::Render::kSelectionCasingPx * invView, gShape);
                         appendGageTriangles(sel, fx, fy, r, gShape); // §QSG-3 — same size as base
+                    }
                 }
             }
             uploadColoredVerts(gagesBase, base);
+            uploadVerts(gagesSelCasing, selCasing);
             uploadVerts(gagesSel, sel);
         } else {
             uploadColoredVerts(gagesBase, {});
+            uploadVerts(gagesSelCasing, {});
             uploadVerts(gagesSel, {});
         }
 
@@ -1847,6 +1889,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         // buffers (fills, edges, base glyphs, base lines) are untouched.
         const float selEdgeHW = 1.5f * invView;
         const float selHW = 2.0f * invView;
+        const float casingHW = OpenSWMM::Render::kSelectionCasingPx * invView;
         // Selection style — pens carry outline colour, brushes carry
         // fill colour (incl. alpha). selPoly is the polygon outline;
         // selPolyFill, selNode, selGage are fills. selLine is the link
@@ -1864,7 +1907,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             const auto &cBboxes = m_layer->m_catchSceneBBoxes;
             const auto &cHid = m_layer->m_catchHiddenFlag;
             const auto &cSel = m_layer->m_catchSelectedFlag;
-            std::vector<QSGGeometry::Point2D> fillSel, edgeSelTris;
+            std::vector<QSGGeometry::Point2D> fillSel, edgeSelTris, edgeSelCasing;
             for (int i = 0; i < cps.size(); ++i) {
                 if (size_t(i) < cSel.size() && !cSel[i])
                     continue;
@@ -1893,12 +1936,15 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                             float(poly[ring.first + (j - ring.first + 1) % ring.count].x() - ox);
                         const float by =
                             float(poly[ring.first + (j - ring.first + 1) % ring.count].y() - oy);
+                        appendThickSegment(edgeSelCasing, ax, ay, bx, by, selEdgeHW + casingHW);
                         appendThickSegment(edgeSelTris, ax, ay, bx, by, selEdgeHW);
                     }
             }
             setNodeColor(catchSelFill, selPolyFill);
             setNodeColor(catchSelEdge, selPoly);
+            setNodeColor(catchSelEdgeCasing, OpenSWMM::Render::selectionCasingColor(selPoly));
             uploadVerts(catchSelFill, fillSel);
+            uploadVerts(catchSelEdgeCasing, edgeSelCasing);
             uploadVerts(catchSelEdge, edgeSelTris);
         }
 
@@ -1910,7 +1956,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             const auto &lSel = m_layer->m_linkSelectedFlag;
             const auto &lHid = m_layer->m_linkHiddenFlag;
             const QVector<QRectF> &lBboxes = m_layer->m_linkSceneBBoxes;
-            std::vector<QSGGeometry::Point2D> selTri;
+            std::vector<QSGGeometry::Point2D> selTri, selCasing;
             for (size_t i = 0; i < counts.size(); ++i) {
                 if (i >= lSel.size() || !lSel[i])
                     continue;
@@ -1927,13 +1973,21 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 const double *p = flat.data() + size_t(offsets[i]) * 2;
                 const uint32_t cnt = counts[i];
                 OpenSWMM::Render::appendLinkStrokeTriangles(
+                    p, cnt, ox, oy, selHW + casingHW, [&](QPointF point) {
+                        QSGGeometry::Point2D v;
+                        v.set(float(point.x()), float(point.y()));
+                        selCasing.push_back(v);
+                    });
+                OpenSWMM::Render::appendLinkStrokeTriangles(
                     p, cnt, ox, oy, selHW, [&](QPointF point) {
                         QSGGeometry::Point2D v;
                         v.set(float(point.x()), float(point.y()));
                         selTri.push_back(v);
                     });
             }
+            setNodeColor(linesSelCasing, OpenSWMM::Render::selectionCasingColor(selLine));
             setNodeColor(linesSel, selLine);
+            uploadVerts(linesSelCasing, selCasing);
             uploadVerts(linesSel, selTri);
         }
 
@@ -1948,6 +2002,10 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             const uchar selG = uchar(selNode.green());
             const uchar selB = uchar(selNode.blue());
             const uchar selA = uchar(selNode.alpha());
+            // A-18: the same casing ring as the full rebuild draws on selected glyphs.
+            const QPen nodePen = PreferencesManager::instance()->selectionPen(QStringLiteral("node"));
+            const QColor nodeRing = nodePen.color() == selNode ? OpenSWMM::Render::selectionCasingColor(selNode) : nodePen.color();
+            const float nodeRingW = std::max(float(nodePen.widthF()), 1.5f) * invView;
             for (int i = 0; i < nodes.size(); ++i) {
                 if (size_t(i) >= nSel.size() || !nSel[i])
                     continue;
@@ -1977,6 +2035,8 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 appendNodeGlyphTrianglesColored(sel, float(p.x() - ox), float(p.y() - oy),
                                                 pxR * invView, shape, premul(selR, selA),
                                                 premul(selG, selA), premul(selB, selA), selA);
+                appendMarkerOutlineColored(sel, float(p.x() - ox), float(p.y() - oy), pxR * invView,
+                                           nodeRingW, shape, nodeRing);
             }
             uploadColoredVerts(nodesSel, sel);
         }
@@ -1990,7 +2050,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             // §QSG-3 — same size as base.
             const float r = float(m_layer->rainGageSymbol().size) * 0.5f * invView;
             const auto gShape = m_layer->rainGageSymbol().markerShape;
-            std::vector<QSGGeometry::Point2D> sel;
+            std::vector<QSGGeometry::Point2D> sel, selCasing;
             for (int i = 0; i < gages.size(); ++i) {
                 if (size_t(i) >= gSel.size() || !gSel[i])
                     continue;
@@ -2001,9 +2061,13 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 const QPointF &p = gps[i];
                 if (p.x() < cullX0 || p.x() > cullX1 || p.y() < cullY0 || p.y() > cullY1)
                     continue;
+                appendGageTriangles(selCasing, float(p.x() - ox), float(p.y() - oy),
+                                    r + 1.5f * casingHW, gShape);
                 appendGageTriangles(sel, float(p.x() - ox), float(p.y() - oy), r, gShape);
             }
+            setNodeColor(gagesSelCasing, OpenSWMM::Render::selectionCasingColor(selGage));
             setNodeColor(gagesSel, selGage);
+            uploadVerts(gagesSelCasing, selCasing);
             uploadVerts(gagesSel, sel);
         }
 
