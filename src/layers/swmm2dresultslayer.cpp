@@ -457,6 +457,29 @@ public:
                         c.setAlphaF(c.alphaF() * alphaScalar);
                         return c;
                     };
+                    // The scheme's below / above colours: outer bands from the dry depth to the
+                    // first level and from the last level to the run's maximum (QSG parity).
+                    QColor belowCol = bs ? bs->scheme().belowColor() : QColor();
+                    QColor aboveCol = bs ? bs->scheme().aboveColor() : QColor();
+                    const bool outerBelow = belowCol.isValid() && dryDepth < levels.front();
+                    const bool outerAbove = aboveCol.isValid() && maxDepth > levels.back();
+                    if (outerBelow)
+                        belowCol.setAlphaF(belowCol.alphaF() * alphaScalar);
+                    if (outerAbove)
+                        aboveCol.setAlphaF(aboveCol.alphaF() * alphaScalar);
+                    std::vector<double> marchLevels = levels;
+                    if (outerBelow)
+                        marchLevels.insert(marchLevels.begin(), dryDepth);
+                    if (outerAbove)
+                        marchLevels.push_back(maxDepth);
+                    const int marchBands = int(marchLevels.size()) - 1;
+                    auto marchColor = [&](int band) -> QColor {
+                        if (outerBelow && band == 0)
+                            return belowCol;
+                        if (outerAbove && band == marchBands - 1)
+                            return aboveCol;
+                        return bandColor(std::clamp(band - (outerBelow ? 1 : 0), 0, nBands - 1));
+                    };
                     p->setPen(Qt::NoPen);
 
                     if (!bs || bs->smoothBands()) {
@@ -474,11 +497,11 @@ public:
                             v2 = double(t.dv2);
                         };
                         const auto bands =
-                            marchingTrianglesIsobands(tris, levels, extract, dryDepth);
+                            marchingTrianglesIsobands(tris, marchLevels, extract, dryDepth);
                         for (const auto &bp : bands) {
                             if (bp.verts.size() < 3)
                                 continue;
-                            p->setBrush(bandColor(bp.bandIndex));
+                            p->setBrush(marchColor(bp.bandIndex));
                             // Fan-triangulate the convex polygon by drawing it
                             // directly — QPainter handles convex polys efficiently.
                             p->drawConvexPolygon(bp.verts.data(), int(bp.verts.size()));
@@ -488,7 +511,8 @@ public:
                         // the whole triangle with the band colour (the per-cell
                         // "stepped" look raster GIS users expect).
                         for (const auto &t : tris) {
-                            if (!std::isfinite(t.depth) || t.depth < levels.front())
+                            if (!std::isfinite(t.depth) ||
+                                (t.depth < levels.front() && !outerBelow))
                                 continue;
                             const auto wet = CellWaterGeometry::clipTriangle(
                                 t.a, t.b, t.c, t.dv0, t.dv1, t.dv2, dryDepth);
@@ -506,7 +530,9 @@ public:
                                 int(std::upper_bound(levels.begin() + 1, levels.end() - 1,
                                                      double(t.depth)) -
                                     (levels.begin() + 1));
-                            p->setBrush(bandColor(idx));
+                            p->setBrush(t.depth < levels.front()              ? belowCol
+                                        : outerAbove && t.depth > levels.back() ? aboveCol
+                                                                                : bandColor(idx));
                             QPointF pts[4];
                             for (int k = 0; k < wet.size; ++k)
                                 pts[k] = wet.vertices[k].point;
@@ -720,6 +746,16 @@ public:
                 pen.setWidthF(w);
                 if (es)
                     pen.setStyle(es->dashPattern());
+                // Slope emphasis (as on the mesh layer): edges steeper than the slope break,
+                // as a fraction of the steepest edge, take the wide width and colour.
+                const float maxSlope = layer_->m_maxEdgeSlope;
+                const bool slopeOn = es && es->useSlopeDrivenWidth() && maxSlope > 0.f;
+                const float splitSlope = slopeOn ? float(es->slopeBreak()) * maxSlope : 0.f;
+                QPen widePen(pen);
+                if (slopeOn) {
+                    widePen.setColor(es->wideColor());
+                    widePen.setWidthF(std::max(0.1, es->wideWidthPx()));
+                }
                 p->save();
                 p->setOpacity(p->opacity() * subOp);
                 p->setPen(pen);
@@ -732,6 +768,8 @@ public:
                     if (!exposed.isNull() && (maxX < exposed.left() || minX > exposed.right() ||
                                               maxY < exposed.top() || minY > exposed.bottom()))
                         continue;
+                    if (slopeOn)
+                        p->setPen(e.slope > splitSlope ? widePen : pen);
                     p->drawLine(e.a, e.b);
                 }
                 p->restore();
@@ -806,7 +844,12 @@ public:
             p->setPen(Qt::NoPen);
             p->setOpacity(p->opacity() * sub->opacity());
             for (const auto &t : tris) {
-                if (!std::isfinite(t.depth) || t.depth < lo)
+                // The scheme's log scale and below / above colours apply; below the range is
+                // drawn only with a below colour.
+                const QColor fill = !std::isfinite(t.depth) ? QColor(Qt::transparent)
+                                    : style->classified() ? colors.classifiedColor(t.depth, levels)
+                                                          : colors.valueColor(t.depth);
+                if (fill.alpha() == 0)
                     continue;
                 const auto wet =
                     CellWaterGeometry::clipTriangle(t.a, t.b, t.c, t.dv0, t.dv1, t.dv2, dryDepth);
@@ -817,15 +860,7 @@ public:
                     polygon.append(wet.vertices[i].point);
                 if (!exposed.isNull() && !polygon.boundingRect().intersects(exposed))
                     continue;
-                const int index =
-                    levels.size() >= 2
-                        ? std::clamp(int(std::upper_bound(levels.cbegin() + 1, levels.cend() - 1,
-                                                          t.depth) -
-                                         (levels.cbegin() + 1)),
-                                     0, bands - 1)
-                        : 0;
-                p->setBrush(style->classified() ? colors.classColor(index)
-                                                : colors.valueColor(t.depth));
+                p->setBrush(fill);
                 p->drawConvexPolygon(polygon);
             }
             p->restore();
@@ -860,14 +895,9 @@ public:
             const OpenSWMM::Render::ClassificationColorSampler colors(
                 style->scheme(), lo, hi, style->classified() ? bands : 0);
             const auto colorAt = [&](double value) {
-                const int index = levels.size() >= 2
-                                      ? std::clamp(int(std::upper_bound(levels.cbegin() + 1,
-                                                                        levels.cend() - 1, value) -
-                                                       (levels.cbegin() + 1)),
-                                                   0, bands - 1)
-                                      : 0;
-                QColor color =
-                    style->classified() ? colors.classColor(index) : colors.valueColor(value);
+                // The scheme's log scale and below / above colours apply.
+                QColor color = style->classified() ? colors.classifiedColor(value, levels)
+                                                   : colors.valueColor(value);
                 color.setAlphaF(color.alphaF() * sub->opacity());
                 return qPremultiply(color.rgba());
             };
@@ -877,13 +907,28 @@ public:
                 buffer->reserve(6);
             for (auto *buffer : {&values, &clippedValues, &partValues})
                 buffer->reserve(6);
+            // Where the ramp starts (the log floor under a log scale); below it the scheme's
+            // below colour when set, otherwise nothing.
+            const double lowCut = colors.lowerBound();
             const auto emitPolygon = [&](const auto &pts, const auto &vals) {
                 for (size_t k = 1; k + 1 < pts.size(); ++k) {
                     std::array<OpenSWMM::Render::SmoothFillRaster::Vertex, 3> vertices;
                     int n = 0;
                     for (size_t j : {size_t(0), k, k + 1})
                         vertices[n++] = {transform.map(pts[j]) - bounds.topLeft(),
-                                         colorAt(std::max(vals[j], lo))};
+                                         colorAt(std::max(vals[j], lowCut))};
+                    OpenSWMM::Render::SmoothFillRaster::triangle(image, vertices);
+                }
+            };
+            const auto emitBelow = [&](const auto &pts) {
+                QColor below = colors.belowColor();
+                below.setAlphaF(below.alphaF() * sub->opacity());
+                const QRgb rgb = qPremultiply(below.rgba());
+                for (size_t k = 1; k + 1 < pts.size(); ++k) {
+                    std::array<OpenSWMM::Render::SmoothFillRaster::Vertex, 3> vertices;
+                    int n = 0;
+                    for (size_t j : {size_t(0), k, k + 1})
+                        vertices[n++] = {transform.map(pts[j]) - bounds.topLeft(), rgb};
                     OpenSWMM::Render::SmoothFillRaster::triangle(image, vertices);
                 }
             };
@@ -899,7 +944,12 @@ public:
                     points.push_back(wet.vertices[j].point);
                     values.push_back(wet.vertices[j].depth);
                 }
-                OpenSWMM::Contour::detail::clipHalfplane(points, values, lo, true, clipped,
+                if (colors.belowColor().isValid()) {
+                    OpenSWMM::Contour::detail::clipHalfplane(points, values, lowCut, false, part,
+                                                             partValues);
+                    emitBelow(part);
+                }
+                OpenSWMM::Contour::detail::clipHalfplane(points, values, lowCut, true, clipped,
                                                          clippedValues);
                 if (clipped.empty())
                     continue;
@@ -3587,6 +3637,7 @@ void SWMM2DResultsLayer::closeSource()
     }
     scene_velocity_zero_ = false;
     m_sceneEdges.clear(); // Issue 3 — drop the wireframe with the source
+    m_maxEdgeSlope = 0.0f;
     vvx_.clear();         // V1 — drop the per-vertex velocity field
     vvy_.clear();
     velocity_scratch_ = {};
@@ -4741,6 +4792,7 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     vvy_.clear();
     velocity_scratch_ = {};
     m_sceneEdges.clear();
+    m_maxEdgeSlope = 0.0f;
     m_sceneVerts.clear();
     m_sceneBBox = QRectF();
 
@@ -4995,6 +5047,7 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
             e.a = scenePts[a];
             e.b = scenePts[b];
             e.slope = (dist > 1e-9) ? float(dz / dist) : 0.0f;
+            m_maxEdgeSlope = std::max(m_maxEdgeSlope, e.slope);
             m_sceneEdges.append(e);
         };
         // Walk the CELL boundary (true quad outline — the VFR diagonal is a
@@ -5731,7 +5784,7 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
     auto *self = const_cast<SWMM2DResultsLayer *>(this);
     m_ruleList = std::make_unique<RuleList>(self);
 
-    // Seven seed Rules covering the result-layer decoration set. Parallel to
+    // Six seed Rules covering the result-layer decoration set. Parallel to
     // SWMM2DMeshLayer's Rule List (Slice B.5b/Z.6a). The propagation
     // handlers below translate dialog edits on each Rule back to the
     // matching legacy sublayer style fields, which the existing paint
@@ -5742,8 +5795,8 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
         SymbolLayer (*build)();
     };
     const Seed seeds[] = {
+        // No Hillshade rule: the results renderers draw no terrain (the mesh layer does).
         {"Depth color ramp", [] { return RasterColorRampSymbolLayerSpec{}.toSymbolLayer(); }},
-        {"Hillshade", [] { return HillshadeSymbolLayerSpec{}.toSymbolLayer(); }},
         {"Contour bands",
          [] {
              ContourSymbolLayerSpec s;
@@ -5758,7 +5811,7 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
          }},
         {"Mesh edges", [] { return MeshEdgeSymbolLayerSpec{}.toSymbolLayer(); }},
         {"Mesh nodes", [] { return MeshNodeSymbolLayerSpec{}.toSymbolLayer(); }},
-        // Slice AN.3 — 7th seed rule: the velocity row's arrows (below).
+        // Slice AN.3 — the velocity row's arrows (below).
         {"Velocity vectors", [] { return VelocityVectorSymbolLayerSpec{}.toSymbolLayer(); }},
     };
 
@@ -5790,6 +5843,7 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
                                                         Writer write) {
         auto b = std::make_shared<RuleStyleBinding>();
         b->rule = ruleHandles[index];
+        b->name = ruleHandles[index]->name();
         b->kind = kind;
         b->defaults = seeds[index].build;
         b->read = std::move(read);
@@ -5805,6 +5859,13 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
         QObject::connect(ruleHandles[index], &Rule::rendererReplaced, self,
                          [b] { applyRuleEdit(*b); });
         m_ruleBindings.append(b);
+        return b;
+    };
+    // The dock's colour pickers mean "none" by a fully transparent colour.
+    const auto optionalColor = [](const QColor &c) { return c.isValid() ? c : QColor(0, 0, 0, 0); };
+    const auto fromOptional = [](const QVariant &v) {
+        const QColor c = v.value<QColor>();
+        return c.isValid() && c.alpha() > 0 ? c : QColor();
     };
 
     // ── Depth color ramp: the depth fill being drawn (smooth or flat) ───
@@ -5824,20 +5885,34 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
         return self->m_cellDepthFillSublayer ? self->m_cellDepthFillSublayer->fillStyle() : nullptr;
     };
     bind(0, SymbolLayerKind::RasterColorRamp, depthFill,
-         [depthFillStyle] {
+         [depthFillStyle, optionalColor] {
              const auto *st = depthFillStyle();
              if (!st)
                  return Props{};
+             const auto &sc = st->scheme();
              return Props{{QStringLiteral("lowColor"), st->lowColor()},
                           {QStringLiteral("highColor"), st->highColor()},
                           {QStringLiteral("minValue"), st->rangeMin()},
-                          {QStringLiteral("maxValue"), st->rangeMax()}};
+                          {QStringLiteral("maxValue"), st->rangeMax()},
+                          {QStringLiteral("useLogScale"), sc.logScale()},
+                          {QStringLiteral("belowMinColor"), optionalColor(sc.belowColor())},
+                          {QStringLiteral("aboveMaxColor"), optionalColor(sc.aboveColor())}};
          },
-         [depthFillStyle](const QString &key, const QVariant &v) {
+         [depthFillStyle, fromOptional](const QString &key, const QVariant &v) {
              auto *st = depthFillStyle();
              if (!st)
                  return;
-             if (key == QLatin1String("lowColor") || key == QLatin1String("highColor")) {
+             if (key == QLatin1String("useLogScale") || key == QLatin1String("belowMinColor") ||
+                 key == QLatin1String("aboveMaxColor")) {
+                 auto sc = st->scheme();
+                 if (key == QLatin1String("useLogScale"))
+                     sc.setLogScale(v.toBool());
+                 else if (key == QLatin1String("belowMinColor"))
+                     sc.setBelowColor(fromOptional(v));
+                 else
+                     sc.setAboveColor(fromOptional(v));
+                 st->setScheme(sc);
+             } else if (key == QLatin1String("lowColor") || key == QLatin1String("highColor")) {
                  // Picked colours replace a named ramp: the two-colour gradient.
                  st->setColorRampName(QString());
                  key == QLatin1String("lowColor") ? st->setLowColor(v.value<QColor>())
@@ -5847,57 +5922,44 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
                  key == QLatin1String("minValue") ? st->setRangeMin(v.toDouble())
                                                   : st->setRangeMax(v.toDouble());
              }
-         });
-
-    // ── Hillshade: carried terrain style (the results renderers draw no
-    //    terrain; it round-trips with the project) ──────────────────────
-    bind(1, SymbolLayerKind::Hillshade, [self]() -> ISublayer * { return self->m_meshFillSublayer; },
-         [self] {
-             const auto *st = self->m_meshFillSublayer->fillStyle();
-             return Props{{QStringLiteral("fillColor"), st->fillColor()},
-                          {QStringLiteral("hillshadeStrength"), st->hillshadeStrength()},
-                          {QStringLiteral("strength"), st->hillshadeStrength()},
-                          {QStringLiteral("useElevationRamp"), st->useElevationRamp()}};
-         },
-         [self](const QString &key, const QVariant &v) {
-             auto *st = self->m_meshFillSublayer->fillStyle();
-             if (key == QLatin1String("fillColor"))
-                 st->setFillColor(v.value<QColor>());
-             else if (key == QLatin1String("hillshadeStrength") || key == QLatin1String("strength"))
-                 st->setHillshadeStrength(v.toDouble());
-             else if (key == QLatin1String("useElevationRamp"))
-                 st->setUseElevationRamp(v.toBool());
-         });
+         })
+        ->ignored = {{QStringLiteral("attribute"), tr("This fill always shows water depth.")}};
 
     // ── Contour bands and lines: the depth row's passes ─────────────────
-    bind(2, SymbolLayerKind::Contour,
+    bind(1, SymbolLayerKind::Contour,
          [self]() -> ISublayer * { return self->m_contourBandSublayer; },
          [self] { return contourBandProps(*self->m_contourBandSublayer->bandStyle()); },
          [self](const QString &key, const QVariant &v) {
              writeContourBandProp(self->m_contourBandSublayer->bandStyle(), key, v);
-         });
-    bind(3, SymbolLayerKind::Contour, [self]() -> ISublayer * { return self->m_isolineSublayer; },
+         })
+        ->ignored = {{QStringLiteral("attribute"), tr("The bands contour water depth.")}};
+    bind(2, SymbolLayerKind::Contour, [self]() -> ISublayer * { return self->m_isolineSublayer; },
          [self] { return isolineProps(*self->m_isolineSublayer->isolineStyle()); },
          [self](const QString &key, const QVariant &v) {
              writeIsolineProp(self->m_isolineSublayer->isolineStyle(), key, v);
-         });
+         })
+        ->ignored = {{QStringLiteral("attribute"), tr("The contour lines follow water depth.")}};
 
-    // ── Mesh edges: colour, width and stroke (the results renderers draw
-    //    no slope-driven widths; those keys are not written) ────────────
-    bind(4, SymbolLayerKind::MeshEdge, [self]() -> ISublayer * { return self->m_meshEdgeSublayer; },
+    // ── Mesh edges (slope emphasis included) ────────────────────────────
+    bind(3, SymbolLayerKind::MeshEdge, [self]() -> ISublayer * { return self->m_meshEdgeSublayer; },
          [self] { return meshEdgeProps(*self->m_meshEdgeSublayer->edgeStyle()); },
          [self](const QString &key, const QVariant &v) {
-             if (key == QLatin1String("color") || key == QLatin1String("width") ||
-                 key == QLatin1String("penStyle"))
-                 writeMeshEdgeProp(self->m_meshEdgeSublayer->edgeStyle(), key, v);
+             writeMeshEdgeProp(self->m_meshEdgeSublayer->edgeStyle(), key, v);
          });
 
     // ── Mesh nodes ──────────────────────────────────────────────────────
-    bind(5, SymbolLayerKind::MeshNode, [self]() -> ISublayer * { return self->m_meshNodeSublayer; },
+    bind(4, SymbolLayerKind::MeshNode, [self]() -> ISublayer * { return self->m_meshNodeSublayer; },
          [self] { return meshNodeProps(*self->m_meshNodeSublayer->nodeStyle()); },
          [self](const QString &key, const QVariant &v) {
              writeMeshNodeProp(self->m_meshNodeSublayer->nodeStyle(), key, v);
          });
+    {
+        const QString why = tr("Results carry no coupled vertices; the mesh layer's Coupled "
+                               "Vertices row draws them.");
+        m_ruleBindings.last()->ignored = {{QStringLiteral("highlightTagged"), why},
+                                          {QStringLiteral("taggedColor"), why},
+                                          {QStringLiteral("taggedSizePx"), why}};
+    }
 
     // ── Velocity vectors: the velocity row's arrows (its ResultVectorStyle).
     //    A picked colour means one colour for every arrow, and a picked
@@ -5906,7 +5968,7 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
         auto *row = self->velocityResultSublayer();
         return row ? row->vectorStyle() : nullptr;
     };
-    bind(6, SymbolLayerKind::VectorGlyph,
+    bind(5, SymbolLayerKind::VectorGlyph,
          [self]() -> ISublayer * { return self->velocityResultSublayer(); },
          [velocityStyle] {
              const auto *st = velocityStyle();
@@ -5941,6 +6003,11 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
              else if (key == QLatin1String("dryDepthCutoff"))
                  st->setDryDepthCutoff(v.toDouble());
          });
+
+    // Style Manager → Apply replaces every rule: bind the loaded ones by name.
+    QObject::connect(m_ruleList.get(), &RuleList::ruleListChanged, self, [self] {
+        rebindRuleBindings(self->m_ruleList.get(), self->m_ruleBindings, self);
+    });
 }
 
 std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>

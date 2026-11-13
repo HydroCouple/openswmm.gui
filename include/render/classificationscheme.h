@@ -154,6 +154,32 @@ public:
      * @param c Color to copy; invalid colors are accepted without validation. */
     void setHighColor(const QColor &c);
 
+    // ── Log scale and values outside the range ─────────────────────────
+    /** @return True when the continuous ramp and equal-interval classes are spaced
+     *  logarithmically from logFloor(); data-driven class methods are unaffected. Off by default. */
+    [[nodiscard]] bool logScale() const { return m_logScale; }
+    /** @brief Change logarithmic spacing and restamp on change. */
+    void setLogScale(bool on);
+    /** @return Colour of values below the range (log: below logFloor()); invalid = not drawn. */
+    [[nodiscard]] QColor belowColor() const { return m_belowColor; }
+    /** @brief Change the below-range colour (invalid = not drawn) and restamp on change. */
+    void setBelowColor(const QColor &c);
+    /** @return Colour of values above the range; invalid = the top colour (clamped). */
+    [[nodiscard]] QColor aboveColor() const { return m_aboveColor; }
+    /** @brief Change the above-range colour (invalid = top colour) and restamp on change. */
+    void setAboveColor(const QColor &c);
+    /** @brief Where a log scale over [lo, hi] starts: lo when positive, else hi / 1000 (three
+     *  decades); NaN when hi is not positive (the scale is then linear).
+     * @param lo,hi Effective range bounds. */
+    [[nodiscard]] static double logFloor(double lo, double hi);
+    /** @brief Normalised ramp position of \p value over [lo, hi]: linear, or logarithmic from
+     *  logFloor() under logScale(). Unclamped: below the range is < 0, above it > 1. */
+    [[nodiscard]] double rampPosition(double value, double lo, double hi) const;
+    /** @brief Colour of a value classified by \p edges (from levelEdges()): below the first edge
+     *  belowColor() (or transparent), above the last aboveColor() (or the last class), else its
+     *  class colour. Nonfinite values are transparent. */
+    [[nodiscard]] QColor colorForClassified(double value, const QVector<double> &edges) const;
+
     /*! User-authored (custom) ramp payload. `builtin(name)` only knows the
      *  built-in catalogue and silently degrades unknown names to grayscale,
      *  so custom ramps must travel WITH the scheme: the editor stores the
@@ -350,7 +376,9 @@ public:
      * @param dataMax Automatic finite upper bound in the same units, ignored for custom bounds.
      * @return Sampled color, clamped at the high end; a nonincreasing range samples
      * normalized position zero for visible values. Does not call validationError();
-     * callers must supply finite effective bounds. Class overrides and mode() are ignored. */
+     * callers must supply finite effective bounds. Class overrides and mode() are ignored.
+     * Under logScale() the position is logarithmic; belowColor() / aboveColor(), when set,
+     * colour values outside the range. */
     [[nodiscard]] QColor colorForValue(double value, double dataMin, double dataMax) const;
 
     /*!
@@ -410,6 +438,9 @@ private:
     RasterColorRamp m_customRamp; // valid only when m_hasCustomRamp
     bool m_hasCustomRamp = false;
     bool m_invertRamp = false;
+    bool m_logScale = false;
+    QColor m_belowColor; // invalid: below-range values are not drawn
+    QColor m_aboveColor; // invalid: above-range values take the top colour
     QColor m_lowColor = QColor(Qt::white);
     QColor m_highColor = QColor(Qt::black);
     bool m_useCustomRange = false;

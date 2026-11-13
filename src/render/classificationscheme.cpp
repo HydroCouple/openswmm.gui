@@ -17,6 +17,7 @@
 #include <algorithm>
 #include <atomic>
 #include <cmath>
+#include <limits>
 
 namespace OpenSWMM::Render
 {
@@ -154,6 +155,64 @@ void ClassificationScheme::setInvertRamp(bool on)
         return;
     m_invertRamp = on;
     bump();
+}
+
+void ClassificationScheme::setLogScale(bool on)
+{
+    if (m_logScale == on)
+        return;
+    m_logScale = on;
+    bump();
+}
+
+void ClassificationScheme::setBelowColor(const QColor &c)
+{
+    if (m_belowColor == c)
+        return;
+    m_belowColor = c;
+    bump();
+}
+
+void ClassificationScheme::setAboveColor(const QColor &c)
+{
+    if (m_aboveColor == c)
+        return;
+    m_aboveColor = c;
+    bump();
+}
+
+double ClassificationScheme::logFloor(double lo, double hi)
+{
+    if (lo > 0.0)
+        return lo;
+    return hi > 0.0 ? hi / 1000.0 : std::numeric_limits<double>::quiet_NaN();
+}
+
+double ClassificationScheme::rampPosition(double value, double lo, double hi) const
+{
+    if (m_logScale) {
+        const double floor = logFloor(lo, hi);
+        if (std::isfinite(floor) && hi > floor) {
+            if (!(value > 0.0))
+                return -1.0; // at or below zero: below a log scale
+            return std::log(value / floor) / std::log(hi / floor);
+        }
+    }
+    return hi > lo ? (value - lo) / (hi - lo) : 0.0;
+}
+
+QColor ClassificationScheme::colorForClassified(double value, const QVector<double> &edges) const
+{
+    if (!std::isfinite(value))
+        return QColor(Qt::transparent);
+    const int n = edges.size() >= 2 ? int(edges.size()) - 1 : 1;
+    if (edges.size() >= 2) {
+        if (value < edges.front())
+            return m_belowColor.isValid() ? m_belowColor : QColor(Qt::transparent);
+        if (value > edges.back() && m_aboveColor.isValid())
+            return m_aboveColor;
+    }
+    return colorForClass(classIndexFor(value, edges), n);
 }
 
 void ClassificationScheme::setLowColor(const QColor &c)
@@ -334,6 +393,19 @@ QVector<double> ClassificationScheme::levelEdges(double dataMin, double dataMax,
     QVector<double> edges;
 
     auto equallySpaced = [&]() {
+        // Under logScale(): equal ratios from the log floor (geometric edges).
+        if (m_logScale) {
+            const double floor = logFloor(lo, hi);
+            if (std::isfinite(floor) && hi > floor) {
+                QVector<double> out;
+                out.reserve(n + 1);
+                for (int i = 0; i <= n; ++i)
+                    out.append(floor * std::pow(hi / floor, double(i) / double(n)));
+                out.front() = floor;
+                out.back() = hi;
+                return out;
+            }
+        }
         // Mirrors Contour::evenlySpacedLevelsInclusive so default-styled
         // output is bit-identical to the pre-scheme renderers.
         QVector<double> out;
@@ -449,11 +521,16 @@ QColor ClassificationScheme::colorForClass(int classIndex, int count) const
 QColor ClassificationScheme::colorForValue(double value, double dataMin, double dataMax) const
 {
     const auto [lo, hi] = effectiveRange(dataMin, dataMax);
-    if (!std::isfinite(value) || value < lo)
+    if (!std::isfinite(value))
         return QColor(Qt::transparent);
+    const double f = rampPosition(value, lo, hi);
+    if (value < lo || f < 0.0)
+        return m_belowColor.isValid() ? m_belowColor : QColor(Qt::transparent);
+    if (value > hi && m_aboveColor.isValid())
+        return m_aboveColor;
     if (!(hi > lo))
         return colorAtF(0.0);
-    return colorAtF((value - lo) / (hi - lo));
+    return colorAtF(f);
 }
 
 QList<LegendSymbolItem> ClassificationScheme::legendItems(double dataMin, double dataMax,
@@ -501,6 +578,13 @@ QJsonObject ClassificationScheme::toJson() const
     if (m_hasCustomRamp)
         obj.insert(QStringLiteral("customRamp"), m_customRamp.toJson());
     obj.insert(QStringLiteral("invertRamp"), m_invertRamp);
+    // Written only when set, so files without them read and diff as before.
+    if (m_logScale)
+        obj.insert(QStringLiteral("logScale"), true);
+    if (m_belowColor.isValid())
+        obj.insert(QStringLiteral("belowColor"), m_belowColor.name(QColor::HexArgb));
+    if (m_aboveColor.isValid())
+        obj.insert(QStringLiteral("aboveColor"), m_aboveColor.name(QColor::HexArgb));
     obj.insert(QStringLiteral("lowColor"), m_lowColor.name(QColor::HexArgb));
     obj.insert(QStringLiteral("highColor"), m_highColor.name(QColor::HexArgb));
     obj.insert(QStringLiteral("useCustomRange"), m_useCustomRange);
@@ -551,6 +635,9 @@ ClassificationScheme ClassificationScheme::fromJson(const QJsonObject &j)
     };
     readColor("lowColor", s.m_lowColor);
     readColor("highColor", s.m_highColor);
+    s.m_logScale = j.value(QStringLiteral("logScale")).toBool(false);
+    readColor("belowColor", s.m_belowColor);
+    readColor("aboveColor", s.m_aboveColor);
 
     s.m_useCustomRange = j.value(QStringLiteral("useCustomRange")).toBool(s.m_useCustomRange);
     s.m_rangeMin = j.value(QStringLiteral("rangeMin")).toDouble(s.m_rangeMin);
@@ -593,7 +680,9 @@ bool ClassificationScheme::operator==(const ClassificationScheme &o) const
                                  m_customRamp.interp == o.m_customRamp.interp &&
                                  m_customRamp.clampMin == o.m_customRamp.clampMin &&
                                  m_customRamp.clampMax == o.m_customRamp.clampMax)) &&
-           m_invertRamp == o.m_invertRamp && m_lowColor == o.m_lowColor &&
+           m_invertRamp == o.m_invertRamp && m_logScale == o.m_logScale &&
+           m_belowColor == o.m_belowColor && m_aboveColor == o.m_aboveColor &&
+           m_lowColor == o.m_lowColor &&
            m_highColor == o.m_highColor && m_useCustomRange == o.m_useCustomRange &&
            m_rangeMin == o.m_rangeMin && m_rangeMax == o.m_rangeMax &&
            m_rangeMode == o.m_rangeMode && m_labelFormat == o.m_labelFormat &&

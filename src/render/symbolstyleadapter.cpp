@@ -458,7 +458,26 @@ void SymbolStyleAdapter::setMarkerShape(MarkerShape v)
 // Slice SS.1 — factory
 // ===========================================================================
 
+namespace
+{
+QObject *createAdapterFor(Rule *rule, QObject *parent);
+} // namespace
+
 QObject *SymbolStyleAdapter::createFor(Rule *rule, QObject *parent)
+{
+    QObject *adapter = createAdapterFor(rule, parent);
+    // Keys the rule's layer does not draw (2D layers, render/rulestylesync.h): the editors grey
+    // those rows with the reason as tooltip.
+    if (const SymbolLayer *layer = firstLayerOf(rule); adapter && layer)
+        if (const QVariantMap ignored = layer->props.value(QStringLiteral("_ignored")).toMap();
+            !ignored.isEmpty())
+            adapter->setProperty("ignoredKeys", ignored);
+    return adapter;
+}
+
+namespace
+{
+QObject *createAdapterFor(Rule *rule, QObject *parent)
 {
     const SymbolLayer *layer = firstLayerOf(rule);
     if (!layer)
@@ -503,6 +522,7 @@ QObject *SymbolStyleAdapter::createFor(Rule *rule, QObject *parent)
     }
     return new SymbolStyleAdapter(rule, parent);
 }
+} // namespace
 
 // ===========================================================================
 // PointSymbolStyleAdapter — point archetype Single Symbol surface.

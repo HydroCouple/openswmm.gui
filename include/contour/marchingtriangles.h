@@ -447,8 +447,8 @@ marchingTrianglesIsobands(const TriRange &tris, const std::vector<double> &level
 /**
  * @brief Bands drawn flat per cell: each triangle is one polygon in the band of its mean value
  *   (the "Interpolate band boundaries" off setting; marchingTrianglesIsobands is the on setting).
- * @param[in] levels Ascending breaks; a mean below the first or above the last is clamped to the
- *   first / last band, as the classified fill does.
+ * @param[in] levels Ascending breaks; a mean below the first is not drawn and one above the last
+ *   takes the last band, as the classified fill does (outer bands come as extra levels).
  * @return One polygon per triangle with finite values; empty for fewer than two levels.
  */
 template <typename TriRange, typename Extract>
@@ -464,7 +464,7 @@ std::vector<IsoBandPolygon> flatTriangleBands(const TriRange &tris,
         double v0 = 0, v1 = 0, v2 = 0;
         extract(t, p0, p1, p2, v0, v1, v2);
         const double mean = (v0 + v1 + v2) / 3.0;
-        if (!std::isfinite(mean))
+        if (!std::isfinite(mean) || mean < levels.front())
             continue;
         const int index = std::clamp(
             int(std::upper_bound(levels.begin(), levels.end(), mean) - levels.begin()) - 1, 0,

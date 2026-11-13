@@ -56,6 +56,7 @@ class QToolButton;
 namespace openswmmvis::ui
 {
 
+class ColorButton;
 class IClassificationBinding;
 
 class ClassificationEditor : public QWidget
@@ -101,6 +102,12 @@ public:
      * @param[in] count Upper bound, at least 1.
      */
     void setMaximumClassCount(int count);
+
+    /*! Show the log-scale and outside-the-range controls (hidden by default). Only hosts whose
+     *  renderers draw them turn them on: the 2D terrain fill and the 2D results depth fills.
+     * @param[in] on True to show them.
+     */
+    void setOutsideRangeControlsVisible(bool on);
 
 signals:
     /*! Emitted after any edit has been pushed to the binding — hosts that
@@ -231,6 +238,15 @@ private:
     QToolButton *m_autoBtn = nullptr;
     QTableView *m_table = nullptr;
     QStandardItemModel *m_tableModel = nullptr;
+
+    // Log scale and outside-the-range colours (setOutsideRangeControlsVisible).
+    bool m_outsideControls = false;
+    QWidget *m_outsideRow = nullptr;
+    QCheckBox *m_logCheck = nullptr;
+    QCheckBox *m_belowCheck = nullptr;
+    QCheckBox *m_aboveCheck = nullptr;
+    ColorButton *m_belowBtn = nullptr;
+    ColorButton *m_aboveBtn = nullptr;
 
     bool m_suppress = false; // re-entrancy guard during refresh()
 };

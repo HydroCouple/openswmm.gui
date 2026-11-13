@@ -2071,6 +2071,7 @@ QWidget *Swmm2DResultsStylePanel::buildScalarFillTab(OpenSWMM::Render::ISublayer
             /*supportsContinuousMode=*/true,
             /*supportsRangeModes=*/true);
         auto *editor = new ClassificationEditor(binding, /*ownBinding=*/true, page);
+        editor->setOutsideRangeControlsVisible(true); // the depth fills draw them
         followScheme(editor, st);
         lay->addWidget(editor);
     }
@@ -2105,6 +2106,7 @@ QWidget *Swmm2DResultsStylePanel::buildContourBandTab(QWidget *parent)
             /*supportsContinuousMode=*/false,
             /*supportsRangeModes=*/false);
         auto *editor = new ClassificationEditor(binding, /*ownBinding=*/true, page);
+        editor->setOutsideRangeControlsVisible(true); // both band renderers draw them
         followScheme(editor, st);
         lay->addWidget(editor);
 
@@ -2426,10 +2428,6 @@ QWidget *Swmm2DResultsStylePanel::buildMeshEdgeTab(QWidget *parent)
     lay->addWidget(passHeader(page, sub, tr("Show mesh edges")));
 
     if (st) {
-        // Symbology only — the slope-emphasis (thin/wide) group is intentionally
-        // omitted: the 2D results edge pass uses a single uniform width + flat
-        // colour (the wide-colour split needs per-edge colour the flat edge node
-        // can't carry), so surfacing those knobs would be misleading.
         auto *symBox = new QGroupBox(tr("Symbology"), page);
         auto *symForm = new QFormLayout(symBox);
 
@@ -2450,6 +2448,39 @@ QWidget *Swmm2DResultsStylePanel::buildMeshEdgeTab(QWidget *parent)
         symForm->addRow(tr("Stro&ke style:"), dash);
 
         lay->addWidget(symBox);
+
+        // Slope emphasis, as on the mesh layer: steep edges of the bed draw wider.
+        auto *slopeBox = new QGroupBox(tr("Slope emphasis"), page);
+        auto *slopeForm = new QFormLayout(slopeBox);
+        auto *useSlope = bindCheck(new QCheckBox(tr("Widen steep edges"), slopeBox), st,
+                                   &MeshEdgeStyle::useSlopeDrivenWidth,
+                                   &MeshEdgeStyle::setUseSlopeDrivenWidth);
+        useSlope->setObjectName("resultEdgeSlopeDriven");
+        slopeForm->addRow(QString(), useSlope);
+        auto *slopeBreak =
+            bindDouble(makeDSpin(slopeBox, 0.0, 1.0, 0.05, 2, st->slopeBreak()), st,
+                       &MeshEdgeStyle::slopeBreak, &MeshEdgeStyle::setSlopeBreak);
+        slopeBreak->setToolTip(tr("Fraction of the maximum slope above which "
+                                  "edges use the wide width/colour."));
+        slopeForm->addRow(tr("Slope brea&k:"), slopeBreak);
+        auto *wideWidth =
+            bindDouble(makeDSpin(slopeBox, 0.1, 10.0, 0.05, 2, st->wideWidthPx(), tr(" px")), st,
+                       &MeshEdgeStyle::wideWidthPx, &MeshEdgeStyle::setWideWidthPx);
+        slopeForm->addRow(tr("Wide width:"), wideWidth);
+        auto *wideColor = bindColor(new ColorButton(slopeBox), st, &MeshEdgeStyle::wideColor,
+                                    &MeshEdgeStyle::setWideColor);
+        slopeForm->addRow(tr("Wide colour:"), wideColor);
+        // The width and colour of steep edges matter only while they are widened.
+        const auto syncSlope = [st, slopeBreak, wideWidth, wideColor] {
+            const bool on = st->useSlopeDrivenWidth();
+            for (QWidget *w : {static_cast<QWidget *>(slopeBreak),
+                               static_cast<QWidget *>(wideWidth),
+                               static_cast<QWidget *>(wideColor)})
+                w->setEnabled(on);
+        };
+        syncSlope();
+        connect(st, &SublayerStyle::styleChanged, slopeBox, syncSlope);
+        lay->addWidget(slopeBox);
     }
     lay->addStretch();
     return page;

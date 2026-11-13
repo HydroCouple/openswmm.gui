@@ -111,6 +111,24 @@ template <class SpinT, class Fn> void onValue(SpinT *s, QObject *ctx, Fn fn)
     QObject::connect(s, qOverload<double>(&QDoubleSpinBox::valueChanged), ctx, fn);
 }
 
+/**
+ * @brief Grey the rows of props the rule's layer does not draw (render/rulestylesync.h):
+ *        the adapter carries them as the "ignoredKeys" property, key → reason.
+ * @param[in] adapter The editor's adapter.
+ * @param[in] rows Each control with the prop key it writes.
+ */
+void markIgnored(const QObject *adapter,
+                 std::initializer_list<std::pair<QWidget *, const char *>> rows)
+{
+    const QVariantMap ignored =
+        adapter ? adapter->property("ignoredKeys").toMap() : QVariantMap();
+    for (const auto &[widget, key] : rows)
+        if (widget && ignored.contains(QLatin1String(key))) {
+            widget->setEnabled(false);
+            widget->setToolTip(ignored.value(QLatin1String(key)).toString());
+        }
+}
+
 } // namespace
 
 // ===========================================================================
@@ -188,6 +206,14 @@ RasterColorRampSymbolStyleEditor::RasterColorRampSymbolStyleEditor(
         connect(m_a, &RasterColorRampSymbolStyleAdapter::changed, this,
                 &RasterColorRampSymbolStyleEditor::refreshFromModel, Qt::UniqueConnection);
     refreshFromModel();
+    markIgnored(m_a, {{m_attr, "attribute"},
+                      {m_min, "minValue"},
+                      {m_max, "maxValue"},
+                      {m_log, "useLogScale"},
+                      {m_low, "lowColor"},
+                      {m_high, "highColor"},
+                      {m_below, "belowMinColor"},
+                      {m_above, "aboveMaxColor"}});
 }
 void RasterColorRampSymbolStyleEditor::refreshFromModel()
 {
@@ -331,6 +357,7 @@ ContourBandSymbolStyleEditor::ContourBandSymbolStyleEditor(ContourBandSymbolStyl
         connect(m_a, &ContourBandSymbolStyleAdapter::changed, this,
                 &ContourBandSymbolStyleEditor::refreshFromModel, Qt::UniqueConnection);
     refreshFromModel();
+    markIgnored(m_a, {{m_attr, "attribute"}, {m_below, "belowMinColor"}, {m_above, "aboveMaxColor"}});
 }
 void ContourBandSymbolStyleEditor::refreshFromModel()
 {
@@ -410,6 +437,7 @@ IsolineSymbolStyleEditor::IsolineSymbolStyleEditor(IsolineSymbolStyleAdapter *a,
         connect(m_a, &IsolineSymbolStyleAdapter::changed, this,
                 &IsolineSymbolStyleEditor::refreshFromModel, Qt::UniqueConnection);
     refreshFromModel();
+    markIgnored(m_a, {{m_attr, "attribute"}});
 }
 void IsolineSymbolStyleEditor::refreshFromModel()
 {
@@ -588,6 +616,9 @@ MeshNodeSymbolStyleEditor::MeshNodeSymbolStyleEditor(MeshNodeSymbolStyleAdapter 
         connect(m_a, &MeshNodeSymbolStyleAdapter::changed, this,
                 &MeshNodeSymbolStyleEditor::refreshFromModel, Qt::UniqueConnection);
     refreshFromModel();
+    markIgnored(m_a, {{m_highlightTagged, "highlightTagged"},
+                      {m_taggedColor, "taggedColor"},
+                      {m_taggedSize, "taggedSizePx"}});
 }
 void MeshNodeSymbolStyleEditor::refreshFromModel()
 {

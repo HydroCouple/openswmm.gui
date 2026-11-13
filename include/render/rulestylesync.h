@@ -11,6 +11,7 @@
 
 #include "render/renderers/singlesymbolrenderer.h"
 #include "render/rule.h"
+#include "render/rulelist.h"
 #include "render/sublayers/contourbandsublayer.h"
 #include "render/sublayers/isolinesublayer.h"
 #include "render/sublayers/meshedgesublayer.h"
@@ -18,9 +19,11 @@
 #include "render/symbollayer.h"
 #include "render/symbolstyle.h"
 
+#include <QList>
 #include <QPointer>
 #include <QVariantMap>
 #include <functional>
+#include <memory>
 
 namespace OpenSWMM::Render
 {
@@ -29,9 +32,14 @@ namespace OpenSWMM::Render
  * @brief One rule bound to the live style it mirrors.
  * read() returns the live values under the dock adapters' prop keys; write() applies one
  * changed key (unknown keys are ignored); the opacity pair maps the symbol's overall opacity.
+ * name finds the rule again when the list is replaced (Style Manager → Apply). ignored maps
+ * keys this layer does not draw to the reason; seeded as the "_ignored" prop, which the dock's
+ * editors read to grey those rows.
  */
 struct RuleStyleBinding {
     QPointer<Rule> rule;
+    QString name;
+    QVariantMap ignored;
     SymbolLayerKind kind = SymbolLayerKind::SimpleMarker;
     std::function<SymbolLayer()> defaults;
     std::function<QVariantMap()> read;
@@ -61,6 +69,8 @@ inline void seedRuleFromStyle(RuleStyleBinding &b)
     const QVariantMap live = b.read();
     for (auto it = live.cbegin(); it != live.cend(); ++it)
         props.insert(it.key(), it.value());
+    if (!b.ignored.isEmpty())
+        props.insert(QStringLiteral("_ignored"), b.ignored);
     if (b.readOpacity)
         style.opacity = b.readOpacity();
     b.last = props;
@@ -91,6 +101,34 @@ inline void applyRuleEdit(RuleStyleBinding &b)
     b.applying = false;
     b.last = props;
     b.lastOpacity = opacity;
+}
+
+/**
+ * @brief Bind each binding to the rule of its name in the list, when that rule is a new object.
+ * Style Manager → Apply loads a saved list by replacing every rule: the loaded rule's symbol is
+ * written to the live style (fields that differ from it), then the rule is reseeded from the
+ * style. Connect to RuleList::ruleListChanged; rules already bound are left alone.
+ * @param context Receiver of the new rules' rendererReplaced connections (the layer).
+ */
+inline void rebindRuleBindings(RuleList *list,
+                               const QList<std::shared_ptr<RuleStyleBinding>> &bindings,
+                               QObject *context)
+{
+    for (const auto &b : bindings) {
+        Rule *found = nullptr;
+        for (int i = 0; list && i < list->count() && !found; ++i)
+            if (list->at(i) && list->at(i)->name() == b->name)
+                found = list->at(i);
+        if (!found || found == b->rule.data())
+            continue;
+        b->rule = found;
+        QObject::connect(found, &Rule::rendererReplaced, context, [b] { applyRuleEdit(*b); });
+        b->last = b->read(); // the live style: write what the loaded rule changes
+        if (b->readOpacity)
+            b->lastOpacity = b->readOpacity();
+        applyRuleEdit(*b);
+        seedRuleFromStyle(*b);
+    }
 }
 
 // ── Prop maps of the shared 2D decoration styles ────────────────────────

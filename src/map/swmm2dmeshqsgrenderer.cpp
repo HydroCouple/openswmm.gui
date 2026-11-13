@@ -973,10 +973,20 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 // Attribute mode always routes through the scheme: the
                 // legacyElevationRamp() fast path is a terrain palette keyed
                 // to bed elevation and means nothing for Manning's n.
+                const QColor belowColor = scheme.belowColor(), aboveColor = scheme.aboveColor();
                 const bool schemeDrivesColor = attrMode || schemeClassified ||
                                                scheme.useCustomRange() || scheme.invertRamp() ||
-                                               !isDefaultTerrainRamp;
+                                               !isDefaultTerrainRamp || scheme.logScale() ||
+                                               belowColor.isValid() || aboveColor.isValid();
                 const auto colorRange = scheme.effectiveRange(cMin, cMax);
+                // Where the ramp starts: the log floor under a log scale, else the range minimum.
+                double rampStart = colorRange.first;
+                if (scheme.logScale()) {
+                    const double floor = OpenSWMM::Render::ClassificationScheme::logFloor(
+                        colorRange.first, colorRange.second);
+                    if (std::isfinite(floor) && colorRange.second > floor)
+                        rampStart = std::max(rampStart, floor);
+                }
                 const QVector<double> classEdges =
                     schemeClassified ? scheme.levelEdges(cMin, cMax, {}) : QVector<double>{};
 
@@ -1067,7 +1077,9 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                         }
                     }
 
-                    if (!catMode && cValOk && (!std::isfinite(cVal) || cVal < colorRange.first))
+                    // Below the ramp: the scheme's below colour when set, otherwise not drawn.
+                    if (!catMode && cValOk &&
+                        (!std::isfinite(cVal) || (cVal < rampStart && !belowColor.isValid())))
                         return;
                     quint32 packed = cacheSlot ? *cacheSlot : 0u;
                     if (packed == 0u) {
@@ -1090,13 +1102,9 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                             cg = quint8(cc.green());
                             cb = quint8(cc.blue());
                         } else if (schemeDrivesColor) {
-                            const QColor sc =
-                                schemeClassified
-                                    ? scheme.colorForClass(
-                                          OpenSWMM::Render::ClassificationScheme::classIndexFor(
-                                              cVal, classEdges),
-                                          std::max(1, int(classEdges.size()) - 1))
-                                    : scheme.colorForValue(cVal, cMin, cMax);
+                            const QColor sc = schemeClassified
+                                                  ? scheme.colorForClassified(cVal, classEdges)
+                                                  : scheme.colorForValue(cVal, cMin, cMax);
                             cr = quint8(sc.red());
                             cg = quint8(sc.green());
                             cb = quint8(sc.blue());
@@ -1147,6 +1155,13 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                             OpenSWMM::Render::ClassificationScheme::classIndexFor(cVal, classEdges);
                         if (ci >= 0 && size_t(ci) < classAlphas.size())
                             triA = premul(classAlphas[size_t(ci)], alpha);
+                    }
+                    // A below / above colour's own alpha scales the fill alpha.
+                    if (!catMode && cValOk && schemeDrivesColor) {
+                        if (cVal < rampStart && belowColor.isValid())
+                            triA = premul(quint8(belowColor.alpha()), alpha);
+                        else if (cVal > colorRange.second && aboveColor.isValid())
+                            triA = premul(quint8(aboveColor.alpha()), alpha);
                     }
 
                     // Cache holds straight-alpha RGB; premultiply at vertex
@@ -1255,6 +1270,17 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
             const qreal bandOp = qBound(0.0, bandSub->opacity(), 1.0);
             // "Interpolate band boundaries": off fills each cell flat with its band colour.
             const bool smoothBands = !bandStyle || bandStyle->smoothBands();
+            // The scheme's below / above colours: outer bands from the data's minimum to the
+            // first level and from the last level to the data's maximum.
+            const QColor belowCol = bandStyle ? bandStyle->scheme().belowColor() : QColor();
+            const QColor aboveCol = bandStyle ? bandStyle->scheme().aboveColor() : QColor();
+            const bool outerBelow = belowCol.isValid() && levels.size() >= 2 && zMin < levels.front();
+            const bool outerAbove = aboveCol.isValid() && levels.size() >= 2 && zMax > levels.back();
+            std::vector<double> marchLevels = levels;
+            if (outerBelow)
+                marchLevels.insert(marchLevels.begin(), zMin);
+            if (outerAbove)
+                marchLevels.push_back(zMax);
 
             // Contour cache — marching-triangles output is invariant to
             // pan/zoom. Recompute only when (geomRevision, zMin, zMax,
@@ -1281,8 +1307,9 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
 
                 m_cachedBands =
                     smoothBands
-                        ? OpenSWMM::Contour::marchingTrianglesIsobands(sceneTris, levels, extract)
-                        : OpenSWMM::Contour::flatTriangleBands(sceneTris, levels, extract);
+                        ? OpenSWMM::Contour::marchingTrianglesIsobands(sceneTris, marchLevels,
+                                                                       extract)
+                        : OpenSWMM::Contour::flatTriangleBands(sceneTris, marchLevels, extract);
                 m_isobandCacheRev = geomRev;
                 m_isobandCacheZMin = zMin;
                 m_isobandCacheZMax = zMax;
@@ -1313,10 +1340,16 @@ QSGNode *SWMM2DMeshQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNod
                 if (pMaxX < cullLocal.left() || pMinX > cullLocal.right() ||
                     pMaxY < cullLocal.top() || pMinY > cullLocal.bottom())
                     continue;
-                const int idx = std::min(bp.bandIndex, nBands - 1);
+                const int marchBands = int(marchLevels.size()) - 1;
+                const bool isBelow = outerBelow && bp.bandIndex == 0;
+                const bool isAbove = outerAbove && bp.bandIndex == marchBands - 1;
+                const int idx = std::clamp(bp.bandIndex - (outerBelow ? 1 : 0), 0, nBands - 1);
                 QColor col =
-                    bandStyle ? bandStyle->colorForBand(idx, nBands)
-                              : OpenSWMM::Contour::viridisAt((double(idx) + 0.5) / double(nBands));
+                    isBelow   ? belowCol
+                    : isAbove ? aboveCol
+                    : bandStyle
+                        ? bandStyle->colorForBand(idx, nBands)
+                        : OpenSWMM::Contour::viridisAt((double(idx) + 0.5) / double(nBands));
                 // Band colour's own alpha × sublayer opacity (multiply, don't
                 // overwrite — a fully transparent class must vanish).
                 const quint8 a = quint8(qBound(0, int(col.alphaF() * bandOp * 255.0 + 0.5), 255));
