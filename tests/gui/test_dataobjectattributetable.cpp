@@ -415,7 +415,18 @@ void TestDataObjectAttributeTable::switchingProjectsEditsOnlyTheRequestedRule()
     QString changed = code->toPlainText();
     QVERIFY(changed.contains("CLOSED"));
     code->setPlainText(changed.replace("CLOSED", "OPEN"));
+    // The text is held until Apply; closing asks, and Apply writes it.
+    bool asked = false;
+    QTimer::singleShot(0, current, [&asked] {
+        if (auto *box = qobject_cast<QMessageBox *>(QApplication::activeModalWidget()))
+            for (auto *button : box->buttons())
+                if (button->text().remove('&') == QStringLiteral("Apply")) {
+                    asked = true;
+                    button->click();
+                }
+    });
     current->close();
+    QVERIFY(asked);
     QCOMPARE(undoA.count(), 0);
     QCOMPARE(providerA->body(), before);
     QCOMPARE(undoB.count(), 1);

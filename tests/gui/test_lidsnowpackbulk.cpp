@@ -10,6 +10,7 @@
 #include "snowpack/snowpackregistry.h"
 #include "ui/dialogs/lidcontroleditordialog.h"
 #include "ui/dialogs/snowpackeditordialog.h"
+#include "ui/editors/dataobjectdraftsession.h"
 #include "ui/editors/comprehensiveeditorregistry.h"
 #include "ui/panels/dataobjectaggregateselection.h"
 #include "ui/panels/propertiespanel.h"
@@ -500,6 +501,9 @@ private slots:
         cell = findProperty(tree->model(), "Removal — Threshold Depth"); QVERIFY(cell.isValid());
         QVERIFY(tree->model()->setData(cell, 2.5)); QCOMPARE(snowEditor.findChild<QDoubleSpinBox *>("snowParameter21")->value(), 2.5);
         auto *depth = snowEditor.findChild<QDoubleSpinBox *>("snowParameter21"); depth->setValue(3.5);
+        // The editor holds the edit until Apply: the model still has 2.5 (Apply/Revert plan D1).
+        QCOMPARE(state(layer.get(), DC::DataSnowpacks, "DD_A").value(snowKey(21)).toDouble(), 2.5);
+        QCOMPARE(canvas.undoStack()->count(), 2); QVERIFY(snowEditor.draftSession()->apply());
         QCOMPARE(state(layer.get(), DC::DataSnowpacks, "DD_A").value(snowKey(21)).toDouble(), 3.5);
         QCOMPARE(canvas.undoStack()->count(), 3); canvas.undoStack()->undo(); QCOMPARE(depth->value(), 2.5);
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);

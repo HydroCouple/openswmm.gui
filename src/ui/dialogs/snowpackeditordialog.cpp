@@ -17,12 +17,14 @@
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
 #include <QScopedValueRollback>
-#include <QToolTip>
+#include "ui/editors/dataobjectdraftsession.h"
+#include "ui/editors/dataobjectstructureedit.h"
+#include "ui/editors/paramsdraftedit.h"
+#include "ui/models/draftmarkproxymodel.h"
 #include "ui/models/snowpacklistmodel.h"
 #include "ui/theme/iconfactory.h"
 #include <openswmm/engine/openswmm_snow.h>
 
-#include <QDialogButtonBox>
 #include <QComboBox>
 #include <QLabel>
 #include <QDoubleSpinBox>
@@ -36,7 +38,10 @@
 #include <QPushButton>
 #include <QScrollArea>
 #include <QSplitter>
+#include <QUndoStack>
 #include <QVBoxLayout>
+
+#include <memory>
 
 namespace openswmmvis::ui
 {
@@ -46,6 +51,15 @@ using openswmmvis::snowpack::SnowpackRegistry;
 
 namespace
 {
+bool sameSnowpack(const SnowpackProvider::Params &now, const SnowpackProvider::Params &target)
+{
+    return now.sameAs(target, 1e-9);
+}
+
+// UEB site values a pack holds while it inherits the project model; choosing
+// "Project default" puts them back (as the shared record writer does).
+const double kSiteDefaults[]{0, 1, 0, .1, 0};
+
 // Per-parameter form spec, ordered to match SnowpackProvider::Param.
 struct FieldSpec {
     const char *label;
@@ -117,6 +131,7 @@ SnowpackEditorDialog::SnowpackEditorDialog(SnowpackRegistry *registry, SWMMModel
 
     if (m_layer) {
         connect(m_layer, &SWMMModelLayer::engineAboutToClose, this, [this] {
+            m_drafts.clear(); // the model is going away: nothing left to apply to
             m_current = nullptr; m_registry = nullptr; bindProvider_(nullptr); setEnabled(false);
         });
         connect(m_layer, &SWMMModelLayer::optionsChanged, this, [this] {
@@ -127,8 +142,12 @@ SnowpackEditorDialog::SnowpackEditorDialog(SnowpackRegistry *registry, SWMMModel
             source.refreshObject(m_current->name());
             bindProvider_(m_current);
         });
-        connect(m_layer, &SWMMModelLayer::objectRenamed, this, [this](const QString &, const QString &, int kind) {
-            if (!(kind & SWMMModelLayer::kKindCatch) || !m_current || !m_layer || !m_layer->engine()) return;
+        connect(m_layer, &SWMMModelLayer::objectRenamed, this, [this](const QString &prev, const QString &now, int kind) {
+            if (!(kind & SWMMModelLayer::kKindCatch)) return;
+            // A draft naming the renamed destination follows it, as the model's pack does.
+            for (auto it = m_drafts.begin(); it != m_drafts.end(); ++it)
+                if (it->removalSubcatch == prev) it->removalSubcatch = now;
+            if (!m_current || !m_layer || !m_layer->engine()) return;
             const QScopedValueRollback<bool> syncing(m_suppressFieldSync, true);
             DataObjectAttributeTableModel source;
             source.setSource(m_layer, SWMMModelLayer::DataSnowpacks);
@@ -138,9 +157,21 @@ SnowpackEditorDialog::SnowpackEditorDialog(SnowpackRegistry *registry, SWMMModel
     }
 
     if (m_registry) {
+        // Changed from another view (or an Undo): with a draft that is a
+        // conflict to resolve at Apply, otherwise the form follows the model.
         connect(m_registry, &SnowpackRegistry::providerParamsChanged, this, [this](SnowpackProvider *p) {
-            if (p == m_current && !m_suppressFieldSync) bindProvider_(p);
+            if (m_applying || m_suppressFieldSync)
+                return;
+            if (m_drafts.contains(p))
+                m_session->noteExternalChange();
+            else if (p == m_current)
+                bindProvider_(p);
         });
+        connect(m_registry, &SnowpackRegistry::providerAboutToBeRemoved, this,
+                [this](SnowpackProvider *p) {
+                    if (m_drafts.remove(p))
+                        m_session->noteEdited();
+                });
         connect(m_registry, &SnowpackRegistry::providerRenamed, this,
                 &SnowpackEditorDialog::onProviderRenamed_);
         m_listModel->setRegistry(m_registry);
@@ -158,8 +189,20 @@ QString SnowpackEditorDialog::pickSnowpack(SnowpackRegistry *registry, SWMMModel
         return {};
     SnowpackEditorDialog dialog(registry, layer, parent);
     dialog.setWindowTitle(tr("Select Snow Pack"));
-    if (auto *buttons = dialog.findChild<QDialogButtonBox *>())
-        buttons->button(QDialogButtonBox::Close)->setText(tr("Use Snow Pack"));
+    // "Use Snow Pack" closes with the selection; with unapplied changes it
+    // reads "Apply and Use" and applies them first (a refusal keeps it open).
+    QPushButton *use = dialog.m_footer->closeButton();
+    const auto label = [&dialog, use] {
+        use->setText(dialog.m_session->hasDraft() ? tr("Apply and Use") : tr("Use Snow Pack"));
+    };
+    label();
+    connect(dialog.m_session, &DataObjectDraftSession::changed, use, label);
+    disconnect(dialog.m_footer, &DataObjectDraftFooter::closeRequested, &dialog, nullptr);
+    connect(dialog.m_footer, &DataObjectDraftFooter::closeRequested, &dialog, [&dialog] {
+        if (dialog.m_session->hasDraft() && !dialog.m_session->apply())
+            return;
+        dialog.accept();
+    });
     if (auto *provider = registry->findByName(currentName))
         dialog.selectProviderInList_(provider);
     if (dialog.exec() != QDialog::Accepted || !dialog.currentProvider())
@@ -168,15 +211,6 @@ QString SnowpackEditorDialog::pickSnowpack(SnowpackRegistry *registry, SWMMModel
 }
 
 SnowpackEditorDialog::~SnowpackEditorDialog() = default;
-
-void SnowpackEditorDialog::accept()
-{
-    if (!m_layer && m_registry && m_registry->saveToEngine() < 0) {
-        QMessageBox::warning(this, tr("Snowpack validation"), m_registry->lastSaveError());
-        return;
-    }
-    QDialog::accept();
-}
 
 void SnowpackEditorDialog::openForSnowpack(const QString &name)
 {
@@ -209,7 +243,12 @@ void SnowpackEditorDialog::buildUi_()
     leftLay->setContentsMargins(0, 0, 0, 0);
     m_listView = new QListView(leftPane);
     m_listModel = new SnowpackListModel(this);
-    m_listView->setModel(m_listModel);
+    // Rows whose object holds an unapplied draft read in italics.
+    m_draftMarks = new DraftMarkProxyModel(this);
+    m_draftMarks->setSourceModel(m_listModel);
+    m_draftMarks->setHasDraft(
+        [this](int row) { return m_drafts.contains(m_listModel->providerAt(row)); });
+    m_listView->setModel(m_draftMarks);
     m_listView->setEditTriggers(QAbstractItemView::DoubleClicked |
                                 QAbstractItemView::EditKeyPressed);
     leftLay->addWidget(m_listView, 1);
@@ -281,10 +320,26 @@ void SnowpackEditorDialog::buildUi_()
 
     outer->addWidget(m_splitter, 1);
 
-    auto *bb = new QDialogButtonBox(QDialogButtonBox::Close, this);
-    connect(bb, &QDialogButtonBox::rejected, this, &SnowpackEditorDialog::accept);
-    connect(bb, &QDialogButtonBox::accepted, this, &SnowpackEditorDialog::accept);
-    outer->addWidget(bb);
+    m_session = new DataObjectDraftSession(
+        {[this] {
+             // The spin boxes commit on Enter or focus loss: hand over a value still typed.
+             for (QDoubleSpinBox *s : m_spins)
+                 if (s->hasFocus())
+                     s->interpretText();
+             if (m_removalSubcatchEdit->hasFocus())
+                 onRemovalSubcatchEdited_();
+         },
+         [this] { return int(m_drafts.size()); },
+         [this](QString *why) { return applyDrafts_(why); }, [this] { revertDrafts_(); }},
+        this);
+    connect(m_session, &DataObjectDraftSession::changed, m_draftMarks,
+            &DraftMarkProxyModel::refreshMarks);
+    m_session->setModel(m_layer); // Save / Run / Close ask about unapplied drafts
+    m_footer = new DataObjectDraftFooter(m_session, this);
+    connect(m_footer, &DataObjectDraftFooter::closeRequested, this, &QDialog::accept);
+    outer->addWidget(m_footer);
+    setAccessibleDescription(tr("Changes are held until you choose Apply, which writes them to "
+                                "the model as one undoable step."));
 
     connect(m_listView->selectionModel(), &QItemSelectionModel::selectionChanged, this,
             &SnowpackEditorDialog::onListSelectionChanged_);
@@ -316,11 +371,12 @@ void SnowpackEditorDialog::bindProvider_(SnowpackProvider *p)
                 SWMM_OK)
                 p->setDefaultModel(model);
         }
+        const SnowpackProvider::Params v = shown_(p);
         m_nameEdit->setText(p->name());
-        m_modelKind->setCurrentIndex(m_modelKind->findData(p->modelKind()));
-        m_removalSubcatchEdit->setText(p->removalSubcatch());
+        m_modelKind->setCurrentIndex(m_modelKind->findData(v.modelKind));
+        m_removalSubcatchEdit->setText(v.removalSubcatch);
         for (int k = 0; k < m_spins.size(); ++k)
-            m_spins[k]->setValue(p->param(k));
+            m_spins[k]->setValue(v.values[k]);
     } else {
         m_nameEdit->clear();
         m_removalSubcatchEdit->clear();
@@ -332,7 +388,8 @@ void SnowpackEditorDialog::bindProvider_(SnowpackProvider *p)
 
 void SnowpackEditorDialog::updateModelFields_()
 {
-    const bool ueb = m_current && m_current->effectiveModel() == 1;
+    const int kind = m_current ? shown_(m_current).modelKind : -1;
+    const bool ueb = m_current && (kind < 0 ? m_current->defaultModel() : kind) == 1;
     for (int k = 0; k < m_spins.size(); ++k) {
         const bool degreeDay = k < SnowpackProvider::RemovalDsnow && k % 7 < 4;
         const bool site = k >= SnowpackProvider::UebForest;
@@ -346,20 +403,13 @@ void SnowpackEditorDialog::onModelEdited_()
 {
     if (m_suppressFieldSync || !m_current)
         return;
-    if (m_layer) {
-        QString error;
-        {
-            const QScopedValueRollback<bool> syncing(m_suppressFieldSync, true);
-            DataObjectAttributeTableModel::applyValues(m_layer, SWMMModelLayer::DataSnowpacks,
-                {m_current->name()}, "modelKind", m_modelKind->currentData(),
-                m_layer->editCanvas() ? m_layer->editCanvas()->undoStack() : nullptr, &error);
-        }
-        bindProvider_(m_current);
-        if (!error.isEmpty()) QToolTip::showText(m_modelKind->mapToGlobal(QPoint()), error, m_modelKind);
-        return;
-    }
-    m_current->setModelKind(m_modelKind->currentData().toInt());
-    updateModelFields_();
+    SnowpackProvider::Params v = shown_(m_current);
+    v.modelKind = m_modelKind->currentData().toInt();
+    if (v.modelKind < 0) // the project default carries no site override
+        for (int i = 0; i < 5; ++i)
+            v.values[SnowpackProvider::UebForest + i] = kSiteDefaults[i];
+    setDraft_(v);
+    bindProvider_(m_current);
 }
 
 void SnowpackEditorDialog::selectProviderInList_(SnowpackProvider *p)
@@ -374,7 +424,7 @@ void SnowpackEditorDialog::selectProviderInList_(SnowpackProvider *p)
         bindProvider_(p);
         return;
     }
-    const QModelIndex idx = m_listModel->index(row);
+    const QModelIndex idx = viewIndexOf(m_listView, m_listModel->index(row));
     m_listView->selectionModel()->setCurrentIndex(idx, QItemSelectionModel::ClearAndSelect);
 }
 
@@ -398,23 +448,49 @@ void SnowpackEditorDialog::onAddClicked_()
 {
     if (!m_registry)
         return;
-    SnowpackProvider *p = m_registry->create(suggestUniqueName_());
-    if (p)
+    const QString name = suggestUniqueName_();
+    if (!DataObjectDraftSession::commit(
+            {createObjectEdit(m_registry.data(), name, [](SnowpackProvider *) { return true; })},
+            undoStack_(), tr("Create snow pack %1").arg(name)))
+        return;
+    if (SnowpackProvider *p = m_registry->findByName(name)) {
+        m_session->noteApplied(tr("Created %1").arg(name));
         selectProviderInList_(p);
+    }
 }
 
 void SnowpackEditorDialog::onDeleteClicked_()
 {
     if (!m_registry || !m_current)
         return;
-    const auto answer = QMessageBox::question(
-        this, tr("Delete Snow Pack"), tr("Delete snow pack \"%1\"?").arg(m_current->name()));
-    if (answer != QMessageBox::Yes)
+    // Plan D8 — say what the engine detaches, and that Undo will not re-attach it.
+    QString text = tr("Delete snow pack \"%1\"?").arg(m_current->name());
+    if (void *engine = m_registry->engineHandle()) {
+        const QString uses = dataObjectUses(
+            engine, swmm_snowpack_analyze_impact,
+            swmm_snowpack_index(static_cast<SWMM_Engine>(engine),
+                                m_current->name().toUtf8().constData()));
+        if (!uses.isEmpty())
+            text += QLatin1String("\n\n") + uses + QLatin1Char(' ') +
+                    tr("Those uses are removed with it; Undo brings back the snow pack and its "
+                       "settings, but not those uses.");
+    }
+    const auto answer = QMessageBox::question(this, tr("Delete Snow Pack"), text);
+    if (answer != QMessageBox::Yes || !m_registry || !m_current)
         return;
 
     SnowpackProvider *victim = m_current;
+    const QString removedName = victim->name();
+    const auto restore = [registry = m_registry, kept = victim->params()](SnowpackProvider *p) {
+        return registry && writeParams(registry.data(), p, kept, sameSnowpack);
+    };
     m_current = nullptr;
-    m_registry->remove(victim);
+    if (!DataObjectDraftSession::commit({deleteObjectEdit(m_registry.data(), removedName, restore)},
+                                        undoStack_(), tr("Delete snow pack %1").arg(removedName))) {
+        bindProvider_(m_registry->findByName(removedName));
+        return;
+    }
+    m_session->noteApplied(tr("Deleted %1").arg(removedName));
     if (m_registry->providerCount() > 0)
         selectProviderInList_(m_registry->providers().first());
     else
@@ -433,63 +509,126 @@ void SnowpackEditorDialog::onNameEdited_()
         m_nameEdit->setText(m_current->name());
         return;
     }
-    if (!m_registry->rename(m_current, newName)) {
+    if (!DataObjectDraftSession::commit(
+            {renameObjectEdit(m_registry.data(), m_current->name(), newName)}, undoStack_(),
+            tr("Rename snow pack %1 to %2").arg(m_current->name(), newName))) {
         QMessageBox::warning(this, tr("Rename Snow Pack"),
                              tr("A snow pack named \"%1\" already exists.").arg(newName));
-        m_nameEdit->setText(m_current->name());
+        if (m_current)
+            m_nameEdit->setText(m_current->name());
+        return;
     }
+    m_session->noteApplied(tr("Renamed to %1").arg(newName));
 }
 
 void SnowpackEditorDialog::onFieldEdited_()
 {
     if (m_suppressFieldSync || !m_current)
         return;
-    if (m_layer) {
-        auto *spin = qobject_cast<QDoubleSpinBox *>(sender());
-        const int index = m_spins.indexOf(spin);
-        if (index < 0) return;
-        QString error;
-        {
-            const QScopedValueRollback<bool> syncing(m_suppressFieldSync, true);
-            DataObjectAttributeTableModel::applyValues(m_layer, SWMMModelLayer::DataSnowpacks,
-                {m_current->name()}, QString("snow/%1").arg(index), spin->value(),
-                m_layer->editCanvas() ? m_layer->editCanvas()->undoStack() : nullptr, &error);
-        }
-        bindProvider_(m_current);
-        if (!error.isEmpty()) QToolTip::showText(spin->mapToGlobal(QPoint()), error, spin);
+    const int k = m_spins.indexOf(qobject_cast<QDoubleSpinBox *>(sender()));
+    if (k < 0)
         return;
+    SnowpackProvider::Params v = shown_(m_current);
+    v.values[k] = m_spins[k]->value();
+    // A UEB site value on an inheriting pack makes it an explicit UEB pack.
+    const bool promote = k >= SnowpackProvider::UebForest && v.modelKind < 0;
+    if (promote)
+        v.modelKind = 1;
+    setDraft_(v);
+    if (promote) {
+        const QScopedValueRollback<bool> syncing(m_suppressFieldSync, true);
+        m_modelKind->setCurrentIndex(m_modelKind->findData(1));
+        updateModelFields_();
     }
-    const QScopedValueRollback<bool> syncing(m_suppressFieldSync, true);
-    if (m_current->modelKind() < 0 && m_current->effectiveModel() == 1) {
-        for (int k = SnowpackProvider::UebForest; k < m_spins.size(); ++k) {
-            if (m_current->param(k) != m_spins[k]->value()) {
-                m_current->setModelKind(1);
-                m_modelKind->setCurrentIndex(m_modelKind->findData(1));
-                break;
-            }
-        }
-    }
-    for (int k = 0; k < m_spins.size(); ++k)
-        m_current->setParam(k, m_spins[k]->value());
 }
 
 void SnowpackEditorDialog::onRemovalSubcatchEdited_()
 {
     if (m_suppressFieldSync || !m_current)
         return;
-    if (m_layer) {
-        QString error;
-        {
-            const QScopedValueRollback<bool> syncing(m_suppressFieldSync, true);
-            DataObjectAttributeTableModel::applyValues(m_layer, SWMMModelLayer::DataSnowpacks,
-                {m_current->name()}, "removalSubcatch", m_removalSubcatchEdit->text().trimmed(),
-                m_layer->editCanvas() ? m_layer->editCanvas()->undoStack() : nullptr, &error);
-        }
-        bindProvider_(m_current);
-        if (!error.isEmpty()) QToolTip::showText(m_removalSubcatchEdit->mapToGlobal(QPoint()), error, m_removalSubcatchEdit);
+    SnowpackProvider::Params v = shown_(m_current);
+    v.removalSubcatch = m_removalSubcatchEdit->text().trimmed();
+    setDraft_(v);
+}
+
+void SnowpackEditorDialog::setDraft_(const SnowpackProvider::Params &v)
+{
+    if (!m_current)
         return;
+    if (v == m_current->params())
+        m_drafts.remove(m_current); // edited back to the model's values
+    else
+        m_drafts.insert(m_current, v);
+    m_session->noteEdited();
+}
+
+SnowpackProvider::Params SnowpackEditorDialog::shown_(SnowpackProvider *p) const
+{
+    const auto draft = m_drafts.constFind(p);
+    return draft != m_drafts.cend() ? draft.value() : p->params();
+}
+
+QUndoStack *SnowpackEditorDialog::undoStack_() const
+{
+    if (m_undo)
+        return m_undo;
+    return m_layer && m_layer->editCanvas() ? m_layer->editCanvas()->undoStack() : nullptr;
+}
+
+void SnowpackEditorDialog::setUndoStack(QUndoStack *stack)
+{
+    m_undo = stack;
+}
+
+void SnowpackEditorDialog::done(int result)
+{
+    if (m_registry && !m_session->resolveBeforeClose())
+        return;
+    QDialog::done(result);
+}
+
+bool SnowpackEditorDialog::applyDrafts_(QString *reason)
+{
+    QVector<DataObjectDraftSession::Edit> edits;
+    QStringList names;
+    // The engine says why it refused a pack (its validation); keep that for the status line.
+    const auto refusal = std::make_shared<QString>();
+    for (auto it = m_drafts.cbegin(); it != m_drafts.cend(); ++it) {
+        names << it.key()->name();
+        auto edit = paramsDraftEdit(m_registry.data(), m_layer.data(), it.key(),
+                                    it.key()->params(), it.value(), sameSnowpack);
+        edits.append({[write = std::move(edit.write), registry = m_registry,
+                       refusal](bool forward) {
+            const bool ok = write(forward);
+            if (!ok && registry && refusal->isEmpty())
+                *refusal = registry->lastSaveError();
+            return ok;
+        }});
     }
-    m_current->setRemovalSubcatch(m_removalSubcatchEdit->text().trimmed());
+    m_applying = true;
+    const bool ok = DataObjectDraftSession::commit(
+        edits, undoStack_(),
+        names.size() == 1 ? tr("Edit snow pack %1").arg(names.first())
+                          : tr("Edit %n snow pack(s)", nullptr, int(names.size())));
+    m_applying = false;
+    if (!ok) {
+        const QString which = names.join(QStringLiteral(", "));
+        *reason = refusal->isEmpty()
+                      ? tr("the model did not accept the values for %1; nothing was changed")
+                            .arg(which)
+                      : tr("the model did not accept the values for %1 (%2); nothing was changed")
+                            .arg(which, *refusal);
+        return false;
+    }
+    m_drafts.clear();
+    bindProvider_(m_current);
+    return true;
+}
+
+void SnowpackEditorDialog::revertDrafts_()
+{
+    m_drafts.clear();
+    bindProvider_(m_current);
 }
 
 void SnowpackEditorDialog::onProviderRenamed_(SnowpackProvider *p, const QString &,

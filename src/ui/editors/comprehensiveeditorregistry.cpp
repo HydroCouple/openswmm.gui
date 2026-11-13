@@ -169,16 +169,22 @@ HydrographGroupEditor *hydrographEditor(SWMMModelLayer *layer, QWidget *parent)
         layer, [=] { return new HydrographGroupEditor(layer, parent); });
 }
 
-void openHydrographsCreateNew(SWMMModelLayer *layer, QUndoStack *, QWidget *parent)
+void openHydrographsCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
 {
-    if (layer)
-        hydrographEditor(layer, parent)->beginNewGroup();
+    if (!layer)
+        return;
+    auto *editor = hydrographEditor(layer, parent);
+    editor->setUndoStack(stack); // edits reach the model at Apply, one undo step each
+    editor->beginNewGroup();
 }
 
-void openHydrographsBrowse(SWMMModelLayer *layer, QUndoStack *, QWidget *parent)
+void openHydrographsBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
 {
-    if (layer)
-        hydrographEditor(layer, parent)->openForGroup({});
+    if (!layer)
+        return;
+    auto *editor = hydrographEditor(layer, parent);
+    editor->setUndoStack(stack);
+    editor->openForGroup({});
 }
 
 /**
@@ -554,7 +560,7 @@ void openAquifersBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *paren
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
  */
-void openLandUsesCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+void openLandUsesCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
 {
     if (!layer)
         return;
@@ -568,7 +574,7 @@ void openLandUsesCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidge
     // Buildup/Washoff rows re-dimension live with the pollutant set.
     dlg->trackPollutantRegistry(
         qobject_cast<PollutantRegistry *>(layer->ensurePollutantRegistry()));
-    syncRegistryOnClose(dlg, reg, layer);
+    dlg->setUndoStack(stack); // edits reach the model at Apply, one undo step each
     dlg->show();
 }
 
@@ -590,7 +596,7 @@ void openLandUsesCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidge
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
  */
-void openLandUsesBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+void openLandUsesBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
 {
     if (!layer)
         return;
@@ -602,7 +608,7 @@ void openLandUsesBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *
     // Buildup/Washoff rows re-dimension live with the pollutant set.
     dlg->trackPollutantRegistry(
         qobject_cast<PollutantRegistry *>(layer->ensurePollutantRegistry()));
-    syncRegistryOnClose(dlg, reg, layer);
+    dlg->setUndoStack(stack); // edits reach the model at Apply, one undo step each
     dlg->show();
 }
 
@@ -621,7 +627,7 @@ void openLandUsesBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
  */
-void openSnowpacksCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+void openSnowpacksCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
 {
     if (!layer)
         return;
@@ -632,6 +638,7 @@ void openSnowpacksCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidg
     if (!dlg)
         return;
     dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->setUndoStack(stack); // edits reach the model at Apply, one undo step each
     dlg->show();
 }
 
@@ -650,7 +657,7 @@ void openSnowpacksCreateNew(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidg
  *   except any ensure/factory side effects. Modeless interactions may later mutate engine; caller
  *   retains external model lifetime.
  */
-void openSnowpacksBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget *parent)
+void openSnowpacksBrowse(SWMMModelLayer *layer, QUndoStack *stack, QWidget *parent)
 {
     if (!layer)
         return;
@@ -659,6 +666,7 @@ void openSnowpacksBrowse(SWMMModelLayer *layer, QUndoStack * /*stack*/, QWidget 
         return;
     auto *dlg = new SnowpackEditorDialog(reg, layer, parent);
     dlg->setAttribute(Qt::WA_DeleteOnClose);
+    dlg->setUndoStack(stack); // edits reach the model at Apply, one undo step each
     dlg->show();
 }
 
@@ -807,10 +815,12 @@ void openControlsCreateNew(SWMMModelLayer *layer, QUndoStack *stack, QWidget *pa
     dialog->activateWindow();
 }
 
-void openHydrographForObject(SWMMModelLayer *layer, QUndoStack *, const QString &name,
+void openHydrographForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
                              QWidget *parent)
 {
-    hydrographEditor(layer, parent)->openForGroup(name);
+    auto *editor = hydrographEditor(layer, parent);
+    editor->setUndoStack(stack);
+    editor->openForGroup(name);
 }
 
 void openControlForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
@@ -921,7 +931,8 @@ void openRegistryEditorFor(QPointer<Dlg> &slot, QPointer<Reg> &slotReg, Reg *reg
                       !std::is_same_v<Dlg, LidControlEditorDialog> &&
                       !std::is_same_v<Dlg, PollutantEditorDialog> &&
                       !std::is_same_v<Dlg, AquiferEditorDialog> &&
-                      !std::is_same_v<Dlg, StreetEditorDialog>)
+                      !std::is_same_v<Dlg, StreetEditorDialog> &&
+                      !std::is_same_v<Dlg, LandUseEditorDialog>)
             syncRegistryOnClose(slot.data(), reg, layer);
     }
     (slot.data()->*openFn)(name);
@@ -967,7 +978,7 @@ void openPollutantForObject(SWMMModelLayer *layer, QUndoStack *stack, const QStr
  * @note GUI-thread only; registry ensure can initialize model state. Borrowed model/stack must
  *   outlive dialog use; no direct notification/undo command in this wrapper.
  */
-void openLandUseForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/, const QString &name,
+void openLandUseForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
                           QWidget *parent)
 {
     if (!layer)
@@ -977,6 +988,8 @@ void openLandUseForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/, const Q
     openRegistryEditorFor(editor, editorReg,
                           qobject_cast<LandUseRegistry *>(layer->ensureLandUseRegistry()), layer,
                           parent, &LandUseEditorDialog::openForLandUse, name);
+    if (editor)
+        editor->setUndoStack(stack);
 }
 
 /**
@@ -1019,7 +1032,7 @@ void openAquiferForObject(SWMMModelLayer *layer, QUndoStack *stack, const QStrin
  * @note GUI-thread only; registry ensure can initialize model state. Borrowed model/stack must
  *   outlive dialog use; no direct notification/undo command in this wrapper.
  */
-void openSnowpackForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/, const QString &name,
+void openSnowpackForObject(SWMMModelLayer *layer, QUndoStack *stack, const QString &name,
                            QWidget *parent)
 {
     if (!layer)
@@ -1029,6 +1042,8 @@ void openSnowpackForObject(SWMMModelLayer *layer, QUndoStack * /*stack*/, const 
     openRegistryEditorFor(editor, editorReg,
                           qobject_cast<SnowpackRegistry *>(layer->ensureSnowpackRegistry()), layer,
                           parent, &SnowpackEditorDialog::openForSnowpack, name);
+    if (editor)
+        editor->setUndoStack(stack);
 }
 
 /**

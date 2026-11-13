@@ -26,6 +26,9 @@
 #include <QAbstractTableModel>
 #include <QStringList>
 #include <QVector>
+#include <QVariantMap>
+
+#include <functional>
 #include <QStyledItemDelegate>
 
 class SWMMModelLayer;
@@ -53,6 +56,14 @@ public:
      */
     void bind(void *engineHandle, int luIndex);
     void setProjectContext(SWMMModelLayer *layer);
+    /*! Draft mode (the land use editor holds its edits until Apply): rows read
+     *  the record \p read returns and an edit goes to \p write(key, value),
+     *  which says whether the draft took it; the engine is not touched. Empty
+     *  functions return to engine mode. */
+    void setRecordAccess(std::function<QVariantMap()> read,
+                         std::function<bool(const QString &key, const QVariant &value)> write);
+    /// Show the rows again after the record behind them changed (draft mode).
+    void recordChanged();
     /**
      * @brief Reset/re-enumerate pollutants and bulk reaction species using the current engine/land-use binding.
      */
@@ -94,6 +105,10 @@ protected:
 
     QPointer<SWMMModelLayer> m_layer;
     bool applyShared(const QString &group,int row,const QString &member,const QVariant &value);
+    /// A row's constituent in the shared record ("p/<token>" or "s/<name>"); empty without a layer.
+    QString constituentKey(int row) const;
+    std::function<QVariantMap()> m_readRecord;
+    std::function<bool(const QString &, const QVariant &)> m_writeRecord;
     void *m_engine = nullptr;
     int m_luIndex = -1;
     int m_rows = 0;
@@ -158,6 +173,11 @@ public:
      * @return AREA then CURB.
      */
     static QStringList normalizerNames(); ///< AREA CURB
+
+private:
+    /// One row's buildup values: the engine's, or the draft record's in draft mode.
+    void readBuildup_(int row, int &ft, double &c1, double &c2, double &c3, int &norm,
+                      QString &series) const;
 };
 
 class WashoffTableModel : public QualityFunctionTableModel
@@ -220,6 +240,11 @@ public:
      * @return NONE, EXP, RC, EMC.
      */
     static QStringList functionNames(); ///< NONE EXP RC EMC
+
+private:
+    /// One row's washoff values: the engine's, or the draft record's in draft mode.
+    void readWashoff_(int row, int &ft, double &coeff, double &expon, double &sweep,
+                      double &bmp) const;
 };
 
 /*! Combo editor for the enum columns (Function / Normalizer): the model

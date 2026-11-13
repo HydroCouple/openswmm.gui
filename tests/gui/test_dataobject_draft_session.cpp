@@ -43,6 +43,14 @@
 #include "ui/dialogs/inleteditordialog.h"
 #include "ui/dialogs/streeteditordialog.h"
 #include "ui/dialogs/transecteditordialog.h"
+#include "ui/dialogs/snowpackeditordialog.h"
+#include "ui/dialogs/landuseeditordialog.h"
+#include "ui/dialogs/ruleseditordialog.h"
+#include "ui/dialogs/hydrographgroupeditor.h"
+#include "layers/hydrographmodels.h"
+#include "ui/models/qualityfunctiontablemodels.h"
+#include "snowpack/snowpackprovider.h"
+#include "snowpack/snowpackregistry.h"
 #include "transect/transectprovider.h"
 #include "ui/dialogs/timeseriesassignmentdialog.h"
 #include "ui/dialogs/timeserieseditordialog.h"
@@ -55,6 +63,10 @@
 #include <openswmm/engine/openswmm_tables.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
 #include <openswmm/engine/openswmm_subcatchments.h>
+#include <openswmm/engine/openswmm_snow.h>
+#include <openswmm/engine/openswmm_quality.h>
+#include <openswmm/engine/openswmm_controls.h>
+#include <openswmm/engine/openswmm_inflows.h>
 
 #include <QAction>
 #include <QApplication>
@@ -369,6 +381,7 @@ FamilyProbe familyProbe(const QString &family)
 {
     using namespace openswmmvis;
     const QString tableFixture = QStringLiteral("data_object_table_fixture.inp");
+    const QString phase6Fixture = QStringLiteral("data_object_phase6_fixture.inp");
     const auto pressDelete = [](QWidget *host, QString *question) {
         answerNextPromptReading(QStringLiteral("Yes"), question);
         if (auto *b = buttonWithText(host, QStringLiteral("Delete")))
@@ -469,6 +482,44 @@ FamilyProbe familyProbe(const QString &family)
              },
              pressDelete,
              [](QWidget *host) -> QDialog * { return host->findChild<ui::TransectEditorDialog *>(); }};
+    } else if (family == QStringLiteral("landuse")) {
+        f = {phase6Fixture, SWMMModelLayer::DataLandUses, QStringLiteral("Commercial"), 3.5,
+             [](SWMM_Engine e, const QString &n) { return swmm_landuse_index(e, n.toUtf8().constData()); },
+             [](SWMM_Engine e) { return swmm_landuse_count(e); },
+             [](SWMM_Engine e, const QString &n) {
+                 double v = -1;
+                 swmm_landuse_get_sweep_interval(e, swmm_landuse_index(e, n.toUtf8().constData()), &v);
+                 return v;
+             },
+             [](QWidget *host, double v) -> DataObjectDraftSession * {
+                 auto *d = host->findChild<ui::LandUseEditorDialog *>();
+                 if (!d || !spinFor(d, QStringLiteral("Sweep Interval (days)")))
+                     return nullptr;
+                 spinFor(d, QStringLiteral("Sweep Interval (days)"))->setValue(v);
+                 return d->draftSession();
+             },
+             pressDelete,
+             [](QWidget *host) -> QDialog * { return host->findChild<ui::LandUseEditorDialog *>(); }};
+    } else if (family == QStringLiteral("snowpack")) {
+        f = {phase6Fixture, SWMMModelLayer::DataSnowpacks, QStringLiteral("Snow"), 2.5,
+             [](SWMM_Engine e, const QString &n) { return swmm_snowpack_index(e, n.toUtf8().constData()); },
+             [](SWMM_Engine e) { return swmm_snowpack_count(e); },
+             [](SWMM_Engine e, const QString &n) { // removal threshold depth
+                 double r[6] = {-1, 0, 0, 0, 0, 0};
+                 swmm_snowpack_get_removal(e, swmm_snowpack_index(e, n.toUtf8().constData()), &r[0],
+                                           &r[1], &r[2], &r[3], &r[4], &r[5]);
+                 return r[0];
+             },
+             [](QWidget *host, double v) -> DataObjectDraftSession * {
+                 auto *d = host->findChild<ui::SnowpackEditorDialog *>();
+                 auto *spin = d ? d->findChild<QDoubleSpinBox *>(QStringLiteral("snowParameter21")) : nullptr;
+                 if (!spin)
+                     return nullptr;
+                 spin->setValue(v);
+                 return d->draftSession();
+             },
+             pressDelete,
+             [](QWidget *host) -> QDialog * { return host->findChild<ui::SnowpackEditorDialog *>(); }};
     } else {
         f = {QStringLiteral("single_rain_series.inp"), SWMMModelLayer::DataTimeSeries, kSeries, 5.5,
              [](SWMM_Engine e, const QString &n) {
@@ -1140,7 +1191,9 @@ private slots:
     void deleteUndoBringsBackTheObjectAndItsSettings_data()
     {
         QTest::addColumn<QString>("family");
-        for (const char *family : {"pollutant", "aquifer", "street", "inlet", "transect", "timeseries"})
+        for (const char *family :
+             {"pollutant", "aquifer", "street", "inlet", "transect", "timeseries", "snowpack",
+              "landuse"})
             QTest::newRow(family) << QString::fromLatin1(family);
     }
 
@@ -1209,6 +1262,7 @@ private slots:
         QTest::newRow("pollutant") << QStringLiteral("pollutant") << QStringLiteral("[POLLUTANTS]");
         QTest::newRow("aquifer") << QStringLiteral("aquifer") << QStringLiteral("[AQUIFERS]");
         QTest::newRow("street") << QStringLiteral("street") << QStringLiteral("[STREETS]");
+        QTest::newRow("snowpack") << QStringLiteral("snowpack") << QStringLiteral("[SNOWPACKS]");
     }
 
     /*! Plan §9 record-completeness gate: change every field the editor shows,
@@ -1336,6 +1390,380 @@ private slots:
         undo.redo();
         QVERIFY(probe.index(eng, renamed) >= 0);
         delete w;
+    }
+
+    /*! Phase 6, Unit Hydrographs: the R-T-K and decay tables edit a draft per
+     *  group (the engine is untouched until Apply, one undo step), and Undo of
+     *  a group delete brings back its gage and parameter rows (plan D8). */
+    void hydrographDraftUntilApplyAndUndoableGroups()
+    {
+        QString why;
+        SWMMVisProjectWindow *w = openFixtureCopy(QStringLiteral("hydrograph_draft"), &why,
+                                                  QStringLiteral("data_object_phase6_fixture.inp"),
+                                                  QStringLiteral("phase6"));
+        QVERIFY2(w, qPrintable(why));
+        const auto guard = qScopeGuard([w] { delete w; });
+        SWMMModelLayer *layer = w->modelLayer();
+        SWMM_Engine eng = layer->engine();
+        const auto shortR = [eng](const char *group) { // ALL months, short response
+            char name[64];
+            int month = 0, response = 0;
+            double v[6] = {};
+            for (int i = 0; i < swmm_hydrograph_count(eng); ++i)
+                if (swmm_hydrograph_get(eng, i, name, int(sizeof name), &month, &response, &v[0],
+                                        &v[1], &v[2], &v[3], &v[4], &v[5]) == SWMM_OK &&
+                    qstrcmp(name, group) == 0 && month == -1 && response == 0)
+                    return v[0];
+            return -1.0;
+        };
+        QCOMPARE(shortR("GroupB"), 0.1);
+        QCOMPARE(swmm_rdii_decay_count(eng), 0);
+
+        QWidget host;
+        QUndoStack undo;
+        ComprehensiveEditorRegistry::instance().openForObject(
+            SWMMModelLayer::DataHydrographs, layer, &undo, QStringLiteral("GroupB"), &host);
+        HydrographGroupEditor *editor = nullptr;
+        for (auto *e : host.findChildren<HydrographGroupEditor *>())
+            if (e->isVisible())
+                editor = e;
+        QVERIFY(editor && editor->rtkModel() && editor->decayModel());
+        DataObjectDraftSession *session = editor->draftSession();
+        auto *rtk = editor->rtkModel();
+        auto *decay = editor->decayModel();
+        QCOMPARE(rtk->index(0, HydrographRtkTableModel::ColR).data(Qt::EditRole).toDouble(), 0.1);
+        QVERIFY(rtk->setData(rtk->index(0, HydrographRtkTableModel::ColR), 0.25, Qt::EditRole));
+        QVERIFY(decay->setData(decay->index(0, HydrographDecayTableModel::ColActive), Qt::Checked,
+                               Qt::CheckStateRole));
+        QVERIFY(session->hasDraft());
+        QCOMPARE(rtk->index(0, HydrographRtkTableModel::ColR).data(Qt::EditRole).toDouble(), 0.25);
+        QCOMPARE(shortR("GroupB"), 0.1); // the engine has not seen it
+        QCOMPARE(swmm_rdii_decay_count(eng), 0);
+
+        QVERIFY2(session->apply(), qPrintable(session->message()));
+        QCOMPARE(shortR("GroupB"), 0.25);
+        QCOMPARE(swmm_rdii_decay_count(eng), 1);
+        QCOMPARE(undo.count(), 1);
+        undo.undo();
+        QCOMPARE(shortR("GroupB"), 0.1);
+        QCOMPARE(swmm_rdii_decay_count(eng), 0);
+        undo.redo();
+        QCOMPARE(shortR("GroupB"), 0.25);
+
+        // Delete the group; Undo brings it back with its rows.
+        bool seen = false;
+        answerNextPrompt(QStringLiteral("Yes"), &seen);
+        QVERIFY(QMetaObject::invokeMethod(editor, "onDeleteGroup"));
+        QVERIFY(seen);
+        QCOMPARE(shortR("GroupB"), -1.0);
+        QCOMPARE(undo.count(), 2);
+        undo.undo();
+        QCOMPARE(shortR("GroupB"), 0.25);
+        QCOMPARE(swmm_rdii_decay_count(eng), 1);
+        editor->close();
+    }
+
+    /*! Phase 6, Control Rules: each rule's text is a draft until Apply (one
+     *  undo step), kept while another rule is shown, and kept when the engine
+     *  refuses it. New, Delete and Rename are one undo step each; Undo of a
+     *  delete puts the rule back in its place in the rule order. */
+    void rulesDraftUntilApplyAndUndoableStructure()
+    {
+        using openswmmvis::ui::RulesEditorDialog;
+        QString why;
+        SWMMVisProjectWindow *w = openFixtureCopy(QStringLiteral("rules_draft"), &why,
+                                                  QStringLiteral("data_object_phase6_fixture.inp"),
+                                                  QStringLiteral("phase6"));
+        QVERIFY2(w, qPrintable(why));
+        const auto guard = qScopeGuard([w] { delete w; });
+        SWMMModelLayer *layer = w->modelLayer();
+        SWMM_Engine eng = layer->engine();
+        const auto ruleText = [eng](int i) {
+            QByteArray bytes(8192, 0);
+            swmm_control_get_rule(eng, i, bytes.data(), int(bytes.size()));
+            return QString::fromUtf8(bytes.constData());
+        };
+        const auto ruleId = [eng](int i) {
+            char id[256] = {};
+            swmm_control_get_id(eng, i, id, int(sizeof id));
+            return QString::fromUtf8(id);
+        };
+        QCOMPARE(swmm_control_count(eng), 2);
+        const QString originalB = ruleText(1);
+        QVERIFY(originalB.contains(QStringLiteral("DEPTH > 2")));
+
+        QWidget host;
+        QUndoStack undo;
+        ComprehensiveEditorRegistry::instance().openForObject(SWMMModelLayer::DataControls, layer,
+                                                              &undo, QStringLiteral("RuleB"), &host);
+        RulesEditorDialog *dialog = nullptr;
+        for (auto *d : host.findChildren<RulesEditorDialog *>())
+            if (d->isVisible())
+                dialog = d;
+        QVERIFY(dialog && dialog->currentProvider());
+        DataObjectDraftSession *session = dialog->draftSession();
+        auto *code = dialog->findChild<QTextEdit *>();
+        QVERIFY(code);
+        code->setPlainText(code->toPlainText().replace(QStringLiteral("DEPTH > 2"),
+                                                       QStringLiteral("DEPTH > 3")));
+        QVERIFY(session->hasDraft());
+        QCOMPARE(ruleText(1), originalB); // the engine has not seen it
+
+        // Another rule shows its own text; coming back shows the draft.
+        dialog->openForRule(QStringLiteral("RuleA"));
+        QVERIFY(code->toPlainText().contains(QStringLiteral("DEPTH > 1")));
+        dialog->openForRule(QStringLiteral("RuleB"));
+        QVERIFY(code->toPlainText().contains(QStringLiteral("DEPTH > 3")));
+
+        QVERIFY2(session->apply(), qPrintable(session->message()));
+        QVERIFY(ruleText(1).contains(QStringLiteral("DEPTH > 3")));
+        QCOMPARE(undo.count(), 1);
+        undo.undo();
+        QCOMPARE(ruleText(1), originalB);
+        undo.redo();
+        QVERIFY(ruleText(1).contains(QStringLiteral("DEPTH > 3")));
+
+        // Text the engine refuses: nothing changes and the draft stays.
+        code->setPlainText(QStringLiteral("RULE RuleB\nIF NODE NoSuchNode DEPTH > 1\n"
+                                          "THEN CONDUIT C1 STATUS = CLOSED"));
+        QVERIFY(!session->apply());
+        QCOMPARE(session->state(), State::Rejected);
+        QVERIFY(ruleText(1).contains(QStringLiteral("DEPTH > 3")));
+        QVERIFY(session->hasDraft());
+        QCOMPARE(undo.count(), 1);
+        session->revert();
+
+        // Delete the first rule; Undo puts it back first.
+        dialog->openForRule(QStringLiteral("RuleA"));
+        QString question;
+        answerNextPromptReading(QStringLiteral("Yes"), &question);
+        dialog->invokeDelete();
+        QCOMPARE(swmm_control_count(eng), 1);
+        QCOMPARE(undo.count(), 2);
+        undo.undo();
+        QCOMPARE(swmm_control_count(eng), 2);
+        QCOMPARE(ruleId(0), QStringLiteral("RuleA"));
+        QCOMPARE(ruleId(1), QStringLiteral("RuleB"));
+
+        // Rename: one step; Undo gives the old name back.
+        dialog->openForRule(QStringLiteral("RuleB"));
+        QVERIFY(dialog->renameCurrent(QStringLiteral("RuleC")));
+        QCOMPARE(ruleId(1), QStringLiteral("RuleC"));
+        undo.undo();
+        QCOMPARE(ruleId(1), QStringLiteral("RuleB"));
+        dialog->close();
+    }
+
+    /*! Phase 6, Land Use: sweeping and the Buildup / Washoff grids edit one
+     *  draft record. The engine and the shared record keep the applied values
+     *  until Apply; Apply is one undo step that changes [LANDUSES], [BUILDUP]
+     *  and [WASHOFF], and Undo gives back the original text. The grids keep
+     *  the shared writer's rules (no coefficients on a NONE row), a pollutant
+     *  added during a draft keeps the edits, and Undo of a delete brings the
+     *  buildup back (plan D8). */
+    void landUseDraftCoversSweepBuildupAndWashoff()
+    {
+        using openswmmvis::ui::BuildupTableModel;
+        using openswmmvis::ui::LandUseEditorDialog;
+        using openswmmvis::ui::WashoffTableModel;
+        QString why, err;
+        SWMMVisProjectWindow *w = openFixtureCopy(QStringLiteral("landuse_record"), &why,
+                                                  QStringLiteral("data_object_phase6_fixture.inp"),
+                                                  QStringLiteral("phase6"));
+        QVERIFY2(w, qPrintable(why));
+        const auto guard = qScopeGuard([w] { delete w; });
+        SWMMModelLayer *layer = w->modelLayer();
+        SWMM_Engine eng = layer->engine();
+        const QString base = outDir(QStringLiteral("phase6")) + QStringLiteral("/landuse_record");
+        const auto saved = [&](const QString &tag) {
+            const QString path = base + QLatin1Char('_') + tag + QStringLiteral(".inp");
+            QFile::remove(path);
+            if (!w->saveAs(path, &err))
+                return QStringList{err};
+            return inpSection(path, QStringLiteral("[LANDUSES]")) +
+                   inpSection(path, QStringLiteral("[BUILDUP]")) +
+                   inpSection(path, QStringLiteral("[WASHOFF]"));
+        };
+        const auto buildupC1 = [eng](const char *landUse, int pollutant) {
+            int ft = 0, norm = 0;
+            double c1 = -1, c2 = 0, c3 = 0;
+            swmm_buildup_get(eng, swmm_landuse_index(eng, landUse), pollutant, &ft, &c1, &c2, &c3,
+                             &norm);
+            return c1;
+        };
+        const QStringList original = saved(QStringLiteral("A_original"));
+        QWidget host;
+        QUndoStack undo;
+        ComprehensiveEditorRegistry::instance().openForObject(
+            SWMMModelLayer::DataLandUses, layer, &undo, QStringLiteral("Commercial"), &host);
+        auto *dialog = host.findChild<LandUseEditorDialog *>();
+        QVERIFY(dialog);
+        DataObjectDraftSession *session = dialog->draftSession();
+        BuildupTableModel *buildup = dialog->buildupModel();
+        WashoffTableModel *washoff = dialog->washoffModel();
+        QCOMPARE(buildup->rowCount(), 2); // TSS, Lead
+        QCOMPARE(buildup->index(0, BuildupTableModel::ColC1).data(Qt::EditRole).toDouble(), 80.0);
+
+        // A NONE row takes no coefficients (the shared writer's rule).
+        QVERIFY(!buildup->setData(buildup->index(1, BuildupTableModel::ColC1), 5.0, Qt::EditRole));
+        QVERIFY(!session->hasDraft());
+
+        spinFor(dialog, QStringLiteral("Sweep Interval (days)"))->setValue(3.5);
+        QVERIFY(buildup->setData(buildup->index(0, BuildupTableModel::ColC1), 90.0, Qt::EditRole));
+        QVERIFY(buildup->setData(buildup->index(1, BuildupTableModel::ColFunction),
+                                 QStringLiteral("POW"), Qt::EditRole));
+        QVERIFY(buildup->setData(buildup->index(1, BuildupTableModel::ColC1), 42.0, Qt::EditRole));
+        QVERIFY(washoff->setData(washoff->index(0, WashoffTableModel::ColCoeff), 2.5, Qt::EditRole));
+        QVERIFY(washoff->setData(washoff->index(1, WashoffTableModel::ColSweepEffic), 55.0,
+                                 Qt::EditRole));
+        QVERIFY(session->hasDraft());
+        // The draft shows; the engine and the shared record keep the applied values.
+        QCOMPARE(buildup->index(0, BuildupTableModel::ColC1).data(Qt::EditRole).toDouble(), 90.0);
+        QCOMPARE(buildupC1("Commercial", 0), 80.0);
+        const QVariantMap shared = DataObjectAttributeTableModel::dataRecord(
+            layer, SWMMModelLayer::DataLandUses, QStringLiteral("Commercial"));
+        QCOMPARE(shared.value(QStringLiteral("sweepInterval")).toDouble(), 7.0);
+        QCOMPARE(undo.count(), 0);
+
+        // A pollutant added meanwhile (the editor opened from an object does not
+        // follow the pollutant set): the edits stay and Apply still writes them.
+        auto *polls = qobject_cast<PollutantRegistry *>(layer->ensurePollutantRegistry());
+        QVERIFY(polls && polls->create(QStringLiteral("Zinc")));
+        QVERIFY(swmm_pollutant_index(eng, "Zinc") >= 0);
+        QVERIFY2(session->apply(), qPrintable(session->message()));
+        dialog->refreshPollutants();
+        QCOMPARE(buildup->rowCount(), 3);
+        QCOMPARE(buildup->index(0, BuildupTableModel::ColC1).data(Qt::EditRole).toDouble(), 90.0);
+        QCOMPARE(undo.count(), 1);
+        QCOMPARE(buildupC1("Commercial", 0), 90.0);
+        QCOMPARE(buildupC1("Commercial", 1), 42.0);
+        const QStringList applied = saved(QStringLiteral("B_applied"));
+        QVERIFY(applied != original);
+        QVERIFY(applied.join(QLatin1Char('\n')).contains(QStringLiteral("Commercial")));
+
+        // Undo of a delete brings back the buildup, not just the land use.
+        QString question;
+        answerNextPromptReading(QStringLiteral("Yes"), &question);
+        buttonWithText(dialog, QStringLiteral("Delete"))->click();
+        QTRY_COMPARE(swmm_landuse_index(eng, "Commercial"), -1);
+        QVERIFY2(question.contains(QStringLiteral("Undo brings back")), qPrintable(question));
+        dialog->close();
+        undo.undo();
+        QVERIFY(swmm_landuse_index(eng, "Commercial") >= 0);
+        QCOMPARE(buildupC1("Commercial", 0), 90.0);
+        QCOMPARE(buildupC1("Commercial", 1), 42.0);
+
+        undo.undo(); // the Apply
+        QCOMPARE(buildupC1("Commercial", 0), 80.0);
+        QVERIFY(polls->findByName(QStringLiteral("Zinc")));
+        polls->remove(polls->findByName(QStringLiteral("Zinc")));
+        QCOMPARE(saved(QStringLiteral("C_undone")), original);
+    }
+
+    /*! Phase 6, Snow Pack: the editor's own rules act on the draft, and the
+     *  model sees nothing until Apply. A UEB site value on a pack inheriting a
+     *  UEB project makes it an explicit UEB pack; "Project default" resets the
+     *  site values; a value still being typed is applied by Ctrl+Return; the
+     *  engine's reason for refusing a pack reaches the status line; and the
+     *  picker's "Use Snow Pack" reads "Apply and Use" while there is a draft. */
+    void snowpackDraftRulesAndPicker()
+    {
+        using openswmmvis::snowpack::SnowpackProvider;
+        using openswmmvis::snowpack::SnowpackRegistry;
+        using openswmmvis::ui::SnowpackEditorDialog;
+        QString why;
+        SWMMVisProjectWindow *w = openFixtureCopy(QStringLiteral("snowpack_rules"), &why,
+                                                  QStringLiteral("data_object_phase6_fixture.inp"),
+                                                  QStringLiteral("phase6"));
+        QVERIFY2(w, qPrintable(why));
+        const auto guard = qScopeGuard([w] { delete w; });
+        SWMMModelLayer *layer = w->modelLayer();
+        SWMM_Engine eng = layer->engine();
+        const int pack = swmm_snowpack_index(eng, "Snow");
+        QVERIFY(pack >= 0);
+        QCOMPARE(swmm_snow_set_model(eng, 1), SWMM_OK); // the project uses UEB
+        auto *reg = qobject_cast<SnowpackRegistry *>(layer->ensureSnowpackRegistry());
+        QVERIFY(reg);
+        QUndoStack undo;
+        SnowpackEditorDialog dialog(reg, layer);
+        dialog.setUndoStack(&undo);
+        dialog.openForSnowpack(QStringLiteral("Snow"));
+        DataObjectDraftSession *session = dialog.draftSession();
+        auto *kind = dialog.findChild<QComboBox *>(QStringLiteral("snowModelKind"));
+        const auto spin = [&dialog](int k) {
+            return dialog.findChild<QDoubleSpinBox *>(QStringLiteral("snowParameter%1").arg(k));
+        };
+        QVERIFY(kind && spin(SnowpackProvider::UebForest));
+        QCOMPARE(kind->currentData().toInt(), -1);
+        QVERIFY(spin(SnowpackProvider::UebForest)->isEnabled()); // inherited UEB
+
+        // A site value makes the draft explicit UEB; the model is untouched.
+        spin(SnowpackProvider::UebForest)->setValue(0.4);
+        QCOMPARE(kind->currentData().toInt(), 1);
+        SWMM_UebSnowpack ueb{};
+        QCOMPARE(swmm_snowpack_get_ueb(eng, pack, &ueb), SWMM_OK);
+        QCOMPARE(ueb.model, -1);
+        QCOMPARE(ueb.forest_fraction, 0.0);
+        QVERIFY(session->hasDraft());
+
+        // Project default resets the site values in the draft; back to the
+        // model's values, so no draft is left.
+        kind->setCurrentIndex(kind->findData(-1));
+        QCOMPARE(spin(SnowpackProvider::UebForest)->value(), 0.0);
+        QVERIFY(!session->hasDraft());
+
+        // A value still being typed (the spin boxes commit on Enter) is applied.
+        QDoubleSpinBox *depth = spin(SnowpackProvider::RemovalDsnow);
+        dialog.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&dialog));
+        dialog.activateWindow();
+        depth->setFocus();
+        QTRY_VERIFY(depth->hasFocus());
+        depth->selectAll();
+        QTest::keyClicks(depth, QStringLiteral("2.5"));
+        QVERIFY(!session->hasDraft());
+        QTest::keyClick(depth, Qt::Key_Return, Qt::ControlModifier); // Apply's shortcut
+        double r[6] = {};
+        QCOMPARE(swmm_snowpack_get_removal(eng, pack, &r[0], &r[1], &r[2], &r[3], &r[4], &r[5]),
+                 SWMM_OK);
+        QCOMPARE(r[0], 2.5);
+        QCOMPARE(undo.count(), 1);
+
+        // Removal fractions over one: the engine refuses, says why, nothing changes.
+        spin(SnowpackProvider::RemovalFSubcatch)->setValue(0.9);
+        QVERIFY(!session->apply());
+        QCOMPARE(session->state(), State::Rejected);
+        QVERIFY2(session->message().contains(QStringLiteral("Snow (")), qPrintable(session->message()));
+        QCOMPARE(swmm_snowpack_get_removal(eng, pack, &r[0], &r[1], &r[2], &r[3], &r[4], &r[5]),
+                 SWMM_OK);
+        QCOMPARE(r[5], 0.1);
+        QVERIFY(session->hasDraft());
+        QCOMPARE(undo.count(), 1);
+        session->revert();
+        dialog.hide();
+
+        // The picker: "Use Snow Pack", "Apply and Use" with a draft (applied first).
+        bool sawUse = false, sawApplyAndUse = false;
+        QTimer::singleShot(0, [&] {
+            auto *picker = qobject_cast<SnowpackEditorDialog *>(QApplication::activeModalWidget());
+            if (!picker)
+                return;
+            auto *use = picker->findChild<QPushButton *>(QStringLiteral("draftClose"));
+            sawUse = use && use->text() == QStringLiteral("Use Snow Pack");
+            picker->findChild<QDoubleSpinBox *>(QStringLiteral("snowParameter21"))->setValue(3.5);
+            sawApplyAndUse = use && use->text() == QStringLiteral("Apply and Use");
+            if (use)
+                use->click();
+            else
+                picker->reject();
+        });
+        QCOMPARE(SnowpackEditorDialog::pickSnowpack(reg, layer, QStringLiteral("Snow")),
+                 QStringLiteral("Snow"));
+        QVERIFY(sawUse);
+        QVERIFY(sawApplyAndUse);
+        QCOMPARE(swmm_snowpack_get_removal(eng, pack, &r[0], &r[1], &r[2], &r[3], &r[4], &r[5]),
+                 SWMM_OK);
+        QCOMPARE(r[0], 3.5);
     }
 
     /*! Cost of the draft at scale: opening the editor (the draft shares the

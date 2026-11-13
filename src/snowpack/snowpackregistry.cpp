@@ -131,9 +131,12 @@ bool SnowpackRegistry::rename(SnowpackProvider *p, const QString &newName)
     return true;
 }
 
-int SnowpackRegistry::loadFromEngine(void *engineHandle)
+int SnowpackRegistry::loadFromEngine(void *engineHandle, const QString &onlyName)
 {
-    m_saveError.clear();
+    // Reading back one pack after a save keeps that save's diagnostic: an
+    // editor's Apply reports why the model refused its values.
+    if (onlyName.isEmpty())
+        m_saveError.clear();
     if (!engineHandle) {
         m_saveError = tr("No model is open.");
         return -1;
@@ -151,12 +154,19 @@ int SnowpackRegistry::loadFromEngine(void *engineHandle)
         if (!cid || !*cid)
             continue;
         const QString id = QString::fromUtf8(cid);
-        if (hasName(id))
+        if (!onlyName.isEmpty() && id.compare(onlyName, Qt::CaseInsensitive) != 0)
+            continue;
+        if (onlyName.isEmpty() && hasName(id))
             continue;
 
-        SnowpackProvider *p = create(id);
+        SnowpackProvider *p = findByName(id);
+        if (!p)
+            p = create(id);
         if (!p)
             continue;
+        int defaultModel = 0;
+        if (swmm_snow_get_model(eng, &defaultModel) == SWMM_OK)
+            p->setDefaultModel(defaultModel);
 
         // Each engine group is read into a scratch array, then copied into the
         // provider only when the read succeeded.
@@ -199,7 +209,7 @@ int SnowpackRegistry::saveToEngine()
     return saveToEngine(m_engineHandle);
 }
 
-int SnowpackRegistry::saveToEngine(void *engineHandle)
+int SnowpackRegistry::saveToEngine(void *engineHandle, const QString &onlyName)
 {
     m_saveError.clear();
     if (!engineHandle) {
@@ -209,10 +219,14 @@ int SnowpackRegistry::saveToEngine(void *engineHandle)
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
     m_engineHandle = engineHandle;
 
-    std::vector<SWMM_SnowpackEdit> edits(m_providers.size());
-    std::vector<QByteArray> names(m_providers.size()), destinations(m_providers.size());
-    for (int i = 0; i < m_providers.size(); ++i) {
-        const auto *p = m_providers[i];
+    QVector<const SnowpackProvider *> written;
+    for (const SnowpackProvider *p : m_providers)
+        if (onlyName.isEmpty() || p->name().compare(onlyName, Qt::CaseInsensitive) == 0)
+            written.push_back(p);
+    std::vector<SWMM_SnowpackEdit> edits(written.size());
+    std::vector<QByteArray> names(written.size()), destinations(written.size());
+    for (int i = 0; i < written.size(); ++i) {
+        const auto *p = written[i];
         auto &edit = edits[i];
         names[i] = p->name().toUtf8();
         destinations[i] = p->removalSubcatch().toUtf8();

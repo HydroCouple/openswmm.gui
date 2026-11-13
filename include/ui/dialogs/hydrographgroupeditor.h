@@ -38,8 +38,10 @@
 #define HYDROGRAPHGROUPEDITOR_H
 
 #include <QDialog>
+#include <QHash>
 #include <QPointer>
 #include <QString>
+#include <QVariantMap>
 
 class QListView;
 class QTableView;
@@ -50,7 +52,7 @@ class QLineEdit;
 class QSplitter;
 class QSortFilterProxyModel;
 class QToolButton;
-class QDialogButtonBox;
+class QUndoStack;
 class QGraphicsSimpleTextItem;
 
 class SWMMModelLayer;
@@ -74,6 +76,8 @@ namespace openswmmvis::ui
 {
 class InteractiveChartView;
 class ChartAxisFormatController;
+class DataObjectDraftSession;
+class DataObjectDraftFooter;
 }
 
 class HydrographGroupEditor : public QDialog
@@ -85,10 +89,10 @@ public:
      * @param[in] layer Nullable model layer, guarded by QPointer; models/engine remain
      * layer-owned. Destruction or engineAboutToClose invalidates the editor.
      * @param[in] parent Optional Qt parent owning the dialog.
-     * @details GUI-thread use only. Owns proxy, controls and chart; selects the first visible
-     * group when available. Table/registry changes are applied live through layer helpers;
-     * closing does not roll them back. Table contexts are shared layer models, so this editor
-     * does not own independent draft tables.
+     * @details GUI-thread use only. Owns proxy, controls, chart and its own R-T-K, initial
+     * abstraction and decay tables, which show and edit a draft per group: nothing reaches the
+     * model until Apply (plan workplans/DATA_OBJECT_APPLY_REVERT_PLAN_2026-11-11.md). New,
+     * Delete and Rename take effect at once, one undo step each.
      */
     explicit HydrographGroupEditor(SWMMModelLayer *layer, QWidget *parent = nullptr);
     /**
@@ -109,6 +113,15 @@ public:
      * visible / raised. Unknown/filtered names leave the selection unchanged.
      */
     void openForGroup(const QString &name);
+
+    /*! Undo stack for Apply, New, Delete and Rename (one step each). Without one
+     *  the layer's map undo stack is used. */
+    void setUndoStack(QUndoStack *stack);
+    openswmmvis::ui::DataObjectDraftSession *draftSession() const noexcept { return m_session; }
+    HydrographRtkTableModel *rtkModel() const noexcept { return m_rtkModel; }
+    HydrographDecayTableModel *decayModel() const noexcept { return m_decayModel; }
+    /*! Closing with unapplied changes asks Apply / Discard / Cancel first. */
+    void done(int result) override;
 
 public slots:
     /**
@@ -223,18 +236,6 @@ private slots:
      * @details Does not interpret a regular expression or mutate group identities.
      */
     void onFilterTextChanged(const QString &text);
-    /**
-     * @brief Flush focused table editors and refresh the plot while keeping the editor open.
-     * @details Invalidated context is ignored. Edits already publish through model setData; no
-     * separate atomic Apply transaction or rollback baseline is created.
-     */
-    void onApplyClicked();
-    /**
-     * @brief Flush table editors, refresh the plot and close a valid editor.
-     * @details Uses close() rather than accept(); live edits remain regardless of dialog result.
-     * Invalid context is a no-op.
-     */
-    void onOkClicked();
     /**
      * @brief Toggle the sender marker's series and dim its label when hidden.
      * @details Requires a QLegendMarker sender with a series; otherwise ignored. Keeps the
@@ -394,8 +395,30 @@ private:
     QValueAxis *m_yAxis = nullptr;
     QLabel *m_hoverLabel = nullptr; ///< floats above plot
 
-    // Action bar.
-    QDialogButtonBox *m_buttonBox = nullptr;
+    // Apply / Revert / Close and the drafts behind them.
+    /// A group's unapplied changes: the model's record when they began, and the edited one.
+    struct Draft {
+        QVariantMap base, record;
+    };
+    QVariantMap shownRecord_(const QString &group) const;
+    /// Draft \p key = \p value on the current group by the shared writer's rules.
+    bool proposeDraft_(const QString &key, const QVariant &value, QString *error);
+    bool applyDrafts_(QString *reason);
+    void revertDrafts_();
+    /// New / Delete / Rename as one undo step each; Undo of a delete brings the group's
+    /// gage and parameter rows back (not [RDII] node assignments).
+    bool addGroupUndoably_(const QString &name);
+    bool removeGroupUndoably_(const QString &name);
+    bool renameGroupUndoably_(const QString &from, const QString &to);
+    QUndoStack *undoStack_() const;
+
+    QHash<QString, Draft> m_drafts; ///< by group name
+    QString m_selectedGroup;        ///< reselected after the group list resets (any change)
+    QVariantMap m_record;           ///< what the current group shows (draft or model)
+    openswmmvis::ui::DataObjectDraftSession *m_session = nullptr;
+    openswmmvis::ui::DataObjectDraftFooter *m_footer = nullptr;
+    QPointer<QUndoStack> m_undo;
+    bool m_applying = false; ///< own model writes: not a change from elsewhere
 
     bool m_suppressGageSignal = false;
     bool m_suppressSeasonSignal = false;

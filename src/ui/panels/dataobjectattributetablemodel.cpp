@@ -2115,9 +2115,56 @@ bool applyDataObjectValues(SWMMModelLayer *layer, DC::DataCategory category,
     return true;
 }
 
+bool applyDataObjectRecord(SWMMModelLayer *layer, DC::DataCategory category, const QString &name,
+                           const QVariantMap &before, const QVariantMap &after, QUndoStack *undo,
+                           QString *error)
+{
+    auto fail = [&](const QString &text) {
+        if (error)
+            *error = text;
+        return false;
+    };
+    if (!editable(layer))
+        return fail(tr("The model is closed or initialized. Reopen the current selection."));
+    if (!remainingCategory(category))
+        return fail(tr("This data category has no record writer."));
+    auto *provider = findProvider(registryFor(layer, category), category, name);
+    if (!provider)
+        return fail(tr("%1 is no longer available. No objects changed.").arg(name));
+    if (before == after)
+        return true;
+    // Every field where the two records differ is written, checked and undone together.
+    auto command = std::make_unique<DataObjectBatchCommand>(
+        layer, category, QStringLiteral("_record"), QVector<TargetEdit>{{provider, before, after}});
+    if (!command->commit(true))
+        return fail(tr("%1 refused the values or changed elsewhere. Previous values were restored.")
+                        .arg(name));
+    if (undo)
+        undo->push(command.release());
+    return true;
+}
+
 } // anonymous namespace
 
 // ===========================================================================
+
+bool DataObjectAttributeTableModel::proposeRecord(SWMMModelLayer *layer, DC::DataCategory category,
+                                                  const QString &name, const QString &key,
+                                                  const QVariant &value, const QVariantMap &before,
+                                                  QVariantMap *after, QString *error)
+{
+    if (!after || !editable(layer) || !remainingCategory(category))
+        return false;
+    return proposeRemaining(layer, category, name, key, value, before, *after, error);
+}
+
+bool DataObjectAttributeTableModel::applyRecord(SWMMModelLayer *layer, DC::DataCategory category,
+                                                const QString &name, const QVariantMap &before,
+                                                const QVariantMap &after, QUndoStack *undo,
+                                                QString *error)
+{
+    return applyDataObjectRecord(layer, category, name, before, after, undo, error);
+}
 
 DataObjectAttributeTableModel::DataObjectAttributeTableModel(QObject *parent)
     : QAbstractTableModel(parent)

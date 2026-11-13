@@ -3719,12 +3719,8 @@ private slots:
                 QApplication::activeModalWidget());
             if (!dialog)
                 return;
-            auto *buttons = dialog->findChild<QDialogButtonBox *>();
-            if (!buttons) {
-                dialog->reject();
-                return;
-            }
-            auto *use = buttons->button(QDialogButtonBox::Close);
+            // The editor's footer Close button reads "Use Snow Pack" in the picker.
+            auto *use = dialog->findChild<QPushButton *>(QStringLiteral("draftClose"));
             selected = use && use->text() == QStringLiteral("Use Snow Pack");
             if (use)
                 QTest::mouseClick(use, Qt::LeftButton);

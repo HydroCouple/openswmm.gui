@@ -8635,6 +8635,42 @@ bool SWMMModelLayer::applyControlRuleRemove(const QString &name, QString *outErr
     return true;
 }
 
+bool SWMMModelLayer::applyControlRuleInsert(int position, const QString &name, const QString &body,
+                                            QString *outError)
+{
+    if (!m_engine || name.isEmpty()) {
+        if (outError)
+            *outError = tr("Engine not open or rule name is empty.");
+        return false;
+    }
+    using openswmmvis::controls::ControlRuleRegistry;
+    auto *reg = qobject_cast<ControlRuleRegistry *>(ensureControlRuleRegistry());
+    if (reg && reg->hasName(name)) {
+        if (outError)
+            *outError = tr("A control rule named \"%1\" already exists.").arg(name);
+        return false;
+    }
+    std::vector<std::string> snap;
+    std::vector<std::string> ids;
+    if (!snapshotControlRules(m_engine, snap, ids)) {
+        if (outError)
+            *outError = tr("Failed to snapshot existing rules.");
+        return false;
+    }
+    const std::vector<std::string> original = snap;
+    const auto slot = static_cast<std::size_t>(std::clamp(position, 0, int(snap.size())));
+    snap.insert(snap.begin() + slot, body.toUtf8().toStdString());
+    if (!rewriteControlRules(m_engine, snap, original)) {
+        if (outError)
+            *outError = tr("Engine refused the rewritten rule list.");
+        return false;
+    }
+    if (reg)
+        reg->create(name, body);
+    emit controlRulesChanged(QString());
+    return true;
+}
+
 QObject *SWMMModelLayer::ensureControlRuleRegistry()
 {
     using openswmmvis::controls::ControlRuleRegistry;

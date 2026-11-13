@@ -253,6 +253,13 @@ QVariant HydrographRtkTableModel::data(const QModelIndex &index, int role) const
     if (!m_layer || !m_layer->engine() || m_name.isEmpty())
         return {};
 
+    if (m_record.read) { // draft mode: the editor's record
+        const QVariantMap rec = m_record.read();
+        const QString p = QStringLiteral("rtk/%1/%2/").arg(m_month).arg(row);
+        if (!rec.value(p + QStringLiteral("present")).toInt())
+            return {}; // blank cell — distinct from explicit 0.
+        return rec.value(p + QString::number(col - 1)).toDouble();
+    }
     const QByteArray uh = m_name.toUtf8();
     const int idx = findEntryIndex(m_layer->engine(), uh, m_month, row);
     if (idx < 0)
@@ -307,7 +314,7 @@ bool HydrographRtkTableModel::setData(const QModelIndex &index, const QVariant &
     else if (col == ColK)
         k = v;
 
-    return DataObjectAttributeTableModel::applyValues(m_layer,SWMMModelLayer::DataHydrographs,{m_name},QString("rtk/%1/%2/%3").arg(m_month).arg(row).arg(col-1),v,m_layer->editCanvas()?m_layer->editCanvas()->undoStack():nullptr);
+    return writeKey(QString("rtk/%1/%2/%3").arg(m_month).arg(row).arg(col-1),v);
 }
 
 Qt::ItemFlags HydrographRtkTableModel::flags(const QModelIndex &index) const
@@ -396,6 +403,13 @@ QVariant HydrographIaTableModel::data(const QModelIndex &index, int role) const
     if (!m_layer || !m_layer->engine() || m_name.isEmpty())
         return {};
 
+    if (m_record.read) { // draft mode: the editor's record
+        const QVariantMap rec = m_record.read();
+        const QString p = QStringLiteral("rtk/%1/%2/").arg(m_month).arg(row);
+        if (!rec.value(p + QStringLiteral("present")).toInt())
+            return {};
+        return rec.value(p + QString::number(col + 2)).toDouble();
+    }
     const QByteArray uh = m_name.toUtf8();
     const int idx = findEntryIndex(m_layer->engine(), uh, m_month, row);
     if (idx < 0)
@@ -447,7 +461,7 @@ bool HydrographIaTableModel::setData(const QModelIndex &index, const QVariant &v
     else if (col == ColDo)
         dinit = v;
 
-    return DataObjectAttributeTableModel::applyValues(m_layer,SWMMModelLayer::DataHydrographs,{m_name},QString("rtk/%1/%2/%3").arg(m_month).arg(row).arg(col+2),v,m_layer->editCanvas()?m_layer->editCanvas()->undoStack():nullptr);
+    return writeKey(QString("rtk/%1/%2/%3").arg(m_month).arg(row).arg(col+2),v);
 }
 
 Qt::ItemFlags HydrographIaTableModel::flags(const QModelIndex &index) const
@@ -538,6 +552,26 @@ QVariant HydrographDecayTableModel::data(const QModelIndex &index, int role) con
     if (!m_layer || !m_layer->engine() || m_name.isEmpty())
         return {};
 
+    if (m_record.read) { // draft mode: the editor's record
+        const QVariantMap rec = m_record.read();
+        const QString p = QStringLiteral("decay/%1/").arg(row);
+        const bool on = rec.value(p + QStringLiteral("present")).toInt() != 0;
+        const bool snow = rec.value(p + QStringLiteral("snow")).toInt() != 0;
+        if (col == ColActive)
+            return role == Qt::CheckStateRole ? QVariant(on ? Qt::Checked : Qt::Unchecked) : QVariant();
+        if (col == ColSnow)
+            return role == Qt::CheckStateRole && on ? QVariant(snow ? Qt::Checked : Qt::Unchecked)
+                                                    : QVariant();
+        if ((role != Qt::DisplayRole && role != Qt::EditRole) || !on)
+            return {};
+        if ((col == ColSnowT || col == ColSnowDdf) && !snow)
+            return {};
+        const QMap<int, QString> members{{ColKdep, "0"}, {ColK0, "1"},     {ColKT, "2"},
+                                         {ColTref, "3"}, {ColTheta, "4"},  {ColTfreeze, "5"},
+                                         {ColSnowT, "6"}, {ColSnowDdf, "7"}};
+        return members.contains(col) ? QVariant(rec.value(p + members.value(col)).toDouble())
+                                     : QVariant();
+    }
     const QByteArray uh = m_name.toUtf8();
     const int idx = findDecayIndex(m_layer->engine(), uh, row);
     const bool active = (idx >= 0);
@@ -599,7 +633,7 @@ bool HydrographDecayTableModel::setData(const QModelIndex &index, const QVariant
     if (idx >= 0)
         readDecayRow(m_layer->engine(), idx, cur);
 
-    auto apply=[&](const QString &member,const QVariant &v){return DataObjectAttributeTableModel::applyValues(m_layer,SWMMModelLayer::DataHydrographs,{m_name},QString("decay/%1/").arg(row)+member,v,m_layer->editCanvas()?m_layer->editCanvas()->undoStack():nullptr);};
+    auto apply=[&](const QString &member,const QVariant &v){return writeKey(QString("decay/%1/").arg(row)+member,v);};
     if(col==ColActive) return role==Qt::CheckStateRole && apply("present",value.toInt()==Qt::Checked?1:0);
     if(col==ColSnow)return role==Qt::CheckStateRole && apply("snow",value.toInt()==Qt::Checked?1:0);
     if (role != Qt::EditRole)
@@ -627,7 +661,16 @@ Qt::ItemFlags HydrographDecayTableModel::flags(const QModelIndex &index) const
     // exists (Active is checked) — grey them out otherwise. Existence of
     // the engine row IS the active flag. The snow numeric columns further
     // require the row's Snow checkbox to be on.
-    if (m_layer && m_layer->engine() && !m_name.isEmpty()) {
+    if (m_record.read && !m_name.isEmpty()) { // draft mode: the editor's record
+        const QVariantMap rec = m_record.read();
+        const QString p = QStringLiteral("decay/%1/").arg(index.row());
+        if (!rec.value(p + QStringLiteral("present")).toInt())
+            return Qt::ItemIsSelectable;
+        if (col == ColSnow)
+            return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable;
+        if ((col == ColSnowT || col == ColSnowDdf) && !rec.value(p + QStringLiteral("snow")).toInt())
+            return Qt::ItemIsSelectable;
+    } else if (m_layer && m_layer->engine() && !m_name.isEmpty()) {
         const int idx = findDecayIndex(m_layer->engine(), m_name.toUtf8(), index.row());
         if (idx < 0)
             return Qt::ItemIsSelectable;
@@ -695,4 +738,64 @@ void HydrographDecayTableModel::onHydrographChanged(const QString &uhName)
     // rather than dataChanged() to force the view to re-query item flags.
     beginResetModel();
     endResetModel();
+}
+
+void HydrographRtkTableModel::setRecordAccess(HydrographRecordAccess access)
+{
+    beginResetModel();
+    m_record = std::move(access);
+    endResetModel();
+}
+
+bool HydrographRtkTableModel::writeKey(const QString &key, const QVariant &value)
+{
+    if (m_record.write) { // draft mode: the editor's draft takes the edit
+        const bool taken = m_record.write(key, value);
+        if (taken)
+            emit dataChanged(index(0, 0), index(rowCount() - 1, columnCount() - 1));
+        return taken;
+    }
+    return DataObjectAttributeTableModel::applyValues(
+        m_layer, SWMMModelLayer::DataHydrographs, {m_name}, key, value,
+        m_layer->editCanvas() ? m_layer->editCanvas()->undoStack() : nullptr);
+}
+
+void HydrographIaTableModel::setRecordAccess(HydrographRecordAccess access)
+{
+    beginResetModel();
+    m_record = std::move(access);
+    endResetModel();
+}
+
+bool HydrographIaTableModel::writeKey(const QString &key, const QVariant &value)
+{
+    if (m_record.write) { // draft mode: the editor's draft takes the edit
+        const bool taken = m_record.write(key, value);
+        if (taken)
+            emit dataChanged(index(0, 0), index(rowCount() - 1, columnCount() - 1));
+        return taken;
+    }
+    return DataObjectAttributeTableModel::applyValues(
+        m_layer, SWMMModelLayer::DataHydrographs, {m_name}, key, value,
+        m_layer->editCanvas() ? m_layer->editCanvas()->undoStack() : nullptr);
+}
+
+void HydrographDecayTableModel::setRecordAccess(HydrographRecordAccess access)
+{
+    beginResetModel();
+    m_record = std::move(access);
+    endResetModel();
+}
+
+bool HydrographDecayTableModel::writeKey(const QString &key, const QVariant &value)
+{
+    if (m_record.write) { // draft mode: the editor's draft takes the edit
+        const bool taken = m_record.write(key, value);
+        if (taken)
+            emit dataChanged(index(0, 0), index(rowCount() - 1, columnCount() - 1));
+        return taken;
+    }
+    return DataObjectAttributeTableModel::applyValues(
+        m_layer, SWMMModelLayer::DataHydrographs, {m_name}, key, value,
+        m_layer->editCanvas() ? m_layer->editCanvas()->undoStack() : nullptr);
 }

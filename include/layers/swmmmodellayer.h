@@ -3773,6 +3773,14 @@ public:
      *   controlRulesChanged(empty), not explicit modelEdited/undo.
      */
     bool applyControlRuleRemove(const QString &name, QString *outError = nullptr);
+    /*! \brief Put a rule back at \p position in the rule order (0 = first; past the end
+     *  appends): Undo of a rule delete restores its place, which decides between
+     *  conflicting actions of equal priority.
+     * @param[in] body Full rule text including its `RULE <name>` header.
+     * @return False when the name is taken, there is no engine, or the engine refuses the
+     *   rewritten list (the original list is restored). Emits broad controlRulesChanged(empty). */
+    bool applyControlRuleInsert(int position, const QString &name, const QString &body,
+                                QString *outError = nullptr);
 
     /*! \brief Lazy accessor for the project-scoped `ControlRuleRegistry`.
      *  Lifetime is bound to the layer; the registry is constructed on
