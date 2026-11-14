@@ -1820,7 +1820,7 @@ double SWMMModelLayer::maxMarkerHalfBoundPx() const
     // Squares / triangles / diamonds: the visible bound a click has to
     // reach is the shape's outer vertex. For a size-N square the
     // worst case (corner) sits at N / 2 * sqrt(2) from the center.
-    // Legacy SWMM treats all glyphs as "within sym.size/2 of centre"
+    // Legacy SWMM treats all glyphs as "within sym.size/2 of center"
     // for hit-testing so this is conservatively larger than what the
     // renderer strictly needs — but that's the entire point: it
     // guarantees every pixel inside the rendered bounds is pickable.

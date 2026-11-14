@@ -20,7 +20,7 @@
  *   noScrollAt1280x800             the reason for the fold: no page needs a
  *                                  scrollbar at 1280x800, on any of its tabs.
  *
- * NORMALISATION (test 9): PreferencesManager writes back defaults for keys a
+ * NORMALIZATION (test 9): PreferencesManager writes back defaults for keys a
  * fresh settings store does not carry, so the FIRST Apply against an empty
  * store legitimately differs. The test therefore snapshots AFTER one Apply and
  * compares against a second — from then on Apply must be the identity.

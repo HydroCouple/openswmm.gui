@@ -237,7 +237,7 @@ public:
      * @param[in] extent Finite positive canvas-map bounds; scale selection treats its width as meters, so this path assumes metric canvas coordinates.
      * @param[in] viewportSize Only width is used; nonpositive substitutes1024.
      * @param[in] srs Unused optional canvas CRS; existing transforms established by onCanvasCRSChanged() determine conversion.
-     * @note Hidden/unnamed/not-ready/missing-set layers return. Four-corner canvas-to-tile bbox selects clamped row/column range; failed conversion uses original bounds. Geographic tile spacing uses111319.49metres/degree. Valid matrices require positive finite scales/pixel sizes/grid dimensions with representable indices. Network calls stay on owning thread, with per-key duplicate suppression but no global pending limit.
+     * @note Hidden/unnamed/not-ready/missing-set layers return. Four-corner canvas-to-tile bbox selects clamped row/column range; failed conversion uses original bounds. Geographic tile spacing uses111319.49meters/degree. Valid matrices require positive finite scales/pixel sizes/grid dimensions with representable indices. Network calls stay on owning thread, with per-key duplicate suppression but no global pending limit.
      */
     void fetchCache(const MapExtent &extent, const QSize &viewportSize,
                     const SpatialReferenceSystem *srs) override;

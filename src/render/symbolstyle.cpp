@@ -56,7 +56,7 @@ QColor readColor(const QVariantMap &props, const QString &key, const QColor &fal
     const QVariant &v = it.value();
     if (v.userType() == QMetaType::QColor) {
         // A QColor-typed variant is authoritative: an invalid QColor means
-        // "explicitly no colour" → fallback. (Do NOT fall through to the
+        // "explicitly no color" → fallback. (Do NOT fall through to the
         // string parse — Qt stringifies an invalid QColor as "#000000",
         // which would silently turn rejection into black.)
         const QColor c = v.value<QColor>();

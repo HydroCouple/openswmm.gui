@@ -960,7 +960,7 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult result, const QString &sourceP
     // .swmm-style.json load overwrites it right after, and any per-layer edit
     // is persisted, so the preference never fights an explicit choice. Same
     // relationship nodePen()/linkPen() have with object symbology. The old
-    // "colour by BC type" preference now seeds the sublayer's visibility.
+    // "color by BC type" preference now seeds the sublayer's visibility.
     if (auto *bs = m_meshBcSublayer->bcStyle()) {
         auto *pm = PreferencesManager::instance();
         m_meshBcSublayer->setVisible(pm->meshBcColorByType());

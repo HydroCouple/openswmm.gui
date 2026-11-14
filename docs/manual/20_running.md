@@ -146,7 +146,7 @@ run. Engine warnings appear as child rows under the job.
 | Column | Shows |
 |--------|-------|
 | **Name** | The `.inp` file name |
-| **Status** | Idle / Running / Success / Failed / Cancelled |
+| **Status** | Idle / Running / Success / Failed / Canceled |
 | **Progress** | Percent of simulated time completed |
 | **Start Date** | Engine-side simulation start, from `[OPTIONS]` |
 | **Current Date** | The engine's current simulation clock, pushed every tick |

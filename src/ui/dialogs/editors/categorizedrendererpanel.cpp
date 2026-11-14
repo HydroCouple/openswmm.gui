@@ -86,7 +86,7 @@ QString attributeKey(const QComboBox *combo)
     return combo->currentText().trimmed();
 }
 
-/*! Render the "Colour" cell as a swatch + open QColorDialog on
+/*! Render the "Color" cell as a swatch + open QColorDialog on
  *  double-click.  Duplicated from the kindrendererpanel delegate so the
  *  two stay independent — they may grow apart as categorized gains
  *  fill/stroke/marker selection. */

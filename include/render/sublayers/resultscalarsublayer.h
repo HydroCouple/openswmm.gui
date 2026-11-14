@@ -63,7 +63,7 @@ public:
      *   Labels only cell value labels.
      * @param value Fill, Contours or Labels; unknown enum integers are ignored. */
     void setPresentation(Presentation value);
-    /** @return Flat (or smooth, see smoothFill()) per-cell colour fill shown; initially true. */
+    /** @return Flat (or smooth, see smoothFill()) per-cell color fill shown; initially true. */
     bool cellFill() const { return m_cellFill; }
     /** @return The cell fill is the vertex-interpolated (smooth) variant; initially false. */
     bool smoothFill() const { return m_smoothFill; }
@@ -238,20 +238,20 @@ public:
      * This uses the fill scheme even in Contours/Labels mode and publishes nothing.
      * Read on the owning thread or with an externally synchronized immutable style snapshot. */
     QVector<QColor> cellColors(const openswmmvis::io::Mesh2DScalarFrame &frame) const;
-    /** @brief Filled contour classes of a frame: the fill scheme's level edges and one colour
-     *   per band (class colour when classified, the ramp at the band midpoint otherwise),
+    /** @brief Filled contour classes of a frame: the fill scheme's level edges and one color
+     *   per band (class color when classified, the ramp at the band midpoint otherwise),
      *   multiplied by local opacity. A set below / above color adds one band from the data
      *   minimum / up to the data maximum.
      * @param frame Borrowed frame matching variableKey() without error.
      * @param[out] levels Nondecreasing band edges, at least two on success.
-     * @param[out] colors levels.size() - 1 colours.
+     * @param[out] colors levels.size() - 1 colors.
      * @return False when hidden, unbound, mismatched or the classification is invalid. */
     bool bandStyling(const openswmmvis::io::Mesh2DScalarFrame &frame, std::vector<double> &levels,
                      QVector<QColor> &colors) const;
-    /** @brief Colours of interpolated vertex values for the smooth fill, with the fill scheme.
+    /** @brief Colors of interpolated vertex values for the smooth fill, with the fill scheme.
      * @param frame Borrowed frame supplying the classification range.
-     * @param values Vertex values; nonfinite values get a transparent colour.
-     * @return One colour per value multiplied by local opacity, or empty like cellColors(). */
+     * @param values Vertex values; nonfinite values get a transparent color.
+     * @return One color per value multiplied by local opacity, or empty like cellColors(). */
     QVector<QColor> valueColors(const openswmmvis::io::Mesh2DScalarFrame &frame,
                                 const std::vector<double> &values) const;
     /** @brief Build legend rows using descriptor metadata and an otherwise empty frame.

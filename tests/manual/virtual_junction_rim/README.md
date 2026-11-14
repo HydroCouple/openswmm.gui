@@ -20,7 +20,7 @@ profile shows both behaviors next to each other.
    - Over **VJ_A** the ground line passes through 107.75, close to the
      straight line between J1's and J2's rims.
    - Over **VJ_B** it dives to the crown at 98.50. That dip is the old
-     behaviour, kept as the fallback whenever no MaxDepth is supplied.
+     behavior, kept as the fallback whenever no MaxDepth is supplied.
 2. Select VJ_B in the map and set **Max Depth, Display** in the property
    browser (or the *Max depth* cell in the node attribute table — both write
    the same field). The dip should close as you type.

@@ -229,7 +229,7 @@ The **Labels** tab configures how a layer's features are labeled.
 | **Expression** | A label template with `{token}` placeholders, plus a button that opens the expression builder. |
 | **Font** | **Family**, **Size**, **Bold**, **Italic**, **Color**. |
 | **Halo (outline around text)** | **Enable halo**, **Color**, **Radius**. |
-| **Placement** | **Position**: *Auto*, *Above*, *Below*, *Left*, *Right*, *Centre*. |
+| **Placement** | **Position**: *Auto*, *Above*, *Below*, *Left*, *Right*, *Center*. |
 | **Visibility scale window** | **Hide when 1: ≥** (hide when zoomed further out than this denominator) and **Hide when 1: ≤** (hide when zoomed further in). `0` or *none* means no limit. |
 | **Background frame** | **Draw background behind labels**, **Color**, **Padding**, **Corner radius**. |
 | **Per-feature priority** | An attribute name; higher values win label collisions. |

@@ -1326,7 +1326,7 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
                 // Geographic model: keep the projected canvas CRS (Web
                 // Mercator by default) so the layer→canvas reprojection
                 // pipeline kicks in. Adopting EPSG:4326 here would render
-                // Plate Carrée and squash the N-S axis by cos(centre lat).
+                // Plate Carrée and squash the N-S axis by cos(center lat).
                 mCanvasCRSAdopted = true;
             }
         }

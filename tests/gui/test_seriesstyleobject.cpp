@@ -259,7 +259,7 @@ void TestSeriesStyleObject::jsonRoundTripsAllFields()
     QCOMPARE(back.areaFillColor.rgba(), s.areaFillColor.rgba());
 
     // Invalid per-aspect colors must NOT serialize (we use absence to mean
-    // "derive from main colour"). Confirm the JSON omits them when invalid.
+    // "derive from main color"). Confirm the JSON omits them when invalid.
     SeriesStyle minimal;
     const QJsonObject jm = minimal.toJson();
     QVERIFY(!jm.contains(QStringLiteral("markerFillColor")));

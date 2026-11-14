@@ -18,7 +18,7 @@
  *     per-element cull for just those members,
  *   - chunks fully outside → skipped without touching a single element.
  *
- * Membership is by bbox CENTRE, so every cell/edge id lives in exactly one
+ * Membership is by bbox CENTER, so every cell/edge id lives in exactly one
  * chunk (no dedup pass needed when unioning chunk members). Chunk bboxes
  * are the union of their members' bboxes, so a chunk bbox is always a
  * superset of every member bbox — a chunk classified "fully inside" can
