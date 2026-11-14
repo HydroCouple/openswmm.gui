@@ -131,7 +131,7 @@ void ClassificationEditor::buildUi()
         l->setContentsMargins(0, 0, 0, 0);
         l->addWidget(m_rampCombo, 1);
         l->addWidget(m_invertCheck);
-        form->addRow(tr("Colour ramp:"), rampRow);
+        form->addRow(tr("Color ramp:"), rampRow);
     }
 
     // Method + class count.
@@ -201,7 +201,7 @@ void ClassificationEditor::buildUi()
         grid->setContentsMargins(0, 0, 0, 0);
         m_logCheck = new QCheckBox(tr("Logarithmic scale"), m_outsideRow);
         m_logCheck->setObjectName(QStringLiteral("classificationLogScale"));
-        m_logCheck->setToolTip(tr("Space the colour ramp and equal-interval classes "
+        m_logCheck->setToolTip(tr("Space the color ramp and equal-interval classes "
                                   "logarithmically. A range starting at or below zero starts at "
                                   "a thousandth of its maximum."));
         grid->addRow(m_logCheck);
@@ -222,12 +222,12 @@ void ClassificationEditor::buildUi()
             l->addStretch();
             grid->addRow(row);
         };
-        outsideRow(tr("Colour values below the range"), QStringLiteral("classificationBelow"),
+        outsideRow(tr("Color values below the range"), QStringLiteral("classificationBelow"),
                    m_belowCheck, m_belowBtn, QColor(170, 170, 170));
-        outsideRow(tr("Colour values above the range"), QStringLiteral("classificationAbove"),
+        outsideRow(tr("Color values above the range"), QStringLiteral("classificationAbove"),
                    m_aboveCheck, m_aboveBtn, QColor(60, 60, 60));
         m_belowCheck->setToolTip(tr("Unchecked, values below the range are not drawn."));
-        m_aboveCheck->setToolTip(tr("Unchecked, values above the range take the top colour."));
+        m_aboveCheck->setToolTip(tr("Unchecked, values above the range take the top color."));
     }
     m_outsideRow->setVisible(false);
     form->addRow(m_outsideRow);
@@ -275,7 +275,7 @@ void ClassificationEditor::buildUi()
 
     // Class table.
     m_tableModel = new QStandardItemModel(0, 4, box);
-    m_tableModel->setHorizontalHeaderLabels({tr("Lower"), tr("Upper"), tr("Colour"), tr("Label")});
+    m_tableModel->setHorizontalHeaderLabels({tr("Lower"), tr("Upper"), tr("Color"), tr("Label")});
     m_table = new QTableView(box);
     m_table->setModel(m_tableModel);
     m_table->verticalHeader()->setVisible(false);
@@ -288,7 +288,7 @@ void ClassificationEditor::buildUi()
     m_table->setMinimumHeight(150);
     openswmmvis::ui::TableClipboard::install(m_table);
     form->addRow(m_table);
-    m_table->setAccessibleName(tr("Classification ranges, colours and labels"));
+    m_table->setAccessibleName(tr("Classification ranges, colors and labels"));
     m_rangeMinSpin->setAccessibleName(tr("Minimum classification value"));
     m_rangeMaxSpin->setAccessibleName(tr("Maximum classification value"));
     m_status = new QLabel(box);
@@ -604,7 +604,7 @@ void ClassificationEditor::updateStatus()
         if (message.isEmpty() && !s.hasCustomRamp() && !s.rampName().isEmpty() &&
             !RasterColorRamp::isBuiltin(s.rampName()))
             message = tr(
-                "The named colour ramp is unavailable; the current preview uses the grayscale fallback. Select an available ramp or import its definition.");
+                "The named color ramp is unavailable; the current preview uses the grayscale fallback. Select an available ramp or import its definition.");
     }
     m_status->setEnabled(true);
     m_status->setStyleSheet(error ? theme::errorTextStyle()

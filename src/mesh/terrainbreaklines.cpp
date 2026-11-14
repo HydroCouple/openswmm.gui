@@ -228,7 +228,7 @@ QString TerrainBreaklineExtractor::errorMsg() const
 bool TerrainBreaklineExtractor::cancelled()
 {
     if (m_opt.cancelled && m_opt.cancelled())
-        m_error = QStringLiteral("Terrain feature extraction cancelled.");
+        m_error = QStringLiteral("Terrain feature extraction canceled.");
     return !errorMsg().isEmpty();
 }
 

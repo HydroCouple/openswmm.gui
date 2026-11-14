@@ -84,9 +84,9 @@ QString MeasurementUnitManager::distanceUnitName(DistanceUnit unit)
 {
     switch (unit) {
     case Metres:
-        return QObject::tr("Metres");
+        return QObject::tr("Meters");
     case Kilometres:
-        return QObject::tr("Kilometres");
+        return QObject::tr("Kilometers");
     case Feet:
         return QObject::tr("Feet");
     case USFeet:
@@ -180,9 +180,9 @@ QString MeasurementUnitManager::areaUnitName(AreaUnit unit)
 {
     switch (unit) {
     case SquareMetres:
-        return QObject::tr("Square metres");
+        return QObject::tr("Square meters");
     case SquareKilometres:
-        return QObject::tr("Square kilometres");
+        return QObject::tr("Square kilometers");
     case Hectares:
         return QObject::tr("Hectares");
     case Acres:

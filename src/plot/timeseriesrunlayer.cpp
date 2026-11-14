@@ -195,7 +195,7 @@ SeriesData TimeSeriesRunLayer::readWindow(const TimeSeriesDataset &dataset, cons
     out.allowPairing = false;
     const auto *s = findSeries(dataset, id);
     if (!s) { out.errorMessage = tr("Unknown observation series."); return out; }
-    if (cancel && cancel->load()) { out.errorMessage = tr("Cancelled."); return out; }
+    if (cancel && cancel->load()) { out.errorMessage = tr("Canceled."); return out; }
     QString sourceError;
     const auto current = TimeSeriesStore::open(dataset.path,&sourceError);
     if (!current) { out.errorMessage = sourceError; return out; }
@@ -222,7 +222,7 @@ SeriesData TimeSeriesRunLayer::readWindow(const TimeSeriesDataset &dataset, cons
         const auto page = TimeSeriesStore::readPage(dataset.path, id, query, &error, cancel);
         if (!error.isEmpty()) { out.errorMessage = error; return out; }
         for (const auto &v : page.observations) {
-            if (cancel && cancel->load()) { out.errorMessage = tr("Cancelled."); return out; }
+            if (cancel && cancel->load()) { out.errorMessage = tr("Canceled."); return out; }
             ++records;
             if (havePrevious) {
                 const qint64 delta = v.timeKey - previous;
@@ -311,7 +311,7 @@ bool TimeSeriesRunLayer::exportCsv(const QVector<QPair<std::shared_ptr<const Tim
             const auto page = TimeSeriesStore::readPage(source.first->path, source.second, query, &detail, cancel);
             if (!detail.isEmpty()) { if (error) *error = detail; return false; }
             for (const auto &v : page.observations) {
-                if (cancel && cancel->load()) { if (error) *error = tr("Export cancelled."); return false; }
+                if (cancel && cancel->load()) { if (error) *error = tr("Export canceled."); return false; }
                 stream << quoted(source.first->id) << ',' << quoted(series->id) << ',' << quoted(series->title)
                        << ',' << quoted(v.sourceTime) << ',' << (v.hasValue ? QString::number(v.value, 'g', 17) : QString())
                        << ',' << quoted(series->unit) << ',' << quoted(v.approval) << ',' << quoted(v.qualifier)
@@ -325,7 +325,7 @@ bool TimeSeriesRunLayer::exportCsv(const QVector<QPair<std::shared_ptr<const Tim
     }
     stream.flush();
     if (stream.status() != QTextStream::Ok || (cancel && cancel->load()) || !file.commit()) {
-        if (error) *error = cancel && cancel->load() ? tr("Export cancelled.") : file.errorString();
+        if (error) *error = cancel && cancel->load() ? tr("Export canceled.") : file.errorString();
         return false;
     }
     return true;

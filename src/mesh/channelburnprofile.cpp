@@ -505,14 +505,14 @@ BurnProfile buildBurnProfile(const ChannelInput &in, const BurnOptions &opt, QSt
 
     if (in.centerline.size() < 2) {
         if (err)
-            *err = QStringLiteral("conduit '%1': centreline needs at least 2 points")
+            *err = QStringLiteral("conduit '%1': centerline needs at least 2 points")
                        .arg(in.conduitId);
         return p;
     }
     for (const QPointF &pt : in.centerline)
         if (!finitePt(pt)) {
             if (err)
-                *err = QStringLiteral("conduit '%1': centreline has a non-finite vertex")
+                *err = QStringLiteral("conduit '%1': centerline has a non-finite vertex")
                            .arg(in.conduitId);
             return p;
         }
@@ -553,7 +553,7 @@ BurnProfile buildBurnProfile(const ChannelInput &in, const BurnOptions &opt, QSt
     const double L = p.chainage.isEmpty() ? 0.0 : p.chainage.last();
     if (!(L > 0.0)) {
         if (err)
-            *err = QStringLiteral("conduit '%1': centreline has zero length").arg(in.conduitId);
+            *err = QStringLiteral("conduit '%1': centerline has zero length").arg(in.conduitId);
         return p;
     }
 

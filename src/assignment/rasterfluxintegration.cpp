@@ -151,7 +151,7 @@ RasterFluxResult failure(const QString &message)
  */
 RasterFluxResult cancelledResult()
 {
-    auto r = failure(QObject::tr("Cancelled."));
+    auto r = failure(QObject::tr("Canceled."));
     r.cancelled = true;
     return r;
 }
@@ -206,7 +206,7 @@ QString openGrid(const QString &path, int bandIndex, const QString &meshWkt,
     grid->squareMetres =
         std::abs(grid->gt[1] * grid->gt[5] - grid->gt[2] * grid->gt[4]) * units * units;
     if (!std::isfinite(grid->squareMetres) || grid->squareMetres <= 0)
-        return QObject::tr("The raster pixel area cannot be represented in square metres.");
+        return QObject::tr("The raster pixel area cannot be represented in square meters.");
     grid->band = grid->ds->GetRasterBand(bandIndex);
     int hasNoData = 0;
     grid->noData = grid->band->GetNoDataValue(&hasNoData);
@@ -302,7 +302,7 @@ RasterFluxResult integrate(const RasterFluxRequest &j, const std::function<bool(
         }
         const double cellArea = area(cell) * squareMetres;
         if (!std::isfinite(cellArea) || cellArea <= 0)
-            return failure(QObject::tr("A cell area cannot be represented in square metres."));
+            return failure(QObject::tr("A cell area cannot be represented in square meters."));
         const int x0 = int(std::clamp(std::floor(xmin), 0., double(nx))),
                   x1 = int(std::clamp(std::ceil(xmax), 0., double(nx))),
                   y0 = int(std::clamp(std::floor(ymin), 0., double(ny))),
@@ -399,7 +399,7 @@ RasterZonalResult zonal(const RasterZonalRequest &j, const std::function<bool()>
         return r;
     };
     auto cancelledZonal = [&] {
-        auto r = failed(QObject::tr("Cancelled."));
+        auto r = failed(QObject::tr("Canceled."));
         r.cancelled = true;
         return r;
     };
@@ -453,7 +453,7 @@ RasterZonalResult zonal(const RasterZonalRequest &j, const std::function<bool()>
         }
         const double cellArea = area(cell) * grid.squareMetres;
         if (!std::isfinite(cellArea) || cellArea <= 0)
-            return failed(QObject::tr("A cell area cannot be represented in square metres."));
+            return failed(QObject::tr("A cell area cannot be represented in square meters."));
         const int x0 = int(std::clamp(std::floor(xmin), 0., double(grid.nx))),
                   x1 = int(std::clamp(std::ceil(xmax), 0., double(grid.nx))),
                   y0 = int(std::clamp(std::floor(ymin), 0., double(grid.ny))),

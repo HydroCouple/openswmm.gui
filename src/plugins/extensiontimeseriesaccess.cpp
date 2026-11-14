@@ -194,7 +194,7 @@ void installExtensionTimeSeriesAccess(GuiExtensionHost *host)
                                 result->layerId.clear();
                                 result->cancelled = cancel->load();
                                 result->error = QStringLiteral(
-                                    "The previously imported layer is no longer attached or import was cancelled.");
+                                    "The previously imported layer is no longer attached or import was canceled.");
                             }
                         } else if (result->seriesCount == 0) {
                             result->error =
@@ -211,7 +211,7 @@ void installExtensionTimeSeriesAccess(GuiExtensionHost *host)
                                 delete layer.data();
                                 result->cancelled = cancel->load();
                                 result->error = QStringLiteral(
-                                    "Saved, not added: the import target changed or import was cancelled.");
+                                    "Saved, not added: the import target changed or import was canceled.");
                                 package->discardCancelled();
                                 if (result->cancelled)
                                     result->packagePath.clear();

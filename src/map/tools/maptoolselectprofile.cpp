@@ -209,7 +209,7 @@ void OpenSWMMVisMapToolSelectProfile::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::RightButton) {
         resetState();
-        emit statusMessageChanged(tr("Profile selection cancelled."));
+        emit statusMessageChanged(tr("Profile selection canceled."));
         return;
     }
     if (event->button() != Qt::LeftButton)
@@ -306,7 +306,7 @@ void OpenSWMMVisMapToolSelectProfile::keyPressEvent(QKeyEvent *event)
 {
     if (event->key() == Qt::Key_Escape) {
         resetState();
-        emit statusMessageChanged(tr("Profile selection cancelled."));
+        emit statusMessageChanged(tr("Profile selection canceled."));
     }
 }
 
@@ -674,14 +674,14 @@ void OpenSWMMVisMapToolSelectProfile::onRoutingComplete(const ProfileRouter::Res
         if (idx >= 0 && idx < m_pendingPaths.size()) {
             acceptPath(m_pendingPaths.at(idx));
         } else {
-            emit statusMessageChanged(tr("Profile selection cancelled."));
+            emit statusMessageChanged(tr("Profile selection canceled."));
             resetState();
         }
         m_pendingPaths.clear();
         m_pendingPicker = nullptr;
     });
     QObject::connect(dlg, &QDialog::rejected, this, [this]() {
-        emit statusMessageChanged(tr("Profile selection cancelled."));
+        emit statusMessageChanged(tr("Profile selection canceled."));
         m_pendingPaths.clear();
         m_pendingPicker = nullptr;
         resetState();

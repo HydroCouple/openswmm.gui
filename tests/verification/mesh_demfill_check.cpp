@@ -233,7 +233,7 @@ void test1_adjacency()
 
     // Corner vertex 0 belongs to one triangle; center of a 5x5 belongs to six.
     const int centre = 2 * 5 + 2;
-    std::printf("    deg(corner 0)=%d  deg(centre)=%d\n",
+    std::printf("    deg(corner 0)=%d  deg(center)=%d\n",
                 off[1] - off[0], off[centre + 1] - off[centre]);
     check(off[1] - off[0] == 4,
           "corner vertex sits on both triangles of its cell (diagonal v00-v11)");

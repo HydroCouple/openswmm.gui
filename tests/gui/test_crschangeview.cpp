@@ -113,7 +113,7 @@ void TestCrsChangeView::basemapOnlyKeepsLookingAtTheSamePlace()
     // and at city scale, not world scale.
     const QPointF c = centre(v);
     QVERIFY2(std::abs(c.x() - (-8.58e6)) < 3.0e4 && std::abs(c.y() - 4.69e6) < 3.0e4,
-             qPrintable(QStringLiteral("centre %1,%2 (was %3,%4)")
+             qPrintable(QStringLiteral("center %1,%2 (was %3,%4)")
                             .arg(c.x())
                             .arg(c.y())
                             .arg(c0.x())

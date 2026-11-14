@@ -129,7 +129,7 @@ SymbologyTab::SymbologyTab(const RendererPanelContext &ctx, QWidget *parent)
         }
     }
     m_rendererCombo->setToolTip(tr("How this kind is painted. <b>Single Symbol</b> gives every "
-                                   "feature the same style; <b>Graduated</b> drives colour — and "
+                                   "feature the same style; <b>Graduated</b> drives color — and "
                                    "marker size or line width — from an attribute's value."));
     topLay->addWidget(m_rendererCombo, 1);
     root->addWidget(topRow);
@@ -137,7 +137,7 @@ SymbologyTab::SymbologyTab(const RendererPanelContext &ctx, QWidget *parent)
     // Says out loud where the data-driven controls live, so the absence of a
     // "width by attribute" control under Single Symbol reads as a mode
     // choice rather than a missing feature.
-    auto *rendererHint = new QLabel(tr("Choose <b>Graduated</b> to size or colour features by an "
+    auto *rendererHint = new QLabel(tr("Choose <b>Graduated</b> to size or color features by an "
                                        "attribute value."),
                                     this);
     rendererHint->setTextFormat(Qt::RichText);

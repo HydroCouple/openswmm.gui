@@ -268,7 +268,7 @@ def cmd_flip(args: argparse.Namespace) -> int:
 
     print(f"\n{len(staged)} figure(s) published, {flipped} placeholder(s) flipped")
     if not oxipng:
-        print("note: oxipng not on PATH — images copied unoptimised")
+        print("note: oxipng not on PATH — images copied unoptimized")
     return cmd_audit(args)
 
 

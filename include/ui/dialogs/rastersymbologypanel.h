@@ -5,7 +5,7 @@
  * @license   GPL-3.0-or-later
  * @brief     Symbology tab content for a GISRasterLayer — the GIS-style raster
  *         renderer chooser (QGIS "Singleband pseudocolor" / "Paletted" /
- *         "Multiband colour") mounted by LayerStyleDialog.
+ *         "Multiband color") mounted by LayerStyleDialog.
  *
  *           ┌ Renderer: [ Singleband pseudocolor ▾ ] ─────────────────┐
  *           │ Source     Render band [1]   NoData: -9999               │

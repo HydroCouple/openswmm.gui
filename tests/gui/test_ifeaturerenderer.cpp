@@ -393,7 +393,7 @@ void TestIFeatureRenderer::symbolLayerKind_roundTripTotal()
                                         SymbolLayerKind::SvgMarker,    SymbolLayerKind::FontMarker};
     for (SymbolLayerKind k : all) {
         const QString s = symbolLayerKindToString(k);
-        QVERIFY2(!s.isEmpty(), "every kind must serialise to a non-empty token");
+        QVERIFY2(!s.isEmpty(), "every kind must serialize to a non-empty token");
         QCOMPARE(symbolLayerKindFromString(s), k);
     }
 }

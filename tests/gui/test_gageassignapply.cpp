@@ -146,7 +146,7 @@ struct Rig {
         openswmmvis::ui::AssignRainGagesDialog dlg(layer, &canvas, &sel);
         if (interpolated)
             findByText<QRadioButton>(
-                &dlg, QStringLiteral("Natural-neighbour interpolation (creates gages)"))
+                &dlg, QStringLiteral("Natural-neighbor interpolation (creates gages)"))
                 ->setChecked(true);
         findByText<QPushButton>(&dlg, QStringLiteral("Apply"))->click();
         // The plan is computed on a worker; Apply lands when it finishes.

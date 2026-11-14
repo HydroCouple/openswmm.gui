@@ -43,7 +43,7 @@ void require(bool condition, const QString &message)
 void checkCancel(std::atomic_bool *cancel, const std::function<bool()> &cancelled = {})
 {
     require((!cancel || !cancel->load()) && (!cancelled || !cancelled()),
-            QStringLiteral("Time-series import/read cancelled."));
+            QStringLiteral("Time-series import/read canceled."));
 }
 /** @brief Return compact JSON without modifying source values. */
 QString json(const QJsonObject &value)

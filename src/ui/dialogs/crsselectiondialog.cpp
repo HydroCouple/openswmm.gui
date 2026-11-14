@@ -241,7 +241,7 @@ void CRSSelectionDialog::buildTree(const QString &authority, const QString &type
             code->setFlags(Qt::ItemIsSelectable | Qt::ItemIsEnabled);
             localType->appendRow({name, code});
         };
-        addLocal(tr("Local — metres (no transform)"), QStringLiteral("LOCAL:METERS"));
+        addLocal(tr("Local — meters (no transform)"), QStringLiteral("LOCAL:METERS"));
         addLocal(tr("Local — feet (no transform)"), QStringLiteral("LOCAL:FEET"));
 
         // Drop the group if both leaves got filtered out by the search box.

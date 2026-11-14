@@ -47,7 +47,7 @@ class FlowStreakStyle : public SublayerStyle
     Q_CLASSINFO("group:lifetimeFadeSeconds", "Motion")
     Q_PROPERTY(
         bool colorByMagnitude READ colorByMagnitude WRITE setColorByMagnitude NOTIFY styleChanged)
-    Q_CLASSINFO("group:colorByMagnitude", "Colour")
+    Q_CLASSINFO("group:colorByMagnitude", "Color")
 public:
     /** @brief Construct flat white streaks and a Continuous viridis speed scheme over [0,2].
      * @param parent Optional QObject owner; destroys this style with itself. Ordinary

@@ -244,7 +244,7 @@ public:
     QQuickWindow *quickWindow() const { return m_view ? m_view : m_widget->quickWindow(); }
     /**
      * @param[in] color QColor copied to host, no validation.
-     * @brief Set active host clear colour; GUI thread, no forced immediate render or layer
+     * @brief Set active host clear color; GUI thread, no forced immediate render or layer
      *   mutation.
      */
     void setClearColor(const QColor &color)
@@ -440,7 +440,7 @@ protected:
      * @return Qt-owned transform tree, null after deleting old and resetting revision/sync flag for
      *   missing layer/source/water, invalid extent/nonpositive width, disabled streaks or
      *   live-render gate. Height not explicitly gated.
-     * @note Creates FlowParticleNode once, computes bbox-centre precision anchor and map transform,
+     * @note Creates FlowParticleNode once, computes bbox-center precision anchor and map transform,
      *   then defers matching particle update to afterSynchronizing so water renderer has committed
      *   revision first. Host basic loop serializes layer access. No immediate vertex upload in this
      *   hook.
@@ -636,7 +636,7 @@ MapCanvas::MapCanvas(QWidget *parent)
 
     // Pinch-to-zoom (touchscreen + macOS / Windows Precision touchpad).
     // Routed through event() → gestureEvent() → zoomAroundCursor so
-    // behaviour matches the existing wheel-zoom path and stays
+    // behavior matches the existing wheel-zoom path and stays
     // tool-independent.
     grabGesture(Qt::PinchGesture);
 
@@ -1123,7 +1123,7 @@ void MapCanvas::setScaleDenominator(double denom)
         return;
 
     // Invert scaleDenominator(): given target N, work out the required
-    // metres-per-pixel, then convert back to map-units-per-pixel using
+    // meters-per-pixel, then convert back to map-units-per-pixel using
     // the same CRS rules metresPerPixel() applied in the forward direction.
     double dpi = 96.0;
     if (const QWindow *w = window() ? window()->windowHandle() : nullptr) {
@@ -1137,9 +1137,9 @@ void MapCanvas::setScaleDenominator(double denom)
 
     constexpr double metresPerInch = 0.0254;
     const double metresPerScreenPixel = metresPerInch / dpi;
-    const double targetMpp = denom * metresPerScreenPixel; // metres / pixel on the ground
+    const double targetMpp = denom * metresPerScreenPixel; // meters / pixel on the ground
 
-    // metres → map units (inverse of the conversion inside metresPerPixel()).
+    // meters → map units (inverse of the conversion inside metresPerPixel()).
     double mapUnitsPerPixel = targetMpp;
     if (m_canvasSRS) {
         if (m_canvasSRS->isProjected()) {
@@ -1155,7 +1155,7 @@ void MapCanvas::setScaleDenominator(double denom)
         }
     }
 
-    // Build a new extent of the same aspect ratio centred on the current centre.
+    // Build a new extent of the same aspect ratio centered on the current center.
     const double cx = m_extent.centerX();
     const double cy = m_extent.centerY();
     const double halfW = mapUnitsPerPixel * width() * 0.5;
@@ -1175,7 +1175,7 @@ const QList<OpenSWMMVisLayer *> &MapCanvas::layers() const
 
 void MapCanvas::addLayer(OpenSWMMVisLayer *layer, bool pushUndo)
 {
-    // Slice LTR-2026-09-19 — keep the stack grouped by category (and honour
+    // Slice LTR-2026-09-19 — keep the stack grouped by category (and honor
     // a saved project order) instead of always appending at the top. See
     // groupedInsertPosition().
     if (!layer)
@@ -1315,7 +1315,7 @@ OpenSWMMVisLayer *MapCanvas::takeLayer(int index, bool pushUndo)
 
     stopVisibleComposition();
     // Render workers draw raster layers off the GUI thread and outlive a
-    // cancelled job; the caller may delete this layer as soon as it returns.
+    // canceled job; the caller may delete this layer as soon as it returns.
     const bool raster = m_layers.at(index)->isRasterLayer();
     if (raster)
         waitForRenderWorkers();
@@ -1356,7 +1356,7 @@ OpenSWMMVisLayer *MapCanvas::takeLayer(int index, bool pushUndo)
     updateLayerZValues();
 
     emit layerRemoved(layer);
-    if (raster) // the cancelled render still showed it; redraw without it
+    if (raster) // the canceled render still showed it; redraw without it
         invalidate(Raster, QStringLiteral("layer-removed"));
     update();
     return layer;
@@ -1826,7 +1826,7 @@ void MapCanvas::flashSelection()
     if (!m_selectionBeacon)
         return;
     const QVector<QPointF> anchors = resolveSelectionAnchors();
-    // Colour follows the configured selection pen so the beacon reads as
+    // Color follows the configured selection pen so the beacon reads as
     // part of the selection, not a separate decoration.
     const QColor accent =
         PreferencesManager::instance()->selectionPen(QStringLiteral("node")).color();
@@ -1838,7 +1838,7 @@ void MapCanvas::flashSelection()
 
 QVector<QPointF> MapCanvas::resolveSelectionAnchors() const
 {
-    // Anchor each selected element at the centre of its own extent — the
+    // Anchor each selected element at the center of its own extent — the
     // same (layer-CRS) source "Zoom to Selection" unions, so the beacon and
     // that action can never disagree about where the selection is.
     QVector<QPointF> anchors;
@@ -2051,11 +2051,11 @@ void MapCanvas::setBackgroundColor(const QColor &color)
     if (m_bgColor != color) {
         m_bgColor = color;
         // Do NOT propagate to m_qsgWidget->setClearColor() here.  The QSG
-        // widget's clear colour must stay Qt::transparent so that the raster
+        // widget's clear color must stay Qt::transparent so that the raster
         // basemap and QGraphicsScene items (2D mesh, etc.) rendered into
         // m_frameBuffer are visible through the QSG overlay.  Setting the
-        // clear colour to any opaque value covers m_frameBuffer entirely,
-        // making the basemap and mesh invisible.  The background colour is
+        // clear color to any opaque value covers m_frameBuffer entirely,
+        // making the basemap and mesh invisible.  The background color is
         // already applied to m_frameBuffer in paintEvent() via fillRect().
         emit backgroundColorChanged(color);
         update();
@@ -2283,7 +2283,7 @@ void MapCanvas::fireSceneChannel()
 }
 
 // ---------------------------------------------------------------------------
-// renderSceneBuffer — rasterise the vector QGraphicsScene into m_sceneBuffer
+// renderSceneBuffer — rasterize the vector QGraphicsScene into m_sceneBuffer
 // ---------------------------------------------------------------------------
 //
 // QGIS-style cache for the vector overlay (2D mesh, GIS vectors, annotations).
@@ -2524,7 +2524,7 @@ void MapCanvas::waitForRenderWorkers()
 {
     cancelRenderJob();
     for (QFuture<void> &worker : m_detachedRenderWorkers)
-        worker.waitForFinished(); // cancelled: stops after the layer it is drawing
+        worker.waitForFinished(); // canceled: stops after the layer it is drawing
     m_detachedRenderWorkers.clear();
 }
 
@@ -3050,7 +3050,7 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
     //
     // Allocate the backing image at device pixels and tag it with the
     // device-pixel ratio. QPainter then accepts logical coordinates from
-    // every layer's render() exactly as before but rasterises into the
+    // every layer's render() exactly as before but rasterizes into the
     // full device-pixel resolution — without this, float tile rects on
     // Retina (DPR=2) display as sub-pixel seams.
     const qreal dpr = devicePixelRatioF();
@@ -3267,7 +3267,7 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
             // P2 — reuse the cached scene buffer when nothing scene-affecting
             // changed since it was rendered at this exact extent/size. Tile
             // arrivals and decoration-only repaints then skip the full
-            // QGraphicsScene rasterisation (the dominant GUI-thread cost on
+            // QGraphicsScene rasterization (the dominant GUI-thread cost on
             // large models). Any doubt → re-render.
             const QSize wantDev(qRound(width() * dpr), qRound(height() * dpr));
             const bool sceneCacheValid =
@@ -3302,7 +3302,7 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
     //   2. repaint() — synchronous: QQuickWidget::paintEvent() fires,
     //      QSG sync() calls updatePaintNode() for all dirty items (the
     //      selection-flag arrays are current by this point), then render()
-    //      rasterises into the internal FBO.
+    //      rasterizes into the internal FBO.
     //   3. grabFramebuffer() reads the FBO → QImage.
     //   4. drawImage() into m_frameBuffer AFTER basemap / DTM / mesh so
     //      the stacking order is deterministic and all layers are visible.
@@ -3428,8 +3428,8 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
             // has drifted from the cached extent (mid-pan, mid-zoom)
             // compute the same dst-rect transform the basemap blit uses
             // and draw scaled — one drawImage call, no GPU readback.
-            // Trade-off matches QGIS basemap behaviour: a thin
-            // background-coloured strip appears at the leading edge of
+            // Trade-off matches QGIS basemap behavior: a thin
+            // background-colored strip appears at the leading edge of
             // the drag until refresh() triggers a fresh grab.
             if (!m_qsgFrameCache.isNull()) {
                 if (m_qsgCachedExtent.isValid() && m_extent.isValid() && m_extent.width() > 0 &&
@@ -3461,7 +3461,7 @@ void MapCanvas::paintEvent(QPaintEvent * /*event*/)
     paintForeground(p);
     updateFlowAnimationTimer();
 
-    p.end(); // finalise m_frameBuffer before blitting
+    p.end(); // finalize m_frameBuffer before blitting
 
     if (perfOn)
         qCDebug(lcRenderPerf).noquote() << QStringLiteral("[paint.total] %1 ms gesture=%2")
@@ -3774,7 +3774,7 @@ namespace
  * @param[in] name Exact object ID, empty gives empty.
  * @return HTML-escaped object name/type and available subtype/XY (2 decimals)/vertex-count rows
  *   from identifyByName, empty if no attributes. Coordinate values remain layer/model units; no
- *   projection. Palette placeholder-text colour supplies secondary text. No selection or model
+ *   projection. Palette placeholder-text color supplies secondary text. No selection or model
  *   mutation.
  */
 QString buildTooltip(SWMMModelLayer *sl, const QString &name)
@@ -3953,7 +3953,7 @@ void MapCanvas::onLayerRepaintRequested()
         return;
     }
     // Only invalidate the cached QSG framebuffer when a layer the QSG
-    // overlay renders signalled — basemap-tile-arrived and other
+    // overlay renders signaled — basemap-tile-arrived and other
     // non-SWMM repaints don't change the QSG overlay, and re-grabbing
     // for those was the dominant cost of paintEvent on large models.
     // VS.8 — 2D results layers live in the overlay too (animation ticks
@@ -4039,7 +4039,7 @@ bool MapCanvas::isPanning() const
 MapExtent MapCanvas::arCorrectedExtent(const MapExtent &ext) const
 {
     // A zero-width or zero-height request (a zoom drag along one pixel row or
-    // column) is widened to the view aspect around its centre below. A point,
+    // column) is widened to the view aspect around its center below. A point,
     // inverted or non-finite extent is returned unchanged.
     const bool fittable = std::isfinite(ext.width()) && std::isfinite(ext.height()) &&
                           ext.width() >= 0.0 && ext.height() >= 0.0 &&
@@ -4182,7 +4182,7 @@ double MapCanvas::metresPerPixel() const
         return mapp * m_canvasSRS->linearUnitsToMetres();
 
     if (m_canvasSRS->isGeographic()) {
-        // Convert longitude-degrees/pixel → metres/pixel at the centre latitude.
+        // Convert longitude-degrees/pixel → meters/pixel at the center latitude.
         // d = R · |Δλ| · cos(φ)  where R is the WGS-84 semi-major axis.
         constexpr double R = 6378137.0;
         const double lat = qDegreesToRadians(m_extent.centerY());
@@ -4200,7 +4200,7 @@ void MapCanvas::renderScaleBar(QPainter &painter) const
         return;
 
     const int maxLen = m_scaleBarSettings->maxBarLength();
-    const double mpp = metresPerPixel(); // metres per screen pixel (CRS-aware)
+    const double mpp = metresPerPixel(); // meters per screen pixel (CRS-aware)
     // rawCRS = true only for the generic "Untitled (Local)" fallback where the
     // unit is unknown. Auto-generated local CRS ("Local (ft)" / "Local (m)")
     // has a meaningful linearUnitsToMetres() factor — treat it as real so the
@@ -4209,7 +4209,7 @@ void MapCanvas::renderScaleBar(QPainter &painter) const
         !m_canvasSRS || (m_canvasSRS->isLocal() &&
                          m_canvasSRS->description() == QStringLiteral("Untitled (Local)"));
 
-    // Choose the 1/2/5 length in the display unit before converting to metres.
+    // Choose the 1/2/5 length in the display unit before converting to meters.
     const double barMetres = m_scaleBarSettings->niceMetres(maxLen * mpp, rawCRS);
     if (barMetres <= 0.0 || mpp <= 0.0)
         return;

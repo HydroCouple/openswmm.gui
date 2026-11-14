@@ -540,7 +540,7 @@ private slots:
         QVERIFY(invalidOwner.error.contains("valid property"));
         const auto cancelled = sampleHeatRaster(&model, &source, 1, 0, SWMM_HEAT_SCOPE_CELL2D, {},
                                                 20, {}, [] { return true; });
-        QVERIFY(cancelled.error.contains("cancelled", Qt::CaseInsensitive));
+        QVERIFY(cancelled.error.contains("canceled", Qt::CaseInsensitive));
         QVERIFY(cancelled.edits.isEmpty());
         canvas.addLayer(&source, false);
         HeatRasterAssignDialog dialog(&model, &canvas);

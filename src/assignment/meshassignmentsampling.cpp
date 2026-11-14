@@ -792,7 +792,7 @@ void sampleVectorNaturalNeighbour(SamplingProgress &promise, const Job &job, OGR
     }
 
     if (seeds.size() < 3) {
-        r.error = QObject::tr("Natural-neighbour interpolation needs at least "
+        r.error = QObject::tr("Natural-neighbor interpolation needs at least "
                               "3 point features carrying the value field; "
                               "found %1.")
                       .arg(seeds.size());
@@ -803,7 +803,7 @@ void sampleVectorNaturalNeighbour(SamplingProgress &promise, const Job &job, OGR
     nn.setVariant(job.nnVariant);
     QString nnErr;
     if (!nn.build(seeds, &nnErr)) {
-        r.error = QObject::tr("Natural-neighbour interpolation is unavailable "
+        r.error = QObject::tr("Natural-neighbor interpolation is unavailable "
                               "for this point set: %1")
                       .arg(nnErr);
         return;
@@ -1187,7 +1187,7 @@ void runSamplingImpl(SamplingProgress &promise, const Job &job, SampleResult &r)
 
     if (job.source == SourceKind::Raster) {
         if (job.sampling == Sampling::NaturalNeighbour) {
-            r.error = QObject::tr("Natural-neighbour interpolation needs a "
+            r.error = QObject::tr("Natural-neighbor interpolation needs a "
                                   "scattered point layer, not a raster.");
             return;
         }

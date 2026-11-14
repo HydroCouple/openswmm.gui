@@ -88,13 +88,13 @@ private slots:
         promise.addResult(ChannelBurnDialog::Result{});
         promise.finish();
         QTRY_VERIFY(!dialog.m_busy);
-        QCOMPARE(bar->format(), QString("Cancelled"));
+        QCOMPARE(bar->format(), QString("Canceled"));
         QVERIFY(bar->value() < 100);
         dialog.m_watcher.progressValueChanged(100);
         dialog.m_watcher.progressTextChanged(QStringLiteral("Stale update"));
-        QCOMPARE(bar->format(), QString("Cancelled"));
+        QCOMPARE(bar->format(), QString("Canceled"));
         QVERIFY(bar->value() < 100);
-        QVERIFY(dialog.m_status->text().contains("cancelled"));
+        QVERIFY(dialog.m_status->text().contains("canceled"));
         QCOMPARE(window->canvas()->undoStack()->count(), 0);
     }
     /** @brief Verify a real worker failure remains below 100 percent and a corrected retry reaches Complete with apply-phase progress.
@@ -296,10 +296,10 @@ private slots:
         dialog.cancelBurn();
         QTRY_VERIFY_WITH_TIMEOUT(!dialog.m_busy, 30000);
         QCOMPARE(dialog.findChild<QProgressBar *>("channelBurnProgress")->format(),
-                 QString("Cancelled"));
+                 QString("Canceled"));
         QVERIFY(dialog.findChild<QProgressBar *>("channelBurnProgress")->value() < 100);
         QCoreApplication::processEvents();
-        QVERIFY(dialog.m_status->text().contains("cancelled"));
+        QVERIFY(dialog.m_status->text().contains("canceled"));
         QCOMPARE(window->channelBurnSettings().options.channelCellSize, 10.0);
         QCOMPARE(window->channelBurnSettings().options.forceHalfWidth, 6.0);
         QCOMPARE(window->canvas()->undoStack()->count(), 0);

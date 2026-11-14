@@ -2461,7 +2461,7 @@ void ComparisonPlotDialog::pollResultLoading_()
     if (mesh) {
         // A stale job (source replaced meanwhile) is rejected; the rebuild
         // below queues those series again against the new source. A cancel
-        // or an unreadable file leaves them "Loading cancelled" until Retry.
+        // or an unreadable file leaves them "Loading canceled" until Retry.
         // A pressed Cancel wins even if the last frame finished meanwhile.
         if (state->ok && !state->cancel.load())
             mesh->acceptExtraction(state->job, state->results);
@@ -2507,7 +2507,7 @@ void ComparisonPlotDialog::updateLoadStrip_()
         if (auto mesh = std::dynamic_pointer_cast<Mesh2DRunLayer>(m_model->runSource(r).layer))
             cancelled = mesh->hasCancelled();
     if (cancelled) {
-        m_loadLabel->setText(tr("Loading saved 2D results was cancelled."));
+        m_loadLabel->setText(tr("Loading saved 2D results was canceled."));
         m_loadProgress->hide();
         m_loadButton->setText(tr("Retry"));
         m_loadButton->setEnabled(true);

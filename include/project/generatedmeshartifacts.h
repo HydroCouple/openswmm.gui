@@ -214,7 +214,7 @@ public:
             return fail(QStringLiteral("The import snapshot is not reserved for this job."));
         const auto isCancelled = [&] { return cancelled && cancelled(); };
         if (isCancelled())
-            return fail(QStringLiteral("Mesh import cancelled."));
+            return fail(QStringLiteral("Mesh import canceled."));
         ProjectSaveOutputs::DestinationState before, after;
         if (!QFileInfo(sourcePath).isFile() || QFileInfo(sourcePath).size() <= 0)
             return fail(QStringLiteral("The mesh source is missing or empty: %1").arg(sourcePath));
@@ -229,7 +229,7 @@ public:
         QByteArray buffer(1024 * 1024, '\0');
         for (;;) {
             if (isCancelled())
-                return fail(QStringLiteral("Mesh import cancelled."));
+                return fail(QStringLiteral("Mesh import canceled."));
             const qint64 count = source.read(buffer.data(), buffer.size());
             if (count < 0)
                 return fail(
@@ -248,7 +248,7 @@ public:
             return fail(QStringLiteral("The mesh source changed during import. Import it again: %1")
                             .arg(sourcePath));
         if (isCancelled())
-            return fail(QStringLiteral("Mesh import cancelled."));
+            return fail(QStringLiteral("Mesh import canceled."));
         if (!target.commit())
             return fail(
                 QStringLiteral("Cannot finish mesh snapshot: %1").arg(target.errorString()));

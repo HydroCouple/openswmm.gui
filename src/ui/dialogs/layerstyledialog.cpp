@@ -955,13 +955,13 @@ void LayerStyleDialog::buildRenderingTab()
         m_contrastSlider = makeBipolarSlider(m_basemapAdjustBox);
         m_contrastSlider->setValue(int(std::round((cur->contrast - 1.0) * 100.0)));
         m_contrastSlider->setToolTip(
-            tr("Contrast — pivot around 0.5 (-100 = flat grey, 0 = identity, +100 = doubled)."));
+            tr("Contrast — pivot around 0.5 (-100 = flat gray, 0 = identity, +100 = doubled)."));
         form->addRow(tr("Contrast:"), m_contrastSlider);
 
         m_saturationSlider = makeBipolarSlider(m_basemapAdjustBox);
         m_saturationSlider->setValue(int(std::round(cur->saturation * 100.0)));
         m_saturationSlider->setToolTip(
-            tr("Saturation — -100 = greyscale, 0 = unchanged, +100 = oversaturated."));
+            tr("Saturation — -100 = grayscale, 0 = unchanged, +100 = oversaturated."));
         form->addRow(tr("Saturation:"), m_saturationSlider);
 
         m_resamplingCombo = new QComboBox(m_basemapAdjustBox);

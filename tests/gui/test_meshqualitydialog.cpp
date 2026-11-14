@@ -178,7 +178,7 @@ private slots:
         // The retired groups are gone.
         for (const char *gone :
              {"Triangle quality", "Minimum Cell Size", "Terrain-Adaptive Thinning", "Quad quality",
-              "Quadrilateral cells", "Structured quad patches", "PSLG Optimisation"})
+              "Quadrilateral cells", "Structured quad patches", "PSLG Optimization"})
             QVERIFY2(groupTitled(m_dlg, QLatin1String(gone)) == nullptr, gone);
         QVERIFY(m_dlg->findChild<QTabWidget *>(QStringLiteral("meshQualityTabs")) == nullptr);
     }

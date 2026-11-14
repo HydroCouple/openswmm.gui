@@ -160,7 +160,7 @@ void InitialQualityDialog::buildUi()
     m_fileEdit->setPlaceholderText(tr("none — rows are stored in the model file"));
     m_fileEdit->setToolTip(tr("[INITIAL_QUALITY] FILE — a CSV of scope,element,constituent,value "
                               "read at every open (relative to the model file). Its rows are "
-                              "shown greyed below and are edited in the file itself."));
+                              "shown grayed below and are edited in the file itself."));
     fileRow->addWidget(m_fileEdit, 1);
     auto *browseBtn = new QPushButton(tr("&Browse…"), this);
     browseBtn->setAutoDefault(false);

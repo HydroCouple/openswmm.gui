@@ -87,7 +87,7 @@ FlowArrowEditor::FlowArrowEditor(OpenSWMMVisLayer *hostLayer, OpenSWMMVis::SwmmC
                              "independent of its length."));
     aForm->addRow(tr("&Width:"), m_widSpin);
     m_colorBtn = new ColorButton(this);
-    aForm->addRow(tr("Colou&r:"), m_colorBtn);
+    aForm->addRow(tr("Colo&r:"), m_colorBtn);
 
     connect(m_showChk, &QCheckBox::toggled, this, [this](bool) { onChanged(); });
     connect(m_sizeSpin, qOverload<double>(&QDoubleSpinBox::valueChanged), this,

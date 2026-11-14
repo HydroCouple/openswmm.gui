@@ -293,7 +293,7 @@ void NewFeatureLayerDialog::buildUi()
         m_zScaleSpin->setValue(1.0);
         m_zScaleSpin->setToolTip(tr("Multiplier applied to every sample — use it to convert the "
                                     "source's vertical unit to the model's (0.3048 for feet to "
-                                    "metres)."));
+                                    "meters)."));
         f->addRow(tr("Z &conversion (×):"), m_zScaleSpin);
 
         m_zDensifySpin = new QDoubleSpinBox(m_zBody);

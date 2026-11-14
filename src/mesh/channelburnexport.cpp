@@ -38,7 +38,7 @@ prepareChannelBurnExport(const ChannelMeshBurnResult &burn, const ChannelBurnExp
         return fail(QObject::tr(
             "A successful burn, a saved project, and valid DEM elevation units are required for raster output."));
     if (cancelled && cancelled())
-        return fail(QObject::tr("Cancelled."));
+        return fail(QObject::tr("Canceled."));
     if (progress)
         progress(0, QObject::tr("Preparing the burned DEM export…"));
     GDALAllRegister();
@@ -105,7 +105,7 @@ prepareChannelBurnExport(const ChannelMeshBurnResult &burn, const ChannelBurnExp
     for (const auto &lattice : burn.lattices) {
         for (int row = 0; row + 1 < lattice.nAlong; ++row) {
             if (cancelled && cancelled())
-                return fail(QObject::tr("Cancelled."));
+                return fail(QObject::tr("Canceled."));
             const auto bounds = corridorRing(latticeRows(lattice, row, row + 1)).boundingRect();
             double xmin = bounds.left(), ymin = bounds.top(), xmax = bounds.right(),
                    ymax = bounds.bottom();
@@ -165,7 +165,7 @@ prepareChannelBurnExport(const ChannelMeshBurnResult &burn, const ChannelBurnExp
     result.warnings = stats.warnings;
     const QString units =
         QObject::tr(
-            "Mesh XY x %1 = metres; mesh elevations x %2 = metres; DEM elevations x %3 = metres. Report lengths use mesh XY units; slopes are mesh Z per mesh XY unit; incision statistics use DEM elevation units.")
+            "Mesh XY x %1 = meters; mesh elevations x %2 = meters; DEM elevations x %3 = meters. Report lengths use mesh XY units; slopes are mesh Z per mesh XY unit; incision statistics use DEM elevation units.")
             .arg(meshSrs.GetLinearUnits())
             .arg(request.meshZToSI)
             .arg(request.rasterZToSI);
@@ -175,7 +175,7 @@ prepareChannelBurnExport(const ChannelMeshBurnResult &burn, const ChannelBurnExp
         !artifacts->seal(&result.error))
         return result;
     if (cancelled && cancelled())
-        return fail(QObject::tr("Cancelled."));
+        return fail(QObject::tr("Canceled."));
     result.artifacts = std::move(artifacts);
     result.ok = true;
     if (progress)

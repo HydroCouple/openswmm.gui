@@ -792,7 +792,7 @@ int main(int argc, char *argv[])
         recolored.pen = QPen(QColor(10, 160, 60), 4.0);
         tracks->setTracks({depth, recolored});
         QApplication::processEvents();
-        rep.check(QStringLiteral("3.7 pen colour / width applies"),
+        rep.check(QStringLiteral("3.7 pen color / width applies"),
                   tracks->grab().toImage() != before,
                   QStringLiteral("repaint differs after pen edit"));
 
@@ -916,7 +916,7 @@ int main(int argc, char *argv[])
                 colors.insert(img.pixel(x, y));
         rep.check(QStringLiteral("3.10 export contains both panes"),
                   shot.height() > plot->height() && colors.size() > 3,
-                  QStringLiteral("%1x%2 px, %3 distinct colours below the plot")
+                  QStringLiteral("%1x%2 px, %3 distinct colors below the plot")
                       .arg(shot.width())
                       .arg(shot.height())
                       .arg(colors.size()));

@@ -146,14 +146,14 @@ LabelConfigEditor::LabelConfigEditor(QWidget *parent) : QWidget(parent)
     form->addRow(tr("Size:"), sizeRow);
 
     m_colorBtn = new ColorButton(this);
-    form->addRow(tr("&Colour:"), m_colorBtn);
+    form->addRow(tr("&Color:"), m_colorBtn);
 
     // Halo.
     auto *haloRow = new QHBoxLayout;
     m_haloChk = new QCheckBox(tr("Halo"), this);
     haloRow->addWidget(m_haloChk);
     m_haloColorBtn = new ColorButton(this);
-    m_haloColorBtn->setAccessibleName(tr("Halo colour"));
+    m_haloColorBtn->setAccessibleName(tr("Halo color"));
     haloRow->addWidget(m_haloColorBtn);
     m_haloRadSpin = new QDoubleSpinBox(this);
     m_haloRadSpin->setRange(0.1, 10.0);
@@ -170,7 +170,7 @@ LabelConfigEditor::LabelConfigEditor(QWidget *parent) : QWidget(parent)
     m_placementCombo->addItem(tr("Below"), int(LabelConfig::Below));
     m_placementCombo->addItem(tr("Left"), int(LabelConfig::Left));
     m_placementCombo->addItem(tr("Right"), int(LabelConfig::Right));
-    m_placementCombo->addItem(tr("Centre"), int(LabelConfig::Centre));
+    m_placementCombo->addItem(tr("Center"), int(LabelConfig::Centre));
     form->addRow(tr("&Placement:"), m_placementCombo);
 
     // Scale visibility window (1:N denominators; 0 = unbounded).
@@ -198,7 +198,7 @@ LabelConfigEditor::LabelConfigEditor(QWidget *parent) : QWidget(parent)
     m_bgChk = new QCheckBox(tr("Background"), this);
     bgRow->addWidget(m_bgChk);
     m_bgColorBtn = new ColorButton(this);
-    m_bgColorBtn->setAccessibleName(tr("Background colour"));
+    m_bgColorBtn->setAccessibleName(tr("Background color"));
     bgRow->addWidget(m_bgColorBtn);
     m_bgPadSpin = new QDoubleSpinBox(this);
     m_bgPadSpin->setRange(0.0, 20.0);

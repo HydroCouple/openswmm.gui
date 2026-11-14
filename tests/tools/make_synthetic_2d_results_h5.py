@@ -28,7 +28,7 @@ def main():
     parser.add_argument("output")
     parser.add_argument("--side", type=int, default=1732, help="squares per side; cells = 2*side^2")
     parser.add_argument("--frames", type=int, default=6)
-    parser.add_argument("--spacing", type=float, default=2.0, help="square size in metres")
+    parser.add_argument("--spacing", type=float, default=2.0, help="square size in meters")
     args = parser.parse_args()
 
     n, h = args.side, args.spacing

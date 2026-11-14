@@ -462,7 +462,7 @@ private slots:
             QVERIFY2(cancellationStage("aquifer_cancel_preview", cells / 2,
                                        [&](auto cancel) {
                                            cancelled = previewAquiferAssignment(r, cancel);
-                                           return cancelled.error == "Cancelled." &&
+                                           return cancelled.error == "Canceled." &&
                                                   cancelled.appended.isEmpty() &&
                                                   cancelled.cells.isEmpty();
                                        }),
@@ -546,7 +546,7 @@ private slots:
             QVERIFY2(cancellationStage(name + "_cancel_preview", cells + cells / 2,
                                        [&](auto cancel) {
                                            cancelled = previewGroundwaterTransport(r, cancel);
-                                           return cancelled.error == "Cancelled." &&
+                                           return cancelled.error == "Canceled." &&
                                                   cancelled.cells.isEmpty() &&
                                                   cancelled.after == r.before;
                                        }),

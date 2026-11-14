@@ -63,7 +63,7 @@ HeatRasterPreview sampleHeatRaster(SWMMModelLayer *model, GISRasterLayer *raster
         job.targetMax = {heatProperties()[attr].maximum};
         for (int cell = 0; cell < cellCount; ++cell) {
             if ((cancelled && cancelled()) || (progress && !progress(cell, cellCount))) {
-                result.error = QObject::tr("Sampling cancelled.");
+                result.error = QObject::tr("Sampling canceled.");
                 return result;
             }
             char cellTag[1024]{};
@@ -125,7 +125,7 @@ HeatRasterPreview sampleHeatRaster(SWMMModelLayer *model, GISRasterLayer *raster
                     progress(done, total);
             });
         if (sampled.cancelled) {
-            result.error = QObject::tr("Sampling cancelled.");
+            result.error = QObject::tr("Sampling canceled.");
             return result;
         }
         if (!sampled.error.isEmpty()) {
@@ -154,7 +154,7 @@ HeatRasterPreview sampleHeatRaster(SWMMModelLayer *model, GISRasterLayer *raster
     const int count = link ? swmm_link_count(engine) : swmm_node_count(engine);
     for (int i = 0; i < count; ++i) {
         if ((cancelled && cancelled()) || (progress && !progress(i, count))) {
-            result.error = QObject::tr("Sampling cancelled.");
+            result.error = QObject::tr("Sampling canceled.");
             result.edits.clear();
             return result;
         }

@@ -700,7 +700,7 @@ void MeshAttributeTableModel::rebuildColumns()
             << num(QStringLiteral("conveyance"), tr("Conveyance"), 0.0, 1.0, 4, UnitKind::None,
                    tr("Flux attenuation multiplier in [0, 1]; 1 = "
                       "unrestricted. Applies to interior edges too, and is "
-                      "mirrored onto the neighbouring half."))
+                      "mirrored onto the neighboring half."))
             << bcTypeCol()
             << num(QStringLiteral("wallDrag"), tr("Wall drag Cw"), 0.0, 1.0e6, 10, UnitKind::None,
                    tr("Tangential WALL friction coefficient; zero = free slip. tau/rho = -Cw |ut| ut."))
@@ -713,7 +713,7 @@ void MeshAttributeTableModel::rebuildColumns()
                       "rate, using the depth already in the boundary cell (use Specified "
                       "Flow to wet a dry bed). Zero conveys nothing and acts as a wall."))
             << num(QStringLiteral("flow"), tr("Flow"), -1.0e12, 1.0e12, 4, UnitKind::None,
-                   tr("Discharge per metre of edge for a Specified Flow "
+                   tr("Discharge per meter of edge for a Specified Flow "
                       "(constant) boundary."))
             << refCol(canPick(), QStringLiteral("tseries"), tr("Time Series"),
                       tr("Time series driving a Specified Stage / Flow (TS) "

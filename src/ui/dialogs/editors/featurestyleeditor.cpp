@@ -77,9 +77,9 @@ FeatureStyleEditorBase::FeatureStyleEditorBase(FeatureSublayerStyle *style, QWid
 
     m_singleColorBtn = new ColorButton(this);
     m_singleColorBtn->setMinimumWidth(100);
-    m_form->addRow(tr("&Single colour:"), m_singleColorBtn);
+    m_form->addRow(tr("&Single color:"), m_singleColorBtn);
 
-    m_useRampBox = new QCheckBox(tr("Use colour ramp (per-attribute)"), this);
+    m_useRampBox = new QCheckBox(tr("Use color ramp (per-attribute)"), this);
     m_form->addRow(QString(), m_useRampBox);
 
     // Subscribe to the style bag's NOTIFY signal so external mutations
@@ -297,7 +297,7 @@ LineFeatureStyleEditor::LineFeatureStyleEditor(LineFeatureSublayerStyle *style, 
     arrowForm->addRow(tr("Width:"), m_arrowWidSpin);
 
     m_arrowColorBtn = new ColorButton(this);
-    arrowForm->addRow(tr("Colo&ur:"), m_arrowColorBtn);
+    arrowForm->addRow(tr("Co&lor:"), m_arrowColorBtn);
 
     layout()->addWidget(arrowBox);
     buildCommonRows();
@@ -365,7 +365,7 @@ PolygonFeatureStyleEditor::PolygonFeatureStyleEditor(PolygonFeatureSublayerStyle
     auto *form = new QFormLayout(polyBox);
 
     m_outlineColorBtn = new ColorButton(this);
-    form->addRow(tr("Outline colou&r:"), m_outlineColorBtn);
+    form->addRow(tr("Outline colo&r:"), m_outlineColorBtn);
 
     m_outlineWidthSpin = new QDoubleSpinBox(this);
     m_outlineWidthSpin->setRange(0.0, 20.0);

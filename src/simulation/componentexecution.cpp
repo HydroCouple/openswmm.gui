@@ -100,7 +100,7 @@ void ComposerSimulationRunner::start(){if(launched_)return;launched_=true;QTimer
 void ComposerSimulationRunner::begin(){
     QPointer<ComposerSimulationRunner> self(this);emit started(jobId());if(!self)return;
     try {
-        if(cancelled_)throw std::runtime_error("Component run cancelled before launch.");
+        if(cancelled_)throw std::runtime_error("Component run canceled before launch.");
         QString error;if(!ComponentEngineRegistry::validate(request_.settings,&error)||request_.settings.value("mode")=="native")throw std::runtime_error(error.isEmpty()?"Choose a component arrangement.":error.toStdString());
         if(!QFileInfo(request_.program).isExecutable()||!QFileInfo(request_.components).isDir())throw std::runtime_error("Choose the Composer application and component library folder in Component execution settings.");
         if(!QFileInfo(request_.model).isFile()||!QDir::isAbsolutePath(request_.directory))throw std::runtime_error("Component run requires a saved model and an absolute fresh run directory.");
@@ -120,7 +120,7 @@ void ComposerSimulationRunner::begin(){
         startDate_=core::swmmDateTimeToMilliseconds(first);endDate_=core::swmmDateTimeToMilliseconds(last);
         if(duration<=0||!std::isfinite(end_)||!startDate_.isValid()||!endDate_.isValid())throw std::runtime_error("Model simulation period is not supported by the component clock.");
         emit simulationDatesKnown(jobId(),startDate_,endDate_);if(!self)return;
-        if(cancelled_)throw std::runtime_error("Component run cancelled before launch.");
+        if(cancelled_)throw std::runtime_error("Component run canceled before launch.");
         const auto nativeDirectory=std::filesystem::path(
 #ifdef Q_OS_WIN
             request_.directory.toStdWString()
@@ -142,7 +142,7 @@ void ComposerSimulationRunner::setPaused(bool){emit warningReceived(jobId(),0,tr
 void ComposerSimulationRunner::cancel(){
     if(published_)return;cancelled_=true;
     if(process_.state()!=QProcess::NotRunning){process_.terminate();QTimer::singleShot(1500,this,[this]{if(process_.state()!=QProcess::NotRunning)process_.kill();});}
-    else QTimer::singleShot(0,this,[this]{if(cancelled_&&!published_&&process_.state()==QProcess::NotRunning)publish(false,tr("Component run cancelled before launch."));});
+    else QTimer::singleShot(0,this,[this]{if(cancelled_&&!published_&&process_.state()==QProcess::NotRunning)publish(false,tr("Component run canceled before launch."));});
 }
 void ComposerSimulationRunner::stopWithError(const QString &error){if(failure_.isEmpty())failure_=error;if(process_.state()!=QProcess::NotRunning)process_.kill();}
 void ComposerSimulationRunner::retainLog(const QByteArray &bytes){
@@ -225,7 +225,7 @@ void ComposerSimulationRunner::complete(int code,QProcess::ExitStatus status){
     QString error;
     try{if(!cancelled_&&failure_.isEmpty()&&status==QProcess::NormalExit&&code==0&&final_&&succeeded_&&verifyResults(&error)){publish(true,{});return;}}
     catch(const std::exception &e){error=QString::fromUtf8(e.what());}
-    publish(false,cancelled_?tr("Component run cancelled. Interrupted files were retained without loading them."):
+    publish(false,cancelled_?tr("Component run canceled. Interrupted files were retained without loading them."):
         !failure_.isEmpty()?failure_:!error.isEmpty()?error:tr("Composer exited without a verified successful result."));
 }
 void ComposerSimulationRunner::publish(bool ok,const QString &message){

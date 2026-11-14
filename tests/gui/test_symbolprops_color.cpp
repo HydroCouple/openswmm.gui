@@ -186,7 +186,7 @@ void TestSymbolPropsColor::readColor_fallbackOnMissingOrJunk()
 {
     QVariantMap p;
     QCOMPARE(SymbolProps::readColor(p, QStringLiteral("color"), kRed), kRed);
-    p.insert(QStringLiteral("color"), QStringLiteral("not-a-colour"));
+    p.insert(QStringLiteral("color"), QStringLiteral("not-a-color"));
     QCOMPARE(SymbolProps::readColor(p, QStringLiteral("color"), kRed), kRed);
 }
 

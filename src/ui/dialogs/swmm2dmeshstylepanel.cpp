@@ -186,7 +186,7 @@ QWidget *Swmm2DMeshStylePanel::buildTerrainFillTab(QWidget *parent)
         // (Manning's n, init depth, infiltration …) can drive the fill.
         // Previously colorByAttribute / noDataColor / categoryPalette had
         // no UI at all.
-        auto *attrBox = new QGroupBox(tr("Colour by"), page);
+        auto *attrBox = new QGroupBox(tr("Color by"), page);
         auto *attrForm = new QFormLayout(attrBox);
 
         auto *attr = new QComboBox(attrBox);
@@ -202,9 +202,9 @@ QWidget *Swmm2DMeshStylePanel::buildTerrainFillTab(QWidget *parent)
         auto *noData = new ColorButton(attrBox);
         noData->setShowAlpha(true);
         noData->setColor(st->noDataColor());
-        noData->setToolTip(tr("Colour for cells whose selected attribute is "
+        noData->setToolTip(tr("Color for cells whose selected attribute is "
                               "unset (no data)."));
-        attrForm->addRow(tr("No-data colour:"), noData);
+        attrForm->addRow(tr("No-data color:"), noData);
 
         auto *palette = new QComboBox(attrBox);
         palette->addItems(CategoricalPalette::builtinNames());
@@ -361,7 +361,7 @@ QWidget *Swmm2DMeshStylePanel::buildBandTab(QWidget *parent)
         smooth->setChecked(st->smoothBands());
         smooth->setToolTip(tr("On: class boundaries are interpolated through "
                               "cells (marching triangles). Off: each cell is "
-                              "filled flat with its band colour."));
+                              "filled flat with its band color."));
         renderForm->addRow(QString(), smooth);
         lay->addWidget(renderBox);
 
@@ -393,7 +393,7 @@ QWidget *Swmm2DMeshStylePanel::buildIsolineTab(QWidget *parent)
         auto *color = new ColorButton(symBox);
         color->setShowAlpha(true);
         color->setColor(st->color());
-        symForm->addRow(tr("Li&ne colour:"), color);
+        symForm->addRow(tr("Li&ne color:"), color);
 
         auto *width = makeDSpin(symBox, 0.25, 10.0, 0.25, 2, st->lineWidthPx(), tr(" px"));
         symForm->addRow(tr("Lin&e width:"), width);
@@ -435,7 +435,7 @@ QWidget *Swmm2DMeshStylePanel::buildMeshEdgeTab(QWidget *parent)
         auto *color = new ColorButton(symBox);
         color->setShowAlpha(true);
         color->setColor(st->color());
-        symForm->addRow(tr("Colour:"), color);
+        symForm->addRow(tr("Color:"), color);
 
         auto *width = makeDSpin(symBox, 0.1, 10.0, 0.05, 2, st->lineWidthPx(), tr(" px"));
         symForm->addRow(tr("Width:"), width);
@@ -454,8 +454,8 @@ QWidget *Swmm2DMeshStylePanel::buildMeshEdgeTab(QWidget *parent)
 
         auto *colourNote =
             new QLabel(tr("While Boundary Conditions is shown, edges on the mesh boundary "
-                          "take its colours (walls its Wall colour); every other edge uses "
-                          "these colours."),
+                          "take its colors (walls its Wall color); every other edge uses "
+                          "these colors."),
                        page);
         colourNote->setWordWrap(true);
         lay->addWidget(colourNote);
@@ -467,14 +467,14 @@ QWidget *Swmm2DMeshStylePanel::buildMeshEdgeTab(QWidget *parent)
         slopeForm->addRow(QString(), useSlope);
         auto *slopeBreak = makeDSpin(slopeBox, 0.0, 1.0, 0.05, 2, st->slopeBreak());
         slopeBreak->setToolTip(tr("Fraction of the maximum slope above which "
-                                  "edges use the wide width/colour."));
+                                  "edges use the wide width/color."));
         slopeForm->addRow(tr("Slope brea&k:"), slopeBreak);
         auto *wideWidth = makeDSpin(slopeBox, 0.1, 10.0, 0.05, 2, st->wideWidthPx(), tr(" px"));
         slopeForm->addRow(tr("Wide width:"), wideWidth);
         auto *wideColor = new ColorButton(slopeBox);
         wideColor->setShowAlpha(true);
         wideColor->setColor(st->wideColor());
-        slopeForm->addRow(tr("Wide colour:"), wideColor);
+        slopeForm->addRow(tr("Wide color:"), wideColor);
         lay->addWidget(slopeBox);
 
         connect(color, &ColorButton::colorChanged, this,
@@ -518,7 +518,7 @@ QWidget *Swmm2DMeshStylePanel::buildMeshNodeTab(QWidget *parent)
         auto *color = new ColorButton(symBox);
         color->setShowAlpha(true);
         color->setColor(st->color());
-        symForm->addRow(tr("Colour:"), color);
+        symForm->addRow(tr("Color:"), color);
 
         auto *size = makeDSpin(symBox, 0.5, 20.0, 0.5, 1, st->markerSizePx(), tr(" px"));
         symForm->addRow(tr("Marker size:"), size);
@@ -526,7 +526,7 @@ QWidget *Swmm2DMeshStylePanel::buildMeshNodeTab(QWidget *parent)
         auto *outlineColor = new ColorButton(symBox);
         outlineColor->setShowAlpha(true);
         outlineColor->setColor(st->outlineColor());
-        symForm->addRow(tr("Outline colour:"), outlineColor);
+        symForm->addRow(tr("Outline color:"), outlineColor);
 
         auto *outlineWidth = makeDSpin(symBox, 0.0, 5.0, 0.25, 2, st->outlineWidthPx(), tr(" px"));
         symForm->addRow(tr("Outline width:"), outlineWidth);
@@ -569,7 +569,7 @@ QWidget *Swmm2DMeshStylePanel::buildBcTab(QWidget *parent)
         auto *grid = new QGroupBox(tr("Per-type styling"), page);
         auto *gl = new QGridLayout(grid);
         gl->addWidget(new QLabel(tr("Type"), grid), 0, 0);
-        gl->addWidget(new QLabel(tr("Colour"), grid), 0, 1);
+        gl->addWidget(new QLabel(tr("Color"), grid), 0, 1);
         gl->addWidget(new QLabel(tr("Width"), grid), 0, 2);
 
         const QSet<int> present = sub->bcTypesPresent();
@@ -582,9 +582,9 @@ QWidget *Swmm2DMeshStylePanel::buildBcTab(QWidget *parent)
             auto *vis = new QCheckBox(label, grid);
             vis->setChecked(st->bcTypeVisible(t));
             if (t == 0)
-                vis->setToolTip(tr("Draws wall edges on the mesh boundary in the Wall colour "
+                vis->setToolTip(tr("Draws wall edges on the mesh boundary in the Wall color "
                                    "while this sublayer is shown; interior edges keep the "
-                                   "Mesh Edges colours."));
+                                   "Mesh Edges colors."));
             // Types not present in the mesh stay editable but are grayed so
             // the user can see which rows currently draw nothing.
             if (!present.contains(t))
@@ -592,7 +592,7 @@ QWidget *Swmm2DMeshStylePanel::buildBcTab(QWidget *parent)
             gl->addWidget(vis, row, 0);
 
             auto *color = new ColorButton(grid);
-            color->setAccessibleName(tr("%1 boundary colour").arg(label));
+            color->setAccessibleName(tr("%1 boundary color").arg(label));
             color->setShowAlpha(true);
             color->setColor(st->bcColorForType(t));
             gl->addWidget(color, row, 1);
@@ -655,7 +655,7 @@ QWidget *Swmm2DMeshStylePanel::buildCoupledNodeTab(QWidget *parent)
         auto *color = new ColorButton(symBox);
         color->setShowAlpha(true);
         color->setColor(st->color());
-        symForm->addRow(tr("Colour:"), color);
+        symForm->addRow(tr("Color:"), color);
 
         auto *size = makeDSpin(symBox, 0.5, 40.0, 0.5, 1, st->markerSizePx(), tr(" px"));
         symForm->addRow(tr("Marker size:"), size);
@@ -689,11 +689,11 @@ QWidget *Swmm2DMeshStylePanel::buildCoupledCellTab(QWidget *parent)
         auto *fill = new ColorButton(box);
         fill->setShowAlpha(true);
         fill->setColor(st->fillColor());
-        form->addRow(tr("Fill colour:"), fill);
+        form->addRow(tr("Fill color:"), fill);
         auto *outline = new ColorButton(box);
         outline->setShowAlpha(true);
         outline->setColor(st->outlineColor());
-        form->addRow(tr("Outline colour:"), outline);
+        form->addRow(tr("Outline color:"), outline);
         auto *width = makeDSpin(box, 0.5, 10.0, 0.5, 1, st->outlineWidthPx(), tr(" px"));
         form->addRow(tr("Outline width:"), width);
         connect(fill, &ColorButton::colorChanged, st, &OpenSWMM::Render::CoupledCellStyle::setFillColor);
@@ -748,9 +748,9 @@ QWidget *Swmm2DMeshStylePanel::buildGroundwaterMarkerTab(QWidget *parent)
         lay->addWidget(symBox);
 
         auto *note = new QLabel(tr("Marks [GW_SOURCES] rows placed by XY (at their "
-                                   "coordinates) or by CELL (at the cell centre), and "
+                                   "coordinates) or by CELL (at the cell center), and "
                                    "[2D_AQUIFER_NODE] beds at their node; beds authored with "
-                                   "EXCHANGE NO use the exchange-off colour. Sources scoped to "
+                                   "EXCHANGE NO use the exchange-off color. Sources scoped to "
                                    "all cells or a tag have no single location and are not "
                                    "drawn."),
                                 page);

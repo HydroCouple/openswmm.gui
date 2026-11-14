@@ -884,7 +884,7 @@ QList<Field> lidFields(SWMMModelLayer *layer, const QVariantMap &draft = {})
                     add(prefix + "r/" + QString::number(i), title + " — " + retentionLabels[i], UnitKind::None, kInf,
                         [prefix](QObject *o) { return lidMaterialValid(o->property("lidAcceptedValues").toMap(), prefix); });
                     fields.last().spec.decimals = 12;
-                    fields.last().spec.tooltip = tr("Edit a complete valid material. Use Initialize materials in the design editor for an unconfigured profile. Alpha and specific storage are inverse metres in both unit systems.");
+                    fields.last().spec.tooltip = tr("Edit a complete valid material. Use Initialize materials in the design editor for an unconfigured profile. Alpha and specific storage are inverse meters in both unit systems.");
                 }
             if (kind == 3 || !layer) continue;
             for (auto *p : lidPollutants(layer)) {
@@ -1748,7 +1748,7 @@ bool propose(SWMMModelLayer *layer, DC::DataCategory cat, QObject *provider, con
         }
         if (!memberValid(layer, cat, key, after, nameOf(provider, cat))) {
             const auto reason = cat == DC::DataLIDControls ? tr("A complete valid layer is required: porosity > field capacity > wilting point, positive storage void ratio, and valid nonnegative layer values.")
-                : cat == DC::DataSnowpacks ? tr("Check melt minimum/maximum, fractions totalling at most one, a destination for transferred snow, and positive UEB extinction depth.")
+                : cat == DC::DataSnowpacks ? tr("Check melt minimum/maximum, fractions totaling at most one, a destination for transferred snow, and positive UEB extinction depth.")
                                          : tr("Left stations must not exceed right stations; descriptions cannot contain null characters.");
             return fail(tr("%1: %2").arg(nameOf(provider, cat), reason));
         }

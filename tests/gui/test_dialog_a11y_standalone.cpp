@@ -144,7 +144,7 @@ void TestDialogA11yStandalone::unnamedPaintedButtonIsDetected()
     QDialog dialog;
     PaintedButton button(&dialog);
     button.setObjectName("unnamedPaintedControl");
-    button.setToolTip("Choose a colour");
+    button.setToolTip("Choose a color");
     auto *accessible = QAccessible::queryAccessibleInterface(&button);
     QVERIFY(accessible);
     QVERIFY(accessible->text(QAccessible::Name).trimmed().isEmpty());
@@ -169,7 +169,7 @@ void TestDialogA11yStandalone::tooltipOnlyIconButtonIsDetected()
     QPixmap icon(8, 8);
     icon.fill(Qt::blue);
     button.setIcon(QIcon(icon));
-    button.setToolTip("Choose a colour");
+    button.setToolTip("Choose a color");
     auto *accessible = QAccessible::queryAccessibleInterface(&button);
     QVERIFY(accessible);
     QVERIFY(accessible->text(QAccessible::Name).trimmed().isEmpty());
@@ -205,19 +205,19 @@ void TestDialogA11yStandalone::namedColorButtonPasses()
     auto *layout = new QVBoxLayout(&dialog);
     auto *button = new openswmmvis::ui::ColorButton(QColor(30, 60, 90), &dialog);
     if (buddyName) {
-        auto *label = new QLabel("&Corridor colour", &dialog);
+        auto *label = new QLabel("&Corridor color", &dialog);
         label->setBuddy(button);
         layout->addWidget(label);
     } else
-        button->setAccessibleName("Corridor colour");
+        button->setAccessibleName("Corridor color");
     layout->addWidget(button);
     auto *accessible = QAccessible::queryAccessibleInterface(button);
     QVERIFY(accessible);
-    QCOMPARE(accessible->text(QAccessible::Name), QString("Corridor colour"));
+    QCOMPARE(accessible->text(QAccessible::Name), QString("Corridor color"));
     QVERIFY(button->text().isEmpty());
     QVERIFY(button->icon().isNull());
     assertIconButtonsNamed(&dialog);
-    QCOMPARE(accessible->text(QAccessible::Name), QString("Corridor colour"));
+    QCOMPARE(accessible->text(QAccessible::Name), QString("Corridor color"));
 }
 
 /**

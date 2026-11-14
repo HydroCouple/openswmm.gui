@@ -154,7 +154,7 @@
     "category": "Numerics",
     "name": "OpenMP runtime",
     "version": "system",
-    "role": "Parallelisation primitives used by hydraulics + 2D solvers.",
+    "role": "Parallelization primitives used by hydraulics + 2D solvers.",
     "homepage": "https://www.openmp.org",
     "source":   "",
     "spdx": "Apache-2.0 WITH LLVM-exception (libomp)",

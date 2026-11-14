@@ -61,10 +61,10 @@ class FlowArrowStyle : public SublayerStyle
     Q_CLASSINFO("group:arrowSpacingPx", "Placement")
     Q_CLASSINFO("group:placeAtCellCenters", "Placement")
     Q_CLASSINFO("group:dryDepthCutoff", "Filtering")
-    Q_CLASSINFO("group:colorByMagnitude", "Colour")
-    Q_CLASSINFO("group:colorRampName", "Colour")
-    Q_CLASSINFO("group:speedMinMps", "Colour")
-    Q_CLASSINFO("group:speedMaxMps", "Colour")
+    Q_CLASSINFO("group:colorByMagnitude", "Color")
+    Q_CLASSINFO("group:colorRampName", "Color")
+    Q_CLASSINFO("group:speedMinMps", "Color")
+    Q_CLASSINFO("group:speedMaxMps", "Color")
 
 public:
     /** @brief Construct the style and its default settings.

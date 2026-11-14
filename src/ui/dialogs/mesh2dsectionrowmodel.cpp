@@ -237,7 +237,7 @@ void Mesh2DSectionRowModel::rebuildColumns()
         value(tr("Longitudinal dispersivity (m)"), 4, tr("Default 1.0."));
         value(tr("Transverse dispersivity (m)"), 5, tr("Default 0.1."));
         value(tr("Molecular diffusivity (m²/s)"), 6, tr("Default 1e-9."));
-        value(tr("Vapour diffusivity (m²/s)"), 7, tr("Default 1e-9."));
+        value(tr("Vapor diffusivity (m²/s)"), 7, tr("Default 1e-9."));
         value(tr("Geothermal flux (W/m²)"), 8,
               tr("Default 0.065. The deep temperature in °C when DEEP_THERMAL_BC is FIXED_TEMP. "
                  "The only signed column."),

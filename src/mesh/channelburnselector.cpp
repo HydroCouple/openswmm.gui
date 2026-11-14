@@ -262,7 +262,7 @@ QVector<BurnCandidate> resolveBurnSet(SWMM_Engine eng, const BurnSelector &sel,
         // 3) Centerline, from the GUI's cache. Never guessed at.
         const auto it = polylines.constFind(c.conduitId);
         if (it == polylines.constEnd() || it.value().size() < 2) {
-            c.reason = QStringLiteral("no centreline geometry");
+            c.reason = QStringLiteral("no centerline geometry");
             out.append(c);
             continue;
         }

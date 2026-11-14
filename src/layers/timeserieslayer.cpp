@@ -673,7 +673,7 @@ bool TimeSeriesLayer::attachToSelectedFeature(const QStringList &ids, QString *e
                 gis = qobject_cast<GISVectorLayer *>(layer);
         if (!gis || gis->isTemporary() || !gis->ogrLayer() || qobject_cast<TimeSeriesLayer *>(gis))
             return fail(
-                tr("Choose a permanent GIS feature, not a catalogue preview or station marker."));
+                tr("Choose a permanent GIS feature, not a catalog preview or station marker."));
         auto *f = gis->ogrLayer()->GetFeature(fid);
         if (!f)
             return fail(tr("The selected feature is no longer available."));

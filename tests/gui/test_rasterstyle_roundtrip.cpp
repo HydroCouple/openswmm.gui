@@ -423,7 +423,7 @@ private slots:
         {
             GISRasterLayer layer(fixture("landuse_ct.tif"));
             auto *p = dynamic_cast<PalettedRasterRenderer *>(layer.rasterRenderer());
-            QVERIFY2(p, "raster with a colour table should open Paletted");
+            QVERIFY2(p, "raster with a color table should open Paletted");
             QVERIFY(layer.hasColorTable());
             // GeoTIFF stores an 8-bit palette as 256 entries, so the table is
             // filtered to the values the data actually uses (1..4).

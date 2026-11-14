@@ -421,7 +421,7 @@ TEST(FeatureStoreCrud, AddFeatureReusesFreeFid)
     QString err;
     const FeatureId id = store.addFeature(f, &err);
     ASSERT_NE(id, kInvalidFeatureId) << err.toStdString();
-    EXPECT_EQ(id, 42) << "GeoPackage did not honour the requested FID — "
+    EXPECT_EQ(id, 42) << "GeoPackage did not honor the requested FID — "
                          "AddFeatureCommand must store the RETURNED id on redo";
 
     // The undo/redo shape: remove it, then re-add with the same id.

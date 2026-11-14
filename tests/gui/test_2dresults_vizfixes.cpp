@@ -2160,9 +2160,9 @@ void Test2DResultsVizFixes::gpuBandsMatchMarchedBandsOnScreen()
         }
     QVERIFY(diff.save(dir + QStringLiteral("/bands-difference.png")));
     QVERIFY2(coloured > images[0].width() * images[0].height() / 4,
-             qPrintable(QStringLiteral("only %1 coloured pixels").arg(coloured)));
+             qPrintable(QStringLiteral("only %1 colored pixels").arg(coloured)));
     QVERIFY2(differing * 50 <= coloured,
-             qPrintable(QStringLiteral("%1 of %2 coloured pixels differ").arg(differing).arg(coloured)));
+             qPrintable(QStringLiteral("%1 of %2 colored pixels differ").arg(differing).arg(coloured)));
 
     // Isolines: the GPU lines are antialiased and the marched ones are not, so compare where
     // lines are: at least 95% of each image's line pixels have a line pixel of the other

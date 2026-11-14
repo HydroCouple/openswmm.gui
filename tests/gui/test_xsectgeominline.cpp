@@ -422,7 +422,7 @@ private slots:
             checkProps(a, shared);
             for (const QString &prop : pumpOnly)
                 QVERIFY2(a.metaObject()->indexOfProperty(prop.toLatin1().constData()) < 0,
-                         "pump utilisation rows must stay pump-only");
+                         "pump utilization rows must stay pump-only");
             swmm_engine_destroy(e);
         }
         {

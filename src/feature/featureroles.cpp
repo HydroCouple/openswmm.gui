@@ -239,7 +239,7 @@ QVector<FeatureRoleSpec> buildRegistry()
         s.role = FeatureLayerRole::Corridor;
         s.token = QStringLiteral("corridor");
         s.label = tr_("Corridors");
-        s.summary = tr_("Road or river centrelines with a width; each becomes a "
+        s.summary = tr_("Road or river centerlines with a width; each becomes a "
                         "strip of quads (Mesh › Corridor sources).");
         s.geometries = kLineKinds;
         s.defaultGeometry = GeometryType::LineString;

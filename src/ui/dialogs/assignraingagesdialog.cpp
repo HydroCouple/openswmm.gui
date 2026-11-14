@@ -110,12 +110,12 @@ void AssignRainGagesDialog::buildUi()
         v->addWidget(m_methodProximity);
 
         m_methodInterp =
-            new QRadioButton(tr("Natural-neighbour interpolation (creates gages)"), group);
+            new QRadioButton(tr("Natural-neighbor interpolation (creates gages)"), group);
         m_methodInterp->setToolTip(
             tr("Area-average interpolation weights over the gage network, then "
                "create one gage and time series per distinct weight vector. "
                "SWMM allows only one gage per subcatchment, so an interpolated "
-               "field has to be materialised this way."));
+               "field has to be materialized this way."));
         v->addWidget(m_methodInterp);
 
         auto *form = new QFormLayout;

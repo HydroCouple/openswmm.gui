@@ -612,7 +612,7 @@ GroundwaterTransportPreview previewGroundwaterTransport(const GroundwaterTranspo
         return p;
     };
     if (cancelled && cancelled())
-        return reject("Cancelled.");
+        return reject("Canceled.");
     if (r.target == GroundwaterTransportTarget::PointSources) {
         // Phase 3b: one source per point feature, at its cell, with its own flow and terms.
         if (r.points.isEmpty())
@@ -626,7 +626,7 @@ GroundwaterTransportPreview previewGroundwaterTransport(const GroundwaterTranspo
         static const QRegularExpression unsafe(QStringLiteral("[\\s\\\";\\[\\]]"));
         for (const auto &point : r.points) {
             if (cancelled && cancelled())
-                return reject("Cancelled.");
+                return reject("Canceled.");
             GroundwaterSourceRow row = point;
             row.scope = 2;
             row.tag.clear();
@@ -679,7 +679,7 @@ GroundwaterTransportPreview previewGroundwaterTransport(const GroundwaterTranspo
     QVector<int> valid;
     for (int i = 0; i < r.cells.size(); ++i) {
         if (cancelled && cancelled())
-            return reject("Cancelled.");
+            return reject("Canceled.");
         if (r.cells[i] < 0 || r.cells[i] >= r.before.cellCount || seen.contains(r.cells[i]))
             return reject("A target cell is out of range or repeated.");
         seen.insert(r.cells[i]);
@@ -705,7 +705,7 @@ GroundwaterTransportPreview previewGroundwaterTransport(const GroundwaterTranspo
         QHash<int, int> targetRows;
         for (int i = 0; i < p.after.quality.size(); ++i) {
             if (cancelled && cancelled())
-                return reject("Cancelled.");
+                return reject("Canceled.");
             const auto &row = p.after.quality[i];
             if (row.scope == 2 && row.zone == r.zone && row.layer == (r.zone == 2 ? r.layer : -1) &&
                 row.species == r.species)
@@ -713,7 +713,7 @@ GroundwaterTransportPreview previewGroundwaterTransport(const GroundwaterTranspo
         }
         for (int i : valid) {
             if (cancelled && cancelled())
-                return reject("Cancelled.");
+                return reject("Canceled.");
             if (r.values[i] < 0 && !metadata->signedConcentration)
                 return reject("This species does not accept negative initial concentrations.");
             GroundwaterQualityRow row;
@@ -751,7 +751,7 @@ GroundwaterTransportPreview previewGroundwaterTransport(const GroundwaterTranspo
                 return reject("Region-total sources require one positive cell area per selection.");
             for (int i : valid) {
                 if (cancelled && cancelled())
-                    return reject("Cancelled.");
+                    return reject("Canceled.");
                 if (!std::isfinite(r.areaWeights[i]) || r.areaWeights[i] <= 0 ||
                     r.values[i] != r.values[valid.front()])
                     return reject(
@@ -785,7 +785,7 @@ GroundwaterTransportPreview previewGroundwaterTransport(const GroundwaterTranspo
         QSet<QString> names;
         for (const auto &row : p.before.sources) {
             if (cancelled && cancelled())
-                return reject("Cancelled.");
+                return reject("Canceled.");
             names.insert(row.name);
         }
         if (!r.tag.isEmpty()) {
@@ -845,7 +845,7 @@ GroundwaterTransportPreview previewGroundwaterTransport(const GroundwaterTranspo
         }
         for (int i : valid) {
             if (cancelled && cancelled())
-                return reject("Cancelled.");
+                return reject("Canceled.");
             if (!massNonzero && (r.flowSeries.isEmpty() ? r.values[i] == 0 : !flowSeriesNonzero))
                 continue;
             GroundwaterSourceRow row;

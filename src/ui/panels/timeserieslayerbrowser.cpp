@@ -78,7 +78,7 @@ QString exportRows(std::shared_ptr<const TimeSeriesDataset> data, QStringList id
         query.limit = 1000;
         for (;;) {
             if (cancel->load())
-                return QObject::tr("Export cancelled.");
+                return QObject::tr("Export canceled.");
             QString error;
             const auto page =
                 TimeSeriesStore::readPage(data->path, id, query, &error, cancel.get());
@@ -106,7 +106,7 @@ QString exportRows(std::shared_ptr<const TimeSeriesDataset> data, QStringList id
         }
     }
     if (cancel->load())
-        return QObject::tr("Export cancelled.");
+        return QObject::tr("Export canceled.");
     return output.commit() ? QString{} : output.errorString();
 }
 }

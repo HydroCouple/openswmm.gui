@@ -295,7 +295,7 @@ bool TerrainSizeField::build(GDALDataset *ds, int band, int col0, int row0, int 
         if (!opt.rowsOnly)
             processBand(buf.constData(), cols, h, r0, opt.tolerance);
         if (progress && !progress(double(r0 + h) / outR)) {
-            m_errorMsg = QStringLiteral("terrain size field: cancelled");
+            m_errorMsg = QStringLiteral("terrain size field: canceled");
             m_h.clear();
             m_outCols = m_outRows = 0;
             return false;

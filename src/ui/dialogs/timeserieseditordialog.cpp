@@ -386,7 +386,7 @@ void TimeseriesEditorDialog::onRefreshObservations_()
         if (!error.isEmpty())
             notifyUser(this, NoticeSeverity::Error, error, m_status, 8000);
         else if (m_status)
-            m_status->showMessage(tr("Refresh cancelled."), 8000);
+            m_status->showMessage(tr("Refresh canceled."), 8000);
         return;
     }
     if (editedSeries() == draft)

@@ -147,7 +147,7 @@ private slots:
         QString error;
         int polls = 0;
         auto p = previewAquiferAssignment(r, [&] { return ++polls == 3; });
-        QCOMPARE(p.error, QString("Cancelled."));
+        QCOMPARE(p.error, QString("Canceled."));
         QVERIFY(p.appended.isEmpty());
         QVERIFY(p.cells.isEmpty());
         QVERIFY(p.oldValues.isEmpty());

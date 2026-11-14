@@ -146,7 +146,7 @@ burnChannelsIntoMesh(const MeshResult &old, ChannelMeshBurnInputs in,
     auto stop = [&] {
         if (cancelled && cancelled()) {
             out.cancelled = true;
-            out.error = QStringLiteral("Cancelled.");
+            out.error = QStringLiteral("Canceled.");
             out.mesh = {};
             out.edgeBCs.clear();
             out.oldToNewCell.clear();

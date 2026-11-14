@@ -5,7 +5,7 @@
  * @license   GPL-3.0-or-later
  * @brief     O2-1 / VS.8 — field tree and display tabs for SWMM2DResultsLayer.
  *
- *         Pattern: each control is initialised from the style bag BEFORE
+ *         Pattern: each control is initialized from the style bag BEFORE
  *         its change-signal is connected, so construction never fires
  *         spurious writes; afterwards every edit applies live (the same
  *         apply-on-edit model the rest of the styling UI uses), and every
@@ -177,7 +177,7 @@ QSpinBox *bindInt(QSpinBox *spin, S *style, Get get, Set set)
     });
     return spin;
 }
-/** @brief Bind an alpha-capable colour button to a colour style property. @return @p button. */
+/** @brief Bind an alpha-capable color button to a color style property. @return @p button. */
 template <class S, class Get, class Set>
 ColorButton *bindColor(ColorButton *button, S *style, Get get, Set set)
 {
@@ -465,7 +465,7 @@ void addIsolineLevelRows(QFormLayout *form, QWidget *owner, IsolineStyle *st, Is
     QObject::connect(st, &SublayerStyle::styleChanged, mode, apply);
 }
 /**
- * @brief Add the stroke controls of an isoline style: colour (for a row, shared with its labels),
+ * @brief Add the stroke controls of an isoline style: color (for a row, shared with its labels),
  * width, stroke style and index contours. Index width is enabled from every 2nd contour on the
  * pass and from every contour on a row, as the renderers draw them.
  */
@@ -474,9 +474,9 @@ void addIsolineLineRows(QFormLayout *form, QWidget *owner, IsolineStyle *st, Iso
     const bool pass = target == IsolineTarget::Pass;
     auto *color =
         bindColor(new ColorButton(owner), st, &IsolineStyle::color, &IsolineStyle::setColor);
-    color->setAccessibleName(pass ? QObject::tr("Isoline colour")
+    color->setAccessibleName(pass ? QObject::tr("Isoline color")
                                   : QObject::tr("Contour and label color"));
-    form->addRow(pass ? QObject::tr("Co&lour:") : QObject::tr("Line and label colour (shared):"),
+    form->addRow(pass ? QObject::tr("Co&lor:") : QObject::tr("Line and label color (shared):"),
                  color);
     auto *width = bindDouble(
         // The pass renderers draw at least 0.5 px; rows draw the width as set.
@@ -492,7 +492,7 @@ void addIsolineLineRows(QFormLayout *form, QWidget *owner, IsolineStyle *st, Iso
     auto *every = bindInt(makeSpin(owner, 0, pass ? 50 : 256, st->indexEvery()), st,
                           &IsolineStyle::indexEvery, &IsolineStyle::setIndexEvery);
     every->setSpecialValueText(QObject::tr("Off"));
-    every->setToolTip(QObject::tr("Emphasise every Nth contour (topographic "
+    every->setToolTip(QObject::tr("Emphasize every Nth contour (topographic "
                                   "index contours); 0 disables"));
     form->addRow(QObject::tr("I&ndex contour every:"), every);
     auto *indexWidth = bindDouble(makeDSpin(owner, pass ? 0.5 : 0.1, 20.0, 0.25, 2,
@@ -507,8 +507,8 @@ void addIsolineLineRows(QFormLayout *form, QWidget *owner, IsolineStyle *st, Iso
 /**
  * @brief Add the label controls of an isoline style.
  * @param toggle Caption of the "label contours" box, or empty for none.
- * @param colorCaption Caption of a colour row, or empty for none.
- * The pass's label settings are greyed while its contour labels are off; a row's never are,
+ * @param colorCaption Caption of a color row, or empty for none.
+ * The pass's label settings are grayed while its contour labels are off; a row's never are,
  * because its cell labels use them regardless.
  */
 void addIsolineLabelRows(QFormLayout *form, QWidget *owner, IsolineStyle *st, IsolineTarget target,
@@ -697,7 +697,7 @@ Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWid
         const QModelIndex current = m_resultTree->currentIndex();
         if (!m_layer || current.data(kKindRole).toInt() != int(ItemKind::Row))
             return;
-        // The neighbour takes the selection: the next row of the group, else the previous one.
+        // The neighbor takes the selection: the next row of the group, else the previous one.
         QModelIndex next = current.siblingAtRow(current.row() + 1);
         if (!next.isValid())
             next = current.siblingAtRow(current.row() - 1);
@@ -809,7 +809,7 @@ bool Swmm2DResultsStylePanel::deferWhileModal()
     auto *modal = QApplication::activeModalWidget();
     if (!modal || modal == window())
         return false;
-    // A picker opened from the page (colour, ramp) runs its own event loop:
+    // A picker opened from the page (color, ramp) runs its own event loop:
     // replacing or refreshing the page under it would delete or reset widgets
     // it still uses. Look again once it has closed.
     if (!m_retryPending) {
@@ -926,7 +926,7 @@ void Swmm2DResultsStylePanel::rebuildTree()
             subs[i] && m_layer->sublayerListed(subs[i]))
             addItem(layerGroup, subs[i], ItemKind::Pass);
     m_resultTree->expandAll();
-    // Keep the selection; else the pending neighbour; else the first field; else water.
+    // Keep the selection; else the pending neighbor; else the first field; else water.
     QModelIndex index = findItem(m_resultModel, selected);
     if (!index.isValid())
         index = findItem(m_resultModel, m_pendingId);
@@ -1146,9 +1146,9 @@ QWidget *Swmm2DResultsStylePanel::buildRowHeader(OpenSWMM::Render::ISublayer *ro
         cutoff->setObjectName("additionalResultDryCutoff");
         cutoff->setAccessibleName(tr("Dry depth cutoff"));
         cutoff->setToolTip(row == m_layer->velocityResultSublayer()
-                               ? tr("No arrows, and no colour range, where the water is shallower "
+                               ? tr("No arrows, and no color range, where the water is shallower "
                                     "than this. The animated streaks are not masked.")
-                               : tr("No arrows or streaks, and no colour range, where the water is "
+                               : tr("No arrows or streaks, and no color range, where the water is "
                                     "shallower than this."));
         auto *cutoffLabel = new QLabel(tr("&Dry cutoff:"), header);
         cutoffLabel->setBuddy(cutoff);
@@ -1277,8 +1277,8 @@ void Swmm2DResultsStylePanel::buildScalarTabs(OpenSWMM::Render::ResultScalarSubl
                               "and by the legend while the fill or filled contours show."));
         auto *colorForm = new QFormLayout(colors);
         /**
-         * @brief Add a live availability-colour control. Argument `label`: caption/accessibility
-         * name. Argument `name`: object name. Arguments `get`, `set`: style colour members.
+         * @brief Add a live availability-color control. Argument `label`: caption/accessibility
+         * name. Argument `name`: object name. Arguments `get`, `set`: style color members.
          */
         const auto addColor = [&](const QString &label, const char *name, auto get, auto set) {
             auto *button = bindColor(new ColorButton(colors), style, get, set);
@@ -1373,7 +1373,7 @@ void Swmm2DResultsStylePanel::buildScalarTabs(OpenSWMM::Render::ResultScalarSubl
                     const auto m = BM(method->itemData(i).toInt());
                     apply([m](ClassificationScheme &s) { s.setMethod(m); });
                 });
-        auto *note = new QLabel(tr("Colours and range come from the Fill classification."), bands);
+        auto *note = new QLabel(tr("Colors and range come from the Fill classification."), bands);
         note->setWordWrap(true);
         form->addRow(note);
         auto *goFill = new QPushButton(tr("Go to Fill"), bands);
@@ -1401,7 +1401,7 @@ void Swmm2DResultsStylePanel::buildScalarTabs(OpenSWMM::Render::ResultScalarSubl
         addIsolineLevelRows(levels, lines, line, IsolineTarget::Row);
         auto *hint = new QLabel(tr("Level count: the classes below set the lines (lines = classes "
                                    "− 1). Fixed interval: lines at base + k × interval. The range "
-                                   "applies to both; the line colour is set below."),
+                                   "applies to both; the line color is set below."),
                                 lines);
         hint->setWordWrap(true);
         linesLayout->addWidget(hint);
@@ -1446,7 +1446,7 @@ void Swmm2DResultsStylePanel::buildScalarTabs(OpenSWMM::Render::ResultScalarSubl
     // The depth row's contour labels belong to its isoline pass; a generic
     // row's share these settings.
     addIsolineLabelRows(labelForm, labels, line, IsolineTarget::Row, QString(),
-                        depthRow ? tr("Label colour:") : tr("Line and label colour (shared):"));
+                        depthRow ? tr("Label color:") : tr("Line and label color (shared):"));
     if (!depthRow) {
         auto *shared = new QLabel(tr("Decimals, font and halo are shared with the contour-line "
                                      "labels."),
@@ -1707,7 +1707,7 @@ void Swmm2DResultsStylePanel::buildVectorTabs(OpenSWMM::Render::ResultVectorSubl
         into->addRow(label, spin);
         return spin;
     };
-    // Same-domain scalar variables a size or colour can bind to.
+    // Same-domain scalar variables a size or color can bind to.
     const auto scalarCombo = [this, domain](QWidget *owner, const QString &key) {
         auto *combo = new QComboBox(owner);
         for (const auto &v : m_layer->resultVariables())
@@ -1803,7 +1803,7 @@ void Swmm2DResultsStylePanel::buildVectorTabs(OpenSWMM::Render::ResultVectorSubl
     auto *rangeMax = number(sizeBox, sizeForm, tr("Range maximum"), -1e12, 1e12, 6,
                             &Style::sizeRangeMax, &Style::setSizeRangeMax);
     rangeMax->setObjectName("additionalResultSizeRangeMax");
-    // Grey what the size mode ignores (ResultVectorStyle::lengthPxFor): a constant arrow is
+    // Gray what the size mode ignores (ResultVectorStyle::lengthPxFor): a constant arrow is
     // the longest; a fixed scale maps speed directly; only a ranged mode reads the range.
     const auto syncSizeUse = [style, scaling, shortest, customRange, rangeMin, rangeMax] {
         const auto mode = style->sizeMode();
@@ -1857,12 +1857,12 @@ void Swmm2DResultsStylePanel::buildVectorTabs(OpenSWMM::Render::ResultVectorSubl
     addDisplayTab(tabs, streaks, "resultStreaksTab", tr("Streaks"), tr("Show streaks"),
                   "additionalResultStreaks", style, &Style::streaks, &Style::setStreaks, row);
 
-    // ── Colour (arrows and static streaks) ───────────────────────────────────
+    // ── Color (arrows and static streaks) ───────────────────────────────────
     auto *colour = new QWidget(tabs);
     auto *colourLayout = new QVBoxLayout(colour);
     if (velocityRow) {
         auto *note =
-            new QLabel(tr("Arrows only; the animated streaks are coloured on the Streaks tab."),
+            new QLabel(tr("Arrows only; the animated streaks are colored on the Streaks tab."),
                        colour);
         note->setWordWrap(true);
         colourLayout->addWidget(note);
@@ -1874,10 +1874,10 @@ void Swmm2DResultsStylePanel::buildVectorTabs(OpenSWMM::Render::ResultVectorSubl
     colorMode->addItem(tr("Constant"), int(Style::ColorMode::Constant));
     colorMode->addItem(tr("Vector magnitude"), int(Style::ColorMode::Magnitude));
     colorMode->addItem(tr("Scalar variable"), int(Style::ColorMode::Scalar));
-    colorForm->addRow(tr("Colour by:"), colorMode);
+    colorForm->addRow(tr("Color by:"), colorMode);
     auto *colorKey = scalarCombo(colour, style->colorKey());
     colorKey->setObjectName("additionalResultColorVariable");
-    colorForm->addRow(tr("Colour variable:"), colorKey);
+    colorForm->addRow(tr("Color variable:"), colorKey);
     const auto syncColor = [style, colorMode, colorKey, followKey] {
         const auto mode = style->colorMode();
         if (const int at = colorMode->findData(int(mode)); at != colorMode->currentIndex()) {
@@ -1905,16 +1905,16 @@ void Swmm2DResultsStylePanel::buildVectorTabs(OpenSWMM::Render::ResultVectorSubl
             });
     auto *constant = bindColor(new ColorButton(colour), style, &Style::color, &Style::setColor);
     constant->setObjectName("additionalResultConstantColor");
-    constant->setAccessibleName(tr("Constant colour"));
-    colorForm->addRow(tr("Constant colour:"), constant);
-    // ResultVectorSublayer::colorFor reads the constant colour only in Constant mode.
+    constant->setAccessibleName(tr("Constant color"));
+    colorForm->addRow(tr("Constant color:"), constant);
+    // ResultVectorSublayer::colorFor reads the constant color only in Constant mode.
     // (The classification editor's enabled state is set in m_refreshResultData alone.)
     const auto syncConstant = [style, constant] {
         const bool used = style->colorMode() == Style::ColorMode::Constant;
         constant->setEnabled(used);
         constant->setToolTip(used ? QString()
-                                  : tr("Used when \"Colour by\" is Constant; other modes take "
-                                       "colours from the classification below."));
+                                  : tr("Used when \"Color by\" is Constant; other modes take "
+                                       "colors from the classification below."));
     };
     syncConstant();
     connect(style, &SublayerStyle::styleChanged, constant, syncConstant);
@@ -1938,7 +1938,7 @@ void Swmm2DResultsStylePanel::buildVectorTabs(OpenSWMM::Render::ResultVectorSubl
     colourLayout->addStretch();
     auto *colourScroll = wrapScroll(colour, tabs);
     colourScroll->setObjectName("resultColourTab");
-    tabs->addTab(colourScroll, tr("Colour"));
+    tabs->addTab(colourScroll, tr("Color"));
 
     // ── Data ─────────────────────────────────────────────────────────────────
     auto *data = new QWidget(tabs);
@@ -1962,7 +1962,7 @@ void Swmm2DResultsStylePanel::buildVectorTabs(OpenSWMM::Render::ResultVectorSubl
                             ? tr("Arrows sample cell values on a screen grid; streaks follow the "
                                  "interpolated field from evenly spaced seeds.")
                             : geometry.error);
-        // As on the scalar page: without a colour range (constant colour,
+        // As on the scalar page: without a color range (constant color,
         // nothing moving) an enabled editor would hold an invalid draft and
         // block OK/Apply. Disabled, it drops its draft and shows no bounds.
         const bool ranged = std::isfinite(lo) && std::isfinite(hi);
@@ -1971,7 +1971,7 @@ void Swmm2DResultsStylePanel::buildVectorTabs(OpenSWMM::Render::ResultVectorSubl
         classification->setEnabled(ranged);
     };
     m_refreshResultData();
-    // Style and visibility changes both change the colour range.
+    // Style and visibility changes both change the color range.
     connect(row, &ISublayer::invalidated, data, [this] { refreshPageData(); });
 }
 
@@ -2099,8 +2099,8 @@ QWidget *Swmm2DResultsStylePanel::buildContourBandTab(QWidget *parent)
 
     if (st) {
         // Slice US.2 — the shared classification editor: method (equal
-        // interval / quantile / Jenks / …), class count, colour ramp + invert,
-        // custom range, and a per-class colour/label table. The renderer reads
+        // interval / quantile / Jenks / …), class count, color ramp + invert,
+        // custom range, and a per-class color/label table. The renderer reads
         // st->scheme() to march the bands.
         auto *L = m_layer.data();
         auto *binding = new SublayerSchemeBinding(
@@ -2122,7 +2122,7 @@ QWidget *Swmm2DResultsStylePanel::buildContourBandTab(QWidget *parent)
             &ContourBandStyle::smoothBands, &ContourBandStyle::setSmoothBands);
         smooth->setToolTip(tr("On: class boundaries are interpolated through "
                               "cells (marching triangles). Off: each cell is "
-                              "filled flat with its band colour. For a "
+                              "filled flat with its band color. For a "
                               "seam-free continuous gradient use the smooth "
                               "fill on the Fill tab instead."));
         renderForm->addRow(QString(), smooth);
@@ -2171,7 +2171,7 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent, bool withS
     auto *st = sub->streakStyle();
     lay->addWidget(passHeader(page, sub, withShow ? tr("Show flow streaks") : QString()));
     auto *help = new QLabel(tr("Shows flow direction, with slower movement boosted for visibility. "
-                               "Colours by speed use the recorded velocities."),
+                               "Colors by speed use the recorded velocities."),
                             page);
     help->setWordWrap(true);
     lay->addWidget(help);
@@ -2192,7 +2192,7 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent, bool withS
     colourLayout->addWidget(colour);
     colourLayout->addWidget(bySpeed);
     colourLayout->addStretch();
-    form->addRow(tr("Colour:"), colourRow);
+    form->addRow(tr("Color:"), colourRow);
     connect(colour, &ColorButton::colorChanged, st, &OpenSWMM::Render::FlowStreakStyle::setColor);
     connect(bySpeed, &QCheckBox::toggled, st,
             &OpenSWMM::Render::FlowStreakStyle::setColorByMagnitude);
@@ -2438,10 +2438,10 @@ QWidget *Swmm2DResultsStylePanel::buildMeshEdgeTab(QWidget *parent)
 
         auto *color =
             bindColor(new ColorButton(symBox), st, &MeshEdgeStyle::color, &MeshEdgeStyle::setColor);
-        color->setToolTip(tr("Edge colour. The wireframe is now drawn once per "
-                             "unique edge, so a translucent colour no longer "
+        color->setToolTip(tr("Edge color. The wireframe is now drawn once per "
+                             "unique edge, so a translucent color no longer "
                              "darkens where cells meet."));
-        symForm->addRow(tr("Colour:"), color);
+        symForm->addRow(tr("Color:"), color);
 
         auto *width = bindDouble(makeDSpin(symBox, 0.1, 10.0, 0.05, 2, st->lineWidthPx(), tr(" px")),
                                  st, &MeshEdgeStyle::lineWidthPx, &MeshEdgeStyle::setLineWidthPx);
@@ -2466,7 +2466,7 @@ QWidget *Swmm2DResultsStylePanel::buildMeshEdgeTab(QWidget *parent)
             bindDouble(makeDSpin(slopeBox, 0.0, 1.0, 0.05, 2, st->slopeBreak()), st,
                        &MeshEdgeStyle::slopeBreak, &MeshEdgeStyle::setSlopeBreak);
         slopeBreak->setToolTip(tr("Fraction of the maximum slope above which "
-                                  "edges use the wide width/colour."));
+                                  "edges use the wide width/color."));
         slopeForm->addRow(tr("Slope brea&k:"), slopeBreak);
         auto *wideWidth =
             bindDouble(makeDSpin(slopeBox, 0.1, 10.0, 0.05, 2, st->wideWidthPx(), tr(" px")), st,
@@ -2474,8 +2474,8 @@ QWidget *Swmm2DResultsStylePanel::buildMeshEdgeTab(QWidget *parent)
         slopeForm->addRow(tr("Wide width:"), wideWidth);
         auto *wideColor = bindColor(new ColorButton(slopeBox), st, &MeshEdgeStyle::wideColor,
                                     &MeshEdgeStyle::setWideColor);
-        slopeForm->addRow(tr("Wide colour:"), wideColor);
-        // The width and colour of steep edges matter only while they are widened.
+        slopeForm->addRow(tr("Wide color:"), wideColor);
+        // The width and color of steep edges matter only while they are widened.
         const auto syncSlope = [st, slopeBreak, wideWidth, wideColor] {
             const bool on = st->useSlopeDrivenWidth();
             for (QWidget *w : {static_cast<QWidget *>(slopeBreak),
@@ -2512,7 +2512,7 @@ QWidget *Swmm2DResultsStylePanel::buildMeshNodeTab(QWidget *parent)
 
         auto *color =
             bindColor(new ColorButton(symBox), st, &MeshNodeStyle::color, &MeshNodeStyle::setColor);
-        symForm->addRow(tr("Colour:"), color);
+        symForm->addRow(tr("Color:"), color);
 
         auto *size = bindDouble(makeDSpin(symBox, 0.5, 20.0, 0.5, 1, st->markerSizePx(), tr(" px")),
                                 st, &MeshNodeStyle::markerSizePx, &MeshNodeStyle::setMarkerSizePx);
@@ -2520,7 +2520,7 @@ QWidget *Swmm2DResultsStylePanel::buildMeshNodeTab(QWidget *parent)
 
         auto *outlineColor = bindColor(new ColorButton(symBox), st, &MeshNodeStyle::outlineColor,
                                        &MeshNodeStyle::setOutlineColor);
-        symForm->addRow(tr("Outline colour:"), outlineColor);
+        symForm->addRow(tr("Outline color:"), outlineColor);
 
         auto *outlineWidth =
             bindDouble(makeDSpin(symBox, 0.0, 5.0, 0.25, 2, st->outlineWidthPx(), tr(" px")), st,

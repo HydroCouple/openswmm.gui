@@ -253,7 +253,7 @@ LocalTerrainResult prepareLocalTerrain(const QString &sourcePath, const QString 
     const bool closed = copy && GDALClose(copy) == CE_None;
     if (!copy || !closed || state.cancelled || !QFile::rename(partial, path)) {
         QFile::remove(partial);
-        out.note = state.cancelled ? QStringLiteral("cancelled") : QStringLiteral("copy failed");
+        out.note = state.cancelled ? QStringLiteral("canceled") : QStringLiteral("copy failed");
         return out;
     }
     out.path = path;

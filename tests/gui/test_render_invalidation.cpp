@@ -108,7 +108,7 @@ private slots:
         QVERIFY(layer.applyMeshVertexZ(12, 42.0));
         QVERIFY2(layer.geomRevision() != before,
                  "applyMeshVertexZ must invalidate the shaded-RGB cache key; "
-                 "without the bump the renderer re-uploads pre-edit colours "
+                 "without the bump the renderer re-uploads pre-edit colors "
                  "and the hillshade never updates");
     }
 
