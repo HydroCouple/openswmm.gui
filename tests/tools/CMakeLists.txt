@@ -57,6 +57,8 @@ target_include_directories(profile_attribute_tracks_verify PRIVATE
     ${CMAKE_SOURCE_DIR}/include
 )
 target_link_libraries(profile_attribute_tracks_verify PRIVATE
+    # preferencesmanager.h includes MeshKit's header-only mesh/meshresolution.h.
+    meshkit::runtime
     Qt6::Core Qt6::Gui Qt6::Widgets
 )
 if(TARGET openswmm_engine)
