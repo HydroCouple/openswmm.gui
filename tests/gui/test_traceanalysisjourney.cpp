@@ -505,6 +505,18 @@ private slots:
         const auto cancelled = registry->beginRun(cancelledOut, snapshot.toJson());
         registry->finishRun(cancelled, false, true);
         QCOMPARE(registry->run(cancelled).state, QString("Cancelled"));
+        {
+            // The saved state keeps "Cancelled"; the layer's run label reads "Canceled".
+            auto *layer = new SWMMResultsLayer(cancelledOut, w.modelLayer(), workspace.get());
+            registry->registerLayer(layer, cancelledOut);
+            QString label;
+            for (const auto &id : registry->identities())
+                if (id.layer == layer)
+                    label = id.shortLabel;
+            QVERIFY2(label.endsWith(QStringLiteral(" · Canceled")), qPrintable(label));
+            registry->unregisterLayer(layer);
+            delete layer;
+        }
         controller->run(cancelled, {"S"}, 1, {}, snapshot);
         QTRY_COMPARE_WITH_TIMEOUT(finish.count(), 3, 15000);
         QVERIFY(failed.isEmpty());
