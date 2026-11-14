@@ -134,8 +134,14 @@ void OutputStatsRegistry::recomputeLabels()
         }
         seen[base] = count + 1;
         auto version = run(s.runId);
-        if (!version.id.isEmpty())
-            s.shortLabel += QStringLiteral(" · Run %1 · %2").arg(version.number).arg(version.state);
+        if (!version.id.isEmpty()) {
+            // The saved state stays "Cancelled" (it is written to .oswp); the label spells it
+            // the American way.
+            const QString state = version.state == QStringLiteral("Cancelled")
+                                      ? QStringLiteral("Canceled")
+                                      : version.state;
+            s.shortLabel += QStringLiteral(" · Run %1 · %2").arg(version.number).arg(state);
+        }
     }
 }
 
