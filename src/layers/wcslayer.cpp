@@ -886,7 +886,7 @@ static QImage computeShadedRelief(const std::vector<float> &elev, int w, int h, 
                                   double cellSizeY, float vMin, float vMax, int hasNoData,
                                   double noDataValue)
 {
-    // Geographic CRS heuristic: degrees are < 360, metres are usually >> 1
+    // Geographic CRS heuristic: degrees are < 360, meters are usually >> 1
     const double zFactor = (cellSizeX < 0.01) ? (1.0 / 111111.0) : 1.0;
 
     constexpr double kAzimuthDeg = 315.0; // NW — standard cartographic default

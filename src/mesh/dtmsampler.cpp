@@ -176,7 +176,7 @@ double DTMSampler::sample(double x, double y) const
     double dy = (row - 0.5) - rf;
 
     // Edge clamp: when the requested point is within the half-pixel border,
-    // the bilinear "neighbour" is fictitious — clamp dx/dy so the formula
+    // the bilinear "neighbor" is fictitious — clamp dx/dy so the formula
     // returns the in-bounds pixel value rather than NaN. Important because
     // mesh boundary vertices commonly land exactly on the raster boundary.
     if (c0 < 0) {

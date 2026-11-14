@@ -28,7 +28,7 @@ namespace openswmmvis::ui
 /**
  * @brief Text a screen reader announces for a color swatch cell (A-05).
  * @param[in] color Swatch color.
- * @return "Colour #rrggbb", with ", N% opaque" appended for a translucent color; empty for an
+ * @return "Color #rrggbb", with ", N% opaque" appended for a translucent color; empty for an
  *   invalid color.
  */
 [[nodiscard]] QString colorCellAccessibleText(const QColor &color);

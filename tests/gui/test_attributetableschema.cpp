@@ -4175,7 +4175,7 @@ private slots:
     // the engine's index are the same number. The invariant is already
     // load-bearing elsewhere (applyNodeDelete feeds a swmm_node_index()
     // result straight into m_nodes.removeAt()), but nothing pinned it —
-    // and a violation would be silent: the cell would show a NEIGHBOURING
+    // and a violation would be silent: the cell would show a NEIGHBORING
     // object's value rather than going blank.
 
     /**

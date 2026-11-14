@@ -9,7 +9,7 @@
  * build the corridor lattice and its quad patch — and checks the result in the
  * raster, where a mistake in any layer would land.
  *
- * The deck is US-units (CFS, so feet) and the DEM is in METRES, which is the
+ * The deck is US-units (CFS, so feet) and the DEM is in METERS, which is the
  * pipeline's `zConversionFactor` case and the burn's highest-consequence silent
  * failure: getting the direction of that conversion backwards cuts the channel
  * 3.28x too deep and produces a mesh that looks entirely plausible. The
@@ -287,7 +287,7 @@ TEST_F(BurnEndToEnd, TheBurnedRasterHoldsTheChannelBedInTheRastersOwnUnits)
     EXPECT_NEAR(c1->length(), 2.0 * std::hypot(60.0, 10.0), 1e-9);
     EXPECT_NEAR(bedZAt(*c1, c1->length() * 0.5), 99.5, 1e-9);
 
-    // In the raster that bed is METRES, and the pixel center nearest the bend
+    // In the raster that bed is METERS, and the pixel center nearest the bend
     // carries it. The cross-check is the whole point: 99.5 ft is 30.3276 m, and
     // the 3.28x mistake would write 326.3 or 30.3 / 3.28 instead.
     const double got = sampleAt(dst, 60.5, 9.5);

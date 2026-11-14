@@ -39,7 +39,7 @@ boundary-condition type the engine accepts**, plus an `[2D_EDGE_CONVEYANCE]`
 directories and a `weir_culvert.inp.orig` backup. Ignore all three — they are
 regeneration artifacts, not part of the example.
 
-\figtodo{t05_road_culvert_overview.png, The road culvert model on the map canvas — flat mesh; transverse embankment; three coupled junctions along the culvert centreline}
+\figtodo{t05_road_culvert_overview.png, The road culvert model on the map canvas — flat mesh; transverse embankment; three coupled junctions along the culvert centerline}
 
 ## Steps
 
@@ -486,7 +486,7 @@ appears below it — **Friction Slope**, **Stage**, **Flow**, or the **Model
 reference** picker for a time series or rating curve. Named groups are set in
 the attribute table's **Group** column.
 
-\figtodo{t05_bc_types_reference.png, The reference model's six boundary rows highlighted on the map with per-type colours}
+\figtodo{t05_bc_types_reference.png, The reference model's six boundary rows highlighted on the map with per-type colors}
 
 #### `[2D_VERTEX_NODE_MAP]` and `[2D_TRIANGLE_NODE_MAP]`
 

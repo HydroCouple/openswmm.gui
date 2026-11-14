@@ -285,7 +285,7 @@ void WMTSLayer::fetchCache(const MapExtent &canvasExtent, const QSize &viewportS
              << tileExtent.yMin() << tileExtent.xMax() << tileExtent.yMax();
 
     // Tile geographic dimensions in tile-CRS native units.
-    // OGC: scaleDenominator × kOgcPS = metres per pixel regardless of CRS.
+    // OGC: scaleDenominator × kOgcPS = meters per pixel regardless of CRS.
     // For geographic (degree-unit) tile CRS convert meters → degrees at equator.
     constexpr double kOgcPS = 0.00028;
     constexpr double kMetersPerDegree = 111319.49;

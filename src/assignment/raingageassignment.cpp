@@ -64,7 +64,7 @@ QString trn(const char *s, int n)
 }
 
 // Generated objects are named NNG_### (Natural-Neighbor Gage). The pattern is
-// also how a later run RECOGNISES its own output, so it must stay stable.
+// also how a later run RECOGNIZES its own output, so it must stay stable.
 const QString kGenPrefix = QStringLiteral("NNG_");
 
 /**

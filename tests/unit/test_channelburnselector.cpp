@@ -285,7 +285,7 @@ TEST_F(BurnSelectorTest, StreetsAreGatedOnTheirOwnOptionNotOnTheEnginesAnswer)
     // whitelist has carried STREET both ways (tests/gui/test_xsectsampler.cpp
     // pins it precisely because it moves), and deriving the default from it
     // would silently start burning every curb line in the model the day it
-    // flips. So this asserts the BEHAVIOUR, which holds either way.
+    // flips. So this asserts the BEHAVIOR, which holds either way.
     BurnSelector sel;
 
     BurnOptions off = opt;

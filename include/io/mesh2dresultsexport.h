@@ -118,7 +118,7 @@ struct Mesh2DExportInputs {
     /*! SI meters → model units, for coordinates AND values (the layer's
      *  `depthToMeshUnits()`; 1.0 for a metric model, 1/0.3048 for a US one). */
     double unitFactor = 1.0;
-    /*! Dry threshold in METRES (the layer's `dryDepth()`). */
+    /*! Dry threshold in METERS (the layer's `dryDepth()`). */
     double dryDepthM = 1e-4;
     /*! Model CRS as WKT; empty writes no `.prj` / projection. */
     QString srsWkt;

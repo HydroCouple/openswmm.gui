@@ -90,7 +90,7 @@ public:
      *  (the default) disables it.
      * @param[in] column Logical sibling column containing bc_type EditRole, negative disables
      *   applicability check; upper bound not validated.
-     * @note Store only; GREY display/tooltip feedback does not prevent editor creation/model commit
+     * @note Store only; GRAY display/tooltip feedback does not prevent editor creation/model commit
      *   for unused parameter. No automatic repaint or flags modification.
      */
     void setBcTypeColumn(int column) { m_bcTypeColumn = column; }

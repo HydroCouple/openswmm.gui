@@ -7,7 +7,7 @@
  *
  *         Historically three near-copies — LegendOverlay,
  *         LegendLayerTreeModel and legendclasseditcommands — each resolved
- *         "which renderer / which rows / which swatch colour" for a layer
+ *         "which renderer / which rows / which swatch color" for a layer
  *         and had to stay in lockstep manually. This namespace is the
  *         single copy both legend views and the undo commands consume, so
  *         the on-canvas legend, the dock tree and the edit routing cannot

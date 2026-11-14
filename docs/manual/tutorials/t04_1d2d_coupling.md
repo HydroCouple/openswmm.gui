@@ -114,7 +114,7 @@ cell to the nearest node. The per-row Cd and area override the global defaults
 on **Simulation Options → 2D Surface Routing → Coupling**. Area is square
 meters here; it must be consistent with the inlet opening being represented.
 
-\figtodo{t04_vertex_coupling_toolbar.png, Properties for vertex 16 showing it coupled to J1 with Cd 0.65 and area 0.02 square metres}
+\figtodo{t04_vertex_coupling_toolbar.png, Properties for vertex 16 showing it coupled to J1 with Cd 0.65 and area 0.02 square meters}
 
 Open **Attribute Table** and choose the mesh **Vertices** category. Check
 indices 16 and 18, coordinates, elevations and **Coupled Node**. Only two

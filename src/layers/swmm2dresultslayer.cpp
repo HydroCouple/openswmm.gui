@@ -1350,7 +1350,7 @@ private:
 // ---------------------------------------------------------------------------
 //
 // Draws one arrow per wet triangle: anchored at the cached scene-space
-// centroid, length log-scaled by |v|, colour = magnitude on the velocity
+// centroid, length log-scaled by |v|, color = magnitude on the velocity
 // ramp. Renders above the depth fill via z-ordering (layerZValue + 0.5).
 // Arrow length is kept constant in pixels by dividing by the painter's
 // world-transform scale, so glyphs don't blow up at zoom-in or vanish at
@@ -3873,7 +3873,7 @@ void SWMM2DResultsLayer::setColorClasses(int n)
 // Isoline sublayers (visibility, sublayer opacity, style-bag props). Paint
 // gates on sublayer visibility and prefers the style-bag values, so before
 // this change the dialog's setters wrote fields paint never consulted —
-// every "Show bands"/"Levels"/"Colour" control in the 2D panel was dead.
+// every "Show bands"/"Levels"/"Color" control in the 2D panel was dead.
 
 bool SWMM2DResultsLayer::filledContours() const
 {

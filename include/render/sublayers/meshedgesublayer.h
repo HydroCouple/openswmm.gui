@@ -49,7 +49,7 @@ class MeshEdgeStyle : public SublayerStyle
     // SWMM2DMeshLayer::onSublayersJsonLoaded.
     // Slice US (mesh) — edges can be classified by slope through the shared
     // ClassificationScheme. The default 2-class scheme mirrors the legacy
-    // thin/wide slope split (colour = colour, wideColor = high class); the
+    // thin/wide slope split (color = color, wideColor = high class); the
     // renderer keeps the historic two-tier path until the scheme is
     // customized. useSlopeDrivenWidth stays the on/off gate.
     Q_PROPERTY(OpenSWMM::Render::ClassificationScheme classification READ scheme WRITE setScheme

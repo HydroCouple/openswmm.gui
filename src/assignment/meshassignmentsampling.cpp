@@ -428,7 +428,7 @@ void sampleRasterCentroid(SamplingProgress &promise, const Job &job, const QVect
 
 /*! Area-weighted / majority raster sampling.
  *
- *  v1 accumulates every pixel whose CENTRE falls inside the cell — cheap, no
+ *  v1 accumulates every pixel whose CENTER falls inside the cell — cheap, no
  *  clipping. Exact pixel clipping (weighting the boundary pixels by their
  *  intersected fraction) is a documented follow-up, not this pass. Every
  *  pixel therefore carries the same weight, so the area-weighted mean is the

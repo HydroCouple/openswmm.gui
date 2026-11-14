@@ -153,7 +153,7 @@ public:
     QString legendOverride() const { return m_legendOverride; }
 
     /*! \brief Human-friendly, group-prefixed label for the QPropertyModel
-     *  tree. Returns labels like "Line — Width", "Marker — Fill Colour".
+     *  tree. Returns labels like "Line — Width", "Marker — Fill Color".
      *  Returns an empty string for unknown property names so the default
      *  generated name is used. Mirrors `ChartProperties::displayLabelFor`.
      * @param[in] propertyName Exact meta-property identifier; comparisons are case-sensitive.
