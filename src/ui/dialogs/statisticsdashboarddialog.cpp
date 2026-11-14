@@ -10,6 +10,7 @@
  */
 
 #include "ui/dialogs/statisticsdashboarddialog.h"
+#include "results/summarytables.h"
 #include "ui/theme/themehelpers.h"
 
 #include "core/queryparser.h"
@@ -38,6 +39,8 @@
 #include <QFileDialog>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QLocale>
+#include <QFileInfo>
 #include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
@@ -167,6 +170,43 @@ double statOf(const SeriesData &s, Stat stat, double start, int step)
     }
     return nan;
 }
+
+/// G-08 report rows: the object kind of column 0 (SWMMObjectRef::ObjectType; Unknown for a
+/// System row), so a selection resolves per row rather than per tab.
+constexpr int kObjectTypeRole = Qt::UserRole + 40;
+
+/*! A report-table value: the full number for sorting and queries (EditRole), shown with six
+ *  significant digits, or as "d hh:mm" for a time of maximum (elapsed days); empty when the
+ *  report prints no value. */
+class ReportValueItem final : public QStandardItem
+{
+public:
+    ReportValueItem(double value, bool elapsedDays) : m_elapsedDays(elapsedDays)
+    {
+        if (std::isfinite(value))
+            QStandardItem::setData(value, Qt::EditRole);
+        setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    }
+    QVariant data(int role) const override
+    {
+        if (role != Qt::DisplayRole)
+            return QStandardItem::data(role);
+        const QVariant stored = QStandardItem::data(Qt::EditRole);
+        if (!stored.isValid())
+            return QString();
+        const double v = stored.toDouble();
+        if (!m_elapsedDays)
+            return QLocale::c().toString(v, 'g', 6);
+        const qint64 minutes = qRound64(v * 1440.0);
+        return QStringLiteral("%1 d %2:%3")
+            .arg(minutes / 1440)
+            .arg(minutes % 1440 / 60, 2, 10, QLatin1Char('0'))
+            .arg(minutes % 60, 2, 10, QLatin1Char('0'));
+    }
+
+private:
+    bool m_elapsedDays;
+};
 
 /*! A table cell: rounded like the dashboard always rounded, or an empty
  *  item (no EditRole) for a missing value — never 0. */
@@ -359,6 +399,7 @@ void StatisticsDashboardDialog::setResultsLayer(SWMMResultsLayer *layer)
     populateNodeStats();
     populateLinkStats();
     populateSubcatchStats();
+    populateReportTables();
     if (applyQueryToAllTables())
         updateQueryStatus();
 }
@@ -687,6 +728,119 @@ void StatisticsDashboardDialog::set2DResults(SWMM2DResultsLayer *mesh, const QSt
     refreshMeshVariables();
 }
 
+void StatisticsDashboardDialog::populateReportTables()
+{
+    if (!m_tabs)
+        return;
+    for (const ReportTab &tab : std::as_const(m_reportTabs)) {
+        m_tabs->removeTab(m_tabs->indexOf(tab.view));
+        m_units.remove(tab.model);
+        tab.view->deleteLater();
+        tab.proxy->deleteLater();
+        tab.model->deleteLater();
+    }
+    m_reportTabs.clear();
+    if (m_reportNote) {
+        m_tabs->removeTab(m_tabs->indexOf(m_reportNote));
+        m_reportNote->deleteLater();
+        m_reportNote = nullptr;
+    }
+    if (!m_layer)
+        return;
+
+    const QString path = openswmmvis::results::summaryTablesPath(m_layer->resultsFilePath());
+    QString error;
+    const bool saved = QFileInfo::exists(path);
+    const auto tables = saved ? openswmmvis::results::loadSummaryTables(path, &error)
+                              : std::optional<openswmmvis::results::SummaryTables>();
+    if (!tables) {
+        auto *note = new QLabel(
+            saved ? tr("The report tables saved with this run could not be read: %1").arg(error)
+                  : tr("The report's summary tables (times of maxima, outfall loads, flooding "
+                       "and surcharge, flow classes, pumps, LID performance) are saved by runs "
+                       "made in OpenSWMM with the OpenSWMM engine. Run the model to see them "
+                       "here."),
+            this);
+        note->setObjectName(QStringLiteral("reportTablesNote"));
+        note->setWordWrap(true);
+        note->setAlignment(Qt::AlignTop | Qt::AlignLeft);
+        note->setMargin(12);
+        m_reportNote = note;
+        m_tabs->addTab(note, tr("Report tables"));
+        return;
+    }
+
+    for (const auto &table : tables->tables) {
+        if (table.rows.isEmpty())
+            continue;
+        bool labeled = false;
+        bool hasSubcatch = false, hasLink = false;
+        for (const auto &row : table.rows) {
+            labeled = labeled || !row.label.isEmpty();
+            hasSubcatch = hasSubcatch || row.objectType == openswmmvis::results::SummarySubcatch;
+            hasLink = hasLink || row.objectType == openswmmvis::results::SummaryLink;
+        }
+        QStringList headers{hasSubcatch ? tr("Subcatchment") : hasLink ? tr("Link") : tr("Node")};
+        QStringList units{QString()};
+        if (labeled) {
+            headers << (hasSubcatch ? tr("LID control") : tr("Type"));
+            units << QString();
+        }
+        for (const auto &column : table.columns) {
+            headers << (column.units.isEmpty()
+                            ? column.name
+                            : QStringLiteral("%1 (%2)").arg(column.name, column.units));
+            units << column.units;
+        }
+        auto *model = new QStandardItemModel(this);
+        model->setHorizontalHeaderLabels(headers);
+        for (const auto &row : table.rows) {
+            QList<QStandardItem *> items;
+            auto *name = new QStandardItem(row.objectName);
+            const auto type = row.objectType == openswmmvis::results::SummaryNode   ? SWMMObjectRef::Node
+                              : row.objectType == openswmmvis::results::SummaryLink ? SWMMObjectRef::Link
+                              : row.objectType == openswmmvis::results::SummarySubcatch
+                                  ? SWMMObjectRef::Subcatchment
+                                  : SWMMObjectRef::Unknown;
+            name->setData(int(type), kObjectTypeRole);
+            items << name;
+            if (labeled)
+                items << new QStandardItem(row.label);
+            for (int c = 0; c < table.columns.size(); ++c)
+                items << new ReportValueItem(row.values.value(c, std::nan("")),
+                                             table.columns.at(c).units == QLatin1String("days"));
+            model->appendRow(items);
+        }
+        auto *proxy = new StatsFilteringProxy(this);
+        proxy->setSourceModel(model);
+        proxy->setSortRole(Qt::EditRole);
+        auto *view = new QTableView(this);
+        view->setObjectName(QStringLiteral("reportTable_%1").arg(table.id));
+        view->setAccessibleName(table.title);
+        openswmmvis::ui::TableClipboard::install(view, {.copyOnly = true});
+        view->setModel(proxy);
+        view->setSortingEnabled(true);
+        // Open in the report's own row order (System last); a header click sorts.
+        view->horizontalHeader()->setSortIndicator(-1, Qt::AscendingOrder);
+        view->setSelectionBehavior(QAbstractItemView::SelectRows);
+        view->setSelectionMode(QAbstractItemView::ExtendedSelection);
+        view->setAlternatingRowColors(true);
+        view->setEditTriggers(QAbstractItemView::NoEditTriggers);
+        view->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+        view->setContextMenuPolicy(Qt::CustomContextMenu);
+        connect(view, &QWidget::customContextMenuRequested, this,
+                &StatisticsDashboardDialog::onTableContextMenuRequested);
+        connect(view->selectionModel(), &QItemSelectionModel::selectionChanged, this,
+                &StatisticsDashboardDialog::onTableSelectionChanged);
+        QString title = table.title;
+        if (title.endsWith(QLatin1String(" Summary")))
+            title.chop(8);
+        m_tabs->addTab(view, title);
+        m_units.insert(model, units);
+        m_reportTabs.append({model, proxy, view});
+    }
+}
+
 void StatisticsDashboardDialog::refreshMeshVariables()
 {
     if (!m_meshVariable)
@@ -844,15 +998,18 @@ void StatisticsDashboardDialog::onTableSelectionChanged()
         return; // background tab
 
     const auto type = currentObjectType();
-    if (type == SWMMObjectRef::Unknown)
-        return;
-
     QSet<SWMMObjectRef> refs;
     for (const QModelIndex &idx : table->selectionModel()->selectedRows()) {
         const QString name = idx.data(Qt::DisplayRole).toString();
-        if (!name.isEmpty())
-            refs.insert(SWMMObjectRef(type, name));
+        // G-08 report rows carry their own kind (a System row has none).
+        const QVariant rowType = idx.data(kObjectTypeRole);
+        const auto kind =
+            rowType.isValid() ? static_cast<SWMMObjectRef::ObjectType>(rowType.toInt()) : type;
+        if (!name.isEmpty() && kind != SWMMObjectRef::Unknown)
+            refs.insert(SWMMObjectRef(kind, name));
     }
+    if (refs.isEmpty() && type == SWMMObjectRef::Unknown)
+        return;
     m_selMgr->select(refs, SelectionManager::Replace);
 }
 
@@ -865,14 +1022,17 @@ void StatisticsDashboardDialog::onSelectionManagerChanged(const QSet<SWMMObjectR
     // selectionChanged signals from bouncing straight back to the bus.
     m_applyingFromBus = true;
 
-    struct {
+    struct Tab {
         QTableView *table;
-        SWMMObjectRef::ObjectType type;
-    } tabs[] = {
+        SWMMObjectRef::ObjectType type; ///< Unknown: each row says (G-08 report tables)
+    };
+    QList<Tab> tabs{
         {m_nodeTable, SWMMObjectRef::Node},
         {m_linkTable, SWMMObjectRef::Link},
         {m_subTable, SWMMObjectRef::Subcatchment},
     };
+    for (const ReportTab &report : std::as_const(m_reportTabs))
+        tabs.append({report.view, SWMMObjectRef::Unknown});
 
     for (const auto &t : tabs) {
         if (!t.table || !t.table->model() || !t.table->selectionModel())
@@ -881,18 +1041,22 @@ void StatisticsDashboardDialog::onSelectionManagerChanged(const QSet<SWMMObjectR
         auto *sel = t.table->selectionModel();
         sel->clearSelection();
 
-        QSet<QString> names;
+        QSet<SWMMObjectRef> wanted;
         for (const auto &ref : current) {
-            if (ref.objectType == t.type)
-                names.insert(ref.name);
+            if (t.type == SWMMObjectRef::Unknown || ref.objectType == t.type)
+                wanted.insert(ref);
         }
-        if (names.isEmpty())
+        if (wanted.isEmpty())
             continue;
 
         // Row order is the proxy's (sorted / filtered), so resolve by name.
         for (int r = 0, n = model->rowCount(); r < n; ++r) {
             const QModelIndex idx = model->index(r, 0);
-            if (names.contains(idx.data(Qt::DisplayRole).toString()))
+            const QVariant rowType = idx.data(kObjectTypeRole);
+            const auto kind = rowType.isValid()
+                                  ? static_cast<SWMMObjectRef::ObjectType>(rowType.toInt())
+                                  : t.type;
+            if (wanted.contains(SWMMObjectRef(kind, idx.data(Qt::DisplayRole).toString())))
                 sel->select(idx, QItemSelectionModel::Select | QItemSelectionModel::Rows);
         }
     }
@@ -1102,6 +1266,8 @@ bool StatisticsDashboardDialog::exportTo(const QString &path) const
         dumpModel(tr("2D regions: %1, %2")
                       .arg(m_meshVariable->currentText(), m_meshAggregate->currentText()),
                   m_meshProxy);
+    for (const ReportTab &report : m_reportTabs)
+        dumpModel(m_tabs->tabText(m_tabs->indexOf(report.view)), report.proxy);
     out.flush();
     return out.status() == QTextStream::Ok;
 }
@@ -1150,6 +1316,8 @@ bool StatisticsDashboardDialog::applyQueryToAllTables()
     static_cast<StatsFilteringProxy *>(m_subProxy)->setQueryPredicate(pred);
     if (m_meshProxy)
         static_cast<StatsFilteringProxy *>(m_meshProxy)->setQueryPredicate(pred);
+    for (const ReportTab &report : std::as_const(m_reportTabs))
+        static_cast<StatsFilteringProxy *>(report.proxy)->setQueryPredicate(pred);
     return true;
 }
 
@@ -1190,6 +1358,9 @@ QSortFilterProxyModel *StatisticsDashboardDialog::currentProxy() const
     case 3:
         return m_meshProxy;
     default:
+        for (const ReportTab &report : m_reportTabs)
+            if (m_tabs->currentWidget() == report.view)
+                return report.proxy;
         return nullptr;
     }
 }

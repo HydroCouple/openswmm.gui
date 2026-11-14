@@ -9,6 +9,7 @@
  */
 
 #include "simulation/simulationrunner.h"
+#include "results/summarytables.h"
 #include "simulation/runpathlease.h"
 #include "simulation/twodbackendpolicy.h"
 #include "simulation/snowledger.h"
@@ -602,6 +603,7 @@ QStringList SimulationRunner::runOutputPaths(const QString &inp, const QString &
     if (!h5.isEmpty())
         paths.append(QFileInfo(h5).absoluteFilePath());
     paths.append(openswmmvis::io::lidStatePath(out));
+    paths.append(openswmmvis::results::summaryTablesPath(QFileInfo(out).absoluteFilePath()));
     paths.append(knownRunReferences(inp).outputs);
     return paths;
 }
@@ -1106,6 +1108,12 @@ void SimulationRunner::start()
             if (!removeOldLidStates())
                 return {false, SWMM_ERR_INTERNAL, tr("Cannot replace LID results: %1").arg(lidPath),
                         0.0, 0.0};
+            // G-08: the previous run's report tables must not describe this run's output.
+            const QString summaryPath =
+                openswmmvis::results::summaryTablesPath(QString::fromUtf8(out));
+            if (QFile::exists(summaryPath) && !QFile::remove(summaryPath))
+                runLog->line(QStringLiteral("Could not remove the previous report tables %1")
+                                 .arg(summaryPath));
             openswmmvis::simulation::LidStateRecorder lidRecorder;
             auto warnLid = [&]() {
                 const QString message =
@@ -1502,6 +1510,15 @@ void SimulationRunner::start()
             runLog->line(QStringLiteral("end"));
             swmm_engine_end(eng);
             emitSnowLedger(rawSelf, rawSelf->m_jobId, eng);
+            // G-08: keep the report's summary tables for the Statistics Dashboard; the engine
+            // (and its statistics) is gone once it closes. A failure here never fails the run.
+            {
+                QString tablesError;
+                const auto tables = openswmmvis::results::captureSummaryTables(eng, &tablesError);
+                if (!tables || !openswmmvis::results::saveSummaryTables(*tables, summaryPath,
+                                                                        &tablesError))
+                    runLog->line(QStringLiteral("Report tables were not saved: %1").arg(tablesError));
+            }
 
             // Continuity errors (available after end)
             double runoffErr = 0.0;
