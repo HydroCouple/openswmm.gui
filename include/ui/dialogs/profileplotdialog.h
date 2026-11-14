@@ -99,6 +99,13 @@ public:
                       const ProfileRouter::Path &path, SWMMVisProjectWindow *projectWindow,
                       QWidget *parent = nullptr);
 
+    /**
+     * @brief Save this profile's links in the model's [PROFILES] as @p name, replacing a saved
+     *   profile of that name (review G-01). "Save Profile…" asks for the name, then calls this.
+     * @return False with @p error set when the model refuses or the profile has no links.
+     */
+    bool saveProfileAs(const QString &name, QString *error = nullptr);
+
     /*!
      * \brief  Sever every external signal/slot connection while children
      *         are still alive so that any cross-window teardown order
@@ -176,6 +183,8 @@ signals:
                                 const openswmmvis::plot::ResultDescriptor &descriptor);
 
 private slots:
+    /** @brief Ask for a name (and to replace a saved profile of that name), then save. */
+    void promptSaveProfile();
     /*!
      * \brief Re-fetches series for the currently-enabled sources and
      *        pushes them to the plot widget.

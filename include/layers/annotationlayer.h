@@ -108,6 +108,23 @@ public:
      */
     void restoreLayer(const QJsonObject &object);
     /**
+     * @return "LABELS" when this layer shows the model's [LABELS] and its edits are saved there
+     *   (review G-01); empty for a project-only text layer. Saved in layerJson().
+     */
+    [[nodiscard]] QString modelSection() const { return m_modelSection; }
+    /** @param[in] section "LABELS" to mark the layer as the model's labels; empty clears it. */
+    void setModelSection(const QString &section) { m_modelSection = section; }
+    /**
+     * @return The [LABELS] anchor (node or subcatchment name) of item @p itemId, kept so a save
+     *   writes it back; empty when the label has none.
+     */
+    [[nodiscard]] QString modelAnchor(const QString &itemId) const
+    {
+        return m_modelAnchors.value(itemId);
+    }
+    /** @param[in] anchor Node or subcatchment name; empty removes the entry. */
+    void setModelAnchor(const QString &itemId, const QString &anchor);
+    /**
      * @return Translated (in-memory) display text; annotations persist only when the host serializes them.
      */
     QString sourceDescription() const override { return tr("(in-memory)"); }
@@ -166,5 +183,7 @@ private:
     QHash<QString, QPointF> m_offsets;
     QTransform m_sceneToPixel;
     bool m_autoLayout = false;
+    QString m_modelSection;
+    QHash<QString, QString> m_modelAnchors;
 };
 #endif

@@ -471,6 +471,7 @@ void SWMMVis::initializeCompactToolbar()
         {"actionPlotProfile", QT_TR_NOOP("Profile")},
         {"actionPlotProfile2D", QT_TR_NOOP("2D Profile")},
         {"actionRainfallVisualization", QT_TR_NOOP("Rainfall Visualization")},
+        {"actionSavedProfiles", QT_TR_NOOP("Saved Profiles")},
         {"actionSaved2DSections", QT_TR_NOOP("Saved 2D Sections")},
         {"actionFlowBalanceDownstream", QT_TR_NOOP("Flow Balance Downstream")},
         {"actionFlowBalanceUpstream", QT_TR_NOOP("Flow Balance Upstream")},
@@ -591,7 +592,8 @@ void SWMMVis::initializeCompactToolbar()
               "actionTabularResults"});
     mGroupPlots = addGroup(mToolBarAnalysis, tr("Plots"),
                            {"actionPlotTimeSeries", "actionPlotProfile", "actionPlotProfile2D"});
-    addStacks(mGroupPlots, {{"actionRainfallVisualization", "actionSaved2DSections"}});
+    addStacks(mGroupPlots,
+              {{"actionRainfallVisualization", "actionSavedProfiles", "actionSaved2DSections"}});
     addStacks(addGroup(mToolBarAnalysis, tr("Network"), {}),
               {{"actionFlowBalanceDownstream", "actionFlowBalanceUpstream"},
                {"actionTravelTimeDownstream", "actionTravelTimeUpstream"}});

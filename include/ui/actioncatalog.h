@@ -281,6 +281,8 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
      "Analysis", NoTags},
     {"analysis.plotProfile2D", "actionPlotProfile2D", "Analysis", "", "Profile2D", "analysis",
      "Analysis", NoTags},
+    {"analysis.savedProfiles", "actionSavedProfiles", "Analysis", "", "Profile", "analysis",
+     "Analysis", NoTags},
     {"analysis.savedSections2D", "actionSaved2DSections", "Analysis", "", "Profile2D", "analysis",
      "Analysis", NoTags},
     {"analysis.flowBalanceDown", "actionFlowBalanceDownstream", "Analysis", "",

@@ -27,6 +27,9 @@
 #include "swmmvis.h" // closeEvent's Save As hand-off (saveProjectWindowAs)
 #include "map/mapcanvas.h"
 #include "layers/gisrasterlayer.h"
+#include "layers/modelbackdroplayer.h"
+#include "layers/modellabelslayer.h"
+#include "project/modelannotations.h"
 #include "layers/openswmmvislayer.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmm2dmeshlayer.h"
@@ -1114,7 +1117,6 @@ void SWMMVisProjectWindow::loadModelAsync(OpenProgressModel *progress)
 
 bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QString> &errors)
 {
-    Q_UNUSED(warnings);
     const QPointer<SWMMVisProjectWindow> owner(this);
     const QPointer<SWMMModelLayer> model(mModelLayer);
     if (!model || mClosing)
@@ -1351,6 +1353,42 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
                                       Q_ARG(QString, diag),
                                       Q_ARG(OpenSWMMVisLogMessage::LogMessageType,
                                             OpenSWMMVisLogMessage::LogMessageType::Information));
+
+        // Review G-01 — the model's [LABELS] as a text layer whose edits are saved in the
+        // model. Its coordinates are the model's, so it takes the model's CRS ...
+        if (OpenSWMMVisAnnotationLayer *old =
+                openswmmvis::layers::findModelLabelsLayer(mCanvas->layers())) {
+            if (OpenSWMMVisLayer *taken = mCanvas->takeLayer(mCanvas->layers().indexOf(old), false))
+                taken->deleteLater();
+        }
+        QStringList annotationWarnings;
+        if (auto *labels =
+                openswmmvis::layers::createModelLabelsLayer(*mModelLayer, &annotationWarnings)) {
+            labels->setParent(mCanvas);
+            if (SpatialReferenceSystem *modelSRS = mModelLayer->srs())
+                labels->setSRS(new SpatialReferenceSystem(*modelSRS), true);
+            mCanvas->addLayer(labels, false);
+            openswmmvis::layers::bindModelLabels(labels, mModelLayer);
+        }
+        // ... and its [BACKDROP] image, placed at the section's DIMENSIONS.
+        if (GISRasterLayer *old = openswmmvis::layers::findModelBackdropLayer(mCanvas->layers())) {
+            if (OpenSWMMVisLayer *taken = mCanvas->takeLayer(mCanvas->layers().indexOf(old), false))
+                taken->deleteLater();
+        }
+        if (GISRasterLayer *backdrop =
+                openswmmvis::layers::createModelBackdropLayer(*mModelLayer, &annotationWarnings)) {
+            backdrop->setParent(mCanvas);
+            mCanvas->addLayer(backdrop, false);
+        }
+        warnings.append(annotationWarnings);
+        // ... and keeps its saved profiles ([PROFILES]) on the links a rename moves.
+        connect(mModelLayer, &SWMMModelLayer::objectRenamed, this,
+                [model = QPointer<SWMMModelLayer>(mModelLayer)](const QString &from,
+                                                                 const QString &to, int kind) {
+                    if (model && (kind & SWMMModelLayer::kKindLink) &&
+                        openswmmvis::project::renameProfileLink(model->engine(), from, to))
+                        model->markEdited();
+                });
 
         // Reliable "default = zoom to project extent" on load. The canvas may
         // still be 0×0 right after loadModel returns (the MDI subwindow hasn't

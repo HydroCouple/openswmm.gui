@@ -394,6 +394,7 @@ set(
         include/assignment/rasterfluxintegration.h
         include/assignment/spatialassignment.h
         include/project/profilesectionstore.h
+        include/project/modelannotations.h
         include/plot/profilesectionseries.h
         include/plot/meshprofiletrackswidget.h
         include/plot/meshprofileserieseditor.h
@@ -475,6 +476,8 @@ set(
         include/layers/annotationtextitem.h
         include/layers/annotationfeatures.h
         include/layers/annotationlayer.h
+        include/layers/modellabelslayer.h
+        include/layers/modelbackdroplayer.h
 
         # ── Map / GIS ────────────────────────────────────────────────────────
         include/map/spatialreferencesystem.h
@@ -1209,6 +1212,7 @@ set(
         src/assignment/rasterfluxintegration.cpp
         src/assignment/spatialassignment.cpp
         src/project/profilesectionstore.cpp
+        src/project/modelannotations.cpp
         src/plot/profilesectionseries.cpp
         src/io/profilesectionio.cpp
         src/plot/meshprofiletrackswidget.cpp
@@ -1293,6 +1297,8 @@ set(
         src/layers/annotationtextitem.cpp
         src/layers/annotationfeatures.cpp
         src/layers/annotationlayer.cpp
+        src/layers/modellabelslayer.cpp
+        src/layers/modelbackdroplayer.cpp
 
         # Map / GIS
         src/map/spatialreferencesystem.cpp

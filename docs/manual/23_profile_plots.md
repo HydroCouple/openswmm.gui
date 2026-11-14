@@ -19,12 +19,14 @@ opens its own window:
 | Command | Menu | Ribbon | Shortcut |
 |---------|------|--------|----------|
 | **Plot Profile** | **Analysis → Plot Profile** | **Analysis → Plots** | `Ctrl+Shift+T` |
+| **Saved Profiles…** | **Analysis → Saved Profiles…** | **Analysis → Plots** | — |
 | **Plot 2D Profile** | **Analysis → Plot 2D Profile** | **Analysis → Plots** | — |
 | **Terrain Profile** | — | The **Terrain** toolbar's **Profile** group | — |
 | 2D **bed-only** profile | — | The **Mesh 2D** toolbar's profile tool | — |
 
-All three are checkable map tools: clicking the action arms the tool, clicking it
-again returns to the select tool.
+The profile tools are checkable map tools: clicking the action arms the tool, clicking it
+again returns to the select tool. **Saved Profiles…** lists the profiles saved in the
+model instead.
 
 ## Dockable profile panels
 
@@ -124,7 +126,7 @@ station).
 
 | Region | Contents |
 |--------|----------|
-| Toolbar | **Select**, **Zoom In**, **Zoom Out**, **Pan**, **Fit to Path**; **Sources**; **2D Inundation**, **Max 2D Inundation**; **Tracks**; **Export PNG…**; **Display Options…** |
+| Toolbar | **Select**, **Zoom In**, **Zoom Out**, **Pan**, **Fit to Path**; **Sources**; **2D Inundation**, **Max 2D Inundation**; **Save Profile…**; **Tracks**; **Export PNG…**; **Display Options…** |
 | Header | *Path: N nodes, M links · Length: …* |
 | Chart | The profile itself |
 | **Display Options…** | Ground source; HGL and EGL; maximum envelopes; node/link labels and other appearance settings |
@@ -144,6 +146,19 @@ The profile follows the global animation cursor, so pressing **Play** on the
 Animation tab animates the HGL along the section while the map animates in step.
 
 \fig{23_profile_toolbar_layers.png, The profile window and its toolbar — use Display Options for HGL and label settings}
+
+### Saved profiles
+
+**Save Profile…** in the profile toolbar saves the profile's links in the model
+under a name you give (the start and end nodes are suggested). Saving under a
+name that is already used asks before replacing that profile. The profiles are
+written to the model's `[PROFILES]` section, so SWMM 5 lists them too, and a
+model that already has profiles shows them.
+
+**Analysis → Saved Profiles…** lists the model's saved profiles; choose one to
+plot it. Renaming a link renames it in every saved profile. A profile whose links
+no longer join end to end, for example after a link was deleted, says which link
+breaks it instead of plotting.
 
 ### Comparing runs in one profile — the Sources panel
 

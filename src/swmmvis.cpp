@@ -95,6 +95,7 @@
 #include "plugins/extensionactivityui.h"
 #include "plugins/extensionmanager.h"
 #include "core/enginestring.h"
+#include "project/modelannotations.h"
 #include "project/profilesectionstore.h"
 #include "project/groundwaterrecipestore.h"
 #include "ui/dialogs/groundwaterassigndialog.h"
@@ -2528,6 +2529,43 @@ void SWMMVis::initializeMapTools()
                                                      labels, 0, false, &accepted);
         if (pw && accepted && labels.contains(choice))
             openSavedMeshProfile(pw, definitions[labels.indexOf(choice)].id);
+    });
+
+    // Review G-01 — the model's saved 1D profiles ([PROFILES]), listed by name.
+    auto *savedProfiles = new QAction(tr("Saved Profiles…"), this);
+    savedProfiles->setObjectName(QStringLiteral("actionSavedProfiles"));
+    savedProfiles->setStatusTip(tr("Plot a profile saved in the model"));
+    if (ui->menuAnalysis)
+        ui->menuAnalysis->insertAction(savedSections, savedProfiles);
+    connect(savedProfiles, &QAction::triggered, this, [this] {
+        QPointer<SWMMVisProjectWindow> pw = activeProjectWindow();
+        if (!pw || !pw->modelLayer())
+            return;
+        const auto profiles = openswmmvis::project::readProfiles(pw->modelLayer()->engine());
+        if (profiles.isEmpty()) {
+            QMessageBox::information(
+                pw, tr("Saved profiles"),
+                tr("Plot a profile and choose Save Profile to add it to the model."));
+            return;
+        }
+        QStringList names;
+        for (const auto &profile : profiles)
+            names.append(profile.name);
+        bool accepted = false;
+        const QString choice = QInputDialog::getItem(pw, tr("Saved profiles"), tr("Profile"),
+                                                     names, 0, false, &accepted);
+        if (!pw || !accepted || !names.contains(choice) || !pw->modelLayer())
+            return;
+        ProfileRouter::Path path;
+        QString error;
+        if (!openswmmvis::project::profilePath(pw->modelLayer()->engine(),
+                                               profiles[names.indexOf(choice)].links, &path.nodes,
+                                               &path.linkIds, &error)) {
+            QMessageBox::warning(pw, tr("Saved profiles"),
+                                 tr("The profile %1 cannot be plotted: %2").arg(choice, error));
+            return;
+        }
+        openProfilePlotFor(path);
     });
 
     // Rainfall Visualization — compare every rain gage's series (inline
