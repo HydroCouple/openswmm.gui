@@ -171,10 +171,12 @@ private slots:
         QCOMPARE(shape->findChildren<QCheckBox *>().size(),
                  2); // worst angles first, lattice seeding
         QCOMPARE(shape->findChildren<QSpinBox *>().size(), 1);     // smoothing passes
-        auto *sources = bnd->findChild<MeshConstraintSourcesWidget *>("meshConstraintSources");
-        QVERIFY(sources);
-        QCOMPARE(bnd->findChildren<QDoubleSpinBox *>().size() -
-                     sources->findChildren<QDoubleSpinBox *>().size(), 4);
+        // Source-specific limits have their own page, Source limits (46fcf803e).
+        QCOMPARE(bnd->findChildren<QDoubleSpinBox *>().size(), 4);
+        QVERIFY(!bnd->findChild<MeshConstraintSourcesWidget *>());
+        QGroupBox *sourceLimits = groupTitled(m_dlg, QStringLiteral("Source-specific limits"));
+        QVERIFY(sourceLimits);
+        QVERIFY(sourceLimits->findChild<MeshConstraintSourcesWidget *>("meshConstraintSources"));
         // The retired groups are gone.
         for (const char *gone :
              {"Triangle quality", "Minimum Cell Size", "Terrain-Adaptive Thinning", "Quad quality",
