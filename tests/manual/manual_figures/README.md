@@ -95,7 +95,7 @@ panels, tables, ribbons. It cannot reach:
 - **Things outside the app** — the disk image, a terminal, a text editor.
 - **The pointer on the map canvas** — a rubber band, a lasso, a dragged
   vertex, the two clicks that route a profile. Driving those would mean
-  synthesising mouse events at canvas pixels computed from model coordinates,
+  synthesizing mouse events at canvas pixels computed from model coordinates,
   which is the map internals the engine is deliberately kept out of.
 
 Save everything into `tests/output/manual_figures/` (git-ignored). That is
@@ -205,8 +205,8 @@ Small and fast; most menu shots belong here.
 
 | File | What must be visible |
 |---|---|
-| `10_convert_to_menu.png` | **Convert To** submenu with **Virtual Junction** greyed out, and its rule tooltip showing. Hover the greyed entry until the tooltip appears. |
-| `t02_rule_violation.png` | The same greyed Convert To entry with the virtual-junction rule text as its tooltip. Same interaction as above, framed for the tutorial. |
+| `10_convert_to_menu.png` | **Convert To** submenu with **Virtual Junction** grayed out, and its rule tooltip showing. Hover the grayed entry until the tooltip appears. |
+| `t02_rule_violation.png` | The same grayed Convert To entry with the virtual-junction rule text as its tooltip. Same interaction as above, framed for the tutorial. |
 
 ### 2.5 A completed Bellinge run (6 shots)
 
@@ -233,7 +233,7 @@ six in one session.
 The capture engine drives widgets through their public API. These figures are
 of the *pointer doing something on the map* — dragging a rubber band, lassoing,
 hauling a vertex, clicking two nodes to route a profile. Driving those would
-mean synthesising mouse events at canvas pixels computed from model
+mean synthesizing mouse events at canvas pixels computed from model
 coordinates, which is exactly the map internals the engine is kept out of.
 A person with a mouse does them in a couple of sittings.
 
@@ -279,7 +279,7 @@ its shots in one session.
 | File | What must be visible |
 |---|---|
 | `a02_oswp_structure.png` | An `.oswp` open in a text editor, scrolled so both the `sessions` and `meshLayers` blocks are visible. Use `examples/site_drainage/site_drainage_model.oswp`; a plain light editor theme matches the manual best. |
-| `a01_timeseries_editor_keys.png` | The time-series editor toolbar with **Insert**, **Delete**, **Copy** and **Paste** identifiable. The buttons are icon-only, so hover one and frame the strip with its tooltip — the automated grab was rejected precisely because unlabelled icons do not serve this caption. |
+| `a01_timeseries_editor_keys.png` | The time-series editor toolbar with **Insert**, **Delete**, **Copy** and **Paste** identifiable. The buttons are icon-only, so hover one and frame the strip with its tooltip — the automated grab was rejected precisely because unlabeled icons do not serve this caption. |
 
 ## 3. Annotated figures
 

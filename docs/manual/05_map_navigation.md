@@ -57,7 +57,7 @@ These work whatever tool is active:
 |-------|--------|
 | Scroll wheel up / down | Zoom in / out by ×1.5 about the cursor |
 | Middle-button drag | Pan (the cursor becomes a closed hand) |
-| Two-finger pinch | Zoom about the pinch centre (touchscreen and precision touchpad) |
+| Two-finger pinch | Zoom about the pinch center (touchscreen and precision touchpad) |
 | `←` `→` `↑` `↓` | Pan by 10 % of the visible width or height |
 | `Shift` + arrow key | Pan by 2 % — a fine nudge |
 | `+` / `=` | Zoom in ×2 |
@@ -65,7 +65,7 @@ These work whatever tool is active:
 
 And these are map tools — pick one and it stays active until you pick another:
 
-| Tool | Behaviour |
+| Tool | Behavior |
 |------|-----------|
 | **Pan** | Left-drag moves the map; the point under the cursor follows it. Each completed drag is one undo step. |
 | **Zoom In** | Left-drag a rubber-band rectangle to zoom to it; right-drag zooms out; a plain click zooms in about the click point. |
@@ -92,14 +92,14 @@ and is also painted next to the cursor on the canvas.
 
 The **Map Scale** combo shows the current scale as `1:N`. It is editable: pick
 one of the presets (1:100 through 1:25,000,000) or type a denominator and press
-`Return` to jump to exactly that scale, keeping the current centre. The
+`Return` to jump to exactly that scale, keeping the current center. The
 computation is DPI-aware (correct on Retina/HiDPI screens) and CRS-aware — a
 geographic CRS uses the cosine-latitude approximation, a projected CRS its own
 linear unit.
 
-A **scale bar** is drawn on the canvas itself. Its colour, line width, line
+A **scale bar** is drawn on the canvas itself. Its color, line width, line
 style, font, units, corner, maximum length, label decimals and compact-notation
-behaviour are all set in **Tools → Preferences → Map** (see
+behavior are all set in **Tools → Preferences → Map** (see
 \ref manual_preferences).
 
 ### Hover probes and tooltips
@@ -124,13 +124,13 @@ floating panel over the canvas:
 | Control | What it does |
 |---------|--------------|
 | **Mode** | `Distance` or `Area`. |
-| **Units** | Distance: metres, kilometres, feet, US survey feet, miles, nautical miles, yards, international inches. Area: square metres, square kilometres, hectares, acres, square feet, square miles, square yards. |
+| **Units** | Distance: meters, kilometers, feet, US survey feet, miles, nautical miles, yards, international inches. Area: square meters, square kilometers, hectares, acres, square feet, square miles, square yards. |
 | Total readout | The running measurement in the selected unit. |
 | **Clear** | Discards the current measurement. |
 
 Left-click to add vertices. In **Distance** mode a cumulative label is drawn at
 each committed vertex; in **Area** mode the polygon is filled semi-transparently
-and labelled with its area as you drag. Double-click finishes the measurement;
+and labeled with its area as you drag. Double-click finishes the measurement;
 the next left-click starts a fresh one. `Esc` removes the last vertex while
 drawing, or clears a finished result.
 
@@ -198,7 +198,7 @@ receiving application.
 
 The command opens the platform print dialog at high resolution, then draws the
 canvas into the printable area at the top left, scaled to fit and preserving its
-aspect ratio. Cancelling the dialog prints nothing.
+aspect ratio. Canceling the dialog prints nothing.
 
 The platform dialog *is* the page setup. Paper size, orientation, margins and
 scaling live there, and on macOS its preview pane is the only print preview —
@@ -208,7 +208,7 @@ page-layout composer, header, footer or legend placement.
 One thing is worth knowing before you print: the image sent to the printer is a
 grab of the canvas **at its on-screen size**, then enlarged into a
 high-resolution printer page. Print sharpness is therefore bounded by how large
-the map is on screen, not by the printer's resolution. Maximise the window — and
+the map is on screen, not by the printer's resolution. Maximize the window — and
 widen the canvas by collapsing the docked panels — before printing anything you
 intend to keep.
 

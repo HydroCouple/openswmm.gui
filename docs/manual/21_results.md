@@ -3,11 +3,11 @@
 ## What you'll do
 
 Get simulation results onto the map: load a run's `.out` (1D) and `.2d.h5` (2D)
-files as layers, choose which run is *active* for analysis, colour the network
+files as layers, choose which run is *active* for analysis, color the network
 and the mesh by a result variable, read the legend, and play the whole run back
 as an animation on a shared time cursor.
 
-\figtodo{21_results_map_animated.png, The map canvas showing a 1D network coloured by flow over an animated 2D depth surface}
+\figtodo{21_results_map_animated.png, The map canvas showing a 1D network colored by flow over an animated 2D depth surface}
 
 ## Where to find it
 
@@ -27,9 +27,9 @@ as an animation on a shared time cursor.
 
 There are three routes:
 
-1. **After a run.** A finished (or cancelled) run auto-loads its `.out` as a
-   results layer, auto-stretches its colour ramp and makes it the active 1D
-   results layer. A 2D run's layer is created when the solver initialises and
+1. **After a run.** A finished (or canceled) run auto-loads its `.out` as a
+   results layer, auto-stretches its color ramp and makes it the active 1D
+   results layer. A 2D run's layer is created when the solver initializes and
    swaps to the on-disk `.h5` when the run ends. See \ref manual_running.
 2. **Open SWMM Output.** Browse for an existing `.out`. The layer attaches to the
    active project's model layer — the `.out` carries names, not geometry, so a
@@ -39,7 +39,7 @@ There are three routes:
    picker starts in the model's own folder, because that is where a relative
    `[2D_OPTIONS] OUTPUT_FILE` lands. The layer is built exactly as an auto-load
    or a live run would build it: HDF5 UGRID mesh, simulation-start anchor, CRS
-   inherited from the model, a peak-frame scan for the colour ramp, and the
+   inherited from the model, a peak-frame scan for the color ramp, and the
    engine's `DRY_DEPTH` as the dry-cell threshold.
 
 \figtodo{21_add_results_dialogs.png, The Open SWMM Output and Add 2D Results file pickers}
@@ -54,7 +54,7 @@ layer is a *sublayer host*: expanding its row shows its result fields under
 vertices, edges and terrain, each with its own visibility toggle; right-clicking a
 row opens the styling dialog on that field. A run starts with its default fields:
 surface depth (filled contours) and velocity (animated streaks), and groundwater
-water table elevation (labelled contour lines), unsaturated water content (smooth
+water table elevation (labeled contour lines), unsaturated water content (smooth
 fill) and Darcy velocity (arrows). Other fields are added with **Add field** in
 the styling dialog, so the tree lists only the fields you chose.
 
@@ -65,7 +65,7 @@ analysis tool acts on:
 
 | Combo | Feeds |
 |-------|-------|
-| **1D results:** | Comparison and profile plots, tabular view, statistics dashboard, colour-by-result, the animation controller |
+| **1D results:** | Comparison and profile plots, tabular view, statistics dashboard, color-by-result, the animation controller |
 | **2D results:** | Mesh-cell time series, mesh profiles, 2D cell picking, 2D animation |
 
 Choosing **— none —** returns the project to model editing. The 1D list is drawn
@@ -77,7 +77,7 @@ step, and vice versa.
 
 \fig{21_active_results_combos.png, The 1D results and 2D results selectors in the Analysis ribbon}
 
-### Styling 1D results — colour and size by variable
+### Styling 1D results — color and size by variable
 
 **Animation → Set Style** opens the layer properties dialog for the layer selected
 in the Layers panel (falling back to the topmost visible layer). Its
@@ -105,11 +105,11 @@ model can never silently re-point a saved theme. A run with no quality
 constituents publishes no species attributes at all.
 
 Because they are ordinary renderer attributes, everything the symbology system
-offers applies: graduated colour, graduated size, rule-based classes,
-classification methods, colour ramps and per-class overrides. Those controls are
+offers applies: graduated color, graduated size, rule-based classes,
+classification methods, color ramps and per-class overrides. Those controls are
 documented once in \ref manual_styling. **Auto-stretch** sets the ramp range from
 the data minimum and maximum across *all* time steps for the current variable, so
-the colours stay comparable frame to frame.
+the colors stay comparable frame to frame.
 
 \fig{21_results_symbology_tab.png, The Symbology tab of a results layer with a graduated flow renderer}
 
@@ -186,13 +186,13 @@ does not come back unless added again).
 
 | Tab | What it draws | Key controls |
 |-----|---------------|--------------|
-| **Fill** | Per-cell colour fill, flat or smooth (interpolated) | Classification editor — continuous ramp or classified bins, method, class count, range; colours for cells without a value |
-| **Filled contours** | Filled contour bands | Band count and method, with colours and range from the Fill classification. For depth: the band classes and **Interpolate band boundaries (marching triangles)** — on interpolates boundaries through the triangle, off gives flat per-cell bands |
-| **Contour lines** | Stroked contour lines | **Mode** (level count / fixed interval + base); the level classes (lines = classes − 1) or **Interval** and **Base level** (contours fall at base + k × interval); colour, width, stroke style; **Index contour every** N with its own width; contour labels |
-| **Labels** | Cell value labels | Colour, decimals, font size, halo |
+| **Fill** | Per-cell color fill, flat or smooth (interpolated) | Classification editor — continuous ramp or classified bins, method, class count, range; colors for cells without a value |
+| **Filled contours** | Filled contour bands | Band count and method, with colors and range from the Fill classification. For depth: the band classes and **Interpolate band boundaries (marching triangles)** — on interpolates boundaries through the triangle, off gives flat per-cell bands |
+| **Contour lines** | Stroked contour lines | **Mode** (level count / fixed interval + base); the level classes (lines = classes − 1) or **Interval** and **Base level** (contours fall at base + k × interval); color, width, stroke style; **Index contour every** N with its own width; contour labels |
+| **Labels** | Cell value labels | Color, decimals, font size, halo |
 | **Arrows** | Arrow glyphs (vector fields) | Size by vector magnitude (frame range, or a fixed scale in px per unit), a constant or a scalar field; length scaling (Linear / Square root / Logarithmic); shortest and longest arrow; spacing, head size, shaft width |
-| **Streaks** | Streamlines (vector fields); moving trails for surface velocity | Length, width and spacing; for surface velocity **Colour** or **By speed**, **Density** (Sparse / Normal / Dense / Very dense), **Motion**, **Trail** (Short / Normal / Long) and **Advanced** settings |
-| **Colour** | Arrow and streamline colour (the surface velocity's animated streaks are coloured on **Streaks**) | Constant, by magnitude or by a scalar field, with its own classification |
+| **Streaks** | Streamlines (vector fields); moving trails for surface velocity | Length, width and spacing; for surface velocity **Color** or **By speed**, **Density** (Sparse / Normal / Dense / Very dense), **Motion**, **Trail** (Short / Normal / Long) and **Advanced** settings |
+| **Color** | Arrow and streamline color (the surface velocity's animated streaks are colored on **Streaks**) | Constant, by magnitude or by a scalar field, with its own classification |
 | **Data** | — | Scalar fields: availability, the selected cell's raw value, CSV and GIS export. Vector fields: their availability |
 
 Surface vector fields also have a **Dry cutoff** next to **Opacity**: no arrows
@@ -202,7 +202,7 @@ or streamlines where the water is shallower.
 
 Flow streaks illustrate flow direction. Their motion adjusts to the map zoom,
 and slower movement is boosted so it remains visible. **Normal** uses a 48 px/s
-reference speed; it does not represent particle travel time. **By speed** colours
+reference speed; it does not represent particle travel time. **By speed** colors
 use the original velocities in m/s. Density follows the visible wet area, and
 the trails follow the layer's wet boundary.
 
@@ -224,7 +224,7 @@ reduces contour work without changing its wet boundaries or contour values.
 
 ### How the 2D surface is reconstructed
 
-Three behaviours are worth knowing because they explain what you see at the
+Three behaviors are worth knowing because they explain what you see at the
 wet/dry boundary — none of them is a control you set:
 
 - **Dry threshold.** Cells shallower than the dry depth draw fully transparent.
@@ -279,11 +279,11 @@ or `Ctrl+C` over the map to copy the current view to the clipboard (see
   from the project's model layer. Opening a `.out` against a different network
   will only theme the elements whose names match.
 - **Auto-stretch is global, not per frame.** The ramp range spans the whole run,
-  which is what makes colours comparable across time. Re-stretch after you switch
+  which is what makes colors comparable across time. Re-stretch after you switch
   variables.
 - **Species attributes are name-keyed.** A theme on `qual:TSS` survives a model
   edit that re-orders pollutants; a run that does not carry `TSS` simply renders
-  no classes rather than mis-colouring.
+  no classes rather than mis-coloring.
 - **The 2D dry threshold comes from the run, not from you.** If the inundation
   fringe looks clipped, check `[2D_OPTIONS] DRY_DEPTH` in the model rather than
   the styling panel.
@@ -298,11 +298,11 @@ or `Ctrl+C` over the map to copy the current view to the clipboard (see
 ## Related
 
 - \ref manual_running — producing the results this chapter displays; live 1D and 2D results
-- \ref manual_styling — renderers; classification methods; colour ramps and the Style Manager
+- \ref manual_styling — renderers; classification methods; color ramps and the Style Manager
 - \ref manual_layers — the Layers dock; layer ordering and opacity
 - \ref manual_time_series_plots — plotting and comparing runs quantitatively
 - \ref manual_profile_plots — HGL and 2D surface profiles built from the same fields
-- \ref manual_tabular_results — the numbers behind the colours
+- \ref manual_tabular_results — the numbers behind the colors
 - \ref manual_analysis_tools — 2D cell time series and the statistics dashboard
 - \ref manual_2d_mesh — the mesh the 2D results are drawn on
 - \ref manual_map_navigation — exporting and printing the map view
@@ -312,15 +312,15 @@ or `Ctrl+C` over the map to copy the current view to the clipboard (see
 
 The 2D result style panel's **Additional Results** controls configure independent
 scalar sublayers by dataset, species name and groundwater zone. Each keeps its
-own colour classification, range, visibility, opacity and missing/waterless
-colours. Choose **Cell fill**, **Contours (display interpolation)** or **Native
+own color classification, range, visibility, opacity and missing/waterless
+colors. Choose **Cell fill**, **Contours (display interpolation)** or **Native
 cell labels**. Add the same variable more than once to layer independent
 appearances; each presentation and its line/label settings is saved. Saved settings resolve species by name when reopened; a missing species
 remains unavailable instead of selecting another row.
 
 File-backed results expose supported surface pollutants/multispecies and
 groundwater quantities. Groundwater concentration units come from the file's
-per-species metadata; older files without that information remain labelled
+per-species metadata; older files without that information remain labeled
 unknown. Zero concentration is a valid value, separate from missing or waterless
 data. Groundwater values do not disappear merely because surface depth is zero.
 
@@ -377,7 +377,7 @@ valid values. Raster pixel size uses the projected CRS's linear units; it does
 not change chemical values or units.
 
 GIS export requires known native scalar units and an explicit projected CRS.
-The worker uses detached data, can be cancelled by closing its dialog, and
+The worker uses detached data, can be canceled by closing its dialog, and
 publishes one verified file atomically. Existing destination sidecars/journals
 or a changed destination cause refusal; they are never silently deleted.
 Geographic/reprojection export and generic Shapefile output are not supported

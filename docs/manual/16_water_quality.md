@@ -97,7 +97,7 @@ form.
 | **Max/C1** | Maximum build-up / first coefficient |
 | **Rate/C2** | Rate constant / second coefficient |
 | **Power/Sat/C3** | Power, saturation constant, or — under `EXT` — the index of a driving time series |
-| **Per Unit** | Normaliser: `AREA` or `CURB` |
+| **Per Unit** | Normalizer: `AREA` or `CURB` |
 
 Under the `EXT` function the third coefficient holds a *time-series table
 index*, not a number. The cell is read-only in that case and shows
@@ -259,13 +259,13 @@ the engine's own expression compiler.
 `GLOBAL` initial value per species; the lower one adds `NODE` / `LINK`
 overrides with **Add** and **Remove**.
 
-**File** tab — the whole reaction system serialised as `.rxn` text. Editing the
+**File** tab — the whole reaction system serialized as `.rxn` text. Editing the
 text and leaving the tab applies it back to the engine (an unparsable text
 keeps you on the tab and reports the error); **Discard text edits** re-reads
 the engine instead. The structured tabs and the File tab are two views of one
 state, which is what keeps them in step.
 
-\fig{16_reaction_file_tab.png, The File tab showing the serialised .rxn text}
+\fig{16_reaction_file_tab.png, The File tab showing the serialized .rxn text}
 
 **Save to File** writes the `.rxn` file registered for this model in
 `[PROCESS_COMPONENTS]`. When no reactions component is bound yet, SWMMVis
@@ -388,7 +388,7 @@ Heat and climate settings are applied as a single transaction within each editor
 A failed setting rolls back that editor's changes and retains the draft. If another
 editor changed the same configuration, reopen before applying. The **Apply and open
 shared snow and radiation forcing…** button explicitly saves the heat draft before
-opening Climatology; cancelling Climatology does not undo that earlier save.
+opening Climatology; canceling Climatology does not undo that earlier save.
 
 \fig{16_heat_radiative.png, The Radiative tab with the shortwave mode radio buttons and the radiative parameters}
 
@@ -444,7 +444,7 @@ throughout the results side of the application as ordinary attributes:
 - in the attribute table's result columns and the statistics dashboard
   (\ref manual_tabular_results).
 
-Water age is labelled **Water age (hours)** and temperature **Temperature
+Water age is labeled **Water age (hours)** and temperature **Temperature
 (°C)**; ordinary pollutants use their own concentration units. Saved themes and
 plots reference a species by **name**, not by index, so adding or reordering
 pollutants cannot silently repoint a saved theme. If a saved theme names a

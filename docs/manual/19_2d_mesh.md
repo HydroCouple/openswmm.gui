@@ -60,7 +60,7 @@ layer (\ref manual_layers). Two things must be right before you generate:
 - **Vertical unit.** The **Generate 2D Mesh** dialog reports the DTM vertical
   unit it detected from the raster's CRS metadata and derives a **Z conversion
   (×)** factor from it and the chosen mesh vertical unit. Check both; a
-  metres-versus-feet mistake is invisible in the mesh and fatal in the run.
+  meters-versus-feet mistake is invisible in the mesh and fatal in the run.
 
 The **Terrain toolbar** carries the active terrain raster used for interactive
 editing, in three groups:
@@ -70,7 +70,7 @@ editing, in three groups:
 | Group | Control | What it does |
 | --- | --- | --- |
 | **Active Terrain** | Raster combo | The raster used for Z sampling and invert estimation; **(none)** disables it |
-| **Vertical Units** | **DEM** combo | The DEM's vertical unit — **m (metres)** or **ft (feet)** |
+| **Vertical Units** | **DEM** combo | The DEM's vertical unit — **m (meters)** or **ft (feet)** |
 | | **×** factor | Multiplier applied to raw DEM values to reach model vertical units; derived from the two units, editable |
 | **Invert Offsets** | **Node Δ** | Signed offset added to the converted DEM elevation for a new node's invert |
 | | **Link Δ** | Signed offset applied at each link endpoint, used to estimate conduit slope |
@@ -119,7 +119,7 @@ generation leaves the dialog open for review; **Close** returns to the map.
 | --- | --- |
 | **DTM raster** | The raster sampled for elevations; **(none)** falls back to interpolating from junction rim elevations |
 | **DTM vertical unit** | Read-only, auto-detected from the raster CRS |
-| **Mesh vertical unit** | **Match flow units (auto-convert)**, **Metres (m)** or **Feet (ft)** |
+| **Mesh vertical unit** | **Match flow units (auto-convert)**, **Meters (m)** or **Feet (ft)** |
 | **Z conversion (×)** | Multiplier applied to every raw DTM Z before it is written to the mesh; recomputed from the two units above, editable |
 | **Domain** | Read-only summary of the meshing domain (the model extent when no boundary layer is chosen) |
 
@@ -129,7 +129,7 @@ generation leaves the dialog open for review; **Close** returns to the map.
 | --- | --- |
 | **Boundary polygon** | The polygon layer whose features define the meshing boundary. Interior rings become holes that the mesher leaves unmeshed. **(none)** falls back to the SWMM model bounding rectangle plus 5%; **Use SWMM subcatchment polygons** dissolves the subcatchments into the boundary |
 | **Constraining points** | A checkable list of point layers; every feature becomes a Steiner point. Layers with 3D geometry also offer **use feature Z** |
-| **Constraining lines** | A checkable list of line layers; every feature becomes a constraint segment, so the mesh has edges along it. Breaklines, walls, kerbs and road centrelines belong here |
+| **Constraining lines** | A checkable list of line layers; every feature becomes a constraint segment, so the mesh has edges along it. Breaklines, walls, curbs and road centerlines belong here |
 
 **1D geometry influence (optional)** — these shape the PSLG only; the 1D–2D
 coupling itself is authored after generation.
@@ -156,8 +156,8 @@ is selected.
 
 | Control | What it does |
 | --- | --- |
-| **Method** | **Inverse distance weighting (IDW)** or **Natural neighbour** |
-| **NN variant** | **Sibson (area-stealing)** or **Laplace (edge-ratio)**; natural neighbour falls back to IDW outside the seed convex hull |
+| **Method** | **Inverse distance weighting (IDW)** or **Natural neighbor** |
+| **NN variant** | **Sibson (area-stealing)** or **Laplace (edge-ratio)**; natural neighbor falls back to IDW outside the seed convex hull |
 | **IDW power** | Shepard exponent |
 
 \fig{19_generate_mesh_quality.png, The Quality tab with categories on the left and settings on the right}
@@ -224,7 +224,7 @@ quad or interface conflicts are reported, and strict sizing refuses them.
 The independent final audit measures every cell and shared face, including mixed
 triangle/quad interfaces. It reports advisory undersized nominal cells, actual
 edge-floor conflicts, global/footprint maximum exceedances and transition faces.
-Examples identify cell/neighbour IDs and locations; highlighted exceptions use
+Examples identify cell/neighbor IDs and locations; highlighted exceptions use
 the existing bounded selection. Invalid connectivity, cancellation or audit work/
 memory exhaustion prevents acceptance. A successful sizing audit certifies these
 size metrics; it is not a general mesh-overlap or terrain certificate.
@@ -247,7 +247,7 @@ using full-resolution terrain. The result reports the actual averaging block.
 
 Choose an explicit tolerance appropriate to the DEM and the features that matter
 to the model. Automatic tolerance is a starting value, not an estimate of DEM
-survey accuracy. For metre-quantized SRTM it resolves to 3 m. Small channels,
+survey accuracy. For meter-quantized SRTM it resolves to 3 m. Small channels,
 crests or walls absent from the DEM need authored geometry or a better terrain
 source. The error check does not claim knowledge of terrain between source
 measurements.
@@ -290,7 +290,7 @@ triangles, or is refused if required. Required points must be incident to delive
 cells. Lines, boundaries and holes retain their constraints.
 
 The planner allows up to three subdivision repairs and three exceptional
-regeneration retries. It refines triangular neighbours of fixed patch edges where
+regeneration retries. It refines triangular neighbors of fixed patch edges where
 possible. A preferred patch with an unresolved interface conflict falls back to
 triangles; a required generated patch can receive finer stations. A prebuilt patch
 has fixed stations and is refused if they prevent a valid transition. Each mapped
@@ -351,7 +351,7 @@ proof that arbitrary cells never overlap.
 preview** without generating or replacing a mesh. Compare the prepared original
 paths (blue dashed), proposed paths (green) and removed samples (red); select a
 source row to focus, or use **Fit overview**. Drawing is capped at 50,000 vertices
-and 500 features, with sampled display explicitly labelled. Counts and audits use
+and 500 features, with sampled display explicitly labeled. Counts and audits use
 the full geometry. Changing an input marks the preview stale. Polygon preparation
 may dissolve selected polygons before this comparison, so the overlay compares
 prepared constraints rather than the undissolved GIS features.
@@ -366,7 +366,7 @@ quad patches protect their interiors. Unknown DEM coverage
 prevents removal. Advanced coarsening settings limit reconsideration to 1–10
 attempts per vertex (3 when enabled). The option is off by default and stays off
 when older projects are loaded. The results show removed vertices and triangles,
-rejection counts and elapsed time. A vertex can be reconsidered after a neighbouring
+rejection counts and elapsed time. A vertex can be reconsidered after a neighboring
 removal, so rejection counts are not unique vertex counts. With **No limit**, flat
 open areas can become large triangles; set a maximum target when their size matters.
 The log distinguishes unavailable terrain certification, no eligible free vertices,
@@ -448,8 +448,8 @@ always present and always first. Columns: **Region**, **Manning's n**,
 The generated file carries `;; SOURCE_CRS:` and `;; UNITS:` header lines so it
 is self-describing. Freshly generated meshes are renumbered along a Hilbert
 curve of their triangle centroids — the engine's cell index is the file line
-order, so spatial neighbours being index-adjacent measurably helps both the
-solver's cache behaviour and the map renderer. It is a pure permutation: the
+order, so spatial neighbors being index-adjacent measurably helps both the
+solver's cache behavior and the map renderer. It is a pure permutation: the
 geometry and every per-element attribute are unchanged.
 
 ### Resolution-weighted terrain and removal order
@@ -520,7 +520,7 @@ boundary and its holes; outside intervals stay in 1D.
 | Minimum spacing divisor | Minimum row and column spacing is cell size divided by this value (default 4); this is not a strict aspect-ratio guarantee |
 | Minimum burn half-width | Within this width, replace existing elevations; farther out, lower elevations only |
 | Maximum incision | Limit the cut below the existing surface; zero is unlimited |
-| Channel elevation tolerance | Report deviations from the authored section, in metres |
+| Channel elevation tolerance | Report deviations from the authored section, in meters |
 | Maximum total mesh cells | Limit the complete result, including retained cells and quads |
 | Use quadrilaterals where they fit | Use quads in regular channel runs and triangles near boundaries and confluences |
 | Replace burned channel intervals in the 1D model | Remove replaced intervals, retain outside intervals and create interface couplings |
@@ -555,7 +555,7 @@ prevent adoption of the result. Generate Mesh has no channel-burn stage.
 
 **Optional raster output** is off by default. Enable **Also prepare a burned DEM
 copy and report**, choose a source DEM and its elevation-unit conversion (1 for
-metres, 0.3048 for feet), and optionally select an output folder. The operation
+meters, 0.3048 for feet), and optionally select an output folder. The operation
 stages a VRT, changed-pixel GeoTIFF tiles and a CSV report. Project **Save**
 publishes them together; the source DEM remains unchanged. Export failure leaves
 the mesh and network unchanged. By default outputs go into `terrain/` beside
@@ -630,7 +630,7 @@ is written at once. To edit many, use either route:
 
 - **Properties with several elements selected.** Select cells, edges or vertices
   of one kind on one mesh. Properties lists them together: a value they share
-  shows as that value, and a value that differs shows **Mixed** in grey
+  shows as that value, and a value that differs shows **Mixed** in gray
   italics. Choosing a value updates every selected element immediately. For
   text and numbers, press **Enter** or leave the field to commit; **Escape**
   discards unfinished input. Each committed field is one undo step. The line
@@ -730,7 +730,7 @@ layer** (with **Layer**, **Field** and **Use selected features only**).
 | **Overlay — automatic (by source type)** | Majority for a categorical source, area-weighted mean for a continuous one |
 | **Overlay — area-weighted mean** | Explicit override |
 | **Overlay — majority (largest share)** | Explicit override |
-| **Natural neighbour** | For scattered point sources rather than coverages; **Sibson** or **Laplace** variant |
+| **Natural neighbor** | For scattered point sources rather than coverages; **Sibson** or **Laplace** variant |
 
 Offering the wrong overlay statistic for a source type produces plausible
 nonsense, which is why the automatic choice is bound to the source's declared
@@ -751,7 +751,7 @@ CSV…**, so an agency standard table can be reused across projects. A trailing
 
 **Preview** samples without writing and reports what it found; **Apply** writes.
 Sampling runs in the background and the mesh is untouched until it finishes
-successfully, so cancelling mid-run leaves the mesh exactly as it was.
+successfully, so canceling mid-run leaves the mesh exactly as it was.
 
 ### Boundary conditions
 
@@ -769,7 +769,7 @@ Boundary edges you never touch default to `WALL` (zero flux).
 | **Normal Depth** | **Friction Slope:** dimensionless and signed. Positive drains the domain; negative feeds it at the same Manning rate using the depth already in the boundary cell, so it cannot wet a dry cell (use Specified Flow for that); zero acts as a wall | `NORMAL_FLOW` |
 | **Specified Stage (Constant)** | **Stage:** water-surface elevation in project vertical units | `SPECIFIED_STAGE` |
 | **Specified Stage (Timeseries)** | **Time Series:** a time series | `TS_STAGE` |
-| **Specified Flow (Constant)** | **Flow:** discharge per metre of edge, outward-positive | `SPECIFIED_FLOW` |
+| **Specified Flow (Constant)** | **Flow:** discharge per meter of edge, outward-positive | `SPECIFIED_FLOW` |
 | **Specified Flow (Timeseries)** | **Time Series:** a time series | `TS_FLOW` |
 | **Rating Curve** | **Rating Curve:** a curve | `RATING_CURVE` |
 
@@ -784,10 +784,10 @@ Edges can also carry a **group** name, which the `.inp` writes in the GROUP
 column so a run of edges reads as one named boundary.
 
 **Edge conveyance** (`[2D_EDGE_CONVEYANCE]`) is separate from the BC type and
-applies to interior edges too. It is the way to model a leaky berm, a kerb or a
+applies to interior edges too. It is the way to model a leaky berm, a curb or a
 partially blocking wall: set the conveyance of the edges along the feature to
 the fraction of the flux the geometry would otherwise allow. The engine mirrors
-each row onto the neighbouring triangle's matching slot so antisymmetry — and
+each row onto the neighboring triangle's matching slot so antisymmetry — and
 therefore mass conservation — is preserved.
 
 ### 1D–2D coupling
@@ -961,7 +961,7 @@ reported in @ref tutorial_rubinato_exchange.
 
 On save, the GUI's edits — vertex Z, per-edge conveyance, per-edge boundary
 conditions — are pushed back into the live engine's in-memory 2D mesh before the
-deck is serialised. The engine, not the GUI mesh model, is the source of truth
+deck is serialized. The engine, not the GUI mesh model, is the source of truth
 on save: it round-trips coupling maps, Manning's n, units and options that the
 lightweight GUI model does not retain, so syncing only the editable fields back
 into it is lossless for everything you did not touch.
@@ -973,8 +973,8 @@ Rain reaches the 2D surface according to `[2D_OPTIONS] RAINFALL_MODE`, set on
 
 | Mode | What it does |
 | --- | --- |
-| **Natural neighbour (all gages)** | Spatially interpolates every located rain gage onto each cell, falling back to inverse-distance outside the gage hull |
-| **Nearest neighbour (closest gage)** | Uses the closest located gage, including outside the gage hull; equal-distance ties use the first gage in model order |
+| **Natural neighbor (all gages)** | Spatially interpolates every located rain gage onto each cell, falling back to inverse-distance outside the gage hull |
+| **Nearest neighbor (closest gage)** | Uses the closest located gage, including outside the gage hull; equal-distance ties use the first gage in model order |
 | **System (uniform gage mean)** | Applies one uniform value — the mean of all gages |
 | **None (no direct rainfall)** | No direct rainfall on the mesh; the surface only receives water through coupling and boundaries |
 
@@ -986,17 +986,17 @@ cells with **Cells** (Select 2D Cells) on the **Mesh 2D** tab and right-click: t
 and velocity, and plots the chosen series for the selected cells. Right-click
 also works on selected edges and vertices with their own attribute lists.
 Rainfall series require a run whose 2D output carries the per-cell rainfall
-datasets — attributes the open results do not carry are greyed in the menu.
+datasets — attributes the open results do not carry are grayed in the menu.
 
 Rainfall plots use **mm/hr**, even for US models (1 in/hr = 25.4 mm/hr).
 Rain Volume is **m³ per cell**, not rainfall depth. Divide by cell area in m²
-to obtain depth in metres. A cell can have positive rain and zero water depth
+to obtain depth in meters. A cell can have positive rain and zero water depth
 because of infiltration or drainage.
 
 The run warnings report gages without locations, invalid coordinates and
 colocated duplicates (the first gage is retained), plus inverse-distance
 fallback cells. If no gage has a usable location, spatial modes use the
-uniform system mean. Valid zero-rain readings remain zero; nearest neighbour
+uniform system mean. Valid zero-rain readings remain zero; nearest neighbor
 does not switch to a more distant wet gage. The engine currently treats a
 coordinate of exactly (0,0) as unlocated.
 
@@ -1120,7 +1120,7 @@ Comparison Plot**.
 
 #### Aquifer boundaries on selected edges
 
-The edge table and Properties summarise each exterior edge's aquifer boundary in
+The edge table and Properties summarize each exterior edge's aquifer boundary in
 read-only fields: **Aquifer Boundary** (Head, Flow or None), **Aquifer Head**
 (water-table elevation, project length units), **Aquifer Inflow** (total m³/s
 through the edge, positive into the aquifer), **Aquifer Series** (replaces the
@@ -1239,7 +1239,7 @@ visibility, panel layouts, the active mesh layer — lives in the project's
 
 ## Tips and gotchas
 
-- **Set the vertical unit before you generate.** A metres/feet mistake produces
+- **Set the vertical unit before you generate.** A meters/feet mistake produces
   a perfectly valid mesh at the wrong scale and is very hard to spot afterwards.
 - **Constrain, don't just refine.** A breakline as a constraint line puts mesh
   edges *on* the feature. Refining everywhere until the feature happens to be
@@ -1266,13 +1266,13 @@ visibility, panel layouts, the active mesh layer — lives in the project's
   skipped and why. A channel that silently did not burn looks exactly like a
   channel that did until you read the row.
 - **The maximum incision is a unit tripwire.** Set it to something a little
-  deeper than your deepest real channel. A metres/feet mix-up then clamps
+  deeper than your deepest real channel. A meters/feet mix-up then clamps
   visibly instead of quietly cutting a canyon.
 - **`NORMAL_FLOW` with slope 0 is a wall.** The engine needs a non-zero
   friction slope for that BC to pass any water: positive drains the domain,
   negative feeds it.
 - **Conveyance is not a boundary condition.** Use it on interior edges to model
-  berms, kerbs and partial blockages; the BC type still applies independently on
+  berms, curbs and partial blockages; the BC type still applies independently on
   boundary edges.
 - **Preview before you apply cell data.** The Preview pass tells you how many
   cells matched and what the sampling produced, and nothing is written until you
@@ -1288,7 +1288,7 @@ visibility, panel layouts, the active mesh layer — lives in the project's
 - \ref manual_layers — adding the DTM raster and the vector layers that shape the mesh
 - \ref manual_crs — the project CRS the mesh is built in
 - \ref manual_styling — the mesh style panel and its sublayers
-- \ref manual_selection — selection behaviour shared with the mesh tools
+- \ref manual_selection — selection behavior shared with the mesh tools
 - \ref manual_hydrology — rain gages and subcatchments
 - \ref manual_hydraulics — the 1D network the mesh couples to
 - \ref manual_data_objects — the time series and curves boundary conditions reference
@@ -1297,7 +1297,7 @@ visibility, panel layouts, the active mesh layer — lives in the project's
 - \ref manual_running — running a coupled simulation
 - \ref manual_results — 2D results layers and animation
 - \ref manual_profile_plots — mesh and terrain profiles
-- \ref manual_analysis_tools — 2D cell time series and the rainfall visualisation
+- \ref manual_analysis_tools — 2D cell time series and the rainfall visualization
 - \ref manual_performance — large meshes and redraw policy
 - \ref tutorial_2d_inundation — from a DTM raster to an animated inundation map
 - \ref tutorial_1d2d_coupling — capped street inlets coupled to a 2D surface

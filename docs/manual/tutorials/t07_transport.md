@@ -372,7 +372,7 @@ Note carefully which knobs live where:
 
 - **`QUALITY_STEP` and `DISPERSION` in `[OPTIONS]` are LARD-only.** Set them
   with another solver and the engine warns that they have no effect. The dialog
-  greys the whole **Lagrangian (LARD)** tab accordingly — the settings are still
+  grays the whole **Lagrangian (LARD)** tab accordingly — the settings are still
   written, so you can configure LARD before switching to it.
 - **ARD dispersion is configured in the `.ard` file, not in `[OPTIONS]`.** The
   page says so in its own note. The tutorial's `transport_demo.ard` is:
@@ -422,7 +422,7 @@ appear as leaves inside each node, link and subcatchment group:
 | **Water age (hours) (h)** | `__WATER_AGE__` | `qual:__WATER_AGE__` |
 | **Temperature (°C) (°C)** | `__TEMPERATURE__` | `qual:__TEMPERATURE__` |
 
-(The doubled parenthetical on the two reserved species is a real artefact of
+(The doubled parenthetical on the two reserved species is a real artifact of
 how the picker concatenates label and unit. It is cosmetic.)
 
 Add all four for `J1` through `J5` and look for:
@@ -487,7 +487,7 @@ require verification for this example.
 
 \figtodo{t07_solver_comparison.png, A comparison plot of the tracer front at J5 under the legacy; ARD and Lagrangian solvers}
 
-### 11. Colour the map by species
+### 11. Color the map by species
 
 Open the results layer's style dialog and set **Renderer:** to **Graduated**.
 The **Color by** combo now lists the fixed result attributes — **flow
@@ -550,7 +550,7 @@ starts uniformly old and washes young from the head down.
 - \ref manual_climate — the Climatology dialog and the `[TEMPERATURE]` block
 - \ref manual_data_objects — time series and curves
 - \ref manual_time_series_plots — time-series and comparison plots
-- \ref manual_styling — graduated renderers and colour ramps
+- \ref manual_styling — graduated renderers and color ramps
 - \ref manual_file_formats — the `.rxn`, `.ard`, `.age` and `.heat` sidecars
 - \ref manual_plugins — `[PLUGINS]` and `[PROCESS_COMPONENTS]`
 - \ref tutorial_site_drainage — build-up/wash-off water quality on a 1D model

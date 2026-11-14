@@ -23,14 +23,14 @@ your first model.
 ### What SWMMVis is
 
 **SWMMVis** (repository `openswmm.gui`) is a Qt 6 / C++20 desktop application for
-building, running, and analysing storm-water models. It is a ground-up replacement
+building, running, and analyzing storm-water models. It is a ground-up replacement
 for the legacy Delphi EPA SWMM GUI (`epaswmm5.exe`), built directly on the
 [OpenSWMM engine](https://github.com/HydroCouple/openswmm.engine) rather than
 driving it as an external executable.
 
 Two things distinguish it from the classic SWMM interface:
 
-- **It is a GIS application.** The centre of every project window is a map canvas
+- **It is a GIS application.** The center of every project window is a map canvas
   with a real coordinate reference system, on-the-fly reprojection, and layers:
   vector and raster GIS data, WMS/WMTS/WCS and WFS services, XYZ basemaps,
   delimited-text tables, SWMM model layers, SWMM results layers, 2D meshes, and 2D
@@ -43,7 +43,7 @@ Two things distinguish it from the classic SWMM interface:
   and animated maps, including prerequisites and current limitations.
 
 The application is licensed GPL v3; the engine it links is Apache 2.0. Third-party
-components and their licences are listed in **Help → About**.
+components and their licenses are listed in **Help → About**.
 
 ### Relationship to the OpenSWMM engine
 
@@ -112,7 +112,7 @@ WFS, XYZ tiles and stored basemaps, delimited text, SWMM model layers, SWMM
 results, `.2dm` meshes and `.h5` 2D results — all in one ordered, groupable layer
 tree with per-layer opacity, filters and scale-visibility. See \ref manual_layers.
 
-**Symbology and legends.** Per-layer renderers, rule lists, colour ramps, labels
+**Symbology and legends.** Per-layer renderers, rule lists, color ramps, labels
 and label expressions, a per-user style library (**Tools → Style Manager…**), a
 live-editing **Layer Styling** dock, a docked **Legend** and a draggable on-canvas
 legend overlay. See \ref manual_styling.
@@ -164,7 +164,7 @@ parameter assignment from rasters or shapefiles, edge boundary conditions, and
 Simulation Status dock that tracks concurrent runs; live 1D and 2D results while
 the run is still writing. See \ref manual_running.
 
-**Analysing results.** Results layers and result-driven symbology, map animation
+**Analyzing results.** Results layers and result-driven symbology, map animation
 with a scrubber and look-back window, time-series and comparison plots, longitudinal
 and 2D profile plots, result columns in the attribute table, flow balance, travel
 time, mass balance and a statistics dashboard. See \ref manual_results,
@@ -263,7 +263,7 @@ mirrors that payload once per application version into your per-user data folder
 cannot be written, the Welcome page falls back to scanning the read-only install
 folder.
 
-Two example shapes are recognised:
+Two example shapes are recognized:
 
 | Shape | Discovery rule |
 |---|---|
@@ -369,7 +369,7 @@ are not prompted. See \ref manual_crs.
 |---|---|
 | **Help → Show Welcome Page** | The Welcome tab, including the **Learn SWMM** links to this manual; the engine API reference; and the issue tracker |
 | **Help → Keyboard Shortcuts…** | Preferences opened on the **Keyboard** page — browse and rebind every command (see \ref manual_shortcuts) |
-| **Help → About** | The About dialog: a searchable list of every shipped component with its version; role; provenance; SPDX identifier and full licence text |
+| **Help → About** | The About dialog: a searchable list of every shipped component with its version; role; provenance; SPDX identifier and full license text |
 | **Command Palette** (`Ctrl+Shift+P`) | Search every command by name when you cannot remember where it lives |
 | Tooltips and status tips | Every ribbon button and menu item carries a one-line description; long tooltips on the model-authoring actions explain what the tool does to the model |
 | **Message Logs** dock | Every warning and error the GUI and the engine produce, timestamped |
@@ -408,4 +408,4 @@ page's **User Manual** link instead.
 - \ref manual_crs — assigning and changing coordinate reference systems
 - \ref manual_file_formats — every file SWMMVis reads and writes
 - \ref tutorial_site_drainage — the first end-to-end tutorial
-- \ref manual_about — credits and licences
+- \ref manual_about — credits and licenses

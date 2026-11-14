@@ -216,7 +216,7 @@ Points must be strictly ascending in X. **Add Row** and **Delete Row(s)** work
 on the grid, **Copy** and **Paste** move X,Y pairs through the clipboard (a
 paste reports how many rows were taken and how many lines were skipped), and
 the right-click menu carries all four. Editing a Y value leaves X alone;
-editing X is validated against the neighbouring points.
+editing X is validated against the neighboring points.
 
 The chart toolbar has **Fit** (zoom to extent, **F**), **Zoom in**
 (**Ctrl++**), **Zoom out** (**Ctrl+-**), **Pan** and **Edit points** (**E**),

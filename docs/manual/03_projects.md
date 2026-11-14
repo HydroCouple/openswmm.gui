@@ -91,7 +91,7 @@ directory**, so moving the folder keeps the references intact. A referenced file
 that no longer exists is skipped with a warning in the Message Logs rather than
 failing the load.
 
-Two automatic behaviours follow from this pairing:
+Two automatic behaviors follow from this pairing:
 
 - **Every successful `.inp` save also writes the sidecar.** The first time it
   appears, a *Creating sibling project file:* line is logged; later saves are
@@ -110,25 +110,25 @@ model plus whatever sidecar sits beside it. See \ref manual_file_formats.
 File-open and import dialogs remember separate folders for each file category,
 including vectors, rasters, meshes, results and time series. These locations
 persist between launches. If a remembered folder disappears, the picker uses
-its project/current-path default or your home folder. Cancelling a picker keeps
+its project/current-path default or your home folder. Canceling a picker keeps
 the remembered location. Multiple-file selection remains available for dataset
 imports.
 
-| Command | Behaviour |
+| Command | Behavior |
 |---|---|
 | **Open** | The file dialog lists every readable input format contributed by the engine's input plugins (`.inp`, `.gpkg`, …) plus `.oswp`. It starts in the last model/project folder you selected, when that folder still exists. A `.oswp` restores the session; anything else is opened as a single model with its sidecar applied opportunistically |
-| **Open Recent ▸** | Up to 20 entries, most recent first, labelled by file name with the full path on the tooltip. **Clear Recent Files** empties the list — it appears both at the bottom of this submenu and on the Welcome page |
+| **Open Recent ▸** | Up to 20 entries, most recent first, labeled by file name with the full path on the tooltip. **Clear Recent Files** empties the list — it appears both at the bottom of this submenu and on the Welcome page |
 | **Save** | Rewrites the model to its current path, then the sidecar. An untitled project falls through to Save As |
 | **Save As…** | One dialog; the target format comes from the file-type dropdown: `.oswp` (project), `.inp`, `.gpkg`, or any other writable format a plugin contributes. The chosen filter is remembered per project |
 | **Close a tab** | Runs the project's save prompt if needed |
-| **Exit** | Walks every open project and runs each save prompt; cancelling any one of them cancels the quit |
+| **Exit** | Walks every open project and runs each save prompt; canceling any one of them cancels the quit |
 
 **Save As details worth knowing.**
 
 - Choosing the `.oswp` filter does not write only a sidecar: the engine still
   writes `<stem>.inp` and the `.oswp` is written beside it.
 - Stacked extensions are collapsed. Picking a filter after the file name is
-  pre-filled can produce `model.inp.oswp`; SWMMVis normalises that to `model.inp`
+  pre-filled can produce `model.inp.oswp`; SWMMVis normalizes that to `model.inp`
   plus `model.oswp` and logs what it collapsed. The collapse only applies when
   both halves are known writable kinds, so a deliberate `model.bak.bak` is left
   alone.
@@ -140,7 +140,7 @@ imports.
 | Situation | Prompt |
 |---|---|
 | Saved project with unsaved edits | *The model "&lt;name&gt;" has unsaved changes. Save before closing?* — **Save** / **Discard** / **Cancel** |
-| Untitled project (edited or not) | *"Untitled" has never been saved…* — **Save As…** / **Discard** / **Cancel**. **Save As…** hands off to the normal Save As flow; cancelling it keeps the window open |
+| Untitled project (edited or not) | *"Untitled" has never been saved…* — **Save As…** / **Discard** / **Cancel**. **Save As…** hands off to the normal Save As flow; canceling it keeps the window open |
 
 An untitled project always prompts, even with zero edits, because closing it
 destroys the whole model.
@@ -178,7 +178,7 @@ following are **per project**, not application-wide:
 | Last Save-As filter | Remembered under `SWMMVis/Project/<path>/LastSaveAsFilter` |
 
 Switching tabs re-binds every one of these. Open a CFS model and a CMS model side
-by side and watch the whole UI's unit labelling change as you switch. Nothing
+by side and watch the whole UI's unit labeling change as you switch. Nothing
 edited in one project affects the other.
 
 Contextual ribbon tabs follow the same rule: **Mesh 2D** and **Terrain** appear or
@@ -296,7 +296,7 @@ move to a machine without the same drive layout.
 
 #### The escape hatch — `WRITE_ABSOLUTE_PATHS`
 
-Some legacy tools refuse to honour relative paths in `.inp` files. For those, set
+Some legacy tools refuse to honor relative paths in `.inp` files. For those, set
 the project-level option:
 
 ```
@@ -355,7 +355,7 @@ by the engine *after* the run, so a missing file at save time is the expected
 state and produces no error; hot-start SAVE slots are recorded with
 `status = 'pending'` and populated at run end.
 
-#### Editor behaviour
+#### Editor behavior
 
 Wherever a dialog asks for an external file path, the field shows that path
 relative to your project whenever it can; hover it to see the resolved absolute

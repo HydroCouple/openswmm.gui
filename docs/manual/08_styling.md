@@ -2,8 +2,8 @@
 
 ## What you'll do
 
-Decide how everything on the map is painted: symbols and colours for SWMM object
-kinds and GIS features, classified and rule-based renderers, colour ramps,
+Decide how everything on the map is painted: symbols and colors for SWMM object
+kinds and GIS features, classified and rule-based renderers, color ramps,
 labels, the 2D mesh and 2D flood-map display, annotation text, and the legend —
 then save a style you like and reuse it.
 
@@ -52,7 +52,7 @@ panel that changes with the selection:
 | Renderer | What it does | Availability |
 |----------|--------------|--------------|
 | **Single Symbol** | One symbol for every feature. | Always. |
-| **Graduated** | Classifies a numeric attribute into bands and colours (and optionally sizes) by band. | Needs at least one numeric attribute; greyed out otherwise, with the reason as the tooltip. |
+| **Graduated** | Classifies a numeric attribute into bands and colors (and optionally sizes) by band. | Needs at least one numeric attribute; grayed out otherwise, with the reason as the tooltip. |
 | **Categorized** | One symbol per distinct attribute value. | Needs at least one attribute. |
 | **Rule-based** | An ordered list of rules, each with its own renderer. | Needs at least one attribute. |
 
@@ -62,8 +62,8 @@ tab follows.
 
 Whichever renderer you choose, the **Base symbol & labels** group — size or
 line width, outline, marker shape and the label settings — is available under
-it; the renderer only decides where the *colour* comes from: a single colour,
-the ramp, or the category. With **Size by value** on, the static size is greyed
+it; the renderer only decides where the *color* comes from: a single color,
+the ramp, or the category. With **Size by value** on, the static size is grayed
 out because the value drives it.
 
 #### Per-attribute theming for SWMM object kinds
@@ -93,10 +93,10 @@ directly.
 
 The editor matches the geometry archetype of what you are styling.
 
-For a **SWMM element**: **Fill colour**, **Outline colour**, **Outline width**
+For a **SWMM element**: **Fill color**, **Outline color**, **Outline width**
 (px), **Size / line width** (px); a **Labels** group with **Show element
-labels**, font and colour; and, for links, a **Flow direction arrows** group with
-**Show flow arrows**, **Length**, **Width**, **Colour** and **Only when flow >
+labels**, font and color; and, for links, a **Flow direction arrows** group with
+**Show flow arrows**, **Length**, **Width**, **Color** and **Only when flow >
 0**. A live preview sits at the bottom.
 
 For a **GIS vector layer** the editor is tabbed by geometry:
@@ -104,8 +104,8 @@ For a **GIS vector layer** the editor is tabbed by geometry:
 | Tab | Controls |
 |-----|----------|
 | **Marker** | **Size** (px) and **Shape**. |
-| **Line** | **Width** (px), **Style** (dash pattern), **Render as polyline** (otherwise a midpoint glyph), and a **Flow arrows** group with length, width and colour. |
-| **Polygon** | **Outline colour**, **Outline width** (px), **Fill opacity**. |
+| **Line** | **Width** (px), **Style** (dash pattern), **Render as polyline** (otherwise a midpoint glyph), and a **Flow arrows** group with length, width and color. |
+| **Polygon** | **Outline color**, **Outline width** (px), **Fill opacity**. |
 | **Labels** | The label editor described below. |
 
 Nineteen marker shapes are available: circle, square, triangle, diamond, star,
@@ -120,12 +120,12 @@ Graduated rendering classifies a numeric attribute. Its editor is the shared
 | Control | What it does |
 |---------|--------------|
 | **Mode** | *None (single symbol)*, *Graduated (numeric ramp)*, *Categorized* (not yet implemented in this panel). |
-| **Color by** | The numeric attribute driving the colours. |
+| **Color by** | The numeric attribute driving the colors. |
 | Classification editor | Method, class count, ramp, breaks table — see below. |
 | **Size by value** | Off by default. When on, the symbol size (or line width) also varies with the value. |
 | **Min** / **Max** | The size or width range the values map into. |
 | **Size by** | The attribute driving size, or *(same as color)*. |
-| **Flow direction arrows** | For link kinds: **Show flow arrows**, **Length**, **Width**, **Colour**. |
+| **Flow direction arrows** | For link kinds: **Show flow arrows**, **Length**, **Width**, **Color**. |
 
 The **Color by** attribute shown in the combo is the one the layer stores and
 **Export style…** writes. On a results layer the attributes are named as they
@@ -146,14 +146,14 @@ bands, contour and isoline levels — the same editor appears:
 |---------|--------------|
 | **Display** | *Continuous (smooth ramp)* or *Classified (discrete bands)*. |
 | **Attribute** | The value being classified. |
-| **Colour ramp** | Ramp picker with gradient swatches, plus **Invert**. |
+| **Color ramp** | Ramp picker with gradient swatches, plus **Invert**. |
 | **Method** | *Equal interval*, *Quantile*, *Natural breaks (Jenks)*, *Standard deviation*, *Logarithmic*, *Exponential*, *Manual*. |
 | **Classes** | Number of classes. |
 | **Range** | *Fixed over run*, *Per-frame auto-stretch*, *Fixed (user range)*. |
 | **Custom range** + **Min** / **Max** | An explicit data range instead of the observed one. |
 | **Label format** + **Digits** | *Decimal places* or *Significant figures*, and how many. |
 | **Auto-classify from data** | Recomputes the breaks from a sample of the actual values. |
-| Class table | One row per class: **Lower**, **Upper**, **Colour** (click to pick), **Label** (editable). |
+| Class table | One row per class: **Lower**, **Upper**, **Color** (click to pick), **Label** (editable). |
 
 Editing a Lower or Upper cell switches the method to *Manual*, which is what you
 want when you are hand-tuning breaks.
@@ -165,14 +165,14 @@ want when you are hand-tuning breaks.
 | Control | What it does |
 |---------|--------------|
 | **Attribute** | The field whose distinct values become categories. |
-| Category table | **Value**, **Label**, **Colour** — all editable. |
+| Category table | **Value**, **Label**, **Color** — all editable. |
 | **Sample unique values** | Scans the data and fills the table with the values it finds. |
 | **Add** / **Remove** / **Clear** | Manual table editing. |
 | **Edit symbol…** | Opens a small dialog for the selected category's symbol: **Shape**, **Size**, **Line width** or **Outline width**, **Dash**. |
 
 Model attributes also include defined **User flag: NAME** fields. Select one
 in **Attribute**, then click **Sample unique values** to create its categories.
-Changes to flag values refresh the feature colours.
+Changes to flag values refresh the feature colors.
 
 #### Rule-based
 
@@ -190,7 +190,7 @@ editor:
 
 This is also what the **Layer Styling** dock hosts.
 
-### Colour ramps
+### Color ramps
 
 Every ramp picker is a combo that previews each ramp as a gradient swatch.
 Twenty-five built-in ramps ship with the application:
@@ -216,22 +216,22 @@ The last row of the dropdown, **Edit Custom Ramp…**, opens the ramp editor:
 ramps are stored per user, not in the project; deleting one leaves styles that
 already reference it working, since they hold the ramp's stops.
 
-\figtodo{08_color_ramp_editor.png, The custom colour-ramp editor with the gradient preview and the stop table}
+\figtodo{08_color_ramp_editor.png, The custom color-ramp editor with the gradient preview and the stop table}
 
 ### Labels
 
-The **Labels** tab configures how a layer's features are labelled.
+The **Labels** tab configures how a layer's features are labeled.
 
 | Group | Controls |
 |-------|----------|
 | **Labels** | **Show labels**; **Field** — a combo of the layer's attributes for kinds that have them, or a free-text field (blank = the element's name). |
 | **Decimals** | *Auto* (6 significant digits) or 0–10 fixed decimals, applied to numeric fields and to numeric `{tokens}` in expressions. |
 | **Expression** | A label template with `{token}` placeholders, plus a button that opens the expression builder. |
-| **Font** | **Family**, **Size**, **Bold**, **Italic**, **Colour**. |
-| **Halo (outline around text)** | **Enable halo**, **Colour**, **Radius**. |
+| **Font** | **Family**, **Size**, **Bold**, **Italic**, **Color**. |
+| **Halo (outline around text)** | **Enable halo**, **Color**, **Radius**. |
 | **Placement** | **Position**: *Auto*, *Above*, *Below*, *Left*, *Right*, *Centre*. |
 | **Visibility scale window** | **Hide when 1: ≥** (hide when zoomed further out than this denominator) and **Hide when 1: ≤** (hide when zoomed further in). `0` or *none* means no limit. |
-| **Background frame** | **Draw background behind labels**, **Colour**, **Padding**, **Corner radius**. |
+| **Background frame** | **Draw background behind labels**, **Color**, **Padding**, **Corner radius**. |
 | **Per-feature priority** | An attribute name; higher values win label collisions. |
 
 \figtodo{08_labels_decimals.png, The Labels tab with Field = Slope and Decimals = 3}
@@ -240,7 +240,7 @@ The **Labels** tab configures how a layer's features are labelled.
 
 The template language is deliberately small: literal text with `{token}`
 placeholders, where `{name}` resolves to the element id and every other token is
-an attribute lookup. A misspelt token is not an error — it silently substitutes
+an attribute lookup. A misspelled token is not an error — it silently substitutes
 an empty string — which is exactly why the builder exists:
 
 - the available fields are listed and insertable with a click;
@@ -252,7 +252,7 @@ or enter `{name}: {maxDepth} m` in **Expression**. The expression overrides
 **Field**. `depth` belongs to a results layer and means the value at the current
 animation time; it is not a static model property. Select the results layer and
 use its field picker for dynamic depth labels. Use the units advertised for the
-chosen field; a literal `m` does not convert a value to metres.
+chosen field; a literal `m` does not convert a value to meters.
 
 \fig{08_label_expression_dialog.png, The label expression builder with the field list; the template and the live preview}
 
@@ -290,16 +290,16 @@ QGIS `.qml`, reporting any warnings.
 **Animation → Set Style** opens the same Layer Properties dialog on whichever
 layer is selected in the Layers panel, falling back to the topmost visible layer
 when nothing is selected. For a results layer, that is where you choose the
-result variable driving the colours and the ramp that maps it.
+result variable driving the colors and the ramp that maps it.
 
-The variables a 1D results layer can colour by are the node results
+The variables a 1D results layer can color by are the node results
 (depth, head, volume, total inflow, overflow, lateral inflow), the link results
 (flow, depth, velocity, capacity) and the subcatchment results (runoff,
 infiltration, evaporation, snow depth), plus any pollutant or species series the
 file carries. The full list and what each means is in \ref manual_results.
 
 The status bar also carries a per-attribute theming widget with one combo per
-object family — Node, Link, Subcatchment — so you can change the coloured
+object family — Node, Link, Subcatchment — so you can change the colored
 variable during playback without opening a dialog.
 
 ### The 2D mesh style panel
@@ -310,20 +310,20 @@ sublayer.
 
 | Tab | Controls |
 |-----|----------|
-| **Terrain Fill** | **Colour by** — attribute (bed elevation and any per-cell attribute), **No-data colour**, **Category palette** for categorical attributes; the classification editor for the colour mapping; a **Hillshade (sun lighting)** group with **Azimuth** (°), **Altitude** (°), **Vertical exaggeration** (×) and **Shadow floor**. |
+| **Terrain Fill** | **Color by** — attribute (bed elevation and any per-cell attribute), **No-data color**, **Category palette** for categorical attributes; the classification editor for the color mapping; a **Hillshade (sun lighting)** group with **Azimuth** (°), **Altitude** (°), **Vertical exaggeration** (×) and **Shadow floor**. |
 | **Elevation Bands** | Classification editor plus **Interpolate band boundaries (marching triangles)** — on, class boundaries are interpolated through the triangles; off, each cell is flat-filled. |
-| **Elevation Isolines** | **Line count**, **Line colour**, **Line width** (px), **Show elevation labels**. |
-| **Mesh Edges** | **Colour**, **Width** (px), **Stroke style**, **Show edges at** (minimum on-screen pixels per cell before the wireframe appears); a **Slope emphasis** group with **Widen steep edges**, **Slope break**, **Wide width** and **Wide colour**. |
-| **Mesh Vertices** | **Colour**, **Marker size** (px), **Outline colour**, **Outline width** (px), **Show vertices at** (px per cell). |
-| **Boundary Conditions** | A per-type grid — one row per boundary-condition type with a visibility checkbox, **Colour** and **Width**. Types with no edges in the mesh are labelled *(none in mesh)*. The interior-edge row recolours the wireframe rather than drawing its own lines, so its width column reads *(wireframe width)*. The boundary ring stays visible at every zoom. |
-| **Coupled Nodes** | **Colour** and **Marker size** for the mesh vertices coupled to 1D SWMM nodes. |
+| **Elevation Isolines** | **Line count**, **Line color**, **Line width** (px), **Show elevation labels**. |
+| **Mesh Edges** | **Color**, **Width** (px), **Stroke style**, **Show edges at** (minimum on-screen pixels per cell before the wireframe appears); a **Slope emphasis** group with **Widen steep edges**, **Slope break**, **Wide width** and **Wide color**. |
+| **Mesh Vertices** | **Color**, **Marker size** (px), **Outline color**, **Outline width** (px), **Show vertices at** (px per cell). |
+| **Boundary Conditions** | A per-type grid — one row per boundary-condition type with a visibility checkbox, **Color** and **Width**. Types with no edges in the mesh are labeled *(none in mesh)*. The interior-edge row recolors the wireframe rather than drawing its own lines, so its width column reads *(wireframe width)*. The boundary ring stays visible at every zoom. |
+| **Coupled Nodes** | **Color** and **Marker size** for the mesh vertices coupled to 1D SWMM nodes. |
 
 Mesh edge and boundary widths are the full stroke width in screen pixels,
 independent of zoom and whether the mesh is active. With **Widen steep edges**
-enabled, steep edges use **Wide width** and **Wide colour**. While the
-**Boundary Conditions** sublayer is shown, its **Wall / interior edges** colour
-overrides the wireframe colours; turn that row off to use the **Mesh Edges**
-colours. The wireframe widths still come from **Mesh Edges**.
+enabled, steep edges use **Wide width** and **Wide color**. While the
+**Boundary Conditions** sublayer is shown, its **Wall / interior edges** color
+overrides the wireframe colors; turn that row off to use the **Mesh Edges**
+colors. The wireframe widths still come from **Mesh Edges**.
 
 \fig{08_mesh_style_panel.png, The 2D mesh style panel on the Terrain Fill tab with the hillshade group}
 
@@ -348,15 +348,15 @@ is on.
 
 | Field | Tabs |
 |-------|------|
-| Scalar | **Fill** — flat, or **Smooth (interpolated)**; the classification editor; colours for cells without a value. **Filled contours** — band count and method (colours and range come from the Fill classification). **Contour lines** — **Mode** (level count or fixed interval + base), the line classification or **Interval** and **Base level**, line colour, width, stroke style, **Index contour every** N and **Index width**, contour labels. **Labels** — cell value labels: colour, decimals, font size, halo. **Data** — availability, the selected cell's value, CSV and GIS export. |
-| Vector | **Arrows** — size by vector magnitude (frame range or a fixed scale in px per unit), a constant or a scalar field; length scaling; shortest and longest arrow; spacing, head size, shaft width. **Streaks** — length, width and spacing. **Colour** — constant, by magnitude or by a scalar field, with its classification. **Data**. Surface vectors also have a **Dry cutoff** beside **Opacity**. |
+| Scalar | **Fill** — flat, or **Smooth (interpolated)**; the classification editor; colors for cells without a value. **Filled contours** — band count and method (colors and range come from the Fill classification). **Contour lines** — **Mode** (level count or fixed interval + base), the line classification or **Interval** and **Base level**, line color, width, stroke style, **Index contour every** N and **Index width**, contour labels. **Labels** — cell value labels: color, decimals, font size, halo. **Data** — availability, the selected cell's value, CSV and GIS export. |
+| Vector | **Arrows** — size by vector magnitude (frame range or a fixed scale in px per unit), a constant or a scalar field; length scaling; shortest and longest arrow; spacing, head size, shaft width. **Streaks** — length, width and spacing. **Color** — constant, by magnitude or by a scalar field, with its classification. **Data**. Surface vectors also have a **Dry cutoff** beside **Opacity**. |
 
 The depth row's display tabs edit the depth passes: **Fill** shows the classes of
 the flat or smooth fill being drawn; **Filled contours** the band classes and
 **Interpolate band boundaries (marching triangles)**; **Contour lines** the
 isoline **Levels** (**Mode**, **Count**, **Method**, **Interval**, **Base
 level**), **Symbology** and **Labels**. The surface velocity row's **Streaks**
-tab holds the animated flow streak settings, and its **Colour** tab colours the
+tab holds the animated flow streak settings, and its **Color** tab colors the
 arrows only. When a row takes over the depth or velocity displays (a new run, an
 older project, or the previous row removed or changed), its **Opacity** shows the
 opacity they draw at; changing it sets every display of the row.
@@ -383,7 +383,7 @@ Style…**, which opens the Layer Properties dialog focused on that sublayer's t
 
 | Item | What it does |
 |------|--------------|
-| **Change color…** | On a legend class row — recolours that class. |
+| **Change color…** | On a legend class row — recolors that class. |
 | **Hide layer "…"** | Hides the layer the clicked row belongs to. |
 | **Move layer up** / **Move layer down** | Reorders that layer in the stack. |
 | **Properties…** | Opens Legend Properties. |
@@ -400,9 +400,9 @@ when the canvas is resized, so it can never escape off-screen.
 style. Edits are live; **Reset** restores the built-in defaults and closing with
 **Cancel** reverts to the state when the dialog opened. Properties are grouped as
 *General*, *Frame* and *Background* and cover the title (shown/hidden, text,
-font, colour), item and layer-header colours, row spacing, swatch size, padding,
+font, color), item and layer-header colors, row spacing, swatch size, padding,
 anchor corner, explicit width and height, maximum label width, frame visibility
-and colour, corner radius, and background colour and gradient end colour.
+and color, corner radius, and background color and gradient end color.
 
 \figtodo{08_legend_dock_and_overlay.png, The Legend dock beside the draggable on-canvas legend}
 
@@ -412,14 +412,14 @@ Placing a text annotation with the **Add Text** tool opens **Add Text
 Annotation**; clicking an existing annotation with the same tool reopens it as
 **Edit Text Annotation**. A **Text** field sits at the top for the label itself,
 above a property tree exposing every style attribute with a type-appropriate
-editor — colour pickers for colours, a font dialog for fonts, checkboxes for
+editor — color pickers for colors, a font dialog for fonts, checkboxes for
 toggles, spin boxes for numbers:
 
 - position (**x**, **y**) and **rotation**;
-- **font** and **fill colour**;
-- outline: **enabled**, **colour**, **width**;
-- halo: **enabled**, **colour**, **radius**;
-- background: **enabled**, **fill colour**, **outline colour**, **outline
+- **font** and **fill color**;
+- outline: **enabled**, **color**, **width**;
+- halo: **enabled**, **color**, **radius**;
+- background: **enabled**, **fill color**, **outline color**, **outline
   width**, **padding**, **corner radius**.
 
 Placement is undoable. Note that edits made while *editing* an existing
@@ -431,7 +431,7 @@ Styling lives in the project's `.oswp` sidecar, not in the `.inp` — SWMM's inp
 format has nowhere to put it. The sidecar records each layer's renderer, the
 per-kind renderers for model and results layers, rule lists and their metadata,
 label configuration, per-sublayer visibility, opacity and style settings, the
-legend overlay style, and basemap connection details. Custom colour ramps and
+legend overlay style, and basemap connection details. Custom color ramps and
 the style library are stored per user, outside the project, so they follow you
 between projects. See \ref manual_projects.
 
@@ -448,7 +448,7 @@ to layer**.
   immediate. Use the dialog when you want a Cancel to fall back on.
 - **Cancel in the dialog rolls back *everything*** you changed since it opened,
   including edits you already pressed Apply for.
-- **A greyed-out renderer tells you why.** Graduated needs a numeric attribute,
+- **A grayed-out renderer tells you why.** Graduated needs a numeric attribute,
   Categorized and Rule-based need any attribute; the tooltip on the disabled
   entry names the reason.
 - **Editing a break switches the method to Manual.** That is intended — otherwise
@@ -457,7 +457,7 @@ to layer**.
   people will compare across time steps, use *Fixed over run* or an explicit
   custom range.
 - **Custom ramps are per user, not per project.** A colleague opening your
-  `.oswp` sees the ramp's colours (they are stored with the style) but will not
+  `.oswp` sees the ramp's colors (they are stored with the style) but will not
   find it in their ramp library.
 - **A few entries are placeholders.** The kind-row Style submenu was folded into
   the Symbology tab's renderer dropdown, and Copy Style / Paste Style on the

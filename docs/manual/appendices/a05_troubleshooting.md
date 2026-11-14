@@ -163,7 +163,7 @@ and, if you need more, the network activity of the request.
 `.out`, and that is where the reason is. The GUI's completion messages are:
 
 - *Simulation finished. Results: `<path>`* — success.
-- *Simulation cancelled. Partial results: `<path>`* — the partial `.out` is
+- *Simulation canceled. Partial results: `<path>`* — the partial `.out` is
   still loaded.
 - *Simulation failed (code N): `<message>` — `<detail>`*.
 - *Simulation reported success but produced no output: `<path>` / The run
@@ -175,7 +175,7 @@ and, if you need more, the network activity of the request.
 - *Open a SWMM project first to run a simulation.*
 - *Save the project before running — Run uses the .inp on disk.* (Or the run
   auto-saves and logs *Auto-saved before running.*)
-- *Run cancelled — output overwrite declined.*
+- *Run canceled — output overwrite declined.*
 - **2D mesh not found** — a modal warning:
   > *2D Surface Routing is enabled for this model, but no 2D mesh was found —
   > there is no inline mesh in the .inp and no valid [2D_MESH_FILE] reference.
@@ -251,7 +251,7 @@ The **Generate 2D Mesh** dialog reports the reason directly.
 **By far the most common: the CRS.**
 
 > *The project CRS (…) has no usable planar linear unit. 2D mesh generation
-> requires a projected or local CRS in metres or feet. Geographic (lat/lon)
+> requires a projected or local CRS in meters or feet. Geographic (lat/lon)
 > CRSes are not supported.*
 >
 > *Fix: open Project → Change CRS… and pick a projected CRS, or use the 'Local
@@ -296,7 +296,7 @@ size or simpler input geometry.*
 
 **Holes.** The **Drop holes smaller than one cell** checkbox warns that
 *Hole rings narrower than the minimum cell size cannot be meshed around. When
-checked they are removed, which means THE MESH COVERS THEM — a modelling
+checked they are removed, which means THE MESH COVERS THEM — a modeling
 change, reported in the generation log.* Read the log after checking it.
 
 A quality hint you will see often: *Min angle is N° — consider 26–28° with a
@@ -337,13 +337,13 @@ inlet junction at that point.* and *Could not insert an inlet junction on
 2. **Is the layer active?** Right-click the results layer in **Layers** and
    check **Set as Active Results Layer**. Only the active layer drives the
    Analysis toolbar and the animation.
-3. **A cancelled run still loads.** The engine flushes partial output, so a
-   cancelled run gives you a usable partial `.out`. Only an engine error with no
+3. **A canceled run still loads.** The engine flushes partial output, so a
+   canceled run gives you a usable partial `.out`. Only an engine error with no
    output at all skips the load.
 4. **No `.2d.h5`?** Check `[2D_OPTIONS] OUTPUT_FILE` — an empty value means no
    2D output is written — and `REPORT_2D`. The 2D writer needs no `[PLUGINS]`
    entry.
-5. **Nothing coloured on the map?** A results layer styled by an attribute the
+5. **Nothing colored on the map?** A results layer styled by an attribute the
    run does not carry skips silently with a one-shot warning. That happens most
    often with a species (`qual:<name>`) after pollutants changed.
 6. **A legacy quality-free `.out`** shows no species entries at all in the

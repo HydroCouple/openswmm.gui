@@ -1,4 +1,4 @@
-@page manual_analysis_tools 25 — Analysis Tools: Flow Balance, Travel Time, Rainfall Visualisation, 2D Cell Time Series
+@page manual_analysis_tools 25 — Analysis Tools: Flow Balance, Travel Time, Rainfall Visualization, 2D Cell Time Series
 
 ## What you'll do
 
@@ -63,7 +63,7 @@ engine, so what you see is exactly what a run would use.
 |--------|----------|
 | Toolbar | **Select**, **Pan**, **Zoom In**, **Zoom Out**, **Fit**, **Refresh**, and the **Basis** selector |
 | **Overlay** tab | Every visible gage on one chart with a legend |
-| **Per Gage** tab | One stacked chart per gage on a synchronised time axis, sharing the available height |
+| **Per Gage** tab | One stacked chart per gage on a synchronized time axis, sharing the available height |
 | Summary table | One row per gage, with the per-gage visibility checkboxes |
 
 The **Basis** selector converts each gage's record so the gages can be compared
@@ -133,7 +133,7 @@ The same menu style the 1D select tool uses:
 | **Edge** | Edge flow (volumetric), Edge flux (unit-width), plus **All attributes** |
 | **Vertex** | Depth, HGL (both interpolated from the incident cells), plus **All attributes** |
 
-Entries this run cannot serve are **greyed out** with the tooltip *Not present in
+Entries this run cannot serve are **grayed out** with the tooltip *Not present in
 this run's 2D results — re-run with the current engine*: velocity needs edge-flux
 data, and the rainfall entries need the per-cell rainfall datasets. Depth and HGL
 are always available.
@@ -147,7 +147,7 @@ rows. More than 500 series raises a confirmation first.
 
 \figtodo{25_pick_2d_cells_menu.png, A lasso selection of mesh cells with the attribute context menu open}
 
-#### Multi-run and live behaviour
+#### Multi-run and live behavior
 
 - **Multi-run.** Open a second run and pick the same cells; the comparison plot's
   1v1 column pairs them and reports NSE / R² / RMSE / PBIAS. Triangle indices are
@@ -187,14 +187,14 @@ the map, **Zoom to Selected**, and CSV export. It is covered in full in
   you picked.
 - **A gage with `file failed to load`** will contribute no rainfall to a run.
   Check the **Source** column for the path or station the model asked for.
-- **Greyed-out mesh attributes mean an older results file**, not a broken model.
+- **Grayed-out mesh attributes mean an older results file**, not a broken model.
   Re-run with the current engine to get velocity or rainfall datasets.
 - **Cell indices are mesh identities.** Regenerating a mesh invalidates any saved
   reference to "cell 4 271".
 - Two related **model-side** summaries are not analysis tools but are easy to
   confuse with them: the node property browser and attribute table show which
   subcatchments discharge groundwater to a node (see \ref manual_hydrology), and
-  the virtual-junction delete and re-fuse prompts summarise the lateral sources
+  the virtual-junction delete and re-fuse prompts summarize the lateral sources
   that would be dropped (see \ref manual_hydraulics).
 
 ## Related

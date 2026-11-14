@@ -1,7 +1,7 @@
 @page user_manual User Manual
 
 **SWMMVis** (the OpenSWMM GUI) is a Qt 6 / C++ GIS-based desktop application
-for building, running, and analysing SWMM 6.0 storm-water models with the
+for building, running, and analyzing SWMM 6.0 storm-water models with the
 next-generation OpenSWMM engine. It reads and writes standard SWMM `.inp`
 files, adds a GIS map canvas with coordinate reference systems and web/GIS
 data layers, and provides graphical workflows for supported engine capabilities — dynamic-wave and
@@ -10,7 +10,7 @@ coupling, advection–reaction–dispersion transport, multispecies reaction
 systems, heat transport, water age, groundwater exchange, streets and inlet
 junctions — through dialogs, tables, plots, and animated maps.
 
-This manual is organised in five parts. Part I gets you oriented; Parts II–IV
+This manual is organized in five parts. Part I gets you oriented; Parts II–IV
 are reference chapters, one per capability area; Part V walks through small
 but complete case studies that exercise the engine end-to-end. Every chapter
 follows the same pattern: *what you'll do*, *where to find it*, a
@@ -30,7 +30,7 @@ follows the same pattern: *what you'll do*, *where to find it*, a
 - \subpage manual_map_navigation — the map canvas: pan, zoom, measure, export and print
 - \subpage manual_crs — coordinate reference systems
 - \subpage manual_layers — the Layers panel and every data source (vector, raster, WMS/WMTS/WCS, WFS, XYZ tiles, basemaps, delimited text)
-- \subpage manual_styling — symbology, labelling, colour ramps, the Style Manager, legends
+- \subpage manual_styling — symbology, labeling, color ramps, the Style Manager, legends
 - \subpage manual_selection — selecting, searching, and tracing upstream/downstream
 - \subpage manual_object_browser — the Object Browser, the Properties panel, compound editors, the Section View
 - \subpage manual_attribute_tables — attribute tables, selection queries and bulk edits, mesh tables, tabular data layers
@@ -47,14 +47,14 @@ follows the same pattern: *what you'll do*, *where to find it*, a
 - \subpage manual_simulation_options — the Simulation Options dialog, page by page
 - \subpage manual_2d_mesh — 2D overland flow: mesh generation, mesh editing, cell parameters, boundary conditions, 1D–2D coupling
 
-## Part IV — Running simulations and analysing results
+## Part IV — Running simulations and analyzing results
 
-- \subpage manual_running — running, pausing and cancelling a simulation; status, logs, live results, reports, mass balance
+- \subpage manual_running — running, pausing and canceling a simulation; status, logs, live results, reports, mass balance
 - \subpage manual_results — opening 1D and 2D results, results layers, result styling, legends and map animation
 - \subpage manual_time_series_plots — time-series and comparison plots, observed data, statistics, scatter plots, export
 - \subpage manual_profile_plots — profile plots along 1D paths, 2D mesh profiles, terrain profiles
 - \subpage manual_tabular_results — result columns in the attribute table, the statistics dashboard, the report viewer and export
-- \subpage manual_analysis_tools — flow balance, travel time, rainfall visualisation, 2D cell time series, statistics dashboard
+- \subpage manual_analysis_tools — flow balance, travel time, rainfall visualization, 2D cell time series, statistics dashboard
 
 ## Part V — Tutorials and case studies
 
@@ -84,7 +84,7 @@ catchment data and dependent files. Runtime depends on the model and hardware.
 - \subpage manual_extensions — installing and using GUI extensions
 - \subpage manual_performance — redraw policy, large models and performance tuning
 - \subpage manual_troubleshooting — common problems and their fixes
-- \subpage manual_about — about, credits and licences
+- \subpage manual_about — about, credits and licenses
 - \subpage manual_reference_tables — units, soil, curve number, Manning's n, culvert and pipe-size tables
 - \subpage manual_error_codes — every numbered error and warning
 - \subpage manual_property_index — which chapter documents which object property

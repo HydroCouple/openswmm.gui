@@ -58,7 +58,7 @@ Units are in/hr (intensity). Timestamps run 2007-01-01 00:00 → 03:00.
    series must come back as External File on `RG_SOUTH`.
 7. **Rain gage + MVC sync.** Select a FILE-source rain gage. Set "Rain File
    (path)" to `rain_multicolumn.csv`, then set "Rain File Column" → Station ID
-   greys out (format flips to USER_CSV). Open the Attribute Table on Rain Gages:
+   grays out (format flips to USER_CSV). Open the Attribute Table on Rain Gages:
    the path cell has a browse button, the column cell is a combo listing the four
    names, and both show what you just set. Change the column in the table → the
    Property Browser row must update.

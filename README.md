@@ -161,9 +161,9 @@ Organizations contributing through their employees or designated contributors mu
 
 SWMMVis is distributed under the **GNU General Public License, version 3 or later** — see [LICENSE](LICENSE).
 
-## Acknowledgements
+## Acknowledgments
 
-SWMMVis builds on the [OpenSWMM engine](https://github.com/HydroCouple/openswmm.engine) and uses Qt and GDAL for its interface and GIS capabilities. See [AUTHORS.md](AUTHORS.md) for project contributors and acknowledgements.
+SWMMVis builds on the [OpenSWMM engine](https://github.com/HydroCouple/openswmm.engine) and uses Qt and GDAL for its interface and GIS capabilities. See [AUTHORS.md](AUTHORS.md) for project contributors and acknowledgments.
 
 ## Disclaimer
 

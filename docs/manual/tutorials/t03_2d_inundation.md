@@ -17,17 +17,17 @@ Copy these files from `docs/manual/tutorials/models/` into a working folder:
 | File | Purpose |
 |---|---|
 | `terrain_bowl.inp` | Complete model, including 81 vertices, 128 triangles and the coupling map |
-| `terrain_bowl.asc` | GDAL-readable ESRI ASCII terrain grid, 240 × 240 one-metre cells |
+| `terrain_bowl.asc` | GDAL-readable ESRI ASCII terrain grid, 240 × 240 one-meter cells |
 | `terrain_bowl.prj` | Raster coordinate-system companion; keep beside the ASCII grid |
 | `terrain_bowl_domain.geojson` | Projected square boundary for generating an alternative mesh |
 
 The mesh covers a 200 × 200 m square. Its bed is
-`97 + 3 × min((x² + y²)/10000, 1)` metres: the centre is 97 m and the
+`97 + 3 × min((x² + y²)/10000, 1)` meters: the center is 97 m and the
 perimeter is 100 m. Vertex 40 at (0, 0) couples to `J1`, with Cd 0.65 and
 exchange area 0.5 m². `J1` has invert 96.5 m and maximum depth 0.5 m;
-its rim matches the centre vertex. Four 0.6 m pipes lead to free outfall
+its rim matches the center vertex. Four 0.6 m pipes lead to free outfall
 `OUT1` at (130, 0), invert 95.5 m. Flow units are CMS; coordinates and bed
-elevations are metres. The boundaries are walls. Both the model and terrain use
+elevations are meters. The boundaries are walls. Both the model and terrain use
 EPSG:3857 for consistent display of this synthetic geometry near the origin;
 the coordinates do not identify a real site. Keep `terrain_bowl.prj` beside the
 ASCII grid.
@@ -55,7 +55,7 @@ capture selects a known output frame through the real timeline control.
 **File → Open…** (`Ctrl+O`) → **Open SWMM Model or Project** →
 `terrain_bowl.inp`.
 
-The 1D network — five nodes in a line running east from the bowl centre —
+The 1D network — five nodes in a line running east from the bowl center —
 draws on the canvas, and the **Layers** panel gains a mesh layer built from the inline
 vertices and triangles. Because a mesh layer is on the canvas, the contextual
 **Mesh 2D** ribbon tab appears, with the groups **Mesh**, **Process**,
@@ -77,10 +77,10 @@ The supplied `terrain_bowl.asc` can be opened directly:
 3. The raster symbology panel opens on the **Renderer:** the DTM was given at
    load time — **Singleband pseudocolor** (the alternatives are **Paletted /
    unique values** for categorical grids and, for 8-bit RGB imagery,
-   **Multiband colour**). **Source** has **Render band:** and **NoData
+   **Multiband color**). **Source** has **Render band:** and **NoData
    value:**; the **Classification** block is the same one the 2D layers use —
-   **Continuous / Classified**, **Colour ramp** with **Invert**, **Method:**
-   and **Classes:**, **Custom range**, a per-class table whose colours and
+   **Continuous / Classified**, **Color ramp** with **Invert**, **Method:**
+   and **Classes:**, **Custom range**, a per-class table whose colors and
    labels you can edit, and **Auto-classify from data** — followed by **Clip
    out-of-range values**; **Hillshade relief** has **Enable relief shading**,
    **Azimuth:**, **Altitude:**, **Z factor:** and **Strength:**.
@@ -92,11 +92,11 @@ terrain-friendly ramp such as **terrain**, or switch to **Classified** with
 elevation bands, then enable relief shading with a **Z factor:** of 5 or more.
 A 3 m bowl over 200 m is a very gentle dish; without exaggeration it looks flat.
 
-\fig{t03_raster_style.png, The loaded terrain raster symbology with its 97–100 metre range and relief shading enabled}
+\fig{t03_raster_style.png, The loaded terrain raster symbology with its 97–100 meter range and relief shading enabled}
 
 The **Terrain** ribbon tab appears once a raster is loaded, with an
 **Active Terrain** group (a combo listing `(none)` and every raster), a
-**Vertical Units** group (**DEM:** in **m (metres)** or **ft (feet)**, plus a
+**Vertical Units** group (**DEM:** in **m (meters)** or **ft (feet)**, plus a
 `×` factor) and an **Invert Offsets** group.
 
 ### 3. Inspect and style the mesh layer
@@ -106,17 +106,17 @@ Styling** dock, `Ctrl+8`). The mesh style panel has seven tabs:
 
 | Tab | What it draws |
 | --- | ------------- |
-| **Terrain Fill** | flat-shaded cells coloured by a cell attribute |
+| **Terrain Fill** | flat-shaded cells colored by a cell attribute |
 | **Elevation Bands** | filled elevation bands, optionally interpolated with marching triangles |
-| **Elevation Isolines** | contour lines with **Line count:**, **Line colour:**, **Line width:** and **Show elevation labels** |
-| **Mesh Edges** | the wireframe — **Colour:**, **Width:**, **Stroke style:**, **Show edges at:** (px/cell) and a **Slope emphasis** group that widens steep edges |
-| **Mesh Vertices** | vertex markers — **Colour:**, **Marker size:**, outline and **Show vertices at:** |
-| **Boundary Conditions** | per-BC-type colour and width; types absent from the mesh are marked *(none in mesh)* |
-| **Coupled Nodes** | the mesh vertices coupled to 1D nodes — **Colour:** and **Marker size:** |
+| **Elevation Isolines** | contour lines with **Line count:**, **Line color:**, **Line width:** and **Show elevation labels** |
+| **Mesh Edges** | the wireframe — **Color:**, **Width:**, **Stroke style:**, **Show edges at:** (px/cell) and a **Slope emphasis** group that widens steep edges |
+| **Mesh Vertices** | vertex markers — **Color:**, **Marker size:**, outline and **Show vertices at:** |
+| **Boundary Conditions** | per-BC-type color and width; types absent from the mesh are marked *(none in mesh)* |
+| **Coupled Nodes** | the mesh vertices coupled to 1D nodes — **Color:** and **Marker size:** |
 
 On **Terrain Fill**, set **Attribute:** to **Bed elevation** and let the
 **Classification** block do the work: **Display:** (**Continuous (smooth
-ramp)** or **Classified (discrete bands)**), **Colour ramp:** with **Invert**,
+ramp)** or **Classified (discrete bands)**), **Color ramp:** with **Invert**,
 **Method:** (**Equal interval**, **Quantile**, **Natural breaks (Jenks)**,
 **Standard deviation**, **Logarithmic**, **Exponential** or **Manual**),
 **Classes:** and **Range:**. Press **Auto-classify from data**. The
@@ -126,13 +126,13 @@ again, exaggerate.
 
 The **Attribute:** combo also lists every cell parameter: **Manning's n**,
 **Initial Depth**, **Infiltration Method** and the infiltration parameters.
-Colour by **Manning's n** to confirm the whole bowl is 0.035.
+Color by **Manning's n** to confirm the whole bowl is 0.035.
 
-Turn on **Coupled Nodes** to see the single coupled vertex at the bowl centre.
+Turn on **Coupled Nodes** to see the single coupled vertex at the bowl center.
 
 \fig{t03_mesh_style_panel.png, The mesh style panel on the Terrain Fill tab}
 
-\figtodo{t03_mesh_elevation.png, The mesh coloured by bed elevation with hillshade and the wireframe visible}
+\figtodo{t03_mesh_elevation.png, The mesh colored by bed elevation with hillshade and the wireframe visible}
 
 ### 4. Read the mesh attribute tables
 
@@ -175,7 +175,7 @@ On **Sources**:
 | ------- | ---- |
 | **DTM raster:** | `(none — use junction rim elevations)` or any loaded raster — pick `terrain_bowl.asc` |
 | **DTM vertical unit:** | read-only, derived from the raster |
-| **Mesh vertical unit:** | **Match flow units (auto-convert)**, **Metres (m)** or **Feet (ft)** |
+| **Mesh vertical unit:** | **Match flow units (auto-convert)**, **Meters (m)** or **Feet (ft)** |
 | **Z conversion (×):** | a manual scale on top of that |
 | **Domain:** | read-only — always the model extent |
 | **Boundary polygon:** | `(none)`, **Use SWMM subcatchment polygons**, or any loaded polygon layer |
@@ -183,7 +183,7 @@ On **Sources**:
 | **Junctions / outfalls / storage → Steiner vertices** | forces mesh vertices at the nodes when generating an alternative mesh |
 | **Conduits → constraint segments**, **Subcatchments → triangle regions** | the 1D-geometry influence group |
 | **Map model nodes to the mesh after generation** | the 1D ↔ 2D coupling checkbox |
-| **Method:** | **Inverse distance weighting (IDW)** or **Natural neighbour**, used only when there is no DTM |
+| **Method:** | **Inverse distance weighting (IDW)** or **Natural neighbor**, used only when there is no DTM |
 
 The existing mesh is already inline in the input. To generate an alternative,
 import `terrain_bowl_domain.geojson` with **Home → Import → Vector Data**,
@@ -216,7 +216,7 @@ Area are editable only once the vertex is coupled.
 
 **Model → Simulation Options…**. On **Models / Processes → Modules**, the
 **Modules** group has a **2D Surface Routing** checkbox; the **2D Surface
-Routing** category in the left-hand list is greyed until it is ticked.
+Routing** category in the left-hand list is grayed until it is ticked.
 
 This input already contains the mesh and `[2D_OPTIONS]`; no external `.2dm`
 selection is required. The **Mesh** page is useful when choosing an external
@@ -246,7 +246,7 @@ Output → 2D Results**. The controls below write `[2D_OPTIONS]`:
 | 1D ↔ 2D coupling | **Coupling Cd:** | `COUPLING_CD` |
 | | **Exchange interval:** (s — **Every routing step** at 0) | `COUPLING_SYNC` |
 | | **Derive exchange areas automatically (COUPLING_AREA AUTO)** | `COUPLING_AREA` |
-| Rainfall | **Rainfall mode:** — **Natural neighbour (all gages)**, **System (uniform gage mean)** or **None (no direct rainfall)** | `RAINFALL_MODE` |
+| Rainfall | **Rainfall mode:** — **Natural neighbor (all gages)**, **System (uniform gage mean)** or **None (no direct rainfall)** | `RAINFALL_MODE` |
 | Output | **Write 2D results to output (REPORT_2D)** | `REPORT_2D` |
 | | **2D results file:** with **Browse…** | `OUTPUT_FILE` |
 
@@ -293,7 +293,7 @@ Everything below is on the **Animation** ribbon tab.
 Disable **Depth Contours** when using **Cell Depth Fill**, so a second fill
    does not obscure the selected ramp. The native screenshots use a fixed user
    range of 0–0.10 m. If an automatic legend says **Range unavailable**, choose
-   that explicit range before interpreting the colours.
+   that explicit range before interpreting the colors.
 4. The classification's automatic range runs from the run's dry depth up to
    its maximum depth; the dry depth itself is shown read-only on the layer's
    **Metadata** tab as **Dry depth**, beside **Vertices**, **Cells
@@ -306,22 +306,22 @@ Disable **Depth Contours** when using **Cell Depth Fill**, so a second fill
    control whether a *running* simulation streams into the canvas; for a
    loaded `.h5` they are irrelevant.
 
-Rain wets the entire mesh, then gravity moves water toward the centre drain.
+Rain wets the entire mesh, then gravity moves water toward the center drain.
 The checked run reaches its largest cell depth, about 0.0956 m, at 00:56:30.
 The native date display uses this machine's local timezone: the capture shows
 12/31/2023 19:56 for 01/01/2024 00:56 UTC model time. Compare output frame
 indices and report times when checking the same state on another machine.
 After four hours, 77 cells still exceed 1 mm depth. Flat-cell closure leaves
-thin films on the sloping bed; do not interpret every coloured cell as a
+thin films on the sloping bed; do not interpret every colored cell as a
 continuous, level pool.
 
 On the **Flow Velocity** tab, tick **Show velocity vectors** to overlay
 arrows, sized by **Length scaling:** (**Linear**, **Square root** or
 **Logarithmic**), **Scale:** (px per m/s), **Min length:**, **Max length:**,
-**Head size:** and **Shaft width:**, coloured by magnitude or a single colour,
+**Head size:** and **Shaft width:**, colored by magnitude or a single color,
 and thinned with **Spacing:** and **Dry depth cutoff:** — the vector cutoff suppresses arrows below the depth you set. The shared
 **Water visibility** controls above the tabs separately control model dry depth
-and thin-film visibility without changing the computed results. For this shallow dataset set it to a millimetre or less or you will see no
+and thin-film visibility without changing the computed results. For this shallow dataset set it to a millimeter or less or you will see no
 arrows at all.
 
 \fig{t03_results_style_panel.png, The 2D results style panel on the Cell Depth Fill tab}
@@ -338,7 +338,7 @@ tooltip explains the modifiers: *Select 2D cells. Click selects a cell
 their values in Properties or the attribute table; right-click a selection to
 plot its results. Esc clears.*
 
-Click the cell at the bowl centre and right-click it. The attribute menu
+Click the cell at the bowl center and right-click it. The attribute menu
 offers **Depth (2D cell) (m)**, **HGL (2D cell) (m)**, **|V| (2D cell)
 (m/s)**, **Vx (2D cell) (m/s)**, **Vy (2D cell) (m/s)**, **Rainfall (2D
 cell)**, **Rainfall volume (2D cell) (m³)**, and finally **All attributes**.
@@ -346,16 +346,16 @@ Entries the results file cannot supply are disabled with a tooltip.
 
 The series opens in the **Comparison Plot**, the same window the 1D time
 series use — there is no separate cell-time-series window. Pick a rim cell and
-a centre cell and plot both depths together: compare their timing and residual depths rather than assuming a particular
+a center cell and plot both depths together: compare their timing and residual depths rather than assuming a particular
 wetting order. Both receive the same direct rainfall.
 
-\figtodo{t03_cell_timeseries.png, Depth time series for a rim cell and a centre cell in the Comparison Plot}
+\figtodo{t03_cell_timeseries.png, Depth time series for a rim cell and a center cell in the Comparison Plot}
 
 ### 10. A profile across the bowl
 
 **Analysis → Plot 2D Profile** arms the polyline tool: *Click to add vertices
 — double-click or Enter to finish — right-click to undo — Esc to cancel.* Draw
-a line straight across the bowl through the centre, west to east.
+a line straight across the bowl through the center, west to east.
 
 The **2D Mesh Profile** window draws the terrain plus the active 2D results
 layer's animated water depth and its maximum-depth envelope. The legend rows
@@ -419,7 +419,7 @@ quote that reconciliation percentage as the combined system's conservation.
 
 - **Fixed classification ranges.** With a 96 mm maximum, a per-frame stretch
   turns numerical noise into a flood. Fix the range once and leave it.
-- **Where the water is deepest.** The bowl centre holds water longest because
+- **Where the water is deepest.** The bowl center holds water longest because
   it is the only outlet, and the outlet is a 0.6 m pipe through a junction
   whose max depth is 0.5 m.
 - **The coupled vertex.** Turn on the **Coupled Nodes** tab in the mesh style
@@ -440,7 +440,7 @@ Cycle **Simulation Options → 2D Surface Routing → Processes → Rainfall mod
 through its
 three values and re-run:
 
-- **Natural neighbour (all gages)** interpolates every gage across the mesh.
+- **Natural neighbor (all gages)** interpolates every gage across the mesh.
   With one gage this is uniform, so it matches the next option.
 - **System (uniform gage mean)** applies the mean of all gages to every cell.
 - **None (no direct rainfall)** removes the only forcing this model has —
@@ -474,7 +474,7 @@ dries unrealistically at the margins.
 
 - \ref manual_2d_mesh — mesh generation, mesh editing, cell parameters and coupling
 - \ref manual_layers — raster and vector data sources
-- \ref manual_styling — colour ramps and the classification editor
+- \ref manual_styling — color ramps and the classification editor
 - \ref manual_attribute_tables — attribute tables including the mesh tables
 - \ref manual_simulation_options — every page of the Simulation Options dialog
 - \ref manual_running — running and the Report Viewer

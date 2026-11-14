@@ -1,7 +1,7 @@
 # Channel burn at the study boundary
 
 A small, synthetic **mesh-generation and network-editing test**. Coordinates,
-elevations and lengths are in metres. EPSG:3857 provides a shared projected
+elevations and lengths are in meters. EPSG:3857 provides a shared projected
 coordinate frame; these coordinates do not describe a real site. The source
 terrain is a flat 10 m surface with 1 m pixels. No rain or inflow is supplied:
 this example verifies geometry and connectivity, not hydraulic calibration.
@@ -22,7 +22,7 @@ this example verifies geometry and connectivity, not hydraulic calibration.
 4. Open **Burn Channels…**. Choose **All open channels**, channel size **2 m**,
    spacing divisor **4**, and enable replacement of burned intervals in 1D.
    Quads are preferred where they fit. Burn, then review the quality warnings.
-5. Optional: enable the DEM-copy option, select `terrain.asc`, and use **1** metre
+5. Optional: enable the DEM-copy option, select `terrain.asc`, and use **1** meter
    per DEM elevation unit. This stages a VRT, changed tiles and a CSV report.
 6. Undo and redo the burn, then **Save As** `adopted.inp` and reopen it. You can
    also Undo after Save and save the restored network and mesh again.

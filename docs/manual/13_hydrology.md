@@ -115,7 +115,7 @@ spatially, in one undoable step. Nothing is written until you press **Apply**;
 | Control | What it does |
 |---|---|
 | **Nearest gage (Thiessen area majority)** | Assigns the gage whose Thiessen (Voronoi) cell covers the largest share of the subcatchment's *polygon* — not of a representative point. An RDII node, being a point, takes its nearest gage |
-| **Natural-neighbour interpolation (creates gages)** | Area-averages natural-neighbour weights over the gage network per subcatchment (and takes the weights at the node for RDII); groups objects whose weights agree and creates one generated gage plus a generated time series per cluster |
+| **Natural-neighbor interpolation (creates gages)** | Area-averages natural-neighbor weights over the gage network per subcatchment (and takes the weights at the node for RDII); groups objects whose weights agree and creates one generated gage plus a generated time series per cluster |
 | **Weighting** | *Sibson (area stealing)* or *Laplace (Voronoi facet)* — interpolated method only |
 | **Group weights within** | Percent tolerance for treating two weight vectors as the same cluster |
 | **Subcatchments** / **RDII inflows** | What to assign. RDII is checked by default when the model has `[RDII]` entries |
@@ -288,7 +288,7 @@ The classic parameter groups are:
 | **Snow Removal** | **Depth at Which Removal Begins**; fractions transferred **Out of Watershed**, **to Impervious Area**, **to Pervious Area**, **Converted to Immediate Melt**, **Transferred to Subcatchment**; and the **Destination Subcatchment** for that last fraction |
 
 Initial snow values are water equivalent, in the displayed inches or
-millimetres. Under UEB, the degree-day melt coefficients, base temperature and
+millimeters. Under UEB, the degree-day melt coefficients, base temperature and
 free-water-capacity controls are retained but disabled. The **UEB site** group
 adds forest fraction, snow drift factor, ground heat flux (W/m²), albedo extinction
 depth (m), and initial snow energy (kJ/m²); these fields enable only for UEB.
@@ -322,7 +322,7 @@ state.
 
 **Model → Data Objects → Aquifers…** opens a three-pane editor: the aquifer list
 with **New** / **Delete**, a grouped form, and a live two-zone cross-section
-illustration whose callouts track the form and emphasise the field that has
+illustration whose callouts track the form and emphasize the field that has
 keyboard focus.
 
 | Group | Fields |
@@ -430,14 +430,14 @@ calendar months). Two tabs sit below:
   `theta_rec`, `T_freeze`), a **Snow** checkbox and its two columns (`snow_T`,
   `snow_ddf`). Existence of the `[RDII_DECAY]` row *is* the Active flag —
   unchecking removes the row and falls back to the linear model; checking a blank
-  row seeds defaults (`T_ref = 10`). The snow columns stay greyed out until both
+  row seeds defaults (`T_ref = 10`). The snow columns stay grayed out until both
   **Active** and **Snow** are checked.
 
 **Right pane — UH preview.** The three RTK triangles are drawn filled with a
 dashed **Composite** summation series over them, on a *Time (h)* × *Unit flow*
 chart. Empty response rows drop out of both plot and legend. The chart carries
 the standard interactive affordances — rubber-band zoom, wheel zoom, pan,
-zoom-to-extent, a plot-style menu (per-series visibility, fill colour, outline
+zoom-to-extent, a plot-style menu (per-series visibility, fill color, outline
 width, line style), axis label format and **Chart Properties…**.
 
 A status strip along the bottom reports the number of groups defined, the

@@ -90,7 +90,7 @@ Within equal-size cells of one material, the face conductivity is the arithmetic
 
 > Q_f = A_f (Hᵢ − Hᵢ₊₁) / [(Δzᵢ/2)/Kᵢ + (Δzᵢ₊₁/2)/Kᵢ₊₁]
 
-Thus both sides influence interlayer flow. A positive downward Q drains the upper cell; a negative Q redistributes water upward. At the pond/media contact, the mean of saturated surface-contact conductivity and first-cell conductivity is used over half a cell thickness. Downward entry smoothly tends to zero through the last 1 micrometre of ponding; upward return remains possible. No separate Green–Ampt front is evolved in Richards mode. The spatial approach draws on the method-of-lines formulation described by [Ireson et al. (2023), openRE](https://doi.org/10.5194/gmd-16-659-2023); the implementation here has its own storage variables, boundary coupling and time integrator.
+Thus both sides influence interlayer flow. A positive downward Q drains the upper cell; a negative Q redistributes water upward. At the pond/media contact, the mean of saturated surface-contact conductivity and first-cell conductivity is used over half a cell thickness. Downward entry smoothly tends to zero through the last 1 micrometer of ponding; upward return remains possible. No separate Green–Ampt front is evolved in Richards mode. The spatial approach draws on the method-of-lines formulation described by [Ireson et al. (2023), openRE](https://doi.org/10.5194/gmd-16-659-2023); the implementation here has its own storage variables, boundary coupling and time integrator.
 
 ![Total-head differences and interface conductivities controlling downward drainage and upward capillary redistribution](assets/interlayer-flux.png)
 
@@ -238,7 +238,7 @@ Under **Physical properties**, verify the thicknesses, porosities and saturated 
 | MEDIA | 0.03 | 4 | 1.8 | 0.5 | 0.0001 |
 | AGGREGATE | 0.01 | 20 | 2.5 | 0.5 | 0.0001 |
 
-These are illustrative properties, not a conversion from the older conductivity slope. Alpha and specific storage remain in inverse metres even though this CFS project displays thickness in inches and conductivity in inches/hour. Expand **Numerical settings**: use **8 numerical cells per porous layer**, absolute water-content tolerance **1e-7**, relative tolerance **1e-5**, and maximum internal step **30 s**. Inspect the moisture/conductivity curve preview.
+These are illustrative properties, not a conversion from the older conductivity slope. Alpha and specific storage remain in inverse meters even though this CFS project displays thickness in inches and conductivity in inches/hour. Expand **Numerical settings**: use **8 numerical cells per porous layer**, absolute water-content tolerance **1e-7**, relative tolerance **1e-5**, and maximum internal step **30 s**. Inspect the moisture/conductivity curve preview.
 
 Under **Pollutant treatment**, assign REACTIVE to each porous layer, set **Removal (%) = 0**, **Decay (1/day) = 2**, and leave **Expression** empty. Use **Apply layers and treatment** and save. Set a fixed routing step of **1.25 s** for the four first-storm strategies and the stuck-closed case, and **0.625 s** for the second-storm case; use variable-step factor **0**. The download copies already carry these tested steps. The validation companion reports routing, cell-count and ODE-tolerance checks, including the failed second-storm run at 1.25 s.
 

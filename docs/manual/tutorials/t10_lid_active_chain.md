@@ -69,7 +69,7 @@ Select A, then B, in the Object Browser. Set **LID Control** to **Train** and
 
 Select **Richards 1D** in **Flow model**. Under **Physical properties**,
 enter the following additional material properties for both porous layers.
-Alpha and specific storage use inverse metres even in this US-unit project.
+Alpha and specific storage use inverse meters even in this US-unit project.
 
 | Property | MEDIA | AGGREGATE |
 |---|---|---|

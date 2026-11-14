@@ -265,7 +265,7 @@ See \ref manual_selection and \ref manual_map_editing.
 | **Add Rain Gauge** | Places a rain gage | \ref manual_hydrology |
 | **Climate ▸** | Temperature · Evaporation · Wind · Snow · Solar Radiation — all five open the tabbed Climatology dialog on the matching tab (Solar Radiation opens the Evaporation tab, since solar feeds Hargreaves ET) | \ref manual_climate |
 | **Add Text** | Places a text annotation | \ref manual_map_editing |
-| **Assign Rain Gages…** | Binds gages to subcatchments and RDII inflows spatially — Thiessen area majority or natural-neighbour weights — previewed first and applied as one undo step | \ref manual_hydrology |
+| **Assign Rain Gages…** | Binds gages to subcatchments and RDII inflows spatially — Thiessen area majority or natural-neighbor weights — previewed first and applied as one undo step | \ref manual_hydrology |
 | **Data Objects ▸** | See the sub-table below | \ref manual_data_objects |
 | **Import Feature Layer…** | Converts GIS features into SWMM objects with column mapping and update/skip handling | \ref manual_map_editing |
 | **Simulation Options…** | The paged `[OPTIONS]` editor | \ref manual_simulation_options |
@@ -362,13 +362,13 @@ Built at run time, so the middle of the menu changes as you work.
 | **Show Welcome Page** | | Re-opens the Welcome tab |
 | **Help** | `F1` (platform help key) | Present in the menu but **not connected to anything** in this build — it does nothing |
 | **Keyboard Shortcuts…** | | Opens Preferences on the **Keyboard** page |
-| **About** | | The About dialog with the component and licence browser. On macOS Qt moves this to the application menu |
+| **About** | | The About dialog with the component and license browser. On macOS Qt moves this to the application menu |
 
 \figtodo{02_menu_model_expanded.png, The Model menu expanded with the Add Node; Add Link; Climate; Data Objects and Mesh submenus}
 
 ### The document area and its tabs
 
-The centre of the window is a tabbed document area. Each tab is one document:
+The center of the window is a tabbed document area. Each tab is one document:
 
 - the **Welcome** tab (see \ref manual_introduction);
 - one **project window** per open model, titled by the file name, with a trailing
@@ -474,7 +474,7 @@ bar; transient messages (*Opening &lt;file&gt;…*, tool hints) appear on the le
 A frameless popup with a filter box and a relevance-sorted list of every registered
 command — dock toggles and dialog launchers included. Type to filter; `↑`/`↓` to
 move; `Enter` to trigger or toggle the selected command; `Esc`, or clicking away,
-to dismiss. Commands that are currently disabled are greyed and cannot be
+to dismiss. Commands that are currently disabled are grayed and cannot be
 triggered, which makes the palette a quick way to find out *why* something is
 unavailable.
 
@@ -510,7 +510,7 @@ is in \ref manual_shortcuts.
 **View → Appearance ▸** and **Preferences → Appearance** are two views of one
 setting.
 
-| Mode | Behaviour |
+| Mode | Behavior |
 |---|---|
 | **System** | Follows the operating system's light/dark appearance; live |
 | **Light** | Always light |
@@ -566,7 +566,7 @@ explanatory tooltip. See \ref manual_object_browser.
 
 - **The menu bar is the complete surface.** Several commands are menu-only by
   design, and every ribbon command also has a menu entry.
-- **A greyed command usually means "no project" or "no edit session."** Add-feature
+- **A grayed command usually means "no project" or "no edit session."** Add-feature
   tools need an open project; move, reshape and delete need **Edit Existing** on.
 - **`Esc` returns to the Select tool** and the Select split button in Quick Access shows
   it, because the split button mirrors its member's checked state.

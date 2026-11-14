@@ -127,7 +127,7 @@ you can see where the run is writing.
 If the resolved `.out` or `.2d.h5` already exists on disk with content, or is
 currently loaded as a results layer in *any* open project window, SWMMVis asks
 **Overwrite output?** and names exactly which streams will be replaced. Answer
-**No** and the run is cancelled. Answer **Yes** and SWMMVis:
+**No** and the run is canceled. Answer **Yes** and SWMMVis:
 
 - closes any open handle on the `.out` (the layer object survives; only its file
   handle is dropped, so plots bound to it keep their identity);
@@ -187,9 +187,9 @@ overrides `[OPTIONS] THREADS`. They are never unset for you.
 short sleep; toggling it again resumes. **Cancel Execution** pauses first, then
 asks **Stop simulation** for confirmation — answering **No** resumes the run.
 
-Cancelling is *not* the same as aborting: the runner still calls the engine's
+Canceling is *not* the same as aborting: the runner still calls the engine's
 end, report and close steps, so the partial `.out` and `.rpt` are flushed to
-disk and loaded as results. The log records *Simulation cancelled. Partial
+disk and loaded as results. The log records *Simulation canceled. Partial
 results: …*.
 
 When more than one run is in flight, Pause and Cancel act on the job **selected
@@ -220,10 +220,10 @@ replaced by the saved `.h5` history for playback of the whole run.
 
 ### What happens when the run finishes
 
-- The job row flips to **Success**, **Failed** or **Cancelled** and its
+- The job row flips to **Success**, **Failed** or **Canceled** and its
   continuity errors, duration and average timestep are filled in.
 - On success or cancellation with output on disk, the `.out` is opened (or the
-  live layer finalised in place), its colour ramp auto-stretched, and it becomes
+  live layer finalized in place), its color ramp auto-stretched, and it becomes
   the project's **active 1D results layer** — the one the analysis toolbar
   combos, the animation controller and every plotting tool act on.
 - A 2D run's layer swaps to the on-disk `.h5` and becomes the **active 2D
@@ -240,7 +240,7 @@ carries the real `ERROR` line.
 
 **Analysis → Report** and **Analysis → Show Mass Balance** open the same
 two-panel report viewer over the `.rpt` file. (They are wired to the same
-handler; **Show Mass Balance** is a labelled second entry point to the same
+handler; **Show Mass Balance** is a labeled second entry point to the same
 report — where the continuity sections live — not a separate dialog, and it does
 not pre-select those sections for you.)
 

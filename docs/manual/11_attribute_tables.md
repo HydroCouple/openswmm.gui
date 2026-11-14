@@ -39,7 +39,7 @@ The **Category:** combo at the top is the source picker. It lists, in order:
 5. three entries per loaded 2D mesh —
    `△ Mesh <name> — Vertices (n)`, `— Edges (n)`, `— Cells (n)`.
 
-Mesh entries appear immediately on a progressively loaded mesh but stay greyed
+Mesh entries appear immediately on a progressively loaded mesh but stay grayed
 until the background load finishes, because the edge pairing and boundary flags
 are part of that load. They enable themselves when it lands; their tooltip says
 so meanwhile.
@@ -388,7 +388,7 @@ between two report times is invisible, so the count is a lower bound. Shorten
 Click a column header to sort; click again to reverse. Sorting is numeric for
 numeric columns, so the smallest value really is the first row. Sorting is a
 view operation — the model's row order (which matches the Object Browser) is
-untouched, and the copy/export honour the sort you see.
+untouched, and the copy/export honor the sort you see.
 
 Missing or inapplicable values display as muted **NULL** and sort last in both
 directions. Hover over one for its reason. Zero, NO/false and applicable
@@ -632,7 +632,7 @@ The whole batch is one undo step, and none when no row changes (every selected
 row already held the value). Rows whose cell is not editable are skipped —
 so bulk-applying a boundary Stage touches only the rows already set to a
 Specified Stage type. On a picker column (Coupled Node, Time Series, Rating
-Curve) the prompting flavour opens the same picker as the cell, so "couple
+Curve) the prompting flavor opens the same picker as the cell, so "couple
 these twelve vertices to J1" is a single gesture.
 
 **Properties** also supports editing several selected objects together. Mesh
@@ -677,7 +677,7 @@ separator: `.tsv` writes tab-separated with no quoting convention, anything else
 writes RFC-4180-style CSV — values containing a comma, a quote or a newline are
 wrapped in quotes and internal quotes are doubled. The header row uses the
 column headers as you see them, so a re-sorted or re-ordered view exports the
-way you see it, and the "show selected only" filter is honoured.
+way you see it, and the "show selected only" filter is honored.
 
 ### The attribute calculator
 
@@ -718,7 +718,7 @@ computed from the geometry, so an edit would have nowhere to write.
 The per-cell parameter columns follow the mesh's parameter list, so a new
 parameter appears here the moment it is added. Today they are Manning's n and Initial Depth
 (`[2D_TRIANGLES]`), the per-cell infiltration set — Infiltration Method plus its
-positional parameters (`[2D_INFILTRATION]`) — and a greyed-out 2D groundwater
+positional parameters (`[2D_INFILTRATION]`) — and a grayed-out 2D groundwater
 block (Saturated Conductivity, Aquifer Thickness, Porosity, initial unsaturated
 and saturated depths). For an active model mesh, right-click a cell and choose **Edit groundwater parameters…**.
 The assignment preview starts with the invoking cells and shows their current and proposed values.
@@ -757,7 +757,7 @@ enter the boundary data and press Enter to apply it.
 
 Right-click an edge and choose **Edit surface boundary condition…** to edit its type and parameter. The dialog counts eligible boundary edges. Each committed field updates those edges immediately as one undo step, preserving the group and conveyance on each edge. **Close** dismisses the editor; use **Undo** to revert a committed change. In Properties, choose **Edit…** beside **Boundary condition** for a picked boundary edge, including the fourth edge of a quad.
 
-The **Aquifer Boundary**, **Aquifer Head**, **Aquifer Inflow**, **Aquifer Series** and **Aquifer Chemistry** columns summarise each exterior edge's groundwater boundary and are read-only. Right-click and choose **Edit aquifer boundaries…** to open the aquifer **Edge boundaries** page on the selected edges (see chapter 19, *Aquifer boundaries on selected edges*). The read-only **Inflow Quality** column lists the concentrations of the water entering through each exterior edge; **Edit boundary inflow quality…** in the row menu opens the Surface Quality **Boundary inflow** tab on the selected edges (chapter 19, *Boundary inflow quality on selected edges*).
+The **Aquifer Boundary**, **Aquifer Head**, **Aquifer Inflow**, **Aquifer Series** and **Aquifer Chemistry** columns summarize each exterior edge's groundwater boundary and are read-only. Right-click and choose **Edit aquifer boundaries…** to open the aquifer **Edge boundaries** page on the selected edges (see chapter 19, *Aquifer boundaries on selected edges*). The read-only **Inflow Quality** column lists the concentrations of the water entering through each exterior edge; **Edit boundary inflow quality…** in the row menu opens the Surface Quality **Boundary inflow** tab on the selected edges (chapter 19, *Boundary inflow quality on selected edges*).
 
 **Group** is independent of the type and stays available on any boundary edge.
 A value typed under a previous type is kept but hidden, so flipping back brings
@@ -787,7 +787,7 @@ the same single row.
 
 #### Finding bad cells
 
-Tiny cells are what make a 2D run slow — a handful of sub-square-metre cells
+Tiny cells are what make a 2D run slow — a handful of sub-square-meter cells
 forced in around a coupling point can dominate the timestep. The usual hunt:
 
 1. Open the **Cells** table and click the **Area** header to sort ascending.
@@ -796,7 +796,7 @@ forced in around a coupling point can dominate the timestep. The usual hunt:
 3. Set the selection radios to **Replace**, press **Apply**, then **Zoom to
    selected** to see where they cluster.
 
-This is the same measurement the layer-properties Metadata tab summarises as
+This is the same measurement the layer-properties Metadata tab summarizes as
 min / max / mean / median, so the smallest row here is exactly the minimum
 reported there.
 
@@ -985,4 +985,4 @@ controls again after their layer order or constituent definitions change.
 - \ref manual_layers — adding delimited text; vector and mesh layers
 - \ref manual_tabular_results — tabular *results* which are a different dock
 - \ref manual_time_series_plots — plotting observed data from tabular layers
-- \ref manual_performance — behaviour on very large models
+- \ref manual_performance — behavior on very large models

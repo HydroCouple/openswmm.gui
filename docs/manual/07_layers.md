@@ -3,7 +3,7 @@
 ## What you'll do
 
 Bring every kind of data a SWMM study needs onto the map — GIS files, web
-services, basemaps, tables, results and 2D meshes — and then organise, reorder,
+services, basemaps, tables, results and 2D meshes — and then organize, reorder,
 hide, inspect and remove it from the **Layers** panel.
 
 ## Where to find it
@@ -95,7 +95,7 @@ permanent association targets. A missing/deleted feature leaves its series and
 source location intact, with an unresolved link rather than a different target.
 
 The layer's visibility checkbox controls its map locations. Existing chart
-series and model inputs are independent of that checkbox. Catalogue preview
+series and model inputs are independent of that checkbox. Catalog preview
 points remain independently visible after download. Downloaded DEMs appear as
 normal raster layers; adding one does not automatically choose it as the model's
 terrain source.
@@ -145,7 +145,7 @@ or sharing it.
 ### Layer context menu
 
 Right-clicking a **layer** row gives the same set of entries for every layer
-type; entries that don't apply are shown greyed rather than hidden, so the menu
+type; entries that don't apply are shown grayed rather than hidden, so the menu
 keeps its shape.
 
 | Item | What it does |
@@ -205,7 +205,7 @@ model layer.
 The file is opened on a background thread; the layer appears immediately and
 fills in when the open completes. Re-adding a file that is already loaded
 focuses and reloads the existing layer instead of duplicating it. On success the
-colour ramp is auto-stretched to the data and the layer becomes the **active 1D
+color ramp is auto-stretched to the data and the layer becomes the **active 1D
 results layer** and the animation controller's primary layer. See
 \ref manual_results.
 
@@ -214,7 +214,7 @@ files at once. Use Command-click on macOS (Ctrl-click on Windows/Linux) or
 Shift-click to select a range, then choose **Open**. Files load in selection
 order into the project that opened the dialog. A failed file is reported in the
 Message Log while the remaining selections continue. Each vector datasource
-still offers its own sublayer picker when needed; cancelling that picker skips
+still offers its own sublayer picker when needed; canceling that picker skips
 that datasource and continues the batch.
 
 ### Add 2D Results…
@@ -286,14 +286,14 @@ vectors, the filter reflects the registered drivers:
 NetCDF and HDF appear only when the optional GDAL modules are compiled in.
 
 The file is opened and its statistics computed in the background. The renderer a
-raster opens with follows its content: a band carrying an embedded colour table
+raster opens with follows its content: a band carrying an embedded color table
 (land use, classified outputs) opens as **Paletted / unique values** with the
-file's colours; three- and four-band 8-bit datasets open as **Multiband colour**
+file's colors; three- and four-band 8-bit datasets open as **Multiband color**
 (an RGB/RGBA composite); everything else opens as **Singleband pseudocolor**, a
 continuous grayscale stretch over the band's minimum and maximum. The renderer,
 the band to render, the classification (continuous or classified, with equal
 interval / quantile / natural breaks / standard deviation / logarithmic /
-exponential / manual methods, editable class colours and labels, custom range
+exponential / manual methods, editable class colors and labels, custom range
 and clip out-of-range) and the hillshade relief are set in **Properties… →
 Symbology** (see \ref manual_styling). The choice is saved with the project.
 
@@ -425,7 +425,7 @@ embedded delimiters are handled.
 There is no import wizard in this release: no delimiter chooser, no X/Y column
 mapping and no time-column parsing. The layer participates in the layer tree
 (visibility, order, properties) and its rows are readable from the attribute
-table, but it draws nothing on the map. `.xlsx` is recognised and refused —
+table, but it draws nothing on the map. `.xlsx` is recognized and refused —
 Excel import is only available in builds compiled with Excel support.
 
 ### Add 2D Mesh…

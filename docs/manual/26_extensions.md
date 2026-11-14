@@ -103,7 +103,7 @@ History retains the explanation so you can inspect the result.
 
 Use a running entry's **Cancel** control to stop that operation. Cancellation
 is cooperative and may leave completed files listed in Results. Finishing or
-cancelling one run preserves other active operations and their status-bar
+canceling one run preserves other active operations and their status-bar
 progress. Session history retains up to 100 finished runs and 1,000 messages per
 run, with a notice when messages are truncated. Active runs remain available
 until settled. Downloaded files and their manifests remain available after
@@ -128,7 +128,7 @@ Each tool's area chooser uses the current map viewport
 or a chosen polygon from a loaded feature layer. Preview results respect polygon
 holes and multiple parts. USGS site and elevation tile previews create a temporary
 feature layer with the normal attribute-table, query, selection and styling tools;
-USGS sites are labelled. Selection is shared: picking sites or tiles with the map
+USGS sites are labeled. Selection is shared: picking sites or tiles with the map
 **Select** tool or in the attribute table selects the matching Data rows, and
 selecting Data rows selects them on the map and in the attribute table. An
 empty-space click with the **Select** tool clears both. Data-table filtering
@@ -140,7 +140,7 @@ map afterwards keeps the previewed rows available to download and save; preview
 again to search the new view.
 
 Use **Clear preview** beside **Preview** to remove the temporary site or tile
-layer and clear the catalogue results. It also cancels a
+layer and clear the catalog results. It also cancels a
 pending preview so a late response cannot put the graphics back. Downloaded
 files, imported Time Series collections and loaded rasters remain available.
 The button is unavailable during a payload download or native collection import;
@@ -161,7 +161,7 @@ and Data Objects manual chapters describe plotting and assignment in detail.
 
 Terrain downloads retrieve selected GeoTIFF tiles, crop/mask a derived DEM to
 the reviewed area and add that derived DEM as a normal raster layer. Raw files
-and provenance remain in the chosen download folder. Empty, failed or cancelled
+and provenance remain in the chosen download folder. Empty, failed or canceled
 runs do not silently create incomplete layers; a closed/reloaded target reports
 saved assets separately from layer-import success. Advanced details, filters,
 cached previews and metadata-layer exports remain available separately.

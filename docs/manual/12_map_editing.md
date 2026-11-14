@@ -53,7 +53,7 @@ project opens.
   in any visible text layer to edit it, or drag the text to move it.
 
 The state follows the project across tab switches. The add-object tools only
-need a project to be open, which is why they never grey out while one is.
+need a project to be open, which is why they never gray out while one is.
 
 ### Inline editing: handles on the Select tool
 
@@ -81,7 +81,7 @@ throughout.
 | Double-click empty space | Leave edit mode |
 
 Drags are previewed live — the geometry follows the cursor before you release —
-and cancelled cleanly with **Esc**.
+and canceled cleanly with **Esc**.
 
 \figtodo{12_inline_vertex_edit.png, A conduit in edit mode with interior vertex handles and two selected}
 
@@ -109,7 +109,7 @@ The drawing tools use the preference-driven snap engine instead:
 |---|---|
 | **Enable snapping** | on |
 | **Tolerance** | 12 px |
-| **Also snap to link and subcatchment vertices** | on — otherwise only node and gage centres |
+| **Also snap to link and subcatchment vertices** | on — otherwise only node and gage centers |
 
 ### Moving nodes and rain gages
 
@@ -349,7 +349,7 @@ object's captured properties, never these defaults.
 ### Auto-Length and Auto-Area
 
 The status bar's **Auto-Length** switch is per project, persisted in
-preferences, and drives two behaviours:
+preferences, and drives two behaviors:
 
 - **Auto-Length** — a conduit's length is computed from its polyline whenever it
   is created, whenever a node it touches is moved, and whenever its vertices are
@@ -394,13 +394,13 @@ written afterwards — mapped values always win over a default.
 
 Select objects and press **Del** / **Backspace**, or use the map's right-click
 **Delete…**. Cascades (a node's attached links), virtual and inlet junction
-re-fusing, and the batch behaviour are described in \ref manual_selection.
+re-fusing, and the batch behavior are described in \ref manual_selection.
 
 ### Undo and redo
 
 Every geometry and property edit goes onto the active project's map undo stack.
 **Edit → Undo** / **Redo** and the Home ▸ History ribbon buttons route to the
-focused project's stack, so the pair always mirrors the visible canvas and greys
+focused project's stack, so the pair always mirrors the visible canvas and grays
 out when there is nothing to do.
 
 What is undoable:

@@ -48,7 +48,7 @@ supplied model it reads **2**; the table has three physical rows because
 SURFACE is included separately. Select the MEDIA row and use **Physical
 properties** to edit thickness, porosity, field capacity, wilting point,
 conductivity, conductivity slope and suction. The form displays project units:
-inches and inches/hour here; millimetres and millimetres/hour in SI projects.
+inches and inches/hour here; millimeters and millimeters/hour in SI projects.
 Porosity and moisture parameters are fractions, not percentages.
 
 \fig{t09_lid_physical.png, The supplied stack with the MEDIA physical properties selected}
