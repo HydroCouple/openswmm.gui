@@ -206,6 +206,8 @@ private:
     void populateSubcatchStats();
     /*! \brief V6: rows of the 2D regions tab for the chosen variable and aggregate. */
     void populateMeshStats();
+    /** G-08: one tab per report summary table saved beside the output, or a note. */
+    void populateReportTables();
     /*! \brief Fill the 2D variable picker from the 2D run's cell descriptors. */
     void refreshMeshVariables();
     /**
@@ -255,6 +257,14 @@ private:
     bool m_applyingFromBus = false; ///< Reentrancy guard, mirrors AttributeTablePanel.
 
     QTabWidget *m_tabs = nullptr;
+    /// G-08 report summary tables (Node Depth, Outfall Loading, Pumping, ...), after "2D regions".
+    struct ReportTab {
+        QStandardItemModel *model = nullptr;
+        QSortFilterProxyModel *proxy = nullptr;
+        QTableView *view = nullptr;
+    };
+    QList<ReportTab> m_reportTabs;
+    QWidget *m_reportNote = nullptr; ///< shown instead when the run saved no tables
     QLineEdit *m_queryEdit = nullptr;
     QPushButton *m_queryApply = nullptr;
     QPushButton *m_queryClear = nullptr;

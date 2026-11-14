@@ -109,6 +109,36 @@ joules, that a cell has received since the run started. Choose **Sum** to
 total it over a region. They are read from the saved 2D results file
 (`.2d.h5`), so they are listed once the run has finished.
 
+**Report tables.** After the 2D regions tab, the dashboard has one tab for each
+summary table the run's report printed, with the same rows and numbers:
+
+| Tab | What it lists |
+| --- | --- |
+| **Node Depth** | Average and maximum depth, maximum HGL, time of the maximum, reported maximum depth |
+| **Node Inflow** | Maximum lateral and total inflow, time of the maximum, lateral and total inflow volume, flow balance error (a percent, or a volume when the node passed almost no water) |
+| **Node Surcharge** | Nodes that surcharged: hours, height above the crown, depth below the rim |
+| **Node Flooding** | Nodes that flooded: hours, maximum rate, time of the maximum, flood volume, ponded depth |
+| **Storage Volume** | Average and maximum volume and percent full, evaporation and exfiltration losses, time of the maximum, maximum outflow |
+| **Outfall Loading** | Flow frequency, average and maximum flow, total volume and each pollutant's load, then a **System** row |
+| **Link Flow** | Maximum flow, time of the maximum, maximum velocity, maximum flow and depth as fractions of full |
+| **Flow Classification** | The fraction of time each conduit spent dry, sub- and supercritical, normal-flow limited, … |
+| **Conduit Surcharge** | Hours full at both ends, upstream, downstream, above full normal flow, capacity limited |
+| **Pumping** | Percent utilized, start-ups, minimum, average and maximum flow, volume, power, time off the curve |
+| **LID Performance** | One row per LID unit: its subcatchment and control, total inflow, evaporation and infiltration losses, surface runoff and drain flow |
+
+The values are in the model's units, as in the report, and each heading says
+its unit. Times of maxima read *days hh:mm* from the start of reporting and sort
+by time. Query, sorting, the map selection, **Zoom to Selected** and
+**Export CSV…** work on these tabs as on the others; selecting a LID row selects
+its subcatchment, and the **System** row selects nothing.
+
+The tables come from the engine at the end of the run and are saved beside the
+output file as `<output>.summary.json`, which the dashboard reads; they are
+computed from every routing step, so they can differ slightly from the
+report-step samples on the **Nodes** and **Links** tabs. A new run replaces
+the file. Results from a run made with another program or with the SWMM 5
+engine have no such file: a **Report tables** tab then says so.
+
 ### Report — the engine's text report
 
 **Analysis → Report** (and **Analysis → Show Mass Balance**, which is wired to the

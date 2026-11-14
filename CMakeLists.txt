@@ -1538,6 +1538,8 @@ set(
         # Simulation
         src/simulation/runpathresolver.cpp
         src/simulation/simulationrunner.cpp
+        src/results/summarytables.cpp
+        include/results/summarytables.h
         src/simulation/componentexecution.cpp
         include/simulation/componentexecution.h
         src/ui/dialogs/componentexecutiondialog.cpp

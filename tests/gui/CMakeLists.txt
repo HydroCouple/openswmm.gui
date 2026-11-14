@@ -53,6 +53,10 @@ function(add_swmmvis_gui_test TEST_NAME)
             ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesstore.cpp)
         target_link_libraries(${TEST_NAME} PRIVATE GDAL::GDAL Qt6::Concurrent)
     endif()
+    # G-08: the runner saves the report's summary tables beside the output.
+    if("${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp" IN_LIST ARGN)
+        target_sources(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/src/results/summarytables.cpp)
+    endif()
     if("${CMAKE_SOURCE_DIR}/src/swmmvisprojectwindow.cpp" IN_LIST ARGN)
         target_sources(${TEST_NAME} PRIVATE
             ${CMAKE_SOURCE_DIR}/include/plugins/extensionviewaccess.h
@@ -4966,6 +4970,13 @@ target_compile_definitions(test_resultseriestables PRIVATE
 
 # The dialogs over a real run (full app): hydraulic characterization, species
 # and load columns, 2D cell / region tables, pickers, menu reachability.
+# Review G-08 — report summary tables: engine capture, the saved file, dashboard tabs.
+add_swmmvis_gui_test(test_summarytables
+    test_summarytables.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_summarytables)
+
 add_swmmvis_gui_test(test_resultstablesdialogs
     test_resultstablesdialogs.cpp
     ${SWMMVIS_TEST_SOURCES}
