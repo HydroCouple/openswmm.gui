@@ -1270,6 +1270,7 @@ void Swmm2DResultsStylePanel::buildScalarTabs(OpenSWMM::Render::ResultScalarSubl
                     true),
             true, fill);
         fillEditor->setObjectName("additionalResultClassification");
+        fillEditor->setOutsideRangeControlsVisible(true); // fills and filled contours draw them
         fillLayout->addWidget(fillEditor);
         auto *colors = new QGroupBox(tr("Cells without a value"), fill);
         colors->setToolTip(tr("Used by the flat fill, by every cell of an invalid classification, "

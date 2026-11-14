@@ -454,6 +454,24 @@ private slots:
         QCOMPARE(table->model()->index(0, 1).data().toString(), QStringLiteral("oops"));
         QVERIFY(!editor->hasValidDraft());
     }
+    /** @brief A result row's fill editor shows log scale and the out-of-range colors, and
+     *  they write the row's scheme. */
+    void additionalResultsOfferOutsideRangeControls()
+    {
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<PanelVariableSource>());
+        auto *sub = layer.addResultSublayer(layer.resultVariables()[0].key());
+        Swmm2DResultsStylePanel panel(&layer);
+        QVERIFY(panel.focusResult(sub->id()));
+        auto *editor = panel.findChild<ClassificationEditor *>("additionalResultClassification");
+        QVERIFY(editor);
+        auto *log = editor->findChild<QCheckBox *>("classificationLogScale");
+        QVERIFY(log && log->isVisibleTo(editor));
+        QVERIFY(editor->findChild<QCheckBox *>("classificationBelowCheck")->isVisibleTo(editor));
+        QVERIFY(!sub->fillStyle()->scheme().logScale());
+        log->click();
+        QVERIFY(sub->fillStyle()->scheme().logScale());
+    }
     /**
      *
      * @brief Require an unavailable variable key to remain selected while classification and

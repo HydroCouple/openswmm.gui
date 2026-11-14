@@ -231,14 +231,17 @@ public:
      * @return Empty when hidden, zero-opacity, unbound, mismatched or errored. Otherwise
      * one color per value: waterless/not-applicable colors take priority over numeric
      * validity; missing/nonfinite values or invalid classification use missingColor.
-     * Valid values use class or continuous colors, multiplied by local opacity. Range/
+     * Valid values use class or continuous colors (outside the range: the scheme's below /
+     * above color when set, else undrawn below and the top color above), multiplied by
+     * local opacity. Range/
      * samples are derived from finite Valid cells only when cached metadata is absent/invalid.
      * This uses the fill scheme even in Contours/Labels mode and publishes nothing.
      * Read on the owning thread or with an externally synchronized immutable style snapshot. */
     QVector<QColor> cellColors(const openswmmvis::io::Mesh2DScalarFrame &frame) const;
     /** @brief Filled contour classes of a frame: the fill scheme's level edges and one colour
      *   per band (class colour when classified, the ramp at the band midpoint otherwise),
-     *   multiplied by local opacity.
+     *   multiplied by local opacity. A set below / above color adds one band from the data
+     *   minimum / up to the data maximum.
      * @param frame Borrowed frame matching variableKey() without error.
      * @param[out] levels Nondecreasing band edges, at least two on success.
      * @param[out] colors levels.size() - 1 colours.

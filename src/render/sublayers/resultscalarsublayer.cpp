@@ -324,8 +324,7 @@ QVector<QColor> ResultScalarSublayer::cellColors(const Mesh2DScalarFrame &frame)
         else if (!validScheme)
             color = m_style->missingColor();
         else if (m_style->classified())
-            color =
-                palette.classColor(ClassificationScheme::classIndexFor(frame.values[cell], edges));
+            color = palette.classifiedColor(frame.values[cell], edges);
         else
             color = palette.valueColor(frame.values[cell]);
         color.setAlphaF(color.alphaF() * m_opacity);
@@ -360,6 +359,18 @@ bool ResultScalarSublayer::bandStyling(const Mesh2DScalarFrame &frame, std::vect
         color.setAlphaF(color.alphaF() * m_opacity);
         colors.append(color);
     }
+    // Set outside-range colors draw as one more band on each side, out to the data.
+    QColor below = scheme.belowColor(), above = scheme.aboveColor();
+    if (below.isValid() && range.minimum < levels.front()) {
+        below.setAlphaF(below.alphaF() * m_opacity);
+        levels.insert(levels.begin(), range.minimum);
+        colors.prepend(below);
+    }
+    if (above.isValid() && range.maximum > levels.back()) {
+        above.setAlphaF(above.alphaF() * m_opacity);
+        levels.push_back(range.maximum);
+        colors.append(above);
+    }
     return true;
 }
 QVector<QColor> ResultScalarSublayer::valueColors(const Mesh2DScalarFrame &frame,
@@ -381,9 +392,8 @@ QVector<QColor> ResultScalarSublayer::valueColors(const Mesh2DScalarFrame &frame
     for (double value : values) {
         QColor color(Qt::transparent);
         if (std::isfinite(value)) {
-            color = m_style->classified()
-                        ? palette.classColor(ClassificationScheme::classIndexFor(value, edges))
-                        : palette.valueColor(value);
+            color = m_style->classified() ? palette.classifiedColor(value, edges)
+                                          : palette.valueColor(value);
             color.setAlphaF(color.alphaF() * m_opacity);
         }
         colors.append(color);
@@ -460,6 +470,13 @@ ResultScalarSublayer::legendSymbolItems(const Mesh2DScalarFrame &frame, bool lab
                 item.range = {value, value};
                 result.append(item);
             }
+            scheme.addOutsideRangeLegendItems(result, effective.first, effective.second);
+            for (auto &item : result)
+                if (item.classKey.isEmpty()) { // the outside rows
+                    item.sublayerId = m_id;
+                    item.symbol.opacity = m_opacity;
+                    item.label += QStringLiteral(" [%1]").arg(units);
+                }
         }
     } else {
         result.append(
