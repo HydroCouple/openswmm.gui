@@ -453,6 +453,63 @@ private slots:
         QCOMPARE(restored.fillStyle()->toJson(), source.fillStyle()->toJson());
         QCOMPARE(restored.cellColors(f), source.cellColors(f));
     }
+    /**
+     * @brief Set below / above colors draw outside a custom range in cells, smooth vertex
+     * colors and filled contour bands, in both modes, and list in the legend; unset, values
+     * below stay undrawn and values above take the top color.
+     */
+    void outsideRangeColorsDrawAndList()
+    {
+        auto f = frame(); // 0, 2, 10 mg/L
+        ResultScalarSublayer s({});
+        bind(s, f);
+        const QColor green(0, 200, 0), red(200, 0, 0);
+        for (bool classified : {false, true}) {
+            s.fillStyle()->setClassified(classified);
+            auto sc = s.fillStyle()->scheme();
+            sc.setUseCustomRange(true);
+            sc.setRangeMin(1);
+            sc.setRangeMax(5);
+            sc.setBelowColor(QColor());
+            sc.setAboveColor(QColor());
+            s.fillStyle()->setScheme(sc);
+            auto cells = s.cellColors(f);
+            QCOMPARE(cells[0].alpha(), 0); // below: not drawn
+            QVERIFY(cells[2].alpha() > 0 && cells[2] != red); // above: the top color
+
+            sc.setBelowColor(green);
+            sc.setAboveColor(red);
+            s.fillStyle()->setScheme(sc);
+            cells = s.cellColors(f);
+            QCOMPARE(cells[0], green);
+            QCOMPARE(cells[2], red);
+            QCOMPARE(s.valueColors(f, {0.5, 7.0}), (QVector<QColor>{green, red}));
+            std::vector<double> levels;
+            QVector<QColor> colors;
+            QVERIFY(s.bandStyling(f, levels, colors));
+            QCOMPARE(int(levels.size()), int(colors.size()) + 1);
+            QCOMPARE(levels.front(), 0.0); // out to the data
+            QCOMPARE(levels.back(), 10.0);
+            QCOMPARE(colors.front(), green);
+            QCOMPARE(colors.back(), red);
+
+            const auto rows = s.legendSymbolItems(f, false);
+            const auto row = [&rows](const QString &prefix) {
+                for (const auto &r : rows)
+                    if (r.label.startsWith(prefix))
+                        return r;
+                return LegendSymbolItem();
+            };
+            const auto belowRow = row("< " + sc.formatValue(1));
+            const auto aboveRow = row("> " + sc.formatValue(5));
+            QVERIFY2(!belowRow.symbol.layers.isEmpty(), classified ? "classified" : "continuous");
+            QVERIFY2(!aboveRow.symbol.layers.isEmpty(), classified ? "classified" : "continuous");
+            QCOMPARE(legendColor(belowRow), green);
+            QCOMPARE(legendColor(aboveRow), red);
+            QVERIFY(belowRow.label.endsWith("[mg/L]"));
+            QCOMPARE(belowRow.sublayerId, s.id());
+        }
+    }
 };
 QTEST_MAIN(TestResultScalarSublayer)
 #include "test_resultscalarsublayer.moc"
