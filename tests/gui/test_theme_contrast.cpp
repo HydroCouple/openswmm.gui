@@ -20,6 +20,8 @@
 
 using openswmmvis::ui::ThemeColors;
 using openswmmvis::ui::darkColors;
+using openswmmvis::ui::highContrastDarkColors;
+using openswmmvis::ui::highContrastLightColors;
 using openswmmvis::ui::lightColors;
 
 namespace
@@ -108,8 +110,11 @@ private:
 void TestThemeContrast::schemes_data()
 {
     QTest::addColumn<bool>("dark");
-    QTest::newRow("light") << false;
-    QTest::newRow("dark") << true;
+    QTest::addColumn<bool>("highContrast");
+    QTest::newRow("light") << false << false;
+    QTest::newRow("dark") << true << false;
+    QTest::newRow("high contrast light") << false << true;
+    QTest::newRow("high contrast dark") << true << true;
 }
 
 #define CHECK_RATIO(fg, bg, minimum)                                                               \
@@ -156,7 +161,33 @@ void TestThemeContrast::verifyScheme(const ThemeColors &c)
 void TestThemeContrast::schemes()
 {
     QFETCH(bool, dark);
-    verifyScheme(dark ? darkColors() : lightColors());
+    QFETCH(bool, highContrast);
+    if (!highContrast) {
+        verifyScheme(dark ? darkColors() : lightColors());
+        return;
+    }
+    // Review A-21: the high-contrast sets meet the ordinary gates and the enhanced ones:
+    // 7:1 for text, 3:1 for borders and the plot grid as well as focus.
+    const ThemeColors &c = dark ? highContrastDarkColors() : highContrastLightColors();
+    verifyScheme(c);
+    if (QTest::currentTestFailed())
+        return;
+    for (const QColor &surface : {c.surfaceWindow, c.surfaceRaised, c.surfaceSunken}) {
+        CHECK_RATIO(c.text, surface, 7.0);
+        CHECK_RATIO(c.hintText, surface, 7.0);
+        CHECK_RATIO(c.border, surface, 3.0);
+        CHECK_RATIO(c.focusRing, surface, 3.0);
+        CHECK_RATIO(c.accent, surface, 7.0);
+        CHECK_RATIO(c.error, surface, 7.0);
+        CHECK_RATIO(c.warning, surface, 7.0);
+        CHECK_RATIO(c.success, surface, 7.0);
+    }
+    CHECK_RATIO(c.selectionText, c.selectionFill, 7.0);
+    CHECK_RATIO(c.bannerErrorFg, c.bannerErrorBg, 7.0);
+    CHECK_RATIO(c.bannerSuccessFg, c.bannerSuccessBg, 7.0);
+    CHECK_RATIO(c.bannerInfoFg, c.bannerInfoBg, 7.0);
+    CHECK_RATIO(c.plotAxis, c.plotBackground, 7.0);
+    CHECK_RATIO(c.plotGrid, c.plotBackground, 3.0);
 }
 
 QTEST_APPLESS_MAIN(TestThemeContrast)

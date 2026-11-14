@@ -265,6 +265,8 @@ private:
     QRadioButton *m_appearanceSystemRadio = nullptr;
     QRadioButton *m_appearanceLightRadio = nullptr;
     QRadioButton *m_appearanceDarkRadio = nullptr;
+    QComboBox *m_highContrastCombo = nullptr;  ///< Automatic / On / Off (review A-21)
+    QComboBox *m_reduceMotionCombo = nullptr;  ///< Automatic / On / Off (review A-21)
 
     // General
     QCheckBox *m_showLicenseOnStartupBox = nullptr;

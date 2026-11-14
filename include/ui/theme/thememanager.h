@@ -21,8 +21,12 @@
  * @license   GPL-3.0-or-later
  */
 
+#include "platform/systemaccessibility.h"
+
 #include <QObject>
 #include <Qt>
+
+#include <functional>
 
 namespace openswmmvis::ui
 {
@@ -86,10 +90,51 @@ public:
      */
     static Mode modeFromString(const QString &text);
 
+    /*! High contrast and reduced motion (review A-21): Automatic follows the operating system's
+     *  setting (macOS, Windows; off elsewhere), On and Off override it. */
+    enum class Preference { Automatic, On, Off };
+    Q_ENUM(Preference)
+
+    /** @return The stored high-contrast preference, initially Automatic. */
+    Preference contrastPreference() const { return mContrast; }
+    /**
+     * @brief Set the high-contrast preference; re-applies (and emits themeChanged()) when the
+     *   effective contrast changes. Does not persist preferences.
+     */
+    void setContrastPreference(Preference preference);
+    /** @return The stored reduced-motion preference, initially Automatic. */
+    Preference motionPreference() const { return mMotion; }
+    /**
+     * @brief Set the reduced-motion preference; updates motionReduced() (reducedmotion.h) and
+     *   emits motionChanged() when the effective value changes. Does not persist preferences.
+     */
+    void setMotionPreference(Preference preference);
+    /** @return Whether the high-contrast tokens are in force. */
+    bool highContrast() const;
+    /** @return Whether animations other than user-started playback stay still. */
+    bool reduceMotion() const;
+    /**
+     * @brief Re-read the system settings and apply what changed. Called whenever the application
+     *   becomes active, which covers changing them in the system's settings and coming back.
+     */
+    void refreshSystemSettings();
+    /**
+     * @brief Replace how the system settings are read (tests), then refresh. An empty function
+     *   restores the platform reader.
+     */
+    void setSystemSettingsReader(std::function<platform::SystemAccessibility()> reader);
+
+    /** @return "Automatic", "On" or "Off", the persisted token. */
+    static QString preferenceToString(Preference preference);
+    /** @return On/Off when matched case-insensitively, otherwise Automatic. */
+    static Preference preferenceFromString(const QString &text);
+
 signals:
-    /*! Emitted after the palette/overlay for a new effective scheme has
+    /*! Emitted after the palette/overlay for a new effective scheme or contrast has
      *  been applied — widgets holding token-derived pens repaint on this. */
     void themeChanged();
+    /*! Emitted when reduceMotion() changes. */
+    void motionChanged();
 
 private:
     /**
@@ -98,8 +143,16 @@ private:
      */
     explicit ThemeManager(QObject *parent = nullptr);
 
+    /** @brief Push reduceMotion() to motionReduced() and announce a change. */
+    void publishMotion(bool before);
+
     Mode mMode = Mode::System;
     Qt::ColorScheme mAppliedScheme = Qt::ColorScheme::Unknown;
+    Preference mContrast = Preference::Automatic;
+    Preference mMotion = Preference::Automatic;
+    bool mAppliedContrast = false;
+    std::function<platform::SystemAccessibility()> mReader;
+    platform::SystemAccessibility mSystem;
 };
 
 } // namespace openswmmvis::ui

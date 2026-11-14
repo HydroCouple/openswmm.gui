@@ -27,10 +27,13 @@
 #include <QVBoxLayout>
 
 #include "ui/theme/thememanager.h"
+#include "ui/theme/reducedmotion.h"
 #include "ui/theme/themetokens.h"
 
 using openswmmvis::ui::ThemeManager;
 using openswmmvis::ui::darkColors;
+using openswmmvis::ui::highContrastDarkColors;
+using openswmmvis::ui::highContrastLightColors;
 using openswmmvis::ui::lightColors;
 
 class TestThemeManager : public QObject
@@ -38,6 +41,8 @@ class TestThemeManager : public QObject
     Q_OBJECT
 
 private slots:
+    /** @brief Replace the system reader with one reporting both settings off (deterministic). */
+    void initTestCase();
     /**
      *
      * @brief Require fresh System mode under an offscreen/Unknown scheme to use Light tokens for
@@ -70,7 +75,30 @@ private slots:
      */
     void modeStringRoundTrip();
     void focusedItemViewsShowTheFocusRing();
+    void contrastFollowsTheSystemUnlessOverridden();
+    void highContrastAppliesStrongerChrome();
+    void motionFollowsTheSystemUnlessOverridden();
+    void preferenceStringRoundTrip();
 };
+
+namespace
+{
+openswmmvis::platform::SystemAccessibility g_system;
+
+void resetAccessibility()
+{
+    auto *theme = ThemeManager::instance();
+    g_system = {};
+    theme->setContrastPreference(ThemeManager::Preference::Automatic);
+    theme->setMotionPreference(ThemeManager::Preference::Automatic);
+    theme->setSystemSettingsReader([] { return g_system; });
+}
+} // namespace
+
+void TestThemeManager::initTestCase()
+{
+    resetAccessibility();
+}
 
 void TestThemeManager::systemModeFallsBackToLightOffscreen()
 {
@@ -180,6 +208,88 @@ void TestThemeManager::focusedItemViewsShowTheFocusRing()
         const QImage img = view->grab().toImage().convertToFormat(QImage::Format_RGB32);
         QVERIFY2(ringPixels(img) > 100, view->metaObject()->className());
     }
+}
+
+void TestThemeManager::contrastFollowsTheSystemUnlessOverridden()
+{
+    auto *theme = ThemeManager::instance();
+    theme->setMode(ThemeManager::Mode::Light);
+    resetAccessibility();
+    QSignalSpy changed(theme, &ThemeManager::themeChanged);
+    QVERIFY(!theme->highContrast());
+    QCOMPARE(&theme->colors(), &lightColors());
+
+    g_system.highContrast = true; // the user turns on Increase contrast and comes back
+    theme->refreshSystemSettings();
+    QVERIFY(theme->highContrast());
+    QCOMPARE(&theme->colors(), &highContrastLightColors());
+    QCOMPARE(changed.count(), 1);
+
+    theme->setContrastPreference(ThemeManager::Preference::Off);
+    QVERIFY(!theme->highContrast());
+    QCOMPARE(changed.count(), 2);
+    g_system.highContrast = false;
+    theme->refreshSystemSettings();
+    QCOMPARE(changed.count(), 2); // overridden: the system change does nothing
+    theme->setContrastPreference(ThemeManager::Preference::On);
+    QVERIFY(theme->highContrast());
+    QCOMPARE(changed.count(), 3);
+    resetAccessibility();
+    QVERIFY(!theme->highContrast());
+}
+
+void TestThemeManager::highContrastAppliesStrongerChrome()
+{
+    auto *theme = ThemeManager::instance();
+    resetAccessibility();
+    theme->setMode(ThemeManager::Mode::Light);
+    theme->setContrastPreference(ThemeManager::Preference::On);
+    QCOMPARE(qApp->palette().color(QPalette::WindowText), highContrastLightColors().text);
+    QCOMPARE(qApp->palette().color(QPalette::Highlight), highContrastLightColors().selectionFill);
+    QVERIFY2(qApp->styleSheet().contains(QStringLiteral("outline: 3px")), qPrintable(qApp->styleSheet()));
+    theme->setMode(ThemeManager::Mode::Dark);
+    QCOMPARE(&theme->colors(), &highContrastDarkColors());
+    QCOMPARE(qApp->palette().color(QPalette::Window), highContrastDarkColors().surfaceWindow);
+    QVERIFY(qApp->styleSheet().contains(highContrastDarkColors().focusRing.name()));
+    resetAccessibility();
+    theme->setMode(ThemeManager::Mode::Light);
+    QVERIFY(qApp->styleSheet().contains(QStringLiteral("outline: 2px")));
+    QCOMPARE(qApp->palette().color(QPalette::WindowText), lightColors().text);
+}
+
+void TestThemeManager::motionFollowsTheSystemUnlessOverridden()
+{
+    auto *theme = ThemeManager::instance();
+    resetAccessibility();
+    QSignalSpy changed(theme, &ThemeManager::motionChanged);
+    QVERIFY(!theme->reduceMotion());
+    QVERIFY(!openswmmvis::ui::motionReduced());
+
+    g_system.reduceMotion = true;
+    theme->refreshSystemSettings();
+    QVERIFY(theme->reduceMotion());
+    QVERIFY(openswmmvis::ui::motionReduced()); // what the map and the streaks read
+    QCOMPARE(changed.count(), 1);
+
+    theme->setMotionPreference(ThemeManager::Preference::Off);
+    QVERIFY(!openswmmvis::ui::motionReduced());
+    QCOMPARE(changed.count(), 2);
+    theme->setMotionPreference(ThemeManager::Preference::On);
+    g_system.reduceMotion = false;
+    theme->refreshSystemSettings();
+    QVERIFY(openswmmvis::ui::motionReduced()); // On holds whatever the system says
+    QCOMPARE(changed.count(), 3);
+    resetAccessibility();
+    QVERIFY(!openswmmvis::ui::motionReduced());
+}
+
+void TestThemeManager::preferenceStringRoundTrip()
+{
+    using P = ThemeManager::Preference;
+    for (P p : {P::Automatic, P::On, P::Off})
+        QCOMPARE(ThemeManager::preferenceFromString(ThemeManager::preferenceToString(p)), p);
+    QCOMPARE(ThemeManager::preferenceFromString(QStringLiteral("on")), P::On);
+    QCOMPARE(ThemeManager::preferenceFromString(QStringLiteral("sometimes")), P::Automatic);
 }
 
 QTEST_MAIN(TestThemeManager)

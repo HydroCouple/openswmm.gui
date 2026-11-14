@@ -157,6 +157,20 @@ public:
      * @details Unchanged accepted values are ignored. Writes use per-user QSettings and emit preferenceChanged for the affected group/key; persistence errors are not returned.
      */
     void setAppearanceMode(const QString &mode);
+    /**
+     * @brief High contrast (review A-21): "Automatic" (follow the system, default), "On" or "Off".
+     * @return Saved token; consumed by ThemeManager::setContrastPreference().
+     */
+    [[nodiscard]] QString appearanceHighContrast() const;
+    /** @brief Persist the high-contrast token; notifies consumers when it changes. */
+    void setAppearanceHighContrast(const QString &value);
+    /**
+     * @brief Reduce motion (review A-21): "Automatic" (follow the system, default), "On" or "Off".
+     * @return Saved token; consumed by ThemeManager::setMotionPreference().
+     */
+    [[nodiscard]] QString appearanceReduceMotion() const;
+    /** @brief Persist the reduce-motion token; notifies consumers when it changes. */
+    void setAppearanceReduceMotion(const QString &value);
 
     // ── Canvas / Default tool ────────────────────────────────────────────
     /*! Default tool active when a project opens. One of

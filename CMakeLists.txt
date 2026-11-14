@@ -833,6 +833,8 @@ set(
         # ── UI theme (UI redesign P2/P3) ─────────────────────────────────────
         include/ui/theme/themetokens.h
         include/ui/theme/thememanager.h
+        include/ui/theme/reducedmotion.h
+        include/platform/systemaccessibility.h
         include/ui/theme/themehelpers.h
         include/ui/theme/iconfactory.h
 
@@ -1979,6 +1981,13 @@ target_compile_definitions(SWMMVis
 if(APPLE)
     target_sources(SWMMVis PRIVATE src/platform/macoswindowutils.mm)
     target_link_libraries(SWMMVis PRIVATE "-framework AppKit")
+endif()
+# Review A-21 — the system's increase-contrast and reduce-motion settings (NSWorkspace on macOS,
+# SystemParametersInfo on Windows), read by ThemeManager.
+if(APPLE)
+    target_sources(SWMMVis PRIVATE src/platform/systemaccessibility.mm)
+else()
+    target_sources(SWMMVis PRIVATE src/platform/systemaccessibility.cpp)
 endif()
 
 set_target_properties(SWMMVis PROPERTIES

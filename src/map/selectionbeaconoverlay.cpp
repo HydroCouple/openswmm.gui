@@ -11,6 +11,8 @@
 
 #include "map/selectionbeaconoverlay.h"
 
+#include "ui/theme/reducedmotion.h"
+
 #include <QPainter>
 #include <QRectF>
 
@@ -38,6 +40,14 @@ void SelectionBeaconOverlay::setAnchors(const QVector<QPointF> &sceneAnchors)
 {
     m_anchors = sceneAnchors;
     if (m_anchors.isEmpty()) {
+        m_flashing = false;
+        m_frameTimer.stop();
+        emit needsRepaint();
+        return;
+    }
+    // Reduced motion (review A-21): the steady ring still marks the selection; only the
+    // expanding flash is left out.
+    if (openswmmvis::ui::motionReduced()) {
         m_flashing = false;
         m_frameTimer.stop();
         emit needsRepaint();

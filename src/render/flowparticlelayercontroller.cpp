@@ -10,6 +10,7 @@
  */
 
 #include "render/flowparticlelayercontroller.h"
+#include "ui/theme/reducedmotion.h"
 #include <QJsonDocument>
 #include "layers/swmm2dresultslayer.h"
 #include "mesh/meshcellgeom.h"
@@ -353,8 +354,9 @@ FlowParticleLayerController::seedResidency(const FlowParticleResidencyGrid &grid
 void FlowParticleLayerController::advance(double seconds)
 {
     const auto *style = m_layer->flowStreakSublayer()->streakStyle();
-    if (!m_layer->flowStreaksEnabled() || !style->animated() || style->speedMultiplier() <= 0 ||
-        !std::isfinite(seconds) || seconds <= 0)
+    // Reduced motion (review A-21) keeps the streaks still; the layer's Animate setting stays.
+    if (!m_layer->flowStreaksEnabled() || !style->animated() || openswmmvis::ui::motionReduced() ||
+        style->speedMultiplier() <= 0 || !std::isfinite(seconds) || seconds <= 0)
         return;
     // Refresh residency for the field the renderer actually requested. During
     // result playback the hydraulic producer may be several frames ahead of
@@ -802,7 +804,7 @@ FlowParticleLayerController::frame(const QRectF &view, double scale, quint64 dis
         settings.maxParticles = std::min(settings.maxParticles, population * 16 + 16);
     }
     FlowParticleView particleView{scale, style->spacingPx(), 48, m_layer->m_velocityFloorSI};
-    particleView.animated = style->animated();
+    particleView.animated = style->animated() && !openswmmvis::ui::motionReduced();
     const auto input =
         displayedRevision == m_layer->frame_revision_ ? capture(view, scale) : nullptr;
     // A seek's replacement limits belong to its replacement field. Applying

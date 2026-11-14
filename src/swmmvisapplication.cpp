@@ -183,6 +183,11 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
         auto *theme = openswmmvis::ui::ThemeManager::instance();
         theme->setMode(openswmmvis::ui::ThemeManager::modeFromString(
             PreferencesManager::instance()->appearanceMode()));
+        // Review A-21 — high contrast and reduced motion follow the system unless overridden.
+        theme->setContrastPreference(openswmmvis::ui::ThemeManager::preferenceFromString(
+            PreferencesManager::instance()->appearanceHighContrast()));
+        theme->setMotionPreference(openswmmvis::ui::ThemeManager::preferenceFromString(
+            PreferencesManager::instance()->appearanceReduceMotion()));
 
         // A figure-capture run overrides the restored mode: the manual is
         // captured on light (docs/manual/README.md), and the restored
@@ -191,8 +196,10 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
         // restore above — setting it earlier just gets overwritten here — and
         // before the window is built, since apply() cannot restyle chrome that
         // already exists.
-        if (qEnvironmentVariableIsSet("SWMMVIS_CAPTURE_MANIFEST"))
+        if (qEnvironmentVariableIsSet("SWMMVIS_CAPTURE_MANIFEST")) {
             theme->setMode(openswmmvis::ui::ThemeManager::Mode::Light);
+            theme->setContrastPreference(openswmmvis::ui::ThemeManager::Preference::Off);
+        }
 
         theme->apply();
     }

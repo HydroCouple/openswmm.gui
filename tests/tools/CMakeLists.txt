@@ -44,6 +44,15 @@ add_executable(profile_attribute_tracks_verify
     ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
 )
 set_target_properties(profile_attribute_tracks_verify PROPERTIES AUTOMOC ON)
+# Review A-21 — ThemeManager reads the system's contrast and motion settings.
+if(APPLE)
+    target_sources(profile_attribute_tracks_verify PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/platform/systemaccessibility.mm)
+    target_link_libraries(profile_attribute_tracks_verify PRIVATE "-framework AppKit")
+else()
+    target_sources(profile_attribute_tracks_verify PRIVATE
+        ${CMAKE_SOURCE_DIR}/src/platform/systemaccessibility.cpp)
+endif()
 target_include_directories(profile_attribute_tracks_verify PRIVATE
     ${CMAKE_SOURCE_DIR}/include
 )
