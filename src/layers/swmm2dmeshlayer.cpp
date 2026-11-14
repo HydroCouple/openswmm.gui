@@ -320,7 +320,7 @@ public:
         const bool fillClassified =
             fillScheme.mode() == OpenSWMM::Render::ClassificationScheme::ClassMode::Classified;
         // Color source (QSG parity): bed elevation, or the per-cell attribute the style
-        // picks ("Colour by"); a categorical attribute takes one palette color per value;
+        // picks ("Color by"); a categorical attribute takes one palette color per value;
         // a cell without a value takes the no-data color.
         const bool attrMode = useRampFill && fillStyleQ && !fillStyleQ->colorsByElevation();
         const bool catMode = attrMode && fillStyleQ->colorsByCategory();
@@ -972,7 +972,7 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult result, const QString &sourceP
     }
     // Live preference propagation: BC default edits in the Preferences
     // dialog re-seed open layers whose BC style the user has NOT edited
-    // directly (isCustomized()); "Colour by type" toggles the sublayer's
+    // directly (isCustomized()); "Color by type" toggles the sublayer's
     // visibility unconditionally — it's an explicit show/hide action.
     connect(PreferencesManager::instance(), &PreferencesManager::preferenceChanged, this,
             [this](const QString &group, const QString &key) {
@@ -1053,7 +1053,7 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult result, const QString &sourceP
     wire(m_contourBandSublayer);
     wire(m_isolineSublayer);
     // Category legend rows (infiltration method, cell tag) follow the
-    // "Colour by" choice, not only attribute edits.
+    // "Color by" choice, not only attribute edits.
     if (auto *fs = m_meshFillSublayer->fillStyle())
         QObject::connect(fs, &OpenSWMM::Render::SublayerStyle::styleChanged, this,
                          [this]() { scheduleLegendInputRefresh(); });

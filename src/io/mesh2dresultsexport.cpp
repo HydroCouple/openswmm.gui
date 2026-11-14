@@ -733,7 +733,7 @@ void buildInterpolator(const CellMesh &m, const Mesh2DExportOptions &opt, Interp
         QString err;
         if (!in.nn.build(seeds, &err)) {
             warnings << QStringLiteral(
-                            "Natural neighbour could not triangulate the cell centres (%1), "
+                            "Natural neighbor could not triangulate the cell centers (%1), "
                             "so inverse distance weighting was used instead.")
                             .arg(err);
             in.method = Mesh2DInterp::Idw;

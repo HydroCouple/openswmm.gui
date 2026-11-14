@@ -912,7 +912,7 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
                 btn = loose;
             if (!btn) {
                 r.status = QStringLiteral("failed");
-                r.detail = QStringLiteral("no button labelled '%1' — buttons: %2")
+                r.detail = QStringLiteral("no button labeled '%1' — buttons: %2")
                                .arg(wanted, offered.join(QStringLiteral(", ")));
                 r.elapsedMs = int(mSpecTimer.elapsed());
                 dismissOpenedBy(spec);
@@ -1044,7 +1044,7 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         }
         if (!button) {
             r.status = QStringLiteral("failed");
-            r.detail = QStringLiteral("no inline button labelled '%1' after typing")
+            r.detail = QStringLiteral("no inline button labeled '%1' after typing")
                            .arg(spec.afterTypeClick);
             dismissOpenedBy(spec);
             finishSpec(r);

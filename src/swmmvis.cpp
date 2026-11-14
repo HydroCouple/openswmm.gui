@@ -5356,7 +5356,7 @@ void SWMMVis::initializeMenus()
     if (ui->actionSettings) {
         ui->actionSettings->setToolTip(tr("Configure tolerances, default tool, "
                                           "CRS, rendering LOD, selection "
-                                          "colours, simulation tick rate, "
+                                          "colors, simulation tick rate, "
                                           "and other application preferences"));
         connect(ui->actionSettings, &QAction::triggered, this, [this]() {
             PreferencesDialog dlg(this);
@@ -9840,7 +9840,7 @@ void SWMMVis::export2DResults(SWMM2DResultsLayer *preselected)
         statusBar()->showMessage(tr("Exported %n 2D result file(s).", "", report.files.size()),
                                  5000);
     } else if (report.error == QLatin1String("Cancelled")) {
-        onLogMessage(tr("Export 2D Results: cancelled; no files were kept."),
+        onLogMessage(tr("Export 2D Results: canceled; no files were kept."),
                      OpenSWMMVisLogMessage::Information);
     } else {
         QMessageBox::warning(this, tr("Export Failed"),
@@ -10129,7 +10129,7 @@ void SWMMVis::onExportLayerRequested(const openswmmvis::ui::LayerExportTarget &t
     for (const QString &w : report.warnings)
         onLogMessage(tr("%1: %2").arg(setup.title, w), OpenSWMMVisLogMessage::Warning);
     if (report.error == QLatin1String("Cancelled")) {
-        onLogMessage(tr("%1: cancelled; no files were kept.").arg(setup.title),
+        onLogMessage(tr("%1: canceled; no files were kept.").arg(setup.title),
                      OpenSWMMVisLogMessage::Information);
         return;
     }
@@ -10580,7 +10580,7 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
                              currentSession.loadGeneration == initialSession.loadGeneration;
         if (!current && nativeController)
             onLogMessage(
-                tr("Run cancelled because the project changed or closed during preparation. Start the run again from the current project."),
+                tr("Run canceled because the project changed or closed during preparation. Start the run again from the current project."),
                 OpenSWMMVisLogMessage::Warning);
         return current;
     };
@@ -10657,7 +10657,7 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
             if (!contextCurrent())
                 return;
             if (reply != QMessageBox::Yes) {
-                onLogMessage(tr("Run cancelled — 2D enabled but no mesh found."),
+                onLogMessage(tr("Run canceled — 2D enabled but no mesh found."),
                              OpenSWMMVisLogMessage::Information);
                 return;
             }
@@ -10698,7 +10698,7 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
                         return;
                 } else {
                     onLogMessage(
-                        tr("Run cancelled: the 2D output setting could not be saved (%1). The project remains unsaved; correct the save problem and retry.")
+                        tr("Run canceled: the 2D output setting could not be saved (%1). The project remains unsaved; correct the save problem and retry.")
                             .arg(err),
                         OpenSWMMVisLogMessage::Warning);
                     return;
@@ -10852,7 +10852,7 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
                                           .arg(streams, pathBlock, loadedNote),
                                       QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
             if (reply != QMessageBox::Yes) {
-                onLogMessage(tr("Run cancelled — output overwrite declined."),
+                onLogMessage(tr("Run canceled — output overwrite declined."),
                              OpenSWMMVisLogMessage::LogMessageType::Information);
                 return;
             }
@@ -11351,7 +11351,7 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
             const bool outHasData =
                 QFileInfo(outPathCopy).exists() && QFileInfo(outPathCopy).size() > 0;
             if (cancelled) {
-                self->onLogMessage(partialResults ? tr("Simulation cancelled. Partial results: %1").arg(outPathCopy) : errMsg,
+                self->onLogMessage(partialResults ? tr("Simulation canceled. Partial results: %1").arg(outPathCopy) : errMsg,
                                    OpenSWMMVisLogMessage::Warning);
             } else if (!success) {
                 self->onLogMessage(tr("Simulation failed (code %1): %2 — %3")

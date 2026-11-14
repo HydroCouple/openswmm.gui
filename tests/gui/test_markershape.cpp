@@ -167,7 +167,7 @@ void TestMarkerShape::enum_roundTripsThroughString()
         MarkerShape::HalfCircle};
     for (MarkerShape s : all) {
         const QString token = markerShapeToString(s);
-        QVERIFY2(!token.isEmpty(), "every shape must serialise to a non-empty token");
+        QVERIFY2(!token.isEmpty(), "every shape must serialize to a non-empty token");
         QCOMPARE(markerShapeFromString(token), s);
     }
 }

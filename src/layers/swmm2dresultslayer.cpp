@@ -5499,7 +5499,7 @@ double SWMM2DResultsLayer::resolveCoordinateScale_() const
         !m_warnedUndeclaredCrs) {
         m_warnedUndeclaredCrs = true;
         qWarning("[2D-render] %s: 2D result source declares no /crs variable; "
-                 "assuming engine SI metres and dividing by %.10f m per model "
+                 "assuming engine SI meters and dividing by %.10f m per model "
                  "unit. Re-run with OpenSWMM Engine 6.0+ for an exact, "
                  "self-describing factor.",
                  qUtf8Printable(name()), m_fallbackMetresPerModelUnit);

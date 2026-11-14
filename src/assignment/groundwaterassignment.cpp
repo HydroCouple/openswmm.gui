@@ -287,7 +287,7 @@ AquiferPreview previewAquiferAssignment(const AquiferRequest &r, std::function<b
         return p;
     };
     if (cancelled && cancelled())
-        return reject("Cancelled.");
+        return reject("Canceled.");
     AquiferTarget target;
     bool found = false;
     for (const auto &t : aquiferTargets())
@@ -308,7 +308,7 @@ AquiferPreview previewAquiferAssignment(const AquiferRequest &r, std::function<b
     QHash<int, const AquiferRow *> cells;
     for (const auto &row : r.before.rows) {
         if (cancelled && cancelled())
-            return reject("Cancelled.");
+            return reject("Canceled.");
         if (row.scope == 0)
             global = &row;
         else if (row.scope == 1)
@@ -325,7 +325,7 @@ AquiferPreview previewAquiferAssignment(const AquiferRequest &r, std::function<b
     QVector<Assigned> assigned; // every cell with a value, changed or not (TAG strategy)
     for (int i = 0; i < r.cells.size(); ++i) {
         if (cancelled && cancelled())
-            return reject("Cancelled.");
+            return reject("Canceled.");
         const int cell = r.cells[i];
         const double v = r.values[i];
         if (cell < 0 || seen.contains(cell))

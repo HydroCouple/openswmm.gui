@@ -49,7 +49,7 @@ void require(bool ok, const char *message)
 void checkCancel(std::atomic_bool *c)
 {
     if (c && c->load())
-        throw std::runtime_error("Analysis cancelled");
+        throw std::runtime_error("Analysis canceled");
 }
 /**
  * @brief Register GDAL drivers and open an independently owned vector dataset.

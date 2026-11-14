@@ -52,8 +52,8 @@ TerrainToolbar::TerrainToolbar(const QString &title, QWidget *parent) : QToolBar
         tr("Vertical unit of the DEM elevation values.\n"
            "Auto-detected from the raster CRS metadata; override when the\n"
            "detection is wrong (common for 3DEP data whose raster CRS reports\n"
-           "geographic lat/lon but whose Z values are in metres)."));
-    m_verticalUnitCombo->addItem(tr("m (metres)"), QStringLiteral("m"));
+           "geographic lat/lon but whose Z values are in meters)."));
+    m_verticalUnitCombo->addItem(tr("m (meters)"), QStringLiteral("m"));
     m_verticalUnitCombo->addItem(tr("ft (feet)"), QStringLiteral("ft"));
     m_verticalUnitCombo->setEnabled(false);
     groupUnits->addWidget(m_verticalUnitCombo);

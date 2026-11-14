@@ -769,7 +769,7 @@ void MeshSnowDialog::fillFromLayer()
         disconnect(cancellation);
         progress.close();
         if (watcher.isCanceled()) {
-            status->setText(tr("Sampling cancelled."));
+            status->setText(tr("Sampling canceled."));
             return;
         }
         sampled = watcher.result();

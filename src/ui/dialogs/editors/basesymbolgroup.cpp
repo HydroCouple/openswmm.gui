@@ -88,7 +88,7 @@ QWidget *createBaseSymbolGroup(const RendererPanelContext &ctx, QWidget *parent)
     toggle->setText(QObject::tr("Base symbol && labels"));
     toggle->setToolTip(
         QObject::tr("Size / line width, outline, marker shape and labels for this kind. "
-                    "Colour comes from the classes below."));
+                    "Color comes from the classes below."));
     toggle->setCheckable(true);
     toggle->setChecked(false);
     toggle->setArrowType(Qt::RightArrow);

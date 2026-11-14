@@ -264,7 +264,7 @@ StyleFileIO::Result StyleFileIO::importNative(OpenSWMMVisLayer *layer, const QSt
     const QString schema = root.value(QStringLiteral("schema")).toString();
     if (!schema.startsWith(QLatin1String("swmmvis-style")))
         res.warnings << QObject::tr(
-                            "Schema marker missing or unrecognised (got '%1') — proceeding anyway.")
+                            "Schema marker missing or unrecognized (got '%1') — proceeding anyway.")
                             .arg(schema);
 
     Result applied = applyStyleJson(layer, root);

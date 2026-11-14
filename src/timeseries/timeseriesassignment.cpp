@@ -73,7 +73,7 @@ PreparedAssignment prepareAssignment(const TimeSeriesDataset &dataset, const Ass
     const SeriesInfo *s = nullptr;
     for (const auto &v : dataset.series) if (v.id == o.seriesId) { s = &v; break; }
     if (!s) return fail("The source series is unavailable.");
-    if (cancel && cancel->load()) return fail("Preparation cancelled.");
+    if (cancel && cancel->load()) return fail("Preparation canceled.");
     QString sourceError;
     const auto current = TimeSeriesStore::open(dataset.path,&sourceError);
     if (!current) return fail(sourceError);
@@ -114,7 +114,7 @@ PreparedAssignment prepareAssignment(const TimeSeriesDataset &dataset, const Ass
         const auto page = TimeSeriesStore::readPage(dataset.path, s->id, q, &error, cancel);
         if (!error.isEmpty()) return fail(error);
         for (const auto &v : page.observations) {
-            if (cancel && cancel->load()) return fail("Preparation cancelled.");
+            if (cancel && cancel->load()) return fail("Preparation canceled.");
             if (!v.hasValue || !std::isfinite(v.value)) return fail("Missing observations remain in the selected period. Choose a contiguous complete range.");
             if (qualified(v) && !o.allowQualified) return fail("Provisional or qualified observations require explicit acceptance.");
             if (!first) {

@@ -149,7 +149,7 @@ public:
         QColor cur = idx.data(Qt::BackgroundRole).value<QColor>();
         const QColor picked =
             QColorDialog::getColor(cur.isValid() ? cur : QColor(Qt::white), nullptr,
-                                   QObject::tr("Category colour"), QColorDialog::ShowAlphaChannel);
+                                   QObject::tr("Category color"), QColorDialog::ShowAlphaChannel);
         if (!picked.isValid())
             return true;
         setColorCell(m, idx, picked);
@@ -431,7 +431,7 @@ public:
         vlay->addLayout(form);
 
         m_model = new QStandardItemModel(0, 3, box);
-        m_model->setHorizontalHeaderLabels({tr("Value"), tr("Label"), tr("Colour")});
+        m_model->setHorizontalHeaderLabels({tr("Value"), tr("Label"), tr("Color")});
         m_table = new QTableView(box);
         m_table->setModel(m_model);
         m_table->verticalHeader()->setVisible(false);
@@ -479,7 +479,7 @@ public:
         m_editSymBtn->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("SelectEdit")));
         m_editSymBtn->setToolButtonStyle(Qt::ToolButtonTextBesideIcon);
         m_editSymBtn->setToolTip(tr("Edit the shape / size / line width / dash for the selected "
-                                    "category.  Colour is editable inline."));
+                                    "category.  Color is editable inline."));
         btnRow->addWidget(m_editSymBtn);
 
         btnRow->addStretch();

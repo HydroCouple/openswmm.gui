@@ -709,7 +709,7 @@ bool allLoaded(ComparisonPlotDialog &dlg)
     return std::all_of(data.cbegin(), data.cend(), [](const SeriesData &d) { return d.ok; });
 }
 const QString kLoading = QStringLiteral("Loading…");
-const QString kCancelled = QStringLiteral("Loading cancelled");
+const QString kCancelled = QStringLiteral("Loading canceled");
 } // namespace
 
 // A deferred adapter reads nothing itself; the job it hands out, run on

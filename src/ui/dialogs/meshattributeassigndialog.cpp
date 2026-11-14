@@ -302,7 +302,7 @@ void MeshAttributeAssignDialog::buildUi(Source initialSource, const QString &dep
         m_scaleSpin->setDecimals(6);
         m_scaleSpin->setValue(1.0);
         m_scaleSpin->setToolTip(tr("Sampled value is multiplied by this before assignment "
-                                   "(e.g. 0.01 for a depth raster stored in centimetres). "
+                                   "(e.g. 0.01 for a depth raster stored in centimeters). "
                                    "Not applied to classified key values."));
         form->addRow(tr("Scale:"), m_scaleSpin);
 
@@ -347,7 +347,7 @@ void MeshAttributeAssignDialog::buildUi(Source initialSource, const QString &dep
         m_samplingCombo->addItem(tr("Overlay — area-weighted mean"),
                                  int(Sampling::AreaWeightedMean));
         m_samplingCombo->addItem(tr("Overlay — majority (largest share)"), int(Sampling::Majority));
-        m_samplingCombo->addItem(tr("Natural neighbour"), int(Sampling::NaturalNeighbour));
+        m_samplingCombo->addItem(tr("Natural neighbor"), int(Sampling::NaturalNeighbour));
         m_samplingCombo->setToolTip(
             tr("Centroid: one point sample per cell — fastest, and what earlier "
                "versions did.\n"
@@ -355,7 +355,7 @@ void MeshAttributeAssignDialog::buildUi(Source initialSource, const QString &dep
                "categorical sources, area-weighted mean for continuous ones; "
                "\"automatic\" picks by the band / field type and reports what it "
                "chose.\n"
-               "Natural neighbour: for scattered point sources (soil samples, "
+               "Natural neighbor: for scattered point sources (soil samples, "
                "borehole logs) rather than coverages."));
         connect(m_samplingCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
                 &MeshAttributeAssignDialog::onSamplingChanged);
@@ -365,7 +365,7 @@ void MeshAttributeAssignDialog::buildUi(Source initialSource, const QString &dep
         m_nnVariantCombo->addItem(tr("Sibson (area-stealing)"), 0);
         m_nnVariantCombo->addItem(tr("Laplace (edge-ratio)"), 1);
         m_nnVariantCombo->setToolTip(
-            tr("Sibson: smooth area-based natural-neighbour coordinates.\n"
+            tr("Sibson: smooth area-based natural-neighbor coordinates.\n"
                "Laplace: faster non-Sibsonian edge/distance ratio.\n"
                "Both are undefined outside the seed convex hull; cells out there "
                "are left unchanged."));
@@ -1205,7 +1205,7 @@ void MeshAttributeAssignDialog::reject()
         // leaves the mesh exactly as it was.
         m_watcher->cancel();
         m_closeBtn->setEnabled(false);
-        m_statusLbl->setText(tr("Cancelling…"));
+        m_statusLbl->setText(tr("Canceling…"));
         return;
     }
     QDialog::reject();
@@ -1234,7 +1234,7 @@ void MeshAttributeAssignDialog::onSampleFinished()
     watcher->deleteLater();
 
     if (cancelled || r.cancelled) {
-        m_statusLbl->setText(tr("Cancelled — the mesh was not modified."));
+        m_statusLbl->setText(tr("Canceled — the mesh was not modified."));
         return;
     }
     if (!r.error.isEmpty()) {

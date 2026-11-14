@@ -193,7 +193,7 @@ void ProfileOptionsDialog::buildSourcesTab()
 
     auto *hint =
         new QLabel(tr("Select a source on the left to edit its profile style on the right.  "
-                      "Toggle Visible, double-click the colour swatch, or edit the Scenario "
+                      "Toggle Visible, double-click the color swatch, or edit the Scenario "
                       "name in place."),
                    page);
     hint->setWordWrap(true);
@@ -212,7 +212,7 @@ void ProfileOptionsDialog::buildSourcesTab()
     m_sourcesModel = new QStandardItemModel(this);
     m_sourcesModel->setColumnCount(kColCount);
     m_sourcesModel->setHorizontalHeaderLabels(
-        {tr("Visible"), tr("Colour"), tr("Scenario"), tr("File"), tr("Project")});
+        {tr("Visible"), tr("Color"), tr("Scenario"), tr("File"), tr("Project")});
     m_sourcesView->setModel(m_sourcesModel);
     m_sourcesView->setRootIsDecorated(false);
     m_sourcesView->header()->setSortIndicator(-1, Qt::AscendingOrder);
@@ -363,7 +363,7 @@ void ProfileOptionsDialog::buildSourcesTab()
         if (!layer)
             return;
         const QColor picked =
-            QColorDialog::getColor(layer->profileLineColor(), this, tr("Source colour"));
+            QColorDialog::getColor(layer->profileLineColor(), this, tr("Source color"));
         if (!picked.isValid())
             return;
         layer->setProfileLineColor(picked);
@@ -404,7 +404,7 @@ void ProfileOptionsDialog::refreshSourcesModel()
         auto *colorItem = new QStandardItem(colorChip(layer->profileLineColor()),
                                             layer->profileLineColor().name());
         colorItem->setEditable(false);
-        colorItem->setToolTip(tr("Double-click to change colour"));
+        colorItem->setToolTip(tr("Double-click to change color"));
 
         auto *nameItem = new QStandardItem(layer->scenarioName());
         nameItem->setEditable(true);

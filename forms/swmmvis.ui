@@ -1849,7 +1849,7 @@
     <string>&amp;Assign Rain Gages…</string>
    </property>
    <property name="toolTip">
-    <string>Bind rain gages to subcatchments spatially — by Thiessen area majority, or by natural-neighbour interpolation that generates one gage per distinct weight vector — previewed first and applied as a single undoable step.</string>
+    <string>Bind rain gages to subcatchments spatially — by Thiessen area majority, or by natural-neighbor interpolation that generates one gage per distinct weight vector — previewed first and applied as a single undoable step.</string>
    </property>
    <property name="statusTip">
     <string>Assign rain gages to subcatchments by location (Model → Assign Rain Gages…)</string>

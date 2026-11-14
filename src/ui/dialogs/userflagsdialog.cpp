@@ -241,7 +241,7 @@ bool UserFlagsDialog::applyChanges(QString *outError)
                                   QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
         if (answer != QMessageBox::Yes) {
             if (outError)
-                *outError = tr("Type change cancelled.");
+                *outError = tr("Type change canceled.");
             return false;
         }
     }

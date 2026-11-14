@@ -124,7 +124,7 @@ CorridorReadResult readCorridorSources(const QVector<CorridorSource> &sources,
     };
     auto cancelled = [&] { return cancel && cancel(); };
     if (cancelled())
-        return fail(QStringLiteral("Corridor extraction cancelled."));
+        return fail(QStringLiteral("Corridor extraction canceled."));
     if (sources.isEmpty())
         return result;
     OGRSpatialReference target;
@@ -138,7 +138,7 @@ CorridorReadResult readCorridorSources(const QVector<CorridorSource> &sources,
     QSet<QString> recordedPaths;
     for (auto source : sources) {
         if (cancelled())
-            return fail(QStringLiteral("Corridor extraction cancelled."));
+            return fail(QStringLiteral("Corridor extraction canceled."));
         const QString context =
             QStringLiteral("Corridor source '%1' (%2): ").arg(source.path, source.layerName);
         if (source.featureIds.isEmpty())
@@ -250,7 +250,7 @@ CorridorReadResult readCorridorSources(const QVector<CorridorSource> &sources,
         QVector<SweptPatch> pending;
         for (const qint64 fid : source.featureIds) {
             if (cancelled())
-                return fail(QStringLiteral("Corridor extraction cancelled."));
+                return fail(QStringLiteral("Corridor extraction canceled."));
             const QString featureContext = context + QStringLiteral("feature %1: ").arg(fid);
             if (fid < 0)
                 return fail(featureContext +
@@ -328,7 +328,7 @@ CorridorReadResult readCorridorSources(const QVector<CorridorSource> &sources,
                 patch.centreline.reserve(line->getNumPoints());
                 for (int vertex = 0; vertex < line->getNumPoints(); ++vertex) {
                     if (cancelled())
-                        return fail(QStringLiteral("Corridor extraction cancelled."));
+                        return fail(QStringLiteral("Corridor extraction canceled."));
                     double x = line->getX(vertex), y = line->getY(vertex);
                     if (!std::isfinite(x) || !std::isfinite(y) ||
                         (transform && !transform->Transform(1, &x, &y)) || !std::isfinite(x) ||
@@ -354,7 +354,7 @@ CorridorReadResult readCorridorSources(const QVector<CorridorSource> &sources,
             return fail(error);
         if (source.bankPair) {
             if (cancelled())
-                return fail(QStringLiteral("Corridor extraction cancelled."));
+                return fail(QStringLiteral("Corridor extraction canceled."));
             BankPairPatch banks;
             banks.bankA = pending[0].centreline;
             banks.bankB = pending[1].centreline;
@@ -374,7 +374,7 @@ CorridorReadResult readCorridorSources(const QVector<CorridorSource> &sources,
         } else {
             for (const auto &patch : pending) {
                 if (cancelled())
-                    return fail(QStringLiteral("Corridor extraction cancelled."));
+                    return fail(QStringLiteral("Corridor extraction canceled."));
                 auto mesh = makeSweptPatch(patch, &error);
                 if (!error.isEmpty())
                     return fail(context + patch.tag + QStringLiteral(": ") + error);
@@ -391,7 +391,7 @@ CorridorReadResult readCorridorSources(const QVector<CorridorSource> &sources,
     }
     QString error;
     if (cancelled())
-        return fail(QStringLiteral("Corridor extraction cancelled."));
+        return fail(QStringLiteral("Corridor extraction canceled."));
     if (!corridorSourceFilesUnchanged(result.sourceStamps, &error))
         return fail(error);
     return result;

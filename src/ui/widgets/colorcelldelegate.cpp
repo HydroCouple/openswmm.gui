@@ -28,8 +28,8 @@ QString colorCellAccessibleText(const QColor &color)
         return {};
     const QString hex = color.name(QColor::HexRgb);
     if (color.alpha() == 255)
-        return QObject::tr("Colour %1").arg(hex);
-    return QObject::tr("Colour %1, %2% opaque").arg(hex).arg(qRound(color.alphaF() * 100.0));
+        return QObject::tr("Color %1").arg(hex);
+    return QObject::tr("Color %1, %2% opaque").arg(hex).arg(qRound(color.alphaF() * 100.0));
 }
 
 bool setColorCell(QAbstractItemModel *model, const QModelIndex &index, const QColor &color)
@@ -100,7 +100,7 @@ bool ColorCellDelegate::editorEvent(QEvent *e, QAbstractItemModel *m, const QSty
         [model = QPointer<QAbstractItemModel>(m), index = QPersistentModelIndex(idx),
          row = idx.row(), column = idx.column(), cur] {
             const QColor picked = QColorDialog::getColor(cur.isValid() ? cur : QColor(Qt::white),
-                                                         nullptr, QObject::tr("Class colour"),
+                                                         nullptr, QObject::tr("Class color"),
                                                          QColorDialog::ShowAlphaChannel);
             if (!picked.isValid() || !model)
                 return;

@@ -119,7 +119,7 @@ public:
         QColor cur = idx.data(Qt::BackgroundRole).value<QColor>();
         const QColor picked =
             QColorDialog::getColor(cur.isValid() ? cur : QColor(Qt::white), nullptr,
-                                   QObject::tr("Rule colour"), QColorDialog::ShowAlphaChannel);
+                                   QObject::tr("Rule color"), QColorDialog::ShowAlphaChannel);
         if (!picked.isValid())
             return true;
         setColorCell(m, idx, picked);
@@ -197,7 +197,7 @@ public:
         vlay->addWidget(banner);
 
         m_model = new QStandardItemModel(0, 3, box);
-        m_model->setHorizontalHeaderLabels({tr("Expression"), tr("Label"), tr("Colour")});
+        m_model->setHorizontalHeaderLabels({tr("Expression"), tr("Label"), tr("Color")});
         m_table = new QTableView(box);
         m_table->setModel(m_model);
         m_table->verticalHeader()->setVisible(false);
@@ -241,13 +241,13 @@ public:
         // Fallback group — color the renderer returns when no rule matches.
         auto *fbBox = new QGroupBox(tr("Fallback (no-match)"), box);
         auto *fbLay = new QHBoxLayout(fbBox);
-        fbLay->addWidget(new QLabel(tr("Colour:"), fbBox));
+        fbLay->addWidget(new QLabel(tr("Color:"), fbBox));
         m_fallbackSwatch = new QLabel(fbBox);
         m_fallbackSwatch->setMinimumSize(QSize(48, 18));
         m_fallbackSwatch->setFrameShape(QFrame::Panel);
         m_fallbackSwatch->setFrameShadow(QFrame::Sunken);
         m_fallbackSwatch->setAutoFillBackground(true);
-        m_fallbackSwatch->setToolTip(tr("Click to change the fallback colour"));
+        m_fallbackSwatch->setToolTip(tr("Click to change the fallback color"));
         m_fallbackSwatch->installEventFilter(this);
         fbLay->addWidget(m_fallbackSwatch);
         fbLay->addStretch();
@@ -282,7 +282,7 @@ public:
             const QColor cur = swatchFromSymbol(r->fallbackSymbol());
             const QColor picked =
                 QColorDialog::getColor(cur.isValid() ? cur : QColor(Qt::gray), this,
-                                       tr("Fallback colour"), QColorDialog::ShowAlphaChannel);
+                                       tr("Fallback color"), QColorDialog::ShowAlphaChannel);
             if (picked.isValid()) {
                 r->setFallbackSymbol(makeColourSymbol(picked));
                 pushBack(r);

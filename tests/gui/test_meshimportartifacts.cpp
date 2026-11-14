@@ -181,7 +181,7 @@ private slots:
         int checks = 0;
         QVERIFY(
             !artifacts->copySource(source, snapshot, &error, [&] { return ++checks >= cancelAt; }));
-        QVERIFY2(error.contains("cancelled"), qPrintable(error));
+        QVERIFY2(error.contains("canceled"), qPrintable(error));
         QVERIFY(!QFileInfo::exists(snapshot));
         QVERIFY(QDir(ownedDirectory).entryList(QDir::Files | QDir::Hidden).isEmpty());
         artifacts.reset();

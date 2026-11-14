@@ -526,7 +526,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     if (!bprepReady) {
         progress(2, QObject::tr("Reading boundary geometry…"));
         if (promise.isCanceled()) {
-            fail(QObject::tr("Cancelled."));
+            fail(QObject::tr("Canceled."));
             return;
         }
         {
@@ -789,7 +789,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             if (boundaryCT)
                 OGRCoordinateTransformation::DestroyCT(boundaryCT);
             if (cancelled || promise.isCanceled()) {
-                fail(QObject::tr("Cancelled."));
+                fail(QObject::tr("Canceled."));
                 return;
             }
 
@@ -846,7 +846,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                 ? (in.terrainAveragingSize > 0 ? in.terrainAveragingSize : in.minCellSize)
                 : 0.0);
         if (promise.isCanceled()) {
-            fail(QObject::tr("Cancelled."));
+            fail(QObject::tr("Canceled."));
             return;
         }
         if (!local.path.isEmpty()) {
@@ -879,7 +879,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     // so PSLG marker numbering (from 100) is unchanged.
     progress(12, QObject::tr("Filtering features against the domain…"));
     if (promise.isCanceled()) {
-        fail(QObject::tr("Cancelled."));
+        fail(QObject::tr("Canceled."));
         return;
     }
     {
@@ -1154,7 +1154,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     // ── Domain + holes ──────────────────────────────────────────────
     progress(14, QObject::tr("Building input PSLG…"));
     if (promise.isCanceled()) {
-        fail(QObject::tr("Cancelled."));
+        fail(QObject::tr("Canceled."));
         return;
     }
 
@@ -1178,7 +1178,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             &skippedRings, conditioned ? 0.0 : in.trimTurnDeg,
             conditioned ? 0.0 : in.trimDeviation);
         if (!holesDone) {
-            fail(QObject::tr("Cancelled."));
+            fail(QObject::tr("Canceled."));
             return;
         }
 
@@ -1220,7 +1220,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     if (!in.quadRegionLayers.isEmpty()) {
         progress(19, QObject::tr("Reading quad region polygons…"));
         if (promise.isCanceled()) {
-            fail(QObject::tr("Cancelled."));
+            fail(QObject::tr("Canceled."));
             return;
         }
         qsizetype nRegionXformFailed = 0;
@@ -1473,7 +1473,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
         progress(19, QObject::tr("Checking constraint simplification…"));
         const auto simplified = mesh::simplifyConstraints(graph, options);
         if (!simplified.ok) {
-            fail(simplified.cancelled ? QObject::tr("Cancelled.") : simplified.error);
+            fail(simplified.cancelled ? QObject::tr("Canceled.") : simplified.error);
             return;
         }
         mesh::ConstraintAuditOptions auditOptions;
@@ -1493,7 +1493,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
         constraintPreview.horizontalUnit = in.meshLinearUnitName;
         constraintPreview.verticalUnit = in.verticalUnitToSI == 1 ? QStringLiteral("m") : QStringLiteral("ft");
         if (constraintPreview.cancelled) {
-            fail(QObject::tr("Cancelled."));
+            fail(QObject::tr("Canceled."));
             return;
         }
         qint64 removed = 0, rollbacks = 0, budget = 0;
@@ -1585,7 +1585,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
         for(const auto &feature:acceptedConstraints) {
             const int n=feature.xy.size();
             for(int j=0;j<n-1+int(feature.closed);++j) {
-                if((j&4095)==0 && promise.isCanceled()) {fail(QObject::tr("Cancelled."));return;}
+                if((j&4095)==0 && promise.isCanceled()) {fail(QObject::tr("Canceled."));return;}
                 const double length=QLineF(feature.xy[j],feature.xy[(j+1)%n]).length();
                 if(length>0 && length<floor*(1-1e-9)) {
                     fail(QObject::tr("Strict sizing is infeasible: protected source '%1' has an edge of %2, below the requested minimum edge %3. Reduce the edge floor or explicitly permit a geometry edit.").arg(feature.id).arg(length).arg(floor));return;
@@ -1664,7 +1664,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     if (useDTM) {
         progress(20, QObject::tr("Opening DTM raster…"));
         if (promise.isCanceled()) {
-            fail(QObject::tr("Cancelled."));
+            fail(QObject::tr("Canceled."));
             return;
         }
 
@@ -1795,7 +1795,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     progress(25, useDTM ? QObject::tr("Interpolating feature elevations from DTM…")
                         : QObject::tr("Reading junction rim elevations…"));
     if (promise.isCanceled()) {
-        fail(QObject::tr("Cancelled."));
+        fail(QObject::tr("Canceled."));
         return;
     }
 
@@ -2022,7 +2022,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
         if (useTerrainField && (!useAdaptiveTerrain || in.terrainBreaklines)) {
             progress(30, QObject::tr("Measuring terrain roughness…"));
             if (promise.isCanceled()) {
-                fail(QObject::tr("Cancelled."));
+                fail(QObject::tr("Canceled."));
                 return;
             }
             // DEM linear unit → mesh unit, from the transform's local scale
@@ -2163,7 +2163,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                     });
                 stageMark("terrain size field");
                 if (promise.isCanceled()) {
-                    fail(QObject::tr("Cancelled."));
+                    fail(QObject::tr("Canceled."));
                     return;
                 }
                 if (!built) {
@@ -2255,7 +2255,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     // ── Generate ────────────────────────────────────────────────────
     progress(40, QObject::tr("Generating mesh…"));
     if (promise.isCanceled()) {
-        fail(QObject::tr("Cancelled."));
+        fail(QObject::tr("Canceled."));
         return;
     }
 
@@ -2505,7 +2505,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
         for(const auto &line:g.previewTerrainBreaklines())blockers.append(line);
         const double pitch=std::max(4*in.minCellSize,std::max(bounds.width(),bounds.height())/512);
         const auto grid=mesh::quadBlockGridFromField(bounds,pitch,[&](const QRectF &box){return sizeField.minimumSizeInBox(box);},blockers,[&]{return promise.isCanceled();});
-        if(promise.isCanceled()){fail(QObject::tr("Cancelled."));return;}
+        if(promise.isCanceled()){fail(QObject::tr("Canceled."));return;}
         if(!grid.isValid()){fail(QObject::tr("The requested automatic patch planning grid could not be built within its limits."));return;}
         mesh::QuadBlockOptions blocks;blocks.minSpacing=.5*in.minCellSize;blocks.maxBlocks=4096;
         const auto candidates=mesh::placeQuadBlocks(grid,blocks);
@@ -2625,7 +2625,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             OGRCoordinateTransformation::DestroyCT(meshToDTM);
         if (dtmToMesh)
             OGRCoordinateTransformation::DestroyCT(dtmToMesh);
-        fail(QObject::tr("Cancelled."));
+        fail(QObject::tr("Canceled."));
         return;
     }
     if (!result.ok) {
@@ -2684,7 +2684,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     progress(70, useDTM ? QObject::tr("Sampling DTM elevations…")
                         : QObject::tr("Interpolating elevations from junction rims…"));
     if (promise.isCanceled()) {
-        fail(QObject::tr("Cancelled."));
+        fail(QObject::tr("Canceled."));
         return;
     }
 
@@ -2724,7 +2724,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                     OGRCoordinateTransformation::DestroyCT(meshToDTM);
                 if (dtmToMesh)
                     OGRCoordinateTransformation::DestroyCT(dtmToMesh);
-                fail(QObject::tr("Cancelled."));
+                fail(QObject::tr("Canceled."));
                 return;
             }
             const qsizetype cn = std::min(kElevChunk, missIdx.size() - base);
@@ -2793,7 +2793,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             QString nnErr;
             nnReady = nn.build(seedXY, seedZ, &nnErr);
             if (!nnReady)
-                qCDebug(lcMeshPerf) << "[Mesh] natural neighbour unavailable, using IDW:" << nnErr;
+                qCDebug(lcMeshPerf) << "[Mesh] natural neighbor unavailable, using IDW:" << nnErr;
         }
 
         const int nv = result.vertices.size();
@@ -2853,7 +2853,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                 result.vertices[i].z = fz;
 
             if ((i & 0x3FFF) == 0 && promise.isCanceled()) {
-                fail(QObject::tr("Cancelled."));
+                fail(QObject::tr("Canceled."));
                 return;
             }
         }
@@ -2961,7 +2961,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             int sweeps = 0;
             while (!pending.isEmpty()) {
                 if (promise.isCanceled()) {
-                    fail(QObject::tr("Cancelled."));
+                    fail(QObject::tr("Canceled."));
                     return;
                 }
                 QVector<int> filledIdx, stillPending;
@@ -3009,7 +3009,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                 QVector<double> next(allFilled.size());
                 for (; relax < kMaxRelax; ++relax) {
                     if ((relax & 0x3F) == 0 && promise.isCanceled()) {
-                        fail(QObject::tr("Cancelled."));
+                        fail(QObject::tr("Canceled."));
                         return;
                     }
                     for (int k = 0; k < allFilled.size(); ++k) {
@@ -3041,7 +3041,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                 // there is nothing to interpolate from, so fabricating a
                 // value here would be inventing terrain.
                 fail(QObject::tr("%1 mesh vertices lie outside the DEM footprint (or on "
-                                 "NoData) with no elevation-bearing neighbour to "
+                                 "NoData) with no elevation-bearing neighbor to "
                                  "interpolate from — an entire region of the mesh has no "
                                  "terrain coverage.\n"
                                  "Extend the DEM to cover the meshing domain, or shrink "
@@ -3053,7 +3053,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             reporter.line(meshkit::Severity::Info)
                 << "[Mesh] DEM coverage fill:" << nUncovered
                 << "vertices with no DEM sample interpolated"
-                << "from neighbours —" << sweeps << "seed sweep(s)," << relax
+                << "from neighbors —" << sweeps << "seed sweep(s)," << relax
                 << "relaxation iteration(s)";
         }
     }
@@ -3169,7 +3169,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
         for (int i = 0; i < result.triangles.size(); ++i) {
             if ((i % kVerifyChunk) == 0) {
                 if (promise.isCanceled()) {
-                    fail(QObject::tr("Cancelled."));
+                    fail(QObject::tr("Canceled."));
                     return;
                 }
                 progress(85, QObject::tr("Checking final terrain accuracy…"));
@@ -3296,7 +3296,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     // closing or discarding the project must leave its saved files unchanged.
     progress(85, QObject::tr("Preparing generated mesh for review…"));
     if (promise.isCanceled()) {
-        fail(QObject::tr("Cancelled."));
+        fail(QObject::tr("Canceled."));
         return;
     }
     if (in.geometryMode != 0) {
@@ -3355,7 +3355,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     }
 
     if (promise.isCanceled()) {
-        fail(QObject::tr("Cancelled."));
+        fail(QObject::tr("Canceled."));
         return;
     }
     QString corridorError;
@@ -3412,7 +3412,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     int belowMinimum = 0;
     for (int i = 0; i < result.triangles.size(); ++i) {
         if ((i & 8191) == 0 && promise.isCanceled()) {
-            fail(QObject::tr("Cancelled."));
+            fail(QObject::tr("Canceled."));
             return;
         }
         const auto &cell = result.triangles[i];
@@ -3981,7 +3981,7 @@ void MeshGenerationDialog::buildUi()
                "elevations, crown elevations, and mesh Z values are consistent.\n"
                "'Match flow units' converts automatically from the DTM vertical unit."));
         m_meshVertCRSCombo->addItem(tr("Match flow units (auto-convert)"), QStringLiteral("auto"));
-        m_meshVertCRSCombo->addItem(tr("Metres (m)"), QStringLiteral("m"));
+        m_meshVertCRSCombo->addItem(tr("Meters (m)"), QStringLiteral("m"));
         m_meshVertCRSCombo->addItem(tr("Feet (ft)"), QStringLiteral("ft"));
         f->addRow(tr("Mesh vertical unit:"), m_meshVertCRSCombo);
 
@@ -4006,7 +4006,7 @@ void MeshGenerationDialog::buildUi()
             if (raster) {
                 const QString unit = raster->detectVerticalUnit();
                 m_dtmVertUnitLabel->setText(unit == QLatin1String("ft") ? tr("ft (feet)")
-                                                                        : tr("m (metres)"));
+                                                                        : tr("m (meters)"));
             } else {
                 m_dtmVertUnitLabel->setText(tr("—"));
             }
@@ -4157,7 +4157,7 @@ void MeshGenerationDialog::buildUi()
                "(junctions → outfalls → storage → dividers, model order) keeps a\n"
                "pinned mesh vertex; the others are coupled to their containing\n"
                "CELL instead ([2D_TRIANGLE_NODE_MAP]).  Prevents clusters of tiny\n"
-               "triangles where manholes sit centimetres apart.\n\n"
+               "triangles where manholes sit centimeters apart.\n\n"
                "Requires \"Map model nodes to the mesh after generation\" so the\n"
                "demoted nodes still get coupled.  Note: if conduits are included\n"
                "as constraints, their endpoints can still pin vertices at node\n"
@@ -4257,14 +4257,14 @@ void MeshGenerationDialog::buildUi()
         m_elevMethodCombo = new QComboBox(m_elevInterpGroup);
         m_elevMethodCombo->addItem(tr("Inverse distance weighting (IDW)"),
                                    int(ElevInterpMethod::IDW));
-        m_elevMethodCombo->addItem(tr("Natural neighbour"),
+        m_elevMethodCombo->addItem(tr("Natural neighbor"),
                                    int(ElevInterpMethod::NaturalNeighbour));
         f->addRow(tr("Method:"), m_elevMethodCombo);
 
         m_nnVariantCombo = new QComboBox(m_elevInterpGroup);
         m_nnVariantCombo->addItem(tr("Sibson (area-stealing)"), int(NNVariant::Sibson));
         m_nnVariantCombo->addItem(tr("Laplace (edge-ratio)"), int(NNVariant::Laplace));
-        m_nnVariantCombo->setToolTip(tr("Sibson: smooth area-based natural-neighbour coordinates.\n"
+        m_nnVariantCombo->setToolTip(tr("Sibson: smooth area-based natural-neighbor coordinates.\n"
                                         "Laplace: faster non-Sibsonian edge/distance ratio.\n"
                                         "Both fall back to IDW outside the seed convex hull."));
         f->addRow(tr("NN variant:"), m_nnVariantCombo);
@@ -4276,7 +4276,7 @@ void MeshGenerationDialog::buildUi()
         m_idwPowerSpin->setToolTip(
             tr("Shepard exponent p for IDW: weight = 1 / distance^p.\n"
                "Higher p → sharper, more local influence. Default 2.\n"
-               "Also used as the natural-neighbour fallback outside the hull."));
+               "Also used as the natural-neighbor fallback outside the hull."));
         f->addRow(tr("IDW power:"), m_idwPowerSpin);
 
         /**
@@ -4376,7 +4376,7 @@ void MeshGenerationDialog::buildUi()
         m_smoothingSpin->setValue(4);
         m_smoothingSpin->setSpecialValueText(tr("off"));
         m_smoothingSpin->setToolTip(
-            tr("Passes that move free vertices toward the centre of their neighbours when that "
+            tr("Passes that move free vertices toward the center of their neighbors when that "
                "improves the worst angle around them. Vertices on constraints never move."));
         f->addRow(tr("&Smoothing passes:"), m_smoothingSpin);
 
@@ -4465,7 +4465,7 @@ void MeshGenerationDialog::buildUi()
     if (m_pw && !m_pw->corridorRecipeLoadError().isEmpty()) {
         auto *warning = new QLabel(
             tr("The saved corridor recipe could not be loaded: %1\n"
-               "Review the source settings. Generating a new mesh can replace this recipe; cancelling preserves it.")
+               "Review the source settings. Generating a new mesh can replace this recipe; canceling preserves it.")
                 .arg(m_pw->corridorRecipeLoadError()),
             corridorGroup);
         warning->setWordWrap(true);
@@ -5521,7 +5521,7 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut, b
             return fail(
                 tr("The project CRS (%1) has no usable planar linear unit.\n"
                    "2D mesh generation requires a projected or local CRS in "
-                   "metres or feet. Geographic (lat/lon) CRSes are not "
+                   "meters or feet. Geographic (lat/lon) CRSes are not "
                    "supported.\n\n"
                    "Fix: open Project → Change CRS… and pick a projected CRS, "
                    "or use the 'Local projected' option when the source units "
@@ -6244,10 +6244,10 @@ void MeshGenerationDialog::onMeshFinished()
     m_cancelBtn->setEnabled(true); // re-enable in all paths
 
     if (m_watcher->isCanceled()) {
-        m_progressLabel->setText(wasPreview ? tr("Constraint preview cancelled.") : tr("Generation cancelled."));
+        m_progressLabel->setText(wasPreview ? tr("Constraint preview canceled.") : tr("Generation canceled."));
         m_runLog->addNote(meshkit::Severity::Warning,
-                          wasPreview ? tr("Constraint preview cancelled.") :
-                                       tr("Generation cancelled; the previous mesh is unchanged."));
+                          wasPreview ? tr("Constraint preview canceled.") :
+                                       tr("Generation canceled; the previous mesh is unchanged."));
         m_watcher->deleteLater();
         m_watcher = nullptr;
         clearGenerationGuard();
@@ -6467,7 +6467,7 @@ void MeshGenerationDialog::onCancelOrReject()
         // restore the UI and clean up the watcher.
         m_watcher->cancel();
         m_cancelBtn->setEnabled(false); // prevent double-cancel
-        m_progressLabel->setText(tr("Cancelling…"));
+        m_progressLabel->setText(tr("Canceling…"));
     } else {
         reject();
     }

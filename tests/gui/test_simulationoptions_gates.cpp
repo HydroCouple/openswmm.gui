@@ -502,7 +502,7 @@ void TestSimulationOptionsGates::rowRedirect()
     QCOMPARE(cats->currentRow(), row);
 
     module2D->setChecked(false);
-    QVERIFY2(cats->currentRow() != row, "left the user on a greyed page");
+    QVERIFY2(cats->currentRow() != row, "left the user on a grayed page");
     QVERIFY2(rowEnabled(cats, cats->currentRow()), "redirected onto another disabled row");
 }
 
@@ -628,7 +628,7 @@ void TestSimulationOptionsGates::tabRedirect()
     QCOMPARE(tabs->currentIndex(), 1);
 
     setRouting(dlg, "STEADY"); // Dynamic Wave goes away
-    QVERIFY2(tabs->currentIndex() != 1, "left the user on a greyed tab");
+    QVERIFY2(tabs->currentIndex() != 1, "left the user on a grayed tab");
     QVERIFY2(tabs->isTabEnabled(tabs->currentIndex()), "redirected onto another disabled tab");
 }
 

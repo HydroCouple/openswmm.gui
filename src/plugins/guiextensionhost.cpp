@@ -494,7 +494,7 @@ bool GuiExtensionHost::releaseProgress(const QUuid &inputOperationId, ProgressOu
         return true;
     const auto state = outcome == ProgressOutcome::Succeeded ? tr("completed")
                        : outcome == ProgressOutcome::Failed ? tr("failed")
-                                                            : tr("cancelled");
+                                                            : tr("canceled");
     QString message = tr("%1: %2.").arg(title, state);
     if (!detail.isEmpty())
         message += QStringLiteral(" ") + detail;

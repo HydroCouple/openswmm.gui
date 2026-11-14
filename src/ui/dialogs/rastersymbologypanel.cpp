@@ -1,6 +1,6 @@
 /**
  * @file      rastersymbologypanel.cpp
- * @brief     renderer chooser (QGIS "Singleband pseudocolor" / "Paletted" / "Multiband colour")
+ * @brief     renderer chooser (QGIS "Singleband pseudocolor" / "Paletted" / "Multiband color")
  *            mounted by LayerStyleDialog.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
@@ -69,7 +69,7 @@ RasterSymbologyPanel::RasterSymbologyPanel(GISRasterLayer *layer, QWidget *paren
     // The RGB composite warps bytes straight into the tile, so it is only
     // offered where it renders faithfully (≥3 Byte bands).
     if (m_layer && m_layer->bandCount() >= 3 && m_layer->isByteRaster())
-        m_kindCombo->addItem(tr("Multiband colour"), int(Kind::MultiBand));
+        m_kindCombo->addItem(tr("Multiband color"), int(Kind::MultiBand));
     kindLabel->setBuddy(m_kindCombo);
     kindRow->addWidget(kindLabel);
     kindRow->addWidget(m_kindCombo, 1);
@@ -157,13 +157,13 @@ QWidget *RasterSymbologyPanel::buildPalettedPage()
     auto *form = new QFormLayout;
     m_paletteCombo = new QComboBox(page);
     m_paletteCombo->addItems(CategoricalPalette::builtinNames());
-    m_paletteCombo->setToolTip(tr("Colours assigned to classes (and to values not "
+    m_paletteCombo->setToolTip(tr("Colors assigned to classes (and to values not "
                                   "listed in the table)."));
     form->addRow(tr("&Palette:"), m_paletteCombo);
     lay->addLayout(form);
 
     m_palModel = new QStandardItemModel(0, 3, page);
-    m_palModel->setHorizontalHeaderLabels({tr("Value"), tr("Label"), tr("Colour")});
+    m_palModel->setHorizontalHeaderLabels({tr("Value"), tr("Label"), tr("Color")});
     m_palTable = new QTableView(page);
     m_palTable->setObjectName(QStringLiteral("rasterPalettedTable"));
     m_palTable->setModel(m_palModel);
@@ -180,8 +180,8 @@ QWidget *RasterSymbologyPanel::buildPalettedPage()
     m_classifyBtn->setToolTip(tr("Rebuild the classes from the values found in a "
                                  "decimated sample of the band (rare classes may be "
                                  "missed — add them with +)."));
-    m_loadTableBtn = new QPushButton(tr("Load colour table"), page);
-    m_loadTableBtn->setToolTip(tr("Use the colour table embedded in the raster file."));
+    m_loadTableBtn = new QPushButton(tr("Load color table"), page);
+    m_loadTableBtn->setToolTip(tr("Use the color table embedded in the raster file."));
     auto *addBtn = new QPushButton(tr("+"), page);
     auto *removeBtn = new QPushButton(tr("−"), page);
     addBtn->setToolTip(tr("Add a class"));
@@ -500,7 +500,7 @@ void RasterSymbologyPanel::refreshFromModel()
     // the file was re-typed); keep the combo truthful.
     int idx = m_kindCombo->findData(int(kind));
     if (idx < 0) {
-        m_kindCombo->addItem(tr("Multiband colour"), int(Kind::MultiBand));
+        m_kindCombo->addItem(tr("Multiband color"), int(Kind::MultiBand));
         idx = m_kindCombo->findData(int(kind));
     }
     {

@@ -169,7 +169,7 @@ void OpenSWMMVisMapToolAddInletNode::mouseReleaseEvent(QMouseEvent *event)
         canvas->invalidate(MapCanvas::Scene | MapCanvas::Overlay, QStringLiteral("addij-commit"));
     });
     connect(dlg, &QDialog::rejected, this,
-            [this]() { emit statusMessageChanged(tr("Inlet junction cancelled.")); });
+            [this]() { emit statusMessageChanged(tr("Inlet junction canceled.")); });
 
     dlg->show();
     dlg->raise();

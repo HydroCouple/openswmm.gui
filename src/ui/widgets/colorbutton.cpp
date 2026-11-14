@@ -49,11 +49,11 @@ void ColorButton::updateAccessibleDescription()
 {
     // Keep the contextual name supplied by the form's label buddy. Qt emits
     // DescriptionChanged when this property changes, including alpha-only edits.
-    setAccessibleDescription(m_color.isValid() ? tr("Colour: %1; alpha: %2 of 255 (%3% opacity)")
+    setAccessibleDescription(m_color.isValid() ? tr("Color: %1; alpha: %2 of 255 (%3% opacity)")
                                                      .arg(m_color.name(QColor::HexRgb))
                                                      .arg(m_color.alpha())
                                                      .arg(qRound(m_color.alphaF() * 100.0))
-                                               : tr("No colour selected"));
+                                               : tr("No color selected"));
 }
 
 void ColorButton::onClicked()
@@ -61,7 +61,7 @@ void ColorButton::onClicked()
     const QColorDialog::ColorDialogOptions opts =
         m_showAlpha ? QColorDialog::ShowAlphaChannel : QColorDialog::ColorDialogOptions();
     const QColor picked = QColorDialog::getColor(m_color.isValid() ? m_color : Qt::black, this,
-                                                 tr("Select colour"), opts);
+                                                 tr("Select color"), opts);
     if (picked.isValid())
         setColor(picked);
 }

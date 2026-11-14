@@ -135,11 +135,11 @@ QString ChartProperties::displayLabelFor(const QString &name) const
     if (name == QStringLiteral("tickLabelFont"))
         return QStringLiteral("Fonts — Tick labels");
     if (name == QStringLiteral("backgroundColor"))
-        return QStringLiteral("Colours — Background");
+        return QStringLiteral("Colors — Background");
     if (name == QStringLiteral("plotAreaColor"))
-        return QStringLiteral("Colours — Plot area");
+        return QStringLiteral("Colors — Plot area");
     if (name == QStringLiteral("gridColor"))
-        return QStringLiteral("Colours — Grid");
+        return QStringLiteral("Colors — Grid");
     if (name == QStringLiteral("chartTheme"))
         return QStringLiteral("Theme");
     if (name == QStringLiteral("legendPosition"))

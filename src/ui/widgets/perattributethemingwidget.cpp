@@ -35,17 +35,17 @@ void PerAttributeThemingWidget::buildUi()
 
     h->addWidget(new QLabel(tr("N:"), this));
     m_nodeCombo = new QComboBox(this);
-    m_nodeCombo->setToolTip(tr("Node attribute that drives node colour fill"));
+    m_nodeCombo->setToolTip(tr("Node attribute that drives node color fill"));
     h->addWidget(m_nodeCombo);
 
     h->addWidget(new QLabel(tr("L:"), this));
     m_linkCombo = new QComboBox(this);
-    m_linkCombo->setToolTip(tr("Link attribute that drives link colour fill"));
+    m_linkCombo->setToolTip(tr("Link attribute that drives link color fill"));
     h->addWidget(m_linkCombo);
 
     h->addWidget(new QLabel(tr("S:"), this));
     m_subCombo = new QComboBox(this);
-    m_subCombo->setToolTip(tr("Subcatchment attribute that drives subcatch colour fill"));
+    m_subCombo->setToolTip(tr("Subcatchment attribute that drives subcatch color fill"));
     h->addWidget(m_subCombo);
 
     connect(m_nodeCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,

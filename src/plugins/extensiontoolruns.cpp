@@ -48,7 +48,7 @@ QString outcomeLabel(ToolRunOutcome outcome)
     case ToolRunOutcome::Succeeded: return QObject::tr("Completed");
     case ToolRunOutcome::Warning: return QObject::tr("Completed with warnings");
     case ToolRunOutcome::Failed: return QObject::tr("Failed");
-    case ToolRunOutcome::Cancelled: return QObject::tr("Cancelled");
+    case ToolRunOutcome::Cancelled: return QObject::tr("Canceled");
     }
     return {};
 }

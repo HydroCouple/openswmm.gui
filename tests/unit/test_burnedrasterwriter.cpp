@@ -405,7 +405,7 @@ TEST(BurnedRasterWriter, CancellationRemovesThePartialOutput)
     BurnRasterStats st;
     QString err;
     EXPECT_FALSE(writeBurnedRaster(req, &st, &err));
-    EXPECT_EQ(err, QStringLiteral("Cancelled."));
+    EXPECT_EQ(err, QStringLiteral("Canceled."));
     EXPECT_FALSE(QFileInfo::exists(dst));
 }
 
@@ -509,7 +509,7 @@ TEST(BurnedRasterWriter, EmptyOwnedStageCanBeWrittenAndLateCancellationCleansIt)
     stats.pixelsVisited = 123;
     QString error;
     EXPECT_FALSE(writeBurnedRaster(req, &stats, &error));
-    EXPECT_EQ(error, QStringLiteral("Cancelled."));
+    EXPECT_EQ(error, QStringLiteral("Canceled."));
     EXPECT_FALSE(QFileInfo::exists(dst));
     EXPECT_EQ(stats.pixelsVisited, 123);
     {

@@ -475,7 +475,7 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
             case SimulationJobStatus::Failed:
                 return tr("Failed");
             case SimulationJobStatus::Cancelled:
-                return tr("Cancelled");
+                return tr("Canceled");
             }
             break;
         case ColProgress:

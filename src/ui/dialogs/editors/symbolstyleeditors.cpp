@@ -152,7 +152,7 @@ LineSymbolStyleEditor::LineSymbolStyleEditor(LineSymbolStyleAdapter *adapter, QW
 
     m_color = new ColorButton(box);
     m_color->setShowAlpha(true);
-    form->addRow(tr("Colou&r:"), m_color);
+    form->addRow(tr("Colo&r:"), m_color);
 
     m_width = new QDoubleSpinBox(box);
     m_width->setRange(0.25, 30.0);

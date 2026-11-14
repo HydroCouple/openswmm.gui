@@ -577,7 +577,7 @@ TEST(SwashesExamples, DecksShareOneFrame)
                 ymax = std::max(ymax, y);
             }
             EXPECT_DOUBLE_EQ(xmin, 0.0);
-            EXPECT_NEAR(ymin, -ymax, 1e-9) << "strip not centred on y = 0";
+            EXPECT_NEAR(ymin, -ymax, 1e-9) << "strip not centered on y = 0";
             EXPECT_GT(ymax, 0.0);
 
             QMap<QString, XY> at;

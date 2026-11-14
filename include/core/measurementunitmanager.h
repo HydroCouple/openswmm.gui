@@ -77,7 +77,7 @@ public:
     [[nodiscard]] static QString distanceUnitSymbol(DistanceUnit unit);
 
     /*!
-     * \brief Returns the full unit name (e.g. "Metres", "US survey feet").
+     * \brief Returns the full unit name (e.g. "Meters", "US survey feet").
      * @param[in] unit Unit whose translated name is requested.
      * @return Translated name, or an empty string for an unknown enum.
      */
@@ -137,7 +137,7 @@ public:
     [[nodiscard]] static QString areaUnitSymbol(AreaUnit unit);
 
     /*!
-     * \brief Returns the full unit name (e.g. "Square metres", "Hectares").
+     * \brief Returns the full unit name (e.g. "Square meters", "Hectares").
      * @param[in] unit Unit whose translated name is requested.
      * @return Translated name, or an empty string for an unknown enum.
      */

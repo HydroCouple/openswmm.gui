@@ -1078,7 +1078,7 @@ void SWMMVisProjectWindow::loadModelAsync(OpenProgressModel *progress)
             if (!ok && layer && !layer->engine())
                 layer->setVisible(wasVisible);
             if (!ok && errors.isEmpty())
-                errors.append(QObject::tr("Model open was cancelled."));
+                errors.append(QObject::tr("Model open was canceled."));
             // Allow a failure handler to repair/retry immediately.
             cleanup.dismiss();
             watcher->deleteLater();
@@ -1257,7 +1257,7 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
                     const int result = dlg->exec();
                     if (!contextCurrent() || !dlg) {
                         errors.append(QObject::tr(
-                            "Project open cancelled because its model or owner changed."));
+                            "Project open canceled because its model or owner changed."));
                         return false;
                     }
                     if (result == QDialog::Accepted) {
@@ -1295,11 +1295,11 @@ bool SWMMVisProjectWindow::finishModelLoad(QList<QString> &warnings, QList<QStri
                     mb->exec();
                     if (!contextCurrent() || !mb) {
                         errors.append(QObject::tr(
-                            "Project open cancelled because its model or owner changed."));
+                            "Project open canceled because its model or owner changed."));
                         return false;
                     }
                     if (mb->clickedButton() == abortBtn) {
-                        errors.append(tr("Project open cancelled: no CRS selected."));
+                        errors.append(tr("Project open canceled: no CRS selected."));
                         mModelLayer->setVisible(false);
                         return false;
                     }
@@ -1616,7 +1616,7 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
                     projectDir.filePath(QStringLiteral("%1_%2.%3").arg(base).arg(n++).arg(ext));
             } while (QFileInfo::exists(meshPath) || QFileInfo(meshPath).isSymLink());
         } else if (clicked != overwrite) {
-            fail(tr("2D mesh import cancelled."));
+            fail(tr("2D mesh import canceled."));
             return;
         } else {
             requireAbsentDestination = false;
@@ -1756,7 +1756,7 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
             return QCoreApplication::translate("SWMMVisProjectWindow", message);
         };
         if (isCancelled()) {
-            out.errorMsg = error("2D mesh import cancelled.");
+            out.errorMsg = error("2D mesh import canceled.");
             return out;
         }
         // A pathless project has no writable project directory yet. Never
@@ -1866,7 +1866,7 @@ void SWMMVisProjectWindow::importMeshFileAsync(const QString &srcPath)
             return out;
         }
         if (isCancelled()) {
-            out.errorMsg = error("2D mesh import cancelled.");
+            out.errorMsg = error("2D mesh import canceled.");
             return out;
         }
         artifacts->protectInput(sourcePath,

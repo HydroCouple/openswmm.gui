@@ -1657,7 +1657,7 @@ private slots:
             QTest::mouseRelease(view->viewport(), Qt::LeftButton, {}, centre);
             return QTest::qWaitFor([view] {
                 return view->model()->index(0, 2).data(Qt::AccessibleTextRole).toString() ==
-                       QStringLiteral("Colour #ff0000");
+                       QStringLiteral("Color #ff0000");
             }, 3000);
         };
         const auto colourColumnReadable = [](IRendererPanel *panel) {

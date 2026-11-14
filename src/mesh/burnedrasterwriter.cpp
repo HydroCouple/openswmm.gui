@@ -103,7 +103,7 @@ bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QSt
         return fail(QStringLiteral("burn: the selected conduits produced no corridor"));
 
     if (req.progress && !req.progress(0, QStringLiteral("Preparing the burned DEM…")))
-        return fail(QStringLiteral("Cancelled."));
+        return fail(QStringLiteral("Canceled."));
     bool outputClaimed = false;
     bool complete = false;
     const auto removePartial = qScopeGuard([&] {
@@ -230,7 +230,7 @@ bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QSt
         const CPLErr copyFlush = copy ? copy->FlushCache(false) : CE_Failure;
         const CPLErr copyClose = copy ? GDALClose(copy) : CE_Failure;
         if (copyProgress.cancelled)
-            return fail(QStringLiteral("Cancelled."));
+            return fail(QStringLiteral("Canceled."));
         if (!copy)
             return fail(QStringLiteral("burn: cannot write %1").arg(req.outputPath));
         if (sourceClose != CE_None || copyFlush != CE_None || copyClose != CE_None)
@@ -374,14 +374,14 @@ bool writeBurnedRaster(const BurnRasterRequest &req, BurnRasterStats *stats, QSt
         if (req.progress) {
             const int pct = 20 + int(80.0 * double(++done) / double(tiles.size()));
             if (!req.progress(pct, QStringLiteral("Burning channels into the DEM…"))) {
-                return fail(QStringLiteral("Cancelled."));
+                return fail(QStringLiteral("Canceled."));
             }
         }
     }
 
     if (tiles.isEmpty() && req.progress &&
         !req.progress(100, QStringLiteral("Finishing the burned DEM…")))
-        return fail(QStringLiteral("Cancelled."));
+        return fail(QStringLiteral("Canceled."));
     const CPLErr bandFlush = band->FlushCache(false);
     const CPLErr datasetFlush = dst->FlushCache(false);
     const CPLErr datasetClose = GDALClose(dst);

@@ -134,10 +134,10 @@ public:
     int frameContentRevision(int time) const override { return revision; }
     /**
      *
-     * @brief Replace output arrays with the fixed 100-metre square triangle mesh.
-     * @param x Borrowed output vertex x coordinates in metres, four entries on return.
-     * @param y Borrowed output y coordinates in metres, four entries.
-     * @param z Borrowed output bed elevations in metres, all zero.
+     * @brief Replace output arrays with the fixed 100-meter square triangle mesh.
+     * @param x Borrowed output vertex x coordinates in meters, four entries on return.
+     * @param y Borrowed output y coordinates in meters, four entries.
+     * @param z Borrowed output bed elevations in meters, all zero.
      * @param t Borrowed output zero-based triangles (0,1,2) and (0,2,3).
      * @return Always true on ordinary completion. Outputs are independently assigned;
      * allocation can throw after partial updates. No retained output references.
@@ -156,7 +156,7 @@ public:
      *
      * @brief Read one uniform depth for both triangular cells and count the read.
      * @param t Zero-based frame index in [0,depths.size()); vector::at throws otherwise.
-     * @param d Borrowed output replaced by two copies of the selected metre depth.
+     * @param d Borrowed output replaced by two copies of the selected meter depth.
      * @return True on completion; increments reads before indexed access/allocation,
      * including failed attempts. No asynchronous IO or source ownership transfer.
      *
@@ -182,7 +182,7 @@ public:
     /**
      *
      * @brief Replace fixed triangular edge lengths and outward normal components.
-     * @param len Borrowed output eight cell-major slots, stride four; metre lengths,
+     * @param len Borrowed output eight cell-major slots, stride four; meter lengths,
      * with unused fourth slots zero.
      * @param nx Borrowed output dimensionless x normals in matching slot order.
      * @param ny Borrowed output dimensionless y normals.
@@ -236,10 +236,10 @@ public:
     int triangleCount() const override { return 1; }
     /**
      *
-     * @brief Replace outputs with one counterclockwise 100-metre square native quad.
-     * @param x Borrowed output four metre x coordinates.
-     * @param y Borrowed output four metre y coordinates.
-     * @param z Borrowed output four zero metre bed elevations.
+     * @brief Replace outputs with one counterclockwise 100-meter square native quad.
+     * @param x Borrowed output four meter x coordinates.
+     * @param y Borrowed output four meter y coordinates.
+     * @param z Borrowed output four zero meter bed elevations.
      * @param cells Borrowed output zero-based native quad (0,1,2,3).
      * @return Always true on ordinary completion; sequential assignments are not an
      * exception transaction and no references are retained.
@@ -258,7 +258,7 @@ public:
      *
      * @brief Read the selected uniform depth for the single native quad.
      * @param t Valid zero-based frame index; vector::at throws otherwise.
-     * @param d Borrowed output replaced by one metre depth value.
+     * @param d Borrowed output replaced by one meter depth value.
      * @return True on completion. Unlike FlowSource's implementation this does not
      * increment reads; no file IO, output-reference retention or local validation.
      *
@@ -270,8 +270,8 @@ public:
     }
     /**
      *
-     * @brief Replace quad edge metadata with four axis-aligned 100-metre edges.
-     * @param len Borrowed output four lengths in metres.
+     * @brief Replace quad edge metadata with four axis-aligned 100-meter edges.
+     * @param len Borrowed output four lengths in meters.
      * @param nx Borrowed output dimensionless x normals {1,0,-1,0}.
      * @param ny Borrowed output dimensionless y normals {0,1,0,-1}.
      * @return Always true on ordinary completion. Arrays mutate independently and
@@ -350,9 +350,9 @@ public:
     /**
      *
      * @brief Build the base square geometry, then replace its bed elevations by a slope.
-     * @param x Borrowed output four metre x coordinates.
-     * @param y Borrowed output four metre y coordinates.
-     * @param z Borrowed output metre elevations {0,1,1,0}.
+     * @param x Borrowed output four meter x coordinates.
+     * @param y Borrowed output four meter y coordinates.
+     * @param z Borrowed output meter elevations {0,1,1,0}.
      * @param t Borrowed output base zero-based triangle topology.
      * @return True on ordinary completion; base output assignments and z replacement
      * are not transactional on allocation exceptions. Does not alter source depth values.
@@ -426,7 +426,7 @@ public:
      * @param time Valid zero-based index into depths; indexed access throws when a wet
      * cell needs an unavailable time.
      * @param cell Valid native cell ID mapped through virtual squareIndex.
-     * @return Metre depth when wetFraction>=1 or square-column centre is below
+     * @return Meter depth when wetFraction>=1 or square-column center is below
      * cols*wetFraction; otherwise zero. Requires positive cols; no bounds/finite checks
      * or source mutation. The dry branch need not access the time vector.
      *
@@ -450,7 +450,7 @@ public:
      * @brief Build an immutable selected-cell depth/flux packet for the triangular grid.
      * @param t Valid frame index for requested wet cells.
      * @param ids Borrowed valid ordered native cell selection accepted by validHydraulicCells.
-     * @return Shared owned packet with requested IDs, metre depths and stride-four m3/s
+     * @return Shared owned packet with requested IDs, meter depths and stride-four m3/s
      * flux. Invalid IDs return null without increment; valid requests increment regionalReads,
      * then regionalMissing can force null. regionalMismatch deliberately publishes t+1,
      * otherwise t, with current revision/generation. Right-half discharge is doubled.
@@ -496,9 +496,9 @@ public:
     /**
      *
      * @brief Fill grid coordinates and append counterclockwise triangle pairs.
-     * @param x Borrowed output replaced by unit-spaced x coordinates in metres.
-     * @param y Borrowed output replaced by metre y coordinates.
-     * @param z Borrowed output replaced by zero metre bed elevations.
+     * @param x Borrowed output replaced by unit-spaced x coordinates in meters.
+     * @param y Borrowed output replaced by meter y coordinates.
+     * @param z Borrowed output replaced by zero meter bed elevations.
      * @param triangles Borrowed output appended with 2*cols*rows zero-based triangles;
      * caller must supply an empty vector for an exact complete mesh (reserve does not clear).
      * @return Always true on ordinary completion. Requires valid dimensions/products;
@@ -530,7 +530,7 @@ public:
      *
      * @brief Fill every native cell depth and count one full-frame read.
      * @param t Valid zero-based frame index; initial vector::at access always occurs.
-     * @param d Borrowed output replaced by triangleCount() metre depths, then masked
+     * @param d Borrowed output replaced by triangleCount() meter depths, then masked
      * with virtual cellDepth when wetFraction<1.
      * @return True on completion; increments reads before access/allocation and propagates
      * failures with partial outputs. No file IO or cell-selection cache.
@@ -548,7 +548,7 @@ public:
     /**
      *
      * @brief Fill repeated unit-square triangle edge geometry in stride-four order.
-     * @param len Borrowed output triangleCount()*4 metre lengths, including sqrt(2)
+     * @param len Borrowed output triangleCount()*4 meter lengths, including sqrt(2)
      * diagonals and zero fourth slots.
      * @param nx Borrowed output matching dimensionless x normals.
      * @param ny Borrowed output matching dimensionless y normals.
@@ -620,7 +620,7 @@ public:
      * @brief Build selected native-quad hydraulics with unit-edge oriented discharge.
      * @param t Valid depth frame index for wet selected cells.
      * @param ids Borrowed selection accepted by validHydraulicCells against native count.
-     * @return Shared owned packet with copied IDs, metre depths and four m3/s edge fluxes
+     * @return Shared owned packet with copied IDs, meter depths and four m3/s edge fluxes
      * per cell, current revision/generation and time t. Increments regionalReads after
      * validating IDs. Unlike the triangular base, ignores regionalMissing/regionalMismatch
      * and does not double right-half speed. Invalid IDs return null; exceptions propagate.
@@ -648,9 +648,9 @@ public:
     /**
      *
      * @brief Fill unit-grid coordinates and append native counterclockwise quads.
-     * @param x Borrowed output replaced by metre x coordinates.
-     * @param y Borrowed output replaced by metre y coordinates.
-     * @param z Borrowed output replaced by zero metre elevations.
+     * @param x Borrowed output replaced by meter x coordinates.
+     * @param y Borrowed output replaced by meter y coordinates.
+     * @param z Borrowed output replaced by zero meter elevations.
      * @param cells Borrowed output appended with cols*rows four-index quads; must start
      * empty for exact mesh output. No implicit clear or geometric validation.
      * @return True on completion with sequential allocations/partial mutation on exception;
@@ -679,7 +679,7 @@ public:
     /**
      *
      * @brief Fill four unit-length axis-aligned edges per native quad.
-     * @param len Borrowed output 4*cellCount metre lengths, all one.
+     * @param len Borrowed output 4*cellCount meter lengths, all one.
      * @param nx Borrowed output repeated {1,0,-1,0} dimensionless normals.
      * @param ny Borrowed output repeated {0,1,0,-1} dimensionless normals.
      * @return True on completion. Vectors allocate independently; no dummy slots,
@@ -2162,7 +2162,7 @@ private slots:
     /**
      *
      * @brief Require triangular/quad flux reconstruction to retain 2-m/s physical speed under
-     * metre/foot coordinate scaling and cross a cell without stopping.
+     * meter/foot coordinate scaling and cross a cell without stopping.
      *
      */
     void nativeParticlesHonorSIAndQuadFluxDiagonals()
@@ -2569,7 +2569,7 @@ private slots:
         QImage image(16, 16, QImage::Format_ARGB32_Premultiplied);
         image.fill(Qt::transparent);
         const QRgb color = qPremultiply(qRgba(40, 100, 200, 128));
-        // The diagonal passes through pixel centres. Reversed winding must
+        // The diagonal passes through pixel centers. Reversed winding must
         // neither double the opacity nor leave a one-pixel crack.
         triangle(image, {{{{0, 0}, color}, {{16, 0}, color}, {{16, 16}, color}}});
         triangle(image, {{{{0, 0}, color}, {{0, 16}, color}, {{16, 16}, color}}});
@@ -4302,7 +4302,7 @@ private slots:
      * has a five-minute completion timeout and must emit live depths; persisted final
      * depth SHA-256 hashes must agree. Particle runs must render and attempt births;
      * median elapsed slowdown must be at most five percent. Results are machine/load
-     * dependent; live final timestamps need not agree. Incomplete runners are cancelled
+     * dependent; live final timestamps need not agree. Incomplete runners are canceled
      * by scope guard and JSON/deck short writes are not explicitly checked.
      *
      */

@@ -242,7 +242,7 @@ MeshResolutionWidget::MeshResolutionWidget(QWidget *parent) : QWidget(parent)
     transition->setDecimals(2);
     transition->setSingleStep(.05);
     transition->setToolTip(tr(
-        "Growth of the background size field, with no fixed upper limit. Smaller values make smoother transitions and more cells; final neighbouring cells can differ more near constraints."));
+        "Growth of the background size field, with no fixed upper limit. Smaller values make smoother transitions and more cells; final neighboring cells can differ more near constraints."));
     sizes->addRow(tr("Size transition rate:"), transition);
     breaklineTolerance = spin("meshBreaklineTolSpin");
     breaklineMode = choice("meshBreaklineMode", {tr("Automatic estimate"), tr("Specify a value")});
@@ -304,7 +304,7 @@ MeshResolutionWidget::MeshResolutionWidget(QWidget *parent) : QWidget(parent)
     coarsenPasses->setRange(1, 10);
     coarsenPasses->setValue(3);
     coarsenPasses->setToolTip(
-        tr("Maximum attempts per vertex. Neighbours are reconsidered after a removal."));
+        tr("Maximum attempts per vertex. Neighbors are reconsidered after a removal."));
     coarsenLayout->addRow(tr("Coarsening passes:"), coarsenPasses);
     coarseningOrder=choice("meshCoarseningOrder",{tr("Existing flatness order"),tr("Resolution and flatness")});
     coarsenLayout->addRow(tr("Removal order:"),coarseningOrder);

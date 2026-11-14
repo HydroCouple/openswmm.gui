@@ -381,7 +381,7 @@ RowAssignmentPreview previewRowAssignment(const RowAssignmentRequest &r,
     const RowSection s = r.before.section;
     const bool coverage = s == RowSection::Coverages;
     if (cancelled && cancelled())
-        return reject(QObject::tr("Cancelled."));
+        return reject(QObject::tr("Canceled."));
     if (r.cells.isEmpty() ||
         (coverage ? r.percents.size() : r.values.size()) != r.cells.size())
         return reject(QObject::tr("Select cells and provide one value per cell."));
@@ -413,7 +413,7 @@ RowAssignmentPreview previewRowAssignment(const RowAssignmentRequest &r,
     QSet<int> seen;
     for (int i = 0; i < r.cells.size(); ++i) {
         if (cancelled && cancelled())
-            return reject(QObject::tr("Cancelled."));
+            return reject(QObject::tr("Canceled."));
         const int cell = r.cells[i];
         if (cell < 0 || cell >= r.before.cellCount || seen.contains(cell))
             return reject(QObject::tr("A target cell is out of range or repeated."));
@@ -611,7 +611,7 @@ RowAssignmentPreview previewRowAssignment(const RowAssignmentRequest &r,
             }
         for (const Item &item : sorted) {
             if (cancelled && cancelled())
-                return reject(QObject::tr("Cancelled."));
+                return reject(QObject::tr("Canceled."));
             const int old = effectiveRow(r.before.rows, s, name, proto.zone, item.cell,
                                          r.before.cellTags[item.cell]);
             SectionRow row = proto;

@@ -768,7 +768,7 @@ Plan nearestPlan(const Input &in, Progress *progress)
         }
     });
     if (cancelled(progress)) {
-        plan.error = tr("Cancelled.");
+        plan.error = tr("Canceled.");
         return plan;
     }
 
@@ -855,7 +855,7 @@ Plan interpolatedPlan(const Input &in, Progress *progress)
     QString buildErr;
     const bool haveNN = interp.build(sites, &buildErr);
     if (!haveNN)
-        plan.warnings.append(tr("Natural-neighbour weighting is unavailable (%1); "
+        plan.warnings.append(tr("Natural-neighbor weighting is unavailable (%1); "
                                 "inverse-distance weighting was used throughout.")
                                  .arg(buildErr));
 
@@ -909,7 +909,7 @@ Plan interpolatedPlan(const Input &in, Progress *progress)
         }
     });
     if (cancelled(progress)) {
-        plan.error = tr("Cancelled.");
+        plan.error = tr("Canceled.");
         return plan;
     }
 

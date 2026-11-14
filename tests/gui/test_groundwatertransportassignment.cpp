@@ -128,7 +128,7 @@ private slots:
             r.target = GroundwaterTransportTarget::Source;
         int polls = 0;
         const auto p = previewGroundwaterTransport(r, [&] { return ++polls == 4; });
-        QCOMPARE(p.error, QString("Cancelled."));
+        QCOMPARE(p.error, QString("Canceled."));
         QVERIFY(p.cells.isEmpty());
         QVERIFY(p.after == r.before);
         polls = 0;

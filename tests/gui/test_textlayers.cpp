@@ -361,7 +361,7 @@ private slots:
             dialog.show();
             QApplication::processEvents();
             QVERIFY(dialog.grab().save(output() + "/text_editor.png"));
-            text->setPlainText("Cancelled");
+            text->setPlainText("Canceled");
             dialog.reject();
             QCOMPARE(item->text(), QString("Original"));
         }

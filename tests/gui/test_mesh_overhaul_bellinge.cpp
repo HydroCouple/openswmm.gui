@@ -828,7 +828,7 @@ void TestMeshOverhaulBellinge::acceptance()
                     .arg(grading.ratioP50, 0, 'f', 3)
                     .arg(gate(grading.ratioP50 <= 1.3,
                               QString("ratioP50 %1").arg(grading.ratioP50)));
-        rows << QString("| neighbour ratio > 2 on <= 0.05% of faces | %1 (%2%) | %3 |")
+        rows << QString("| neighbor ratio > 2 on <= 0.05% of faces | %1 (%2%) | %3 |")
                     .arg(above2)
                     .arg(above2Pct, 0, 'f', 3)
                     .arg(gate(above2Pct <= 0.05, QString("%1 faces above ratio 2").arg(above2)));

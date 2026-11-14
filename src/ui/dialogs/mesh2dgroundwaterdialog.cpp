@@ -476,7 +476,7 @@ void Mesh2DGroundwaterDialog::buildUi(Page initialPage)
         {Section::GwParams, "gwTransportParams", tr("Transport parameters"),
          tr("Porous-media properties in SI units. The running kernel uses grain density for "
             "sorption retardation and the dispersivities and molecular diffusivity for "
-            "dispersion; the thermal and vapour columns are kept for the thermal model. %1")
+            "dispersion; the thermal and vapor columns are kept for the thermal model. %1")
              .arg(scopes)},
         {Section::GwSorption, "gwSorption", tr("Sorption"),
          tr("Linear sorption and first-order decay of an aquifer species. Leave the decay blank "
@@ -546,7 +546,7 @@ QWidget *Mesh2DGroundwaterDialog::buildOptionsPage()
     m_soilCombo->setToolTip(tr("Default soil characteristic law. Gardner is the only one whose "
                                "quasi-steady recharge is a published closed form; the other three "
                                "reproduce the right equilibrium and sign, but their relaxation "
-                               "rate is this engine's modelling choice. Prefer the σ column "
+                               "rate is this engine's modeling choice. Prefer the σ column "
                                "closure where the answer matters."));
     form->addRow(tr("&Soil law:"), m_soilCombo);
 
@@ -649,7 +649,7 @@ QWidget *Mesh2DGroundwaterDialog::buildOptionsPage()
         tr("AUTO connects every node inside the mesh (outfalls excepted) to the aquifer under it; "
            "a Node Beds row overrides or opts a node out. ROWS connects only the nodes listed on "
            "the Node Beds tab."));
-    form->addRow(tr("Node &enrolment:"), m_enrolmentCombo);
+    form->addRow(tr("Node &enrollment:"), m_enrolmentCombo);
 
     auto *clock = new QGroupBox(tr("Groundwater time stepping"), page);
     auto *clockForm = new QFormLayout(clock);
@@ -887,7 +887,7 @@ QWidget *Mesh2DGroundwaterDialog::buildStatePage()
     auto *page = new QWidget(this);
     auto *v = new QVBoxLayout(page);
 
-    auto *hint = new QLabel(tr("Read-only. Everything here is in SI (metres, seconds, m³), which "
+    auto *hint = new QLabel(tr("Read-only. Everything here is in SI (meters, seconds, m³), which "
                                "is what the kernel holds — it is not converted, so a number "
                                "quoted from here means the same thing on any project."),
                             page);

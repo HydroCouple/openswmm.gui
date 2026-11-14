@@ -446,7 +446,7 @@ void Mesh2DRunLayer::getSeriesBatch(const QVector<SeriesRequest> &requests,
         // queue the series for a worker (takeExtractionJob) instead.
         if (m_deferFileReads && r.firstPeriod == 0 && !m_fileRevision.isEmpty()) {
             if (m_cancelled.count(key)) {
-                data.errorMessage = QStringLiteral("Loading cancelled");
+                data.errorMessage = QStringLiteral("Loading canceled");
             } else {
                 if (!m_inFlight.count(key))
                     m_deferred.insert(key);

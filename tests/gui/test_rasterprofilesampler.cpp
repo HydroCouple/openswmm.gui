@@ -56,7 +56,7 @@ private:
             QDir d(QDir::current());
             d.mkpath(QStringLiteral("test-output/rasterprofile"));
             m_outDir = d.absoluteFilePath(QStringLiteral("test-output/rasterprofile"));
-            qInfo("RasterProfileSampler test artefacts: %s", qPrintable(m_outDir));
+            qInfo("RasterProfileSampler test artifacts: %s", qPrintable(m_outDir));
         }
         return m_outDir;
     }

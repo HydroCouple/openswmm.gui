@@ -46,9 +46,9 @@ inline constexpr UebFieldSpec uebFields[] = {
     {"ALPHA_VO", "Fresh visible albedo", "Albedo and radiation", 0, 1},
     {"ALPHA_IRO", "Fresh infrared albedo", "Albedo and radiation", 0, 1},
     {"DNEWS", "Fresh-snow reset depth (m)", "Albedo and radiation", 0, 10},
-    {"R3", "Dust ageing coefficient", "Albedo and radiation", 0, 100},
-    {"CV", "Visible albedo ageing coefficient", "Albedo and radiation", 0, 1},
-    {"CIR", "Infrared albedo ageing coefficient", "Albedo and radiation", 0, 1},
+    {"R3", "Dust aging coefficient", "Albedo and radiation", 0, 100},
+    {"CV", "Visible albedo aging coefficient", "Albedo and radiation", 0, 1},
+    {"CIR", "Infrared albedo aging coefficient", "Albedo and radiation", 0, 1},
     {"BC_A", "Bristow–Campbell maximum transmissivity", "Albedo and radiation", .000001, 1},
     {"BC_C", "Bristow–Campbell exponent", "Albedo and radiation", .000001, 100}};
 

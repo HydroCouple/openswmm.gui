@@ -94,7 +94,7 @@ QString ProfilePlotOptions::displayLabelFor(const QString &propertyName) const
         {QStringLiteral("showFloodingGlyphs"), QObject::tr("Show surcharge / flooding glyphs")},
         {QStringLiteral("floodRadiusPx"), QObject::tr("Flooding glyph radius (px)")},
         {QStringLiteral("floodSweepDeg"), QObject::tr("Flooding glyph sweep angle (°)")},
-        {QStringLiteral("floodColor"), QObject::tr("Flooding glyph colour")},
+        {QStringLiteral("floodColor"), QObject::tr("Flooding glyph color")},
         // Theme — nodes
         {QStringLiteral("junctionFill"), QObject::tr("Junction fill")},
         {QStringLiteral("junctionOutline"), QObject::tr("Junction outline")},

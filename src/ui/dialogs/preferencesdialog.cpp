@@ -265,8 +265,8 @@ QWidget *PreferencesDialog::buildGeneralPage()
 
     m_profileStartColorBtn = new QPushButton(page);
     wireColorButton(m_profileStartColorBtn, m_pendingProfileStartColor,
-                    tr("Profile start endpoint colour"));
-    f->addRow(tr("Pro&file start halo colour"), m_profileStartColorBtn);
+                    tr("Profile start endpoint color"));
+    f->addRow(tr("Pro&file start halo color"), m_profileStartColorBtn);
 
     m_profileStartWidthSpin = new QDoubleSpinBox(page);
     m_profileStartWidthSpin->setRange(0.5, 20.0);
@@ -277,8 +277,8 @@ QWidget *PreferencesDialog::buildGeneralPage()
 
     m_profileEndColorBtn = new QPushButton(page);
     wireColorButton(m_profileEndColorBtn, m_pendingProfileEndColor,
-                    tr("Profile end endpoint colour"));
-    f->addRow(tr("Profile e&nd halo colour"), m_profileEndColorBtn);
+                    tr("Profile end endpoint color"));
+    f->addRow(tr("Profile e&nd halo color"), m_profileEndColorBtn);
 
     m_profileEndWidthSpin = new QDoubleSpinBox(page);
     m_profileEndWidthSpin->setRange(0.5, 20.0);
@@ -451,7 +451,7 @@ QWidget *PreferencesDialog::buildCanvasPage()
     m_snapToVerticesBox =
         new QCheckBox(tr("Also snap to link and subcatchment vertices"), snapGroup);
     m_snapToVerticesBox->setToolTip(
-        tr("In addition to node/gage centres, also snap to intermediate vertices\n"
+        tr("In addition to node/gage centers, also snap to intermediate vertices\n"
            "of links and polygon corners of subcatchments."));
     snapVlay->addWidget(m_snapToVerticesBox);
 
@@ -520,7 +520,7 @@ QWidget *PreferencesDialog::buildRenderingPage()
     auto *lv = new QVBoxLayout(linkGroup);
     lv->setContentsMargins(8, 8, 8, 8);
 
-    auto *intro = new QLabel(tr("Edit colour, width, line style, cap, and join per link type. "
+    auto *intro = new QLabel(tr("Edit color, width, line style, cap, and join per link type. "
                                 "Expand a row to access individual pen attributes. Changes apply "
                                 "immediately to open project views."),
                              linkGroup);
@@ -610,8 +610,8 @@ QWidget *PreferencesDialog::buildRenderingPage()
     auto *bcv = new QVBoxLayout(bcGroup);
     bcv->setContentsMargins(8, 8, 8, 8);
 
-    auto *bcIntro = new QLabel(tr("Default colour and width for the mesh's Boundary Conditions "
-                                  "sublayer, one entry per BC type. \"Colour by type\" shows or "
+    auto *bcIntro = new QLabel(tr("Default color and width for the mesh's Boundary Conditions "
+                                  "sublayer, one entry per BC type. \"Color by type\" shows or "
                                   "hides the sublayer on open meshes immediately. Wall edges are "
                                   "the interior wireframe and use the layer's own edge width.\n\n"
                                   "Edits here apply live to open meshes you have not styled "
@@ -1102,7 +1102,7 @@ void PreferencesDialog::addTwoDDefaultGroups(QVBoxLayout *lay, QVBoxLayout *cplL
                                 "written into new projects (when the 2D module default on the "
                                 "Simulation Defaults page is enabled) and used whenever a project "
                                 "has no value for a key, plus the seed values the Generate Mesh "
-                                "dialog starts from. Distances are metres; the mesh dialog "
+                                "dialog starts from. Distances are meters; the mesh dialog "
                                 "converts to the project's unit system."),
                              page);
     intro->setWordWrap(true);
@@ -1236,8 +1236,8 @@ void PreferencesDialog::addTwoDDefaultGroups(QVBoxLayout *lay, QVBoxLayout *cplL
     auto *rainForm = new QFormLayout(rainGroup);
 
     m_twoDRainfallModeCombo = new QComboBox(rainGroup);
-    m_twoDRainfallModeCombo->addItem(tr("Natural neighbour"), QStringLiteral("NATURAL_NEIGHBOUR"));
-    m_twoDRainfallModeCombo->addItem(tr("Nearest neighbour"), QStringLiteral("NEAREST_NEIGHBOUR"));
+    m_twoDRainfallModeCombo->addItem(tr("Natural neighbor"), QStringLiteral("NATURAL_NEIGHBOUR"));
+    m_twoDRainfallModeCombo->addItem(tr("Nearest neighbor"), QStringLiteral("NEAREST_NEIGHBOUR"));
     m_twoDRainfallModeCombo->addItem(tr("System mean"), QStringLiteral("SYSTEM"));
     m_twoDRainfallModeCombo->addItem(tr("None"), QStringLiteral("NONE"));
     rainForm->addRow(tr("Direct 2D rainfall (RAINFALL_MODE)"), m_twoDRainfallModeCombo);

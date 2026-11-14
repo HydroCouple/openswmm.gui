@@ -426,7 +426,7 @@ private slots:
         QVERIFY2(repaint.count() >= 1, "scheme edit did not reach the layer's repaintRequested");
 
         const QImage after = paintQPainterPath(&layer, layer.m_sceneBBox, view);
-        QVERIFY2(after != before, "changing the terrain colour ramp did not change the fill");
+        QVERIFY2(after != before, "changing the terrain color ramp did not change the fill");
 
         // Invert flag also drives color.
         const QImage inv1 = after;

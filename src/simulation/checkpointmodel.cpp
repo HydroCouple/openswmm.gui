@@ -49,7 +49,7 @@ CheckpointModel::CheckpointModel(const QString &catalog, QObject *parent)
                     auto &e = m_entries[row];
                     e.compatible = r.success && !r.stale && !r.cancelled && !m_closed;
                     e.inspection = e.compatible  ? tr("Compatible")
-                                   : r.cancelled ? tr("Cancelled")
+                                   : r.cancelled ? tr("Canceled")
                                    : r.stale     ? tr("Stale")
                                              : tr("Failed [%1]: %2").arg(r.errorCode).arg(r.error);
                     if (e.compatible) {

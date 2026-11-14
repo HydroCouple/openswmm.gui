@@ -59,7 +59,7 @@ QString fingerprint(const QString &path, std::atomic_bool &cancel)
     QByteArray buffer(4 * 1024 * 1024, Qt::Uninitialized);
     while (!f.atEnd()) {
         if (cancel.load())
-            throw std::runtime_error("Analysis cancelled");
+            throw std::runtime_error("Analysis canceled");
         const qint64 n = f.read(buffer.data(), buffer.size());
         if (n < 0 || (n == 0 && f.error() != QFile::NoError) ||
             (n > 0 && EVP_DigestUpdate(ctx.get(), buffer.constData(), size_t(n)) != 1))
@@ -286,7 +286,7 @@ void TraceController::startJob(const QString &id, QVector<Request> requests,
     auto *registry = m_project->statsRegistry();
     auto source = registry->run(id);
     if (source.id.isEmpty() || !source.canAnalyze()) {
-        emit failed(tr("Select a completed, running or cancelled output, or a valid imported "
+        emit failed(tr("Select a completed, running or canceled output, or a valid imported "
                        "result."));
         return;
     }

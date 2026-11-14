@@ -103,7 +103,7 @@ double representableSep(double x)
 
 void test1_absoluteQuantiserCollapses()
 {
-    std::printf("\n[1] Absolute quantiser loses injectivity at large |x|\n");
+    std::printf("\n[1] Absolute quantizer loses injectivity at large |x|\n");
 
     const double xs[] = {7.4e5, 2.9e6, 9.0e8, 1.0e9, 1.0e12};
     for (double x : xs)
@@ -119,7 +119,7 @@ void test1_absoluteQuantiserCollapses()
             // from a coordinate is itself the finding.
             std::printf("    x=%-8.1e  product=%.2e  >= 2^63: the qint64 "
                         "conversion is UNDEFINED\n", x, product);
-            check(true, "absolute quantiser is not even well-defined here");
+            check(true, "absolute quantizer is not even well-defined here");
             continue;
         }
 
@@ -139,7 +139,7 @@ void test1_absoluteQuantiserCollapses()
 
 void test2_relativeQuantiserIsInjective()
 {
-    std::printf("\n[2] Origin-relative quantiser is injective at every "
+    std::printf("\n[2] Origin-relative quantizer is injective at every "
                 "magnitude\n");
 
     const double offsets[] = {0.0, 7.4e5, 2.9e6, 1.0e9, 1.0e12};
@@ -159,7 +159,7 @@ void test2_relativeQuantiserIsInjective()
 
     std::printf("    NOTE: at origin 1e12 the smallest expressible separation\n"
                 "    is %.1e, not 1e-7 — that resolution is lost in the input\n"
-                "    coordinates themselves and no quantiser can recover it.\n",
+                "    coordinates themselves and no quantizer can recover it.\n",
                 representableSep(1.0e12));
 
     // The span, not the absolute coordinate, is what must stay inside 2^53.
@@ -435,7 +435,7 @@ int main(int argc, char **argv)
     for (int i = 1; i < argc; ++i)
         if (std::strcmp(argv[i], "--stress") == 0) stress = true;
 
-    std::printf("MeshGenerator quantiser verification\n");
+    std::printf("MeshGenerator quantizer verification\n");
     std::printf("====================================\n");
 
     test1_absoluteQuantiserCollapses();

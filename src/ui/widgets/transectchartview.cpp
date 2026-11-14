@@ -466,11 +466,11 @@ void TransectChartView::setYLabelFormat(const QString &spec)
 QString TransectChartView::displayLabelFor(const QString &property) const
 {
     if (property == QLatin1String("overbankColor"))
-        return tr("Style — Overbank Colour");
+        return tr("Style — Overbank Color");
     if (property == QLatin1String("channelColor"))
-        return tr("Style — Channel Colour");
+        return tr("Style — Channel Color");
     if (property == QLatin1String("groundFillColor"))
-        return tr("Style — Ground Fill Colour");
+        return tr("Style — Ground Fill Color");
     if (property == QLatin1String("handleSize"))
         return tr("Style — Handle Size (px)");
     if (property == QLatin1String("handlesVisible"))

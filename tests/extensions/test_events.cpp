@@ -198,7 +198,7 @@ private slots:
                              {"name", "invertElev"},
                              {"layerId", "boundary-layer"},
                              {"key", "units"},
-                             {"title", "Prepare catalogue"},
+                             {"title", "Prepare catalog"},
                              {"progress", 0.625},
                              {"text", "Parsing"},
                              {"ok", false},
@@ -271,7 +271,7 @@ private slots:
         case EventKind::JobProgress: {
             QVERIFY(std::holds_alternative<JobProgressEvent>(event.payload));
             const auto &payload = std::get<JobProgressEvent>(event.payload);
-            QCOMPARE(payload.title, QStringLiteral("Prepare catalogue"));
+            QCOMPARE(payload.title, QStringLiteral("Prepare catalog"));
             QCOMPARE(payload.progress, 0.625);
             QCOMPARE(payload.text, QStringLiteral("Parsing"));
             QVERIFY(event.instanceId().isNull());
@@ -280,7 +280,7 @@ private slots:
         case EventKind::JobFinished: {
             QVERIFY(std::holds_alternative<JobFinishedEvent>(event.payload));
             const auto &payload = std::get<JobFinishedEvent>(event.payload);
-            QCOMPARE(payload.title, QStringLiteral("Prepare catalogue"));
+            QCOMPARE(payload.title, QStringLiteral("Prepare catalog"));
             QVERIFY(!payload.ok);
             QCOMPARE(payload.error, QStringLiteral("Expected test failure"));
             QVERIFY(event.instanceId().isNull());
@@ -619,7 +619,7 @@ private slots:
                 QCOMPARE(sequence, quint64{1});
             },
             Qt::QueuedConnection);
-        h->notify("jobProgress", {{"title", "Catalogue"}, {"progress", 0.75}, {"text", "Parse"}});
+        h->notify("jobProgress", {{"title", "Catalog"}, {"progress", 0.75}, {"text", "Parse"}});
         QVERIFY(events.isEmpty());
         QVERIFY(progress.isEmpty());
         QVERIFY(QObject::disconnect(whole));
@@ -630,7 +630,7 @@ private slots:
         QCOMPARE(events.first().kind, EventKind::JobProgress);
         QCOMPARE(events.first().sequence, quint64{1});
         QCOMPARE(progress.size(), 1);
-        QCOMPARE(progress.first().title, QStringLiteral("Catalogue"));
+        QCOMPARE(progress.first().title, QStringLiteral("Catalog"));
         QCOMPARE(progress.first().progress, 0.75);
         QCOMPARE(progress.first().text, QStringLiteral("Parse"));
         h->notify("jobProgress", {{"title", "Later"}, {"progress", 1.0}});

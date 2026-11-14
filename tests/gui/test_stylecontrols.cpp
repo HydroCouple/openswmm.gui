@@ -99,7 +99,7 @@ public:
      *
      * @brief Replace the panel fixture depth with one zero.
      * @param time Unused report index; not checked against timeCount.
-     * @param v Borrowed output replaced by one zero depth in metres.
+     * @param v Borrowed output replaced by one zero depth in meters.
      * @return Always true unless allocation throws; no retained output reference.
      *
      */
@@ -327,7 +327,7 @@ private slots:
         labels->setChecked(true);
         QCOMPARE(sub->fillStyle()->presentation(),
                  OpenSWMM::Render::ResultScalarStyle::Presentation::Labels);
-        // Cell fill, filled contours and labelled isolines together.
+        // Cell fill, filled contours and labeled isolines together.
         cellFill->setChecked(true);
         filled->setChecked(true);
         isolines->setChecked(true);
@@ -405,8 +405,8 @@ private slots:
         missing->setColor(Qt::red);
         QCOMPARE(b->fillStyle()->missingColor(), QColor(Qt::red));
         QVERIFY(a->fillStyle()->missingColor() != QColor(Qt::red));
-        // Remove selects the neighbouring row: remove a row between two others, whose
-        // neighbour is not the first row (where the selection would fall back to).
+        // Remove selects the neighboring row: remove a row between two others, whose
+        // neighbor is not the first row (where the selection would fall back to).
         fields[0]->trigger(); // a third row of the field
         QModelIndex current = tree->currentIndex();
         const QModelIndex group = current.parent();
@@ -1014,7 +1014,7 @@ private slots:
         button.setColor(QColor(18, 52, 86, 0));
         QVERIFY(iface->text(QAccessible::Description).contains("0%"));
         button.setColor(QColor());
-        QVERIFY(iface->text(QAccessible::Description).contains("No colour"));
+        QVERIFY(iface->text(QAccessible::Description).contains("No color"));
 
         ColorButton initial(QColor(171, 205, 239, 64));
         auto *initialIface = QAccessible::queryAccessibleInterface(&initial);
@@ -1033,10 +1033,10 @@ private slots:
         QWidget host;
         QFormLayout form(&host);
         auto *button = new ColorButton(&host);
-        form.addRow(tr("&Water colour:"), button);
+        form.addRow(tr("&Water color:"), button);
         auto *iface = QAccessible::queryAccessibleInterface(button);
         QVERIFY(iface);
-        QVERIFY(iface->text(QAccessible::Name).contains("Water colour"));
+        QVERIFY(iface->text(QAccessible::Name).contains("Water color"));
         QVERIFY(iface->actionInterface());
         QVERIFY(iface->actionInterface()->actionNames().contains(
             QAccessibleActionInterface::pressAction()));
@@ -1098,7 +1098,7 @@ private slots:
     /**
      *
      * @brief Require two ramp-stop color buttons to have distinct accessible names containing
-     * their one-based row and colour.
+     * their one-based row and color.
      *
      */
     void rampStops_haveDistinctNames()
@@ -1116,7 +1116,7 @@ private slots:
             auto *iface = QAccessible::queryAccessibleInterface(button);
             const QString name = iface->text(QAccessible::Name);
             QVERIFY2(name.contains(QString::number(i + 1)), qPrintable(name));
-            QVERIFY(name.contains("colour", Qt::CaseInsensitive));
+            QVERIFY(name.contains("color", Qt::CaseInsensitive));
             names.insert(name);
         }
         QCOMPARE(names.size(), 2);
@@ -1194,8 +1194,8 @@ private slots:
 
     /**
      *
-     * @brief Require a double-clicked class colour to open its picker after the view handled the
-     * click, seeded with the cell's colour and written back to that cell even when the rows
+     * @brief Require a double-clicked class color to open its picker after the view handled the
+     * click, seeded with the cell's color and written back to that cell even when the rows
      * were rebuilt meanwhile; and the picker to survive its table and model being deleted while
      * it is open.
      *
@@ -1251,15 +1251,15 @@ private slots:
         QCOMPARE(opened, 2);
     }
 
-    /*! A-05: a colour swatch is announced as its colour. The text is written with the colour
-     *  when a classification table is built and when the class colour picker changes it, and it
+    /*! A-05: a color swatch is announced as its color. The text is written with the color
+     *  when a classification table is built and when the class color picker changes it, and it
      *  is what the table's accessible cell reports to a screen reader. */
     void colourCellsExposeTheColourAsAccessibleText()
     {
         QCOMPARE(colorCellAccessibleText(QColor(0x1f, 0x77, 0xb4)),
-                 QStringLiteral("Colour #1f77b4"));
+                 QStringLiteral("Color #1f77b4"));
         QCOMPARE(colorCellAccessibleText(QColor(255, 0, 0, 128)),
-                 QStringLiteral("Colour #ff0000, 50% opaque"));
+                 QStringLiteral("Color #ff0000, 50% opaque"));
         QVERIFY(colorCellAccessibleText(QColor()).isEmpty());
 
         TestClassificationBinding binding;
@@ -1283,12 +1283,12 @@ private slots:
         QCOMPARE(first->text(QAccessible::Name),
                  model->index(0, 2).data(Qt::AccessibleTextRole).toString());
 
-        // The shared class colour picker writes the text with the colour it picks.
+        // The shared class color picker writes the text with the color it picks.
         QWidget host;
         auto *swatches = new QStandardItemModel(1, 1, &host);
         setColorCell(swatches, swatches->index(0, 0), QColor(Qt::blue));
         QCOMPARE(swatches->index(0, 0).data(Qt::AccessibleTextRole).toString(),
-                 QStringLiteral("Colour #0000ff"));
+                 QStringLiteral("Color #0000ff"));
         auto *swatchView = new QTableView(&host);
         swatchView->setModel(swatches);
         swatchView->setItemDelegate(new ColorCellDelegate(swatchView));
@@ -1309,7 +1309,7 @@ private slots:
         QTest::mouseDClick(swatchView->viewport(), Qt::LeftButton, {}, centre);
         QTest::mouseRelease(swatchView->viewport(), Qt::LeftButton, {}, centre);
         QTRY_COMPARE(swatches->index(0, 0).data(Qt::AccessibleTextRole).toString(),
-                     QStringLiteral("Colour #ff0000"));
+                     QStringLiteral("Color #ff0000"));
     }
 
     /**
@@ -1327,18 +1327,18 @@ private slots:
         for (auto *button : buttons) {
             auto *iface = QAccessible::queryAccessibleInterface(button);
             const QString name = iface->text(QAccessible::Name);
-            QVERIFY2(!name.isEmpty(), "Every label colour control needs a name");
+            QVERIFY2(!name.isEmpty(), "Every label color control needs a name");
             names.insert(name);
         }
         QCOMPARE(names.size(), 3);
-        QVERIFY(names.contains(QStringLiteral("Halo colour")));
-        QVERIFY(names.contains(QStringLiteral("Background colour")));
+        QVERIFY(names.contains(QStringLiteral("Halo color")));
+        QVERIFY(names.contains(QStringLiteral("Background color")));
     }
 
     /**
      *
      * @brief Require all discovered mesh-style color buttons to be named, with more than one
-     * boundary-colour control.
+     * boundary-color control.
      *
      */
     void meshBoundaryColors_haveNames()
@@ -1351,8 +1351,8 @@ private slots:
         for (auto *button : buttons) {
             auto *iface = QAccessible::queryAccessibleInterface(button);
             const QString name = iface->text(QAccessible::Name);
-            QVERIFY2(!name.isEmpty(), "Every mesh style colour control needs a name");
-            if (name.contains("boundary colour"))
+            QVERIFY2(!name.isEmpty(), "Every mesh style color control needs a name");
+            if (name.contains("boundary color"))
                 ++boundaryNames;
         }
         QVERIFY(boundaryNames > 1);

@@ -91,7 +91,7 @@ QMap<QString, QByteArray> fingerprints(const QStringList &paths, QString *error,
         QCryptographicHash hash(QCryptographicHash::Sha256);
         while (!file.atEnd()) {
             if (cancel && cancel()) {
-                *error = QObject::tr("Cancelled.");
+                *error = QObject::tr("Canceled.");
                 return {};
             }
             const QByteArray data = file.read(1024 * 1024);
@@ -1124,7 +1124,7 @@ void GroundwaterAssignDialog::reject()
     if (m_watcher) {
         m_watcher->cancel();
         ++m_serial;
-        m_status->setText(tr("Cancelling; the model remains unchanged."));
+        m_status->setText(tr("Canceling; the model remains unchanged."));
         return;
     }
     QDialog::reject();
@@ -2192,7 +2192,7 @@ void GroundwaterAssignDialog::finishPreview()
     }
     watcher->deleteLater();
     if (result.cancelled) {
-        m_status->setText(tr("Cancelled; the model was not changed."));
+        m_status->setText(tr("Canceled; the model was not changed."));
         return;
     }
     QString error;
@@ -2466,7 +2466,7 @@ void GroundwaterAssignDialog::apply()
         }
         w->deleteLater();
         if (serial != m_serial || r.cancelled) {
-            m_status->setText(tr("Assignment cancelled or edited; preview again."));
+            m_status->setText(tr("Assignment canceled or edited; preview again."));
             return;
         }
         if (!r.error.isEmpty() || r.fingerprints != expected) {

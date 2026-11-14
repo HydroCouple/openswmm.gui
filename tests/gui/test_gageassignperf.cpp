@@ -263,7 +263,7 @@ void TestGageAssignPerf::run()
     openswmmvis::ui::AssignRainGagesDialog dlg(layer, &canvas, &sel);
     if (interp) {
         auto *nn = findByText<QRadioButton>(
-            &dlg, QStringLiteral("Natural-neighbour interpolation (creates gages)"));
+            &dlg, QStringLiteral("Natural-neighbor interpolation (creates gages)"));
         QVERIFY(nn);
         nn->setChecked(true);
     }

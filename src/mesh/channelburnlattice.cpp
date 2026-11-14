@@ -721,7 +721,7 @@ BurnLattice buildCorridorLattice(const BurnProfile &p, double alongStep, double 
                     if (err)
                         *err =
                             QStringLiteral(
-                                "conduit '%1': corridor folds at a bend; reduce its width or correct the centreline")
+                                "conduit '%1': corridor folds at a bend; reduce its width or correct the centerline")
                                 .arg(p.conduitId);
                     return {};
                 }
@@ -821,7 +821,7 @@ PatchMesh corridorPatchGeometry(const BurnLattice &lat, QString *err)
     if (!bad.isEmpty()) {
         if (err)
             *err = QStringLiteral("conduit '%1': %2 (the corridor folds — smooth the "
-                                  "centreline or reduce the corridor width)")
+                                  "centerline or reduce the corridor width)")
                        .arg(lat.conduitId, bad);
         return PatchMesh();
     }

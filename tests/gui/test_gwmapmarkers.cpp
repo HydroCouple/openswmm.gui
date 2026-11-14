@@ -276,7 +276,7 @@ private slots:
         QVERIFY(std::isnan(values[3]));
         QVERIFY(style->categoryColorForValue(0) != style->categoryColorForValue(1));
 
-        // The legend rows follow the "Colour by" choice (queued refresh).
+        // The legend rows follow the "Color by" choice (queued refresh).
         QTRY_COMPARE(fill->legendSymbolItems().size(), 2);
         auto legend = fill->legendSymbolItems();
         QCOMPARE(legend[0].label, QString("LAWN"));

@@ -103,7 +103,7 @@ void QualityPage::buildUi()
     m_qualitySolverCombo->addItem(tr("Lagrangian (LARD)"), QStringLiteral("LAGRANGIAN"));
     m_qualitySolverCombo->setToolTip(
         tr("Transport engine for pollutants and reserved species "
-           "(option QUALITY_SOLVER). The tabs below grey themselves out when "
+           "(option QUALITY_SOLVER). The tabs below gray themselves out when "
            "they do not apply to the selected solver."));
     connect(m_qualitySolverCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
             [this](int) { emit gateInputsChanged(); });
@@ -409,7 +409,7 @@ void QualityPage::buildUi()
     ageSrcBtn->setToolTip(
         tr("Initial age of water entering by each source pathway "
            "(WATER_AGE_SOURCES). Negative ages extract age-volume. "
-           "Accepted source-age changes remain applied if Simulation Options is cancelled."));
+           "Accepted source-age changes remain applied if Simulation Options is canceled."));
     connect(ageSrcBtn, &QPushButton::clicked, this, [this]() {
         QPointer<SWMMVisProjectWindow> project(ctx_.projectWindow());
         if (!ctx_.engine())

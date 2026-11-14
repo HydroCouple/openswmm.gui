@@ -87,7 +87,7 @@ GisVectorSymbolEditor::GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter, QW
         auto *form = new QFormLayout;
 
         m_lineColor = new ColorButton(page);
-        form->addRow(tr("C&olour:"), m_lineColor);
+        form->addRow(tr("C&olor:"), m_lineColor);
 
         m_lineWidth = new QDoubleSpinBox(page);
         m_lineWidth->setRange(0.25, 30.0);
@@ -118,10 +118,10 @@ GisVectorSymbolEditor::GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter, QW
 
         m_polyFill = new ColorButton(page);
         m_polyFill->setShowAlpha(true); // polygon fill transparency
-        form->addRow(tr("Fill colo&ur:"), m_polyFill);
+        form->addRow(tr("&Fill color:"), m_polyFill);
 
         m_polyOutline = new ColorButton(page);
-        form->addRow(tr("Outli&ne colour:"), m_polyOutline);
+        form->addRow(tr("Outli&ne color:"), m_polyOutline);
 
         m_polyOutlineW = new QDoubleSpinBox(page);
         m_polyOutlineW->setRange(0.0, 20.0);
@@ -158,7 +158,7 @@ GisVectorSymbolEditor::GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter, QW
         form->addRow(tr("Font:"), m_labelFont);
 
         m_labelColor = new ColorButton(page);
-        form->addRow(tr("Colour:"), m_labelColor);
+        form->addRow(tr("Color:"), m_labelColor);
         vlay->addLayout(form);
         vlay->addStretch();
         tabs->addTab(page, tr("La&bels"));

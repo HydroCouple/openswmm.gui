@@ -939,7 +939,7 @@ void HeatConfigDialog::previewChannelGroundContacts()
     progress.setValue(100);
     if (cancelled) {
         m_channelGroundPreviewStatus->setText(
-            tr("Preview cancelled. Showing %1 partial result(s); no settings were changed.")
+            tr("Preview canceled. Showing %1 partial result(s); no settings were changed.")
                 .arg(shown));
     } else if (eligible == 0 && failures == 0) {
         m_channelGroundPreviewStatus->setText(
@@ -2247,7 +2247,7 @@ void HeatConfigDialog::previewElements()
                 .arg(m_resolvedElements->rowCount()));
     else if (ctx.cancelled)
         m_resolvedStatus->setText(
-            tr("Preview cancelled. The draft remains unchanged and no settings were applied."));
+            tr("Preview canceled. The draft remains unchanged and no settings were applied."));
     else
         m_resolvedStatus->setText(
             previewStatus == SWMM_OK

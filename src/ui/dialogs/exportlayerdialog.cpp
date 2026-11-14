@@ -233,7 +233,7 @@ void ExportLayerDialog::onFormatChanged()
 {
     if (driver() == kGeoTiff) {
         m_formatNote->setText(tr("Written as one GeoTIFF; reprojecting resamples with "
-                                 "nearest neighbour."));
+                                 "nearest neighbor."));
     } else {
         m_formatNote->setText(io::gdalcaps::vectorWriteFormat(driver()).note);
     }

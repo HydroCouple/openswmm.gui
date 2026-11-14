@@ -247,7 +247,7 @@ public:
      * @note Does not inspect cancellation status or enforce that every response is successful. Host should pass only its intended completed result set and then refresh views.
      */
     bool acceptExtraction(const Mesh2DExtractionJob &job, const QVector<SeriesData> &results);
-    /*! \brief A canceled job's series resolve as "Loading cancelled" until
+    /*! \brief A canceled job's series resolve as "Loading canceled" until
      *  \ref retryCancelled queues them again.
      * @param[in] job Prepared snapshot whose in-flight requests should become canceled. Stale revisions are ignored after cache validation.
      * @note Moves only keys still in flight into canceled state, giving Loading canceled on future deferred requests. Does not signal a worker atomic cancellation flag; the host controls that separately.

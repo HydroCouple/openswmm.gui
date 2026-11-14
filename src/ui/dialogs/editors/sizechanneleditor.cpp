@@ -127,9 +127,9 @@ SizeChannelEditor::SizeChannelEditor(OpenSWMM::Render::FeatureSublayerStyle *sty
     m_hint->setWordWrap(true);
     m_hint->setText(m_point
                         ? tr("Marker area follows the selected value scale, independently of the "
-                             "colour renderer.")
+                             "color renderer.")
                         : tr("Line width follows the selected value scale, independently of the "
-                             "colour renderer."));
+                             "color renderer."));
     form->addRow(m_hint);
 
     auto pushLater = [this] { push(); };

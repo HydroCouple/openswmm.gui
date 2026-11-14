@@ -106,7 +106,7 @@ def render(engine: pathlib.Path) -> str:
     w("A failed run is reported in the simulation status panel as")
     w("`ERROR [n] ERROR mmm: …` — the bracketed `n` is an **API error code** and")
     w("the `mmm` inside the message is an **engine error**. They are different")
-    w("catalogues; both are below.")
+    w("catalogs; both are below.")
     w("")
     w("## Where to find it")
     w("")
@@ -151,7 +151,7 @@ def render(engine: pathlib.Path) -> str:
 
     w("## Tips and gotchas")
     w("")
-    w("- **Two numbers, two catalogues.** `ERROR [1] ERROR 141: …` is API error 1")
+    w("- **Two numbers, two catalogs.** `ERROR [1] ERROR 141: …` is API error 1")
     w("  reporting engine error 141. Look up the inner number first — it is the one")
     w("  that names the object and the cause.")
     w("- **`%s` is a placeholder.** The engine substitutes the offending object's")

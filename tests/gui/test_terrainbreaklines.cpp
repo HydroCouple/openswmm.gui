@@ -256,7 +256,7 @@ private slots:
         o.cancelled = [] { return true; };
         e.begin(20, 20, o);
         QVERIFY(e.finish().isEmpty());
-        QVERIFY(e.errorMsg().contains("cancelled"));
+        QVERIFY(e.errorMsg().contains("canceled"));
     }
 
     /**

@@ -156,7 +156,7 @@ void TwoDPage::buildUi()
     m_thetaSpin->setSingleStep(0.05);
     m_thetaSpin->setToolTip(tr("θ-weighting of the face discharge in the momentum update. 1.0 is "
                                "the classic Bates (2010) scheme; values below 1 blend in the "
-                               "neighbour discharges, damping thin-film checkerboarding on steep "
+                               "neighbor discharges, damping thin-film checkerboarding on steep "
                                "faces (default 0.8)."));
     marchForm->addRow(tr("Momentum &θ:"), m_thetaSpin);
 
@@ -525,7 +525,7 @@ void TwoDPage::buildUi()
            "sewer and surface levels past each other (COUPLING_EQUALIZE) — "
            "removes drain/spill flip-flopping. By exchange law: on for weir / "
            "orifice, off for the legacy orifice."));
-    coupForm->addRow(tr("Head equalisation:"), m_couplingEqualizeCombo);
+    coupForm->addRow(tr("Head equalization:"), m_couplingEqualizeCombo);
 
     m_couplingSyncSpin = new QDoubleSpinBox(coupGroup);
     m_couplingSyncSpin->setRange(0.0, 60.0);
@@ -569,16 +569,16 @@ void TwoDPage::buildUi()
     auto *rainfallForm = new QFormLayout(rainfallGroup);
 
     m_rainfall2DModeCombo = new QComboBox(rainfallGroup);
-    m_rainfall2DModeCombo->addItem(tr("Natural neighbour (all gages)"),
+    m_rainfall2DModeCombo->addItem(tr("Natural neighbor (all gages)"),
                                    QStringLiteral("NATURAL_NEIGHBOUR"));
-    m_rainfall2DModeCombo->addItem(tr("Nearest neighbour (closest gage)"),
+    m_rainfall2DModeCombo->addItem(tr("Nearest neighbor (closest gage)"),
                                    QStringLiteral("NEAREST_NEIGHBOUR"));
     m_rainfall2DModeCombo->addItem(tr("System (uniform gage mean)"), QStringLiteral("SYSTEM"));
     m_rainfall2DModeCombo->addItem(tr("None (no direct rainfall)"), QStringLiteral("NONE"));
     m_rainfall2DModeCombo->setToolTip(
-        tr("How raingage rainfall drives the 2D mesh. Natural neighbour spatially "
+        tr("How raingage rainfall drives the 2D mesh. Natural neighbor spatially "
            "interpolates all located gages onto each cell (inverse-distance "
-           "outside the gage hull); Nearest neighbour uses the closest located gage; "
+           "outside the gage hull); Nearest neighbor uses the closest located gage; "
            "System applies one uniform value — the mean "
            "of all gages; None applies no direct rainfall to the mesh."));
     rainfallForm->addRow(tr("Rainfall mode:"), m_rainfall2DModeCombo);
@@ -701,7 +701,7 @@ void TwoDPage::buildUi()
     auto *editEvap = new QPushButton(tr("Edit project evaporation data…"), rainfallGroup);
     editEvap->setAutoDefault(false);
     editEvap->setToolTip(tr(
-        "Accepted climate edits apply to the project and remain applied if Simulation Options is cancelled."));
+        "Accepted climate edits apply to the project and remain applied if Simulation Options is canceled."));
     rainfallForm->addRow(editEvap);
     connect(editEvap, &QPushButton::clicked, this, &TwoDPage::showEvaporationSettingsRequested);
     connect(m_evap2DCombo, &QComboBox::currentIndexChanged, this, [this] {
@@ -923,7 +923,7 @@ void TwoDPage::buildUi()
          "Mesh2_face_depth / Mesh2_face_head — depth fill, contour bands and "
          "lines, cell depth / HGL plots. Always written."},
         {"VELOCITY", "Velocity (per cell)",
-         "Mesh2_face_vx / Mesh2_face_vy — cell-centred velocity components. "
+         "Mesh2_face_vx / Mesh2_face_vy — cell-centered velocity components. "
          "When written, flow streaks use them (interpolated through mesh vertices); "
          "otherwise the GUI reconstructs velocity from edge fluxes."},
         {"EDGE_FLUX", "Edge fluxes (per edge)",
@@ -943,7 +943,7 @@ void TwoDPage::buildUi()
          "and cumulative rain-volume plots."},
         {"INFILTRATION", "Infiltration (per cell)",
          "Mesh2_face_infil_rate / Mesh2_face_infil_cum — infiltration-rate "
-         "and cumulative-loss plots and colour ramps."},
+         "and cumulative-loss plots and color ramps."},
         {"COUPLING", "1D↔2D exchange (per cell)",
          "Mesh2_face_coupling_flux / Mesh2_face_net_source — signed exchange "
          "and net-source rates (m/s), positive into the mesh. Native junction "

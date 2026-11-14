@@ -3042,7 +3042,7 @@ NODE C interior
                 stage = result.generatedArtifacts->directoryPath();
                 QVERIFY(QFileInfo(stage).isDir());
             } else
-                QVERIFY2(result.errorMsg.contains("Cancelled", Qt::CaseInsensitive),
+                QVERIFY2(result.errorMsg.contains("Canceled", Qt::CaseInsensitive),
                          qPrintable(result.errorMsg));
             // Discarding an asynchronously completed result owns no live layer.
         }
@@ -3087,7 +3087,7 @@ NODE C interior
         QVERIFY(!result.ok);
         QVERIFY(!result.artifacts);
         QVERIFY(cancellationChecks > 1);
-        QVERIFY2(result.error.contains("Cancelled", Qt::CaseInsensitive), qPrintable(result.error));
+        QVERIFY2(result.error.contains("Canceled", Qt::CaseInsensitive), qPrintable(result.error));
         QVERIFY(!QFileInfo::exists(inputs.burnOutputDir));
         QVERIFY(dir.entryList({".openswmm-generation-*"},
                               QDir::Dirs | QDir::Hidden | QDir::NoDotAndDotDot)

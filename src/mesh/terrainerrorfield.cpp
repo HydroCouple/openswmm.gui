@@ -713,7 +713,7 @@ struct TerrainErrorField::Impl {
     bool build(const std::function<bool(double)> &progress)
     {
         if (progress && !progress(0)) {
-            error = QStringLiteral("Cancelled.");
+            error = QStringLiteral("Canceled.");
             return false;
         }
         Level leaf;
@@ -733,7 +733,7 @@ struct TerrainErrorField::Impl {
             tileRows.append(ty);
         auto reportRow = [&](int ty) {
             if (progress && !progress(.9 * double(std::min(ty + kTile, r0 + rows) - r0) / rows)) {
-                error = QStringLiteral("Cancelled.");
+                error = QStringLiteral("Canceled.");
                 return false;
             }
             return true;
@@ -860,12 +860,12 @@ struct TerrainErrorField::Impl {
                 }
             levels.append(std::move(parent));
             if (progress && !progress(.95)) {
-                error = QStringLiteral("Cancelled.");
+                error = QStringLiteral("Canceled.");
                 return false;
             }
         }
         if (progress && !progress(1)) {
-            error = QStringLiteral("Cancelled.");
+            error = QStringLiteral("Canceled.");
             return false;
         }
         return true;
@@ -952,7 +952,7 @@ bool TerrainErrorField::open(const QString &path, const QString &meshCRS, const 
         d->indexLoaded = true;
         d->prefetch();
         if (progress && !progress(1)) {
-            d->error = QStringLiteral("Cancelled.");
+            d->error = QStringLiteral("Canceled.");
             return false;
         }
         return true;

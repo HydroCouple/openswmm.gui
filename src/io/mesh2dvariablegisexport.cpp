@@ -223,7 +223,7 @@ bool safeSpatialIndex(const QVector<QRectF> &boxes, const QRectF &bounds, QStrin
     int index = 0;
     for (const auto &b : boxes) {
         if ((index++ % 256) == 0 && cancelled && cancelled())
-            return fail(error, "Export cancelled.");
+            return fail(error, "Export canceled.");
         const auto nx = std::clamp(std::floor((b.right() - bounds.left()) / cell), 0., cols - 1) -
                         std::clamp(std::floor((b.left() - bounds.left()) / cell), 0., cols - 1) + 1;
         const auto ny = std::clamp(std::floor((b.bottom() - bounds.top()) / cell), 0., rows - 1) -
@@ -394,7 +394,7 @@ bool exportMesh2DVariableGis(const Mesh2DVariableGisSnapshot &s,
     try {
         const auto cancel = [&] { return cancelled && cancelled(); };
         if (cancel())
-            return fail(error, "Export cancelled.");
+            return fail(error, "Export canceled.");
         if (!validSnapshot(s, error))
             return false;
         if (options.path.isEmpty() || options.destination.resolvedPath.isEmpty())
@@ -459,7 +459,7 @@ bool exportMesh2DVariableGis(const Mesh2DVariableGisSnapshot &s,
             for (size_t c = 0; c < s.cells.size(); ++c) {
                 if ((c % 256) == 0) {
                     if (cancel())
-                        return fail(error, "Export cancelled.");
+                        return fail(error, "Export canceled.");
                     if (progress)
                         progress(int(80 * c / s.cells.size()));
                 }
@@ -530,13 +530,13 @@ bool exportMesh2DVariableGis(const Mesh2DVariableGisSnapshot &s,
             std::vector<double> row(static_cast<size_t>(width)), flags(static_cast<size_t>(width));
             for (int y = 0; y < height; ++y) {
                 if (cancel())
-                    return fail(error, "Export cancelled.");
+                    return fail(error, "Export canceled.");
                 if (progress)
                     progress(80 * y / height);
                 const double py = bounds.bottom() - (y + .5) * pixel;
                 for (int x = 0; x < width; ++x) {
                     if (x % 256 == 0 && cancel())
-                        return fail(error, "Export cancelled.");
+                        return fail(error, "Export canceled.");
                     const double px = bounds.left() + (x + .5) * pixel;
                     row[size_t(x)] = std::numeric_limits<double>::quiet_NaN();
                     flags[size_t(x)] = 255;
@@ -578,7 +578,7 @@ bool exportMesh2DVariableGis(const Mesh2DVariableGisSnapshot &s,
             return fail(error, "The staged GIS result failed verification.");
         verify.close();
         if (cancel())
-            return fail(error, "Export cancelled.");
+            return fail(error, "Export canceled.");
         if (!noCompanions() || sameFile(s.sourcePath, options.path) || !unchanged())
             return fail(error, "The export destination changed before publication.");
         QFile input(path);
@@ -588,7 +588,7 @@ bool exportMesh2DVariableGis(const Mesh2DVariableGisSnapshot &s,
             return fail(error, "Cannot prepare atomic GIS publication.");
         while (!input.atEnd()) {
             if (cancel())
-                return fail(error, "Export cancelled.");
+                return fail(error, "Export canceled.");
             const auto bytes = input.read(1024 * 1024);
             if (bytes.isEmpty() && input.error() != QFileDevice::NoError)
                 return fail(error, input.errorString());
@@ -596,7 +596,7 @@ bool exportMesh2DVariableGis(const Mesh2DVariableGisSnapshot &s,
                 return fail(error, destination.errorString());
         }
         if (cancel())
-            return fail(error, "Export cancelled.");
+            return fail(error, "Export canceled.");
         if (!noCompanions() || sameFile(s.sourcePath, options.path) || !unchanged())
             return fail(error, "The export destination changed before publication.");
         if (!destination.commit())

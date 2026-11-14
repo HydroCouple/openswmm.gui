@@ -154,7 +154,7 @@ private slots:
         QVERIFY(finished.contains(b));
         QVERIFY(first->updateProgress(c, .5, "Still running"));
         QVERIFY(second->updateProgress(d, .5, "Still running"));
-        QCOMPARE(logCount("cancelled."), 2);
+        QCOMPARE(logCount("canceled."), 2);
         QVERIFY(first->finishProgress(c, ProgressOutcome::Failed, "Fixture failure"));
         QCOMPARE(logs.last().first, "error");
         QVERIFY(logs.last().second.contains("Fixture failure"));
@@ -286,7 +286,7 @@ private slots:
         QVERIFY(owner->beginProgress("Closing", context.get()).isNull());
         QCOMPARE(finished.size(), 1);
         QCOMPARE(logCount("started."), 1);
-        QCOMPARE(logCount("cancelled."), 1);
+        QCOMPARE(logCount("canceled."), 1);
     }
     /** @brief Finishing from a stage log prevents a later stale progress update from resurrecting it. */
     void reentrantStageFinish()
@@ -469,7 +469,7 @@ private slots:
         QVERIFY(job);
         job->cancel();
         QTRY_VERIFY(done);
-        QCOMPARE(logCount("cancelled."), 1);
+        QCOMPARE(logCount("canceled."), 1);
         QVERIFY(owner->runJob("Stop data", work, [&](bool, const QString &) {
             QFAIL("Shutdown must suppress worker completions.");
         }));

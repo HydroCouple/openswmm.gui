@@ -321,7 +321,7 @@ TEST_F(BurnSelectorTest, AConduitWithNoCachedCentrelineIsRefusedNotGuessedAt)
     const BurnCandidate *c1 = find(cands, QStringLiteral("CREEK1"));
     ASSERT_NE(c1, nullptr);
     EXPECT_FALSE(c1->accepted);
-    EXPECT_TRUE(c1->reason.contains(QStringLiteral("centreline")));
+    EXPECT_TRUE(c1->reason.contains(QStringLiteral("centerline")));
 }
 
 TEST_F(BurnSelectorTest, TheAcceptedCandidatesFeedTheProfileBuilderDirectly)

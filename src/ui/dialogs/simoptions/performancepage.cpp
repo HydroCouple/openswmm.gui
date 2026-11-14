@@ -43,7 +43,7 @@ void PerformancePage::buildUi()
 {
     auto *vlay = new QVBoxLayout(this);
 
-    auto *threadsGroup = new QGroupBox(tr("Parallelisation"), this);
+    auto *threadsGroup = new QGroupBox(tr("Parallelization"), this);
     auto *threadsForm = new QFormLayout(threadsGroup);
 
     // Machine / OpenMP limits, queried once. The range stays 0–256 so the
@@ -158,7 +158,7 @@ void PerformancePage::refreshThreadsEffectiveLabel()
     } else if (m_threadInfo.perf_cores > 0 && req > m_threadInfo.perf_cores) {
         text += tr(" <span style=\"color:#D06F00\">&#9888; above the %1 "
                    "performance cores — efficiency cores slow the "
-                   "barrier-synchronised solvers.</span>")
+                   "barrier-synchronized solvers.</span>")
                     .arg(m_threadInfo.perf_cores);
     }
     m_threadsEffective->setText(text);

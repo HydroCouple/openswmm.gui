@@ -148,7 +148,7 @@ bool MeshCavityTopology::build(const MeshResult &m, const std::function<bool()> 
     *this = {};
     auto stop = [&] {
         if (cancelled && cancelled()) {
-            error = QStringLiteral("Cancelled.");
+            error = QStringLiteral("Canceled.");
             return true;
         }
         return false;
@@ -486,7 +486,7 @@ MeshCavityFill fillMeshCavity(const MeshResult &old, const MeshCavityTopology &t
     MeshCavityFill result;
     auto stop = [&] {
         if (quality.cancelled && quality.cancelled()) {
-            result.error = QStringLiteral("Cancelled.");
+            result.error = QStringLiteral("Canceled.");
             result.quality.cancelled = true;
             return true;
         }
@@ -662,7 +662,7 @@ MeshCavityFill fillMeshCavity(const MeshResult &old, const MeshCavityTopology &t
         return result;
     result.quality = cdt.refineQuality(quality);
     if (result.quality.cancelled) {
-        result.error = QStringLiteral("Cancelled.");
+        result.error = QStringLiteral("Canceled.");
         return result;
     }
     QVector<int> used(cdt.vertices().size(), -1);

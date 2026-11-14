@@ -36,10 +36,10 @@ SwmmElementSymbolEditor::SwmmElementSymbolEditor(SwmmElementSymbolAdapter *adapt
     auto *symForm = new QFormLayout(symBox);
 
     m_fillBtn = new ColorButton(this);
-    symForm->addRow(tr("F&ill colour:"), m_fillBtn);
+    symForm->addRow(tr("F&ill color:"), m_fillBtn);
 
     m_outlineBtn = new ColorButton(this);
-    symForm->addRow(tr("&Outline colour:"), m_outlineBtn);
+    symForm->addRow(tr("&Outline color:"), m_outlineBtn);
 
     m_outlineWSpin = new QDoubleSpinBox(this);
     m_outlineWSpin->setRange(0.0, 20.0);
@@ -71,7 +71,7 @@ SwmmElementSymbolEditor::SwmmElementSymbolEditor(SwmmElementSymbolAdapter *adapt
     labelForm->addRow(tr("Fo&nt:"), m_labelFontCombo);
 
     m_labelColorBtn = new ColorButton(this);
-    labelForm->addRow(tr("Co&lour:"), m_labelColorBtn);
+    labelForm->addRow(tr("Co&lor:"), m_labelColorBtn);
 
     root->addWidget(labelBox);
 
@@ -101,7 +101,7 @@ SwmmElementSymbolEditor::SwmmElementSymbolEditor(SwmmElementSymbolAdapter *adapt
     arrowForm->addRow(tr("&Width:"), m_arrowWidSpin);
 
     m_arrowColorBtn = new ColorButton(this);
-    arrowForm->addRow(tr("Colou&r:"), m_arrowColorBtn);
+    arrowForm->addRow(tr("Colo&r:"), m_arrowColorBtn);
 
     m_arrowsFlowPosBox = new QCheckBox(tr("Only when flow > 0"), this);
     arrowForm->addRow(QString(), m_arrowsFlowPosBox);

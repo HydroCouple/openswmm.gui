@@ -72,7 +72,7 @@ void HydraulicsPage::buildUi()
     m_routingCombo->addItem(tr("Finite Volume"), QStringLiteral("FV"));
     m_routingCombo->setToolTip(tr(
         "Flow-routing method for conduits (option FLOW_ROUTING).\n"
-        "Finite Volume provides explicit Godunov and native implicit integration; the tabs below grey "
+        "Finite Volume provides explicit Godunov and native implicit integration; the tabs below gray "
         "themselves out when they do not apply to the selected method."));
     connect(m_routingCombo, qOverload<int>(&QComboBox::currentIndexChanged), this,
             [this](int) { emit gateInputsChanged(); });
@@ -213,7 +213,7 @@ void HydraulicsPage::buildUi()
     m_fvCellLengthSpin->setDecimals(2);
     m_fvCellLengthSpin->setSpecialValueText(tr("Use minimum cell count"));
     m_fvCellLengthSpin->setToolTip(
-        tr("Target cell length for conduit discretisation, in project length "
+        tr("Target cell length for conduit discretization, in project length "
            "units (FV_CELL_LENGTH). 0 = use FV_MIN_CELLS per conduit."));
     fvForm->addRow(tr("Cell length:"), m_fvCellLengthSpin);
 

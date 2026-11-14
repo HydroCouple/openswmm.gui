@@ -367,7 +367,7 @@ private slots:
                 }
             }));
         QVERIFY(enteredWriter);
-        QVERIFY(error.contains("cancelled"));
+        QVERIFY(error.contains("canceled"));
         QVERIFY(file.open(QIODevice::ReadOnly));
         QCOMPARE(file.readAll(), QByteArray("existing export"));
         QVERIFY(

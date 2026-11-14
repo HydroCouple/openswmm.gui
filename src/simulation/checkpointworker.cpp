@@ -420,7 +420,7 @@ CheckpointResult CheckpointWorker::execute(const CheckpointRequest &request, qui
     Lease outputs(control.get());
     auto cancelled = [&] {
         if (control->cancelled)
-            throw Failure{SWMM_OK, QStringLiteral("Checkpoint operation cancelled.")};
+            throw Failure{SWMM_OK, QStringLiteral("Checkpoint operation canceled.")};
     };
     try {
         cancelled();

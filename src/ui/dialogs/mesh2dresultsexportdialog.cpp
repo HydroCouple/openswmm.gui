@@ -204,20 +204,20 @@ void Mesh2DResultsExportDialog::buildUi()
 
     m_interp = new QComboBox(m_rasterGroup);
     m_interp->setObjectName(QStringLiteral("interpCombo"));
-    m_interp->addItem(tr("Natural neighbour"), int(Mesh2DInterp::NaturalNeighbour));
+    m_interp->addItem(tr("Natural neighbor"), int(Mesh2DInterp::NaturalNeighbour));
     m_interp->addItem(tr("Inverse distance (k nearest)"), int(Mesh2DInterp::Idw));
     m_interp->addItem(tr("Green–Gauss gradient"), int(Mesh2DInterp::GreenGauss));
     m_interp->setToolTip(
-        tr("Natural neighbour is the smoothest and the slowest. Inverse distance is "
+        tr("Natural neighbor is the smoothest and the slowest. Inverse distance is "
            "a robust middle ground. Green–Gauss evaluates each cell's own gradient "
-           "and is the fastest; it never overshoots the neighbouring cells."));
+           "and is the fastest; it never overshoots the neighboring cells."));
     rasterForm->addRow(tr("&Interpolation"), m_interp);
 
     m_neighbours = new QSpinBox(m_rasterGroup);
     m_neighbours->setObjectName(QStringLiteral("idwNeighboursSpin"));
     m_neighbours->setRange(1, 64);
     m_neighbours->setValue(8);
-    rasterForm->addRow(tr("Nei&ghbours"), m_neighbours);
+    rasterForm->addRow(tr("Nei&ghbors"), m_neighbours);
 
     m_maskDry = new QCheckBox(tr("Write &NoData where the surface is dry"), m_rasterGroup);
     m_maskDry->setObjectName(QStringLiteral("maskDryCheck"));

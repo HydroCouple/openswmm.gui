@@ -72,7 +72,7 @@ CorridorSourcesWidget::CorridorSourcesWidget(QWidget *parent) : QWidget(parent)
     auto *layout = new QVBoxLayout(this);
     layout->setContentsMargins(0, 0, 0, 0);
     auto *hint = new QLabel(
-        tr("Select road or river centrelines, or two bank lines from one map layer. "
+        tr("Select road or river centerlines, or two bank lines from one map layer. "
            "A bank pair gets its width from the two lines. Endpoints are paired automatically by proximity; "
            "positions at the same fraction of each bank's length are joined, keeping vertices from both banks. "
            "Along = 0 retains these stations. Width and Along spacing use mesh CRS units."),
@@ -97,12 +97,12 @@ CorridorSourcesWidget::CorridorSourcesWidget(QWidget *parent) : QWidget(parent)
     m_sourceMode->addItem(tr("Bank pair"), QStringLiteral("bankPair"));
     addField(
         tr("Corridor &input:"), m_sourceMode, "corridorSourceMode",
-        tr("Use selected centreline features with a width, or exactly two distinct bank LineStrings from the same layer. "
+        tr("Use selected centerline features with a width, or exactly two distinct bank LineStrings from the same layer. "
            "Bank endpoints are paired by proximity and stations match fractions of each bank's length, retaining both banks' vertices."));
     m_layer = new QComboBox(this);
     m_layer->setMinimumWidth(OpenSWMM::Ui::kComboMinWidthPx);
     addField(tr("&Source layer:"), m_layer, "corridorLayer",
-             tr("The map layer containing the selected corridor centreline or bank features."));
+             tr("The map layer containing the selected corridor centerline or bank features."));
     m_selection = new QLabel(this);
     m_selection->setAccessibleName(tr("Selected corridor features"));
     form->addRow(QString(), m_selection);
@@ -115,7 +115,7 @@ CorridorSourcesWidget::CorridorSourcesWidget(QWidget *parent) : QWidget(parent)
     m_width = new QLineEdit(QStringLiteral("10"), this);
     addField(
         tr("Total &width (CRS units):"), m_width, "corridorWidth",
-        tr("Finite total corridor width greater than 0; each side extends half this width from the centreline."));
+        tr("Finite total corridor width greater than 0; each side extends half this width from the centerline."));
     m_widthField = new QComboBox(this);
     addField(
         tr("Width &field:"), m_widthField, "corridorWidthField",
@@ -125,7 +125,7 @@ CorridorSourcesWidget::CorridorSourcesWidget(QWidget *parent) : QWidget(parent)
              tr("Positive integer number of cells across the total width."));
     m_along = new QLineEdit(QStringLiteral("0"), this);
     addField(tr("A&long spacing (CRS units):"), m_along, "corridorAlong",
-             tr("Finite spacing at least 0. Enter 0 to keep original centreline vertices."));
+             tr("Finite spacing at least 0. Enter 0 to keep original centerline vertices."));
     m_tag = new QLineEdit(this);
     addField(tr("Region &tag:"), m_tag, "corridorTag",
              tr("Optional region tag. Leave blank to identify cells by source feature."));
@@ -137,8 +137,8 @@ CorridorSourcesWidget::CorridorSourcesWidget(QWidget *parent) : QWidget(parent)
     m_table->setObjectName(QStringLiteral("corridorSourcesTable"));
     m_table->setAccessibleName(tr("Configured corridor sources"));
     m_table->setAccessibleDescription(tr(
-        "Each row captures selected feature IDs as centrelines or a bank pair. "
-        "Edit Across cells, Along spacing or region tag. Centreline rows also allow width field and uniform width edits; "
+        "Each row captures selected feature IDs as centerlines or a bank pair. "
+        "Edit Across cells, Along spacing or region tag. Centerline rows also allow width field and uniform width edits; "
         "bank-pair width comes from the bank geometry. Missing map layers remain available for validation when generating."));
     m_table->setHorizontalHeaderLabels({tr("Source"), tr("Feature IDs"), tr("Width field"),
                                         tr("Uniform total width (CRS units)"), tr("Across cells"),
@@ -300,7 +300,7 @@ void CorridorSourcesWidget::syncSourceMode()
     const QString alongHelp =
         bank
             ? tr("Finite spacing at least 0 in mesh CRS units. Enter 0 to retain stations from the vertices of both banks; positive spacing adds stations.")
-            : tr("Finite spacing at least 0 in mesh CRS units. Enter 0 to keep original centreline vertices.");
+            : tr("Finite spacing at least 0 in mesh CRS units. Enter 0 to keep original centerline vertices.");
     m_along->setToolTip(alongHelp);
     m_along->setAccessibleDescription(alongHelp);
 }
@@ -418,7 +418,7 @@ void CorridorSourcesWidget::addSelection()
         fail(
             bank
                 ? tr("Along spacing must be a finite number at least 0. Enter 0 to retain vertices from both banks.")
-                : tr("Along spacing must be a finite number at least 0. Enter 0 to keep original centreline vertices."),
+                : tr("Along spacing must be a finite number at least 0. Enter 0 to keep original centerline vertices."),
             m_along, nullptr);
         return;
     }
@@ -543,7 +543,7 @@ bool CorridorSourcesWidget::sources(QVector<mesh::CorridorSource> *out, QString 
                 row, 5,
                 source.bankPair
                     ? tr("Along spacing must be a finite number at least 0; enter 0 to retain vertices from both banks.")
-                    : tr("Along spacing must be a finite number at least 0; enter 0 to retain centreline vertices."),
+                    : tr("Along spacing must be a finite number at least 0; enter 0 to retain centerline vertices."),
                 error);
         source.tag = m_table->item(row, 6)->text().trimmed();
         if (source.widthField != m_sources[row].widthField)

@@ -209,8 +209,8 @@ ChannelBurnDialog::ChannelBurnDialog(SWMMVisProjectWindow *project, QWidget *par
     });
     exportForm->addRow(tr("Source DEM:"), demRow);
     m_demZToSI = spin(1, .000000001, 1e9, 9);
-    m_demZToSI->setToolTip(tr("Metres per DEM elevation unit: 1 for metres, 0.3048 for feet."));
-    exportForm->addRow(tr("Metres per DEM elevation unit:"), m_demZToSI);
+    m_demZToSI->setToolTip(tr("Meters per DEM elevation unit: 1 for meters, 0.3048 for feet."));
+    exportForm->addRow(tr("Meters per DEM elevation unit:"), m_demZToSI);
     m_outputDirectory = new QLineEdit(m_exportOptions);
     m_outputDirectory->setPlaceholderText(tr("Default: terrain folder beside the project"));
     exportForm->addRow(tr("Output folder:"), m_outputDirectory);
@@ -799,16 +799,16 @@ void ChannelBurnDialog::finishBurn()
         return;
     }
     if (stopped) {
-        m_progress->setFormat(tr("Cancelled"));
-        m_status->setText(tr("Channel burn cancelled; the mesh and network are unchanged."));
+        m_progress->setFormat(tr("Canceled"));
+        m_status->setText(tr("Channel burn canceled; the mesh and network are unchanged."));
         return;
     }
     try {
         auto job = m_watcher.result();
         auto &result = job.burn;
         if (result.cancelled) {
-            m_progress->setFormat(tr("Cancelled"));
-            m_status->setText(tr("Channel burn cancelled; the mesh and network are unchanged."));
+            m_progress->setFormat(tr("Canceled"));
+            m_status->setText(tr("Channel burn canceled; the mesh and network are unchanged."));
             return;
         }
         if (!result.ok) {

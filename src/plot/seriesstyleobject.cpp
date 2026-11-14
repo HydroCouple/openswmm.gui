@@ -66,7 +66,7 @@ QString SeriesStyleObject::displayLabelFor(const QString &name) const
 {
     // Identity
     if (name == QStringLiteral("color"))
-        return QStringLiteral("Identity — Colour");
+        return QStringLiteral("Identity — Color");
     if (name == QStringLiteral("opacity"))
         return QStringLiteral("Identity — Opacity");
     if (name == QStringLiteral("legendName"))
@@ -94,9 +94,9 @@ QString SeriesStyleObject::displayLabelFor(const QString &name) const
     if (name == QStringLiteral("markerSize"))
         return QStringLiteral("Marker — Size");
     if (name == QStringLiteral("markerFillColor"))
-        return QStringLiteral("Marker — Fill colour");
+        return QStringLiteral("Marker — Fill color");
     if (name == QStringLiteral("markerBorderColor"))
-        return QStringLiteral("Marker — Border colour");
+        return QStringLiteral("Marker — Border color");
     if (name == QStringLiteral("markerBorderWidth"))
         return QStringLiteral("Marker — Border width");
 
@@ -106,7 +106,7 @@ QString SeriesStyleObject::displayLabelFor(const QString &name) const
     if (name == QStringLiteral("pointLabelFont"))
         return QStringLiteral("Labels — Font");
     if (name == QStringLiteral("pointLabelColor"))
-        return QStringLiteral("Labels — Colour");
+        return QStringLiteral("Labels — Color");
     if (name == QStringLiteral("pointLabelFormatMode"))
         return QStringLiteral("Labels — Number format");
     if (name == QStringLiteral("pointLabelPrecision"))
@@ -118,7 +118,7 @@ QString SeriesStyleObject::displayLabelFor(const QString &name) const
     if (name == QStringLiteral("showAreaFill"))
         return QStringLiteral("Area — Visible");
     if (name == QStringLiteral("areaFillColor"))
-        return QStringLiteral("Area — Colour");
+        return QStringLiteral("Area — Color");
 
     return {}; // empty → fall back to default property name
 }

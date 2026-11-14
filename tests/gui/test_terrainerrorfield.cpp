@@ -441,7 +441,7 @@ private slots:
         TerrainErrorField f;
         int calls = 0;
         QVERIFY(!f.buildFromGrid(z.data(), 1024, 1024, [&](double) { return ++calls < 3; }));
-        QVERIFY(f.errorMsg().contains("Cancelled"));
+        QVERIFY(f.errorMsg().contains("Canceled"));
     }
     /**
      * @brief Verify a planar summary still counts missing DEM samples and refuses nonfinite

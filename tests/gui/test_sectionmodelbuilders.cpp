@@ -634,7 +634,7 @@ void TestSectionModelBuilders::outfallDrawsReceivingWaterOnlyWhenItHasAStage()
     for (const DiagramPolyline &pl : mf.polylines)
         if (pl.label.contains(QStringLiteral("95.00")))
             labelled = pl.wavy;
-    QVERIFY2(labelled, "a fixed tailwater must be a labelled, wavy surface");
+    QVERIFY2(labelled, "a fixed tailwater must be a labeled, wavy surface");
 
     SWMM_Engine ee = swmm_engine_new();
     QVERIFY(ee);

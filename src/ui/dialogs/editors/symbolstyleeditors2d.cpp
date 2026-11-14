@@ -141,7 +141,7 @@ RasterColorRampSymbolStyleEditor::RasterColorRampSymbolStyleEditor(
     auto *root = new QVBoxLayout(this);
     root->setContentsMargins(8, 8, 8, 8);
     QFormLayout *f = nullptr;
-    auto *box = group(this, tr("Colour ramp"), f);
+    auto *box = group(this, tr("Color ramp"), f);
 
     m_attr = new QLineEdit(box);
     m_attr->setPlaceholderText(tr("e.g. depth, head, velocity"));
@@ -153,9 +153,9 @@ RasterColorRampSymbolStyleEditor::RasterColorRampSymbolStyleEditor(
     m_log = new QCheckBox(tr("Logarithmic scale"), box);
     f->addRow(QString(), m_log);
     m_low = colorBtn(box);
-    f->addRow(tr("&Low colour:"), m_low);
+    f->addRow(tr("&Low color:"), m_low);
     m_high = colorBtn(box);
-    f->addRow(tr("Hi&gh colour:"), m_high);
+    f->addRow(tr("Hi&gh color:"), m_high);
     m_below = colorBtn(box);
     f->addRow(tr("&Below min:"), m_below);
     m_above = colorBtn(box);
@@ -243,7 +243,7 @@ HillshadeSymbolStyleEditor::HillshadeSymbolStyleEditor(HillshadeSymbolStyleAdapt
     root->setContentsMargins(8, 8, 8, 8);
     QFormLayout *f = nullptr;
     auto *box = group(this, tr("Relief"), f);
-    m_useRamp = new QCheckBox(tr("Colour by elevation ramp"), box);
+    m_useRamp = new QCheckBox(tr("Color by elevation ramp"), box);
     f->addRow(QString(), m_useRamp);
     m_fill = colorBtn(box);
     f->addRow(tr("Flat fill:"), m_fill);
@@ -307,9 +307,9 @@ ContourBandSymbolStyleEditor::ContourBandSymbolStyleEditor(ContourBandSymbolStyl
     m_bands->setRange(2, 64);
     f->addRow(tr("Bands:"), m_bands);
     m_low = colorBtn(box);
-    f->addRow(tr("Lo&w colour:"), m_low);
+    f->addRow(tr("Lo&w color:"), m_low);
     m_high = colorBtn(box);
-    f->addRow(tr("High colour:"), m_high);
+    f->addRow(tr("High color:"), m_high);
     m_below = colorBtn(box);
     f->addRow(tr("Below min:"), m_below);
     m_above = colorBtn(box);
@@ -393,7 +393,7 @@ IsolineSymbolStyleEditor::IsolineSymbolStyleEditor(IsolineSymbolStyleAdapter *a,
     m_count->setRange(1, 64);
     f->addRow(tr("Iso count:"), m_count);
     m_color = colorBtn(box);
-    f->addRow(tr("Colour:"), m_color);
+    f->addRow(tr("Color:"), m_color);
     m_width = dspin(box, 0.25, 30.0, 2, 0.25, tr(" px"));
     f->addRow(tr("Width:"), m_width);
     m_dash = new DashStyleCombo(box);
@@ -465,7 +465,7 @@ MeshEdgeSymbolStyleEditor::MeshEdgeSymbolStyleEditor(MeshEdgeSymbolStyleAdapter 
     QFormLayout *f = nullptr;
     auto *box = group(this, tr("Mesh wireframe"), f);
     m_color = colorBtn(box);
-    f->addRow(tr("Colour:"), m_color);
+    f->addRow(tr("Color:"), m_color);
     m_width = dspin(box, 0.1, 20.0, 2, 0.1, tr(" px"));
     f->addRow(tr("Width:"), m_width);
     m_dash = new DashStyleCombo(box);
@@ -483,7 +483,7 @@ MeshEdgeSymbolStyleEditor::MeshEdgeSymbolStyleEditor(MeshEdgeSymbolStyleAdapter 
     m_wideWidth = dspin(slope, 0.1, 20.0, 2, 0.1, tr(" px"));
     sf->addRow(tr("Wide width:"), m_wideWidth);
     m_wideColor = colorBtn(slope);
-    sf->addRow(tr("Wide colour:"), m_wideColor);
+    sf->addRow(tr("Wide color:"), m_wideColor);
     root->addWidget(slope);
     root->addStretch();
 
@@ -574,7 +574,7 @@ MeshNodeSymbolStyleEditor::MeshNodeSymbolStyleEditor(MeshNodeSymbolStyleAdapter 
     m_highlightTagged = new QCheckBox(tr("Highlight tagged"), tag);
     tf->addRow(QString(), m_highlightTagged);
     m_taggedColor = colorBtn(tag);
-    tf->addRow(tr("Tagged colour:"), m_taggedColor);
+    tf->addRow(tr("Tagged color:"), m_taggedColor);
     m_taggedSize = dspin(tag, 0.5, 60.0, 1, 0.5, tr(" px"));
     tf->addRow(tr("Tagged size:"), m_taggedSize);
     root->addWidget(tag);
@@ -653,7 +653,7 @@ VelocityVectorSymbolStyleEditor::VelocityVectorSymbolStyleEditor(
     QFormLayout *f = nullptr;
     auto *box = group(this, tr("Flow Velocity"), f);
     m_color = colorBtn(box);
-    f->addRow(tr("Colour:"), m_color);
+    f->addRow(tr("Color:"), m_color);
     m_scale = dspin(box, 0.0, 500.0, 1, 1.0, tr(" px/(m/s)"));
     f->addRow(tr("Length scale:"), m_scale);
     m_minLen = dspin(box, 0.0, 200.0, 1, 1.0, tr(" px"));
