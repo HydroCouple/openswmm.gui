@@ -10,6 +10,9 @@
  */
 
 #include "ui/dialogs/profileplotdialog.h"
+
+#include "project/modelannotations.h"
+#include "ui/util/usernotice.h"
 #include "ui/theme/iconfactory.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
 
@@ -41,6 +44,8 @@
 
 #include <ogr_spatialref.h>
 #include <openswmm/engine/openswmm_engine.h>
+#include <openswmm/engine/openswmm_links.h>
+#include <openswmm/engine/openswmm_nodes.h>
 
 #include <algorithm>
 #include <limits>
@@ -50,6 +55,8 @@
 #include <QApplication>
 #include <QFutureWatcher>
 #include <QMenu>
+#include <QInputDialog>
+#include <QLineEdit>
 #include <QMessageBox>
 #include <QProgressBar>
 #include <QSettings>
@@ -382,6 +389,13 @@ void ProfilePlotDialog::buildLayout()
     m_actShowMax2D->setChecked(m_options->showMax2DInundation());
     connect(m_actShowMax2D, &QAction::toggled, m_options,
             &ProfilePlotOptions::setShowMax2DInundation);
+    toolbar->addSeparator();
+    auto *actSaveProfile = toolbar->addAction(
+        openswmmvis::ui::IconFactory::icon(QStringLiteral("Save")), tr("Save Profile…"));
+    actSaveProfile->setObjectName(QStringLiteral("saveProfile"));
+    actSaveProfile->setToolTip(tr("Save this profile's links in the model, to plot it again "
+                                  "from Analysis ▸ Saved Profiles."));
+    connect(actSaveProfile, &QAction::triggered, this, &ProfilePlotDialog::promptSaveProfile);
     root->addWidget(toolbar);
 
     // Header banner with the path summary.
@@ -2659,4 +2673,52 @@ void ProfilePlotDialog::rebuildTracks()
         watcher->deleteLater();
     });
     watcher->setFuture(future);
+}
+
+bool ProfilePlotDialog::saveProfileAs(const QString &name, QString *error)
+{
+    const auto fail = [error](const QString &why) {
+        if (error)
+            *error = why;
+        return false;
+    };
+    if (!m_model || !m_model->engine())
+        return fail(tr("The model is closed."));
+    if (name.trimmed().isEmpty() || m_routerPath.linkIds.isEmpty())
+        return fail(tr("The profile needs a name and at least one link."));
+    openswmmvis::project::ModelProfile profile{name.trimmed(), {}};
+    for (int link : std::as_const(m_routerPath.linkIds))
+        profile.links.append(QString::fromUtf8(swmm_link_id(m_model->engine(), link)));
+    if (!openswmmvis::project::saveProfile(m_model->engine(), profile, error))
+        return false;
+    m_model->markEdited();
+    return true;
+}
+
+void ProfilePlotDialog::promptSaveProfile()
+{
+    if (!m_model || !m_model->engine() || m_routerPath.nodes.size() < 2)
+        return;
+    const SWMM_Engine engine = m_model->engine();
+    const QString suggested =
+        tr("%1 to %2")
+            .arg(QString::fromUtf8(swmm_node_id(engine, m_routerPath.nodes.first())),
+                 QString::fromUtf8(swmm_node_id(engine, m_routerPath.nodes.last())));
+    bool accepted = false;
+    const QString name = QInputDialog::getText(this, tr("Save Profile"), tr("Profile name:"),
+                                               QLineEdit::Normal, suggested, &accepted)
+                             .trimmed();
+    if (!accepted || name.isEmpty())
+        return;
+    const auto saved = openswmmvis::project::readProfiles(engine);
+    const bool exists = std::any_of(saved.cbegin(), saved.cend(),
+                                    [&](const auto &profile) { return profile.name == name; });
+    if (exists && QMessageBox::question(this, tr("Save Profile"),
+                                        tr("Replace the saved profile %1?").arg(name)) !=
+                      QMessageBox::Yes)
+        return;
+    QString error;
+    if (!saveProfileAs(name, &error))
+        openswmmvis::ui::notifyUser(this, openswmmvis::ui::NoticeSeverity::Error,
+                                    tr("The profile was not saved: %1").arg(error));
 }

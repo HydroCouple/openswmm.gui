@@ -1,0 +1,53 @@
+[TITLE]
+Review G-01: map labels, a backdrop and saved profiles that the GUI shows and saves back.
+
+[OPTIONS]
+FLOW_UNITS           CFS
+FLOW_ROUTING         DYNWAVE
+START_DATE           01/01/2024
+START_TIME           00:00:00
+END_DATE             01/01/2024
+END_TIME             01:00:00
+REPORT_STEP          00:15:00
+ROUTING_STEP         00:00:30
+
+[JUNCTIONS]
+;;Name  Elev   MaxDepth
+J1      100.0  10.0
+J2       98.0  10.0
+J3       96.0  10.0
+
+[OUTFALLS]
+O1       90.0 FREE         NO
+
+[CONDUITS]
+;;Name  From  To  Length  Rough  InOff  OutOff
+C1      J1    J2  100.0   0.013  0      0
+C2      J2    J3  100.0   0.013  0      0
+C3      J3    O1  100.0   0.013  0      0
+
+[XSECTIONS]
+C1  CIRCULAR  1.5  0  0  0  1
+C2  CIRCULAR  1.5  0  0  0  1
+C3  CIRCULAR  1.5  0  0  0  1
+
+[COORDINATES]
+J1  0    0
+J2  100  0
+J3  200  0
+O1  300  0
+
+[LABELS]
+;;X-Coord          Y-Coord            Label
+50.5               20                 "Upper reach" "" "Arial" 12 1 0
+250                -15.25             "Outfall" "O1" "Times New Roman" 9 NO YES
+10                 40                 "Old style label"
+
+[BACKDROP]
+FILE      	"backdrop image.png"
+DIMENSIONS	-10.000	-50.000	310.000	50.000
+
+[PROFILE]
+;;Name          	Links
+"Main line       "	C1	C2
+"Main line       "	C3

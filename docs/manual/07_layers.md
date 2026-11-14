@@ -476,6 +476,29 @@ labels can display feature names or attribute expressions and use callout lines
 that follow their features. Automatic placement considers visible text layers
 together; pinned text keeps its position. See \ref manual_map_editing.
 
+### Model labels and backdrop
+
+A model's own map labels (its `[LABELS]` section) open as a text layer named
+**Model labels**. Edit it like any text layer: move, retype, restyle, add or
+delete labels, and undo. What the model file can hold (each label's text,
+position, font, size, bold and italic) is saved in the model; colors, halos
+and other styles are saved in the project. A label anchored to a node keeps its
+anchor. Text in other text layers stays in the project only.
+
+When a project reopens, the model decides what its labels say. While they match
+the copy saved in the project, they keep their project styles; if another
+program changed them, they are shown in the default style and the load messages
+say so.
+
+A model's backdrop image (its `[BACKDROP]` section) opens as a raster layer named
+**Backdrop**, placed at the map extent the section gives. Nothing is written
+beside the image, and the model saves the section as it was read. The project
+keeps the layer's name, visibility, opacity and style. If the image is missing,
+or the section gives no extent, the load messages say so and the model keeps the
+section unchanged.
+
+Both layers also come back when the model is saved as a GeoPackage.
+
 ## Tips and gotchas
 
 - **Most imports need a project open.** Vector, raster, delimited, results, mesh

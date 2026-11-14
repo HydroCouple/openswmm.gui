@@ -113,15 +113,30 @@ void OpenSWMMVisAnnotationLayer::fromJson(const QJsonArray &items)
     emit annotationsChanged();
     emit repaintRequested();
 }
+void OpenSWMMVisAnnotationLayer::setModelAnchor(const QString &itemId, const QString &anchor)
+{
+    if (anchor.isEmpty())
+        m_modelAnchors.remove(itemId);
+    else
+        m_modelAnchors.insert(itemId, anchor);
+}
 QJsonObject OpenSWMMVisAnnotationLayer::layerJson() const
 {
-    return {{"id", layerId()},
-            {"name", name()},
-            {"visible", isVisible()},
-            {"opacity", opacity()},
-            {"autoLayout", m_autoLayout},
-            {"crs", srs() ? srs()->toWkt() : QString()},
-            {"items", toJson()}};
+    QJsonObject object{{"id", layerId()},
+                       {"name", name()},
+                       {"visible", isVisible()},
+                       {"opacity", opacity()},
+                       {"autoLayout", m_autoLayout},
+                       {"crs", srs() ? srs()->toWkt() : QString()},
+                       {"items", toJson()}};
+    if (!m_modelSection.isEmpty()) {
+        object["modelSection"] = m_modelSection;
+        QJsonObject anchors;
+        for (auto it = m_modelAnchors.cbegin(); it != m_modelAnchors.cend(); ++it)
+            anchors[it.key()] = it.value();
+        object["modelAnchors"] = anchors;
+    }
+    return object;
 }
 void OpenSWMMVisAnnotationLayer::restoreLayer(const QJsonObject &o)
 {
@@ -130,6 +145,11 @@ void OpenSWMMVisAnnotationLayer::restoreLayer(const QJsonObject &o)
     setVisible(o.value("visible").toBool(true));
     setOpacity(o.value("opacity").toDouble(1));
     setAutoLayout(o.value("autoLayout").toBool());
+    m_modelSection = o.value("modelSection").toString();
+    m_modelAnchors.clear();
+    const QJsonObject anchors = o.value("modelAnchors").toObject();
+    for (auto it = anchors.constBegin(); it != anchors.constEnd(); ++it)
+        setModelAnchor(it.key(), it.value().toString());
     if (!o.value("crs").toString().isEmpty() &&
         (!srs() || srs()->toWkt() != o.value("crs").toString()))
         setSRS(

@@ -57,6 +57,24 @@ function(add_swmmvis_gui_test TEST_NAME)
     if("${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp" IN_LIST ARGN)
         target_sources(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/src/results/summarytables.cpp)
     endif()
+    # G-01: the project window and the project file show the model's labels and backdrop; the
+    # main window and the profile plot list and save its profiles.
+    set(g01_sources "")
+    if("${CMAKE_SOURCE_DIR}/src/swmmvisprojectwindow.cpp" IN_LIST ARGN OR
+       "${CMAKE_SOURCE_DIR}/src/project/projectserializer.cpp" IN_LIST ARGN)
+        list(APPEND g01_sources src/layers/modellabelslayer.cpp src/layers/modelbackdroplayer.cpp
+                                src/project/modelannotations.cpp)
+    endif()
+    if("${CMAKE_SOURCE_DIR}/src/swmmvis.cpp" IN_LIST ARGN OR
+       "${CMAKE_SOURCE_DIR}/src/ui/dialogs/profileplotdialog.cpp" IN_LIST ARGN)
+        list(APPEND g01_sources src/project/modelannotations.cpp)
+    endif()
+    list(REMOVE_DUPLICATES g01_sources)
+    foreach(g01_source IN LISTS g01_sources)
+        if(NOT "${CMAKE_SOURCE_DIR}/${g01_source}" IN_LIST ARGN)
+            target_sources(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/${g01_source})
+        endif()
+    endforeach()
     if("${CMAKE_SOURCE_DIR}/src/swmmvisprojectwindow.cpp" IN_LIST ARGN)
         target_sources(${TEST_NAME} PRIVATE
             ${CMAKE_SOURCE_DIR}/include/plugins/extensionviewaccess.h
@@ -3937,6 +3955,23 @@ add_swmmvis_gui_test(test_hotstartinspector
     ${CMAKE_SOURCE_DIR}/src/ui/dialogs/hotstartinspectordialog.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/dialogs/hotstartinspectordialog.h
 )
+
+# Review G-01 — the model's [LABELS], [BACKDROP] and [PROFILES]: text read and written, engine
+# sections read and written back under the file's spelling.
+add_swmmvis_gui_test(test_modelannotations
+    test_modelannotations.cpp
+    ${CMAKE_SOURCE_DIR}/src/project/modelannotations.cpp
+)
+
+# Review G-01 — the model's labels and backdrop as map layers: one labels layer per model, edits
+# written to [LABELS], undo, save, the backdrop placed at its DIMENSIONS, and project reopen
+# without duplicates.
+add_swmmvis_gui_test(test_modelannotationlayers
+    test_modelannotationlayers.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_modelannotationlayers)
 
 add_swmmvis_gui_test(test_simulationoptions_gates
     test_simulationoptions_gates.cpp

@@ -22,6 +22,8 @@
 
 #include "connections/basemapconnection.h"
 #include "layers/annotationlayer.h"
+#include "layers/modelbackdroplayer.h"
+#include "layers/modellabelslayer.h"
 #include "layers/featurelayer.h"
 #include "layers/gisrasterlayer.h"
 #include "layers/gisvectorlayer.h"
@@ -1384,6 +1386,19 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj, SWMMVisProje
         for (const auto &value : sessionObj.value("textLayers").toArray()) {
             if (!value.isObject())
                 continue;
+            // Review G-01 — the model's [LABELS] decide what the model labels layer says; the
+            // project keeps its display settings and, while they agree, its text styles.
+            if (value.toObject().value("modelSection").toString() ==
+                QLatin1String(openswmmvis::layers::kModelLabelsSection)) {
+                if (!openswmmvis::layers::applySavedModelLabels(
+                        openswmmvis::layers::findModelLabelsLayer(pw->canvas()->layers()),
+                        value.toObject()) &&
+                    warningsOut)
+                    warningsOut->append(QObject::tr(
+                        "The model's map labels differ from the copy saved in the project; the "
+                        "model's labels are shown with the default text style."));
+                continue;
+            }
             auto *layer = new OpenSWMMVisAnnotationLayer;
             layer->setParent(pw->canvas());
             layer->restoreLayer(value.toObject());
@@ -2141,6 +2156,16 @@ QJsonObject ProjectSerializer::serializeGisLayer(OpenSWMMVisLayer *layer, const 
             associations[i] = link;
         }
         obj["associations"] = associations;
+    } else if (auto *r = qobject_cast<GISRasterLayer *>(layer);
+               r && r->property("modelSection").toString() ==
+                        QLatin1String(openswmmvis::layers::kModelBackdropSection)) {
+        // Review G-01 — the model holds the backdrop image and its extent; the project keeps
+        // only how the model's backdrop layer is shown.
+        obj[kGisType] = QStringLiteral("modelBackdrop");
+        obj[kGisName] = r->name();
+        obj[kGisVisible] = r->isVisible();
+        obj[kGisOpacity] = r->opacity();
+        obj[kRasterStyle] = OpenSWMM::Render::StyleFileIO::rasterStyleToJson(r);
     } else if (auto *r = qobject_cast<GISRasterLayer *>(layer)) {
         if (r->filePath().isEmpty())
             return obj; // nothing to reopen from
@@ -2244,6 +2269,37 @@ void ProjectSerializer::deserializeGisLayer(const QJsonObject &obj, MapCanvas *c
     if (!canvas)
         return;
     const QString type = obj.value(kGisType).toString();
+    if (type == QStringLiteral("modelBackdrop")) {
+        // Review G-01 — applied to the backdrop layer the model built; never a second copy.
+        GISRasterLayer *backdrop = openswmmvis::layers::findModelBackdropLayer(canvas->layers());
+        if (!backdrop)
+            return;
+        backdrop->restoreLayerId(obj.value("id").toString());
+        backdrop->setVisible(obj.value(kGisVisible).toBool(true));
+        backdrop->setOpacity(obj.value(kGisOpacity).toDouble(1.0));
+        // The open renames the layer and installs its default renderer, so the saved name and
+        // style apply now when it is open, else once it is.
+        const QString name = obj.value(kGisName).toString();
+        const QJsonObject style = obj.value(kRasterStyle).toObject();
+        const bool hasStyle = obj.contains(kRasterStyle);
+        const auto apply = [backdrop, name, style, hasStyle] {
+            if (!name.isEmpty())
+                backdrop->setName(name);
+            if (hasStyle)
+                OpenSWMM::Render::StyleFileIO::applyRasterStyleJson(backdrop, style);
+        };
+        if (!backdrop->filePath().isEmpty())
+            apply();
+        else
+            QObject::connect(
+                backdrop, &GISRasterLayer::openFinished, backdrop,
+                [apply](bool ok) {
+                    if (ok)
+                        apply();
+                },
+                static_cast<Qt::ConnectionType>(Qt::SingleShotConnection));
+        return;
+    }
     const QString rel = obj.value(kGisPath).toString();
     if (rel.isEmpty())
         return;

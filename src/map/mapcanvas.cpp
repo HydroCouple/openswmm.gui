@@ -1480,6 +1480,13 @@ QString MapCanvas::layerOrderKey(const OpenSWMMVisLayer *layer)
         return {};
     if (auto *series = qobject_cast<const TimeSeriesLayer *>(layer))
         return QStringLiteral("timeseries|") + series->layerId();
+    // Review G-01 — the layers a model builds (its labels and backdrop) have one stable key: the
+    // backdrop's source is an in-memory copy and either may be renamed after the order applies.
+    QString section = layer->property("modelSection").toString();
+    if (auto *text = qobject_cast<const OpenSWMMVisAnnotationLayer *>(layer); text && section.isEmpty())
+        section = text->modelSection();
+    if (!section.isEmpty())
+        return QStringLiteral("model|") + section;
     return QString::number(int(layer->layerType())) + QLatin1Char('|') +
            layer->sourceDescription() + QLatin1Char('|') + layer->name();
 }
