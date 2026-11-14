@@ -77,6 +77,8 @@ inline void notifyUser(QWidget *context, NoticeSeverity severity, const QString 
         title = title.trimmed();
         sink(severity, title.isEmpty() ? text : QStringLiteral("%1: %2").arg(title, text));
     }
+    // QAccessibleAnnouncementEvent needs Qt 6.8; older kits show the message without announcing it.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
     if (context) {
         QAccessibleAnnouncementEvent announcement(
             statusBar ? static_cast<QObject *>(statusBar) : context, text);
@@ -85,6 +87,7 @@ inline void notifyUser(QWidget *context, NoticeSeverity severity, const QString 
                                        : QAccessible::AnnouncementPoliteness::Polite);
         QAccessible::updateAccessibility(&announcement);
     }
+#endif
 }
 
 } // namespace openswmmvis::ui

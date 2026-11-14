@@ -72,6 +72,8 @@ using openswmmvis::ui::NoticeSeverity;
 
 namespace
 {
+// Screen-reader announcements need Qt 6.8; older kits skip those checks.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
 QStringList g_announcements;
 QList<QAccessible::AnnouncementPoliteness> g_politeness;
 
@@ -84,6 +86,7 @@ void recordAnnouncement(QAccessibleEvent *event)
     g_announcements.append(announcement->message());
     g_politeness.append(announcement->politeness());
 }
+#endif
 
 /**
  *
@@ -449,9 +452,11 @@ private slots:
         QList<QPair<NoticeSeverity, QString>> notices;
         openswmmvis::ui::setNoticeSink(
             [&](NoticeSeverity s, const QString &t) { notices.append({s, t}); });
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
         g_announcements.clear();
         g_politeness.clear();
         const auto previous = QAccessible::installUpdateHandler(recordAnnouncement);
+#endif
         openswmmvis::ui::notifyUser(&window, NoticeSeverity::Warning,
                                     QStringLiteral("Paste rejected: no rows"), status, 4000);
         openswmmvis::ui::notifyUser(&window, NoticeSeverity::Error,
@@ -461,7 +466,9 @@ private slots:
         openswmmvis::ui::setNoticeSink({});
         openswmmvis::ui::notifyUser(&window, NoticeSeverity::Warning,
                                     QStringLiteral("Not logged"), status);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
         QAccessible::installUpdateHandler(previous);
+#endif
 
         QCOMPARE(status->currentMessage(), QStringLiteral("Not logged"));
         QCOMPARE(notices.size(), 3);
@@ -469,12 +476,14 @@ private slots:
         QCOMPARE(notices[0].second, QStringLiteral("Curve Editor: Paste rejected: no rows"));
         QCOMPARE(notices[1].first, NoticeSeverity::Error);
         QCOMPARE(notices[2].second, QStringLiteral("No context"));
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
         QCOMPARE(g_announcements,
                  QStringList({QStringLiteral("Paste rejected: no rows"),
                               QStringLiteral("File could not be read"),
                               QStringLiteral("Not logged")}));
         QCOMPARE(g_politeness[1], QAccessible::AnnouncementPoliteness::Assertive);
         QCOMPARE(g_politeness[0], QAccessible::AnnouncementPoliteness::Polite);
+#endif
     }
 
     /*! A-27: a rejected curve rename no longer vanishes with the status message: it reaches
@@ -489,11 +498,15 @@ private slots:
         QList<QPair<NoticeSeverity, QString>> notices;
         openswmmvis::ui::setNoticeSink(
             [&](NoticeSeverity s, const QString &t) { notices.append({s, t}); });
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
         g_announcements.clear();
         const auto previous = QAccessible::installUpdateHandler(recordAnnouncement);
+#endif
         auto *list = dlg.listView()->model();
         list->setData(list->index(1, 0), QStringLiteral("CV_A"));
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
         QAccessible::installUpdateHandler(previous);
+#endif
         openswmmvis::ui::setNoticeSink({});
 
         QVERIFY(reg.findByName(QStringLiteral("CV_B")));
@@ -502,8 +515,10 @@ private slots:
         QVERIFY2(notices[0].second.contains(QStringLiteral("CV_A")) &&
                      notices[0].second.startsWith(dlg.windowTitle().remove(QStringLiteral("[*]"))),
                  qPrintable(notices[0].second));
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
         QCOMPARE(g_announcements.size(), 1);
         QVERIFY(g_announcements[0].contains(QStringLiteral("already exists")));
+#endif
     }
 
     void dialog_OpensAndBindsFirstProvider()
