@@ -247,6 +247,10 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
 
     // ── Simulation ──────────────────────────────────────────────────────
     {"sim.run", "actionExecute", "Simulation", "Ctrl+R", "Execute", "home", "Analysis", NoTags},
+    {"sim.check", "actionCheckModel", "Simulation", "", "ModelCheck", "", "Analysis",
+     RequiresProject},
+    {"sim.inspectHotstart", "actionInspectHotstart", "Simulation", "", "", "", "Analysis",
+     NoTags},
     {"sim.componentExecution", "actionComponentExecution", "Simulation", "", "Settings", "", "Analysis", RequiresProject},
     {"sim.pause", "actionPauseExecution", "Simulation", "", "Pause", "home", "Analysis", NoTags},
     {"sim.stop", "actionCancelExecution", "Simulation", "Ctrl+.", "CancelExecution", "home",

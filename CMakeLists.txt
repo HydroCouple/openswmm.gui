@@ -1542,6 +1542,16 @@ set(
         include/simulation/componentexecution.h
         src/ui/dialogs/componentexecutiondialog.cpp
         include/ui/dialogs/componentexecutiondialog.h
+        src/simulation/modelcheck.cpp
+        include/simulation/modelcheck.h
+        src/ui/dialogs/modelcheckdialog.cpp
+        include/ui/dialogs/modelcheckdialog.h
+        src/project/modelsnapshot.cpp
+        include/project/modelsnapshot.h
+        src/simulation/hotstartdocument.cpp
+        include/simulation/hotstartdocument.h
+        src/ui/dialogs/hotstartinspectordialog.cpp
+        include/ui/dialogs/hotstartinspectordialog.h
         src/simulation/checkpointmodel.cpp
         src/ui/dialogs/checkpointsdialog.cpp
         src/simulation/checkpointworker.cpp
