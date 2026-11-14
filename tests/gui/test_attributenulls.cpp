@@ -251,7 +251,9 @@ private slots:
                 const int col = column(model.columnSpecs(), spec.key);
                 QVERIFY(col >= 0);
                 const QVariant value = model.index(0, col).data(kAttributeValueRole);
-                if (spec.key.startsWith("snow.") || spec.key.startsWith("gw.")) {
+                // initHgl: the fixture sets none, so the cell starts from its depth (0431388a1).
+                if (spec.key.startsWith("snow.") || spec.key.startsWith("gw.") ||
+                    spec.key == "initHgl") {
                     QVERIFY(!value.isValid());
                     QVERIFY(!model.index(0, col).data(Qt::ToolTipRole).toString().isEmpty());
                 } else if (spec.key.startsWith("infil.") && spec.key != "infil.owner" &&
