@@ -83,7 +83,7 @@ Selection**:
   click becomes a rubber band. Trackpad jitter on a click routinely reaches
   10–12 px; raising this forgives it.
 - **Clear selection when clicking empty space** turns the click-on-nothing
-  behaviour off.
+  behavior off.
 
 The same page carries the selection pens and fills — the stroke for the link
 halo, polygon outline and glyph outline, and the fill brush for polygonal and
@@ -327,14 +327,14 @@ a picture of them, not the model text.
 **Del** or **Backspace** with the Select tool active — or the map's right-click
 **Delete…**, the Object Browser's **Delete…**, or the Attribute Table's
 **Delete (Del)** — deletes the selected objects. All four routes go through the
-same undoable command, so behaviour is identical wherever the delete starts.
+same undoable command, so behavior is identical wherever the delete starts.
 
 What happens:
 
 1. Every target is classified from its typed kind bits, not from its name — SWMM
    name spaces are per type, so classifying by name could delete a same-named
    object of the wrong kind.
-2. Cascades are analysed: deleting a node also removes the links attached to it.
+2. Cascades are analyzed: deleting a node also removes the links attached to it.
 3. **Virtual and inlet junctions** are intercepted. Deleting one — or one of the
    two conduits it sits between — offers **Re-fuse Conduits** (put the split
    conduit back together, the default) or **Delete Node && Conduits** /

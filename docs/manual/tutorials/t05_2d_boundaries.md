@@ -37,7 +37,7 @@ boundary-condition type the engine accepts**, plus an `[2D_EDGE_CONVEYANCE]`
 
 `demo_weir_culvert/` also contains `_t/` and `diag_gui_perf/` scratch
 directories and a `weir_culvert.inp.orig` backup. Ignore all three — they are
-regeneration artefacts, not part of the example.
+regeneration artifacts, not part of the example.
 
 \figtodo{t05_road_culvert_overview.png, The road culvert model on the map canvas — flat mesh; transverse embankment; three coupled junctions along the culvert centreline}
 
@@ -100,7 +100,7 @@ one value field that type uses:
 | **Normal Depth** | `NORMAL_FLOW` | **Friction Slope** | signed friction slope, dimensionless |
 | **Specified Stage (Constant)** | `SPECIFIED_STAGE` | **Stage** | water-surface elevation |
 | **Specified Stage (Timeseries)** | `TS_STAGE` | **Time Series** | a `[TIMESERIES]` name |
-| **Specified Flow (Constant)** | `SPECIFIED_FLOW` | **Flow** | discharge per metre of edge |
+| **Specified Flow (Constant)** | `SPECIFIED_FLOW` | **Flow** | discharge per meter of edge |
 | **Specified Flow (Timeseries)** | `TS_FLOW` | **Time Series** | a `[TIMESERIES]` name |
 | **Rating Curve** | `RATING_CURVE` | **Rating Curve** | a `RATING` `[CURVES]` name |
 
@@ -132,7 +132,7 @@ Table**, and switch it to the **Edge** rows.) The edge columns are:
 | **Wall drag Cw** | tangential wall friction; 0 = free slip | `PARAM_1` |
 | **Stage** | constant water-surface elevation | `PARAM_1` |
 | **Friction Slope** | signed: positive drains, negative feeds the domain using the depth already in the cell, 0 acts as a wall | `PARAM_1` |
-| **Flow** | discharge per metre of edge | `PARAM_1` |
+| **Flow** | discharge per meter of edge | `PARAM_1` |
 | **Time Series** | series name for `TS_STAGE` / `TS_FLOW` | `PARAM_1` |
 | **Rating Curve** | curve name for `RATING_CURVE` | `PARAM_1` |
 | **Group** | optional named boundary group | `GROUP` |
@@ -155,19 +155,19 @@ Open the mesh layer's style dialog (double-click the layer in **Layers**, or
 right-click → **Properties…**) and go to the **Boundary Conditions** tab.
 
 - The header checkbox **Show boundary-condition indicators** turns the ring on.
-- **Per-type styling** is a grid of **Type / Colour / Width**, one row per BC
+- **Per-type styling** is a grid of **Type / Color / Width**, one row per BC
   type. Types that do not occur in the mesh get ` (none in mesh)` appended.
-  The **Wall** row is labelled `… / interior edges` and shows
+  The **Wall** row is labeled `… / interior edges` and shows
   `(wireframe width)` instead of a width spin, because walls are drawn with the
   wireframe.
 - The boundary ring stays visible at every zoom level, so give **Normal Depth**
-  a strong colour and a wide stroke — the ten outflow edges then read clearly
+  a strong color and a wide stroke — the ten outflow edges then read clearly
   against the three walled faces.
 
-The default colour and width for these indicators come from the
+The default color and width for these indicators come from the
 **2D Mesh Boundary-Condition Edges** group in **Preferences**.
 
-\figtodo{t05_bc_style_tab.png, The Boundary Conditions tab of the mesh layer style dialog with per-type colour and width}
+\figtodo{t05_bc_style_tab.png, The Boundary Conditions tab of the mesh layer style dialog with per-type color and width}
 
 ### 5. Coupling at the culvert junctions
 
@@ -239,7 +239,7 @@ depth and watch:
 2. Water sheet-flows east and leaves through the `NORMAL_FLOW` face.
 3. The upstream pond rises against the embankment, and at the SCS Type II peak
    (about hour 12) it reaches the 1.5 m road crest and **overtops** for the rest
-   of the run, sheeting a few centimetres deep across the crown.
+   of the run, sheeting a few centimeters deep across the crown.
 
 
 ### 7. Cut a 2D profile across the embankment
@@ -249,7 +249,7 @@ the domain, from the ponded upstream side, over the crest, to the lee side.
 Finish the trace with **Return**; **Esc** cancels it. The plot opens as
 **2D Mesh Profile** and shows ground, animated depth and the depth envelope
 along the trace; its **Profile Display Options** sub-dialog exposes the cell
-boundary colour. Press **Home** to fit.
+boundary color. Press **Home** to fit.
 
 The **Mesh 2D** tab's own **Mesh Profile** (**Profile** group) draws a
 **bed-only** profile — useful for checking that the embankment really is a cell-wide plateau. That matters: a
@@ -296,7 +296,7 @@ Read the report's warnings too — this model emits `WARNING 04: minimum
 elevation drop used for Conduit …` for all three barrels (they are laid at zero
 slope), a note that 2D outfall withdrawal was capped by the water available on
 the surface in twelve sync batches, and a `1D <-> 2D Exchange Reconcil.` block
-whose internal percentage is a divide-by-near-zero artefact on the tiny
+whose internal percentage is a divide-by-near-zero artifact on the tiny
 pipe-fill volume. None of these invalidates the run, but do not present the
 model as a clean-continuity showcase without saying so.
 
@@ -319,12 +319,12 @@ idea, older build:
 
 Two teaching points fall out of the comparison.
 
-**Mesh orientation is a discretisation choice with physical consequences.**
+**Mesh orientation is a discretization choice with physical consequences.**
 Water in `demo_weir_culvert` drifts toward the north edge even though the
 terrain is flat in Y and the rainfall is uniform. The 2D flux depends only on
 cell state and edge geometry, so this is not physics: the legacy mesh splits
 every quad along the same SW→NE diagonal, and a north↔south reflection turns
-each of those into an NW→SE diagonal — a *different* mesh. The discretisation is
+each of those into an NW→SE diagonal — a *different* mesh. The discretization is
 not N–S symmetric even though the problem is. The alternating diagonal cancels
 the two orientations and restores symmetry. (The east–west ponding against the
 embankment *is* physical: the domain is walled on three sides.)
@@ -387,7 +387,7 @@ Two comment lines above `[TITLE]` are read by the engine's prescan:
 ;; SOURCE_CRS: EPSG:32616
 ```
 
-With `;; UNITS: SI (m)` the engine treats the mesh coordinates as metres and
+With `;; UNITS: SI (m)` the engine treats the mesh coordinates as meters and
 skips the `FLOW_UNITS`-driven ft→m scaling. Write it into every new mesh.
 
 #### `[2D_OPTIONS]`
@@ -399,7 +399,7 @@ skips the `FLOW_UNITS`-driven ft→m scaling. Write it into every new mesh.
 | `MAX_TIMESTEP` | caps the marcher's CFL substeps and the coupling sync batch, s | 10.0 |
 | `DRY_DEPTH` | wet/dry threshold, m | 0.001 |
 | `LIMITER_EPSILON` | slope-limiter ε for the output gradients | 1.0e-6 |
-| `FLUX_DH_EPS` | head-difference regularisation for the √\|Δη\| flux, m | 0.004 |
+| `FLUX_DH_EPS` | head-difference regularization for the √\|Δη\| flux, m | 0.004 |
 | `COUPLING_CD` | default coupling discharge coefficient | 0.65 |
 | `COUPLING_SYNC` | s; 0 couples every routing step, > 0 batches the 2D advance | 0.0 |
 | `COUPLING_AREA` | `DEFAULT` or `AUTO` — derive missing exchange areas from conduits | `DEFAULT` |
@@ -423,7 +423,7 @@ Two of these earn special attention in this tutorial:
 - **`CELL_CLOSURE VFR`** replaces the flat `η = z̄ + V/A` reconstruction with
   the exact stage–storage relation of the planar cell bed. `FLAT` overstates
   the free surface on a partially wet, slope-spanning cell by up to two-thirds
-  of the cell relief — the "water climbs uphill" artefact. VFR costs roughly
+  of the cell relief — the "water climbs uphill" artifact. VFR costs roughly
   three to eight times more marcher substeps, so it is opt-in and pays off most
   on shallow water over gentle slopes.
 - **`FACE_RECONSTRUCTION VFR_FACE`** governs the conveyance depth at boundary
@@ -462,7 +462,7 @@ The grammar is `TRI EDGE TYPE [PARAM_1 [PARAM_2 [GROUP]]]`.
 - `GROUP` is an optional name; `*` means none.
 - Any boundary edge not listed defaults to `WALL`.
 - `SPECIFIED_FLOW` is **outward-positive**, so an inflow is a negative value,
-  and its units are project flow units **per metre of edge**.
+  and its units are project flow units **per meter of edge**.
 - A `NORMAL_FLOW` row with slope 0 zeroes the Manning outflow and therefore
   behaves as a wall. The **Friction Slope** tooltip says so; the engine warns at
   validation. There is no auto-compute from bed geometry.
@@ -474,8 +474,8 @@ Row by row, this is what the reference model does:
 | `0 2` | T0 south | `NORMAL_FLOW 0.0050` | Manning outflow on a 0.5 % pseudo-slope |
 | `2 2` | T2 south | `NORMAL_FLOW 0.0050` | the rest of the south face |
 | `2 0` | T2 east | `TS_STAGE TIDAL_TS` | stage driven by a `[TIMESERIES]`, group `east_tide` |
-| `6 0` | T6 east | `RATING_CURVE DOWN_RC` | stage → flow per metre from a `RATING` curve, group `east_rc` |
-| `7 0` | T7 north | `SPECIFIED_FLOW 0.0500` | prescribed per-metre discharge, group `upstream` |
+| `6 0` | T6 east | `RATING_CURVE DOWN_RC` | stage → flow per meter from a `RATING` curve, group `east_rc` |
+| `7 0` | T7 north | `SPECIFIED_FLOW 0.0500` | prescribed per-meter discharge, group `upstream` |
 | `5 0` | T5 north | `SPECIFIED_STAGE 101.50` | fixed water-surface elevation |
 | — | west face | *(unlisted)* | defaults to `WALL` |
 
@@ -501,7 +501,7 @@ row per vertex. The **triangle** map **appends**, so several nodes may couple to
 the same triangle. That is what lets the two endpoints of a weir or orifice
 share a single cell.
 
-Here vertex 4 (the centre of the lot, bed 100.50 m) couples to the drain inlet
+Here vertex 4 (the center of the lot, bed 100.50 m) couples to the drain inlet
 `J1`, whose rim is 99.0 + 1.5 = 100.5 m — flush with the surface. The triangle
 tagged `vault` couples to the storage node `ST1` with a larger 10 m² exchange
 area and a slightly lower `CD` of 0.60.
@@ -521,9 +521,9 @@ rejected). Every edge defaults to 1.0.
 Conveyance is a multiplicative attenuation applied to the edge flux — the edge
 transmissivity ψ of the integral-porosity shallow-water literature. It applies
 to **interior** edges as well as boundary edges, and the engine mirrors each
-row onto the partner slot of the neighbouring triangle so that antisymmetry, and
+row onto the partner slot of the neighboring triangle so that antisymmetry, and
 therefore mass conservation, is preserved. That makes it the right tool for
-sub-grid features you do not want to mesh: garden walls, hedges, fences, kerbs,
+sub-grid features you do not want to mesh: garden walls, hedges, fences, curbs,
 a partially blocked road crossing — or, as here, a berm that leaks 30 % of the
 flux the bare geometry would allow.
 
@@ -531,7 +531,7 @@ In the GUI it is the **Conveyance** field of a selected edge in **Properties**
 and the **Conveyance** column in the edge attribute table (0–1, default 1).
 Unlike the boundary-condition fields it is editable on interior edges too,
 which have no boundary condition at all, and each value is mirrored onto the
-neighbouring half. To set the berm, select both edges with the **Edges** tool
+neighboring half. To set the berm, select both edges with the **Edges** tool
 (press **A** to include interior edges; **Shift**-click adds the second edge),
 click **Edit in Table**, and use
 **Apply "Conveyance" value to 2 selected rows…**.
@@ -543,7 +543,7 @@ click **Edit in Table**, and use
 - Ponding on the road-culvert plain is **symmetric across Y**. If it is not,
   the mesh diagonal — not the physics — is the suspect.
 - The culvert only carries large net flow **after** the water surfaces on both
-  sides differ. Before overtopping it mostly equalises the two sides, because a
+  sides differ. Before overtopping it mostly equalizes the two sides, because a
   flat plain gives almost no driving head early in the storm.
 - The 2D continuity error in `road_culvert.rpt` is essentially zero; the 1D
   routing figure is small but non-zero and its per-node breakdown is dominated
@@ -575,7 +575,7 @@ click **Edit in Table**, and use
 - \ref manual_2d_mesh — mesh generation, cell parameters and coupling in full
 - \ref manual_simulation_options — every page of the Simulation Options dialog
 - \ref manual_selection — mesh edge and vertex selection, including path picking
-- \ref manual_styling — layer styling and colour ramps
+- \ref manual_styling — layer styling and color ramps
 - \ref manual_profile_plots — 2D mesh profiles and terrain profiles
 - \ref manual_analysis_tools — flow balance and 2D cell time series
 - \ref tutorial_1d2d_coupling — capped street inlets coupled to a 2D surface

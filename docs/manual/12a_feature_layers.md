@@ -69,7 +69,7 @@ dialog, inspect its preview and complete that operation separately.
 
 Right-click a feature layer in the Layers panel and choose **Properties →
 Symbology**. Use **Marker (points)**, **Line**, or **Polygon** to change its
-colours, sizes, line styles and outlines. The **Labels** tab controls its labels.
+colors, sizes, line styles and outlines. The **Labels** tab controls its labels.
 Each layer has its own settings, including layers with the same geometry type
 or role. Changes preview on the map; **Apply** or **OK** keeps them and **Cancel**
 discards changes since the last Apply. Save the project to retain each layer's

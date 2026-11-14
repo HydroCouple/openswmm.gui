@@ -138,7 +138,7 @@ tab. Tick **Show labels**, set **Field** to **Slope (rise/run)** and
 slope. *Auto* would show six significant digits, which is more than a slope
 needs.
 
-\figtodo{t01_slope_labels.png, Conduits labelled by slope at three decimals on the site drainage model}
+\figtodo{t01_slope_labels.png, Conduits labeled by slope at three decimals on the site drainage model}
 
 **Edit geometry.** Turn on **Edit → Edit Existing** (`Ctrl+E`), activate
 **Select** and double-click `C4`, which has one bend: a square handle appears
@@ -158,10 +158,10 @@ This gage is `VOLUME` format reading the time series named `2-yr`.
 Click the **…** button beside **Series Name** to open the **Time Series
 Editor** on that series, or use the **Plot Rainfall…** button in the
 Properties dock to open **Rainfall Visualization**, whose **Overlay** and
-**Per Gage** tabs summarise every gage with columns for total depth, peak
+**Per Gage** tabs summarize every gage with columns for total depth, peak
 intensity, peak time, interval and gaps.
 
-The `2-yr` series contains 239 values at six-minute timestamps, totalling
+The `2-yr` series contains 239 values at six-minute timestamps, totaling
 **2.834 in**, with the largest volume, **0.389 in**, at **12:00** on
 1 January 1998. The gage's configured recording interval is **300 seconds
 (five minutes)**. Rainfall Visualization uses that configured interval and
@@ -216,9 +216,9 @@ category list down the left side: **Title / Notes**,
 **Quality & Transport**, **System / Performance**, **Spatial & CRS**,
 **Mesh**, **2D Surface Routing** and **Files / Output / Plugins**.
 
-Five of those pages carry inner tabs, and the tabs grey out when they do not
+Five of those pages carry inner tabs, and the tabs gray out when they do not
 apply — the **Finite Volume** tab is only live under FV routing, for instance.
-Hover a greyed tab and its tooltip says why.
+Hover a grayed tab and its tooltip says why.
 
 For this run, confirm three things:
 
@@ -313,7 +313,7 @@ sortable, filterable with the **Query:** box, and exportable with
 
 \fig{t01_statistics_dashboard.png, The Statistics Dashboard on the Links tab}
 
-### 9. Colour the map by result and animate it
+### 9. Color the map by result and animate it
 
 The **Animation** ribbon tab drives playback.
 
@@ -322,7 +322,7 @@ The **Animation** ribbon tab drives playback.
    **Junctions** and **Color by: depth (m)** — the attribute names are the
    ones on screen, and the one shown is the one the layer stores. In
    **Classification**, choose a
-   **Colour ramp:**, a **Method:**
+   **Color ramp:**, a **Method:**
    (**Equal interval**, **Quantile**, **Natural breaks (Jenks)**,
    **Standard deviation**, **Logarithmic**, **Exponential** or **Manual**)
    and a **Range:** (**Fixed over run**, **Per-frame auto-stretch** or
@@ -348,12 +348,12 @@ attribute is stored under `classifyAttribute`.
 current…** → name it *Site drainage flow*. To see the round trip, set the
 Conduits renderer back to **Single Symbol** and **Apply**, then select the
 results layer in **Layers**, pick the saved entry in the Style Manager and
-**Apply to layer**: the classified colours return immediately, and Layer
+**Apply to layer**: the classified colors return immediately, and Layer
 Properties shows the applied rules.
 
 \figtodo{t01_style_manager_apply.png, The Style Manager with the saved site-drainage style selected and Apply to layer enabled}
 
-\figtodo{t01_animation_peak.png, The map at the storm peak with links coloured by flow and the legend showing}
+\figtodo{t01_animation_peak.png, The map at the storm peak with links colored by flow and the legend showing}
 
 ### 10. Plot time series
 
@@ -410,7 +410,7 @@ and the maximum-HGL envelope. Its header reads
 `Path: n nodes, m links · Length: …`. **Display Options…** opens
 **Profile Display Options**, whose **Display** tab toggles **Current HGL
 line**, **Current HGL fill**, **Current EGL**, **Max HGL band**,
-**Max HGL line** and **Max EGL line**, plus node/link labelling and legend
+**Max HGL line** and **Max EGL line**, plus node/link labeling and legend
 and timestamp styling. Turn on **Show Animation Cursor** in the Comparison
 Plot and press **Play** on the Animation tab to watch the HGL and the plots
 move together.
@@ -441,7 +441,7 @@ comparison plot's **Export Data…** (step 10).
    In the reviewed drainage run, the full conduit CSV contains 33 columns and
    eleven rows. Its **Max Flow (Sim.) (CFS)** values agree with the Links
    statistics view to three decimals: C1 is 15.343 CFS and C11 is 71.153 CFS.
-   Keep the unit-labelled headers when importing the file elsewhere. This
+   Keep the unit-labeled headers when importing the file elsewhere. This
    verifies the full inventory export; filtered and hydrograph exports require
    their own row/sample checks.
 2. Use **File → Save** (`Ctrl+S`). Keep the `.inp`, matching `.oswp`, `.rpt`
@@ -527,7 +527,7 @@ extent before suspecting the drawing tools — see \ref manual_troubleshooting.
 
 **Simulation Options → Routing & Hydraulics → Flow routing:** offers
 **Steady**, **Kinematic Wave**, **Dynamic Wave** and **Finite Volume**. The
-selector sits in the page header, above the tab bar, and the tabs below it grey
+selector sits in the page header, above the tab bar, and the tabs below it gray
 themselves out to match: **Dynamic Wave** under DYNWAVE, **Finite Volume** under
 FV, **Unsteady Friction** under either. *Models / Processes* keeps a read-only
 mirror of the current choice with a link back here.
@@ -608,5 +608,5 @@ layer design and the latter places units within subcatchments.
 - \ref manual_time_series_plots — the Comparison Plot and observed data
 - \ref manual_profile_plots — profile plots along a 1D path
 - \ref manual_tabular_results — tabular results and export
-- \ref manual_analysis_tools — the Statistics Dashboard and rainfall visualisation
+- \ref manual_analysis_tools — the Statistics Dashboard and rainfall visualization
 - \ref tutorial_street_inlets — the next tutorial

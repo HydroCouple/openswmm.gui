@@ -10,7 +10,7 @@ OpenSWMM is an independent open-source project. The contributors listed below ha
 
 No external code contributors yet beyond the project lead.
 
-## Acknowledgements
+## Acknowledgments
 
 SWMMVis is built on [`openswmm.engine`](https://github.com/HydroCouple/openswmm.engine);
 see that repository's `AUTHORS.md` for engine contributors and issue reporters whose work

@@ -45,12 +45,12 @@ the canvas stays projected and the model layer is reprojected into it.
 
 If the `.inp` carries no CRS, the engine falls back to an unnamed local system
 and SWMMVis stops to ask, because on-the-fly reprojection of basemaps and GIS
-layers cannot work without one. You get the CRS picker; cancelling it brings up:
+layers cannot work without one. You get the CRS picker; canceling it brings up:
 
 | Button | What happens |
 |--------|--------------|
 | **Choose CRS…** | Back to the picker. |
-| **Use local projected (ft)** / **(m)** | Assigns a local CRS whose linear unit matches the model's flow units. Coordinates keep their original numbers, the scale bar and measurements get a real unit, and 2D mesh generation has a linear unit to honour — but no basemap can be aligned to it. |
+| **Use local projected (ft)** / **(m)** | Assigns a local CRS whose linear unit matches the model's flow units. Coordinates keep their original numbers, the scale bar and measurements get a real unit, and 2D mesh generation has a linear unit to honor — but no basemap can be aligned to it. |
 | **Abort Open** | Cancels the open; the project window closes. |
 
 A model that already carries an auto-generated local CRS (`Local (ft)` /
@@ -71,7 +71,7 @@ A model that already carries an auto-generated local CRS (`Local (ft)` /
 | WKT preview | The full WKT definition of whatever is selected. |
 
 Above the database entries sits a synthetic **Local (no transform)** group with
-two leaves — **Local — metres (no transform)** and **Local — feet (no
+two leaves — **Local — meters (no transform)** and **Local — feet (no
 transform)**. These mint a CRS that carries a real linear unit but performs no
 transformation, for data whose units are known but whose georeference is not.
 The group is hidden when an authority filter or a mismatching type filter is
@@ -162,24 +162,24 @@ The canvas CRS determines what a map unit means, and therefore:
 - the on-canvas **scale bar**;
 - the **Measure** tool, which reports true geodesic distances and areas for a
   geographic CRS and unit-converted Euclidean values for a projected one — and
-  raw unlabelled numbers for a Local CRS.
+  raw unlabeled numbers for a Local CRS.
 
 See \ref manual_map_navigation.
 
 ### 2D meshes and 2D results
 
-The 2D solver works in SI metres regardless of the model's flow units, so 2D
+The 2D solver works in SI meters regardless of the model's flow units, so 2D
 data has to be scaled back before it can be drawn with the rest of the model.
 
 - The **2D mesh** layer reads the `.2dm` (or the inline `[2D_*]` sections) in
   model units and reprojects from the model CRS to the canvas CRS, like any
   other vector layer. The mesh file's `;; UNITS:` header records whether its
   coordinates are SI.
-- The **2D results** layer reads coordinates in metres from the HDF5 file, then
-  converts metres → model linear unit, reprojects model CRS → canvas CRS, and
+- The **2D results** layer reads coordinates in meters from the HDF5 file, then
+  converts meters → model linear unit, reprojects model CRS → canvas CRS, and
   applies the scene's Y-flip, in that order.
 
-The metres-per-model-unit factor comes from the results file itself when the
+The meters-per-model-unit factor comes from the results file itself when the
 file declares one (engine 6.0 and later write a `/crs` variable), which makes
 the round trip exact — including the engine's use of the international foot
 (0.3048) for a CRS whose own unit is the US survey foot. For an older file, or
@@ -199,12 +199,12 @@ instead. Re-exporting the results with a current engine fixes it.
 ### Recovering from a misaligned basemap
 
 The commonest cause of a network that "doesn't sit on" a basemap is a *wrong*
-CRS — usually a neighbouring UTM zone or state-plane zone. Symptoms:
+CRS — usually a neighboring UTM zone or state-plane zone. Symptoms:
 
-- the network is the right shape but offset by hundreds of metres;
+- the network is the right shape but offset by hundreds of meters;
 - the network is mirrored, scaled, or rotated relative to the basemap;
 - the network is a tiny dot near the origin (a units mismatch: feet read as
-  metres, or vice versa).
+  meters, or vice versa).
 
 The fix is to open the CRS picker, choose the *correct* CRS for the data, and
 pick **Assign CRS without changing coordinates** — your stored coordinates

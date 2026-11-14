@@ -32,7 +32,7 @@ alone does not establish those results-display workflows.
 | Run | Four hours; routing step 1 s; report interval 30 s |
 | Routing | Dynamic Wave; **Node continuity: Semi-implicit** |
 
-All geometry and elevations are in metres; flow units are CMS. EPSG:3857
+All geometry and elevations are in meters; flow units are CMS. EPSG:3857
 keeps this synthetic mesh and network in the same display coordinate system;
 the coordinates do not represent a real site. The node rims
 match the surface elevation. There are no subcatchments, evaporation or
@@ -112,7 +112,7 @@ in the input is:
 A vertex association defines the exchange location. It does not connect every
 cell to the nearest node. The per-row Cd and area override the global defaults
 on **Simulation Options → 2D Surface Routing → Coupling**. Area is square
-metres here; it must be consistent with the inlet opening being represented.
+meters here; it must be consistent with the inlet opening being represented.
 
 \figtodo{t04_vertex_coupling_toolbar.png, Properties for vertex 16 showing it coupled to J1 with Cd 0.65 and area 0.02 square metres}
 
@@ -124,7 +124,7 @@ find stale or misplaced associations before a run.
 \fig{t04_vertices_attribute_table.png, The plaza Vertices table with its two coupled rows}
 
 In the mesh's **Symbology → Coupled Nodes** tab, enable the coupled-node markers
-and choose a visible colour and size. Compare their locations with J1 and J2.
+and choose a visible color and size. Compare their locations with J1 and J2.
 The outfall has no surface association in this fixture.
 
 \figtodo{t04_coupled_nodes_style.png, The plaza mesh with the J1 and J2 coupling vertices marked}

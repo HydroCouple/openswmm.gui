@@ -22,7 +22,7 @@ demonstration. Alternatively, download and extract
 [rubinato2017_examples.zip](rubinato2017_examples.zip), then open `model.inp`. Use
 `steady_s1.inp` through `steady_s4.inp` for the
 four flow regimes. Copy the inputs and reference CSV files into a working
-folder before running. The included README records every modelling
+folder before running. The included README records every modeling
 assumption and the report's reference demonstration values.
 
 The [hydraulic reference comparison](https://www.hydrocouple.org/openswmm.engine/dc/d71/hydraulics_ref_rubinato2017.html)
@@ -48,8 +48,8 @@ available for review and reuse.
    selecting a junction pond mode does not replace it. The map row omits
    Cd/Area overrides so the structure coefficients govern.
 3. In **Simulation Options**, inspect the 2D exchange law `WEIR_ORIFICE`,
-   surface head `STENCIL_WET_MEAN`, and coupling equalisation. The model is
-   in metres and m3/s. Inspect the synthetic inflow timeseries: the rise
+   surface head `STENCIL_WET_MEAN`, and coupling equalization. The model is
+   in meters and m3/s. Inspect the synthetic inflow timeseries: the rise
    starts at 00:01:00 and the plateau begins at 00:01:30. Times have three
    fields, hours:minutes:seconds. Two fields would move the pulse outside
    the ten-minute run.
@@ -73,7 +73,7 @@ available for review and reuse.
 
 \fig{t11_rubinato_transient.png, Actual saved synthetic T9 surface depths and signed exchange; model output only}
 
-The maps use a fixed 0–25 mm colour scale; the orange ring marks the manhole.
+The maps use a fixed 0–25 mm color scale; the orange ring marks the manhole.
 The vertical markers identify their times on the hydrograph. Surface inflow
 continues throughout the run, so the map includes both inflow and surcharge
 water. In the [viewer](rubinato2017_results.html), use **Play**, **Restart**,
@@ -194,7 +194,7 @@ The measured transient sewer-head and exchange series have not been
 replayed. Table 1's ratios/durations do not determine those series. The
 synthetic demonstration cannot reproduce the paper's observed suction
 oscillation or establish transient experimental accuracy. The hydraulic
-reference insert and illustrated review state the regularisation,
+reference insert and illustrated review state the regularization,
 single-cell delivery and time-step limitations that require further work.
 
 Reference: [Rubinato et al. (2017)](https://doi.org/10.1016/j.jhydrol.2017.06.024),

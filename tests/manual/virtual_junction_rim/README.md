@@ -2,7 +2,7 @@
 
 `vj_rim_demo.inp` is a 200-ft reach split by two virtual junctions, one with
 the new optional `[VIRTUAL_JUNCTIONS]` MaxDepth and one without, so a single
-profile shows both behaviours next to each other.
+profile shows both behaviors next to each other.
 
 | Node | Invert | Ground drawn at | Why |
 |---|---|---|---|
@@ -59,7 +59,7 @@ structure. In the same profile:
    and double-click zooms the map to it. A click just outside the
    rectangle still picks the conduit running through.
 9. Open **Options → Display** and find **Virtual junction marker**. It is
-   a pen, so colour, width, style and dash pattern all expand as editable
+   a pen, so color, width, style and dash pattern all expand as editable
    children, and it is independent of *Junction fill* / *Junction outline* —
    restyling junctions must leave the virtual-junction rectangles alone,
    and vice versa. Setting the style to solid is allowed; the plot repaints

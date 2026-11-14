@@ -65,7 +65,7 @@
       "lane": "offscreen"
     },
     {
-      "_note": "Pin the tab. Without it the page inherits whichever tab a previous capture left current, which produced a greyed Finite Volume tab under a dynamic-wave model instead of the default Routing tab.",
+      "_note": "Pin the tab. Without it the page inherits whichever tab a previous capture left current, which produced a grayed Finite Volume tab under a dynamic-wave model instead of the default Routing tab.",
       "name": "18_routing_hydraulics.png",
       "action": "model.simulationOptions",
       "page": "Routing & Hydraulics",
@@ -2240,7 +2240,7 @@
       "size": "1050x600",
       "lane": "live",
       "_model": "docs/manual/tutorials/models/vfr_slope.inp",
-      "_note": "Prepare a disposable slope copy; run with the stand-alone routing and dry-cell activation fixes; verify 60 m3 rainfall/storage and nonzero surface steps. Use the retained report. Set the viewport to the local 100 by 30 metre domain. Review rendered geometry before publishing."
+      "_note": "Prepare a disposable slope copy; run with the stand-alone routing and dry-cell activation fixes; verify 60 m3 rainfall/storage and nonzero surface steps. Use the retained report. Set the viewport to the local 100 by 30 meter domain. Review rendered geometry before publishing."
     },
     {
       "name": "t06_mesh_style_terrain.png",
@@ -2251,7 +2251,7 @@
       "size": "1200x650",
       "lane": "live",
       "_model": "docs/manual/tutorials/models/vfr_slope.inp",
-      "_note": "Prepare a disposable slope copy; run with the stand-alone routing and dry-cell activation fixes; verify 60 m3 rainfall/storage and nonzero surface steps. Use the retained report. Set the viewport to the local 100 by 30 metre domain. Review rendered geometry before publishing."
+      "_note": "Prepare a disposable slope copy; run with the stand-alone routing and dry-cell activation fixes; verify 60 m3 rainfall/storage and nonzero surface steps. Use the retained report. Set the viewport to the local 100 by 30 meter domain. Review rendered geometry before publishing."
     },
     {
       "name": "t06_mass_balance.png",
@@ -2260,7 +2260,7 @@
       "size": "1200x820",
       "lane": "live",
       "_model": "docs/manual/tutorials/models/vfr_slope.inp",
-      "_note": "Prepare a disposable slope copy; run with the stand-alone routing and dry-cell activation fixes; verify 60 m3 rainfall/storage and nonzero surface steps. Use the retained report. Set the viewport to the local 100 by 30 metre domain. Review rendered geometry before publishing."
+      "_note": "Prepare a disposable slope copy; run with the stand-alone routing and dry-cell activation fixes; verify 60 m3 rainfall/storage and nonzero surface steps. Use the retained report. Set the viewport to the local 100 by 30 meter domain. Review rendered geometry before publishing."
     },
     {
       "name": "10_section_view_link.png",

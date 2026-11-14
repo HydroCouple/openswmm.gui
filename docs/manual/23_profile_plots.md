@@ -53,7 +53,7 @@ Closing a project removes its profile tabs and its sources from comparison plots
 **Plot Profile** arms the profile-trace tool on the map. What happens next depends
 on what is already selected:
 
-| Starting state | Behaviour |
+| Starting state | Behavior |
 |----------------|-----------|
 | Two nodes already selected | Routing starts immediately between them |
 | One node selected | It becomes the start; click the end node or link |
@@ -89,10 +89,10 @@ Along the horizontal chainage axis, from the bottom up:
 
 - **Soil** and **bedding** fill, with the **ground line** on top;
 - each **node** as a structure sized by its invert and rim — junctions, outfalls,
-  storage units and flow dividers each get their own fill and outline colours; a
+  storage units and flow dividers each get their own fill and outline colors; a
   **virtual junction** draws as a dashed outline over the conduit that passes
   through it, because it is a break point, not a structure;
-- each **link** as a barrel between its invert and crown, coloured per link type
+- each **link** as a barrel between its invert and crown, colored per link type
   (conduit, pump, orifice, weir, outlet);
 - the animated **HGL** — as a stroked line, an under-line fill, or both
   (independent toggles) — following the animation cursor;
@@ -155,7 +155,7 @@ section.
 The **Sources** tab of the Display Options dialog does more:
 
 - toggle a source on or off;
-- recolour it;
+- recolor it;
 - **rename** it — the name you type becomes the run's **scenario name**, which is
   also what the comparison plots' legends and the report viewer's run combo show;
 - **add an external `.out` file** as an extra comparison source, without loading
@@ -183,7 +183,7 @@ across nodes would invent data.
 
 Pane-level options are **Track height**, **Show track titles**, and an
 **envelope** overlay (the per-element minimum-to-maximum range over the whole run)
-with its own opacity. Each attribute has its own pen — colour, width and dash —
+with its own opacity. Each attribute has its own pen — color, width and dash —
 editable from the **Attribute Tracks** tab of the Display Options dialog.
 
 Elements the results file does not know leave a gap rather than a zero, so
@@ -198,7 +198,7 @@ object. Everything is live — the plot repaints as you edit.
 
 | Tab | What it edits |
 |-----|---------------|
-| **Display** | Every profile knob: layer visibility, labels, ground source, 2D inundation, connectivity, flooding indicator, per-type colours, line pens and fill brushes, axis number formats, legend and time label |
+| **Display** | Every profile knob: layer visibility, labels, ground source, 2D inundation, connectivity, flooding indicator, per-type colors, line pens and fill brushes, axis number formats, legend and time label |
 | **Sources** | The per-run controls described above |
 | **Attribute Tracks** | The track options above (present once tracks are enabled) |
 
@@ -211,11 +211,11 @@ Selected controls worth knowing:
 | Ground | **Ground source** — Auto / Node rims / Mesh 2D / Terrain DEM |
 | 2D inundation | **Show 2D inundation** plus the band's line pen and fill brush; **Show max 2D inundation** plus the maximum's line pen and fill brush |
 | Connectivity | **Show branch stubs**, **Show node roses** |
-| Flooding | Wedge **radius**, **sweep angle** and **colour** |
-| Theming | Fill and outline colours per node type and per link type; the virtual-junction pen; soil and bedding fills; a pen per result line and a brush per result fill |
+| Flooding | Wedge **radius**, **sweep angle** and **color** |
+| Theming | Fill and outline colors per node type and per link type; the virtual-junction pen; soil and bedding fills; a pen per result line and a brush per result fill |
 | Axes | **X** and **Y number format** — decimals, significant figures, scientific, engineering or thousands-separated, with a digit count, or an explicit format string |
 | Legend | **Visible**, **Position** (four corners), **Font**, **Opacity**, **Offset** |
-| Time label | **Visible**, **Position**, **Colour**, **Font**, **Format** (default `dd-MMM-yyyy HH:mm:ss`), **Offset** |
+| Time label | **Visible**, **Position**, **Color**, **Font**, **Format** (default `dd-MMM-yyyy HH:mm:ss`), **Offset** |
 
 **Export PNG…** saves the chart as an image. There is no numeric export from the
 profile window — plot the same attributes in the comparison plot and export from
@@ -250,7 +250,7 @@ any run exists.
 Display Options for the mesh profile edits: **Show depth fill**, **Show WSE
 line**, **Show max envelope fill**, **Show max envelope line**, **Show cell
 boundaries**; the soil brush, ground pen, depth brush, WSE pen and envelope pen
-and brush; the cell-boundary colour; X and Y axis number formats; and the same
+and brush; the cell-boundary color; X and Y axis number formats; and the same
 legend and time-label groups as the 1D profile.
 
 \figtodo{23_2d_mesh_profile.png, A 2D mesh profile with the bed; the animated water surface and the maximum-depth envelope}
@@ -279,7 +279,7 @@ accessibility tools as it moves.
 
 #### How the water surface is drawn at the edges
 
-Two behaviours explain what you see where the water meets dry ground. Neither is a
+Two behaviors explain what you see where the water meets dry ground. Neither is a
 control you set, but both matter when reading the plot:
 
 - **Free-surface extrapolation.** The profile interpolates the free surface η, not

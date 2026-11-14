@@ -8,7 +8,7 @@ two numbering systems SWMMVis shows you it belongs to.
 A failed run is reported in the simulation status panel as
 `ERROR [n] ERROR mmm: …` — the bracketed `n` is an **API error code** and
 the `mmm` inside the message is an **engine error**. They are different
-catalogues; both are below.
+catalogs; both are below.
 
 ## Where to find it
 
@@ -239,7 +239,7 @@ The bracketed number of a non-fatal API condition.
 
 ## Tips and gotchas
 
-- **Two numbers, two catalogues.** `ERROR [1] ERROR 141: …` is API error 1
+- **Two numbers, two catalogs.** `ERROR [1] ERROR 141: …` is API error 1
   reporting engine error 141. Look up the inner number first — it is the one
   that names the object and the cause.
 - **`%s` is a placeholder.** The engine substitutes the offending object's

@@ -30,7 +30,7 @@ what they apply to, so no page is a single long scrolling column:
 | **2D Surface Routing** | Hydrodynamics / Wetting & Drying / Coupling / Processes / Performance |
 
 Tabs and sidebar rows are **activated contextually**: a tab that does not apply
-to the current selection greys out rather than disappearing, and its tooltip
+to the current selection grays out rather than disappearing, and its tooltip
 says why ("Applies to Dynamic Wave routing only"). Nothing is hidden, so you can
 always see what a setting would look like before you switch to it. Switching a
 selector while you are looking at the tab it just disabled moves you to the
@@ -110,7 +110,7 @@ Routing & Hydraulics" — whose link jumps to that row. One key, one editor.
 | Check box | What it does |
 | --- | --- |
 | **1D Hydraulics (always on)** | Always checked and disabled — the SWMM core cannot be turned off |
-| **2D Surface Routing** | A project-level flag stored with the project. When on, the *Mesh* and *2D Surface Routing* pages become interactive; when off the 2D sidebar row is greyed out |
+| **2D Surface Routing** | A project-level flag stored with the project. When on, the *Mesh* and *2D Surface Routing* pages become interactive; when off the 2D sidebar row is grayed out |
 
 The engine itself activates its 2D solver from the *presence* of mesh sections
 in the deck, not from this flag; a model that already carries `[2D_OPTIONS]`,
@@ -166,7 +166,7 @@ Reporting, wet-weather and dry-weather timespans show milliseconds, so `00:00:00
 
 **Skip steady state** used to sit here. It moved to *Routing & Hydraulics* ›
 *Routing*, because it is a property of how the router spends its steps rather
-than of the schedule — and because the engine honours `SKIP_STEADY_STATE` under
+than of the schedule — and because the engine honors `SKIP_STEADY_STATE` under
 **every** routing method, not only dynamic wave.
 
 #### Events
@@ -205,7 +205,7 @@ The FV entry is disabled on an engine that does not carry the FV solver.
 | **Finite Volume** | `FV` | Flow routing is Finite Volume, on an engine that carries it |
 | **Unsteady Friction** | `DYNWAVE` and `FV` | either of those, on an engine that carries the keys |
 
-A greyed tab keeps its contents — the engine accepts every key on this page as
+A grayed tab keeps its contents — the engine accepts every key on this page as
 inert under any other router, so a disabled tab never invalidates the project
 and your configuration survives switching routers mid-session.
 
@@ -231,12 +231,12 @@ The tab that applies under every solver.
 | **Lateral flow tol** | `LAT_FLOW_TOL` — shown as a percentage, stored as a fraction |
 | **System flow tol** | `SYS_FLOW_TOL` — same conversion |
 
-Both tolerances grey out while **Skip steady-periods** is off; the values are
+Both tolerances gray out while **Skip steady-periods** is off; the values are
 kept, so turning it back on restores them.
 
 It is on the shared **Routing** tab, not on **Dynamic Wave**, because the engine
 tests for a steady period from the main routing step with no routing-model
-guard — `SKIP_STEADY_STATE` is honoured under kinematic wave and steady flow
+guard — `SKIP_STEADY_STATE` is honored under kinematic wave and steady flow
 too. The `[EVENTS]` windows it works with are edited on *Dates & Times* ›
 *Events*.
 
@@ -293,7 +293,7 @@ Eulerian ARD transport engine, so it lives on *Quality & Transport*) and
 `FV_DISPERSION`, which is inert on every path — the engine warns at open when a
 deck sets it. Decks that set the retired `FV_NODE_COUPLING`, `FV_NODE_DT`,
 `FV_NODE_PICARD` or `VIRTUAL_JUNCTION_MOMENTUM FULL` still open; the engine
-warns once and uses the built-in behaviour.
+warns once and uses the built-in behavior.
 
 \fig{18_fv_groups.png, The finite-volume solver and performance groups enabled under FV routing}
 
@@ -312,7 +312,7 @@ warns once and uses the built-in behaviour.
 
 Choose **Routing & Hydraulics → Finite Volume → Time integration → Backward Euler (native, experimental)**. The choice is available only when the loaded engine advertises it through its read-only `FV_IMPLICIT_SCHEMA` contract. It selects the native coupled implicit water solver and preserves the physical conduit cells and slot celerity.
 
-Choosing it prepares first-order SLOT, CPU, local time stepping off, pressure-only implicit solve off, steady skips off and unsteady friction off in the dialog. These are pending edits: Apply/OK commits them together through the existing configuration history, while Cancel leaves them unapplied. The advanced controls are on the **Implicit FV** tab and accept scientific notation. Their tolerance units are the engine's internal feet, cubic feet and seconds, as labelled, even in SI projects.
+Choosing it prepares first-order SLOT, CPU, local time stepping off, pressure-only implicit solve off, steady skips off and unsteady friction off in the dialog. These are pending edits: Apply/OK commits them together through the existing configuration history, while Cancel leaves them unapplied. The advanced controls are on the **Implicit FV** tab and accept scientific notation. Their tolerance units are the engine's internal feet, cubic feet and seconds, as labeled, even in SI projects.
 
 The native linear method can use chain condensation with GMRES fallback, or full GMRES, with block or scalar ILU(0). Both are developed in the engine. PCG and multigrid are not selectable because they are not implemented for this nonsymmetric coupled system. A chain-condensation fallback is another native implicit linear solve; it never switches the time integrator to explicit FV.
 
@@ -368,7 +368,7 @@ before switching to it and the settings survive.
 | **Outfall backflow** | Hold last concentration (legacy) or Fresh (zero concentration and age) | `OUTFALL_BACKFLOW_QUALITY` |
 
 Under **Hold last** an outfall re-injects its held state, and under water age
-that water keeps ageing with the clock, so a permanently supplying outfall grows
+that water keeps aging with the clock, so a permanently supplying outfall grows
 old without bound. **Fresh** makes a supplying outfall behave like an
 EPANET-style reservoir.
 
@@ -443,7 +443,7 @@ would actually use for the general, dynamic-wave and 2D teams at the requested
 count — read from the engine, so it never re-implements its heuristics. Asking
 for more threads than the machine has logical processors is allowed but flagged
 with a warning glyph, as is exceeding the performance-core count on a machine
-that has efficiency cores. The tooltip summarises the machine's logical CPUs,
+that has efficiency cores. The tooltip summarizes the machine's logical CPUs,
 performance cores, any `OMP_NUM_THREADS` / affinity limit, and whether a 2D
 Kokkos backend has already fixed its thread count for this process.
 
@@ -497,7 +497,7 @@ row is selectable only while **2D Surface Routing** is checked on *Models /
 Processes* › *Modules*. Every key here is stored in `[2D_OPTIONS]`. Where the
 project has no value for a key, the page shows the corresponding default from
 *Preferences* › *Simulation Defaults* › the **2D** tabs
-(\ref manual_preferences) — the same value **File → New** would synthesise.
+(\ref manual_preferences) — the same value **File → New** would synthesize.
 
 Five tabs: **Hydrodynamics**, **Wetting & Drying**, **Coupling**, **Processes**
 and **Performance**. Output controls are under **Files / Output / Plugins →
@@ -522,7 +522,7 @@ this engine, so there is no solver selector and these settings are always live.
 | **Smoothing reference interval** | **Per-step smoothing** (zero) keeps the existing weight on every face step. A positive number of seconds makes θ the retention over that fixed interval, so shortening the routing step does not apply more smoothing per second. θ = 1 disables blending. This control is available when the selected engine supports it. | `THETA_REFERENCE_STEP` |
 | **CFL number** | Courant safety factor α on each cell's stable step | `CFL_NUMBER` |
 | **LTS tiers** | Local-timestepping tiers; cells march at power-of-two multiples of the finest step. 1 = a global timestep | `LTS_TIERS` |
-| **Movement threshold** | Cells shallower than this exchange no flow with their neighbours; rain, infiltration and evaporation still act on them, so thin films cost nothing until water must move. A cell starts moving water a little above the threshold and stops a little below it | `H_MOVE` |
+| **Movement threshold** | Cells shallower than this exchange no flow with their neighbors; rain, infiltration and evaporation still act on them, so thin films cost nothing until water must move. A cell starts moving water a little above the threshold and stops a little below it | `H_MOVE` |
 | **Max Froude number** | Froude cap on face discharge — the supercritical guard | `FROUDE_MAX` |
 | **Convective momentum flux (ADVECTION)** | Local inertial only: optionally include convective momentum flux at interior faces (Stelling–Duinmeijer staggered upwind). Full shallow-water includes it automatically; diffusive wave omits it. The checkbox is replaced by an explanatory message for those equations. | `ADVECTION` |
 
@@ -544,8 +544,8 @@ Everything that decides how a partially wet or drying cell is treated.
 | Control | Meaning | Writes |
 | --- | --- | --- |
 | **Dry depth threshold** | Depth below which a cell is treated as dry, m | `DRY_DEPTH` |
-| **Limiter epsilon** | Limiter regularisation | `LIMITER_EPSILON` |
-| **Flux head epsilon** | Head-difference regularisation for the diffusive-wave flux, m | `FLUX_DH_EPS` |
+| **Limiter epsilon** | Limiter regularization | `LIMITER_EPSILON` |
+| **Flux head epsilon** | Head-difference regularization for the diffusive-wave flux, m | `FLUX_DH_EPS` |
 
 **Cell closure**
 
@@ -553,7 +553,7 @@ Everything that decides how a partially wet or drying cell is treated.
 | --- | --- | --- |
 | **Cell closure** | Flat (η = z̄ + V/A, legacy) or VFR (planar-bed volume/free-surface) | `CELL_CLOSURE` |
 | **Face reconstruction** | Mean (upwind cell depth, legacy) or VFR face (edge depth + wetting gate) | `FACE_RECONSTRUCTION` |
-| **VFR min wet fraction** | Wetted-area-fraction floor that regularises the VFR closure as a cell dries; used only under VFR | `VFR_MIN_WET_FRAC` |
+| **VFR min wet fraction** | Wetted-area-fraction floor that regularizes the VFR closure as a cell dries; used only under VFR | `VFR_MIN_WET_FRAC` |
 
 Flat overstates the surface on sloped and stepped cells, which lets water climb
 uphill and strand on slopes; VFR uses the exact planar-bed relation so a lake at
@@ -582,7 +582,7 @@ The 2D process switches — what the surface does with water besides move it.
 
 | Control | Options | Writes |
 | --- | --- | --- |
-| **Rainfall mode** | Natural neighbour (all gages) / Nearest neighbour (closest gage) / System (uniform gage mean) / None (no direct rainfall) | `RAINFALL_MODE` |
+| **Rainfall mode** | Natural neighbor (all gages) / Nearest neighbor (closest gage) / System (uniform gage mean) / None (no direct rainfall) | `RAINFALL_MODE` |
 | **Infiltration** | Automatic (on when per-cell rows exist) / On / Off | `INFILTRATION` |
 | **Infiltration step** | *Same as wet-weather step*, or an explicit cadence | `INFIL_STEP` |
 | **Default method** | None / Horton / Modified Horton / Green-Ampt / Modified Green-Ampt / Curve Number / Constant rate | `INFIL_DEFAULT_METHOD` |
@@ -590,7 +590,7 @@ The 2D process switches — what the surface does with water besides move it.
 | **Evaporation** | Forced only / Project climate rate / Off | `EVAPORATION` |
 | **Transport on the mesh** | Four check boxes: Pollutants, MSX species, Water age, Temperature | `TRANSPORT_POLLUTANTS`, `TRANSPORT_MSX`, `TRANSPORT_AGE`, `TRANSPORT_TEMPERATURE` |
 
-Natural neighbour spatially interpolates every located gage onto each cell
+Natural neighbor spatially interpolates every located gage onto each cell
 (inverse-distance outside the gage hull). See \ref manual_2d_mesh for assigning
 gages to cells, and **Edit per-cell infiltration…** on this tab for per-cell
 methods and parameters.
@@ -718,7 +718,7 @@ how often rows are written to the binary output.
 
 | Check box | Writes |
 | --- | --- |
-| **Disable all reporting (DISABLED)** | `RPT_DISABLED` — greys out the six flags and the three selectors below, because none of them matter then |
+| **Disable all reporting (DISABLED)** | `RPT_DISABLED` — grays out the six flags and the three selectors below, because none of them matter then |
 | **Echo input summary (INPUT)** | `RPT_INPUT` |
 | **Continuity errors (CONTINUITY)** | `RPT_CONTINUITY` — on by default |
 | **Flow statistics (FLOWSTATS)** | `RPT_FLOWSTATS` — on by default |
@@ -760,7 +760,7 @@ schedule.
 | Column | Contents |
 | --- | --- |
 | Plugin | The id of an installed plugin, an `id:version` pin, or a shared-library path |
-| Arguments | Free-form whitespace-tokenised arguments passed to the plugin's initialisation |
+| Arguments | Free-form whitespace-tokenized arguments passed to the plugin's initialization |
 
 **Add** appends a blank row; **Remove** drops the current one. A row naming a
 plugin that is statically linked into this build is annotated as such. The first
@@ -790,7 +790,7 @@ An Apply or OK that wrote at least one key marks the project dirty.
 
 - **Only changed keys are written.** Apply without touching anything writes
   nothing and does not dirty the project.
-- **The dialog re-reads after every Apply.** If the engine clamped or normalised
+- **The dialog re-reads after every Apply.** If the engine clamped or normalized
   a value, the control shows the clamped value — that is the engine's answer,
   not a display bug.
 - **Active processes are inverted.** A *checked* box means the process runs; the

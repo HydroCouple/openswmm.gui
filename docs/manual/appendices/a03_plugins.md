@@ -36,7 +36,7 @@ The following mechanisms have different roles:
 Window title **Plugins**. The three roots are **Engine I/O plugins**,
 **Process components**, and **GUI extensions**. Engine filters are grouped
 by format role beneath their root. Process-component rows describe the engine
-catalogue. GUI extension rows include their compatibility and load diagnostics.
+catalog. GUI extension rows include their compatibility and load diagnostics.
 
 | Column | Contents |
 |---|---|
@@ -120,7 +120,7 @@ Two columns:
 | **Plugin (path / id / id:version)** | placeholder *plugin id, id:version, or library path*; the **…** browse button opens **Choose Plugin Library** with a per-platform filter (`*.dll`; `*.dylib *.so *.bundle`; `*.so`) |
 | **Arguments** | free-form tokens passed verbatim to the plugin |
 
-**Add** and **Remove** manage rows. **Remove** is greyed for a **built-in**
+**Add** and **Remove** manage rows. **Remove** is grayed for a **built-in**
 plugin id, with the tooltip:
 
 > *"…" is a built-in plugin statically linked into the engine — removing the row
@@ -143,7 +143,7 @@ when the project is bound to a legacy engine.
 
 Row syntax in the file is one plugin per line: the first token is the library
 path, id, or `id:version`, and everything after it is passed through as
-initialisation arguments.
+initialization arguments.
 
 ```
 [PLUGINS]
@@ -289,7 +289,7 @@ CPU, the plugin simply is not present in your build.
   to answer "does this build have GeoPackage support?" — look for `*.gpkg` under
   *Input (read)*.
 - Removing a built-in plugin's `[PLUGINS]` row does nothing; built-ins are
-  statically linked and always loaded. The dialog greys the button and says so.
+  statically linked and always loaded. The dialog grays the button and says so.
 - A `[PLUGINS]` row is per model. Copying a model to another machine copies the
   requirement with it — if that machine lacks the library, the run fails at
   open.

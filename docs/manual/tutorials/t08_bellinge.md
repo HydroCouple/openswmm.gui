@@ -17,7 +17,7 @@ results set, and comparing two runs.
 - Adding a GeoTIFF DEM and a web basemap; reconciling two coordinate systems
 - Layers panel management, selection on a large network, the Object Browser filter
 - `THREADS`, `NODE_CONTINUITY SEMI_IMPLICIT`, `ANDERSON_ACCEL`
-- The control rules editor, rainfall visualisation, profile plots, flow balance
+- The control rules editor, rainfall visualization, profile plots, flow balance
 - The comparison plot across two runs
 
 ## Files
@@ -112,7 +112,7 @@ for the mesh:
 ;; SOURCE_CRS: EPSG:25832
 ```
 
-and the `.oswp` canvas extent is in UTM metres.
+and the `.oswp` canvas extent is in UTM meters.
 
 The bundled DEM is **not**. `output_SRTMGL1.tif` is 5635 × 2660 pixels of
 16-bit signed elevation in **EPSG:4326** at 1 arc-second (0.000277778°), with
@@ -236,7 +236,7 @@ Pick one of the nine outfalls and trace upstream to isolate a whole tributary
 sewershed in one click.
 
 **Rubber-band and polygon.** The **Select** tool takes Shift to add and Ctrl to
-subtract; **Select by Polygon** finalises with **Return** or a double-click and
+subtract; **Select by Polygon** finalizes with **Return** or a double-click and
 cancels with **Esc**, with Shift for union and Ctrl for subtract.
 
 Then **Zoom To Selection** (**Ctrl+Shift+J**) and open the attribute table
@@ -359,7 +359,7 @@ On completion the `.out` is loaded automatically, becomes the active 1D results
 layer, is bound to the animation controller, and has its `.rpt` path recorded so
 the report viewer can find it. The 2D `.h5` is attached as a
 **2D Results (live)** layer keyed by canonical path, so re-running overwrites
-rather than stacking duplicates. Cancelling a run **still** loads the partial
+rather than stacking duplicates. Canceling a run **still** loads the partial
 output — the engine flushes it either way.
 
 \figtodo{t08_simulation_status.png, The Simulation Status panel mid-run with live continuity errors}
@@ -368,7 +368,7 @@ output — the engine flushes it either way.
 
 Style the 1D results layer by a dynamic attribute (flow, depth, velocity,
 capacity) with a graduated renderer, and the 2D results layer by depth with a
-colour ramp and a dry-depth cut-off matching the engine's `DRY_DEPTH 0.0001`.
+color ramp and a dry-depth cut-off matching the engine's `DRY_DEPTH 0.0001`.
 The GUI reads that value from the engine, so the wet/dry edge in the animation
 matches the solver's.
 
@@ -425,7 +425,7 @@ integral — useful for checking that a sewershed's boundary links balance at th
 end of a run, not for computing event volumes. For volumes, use the status
 report's continuity blocks or the tabular results export.
 
-### 12. Visualise the two rain gages
+### 12. Visualize the two rain gages
 
 The rain record is the single largest file in the example: 26.6 MB, 749 401
 rows, seven whitespace-separated columns in SWMM's standard rain-file layout —
@@ -453,7 +453,7 @@ back to `SYSTEM` (a uniform mean) on its own.
 
 Open **Analysis → Rainfall Visualization…**. The dialog opens on the
 **Overlay** tab, with a **Per Gage** tab that stacks one chart per gage on a
-synchronised time axis. The **Basis:** combo switches between
+synchronized time axis. The **Basis:** combo switches between
 **Intensity (mm/hr)**, **Depth per interval (mm)** and
 **Cumulative depth (mm)**. Underneath is a twelve-column table: **Gage**,
 **Source**, **Total depth**, **Peak intensity**, **Peak time**, **Interval**,
@@ -535,6 +535,6 @@ the default, for `THREADS` values, and for the fast preset.
 - \ref manual_running — the Simulation Status panel, logs and the report
 - \ref manual_results — results layers, styling and animation
 - \ref manual_profile_plots — profile plots along 1D paths
-- \ref manual_analysis_tools — flow balance and rainfall visualisation
+- \ref manual_analysis_tools — flow balance and rainfall visualization
 - \ref manual_performance — redraw channels, LOD and large-model tuning
 - \ref tutorial_2d_boundaries — boundary conditions and 1D–2D coupling in detail

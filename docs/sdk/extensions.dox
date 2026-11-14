@@ -438,7 +438,7 @@
  * InstanceClosing to instanceClosed. These names describe actual native timing;
  * neither event promises a ready engine or completed destruction. Typed
  * ActiveResultsChanged corresponds to resultsChanged. Other EventKind names
- * follow the legacy catalogue below with their initial letter capitalized.
+ * follow the legacy catalog below with their initial letter capitalized.
  *
  * @code{.cpp}
  * auto *events = qobject_cast<OpenSWMM::Sdk::IModelEvents *>(host->lifetime());
@@ -1107,7 +1107,7 @@
  * // QObject::disconnect(connection); // Optional early unsubscribe.
  * @endcode
  *
- * @subsection sdk_event_catalogue Legacy observe() event catalogue
+ * @subsection sdk_event_catalogue Legacy observe() event catalog
  *
  * All names are case-sensitive strings. Fields below are the current contract;
  * consumers must tolerate unknown additional fields and event names. Model
@@ -1204,7 +1204,7 @@
  * `"previewStyle": {"pointLabelProperty": "catalogue_title"}`. Each Point or
  * MultiPoint marker then uses that feature's string-valued
  * `properties.catalogue_title`; choose any property name appropriate to the
- * catalogue. Missing, empty and non-string values produce no label. The host
+ * catalog. Missing, empty and non-string values produce no label. The host
  * treats labels as plain text, normalizes whitespace and limits each label to
  * 256 characters. Text begins six pixels right and sixteen pixels above the marker
  * center; its size and offset stay fixed when the map is scaled.
@@ -1228,7 +1228,7 @@
  * clearPreview(), normally when starting another explicit preview. Clearing, model
  * closure or extension-facade destruction removes the layer and releases its
  * virtual datasource. Presentation changes are session-only. The consumer must
- * separately save original catalogue records when the user requests a persistent layer.
+ * separately save original catalog records when the user requests a persistent layer.
  *
  * Native previews are bounded to 5000 features, 256 distinct source attributes,
  * nonempty field names of at most 256 characters, and 20 MiB of normalized GeoJSON.
@@ -1288,7 +1288,7 @@
  * validity decision, must reproject retained geometry after a canvas CRS change,
  * and must clear its overlay when its model/source is no longer appropriate.
  *
- * A remote catalogue may accept only a bounding box. Query with the chosen
+ * A remote catalog may accept only a bounding box. Query with the chosen
  * area's envelope, then filter returned sites/footprints against its exact
  * polygon before presenting the preview. Keep that reviewed area with the
  * result identities selected for download. Changes to source, filters,
@@ -1301,7 +1301,7 @@
  * session/view/activity metadata instead; legacy name translation alone does not establish
  * session readiness, an unambiguous attachment identity or a source revision.
  *
- * @subsection sdk_data_invalidation Typed Data catalogue review contract
+ * @subsection sdk_data_invalidation Typed Data catalog review contract
  *
  * The Data UI subscribes before an immutable initial shared cutoff and adopts
  * each explicit review with a separate cutoff. A review captures the exact Ready
@@ -1311,7 +1311,7 @@
  * focus to a utility document retains the existing model context. Duplicate
  * persistent UUIDs in two open model windows remain independent sessions.
  *
- * Source/change | Current catalogue-review behavior
+ * Source/change | Current catalog-review behavior
  * --- | ---
  * Bound session closes, reloads, fails or ceases to be Ready; another model document becomes active | Cancel pending work, clear review authority/overlay and bind only an exact current Ready lifetime.
  * Viewport-mode ISessionEvents Viewport change, including extent, resize or canvas CRS | Preserve the frozen reviewed area; only an explicit Preview adopts the new viewport.
@@ -1319,7 +1319,7 @@
  * Chosen polygon's IViewEvents feature content/geometry, source, CRS, filter, selection, schema or metadata changes | Invalidate and refresh choices; selection fingerprints include every selected FID, even when counts match.
  * Layer membership changes | Refresh choices; invalidate if the chosen runtime attachment is retired or no longer eligible. Reattachment with the same persisted ID is a new target.
  * Another attachment changes, including the layer added by an own export | Preserve an unchanged chosen boundary after guarded revision reconciliation.
- * Own preview layer selection changes through the select tool, Attribute Table or Data rows | Mirror it in the catalogue rows or native layer; downloads wait for the write's detailed IViewEvents evidence, then the unchanged review continues.
+ * Own preview layer selection changes through the select tool, Attribute Table or Data rows | Mirror it in the catalog rows or native layer; downloads wait for the write's detailed IViewEvents evidence, then the unchanged review continues.
  * Result playback, layer style/order or utility document/dock/command activity | Preserve an unchanged review; these are not source geometry changes.
  * Source/dataset/area/boundary choice changes in the Data panel | Cancel/discard the old review and require an explicit new preview.
  *
@@ -1401,7 +1401,7 @@
  * reduction step so they remain visible to native validation.
  *
  * Optional locations contain id, title, attributes and an RFC7946 Point geometry.
- * Preserve reviewed catalogue coordinates even if observation geometry is absent.
+ * Preserve reviewed catalog coordinates even if observation geometry is absent.
  * A native layer can be entirely nonspatial. Its own monitoring locations stay
  * independent of optional project feature links; never persist a temporary
  * preview's FID as a permanent association. Native feature links are explicit,
@@ -1414,10 +1414,10 @@
  * Any comparison with model time must explicitly map the source clock to SWMM's
  * wall-clock interpretation. Unsupported fit/metric pairing remains disabled.
  *
- * The Data consumer submits only completed nonempty downloads. Partial/cancelled
+ * The Data consumer submits only completed nonempty downloads. Partial/canceled
  * downloads keep reviewable files without automatically publishing an incomplete
  * collection. A closed/reloaded target reports saved assets separately from map
- * success, never redirects to the active model, and does not grant a new catalogue
+ * success, never redirects to the active model, and does not grant a new catalog
  * review revision. DEM downloads continue using addRasterLayer() for the validated
  * exact-area derived raster. The host's native Use in model action separately
  * prepares a copy, validates units/time/gaps/targets and records provenance with
@@ -1462,7 +1462,7 @@
  * network IO. Native plugins remain capable of bypassing this service; this
  * is a cooperative user policy, not a native-code sandbox.
  * QNetworkReply lifetimes and completion are independent of runJob() and its
- * process outcome. Cancelling a job does not automatically abort a reply or
+ * process outcome. Canceling a job does not automatically abort a reply or
  * establish that an HTTP transfer has finished. Coordinate reply cancellation
  * and publication on the GUI thread using guarded native Qt lifetimes.
  *
@@ -1585,7 +1585,7 @@
  * The engine now supplies a runtime ABI tag and installed manifest. The
  * broader program still calls for borrowed Python handles, external-image
  * bindings and the separate Python product. The independent openswmm.gui.data
- * consumer implements catalogue previews, dated observation downloads and native
+ * consumer implements catalog previews, dated observation downloads and native
  * collection import, and terrain payload retrieval with exact-area raster import.
  * Live precipitation evaluation uses session-only values; see the rainfall
  * metadata capability and explicit application contract below.
@@ -1626,7 +1626,7 @@
  * remain available through the earlier capabilities.
  *
  * The current openswmm.gui.data consumer requires the newer typed capabilities;
- * its catalogue review/adoption rules are documented in @ref sdk_data_invalidation.
+ * its catalog review/adoption rules are documented in @ref sdk_data_invalidation.
  * The installed values example supplies a consumer-local primitive projection
  * without changing SDK 1.5 or claiming live language bindings. Borrowed
  * Python-handle/binding acceptance and the separate Python
@@ -1698,7 +1698,7 @@
  * persistent UUIDs, same-count selection changes and source/revision races. Native
  * application conformance is still needed to establish actual GUI forwarding.
  * EV5 evidence belongs under tests/verification/extension_events_2026-10/ev5/.
- * Catalogue acceptance does not qualify future observation/raster/storm payload
+ * Catalog acceptance does not qualify future observation/raster/storm payload
  * invalidation, live-network policy/retry/cancellation, or all platform/toolchains.
  *
  * @section sdk_model_rainfall Rainfall metadata and in-memory storm evaluation (SDK 1.12)
@@ -1717,7 +1717,7 @@
  * temporal products and candidate comparison curves remain bounded session
  * values. Never serialize them into settings, extension project state, recovery
  * files or persistent history. Run messages contain small operation summaries.
- * Late/cancelled responses cannot replace an accepted newer query.
+ * Late/canceled responses cannot replace an accepted newer query.
  *
  * Applying a selected storm uses IModelInstance::edit() and IEditScope directly:
  * author regular intensity samples in native input units, add a terminal dry

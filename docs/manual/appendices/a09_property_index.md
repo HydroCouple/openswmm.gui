@@ -47,7 +47,7 @@ other two update immediately, and one undo step reverses it. See
 | Outlet | `SWMMLinkPropertyAdapter` | \ref manual_hydraulics → *Link types and their properties* | `[OUTLETS]` `[VERTICES]` |
 | Map Label | *retired* | — | `[LABELS]` is parsed and discarded |
 
-Two entries from the legacy manual's catalogue no longer exist as objects:
+Two entries from the legacy manual's catalog no longer exist as objects:
 
 - **Map Label.** SWMMVis reads `[LABELS]` and drops it (see \ref manual_file_formats).
   Text on the map is an annotation stored in the `.oswp` project, not a model
@@ -111,7 +111,7 @@ Attribute Table.
   changes; the property is the same. See \ref manual_reference_tables.
 - **Read-only rows are of two kinds.** Geometry derived from the map (a conduit's
   length when it follows its vertices) and post-run statistics (peak flow, total
-  volume) are both shown greyed. The first becomes editable if you detach it from
+  volume) are both shown grayed. The first becomes editable if you detach it from
   the geometry; the second never does.
 - **A node's type is a property, not a separate object.** Converting a junction
   to a storage unit rewrites which `.inp` section it lands in. See

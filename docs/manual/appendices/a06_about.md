@@ -1,9 +1,9 @@
-@page manual_about A6 — About, Credits and Licences
+@page manual_about A6 — About, Credits and Licenses
 
 ## What you'll do
 
 Find the version and build information for a bug report, inspect bundled
-component notices, and understand the licence agreement shown at first launch.
+component notices, and understand the license agreement shown at first launch.
 
 ## Where to find it
 
@@ -16,10 +16,10 @@ component notices, and understand the licence agreement shown at first launch.
 ### The About dialog
 
 Window title **About SWMMVis**. A header strip across the top, a filterable
-master list of components on the left, and licence text plus metadata on the
+master list of components on the left, and license text plus metadata on the
 right.
 
-\fig{a06_about_dialog.png, The About dialog with Qt 6 selected and its bundled licence notice in the right pane}
+\fig{a06_about_dialog.png, The About dialog with Qt 6 selected and its bundled license notice in the right pane}
 
 The header strip shows, and the **Copy environment** button copies:
 
@@ -36,10 +36,10 @@ That block is the first thing to attach to a bug report — its tooltip says so
 
 The dialog opens with **Application → SWMMVis GUI** selected. The right pane
 shows the GUI's **GPL-3.0-or-later** identifier and the complete repository
-licence, including the copyright notice. The text wraps to the pane width;
+license, including the copyright notice. The text wraps to the pane width;
 **Copy License** copies the complete text. Select another component to inspect
-its notice, then select **SWMMVis GUI** to return to the application licence.
-Drag the divider between the component list and licence pane to resize them.
+its notice, then select **SWMMVis GUI** to return to the application license.
+Drag the divider between the component list and license pane to resize them.
 The component column fills the list width; when a name needs more space,
 use the horizontal scrollbar at the bottom of the list to read it.
 
@@ -47,24 +47,24 @@ use the horizontal scrollbar at the bottom of the list to read it.
 |---|---|
 | **Filter components…** | live-filters the component tree by name |
 | a category row | expands or collapses that group |
-| a component row | loads its metadata and licence into the right pane |
-| **Copy License** | copies the full licence text to the clipboard |
+| a component row | loads its metadata and license into the right pane |
+| **Copy License** | copies the full license text to the clipboard |
 | **Open Homepage** | opens the project homepage in your browser |
 | **Open Source** | opens the upstream source-download URL |
 | **Copy environment** | copies the header block above |
 
 Selecting a component shows **Version**, **Role**, **License** (SPDX
 identifier), **Source** (provenance — `vcpkg`, `in-tree`, `vendored`, `system`)
-and a **Homepage** link, with the bundled licence text or notice beneath. A component
+and a **Homepage** link, with the bundled license text or notice beneath. A component
 whose manifest names a missing file shows *(license file not found: …)*; one
-with no licence declared shows *(no license file declared in the manifest)*.
+with no license declared shows *(no license file declared in the manifest)*.
 
 ### Components shipped
 
 The list comes from an embedded component manifest. Version and provenance
 labels can be stale; these are the current manifest entries:
 
-| Category | Component | Licence | Provenance |
+| Category | Component | License | Provenance |
 |---|---|---|---|
 | Application | SWMMVis GUI | GPL-3.0-or-later | HydroCouple — openswmm.gui |
 | Engine | Open-Source SWMM Engine | Apache-2.0 | in-tree subdirectory |
@@ -84,10 +84,10 @@ labels can be stale; these are the current manifest entries:
 HDF5 is linked for the 2D results reader but does not currently have a manifest
 entry.
 
-### The licence agreement
+### The license agreement
 
 At launch, SWMMVis shows a modal **License Agreement** dialog headed
-**SWMMVis — GNU General Public License v3**, with the licence text, a
+**SWMMVis — GNU General Public License v3**, with the license text, a
 **Show this agreement on startup** checkbox, and two buttons —
 **Yes, I Agree** and **No, Exit**. Declining exits the application
 immediately.
@@ -107,13 +107,13 @@ the engine can be used independently of the GUI. Qt 6 is listed under
 LGPL-3.0.
 
 Some bundled notices are incomplete or stale. The captured Qt entry includes
-a packaging placeholder for the full licence text. The engine's bundled
-notice still says MIT, contrary to its current repository licence and manifest.
-Use the dependency's actual licence files for the complete text; the About
-notice is not a complete licence archive. Its header reports Qt runtime
+a packaging placeholder for the full license text. The engine's bundled
+notice still says MIT, contrary to its current repository license and manifest.
+Use the dependency's actual license files for the complete text; the About
+notice is not a complete license archive. Its header reports Qt runtime
 6.11.1 in this build, while the static component entry says 6.10.x.
 
-The bundled licence texts are currently a mix of canonical text and pointers to
+The bundled license texts are currently a mix of canonical text and pointers to
 the upstream `LICENSE` file, and the pointers are clearly marked as such. The
 version strings come from the manifest rather than from the build system, so a
 stale version can appear in the dialog even though the linked library is
@@ -125,7 +125,7 @@ a version in a compliance report.
 The dialog reads embedded resources. Updating an entry requires rebuilding
 the application resources:
 
-1. Put the upstream licence text in `resources/licenses/<name>.txt`.
+1. Put the upstream license text in `resources/licenses/<name>.txt`.
 2. Add a row to `resources/about/components.json`:
 
    ```json
@@ -160,7 +160,7 @@ The first four are also on the Welcome page's *Learn SWMM* panel.
 ## Tips and gotchas
 
 - **Open Source** opens the upstream project's download page, not the exact
-  binary you are running. It is the right link for licence redistribution, and
+  binary you are running. It is the right link for license redistribution, and
   the wrong one for "what code is in this binary".
 - The **Copy environment** block is deliberately plain text and diff-friendly.
   Paste it verbatim rather than retyping it.

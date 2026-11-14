@@ -79,8 +79,8 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   columns. Fixed value lists (`cells`, `hsg`, `bc_type`) are edited with a dropdown in the Features
   dock grid and in the Attribute Table; time series and curves list the project's own; tags and
   land uses suggest the values already in the column; lengths show the project unit; a value
-  outside the list stays visible, in the warning colour, and is never dropped; boundary-condition
-  parameters the row's type does not read are greyed. Defaults, descriptions and value lists are
+  outside the list stays visible, in the warning color, and is never dropped; boundary-condition
+  parameters the row's type does not read are grayed. Defaults, descriptions and value lists are
   stored in the GeoPackage (defaults with any GDAL; descriptions and value lists with GDAL 3.8 or
   later), where any GDAL-based reader sees them. An "Update fields to role…" action in the Features dock
   previews and applies, as one undo step, the renames, additions and metadata a layer needs to
@@ -186,7 +186,7 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   exported `.swmm-style.json`, still carried an empty `classifyAttribute`.
 - **Labels no longer print 17-digit numbers** (C4). Numeric fields and numeric `{tokens}` default
   to six significant digits (a slope reads `0.00412346`); Layer Properties → Labels → **Decimals**
-  fixes the places (`Auto`, `0`–`10`), is saved with the project, and 1D results labels honour it.
+  fixes the places (`Auto`, `0`–`10`), is saved with the project, and 1D results labels honor it.
 - **Object Browser Move Up / Move Down step past hidden empty categories** (C5) instead of
   swapping with one the tree does not show, which looked like nothing happening.
 - **Property-panel spin boxes step by the field** (C7): Length by 1, Manning's n by 0.001,
@@ -197,7 +197,7 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   lookup between the two failed. Pollutant, land use, aquifer, snow pack, LID control, street,
   inlet, transect, curve, pattern, time series and control-rule names, and network renames,
   now reject whitespace, `;`, `[` and `]` with a message naming the character.
-- **New subcatchments and rain gages honour Preferences → Naming** (C12); the two tools
+- **New subcatchments and rain gages honor Preferences → Naming** (C12); the two tools
   hard-coded `Sub` and `RG`.
 - **GPU rendering applies the subcatchment outline width** (C13); outlines were a one-pixel
   line regardless of the Symbology value. They are now pixel-width quads like link bodies and
@@ -232,10 +232,10 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 - **Size, outline, marker and label controls under every renderer** (user feedback batch 3,
   C2). The Graduated and Categorized panels gain a collapsed **Base symbol & labels** group
-  bound to the same per-kind style the Single Symbol panel edits; class colour still comes from
-  the ramp or categories, and **Size by value** greys the static size while it owns that axis.
+  bound to the same per-kind style the Single Symbol panel edits; class color still comes from
+  the ramp or categories, and **Size by value** grays the static size while it owns that axis.
 - **Preferences → Rendering → Network Symbols** (was *Links & Nodes*, C14) adds **Rain Gage**
-  (marker size, fill, outline pen) and **Subcatchment** (fill, outline colour and width) rows.
+  (marker size, fill, outline pen) and **Subcatchment** (fill, outline color and width) rows.
   They seed new model layers and follow later edits only where a layer still carries the
   inherited value; a layer styled on its own keeps its style.
 - **The Object Browser's data-object context menu drops "Properties…"** (C6): it only replayed
@@ -254,7 +254,7 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   core and the quad-heavy cell shapes described below. The whole domain is a constrained Delaunay
   triangulation refined by Ruppert/Shewchuk rules in our own kernel (no Triangle library): every
   triangle has a minimum angle at or above the new **Minimum angle** setting (default 30°, 20–33°)
-  except where two inputs meet at a small angle, and neighbouring triangles' longest edges differ by
+  except where two inputs meet at a small angle, and neighboring triangles' longest edges differ by
   at most 1/sin θ (2 at 30°). Cells grade smoothly from the feature size out to the coarsening cap,
   whose default rises from 4 to **20** × the cell size, so open ground is really coarse (a 1 km²
   city block set: 36 k cells instead of 1.1 M). Quads appear only where they line up with a feature:
@@ -268,9 +268,9 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 - **Mesh generation rebuilt on a quadtree core with a constrained-Delaunay fringe**
   (`workplans/MESH_OVERHAUL_PLAN_2026-09-29.md`). The size field is now one graded function
   h(x) = clamp(min(cell size + (ratio − 1)·d, terrain-error size, region size), min cell,
-  cell size × coarsen factor), gradation-limited so neighbouring cells never differ by more
+  cell size × coarsen factor), gradation-limited so neighboring cells never differ by more
   than the size ratio at the fine scale, and the core is a 2:1-balanced quadtree sized by
-  that field — so the longest-edge ratio between neighbouring core cells is bounded at 2 by
+  that field — so the longest-edge ratio between neighboring core cells is bounded at 2 by
   construction, and the fringe between the core and the constraints (domain rings, holes,
   conduits, breaklines, corridors) is a constrained-Delaunay triangulation refined with size
   hints so it grades into the core within 2.1. Terrain detail enters through an error field
@@ -288,13 +288,13 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   hole, a node) before it would build, so a DTM-only domain meshed at the uniform cell size and
   ignored the terrain tolerance. Without features every cell now starts at the coarsening cap and
   the terrain term refines it. The terrain size field also takes the minimum over each 3×3
-  neighbourhood of its output, so a step lying exactly on a block boundary refines both sides of
+  neighborhood of its output, so a step lying exactly on a block boundary refines both sides of
   itself instead of one.
 - **Smoother fringe grading around constraints** — constraints are resampled at the smallest size
   within one size of each point (as the core sizes its cells), core cells near a constraint are at
   most twice its spacing, fringe refinement keeps clear of core fronts (no slivers against them),
   constraint vertices carry the same grading hint as core fronts, and fringe triangles are graded
-  against their neighbours (2×). On a 1 km² block grid of 0.16 m curbs (1.2 M cells in ≈ 6 s) the
+  against their neighbors (2×). On a 1 km² block grid of 0.16 m curbs (1.2 M cells in ≈ 6 s) the
   longest-edge ratio is 1:1 at the median and above 2.1 on 0.003 % of faces (max 2.33); minimum
   angle 24°. The quadtree now tests constraints before resampling (same geometry, far fewer
   segments), which halves generation time in line-heavy scenes.
@@ -307,7 +307,7 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 - **Triangle (Shewchuk) is no longer vendored.** Its role is taken by an in-tree constrained
   Delaunay kernel (`mesh::ConstrainedDelaunay`, exact orientation and in-circle tests from
   Shewchuk's public-domain `predicates.c`, the only remaining vendored file), which also
-  backs the natural-neighbour interpolator. The About dialog credits the predicates instead.
+  backs the natural-neighbor interpolator. The About dialog credits the predicates instead.
 
 - **The canvas layer stack is kept grouped by category and the order is saved per project** —
   `MapCanvas::addLayer` inserts a new layer at the top of its own category group instead of the
@@ -326,7 +326,7 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   one process). Live 2D slots skip their repaint while the layer is hidden.
 - **Simulation Options — contextual tabs instead of one long column per page** — the five densest
   sidebar pages now group their controls into inner tabs, and a tab that does not apply to the
-  current selection greys out with a tooltip saying why rather than disappearing, so a gated option
+  current selection grays out with a tooltip saying why rather than disappearing, so a gated option
   stays discoverable. Changing a selector while you are looking at the tab it just disabled moves
   you to the nearest usable tab. *Models / Processes* becomes **Domains & Processes · Modules ·
   Flags**; *Dates & Times* becomes **Simulation Window · Time Steps · Events**; *Routing &
@@ -346,12 +346,12 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 - **Simulation Options — `SKIP_STEADY_STATE`, `LAT_FLOW_TOL` and `SYS_FLOW_TOL` move** from *Dates
   & Times* to *Routing & Hydraulics ▸ Routing*, the tab that applies under every solver. The engine
   tests for a steady period from the main routing step with no routing-model guard, so the flag is
-  honoured under kinematic wave and steady flow as well as dynamic wave; putting it on the Dynamic
+  honored under kinematic wave and steady flow as well as dynamic wave; putting it on the Dynamic
   Wave tab would have implied otherwise.
 
 - **Simulation Options — the 2D Surface Routing and Quality & Transport sidebar rows now gate.**
   The 2D row follows the 2D-module toggle on *Models / Processes ▸ Modules* as before; the Quality
-  & Transport row is new, and greys out on a model with no pollutants, no water age and no heat.
+  & Transport row is new, and grays out on a model with no pollutants, no water age and no heat.
 
 - **Preferences — Rendering and Simulation Defaults gain tabs; two sidebar rows fold away.**
   *Rendering* becomes **Labels · Links & Nodes · GPU · 2D Mesh Edges**. The *Dynamic Wave Defaults*
@@ -386,11 +386,11 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   `1d_fv.inp` decks had no `[COORDINATES]` section, so every node of a case drew at the origin, one
   on top of another, when the example was opened; and once they had one, the 1D chain ran along the
   bottom wall of the case's 2D strip rather than through its middle, because the straight 2D meshes
-  were written on `y ∈ [0, W]` while the bend meshes (and the new 1D chains) were centred on `y = 0`.
+  were written on `y ∈ [0, W]` while the bend meshes (and the new 1D chains) were centered on `y = 0`.
   The QA suite's generators (`swasheslib.gen1d`, `swasheslib.gen2d`) now use one frame: the
-  centreline is `y = 0` in every deck, a straight channel runs along the x axis with each node at its
+  centerline is `y = 0` in every deck, a straight channel runs along the x axis with each node at its
   true chainage `x_i = i·dx`, straight 2D strips are written on `[−W/2, +W/2]` as the bend meshes
-  already were, and anything sacrificial sits past the outlet on the centreline — the closed-basin
+  already were, and anything sacrificial sits past the outlet on the centerline — the closed-basin
   spillway outfall at `(L+dx, 0)` and the dry dummy 1D pair each 2D deck carries at `(L+dx, 0)` and
   `(L+2dx, 0)` with conduit Length equal to its plan distance. The 2D shift is applied only to the
   written vertices (bed and initial conditions are still sampled in the analytic frame), so it is a
@@ -399,7 +399,7 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   the engine, and `SwashesExamples.DecksShareOneFrame` now gates the frame on the shipped payload.
 - **The `.inp`'s `[OPTIONS] CRS` is the coordinate system of record, on open and on save** — two
   fixes. On open, a CRS in the `.inp` now beats the `.oswp` sidecar's copy; the sidecar's value
-  applies only when the `.inp` carries none, where before it silently re-labelled a model whose
+  applies only when the `.inp` carries none, where before it silently re-labeled a model whose
   `.inp` had since been assigned or reprojected to a different CRS. On save, the layer's *assigned*
   CRS is written to `[OPTIONS] CRS` whichever path assigned it: the CRS picker, Simulation Options,
   a canvas reprojection, or the sidecar. The reprojection path used to reach only the engine's
@@ -442,7 +442,7 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   on `FeatureGeometry::validate` exactly as a drawn commit is, so a move that self-intersects a ring
   or pushes a hole outside its exterior is refused and the cell reverts; the ordinate the user did
   *not* touch is read from the geometry rather than from its sibling cell, so the six-decimal display
-  cannot quietly quantise a coordinate nobody edited. Each edit is one non-mergeable
+  cannot quietly quantize a coordinate nobody edited. Each edit is one non-mergeable
   `EditFeatureGeometryCommand` — the same undo step the same move produces by dragging, per the rule
   that nothing writes to a feature layer outside a command. On a 3D layer a blank Z clears that
   vertex back to unsampled (NaN, never zero), and when the Z source is a raster or the 2D mesh the
@@ -499,9 +499,9 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   file carries them — those track the solver's refresh cadence, so they catch peaks that fall
   between reported output frames — and otherwise from a scan of every frame. Vector output writes
   one polygon per mesh cell, triangle or quad, taken from the engine's cell connectivity rather than
-  the renderer's display fan. Raster output interpolates the cell-centred values onto the pixel grid
-  by natural neighbour, inverse distance weighting over the k nearest cells, or a per-cell
-  Green–Gauss gradient reconstruction limited to the neighbouring cells' range; every method
+  the renderer's display fan. Raster output interpolates the cell-centered values onto the pixel grid
+  by natural neighbor, inverse distance weighting over the k nearest cells, or a per-cell
+  Green–Gauss gradient reconstruction limited to the neighboring cells' range; every method
   resolves the containing cell first, so a pixel outside the mesh stays NoData instead of being
   extrapolated across a hole. Dry cells can be masked to NoData, and everything is written in the
   model's own units and CRS.
@@ -522,7 +522,7 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   modified. `IGNORE_2D` is now written only once the checkbox carries a real intent — a stored
   per-project preference, or the user actually toggling it — and the same condition guards the
   preference itself, so an inferred state can no longer promote itself to an intent on the next
-  Apply. The engine reports `IGNORE_2D` as `NO` by default and never serialises it, so the key's
+  Apply. The engine reports `IGNORE_2D` as `NO` by default and never serializes it, so the key's
   presence cannot be used to tell the two apart.
 
 - **Double-click now closes a drawing on the point clicked** — the subcatchment, feature-layer
@@ -584,7 +584,7 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   writes an append-only `<report stem>.runlog.txt` (phases, failure, outcome). The Simulation Status
   dock shows the failure as a red, copyable child row (right-click → Copy on any cell), the
   application guards event delivery (`notify()`: logged + one throttled message box) and installs a
-  terminate handler that names the uncaught exception in the log. The runner also absolutises its
+  terminate handler that names the uncaught exception in the log. The runner also absolutizes its
   .inp/.rpt/.out before pinning the working directory (a relative .inp used to fail to open).
 - **Simulation Status: "2D Solver" and "LTS Tiers" columns** — the runner reads the engine's
   `swmm_2d_get_run_stats` once after start and on every progress tick, so a 2D run shows which backend
@@ -760,13 +760,13 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   `AttributePickerMenu` used for nodes/links (one entry per attribute plus
   "All attributes") instead of the cell checkbox dialog / the fixed two-item
   edge menu / the depth+HGL-only vertex entry. Entries the results source
-  can't serve are greyed out with a tooltip.
+  can't serve are grayed out with a tooltip.
 
 - **2D cell rainfall series.** New plot attributes `Rainfall (2D cell)`
   (mm/hr, from `/Mesh2_face_rainfall`) and `Rainfall volume (2D cell)`
   (cumulative m³, from the engine's new `/Mesh2_face_rain_cum`).
   `Mesh2DH5Reader::readFaceFieldAt` / `hasFaceField` read any named
-  per-face dataset with a probe-once presence cache; older files grey the
+  per-face dataset with a probe-once presence cache; older files gray the
   entries out. Live runs serve the same two fields from
   `EngineMesh2DSource` (per-tick `SimulationRunner::twoDRainfallAvailable`
   via the engine's `swmm_2d_get_rainfall_bulk` /
@@ -800,13 +800,13 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   longer carries that species. Water age gets its editors: a **Water Age
   Sources** dialog for the initial state and boundary ages, reachable from
   the model menus, and an age constituent in the node inflow editor —
-  hours-labelled, with the MASS units choice gated off and a CONCEN fallback,
+  hours-labeled, with the MASS units choice gated off and a CONCEN fallback,
   since an age inflow is a concentration statement. (`ebf28ae`, `dcc20e6`,
   `f5e0d9b`, `bc4e07c`, `dae4bad`, `7a5f732`, `9e63357`, `94ff3b5`.)
 
 - **Minimum cell size for mesh generation.** Constraining lines and polylines
   force Triangle to emit cells at whatever scale the input geometry contains —
-  GIS vertices centimetres apart, two alignments passing within a hair, conduits
+  GIS vertices centimeters apart, two alignments passing within a hair, conduits
   meeting at a sharp angle — and on the 2D solver one sliver sets the CFL
   timestep for the whole domain. The Generate Mesh dialog gains a **Minimum Cell
   Size** group (Quality tab) that enforces a floor by conditioning the input
@@ -839,7 +839,7 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   `offset_authored_fixture.inp`.
 
 - **2D results land on top of the 2D mesh in a foot-based CRS.** Two faults
-  stacked. The engine writes 2D result coordinates in SI metres whatever the
+  stacked. The engine writes 2D result coordinates in SI meters whatever the
   model's unit, and the results layer treated them as model units — so a model
   in EPSG:2249 (US survey foot) drew its inundation at ~0.3048x scale, pulled
   toward the CRS origin, while the `.2dm`-backed mesh layer sat correctly. And
@@ -863,7 +863,7 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   computed its token by prefix match, so a mesh kept in a *sibling* folder — the
   usual reason to keep it out of the model directory — was written as a
   machine-specific absolute path instead of `../shared/terrain.2dm`. All four now
-  go through the same relativisation as everything else, `../` forms included.
+  go through the same relativization as everything else, `../` forms included.
   `[PLUGINS]` paths stay absolute by design: they name installed libraries, not
   model data.
 
@@ -873,7 +873,7 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   re-resolved against the *destination* folder, found nothing, and the saved
   model opened 1D-only with no diagnostic. It is now re-anchored to keep naming
   the file it originally pointed at. When the mesh *is* loaded the existing
-  behaviour is unchanged and now covered by tests: the mesh travels with the
+  behavior is unchanged and now covered by tests: the mesh travels with the
   `.inp` and the original `.2dm` is never overwritten.
 
 - **Climate file was opened against the working directory.** `[TEMPERATURE] FILE`
@@ -888,7 +888,7 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   `swmm_options_set_ext(engine, "WRITE_ABSOLUTE_PATHS", "YES")` fell through to
   the generic extension-option map instead of the real project option, so the
   save still wrote relative paths while the emitted deck declared `YES` — and the
-  *next* open honoured it. The key now sets the option it names.
+  *next* open honored it. The key now sets the option it names.
 
 - **Portability warnings only appeared on Save As.** A plain Save skipped the
   pre-save portability check entirely, so cross-volume or missing references went
@@ -900,7 +900,7 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   though the token written to the `.inp` was relative. The anchor is now carried
   on the timeseries registry and follows the project through a Save As.
 
-- **Per-region mesh area bounds were silently ignored.** Triangle honours
+- **Per-region mesh area bounds were silently ignored.** Triangle honors
   `[2D] REGION` area bounds only when its `vararea` flag is set, and that flag
   is set only by a bare `a` switch — but the generator emitted the numeric
   `a<maxArea>` form whenever a uniform cap was configured, which suppressed it.
@@ -938,7 +938,7 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   re-raising them on activation instead of attaching them as native macOS child
   windows. Dialogs are then fully independent windows that cannot be dragged
   off-screen by the window they were attached to. Defaults to the previous
-  native behaviour on macOS.
+  native behavior on macOS.
 
 ### Fixed
 
@@ -986,7 +986,7 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 - **Section View dock + engine-accurate cross-section drawings (Slice SP).**
   New dockable **Section View** panel (View ▸ Panels ▸ Section View, tabbed
   behind the Property Browser) draws the selected object as a vector diagram
-  with labelled dimensions and leader lines: links get a true-shape
+  with labeled dimensions and leader lines: links get a true-shape
   cross-section (full depth, max width, invert/crown elevations, A/R/W
   readout) and a longitudinal profile (both structures, ground line, barrel at
   its real offsets, length + slope); nodes get a manhole profile with every
@@ -1161,12 +1161,12 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   a raised threshold suppressing it and a `0` threshold forcing it on.
 - **Classification editor for mesh terrain fill and elevation bands.** The mesh
   style editor edits both the terrain fill and the elevation contour bands
-  through the shared `ClassificationEditor`, so instead of a high/low colour
+  through the shared `ClassificationEditor`, so instead of a high/low color
   pair there is a ramp/band selector with invert, Continuous vs. Classified
   mode, a method choice (equal interval / quantile / natural breaks (Jenks) /
   std-dev / logarithmic / exponential / manual), class count, custom min/max
   range, an "Auto-classify from data" resample button, and an editable
-  Lower/Upper/Colour/Label bin table. Each editor binds through a
+  Lower/Upper/Color/Label bin table. Each editor binds through a
   `SublayerSchemeBinding` around the fill/band style's
   `scheme()`/`setScheme()`, mirroring `swmm2dresultsstylepanel`; the sample
   provider feeds the new `SWMM2DMeshLayer::elevationSamples()` (per-vertex z,
@@ -1196,7 +1196,7 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   Metadata tab.
 - **Boundary-aware DTM terrain seeding.** Terrain Steiner candidates were
   sampled over the domain bounding box with no awareness of the PSLG, so pixel
-  centres landing arbitrarily close to constrained boundary/hole/conduit
+  centers landing arbitrarily close to constrained boundary/hole/conduit
   segments (or to mandatory SWMM node vertices) forced slivers that the `-q`
   quality pass then split into clusters of tiny cells hugging the boundary. The
   worker now rejects candidates outside the domain rings, inside a hole ring,
@@ -1228,7 +1228,7 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   `triangle_lib` and resolved at the final link). Three capabilities ride on
   it: **cancellation** — refinement was previously uninterruptible, leaving the
   Stop button dead for its whole duration; the hook polls a caller predicate
-  and, once cancelled, reports every triangle suitable so the bad-triangle
+  and, once canceled, reports every triangle suitable so the bad-triangle
   queue drains and `triangulate()` unwinds through `triangledeinit()`
   (deliberately not a `longjmp`, which would leak the mesh pools — the
   dominant allocation in the pipeline at ~200 B per output vertex), with
@@ -1314,7 +1314,7 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
 - **Degree-day snow columns in the RDII decay editor.** Companion to the
   engine's `[RDII_DECAY]` degree-day snow model: the hydrograph editor's
   exponential-decay table grows from 8 to 11 columns with a per-response Snow
-  checkbox plus `snow_T` and `snow_ddf` cells that stay greyed until both
+  checkbox plus `snow_T` and `snow_ddf` cells that stay grayed until both
   Active and Snow are checked (the existence-is-active convention).
   `applyRdiiDecaySet()` gains defaulted `snowOn`/`snow_T`/`snow_ddf`
   arguments forwarded to the extended `swmm_rdii_decay_set` C API, and readers
@@ -1329,7 +1329,7 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   opens a model at launch with no UI interaction;
   `SWMMVIS_STARTUP_SNAPSHOT=<path.png>` zooms to full extent once the mesh lands
   and grabs the main window (canvas plus Message Log dock), with
-  `SWMMVIS_STARTUP_SNAPSHOT_ZOOM=<factor>` to zoom into the mesh centre first;
+  `SWMMVIS_STARTUP_SNAPSHOT_ZOOM=<factor>` to zoom into the mesh center first;
   and `SWMMVIS_SNAPSHOT_MESHSTYLE` / `SWMMVIS_SNAPSHOT_SIMOPTS` grab the
   mesh-style and Simulation Options dialogs. Added to make scene-graph rendering
   verifiable without screen-recording permission, since the offscreen QPA cannot
@@ -1339,14 +1339,14 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
 
 - **Mesh Symbology tabs de-duplicated.** The mesh Symbology editor showed two
   overlapping surfaces: the "Mesh / TIN" tab (`MeshHillshadeEditor`, with the
-  `ClassificationScheme`-based colour-band editors) and a "Sublayers" tab whose
+  `ClassificationScheme`-based color-band editors) and a "Sublayers" tab whose
   `SymbolStyleAdapter` grids re-exposed the same fill, contour bands and
-  contour lines through a flat low/high colour model. That model cannot
+  contour lines through a flat low/high color model. That model cannot
   represent a scheme, so it duplicated fill/line editing and — for contour
   bands, sharing one `ContourBandStyle` scheme — fought the Mesh/TIN editor
   last-writer-wins. `SWMM2DMeshLayer::styleSubjects()` no longer exposes the
   fill, contour-band or contour-line sublayers; those are edited solely by the
-  Mesh/TIN classification editors, so the colour band, scale and sampling are
+  Mesh/TIN classification editors, so the color band, scale and sampling are
   applied one way across the QSG and `QPainter` paths. The Sublayers section
   now carries only Mesh edges and Mesh vertices, and the three controls that
   lived only in the removed adapters — "Show elevation labels" (isolines),
@@ -1358,7 +1358,7 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   settings-style `QListWidget` sidebar plus `QStackedWidget`, mirroring
   `PreferencesDialog`: each `build*Tab()` now returns its page and
   `addCategory()` registers the sidebar row and wraps the page in a scroll
-  area. The 2D-module toggle greys the "2D Surface Routing" list row rather
+  area. The 2D-module toggle grays the "2D Surface Routing" list row rather
   than a tab, since `QStackedWidget` has no per-page enabled state; the Files
   page keeps its inner sub-tabs, and `readFromEngine`/`writeToEngine`/
   `onApply`/`onAccept` and all validation are unchanged. Layer Properties →
@@ -1436,8 +1436,8 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   end", with partial batches producing far-point "crystal" triangles; Metal
   tolerates giant nodes, which is why the offscreen harness never reproduced
   it. All mesh QSG uploads now split into ≤ 65,532-vertex chunks that spill
-  into child geometry nodes (`uploadVertsChunked`), with flat-colour passes
-  propagating colour edits to their overflow chunks. The 2D **results**
+  into child geometry nodes (`uploadVertsChunked`), with flat-color passes
+  propagating color edits to their overflow chunks. The 2D **results**
   renderer had the same unguarded uploads — its edge, isoline, band, cell-fill,
   velocity and highlight passes all wrapped as soon as they crossed the cap,
   which on a real mesh is immediately — and now shares the chunked path; the
@@ -1449,10 +1449,10 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   and 6 (thick-segment quads), so a chunk boundary never splits a primitive.
   Verified with an in-process canvas snapshot of the 9.4M-triangle Virginia
   mesh at zoom-to-extent rendering its complete footprint on GL.
-- **Mesh QSG colours were uploaded straight-alpha into a premultiplied
-  material.** `QSGVertexColorMaterial` samples vertex colours as premultiplied
+- **Mesh QSG colors were uploaded straight-alpha into a premultiplied
+  material.** `QSGVertexColorMaterial` samples vertex colors as premultiplied
   alpha, but the mesh fill, iso-band and vertex-marker passes uploaded
-  straight-alpha colours at fill alpha 160. On composite the colours clamped
+  straight-alpha colors at fill alpha 160. On composite the colors clamped
   toward saturation — ochre → pure yellow, hillshaded tan → salmon pink, and
   the off-white high-terrain ramp stops → background white, which read as the
   mesh being truncated at far zoom. All `ColoredPoint2D` writes now
@@ -1474,7 +1474,7 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   already consumes strength through `zExaggeration`, drawing only ~30% of the
   `QPainter` relief; it is now exact `colour * lit`, identical to
   `SWMM2DMeshGraphicsItem::paint()`. At Far LOD the QSG drew only the coarse
-  quad-bake overview, giving blocky fill and a cell-quantised mesh boundary;
+  quad-bake overview, giving blocky fill and a cell-quantized mesh boundary;
   the fill pass now overlays real cells ≥ ~16 px² largest-first via
   `m_trisBySizeDesc`, coverage-rect culled, matching the CPU painter's LOD
   pass. And the Far-bucket threshold itself was misaligned — the QSG switched
@@ -1482,13 +1482,13 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   switches at span < 2 px (= 4 px²), so a whole zoom band rendered blocky
   overview where the CPU path already drew native cells;
   `Qsg2DLodInputs::farMaxCellAreaPx` (default 8, preserving results-renderer
-  behaviour) lets the mesh renderer set 4.
+  behavior) lets the mesh renderer set 4.
 - **Mesh style controls that edited the wrong thing, or nothing.** Terrain fill
-  colour is driven by the FILL sublayer's classification scheme — the only ramp
+  color is driven by the FILL sublayer's classification scheme — the only ramp
   previously reachable from the mesh style editor edited the contour-**band**
   scheme, and bands are off by default, which is the reported "applying a color
   scale does not get applied to the shaded relief". The `QPainter` fill now
-  honours the fill scheme, flat colour and ramp inversion via the same
+  honors the fill scheme, flat color and ramp inversion via the same
   `schemeDrivesColor` decision as the
   QSG fill, instead of hardcoding the legacy ramp. `hillshadeMinLit` (the
   shadow floor) was a `thread_local` namespace global, so GUI edits were
@@ -1508,7 +1508,7 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   themselves so the table cannot drift from the engine again, with row order
   still following the legacy SWMM-GUI presentation order. Two further copies
   of the shape-name list — one in the Attribute Table, one in the Property
-  Browser, both numbered 0..19 and both mislabelling everything from 8 up — are
+  Browser, both numbered 0..19 and both mislabeling everything from 8 up — are
   replaced by a shared `xsectShapeName()`, which returns empty rather than
   falling back to CIRCULAR, so a display path renders UNKNOWN instead of
   confidently naming the wrong shape. Requires the matching engine
@@ -1528,29 +1528,29 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   below it — the Poisson-disk terrain filter and the boundary-buffer auto
   formula — measures distances in **mesh** CRS units. With a geographic DTM
   (Bellinge: 1 arc-second = 0.000278°) against a projected mesh (EPSG:25832,
-  metres) the Poisson filter was applying a 0.000278 spacing threshold to metre
+  meters) the Poisson filter was applying a 0.000278 spacing threshold to meter
   coordinates and so rejected nothing at all, and the auto boundary buffer came
   out as 0.5 × 0.000278 = 0.14 mm instead of ~12 m — which, since the segment
   hash chunks each edge to buffer length, sent the ~205 km of
   subcatchment-union boundary (7331 edges) to ~1.5 × 10⁹ chunks at ~9 hash
   insertions each: not an infinite loop, just unbounded work plus OOM. A new
-  `gStepMesh` converts one grid step at the domain centre through the existing
+  `gStepMesh` converts one grid step at the domain center through the existing
   DTM→mesh transform, using the mean of the two axis steps since a geographic
   pixel is anisotropic once projected (17.6 m E-W vs. 30.9 m N-S here), and
   `effSpacing` derives from it. On that domain the CRS-correct 12.13 m buffer
   gives 21,336 chunks, a segment hash that returns in 66 ms and a full pipeline
   of 1024 ms.
-- **Natural-neighbour vertex elevation crashed the whole mesh pipeline.**
+- **Natural-neighbor vertex elevation crashed the whole mesh pipeline.**
   `NaturalNeighbourInterpolator::build()` passed the switch string `"znQN"` to
   Triangle. Per `triangle.h` the `N` switch leaves `out->pointlist`
-  *uninitialised* rather than allocating it, so the copy loop dereferenced NULL
+  *uninitialized* rather than allocating it, so the copy loop dereferenced NULL
   and segfaulted; the switch was there on a misreading of `N` as "no node
   markers" (that is `B`, for boundary markers, which this code never reads).
   The failure signature was inverted — every degenerate seed set (empty,
   < 3 unique, collinear, NaN coordinates, count mismatch) returned cleanly
   because those paths return before the bad line, while every *valid* seed set
   crashed — observed as a no-DTM mesh run dying in `runMeshPipeline` with
-  `EXC_BAD_ACCESS` at `0x0`. Consequence: natural-neighbour vertex elevation
+  `EXC_BAD_ACCESS` at `0x0`. Consequence: natural-neighbor vertex elevation
   had never actually produced a value in this pipeline; runs either fell back
   to IDW or died. `meshgenerator.cpp` uses `"pzeA…"` and was never affected.
 - **DTM thinning: three defects and a scaling limit.** Iterative decimation
@@ -1559,8 +1559,8 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   therefore never fire, so `nextScore` came back empty and the loop exited
   after iteration 0 regardless of `maxIterations`; `inScore` is now retired for
   the outgoing list each pass, and the removal batch is deactivated before the
-  neighbourhood scan so a removed vertex cannot be enqueued as another removed
-  vertex's "active neighbour". The block sampler had no out-of-raster bounds
+  neighborhood scan so a removed vertex cannot be enqueued as another removed
+  vertex's "active neighbor". The block sampler had no out-of-raster bounds
   test (unlike `sampleAt`) and silently edge-clamped, fabricating elevations
   for grid points beyond the DEM footprint — 8500 of 12,100 values on the test
   raster; it now mirrors `sampleAt` exactly and returns NaN so those points
@@ -1570,7 +1570,7 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   reading only the raster strip each band needs, so peak buffer memory is
   bounded by a fixed budget while the `RasterIO` call count stays O(bands)
   rather than O(points) — interpolation is unchanged because bilinear sampling
-  only ever touches a 2×2 neighbourhood, and `readPixels` gets the same strip
+  only ever touches a 2×2 neighborhood, and `readPixels` gets the same strip
   treatment plus a capped up-front reserve. Finally, grid sizing was
   `int N = cols * rows` with `cols`/`rows` produced by an out-of-range
   `double`→`int` conversion, so the value being range-checked could itself be
@@ -1580,12 +1580,12 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   them).
 - **Every DEM sample on a raster's last column with a fractional y was halved
   toward zero.** `RasterIO` fills the bilinear window contiguously in row-major
-  order for the region it actually read, and does not honour the
+  order for the region it actually read, and does not honor the
   `{v00, v10, v01, v11}` layout the formula expects — only the 2×2 case
   coincides. For a 1-wide × 2-tall read (last column, interpolating in y) GDAL
   writes the second *row* into the `v10` slot; the old fix-up clobbered it and
   then copied `window[2]`, a slot `RasterIO` never wrote and still zero from
-  the initialiser, so `v01 = v11 = 0` and the sample collapsed to
+  the initializer, so `v01 = v11 = 0` and the sample collapsed to
   `v00 × (1 − dy)` — 29.5 instead of 54.0 on the ramp fixture.
 - **A freshly generated 2D mesh no longer disappears on save/reopen.** Three
   linked defects along the mesh persistence path. On generation completion the
@@ -1595,7 +1595,7 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   mesh could win and reappear on reopen; any existing mesh layer whose source
   path matches the new output path is now removed (absolute-path compare)
   before the new layer is added, and generating an external mesh over an
-  existing output path warns first. On save, the engine serialises its
+  existing output path warns first. On save, the engine serializes its
   *in-memory* 2D mesh — still the mesh loaded at open, since there is no engine
   mesh-replace API — so a freshly generated external mesh was lost and the old
   one reappeared; the external `.2dm` is now snapshotted *before*
@@ -1618,11 +1618,11 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   TAG-form first tokens in
   `[2D_VERTEX_NODE_MAP]` — the writer prefers tags, so GUI-written vertex maps
   never round-tripped.
-- **2D depth colour scale is anchored to the run's global peak.** `max_depth_`
+- **2D depth color scale is anchored to the run's global peak.** `max_depth_`
   is now seeded from a scan over every frame at load, mirroring the existing
   velocity seed, so the true peak depth maps to the top of the ramp from the
   first frame. Previously it only grew as frames were visited, so the deepest
-  water never reached the maximum colour until the user scrubbed onto the exact
+  water never reached the maximum color until the user scrubbed onto the exact
   peak frame.
 - **2D rendering now consumes the engine's wet-masked signed vertex depth
   field.** The layer previously rendered the solver's vertex-*head* field
@@ -1636,7 +1636,7 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   `twoDVertexDepthsAvailable` signal, replacing the heads signal, and
   `EngineMesh2DSource` stores the signed floats unclamped;
   `applyCurrentDepths_` keeps negative source vertex depths (the sub-cell
-  shoreline intercept) and sanitises only non-finite values. Legacy
+  shoreline intercept) and sanitizes only non-finite values. Legacy
   `Mesh2_node_head` is no longer consumed for rendering, and older files fall
   back to the GUI-side reconstruction — whose per-cell η now comes from the
   planar-bed stage-storage inversion (`cellEtaFromMeanDepth`, mirroring the
@@ -1644,7 +1644,7 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   step-spanning cells, with a flat-closure fallback for bad indices or nodata
   z.
 - **Animation slider range and scrub lag.** The global slider anchored
-  normalised 0.0 at `START_DATE` while data frames begin at period 0's report
+  normalized 0.0 at `START_DATE` while data frames begin at period 0's report
   time (`reportStart + reportStep`), leaving a dead zone at the left of the
   track whenever `REPORT_START != START_DATE`, plus an off-by-one in
   `periodIndexForDateTime`; a new
@@ -1666,7 +1666,7 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   `SWMMLayerItem`'s cached bounding rect or the scene's BSP index, so a new
   object outside the stale bounds was culled from `paint()` until a pan or zoom
   reindexed the scene — the documented `m_batchedItem` contract was never
-  honoured. `applyNodeAdd` / `applyLinkAdd` / `applyGageAdd` /
+  honored. `applyNodeAdd` / `applyLinkAdd` / `applyGageAdd` /
   `applySubcatchAdd` now call `m_batchedItem->refreshBoundingRect()`, and those
   paths plus `applyNodeMove` and `applySubcatchVertices` call
   `recomputeExtentFromCaches()` so the cached model extent stays in sync for
@@ -1682,7 +1682,7 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   content rebuild and clears the pending-absorb state.
 - **Windows was built with RTTI off and no unwind semantics.** The Windows
   presets set `CMAKE_C_FLAGS` / `CMAKE_CXX_FLAGS` as preset *cache* variables,
-  which overwrites CMake's MSVC initialiser (`/DWIN32 /D_WINDOWS /GR /EHsc`)
+  which overwrites CMake's MSVC initializer (`/DWIN32 /D_WINDOWS /GR /EHsc`)
   rather than adding to it. The entire Windows leg was therefore built without
   `/GR` or `/EHsc` while Qt6 and GDAL ship built with both — an ABI mismatch
   across the link, and a plausible root cause for the Windows-only faults
@@ -1696,7 +1696,7 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   out —
   `test_artifacts/meshgen_repro/` ports the input-building half of
   `MeshGenerator::generate()` to Qt-free types against unmodified `triangle.c`
-  and runs all 7 cases plus 4000 randomised PSLGs clean under ASan/UBSan at a
+  and runs all 7 cases plus 4000 randomized PSLGs clean under ASan/UBSan at a
   512 KB stack (Windows default is 1 MB), with zero out-of-range output indices
   and zero `triexit()`/`longjmp` hits; the wrapper's `free()` bookkeeping is
   also correct, already declining to free `out.holelist` / `out.regionlist`,
@@ -1708,7 +1708,7 @@ persistence across save/reopen, and the first GIS-layer round-tripping.
   path like `/p/m.inp.oswp` against the *current drive*, returning `D:/p` and
   producing `D:/p/m.inp` instead of `/p/m.inp`. The non-project branch already
   returned its input verbatim, so preserving the caller's directory as given is
-  the consistent behaviour.
+  the consistent behavior.
 - **Windows/macOS CI and packaging.** Engine and vcpkg DLLs are placed on the
   test PATH and PROJ/GDAL data directories are set for the test targets, so the
   Windows leg can run its suite at all; `QTEST_FUNCTION_TIMEOUT` plus a 60 s
@@ -1755,7 +1755,7 @@ An informal "Alpha 1" milestone was reached 2026-05-22 (commit
   L/W/Z through `swmm_node_get/set_storage_geometry`; and
   `storageshapegeom.h` supplies per-shape dimension labels and
   applicability so the generic rows get a shape-specific tooltip and
-  greying, mirroring the link `geom1`–`geom4` split. Also fixes a
+  graying, mirroring the link `geom1`–`geom4` split. Also fixes a
   bootstrap bug: the engine validates a geometric shape's L/W/Z
   atomically, so a node freshly switched to one (dimensions 0/0/0)
   rejected the Property Browser's one-cell-at-a-time edits and the switch
@@ -1778,7 +1778,7 @@ An informal "Alpha 1" milestone was reached 2026-05-22 (commit
 - **Copy in the Attribute Table.** `Ctrl+C` over the Attribute Table
   copies the selected rows as tab-separated text (header line included,
   current sort/column order, hidden columns skipped, query and
-  show-selected-only filters honoured), pasting straight into Excel or
+  show-selected-only filters honored), pasting straight into Excel or
   Sheets; falls back to every visible row when nothing is selected. The
   same action is on the panel toolbar and the right-click menu. The
   existing `Ctrl+C` binding still copies the map view as an image when
@@ -1813,7 +1813,7 @@ An informal "Alpha 1" milestone was reached 2026-05-22 (commit
   round-tripping (labels, flow arrows), archetype-seeded
   `RendererFactory` as the sole renderer-construction path, graduated
   classification driven from the data layer (Jenks/StdDev/Log/Exp
-  binners), contextual symbology (capability-aware, greyed dropdown rows
+  binners), contextual symbology (capability-aware, grayed dropdown rows
   with reasons), a canonical `LegendContent` MVC shared by the legend
   overlay/dock/per-class edit commands, and a `PalettedRasterRenderer` +
   hillshade. Removed the abandoned OpenGL renderer.
@@ -1847,7 +1847,7 @@ An informal "Alpha 1" milestone was reached 2026-05-22 (commit
   mesh bed-profile trace but sampling ground elevation from the active
   DEM.
 - **Sim-options parity:** process-model checkboxes (Rainfall/Runoff,
-  Snowmelt, Groundwater, RDII, Water Quality, Flow Routing) grey out when
+  Snowmelt, Groundwater, RDII, Water Quality, Flow Routing) gray out when
   the model has no objects of the class they control, matching the
   legacy Delphi `Doptions.pas` behavior.
 - Coupled 1D-2D road-culvert example (`examples/demo_road_culvert`),
@@ -1882,7 +1882,7 @@ An informal "Alpha 1" milestone was reached 2026-05-22 (commit
 ### Fixed
 
 - **Report viewer navigation.** The reported "report viewer truncates the
-  `.rpt`" behaviour was navigational, not lossy — the viewer holds every
+  `.rpt`" behavior was navigational, not lossy — the viewer holds every
   byte of the raw file, and an offline probe shows 0 dropped characters
   and 0 bad anchors across all sections. Two causes: the block above the
   first `****` rule — engine banner, title/notes and the whole

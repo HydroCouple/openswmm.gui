@@ -57,7 +57,7 @@ resume. The pair is reference-counted, so nesting is safe.
 | Cache | What it holds |
 |---|---|
 | Map buffer | the composed raster image plus its extent; blitted with a transform during pan and zoom so the preview is instant |
-| Scene buffer | a rasterised copy of the vector scene, used during gestures and reused when idle if the extent, size and device pixel ratio all still match |
+| Scene buffer | a rasterized copy of the vector scene, used during gestures and reused when idle if the extent, size and device pixel ratio all still match |
 | QSG frame cache | the grabbed GPU framebuffer for the SWMM, 2D-results and terrain-mesh renderers |
 | Drag render timer | while panning, re-warms tile caches at the drag extent roughly every 200 ms |
 | XYZ tile cache | a 400-tile LRU per tile layer |
@@ -90,7 +90,7 @@ Rendering**:
 #### Level of detail
 
 The 2D renderers apply a **Far / Mid / Near** bucket policy with hysteresis on
-both the bucket and a quantised zoom octave, so a small zoom nudge does not
+both the bucket and a quantized zoom octave, so a small zoom nudge does not
 churn the geometry. The far bucket drops cells below about 8 px² (4 px² for the
 terrain mesh). **Selection overlays are always drawn**, whatever the bucket.
 
@@ -121,7 +121,7 @@ cell now indexes into a 144 × 123 grid at roughly 16 links per cell.
 **What is still slow**, and honestly so: roughly 100 ms of deliberate zoom
 retry timers before a model first appears, and the active-window change handler
 running three times per open with dozens of whole-widget-tree searches each
-time. Per-window GPU context sharing, an SRS memoisation cache and compressed
+time. Per-window GPU context sharing, an SRS memoization cache and compressed
 cell storage are all deferred work, not features.
 
 ### Large 2D meshes
@@ -140,7 +140,7 @@ Scanning …inp for a 2D mesh …
 
 The mesh is usable at the coarse stage. Two parse-side costs have been removed:
 the coupled-vertex tag lookup is now a hash rather than a linear scan over every
-vertex (and an index-form map pays nothing at all), and the tokeniser no longer
+vertex (and an index-form map pays nothing at all), and the tokenizer no longer
 uses a regular expression — it was being called millions of times on a
 million-triangle mesh.
 
@@ -160,7 +160,7 @@ Two limits to plan around:
 There is no central frame cache; caching lives in the results layers.
 
 - The 1D results layer keeps per-step result buffers keyed by step, a per-kind
-  and per-output-code min/max cache, a categorised-renderer string cache, a
+  and per-output-code min/max cache, a categorized-renderer string cache, a
   per-feature override cache and a per-category scene-item cache. Uncached
   whole-file summary statistics cost four passes over the file, so they are
   computed once.
@@ -182,7 +182,7 @@ There is no central frame cache; caching lives in the results layers.
 |---|---|
 | `0` | auto — the OpenMP maximum, lowered by `OMP_NUM_THREADS`, `OMP_THREAD_LIMIT` and CPU affinity, then by model-size gates, and on Apple Silicon by a dynamic-wave performance-core clamp |
 | `1` | single-threaded; no OpenMP overhead |
-| `N` | exactly N; above the machine's logical processors this is honoured with an oversubscription warning, and the active spin-wait policy is disabled |
+| `N` | exactly N; above the machine's logical processors this is honored with an oversubscription warning, and the active spin-wait policy is disabled |
 
 Model-size gates apply to explicit values too, with a warning: the dynamic-wave
 solver wants at least **100 conduits per thread**, and the 2D marcher at least
@@ -241,7 +241,7 @@ Set these before launching. All are diagnostic; none is needed for normal use.
 | `OPENSWMM_QSG_INDEXED_FILL` | `0` = opt out | falls back to the expanded per-corner smooth fill |
 | `OPENSWMM_QSG_ASYNC_CONTOURS` | `0` sync, ≥ 1 async, unset = auto | overrides the 50 000-cell async contour threshold |
 | `OPENSWMM_QSG_SHADER_FILL` | `1` = on | opt-in GPU scalar-fill shader path |
-| `QSG_RHI_BACKEND`, `QSG_RENDER_LOOP` | Qt values | honoured if already set; forced to `opengl` / `threaded` on macOS otherwise |
+| `QSG_RHI_BACKEND`, `QSG_RENDER_LOOP` | Qt values | honored if already set; forced to `opengl` / `threaded` on macOS otherwise |
 
 #### Logging and startup
 
@@ -252,7 +252,7 @@ Set these before launching. All are diagnostic; none is needed for normal use.
 | `OPENSWMM_DIALOG_STACKING` | `qt` or `native` | overrides dialog stacking; beats the `Window/DialogStacking` setting |
 | `SWMMVIS_OPEN_ON_STARTUP` | path to an `.inp` | opens that model at start-up (testing hook) |
 | `SWMMVIS_STARTUP_SNAPSHOT` | output PNG path | zooms to extent after mesh load and grabs the canvas |
-| `SWMMVIS_STARTUP_SNAPSHOT_ZOOM` | a fraction in (0, 1) | zoom about the mesh centre before the grab |
+| `SWMMVIS_STARTUP_SNAPSHOT_ZOOM` | a fraction in (0, 1) | zoom about the mesh center before the grab |
 | `SWMMVIS_SNAPSHOT_SIMOPTS` | output PNG path | grabs the Simulation Options dialog off-screen |
 | `SWMMVIS_SNAPSHOT_MESHSTYLE` | output PNG path | grabs the mesh style dialog |
 | `PROJ_DATA`, `GDAL_DATA` | directory paths | read at start-up, and set automatically when bundled `proj/` and `gdal/` directories are found beside the executable |

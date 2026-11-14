@@ -236,7 +236,7 @@
       "page": "tutorials/t07_transport.md",
       "caption": "Building the transport model \u2014 pollutants; reaction system; water age; heat; and comparing the three quality solvers",
       "disposition": "written-procedure",
-      "section": "11. Colour the map by species",
+      "section": "11. Color the map by species",
       "reason": "Retain the chapter procedure and required still figures; remove the unproduced video embed. T3/T4 use portable replacement fixtures. This media-format decision does not certify workflow completion."
     },
     {

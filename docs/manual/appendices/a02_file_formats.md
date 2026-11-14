@@ -74,7 +74,7 @@ features, not 6.0 additions.
 | `[MAP]` | yes | yes | `DIMENSIONS x1 y1 x2 y2` plus `Units` — `None`, `Feet`, `Meters` or `Degrees` |
 | `[COORDINATES]` | yes | yes | node positions |
 | `[VERTICES]` | yes | yes | link polyline vertices |
-| `[Polygons]` | yes | yes | written with that exact mixed case; normalised to `POLYGONS` on read |
+| `[Polygons]` | yes | yes | written with that exact mixed case; normalized to `POLYGONS` on read |
 | `[SYMBOLS]` | yes | yes | rain-gage positions |
 | `[TAGS]` | yes | yes | |
 | `[USER_FLAGS]` / `[USER_FLAG_VALUES]` | yes | yes | |
@@ -190,7 +190,7 @@ controller keep their binding across the transition instead of being torn down
 and rebuilt. Before the header exists the open simply fails quietly and is
 retried on the next progress tick.
 
-A cancelled run still leaves a usable `.out`: the engine flushes partial output
+A canceled run still leaves a usable `.out`: the engine flushes partial output
 either way, and SWMMVis loads it.
 
 ### `.2d.h5` — 2D surface results
@@ -235,7 +235,7 @@ Quality: `Mesh2_face_species_conc` plus a `species_names` dataset.
 `boundary_out`, `evap_out`, `infil_out` — with a `continuity_error` group
 attribute.
 
-**Coordinate caveat.** `Mesh2` x and y are stored in **SI metres regardless of
+**Coordinate caveat.** `Mesh2` x and y are stored in **SI meters regardless of
 the model's units**. Divide by `metres_per_model_unit` to recover model-CRS
 coordinates before reprojecting. The CRS is carried as a `model_crs` attribute
 on `/crs` rather than as a CF `grid_mapping`, deliberately.
@@ -265,8 +265,8 @@ Header written by the GUI:
 ```
 
 The `;; UNITS:` line is read by a prescan before parsing; with it the engine
-treats the coordinates as already-SI metres and skips its `FLOW_UNITS`-based
-foot-to-metre scaling. Write it into every new mesh.
+treats the coordinates as already-SI meters and skips its `FLOW_UNITS`-based
+foot-to-meter scaling. Write it into every new mesh.
 
 Accepted sections: `2D_VERTICES`, `2D_TRIANGLES`, `2D_INITIAL_VELOCITY`,
 `2D_VERTEX_NODE_MAP`, `2D_TRIANGLE_NODE_MAP`, `2D_BOUNDARY_CONDITIONS`,
@@ -381,7 +381,7 @@ numeric token is a **rainfall scale factor** applied to every value (default
 1.0). The legacy form requires a station id; an empty one is written as `*` with
 a warning.
 
-Recognised file formats: NWS 15-minute, NWS hourly, NCDC DSI-3240 hourly, NCDC
+Recognized file formats: NWS 15-minute, NWS hourly, NCDC DSI-3240 hourly, NCDC
 DSI-3260 15-minute, HLY-PRCP, the standard SWMM rain file, and — new in
 6.0 — a **user CSV**: any multi-column text file (CSV, TSV or PCSWMM TSF),
 auto-detected by content, with the column named after a colon in the path.
@@ -493,7 +493,7 @@ CSV, with TSV in two places.
   units scan, mesh scan, 2D output scan). That is expected.
 - Deleting the `.oswp` loses styling, layers and CRS but never the model — the
   `.inp` is complete on its own.
-- 2D mesh coordinates in the `.h5` are metres even in a US-units project.
+- 2D mesh coordinates in the `.h5` are meters even in a US-units project.
   Always divide by `metres_per_model_unit` before reprojecting.
 - Set `;; UNITS: SI (m)` (or `metre`) in every new `.2dm` and in inline 2D
   sections. Without it, a US-units project silently scales the mesh by 0.3048.

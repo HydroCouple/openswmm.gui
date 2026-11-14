@@ -12,7 +12,7 @@ Covers everything merged since the `6.0.0-alpha.3` version bump. See [`CHANGELOG
 
 ### Mixed triangle/quadrilateral 2D meshes
 
-The mesh generator now produces **mixed tri-quad meshes**, with PSLG quad regions (Mapped, Submapped and Free) built on cross-field aligned lattices. Per-region mesh area bounds are honoured — they were previously accepted and silently ignored — and a minimum cell size can be set for constraining lines and polylines.
+The mesh generator now produces **mixed tri-quad meshes**, with PSLG quad regions (Mapped, Submapped and Free) built on cross-field aligned lattices. Per-region mesh area bounds are honored — they were previously accepted and silently ignored — and a minimum cell size can be set for constraining lines and polylines.
 
 ### Street inlets and the Inlet Junction node
 

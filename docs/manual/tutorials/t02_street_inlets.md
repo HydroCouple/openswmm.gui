@@ -157,7 +157,7 @@ Click through them and watch the drawing view:
 - **`Curb1`** — a `CURB` design, 3 ft long, 0.5 ft high, `HORIZONTAL` throat.
   The view shows **Elevation — curb face** (or **Plan — opening**) beside
   **Section — throat**, with the throat note reading the type and angle, and
-  dimension lines labelled `L` and `h`.
+  dimension lines labeled `L` and `h`.
 - **`Grate1`** — a `P_BAR-50` grate 2 ft × 2 ft, drawn as **Plan** plus
   **Section — gutter**, with the hatched curb and pavement body and `L` / `W`
   dimensions.
@@ -316,7 +316,7 @@ Finally check the **Node Depth Summary** and **Node Flooding Summary**. `IJ1`
 appears as an ordinary junction: its 0.5 ft max depth is the flood threshold
 at the curb, so a peak beyond the inlet's capacity floods `IJ1` rather than
 backing into a fictitious storage volume. `J_MID`, the conduit inlet's capture
-point, has no such threshold of its own. That is the modelling difference the
+point, has no such threshold of its own. That is the modeling difference the
 two forms make.
 
 \fig{t02_report_street_tables.png, The Report Viewer on the Street Inlet Flow Summary with the section navigator open}
@@ -421,7 +421,7 @@ offsets automatically — which is exactly what the rules require.
 
 An inlet junction is a virtual junction, so the engine enforces every
 `[VIRTUAL_JUNCTIONS]` rule on it. SWMMVis surfaces the rule text as the
-tooltip on the greyed-out **Convert To ▸ Inlet Junction** entry, and refuses
+tooltip on the grayed-out **Convert To ▸ Inlet Junction** entry, and refuses
 the edit:
 
 | Rule | Message |
@@ -447,7 +447,7 @@ If you switch **Flow routing:** away from **Dynamic Wave** in the page header
 of **Model → Simulation Options… → Routing & Hydraulics**, rule 619 fires and
 the inlet junction cannot be routed at all.
 
-\figtodo{t02_rule_violation.png, The greyed Convert To entry with the virtual-junction rule text as its tooltip}
+\figtodo{t02_rule_violation.png, The grayed Convert To entry with the virtual-junction rule text as its tooltip}
 
 ## Related
 

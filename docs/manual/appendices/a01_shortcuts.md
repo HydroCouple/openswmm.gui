@@ -183,7 +183,7 @@ Anything the canvas does not consume is forwarded to the active tool.
 | Tool | Keys |
 |---|---|
 | **Select** | **Esc** — cancel an in-flight vertex drag and leave edit mode, otherwise clear the selection on every layer. **Delete** / **Backspace** — delete selected vertex handles in edit mode, otherwise delete the selected objects. **Shift**-click or -drag adds, **Ctrl**-click or -drag subtracts, a plain click replaces; a plain click on empty space clears, but Shift or Ctrl on a miss keeps the selection. |
-| **Select By Polygon** | **Esc** cancel, **Return** / **Enter** finalise (double-click also finalises). **Ctrl** subtract, **Shift** union, plain replace. |
+| **Select By Polygon** | **Esc** cancel, **Return** / **Enter** finalize (double-click also finalizes). **Ctrl** subtract, **Shift** union, plain replace. |
 | **Add Link** | **Esc** cancels the in-progress link. |
 | **Add Subcatchment** | **Esc** cancel, **Return** / **Enter** commit the polygon. |
 | **Edit Vertex** | **Esc** clears the active link. |
@@ -238,16 +238,16 @@ catalog, so they do not appear in the shortcut editor.
 | Attribute table | **Delete** / **Backspace** | delete the selected rows' objects, through the undo stack |
 | | **Ctrl+C** | copy the selected rows to the clipboard as tab-separated text |
 | | **Enter** / **Return** | stays inside the cell editor and does not leak to global shortcuts; focus returns to the table after the edit commits |
-| Properties panel | **Enter** / **Return** | same commit-and-refocus behaviour |
+| Properties panel | **Enter** / **Return** | same commit-and-refocus behavior |
 
 The attribute table's **Ctrl+C** is deliberately the main window's **Copy**
 action routed to the focused panel, not a shortcut of the table's own; the
-toolbar button is labelled **Copy (Ctrl+C)** purely for discoverability. There
+toolbar button is labeled **Copy (Ctrl+C)** purely for discoverability. There
 is no paste and no fill-down in the attribute table — the nearest equivalent is
 the context menu's bulk "apply value to selected rows". Paste is implemented
 only in the time-series and curve editors.
 
-### Customising a shortcut
+### Customizing a shortcut
 
 **Help → Keyboard Shortcuts…** opens Preferences on the **Keyboard** page.
 
@@ -284,7 +284,7 @@ the group **`SWMMVis::Shortcuts`**, keyed by the command's stable dotted id
 portable text form. A missing key means "use the default"; a key present but
 **empty** means "deliberately no shortcut".
 
-The application registers itself as organisation `hydrocouple` with domain
+The application registers itself as organization `hydrocouple` with domain
 `calebbuahin.github.io` and application name
 `OpenSWMM Stormwater Management Model`, so the store lives at:
 
@@ -317,7 +317,7 @@ lists every registered command in catalog order.
 
 Each row shows the command's category chip and its current shortcut, in native
 form — which makes the palette the fastest way to *discover* a shortcut as well
-as to run something without one. Disabled commands are greyed and cannot be
+as to run something without one. Disabled commands are grayed and cannot be
 triggered.
 
 \fig{a01_command_palette.png, The command palette filtered to zoom commands with category labels and available shortcuts}

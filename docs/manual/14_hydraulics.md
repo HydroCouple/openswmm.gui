@@ -42,7 +42,7 @@ outlet's single row reads **Offset** or **Elevation**.
 
 The switch happens whether or not you convert; when the model already has links,
 SWMMVis then offers to convert the existing offset values to the new convention
-(matching legacy EPA SWMM behaviour, which skips the prompt on an empty
+(matching legacy EPA SWMM behavior, which skips the prompt on an empty
 network). Both the Properties panel and the attribute tables re-label and
 re-value together.
 
@@ -59,7 +59,7 @@ Every node also carries the five compound rows — **External Inflows**,
 **Groundwater Sources** — plus **Initial Quality** and **User Flags**.
 
 Each node type below is described the same way: what it is, when to use it,
-how to add one, its property rows, and any behaviour specific to the type.
+how to add one, its property rows, and any behavior specific to the type.
 Placing nodes on the map is covered in \ref manual_map_editing.
 
 \figtodo{14_node_types_gallery.png, One of each node type on the map with its default marker — junction; outfall; divider; storage; virtual and inlet junctions}
@@ -94,9 +94,9 @@ then click the map; clicking on a conduit inserts the junction into it — see
 | **Storage Area** | Physical chamber area (ft²/m²); 0 retains legacy junction behavior. Positive area stores water below the rim, including above connected pipe crowns | Optional seventh `[JUNCTIONS]` field |
 | **Ponded Area** | Surface area available to store floodwater above the rim when **Allow ponding at nodes** is enabled. For a 1D junction, an omitted or zero value means floodwater leaves the model | `[JUNCTIONS]` |
 
-**Type-specific behaviour.** Surcharge depth and ponded area are two different
+**Type-specific behavior.** Surcharge depth and ponded area are two different
 answers to "what happens when the node is full". A surcharge depth keeps the
-water *inside* the system, pressurised, until the head exceeds the ground plus
+water *inside* the system, pressurized, until the head exceeds the ground plus
 the surcharge depth; a ponded area lets the water *leave* the pipes, sit on the
 surface, and drain back in as the network recovers. A node with a surcharge
 depth does not start ponding until that depth is exceeded.
@@ -139,7 +139,7 @@ Deleting or re-fusing a virtual junction cascades like any other node delete —
 its inflow, DWF and RDII rows are erased and any subcatchment that drained to
 it loses its outlet — and the prompt names the counts before you commit.
 
-**Type-specific behaviour.** The rules a virtual junction must satisfy; the
+**Type-specific behavior.** The rules a virtual junction must satisfy; the
 message is shown verbatim when an edit is refused:
 
 | Rule | Text |
@@ -155,7 +155,7 @@ message is shown verbatim when an edit is refused:
 
 **What it is.** A virtual junction that also carries one street inlet of its
 own — a grate, curb opening, combination or slotted drain at a real point on a
-street conduit, capturing flow into a sewer node. Modelling the inlet as its own
+street conduit, capturing flow into a sewer node. Modeling the inlet as its own
 node, rather than as an attribute of the street conduit, gives it a real
 location: the gutter depth at the inlet is the node depth, it can flood above
 the curb, and backflow from a surcharged capture node re-enters the street at
@@ -185,7 +185,7 @@ same-section STREET conduits (**Convert To ▸ Inlet Junction**). See
 | **Approach Street** | Read-only — the street section of the host conduits | — |
 | **Street Max Depth** | The optional `[INLET_JUNCTIONS]` MaxDepth — the flood threshold and the profile ground line; not read by the routing | `[INLET_JUNCTIONS]` |
 
-**Type-specific behaviour.** Because an inlet junction is also a virtual
+**Type-specific behavior.** Because an inlet junction is also a virtual
 junction, rules 609–619 apply, plus:
 
 | Rule | Text |
@@ -241,7 +241,7 @@ into a conduit — see \ref manual_map_editing "placing a node".
 
 Outfalls have no depth or ponding rows.
 
-**Type-specific behaviour.** The stage source follows the type:
+**Type-specific behavior.** The stage source follows the type:
 
 | Outfall Type | Stage used as the boundary |
 |---|---|
@@ -292,7 +292,7 @@ outgoing link afterwards — a divider needs exactly two. See
 
 \figtodo{14_flow_divider_properties.png, The Properties panel for a flow divider showing Divider Type and the depth rows}
 
-**Type-specific behaviour.** Each type decides the diverted flow differently:
+**Type-specific behavior.** Each type decides the diverted flow differently:
 
 | Divider Type | Diverted flow | Parameters |
 |---|---|---|
@@ -337,7 +337,7 @@ then click the map or an existing conduit — see \ref manual_map_editing
 | **Functional Coeff. (A)**; **Functional Exponent (B)**; **Functional Constant (C)** | `Area = A·Depth^B + C` — `Functional` only | `[STORAGE]` |
 | **Shape Param 1 / 2 / 3** | The three raw dimensions of a geometric shape | `[STORAGE]` |
 
-**Type-specific behaviour.** The stage–area relationship follows **Storage
+**Type-specific behavior.** The stage–area relationship follows **Storage
 Shape**:
 
 - **Functional** — `Area = A·Depth^B + C` from the three coefficients; a quick
@@ -397,7 +397,7 @@ all supplied numbers must be finite. Structure parameters belong to
 **Area**, when explicitly authored, retains precedence over the corresponding
 resolved orifice coefficients or opening area.
 
-The panel greys out parameters that do not apply to the selected structure.
+The panel grays out parameters that do not apply to the selected structure.
 Diameter is editable for MANHOLE; opening area and perimeter for GRATE, CURB
 and OPEN_STORAGE; discharge spread for OUTFALL_2D; and tailwater relaxation
 for non-FREE OUTFALL_2D boundaries.
@@ -584,7 +584,7 @@ post-run block (**Max Flow, Sim.**, **Max Velocity**, **Max/Full Depth**,
 **Total Flow Volume**, **Time Surcharged**).
 
 Each link type below follows the same pattern as the nodes: what it is, when to
-use it, how to add one, its property rows, and any type-specific behaviour.
+use it, how to add one, its property rows, and any type-specific behavior.
 Drawing links on the map is covered in \ref manual_map_editing "adding a link".
 
 #### Conduit
@@ -622,7 +622,7 @@ the upstream node, add any bends, and click the downstream node.
 | **Inlets** | Summary + **Edit…** → the inlet-usage page | `[INLET_USAGE]` |
 
 The culvert combo carries all 57 HDS-5 codes plus a "(none)" entry for code 0,
-labelled `N) <shape/material group>: <inlet edge description>` (for example
+labeled `N) <shape/material group>: <inlet edge description>` (for example
 `3) Circular Concrete: Groove end projecting`). Code 0 means no culvert / no
 inlet control.
 
@@ -644,7 +644,7 @@ click the inlet node and the outlet node.
 `ON`), **Startup Depth**, **Shutoff Depth**. Post-run adds **Pump Cycles**,
 **Pump On Time** and **Volume Pumped**. Writes `[PUMPS]`.
 
-**Type-specific behaviour.** The pump's behaviour follows the curve *type* you
+**Type-specific behavior.** The pump's behavior follows the curve *type* you
 pick, which is set in the Curve editor (\ref manual_data_objects):
 
 | Curve type | Relation | In words |
@@ -695,7 +695,7 @@ click the two end nodes.
 **Discharge Coeff.**, **End Contractions**, **Flap Gate**, plus **Cross
 Section** and the four **Geom** rows. Writes `[WEIRS]`.
 
-**Type-specific behaviour.** The weir shape is derived from the type — there
+**Type-specific behavior.** The weir shape is derived from the type — there
 is no separate shape control:
 
 | Type | Shape and typical use |
@@ -725,7 +725,7 @@ and **Exponent** for the functional forms, a **Tabular Curve** picker for the
 tabular forms, and **Flap Gate**. The exponent and curve rows show and hide with
 the chosen type. Writes `[OUTLETS]`.
 
-**Type-specific behaviour.** The rating's form follows the type:
+**Type-specific behavior.** The rating's form follows the type:
 
 | Type | Discharge |
 |---|---|
@@ -740,7 +740,7 @@ the chosen type. Writes `[OUTLETS]`.
 
 The conduit's **Cross Section** row opens a three-pane editor: a shape gallery
 (one icon per allowed shape), a parameters form whose four rows re-label
-themselves per shape, and a live engine-accurate section drawing with labelled
+themselves per shape, and a live engine-accurate section drawing with labeled
 dimensions. The drawing tracks the widget values as you type, not the last
 committed value, and highlights the dimension line of the spin box you are
 editing. Changes commit as you make them.
@@ -803,7 +803,7 @@ dialog.
   lines, bank markers and draggable point handles, with a toolbar for
   zoom-to-extent, zoom in/out, pan, edit-points, copy and chart properties.
   Right-clicking the chart offers **Chart properties…**, which edits the view's
-  colours, handle size and handle visibility.
+  colors, handle size and handle visibility.
 
 Dragging a handle on the chart and typing in the station table are the same
 edit, so the list, the property tree, the table and the chart stay in
@@ -948,7 +948,7 @@ token; engine validation checks the supported range.
 The rule body is free text, so anything the engine's parser accepts can be
 written here — including the engine's curve-, time-series- and PID-modulated
 actions. Note that `PID` is *not* in the highlighter/completer vocabulary above,
-so a PID action will not be coloured or completed; the engine validator is still
+so a PID action will not be colored or completed; the engine validator is still
 the authority on whether it is accepted.
 
 \fig{14_rules_editor.png, The control rules editor with syntax highlighting and a valid badge}

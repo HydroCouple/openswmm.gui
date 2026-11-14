@@ -53,7 +53,7 @@ Remaining: 146 figures, 0 videos. Published so far: 191.
 
 ## 08_styling.md
 
-- [ ] `08_color_ramp_editor.png` (line 199) — The custom colour-ramp editor with the gradient preview and the stop table
+- [ ] `08_color_ramp_editor.png` (line 199) — The custom color-ramp editor with the gradient preview and the stop table
 - [ ] `08_style_manager.png` (line 255) — The Style Manager with a library entry selected and its preview
 - [ ] `08_legend_dock_and_overlay.png` (line 349) — The Legend dock beside the draggable on-canvas legend
 
@@ -67,9 +67,9 @@ Remaining: 146 figures, 0 videos. Published so far: 191.
 
 - [ ] `10_three_docks.png` (line 11) — The Object Browser on the left with the Properties panel and Section View on the right
 - [ ] `10_browser_context_menu.png` (line 120) — The Object Browser leaf context menu on a junction
-- [ ] `10_offset_mode_toggle.png` (line 208) — The status-bar offset-mode switch with the property rows relabelled to Elevation
+- [ ] `10_offset_mode_toggle.png` (line 208) — The status-bar offset-mode switch with the property rows relabeled to Elevation
 - [ ] `10_subcatch_lid_usage.png` (line 277) — The subcatchment compound editor on the LID Usage page
-- [ ] `10_convert_to_menu.png` (line 316) — The Convert To submenu with Virtual Junction greyed out and its rule tooltip
+- [ ] `10_convert_to_menu.png` (line 316) — The Convert To submenu with Virtual Junction grayed out and its rule tooltip
 
 ## 11_attribute_tables.md
 
@@ -137,7 +137,7 @@ Remaining: 146 figures, 0 videos. Published so far: 191.
 
 ## 21_results.md
 
-- [ ] `21_results_map_animated.png` (line 10) — The map canvas showing a 1D network coloured by flow over an animated 2D depth surface
+- [ ] `21_results_map_animated.png` (line 10) — The map canvas showing a 1D network colored by flow over an animated 2D depth surface
 - [ ] `21_add_results_dialogs.png` (line 45) — The Open SWMM Output and Add 2D Results file pickers
 - [ ] `21_legend_overlay_and_dock.png` (line 123) — The canvas legend overlay beside the dockable Legend panel
 
@@ -198,7 +198,7 @@ Remaining: 146 figures, 0 videos. Published so far: 191.
 
 ## tutorials/t01_site_drainage.md
 
-- [ ] `t01_animation_peak.png` (line 321) — The map at the storm peak with links coloured by flow and the legend showing
+- [ ] `t01_animation_peak.png` (line 321) — The map at the storm peak with links colored by flow and the legend showing
 - [ ] `t01_tss_plot.png` (line 358) — TSS concentration at C1 — C10 and C11 for comparison with their flow hydrographs
 - [ ] `t01_profile_plot.png` (line 383) — Profile plot from J3 to the outfall with the maximum HGL envelope
 - [ ] `t01_routing_comparison.png` (line 517) — Flow in C11 under dynamic wave — kinematic wave and finite volume
@@ -209,20 +209,20 @@ Remaining: 146 figures, 0 videos. Published so far: 191.
 
 - [ ] `t02_inlet_editor_custom.png` (line 179) — The Custom1 design rendered as a capture curve
 - [ ] `t02_new_inlet_junction.png` (line 248) — The New Inlet Junction dialog with a design and capture node chosen
-- [ ] `t02_rule_violation.png` (line 450) — The greyed Convert To entry with the virtual-junction rule text as its tooltip
+- [ ] `t02_rule_violation.png` (line 450) — The grayed Convert To entry with the virtual-junction rule text as its tooltip
 
 ## tutorials/t03_2d_inundation.md
 
-- [ ] `t03_mesh_elevation.png` (line 135) — The mesh coloured by bed elevation with hillshade and the wireframe visible
+- [ ] `t03_mesh_elevation.png` (line 135) — The mesh colored by bed elevation with hillshade and the wireframe visible
 - [ ] `t03_mesh_attribute_table.png` (line 161) — The mesh Vertices table sorted by elevation with the coupled vertex highlighted
 - [ ] `t03_add_2d_results.png` (line 271) — The Add 2D Results file dialog
-- [ ] `t03_cell_timeseries.png` (line 351) — Depth time series for a rim cell and a centre cell in the Comparison Plot
+- [ ] `t03_cell_timeseries.png` (line 351) — Depth time series for a rim cell and a center cell in the Comparison Plot
 - [ ] `t03_2d_profile.png` (line 377) — A 2D mesh profile across the bowl with the ground line and water surface
 
 ## tutorials/t04_1d2d_coupling.md
 
 - [ ] `t04_project_open.png` (line 54) — The portable plaza model with its inline mesh and three 1D nodes
-- [ ] `t04_vertex_coupling_toolbar.png` (line 113) — Properties for vertex 16 showing it coupled to J1 with Cd 0.65 and area 0.02 square metres
+- [ ] `t04_vertex_coupling_toolbar.png` (line 113) — Properties for vertex 16 showing it coupled to J1 with Cd 0.65 and area 0.02 square meters
 - [ ] `t04_coupled_nodes_style.png` (line 98) — The plaza mesh with the J1 and J2 coupling vertices marked
 - [ ] `t04_animation_ponding.png` (line 150) — The plaza at the checked maximum-depth frame with a fixed depth ramp and legend
 - [ ] `t04_comparison_1d_2d.png` (line 159) — Junction head and nearby surface-cell depth series for the same plaza run
@@ -230,15 +230,15 @@ Remaining: 146 figures, 0 videos. Published so far: 191.
 
 ## tutorials/t05_2d_boundaries.md
 
-- [ ] `t05_road_culvert_overview.png` (line 41) — The road culvert model on the map canvas — flat mesh; transverse embankment; three coupled junctions along the culvert centreline
+- [ ] `t05_road_culvert_overview.png` (line 41) — The road culvert model on the map canvas — flat mesh; transverse embankment; three coupled junctions along the culvert centerline
 - [ ] `t05_select_mesh_edges.png` (line 91) — The Edges tool with the whole east outflow face selected and the Surface boundary condition editor showing Normal Depth
 - [ ] `t05_edge_attribute_table.png` (line 127) — Mesh edge rows in the attribute table with the BC Type; Bed Slope and Conveyance columns visible
-- [ ] `t05_bc_style_tab.png` (line 147) — The Boundary Conditions tab of the mesh layer style dialog with per-type colour and width
+- [ ] `t05_bc_style_tab.png` (line 147) — The Boundary Conditions tab of the mesh layer style dialog with per-type color and width
 - [ ] `t05_coupled_vertex.png` (line 192) — A coupled culvert vertex selected — the mesh toolbar Vertices group showing node J_P00; Cd 0.65 and Area 0.283 m2
 - [ ] `t05_profile_across_embankment.png` (line 233) — A 2D mesh profile across the road embankment showing the ponded upstream water surface and the crest
 - [ ] `t05_report_continuity.png` (line 276) — The status report's flow routing and 2D surface routing continuity blocks
 - [ ] `t05_sim_options_2d_page.png` (line 420) — The 2D Surface Routing page of the Simulation Options dialog
-- [ ] `t05_bc_types_reference.png` (line 460) — The reference model's six boundary rows highlighted on the map with per-type colours
+- [ ] `t05_bc_types_reference.png` (line 460) — The reference model's six boundary rows highlighted on the map with per-type colors
 - [ ] `t05_edge_conveyance.png` (line 506) — Two interior berm edges selected with the mesh toolbar psi spin set to 0.300
 
 ## tutorials/t06_pure_2d.md

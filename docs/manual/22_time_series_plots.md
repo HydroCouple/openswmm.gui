@@ -45,7 +45,7 @@ The picker lists:
   that kind's plottable attributes plus the run's water-quality species;
 - a group of the 14 **system-wide** variables, which need no selection.
 
-Attributes the loaded run cannot serve are greyed out. Tick as many as you like
+Attributes the loaded run cannot serve are grayed out. Tick as many as you like
 and press **OK**; ticking more than 500 leaves raises a confirmation first,
 because that many series takes a while to build and clutters the charts.
 
@@ -99,7 +99,7 @@ series per attribute for that object in a single click.
 |--------|----------|
 | Toolbar (top) | Interaction modes, Fit, exports, view toggles, the 1v1 controls |
 | **Series** panel (left) | A tree grouped by run, with **Add Series…**, **Load Observed…** and **Remove** underneath |
-| Charts (centre) | A vertical stack of chart **rows** — one row per distinct plot attribute; scrolls when there are many |
+| Charts (center) | A vertical stack of chart **rows** — one row per distinct plot attribute; scrolls when there are many |
 | Range slider | An X-range slider under the charts with a date/time read-out |
 | **Statistics** panel (bottom) | One tab per chart row |
 
@@ -115,7 +115,7 @@ the first three at once and restores your previous widths when you toggle it bac
 ### The series tree
 
 Series are grouped by **run**. The baseline run carries a `⊙` glyph and a
-*(baseline)* suffix; the others use `●`. Each series row shows a colour swatch and
+*(baseline)* suffix; the others use `●`. Each series row shows a color swatch and
 a label of the form *object — attribute*; a mesh series reads `Cell N` and an
 observed column reads `Observed: name`. The checkbox on a row toggles that
 series' visibility without removing it.
@@ -146,8 +146,8 @@ controls. Multiple series at one station are offered in a chooser. Native plots
 also work for records with no location or feature link.
 
 Axes retain the measurement, statistic and actual native unit. Different units
-or statistics remain distinct rows; data is never silently relabelled as SI/US.
-Continuous source times are displayed as UTC. Daily statistics use a labelled
+or statistics remain distinct rows; data is never silently relabeled as SI/US.
+Continuous source times are displayed as UTC. Daily statistics use a labeled
 calendar-date axis and markers, not invented midnight UTC measurements.
 Irregular or missing observations are shown as samples without interpolated
 lines. Ordinary line-series NaN gaps are separated into finite segments.
@@ -170,7 +170,7 @@ only after its matching full-resolution query finishes.
 **Export Data** for native series writes full-resolution long-form CSV with
 original timestamp text, source IDs, units, approval/qualifiers and metadata.
 It exports the complete selected source series, independent of zoom and display
-reduction, and can be cancelled without publishing a partial file. Export native
+reduction, and can be canceled without publishing a partial file. Export native
 observations and model-result series separately because their timestamp and
 metadata formats differ. Use **Use in model…** to prepare explicit model-clock
 and unit conversions before writing a model time series.
@@ -178,7 +178,7 @@ and unit conversions before writing a model time series.
 ### Loading observed data
 
 **Load Observed…** accepts `*.csv`, `*.tsv`, `*.tsf` and `*.dat`. Column 0 is the
-timestamp; every other column becomes one series. Timestamps are recognised as:
+timestamp; every other column becomes one series. Timestamps are recognized as:
 
 - ISO 8601 — `2026-01-01T00:15:00` or `2026-01-01 00:15:00`;
 - SWMM external time series — `01/01/2026 00:15`;
@@ -200,7 +200,7 @@ rows, load the file more than once with a different attribute each time.
 
 The toolbar's four mode buttons are mutually exclusive and apply to every row:
 
-| Mode | Left button behaviour |
+| Mode | Left button behavior |
 |------|-----------------------|
 | **Select** | Passes through — hover shows a tooltip with the nearest sample's series name; date and value |
 | **Pan** | Drag to scroll the axes |
@@ -239,14 +239,14 @@ pre-edit style.
 
 | Group | Properties |
 |-------|-----------|
-| Identity | **Colour**, **Opacity** (0–1), **Legend name** — blank means auto (*run — object (attribute)*) |
+| Identity | **Color**, **Opacity** (0–1), **Legend name** — blank means auto (*run — object (attribute)*) |
 | Line | **Show line**, **Width**, **Dash** (Solid / Dash / Dot / DashDot / DashDotDot), **Cap style**, **Join style** |
-| Markers | **Show markers**, **Shape** (Circle / Square / Triangle / Diamond / Cross / Plus), **Size**, **Fill colour**, **Border colour**, **Border width** |
-| Point labels | **Show point labels**, **Font**, **Colour**, **Precision**, format mode (decimals or significant figures) or an explicit format string |
-| Area fill | **Show area fill**, **Colour** |
+| Markers | **Show markers**, **Shape** (Circle / Square / Triangle / Diamond / Cross / Plus), **Size**, **Fill color**, **Border color**, **Border width** |
+| Point labels | **Show point labels**, **Font**, **Color**, **Precision**, format mode (decimals or significant figures) or an explicit format string |
+| Area fill | **Show area fill**, **Color** |
 
-Colours left invalid derive from the main series colour, so you only override what
-you care about. New series are assigned colours from a 12-colour cycle.
+Colors left invalid derive from the main series color, so you only override what
+you care about. New series are assigned colors from a 12-color cycle.
 
 \figtodo{22_series_style_editor.png, The series property editor showing line and marker groups}
 
@@ -259,9 +259,9 @@ above the panel:
 |----------|--------|
 | **Title text**, **Title font** | The chart's title |
 | **Y auto range** | Off lets you pin the Y minimum and maximum |
-| **X gridlines**, **Y gridlines**, **Grid colour** | Gridline visibility and colour |
+| **X gridlines**, **Y gridlines**, **Grid color** | Gridline visibility and color |
 | **Axis label font**, **Tick label font** | Axis typography |
-| **Background colour**, **Plot area colour** | Chart chrome |
+| **Background color**, **Plot area color** | Chart chrome |
 | **Chart theme** | The Qt Charts palette |
 | **X number format**, **Y number format** | Decimals or significant figures with a digit count, or an explicit format string |
 | **Statistics format** | The number format used for statistic values |
@@ -377,7 +377,7 @@ Both data exports offer two formats:
 - \ref manual_running — producing and live-tailing the results plotted here
 - \ref manual_profile_plots — the same result fields plotted along a path instead of against time
 - \ref manual_tabular_results — the same numbers as tables
-- \ref manual_analysis_tools — 2D cell time series; rainfall visualisation and the statistics dashboard
+- \ref manual_analysis_tools — 2D cell time series; rainfall visualization and the statistics dashboard
 - \ref manual_object_browser — the right-click entry points
 - \ref manual_data_objects — time series and calibration data in the model itself
 - \ref manual_file_formats — the CSV and `.dat` formats read and written here

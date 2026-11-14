@@ -103,7 +103,7 @@ is the one selected on the **Temperature** tab.
 
 ### Humidity tab — `[TEMPERATURE] HUMIDITY`
 
-Air humidity is a heat-transport input: it sets the vapour-pressure deficit
+Air humidity is a heat-transport input: it sets the vapor-pressure deficit
 behind the latent and sensible fluxes and the atmospheric longwave emissivity.
 The classic hydrology never reads it, so the tab is harmless on a model without
 `HEAT_TRANSPORT ON`.
@@ -237,7 +237,7 @@ Two things to keep straight:
 1. **Classic snow site fields differ from the shared site.** The degree-day
    fields use longitude correction in minutes and elevation in project length
    units. The explicit shared site on **Radiation** uses longitude in degrees
-   east, UTC offset in hours, and elevation in metres. It supplies one site for
+   east, UTC offset in hours, and elevation in meters. It supplies one site for
    snow and heat; the classic fields provide defaults when no shared site is set.
 2. **Series bindings are shown by name.** Heat Configuration preselects the
    current shortwave and cloud series and writes only changed bindings.

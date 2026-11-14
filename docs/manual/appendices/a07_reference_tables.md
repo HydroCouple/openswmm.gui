@@ -43,37 +43,37 @@ you see reflects this table rather than needing to be looked up.
 | Parameter | US customary | SI metric |
 |---|---|---|
 | Area (subcatchment) | acres | hectares |
-| Area (storage unit) | square feet | square metres |
-| Area (ponding) | square feet | square metres |
-| Capillary suction | inches | millimetres |
+| Area (storage unit) | square feet | square meters |
+| Area (ponding) | square feet | square meters |
+| Capillary suction | inches | millimeters |
 | Concentration | mg/L · µg/L · #/L | mg/L · µg/L · #/L |
 | Decay constant (infiltration) | 1/hours | 1/hours |
 | Decay constant (pollutants) | 1/days | 1/days |
-| Depression storage | inches | millimetres |
-| Depth | feet | metres |
-| Diameter | feet | metres |
+| Depression storage | inches | millimeters |
+| Depth | feet | meters |
+| Diameter | feet | meters |
 | Discharge coefficient — orifice | dimensionless | dimensionless |
-| Discharge coefficient — weir | CFS/footⁿ | CMS/metreⁿ |
-| Elevation | feet | metres |
-| Evaporation | inches/day | millimetres/day |
+| Discharge coefficient — weir | CFS/footⁿ | CMS/meterⁿ |
+| Elevation | feet | meters |
+| Evaporation | inches/day | millimeters/day |
 | Flow | CFS · GPM · MGD | CMS · LPS · MLD |
-| Head | feet | metres |
-| Hydraulic conductivity | inches/hour | millimetres/hour |
-| Infiltration rate | inches/hour | millimetres/hour |
-| Length | feet | metres |
-| Manning's coefficient (*n*) | seconds/metre^(1/3) | seconds/metre^(1/3) |
+| Head | feet | meters |
+| Hydraulic conductivity | inches/hour | millimeters/hour |
+| Infiltration rate | inches/hour | millimeters/hour |
+| Length | feet | meters |
+| Manning's coefficient (*n*) | seconds/meter^(1/3) | seconds/meter^(1/3) |
 | Pollutant buildup | mass/length · mass/acre | mass/length · mass/hectare |
-| Rainfall intensity | inches/hour | millimetres/hour |
-| Rainfall volume | inches | millimetres |
+| Rainfall intensity | inches/hour | millimeters/hour |
+| Rainfall volume | inches | millimeters |
 | Slope (subcatchments) | percent | percent |
 | Slope (cross-section) | rise/run | rise/run |
 | Street cleaning interval | days | days |
-| Volume | cubic feet | cubic metres |
-| Width | feet | metres |
+| Volume | cubic feet | cubic meters |
+| Width | feet | meters |
 
 Flow units: CFS = cubic feet/second · GPM = gallons/minute · MGD = million
-gallons/day · CMS = cubic metres/second · LPS = litres/second · MLD = million
-litres/day.
+gallons/day · CMS = cubic meters/second · LPS = liters/second · MLD = million
+liters/day.
 
 ### Soil Characteristics
 

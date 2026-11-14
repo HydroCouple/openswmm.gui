@@ -85,7 +85,7 @@ are empty, so one step always produces a visible change.
 
 #### Context menus
 
-Right-click behaviour depends on the row.
+Right-click behavior depends on the row.
 
 **Network category header**
 
@@ -100,7 +100,7 @@ Right-click behaviour depends on the row.
 |---|---|
 | **Plot Time Series…** | Plot this object's results. With two or more `.out` layers loaded this becomes a submenu naming each results layer, so you pick the run first |
 | **Rainfall Visualization…** | Rain gages only — open the shared rainfall comparison dialog |
-| **Zoom to Object** | Centre and zoom the map on it |
+| **Zoom to Object** | Center and zoom the map on it |
 | **Sort Category A→Z** | Sort every object in this category alphabetically (undoable) |
 | **Reset Category to Default Order** | Restore the engine order |
 | **Delete…** | Delete this object, with confirmation, through the shared undoable delete path |
@@ -156,7 +156,7 @@ never end up with two views onto the same object. They are covered in
 Selecting an object anywhere populates the Properties panel with a property
 tree. The rows are fixed per object kind, and each property's type decides its
 editor — a numeric row gets a spin box, a boolean a checkbox, an enumeration a
-combo, a colour a colour picker.
+combo, a color a color picker.
 
 The panel header carries:
 
@@ -178,12 +178,12 @@ The panel header carries:
 | Boolean | Checkbox | e.g. flap gate |
 | Enumeration | Combo | e.g. outfall type; divider type; storage shape; inlet placement |
 | Text | Line edit | Name and tag |
-| Colour / font | Colour and font pickers | Annotation and layer styling rows |
+| Color / font | Color and font pickers | Annotation and layer styling rows |
 | Date-time | Calendar popup formatted `MM/dd/yyyy HH:mm` | Seconds are preserved even though the format omits them |
 | **Data-object reference** | Combo of what is actually defined plus a **…** button | e.g. rain gage; subcatchment outlet; pump curve; outfall tidal curve; inlet design; aquifer. The **…** opens that family's editor and the combo repopulates when it closes |
 | **Compound** | Cell shows a summary and a button opening a dialog | Inflows; DWF; RDII; treatment; cross-section; inlet usage; land use; LID usage; loadings; groundwater; initial quality; user flags |
 | Culvert code | Dedicated combo | Inline on the conduit; no longer a dialog page |
-| Read-only | Greyed value | Derived values (crown elevation; full volume; degree) and the post-run statistics |
+| Read-only | Grayed value | Derived values (crown elevation; full volume; degree) and the post-run statistics |
 
 Reference rows are **closed pickers**: you choose from what exists rather than
 typing a name, so a model can never cite an object that is not there.
@@ -210,7 +210,7 @@ upstream node.
 The mode is switched from the status bar; flipping it re-labels the rows in the
 Properties panel and the Attribute Table without touching the stored values.
 
-\figtodo{10_offset_mode_toggle.png, The status-bar offset-mode switch with the property rows relabelled to Elevation}
+\figtodo{10_offset_mode_toggle.png, The status-bar offset-mode switch with the property rows relabeled to Elevation}
 
 #### Multiple objects selected
 
@@ -301,7 +301,7 @@ Offered targets:
 | Link | Conduit, Pump, Orifice, Weir, Outlet |
 
 Virtual and inlet junctions are junctions with extra rules rather than
-separate node types, so they appear in this list as their own targets. Both are offered **greyed out with the violated rule as a tooltip**
+separate node types, so they appear in this list as their own targets. Both are offered **grayed out with the violated rule as a tooltip**
 when the engine's usage rules are not met — a virtual junction needs exactly two
 identical conduits, zero offsets and no 2D coupling; an inlet junction needs all
 of that plus both conduits being `STREET` sections. Point inflows do not
@@ -316,7 +316,7 @@ own end nodes, are excluded from the capture-node list.
 The map's link context menu also carries **Flip Direction**, which swaps a
 link's upstream and downstream nodes without moving it.
 
-\figtodo{10_convert_to_menu.png, The Convert To submenu with Virtual Junction greyed out and its rule tooltip}
+\figtodo{10_convert_to_menu.png, The Convert To submenu with Virtual Junction grayed out and its rule tooltip}
 
 ### Section View
 
