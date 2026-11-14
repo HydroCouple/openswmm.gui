@@ -2,7 +2,8 @@ name: Build and Package
 
 on:
   push:
-    branches: ["main", "master", "dev", "swmm6_gui"]
+    # swmm6_gui is built through its pull request; a push trigger too would run all four legs twice.
+    branches: ["main", "master", "dev"]
   pull_request:
     branches: ["main", "master", "dev", "swmm6_gui"]
 
