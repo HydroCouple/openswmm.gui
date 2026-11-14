@@ -204,6 +204,8 @@ void TestPreferencesDialogRoundtrip::structure()
         QStringLiteral("Naming"),
         QStringLiteral("Appearance"),
         QStringLiteral("Keyboard"),
+        // Always shown, for the offline switch (0191a03f8); extension pages follow it.
+        QStringLiteral("Extensions"),
     };
     QStringList actual;
     for (int i = 0; i < cats->count(); ++i)
