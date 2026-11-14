@@ -46,7 +46,7 @@ class FlowArrowStyle : public SublayerStyle
         double dryDepthCutoff READ dryDepthCutoff WRITE setDryDepthCutoff NOTIFY styleChanged)
     Q_PROPERTY(bool placeAtCellCenters READ placeAtCellCenters WRITE setPlaceAtCellCenters NOTIFY
                    styleChanged)
-    // VS.7 — colour direction arrows by speed magnitude through a ramp.
+    // VS.7 — color direction arrows by speed magnitude through a ramp.
     Q_PROPERTY(
         bool colorByMagnitude READ colorByMagnitude WRITE setColorByMagnitude NOTIFY styleChanged)
     Q_PROPERTY(QString colorRampName READ colorRampName WRITE setColorRampName NOTIFY styleChanged)
@@ -90,7 +90,7 @@ public:
     /** @brief Read the arrow-outline color.
      * @return Stored/forwarded value; initially RGBA(255,255,255,200). */
     [[nodiscard]] QColor outlineColor() const { return m_outlineColor; }
-    /** @brief Read the minimum rendered depth in metres.
+    /** @brief Read the minimum rendered depth in meters.
      * @return Stored/forwarded value; initially 0.01. */
     [[nodiscard]] double dryDepthCutoff() const { return m_dryDepthCutoff; }
     /** @brief Read the cell-center-versus-screen-grid placement switch.
@@ -151,7 +151,7 @@ public:
         m_outlineColor = v;
         setDirty();
     }
-    /** @brief Set the minimum rendered depth in metres and notify on a change.
+    /** @brief Set the minimum rendered depth in meters and notify on a change.
      * @param v New value. Clamps finite input to [0,100] with qBound.
      * Unchanged values according to qFuzzyCompare(current+1, input+1) are ignored; changed values
      * emit styleChanged through setDirty(). No synchronous drawing occurs. */
@@ -212,7 +212,7 @@ public:
         setDirty();
     }
 
-    /*! VS.7 — colour for a speed magnitude (m/s). Flat color() when
+    /*! VS.7 — color for a speed magnitude (m/s). Flat color() when
      *  colorByMagnitude is off, else the named ramp over [min,max]. */
     /** @param speedMps Finite speed in m/s for ramp sampling.
      * @return Flat color() when magnitude coloring is off. Otherwise builds the named
@@ -241,7 +241,7 @@ private:
     QColor m_outlineColor = QColor(255, 255, 255, 200);
     double m_dryDepthCutoff = 0.01;
     bool m_placeAtCellCenters = false; // false = regular screen grid
-    // VS.7 — colour-by-magnitude.
+    // VS.7 — color-by-magnitude.
     bool m_colorByMagnitude = false;
     QString m_colorRampName = QStringLiteral("viridis");
     double m_speedMinMps = 0.0;

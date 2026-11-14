@@ -14,7 +14,7 @@
 namespace OpenSWMM::Render
 {
 
-// Boundary-condition colouring moved to MeshBcStyle (meshbcsublayer.cpp) —
+// Boundary-condition coloring moved to MeshBcStyle (meshbcsublayer.cpp) —
 // BC indicators are their own sublayer now. Legacy "bc*"-prefixed keys in a
 // style file are ignored here and migrated by
 // SWMM2DMeshLayer::onSublayersJsonLoaded.
@@ -27,11 +27,11 @@ MeshEdgeStyle::MeshEdgeStyle(QObject *parent) : SublayerStyle(parent)
 void MeshEdgeStyle::seedSchemeFromLegacy()
 {
     // Mirror the legacy two-tier slope split as a 2-class scheme over the
-    // normalised slope range [0,1] (slope / maxSlope). The single interior
+    // normalized slope range [0,1] (slope / maxSlope). The single interior
     // break sits at slopeBreak; low class = color, high class = wideColor.
     // The renderer keeps its dedicated thin/wide path while the scheme stays
     // at this default; once classCount > 2 (or the user edits it) the edge
-    // pass colours by slope class instead.
+    // pass colors by slope class instead.
     m_scheme.setMode(ClassificationScheme::ClassMode::Classified);
     m_scheme.setRampName(QString());
     m_scheme.setUseCustomRange(true);

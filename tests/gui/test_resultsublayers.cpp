@@ -330,8 +330,8 @@ class TestResultSublayers : public QObject
     Q_OBJECT
 private slots:
     /** @brief Only the default fields get rows (here the water table and depth): Surface above
-     * Groundwater, labelled "label [units]" plus their displays, shown with their defaults
-     * (unified rendering, 2026-11-01): depth as filled contours and the water table as labelled
+     * Groundwater, labeled "label [units]" plus their displays, shown with their defaults
+     * (unified rendering, 2026-11-01): depth as filled contours and the water table as labeled
      * isolines. The other fields get rows only when added by hand. */
     void defaultFieldsBecomeGroupedSublayers()
     {

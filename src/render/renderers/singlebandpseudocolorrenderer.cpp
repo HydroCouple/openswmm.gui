@@ -111,7 +111,7 @@ QColor interpStops(const QColor &c0, const QColor &c1, double f, RampInterp inte
 
 /*!
  * \brief Build a legend swatch SymbolStyle whose only layer is a
- *        SimpleFill with the supplied colour.  Keeps the legend
+ *        SimpleFill with the supplied color.  Keeps the legend
  *        symbol shape consistent across the two renderer hierarchies.
  * @param c Color copied into a canonical color property without validation.
  * @return Owned single-pass style at default opacity, with no expressions.
@@ -199,9 +199,9 @@ QColor SingleBandPseudoColorRenderer::colorForValue(double value, bool isNoData)
     if (range <= 0.0)
         return m_stops.first().second;
 
-    // Normalise to [0,1] and walk the stops exactly like
+    // Normalize to [0,1] and walk the stops exactly like
     // RasterColorRamp::colorAt — clamping pins non-clamped out-of-range
-    // values to an end stop; interpStops honours the RGB/HSV interp mode.
+    // values to an end stop; interpStops honors the RGB/HSV interp mode.
     double t = std::clamp((value - m_minValue) / range, 0.0, 1.0);
 
     if (t <= m_stops.first().first)
@@ -235,7 +235,7 @@ QList<LegendSymbolItem> SingleBandPseudoColorRenderer::legendSymbolItems() const
     for (const Stop &s : m_stops) {
         LegendSymbolItem item;
         // Compute the data-space value represented by this stop's
-        // normalised position.
+        // normalized position.
         const double v = m_minValue + s.first * span;
         item.label = QString::number(v);
         item.symbol = makeSwatch(s.second);

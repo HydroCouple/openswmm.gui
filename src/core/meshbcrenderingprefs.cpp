@@ -44,7 +44,7 @@ void MeshBcRenderingPrefs::setColorByType(bool on)
     emit colorByTypeChanged(on);
 }
 
-// ---- colours ---------------------------------------------------------------
+// ---- colors ---------------------------------------------------------------
 
 #define OSV_BC_COLOR(Getter, Setter, Type)                                                         \
     QColor MeshBcRenderingPrefs::Getter() const                                                    \

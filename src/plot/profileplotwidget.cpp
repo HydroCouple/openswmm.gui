@@ -78,7 +78,7 @@ inline const openswmmvis::ui::ThemeColors &plotTheme()
 }
 
 // Per-type fills (interior of the glyph / tube).  Picked from a friendly
-// palette that stays distinguishable on the soil-coloured background.
+// palette that stays distinguishable on the soil-colored background.
 /**
  * @brief Resolve a pure renderer classification/style fallback.
  * @param[in] k Node category.
@@ -150,7 +150,7 @@ QColor fillForLinkKind(ProfileBuilder::LinkKind k)
 /**
  * @brief Resolve a pure renderer classification/style fallback.
  * @param[in] k Link category.
- * @return Compiled outline colour, black for unknown.
+ * @return Compiled outline color, black for unknown.
  */
 QColor outlineForLinkKind(ProfileBuilder::LinkKind k)
 {
@@ -261,7 +261,7 @@ bool linkKindRendersAsConduit(ProfileBuilder::LinkKind k)
 // Effective inlet / outlet inverts for the bidirectional HGL waterfall
 // rule. `inletInv` is the threshold the inlet HGL must exceed for the
 // link to render; `outletInv` is the floor a forward waterfall lands on
-// (and the rise a mirror waterfall starts from). Honours
+// (and the rise a mirror waterfall starts from). Honors
 // LinkStatic::reversed so the geometric upstream / downstream node
 // always pin the polyline regardless of SWMM's topological direction.
 // Returns false for Pump / Outlet (caller must skip).
@@ -449,7 +449,7 @@ bool buildHglFillTop(const ProfileBuilder::LinkStatic &l, const ProfileBuilder::
 
 /**
  * @brief Build a noncosmetic rounded fallback stroke.
- * @param[in] c Colour including alpha.
+ * @param[in] c Color including alpha.
  * @param[in] width Expected nonnegative logical-pixel width.
  * @param[in] dashed Whether to install a custom dash pattern.
  * @param[in] longDash Chooses 12/6 rather than 6/4 only when dashed.
@@ -470,10 +470,10 @@ QPen makeLinePen(const QColor &c, qreal width, bool dashed = false, bool longDas
 }
 
 /**
- * @brief Replace a copied colour's alpha without changing its RGB.
- * @param[in] c Source colour.
+ * @brief Replace a copied color's alpha without changing its RGB.
+ * @param[in] c Source color.
  * @param[in] alpha Expected finite [0,1] alpha; not multiplied by existing alpha.
- * @return Colour copy after QColor::setAlphaF().
+ * @return Color copy after QColor::setAlphaF().
  */
 QColor withAlphaF(const QColor &c, qreal alpha)
 {
@@ -672,7 +672,7 @@ QColor ProfilePlotWidget::themeNodeOutline(ProfileBuilder::NodeKind k) const
 QPen ProfilePlotWidget::themeVirtualJunctionPen() const
 {
     // The whole marker is one pen — a virtual junction has no fill and no rim
-    // glyph, so there is no colour pair to merge (see themeNodeFill, which
+    // glyph, so there is no color pair to merge (see themeNodeFill, which
     // routes it to Qt::transparent).
     if (m_options)
         return m_options->virtualJunctionOutlinePen();
@@ -1140,7 +1140,7 @@ double ProfilePlotWidget::virtualToRealChainage(double vx) const
     // Find the link [i, i+1] containing vx and linearly interpolate the
     // real chainage across that span.  Zero-length links keep both ends
     // mapped to the same real chainage — so the label "stutters" at the
-    // gap, signalling that the gap is non-distance.
+    // gap, signaling that the gap is non-distance.
     for (int i = 0; i + 1 < m_virtualChainage.size(); ++i) {
         const double va = m_virtualChainage[i];
         const double vb = m_virtualChainage[i + 1];
@@ -1542,7 +1542,7 @@ int ProfilePlotWidget::linkIndexAt(const QPoint &widgetPos) const
         } else if (l.kind == ProfileBuilder::LinkKind::Weir) {
             // Weirs render as a tall rectangle from the inlet node's
             // invert up to the crest (see paintConduits weir branch),
-            // not a 16-pixel centred glyph.  Hit-test against the actual
+            // not a 16-pixel centered glyph.  Hit-test against the actual
             // rendered rect or clicks on the block miss entirely.
             const int inletIdx = l.reversed ? (i + 1) : i;
             const double zInletInv = m_path.nodes[inletIdx].invertElev;
@@ -1559,7 +1559,7 @@ int ProfilePlotWidget::linkIndexAt(const QPoint &widgetPos) const
             if (rect.contains(widgetPos))
                 return i;
         } else {
-            // Pump / Outlet glyph: rounded rectangle centred on the
+            // Pump / Outlet glyph: rounded rectangle centered on the
             // midpoint (see paintConduits).  Size matches the renderer
             // so a click on any pixel of the glyph hits.
             const QPointF mid((pUiv.x() + pDiv.x()) / 2.0, (pUiv.y() + pDiv.y()) / 2.0);
@@ -2651,7 +2651,7 @@ void ProfilePlotWidget::paintConduits(QPainter &p) const
             // Trim the conduit's pixel extent inward by the manhole
             // half-width at each end so the link's vertical end-caps
             // coincide with the tube's vertical edges (rather than its
-            // centre).  Y-positions are linearly interpolated along the
+            // center).  Y-positions are linearly interpolated along the
             // original invert / crown line so the slope still reads.
             const QPointF pUinv = dataToPixel(xU, zUinv);
             const QPointF pDinv = dataToPixel(xD, zDinv);
@@ -2762,7 +2762,7 @@ void ProfilePlotWidget::paintConduits(QPainter &p) const
             p.setPen(outlinePen);
             p.drawPath(body);
 
-            // Single-letter label centred just above the crest.
+            // Single-letter label centered just above the crest.
             const double midPx = (leftPx + rightPx) / 2.0;
             p.setPen(plotTheme().plotNodeLabel);
             p.drawText(QRectF(midPx - 8, topPy - 18, 16, 14), Qt::AlignCenter, QString(QChar('W')));
@@ -2958,7 +2958,7 @@ void ProfilePlotWidget::paintNodeRoses(QPainter &p) const
             p.setPen(spoke);
             p.drawLine(c, tip);
 
-            // Arrowhead: toward the centre for an inflow, outward for an
+            // Arrowhead: toward the center for an inflow, outward for an
             // outflow, so the rose reads the network's own flow directions.
             const qreal ax = b.intoNode ? -ux : ux;
             const qreal ay = b.intoNode ? -uy : uy;
@@ -3251,13 +3251,13 @@ void ProfilePlotWidget::paintNodes(QPainter &p) const
         if (flooding) {
             // Red wedge pointing straight up out of the manhole — reads as
             // a spray of water escaping the rim.  Radius, sweep angle and
-            // fill colour are user-configurable via ProfilePlotOptions;
+            // fill color are user-configurable via ProfilePlotOptions;
             // outline is auto-derived as a darker tint of the fill so a
-            // single colour setting keeps the glyph coherent.
+            // single color setting keeps the glyph coherent.
             const qreal radiusPx = m_options ? m_options->floodRadiusPx() : 15.0;
             const int sweepDeg = m_options ? m_options->floodSweepDeg() : 60;
             const QColor fillCol = m_options ? m_options->floodColor() : QColor(0xE5, 0x21, 0x21);
-            const int startDeg = 90 - sweepDeg / 2; // centred up
+            const int startDeg = 90 - sweepDeg / 2; // centered up
             const QRectF floodBox(rim.x() - radiusPx, rim.y() - radiusPx, radiusPx * 2,
                                   radiusPx * 2);
             p.save();
@@ -3892,7 +3892,7 @@ void ProfilePlotWidget::paintLegend(QPainter &p) const
 
     // Anchor in one of the four corners of the plot rect, then add the
     // user-drag offset.  The offset is stored on ProfilePlotOptions so it
-    // survives repaints and (via QSettings/property serialisation) future
+    // survives repaints and (via QSettings/property serialization) future
     // session changes.
     using LP = ProfilePlotOptions::LegendPosition;
     LP pos = m_options ? m_options->legendPosition() : LP::TopRight;
@@ -3923,7 +3923,7 @@ void ProfilePlotWidget::paintLegend(QPainter &p) const
         const QPointF a(box.left() + padX, cy);
         const QPointF b(box.left() + padX + swatchW, cy);
         // Swatch is a small filled rectangle (when fill is active) with
-        // the line drawn through its vertical centre (when line is active).
+        // the line drawn through its vertical center (when line is active).
         // Reflects exactly the brushes/pens the renderer will use, so any
         // brush-style change propagates immediately on the next repaint.
         const QRectF swatchRect(a.x(), cy - (rowH - 4) / 2.0, swatchW, rowH - 4);

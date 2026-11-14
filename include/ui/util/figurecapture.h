@@ -11,7 +11,7 @@
  * keyboard: SWMMVIS_CAPTURE_MANIFEST=<abs .json> names a list of figures, each
  * describing the UI state to reach and the widget to grab.
  *
- * Generalises the three one-off SWMMVIS_SNAPSHOT_* dev hooks in swmmvis.cpp
+ * Generalizes the three one-off SWMMVIS_SNAPSHOT_* dev hooks in swmmvis.cpp
  * (which stay, being documented in appendices/a04_performance.md) into one
  * table so a whole chapter is captured per launch — 326 one-shot launches would
  * be ~45 min of pure startup, grouped runs are ~2 min.
@@ -91,7 +91,7 @@ struct FigureSpec {
     double cursorNorm = -1; //!< seek the visible animation scrubber to [0,1]; -1 leaves it alone
 };
 
-/*! \brief Result of attempting one row; serialised into run.json. */
+/*! \brief Result of attempting one row; serialized into run.json. */
 struct FigureResult {
     QString name;
     QString status; //!< "ok" | "skipped" | "failed"

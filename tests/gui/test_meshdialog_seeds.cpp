@@ -387,7 +387,7 @@ private slots:
     }
 
     /**
-     * @brief Verify shared resolution controls retain canonical physical lengths across metres
+     * @brief Verify shared resolution controls retain canonical physical lengths across meters
      * and two foot definitions.
      * @note 3.048 m,30.48 m,.1524 m,.6096 m display 10/100/.5/2 international feet; USsurveyfoot
      * round-trip error<1e-6, maximum belowminimum fails validation. Standalone widget, no

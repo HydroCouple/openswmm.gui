@@ -5,7 +5,7 @@
  * Qt delivers `Press, Release, DblClick, Release` for a double-click: the
  * second click arrives as MouseButtonDblClick, never as a second
  * MouseButtonPress, and MapCanvas::mouseDoubleClickEvent forwards to the tool
- * without calling the QWidget base, so no press is synthesised either. Exactly
+ * without calling the QWidget base, so no press is synthesized either. Exactly
  * ONE press reaches the tool, and it has already appended the vertex at the
  * double-clicked location.
  *

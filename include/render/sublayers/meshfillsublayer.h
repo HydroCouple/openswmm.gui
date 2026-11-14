@@ -13,7 +13,7 @@
  *         change with the animation period; the host dispatch skips it.
  *
  *         Style bag v1 (3 properties):
- *           - fillColor        (QColor — flat fall-back fill colour)
+ *           - fillColor        (QColor — flat fall-back fill color)
  *           - hillshadeStrength (double 0..1 — shading darkness factor)
  *           - useElevationRamp (bool — when true, the renderer reads
  *                                 vertex-Z and remaps through a built-in
@@ -45,7 +45,7 @@ class MeshFillStyle : public SublayerStyle
     Q_OBJECT
 
 public:
-    /*! Which per-cell quantity drives the fill colour.
+    /*! Which per-cell quantity drives the fill color.
      *
      *  Declared as an enum (rather than a free-text attribute key) so the
      *  generic Q_PROPERTY style editor renders it as a combo, the same way
@@ -65,7 +65,7 @@ public:
         InitU,         ///< "initU" (m/s)
         InitV,         ///< "initV" (m/s)
         // Per-cell infiltration (GUI plan §3.5(5)). The METHOD is categorical
-        // and colours through categoryColorForValue(); the parameters are
+        // and colors through categoryColorForValue(); the parameters are
         // ordinary graduated attributes. Values resolve through
         // mesh::resolveInfil, so a cell inheriting from its region tag paints
         // its region's numbers — which is the point: an assignment can be
@@ -89,7 +89,7 @@ public:
         InfilOwner,
         InfilConflict,
         // R7 (2026-10-30): the cell's [2D_TRIANGLES] TAG as categories, one
-        // palette colour per distinct tag; untagged cells take noDataColor.
+        // palette color per distinct tag; untagged cells take noDataColor.
         Tag, ///< "tag" (categorical; not a cell-parameter registry key)
     };
     Q_ENUM(CellAttribute)
@@ -107,7 +107,7 @@ private:
                    NOTIFY styleChanged)
     Q_PROPERTY(OpenSWMM::Render::MeshFillStyle::CellAttribute colorByAttribute READ colorByAttribute
                    WRITE setColorByAttribute NOTIFY styleChanged)
-    // Colour for cells whose selected attribute is unset (NaN). Every gw.*
+    // Color for cells whose selected attribute is unset (NaN). Every gw.*
     // key is 100% NaN until the engine grows a soil column, so this is what
     // the whole mesh renders as when one of them is selected.
     Q_PROPERTY(QColor noDataColor READ noDataColor WRITE setNoDataColor NOTIFY styleChanged)
@@ -115,7 +115,7 @@ private:
     // infiltration method). A ClassificationScheme has only Continuous and
     // Classified modes, both numeric — binning a seven-value enumeration at
     // 0.5/1.5/… is a lie about the data and leaks into the legend labels, the
-    // same reasoning that gave the edge BC colours their own properties.
+    // same reasoning that gave the edge BC colors their own properties.
     Q_PROPERTY(
         QString categoryPalette READ categoryPalette WRITE setCategoryPalette NOTIFY styleChanged)
 
@@ -129,7 +129,7 @@ private:
 
 public:
     /*! mesh::cellParamSpecs() key for \p a. CellAttribute::Elevation — the
-     *  only colour source that is not a registry key — maps to "elevation". */
+     *  only color source that is not a registry key — maps to "elevation". */
     /** @param a Attribute enum; unknown integers map to elevation.
      * @return Independent exact registry key (case-sensitive UTF-8 bytes). */
     [[nodiscard]] static QByteArray attributeKey(CellAttribute a);
@@ -182,14 +182,14 @@ public:
     }
 
     /*! True when the selected attribute is CATEGORICAL — i.e. its
-     *  mesh::CellParamSpec is Kind::Enum. The renderer then colours each cell
+     *  mesh::CellParamSpec is Kind::Enum. The renderer then colors each cell
      *  by categoryColorForValue() instead of running the value through the
      *  ClassificationScheme, and the legend emits one row per present value. */
     /** @return True for Tag, or when the selected non-Elevation key resolves to a
      * CellParamSpec whose Kind is Enum. This queries metadata without examining mesh values. */
     [[nodiscard]] bool colorsByCategory() const;
 
-    /*! \brief Colour for enumeration value \p v of the current categorical
+    /*! \brief Color for enumeration value \p v of the current categorical
      *  attribute. \p v is the enum's own integer (mesh::InfilMethod::None is
      *  -1), offset internally by the spec's first value so the palette index
      *  starts at 0. Wraps; out-of-range values fold back into the palette. */

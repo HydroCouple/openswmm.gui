@@ -251,7 +251,7 @@ void applySubcatchDefaults(SWMM_Engine engine, int idx, bool skipArea)
 
     // Write only the parameter family matching the PROJECT's INFILTRATION
     // option. Keying off the subcatchment's own infil_model would pin every
-    // new subcatchment to Horton: swmm_subcatch_add zero-initialises that
+    // new subcatchment to Horton: swmm_subcatch_add zero-initializes that
     // field (SubcatchData::grow_to), so a fresh row always reads HORTON no
     // matter what the project selected.
     char buf[64] = {};

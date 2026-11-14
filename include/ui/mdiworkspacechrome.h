@@ -69,7 +69,7 @@ void installMdiWorkspaceChrome(QMdiArea *area, QWidget *welcome = nullptr);
 /*!
  * \brief Give every tab in \a area a tooltip naming its document in full.
  *
- * A tab is labelled with the model's BASE NAME, so two models of the same
+ * A tab is labeled with the model's BASE NAME, so two models of the same
  * name opened from different folders are indistinguishable on the tab bar.
  * \a pathFor supplies the full path for a sub-window; an empty return (an
  * untitled project, the welcome tab) falls back to the tab's own title, so

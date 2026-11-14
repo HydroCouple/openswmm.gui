@@ -67,7 +67,7 @@ DiagramRole roleFor(LidLayer layer)
 }
 
 /*! Material pattern per layer — what the layer is MADE OF, which is the thing
- *  a colour band alone cannot convey (and which survives greyscale printing).
+ *  a color band alone cannot convey (and which survives grayscale printing).
  *  Permeable pavement gets pavers rather than porous asphalt because that is
  *  what the [LID_CONTROLS] pavement layer is drawn as in the SWMM manual.
  * @param[in] layer Layer kind.

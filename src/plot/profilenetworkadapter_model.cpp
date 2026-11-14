@@ -304,7 +304,7 @@ ProfileBuilder::PathStatic buildPathStaticFromModel(SWMMModelLayer *model,
         // Engine contract: swmm_link_get_offset_up/dn always returns the
         // offset as **depth above the connecting node invert**, regardless
         // of the source .inp's LINK_OFFSETS setting. PostParseResolver
-        // normalises ELEVATION-mode input to DEPTH at parse time for both
+        // normalizes ELEVATION-mode input to DEPTH at parse time for both
         // conduits and orifices (see openswmm.engine
         // src/engine/input/PostParseResolver.cpp). Do not re-convert here.
         swmm_link_get_offset_up(eng, engLinkIdx, &rawOffUp);
@@ -347,7 +347,7 @@ ProfileBuilder::PathStatic buildPathStaticFromModel(SWMMModelLayer *model,
         // in reverse, the engine's inlet is on our *downstream* end — so
         // the path-upstream invert is no longer the right anchor.  We
         // store the value as-is and rely on the path-traversal-aware
-        // renderer to honour the `reversed` flag.
+        // renderer to honor the `reversed` flag.
         if (l.kind == ProfileBuilder::LinkKind::Weir ||
             l.kind == ProfileBuilder::LinkKind::Outlet) {
             double crest = 0.0;

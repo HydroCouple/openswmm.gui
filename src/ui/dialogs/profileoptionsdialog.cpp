@@ -1,7 +1,7 @@
 /**
  * @file      profileoptionsdialog.cpp
  * @brief     a QPropertyModel-backed tree view that edits a `ProfilePlotOptions` instance (Display
- *            tab) plus a Sources tab that lets the user toggle, recolour, rename and add
+ *            tab) plus a Sources tab that lets the user toggle, recolor, rename and add
  *            comparison-output sources.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
@@ -201,7 +201,7 @@ void ProfileOptionsDialog::buildSourcesTab()
 
     // Horizontal splitter: sources list on the left, property-model editor
     // on the right.  The splitter is the source of truth for the tab's
-    // resize behaviour — both sides shrink/grow freely.
+    // resize behavior — both sides shrink/grow freely.
     auto *splitter = new QSplitter(Qt::Horizontal, page);
     splitter->setObjectName(QStringLiteral("main"));
     splitter->setChildrenCollapsible(false);

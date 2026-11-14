@@ -294,8 +294,8 @@ private:
      * @brief Write changed solar site/atmosphere values, preserving explicit-site authorship.
      * @return Successful setter count before the first checked error; failures set m_writeFailed
      * for caller rollback.
-     * @note Uses degrees north/east, UTC-offset hours, elevation metres, dimensionless optical
-     * depths/albedo and precipitable-water/ozone centimetres. When explicit site is requested but
+     * @note Uses degrees north/east, UTC-offset hours, elevation meters, dimensionless optical
+     * depths/albedo and precipitable-water/ozone centimeters. When explicit site is requested but
      * absent, equal latitude/longitude can still be authored; unchecked site clearing occurs later
      * in writeToEngine().
      */
@@ -342,7 +342,7 @@ private:
      * @brief Write changed SI sediment parameters and explicit/inherited bed-temperature settings.
      * @return Successful setter/clear count before the first checked failure, with m_writeFailed
      * set for rollback.
-     * @note Parameters use m2/s diffusivities, metre depths, degrees Celsius temperatures, m/s
+     * @note Parameters use m2/s diffusivities, meter depths, degrees Celsius temperatures, m/s
      * hyporheic velocity, kg/m3 density and J/kg/K specific heat. Unconfigured temperatures clear
      * explicit authorship. Ground-series mode skips the constant temperature setter and binds only
      * a changed series; switching to constant also replaces a saved series even if the numeric
@@ -384,7 +384,7 @@ private:
      * @note Filters link IDs case-insensitively and processes only saved links resolving to
      * MESH_CONTACTS. Shows at most 250 successful link rows; each sample reads the first 128
      * contact records and displays up to 30 distinct one-based cell IDs plus remaining counts.
-     * Lengths are metres. Progress pumps GUI events and supports engine cancellation, retaining
+     * Lengths are meters. Progress pumps GUI events and supports engine cancellation, retaining
      * partial results. Completeness here concerns XY coverage; initialization still validates
      * groundwater profiles, bed depths and thermal ownership.
      */

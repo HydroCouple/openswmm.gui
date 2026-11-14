@@ -204,7 +204,7 @@ public:
     /*! \p pushUndo false: refit as part of another change (a CRS switch) that
      *  owns the undo step.
      * @param[in] pushUndo True records navigation command, false caller owns surrounding undo step.
-     * @note Invalid union no-op. Scales full extent by 1.08 about centre (4 percent per side), then
+     * @note Invalid union no-op. Scales full extent by 1.08 about center (4 percent per side), then
      *   aspect-fits via setExtent. Does not include hidden layers or promise all original data
      *   bounds are projectable.
      */
@@ -213,7 +213,7 @@ public:
      * @param[in] canvasExtent Explicit Y-up canvas coordinates; empty/unknown callers must not
      * pass a default origin-point sentinel. Nonfinite or inverted bounds are rejected.
      * @return True after accepting navigation. Adds ten-percent margins; zero-span dimensions
-     * use approximately 100 metres in the canvas CRS (100 raw units without usable CRS units).
+     * use approximately 100 meters in the canvas CRS (100 raw units without usable CRS units).
      * The canvas applies its ordinary aspect fitting and navigation undo. */
     bool zoomToExtent(const MapExtent &canvasExtent);
     /** @brief Frame current selected SWMM objects and GIS features in a common map CRS.
@@ -225,14 +225,14 @@ public:
     /**
      * @param[in] factor Finite positive zoom factor expected, not locally validated. Reciprocal
      *   extent multiplier, factor 2 halves width/height.
-     * @note Delegates setExtent with default undo, preserving centre and aspect fitting.
+     * @note Delegates setExtent with default undo, preserving center and aspect fitting.
      *   Invalid/nonfinite/zero factors have no explicit local error channel.
      */
     void zoomIn(double factor = 2.0);
     /**
      * @param[in] factor Finite positive zoom factor expected, not locally validated. Extent
      *   multiplier, factor 2 doubles width/height.
-     * @note Delegates setExtent with default undo, preserving centre and aspect fitting.
+     * @note Delegates setExtent with default undo, preserving center and aspect fitting.
      *   Invalid/nonfinite/zero factors have no explicit local error channel.
      */
     void zoomOut(double factor = 2.0);
@@ -263,8 +263,8 @@ public:
     [[nodiscard]] double scaleDenominator() const;
 
     /*! \brief Zoom the view to exactly the given 1:N scale, preserving the
-     *         current centre point and canvas aspect ratio.  CRS-aware: the
-     *         physical metres-per-pixel implied by \p denom is converted
+     *         current center point and canvas aspect ratio.  CRS-aware: the
+     *         physical meters-per-pixel implied by \p denom is converted
      *         back to map units using the canvas SRS (cosine-latitude for
      *         geographic, linearUnitsToMetres for projected).
      *
@@ -272,8 +272,8 @@ public:
      * @param[in] denom Expected finite positive 1:N denominator; nonpositive ignored, nonfinite not
      *   explicitly checked.
      * @note Invalid extent/nonpositive widget size no-op. Uses screen logical DPI (96 fallback),
-     *   projected linear conversion or longitude-degree cosine at centre latitude on radius 6378137
-     *   m sphere; unknown units treated raw. Preserves centre, builds widget-aspect bounds and
+     *   projected linear conversion or longitude-degree cosine at center latitude on radius 6378137
+     *   m sphere; unknown units treated raw. Preserves center, builds widget-aspect bounds and
      *   calls setExtent with undo.
      */
     void setScaleDenominator(double denom);
@@ -811,7 +811,7 @@ signals:
     void extentChanged(const MapExtent &extent);
     /**
      * @param[in] scale Current 1:N denominator, scale() semantics.
-     * @note May repeat unchanged value; not metres per pixel or GPU completion.
+     * @note May repeat unchanged value; not meters per pixel or GPU completion.
      */
     void scaleChanged(double scale);
     /**
@@ -972,9 +972,9 @@ protected:
     bool event(QEvent *event) override;
 
     /*! Handle pinch gestures (touchscreen + Precision touchpad).
-     *  Delegates to `zoomAroundCursor` so behaviour matches wheel-zoom.
+     *  Delegates to `zoomAroundCursor` so behavior matches wheel-zoom.
      * @param[in] event Required borrowed gesture event; pinch obtained from Qt::PinchGesture.
-     * @note No pinch no-op. Changed scale factor uses zoomAroundCursor with pinch centre converted
+     * @note No pinch no-op. Changed scale factor uses zoomAroundCursor with pinch center converted
      *   global→widget, then accepts gesture event; no additional undo or handling of other gesture
      *   kinds.
      */
@@ -1031,7 +1031,7 @@ private:
      *   retaining old buffer. Synchronous GUI paint, no layer refresh.
      */
     void
-    renderSceneBuffer(); ///< Rasterise the vector scene into m_sceneBuffer at the current extent.
+    renderSceneBuffer(); ///< Rasterize the vector scene into m_sceneBuffer at the current extent.
     /**
      * @brief For valid positive view, set hidden view uniform scale from canvas width,
      *   dx=-xmin*s,dy=ymax*s, then grow scene coverage. Does not emit, refresh or alter model
@@ -1053,7 +1053,7 @@ private:
     [[nodiscard]] QRectF overlayVisibleSceneRect() const;
     /**
      * @param[in] ext Requested Y-up map bounds.
-     * @return Centred expansion of width OR height to canvas aspect, never intentional shrink.
+     * @return Centered expansion of width OR height to canvas aspect, never intentional shrink.
      *   Invalid extent/nonpositive widget size returns input unchanged. No CRS transform or stored
      *   state change.
      */
@@ -1080,7 +1080,7 @@ private:
     void cancelRenderJob();
     /**
      * @brief Cancel the current render and wait for every render worker still running, including
-     *   ones whose job was already cancelled. Afterwards no worker calls into any layer, so a
+     *   ones whose job was already canceled. Afterwards no worker calls into any layer, so a
      *   removed raster layer can be destroyed. Blocks the GUI thread for at most the layer each
      *   worker is drawing.
      */
@@ -1163,11 +1163,11 @@ private:
      */
     void stopVisibleComposition();
 
-    // Returns ground distance (metres) represented by one horizontal screen pixel
-    // at the centre of the current view.  CRS-aware: uses the cosine-latitude
+    // Returns ground distance (meters) represented by one horizontal screen pixel
+    // at the center of the current view.  CRS-aware: uses the cosine-latitude
     // formula for geographic CRS and linearUnitsToMetres() for projected CRS.
     /**
-     * @return Horizontal ground span per logical pixel at centre: projected units×linear factor;
+     * @return Horizontal ground span per logical pixel at center: projected units×linear factor;
      *   geographic degrees×radius 6378137 m cosine latitude; missing/local/unrecognized CRS raw
      *   units despite method name. Invalid/nonpositive view returns 1. No ellipsoid,
      *   latitude-domain validation or engine unit conversion.
@@ -1212,7 +1212,7 @@ private:
     /*! Resolves beacon anchors from every visible layer's current selection,
      *  in scene coords.
      * @return New scene-point anchors for visible mesh highlights, GIS selected feature anchors and
-     *   finite model object-extent centres. Stops after cap+1except a mesh append can exceed cap in
+     *   finite model object-extent centers. Stops after cap+1except a mesh append can exceed cap in
      *   one batch. Model/mesh native XY only Y-negated, no CRS projection here. No selection
      *   mutation.
      */
@@ -1272,12 +1272,12 @@ private:
                                                        into m_mapBufferExtent when the result arrives. */
     QImage m_frameBuffer; /*!< Double-buffer: composite of all layers, blitted in one shot. */
     MapRenderJob *m_renderJob = nullptr;
-    /// Workers of cancelled jobs that may still be drawing (they outlive their job).
+    /// Workers of canceled jobs that may still be drawing (they outlive their job).
     QList<QFuture<void>> m_detachedRenderWorkers;
 
     // QGIS-style cache for the vector QGraphicsScene (2D mesh, GIS vectors,
     // annotations), used only during an active pan/zoom gesture: the scene is
-    // rasterised live when idle (so selection / profile / hover stay
+    // rasterized live when idle (so selection / profile / hover stay
     // immediate) and that same buffer is blitted with a stale-buffer transform
     // during pan/zoom, instead of re-running QGraphicsScene::render() — which
     // paints the full mesh — on every gesture frame.
@@ -1287,7 +1287,7 @@ private:
     // non-gesture blit. Set by QGraphicsScene::changed, scene-affecting
     // refreshes, and non-raster repaintRequested; cleared by
     // renderSceneBuffer(). Lets tile arrivals and decoration repaints skip
-    // the full scene rasterisation.
+    // the full scene rasterization.
     bool m_sceneDirty = true;
 
     // ----- Pan / zoom state -----------------------------------------------

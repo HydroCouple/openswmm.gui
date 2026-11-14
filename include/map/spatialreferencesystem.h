@@ -4,7 +4,7 @@
  * @date      2026
  * @license   GPL-3.0-or-later
  * @brief     Qt wrapper around a GDAL OGRSpatialReference, providing CRS
- *         metadata, serialisation helpers, and transformation factory methods.
+ *         metadata, serialization helpers, and transformation factory methods.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -172,9 +172,9 @@ public:
     [[nodiscard]] QString linearUnitsName() const;
 
     /*!
-     * \brief Returns the conversion factor from the linear unit to metres.
+     * \brief Returns the conversion factor from the linear unit to meters.
      *        Returns 1.0 for geographic CRSes.
-     * @return GDAL GetLinearUnits conversion factor to metres, 1.0for null reference. Does not
+     * @return GDAL GetLinearUnits conversion factor to meters, 1.0for null reference. Does not
      *   independently reject geographic/nonplanar/nonfinite factors; use planarLinearUnit for
      *   meshing.
      */
@@ -191,7 +191,7 @@ public:
     /*!
      * \brief Planar linear-unit information used by the 2D mesh writer.
      * \details `metresPerUnit` is the factor that converts this CRS's XY
-     *          coordinates to metres (the engine's SI contract).
+     *          coordinates to meters (the engine's SI contract).
      *          `usable` is true only when the CRS is projected or local AND
      *          `metresPerUnit` is finite and > 0. Geographic CRSes are
      *          unusable for planar meshing.
@@ -205,8 +205,8 @@ public:
     /*!
      * \brief Returns a LinearUnitInfo describing the planar linear unit.
      * \details Use this at every boundary that must convert between
-     *          project-CRS XY and engine-SI metres (2D mesh write/read).
-     * @return Value with positive finite metres-per-unit and GDAL unit name when obtainable; usable
+     *          project-CRS XY and engine-SI meters (2D mesh write/read).
+     * @return Value with positive finite meters-per-unit and GDAL unit name when obtainable; usable
      *   only projected/local. Geographic/invalid factors return default 1.0, empty name, unusable.
      *   No authority-code inference or coordinate conversion.
      */
@@ -269,7 +269,7 @@ public:
      * \brief Creates a local / untitled CRS for models with no coordinate system defined.
      *        Coordinates are treated as raw Cartesian values; no reprojection is possible.
      * @param[in] parent Optional QObject owner; without parent caller owns returned allocation.
-     * @return New local metre CRS named Untitled, traditional GIS axes, no authority/code. GDAL
+     * @return New local meter CRS named Untitled, traditional GIS axes, no authority/code. GDAL
      *   local/linear-unit setter return statuses not checked; does not imply geographic
      *   reprojection possible.
      */
@@ -283,7 +283,7 @@ public:
      * \param parent    Qt parent for the new object.
      * @return New parent-owned or caller-owned local CRS. Exact case-insensitive FEET/FOOT chooses
      *   US survey foot0.3048006096012192 m; EVERY other text (including unknown/DEGREES/whitespace)
-     *   falls back metre 1.0. Does not trim, validate geographic intent or infer international foot.
+     *   falls back meter 1.0. Does not trim, validate geographic intent or infer international foot.
      */
     [[nodiscard]] static SpatialReferenceSystem *localFromMapUnits(const QString &mapUnits,
                                                                    QObject *parent = nullptr);

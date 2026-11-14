@@ -344,7 +344,7 @@ private slots:
     // The three stat* rows must be advertised READ-ONLY (no WRITE →
     // QPropertyModel renders non-editable), readable through the meta-
     // object (catches READ-accessor typos moc only surfaces at runtime),
-    // zero on the never-run editing engine, and labelled.
+    // zero on the never-run editing engine, and labeled.
     /**
      *
      * @brief Require precipitation/runoff-volume/max-runoff summaries to be readable, labeled,

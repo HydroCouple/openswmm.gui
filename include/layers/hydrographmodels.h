@@ -233,7 +233,7 @@ public:
     /**
      * @brief Bind a live engine-backed Qt view to one model layer.
      * @param[in] layer Optional source, also QObject owner; null yields no readable engine state. The raw layer pointer must remain valid for all model access.
-     * @note Connects hydrographChanged() once; values are read on demand rather than cached. Use on the GUI thread and serialize engine access with simulation/edits. Dmax/Do are project rainfall-depth units (inches or millimetres); Drec is those depth units per day.
+     * @note Connects hydrographChanged() once; values are read on demand rather than cached. Use on the GUI thread and serialize engine access with simulation/edits. Dmax/Do are project rainfall-depth units (inches or millimeters); Drec is those depth units per day.
      */
     explicit HydrographIaTableModel(SWMMModelLayer *layer);
 
@@ -250,13 +250,13 @@ public:
     /**
      * @param[in] index Model-owned valid flat cell; table models range-check rows zero through two and columns explicitly.
      * @param[in] role Qt role; supported values depend on numeric/text/check columns.
-     * @return Response text in column zero and numeric Dmax/Drec/Do for DisplayRole/EditRole. Missing row/read failure/empty context produces invalid numeric variants, distinct from zero. Dmax/Do are project rainfall-depth units (inches or millimetres); Drec is those depth units per day.
+     * @return Response text in column zero and numeric Dmax/Drec/Do for DisplayRole/EditRole. Missing row/read failure/empty context produces invalid numeric variants, distinct from zero. Dmax/Do are project rainfall-depth units (inches or millimeters); Drec is those depth units per day.
      * @note Reads current engine state without caching, conversion to display-unit alternatives or mutation. Group/row matching for parameter lookup is exact-case and fixed-buffer based.
      */
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;
     /**
      * @param[in] index Target model-owned flat cell; invalid/response-label/table-out-of-range cells fail.
-     * @param[in] value Numeric variant convertible with toDouble(); no independent finite/range guard. Dmax/Do are project rainfall-depth units (inches or millimetres); Drec is those depth units per day.
+     * @param[in] value Numeric variant convertible with toDouble(); no independent finite/range guard. Dmax/Do are project rainfall-depth units (inches or millimeters); Drec is those depth units per day.
      * @param[in] role Only EditRole is accepted.
      * @return True when the layer apply helper succeeds; false for rejected role/index/context/conversion/engine operation. No separate error text or undo entry is created here.
      * @note Reads other Dmax/Drec/Do cells (missing treated as zero), substitutes one numeric value, then forwards applyHydrographSetIa(). Can create the response row; RTK fields are retained on an existing row. Successful layer changes emit hydrographChanged(), supplying model refresh; setData() does not emit an additional direct dataChanged().
@@ -317,7 +317,7 @@ private:
 // engine model. Unchecking Active calls applyRdiiDecayRemove(); checking
 // a blank row calls applyRdiiDecaySet() with sane defaults (T_ref=10).
 // Snow (column 8) is a second checkbox enabling the row's degree-day snow
-// model; its two numeric columns (snow_T, snow_ddf) grey out until both
+// model; its two numeric columns (snow_T, snow_ddf) gray out until both
 // Active and Snow are checked.
 // ---------------------------------------------------------------------------
 

@@ -285,7 +285,7 @@ void MeshPage::onMeshSetActive()
             return;
         }
         // Mirror the reference into the engine's in-memory model. Without this
-        // the engine re-serialises the .inp on the next save with mesh_file
+        // the engine re-serializes the .inp on the next save with mesh_file
         // empty and drops [2D_MESH_FILE] — the model silently reverts to 1D.
         if (ctx_.engine())
             swmm_options_set_ext(ctx_.engine(), "MESH_FILE", item->text().toUtf8().constData());

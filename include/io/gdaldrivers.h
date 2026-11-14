@@ -9,7 +9,7 @@
  *
  * Lets the UI advertise only the formats the *compiled* GDAL actually
  * registered, instead of a hard-coded literal that can promise drivers
- * (e.g. NetCDF / HDF) a minimal build never included. This honours the
+ * (e.g. NetCDF / HDF) a minimal build never included. This honors the
  * project directive to add as few GDAL build modules as possible: the Open
  * dialog filters simply reflect whatever driver set is present, so enabling
  * an optional vcpkg feature later widens them automatically — no code change.

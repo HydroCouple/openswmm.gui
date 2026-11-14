@@ -33,9 +33,9 @@ namespace
 {
 
 // Build a SingleSymbolRenderer with a single SimpleMarker symbol layer
-// whose colour key carries the supplied hex string. Tests use this to
+// whose color key carries the supplied hex string. Tests use this to
 // produce visually-distinct per-kind renderers they can later identify
-// by colour.
+// by color.
 /**
  * @brief Create a uniquely owned single-marker renderer with a diagnostic color property.
  * @param[in] hexColor Borrowed string copied into marker color property without validation.
@@ -186,7 +186,7 @@ private slots:
     {
         MultiKindRenderer r;
         r.setRendererFor(QStringLiteral("Junctions"), makeColored(QStringLiteral("#aabbcc")));
-        // Replace fallback with a distinctive colour so we can prove dispatch took the fallback branch.
+        // Replace fallback with a distinctive color so we can prove dispatch took the fallback branch.
         r.setFallback(makeColored(QStringLiteral("#112233")));
 
         const SymbolStyle out = r.symbolFor(featureWithKind(QStringLiteral("NoSuchKind")), {});

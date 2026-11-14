@@ -322,7 +322,7 @@ void opaqueBands(ProfilePlotOptions &o)
     o.setMaxInundation2DLinePen(QPen(Qt::NoPen));
     o.setMaxInundation2DFillBrush(QBrush(Qt::blue));
 }
-/** @brief Pure-colour pixel counts in the chainage-6 column (x = 64 + 620·6/12). */
+/** @brief Pure-color pixel counts in the chainage-6 column (x = 64 + 620·6/12). */
 struct BandRows {
     int red = 0, blue = 0, green = 0;
     int lowestBlue = -1, highestRed = std::numeric_limits<int>::max();

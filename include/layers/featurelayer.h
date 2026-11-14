@@ -80,7 +80,7 @@ struct ZPolicy {
      *  the constraint segments come out sub-cell — the dock warns. */
     double densifySpacing = 0.0;
     /*! Vertical unit conversion applied to every sample (raster feet → model
-     *  metres, etc.). Seeded from GISRasterLayer::detectVerticalUnit. */
+     *  meters, etc.). Seeded from GISRasterLayer::detectVerticalUnit. */
     double zScale = 1.0;
     /*! Re-sample a vertex's Z when it is moved or inserted. */
     bool resampleOnEdit = true;
@@ -196,7 +196,7 @@ public:
      * \brief Whether this layer is currently being edited.
      *
      * \details An explicit edit session, the way a GIS package gates editing:
-     *          the digitising tools and the attribute grid are inert until it
+     *          the digitizing tools and the attribute grid are inert until it
      *          is on. It exists so a stray click on a map that happens to
      *          carry a feature layer cannot silently move a breakline — the
      *          user has to say "I am editing this" first.

@@ -13,7 +13,7 @@
 class QNetworkAccessManager;
 namespace OpenSWMM::Sdk
 {
-/** @brief Borrowed GUI-thread network service used for catalogue previews and data downloads. */
+/** @brief Borrowed GUI-thread network service used for catalog previews and data downloads. */
 class INetworkPolicy
 {
 public:

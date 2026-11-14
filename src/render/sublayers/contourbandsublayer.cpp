@@ -154,7 +154,7 @@ void ContourBandStyle::fromJson(const QJsonObject &j)
         m_scheme =
             ClassificationScheme::fromJson(j.value(QStringLiteral("classification")).toObject());
 
-    // Older files kept below / above colours here, which nothing drew. A value other than
+    // Older files kept below / above colors here, which nothing drew. A value other than
     // those defaults (transparent / RGBA(255,255,255,200)) was set on purpose: it carries over.
     const auto legacy = [&](const char *key, const QColor &oldDefault) {
         const QColor c(j.value(QLatin1String(key)).toString());
@@ -196,10 +196,10 @@ void ContourBandSublayer::setOpacity(qreal o)
 
 QList<LegendSymbolItem> ContourBandSublayer::legendSymbolItems() const
 {
-    // VS.8 — one swatch row per band, sampled from the active colour
-    // source (ramp or two-colour gradient). Value labels are only known
+    // VS.8 — one swatch row per band, sampled from the active color
+    // source (ramp or two-color gradient). Value labels are only known
     // when a custom range is set; the layer-level legend builder
-    // (SWMM2DResultsLayer::sublayerLegendItems) supplies value-labelled
+    // (SWMM2DResultsLayer::sublayerLegendItems) supplies value-labeled
     // rows for the auto-range case.
     QList<LegendSymbolItem> out;
     const int n = std::max(1, m_style->bandCount());

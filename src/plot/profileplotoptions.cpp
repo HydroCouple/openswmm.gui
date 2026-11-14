@@ -36,7 +36,7 @@ ProfilePlotOptions::ProfilePlotOptions(QObject *parent)
 {
     // EGL default style is a 12/6 long-dash so it stays distinguishable
     // from the solid HGL when both layers are visible without depending
-    // on colour.  Pattern set here rather than in the header so the
+    // on color.  Pattern set here rather than in the header so the
     // dash sequence stays explicit and easy to tweak.
     m_eglLinePen.setDashPattern({12.0, 6.0});
     m_eglLinePen.setCapStyle(Qt::FlatCap);
@@ -304,7 +304,7 @@ void ProfilePlotOptions::setFloodColor(const QColor &c)
     SET_OBJ(m_floodColor, c);
 }
 
-// ── Theme colours (one-liners for each setter) ──────────────────────────
+// ── Theme colors (one-liners for each setter) ──────────────────────────
 void ProfilePlotOptions::setJunctionFill(const QColor &c)
 {
     SET_OBJ(m_junctionFill, c);

@@ -17,7 +17,7 @@
  * - paint() reads the layer's SoA directly and draws each category via
  *   bucketed QPainter calls (drawLines, drawPolygon, drawEllipse loops).
  * - Selection highlight is a second pass over m_selectedNames.
- * - Per-object visibility (m_hiddenObjects) is honoured.
+ * - Per-object visibility (m_hiddenObjects) is honored.
  * - Item type id is SWMMLayerItemType so the existing
  *   openswmmvisscene.cpp selection-iteration code can skip it (it's not a
  *   per-object item).
@@ -102,12 +102,12 @@ public:
      *   on CPU, but inlet connectors, LID badges and labels still CPU-painted. Show-kind/hidden
      *   flags gate supported passes; node/link/catch per-kind opacity applies, gage base pass uses
      *   direct symbol values.
-     * @note Links bucket paths by subtype and renderer colour/width, width quantized1/16pixel
+     * @note Links bucket paths by subtype and renderer color/width, width quantized1/16pixel
      *   capped256for positive overrides, offsets from single/per-feature renderer caches.
      *   Strokes/glyphs/arrows converted to device coordinates and painted with reset transform to
      *   avoid large-coordinate raster errors. Point scale estimates use positive m11 else1;
      *   arbitrary rotated/nonuniform transforms are not fully normalized. Selected glyphs use kind
-     *   base size/shape while selection paint overrides class colour.
+     *   base size/shape while selection paint overrides class color.
      * @note Flow arrows use ORIGINAL cached polyline arclength midpoint/tangent, not offset path;
      *   optional positive-flow gate queries model flow. Connector/leaf passes may read engine; no
      *   model/engine write or refresh signals. Painting mutates only item label cache and

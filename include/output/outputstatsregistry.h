@@ -20,7 +20,7 @@
  *
  * The null UUID is reserved as a sentinel meaning "use the editing
  * engine's ambient stats" — consumers that want to keep today's
- * behaviour when no source is explicitly chosen branch on
+ * behavior when no source is explicitly chosen branch on
  * `identity.stableId.isNull()`.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
@@ -177,7 +177,7 @@ public:
     /**
      * @brief Set a terminal run state and capture output size/mtime.
      * @param[in] id Exact run identifier.
-     * @param[in] success True selects Complete even if cancelled is true.
+     * @param[in] success True selects Complete even if canceled is true.
      * @param[in] cancelled Selects Cancelled when unsuccessful, otherwise Failed.
      * @details Publishes identity/run changes even for unknown ID; filesystem metadata is read without content hashing.
      */

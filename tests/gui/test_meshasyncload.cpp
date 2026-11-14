@@ -398,7 +398,7 @@ private slots:
                  syncLayer.pickCellAt(syncLayer.m_sceneBBox.center()));
     }
 
-    // Style plumbing — changing the FILL sublayer's colour ramp restyles the
+    // Style plumbing — changing the FILL sublayer's color ramp restyles the
     // shaded-relief terrain fill (the QPainter path shares the QSG
     // schemeDrivesColor decision, so a pixel diff here proves the chain
     // dialog → MeshFillStyle::setScheme → renderer).
@@ -428,7 +428,7 @@ private slots:
         const QImage after = paintQPainterPath(&layer, layer.m_sceneBBox, view);
         QVERIFY2(after != before, "changing the terrain colour ramp did not change the fill");
 
-        // Invert flag also drives colour.
+        // Invert flag also drives color.
         const QImage inv1 = after;
         scheme = fill->scheme();
         scheme.setInvertRamp(true);
@@ -716,7 +716,7 @@ private slots:
             renderer->setMapExtent(MapExtent(src.left(), -src.bottom(), src.right(), -src.top()));
             qsgWidget.repaint(); // sync render, as MapCanvas does
             QImage qsg = qsgWidget.grabFramebuffer();
-            // Transparent clear colour → count non-transparent instead of
+            // Transparent clear color → count non-transparent instead of
             // non-white.
             int drawn = 0;
             if (!qsg.isNull()) {

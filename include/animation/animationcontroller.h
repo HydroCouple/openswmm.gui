@@ -56,7 +56,7 @@ public:
      * \brief Set the primary (authoritative) results layer.
      * \details Stops playback first. Passing nullptr detaches the 1D primary only.
      *          Does NOT automatically demote the old primary to secondary —
-     *          call addSecondaryLayer() explicitly if synchronised playback
+     *          call addSecondaryLayer() explicitly if synchronized playback
      *          of the old layer is still desired.
      * @param[in] layer Borrowed QPointer-guarded 1D layer, or null to let any 2D fallback drive.
      * @details An unchanged pointer is a no-op. New primary resets ping-pong direction and publishes its current period/time/count. Secondary and fallback registrations are retained.
@@ -139,7 +139,7 @@ public:
     [[nodiscard]] qint64 windowMs() const { return m_windowMs; }
 
     /*! Run time span of the active driver (1D primary, else 2D fallback),
-     *  used to normalise the range slider. Invalid when no driver.
+     *  used to normalize the range slider. Invalid when no driver.
      * @return First reported 1D timestamp or 2D frame-zero timestamp, invalid without a usable driver.
      */
     [[nodiscard]] QDateTime driverStartTime() const;
@@ -399,7 +399,7 @@ private:
     /*! Slice Z.13-controller — playback direction (+1 forward, -1
      *  backward). Only flips to -1 when the primary's TemporalSpec has
      *  pingPong=true and the playback hits an end of the range.
-     *  Forward-only otherwise so existing UI behaviour is preserved. */
+     *  Forward-only otherwise so existing UI behavior is preserved. */
     int m_direction = 1;
 
     static constexpr int kMinIntervalMs = 50;

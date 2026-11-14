@@ -82,7 +82,7 @@ ResultScalarGeometry buildResultScalarGeometry(const QVector<QPointF> &vertices,
                                                bool vertexValues = false,
                                                const QRectF &bandRect = QRectF());
 /// Above this many display triangles in view, renderers draw filled contours as each cell in
-/// its band's colour instead of marching bands (cells are about a pixel at that zoom).
+/// its band's color instead of marching bands (cells are about a pixel at that zoom).
 inline constexpr size_t kMaxContouredBandTriangles = 250000;
 /** @param levels Nondecreasing band edges (at least two).
  *  @param value Cell value.

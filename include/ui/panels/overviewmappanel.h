@@ -78,10 +78,10 @@ signals:
 protected:
     /**
      * @param[in] e Ignored borrowed paint event, unnamed implementation.
-     * @brief Fill fixed light-grey background and frame, draw canvas extent rectangle normalized
+     * @brief Fill fixed light-gray background and frame, draw canvas extent rectangle normalized
      *   against cached model extent; empty extent shows no-model text.
      * @note No node/link/raster geometry drawn, no aspect-fit padding or layer/canvas CRS
-     *   transform, colours currently fixed rather than palette. Missing canvas leaves frame only.
+     *   transform, colors currently fixed rather than palette. Missing canvas leaves frame only.
      *   No viewport-change subscription or cache update here.
      */
     void paintEvent(QPaintEvent *e) override;

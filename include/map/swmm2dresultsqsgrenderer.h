@@ -17,9 +17,9 @@
  *   Pass 3 — isolines (thick-segment quads; separate node for index
  *            contours). Dash patterns are not supported on the GPU path —
  *            lines render solid.
- *   Pass 3b — isoline labels: rasterised textures placed along chained
+ *   Pass 3b — isoline labels: rasterized textures placed along chained
  *            polylines every ~250 screen px, rotated to the line direction.
- *   Pass 4 — velocity-vector glyphs (per-glyph colour via
+ *   Pass 4 — velocity-vector glyphs (per-glyph color via
  *            VelocityVectorStyle::colorForSpeed); also convey flow direction.
  *   Pass 6 — cell-highlight overlay (translucent cyan fill + gold edges,
  *            matching the CPU CF.3 pass).
@@ -262,7 +262,7 @@ protected:
      *   hydraulic engine edit.
      * @note Ordinary geometry splits at 65532 vertices; water uploads deduplicate exact XY/RGBA per
      *   indexed chunk. Depth isolines render solid, whereas additional scalar contours honor dash
-     *   style. Labels use GPU texture caches with text/font/halo/colour keys, no DPR key; depth
+     *   style. Labels use GPU texture caches with text/font/halo/color keys, no DPR key; depth
      *   cache evicts wholesale above 512 entries before a labeling pass. Host applies overall item
      *   opacity, no reprojection occurs here.
      * @note Offscreen/empty bbox clears all passes/publications and coverage without consuming
@@ -290,7 +290,7 @@ private:
     quint64 m_orderMutations = 0;
     MapExtent m_extent;
 
-    // Fixed scene-space anchor (bbox centre) — keeps float vertex coords
+    // Fixed scene-space anchor (bbox center) — keeps float vertex coords
     // small even in UTM coordinates; stable across pans. Recomputed only
     // when the geometry domain is dirty.
     double m_anchorX = 0.0;
@@ -324,7 +324,7 @@ private:
     /*! Smooth depth fill of the layer's fast surface, whose corners are shared vertex
      *  values: display triangles grouped (in render-chunk order) into upload chunks of at
      *  most 65,532 shared vertices, built once per geometry revision and anchor. A frame
-     *  writes only vertex values or colours and the indices of its wet triangles.
+     *  writes only vertex values or colors and the indices of its wet triangles.
      *  One scan per sync (scan*) collects each chunk's wet triangles and vertex depths for
      *  every fast-surface pass; chunks are independent, so the scan can run in parallel. */
     struct SharedFillChunks {
@@ -337,7 +337,7 @@ private:
         std::vector<int> frameSlot; // per display triangle: position in the scanned frame or -1
         std::vector<std::vector<float>> scanValues;    // per chunk: depth per local vertex
         std::vector<std::vector<quint16>> scanIndices; // per chunk: wet triangles above dry
-        std::vector<std::vector<QSGGeometry::ColoredPoint2D>> frameVertices; // per-frame colours
+        std::vector<std::vector<QSGGeometry::ColoredPoint2D>> frameVertices; // per-frame colors
         std::vector<std::vector<quint16>> frameIndices; // per-frame triangles above a floor
     } m_sharedFill;
     /**
@@ -434,7 +434,7 @@ private:
                              bool bootstrapSpare = true);
 
     // ── Isoline-label texture cache ────────────────────────────────────
-    // Keyed by "text|fontPt|halo|color" so style edits re-rasterise.
+    // Keyed by "text|fontPt|halo|color" so style edits re-rasterize.
     // QSGTexture ownership is ours; released via deleteLater() (textures
     // must die on the render thread).
     mutable QHash<QString, QSGTexture *> m_labelTextureCache;

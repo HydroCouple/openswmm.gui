@@ -81,7 +81,7 @@ public:
      * @param[in] context Required GUI-thread lifetime guard.
      * @param[in] cancel Optional short cancellation controller for all current stages.
      * @return Fresh UUID, or null when unavailable or invalid.
-     * @note Context destruction settles active work as cancelled and retires its callback. */
+     * @note Context destruction settles active work as canceled and retires its callback. */
     virtual QUuid beginToolRun(const ToolRunRequest &request, QObject *context,
                               std::function<void()> cancel = {}) = 0;
     /** @brief Update one active run and shared progress, coalescing identical stages.

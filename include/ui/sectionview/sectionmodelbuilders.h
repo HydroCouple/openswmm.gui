@@ -130,7 +130,7 @@ struct DiagramUnits {
  * @note Storage initial water clamped to max depth, outfall fixed/variable/free presentation and
  *   divider arrows are input-state illustrations, not simulation flow solving. Node LID
  *   layers/Richards state and bottom exchange statistics appended when readable; physical layer
- *   thickness converted mm→m or in→ft, aquifer head metres→display, balance/volume/rate/contact
+ *   thickness converted mm→m or in→ft, aquifer head meters→display, balance/volume/rate/contact
  *   statistics retain explicit SI labels. No new engine run or time advance. Caller supplies valid
  *   finite dimensions including nonnegative max depth.
  */

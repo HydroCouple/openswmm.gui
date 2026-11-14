@@ -40,9 +40,9 @@ namespace
 // the SAME rows (results layers now aggregate their per-kind renderers
 // instead of showing the dormant layer-level renderer).
 /**
- * @brief Delegate symbol swatch colour selection to the shared legend-content implementation.
- * @param[in] style Symbol style whose first applicable layer colour is inspected.
- * @return Shared LegendContent fallback/colour result.
+ * @brief Delegate symbol swatch color selection to the shared legend-content implementation.
+ * @param[in] style Symbol style whose first applicable layer color is inspected.
+ * @return Shared LegendContent fallback/color result.
  */
 QColor firstSymbolColor(const OpenSWMM::Render::SymbolStyle &style)
 {
@@ -217,7 +217,7 @@ void LegendLayerTreeModel::rebuildLayerCache()
             ir.classKey = row.classKey;
             ir.label = row.effectiveLabel();
             // Rows with no symbol are sub-headers (kind / section titles) —
-            // leave the colour invalid so the delegate paints no chip
+            // leave the color invalid so the delegate paints no chip
             // instead of the gray fallback patch.
             ir.color = row.symbol.layers.isEmpty() ? QColor() : firstSymbolColor(row.symbol);
             ir.visible = row.visible;

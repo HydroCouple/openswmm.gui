@@ -78,7 +78,7 @@ public:
     /**
      * @brief Read point coordinates or numeric alignment.
      * @param[in] index Valid row/column from this model; both bounds are checked.
-     * @param[in] role DisplayRole/EditRole gives numeric station/elevation; TextAlignmentRole gives right/vertical-centre alignment.
+     * @param[in] role DisplayRole/EditRole gives numeric station/elevation; TextAlignmentRole gives right/vertical-center alignment.
      * @return Provider-unit numeric value or alignment; invalid QVariant for unavailable data/roles.
      */
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;

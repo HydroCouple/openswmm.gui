@@ -234,7 +234,7 @@ private slots:
     }
     /**
      *
-     * @brief Register bool si rows for US inch-to-foot and SI millimetre-to-metre LID stacks.
+     * @brief Register bool si rows for US inch-to-foot and SI millimeter-to-meter LID stacks.
      *
      */
     void authoredStackUsesProjectElevations_data()

@@ -90,8 +90,8 @@ enum class LayerTypeOrdinal : int {
 /*!
  * \brief Maps a layer-type ordinal to its tree category.
  *
- *        Unrecognised ordinals return CatFeatureLayers (matches the
- *        runtime fall-back behaviour, but without the qWarning() that the
+ *        Unrecognized ordinals return CatFeatureLayers (matches the
+ *        runtime fall-back behavior, but without the qWarning() that the
  *        full layertreepanel.cpp version emits — a headless helper has
  *        nowhere sensible to log).
  * @param[in] layerTypeOrdinal Serialized OpenSWMMVisLayer type ordinal, no layer pointer lookup.

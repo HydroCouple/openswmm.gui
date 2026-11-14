@@ -180,7 +180,7 @@ private slots:
     void attributeListsPinned();
     void attributesForKindDispatch();
 
-    // Dialog behaviour.
+    // Dialog behavior.
     void systemOnlyWhenNoFeatures();
     void groupsPerSelectedFeature();
     void groupCheckCascadesToLeaves();

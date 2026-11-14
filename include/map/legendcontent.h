@@ -59,11 +59,11 @@ namespace openswmmvis::map::LegendContent
  */
 [[nodiscard]] QList<OpenSWMM::Render::LegendSymbolItem> legendItemsFor(OpenSWMMVisLayer *layer);
 
-/*! First resolvable swatch colour of a symbol (tolerant of both colour
+/*! First resolvable swatch color of a symbol (tolerant of both color
  *  encodings; checks fillColor → color → outlineColor). Gray fallback
  *  matches the historical legend convention.
  * @param[in] style Borrowed ordered symbol stack; no mutation.
- * @return First valid colour by symbol-layer order, trying fillColor, color, then outlineColor
+ * @return First valid color by symbol-layer order, trying fillColor, color, then outlineColor
  *   within each layer, accepting QColor/string encodings. Qt gray if none resolves. Does not apply
  *   layer opacity or evaluate expressions.
  */
@@ -72,7 +72,7 @@ namespace openswmmvis::map::LegendContent
 /*! Per-class edit dispatch — renderer first, then the layer facades
  *  (SWMMModelLayer / SWMMResultsLayer kind-qualified keys).
  * @param[in] layer Optional borrowed layer, inspected without modification.
- * @param[in] kind Requested edit capability such as class colour/label/range.
+ * @param[in] kind Requested edit capability such as class color/label/range.
  * @return Renderer capability when single renderer exists, otherwise model/1D-results facade
  *   capability; false for null/unsupported/raster-only layer. This reports support, not
  *   success/validity of any particular future class key edit.

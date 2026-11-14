@@ -195,7 +195,7 @@ double DTMRaster::sampleAt(double x, double y) const
 
     // RasterIO fills the 1-wide × 2-tall read row-major, so the second ROW
     // lands in w[1]; it must be moved to the bottom-row slots BEFORE w[1] is
-    // overwritten, or the blend collapses toward the zero-initialised w[2]/
+    // overwritten, or the blend collapses toward the zero-initialized w[2]/
     // w[3] (same last-column bug documented and fixed in dtmsampler.cpp).
     if (xSz == 1 && ySz == 2) {
         w[2] = w[1];
@@ -362,7 +362,7 @@ void DTMRaster::sampleMany(const QVector<QPointF> &xy, QVector<double> *outZ,
             // a floor() boundary where FP contraction may evaluate the two
             // inline expansions of anchorFor() differently by 1 ULP (points
             // exactly on the raster edge). If the verdict flips, never index
-            // the buffer with a default-initialised anchor.
+            // the buffer with a default-initialized anchor.
             if (!anchorFor(xy[i].x(), xy[i].y(), &a) || a.r0 < readLo || a.r1 > readHi ||
                 a.c0 < colLo || a.c1 > colHi) {
                 (*outZ)[i] = kNaN;

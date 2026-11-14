@@ -388,7 +388,7 @@ private slots:
         const auto *newAge = find(newer, "__WATER_AGE__", Mesh2DResultVariable::Zone::Saturated);
         QVERIFY(newAge);
         // Age can decrease when young recharge/source water enters. This is
-        // an immutable-snapshot check, not a closed-parcel ageing assertion.
+        // an immutable-snapshot check, not a closed-parcel aging assertion.
         QVERIFY(newAge->values[0] != age->values[0]); // actual engine mutated after capture
         engine.close();
         QCOMPARE(age->values[0], 3600.f);
@@ -412,7 +412,7 @@ private slots:
     }
     /**
      *
-     * @brief Require declared reaction mass units, counts per litre and negative Celsius values
+     * @brief Require declared reaction mass units, counts per liter and negative Celsius values
      * to survive detached capture and engine destruction.
      * Writes a reaction component and model/report/output files under msx-temperature.
      *

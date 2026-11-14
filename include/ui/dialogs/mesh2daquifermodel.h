@@ -123,7 +123,7 @@ public:
      * @param[in] index Index belonging to this model; invalid or out-of-range rows return
      * invalid data. Valid indices must have nonnegative rows.
      * @param[in] role Display/Edit expose values, ToolTip supplies parameter guidance, and
-     * Foreground greys the unused global target.
+     * Foreground grays the unused global target.
      * @return Role-specific QVariant or invalid for unsupported index/column/role. Cell targets
      * display one-based indices; global target is blank/dash. Unset soil/closure edits use -1,
      * explicit closure edits use combo indices, and negative hg0 displays model-default state.

@@ -49,7 +49,7 @@ SwmmElementSymbolEditor::SwmmElementSymbolEditor(SwmmElementSymbolAdapter *adapt
     symForm->addRow(tr("O&utline width:"), m_outlineWSpin);
 
     m_sizeSpin = new QDoubleSpinBox(this);
-    // Named so the Graduated panel can grey it while "Size by value" is on
+    // Named so the Graduated panel can gray it while "Size by value" is on
     // (feedback C2 — the base symbol group under classified renderers).
     m_sizeSpin->setObjectName(QStringLiteral("baseSymbolSize"));
     m_sizeSpin->setRange(0.5, 60.0);

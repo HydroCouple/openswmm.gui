@@ -123,7 +123,7 @@ private slots:
         UserFlagsDialog dlg(&model);
         dlg.setConfirmationsEnabled(false);
 
-        // Stage: drop DOOMED, add ASSET_ID (name normalised to uppercase).
+        // Stage: drop DOOMED, add ASSET_ID (name normalized to uppercase).
         dlg.table()->removeRow(0);
         dlg.addRow(QStringLiteral("asset_id"), FlagType::String, QStringLiteral("External AM id"));
         QVERIFY(dlg.applyChanges());

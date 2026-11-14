@@ -85,7 +85,7 @@ bool applyCellParam(SWMM2DMeshLayer *layer, int tri, const QByteArray &key, doub
         // Row-level edits ("assign this method and its five parameters") must
         // go through mesh::pushCellInfilEdit instead: only that command
         // snapshots PROVENANCE, so only its undo can put an inheriting cell
-        // back to inheriting rather than to a materialised copy.
+        // back to inheriting rather than to a materialized copy.
         mesh::ResolvedInfil cur = mesh::resolveInfil(layer->mesh(), tri);
         mesh::InfilRow next = cur.row;
         if (key == "infil.method") {
@@ -299,7 +299,7 @@ void MeshSetEdgeAttributeCommand::apply(const QVector<mesh::MeshEdgeBC> &bcs)
         const int tri = mesh::slotCell(m_slots[i]);
         const int e = mesh::slotLocal(m_slots[i]);
         if (conveyance) {
-            // Goes through the mirroring helper so the neighbour half of an
+            // Goes through the mirroring helper so the neighbor half of an
             // interior edge follows the value back on undo, exactly as it
             // followed it forward on redo.
             m_layer->applyMeshEdgeConveyance(tri, e, bcs[i].conveyance);
@@ -761,7 +761,7 @@ int pushCellInfilEdit(SWMM2DMeshLayer *layer, const QVector<int> &triangles, con
             continue;
         // Snapshot the RESOLVED row and where it came from. The provenance is
         // what makes undo faithful: without it an inheriting cell comes back
-        // as a materialised override carrying the same numbers.
+        // as a materialized override carrying the same numbers.
         const ResolvedInfil before = resolveInfil(m, t);
         // Already carrying this exact override — a genuine no-op. A cell that
         // merely INHERITS the same numbers still enters the command: writing

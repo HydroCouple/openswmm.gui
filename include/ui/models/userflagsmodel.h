@@ -40,7 +40,7 @@ public:
     Q_ENUM(FlagType)
 
     /*! One [USER_FLAGS] schema entry. Names are uppercase (engine
-     *  normalises on define). */
+     *  normalizes on define). */
     struct Def {
         QString name;
         FlagType type = FlagType::String;

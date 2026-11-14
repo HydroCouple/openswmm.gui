@@ -145,7 +145,7 @@ RainfallSeriesModel::Basis RainfallVisualizationDialog::basis() const
 QString RainfallVisualizationDialog::rainUnitLabel_() const
 {
     // Rain depth follows the FLOW_UNITS system: inches for US-customary
-    // (CFS/GPM/MGD), millimetres for SI (CMS/LPS/MLD).
+    // (CFS/GPM/MGD), millimeters for SI (CMS/LPS/MLD).
     const QString fu =
         m_layer
             ? m_layer->getOption(QByteArrayLiteral("FLOW_UNITS"), QStringLiteral("CFS")).toUpper()
@@ -389,7 +389,7 @@ void RainfallVisualizationDialog::rebuildCharts_()
 
     // ── Overlay ─────────────────────────────────────────────────────────────
     // Style cycle is keyed by the gage's position in the full list (not the
-    // plotted subset) so a gage keeps its colour when others are toggled.
+    // plotted subset) so a gage keeps its color when others are toggled.
     m_overlay.chart->removeAllSeries();
     int gi = -1;
     for (const auto &g : gages) {

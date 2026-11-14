@@ -7,7 +7,7 @@
  *
  * Slice BI Phase 8.13.43-α — DataDefinedScalar maps one numeric attribute
  * onto a scalar output range (typically symbol size in pixels). Test sweep:
- * curve correctness (Linear / Sqrt / Log), clamping behaviour, JSON
+ * curve correctness (Linear / Sqrt / Log), clamping behavior, JSON
  * round-trip, NaN handling and degenerate range fallback.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */

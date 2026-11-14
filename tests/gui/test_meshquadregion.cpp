@@ -7,7 +7,7 @@
  *
  * Quad redesign gate 2 (workplans/QUAD_MESHING_REDESIGN_PLAN_2026-09-06.md
  * §3, §4.1, §7.2) — QtTest coverage for the PSLG quad-region geometry
- * helpers in mesh/meshquadregion.h: ring normalisation, turning angles,
+ * helpers in mesh/meshquadregion.h: ring normalization, turning angles,
  * auto-classification (Mapped / Submapped / Free), single-region validation
  * against domains and holes, pairwise overlap checks, ring resampling and
  * point-in-ring.
@@ -249,7 +249,7 @@ private slots:
         QVector<int> corners;
         QCOMPARE(classifyQuadRegion(rect(0, 0, 10, 10), &corners), QuadRegionMode::Mapped);
         QCOMPARE(corners, QVector<int>({0, 1, 2, 3}));
-        // CW input classifies the same (normalised inside).
+        // CW input classifies the same (normalized inside).
         QPolygonF cw{QPointF(0, 0), QPointF(0, 5), QPointF(10, 5), QPointF(10, 0)};
         QCOMPARE(classifyQuadRegion(cw, &corners), QuadRegionMode::Mapped);
         QCOMPARE(corners.size(), 4);

@@ -782,7 +782,7 @@ void WCSLayer::onGetCoverageReply(QNetworkReply *reply, const MapExtent &trackin
 // ---------------------------------------------------------------------------
 
 /*!
- * Interpolates between two adjacent colour stops.
+ * Interpolates between two adjacent color stops.
  * Each stop is {normalised_position, r, g, b}.
  */
 struct ColorStop {
@@ -794,7 +794,7 @@ struct ColorStop {
  * @param[in] stops Required ordered array covering normalized zero through one with at least two stops.
  * @param[in] n Number of readable stops, at least two.
  * @param[in] t Finite normalized coordinate, clamped0..1.
- * @return Opaque interpolated integer RGB, truncating channel arithmetic; duplicate/nonincreasing adjacent stop span uses lower colour. No array validation.
+ * @return Opaque interpolated integer RGB, truncating channel arithmetic; duplicate/nonincreasing adjacent stop span uses lower color. No array validation.
  */
 static QRgb interpolateRamp(const ColorStop *stops, int n, double t)
 {
@@ -811,9 +811,9 @@ static QRgb interpolateRamp(const ColorStop *stops, int n, double t)
 
 /*!
  * Hypsometric tint — earth tones from deep green (low) to near-white (high).
- * Works on a normalised 0–1 elevation scale so it adapts to any data range.
+ * Works on a normalized 0–1 elevation scale so it adapts to any data range.
  * @param[in] t Finite normalized scalar, clamped0..1 by interpolateRamp().
- * @return Opaque RGB colour. Fixed earth-tone elevation ramp.
+ * @return Opaque RGB color. Fixed earth-tone elevation ramp.
  */
 static QRgb hypsometricColor(double t)
 {
@@ -822,7 +822,7 @@ static QRgb hypsometricColor(double t)
         {0.20, 148, 193, 91},  // light green
         {0.40, 217, 201, 120}, // straw / tan
         {0.60, 191, 140, 80},  // brown-orange
-        {0.80, 163, 130, 110}, // grey-brown
+        {0.80, 163, 130, 110}, // gray-brown
         {1.00, 235, 235, 235}, // near-white (snow / high rock)
     };
     return interpolateRamp(stops, std::size(stops), t);
@@ -832,7 +832,7 @@ static QRgb hypsometricColor(double t)
  * Viridis-inspired ramp for generic single-band scientific data.
  * Purple → blue → teal → green → yellow-green.
  * @param[in] t Finite normalized scalar, clamped0..1 by interpolateRamp().
- * @return Opaque RGB colour. Fixed viridis-inspired scalar ramp.
+ * @return Opaque RGB color. Fixed viridis-inspired scalar ramp.
  */
 static QRgb viridisColor(double t)
 {
@@ -848,7 +848,7 @@ static QRgb viridisColor(double t)
  * Checks the band's unit-type metadata and common DEM keywords in the ID.
  * @param[in] band Required borrowed GDAL band, read for unit-type metadata.
  * @param[in] coverageId Case-insensitive identifier searched for DEM/DTM/DSM/elevation/terrain and related substrings.
- * @return True for common metre/foot unit tokens or a matching keyword. This heuristic selects relief styling, not an actual vertical-unit conversion; false otherwise.
+ * @return True for common meter/foot unit tokens or a matching keyword. This heuristic selects relief styling, not an actual vertical-unit conversion; false otherwise.
  */
 static bool isDemBand(GDALRasterBand *band, const QString &coverageId)
 {
@@ -873,12 +873,12 @@ static bool isDemBand(GDALRasterBand *band, const QString &coverageId)
  * The Sobel gradient is applied in the raster's own coordinate units.
  * \p cellSizeX / \p cellSizeY are the pixel sizes in those units.
  * For geographic CRS (degrees) a z-factor of 1/111111 converts the
- * horizontal unit to the approximate metre scale of the elevation values.
- * @param[in] elev Stable finite row-major elevation samples covering w*h entries; neighbour nodata is not replaced.
+ * horizontal unit to the approximate meter scale of the elevation values.
+ * @param[in] elev Stable finite row-major elevation samples covering w*h entries; neighbor nodata is not replaced.
  * @param[in] w,h Positive raster dimensions.
  * @param[in] cellSizeX,cellSizeY Positive finite pixel spacings in source horizontal units. X spacing below0.01 selects heuristic1/111111 z factor, without inspecting actual CRS/latitude/vertical units.
  * @param[in] vMin,vMax Finite stretch extrema; nonincreasing range substitutes one.
- * @param[in] hasNoData Nonzero enables centre-pixel nodata transparency.
+ * @param[in] hasNoData Nonzero enables center-pixel nodata transparency.
  * @param[in] noDataValue Finite nodata marker compared within absolute1e-6.
  * @return Owned ARGB relief using clamped-edge Sobel gradient,315degree azimuth/45degree altitude and hypsometric tint multiplied by shade; no georeferencing or source mutation. Callers must provide finite valid samples/spacings to keep arithmetic representable.
  */
@@ -896,7 +896,7 @@ static QImage computeShadedRelief(const std::vector<float> &elev, int w, int h, 
 
     const float range = (vMax > vMin) ? (vMax - vMin) : 1.0f;
 
-    // Clamped neighbour accessor
+    // Clamped neighbor accessor
     auto e = [&](int px, int py) -> double {
         px = std::clamp(px, 0, w - 1);
         py = std::clamp(py, 0, h - 1);
@@ -999,14 +999,14 @@ QImage WCSLayer::decodeGdalImage(const QByteArray &data) const
         // ── Single-band scalar raster ──────────────────────────────────────
         GDALRasterBand *band = ds->GetRasterBand(1);
 
-        // Honour the NoData value so ocean / void areas stay transparent.
+        // Honor the NoData value so ocean / void areas stay transparent.
         int hasNoData = 0;
         double noDataVal = band->GetNoDataValue(&hasNoData);
 
         std::vector<float> buf(static_cast<size_t>(srcW * srcH));
         band->RasterIO(GF_Read, 0, 0, srcW, srcH, buf.data(), srcW, srcH, GDT_Float32, 0, 0);
 
-        // Compute min/max ignoring NoData so the colour stretch is correct.
+        // Compute min/max ignoring NoData so the color stretch is correct.
         float vMin = std::numeric_limits<float>::max();
         float vMax = -std::numeric_limits<float>::max();
         for (float v : buf) {

@@ -58,7 +58,7 @@ struct LoadUnits {
 };
 
 /*!
- * \brief Litres per second carried by one unit of the `.out` flow code.
+ * \brief Liters per second carried by one unit of the `.out` flow code.
  * \param flowUnitsCode 0 CFS, 1 GPM, 2 MGD, 3 CMS, 4 LPS, 5 MLD.
  * \return Exact factor, or NaN for an unknown code.
  */
@@ -86,7 +86,7 @@ QString rateKey(const QString &species);
 /** @return Key of the cumulative-load descriptor for \p species. */
 QString cumulativeKey(const QString &species);
 /*!
- * \brief Recognise a load key.
+ * \brief Recognize a load key.
  * \param[out] species Decoded species name on success.
  * \param[out] cumulative True for the cumulative key.
  * \return False for any other key (outputs untouched).
@@ -101,7 +101,7 @@ bool isLoadDescriptor(const ResultDescriptor &d);
  */
 QString loadNote(bool link);
 /*!
- * \brief Load-rate descriptor for \p species, labelled with \p units:
+ * \brief Load-rate descriptor for \p species, labeled with \p units:
  *        "<sp> load (flow × concentration at report steps)", "net load" on
  *        a link; its note is \ref loadNote. The key is the same for both.
  */

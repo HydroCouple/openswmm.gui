@@ -33,7 +33,7 @@ struct InitialQualityEditRef {
     int isLink = 0;               ///< 0 = node scope, 1 = link scope
     QString elementName;          ///< Owning element id (case-preserved)
     QString summary;              ///< Short text shown in the cell
-    bool wroteChanges = false;    ///< Editor has applied changes, even if it was cancelled
+    bool wroteChanges = false;    ///< Editor has applied changes, even if it was canceled
 
     /**
      * @brief Compare reference identity and every cached display/value field.

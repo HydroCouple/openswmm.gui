@@ -194,7 +194,7 @@ void TestDialogA11yStandalone::namedColorButtonPasses_data()
  *
  * @brief Require a textless/iconless color swatch to expose its contextual name and pass shared
  * assertions.
- * Checks exact Corridor colour before/after validation for both explicit and mnemonic
+ * Checks exact Corridor color before/after validation for both explicit and mnemonic
  * buddy naming. Local dialog owns child controls; no color picker is opened.
  *
  */

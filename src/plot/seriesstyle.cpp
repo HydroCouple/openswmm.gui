@@ -1,9 +1,9 @@
 /**
  * @file      seriesstyle.cpp
  * @brief     One `SeriesStyle` describes everything the chart needs to render a single line on a
- *            `QChart`: pen (colour / width / dash / cap / join), marker (visible / shape / size /
- *            fill / border), point labels (visible / font / colour / precision), area fill
- *            (visible / colour), opacity, and a user-editable legend name.
+ *            `QChart`: pen (color / width / dash / cap / join), marker (visible / shape / size /
+ *            fill / border), point labels (visible / font / color / precision), area fill
+ *            (visible / color), opacity, and a user-editable legend name.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
@@ -189,8 +189,8 @@ namespace
 {
 
 /**
- * @brief Encode an optional colour while preserving its alpha.
- * @param[in] c Colour, possibly invalid.
+ * @brief Encode an optional color while preserving its alpha.
+ * @param[in] c Color, possibly invalid.
  * @return HexArgb string for valid input, empty for invalid.
  */
 QString colorToJsonString(const QColor &c)
@@ -199,9 +199,9 @@ QString colorToJsonString(const QColor &c)
 }
 
 /**
- * @brief Decode an optional persisted colour.
+ * @brief Decode an optional persisted color.
  * @param[in] v JSON string; nonstrings/empty strings are treated as unset.
- * @return Parsed QColor, possibly invalid for unset or unrecognized colour text.
+ * @return Parsed QColor, possibly invalid for unset or unrecognized color text.
  */
 QColor colorFromJson(const QJsonValue &v)
 {
@@ -344,7 +344,7 @@ namespace
 /**
  * @brief Rasterize a style's marker glyph for an existing scatter overlay.
  * @param[in] style Marker size/shape/fill/border and opacity; dimensions should be finite nonnegative pixels and opacity within [0,1].
- * @return Transparent-background antialiased pixmap at least four pixels per side. Border is suppressed at nonpositive width; cross/plus use fill colour strokes. No device-pixel scaling is applied.
+ * @return Transparent-background antialiased pixmap at least four pixels per side. Border is suppressed at nonpositive width; cross/plus use fill color strokes. No device-pixel scaling is applied.
  */
 QPixmap buildMarkerPixmap(const SeriesStyle &style)
 {

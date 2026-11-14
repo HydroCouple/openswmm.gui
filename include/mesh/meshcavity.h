@@ -144,7 +144,7 @@ struct MeshCavityFill {
  * @param[in] outlinePoints Borrowed optional finite samples; only true exterior outline edges
  * may split. Cuts within 1e-8 coordinate units of a segment are considered and too-close
  * optional cuts may be skipped.
- * @param[in] quality Borrowed CDT refinement/budget settings in mesh units; cancelled is polled
+ * @param[in] quality Borrowed CDT refinement/budget settings in mesh units; canceled is polled
  * throughout and must not mutate inputs. Interface edges are fixed, true exterior constraints
  * may subdivide.
  * @param[in] elevation Required nonempty synchronous callable returning elevation in mesh

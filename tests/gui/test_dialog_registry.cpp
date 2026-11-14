@@ -9,10 +9,10 @@
 //     than shuffling it back to open order
 //   - hiding/closing drops the entry; destruction can never leave a dangling
 //     pointer in the list
-//   - the stacking mode honours the OPENSWMM_DIALOG_STACKING override
+//   - the stacking mode honors the OPENSWMM_DIALOG_STACKING override
 //
 // Runs on the offscreen QPA platform, so this exercises bookkeeping, not
-// real window-server stacking. Actual z-order behaviour on a multi-monitor
+// real window-server stacking. Actual z-order behavior on a multi-monitor
 // Mac is covered by the manual checklist in the verification document.
 
 /**
@@ -67,12 +67,12 @@ protected:
 // The registry is installed as a filter on the individual dialog rather than
 // on qApp: that drives the REAL eventFilter() path (calling it directly is
 // not possible — it is protected) without leaking tracking between test
-// functions. WindowActivate in particular is not synthesised by the
+// functions. WindowActivate in particular is not synthesized by the
 // offscreen platform from an ordinary show(), so it has to be sent by hand.
 //
 // The concrete QShowEvent/QCloseEvent subclasses matter: QWidget::event()
 // downcasts by type, so handing it a bare QEvent with those type tags is
-// formally undefined behaviour even though the subclasses add no members.
+// formally undefined behavior even though the subclasses add no members.
 
 /**
  *

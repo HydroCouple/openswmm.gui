@@ -190,7 +190,7 @@ static int resolvedTerrainCacheMiB(int requested)
  * succeed to transform". The per-point \c pabSuccess array is authoritative,
  * so this always passes one and ignores the scalar result.
  *
- * OGR leaves HUGE_VAL in a slot it could not transform. Canonicalising to NaN
+ * OGR leaves HUGE_VAL in a slot it could not transform. Canonicalizing to NaN
  * matters for two reasons:
  *
  *  - NaN is already the pipeline's "no value" sentinel (DTMRaster,
@@ -262,7 +262,7 @@ static bool transformCheckedPt(OGRCoordinateTransformation *ct, double &x, doubl
 /**
  * @brief Translate optional SI-canonical resolution into worker map/elevation fields.
  * @param[in,out] in Owned worker inputs, requiring validated settings and finite positive
- * horizontal/vertical metre-per-unit scales when resolution exists; absent resolution is a no-op.
+ * horizontal/vertical meter-per-unit scales when resolution exists; absent resolution is a no-op.
  * Writes sizes/tolerances/area limits/refinement/terrain/reference/caps; zero optional maximum
  * means unbounded. Does not open files or validate scales itself.
  */
@@ -957,7 +957,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
 
             // Minimum node separation: a candidate within minSep of an
             // already-kept node is NOT pinned as a mesh vertex (two pinned
-            // vertices centimetres apart force tiny triangles in the initial
+            // vertices centimeters apart force tiny triangles in the initial
             // constrained triangulation, before any quality pass can act).
             // Demoted nodes stay in couplingNodes, so the post-generation
             // mapper couples them via their containing CELL instead.
@@ -1703,7 +1703,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     }
 
     // elevCache — keeps exact z values for every point we place as a
-    // Steiner vertex.  Keyed by quantised mesh-CRS (x,y) at 1e7 precision.
+    // Steiner vertex.  Keyed by quantized mesh-CRS (x,y) at 1e7 precision.
     // The post-mesh elevation loop consults this first so those vertices
     // are never re-sampled.
     QHash<QPair<qint64, qint64>, double> elevCache;
@@ -1714,7 +1714,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     QVector<QPointF> seedXY;
     QVector<double> seedZ;
 
-    // Provenance: keys (same quantisation as elevCache) whose z is already in
+    // Provenance: keys (same quantization as elevCache) whose z is already in
     // model/mesh vertical units (rim, feature Z, flattened terrain).  These
     // are excluded from the zConversionFactor multiply, which only applies to
     // raster-unit DTM samples.
@@ -1742,7 +1742,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     // When nodes use rim elevation and a flatten radius is set, terrain and
     // refinement vertices within radius of a node are forced to that node's
     // rim z.  Spatial hash with cell size = radius (mirrors the Poisson-disk
-    // grid below); a 3×3 neighbour scan is guaranteed to find any node within
+    // grid below); a 3×3 neighbor scan is guaranteed to find any node within
     // the radius.  flattenZ() returns the nearest in-range rim z, or NaN.
     const bool doFlatten = in.nodesUseRim && in.nodeFlattenRadius > 0.0 && !in.nodeRimXY.isEmpty();
     const double flatR2 = in.nodeFlattenRadius * in.nodeFlattenRadius;
@@ -1885,7 +1885,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
         }
 
     // Size field inputs (MESH_OVERHAUL_PLAN_2026-09-29.md Stage 2): the
-    // cell size at features, the slope from the neighbour ratio, the floor
+    // cell size at features, the slope from the neighbor ratio, the floor
     // and the coarsening cap. Built after the DTM block so the terrain
     // term can be sampled.
     mesh::SizeFieldOptions sizeOptions;
@@ -2026,7 +2026,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                 return;
             }
             // DEM linear unit → mesh unit, from the transform's local scale
-            // at the domain centre (1 when the CRSs match).
+            // at the domain center (1 when the CRSs match).
             double unitScale = 1.0;
             if (dtmToMesh) {
                 const double cx = (dx0 + dx1) * 0.5, cy = (dy0 + dy1) * 0.5;
@@ -2225,7 +2225,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
                         reporter.line(meshkit::Severity::Info)
                             << "[Mesh][cache] terrain break lines stored";
                     // Many short chains = the tolerance is inside the DEM's noise
-                    // (SRTM stores whole metres: anything under ~3 m traces noise).
+                    // (SRTM stores whole meters: anything under ~3 m traces noise).
                     if (lines.size() > 500 && medianLength < 10)
                         reporter.line(meshkit::Severity::Warning)
                             << "[Mesh][terrain]" << lines.size() << "short break lines (median"
@@ -2642,7 +2642,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     for (const mesh::QuadRegionReport &rep : g.quadRegionReports()) {
         if(in.genOpts.unifiedCellPlanning)break; // Bounded decisions and complete totals above.
         if (rep.index >= quadRegions.size())
-            break; // open blocks are summarised above
+            break; // open blocks are summarized above
         reporter.line(meshkit::Severity::Info).nospace()
             << "[Mesh][quad] region " << rep.index << (rep.accepted ? " accepted" : " skipped")
             << (rep.resolved == mesh::QuadRegionMode::Mapped ? " | quads" : " | triangles")
@@ -2730,7 +2730,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             const qsizetype cn = std::min(kElevChunk, missIdx.size() - base);
             // A vertex PROJ cannot convert becomes NaN, sampleMany() answers
             // NaN, and the DEM-coverage fill below interpolates it from its
-            // neighbours — same treatment as a NoData hole, which is the right
+            // neighbors — same treatment as a NoData hole, which is the right
             // outcome. Logged so a wholesale CRS failure is distinguishable
             // from genuine DEM gaps.
             const qsizetype nFail =
@@ -2768,8 +2768,8 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
         // No DTM: interpolate vertex z from the scattered seeds (junction rims
         // + 3D feature Z).  Two methods, user-selectable:
         //   IDW              — Shepard's method with configurable power p
-        //                      (w = 1/d^p); exactly honours seeds.
-        //   Natural neighbour — Sibson / Laplace; smoother, no bullseyes.
+        //                      (w = 1/d^p); exactly honors seeds.
+        //   Natural neighbor — Sibson / Laplace; smoother, no bullseyes.
         //                      Defined only inside the seed convex hull, so it
         //                      falls back to IDW outside the hull / on failure.
         if (seedXY.isEmpty()) {
@@ -2782,7 +2782,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
 
         const double pw = in.idwPower; // configurable Shepard exponent
 
-        // Build the natural-neighbour interpolator once (fewer than 3 unique
+        // Build the natural-neighbor interpolator once (fewer than 3 unique
         // seeds or collinear seeds → nnReady stays false → IDW for everything).
         mesh::NaturalNeighbourInterpolator nn;
         bool nnReady = false;
@@ -2813,7 +2813,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
             double zval = 0.0;
             bool haveZ = false;
 
-            // Natural neighbour (inside hull); NaN → fall through to IDW.
+            // Natural neighbor (inside hull); NaN → fall through to IDW.
             if (nnReady) {
                 const double zn = nn.interpolate(vx, vy);
                 if (std::isfinite(zn)) {
@@ -2887,7 +2887,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     //
     // Fill from the vertices that DID resolve, propagating over the mesh's
     // own edges — each unresolved vertex takes the mean of its resolved
-    // neighbours, sweeping until the front stops advancing. Same intent as
+    // neighbors, sweeping until the front stops advancing. Same intent as
     // the no-DTM branch's interpolation, without its cost: seeding
     // NaturalNeighbourInterpolator with the covered set would trigger a
     // second Delaunay triangulation of up to millions of points, and IDW
@@ -2909,14 +2909,14 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
 
             // CSR adjacency from the triangle list. Duplicates are left in
             // (a vertex shared by k triangles appears k times), which weights
-            // each neighbour by the number of triangles it shares with the
-            // centre — an umbrella weighting, and cheaper than deduping.
+            // each neighbor by the number of triangles it shares with the
+            // center — an umbrella weighting, and cheaper than deduping.
             // Offsets are qsizetype: 6 x nTriangles overflows int at ~358 M
             // triangles. Vertex indices come pre-validated by MeshGenerator
             // (checked against the generated vertex count at copy-out), but
             // this is a heap WRITE on the nodata-only path, so guard anyway.
             // A quad (patch cell) contributes its four ring edges, not a
-            // diagonal — the same neighbourhood the engine's median dual uses.
+            // diagonal — the same neighborhood the engine's median dual uses.
             /**
              * @brief Check cell ring vertex indices before constructing adjacency. Argument `t`:
              * borrowed triangle/quad. Returns: true only when each declared ring index is in
@@ -2995,7 +2995,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
 
             // Pass B — relax. Pass A propagates inward from the hole boundary
             // and writes each vertex once, so a wide hole comes out flattened
-            // toward its centre (measured on a synthetic plane: 5.70 elevation
+            // toward its center (measured on a synthetic plane: 5.70 elevation
             // units of error across a 13x13 hole). Relaxing the filled set
             // with the covered vertices held fixed converges to the discrete
             // harmonic interpolant, which carries a linear terrain gradient
@@ -3060,7 +3060,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
 
     // Note: XY are written in project-CRS units (no GUI-side conversion).
     // The engine multiplies by 0.3048 in SurfaceRouter2D::initialize when
-    // SWMM FLOW_UNITS is US.  When the engine has been updated to honour
+    // SWMM FLOW_UNITS is US.  When the engine has been updated to honor
     // `;; UNITS: SI (m)`, a future producer could opt into SI on disk.
 
     // ── CouplingMap ──────────────────────────────────────────────────
@@ -3138,7 +3138,7 @@ static void runMeshPipelineImpl(QPromise<MeshGenerationDialog::PipelineResult> &
     // ── Region infiltration defaults (GG0d, GUI plan §3.3) ───────────
     // Copied across as ROWS, not stamped per cell: engine decision D-I3 has
     // the engine resolve `override > tag row > '*' row > none` itself, and
-    // materialising a per-cell row for every triangle here would flatten that
+    // materializing a per-cell row for every triangle here would flatten that
     // inheritance and freeze the assignment. result.infilOverrides stays
     // untouched — mesh generation authors no per-cell infiltration at all.
     result.infilDefaults = in.infilDefaults;
@@ -4280,7 +4280,7 @@ void MeshGenerationDialog::buildUi()
         f->addRow(tr("IDW power:"), m_idwPowerSpin);
 
         /**
-         * @brief Show the NN weighting choice only as enabled for natural-neighbour mode. Takes no
+         * @brief Show the NN weighting choice only as enabled for natural-neighbor mode. Takes no
          * arguments and returns no value; IDW exponent remains available for fallback.
          */
         auto syncElevInterp = [this] {
@@ -5490,7 +5490,7 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut, b
     out->genOpts.quadsBetweenBreaklines = m_streetQuadsBox->isChecked() && out->quadMode != 0;
     out->conduitStripWidth = m_conduitStripSpin->value();
 
-    // ── Mesh CRS — initialised first so every source can reproject to it ──
+    // ── Mesh CRS — initialized first so every source can reproject to it ──
     // All PSLG inputs (domain polygons, hole rings, constraint segments,
     // Steiner points) must be in the same CRS before triangulation runs.
     // The SWMM model's native CRS is the authoritative mesh CRS; everything
@@ -5512,9 +5512,9 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut, b
         }
 
     // ── Frame validity: mesh CRS must be planar with a known linear unit ──
-    // Engine consumes vertex XY as SI metres. Capture the conversion factor
+    // Engine consumes vertex XY as SI meters. Capture the conversion factor
     // here and refuse to mesh when the project CRS cannot be expressed in
-    // metres (geographic CRS, undefined units, non-finite scale).
+    // meters (geographic CRS, undefined units, non-finite scale).
     if (auto *srs = layer->srs()) {
         const auto lui = srs->planarLinearUnit();
         if (!lui.usable) {
@@ -5754,7 +5754,7 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut, b
         if (!vp || !vp->ogrLayer())
             continue;
 
-        // useFZ: read feature Z as elevation (only honoured for 3D layers).
+        // useFZ: read feature Z as elevation (only honored for 3D layers).
         // When no DTM is selected and the layer cannot supply Z, the points
         // have no elevation source → hard-block.
         const bool useFZ = rowP.useZ && rowP.useZ->isChecked() && rowP.is3D;
@@ -6076,7 +6076,7 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut, b
         for (const auto &r : rows) {
             // Row 0 is '*', whose values are already in manningsN/initDepth
             // above; a region row with both cells blank is still inheriting
-            // and must not be materialised.
+            // and must not be materialized.
             if (r.tag == QLatin1String("*"))
                 continue;
             const bool hasN = !std::isnan(r.manningsN);
@@ -6099,7 +6099,7 @@ bool MeshGenerationDialog::collectInputs(PipelineInputs *out, QString *errOut, b
                 (verticalUnit == QLatin1String("auto") && !UnitSystem::instance()->isSI())
             ? .3048
             : 1.0;
-    // The tolerance control is labelled in the model's length unit. Compare
+    // The tolerance control is labeled in the model's length unit. Compare
     // it in the same output vertical unit as the generated vertex heights.
     out->terrainTolerance *= (UnitSystem::instance()->isSI() ? 1.0 : .3048) / out->verticalUnitToSI;
 

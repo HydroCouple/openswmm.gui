@@ -21,7 +21,7 @@ namespace openswmmvis::plot
 /** @brief Immutable dataset adapter; GUI calls never perform observation database reads.
  * @details Workers own their database handles. Published display buffers are capped at 12000
  * points per series; exact summaries are computed separately from all selected samples. Raw
- * source times remain in the dataset. Calendar dates use an explicitly labelled calendar axis,
+ * source times remain in the dataset. Calendar dates use an explicitly labeled calendar axis,
  * without suggesting midnight UTC observations. No model clock or fit pairing is inferred. */
 class TimeSeriesRunLayer final : public QObject, public IRunLayer
 {

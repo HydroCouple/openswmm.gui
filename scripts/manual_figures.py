@@ -3,7 +3,7 @@
 
 The manual declares every screenshot twice-over:
 
-    \\figtodo{07_layers_panel.png, caption}   placeholder — renders a grey box
+    \\figtodo{07_layers_panel.png, caption}   placeholder — renders a gray box
     \\fig{07_layers_panel.png, caption}       the real thing
 
 Capturing a figure (scripts/capture_manual_figures.sh) stages a PNG under

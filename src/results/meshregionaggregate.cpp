@@ -50,7 +50,7 @@ bool massFactorForUnits(const QString &concentrationUnits, double *factor, QStri
         f = 1.0;
     else if (u == QLatin1String("COUNT/L") || u == QLatin1String("COUNTS/L") ||
              u == QLatin1String("#/L")) {
-        f = 1000.0; // per litre -> per m3
+        f = 1000.0; // per liter -> per m3
         mass = QStringLiteral("count");
     } else
         return false;

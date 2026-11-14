@@ -33,7 +33,7 @@ QColor interpRgb(const QColor &c0, const QColor &c1, double f)
         c0.blueF() + f * (c1.blueF() - c0.blueF()), c0.alphaF() + f * (c1.alphaF() - c0.alphaF()));
 }
 
-// Achromatic colours (black / white / pure gray) have hue == -1 in Qt.
+// Achromatic colors (black / white / pure gray) have hue == -1 in Qt.
 // When one endpoint is achromatic, hue interpolation is undefined; we
 // fall back to RGB interpolation in that case so the result is sensible.
 // Qt 6's QColor::getHsvF expects `float *`; cast carefully on read.
@@ -204,7 +204,7 @@ RasterColorRamp RasterColorRamp::fromJson(const QJsonObject &j)
     return r;
 }
 
-// ─── Built-in catalogue ─────────────────────────────────────────────────────
+// ─── Built-in catalog ─────────────────────────────────────────────────────
 //
 // All sequential built-ins use 5–9 RGB stops sampled from the standard
 // matplotlib / ColorBrewer / SWMM5 palettes. Custom user-authored ramps
@@ -350,7 +350,7 @@ RasterColorRamp RasterColorRamp::legacySWMM5Interval(double min, double max)
     RasterColorRamp r;
     r.minValue = min;
     r.maxValue = max;
-    // Legacy SWMM-5 GUI uses 5 evenly-spaced interval colours.
+    // Legacy SWMM-5 GUI uses 5 evenly-spaced interval colors.
     // Cool→warm progression matches the historic palette.
     r.stops = {
         {0.00, QColor(0, 0, 255)},   // blue
@@ -397,7 +397,7 @@ RasterColorRamp RasterColorRamp::terrain(double min, double max)
 // ─── Slice BB-β (2026-05-25) — Plotly continuous palettes ───────────────────
 //
 // Stops sourced from plotly.colors.sequential / .diverging. Each palette
-// uses 7–11 stops at evenly-spaced positions. The Plotly catalogue is a
+// uses 7–11 stops at evenly-spaced positions. The Plotly catalog is a
 // reasonable target for users coming from dash / plotly workflows.
 
 RasterColorRamp RasterColorRamp::plotly3(double min, double max)
@@ -566,7 +566,7 @@ struct BuiltinEntry {
 /**
  * @brief Borrow the immutable built-in palette registry.
  * @return Process-lifetime static array of internal keys, display labels, and factory
- *         pointers, in UI catalogue order. Callers neither modify nor free the entries.
+ *         pointers, in UI catalog order. Callers neither modify nor free the entries.
  */
 const std::array<BuiltinEntry, 25> &builtinTable()
 {

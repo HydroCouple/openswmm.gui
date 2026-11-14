@@ -6,7 +6,7 @@
  * @brief     Display Options dialog for the profile plot — a tabbed dialog with
  *         a QPropertyModel-backed tree view that edits a `ProfilePlotOptions`
  *         instance (Display tab) plus a Sources tab that lets the user
- *         toggle, recolour, rename and add comparison-output sources.
+ *         toggle, recolor, rename and add comparison-output sources.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -78,7 +78,7 @@ public slots:
 
 signals:
     /*!
-     * \brief Emitted when the user toggles visibility, edits a colour, or
+     * \brief Emitted when the user toggles visibility, edits a color, or
      *        renames a source.  The host dialog should call rebindSources()
      *        + populateSourcesPanel() to update the plot + toolbar.
      * @note Also emitted after restore even with zero changes, and forwarded style-adapter

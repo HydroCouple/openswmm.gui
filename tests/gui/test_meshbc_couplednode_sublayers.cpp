@@ -3,7 +3,7 @@
  * @brief     Contract tests for the two sublayers carved out of the mesh
  *         edge/vertex style bags (mesh styling restructure):
  *           - MeshBcSublayer / MeshBcStyle — BC indicator ring with
- *             per-type visibility, colours, widths; legacy MeshEdgeStyle
+ *             per-type visibility, colors, widths; legacy MeshEdgeStyle
  *             JSON seeding (the migration core).
  *           - CoupledNodeSublayer / CoupledNodeStyle — SWMM-coupled vertex
  *             markers, formerly MeshNodeStyle's tagged* group.
@@ -204,7 +204,7 @@ void TestMeshBcCoupledNodeSublayers::meshBc_customized_flag()
 
 void TestMeshBcCoupledNodeSublayers::meshBc_legacy_edgeJson_seeding()
 {
-    // A legacy MeshEdgeStyle JSON: per-type colours under bc*-prefixed keys,
+    // A legacy MeshEdgeStyle JSON: per-type colors under bc*-prefixed keys,
     // one pre-per-type shared "bcWidthPx", and one per-type width override.
     QJsonObject legacy;
     legacy[QStringLiteral("bcStageConstColor")] = QColor(11, 22, 33, 44).name(QColor::HexArgb);

@@ -201,7 +201,7 @@ QWidget *RasterSymbologyPanel::buildPalettedPage()
         auto *p = paletted();
         if (!p)
             return;
-        // Re-colour every class from the new palette, keeping values/labels.
+        // Re-color every class from the new palette, keeping values/labels.
         p->setPaletteName(name);
         const QList<QColor> pal = CategoricalPalette::byName(name);
         QList<PalettedRasterRenderer::Class> classes = p->classes();

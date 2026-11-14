@@ -25,11 +25,11 @@ double cross(QPointF a, QPointF b)
 {
     return a.x() * b.y() - a.y() * b.x();
 }
-/** @brief Transform a physical vector by the triangle's affine metre-to-scene map.
- * @param in Native triangle with finite nondegenerate metre coordinates.
+/** @brief Transform a physical vector by the triangle's affine meter-to-scene map.
+ * @param in Native triangle with finite nondegenerate meter coordinates.
  * @param mesh Shared scene geometry with valid corresponding vertex indices.
  * @param cell In-range triangle index.
- * @param v Physical vector in metre-based units (e.g. m/s).
+ * @param v Physical vector in meter-based units (e.g. m/s).
  * @return Corresponding scene-space vector (e.g. scene units/s), without
  * translation. No bounds, degeneracy or finite checks are performed here. */
 QPointF toScene(const FlowParticleNativeTriangle &in, const FlowParticleMesh &mesh, int cell,
@@ -42,9 +42,9 @@ QPointF toScene(const FlowParticleNativeTriangle &in, const FlowParticleMesh &me
            (mesh.vertices[ids[2]] - mesh.vertices[ids[0]]) * (cross(ab, v) / det);
 }
 /** @brief Outward normal of the edge opposite a corner, scaled by the edge length.
- * @param in Native triangle with finite metre coordinates.
+ * @param in Native triangle with finite meter coordinates.
  * @param e Corner index in [0,2]; the edge joins the other two corners.
- * @return Metre-space normal pointing away from corner e; zero for a degenerate edge. */
+ * @return Meter-space normal pointing away from corner e; zero for a degenerate edge. */
 QPointF outwardNormal(const FlowParticleNativeTriangle &in, int e)
 {
     const auto edge = in.metres[(e + 2) % 3] - in.metres[(e + 1) % 3];
@@ -55,7 +55,7 @@ QPointF outwardNormal(const FlowParticleNativeTriangle &in, int e)
 }
 /** @brief Test whether a stored cell velocity can move particles.
  * @param in Native triangle packet.
- * @param cutoff Depth threshold in metres.
+ * @param cutoff Depth threshold in meters.
  * @return True for an available velocity-only packet with finite coordinates, a finite
  * nondegenerate area, finite velocity and mean depth above the cutoff. */
 bool wetVelocity(const FlowParticleNativeTriangle &in, double cutoff)
@@ -73,9 +73,9 @@ bool wetVelocity(const FlowParticleNativeTriangle &in, double cutoff)
 /** @brief Average stored cell velocities onto shared mesh vertices.
  * @param in Capture whose mesh adjacency is prepared.
  * @param[out] walls Per triangle, bit e marks a closed wall on the edge opposite corner e.
- * @return Metre-space velocity (m/s) per mesh vertex. Each wet velocity-only triangle votes
+ * @return Meter-space velocity (m/s) per mesh vertex. Each wet velocity-only triangle votes
  * with weight meanDepth x corner angle, so splitting a quad along a diagonal does not change
- * the vote of the cell. Vertices without a wet vote stay zero. On a wall (no wet neighbour
+ * the vote of the cell. Vertices without a wet vote stay zero. On a wall (no wet neighbor
  * and a known native face flux that is not outward) the outward normal component is removed
  * at both edge vertices, so particles slide along the wall instead of stopping on it. Edges
  * with unknown native flux are left open, because they may be outflow boundaries. */

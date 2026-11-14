@@ -43,7 +43,7 @@ class LegendDock : public QDockWidget
 public:
     /**
      * @param[in] parent Optional QWidget owner.
-     * @brief Build owned single-selection legend tree/colour delegate/context menu routing,
+     * @brief Build owned single-selection legend tree/color delegate/context menu routing,
      *   initially without legend model or canvas. GUI-thread only; no rendering edits at
      *   construction.
      */

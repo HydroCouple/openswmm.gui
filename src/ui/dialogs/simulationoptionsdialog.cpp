@@ -175,7 +175,7 @@ void SimulationOptionsDialog::buildUi()
     m_categoryList = new QListWidget(this);
     // Named so the restructure's gate tests can reach the sidebar by
     // objectName instead of a friend declaration. A QListWidget is not one of
-    // the types dialoglayoutpersistence saves, so this does not enrol it.
+    // the types dialoglayoutpersistence saves, so this does not enroll it.
     m_categoryList->setObjectName(QStringLiteral("categories"));
     m_categoryList->setMinimumWidth(190);
     split->addWidget(m_categoryList);
@@ -353,7 +353,7 @@ void SimulationOptionsDialog::buildUi()
 
     // Mesh configurations — file-management UI, lives outside any
     // OPENSWMM_HAS_2D guard because picking a *.2dm reference is a pure
-    // GUI concern (the engine 2D solver isn't required to organise mesh
+    // GUI concern (the engine 2D solver isn't required to organize mesh
     // candidates). Always editable: creating/selecting a mesh is what
     // turns on the 2D module, not the other way around.
     {
@@ -553,7 +553,7 @@ void applyTabGate(QTabWidget *tabs, int idx, bool on, const QString &reason)
         return;
     tabs->setTabEnabled(idx, on);
     tabs->setTabToolTip(idx, on ? QString() : reason);
-    // Never leave a greyed tab showing: switching FLOW_ROUTING while viewing
+    // Never leave a grayed tab showing: switching FLOW_ROUTING while viewing
     // the tab that just went away must land somewhere usable.
     if (!on && tabs->currentIndex() == idx) {
         for (int i = 0; i < tabs->count(); ++i) {
@@ -835,7 +835,7 @@ void SimulationOptionsDialog::onApply()
     if (!applyPass())
         return;
     // Re-read after write so the controls reflect whatever the engine
-    // actually accepted (some keys may be clamped or normalised).
+    // actually accepted (some keys may be clamped or normalized).
     readFromEngine();
 }
 

@@ -243,7 +243,7 @@ void FlowParticleNode::sync(std::shared_ptr<const OpenSWMM::Render::FlowParticle
                     ribbon->vertices.size() * sizeof(Vertex));
     if (m_window && ribbon && !ribbon->timing.empty()) {
         // Preserve raw RGBA8 bytes: Qt uploads this format directly, without
-        // premultiplication or colour conversion. The worker's storage stays
+        // premultiplication or color conversion. The worker's storage stays
         // immutable; the texture owns its small render-thread copy.
         const QImage data(reinterpret_cast<const uchar *>(ribbon->timing.data()), 8,
                           ribbon->particles, 32, QImage::Format_RGBA8888_Premultiplied);

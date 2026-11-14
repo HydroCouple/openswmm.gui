@@ -68,7 +68,7 @@ QString outputDir()
     return out;
 }
 
-//! A projected CRS so the writers have a real WKT to stamp (UTM 18N / metres).
+//! A projected CRS so the writers have a real WKT to stamp (UTM 18N / meters).
 QString testWkt()
 {
     OGRSpatialReference srs;
@@ -119,9 +119,9 @@ public:
 
     /**
      * @brief Copy stored coordinates and display-triangle connectivity through the reader.
-     * @param[out] vx Borrowed x output in raw stored metre units.
-     * @param[out] vy Borrowed y output in raw stored metre units.
-     * @param[out] vz Borrowed elevation output in raw stored metre units.
+     * @param[out] vx Borrowed x output in raw stored meter units.
+     * @param[out] vy Borrowed y output in raw stored meter units.
+     * @param[out] vz Borrowed elevation output in raw stored meter units.
      * @param[out] tris Borrowed zero-based display triangle output, quad splits may duplicate
      * face identity.
      * @return True only if both coordinate and triangle reads succeed; coordinate failure
@@ -136,9 +136,9 @@ public:
     }
     /**
      * @brief Copy stored coordinates and native triangle/quad connectivity through the reader.
-     * @param[out] vx Borrowed x output in raw stored metres.
-     * @param[out] vy Borrowed y output in raw stored metres.
-     * @param[out] vz Borrowed elevation output in raw stored metres.
+     * @param[out] vx Borrowed x output in raw stored meters.
+     * @param[out] vy Borrowed y output in raw stored meters.
+     * @param[out] vz Borrowed elevation output in raw stored meters.
      * @param[out] cells Borrowed zero-based four-slot native cells, triangle fourth entry -1.
      * @return True only for successful coordinates then cells; short-circuit failure may leave
      * partial outputs. No unitFactor applied here, no output ownership retained or source file
@@ -152,7 +152,7 @@ public:
     /**
      * @brief Forward one per-cell hydraulic depth frame to the reader.
      * @param[in] t Zero-based available report index, invalid indices refuse.
-     * @param[out] d Borrowed vector filled with float depths in stored metres, missing values
+     * @param[out] d Borrowed vector filled with float depths in stored meters, missing values
      * NaN.
      * @return Reader success, false details in reader().lastError; output clearing follows
      * reader contract. No output references retained, file remains read-only, reader caches may
@@ -256,7 +256,7 @@ public:
      * @brief Replace first-frame depths by evaluating a caller function at each triangle
      * centroid.
      * @param[in] f Nonempty synchronous callable taking planar x/y and returning depth, both
-     * fixture metre units; caller ensures finite/appropriate values where desired and no
+     * fixture meter units; caller ensures finite/appropriate values where desired and no
      * reentrant mutation of this source.
      * @note Result cast to float, first frame always exists, other frames untouched; exception
      * can leave partial updates. Callable not retained, no history-generation bump or file IO.
@@ -275,7 +275,7 @@ public:
     /**
      * @brief Set one first-frame cell depth without bounds checking.
      * @param[in] cell Valid zero-based index below triangleCount.
-     * @param[in] v Depth float in fixture metres, copied without validation/clamping.
+     * @param[in] v Depth float in fixture meters, copied without validation/clamping.
      * @note Other cells/frames/history identity unchanged, no allocation or source file write.
      */
     void setCellDepth(int cell, float v) { frames_[0][size_t(cell)] = v; }
@@ -315,10 +315,10 @@ public:
 
     /**
      * @brief Copy synthetic coordinates and three-index triangle connectivity.
-     * @param[out] vx Borrowed x vector replaced with owned fixture coordinates in metres.
+     * @param[out] vx Borrowed x vector replaced with owned fixture coordinates in meters.
      * @param[out] vy Borrowed y vector replaced in the same units.
      * @param[out] vz Borrowed elevation vector replaced, all fixture values initially zero
-     * metres.
+     * meters.
      * @param[out] tris Borrowed vector cleared then filled with first three cell indices.
      * @return Always true after assignments, allocation may throw with partial output updates.
      * No source mutation, reference retention, quad splitting or file IO.
@@ -336,9 +336,9 @@ public:
     }
     /**
      * @brief Copy synthetic coordinates and four-slot native triangle records.
-     * @param[out] vx Borrowed x vector replaced with fixture metres.
-     * @param[out] vy Borrowed y vector replaced with fixture metres.
-     * @param[out] vz Borrowed elevation vector replaced with fixture metres.
+     * @param[out] vx Borrowed x vector replaced with fixture meters.
+     * @param[out] vy Borrowed y vector replaced with fixture meters.
+     * @param[out] vz Borrowed elevation vector replaced with fixture meters.
      * @param[out] cells Borrowed vector replaced with zero-based triangle cells, fourth slot -1.
      * @return Always true after assignment, allocation may throw/partially update outputs; no
      * retained references or source mutation, returned vectors own their data.
@@ -356,7 +356,7 @@ public:
      * @brief Copy one fixture depth frame and optionally simulate live-history invalidation on a
      * selected read.
      * @param[in] t Zero-based index in [0,timeCount), invalid returns false.
-     * @param[out] d Borrowed depth vector replaced with selected metre float values on success,
+     * @param[out] d Borrowed depth vector replaced with selected meter float values on success,
      * unchanged on refusal.
      * @return True for available frame after assignment, increments reads_ and generation_ when
      * read count matches configured thinOnRead_; no actual frame thinning. Mutable counters not
@@ -801,7 +801,7 @@ void TestMesh2DResultsExport::rasterGreenGaussReproducesLinearField()
     std::vector<std::array<int, 4>> cells;
     QVERIFY(src.readCells(vx, vy, vz, cells));
 
-    // (1) The gradient itself: near a cell's own centre the reconstruction is
+    // (1) The gradient itself: near a cell's own center the reconstruction is
     // unlimited, so it must reproduce the plane to round-off. Interior cells
     // only — a boundary cell carries a one-sided stencil by design.
     int checked = 0;
@@ -829,10 +829,10 @@ void TestMesh2DResultsExport::rasterGreenGaussReproducesLinearField()
     QVERIFY2(checked > 40,
              qPrintable(QStringLiteral("only %1 interior cells sampled").arg(checked)));
 
-    // (2) The limiter: no pixel may overshoot the cell-centre field it was
+    // (2) The limiter: no pixel may overshoot the cell-center field it was
     // built from. This is what keeps a wet/dry front from inventing depth,
     // and it is also why (1) has to sample near the centroid — out at a cell
-    // corner the neighbour bounds legitimately clip a linear field.
+    // corner the neighbor bounds legitimately clip a linear field.
     double lo = std::numeric_limits<double>::max(), hi = -lo;
     for (size_t c = 0; c < cells.size(); ++c) {
         double gxc = 0.0, gyc = 0.0;
@@ -862,7 +862,7 @@ void TestMesh2DResultsExport::rasterGreenGaussReproducesLinearField()
 }
 
 //! Both weighted methods must reproduce a constant field exactly (weights sum
-//! to one), and natural neighbour must also carry a linear field.
+//! to one), and natural neighbor must also carry a linear field.
 void TestMesh2DResultsExport::rasterNaturalNeighbourAndIdwReproduceConstant()
 {
     constexpr int kSide = 6;
@@ -1042,7 +1042,7 @@ void TestMesh2DResultsExport::dryMaskWritesNoData()
     QVERIFY(on.at(wi, wj) != kMesh2DNoData);
 }
 
-//! Cancelling mid-export must leave nothing behind — no half-written raster
+//! Canceling mid-export must leave nothing behind — no half-written raster
 //! for the user to mistake for a finished one.
 void TestMesh2DResultsExport::cancelRemovesPartialOutputs()
 {
@@ -1151,7 +1151,7 @@ void TestMesh2DResultsExport::thinnedHistoryMidExportFails()
 
     // The refusal happens before anything is written, so a leftover here can
     // only be stale output from an earlier run — clear it so the check below
-    // sees this export's behaviour.
+    // sees this export's behavior.
     const QFileInfo fi(opt.basePath);
     QDir outDir(fi.absolutePath());
     for (const QString &stale :

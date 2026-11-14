@@ -1,10 +1,10 @@
 /**
  * @file      selectioncasing.h
  * @brief     The second tone of a two-tone selection: a contrasting casing drawn just under the
- *            selection colour (review A-18).
- * @details   A single selection colour cannot read on every basemap: the default yellow nearly
- *            vanishes on white, a dark colour vanishes on dark imagery. Drawing a thin casing of
- *            the contrasting tone just under the selection stroke keeps the user's colour and
+ *            selection color (review A-18).
+ * @details   A single selection color cannot read on every basemap: the default yellow nearly
+ *            vanishes on white, a dark color vanishes on dark imagery. Drawing a thin casing of
+ *            the contrasting tone just under the selection stroke keeps the user's color and
  *            makes the selection readable on light and dark backgrounds alike. Header only.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
@@ -26,8 +26,8 @@ namespace OpenSWMM::Render
 inline constexpr float kSelectionCasingPx = 1.0f;
 
 /**
- * @brief The casing tone for a selection colour.
- * @param[in] selection The user's selection pen or brush colour (alpha ignored).
+ * @brief The casing tone for a selection color.
+ * @param[in] selection The user's selection pen or brush color (alpha ignored).
  * @return Opaque near-black (#1D1D1F) or white, whichever has the higher WCAG contrast ratio
  *   with \p selection: near-black under yellow, cyan or white; white under navy or black.
  */

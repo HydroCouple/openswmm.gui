@@ -338,7 +338,7 @@ private:
     QLabel *m_xsGeom4Label = nullptr;
 
     /*! Slice SP.3 — third splitter pane: engine-accurate live section
-     *  drawing with labelled dimensions. */
+     *  drawing with labeled dimensions. */
     openswmmvis::sectionview::SectionPreviewWidget *m_xsPreview = nullptr;
 
     // §S.SC.1.b (2026-05-25) — When the user picks IRREGULAR the engine

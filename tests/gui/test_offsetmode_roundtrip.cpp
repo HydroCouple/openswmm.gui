@@ -7,7 +7,7 @@
  *         convention of every offset/crest and the From/To orientation of
  *         adverse-slope conduits.
  *
- *         The engine normalises both at open (elevations become depths;
+ *         The engine normalizes both at open (elevations become depths;
  *         adverse conduits are reversed for DYNWAVE/FV). Before the fix the
  *         GUI saved the live context verbatim, so an ELEVATION deck came back
  *         with depths under an ELEVATION header (clamped to 0 on the next
@@ -129,7 +129,7 @@ class TestOffsetModeRoundTrip : public QObject
 private slots:
 
     //! After open the edit context shows the authored J1→J2, not the solver's
-    //! reversed J2→J1, and the offsets travelled back with their nodes.
+    //! reversed J2→J1, and the offsets traveled back with their nodes.
     void adverseConduitLoadsWithAuthoredOrientation()
     {
         auto layer = openLayer(QStringLiteral("offset_authored_fixture.inp"));

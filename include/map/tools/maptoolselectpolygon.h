@@ -138,7 +138,7 @@ private:
     void finalizeSelection(Qt::KeyboardModifiers mods);
     /*! Discard the in-progress polygon without selecting.
      * @note Clears pixel vertices/cursor flag without touching layer selections. Requests Overlay
-     *   only if vertices existed; safe repeatedly/no canvas. No cancelled/result signal or tool
+     *   only if vertices existed; safe repeatedly/no canvas. No canceled/result signal or tool
      *   switch.
      */
     void cancel();

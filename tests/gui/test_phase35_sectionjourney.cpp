@@ -69,7 +69,7 @@ bool writeFile(const QString &path, const QByteArray &bytes)
            file.write(bytes) == bytes.size();
 }
 // A short version of the engine's gw_transport_kernel/h5_species case, with
-// a declared metre CRS, flat terrain at 10 m and an initially wet surface.
+// a declared meter CRS, flat terrain at 10 m and an initially wet surface.
 const char *deck = R"INP([TITLE]
 Phase 35 combined section review: surface, groundwater and saturated TSS
 
@@ -499,7 +499,7 @@ private slots:
         reference.setPlotActive(true);
         dialog.setPlotActive(true);
         /** @brief Compare depth samples while treating two unavailable NaN values as equivalent.
-         * Argument `a`: first numeric depth in metres.
+         * Argument `a`: first numeric depth in meters.
          * Argument `b`: second depth in the same units.
          * Returns: true for exact equality or when both values are NaN; otherwise false. */
         auto same = [](double a, double b) { return (std::isnan(a) && std::isnan(b)) || a == b; };

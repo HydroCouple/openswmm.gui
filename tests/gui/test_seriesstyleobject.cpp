@@ -13,8 +13,8 @@
  *     cap/join/marker-border/point-label/area-fill ones
  *   - applySeriesStyle() drives a real QLineSeries (pen, opacity,
  *     point-label format, area-fill brush)
- *   - The effective* fallbacks derive sensible colours from `color`
- *     when the per-aspect colours are invalid
+ *   - The effective* fallbacks derive sensible colors from `color`
+ *     when the per-aspect colors are invalid
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -258,7 +258,7 @@ void TestSeriesStyleObject::jsonRoundTripsAllFields()
     QCOMPARE(back.showAreaFill, s.showAreaFill);
     QCOMPARE(back.areaFillColor.rgba(), s.areaFillColor.rgba());
 
-    // Invalid per-aspect colours must NOT serialise (we use absence to mean
+    // Invalid per-aspect colors must NOT serialize (we use absence to mean
     // "derive from main colour"). Confirm the JSON omits them when invalid.
     SeriesStyle minimal;
     const QJsonObject jm = minimal.toJson();
@@ -295,9 +295,9 @@ void TestSeriesStyleObject::applyToLineSeriesSetsPenAndLabels()
     QCOMPARE(pen.joinStyle(), Qt::MiterJoin);
     QCOMPARE(pen.widthF(), 2.75);
 
-    // Opacity baked into the pen colour AND on the series.
+    // Opacity baked into the pen color AND on the series.
     QCOMPARE(series.opacity(), 0.8);
-    // The pen colour alpha is base color alpha (255) * opacity (0.8) ≈ 204.
+    // The pen color alpha is base color alpha (255) * opacity (0.8) ≈ 204.
     QCOMPARE(pen.color().alpha(), 204);
 
     QCOMPARE(series.name(), QStringLiteral("my series"));
@@ -315,8 +315,8 @@ void TestSeriesStyleObject::effectiveColorsFallBackToMainColor()
 {
     SeriesStyle s;
     s.color = QColor(100, 150, 200);
-    // All per-aspect colours left invalid → all four effective* getters
-    // must return colours derived from `color`.
+    // All per-aspect colors left invalid → all four effective* getters
+    // must return colors derived from `color`.
 
     QVERIFY(s.effectiveMarkerFillColor().isValid());
     QCOMPARE(s.effectiveMarkerFillColor(), s.color); // fill defaults to main
@@ -330,7 +330,7 @@ void TestSeriesStyleObject::effectiveColorsFallBackToMainColor()
     QVERIFY(area.isValid());
     QVERIFY(area.alpha() < 255); // semi-transparent fallback
 
-    // When explicit colours are set, they win.
+    // When explicit colors are set, they win.
     s.markerFillColor = QColor(1, 2, 3);
     s.markerBorderColor = QColor(4, 5, 6);
     s.pointLabelColor = QColor(7, 8, 9);

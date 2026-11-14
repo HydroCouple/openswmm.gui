@@ -151,7 +151,7 @@ SectionGeometry sectionForLink(SWMM_Engine eng, int linkIdx, bool si, const Burn
     // whitelist has classified STREET both ways, and tests/gui/
     // test_xsectsampler.cpp pins it precisely because it can change. Leaning on
     // it would make D-F ("streets opt-in, default off") flip silently with the
-    // engine — burning every kerb line in the model by default.
+    // engine — burning every curb line in the model by default.
     if (isStreet) {
         if (!opt.burnStreets) {
             if (reason)
@@ -259,7 +259,7 @@ QVector<BurnCandidate> resolveBurnSet(SWMM_Engine eng, const BurnSelector &sel,
             continue;
         }
 
-        // 3) Centreline, from the GUI's cache. Never guessed at.
+        // 3) Centerline, from the GUI's cache. Never guessed at.
         const auto it = polylines.constFind(c.conduitId);
         if (it == polylines.constEnd() || it.value().size() < 2) {
             c.reason = QStringLiteral("no centreline geometry");

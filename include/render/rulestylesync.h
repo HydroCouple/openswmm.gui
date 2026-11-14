@@ -34,7 +34,7 @@ namespace OpenSWMM::Render
  * changed key (unknown keys are ignored); the opacity pair maps the symbol's overall opacity.
  * name finds the rule again when the list is replaced (Style Manager → Apply). ignored maps
  * keys this layer does not draw to the reason; seeded as the "_ignored" prop, which the dock's
- * editors read to grey those rows.
+ * editors read to gray those rows.
  */
 struct RuleStyleBinding {
     QPointer<Rule> rule;
@@ -146,7 +146,7 @@ inline QVariantMap contourBandProps(const ContourBandStyle &st)
             {QStringLiteral("aboveMaxColor"), st.aboveMaxColor()},
             {QStringLiteral("smoothBands"), st.smoothBands()}};
 }
-/** @brief Write one contour band prop; a picked low/high colour selects the two-colour ramp. */
+/** @brief Write one contour band prop; a picked low/high color selects the two-color ramp. */
 inline void writeContourBandProp(ContourBandStyle *st, const QString &key, const QVariant &v)
 {
     if (!st)
@@ -156,7 +156,7 @@ inline void writeContourBandProp(ContourBandStyle *st, const QString &key, const
     else if (key == QLatin1String("bandCount"))
         st->setBandCount(v.toInt());
     else if (key == QLatin1String("lowColor") || key == QLatin1String("highColor")) {
-        // A named ramp ignores the gradient ends; picked colours replace it.
+        // A named ramp ignores the gradient ends; picked colors replace it.
         st->setColorRampName(QString());
         key == QLatin1String("lowColor") ? st->setLowColor(v.value<QColor>())
                                          : st->setHighColor(v.value<QColor>());

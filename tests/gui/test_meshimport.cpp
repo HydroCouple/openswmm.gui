@@ -416,7 +416,7 @@ private slots:
 
 private:
     /*! Fresh project folder + loaded window for one test. Each test gets its
-     *  own subfolder so the artefacts stay individually reviewable. */
+     *  own subfolder so the artifacts stay individually reviewable. */
     /**
      * @brief Recreate a scenario directory and load an independent project window from a source
      * fixture.

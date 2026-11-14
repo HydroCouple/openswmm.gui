@@ -1,6 +1,6 @@
 /**
  * @file      inleteditordialog.cpp
- * @brief     Modelled on TransectEditorDialog (Inlets plan §2.2).
+ * @brief     Modeled on TransectEditorDialog (Inlets plan §2.2).
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
@@ -173,7 +173,7 @@ bool validateDesign(const InletDesignData &d, const CurveRegistry *curves, QStri
         // kind are picked one row at a time, and refusing the first of the two
         // would make the pair impossible to enter. The engine resolves the
         // curve reference at run/validate time (openswmm_infrastructure.h).
-        // What IS refused is a curve whose flavour contradicts the chosen kind.
+        // What IS refused is a curve whose flavor contradicts the chosen kind.
         if (curves && d.curveKind != InletCurveKind::None && !d.curveId.isEmpty()) {
             CurveProvider *cp = curves->findByName(d.curveId);
             if (!cp)

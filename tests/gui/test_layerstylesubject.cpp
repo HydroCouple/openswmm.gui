@@ -96,7 +96,7 @@ void TestLayerStyleSubject::qfontSurvivesSnapshotRestore()
 
     const QJsonObject snap = subject.snapshot();
     // The snapshot must actually carry the font, not an empty string — an
-    // unrepresentable QVariant serialised to "" and restored to nothing.
+    // unrepresentable QVariant serialized to "" and restored to nothing.
     QVERIFY(snap.contains(QStringLiteral("labelFont")));
     QVERIFY(!snap.value(QStringLiteral("labelFont")).toString().isEmpty());
 

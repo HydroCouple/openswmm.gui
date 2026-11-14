@@ -22,7 +22,7 @@ namespace OpenSWMMVis
 
 /*!
  * \enum SwmmCategory
- * \brief Stable ordinal categorising every SWMM-element kind that has
+ * \brief Stable ordinal categorizing every SWMM-element kind that has
  *        per-kind styling, per-kind tree rows, or per-kind result paint.
  *
  *        Order is preserved across releases so JSON files round-trip and

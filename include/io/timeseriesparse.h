@@ -36,7 +36,7 @@ namespace openswmmvis::io
 /*!
  * \brief Guess the per-row delimiter from a sample line.
  * \details Counts tab / comma / semicolon occurrences in the line; the
- *          highest non-zero count wins. Ties favour tab over comma over
+ *          highest non-zero count wins. Ties favor tab over comma over
  *          semicolon. Defaults to comma when nothing matches.
  * @param[in] sampleLine Unquoted sample text; delimiter characters inside quotes are counted too.
  * @return Chosen separator, with tab then comma preferred on equal counts.
@@ -79,7 +79,7 @@ bool parseRow(const QString &line, QChar delim, double &timeJulianOut,
  */
 struct SwmmDatState {
     /*! \brief SWMM DateTime used as the anchor for 2-token lines (the
-     *  whole-day part). Initialise to a sensible base before parsing the
+     *  whole-day part). Initialize to a sensible base before parsing the
      *  first line — e.g. `openswmmvis::core::qDateTimeToSwmmDateTime(
      *  QDateTime(QDate(2000,1,1), QTime(0,0), Qt::UTC))`. Updated when a
      *  3-token line is read. */

@@ -419,7 +419,7 @@ private slots:
         QTRY_COMPARE(count(operation, ActivityEventKind::CancellationRequested), 1);
         QTRY_COMPARE(count(operation, ActivityEventKind::OperationFinished), 1);
     }
-    /** @brief Worker faults are terminal failures rather than successful/cancelled rows. */
+    /** @brief Worker faults are terminal failures rather than successful/canceled rows. */
     void workerFailureHasAcceptedIdentity()
     {
         QVERIFY(openModel());

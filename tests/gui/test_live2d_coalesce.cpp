@@ -483,7 +483,7 @@ private slots:
             QCOMPARE(tail.values[size_t(i)], full.values[size_t(20 + i)]);
         }
 
-        // Vertex and rainfall series honour the same cursor.
+        // Vertex and rainfall series honor the same cursor.
         ObjectRef vtx;
         vtx.kind = ObjectRef::Kind::Mesh2DVertex;
         vtx.triIdx = g.nVert / 2;
@@ -771,7 +771,7 @@ private slots:
         QFile::remove(h5);
 
         // 16×16 squares of 5 m (512 triangles) on a gentle +x slope; a
-        // junction at the centre vertex takes a constant 0.2 m³/s and, with a
+        // junction at the center vertex takes a constant 0.2 m³/s and, with a
         // 0.3 m pipe to the outfall, spills most of it onto the surface. Sized
         // so the run lasts a couple of seconds: enough ticks to export
         // mid-run and to overflow the 16-frame cap set below.

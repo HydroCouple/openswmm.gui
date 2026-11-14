@@ -94,7 +94,7 @@ bool receivesCatalogTheme(const ReviewedIcon &icon)
  */
 QIcon effectiveReviewedIcon(const ReviewedIcon &icon)
 {
-    // Mirrors the final registerActions() icon sweep. The sole uncatalogued
+    // Mirrors the final registerActions() icon sweep. The sole uncataloged
     // reviewed action currently starts with its raw qrc icon in swmmvis.cpp.
     return receivesCatalogTheme(icon)
                ? IconFactory::icon(QLatin1String(icon.alias))

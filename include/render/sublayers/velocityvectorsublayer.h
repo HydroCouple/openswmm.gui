@@ -30,7 +30,7 @@ class VelocityVectorStyle : public SublayerStyle
 public:
     /*! VS.8 — how |v| maps to on-screen glyph length (before the min/max
      *  pixel clamps). Log compresses high-dynamic-range fields (legacy
-     *  behaviour); Linear is the QGIS mesh-vector default; SquareRoot is
+     *  behavior); Linear is the QGIS mesh-vector default; SquareRoot is
      *  the usual perceptual middle ground for quiver plots. */
     enum class LengthScaling { Linear = 0, SquareRoot = 1, Log = 2 };
     Q_ENUM(LengthScaling)
@@ -51,14 +51,14 @@ private:
     Q_PROPERTY(QColor color READ color WRITE setColor NOTIFY styleChanged)
     Q_PROPERTY(
         double dryDepthCutoff READ dryDepthCutoff WRITE setDryDepthCutoff NOTIFY styleChanged)
-    // VS.7 — colour arrows by speed magnitude through a ramp.
+    // VS.7 — color arrows by speed magnitude through a ramp.
     Q_PROPERTY(
         bool colorByMagnitude READ colorByMagnitude WRITE setColorByMagnitude NOTIFY styleChanged)
     Q_PROPERTY(QString colorRampName READ colorRampName WRITE setColorRampName NOTIFY styleChanged)
     Q_PROPERTY(double speedMinMps READ speedMinMps WRITE setSpeedMinMps NOTIFY styleChanged)
     Q_PROPERTY(double speedMaxMps READ speedMaxMps WRITE setSpeedMaxMps NOTIFY styleChanged)
-    // VS.8 — 0 = continuous gradient; >= 2 = discretise the ramp into
-    // colour bands (one legend row per band).
+    // VS.8 — 0 = continuous gradient; >= 2 = discretize the ramp into
+    // color bands (one legend row per band).
     Q_PROPERTY(
         int colorClassCount READ colorClassCount WRITE setColorClassCount NOTIFY styleChanged)
 
@@ -107,7 +107,7 @@ public:
     /** @brief Read the flat arrow color.
      * @return Stored/forwarded value; initially RGBA(20,20,20,220). */
     [[nodiscard]] QColor color() const { return m_color; }
-    /** @brief Read the minimum rendered depth in metres.
+    /** @brief Read the minimum rendered depth in meters.
      * @return Stored/forwarded value; initially 0.01. */
     [[nodiscard]] double dryDepthCutoff() const { return m_dryDepthCutoff; }
     /** @brief Read the speed-driven color switch.
@@ -174,7 +174,7 @@ public:
      * Unchanged values according to QColor equality are ignored; changed values
      * emit styleChanged through setDirty(). No synchronous drawing occurs. */
     void setColor(const QColor &v);
-    /** @brief Set the minimum rendered depth in metres and notify on a change.
+    /** @brief Set the minimum rendered depth in meters and notify on a change.
      * @param v New value. Negative input clamps to zero; NaN is not sanitized.
      * Unchanged values according to qFuzzyCompare(current+1, input+1) are ignored; changed values
      * emit styleChanged through setDirty(). No synchronous drawing occurs. */
@@ -216,11 +216,11 @@ public:
      * decides whether to replace it; other style fields are retained. */
     void setScheme(const ClassificationScheme &s);
 
-    /*! VS.7 — colour for a given speed magnitude (m/s). When
+    /*! VS.7 — color for a given speed magnitude (m/s). When
      *  colorByMagnitude is off, returns the flat `color()`. Otherwise samples
      *  the named ramp over [speedMinMps, speedMaxMps]; VS.8 — when
-     *  colorClassCount >= 2 the sample position is quantised to the band
-     *  midpoint so arrows render in discrete colour bands. */
+     *  colorClassCount >= 2 the sample position is quantized to the band
+     *  midpoint so arrows render in discrete color bands. */
     /** @param speedMps Speed in m/s. Flat mode returns color() even for invalid input.
      * @return In magnitude mode, delegates to scheme classification or continuous sampling;
      * classified out-of-range/nonfinite values are transparent when classIndexFor()
@@ -262,8 +262,8 @@ private:
     double m_shaftWidthPx = 2.5;
     QColor m_color = QColor(20, 20, 20, 220);
     double m_dryDepthCutoff = 0.01;
-    // VS.7 — colour-by-magnitude. VS.8 — default ON: the legacy painter
-    // always encoded |v| as colour, so a flat default would regress it.
+    // VS.7 — color-by-magnitude. VS.8 — default ON: the legacy painter
+    // always encoded |v| as color, so a flat default would regress it.
     bool m_colorByMagnitude = true;
     // Slice US.2 — ramp / speed range / class count consolidated here. The ctor
     // seeds it to the legacy defaults (Continuous, viridis, [0,2], 5 classes).

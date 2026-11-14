@@ -97,7 +97,7 @@ protected:
      * @brief Plot sampled van Genuchten moisture and relative conductivity against log suction.
      * @details The unnamed paint event is ignored and the whole widget is drawn. Requires
      * alpha>0, n>1, porosity>theta_r and l>=0 for plotting; otherwise shows a parameter-entry
-     * prompt. Samples 201 suction heads from 0.001 to 1000 metres, drawing
+     * prompt. Samples 201 suction heads from 0.001 to 1000 meters, drawing
      * moisture/relative-conductivity curves on the zero-to-one vertical scale. Reads stored
      * material values without converting or editing them; this is a schematic, not solver
      * validation.

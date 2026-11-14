@@ -59,7 +59,7 @@ public:
     static constexpr int kCurrentSchemaVersion = 6;
 
     /*! Write a `.oswp` sidecar describing \p pw's current GUI state.
-     *  Single-instance convenience overload: synthesises a one-entry
+     *  Single-instance convenience overload: synthesizes a one-entry
      *  sessions[] array.  Returns true on success; writes an error
      *  string on failure.
      * @param[in] oswpPath Nonempty destination sidecar filename.
@@ -154,7 +154,7 @@ public:
      *  Written even when disabled so configured options survive reopening.
      *  Every read falls back to the struct's own default, so an older file — or a
      *  newer one missing a key — loads as the defaults rather than as zeros.
-     * @param[in] s Burn/export/selector settings; dimensioned values preserve BurnOptions units (metres for geometryTolerance) and configured export scale.
+     * @param[in] s Burn/export/selector settings; dimensioned values preserve BurnOptions units (meters for geometryTolerance) and configured export scale.
      * @return Version-3 JSON with explicit options and selector fields. No semantic validation or file copying occurs.
      */
     [[nodiscard]] static inline QJsonObject channelBurnToJson(const mesh::ChannelBurnSettings &s)
@@ -206,7 +206,7 @@ public:
     /**
      * @brief Decode persisted burn settings using defaults for missing or mistyped values.
      * @param[in] o Stored burn settings object, including an empty legacy object.
-     * @return Value settings; enum ranges are checked, maxMeshCells is at least one, invalid exportRasterZToSI resets to one, aspect to four and geometryTolerance to 0.05 metres. Other option ranges are left for later validation.
+     * @return Value settings; enum ranges are checked, maxMeshCells is at least one, invalid exportRasterZToSI resets to one, aspect to four and geometryTolerance to 0.05 meters. Other option ranges are left for later validation.
      */
     [[nodiscard]] static inline mesh::ChannelBurnSettings channelBurnFromJson(const QJsonObject &o)
     {

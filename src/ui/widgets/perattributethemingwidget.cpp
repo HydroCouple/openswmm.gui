@@ -1,6 +1,6 @@
 /**
  * @file      perattributethemingwidget.cpp
- * @brief     variable drives the SWMMResultsLayer colour fill.
+ * @brief     variable drives the SWMMResultsLayer color fill.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later

@@ -213,7 +213,7 @@ QIcon xsectShapeIcon(int shape, const QSize &size, const QPalette &palette)
     // Tabulated shapes have no standalone geometry, so they get a canned but
     // representative table; everything else is built from its nominal geoms.
     // Icons are unit-scale drawings, so the unit system is immaterial; SI
-    // keeps the numbers reading as metres.
+    // keeps the numbers reading as meters.
     XsectSampler sampler = tabulatedIconSampler(shape);
     if (!sampler.isValid()) {
         double g1 = 0.0, g2 = 0.0, g3 = 0.0, g4 = 0.0;
@@ -233,7 +233,7 @@ QIcon xsectShapeIcon(int shape, const QSize &size, const QPalette &palette)
         p.setRenderHint(QPainter::Antialiasing, true);
 
         // Fit the outline (model y up) into the pixmap with a small margin.
-        // Work in logical pixels; the painter honours the pixmap's DPR.
+        // Work in logical pixels; the painter honors the pixmap's DPR.
         const QRectF b = outline.boundingRect();
         const QRectF fit = QRectF(QPointF(0, 0), QSizeF(sz)).adjusted(5, 5, -5, -5);
         if (b.width() <= 0.0 || b.height() <= 0.0)

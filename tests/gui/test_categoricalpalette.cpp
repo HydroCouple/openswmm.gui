@@ -34,8 +34,8 @@ private slots:
         const QList<QColor> plotly = CategoricalPalette::byName(QStringLiteral("Plotly"));
         QVERIFY(!def.isEmpty());
         QVERIFY(!plotly.isEmpty());
-        // Plotly's first colour (Indigo-ish blue) differs from Tab10's first
-        // colour (#1f77b4) — confirm we actually hit a different palette.
+        // Plotly's first color (Indigo-ish blue) differs from Tab10's first
+        // color (#1f77b4) — confirm we actually hit a different palette.
         QVERIFY(plotly.first().rgba() != def.first().rgba());
     }
 

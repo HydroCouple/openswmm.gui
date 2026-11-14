@@ -114,7 +114,7 @@ public:
      * \struct ItemOverride
      * \brief Per-(layer, class) overrides for a legend row's visibility +
      *        label. Slice BB Phase 8.6.10 / 8.6.16 — the renderer remains
-     *        the source of truth for swatch colour / size; ItemOverride
+     *        the source of truth for swatch color / size; ItemOverride
      *        only carries legend-only presentation overrides.
      */
     struct ItemOverride {
@@ -276,7 +276,7 @@ public:
      * @return Stored value copied without mutation. Logical pixels, initially 220 and constrained
      * to [60,1200]. */
     [[nodiscard]] int maxLabelWidth() const noexcept { return m_maxLabelWidth; }
-    /*! Top-left position in canvas pixels, honoured when anchor == Free.
+    /*! Top-left position in canvas pixels, honored when anchor == Free.
      *  Not exposed in the Q_PROPERTY grid — set by interactive drag. */
     /** @brief Read the free-position anchor point.
      * @return Stored value copied without mutation. Top-left canvas position in logical pixels,

@@ -22,7 +22,7 @@ namespace mesh
 {
 
 /*! Tiled DEM reference for error-driven refinement. Tests original pixel
- * centres against the actual triangle plane. Affine residual bounds allow
+ * centers against the actual triangle plane. Affine residual bounds allow
  * whole planar blocks to pass without visiting their pixels. Raster samples
  * live in a bounded LRU cache, not a dense point cloud. Not thread-safe: each
  * worker must own its reader, transforms and cache. */
@@ -106,7 +106,7 @@ public:
     /**
      * @brief Read whether the latest open reused a persisted summary index.
      * @return Stored flag, initially false and reset by open()/buildFromGrid(). It can be true
-     * even when open later returned false because its final progress callback cancelled, so
+     * even when open later returned false because its final progress callback canceled, so
      * retain/check open's result. No IO, validation, allocation or state mutation.
      */
     bool indexLoaded() const; ///< open() reused a saved index.
@@ -117,7 +117,7 @@ public:
      * current raster contents. No IO or state mutation.
      */
     bool indexSaved() const; ///< open() wrote a new index file.
-    // Test seam; coordinates are pixel centres (col+.5,row+.5).
+    // Test seam; coordinates are pixel centers (col+.5,row+.5).
     /**
      * @brief Replace the field with a copied in-memory unit-pixel DEM and build summaries.
      * @param[in] z Required borrowed readable cols*rows floats, unchanged and not retained;

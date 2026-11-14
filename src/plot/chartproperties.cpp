@@ -93,7 +93,7 @@ void ChartProperties::applyLabelFormats_()
         return;
     const QString xSpec = xFormat().printfSpec();
     const QString ySpec = yFormat().printfSpec();
-    // Only QValueAxis honours a printf label format; QDateTimeAxis (the
+    // Only QValueAxis honors a printf label format; QDateTimeAxis (the
     // comparison-plot time axis) does not match the cast. Ordinary
     // QCategoryAxis subclasses do match it.
     //

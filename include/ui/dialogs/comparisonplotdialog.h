@@ -506,7 +506,7 @@ private:
      * chart view.
      */
     void propagateModeToRows();
-    /*! \brief Equalise splitter row sizes (called after add/remove). */
+    /*! \brief Equalize splitter row sizes (called after add/remove). */
     /**
      * @brief Assign equal row heights using at least 220 pixels per row; no-op without
      * splitter/rows.
@@ -540,7 +540,7 @@ private:
     void exportSeriesData(const QVector<int> &seriesIndices);
 
     /** @brief Ask for explicit UTC/model-clock mapping before native observations share a results view.
-     * @return False when cancelled; existing sources remain unchanged. */
+     * @return False when canceled; existing sources remain unchanged. */
     bool confirmObservationClockMappings();
     /** @brief Debounce native observation window reads after plot zoom/selection changes. */
     void requestObservationWindows();

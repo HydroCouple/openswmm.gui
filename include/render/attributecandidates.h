@@ -9,7 +9,7 @@
  *
  * Shared between SymbologyDialog (CTX.1 — populates the Graduated /
  * Categorized / Single-tab attribute combos) and LayerTreePanel
- * (CTX.3 — greys out Style ▸ Graduated / Categorized when no numeric /
+ * (CTX.3 — grays out Style ▸ Graduated / Categorized when no numeric /
  * string attributes exist for the kind).
  *
  * v1 hardcodes per-kind lists matching the SWMM*PropertyAdapter
@@ -53,7 +53,7 @@ namespace OpenSWMM::Render::AttributeCandidates
 [[nodiscard]] QStringList resultsLayerNumeric(int kindOrdinal);
 
 // NB 2D mesh cells are deliberately absent here: MeshFillStyle exposes its
-// colour source as a Q_ENUM (CellAttribute), so the generic property editor
+// color source as a Q_ENUM (CellAttribute), so the generic property editor
 // builds the combo itself — the same mechanism dashPattern already uses.
 
 } // namespace OpenSWMM::Render::AttributeCandidates

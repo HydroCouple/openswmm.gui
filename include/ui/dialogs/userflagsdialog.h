@@ -64,7 +64,7 @@ public:
      *  *outError set) on validation failure — empty or duplicate names.
      *  Public so tests can drive the commit without the button box.
      * @param[out] outError Optional null-safe missing-model, validation,
-     *   cancelled-type-confirmation or engine-define diagnostic; unchanged on success.
+     *   canceled-type-confirmation or engine-define diagnostic; unchanged on success.
      * @return False for those failures; true after completing attempted diff, including unchanged
      *   schema or ignored undefine failures.
      * @note Trim/uppercase names and trim descriptions, reject empty/case-insensitive duplicate
@@ -127,7 +127,7 @@ private slots:
      * @brief Attempt apply while keeping dialog open, showing failure warning only when
      *   confirmations enabled.
      * @note No undo/rollback of partial failure; earlier successful applies remain committed even
-     *   if dialog is later cancelled.
+     *   if dialog is later canceled.
      */
     void onApplyClicked();
     /**

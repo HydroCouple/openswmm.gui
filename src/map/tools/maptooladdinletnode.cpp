@@ -193,7 +193,7 @@ void OpenSWMMVisMapToolAddInletNode::paint(QPainter *painter, const MapExtent &,
     toPixelCoords(cx, cy, px, py);
 
     painter->save();
-    // Match the placed symbol's colour; a non-street conduit under the cursor
+    // Match the placed symbol's color; a non-street conduit under the cursor
     // draws the same marker in outline only, so the hover shows the tool is
     // live but the click will be refused.
     QPen pen(m_hover.layer->inletJunctionSymbol().fillColor);

@@ -1,6 +1,6 @@
 /**
  * @file      spatialreferencesystem.cpp
- * @brief     metadata, serialisation helpers, and transformation factory methods.
+ * @brief     metadata, serialization helpers, and transformation factory methods.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @details
  * @date      2026

@@ -69,8 +69,8 @@ struct ThemeColors {
 };
 
 /**
- * @brief Access the compiled light-theme semantic colour vocabulary.
- * @return Immutable process-lifetime table reference; contains chrome colours rather than data-series colour ramps.
+ * @brief Access the compiled light-theme semantic color vocabulary.
+ * @return Immutable process-lifetime table reference; contains chrome colors rather than data-series color ramps.
  */
 inline const ThemeColors &lightColors()
 {
@@ -113,7 +113,7 @@ inline const ThemeColors &lightColors()
 }
 
 /**
- * @brief Access the compiled dark-theme semantic colour vocabulary.
+ * @brief Access the compiled dark-theme semantic color vocabulary.
  * @return Immutable process-lifetime table reference. No palette/application mutation occurs.
  */
 inline const ThemeColors &darkColors()

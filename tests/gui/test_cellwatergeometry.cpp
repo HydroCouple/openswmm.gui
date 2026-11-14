@@ -40,7 +40,7 @@ Cell triangle()
  * @brief Integrate affine depth over a convex ordered clipped-polygon triangle fan.
  * @param p Borrowed WetPolygon with size within its vertex-array bounds; depths
  * and points must describe the same affine field for the fixture interpretation.
- * Coordinates/depths are in metres, giving cubic-metre volume. No validation.
+ * Coordinates/depths are in meters, giving cubic-meter volume. No validation.
  * @return Sum of absolute fan areas times three-corner mean depth; zero for fewer
  * than three vertices. Nonfinite/negative depths propagate algebraically; no mutation.
  *
@@ -161,7 +161,7 @@ private slots:
     void inclinedSurfaceConservesStorage();
     /**
      *
-     * @brief Require a one-centimetre moving sheet to retain uniform raw/smoothed depths for
+     * @brief Require a one-centimeter moving sheet to retain uniform raw/smoothed depths for
      * tri/mixed cells, two datums, rotation and reversed flow.
      *
      */
@@ -191,7 +191,7 @@ private slots:
     /**
      *
      * @brief Require raw and smoothed two-dimensional moving-sheet corners to retain the
-     * one-centimetre depth within 1e-7.
+     * one-centimeter depth within 1e-7.
      *
      */
     void flowingPatchHasNoCornerPockets();
@@ -257,7 +257,7 @@ struct SlopeStrip {
      * @brief Construct a five-square sloping strip with uniform 0.01-m stored depths and
      * through-flow.
      * @param mixed If true, even squares are native quads; other squares split into triangles.
-     * @param datum Common metre bed offset, normally finite; does not alter relative slope.
+     * @param datum Common meter bed offset, normally finite; does not alter relative slope.
      * Allocates geometry, stride-four edge flux slots and initial reconstructed surfaces;
      * no model/file access. Allocation errors propagate during construction.
      *
@@ -317,7 +317,7 @@ struct SlopeStrip {
      *
      * @brief Fit strip corner depths using fresh topology and a 0.001-m hidden-film policy.
      * @return Owned corner-depth vector, possibly empty when flux cannot support a
-     * flowing fit; signed depths are in metres with algorithm NaN sentinels. Requires
+     * flowing fit; signed depths are in meters with algorithm NaN sentinels. Requires
      * coherent cells/surfaces/coordinate/depth/stride-four flux arrays. Does not cache
      * a workspace or mutate source arrays; allocation exceptions propagate.
      *
@@ -377,7 +377,7 @@ struct RoadOnset {
      * frame.
      * @param frame Zero-based valid index into frames. Requires initialized valid
      * geometry and a complete depth entry/three-edge flux array per cell; no validation.
-     * Depths/bed are metres, integrated outward edge flux is m3/s. Fourth slots remain
+     * Depths/bed are meters, integrated outward edge flux is m3/s. Fourth slots remain
      * zero. Allocation/index failures can leave partial fixture state; no file write.
      *
      */
@@ -399,9 +399,9 @@ struct RoadOnset {
     /**
      *
      * @brief Fit road corner depths using its loaded hydraulic frame and cached topology.
-     * @param policy Visibility cutoff in metres and thin-film display flag; defaults
+     * @param policy Visibility cutoff in meters and thin-film display flag; defaults
      * to 0.001 m/hidden films. The test requires physical fit independence from this policy.
-     * @return Owned vector of signed metre corner depths, or the algorithm empty/NaN
+     * @return Owned vector of signed meter corner depths, or the algorithm empty/NaN
      * result for unsupported data. Requires load() and coherent arrays; source state
      * is borrowed and not changed. Allocations and numerical work are synchronous.
      *
@@ -544,7 +544,7 @@ void TestCellWaterGeometry::flowingSlopeHasNoCellStacks()
                                        smoothTopology(strip.cells), field, {0.001, false}, raw);
                     for (size_t c = 0; c < strip.cells.size(); ++c)
                         for (int k = 0; k < strip.cells[c].vertexCount(); ++k) {
-                            // One-centimetre sheet over one-metre cell relief stays wet
+                            // One-centimeter sheet over one-meter cell relief stays wet
                             // at BOTH ends, rather than becoming low-corner wedges.
                             QVERIFY2(std::abs(raw[c][k] - strip.depths[c]) < 1e-7,
                                      qPrintable(QString("cell %1 corner %2 depth %3")

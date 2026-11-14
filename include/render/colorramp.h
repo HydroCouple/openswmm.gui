@@ -3,7 +3,7 @@
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
- * @brief     RasterColorRamp — gradient mapping from a normalised value in [0,1]
+ * @brief     RasterColorRamp — gradient mapping from a normalized value in [0,1]
  *         to a display QColor.
  *
  *         Slice BB-α (2026-05-24): the struct's previous home was
@@ -43,7 +43,7 @@
 
 /*!
  * \enum RampInterp
- * \brief Colour-space used when interpolating between two adjacent ramp stops.
+ * \brief Color-space used when interpolating between two adjacent ramp stops.
  *
  *  - `Rgb` — linear interpolation in RGBA-F. Standard for published palettes
  *    (Viridis, Plasma, etc.) whose RGB tuples were authored assuming RGB
@@ -61,7 +61,7 @@ enum class RampInterp : int { Rgb = 0, HsvShort = 1, HsvLong = 2 };
 
 /*!
  * \struct RasterColorRamp
- * \brief Gradient mapping from a normalised value in [0,1] to a QColor.
+ * \brief Gradient mapping from a normalized value in [0,1] to a QColor.
  */
 struct RasterColorRamp {
     double minValue = 0.0;
@@ -69,7 +69,7 @@ struct RasterColorRamp {
     QGradientStops stops;  /*!< Sorted list of (position [0..1], QColor) pairs. */
     bool clampMin = false; /*!< Legacy serialized flag; underflow is always transparent. */
     bool clampMax = false; /*!< Legacy serialized flag; overflow always uses the maximum color. */
-    RampInterp interp = RampInterp::Rgb; /*!< Colour-space used between adjacent stops. */
+    RampInterp interp = RampInterp::Rgb; /*!< Color-space used between adjacent stops. */
 
     /**
      * @brief Interpolate ramp stops at a normalized position.
@@ -113,17 +113,17 @@ struct RasterColorRamp {
      */
     static RasterColorRamp fromJson(const QJsonObject &j);
 
-    // ── Built-in catalogue ───────────────────────────────────────────────
+    // ── Built-in catalog ───────────────────────────────────────────────
     //
     // Stops for all built-ins are authored assuming RGB interpolation (the
     // published palettes were tuned that way). The `interp` field defaults
-    // to Rgb to honour that.
+    // to Rgb to honor that.
 
     /**
      * @brief Create the black-to-white grayscale palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp grayscale(double min = 0.0, double max = 255.0);
@@ -131,7 +131,7 @@ struct RasterColorRamp {
      * @brief Create the viridis palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp viridis(double min = 0.0, double max = 1.0);
@@ -139,7 +139,7 @@ struct RasterColorRamp {
      * @brief Create the plasma palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp plasma(double min = 0.0, double max = 1.0);
@@ -147,7 +147,7 @@ struct RasterColorRamp {
      * @brief Create the magma palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp magma(double min = 0.0, double max = 1.0);
@@ -155,7 +155,7 @@ struct RasterColorRamp {
      * @brief Create the inferno palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp inferno(double min = 0.0, double max = 1.0);
@@ -163,7 +163,7 @@ struct RasterColorRamp {
      * @brief Create the cividis palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp cividis(double min = 0.0, double max = 1.0);
@@ -171,7 +171,7 @@ struct RasterColorRamp {
      * @brief Create the turbo palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp turbo(double min = 0.0, double max = 1.0);
@@ -179,7 +179,7 @@ struct RasterColorRamp {
      * @brief Create the rd Bu palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp rdBu(double min = 0.0, double max = 1.0);
@@ -187,7 +187,7 @@ struct RasterColorRamp {
      * @brief Create the rd Yl Gn palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp rdYlGn(double min = 0.0, double max = 1.0);
@@ -195,7 +195,7 @@ struct RasterColorRamp {
      * @brief Create the spectral palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp spectral(double min = 0.0, double max = 1.0);
@@ -203,7 +203,7 @@ struct RasterColorRamp {
      * @brief Create the br BG palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp brBG(double min = 0.0, double max = 1.0);
@@ -211,7 +211,7 @@ struct RasterColorRamp {
      * @brief Create the legacy SWMM5Interval palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp legacySWMM5Interval(double min = 0.0, double max = 1.0);
@@ -219,7 +219,7 @@ struct RasterColorRamp {
      * @brief Create the legacy SWMMPollutant palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp legacySWMMPollutant(double min = 0.0, double max = 1.0);
@@ -227,7 +227,7 @@ struct RasterColorRamp {
      * @brief Create the terrain palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      *
      * The historic 5-stop 2D mesh terrain elevation palette (deep blue →
@@ -244,7 +244,7 @@ struct RasterColorRamp {
      * @brief Create the plotly3 palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp plotly3(double min = 0.0, double max = 1.0);
@@ -252,7 +252,7 @@ struct RasterColorRamp {
      * @brief Create the ice Fire palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp iceFire(double min = 0.0, double max = 1.0);
@@ -260,7 +260,7 @@ struct RasterColorRamp {
      * @brief Create the blackbody palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp blackbody(double min = 0.0, double max = 1.0);
@@ -268,7 +268,7 @@ struct RasterColorRamp {
      * @brief Create the electric palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp electric(double min = 0.0, double max = 1.0);
@@ -276,7 +276,7 @@ struct RasterColorRamp {
      * @brief Create the hot palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp hot(double min = 0.0, double max = 1.0);
@@ -284,7 +284,7 @@ struct RasterColorRamp {
      * @brief Create the jet palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp jet(double min = 0.0, double max = 1.0);
@@ -292,7 +292,7 @@ struct RasterColorRamp {
      * @brief Create the picnic palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp picnic(double min = 0.0, double max = 1.0);
@@ -300,7 +300,7 @@ struct RasterColorRamp {
      * @brief Create the portland palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp portland(double min = 0.0, double max = 1.0);
@@ -308,7 +308,7 @@ struct RasterColorRamp {
      * @brief Create the rainbow palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp rainbow(double min = 0.0, double max = 1.0);
@@ -316,7 +316,7 @@ struct RasterColorRamp {
      * @brief Create the bluered palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      */
     [[nodiscard]] static RasterColorRamp bluered(double min = 0.0, double max = 1.0);
@@ -325,7 +325,7 @@ struct RasterColorRamp {
      * @brief Create the water-depth (translucent blue to opaque navy) palette over caller-supplied data bounds.
      * @param[in] min Lower raw-data bound in the displayed attribute's unit; stored verbatim.
      * @param[in] max Upper bound in the same unit; stored verbatim without validation.
-     * @return An owned ramp with the named normalized stop catalogue and RGB interpolation.
+     * @return An owned ramp with the named normalized stop catalog and RGB interpolation.
      *         The method performs no physical-unit conversion or range correction.
      *
      * 2026-09-01 — sequential water-depth ramp for the 2D inundation /
@@ -339,10 +339,10 @@ struct RasterColorRamp {
     [[nodiscard]] static RasterColorRamp waterDepth(double min = 0.0, double max = 1.0);
 
     /**
-     * @brief Construct a built-in ramp from a catalogue key or display name.
+     * @brief Construct a built-in ramp from a catalog key or display name.
      * @details Look up a built-in ramp by short name (case-insensitive). Returns
      *  `grayscale()` when the name is unknown so callers never get an
-     *  invalid ramp. Recognised names: "grayscale", "viridis", "plasma",
+     *  invalid ramp. Recognized names: "grayscale", "viridis", "plasma",
      *  "magma", "inferno", "cividis", "turbo", "rdbu", "rdylgn",
      *  "spectral", "brbg", "legacy-swmm-5interval", "legacy-swmm-pollutant", "terrain",
      *  plus Slice BB-β Plotly entries: "plotly3", "icefire", "blackbody",
@@ -350,22 +350,22 @@ struct RasterColorRamp {
      *  and the 2026-09-01 depth-fill default "water-depth".
      * @param[in] name Internal key or display name; outer whitespace is trimmed and
      *                 matching is case-insensitive.
-     * @return A new catalogued ramp over [0,1], or grayscale() with its default [0,255]
+     * @return A new cataloged ramp over [0,1], or grayscale() with its default [0,255]
      *         range when no name matches. Each returned ramp owns its stop values.
      */
     [[nodiscard]] static RasterColorRamp builtin(const QString &name);
 
     /**
-     * @brief List built-in palette display names in catalogue order.
-     * @details Names of all built-in ramps, in catalogue order. Used by the
+     * @brief List built-in palette display names in catalog order.
+     * @details Names of all built-in ramps, in catalog order. Used by the
      *  ColorRampComboBox to populate its dropdown.
-     * @return Display labels in catalogue order, not necessarily the internal persistence keys.
+     * @return Display labels in catalog order, not necessarily the internal persistence keys.
      */
     [[nodiscard]] static QStringList builtinNames();
     /**
      * @brief Test whether a text label identifies a supported built-in palette.
      * @param[in] name Internal key or display label; trimmed and compared case-insensitively.
-     * @return True on a catalogue match; false for unknown or empty input. Unlike builtin(),
+     * @return True on a catalog match; false for unknown or empty input. Unlike builtin(),
      *         this query does not accept an unknown name by returning a grayscale fallback.
      */
     [[nodiscard]] static bool isBuiltin(const QString &name);

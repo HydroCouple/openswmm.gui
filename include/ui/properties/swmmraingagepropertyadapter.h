@@ -80,7 +80,7 @@ private:
                    setDataSource NOTIFY changed)
     /*! DA.2 parity — TIME SERIES source: the in-model series id. Renders
      *  as a TimeSeries-filtered picker (DataObjectPickerEditor). Only
-     *  meaningful when dataSource == TIMESERIES (panel greys it otherwise). */
+     *  meaningful when dataSource == TIMESERIES (panel grays it otherwise). */
     Q_PROPERTY(DataObjectRef seriesName READ seriesNameRef WRITE setSeriesNameRef NOTIFY changed)
     /*! Current rainfall rate in project units — read-only display. */
     Q_PROPERTY(double currentRainfall READ currentRainfall NOTIFY changed)
@@ -100,7 +100,7 @@ private:
      *  setFileColumn() and setFilePath() preserve it by design (engine
      *  contract), so without this row a gage that ever had a column could
      *  never return to a standard `FILE "path" Station Units` rain file and
-     *  its Station ID would stay greyed out for good. Selecting MULTI_COLUMN
+     *  its Station ID would stay grayed out for good. Selecting MULTI_COLUMN
      *  clears the station id; selecting STANDARD clears the file column — the
      *  two grammars' row selectors are mutually exclusive engine-side.
      *  Only meaningful when dataSource == FILE. */
@@ -277,7 +277,7 @@ public slots:
     void setStationId(const QString &s);
     /**
      * @brief Set external rainfall depth units.
-     * @param[in] v Zero means inches, one millimetres; engine rejects other codes and disallowed lifecycle states.
+     * @param[in] v Zero means inches, one millimeters; engine rejects other codes and disallowed lifecycle states.
      * @details Acceptance emits changed; the adapter does not convert authored source values itself.
      */
     void setRainUnits(int v);

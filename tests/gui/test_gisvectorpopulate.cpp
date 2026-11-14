@@ -62,7 +62,7 @@ QString crsGpkgPath()
  *  unmistakably not the CRS-less fixture above and not WGS84. Used to prove
  *  the layer adopts the file's CRS rather than inheriting the canvas/project
  *  one. Idempotent. */
-/** @brief Replace a retained GeoPackage with one EPSG:32633 square spanning 500000..501000 E and 4600000..4601000 N metres.
+/** @brief Replace a retained GeoPackage with one EPSG:32633 square spanning 500000..501000 E and 4600000..4601000 N meters.
  * @return True when the checked driver/dataset/CRS/layer/feature creation succeeds, false otherwise. Closes created dataset/feature handles; prior-file deletion and geometry-copy status are unchecked. */
 bool buildCrsFixture()
 {
@@ -217,7 +217,7 @@ private slots:
     }
 
     /*! A file with NO CRS keeps a null SRS and is assumed to be in the canvas
-     *  CRS — the long-standing behaviour local-coordinate data relies on.
+     *  CRS — the long-standing behavior local-coordinate data relies on.
      *  Its coordinates must therefore pass through untouched. */
     /** @brief Verify a CRS-less source keeps null SRS and populates all three features on a geographic canvas. */
     void vectorLayerWithoutFileCRSPassesThrough()

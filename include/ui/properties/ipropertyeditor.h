@@ -11,7 +11,7 @@
  * BO subcatchment/raingage/infiltration/LID, BP pollutant/landuse/treatment/
  * aquifer/snowpack/groundwater, BQ curves/transect/xsection/culvert/patterns
  * /timeseries/UH, BR controls, BS climatology+RDII, BT defaults). The
- * `PropertyEditorRegistry` maps a (kind) string to a factory that materialises
+ * `PropertyEditorRegistry` maps a (kind) string to a factory that materializes
  * the right concrete editor when `PropertiesPanel` resolves a selection.
  *
  * Lifecycle on a typical right-side panel binding:

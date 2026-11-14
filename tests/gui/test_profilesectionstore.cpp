@@ -15,7 +15,7 @@ class TestProfileSectionStore : public QObject
     /**
      *
      * @brief Build the valid profile definition reused by owner/restore tests.
-     * @return Owned section-a definition with two-point scene path in EPSG:32618/metres,
+     * @return Owned section-a definition with two-point scene path in EPSG:32618/meters,
      * source-a and path /models/run.h5. That path is metadata only and need not exist;
      * no file/model is opened or store mutated here.
      *

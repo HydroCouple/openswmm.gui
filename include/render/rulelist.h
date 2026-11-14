@@ -111,7 +111,7 @@ public:
     Rule *insert(int index, std::unique_ptr<Rule> rule);
 
     /*! \brief Remove the Rule at \p index. Returns true on success.
-     *         Active index is adjusted so the same Rule (or its neighbour)
+     *         Active index is adjusted so the same Rule (or its neighbor)
      *         stays selected when possible.
      * @param index Zero-based rule index; invalid input is a no-op.
      * @return True after destruction/removal and ruleListChanged(), otherwise false.

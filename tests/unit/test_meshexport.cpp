@@ -142,7 +142,7 @@ TEST(MeshExport, CountsEqualTheMesh)
         boundary += r.values.at(b).toBool() ? 1 : 0;
     EXPECT_EQ(boundary, 6);
 
-    // Parts are honoured.
+    // Parts are honored.
     EXPECT_EQ(meshTables(m, {}, MeshExportEdges).size(), 1);
 }
 

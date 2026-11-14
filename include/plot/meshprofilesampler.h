@@ -81,7 +81,7 @@ void applyMaximum(MeshProfile &profile, SWMM2DResultsLayer *results, double vert
 
 /*! Signed current surface at an exact interval station. On a shared edge,
  *  a dry owner must not hide water on the other side. Never extrapolates
- *  into either cell interior. Returns metres, before profile unit scaling.
+ *  into either cell interior. Returns meters, before profile unit scaling.
  * @param[in] results Required borrowed results layer with compatible display geometry.
  * @param[in] displayTri Primary display-triangle index.
  * @param[in] boundaryTri Alternate boundary-side triangle, possibly -1 as accepted by the layer.
@@ -98,7 +98,7 @@ void applyMaximum(MeshProfile &profile, SWMM2DResultsLayer *results, double vert
  * @param[in] boundaryTri Alternate boundary-side triangle, possibly -1.
  * @param[in] scenePoint Sample station in layer scene coordinates.
  * @param[in] maxima Per-cell signed corner maxima from SWMM2DResultsLayer::maxSurfaceDepths().
- * @return Larger finite signed depth of the two sides in metres, NaN when neither is finite. No profile unit scaling is applied.
+ * @return Larger finite signed depth of the two sides in meters, NaN when neither is finite. No profile unit scaling is applied.
  */
 [[nodiscard]] double signedMaxWaterDepth(SWMM2DResultsLayer *results, int displayTri,
                                          int boundaryTri, const QPointF &scenePoint,

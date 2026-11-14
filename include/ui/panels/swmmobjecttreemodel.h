@@ -1,18 +1,18 @@
 /**
  * @file      swmmobjecttreemodel.h
- * @brief     Virtualised tree model backing the Object Browser dock.
+ * @brief     Virtualized tree model backing the Object Browser dock.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
  *
- * Virtualised tree model backing the Object Browser dock. Replaces the
+ * Virtualized tree model backing the Object Browser dock. Replaces the
  * former QTreeWidget-per-object approach so the browser scales to the
  * millions-of-objects target set by Slice R (batched map renderer).
  *
  * Hierarchy
  *   root
  *     └ Category row (Junctions / Outfalls / … / Rain Gages)
- *         └ Leaf row (synthesised from SWMMModelLayer SoA on demand)
+ *         └ Leaf row (synthesized from SWMMModelLayer SoA on demand)
  *
  * Category lists and an optional non-spatial section divider are cached; leaf rows exist purely as
  * QModelIndex coordinates that index into the layer's per-category

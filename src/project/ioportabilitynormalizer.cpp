@@ -36,7 +36,7 @@ constexpr ScalarRole kScalarRoles[] = {
     {SWMM_FILE_OUTFLOWS, "OUTFLOWS", false}, // SAVE
     {SWMM_FILE_HOTSTART_USE, "HOTSTART_USE", true},
     {SWMM_FILE_CLIMATE_TEMP, "CLIMATE_TEMP", true},
-    // Newly relativised slots. Both return SWMM_ERR_BADPARAM (→ empty, skipped)
+    // Newly relativized slots. Both return SWMM_ERR_BADPARAM (→ empty, skipped)
     // when the model has no 2D component or the engine was built without 2D.
     {SWMM_FILE_MESH_2D, "2D_MESH_FILE", true},
     {SWMM_FILE_OUTPUT_2D, "2D_OUTPUT", false}, // SAVE

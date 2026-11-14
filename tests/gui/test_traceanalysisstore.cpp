@@ -24,7 +24,7 @@ private slots:
      * @brief Persist/reload a synthetic SI trace analysis and require travel time, ratio,
      * geometry, identity and style to survive without native output.
      * Creates a uniquely named persistent GeoPackage under SWMMVIS_TRACE_TEST_OUTPUT.
-     * Checks incompatible run identity refusal, style-only update and pre-cancelled save
+     * Checks incompatible run identity refusal, style-only update and pre-canceled save
      * without extra rows. Native trace handle closes on the success path before persistence;
      * early Qt assertions can terminate before that explicit cleanup.
      *

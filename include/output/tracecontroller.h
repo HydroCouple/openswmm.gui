@@ -145,7 +145,7 @@ signals:
      */
     void resultReady(std::shared_ptr<openswmmvis::trace::Result> result);
     /**
-     * @brief Explain rejected dispatch or uncancelled worker failure.
+     * @brief Explain rejected dispatch or uncanceled worker failure.
      * @param[in] message Owning diagnostic text; cancellation completion suppresses failed().
      */
     void failed(const QString &message);

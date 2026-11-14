@@ -15,8 +15,8 @@
  *     takes its nearest gage). Uses the real watershed boundary rather than a
  *     representative point.
  *
- *   Interpolated — area-average natural-neighbour weights over the gage
- *     network, group objects whose weight vectors agree, and materialise each
+ *   Interpolated — area-average natural-neighbor weights over the gage
+ *     network, group objects whose weight vectors agree, and materialize each
  *     group as a generated gage backed by a generated series. SWMM binds
  *     exactly one gage per subcatchment / unit-hydrograph group, so an
  *     interpolated field cannot be expressed any other way.

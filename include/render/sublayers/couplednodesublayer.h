@@ -140,7 +140,7 @@ public:
 
 private:
     QString m_id;
-    // Visible by default: the legacy behaviour (highlightTagged default true
+    // Visible by default: the legacy behavior (highlightTagged default true
     // with the mesh ctor turning vertices on) drew coupled markers on a
     // fresh mesh, and they are the primary 1D↔2D wiring cue.
     bool m_visible = true;

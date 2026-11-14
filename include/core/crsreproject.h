@@ -54,7 +54,7 @@ bool reprojectModel(SWMM_Engine engine, const SpatialReferenceSystem &oldSRS,
 
 /*! \brief Number of points pushed through OGR per batched call.
  *
- *  Big enough that PROJ's per-call overhead is amortised, small enough
+ *  Big enough that PROJ's per-call overhead is amortized, small enough
  *  that the scratch buffers stay cache-resident and the peak allocation is
  *  bounded regardless of model size. */
 inline constexpr int kTransformChunk = 65536;

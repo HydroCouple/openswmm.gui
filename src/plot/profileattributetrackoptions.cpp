@@ -30,9 +30,9 @@ namespace
 // tracks don't all come up the same color. Users restyle via the pen
 // properties; these are only the first-run defaults.
 /**
- * @brief Choose the stable first-use palette colour for a fixed node/link attribute.
- * @param[in] a Fixed identifier; unknown values use neutral grey.
- * @return Opaque compiled palette colour, independent of source units/theme.
+ * @brief Choose the stable first-use palette color for a fixed node/link attribute.
+ * @param[in] a Fixed identifier; unknown values use neutral gray.
+ * @return Opaque compiled palette color, independent of source units/theme.
  */
 QColor seedColorFor(PlotAttribute a)
 {
@@ -68,9 +68,9 @@ QColor seedColorFor(PlotAttribute a)
 // a plain character checksum keys the palette instead — the same species
 // gets the same first-run color across sessions.
 /**
- * @brief Select a cross-session default species colour without process-seeded qHash.
+ * @brief Select a cross-session default species color without process-seeded qHash.
  * @param[in] species Exact UTF-16 name; character code units are summed modulo six.
- * @return Opaque six-colour palette entry; different names can share a colour and node/link scope does not alter it.
+ * @return Opaque six-color palette entry; different names can share a color and node/link scope does not alter it.
  */
 QColor speciesSeedColor(const QString &species)
 {

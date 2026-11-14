@@ -187,7 +187,7 @@ struct Workspace {
  * @brief Fit bounded shared water traces over hydraulically connected wet neighborhoods.
  * @param[in] cells Valid ordered triangle/quad splits, positive participating areas and consistent subtriangle membership.
  * @param[in] surfaces One reconstructed physical Surface per cell.
- * @param[in] x,y,z Stable finite vertex arrays with equal lengths and valid cell indices; this low-level helper does not validate those lengths/indices. Heights/depths share SI metres; XY use one consistent projected system.
+ * @param[in] x,y,z Stable finite vertex arrays with equal lengths and valid cell indices; this low-level helper does not validate those lengths/indices. Heights/depths share SI meters; XY use one consistent projected system.
  * @param[in] topology Shared-edge slots for exactly this mesh, each in range4*cells.size().
  * @param[in] depths One mean-depth value per cell, finite/positive for participating cells.
  * @param[in] flux Exactly four outward side-flux slots per cell; finite traces with opposite signs and relative residual<=1e-4 establish flow-supported contact. Additional still-water connections require positive shared-edge wet overlap.
@@ -241,7 +241,7 @@ reconstruct(const std::vector<VertexDepthReconstruct::CellSplit> &cells,
     for (size_t c = 0; c < n; ++c) {
         const auto &cell = cells[c];
         // Visibility is applied AFTER fitting. A display threshold must not
-        // add/remove hydraulic neighbours or change this objective's weights.
+        // add/remove hydraulic neighbors or change this objective's weights.
         if (surfaces[c].state != State::Wet)
             continue;
         const double area = cell.area[0] + (cell.nSub == 2 ? cell.area[1] : 0);
@@ -396,7 +396,7 @@ reconstruct(const std::vector<VertexDepthReconstruct::CellSplit> &cells,
 
     // A fully wet cell supplies a local surface envelope, independent of the
     // large VFR pool depths on a nearby partly wet slope. Reconstruct its
-    // stage gradient from supported, fully wet neighbours so a resolved slope
+    // stage gradient from supported, fully wet neighbors so a resolved slope
     // is retained. Work at local coordinate/elevation differences for datum
     // invariance. Partly wet cells still retain signed, negative dry corners.
     // Plane scratch belongs only to fitted cells. Dry regions never enter
@@ -645,7 +645,7 @@ reconstruct(const std::vector<VertexDepthReconstruct::CellSplit> &cells,
             }
         };
         // Enforce the linearized component volume with a Lagrange multiplier.
-        // A post-fit global offset alone would inundate shallow neighbours.
+        // A post-fit global offset alone would inundate shallow neighbors.
         solve(rhs, delta, stats ? &stats->cgRhs : nullptr);
         solve(massGradient, massDirection, stats ? &stats->cgMass : nullptr);
         numerator = massResidual;

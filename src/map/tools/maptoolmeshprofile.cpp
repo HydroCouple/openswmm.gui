@@ -91,7 +91,7 @@ void MapToolMeshProfile::mouseDoubleClickEvent(QMouseEvent *event)
     // MouseButtonDblClick, on others only DblClick fires (observed here for
     // the canvas widget). The previous strip-the-last-vertex approach broke
     // the 2-vertex case on the DblClick-only path because it deleted the
-    // user's actual endpoint. Normalise by stripping any trailing duplicates
+    // user's actual endpoint. Normalize by stripping any trailing duplicates
     // of the double-click position (handles the "Press already pushed it"
     // path) and adding the endpoint exactly once.
     const QPointF scenePt = pixelToScene_(event->pos().x(), event->pos().y());

@@ -166,7 +166,7 @@ void addSectionGeometry(SectionDiagramModel &m, const XsectSampler &sampler,
  *        depth above the lowest point (so the elevation offset cancels), and
  *        vertical end walls up to the highest point at the outer stations.
  *
- * A width-at-depth outline cannot show an off-centre thalweg, two low
+ * A width-at-depth outline cannot show an off-center thalweg, two low
  * channels or one-sided overbanks, so the transect is drawn as surveyed.
  * The thalweg sits at x = 0 so the invert/crown leaders point at it.
  * \returns the full depth, or 0 when the transect cannot be drawn.
@@ -313,11 +313,11 @@ QString shapeDisplayName(int shape)
 
 /*!
  * How one node TYPE is drawn, expressed as multiples of the drawing's nominal
- * structure size rather than in absolutes, so the node profile (normalised x)
+ * structure size rather than in absolutes, so the node profile (normalized x)
  * and the link profile (x = real stationing) can share the table.
  *
  * The point of this struct is that the four SWMM node types were previously all
- * drawn as the same grey box: a tank, a manhole and a sea outfall are different
+ * drawn as the same gray box: a tank, a manhole and a sea outfall are different
  * objects, and a reader should not have to check the subtitle to tell which one
  * is on screen.
  */
@@ -403,7 +403,7 @@ QVector<QPointF> storageSilhouette(SWMM_Engine engine, int nodeIdx, double maxDe
     constexpr int kLevels = 16;
     QVector<QPointF> out;
 
-    // Widths are normalised at the end, so any positive measure of "how wide
+    // Widths are normalized at the end, so any positive measure of "how wide
     // this level is" works here; every branch below returns sqrt(area) or a
     // linear width consistently within itself.
     switch (shape) {
@@ -466,7 +466,7 @@ QVector<QPointF> storageSilhouette(SWMM_Engine engine, int nodeIdx, double maxDe
         return {};
     }
 
-    // Normalise, and drop a silhouette that carries no shape information — a
+    // Normalize, and drop a silhouette that carries no shape information — a
     // flat one would only add sampling points to a rectangle.
     double wMax = 0.0, wMin = 0.0;
     bool first = true;
@@ -482,7 +482,7 @@ QVector<QPointF> storageSilhouette(SWMM_Engine engine, int nodeIdx, double maxDe
         return {};
     if (wMax - wMin < 0.02 * wMax)
         return {};
-    // Normalise, on a floor. A functional storage with a large exponent is
+    // Normalize, on a floor. A functional storage with a large exponent is
     // genuinely ~10 % as wide at its invert as at its rim, and drawing that
     // literally leaves a razor for the pipes to attach to and a sliver of water
     // at the bottom. The floor is a drawing minimum on a horizontal scale the
@@ -918,7 +918,7 @@ SectionDiagramModel buildLinkProfile(SWMM_Engine engine, int linkIdx, const Diag
 
     // Structures are drawn `mw` wide in model x-units; the barrel spans
     // between their inner faces so the drawing reads like a real profile. Each
-    // end is sized and coloured for ITS node type, so a reach into a tank or out
+    // end is sized and colored for ITS node type, so a reach into a tank or out
     // of an outfall says so without the reader opening the node profile.
     const double mw = std::max(length * 0.035, 1.0e-6);
     const double x0 = 0.0, x1 = length;
@@ -951,7 +951,7 @@ SectionDiagramModel buildLinkProfile(SWMM_Engine engine, int linkIdx, const Diag
                                    DiagramRole::Structure};
 
     // Ground line: flat at each rim, sloping between them. Reach is measured
-    // OUT from the structure face — measuring it from the centreline left a
+    // OUT from the structure face — measuring it from the centerline left a
     // wide storage shell with only a stub of ground beside it.
     m.grounds << DiagramGround{x0 - mwUp - length * 0.12, x0 - mwUp, rimUp};
     m.grounds << DiagramGround{x1 + mwDn, x1 + mwDn + length * 0.12, rimDn};
@@ -1187,7 +1187,7 @@ SectionDiagramModel buildNodeProfile(SWMM_Engine engine, int nodeIdx, const Diag
 
     // ---- Structure ---------------------------------------------------------
     // Model x is arbitrary here (nothing horizontal is to scale), so use a
-    // normalized frame: structure centred, stubs to either side. The four node
+    // normalized frame: structure centered, stubs to either side. The four node
     // types differ in width, material and fittings — see shellStyleFor().
     // Wider and with shorter stubs than the original 0.10 / 0.34: leader text
     // reserves up to 40 % of the pane on each side, which left a 12 ft manhole
@@ -1447,7 +1447,7 @@ SectionDiagramModel buildNodeProfile(SWMM_Engine engine, int nodeIdx, const Diag
             //
             // The fill is a BAND around the opening, not the whole wall from
             // floor to rim: several devices commonly share one side of a
-            // structure, and full-height panels merged into a single grey column
+            // structure, and full-height panels merged into a single gray column
             // that hid every one of them.
             const double xa = std::min(xIn, xOut), xb = std::max(xIn, xOut);
             const auto panel = [&](double yBot, double yTop) {
@@ -1598,7 +1598,7 @@ SectionDiagramModel buildNodeProfile(SWMM_Engine engine, int nodeIdx, const Diag
         const double bedDrop = vSpan * 0.08;
         const double apronThk = vSpan * 0.10;
 
-        // Riprap apron: the bed falls away from the headwall and is armoured.
+        // Riprap apron: the bed falls away from the headwall and is armored.
         // Aggregate texture rather than a plain fill, because a smooth wedge
         // below an outlet reads as water.
         DiagramPoly apron;
@@ -1626,7 +1626,7 @@ SectionDiagramModel buildNodeProfile(SWMM_Engine engine, int nodeIdx, const Diag
         m.polys << through;
 
         // The tailwater. FIXED is a number we have; a tidal curve or a time
-        // series is a number that changes, so it is drawn dashed and labelled
+        // series is a number that changes, so it is drawn dashed and labeled
         // "varies" with NO elevation — inventing one would be worse than the
         // omission. FREE / NORMAL have no boundary stage at all: the pipe
         // discharges to air, and a free-fall jet is the honest picture.

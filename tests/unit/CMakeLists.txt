@@ -233,7 +233,7 @@ add_swmmvis_unit_test(test_meshinpbcroundtrip
 
 # Edge-case snapshots for the mesh reader (plan §5 Phase 1 (b)): 64 generated inputs, each
 # result compared with tests/unit/data/inpmeshreader_edgecases/<case>.txt (pinned to the former
-# reader's behaviour; MESH_EDGE_GOLDEN_WRITE=1 rewrites them for a deliberate change).
+# reader's behavior; MESH_EDGE_GOLDEN_WRITE=1 rewrites them for a deliberate change).
 add_swmmvis_unit_test(test_inpmeshreader_edgecases
     test_inpmeshreader_edgecases.cpp
     ${meshkit_SOURCE_DIR}/include/mesh/inpmeshreader.h
@@ -299,7 +299,7 @@ target_link_libraries(test_channelburnlattice PRIVATE Qt6::Gui)
 
 # Channel burn-in end to end: a real engine-parsed deck plus a real raster,
 # through resolve → profile → burn → lattice → patch. The deck is US-units and
-# the DEM is metres, so the zConversionFactor path is exercised in anger.
+# the DEM is meters, so the zConversionFactor path is exercised in anger.
 if(TARGET openswmm_engine)
     add_swmmvis_unit_test(test_channelburn_endtoend
         test_channelburn_endtoend.cpp
@@ -768,7 +768,7 @@ add_swmmvis_unit_test(test_importplanning
 # INLET_EDITOR_AND_INLET_JUNCTION_GUI_PLAN phase G5 — the engine contract the
 # GUI's inlet-junction commands stand on (split/fuse inverse, usage-row
 # round-trip, capture-node rule). Engine-only by necessity: SWMMModelLayer
-# cannot be linked headlessly. Fixture and artefacts live in reviewable
+# cannot be linked headlessly. Fixture and artifacts live in reviewable
 # directories rather than a temp dir (CLAUDE.md §4.1).
 if(TARGET openswmm_engine)
     add_swmmvis_unit_test(test_inlet_junction_layer

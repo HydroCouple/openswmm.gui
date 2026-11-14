@@ -8,7 +8,7 @@
  *         Where IFeatureRenderer maps a (feature, attrs) pair to a
  *         SymbolStyle, IRasterRenderer maps a raw pixel value to a
  *         display QColor.  The narrower domain (single scalar in / one
- *         RGBA colour out) means a much smaller surface than the feature
+ *         RGBA color out) means a much smaller surface than the feature
  *         interface: there is no per-feature attribute map, no symbol
  *         layer stack, no scale-range gate.
  *
@@ -16,7 +16,7 @@
  *         (sub-phase 8.13.6.7):
  *           - SingleBandPseudoColorRenderer — interpolated stops + clamp policy
  *           - SingleBandGrayRenderer        — min→black, max→white, optional invert
- *           - PalettedRenderer              — discrete byte-value → colour table
+ *           - PalettedRenderer              — discrete byte-value → color table
  *           - HillshadeRenderer             — light-direction-shaded relief
  *           - MultiBandColorRenderer        — RGB(A) bypass, no ramp
  *
@@ -78,9 +78,9 @@ public:
     [[nodiscard]] virtual QString rendererId() const = 0;
 
     /*!
-     * \brief Returns the display colour for one raw pixel value.
+     * \brief Returns the display color for one raw pixel value.
      * \param value    Raw pixel value (from the selected band, in raster
-     *                 units — no normalisation has been applied yet).
+     *                 units — no normalization has been applied yet).
      * \param isNoData true when the source pixel matched the layer's
      *                 no-data sentinel.  Implementations are expected to
      *                 return Qt::transparent in that case (or whatever
@@ -100,13 +100,13 @@ public:
      *        map composer's legend frame (§J.5).
      *
      *        For continuous-ramp renderers, implementations typically emit
-     *        one item per stop (label = formatted value, swatch = stop colour).
+     *        one item per stop (label = formatted value, swatch = stop color).
      * @return Owned legend rows; concrete renderers define ordering and labels.
      */
     [[nodiscard]] virtual QList<LegendSymbolItem> legendSymbolItems() const = 0;
 
     /*!
-     * \brief Serialises this renderer to a JSON object.
+     * \brief Serializes this renderer to a JSON object.
      *        The "id" field equals rendererId(); remaining keys are
      *        renderer-specific.
      * @return Owned snapshot of the renderer's persistent configuration.

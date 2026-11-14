@@ -40,7 +40,7 @@ QString CurveProvider::xLabel(CurveType t)
     case CurveType::Pump4:
         return tr("Depth");
     // PUMP5 is head-based like PUMP3 (variable speed scales the head; engine
-    // HydStructures pump cases 3 and 5). It was mislabelled "Depth".
+    // HydStructures pump cases 3 and 5). It was mislabeled "Depth".
     case CurveType::Pump5:
         return tr("Head");
     }
@@ -233,7 +233,7 @@ bool CurveProvider::setPointAt(int i, double newX, double newY, QString *reasonO
         emit mutationRejected(reason);
         return false;
     }
-    // Check left + right neighbour bounds (strict).
+    // Check left + right neighbor bounds (strict).
     if (i > 0 && !(newX > m_points[i - 1].x)) {
         const auto reason =
             tr("Point %1: X must be strictly greater than the previous point's X.").arg(i);

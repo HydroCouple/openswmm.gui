@@ -34,7 +34,7 @@ namespace
  * @param nodeMaxDepth Common node maximum depth in those units, default 5.
  * @param linkLen Common link length in those units, default 1.
  * @return Owned n nodes and max(n-1,0) conduits with zero offsets and link depth 2,
- * plus production-computed chainage. Cases use feet or metres consistently with their
+ * plus production-computed chainage. Cases use feet or meters consistently with their
  * gravity constant; no unit conversion, engine lookup or input validation occurs here.
  *
  */

@@ -52,7 +52,7 @@ public:
     virtual bool registerTool(const ToolSpec &spec, QObject *context,
                               std::function<QWidget *(ExtensionHost *)> create,
                               QString *error = nullptr) = 0;
-    /** @brief Remove an own tool, factory and panel. Active work must be cancelled by its controller.
+    /** @brief Remove an own tool, factory and panel. Active work must be canceled by its controller.
      * @param[in] id Local tool ID. Unknown IDs are ignored. */
     virtual void unregisterTool(const QString &id) = 0;
     /** @brief Create or raise an own tool panel without starting work.

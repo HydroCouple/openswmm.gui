@@ -35,7 +35,7 @@ bool fail(QString *error, const QString &text)
 }
 /**
  * @brief Recognize supported elevation-length tokens.
- * @param[in] unit Trimmed/case-insensitive m/metre/meter plurals or ft/foot/feet.
+ * @param[in] unit Trimmed/case-insensitive m/meter/meter plurals or ft/foot/feet.
  * @return One for metric tokens, 0.3048 for imperial tokens, NaN for unsupported text.
  */
 double metresPerUnit(const QString &unit)

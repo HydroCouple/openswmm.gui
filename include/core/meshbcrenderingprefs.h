@@ -21,7 +21,7 @@
  * opened afterwards, not meshes already styled — the same contract
  * nodePen()/linkPen() have.
  *
- * Wall has a colour but no width: Wall edges ARE the interior wireframe and
+ * Wall has a color but no width: Wall edges ARE the interior wireframe and
  * are drawn at the edge style's own lineWidthPx.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */

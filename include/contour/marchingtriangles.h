@@ -23,9 +23,9 @@
  * for QSG line-list upload (every two consecutive points = one segment).
  *
  * Out-of-scope for the lite cut (deferred to follow-ups):
- *  - filled iso-bands (polygonisation between adjacent levels)
+ *  - filled iso-bands (polygonization between adjacent levels)
  *  - viewport / LOD culling (passed-in triangle range is iterated whole)
- *  - per-level pen / colour overrides (caller assigns)
+ *  - per-level pen / color overrides (caller assigns)
  *  - contour labels (waits for BI.2 LabelExpression)
  *  - raster (marching squares — separate algorithm)
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -45,13 +45,13 @@ namespace OpenSWMM::Contour
 {
 
 /*!
- * \brief Sample a 5-stop Viridis-inspired colour ramp at `t` in [0, 1].
+ * \brief Sample a 5-stop Viridis-inspired color ramp at `t` in [0, 1].
  *
  * Used by BJ.2-filled as the default isoband palette until Slice BB lands
  * `ColorRamp` (at which point this helper becomes a fallback for the
  * legacy-no-ramp case). Stops follow matplotlib's Viridis closely enough
  * for an engineering audience to read elevation rank correctly without
- * the colour-vision-deficiency pitfalls of jet/rainbow.
+ * the color-vision-deficiency pitfalls of jet/rainbow.
  * @param[in] t Finite normalized scalar, clamped to [0,1].
  * @return Opaque RGB color linearly interpolated between adjacent ramp stops.
  */
@@ -393,7 +393,7 @@ void forEachTriangleIsoband(const TriRange &tris, const std::vector<double> &lev
             if (!(L2 > L1))
                 continue; // degenerate band
 
-            // Initialise polygon = triangle
+            // Initialize polygon = triangle
             a = {p0, p1, p2};
             aV = {v0, v1, v2};
 

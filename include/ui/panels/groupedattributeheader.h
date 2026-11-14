@@ -89,7 +89,7 @@ protected:
      * @brief Paint ordinary header, then overlay contiguous visible visual-order group bands in top
      *   strip.
      * @note Hidden sections skipped, equal group title across skipped hidden columns remains one
-     *   band; moved visible sections determine boundaries. Current style CE_Header, centred elided
+     *   band; moved visible sections determine boundaries. Current style CE_Header, centered elided
      *   text, no sort indicator in GROUP band; ordinary label row retains Qt sort UI. No source
      *   header/CSV mutation, model required only after grouped true. GUI-thread only.
      */

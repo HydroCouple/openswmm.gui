@@ -15,7 +15,7 @@
  * config file" registers straight into the engine; a dialog that re-loads
  * on show sees it.
  *
- * The Id column offers the engine's built-in catalogue. Foreign rows use a
+ * The Id column offers the engine's built-in catalog. Foreign rows use a
  * stable instance ID plus explicit component type and library columns.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
@@ -50,12 +50,12 @@ public:
      */
     explicit ProcessComponentsModel(QObject *parent = nullptr);
 
-    //! The engine's built-in catalogue (static for the process).
+    //! The engine's built-in catalog (static for the process).
     /**
-     * @brief Copy the once-per-process built-in component catalogue.
+     * @brief Copy the once-per-process built-in component catalog.
      * @return Owned list of ID/description/implemented values cached on first call.
-     * The initializer queries engine catalogue APIs using 160/256-byte text buffers
-     * and skips failed rows; later calls do not refresh the catalogue or discover
+     * The initializer queries engine catalog APIs using 160/256-byte text buffers
+     * and skips failed rows; later calls do not refresh the catalog or discover
      * external component libraries.
      */
     static QList<KnownId> knownIds();
@@ -188,7 +188,7 @@ private:
     };
     static bool readRow(SWMM_Engine engine, int index, Row &row);
     /**
-     * @brief Describe catalogue recognition/implementation and config-path existence.
+     * @brief Describe catalog recognition/implementation and config-path existence.
      * @param r Borrowed staged row with copied ID/config/provenance.
      * @return Owned localized status. Blank trimmed ID returns no-id immediately;
      * otherwise ID recognition is case-insensitive and file status uses the staged
@@ -203,13 +203,13 @@ private:
     QString m_error;
 };
 
-//! Combo editor over the built-in catalogue, editable for free-form ids.
+//! Combo editor over the built-in catalog, editable for free-form ids.
 class ProcessComponentIdDelegate : public QStyledItemDelegate
 {
     Q_OBJECT
 public:
     /**
-     * @brief Create the editable catalogue/free-form component-ID delegate.
+     * @brief Create the editable catalog/free-form component-ID delegate.
      * @param parent Optional QObject owner; null leaves lifetime to the caller.
      */
     explicit ProcessComponentIdDelegate(QObject *parent = nullptr);
@@ -227,7 +227,7 @@ public:
      * @brief Hydrate a component-ID combo from the model EditRole text.
      * @param editor Borrowed combo; non-QComboBox widgets are ignored.
      * @param index Borrowed source cell.
-     * Selects a Qt MatchFixedString catalogue match or displays free-form text. No
+     * Selects a Qt MatchFixedString catalog match or displays free-form text. No
      * explicit signal blocker is installed and this method does not call setData.
      */
     void setEditorData(QWidget *editor, const QModelIndex &index) const override;

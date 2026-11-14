@@ -106,7 +106,7 @@ void writeStringAttr(hid_t obj, const char *name, const char *value)
  * @return Owned generated path, empty if directory creation fails; HDF5 creation asserted but
  * later writes not comprehensively checked. Writes base_serial_heads_bool_start_index.h5 under
  * configured results review root, truncating that serial name; static serial requires serialized
- * test use. Coordinates/elevations in metres, times 0/60/120 seconds, width 3 edgeflux; closes
+ * test use. Coordinates/elevations in meters, times 0/60/120 seconds, width 3 edgeflux; closes
  * all fixture handles.
  */
 QString writeFixture(bool withNodeHead = false, int startIndex = 0)
@@ -234,7 +234,7 @@ QString writeFixture(bool withNodeHead = false, int startIndex = 0)
 /*!
  * \brief Add the engine 6.0+ `/crs` variable to an existing fixture.
  *
- * Issue #155 — the coordinates in a `.2d.h5` are always SI metres, so a
+ * Issue #155 — the coordinates in a `.2d.h5` are always SI meters, so a
  * foot-CRS model needs the file to say so. Written as a separate step so the
  * base fixture keeps standing in for a pre-6.0 file.
  */
@@ -243,7 +243,7 @@ QString writeFixture(bool withNodeHead = false, int startIndex = 0)
  * coordinates.
  * @param[in] path Writable existing HDF5 fixture without crs dataset; file opened read/write.
  * @param[in] modelCrs Optional null-terminated model CRS token, null omits model_crs attribute.
- * @param[in] metresPerModelUnit Scalar metre conversion metadata copied verbatim, no validation.
+ * @param[in] metresPerModelUnit Scalar meter conversion metadata copied verbatim, no validation.
  * @note Writes units m, factor, optional CRS and node-x units attribute; raw stored SI geometry
  * unchanged. Closes all locally opened/created handles, Q_ASSERT checks file open, subsequent
  * failures unchecked.
@@ -1359,7 +1359,7 @@ private slots:
     /**
      * @brief Verify declared CRS/model-unit metadata reads without silently rescaling stored SI
      * geometry.
-     * @note EPSG 2249,.3048 metres/modelunit,storedm;rawx 1 still 1. Read-only fixture access.
+     * @note EPSG 2249,.3048 meters/modelunit,storedm;rawx 1 still 1. Read-only fixture access.
      */
     void coordinateReferenceReadsDeclaredCrs()
     {
@@ -1373,7 +1373,7 @@ private slots:
         QCOMPARE(ref.metresPerModelUnit, 0.3048);
         QCOMPARE(ref.storedUnits, QStringLiteral("m"));
 
-        // readMeshGeometry still returns the raw stored metres — the factor is
+        // readMeshGeometry still returns the raw stored meters — the factor is
         // metadata for the caller, never applied behind its back.
         std::vector<double> vx, vy, vz;
         QVERIFY(r.readMeshGeometry(vx, vy, vz));

@@ -67,7 +67,7 @@ struct BurnRasterRequest {
      *  the burn changes are written, here (job-owned, absent or empty). The
      *  VRT names it by overlayTilesName relative to itself, so both must be
      *  published side by side; the source DEM is referenced by absolute path.
-     *  Empty = copy the whole source (the previous behaviour). */
+     *  Empty = copy the whole source (the previous behavior). */
     QString overlayTilesPath;
     QString overlayTilesName;
     int band = 1;

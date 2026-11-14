@@ -13,7 +13,7 @@
  * cursor and emits cursorChanged(); it never mutates the window, so there is no
  * two-handle feedback round-trip — the source of the old lag.
  *
- * Values are normalised to [0..1]; the host (the SWMMVis animation toolbar)
+ * Values are normalized to [0..1]; the host (the SWMMVis animation toolbar)
  * maps the cursor to a QDateTime and the window-norm to milliseconds.
  *
  * NB: the cursor accessor/mutator are named cursorNorm()/setCursorNorm() — NOT
@@ -158,7 +158,7 @@ private:
     /**
      * @brief Check horizontal proximity to the cursor handle for a hover cue.
      * @param[in] p Widget-local point; y is ignored.
-     * @return True within seven logical pixels of the current handle centre.
+     * @return True within seven logical pixels of the current handle center.
      */
     bool overThumb(const QPoint &p) const noexcept;
 

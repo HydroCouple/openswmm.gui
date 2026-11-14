@@ -121,7 +121,7 @@ public:
 
     /*!
      * \brief All registered kind keys in deterministic (sorted) order.
-     *        Used by the legend pipeline and serialisation so output is
+     *        Used by the legend pipeline and serialization so output is
      *        reproducible across runs / saves.
      * @return Owned vector sorted with QString's ordinary comparison; excludes fallback.
      */

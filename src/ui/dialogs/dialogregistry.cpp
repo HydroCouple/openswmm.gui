@@ -58,7 +58,7 @@ DialogRegistry::StackingMode DialogRegistry::configuredStackingMode()
         return StackingMode::NativeChildWindow;
 
 #ifdef Q_OS_MACOS
-    // Default stays on the shipped behaviour; the Qt path is opt-in until it
+    // Default stays on the shipped behavior; the Qt path is opt-in until it
     // has been through the freeze-retest checklist on real hardware.
     return StackingMode::NativeChildWindow;
 #else
@@ -227,7 +227,7 @@ bool DialogRegistry::eventFilter(QObject *watched, QEvent *event)
 
     case QEvent::Hide:
         // A SPONTANEOUS hide is the window server hiding the app or
-        // minimising the window (Cmd+H, minimise), not the user dismissing
+        // minimizing the window (Cmd+H, minimize), not the user dismissing
         // the dialog. Dropping the entry there would empty the Window menu
         // precisely when the user needs it to get a window back.
         if (event->spontaneous())

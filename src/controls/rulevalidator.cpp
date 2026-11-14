@@ -48,7 +48,7 @@ RuleValidator::Result RuleValidator::validateImpl_(const QString &text) const
         // An empty body is "Pending" rather than "Invalid" — the user
         // hasn't typed anything yet and we don't want to flash a red
         // exclamation on a brand-new rule. Phase 6.8.2 dialog displays
-        // the empty banner as a grey pending sentinel.
+        // the empty banner as a gray pending sentinel.
         r.state = ValidationState::Pending;
         return r;
     }

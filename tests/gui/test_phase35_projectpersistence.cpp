@@ -59,7 +59,7 @@ class TestPhase35ProjectPersistence : public QObject
         return window.initializeBlankModel(spec, w, e);
     }
     /** @brief Build a profile definition referencing an unavailable retained run.
-     * @return Independent section-1 definition with a ten-metre EPSG:32618 polyline and one source path; attempts output-directory creation. */
+     * @return Independent section-1 definition with a ten-meter EPSG:32618 polyline and one source path; attempts output-directory creation. */
     ProfileSection::Definition definition()
     {
         ProfileSection::Definition d;
@@ -298,7 +298,7 @@ private slots:
         QTest::newRow("existing-edit") << true;
     }
     /** @brief Verify terrain unit/offset hydration preserves dirty state while notifying terrain listeners.
-     * Checks metre-to-project conversion and confirms a later user unit change dirties the project once. */
+     * Checks meter-to-project conversion and confirms a later user unit change dirties the project once. */
     void terrainHydrationPreservesDirtyState()
     {
         QFETCH(bool, dirty);

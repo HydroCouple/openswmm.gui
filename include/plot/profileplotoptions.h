@@ -159,7 +159,7 @@ public:
     Q_PROPERTY(int floodSweepDeg READ floodSweepDeg WRITE setFloodSweepDeg NOTIFY changed)
     Q_PROPERTY(QColor floodColor READ floodColor WRITE setFloodColor NOTIFY changed)
 
-    // ── Theming: node-type colours ──────────────────────────────────────
+    // ── Theming: node-type colors ──────────────────────────────────────
     Q_PROPERTY(QColor junctionFill READ junctionFill WRITE setJunctionFill NOTIFY changed)
     Q_PROPERTY(QColor junctionOutline READ junctionOutline WRITE setJunctionOutline NOTIFY changed)
     Q_PROPERTY(QColor outfallFill READ outfallFill WRITE setOutfallFill NOTIFY changed)
@@ -171,12 +171,12 @@ public:
     // A virtual junction is a break point inside a pipe, not a structure: it
     // draws as a dashed outline rectangle over the conduit running through
     // it, with no fill and no rim glyph.  One pen therefore carries its whole
-    // appearance — colour, width, style and dash pattern — instead of the
-    // fill/outline colour pair the physical node kinds use.
+    // appearance — color, width, style and dash pattern — instead of the
+    // fill/outline color pair the physical node kinds use.
     Q_PROPERTY(QPen virtualJunctionOutlinePen READ virtualJunctionOutlinePen WRITE
                    setVirtualJunctionOutlinePen NOTIFY changed)
 
-    // ── Theming: link-type colours ──────────────────────────────────────
+    // ── Theming: link-type colors ──────────────────────────────────────
     Q_PROPERTY(QColor conduitFill READ conduitFill WRITE setConduitFill NOTIFY changed)
     Q_PROPERTY(QColor conduitOutline READ conduitOutline WRITE setConduitOutline NOTIFY changed)
     Q_PROPERTY(QColor pumpFill READ pumpFill WRITE setPumpFill NOTIFY changed)
@@ -191,7 +191,7 @@ public:
     // ── Theming: soil + lines ───────────────────────────────────────────
     Q_PROPERTY(QColor soilFill READ soilFill WRITE setSoilFill NOTIFY changed)
     Q_PROPERTY(QColor beddingFill READ beddingFill WRITE setBeddingFill NOTIFY changed)
-    // Line pens carry colour, width, style (solid / dashed / dotted) and
+    // Line pens carry color, width, style (solid / dashed / dotted) and
     // a custom dash pattern — all editable via the property tree's QPen
     // editor (qpenpropertyitem) which exposes those fields as expandable
     // children.  Fill brushes stay QBrush since gradients/textures matter
@@ -376,7 +376,7 @@ public:
     bool show2DInundation() const { return m_show2DInundation; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return 2D water-surface outline pen, including logical-pixel width, dash/cap/join and colour. Returns a value copy; no data-unit conversion occurs.
+     * @return 2D water-surface outline pen, including logical-pixel width, dash/cap/join and color. Returns a value copy; no data-unit conversion occurs.
      */
     QPen inundation2DLinePen() const { return m_inundation2DLinePen; }
     /**
@@ -391,7 +391,7 @@ public:
     bool showMax2DInundation() const { return m_showMax2DInundation; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Maximum 2D water-surface outline pen, including logical-pixel width, dash/cap/join and colour. Returns a value copy; no data-unit conversion occurs.
+     * @return Maximum 2D water-surface outline pen, including logical-pixel width, dash/cap/join and color. Returns a value copy; no data-unit conversion occurs.
      */
     QPen maxInundation2DLinePen() const { return m_maxInundation2DLinePen; }
     /**
@@ -427,48 +427,48 @@ public:
     int floodSweepDeg() const { return m_floodSweepDeg; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Flooding wedge fill colour including alpha; the painter derives its outline. No typed validity check occurs. Returns a value copy; no data-unit conversion occurs.
+     * @return Flooding wedge fill color including alpha; the painter derives its outline. No typed validity check occurs. Returns a value copy; no data-unit conversion occurs.
      */
     QColor floodColor() const { return m_floodColor; }
 
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Junction glyph/interior fill colour including alpha; no typed colour-validity check occurs. Returns a value copy; no data-unit conversion occurs.
+     * @return Junction glyph/interior fill color including alpha; no typed color-validity check occurs. Returns a value copy; no data-unit conversion occurs.
      */
     QColor junctionFill() const { return m_junctionFill; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Junction outline colour, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs. Returns a value copy; no data-unit conversion occurs.
+     * @return Junction outline color, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs. Returns a value copy; no data-unit conversion occurs.
      */
     QColor junctionOutline() const { return m_junctionOutline; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Outfall glyph/interior fill colour including alpha; no typed colour-validity check occurs. Returns a value copy; no data-unit conversion occurs.
+     * @return Outfall glyph/interior fill color including alpha; no typed color-validity check occurs. Returns a value copy; no data-unit conversion occurs.
      */
     QColor outfallFill() const { return m_outfallFill; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Outfall outline colour, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs. Returns a value copy; no data-unit conversion occurs.
+     * @return Outfall outline color, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs. Returns a value copy; no data-unit conversion occurs.
      */
     QColor outfallOutline() const { return m_outfallOutline; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Storage glyph/interior fill colour including alpha; no typed colour-validity check occurs. Returns a value copy; no data-unit conversion occurs.
+     * @return Storage glyph/interior fill color including alpha; no typed color-validity check occurs. Returns a value copy; no data-unit conversion occurs.
      */
     QColor storageFill() const { return m_storageFill; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Storage outline colour, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs. Returns a value copy; no data-unit conversion occurs.
+     * @return Storage outline color, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs. Returns a value copy; no data-unit conversion occurs.
      */
     QColor storageOutline() const { return m_storageOutline; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Divider glyph/interior fill colour including alpha; no typed colour-validity check occurs. Returns a value copy; no data-unit conversion occurs.
+     * @return Divider glyph/interior fill color including alpha; no typed color-validity check occurs. Returns a value copy; no data-unit conversion occurs.
      */
     QColor dividerFill() const { return m_dividerFill; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Divider outline colour, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs. Returns a value copy; no data-unit conversion occurs.
+     * @return Divider outline color, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs. Returns a value copy; no data-unit conversion occurs.
      */
     QColor dividerOutline() const { return m_dividerOutline; }
     /**
@@ -478,62 +478,62 @@ public:
     QPen virtualJunctionOutlinePen() const { return m_virtualJunctionOutlinePen; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Conduit glyph/interior fill colour including alpha; no typed colour-validity check occurs. Returns a value copy; no data-unit conversion occurs.
+     * @return Conduit glyph/interior fill color including alpha; no typed color-validity check occurs. Returns a value copy; no data-unit conversion occurs.
      */
     QColor conduitFill() const { return m_conduitFill; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Conduit outline colour, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs. Returns a value copy; no data-unit conversion occurs.
+     * @return Conduit outline color, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs. Returns a value copy; no data-unit conversion occurs.
      */
     QColor conduitOutline() const { return m_conduitOutline; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Pump glyph/interior fill colour including alpha; no typed colour-validity check occurs. Returns a value copy; no data-unit conversion occurs.
+     * @return Pump glyph/interior fill color including alpha; no typed color-validity check occurs. Returns a value copy; no data-unit conversion occurs.
      */
     QColor pumpFill() const { return m_pumpFill; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Pump outline colour, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs. Returns a value copy; no data-unit conversion occurs.
+     * @return Pump outline color, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs. Returns a value copy; no data-unit conversion occurs.
      */
     QColor pumpOutline() const { return m_pumpOutline; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Weir glyph/interior fill colour including alpha; no typed colour-validity check occurs. Returns a value copy; no data-unit conversion occurs.
+     * @return Weir glyph/interior fill color including alpha; no typed color-validity check occurs. Returns a value copy; no data-unit conversion occurs.
      */
     QColor weirFill() const { return m_weirFill; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Weir outline colour, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs. Returns a value copy; no data-unit conversion occurs.
+     * @return Weir outline color, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs. Returns a value copy; no data-unit conversion occurs.
      */
     QColor weirOutline() const { return m_weirOutline; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Orifice glyph/interior fill colour including alpha; no typed colour-validity check occurs. Returns a value copy; no data-unit conversion occurs.
+     * @return Orifice glyph/interior fill color including alpha; no typed color-validity check occurs. Returns a value copy; no data-unit conversion occurs.
      */
     QColor orificeFill() const { return m_orificeFill; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Orifice outline colour, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs. Returns a value copy; no data-unit conversion occurs.
+     * @return Orifice outline color, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs. Returns a value copy; no data-unit conversion occurs.
      */
     QColor orificeOutline() const { return m_orificeOutline; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Outlet glyph/interior fill colour including alpha; no typed colour-validity check occurs. Returns a value copy; no data-unit conversion occurs.
+     * @return Outlet glyph/interior fill color including alpha; no typed color-validity check occurs. Returns a value copy; no data-unit conversion occurs.
      */
     QColor outletFill() const { return m_outletFill; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Outlet outline colour, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs. Returns a value copy; no data-unit conversion occurs.
+     * @return Outlet outline color, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs. Returns a value copy; no data-unit conversion occurs.
      */
     QColor outletOutline() const { return m_outletOutline; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Soil polygon colour including alpha. Returns a value copy; no data-unit conversion occurs.
+     * @return Soil polygon color including alpha. Returns a value copy; no data-unit conversion occurs.
      */
     QColor soilFill() const { return m_soilFill; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Conduit bedding polygon colour including alpha. Returns a value copy; no data-unit conversion occurs.
+     * @return Conduit bedding polygon color including alpha. Returns a value copy; no data-unit conversion occurs.
      */
     QColor beddingFill() const { return m_beddingFill; }
     /**
@@ -568,27 +568,27 @@ public:
     QPen maxEglLinePen() const { return m_maxEglLinePen; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Conduit complete outline pen in logical pixels, independent of the separate outline-colour cache. Returns a value copy; no data-unit conversion occurs.
+     * @return Conduit complete outline pen in logical pixels, independent of the separate outline-color cache. Returns a value copy; no data-unit conversion occurs.
      */
     QPen conduitOutlinePen() const { return m_conduitOutlinePen; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Orifice complete outline pen in logical pixels, independent of the separate outline-colour cache. Returns a value copy; no data-unit conversion occurs.
+     * @return Orifice complete outline pen in logical pixels, independent of the separate outline-color cache. Returns a value copy; no data-unit conversion occurs.
      */
     QPen orificeOutlinePen() const { return m_orificeOutlinePen; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Weir complete outline pen in logical pixels, independent of the separate outline-colour cache. Returns a value copy; no data-unit conversion occurs.
+     * @return Weir complete outline pen in logical pixels, independent of the separate outline-color cache. Returns a value copy; no data-unit conversion occurs.
      */
     QPen weirOutlinePen() const { return m_weirOutlinePen; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Pump complete outline pen in logical pixels, independent of the separate outline-colour cache. Returns a value copy; no data-unit conversion occurs.
+     * @return Pump complete outline pen in logical pixels, independent of the separate outline-color cache. Returns a value copy; no data-unit conversion occurs.
      */
     QPen pumpOutlinePen() const { return m_pumpOutlinePen; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Outlet complete outline pen in logical pixels, independent of the separate outline-colour cache. Returns a value copy; no data-unit conversion occurs.
+     * @return Outlet complete outline pen in logical pixels, independent of the separate outline-color cache. Returns a value copy; no data-unit conversion occurs.
      */
     QPen outletOutlinePen() const { return m_outletOutlinePen; }
     /*! Pavement band drawn under a STREET conduit's gutter line, so a street
@@ -635,7 +635,7 @@ public:
     TimeLabelPosition timeLabelPosition() const { return m_timeLabelPosition; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Timestamp foreground colour including alpha; typed edits do not reject invalid colours. Returns a value copy; no data-unit conversion occurs.
+     * @return Timestamp foreground color including alpha; typed edits do not reject invalid colors. Returns a value copy; no data-unit conversion occurs.
      */
     QColor timeLabelColor() const { return m_timeLabelColor; }
     /**
@@ -658,67 +658,67 @@ public slots:
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether to stroke the current hydraulic-grade curve independently of its fill.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setCurrentHglLine(bool v);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether to fill beneath the current hydraulic-grade curve independently of its line.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setCurrentHglFill(bool v);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether to draw the current energy-grade line; no EGL fill is implied.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setCurrentEgl(bool v);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether to draw the hydraulic-grade maximum/envelope band.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setMaxHglBand(bool v);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether to stroke the maximum hydraulic-grade curve.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setMaxHglLine(bool v);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether to stroke the maximum energy-grade curve.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setMaxEglLine(bool v);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether to draw node names on the profile's label axis.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setShowNodeLabels(bool v);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether to draw link names on the profile's label axis.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setShowLinkLabels(bool v);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether to place node IDs above the structure rims.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setInlineNodeLabels(bool v);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] o Node/link label orientation policy; raw enum edits are not validated.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setLabelOrientation(LabelOrientation o);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] deg Diagonal label angle in degrees; typed edits clamp to [1,89].
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setLabelAngleDeg(int deg);
     /**
@@ -772,343 +772,343 @@ public slots:
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] s Ground sampling policy Auto/NodeRims/Mesh2D/TerrainDEM; the host resolves availability and resampling. Typed edits do not load terrain or validate enum membership.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setGroundSource(GroundSource s);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether to draw available active 2D water-surface overlay samples; it does not load a source.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setShow2DInundation(bool v);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] p 2D water-surface outline pen, including logical-pixel width, dash/cap/join and colour.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] p 2D water-surface outline pen, including logical-pixel width, dash/cap/join and color.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setInundation2DLinePen(const QPen &p);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] b 2D inundation fill brush with its alpha/pattern retained.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setInundation2DFillBrush(const QBrush &b);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether to draw the temporal-maximum 2D water surface; the host requests the layer's envelope only while this is on.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setShowMax2DInundation(bool v);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] p Maximum 2D water-surface outline pen, including logical-pixel width, dash/cap/join and colour.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] p Maximum 2D water-surface outline pen, including logical-pixel width, dash/cap/join and color.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setMaxInundation2DLinePen(const QPen &p);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] b Maximum 2D inundation fill brush with its alpha/pattern retained.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setMaxInundation2DFillBrush(const QBrush &b);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether off-path incident links are rendered as truncated connections at structures.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setShowBranchStubs(bool v);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether to draw plan-direction roses from the recorded incident-link bearings.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setShowNodeRoses(bool v);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether to draw the animated surcharge/flooding wedges above node rims.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setShowFloodingGlyphs(bool v);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] r Flooding wedge radius in logical pixels; typed edits clamp to [4,60], expecting finite input.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setFloodRadiusPx(double r);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] deg Flooding wedge angular sweep in degrees; typed edits clamp to [5,180].
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setFloodSweepDeg(int deg);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Flooding wedge fill colour including alpha; the painter derives its outline. No typed validity check occurs.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Flooding wedge fill color including alpha; the painter derives its outline. No typed validity check occurs.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setFloodColor(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Junction glyph/interior fill colour including alpha; no typed colour-validity check occurs.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Junction glyph/interior fill color including alpha; no typed color-validity check occurs.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setJunctionFill(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Junction outline colour, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Junction outline color, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setJunctionOutline(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Outfall glyph/interior fill colour including alpha; no typed colour-validity check occurs.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Outfall glyph/interior fill color including alpha; no typed color-validity check occurs.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setOutfallFill(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Outfall outline colour, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Outfall outline color, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setOutfallOutline(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Storage glyph/interior fill colour including alpha; no typed colour-validity check occurs.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Storage glyph/interior fill color including alpha; no typed color-validity check occurs.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setStorageFill(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Storage outline colour, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Storage outline color, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setStorageOutline(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Divider glyph/interior fill colour including alpha; no typed colour-validity check occurs.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Divider glyph/interior fill color including alpha; no typed color-validity check occurs.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setDividerFill(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Divider outline colour, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Divider outline color, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setDividerOutline(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] p Computational-break marker pen, with logical-pixel width and custom dash/cap/join retained.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setVirtualJunctionOutlinePen(const QPen &p);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Conduit glyph/interior fill colour including alpha; no typed colour-validity check occurs.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Conduit glyph/interior fill color including alpha; no typed color-validity check occurs.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setConduitFill(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Conduit outline colour, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Conduit outline color, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setConduitOutline(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Pump glyph/interior fill colour including alpha; no typed colour-validity check occurs.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Pump glyph/interior fill color including alpha; no typed color-validity check occurs.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setPumpFill(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Pump outline colour, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Pump outline color, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setPumpOutline(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Weir glyph/interior fill colour including alpha; no typed colour-validity check occurs.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Weir glyph/interior fill color including alpha; no typed color-validity check occurs.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setWeirFill(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Weir outline colour, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Weir outline color, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setWeirOutline(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Orifice glyph/interior fill colour including alpha; no typed colour-validity check occurs.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Orifice glyph/interior fill color including alpha; no typed color-validity check occurs.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setOrificeFill(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Orifice outline colour, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Orifice outline color, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setOrificeOutline(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Outlet glyph/interior fill colour including alpha; no typed colour-validity check occurs.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Outlet glyph/interior fill color including alpha; no typed color-validity check occurs.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setOutletFill(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Outlet outline colour, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Outlet outline color, kept independently from complete outline-pen properties where those exist; no automatic field synchronization occurs.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setOutletOutline(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Soil polygon colour including alpha.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Soil polygon color including alpha.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setSoilFill(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Conduit bedding polygon colour including alpha.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Conduit bedding polygon color including alpha.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setBeddingFill(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] p Current hydraulic-grade stroke pen, with logical-pixel width and complete dash/cap/join properties.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setHglLinePen(const QPen &p);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] b Current hydraulic-grade fill brush including alpha/pattern.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setHglFillBrush(const QBrush &b);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] p Current energy-grade stroke pen, independent of the HGL fill.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setEglLinePen(const QPen &p);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] p Maximum hydraulic-grade outline pen in logical pixels.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setMaxHglLinePen(const QPen &p);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] b Maximum hydraulic-grade band brush including alpha/pattern.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setMaxHglFillBrush(const QBrush &b);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] p Maximum energy-grade stroke pen in logical pixels.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setMaxEglLinePen(const QPen &p);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] p Conduit complete outline pen in logical pixels, independent of the separate outline-colour cache.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] p Conduit complete outline pen in logical pixels, independent of the separate outline-color cache.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setConduitOutlinePen(const QPen &p);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] p Orifice complete outline pen in logical pixels, independent of the separate outline-colour cache.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] p Orifice complete outline pen in logical pixels, independent of the separate outline-color cache.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setOrificeOutlinePen(const QPen &p);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] p Weir complete outline pen in logical pixels, independent of the separate outline-colour cache.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] p Weir complete outline pen in logical pixels, independent of the separate outline-color cache.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setWeirOutlinePen(const QPen &p);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] p Pump complete outline pen in logical pixels, independent of the separate outline-colour cache.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] p Pump complete outline pen in logical pixels, independent of the separate outline-color cache.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setPumpOutlinePen(const QPen &p);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] p Outlet complete outline pen in logical pixels, independent of the separate outline-colour cache.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] p Outlet complete outline pen in logical pixels, independent of the separate outline-color cache.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setOutletOutlinePen(const QPen &p);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] b Pavement band brush beneath STREET conduit gutter geometry, including pattern/alpha.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setStreetInvertBrush(const QBrush &b);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether the in-plot legend is requested; does not change source/series visibility.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setLegendVisible(bool v);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] p Legend corner anchor; raw enum values are stored without validation by the typed setter.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setLegendPosition(LegendPosition p);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] f Legend text font with Qt point/pixel-size semantics.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setLegendFont(const QFont &f);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] a Legend background opacity, with typed edits clamped to [0,1]; finite input is expected.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setLegendOpacity(double a);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] p Logical-pixel XY displacement from the chosen corner anchor, with positive X right and positive Y down.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setLegendOffset(const QPointF &p);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether the timestamp overlay is requested; does not affect the animation cursor.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setShowTimeLabel(bool v);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] p Timestamp corner anchor, stored as a raw enum by typed edits.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setTimeLabelPosition(TimeLabelPosition p);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Timestamp foreground colour including alpha; typed edits do not reject invalid colours.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Timestamp foreground color including alpha; typed edits do not reject invalid colors.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setTimeLabelColor(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] f Timestamp font with Qt point/pixel-size semantics.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setTimeLabelFont(const QFont &f);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] fmt QDateTime format pattern copied verbatim, independent of numeric axis formatting.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setTimeLabelFormat(const QString &fmt);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] p Logical-pixel XY timestamp displacement from its anchor, positive right/down.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setTimeLabelOffset(const QPointF &p);
 
@@ -1155,7 +1155,7 @@ private:
     bool m_showNodeRoses = true;
 
     // Flooding-glyph defaults: a 60° wedge with a 15 px radius reads at
-    // small zoom levels without crowding adjacent rim glyphs.  Colour is
+    // small zoom levels without crowding adjacent rim glyphs.  Color is
     // a saturated warning red; outline is auto-derived as a 60 %-darker
     // tint of the fill so a single user setting keeps the glyph coherent.
     bool m_showFloodingGlyphs = true;
@@ -1174,7 +1174,7 @@ private:
     QColor m_dividerFill{0xFF, 0xE5, 0x99};
     QColor m_dividerOutline{0x9C, 0x6F, 0x14};
     // Dash pattern / cap / join are set in the constructor — QPen needs the
-    // calls.  Dark grey like the conduit outline it overlaps, but thinner and
+    // calls.  Dark gray like the conduit outline it overlaps, but thinner and
     // dashed so it reads as a marker rather than a structure.
     QPen m_virtualJunctionOutlinePen = QPen(QColor(0x33, 0x33, 0x33), 1.0, Qt::CustomDashLine);
     QColor m_conduitFill{0xEE, 0xEE, 0xEE};
@@ -1192,7 +1192,7 @@ private:
     // Pen defaults — solid for HGL (the dominant curve), long-dash for EGL
     // (set in the constructor since QPen needs a dash pattern call), dashed
     // for max-envelope outlines (matches the typical max-envelope
-    // convention).  Conduit outline is solid dark grey.
+    // convention).  Conduit outline is solid dark gray.
     QPen m_hglLinePen = QPen(QColor(0x1F, 0x6F, 0xB7), 2.2, Qt::SolidLine);
     QBrush m_hglFillBrush{QColor(0x55, 0xA8, 0xE6, 110), Qt::SolidPattern};
     QPen m_eglLinePen = QPen(QColor(0x1F, 0x6F, 0xB7), 1.6, Qt::CustomDashLine);
@@ -1209,7 +1209,7 @@ private:
     // Legend defaults.
     bool m_legendVisible = true;
     LegendPosition m_legendPosition = TopRight;
-    QFont m_legendFont; // initialised from QApplication font
+    QFont m_legendFont; // initialized from QApplication font
     double m_legendOpacity = 0.86;
     QPointF m_legendOffset{0.0, 0.0};
 
@@ -1219,7 +1219,7 @@ private:
     bool m_showTimeLabel = true;
     TimeLabelPosition m_timeLabelPosition = TimeTopLeft;
     QColor m_timeLabelColor{0x10, 0x10, 0x10};
-    QFont m_timeLabelFont; // initialised from QApplication font
+    QFont m_timeLabelFont; // initialized from QApplication font
     QString m_timeLabelFormat = QStringLiteral("dd-MMM-yyyy HH:mm:ss");
     QPointF m_timeLabelOffset{0.0, 0.0};
 };

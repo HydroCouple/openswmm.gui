@@ -377,7 +377,7 @@ private:
 
     // --- GDAL decode ---
     /**
-     * @brief Decode response raster pixels into display colours using a temporary GDAL memory file.
+     * @brief Decode response raster pixels into display colors using a temporary GDAL memory file.
      * @param[in] data Stable borrowed bytes during this synchronous call; GDAL does not own their buffer.
      * @return Owned image or null for memory-file/open/dimension failure. Single band is min/max-stretched to relief for DEM heuristic or viridis otherwise; first up-to-four multibands are independently stretched to RGB/A.
      * @note Per-layer pointer-derived memory path requires serialized calls. Closes/unlinks temporary dataset before returning. Geotransform informs relief spacing only; georeferencing/rotation is not used for returned-image placement. RasterIO status is unchecked, scalar nodata uses absolute1e-6 matching, multiband nodata is not specially masked; nonfinite raster samples have no independent normalization guarantee.

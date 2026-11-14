@@ -73,7 +73,7 @@ public:
     /** @brief Accept a user action with copied input metadata and a guarded cancellation route.
      * @param[in] input Registered tool identity and reviewed input summary.
      * @param[in] context Required GUI-thread lifetime guard.
-     * @param[in] cancel Optional controller cancelling all current stages.
+     * @param[in] cancel Optional controller canceling all current stages.
      * @return Fresh execution UUID, or null when refused. */
     QUuid beginToolRun(const OpenSWMM::Sdk::ToolRunRequest &input, QObject *context,
                        std::function<void()> cancel = {}) override;

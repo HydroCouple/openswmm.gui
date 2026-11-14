@@ -321,7 +321,7 @@ void LandUseEditorDialog::bindProvider_(LandUseProvider *p)
     m_suppressFieldSync = prev;
 
     // Point the Buildup/Washoff tables at the engine-side land use. A
-    // just-created provider is materialised by onAddClicked_'s save, so
+    // just-created provider is materialized by onAddClicked_'s save, so
     // the index resolves; -1 (no engine / unknown) leaves the tables empty.
     void *engine = m_registry ? m_registry->engineHandle() : nullptr;
     int luIndex = -1;

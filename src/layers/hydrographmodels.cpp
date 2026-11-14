@@ -658,7 +658,7 @@ Qt::ItemFlags HydrographDecayTableModel::flags(const QModelIndex &index) const
         return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable;
 
     // Numeric columns are editable only when this row's [RDII_DECAY] entry
-    // exists (Active is checked) — grey them out otherwise. Existence of
+    // exists (Active is checked) — gray them out otherwise. Existence of
     // the engine row IS the active flag. The snow numeric columns further
     // require the row's Snow checkbox to be on.
     if (m_record.read && !m_name.isEmpty()) { // draft mode: the editor's record

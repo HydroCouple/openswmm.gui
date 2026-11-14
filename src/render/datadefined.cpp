@@ -31,7 +31,7 @@ double DataDefinedScalar::evaluate(double value) const
     if (!std::isfinite(value))
         return outMin;
 
-    // Degenerate input range — return the centre of the output so callers
+    // Degenerate input range — return the center of the output so callers
     // get a stable, predictable value rather than NaN.
     if (valueMin == valueMax)
         return (outMin + outMax) * 0.5;

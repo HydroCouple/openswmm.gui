@@ -221,7 +221,7 @@ private:
     void routeAndPick();
 
     // Continuation invoked on the main thread once the worker thread's
-    // ProfileRouter call finishes (or is cancelled).  Handles the
+    // ProfileRouter call finishes (or is canceled).  Handles the
     // single-path auto-accept and multi-path picker dialog flows.
     /**
      * @param[in] result Value router result for current watcher, paths may reference earlier

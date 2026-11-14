@@ -46,7 +46,7 @@ private slots:
      *
      * @brief Pin listed 2D solver/coupling/rainfall/output and mesh-generation defaults,
      * including unset optional resolution sources.
-     * Lengths use the struct documented metres, steps seconds and angles degrees;
+     * Lengths use the struct documented meters, steps seconds and angles degrees;
      * reads local defaults without running a solver or mesh generator.
      *
      */
@@ -62,7 +62,7 @@ private slots:
     void roundTripPersistsAllFields();
     /**
      *
-     * @brief Seed legacy mesh spacing/coarsening keys, require metre-based migration and persist
+     * @brief Seed legacy mesh spacing/coarsening keys, require meter-based migration and persist
      * an explicit optional resolution bundle.
      * Checks JSON equality including terrain Off, then resets defaults on success.
      *

@@ -99,8 +99,8 @@ public:
      *
      * @brief Describe four synthetic groundwater scalar datasets.
      * @param warnings Optional unused warning-list pointer, never written/dereferenced.
-     * @return Owned water-table elevation in metres, unknown-unit saturated Nitrate,
-     * held recharge in m/s and static bed elevation in metres. Most descriptors carry
+     * @return Owned water-table elevation in meters, unknown-unit saturated Nitrate,
+     * held recharge in m/s and static bed elevation in meters. Most descriptors carry
      * two frames even if the mutable times list differs; no metadata validation/IO.
      *
      */
@@ -168,7 +168,7 @@ public:
  *
  * @brief Build the saved profile definition for run-A water-table sampling.
  * @param s Borrowed fixture supplying its path and first variable key; not retained.
- * @return Owned two-metre EPSG:26918 profile with metre horizontal/elevation units
+ * @return Owned two-meter EPSG:26918 profile with meter horizontal/elevation units
  * and one Elevation series. Source ID/title/polyline are fixed; no file is opened.
  *
  */
@@ -194,8 +194,8 @@ Definition definition(const Source &s)
 /**
  *
  * @brief Build two section sample stations with known ground and native cell indices.
- * @return Owned samples at chainages zero/two metres, scene points (0,0)/(2,0),
- * ground ten metres and cells zero/one. First sample starts a break; no sampling IO.
+ * @return Owned samples at chainages zero/two meters, scene points (0,0)/(2,0),
+ * ground ten meters and cells zero/one. First sample starts a break; no sampling IO.
  *
  */
 Section section()
@@ -271,7 +271,7 @@ private slots:
     }
     /**
      *
-     * @brief Require metre elevation values to convert to feet while valid zero stays valid and
+     * @brief Require meter elevation values to convert to feet while valid zero stays valid and
      * original ground samples remain unchanged.
      *
      */

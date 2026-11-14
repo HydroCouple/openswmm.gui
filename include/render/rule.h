@@ -19,7 +19,7 @@
  *
  *         JSON round-trip is mandatory: .swmm-rule.json export, .oswp
  *         project persistence, and undo / map-preset snapshots all rely on
- *         it. The renderer is serialised via its IFeatureRenderer::toJson
+ *         it. The renderer is serialized via its IFeatureRenderer::toJson
  *         contract; the renderer id (`"single"` / `"graduated"` / ...) is
  *         what fromJson dispatches on.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -206,7 +206,7 @@ public:
      *         connect handlers (B.3 / B.4 / B.5) refresh paint. */
     void notifyRendererStateChanged();
 
-    /*! \brief Serialise this Rule to a JSON object suitable for
+    /*! \brief Serialize this Rule to a JSON object suitable for
      *         .swmm-rule.json and .oswp persistence.
      * @return Owned snapshot, omitting default optional metadata and delegating
      * renderer configuration to its toJson(). No filter/scale validation occurs. */

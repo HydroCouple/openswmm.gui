@@ -27,8 +27,8 @@ void BulkSetCurvePointsCommand::apply_(const QVector<CurvePoint> &target)
     if (!m_provider)
         return;
     // The order of writes matters when an X-shift would temporarily violate
-    // monotonicity against a not-yet-shifted neighbour. The provider's
-    // setPointAt validates against neighbours and refuses such an intermediate
+    // monotonicity against a not-yet-shifted neighbor. The provider's
+    // setPointAt validates against neighbors and refuses such an intermediate
     // state. A forward pass + reverse pass resolves both ascending and
     // descending shifts; rejected intermediate calls still emit mutationRejected.
     const int n = m_indices.size();

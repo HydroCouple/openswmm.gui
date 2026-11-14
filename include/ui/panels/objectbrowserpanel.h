@@ -5,10 +5,10 @@
  * @date      2026
  * @license   GPL-3.0-or-later
  *
- * Phase 0 + Slice S — Object Browser dock. Virtualised tree view of every
+ * Phase 0 + Slice S — Object Browser dock. Virtualized tree view of every
  * SWMM object in the active project's model, grouped by type (Junctions,
  * Conduits, …). Backed by `SWMMObjectTreeModel`, so populating 1 M+
- * objects costs no per-leaf memory: only visible rows materialise.
+ * objects costs no per-leaf memory: only visible rows materialize.
  * Two-way bound to the per-project SelectionManager.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
@@ -38,7 +38,7 @@ class SWMMResultsLayer;
  * \class ObjectBrowserPanel
  * \brief Embeddable object-navigation widget. Mirrors the legacy Delphi
  *        browser's per-type collapsible groups but sits on top of a
- *        virtualised QAbstractItemModel so millions of objects don't
+ *        virtualized QAbstractItemModel so millions of objects don't
  *        stall the UI.
  *
  * The panel binds to a `(SWMMModelLayer*,
@@ -310,7 +310,7 @@ private:
      */
     void buildUi();
 
-    /*! Centre the canvas on a single object and zoom to a small buffer
+    /*! Center the canvas on a single object and zoom to a small buffer
      *  derived from its geometry or the layer's overall extent. No-op without
      *  canvas/source or when objectExtent cannot resolve finite bounds.
      * @param[in] ref Object name used by layer objectExtent; type not independently checked,

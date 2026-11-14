@@ -58,7 +58,7 @@ SWMMModelLayer *OpenSWMMVisMapToolAddSubcatchment::activeModelLayer() const
 
 QString OpenSWMMVisMapToolAddSubcatchment::nextAvailableName(SWMMModelLayer *layer) const
 {
-    // Feedback C12 — honour Preferences → Naming like the node/link tools
+    // Feedback C12 — honor Preferences → Naming like the node/link tools
     // do (this used to hard-code "Sub").
     const QString prefix =
         PreferencesManager::instance()->elementNamePrefix(QStringLiteral("subcatchment"));
@@ -144,7 +144,7 @@ void OpenSWMMVisMapToolAddSubcatchment::mouseDoubleClickEvent(QMouseEvent *event
     // tests/gui/test_drawtool_doubleclick.cpp). So neither "the press already
     // added it" nor "the press never ran" holds universally.
     //
-    // Normalise instead: put the double-clicked point in exactly ONCE, on
+    // Normalize instead: put the double-clicked point in exactly ONCE, on
     // either path. The tool used to strip the last vertex on the assumption
     // that a press had duplicated it — which deleted the user's closing point
     // whenever only DblClick fired, and for a three-gesture triangle dropped

@@ -222,7 +222,7 @@ MeshProfile buildMeshProfile(SWMM2DMeshLayer *mesh, SWMM2DResultsLayer *results,
     if (totalLen <= 0.0)
         return out;
 
-    // Choose the resample step. Honour stepHint when positive; otherwise use
+    // Choose the resample step. Honor stepHint when positive; otherwise use
     // half a characteristic cell so the terrain reads smoothly. Enforce the
     // sample cap so long traces stay bounded.
     double step = stepHint;
@@ -245,7 +245,7 @@ MeshProfile buildMeshProfile(SWMM2DMeshLayer *mesh, SWMM2DResultsLayer *results,
     if (out.hasResults)
         vertMax = results->maxDepthPerVertex();
 
-    // 2D depths are engine SI metres; the ground line (mesh layer Z) is in the
+    // 2D depths are engine SI meters; the ground line (mesh layer Z) is in the
     // mesh's own units (feet on a US model). Scale depths onto the mesh units
     // so WSE = ground + depth and the axis label (project length unit) agree.
     const double dToMesh = results ? results->depthToMeshUnits() : 1.0;

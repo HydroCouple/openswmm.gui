@@ -91,7 +91,7 @@ class ISublayer : public QObject
 public:
     /*!
      * \enum Kind
-     * \brief Coarse taxonomy of sublayer paint behaviours.
+     * \brief Coarse taxonomy of sublayer paint behaviors.
      *
      *        The UI uses Kind to choose an icon for the layer-tree row
      *        and to gate which Q_PROPERTYs are meaningful (e.g. an

@@ -7,7 +7,7 @@
  *         round-trip fidelity from a committed fixture
  *         (tests/gui/data/userflags_fixture.inp):
  *
- *           open → verify defs/values (mixed-case names normalised,
+ *           open → verify defs/values (mixed-case names normalized,
  *           quoted strings unquoted, negative integers, %g reals) →
  *           edit via UserFlagsModel → save → reopen → verify edits and
  *           untouched values survived.
@@ -108,7 +108,7 @@ private slots:
             UserFlagsModel model(eng);
             const auto &defs = model.defs();
             QCOMPARE(defs.size(), 4);
-            // Mixed-case fixture names are normalised to uppercase.
+            // Mixed-case fixture names are normalized to uppercase.
             QCOMPARE(defs[0].name, QStringLiteral("INSPECTED"));
             QCOMPARE(defs[0].type, FlagType::Boolean);
             QCOMPARE(defs[0].description, QStringLiteral("Has the object been field-inspected?"));

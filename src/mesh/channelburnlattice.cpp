@@ -104,7 +104,7 @@ void BurnSurface::build(const QVector<BurnLattice> &lattices)
     pitch = faces.isEmpty()
                 ? 1
                 : std::max({1e-6, sum / faces.size(), bounds.width() / 1e8, bounds.height() / 1e8});
-    // A rare very large face amongst small reaches must not allocate a
+    // A rare very large face among small reaches must not allocate a
     // rectangle containing billions of empty buckets.
     const double bucketBudget = std::max(4096.0, 16.0 * faces.size());
     for (;;) {
@@ -403,7 +403,7 @@ QPointF rightNormalAt(const QVector<QPointF> &path, const QVector<double> &chain
  * retained. Strict outside-bank tests choose overbanks, bank equality chooses channel; no
  * range/physical validation.
  *
- * @details Manning's n and the sub-region suffix for a cell centred at offset \p m.
+ * @details Manning's n and the sub-region suffix for a cell centered at offset \p m.
  */
 void roughnessFor(const NormalizedSection &s, double m, double *n, QString *suffix)
 {
@@ -521,7 +521,7 @@ constexpr double kMergeFraction = 0.05;
  *
  * @details Drop values of the ascending \p v closer than \p gap to the previous kept one. The
  * first and last always stay; with \p keepNearestZero so does the value nearest zero (the
- * thalweg), and a dropped neighbour yields to it.
+ * thalweg), and a dropped neighbor yields to it.
  */
 static QVector<double> mergeCloseValues(const QVector<double> &v, double gap, bool keepNearestZero)
 {
@@ -680,7 +680,7 @@ BurnLattice buildCorridorLattice(const BurnProfile &p, double alongStep, double 
 
     // Dense along-channel sampling must not concentrate the entire rotation
     // of a bank into one tiny interval at an authored bend. Use a physical
-    // section-width neighbourhood for directions, independent of DEM pixels.
+    // section-width neighborhood for directions, independent of DEM pixels.
     const double h = std::max(std::min(lat.offsets.last() - lat.offsets.first(), L * 0.05),
                               0.5 * (L / double(lat.nAlong - 1)));
     lat.xy.reserve(qsizetype(lat.nAlong) * lat.nAcross);
@@ -778,7 +778,7 @@ PatchMesh corridorPatchGeometry(const BurnLattice &lat, QString *err)
 
     // Cells. The lattice is conformal, so each (i, k) cell is simply its four
     // lattice corners; winding is fixed per cell rather than assumed, because a
-    // reversed centreline would otherwise emit the whole patch clockwise.
+    // reversed centerline would otherwise emit the whole patch clockwise.
     pm.quads.reserve(qsizetype(lat.nAlong - 1) * (lat.nAcross - 1));
     for (int i = 0; i + 1 < lat.nAlong; ++i) {
         for (int k = 0; k + 1 < lat.nAcross; ++k) {

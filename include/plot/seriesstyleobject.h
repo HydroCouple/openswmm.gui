@@ -164,95 +164,95 @@ public:
     // ---- Getters -----------------------------------------------------------
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Main series colour; no validity enforcement. Returns the stored raw value, including any unset colour sentinel.
+     * @return Main series color; no validity enforcement. Returns the stored raw value, including any unset color sentinel.
      */
     QColor color() const noexcept { return m_style.color; }
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Series opacity, expected [0,1]; copied without clamping. Returns the stored raw value, including any unset colour sentinel.
+     * @return Series opacity, expected [0,1]; copied without clamping. Returns the stored raw value, including any unset color sentinel.
      */
     qreal opacity() const noexcept { return m_style.opacity; }
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Style-level legend text; empty lets rendering preserve its current name. Returns the stored raw value, including any unset colour sentinel.
+     * @return Style-level legend text; empty lets rendering preserve its current name. Returns the stored raw value, including any unset color sentinel.
      */
     QString legendName() const { return m_style.legendName; }
 
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Whether line presentation is requested. Returns the stored raw value, including any unset colour sentinel.
+     * @return Whether line presentation is requested. Returns the stored raw value, including any unset color sentinel.
      */
     bool showLine() const noexcept { return m_style.showLine; }
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Line width in logical pixels, expected nonnegative; not clamped. Returns the stored raw value, including any unset colour sentinel.
+     * @return Line width in logical pixels, expected nonnegative; not clamped. Returns the stored raw value, including any unset color sentinel.
      */
     qreal lineWidth() const noexcept { return m_style.lineWidth; }
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Line dash enum; no enum-membership validation. Returns the stored raw value, including any unset colour sentinel.
+     * @return Line dash enum; no enum-membership validation. Returns the stored raw value, including any unset color sentinel.
      */
     Qt::PenStyle dash() const noexcept { return m_style.dash; }
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Line-end cap enum; no validation. Returns the stored raw value, including any unset colour sentinel.
+     * @return Line-end cap enum; no validation. Returns the stored raw value, including any unset color sentinel.
      */
     Qt::PenCapStyle capStyle() const noexcept { return m_style.capStyle; }
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Line-join enum; no validation. Returns the stored raw value, including any unset colour sentinel.
+     * @return Line-join enum; no validation. Returns the stored raw value, including any unset color sentinel.
      */
     Qt::PenJoinStyle joinStyle() const noexcept { return m_style.joinStyle; }
 
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Whether point markers are requested. Returns the stored raw value, including any unset colour sentinel.
+     * @return Whether point markers are requested. Returns the stored raw value, including any unset color sentinel.
      */
     bool showMarkers() const noexcept { return m_style.showMarkers; }
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Marker enum, cast directly to storage without validation. Returns the stored raw value, including any unset colour sentinel.
+     * @return Marker enum, cast directly to storage without validation. Returns the stored raw value, including any unset color sentinel.
      */
     MarkerShapeQ shape() const noexcept { return static_cast<MarkerShapeQ>(m_style.shape); }
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Marker diameter in logical pixels, expected nonnegative finite; not clamped. Returns the stored raw value, including any unset colour sentinel.
+     * @return Marker diameter in logical pixels, expected nonnegative finite; not clamped. Returns the stored raw value, including any unset color sentinel.
      */
     qreal markerSize() const noexcept { return m_style.markerSize; }
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Marker fill; invalid means derive from the main colour. Returns the stored raw value, including any unset colour sentinel.
+     * @return Marker fill; invalid means derive from the main color. Returns the stored raw value, including any unset color sentinel.
      */
     QColor markerFillColor() const noexcept { return m_style.markerFillColor; }
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Marker border; invalid means derive a darker main colour. Returns the stored raw value, including any unset colour sentinel.
+     * @return Marker border; invalid means derive a darker main color. Returns the stored raw value, including any unset color sentinel.
      */
     QColor markerBorderColor() const noexcept { return m_style.markerBorderColor; }
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Marker border width in logical pixels; nonpositive suppresses the pixmap border. Returns the stored raw value, including any unset colour sentinel.
+     * @return Marker border width in logical pixels; nonpositive suppresses the pixmap border. Returns the stored raw value, including any unset color sentinel.
      */
     qreal markerBorderWidth() const noexcept { return m_style.markerBorderWidth; }
 
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Whether sample labels are requested. Returns the stored raw value, including any unset colour sentinel.
+     * @return Whether sample labels are requested. Returns the stored raw value, including any unset color sentinel.
      */
     bool showPointLabels() const noexcept { return m_style.showPointLabels; }
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Sample label font copied with its Qt font-size semantics. Returns the stored raw value, including any unset colour sentinel.
+     * @return Sample label font copied with its Qt font-size semantics. Returns the stored raw value, including any unset color sentinel.
      */
     QFont pointLabelFont() const noexcept { return m_style.pointLabelFont; }
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Sample label colour; invalid derives a darker main colour. Returns the stored raw value, including any unset colour sentinel.
+     * @return Sample label color; invalid derives a darker main color. Returns the stored raw value, including any unset color sentinel.
      */
     QColor pointLabelColor() const noexcept { return m_style.pointLabelColor; }
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Label format family, cast directly to NumberFormatMode without validation. Returns the stored raw value, including any unset colour sentinel.
+     * @return Label format family, cast directly to NumberFormatMode without validation. Returns the stored raw value, including any unset color sentinel.
      */
     LabelFormatModeQ pointLabelFormatMode() const noexcept
     {
@@ -260,30 +260,30 @@ public:
     }
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Raw digits; no clamping here, with effective lower bounds applied by NumberFormat at rendering. Returns the stored raw value, including any unset colour sentinel.
+     * @return Raw digits; no clamping here, with effective lower bounds applied by NumberFormat at rendering. Returns the stored raw value, including any unset color sentinel.
      */
     int pointLabelPrecision() const noexcept { return m_style.pointLabelPrecision; }
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Optional printf override copied verbatim; NumberFormat later ignores invalid syntax. Returns the stored raw value, including any unset colour sentinel.
+     * @return Optional printf override copied verbatim; NumberFormat later ignores invalid syntax. Returns the stored raw value, including any unset color sentinel.
      */
     QString pointLabelFormat() const { return m_style.pointLabelFormat; }
 
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Whether the host should render an area under the line. Returns the stored raw value, including any unset colour sentinel.
+     * @return Whether the host should render an area under the line. Returns the stored raw value, including any unset color sentinel.
      */
     bool showAreaFill() const noexcept { return m_style.showAreaFill; }
     /**
      * @brief Inspect the editor cache without reading a live chart.
-     * @return Area colour; invalid derives the main colour at alpha 0.25. Returns the stored raw value, including any unset colour sentinel.
+     * @return Area color; invalid derives the main color at alpha 0.25. Returns the stored raw value, including any unset color sentinel.
      */
     QColor areaFillColor() const noexcept { return m_style.areaFillColor; }
 
 public slots:
     /**
      * @brief Update the cached rendering preference for color.
-     * @param[in] c Main series colour; no validity enforcement.
+     * @param[in] c Main series color; no validity enforcement.
      * @note Equality is a no-op. A change emits colorChanged() then styleChanged() unless signals are blocked. No chart is updated automatically and no persistence occurs.
      */
     void setColor(const QColor &c);
@@ -357,13 +357,13 @@ public slots:
     void setMarkerSize(qreal v);
     /**
      * @brief Update the cached rendering preference for markerFillColor.
-     * @param[in] c Marker fill; invalid means derive from the main colour.
+     * @param[in] c Marker fill; invalid means derive from the main color.
      * @note Equality is a no-op. A change emits markerFillColorChanged() then styleChanged() unless signals are blocked. No chart is updated automatically and no persistence occurs.
      */
     void setMarkerFillColor(const QColor &c);
     /**
      * @brief Update the cached rendering preference for markerBorderColor.
-     * @param[in] c Marker border; invalid means derive a darker main colour.
+     * @param[in] c Marker border; invalid means derive a darker main color.
      * @note Equality is a no-op. A change emits markerBorderColorChanged() then styleChanged() unless signals are blocked. No chart is updated automatically and no persistence occurs.
      */
     void setMarkerBorderColor(const QColor &c);
@@ -388,7 +388,7 @@ public slots:
     void setPointLabelFont(const QFont &f);
     /**
      * @brief Update the cached rendering preference for pointLabelColor.
-     * @param[in] c Sample label colour; invalid derives a darker main colour.
+     * @param[in] c Sample label color; invalid derives a darker main color.
      * @note Equality is a no-op. A change emits pointLabelColorChanged() then styleChanged() unless signals are blocked. No chart is updated automatically and no persistence occurs.
      */
     void setPointLabelColor(const QColor &c);
@@ -419,7 +419,7 @@ public slots:
     void setShowAreaFill(bool on);
     /**
      * @brief Update the cached rendering preference for areaFillColor.
-     * @param[in] c Area colour; invalid derives the main colour at alpha 0.25.
+     * @param[in] c Area color; invalid derives the main color at alpha 0.25.
      * @note Equality is a no-op. A change emits areaFillColorChanged() then styleChanged() unless signals are blocked. No chart is updated automatically and no persistence occurs.
      */
     void setAreaFillColor(const QColor &c);
@@ -427,7 +427,7 @@ public slots:
 signals:
     /**
      * @brief Notify a changed cached color preference.
-     * @param[in] value New raw stored value. Main series colour; no validity enforcement.
+     * @param[in] value New raw stored value. Main series color; no validity enforcement.
      * @note Typed setters emit before styleChanged(); setStyle() suppresses these per-field notifications.
      */
     void colorChanged(const QColor &value);
@@ -500,13 +500,13 @@ signals:
     void markerSizeChanged(qreal value);
     /**
      * @brief Notify a changed cached markerFillColor preference.
-     * @param[in] value New raw stored value. Marker fill; invalid means derive from the main colour.
+     * @param[in] value New raw stored value. Marker fill; invalid means derive from the main color.
      * @note Typed setters emit before styleChanged(); setStyle() suppresses these per-field notifications.
      */
     void markerFillColorChanged(const QColor &value);
     /**
      * @brief Notify a changed cached markerBorderColor preference.
-     * @param[in] value New raw stored value. Marker border; invalid means derive a darker main colour.
+     * @param[in] value New raw stored value. Marker border; invalid means derive a darker main color.
      * @note Typed setters emit before styleChanged(); setStyle() suppresses these per-field notifications.
      */
     void markerBorderColorChanged(const QColor &value);
@@ -531,7 +531,7 @@ signals:
     void pointLabelFontChanged(const QFont &value);
     /**
      * @brief Notify a changed cached pointLabelColor preference.
-     * @param[in] value New raw stored value. Sample label colour; invalid derives a darker main colour.
+     * @param[in] value New raw stored value. Sample label color; invalid derives a darker main color.
      * @note Typed setters emit before styleChanged(); setStyle() suppresses these per-field notifications.
      */
     void pointLabelColorChanged(const QColor &value);
@@ -562,7 +562,7 @@ signals:
     void showAreaFillChanged(bool value);
     /**
      * @brief Notify a changed cached areaFillColor preference.
-     * @param[in] value New raw stored value. Area colour; invalid derives the main colour at alpha 0.25.
+     * @param[in] value New raw stored value. Area color; invalid derives the main color at alpha 0.25.
      * @note Typed setters emit before styleChanged(); setStyle() suppresses these per-field notifications.
      */
     void areaFillColorChanged(const QColor &value);

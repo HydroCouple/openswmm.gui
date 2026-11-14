@@ -296,7 +296,7 @@ private:
     void buildAdjustmentsTab(QTabWidget *tabs);
     /**
      * @brief Create the owned shared explicit site, radiation sources, met-file preview and
-     * cloud controls; site elevation metres, UTC offset hours and flux W/m² regardless of
+     * cloud controls; site elevation meters, UTC offset hours and flux W/m² regardless of
      * project units.
      * @param[in,out] tabs Non-null borrowed tab widget adopting the new scroll area/page and its
      * child controls.
@@ -317,7 +317,7 @@ private:
      * @brief Copy current snow/radiation/cloud controls into the staged shared settings.
      * @details Retains originally loaded high-precision site/cloud numbers when displayed values
      * are unchanged. Normalizes source text and updates the met-file authored display path only
-     * after its absolute identity changed. Site elevation is metres, timezone hours, radiation
+     * after its absolute identity changed. Site elevation is meters, timezone hours, radiation
      * W/m² and cloud fractions dimensionless regardless of project length units. No engine
      * write.
      */

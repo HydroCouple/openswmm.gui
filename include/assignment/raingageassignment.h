@@ -14,7 +14,7 @@
  *                        entries and their unit-hydrograph groups, source
  *                        rainfall series, and what earlier runs generated.
  *   2. computePlan()  — any thread; pure. Thiessen area majority (nearest) or
- *                        natural-neighbour weights (interpolated), clustering,
+ *                        natural-neighbor weights (interpolated), clustering,
  *                        blending, idempotent reuse of earlier output, and the
  *                        unit-hydrograph group splits RDII needs.
  *   3. makeApplyCommand() — GUI thread. One BulkEditCommand holding every
@@ -189,7 +189,7 @@ struct Progress {
  */
 [[nodiscard]] Input gatherInput(SWMMModelLayer *layer, const Options &options);
 
-/*! \brief Step 2 (any thread). \p progress may be null. A cancelled run
+/*! \brief Step 2 (any thread). \p progress may be null. A canceled run
  *  returns a plan whose error says so. * @param[in] input Immutable snapshot produced by gatherInput(); no live model access occurs.
  * @param[in,out] progress Optional shared atomic counters/cancel flag; must outlive this call.
  * @return Deterministic assignment, generated-series and RDII split plan; nonempty error prevents application. Cancellation returns an errored plan.

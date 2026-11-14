@@ -1360,7 +1360,7 @@ private slots:
         QCOMPARE(nonWall, 1);
     }
 
-    /*! Conveyance on a quad-quad edge: the two neighbour slots collapse to
+    /*! Conveyance on a quad-quad edge: the two neighbor slots collapse to
      *  ONE vertex-pair row and both slots are repopulated on read. */
     /**
      *

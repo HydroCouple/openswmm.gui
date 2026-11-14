@@ -63,14 +63,14 @@ public:
      * @brief Restore cached pre-drag coordinates and clear drag target, invalidate Scene/Overlay as
      *   appropriate, then activate base.
      * @note No committed undo replay or active-tool restoration; raw retained layer must still be
-     *   alive when cancelling node preview.
+     *   alive when canceling node preview.
      */
     void activate() override;
     /**
      * @brief Restore cached pre-drag coordinates and clear drag target, invalidate Scene/Overlay as
      *   appropriate, then deactivate base.
      * @note No committed undo replay or active-tool restoration; raw retained layer must still be
-     *   alive when cancelling node preview.
+     *   alive when canceling node preview.
      */
     void deactivate() override;
 

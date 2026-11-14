@@ -9,7 +9,7 @@
  *         The Rule Model defines marker shapes at the SymbolLayer scope —
  *         see RENDERING_RULE_MODEL_PLAN.md §6.1. This file ships the
  *         canonical enum + the QPainter draw helper that produces every
- *         shape at a requested centre / size / rotation / fill / outline.
+ *         shape at a requested center / size / rotation / fill / outline.
  *
  *         Existing per-class shape enums (NodeMarkerStyle::Circle,
  *         GISVectorSymbol::Circle, MarkerShapeCombo::Circle) stay in
@@ -89,12 +89,12 @@ Q_ENUM_NS(MarkerShape)
  */
 [[nodiscard]] MarkerShape markerShapeFromString(const QString &s);
 
-/*! \brief Render \p shape into \p painter centred at \p center with the
+/*! \brief Render \p shape into \p painter centered at \p center with the
  *         outer extent \p sizePx, filled with \p fillBrush and stroked
  *         with \p outlinePen. Rotation is in degrees (clockwise).
  *
  *         \p sizePx is the **bounding-box edge** — every shape fits in a
- *         square of side \p sizePx with the centre at \p center, so the
+ *         square of side \p sizePx with the center at \p center, so the
  *         visual size is uniform across shapes.
  *
  *         The function saves / restores \p painter state. Antialiasing

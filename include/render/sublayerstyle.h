@@ -44,7 +44,7 @@ namespace OpenSWMM::Render
  * \brief Base class for per-sublayer style property bags.
  *
  *         Subclasses declare Q_PROPERTYs for the user-editable knobs
- *         specific to that sublayer kind (line width, colour ramp, marker
+ *         specific to that sublayer kind (line width, color ramp, marker
  *         shape, …). Setters must call setDirty() so styleChanged() is
  *         emitted exactly once per logical user edit.
  *

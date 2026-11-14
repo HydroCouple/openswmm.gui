@@ -811,7 +811,7 @@ void WMSLayer::requestTile(const MapExtent &trackingExt, const MapExtent &reques
                              : it.key().toUtf8(),
                          it.value().toUtf8());
 
-    // trackingExt is always in canvas CRS (metres) — used in render() to
+    // trackingExt is always in canvas CRS (meters) — used in render() to
     // position the returned image correctly regardless of what CRS was requested.
     m_requestedWidth = w;
     m_requestedHeight = h;

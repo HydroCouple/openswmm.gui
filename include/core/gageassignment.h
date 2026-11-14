@@ -14,7 +14,7 @@
  *
  *          - Area-averaged interpolation support — interior sample points for a
  *            ring, inverse-distance weights for query points that fall outside
- *            the natural-neighbour hull, and the deterministic quantisation that
+ *            the natural-neighbor hull, and the deterministic quantization that
  *            groups subcatchments carrying effectively the same weight vector.
  *
  *          Like EditGeometry, this is a leaf module with no Qt-GUI, OGR, or
@@ -40,7 +40,7 @@ namespace GageAssignment
 
 /*!
  * \brief Weights below this magnitude are clamped to zero before clustering.
- * \details Natural-neighbour and inverse-distance weighting both produce long
+ * \details Natural-neighbor and inverse-distance weighting both produce long
  *          microscopic tails. Left in place they fragment clusters without
  *          moving blended depth measurably — 1e-4 shifts it by under 0.01%.
  */
@@ -99,12 +99,12 @@ constexpr int kDefaultSampleTarget = 200;
  * \details Same result as thiessenAreaShares(), built once per network:
  *
  *          - A gage's Voronoi cell is the intersection of the half-planes
- *            against its DELAUNAY neighbours only (about six), not against all
- *            G-1 other gages. Neighbours come from a Delaunay triangulation of
+ *            against its DELAUNAY neighbors only (about six), not against all
+ *            G-1 other gages. Neighbors come from a Delaunay triangulation of
  *            the sites (mesh::ConstrainedDelaunay). If that fails — fewer than
  *            three distinct sites, or all collinear — every other site is a
- *            neighbour, which is the original all-pairs rule.
- *          - Each cell is also materialised once, clipped to \p extent, so its
+ *            neighbor, which is the original all-pairs rule.
+ *          - Each cell is also materialized once, clipped to \p extent, so its
  *            bounding box can reject gages whose cell cannot touch a ring.
  *          - Fast path: when every ring vertex has the same nearest gage, the
  *            ring lies inside that (convex) cell and takes its whole area there.
@@ -142,7 +142,7 @@ public:
      */
     [[nodiscard]] int nearestSite(const QPointF &p) const;
 
-    /*! \brief True when the Delaunay neighbour lists were used (false means
+    /*! \brief True when the Delaunay neighbor lists were used (false means
      *         the all-pairs fallback). For tests and diagnostics.     * @return True when build() obtained Delaunay neighbor lists; false before build or when all-pairs fallback is used.
      */
     [[nodiscard]] bool usesDelaunay() const { return m_delaunay; }
@@ -175,8 +175,8 @@ private:
                                              int target = kDefaultSampleTarget);
 
 /*!
- * \brief Inverse-distance weights (power 2), normalised to sum 1.
- * \details The fallback for query points outside the natural-neighbour hull.
+ * \brief Inverse-distance weights (power 2), normalized to sum 1.
+ * \details The fallback for query points outside the natural-neighbor hull.
  *          Matches the engine's own convention in RainfallInterpolator so the
  *          GUI and the 2D solver agree. A query coincident with a site returns
  *          weight 1 on that site alone.
@@ -196,7 +196,7 @@ private:
 /*!
  * \brief A canonical, integer-valued summary of one weight vector.
  * \details Two subcatchments share a generated gage exactly when their keys
- *          compare equal. Quantisation makes the comparison integral, so no
+ *          compare equal. Quantization makes the comparison integral, so no
  *          floating-point tolerance leaks into the grouping.
  */
 struct ClusterKey {
@@ -211,8 +211,8 @@ struct ClusterKey {
 };
 
 /*!
- * \brief Quantise a dense weight vector into a canonical cluster key.
- * \details Clamps sub-\p wEps entries to zero, renormalises, rounds each weight
+ * \brief Quantize a dense weight vector into a canonical cluster key.
+ * \details Clamps sub-\p wEps entries to zero, renormalizes, rounds each weight
  *          to a multiple of \p tol, then pushes the rounding residual onto the
  *          largest term (ties toward the lowest index) so every key sums to the
  *          same constant. The result depends only on the weights, never on
@@ -226,7 +226,7 @@ struct ClusterKey {
                                          double wEps = kWeightEpsilon);
 
 /*!
- * \brief Dense weights implied by a key — the blend actually synthesised.
+ * \brief Dense weights implied by a key — the blend actually synthesized.
  * \details Recovering the weights from the key rather than from any one member's
  *          floats is what makes a cluster's generated series a pure function of
  *          its key, and therefore reproducible.

@@ -68,7 +68,7 @@ private slots:
     void nonFiniteSeeds();
     /**
      *
-     * @brief Require valid square-plus-centre seeds to build and print status, without invoking
+     * @brief Require valid square-plus-center seeds to build and print status, without invoking
      * interpolation.
      *
      */
@@ -168,7 +168,7 @@ void TestNNInterpDegenerate::validSeedsStillBuild()
 {
     // Control: a well-formed seed set must still build and interpolate, so a
     // fix for the degenerate cases cannot be "always return false".
-    // A 7x7 grid: natural neighbour is only defined where the Delaunay
+    // A 7x7 grid: natural neighbor is only defined where the Delaunay
     // cavity does not reach the hull (see the `nb < 0` guard in
     // interpolate()), so the seed set must be big enough to have interior
     // triangles and the queries must sit well away from the border.

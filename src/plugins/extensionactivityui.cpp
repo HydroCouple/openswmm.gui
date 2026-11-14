@@ -306,12 +306,12 @@ struct ExtensionActivityUi::Data {
     QUuid ownerId;                             ///< Private host-lifetime identity.
     QUuid windowId;                            ///< Shared main-window runtime identity.
     QString pluginId;                          ///< Configured extension identity.
-    std::function<QStringList()> builtinIds;   ///< Approved native dialog catalogue.
+    std::function<QStringList()> builtinIds;   ///< Approved native dialog catalog.
     std::function<QAction *(const QString &)> builtinAction; ///< Approved action resolver.
     std::function<bool(const QString &)> openBuiltin;        ///< Existing dialog controller.
     QHash<QString, Command> commands; ///< Own/approved registrations by prefixed local key.
     QHash<QString, Dock> docks;       ///< Own docks by extension-local key.
-    QList<QMetaObject::Connection> connections; ///< Shared native/catalogue connections.
+    QList<QMetaObject::Connection> connections; ///< Shared native/catalog connections.
     bool stopped = false;     ///< Teardown suppresses all later native publication.
     bool initializing = true; ///< Initial backfill refreshes state without synthetic changes.
 
@@ -369,7 +369,7 @@ struct ExtensionActivityUi::Data {
         return state;
     }
     /** @brief Remove one command before emitting its historical registration identity.
-     * @param[in] key Prefixed internal catalogue key.
+     * @param[in] key Prefixed internal catalog key.
      * @param[in] expected Optional captured runtime identity guarding stale destruction callbacks. */
     void removeCommand(const QString &key, const QUuid &expected = {})
     {
@@ -381,7 +381,7 @@ struct ExtensionActivityUi::Data {
             QObject::disconnect(connection);
         publish(ActivityEventKind::CommandRemoved, record.state.commandId);
     }
-    /** @brief Diff native action state, including an approved command leaving the catalogue.
+    /** @brief Diff native action state, including an approved command leaving the catalog.
      * @param[in] key Internal registration key.
      * @param[in] expected Captured registration identity. */
     void refreshCommand(const QString &key, const QUuid &expected)
@@ -429,7 +429,7 @@ struct ExtensionActivityUi::Data {
         commands.insert(key, record);
         publish(ActivityEventKind::CommandChanged, runtime);
     }
-    /** @brief Reconcile only the native approved dialog catalogue, never foreign extension actions. */
+    /** @brief Reconcile only the native approved dialog catalog, never foreign extension actions. */
     void syncBuiltins()
     {
         if (stopped || !builtinIds || !builtinAction)

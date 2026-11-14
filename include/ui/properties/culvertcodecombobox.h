@@ -12,7 +12,7 @@
  * `QPropertyItemDelegate::registerCustomTypeEditorCreator`.
  *
  * Apply-as-you-go (same contract the removed LinkCompoundEditDialog
- * culvert page honoured): picking an item writes immediately through
+ * culvert page honored): picking an item writes immediately through
  * `SWMMModelLayer::applyLinkCulvertCode` (or the bare engine setter
  * when no layer is bound, e.g. in tests), then emits `valueChanged()`
  * so the delegate's setModelData round-trip refreshes the row.

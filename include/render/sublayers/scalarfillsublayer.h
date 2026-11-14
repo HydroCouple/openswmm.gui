@@ -4,9 +4,9 @@
  *         2D mesh. Unlike ContourBandSublayer (which marching-squares the field
  *         into discrete band polygons), these fill the existing triangle mesh
  *         directly:
- *           - CellDepthFillSublayer    — one flat colour per cell (cell-centre
+ *           - CellDepthFillSublayer    — one flat color per cell (cell-center
  *             value), classified or continuous.
- *           - SmoothDepthFillSublayer  — a colour per mesh vertex, interpolated
+ *           - SmoothDepthFillSublayer  — a color per mesh vertex, interpolated
  *             across each triangle by the GPU (Gouraud). Continuous gives a
  *             seam-free gradient; classified bins each vertex.
  *         Both reuse the shared ScalarFillStyle (attribute + ClassificationScheme
@@ -160,7 +160,7 @@ public:
      * decides whether to replace it; other style fields are retained. */
     void setScheme(const ClassificationScheme &s);
 
-    /*! Continuous colour for a raw value over [dataMin, dataMax]. */
+    /*! Continuous color for a raw value over [dataMin, dataMax]. */
     /** @param v Scalar in the selected attribute unit. Nonfinite or below-range values
      * are transparent under the scheme's continuous sampling contract.
      * @param dataMin Automatic data lower bound, overridden by a custom range if enabled.
@@ -171,7 +171,7 @@ public:
     {
         return m_scheme.colorForValue(v, dataMin, dataMax);
     }
-    /*! Classified colour at the midpoint of class \p classIndex of \p count. */
+    /*! Classified color at the midpoint of class \p classIndex of \p count. */
     /** @param classIndex Zero-based class; negative yields transparent.
      * @param count Nominal class count, normalized to at least one before forwarding.
      * @return Scheme override when valid, otherwise midpoint ramp color with high
@@ -197,7 +197,7 @@ private:
     ClassificationScheme m_scheme;
 };
 
-/*! One flat colour per mesh cell, from the cell-centre value. */
+/*! One flat color per mesh cell, from the cell-center value. */
 class CellDepthFillSublayer : public ISublayer
 {
     Q_OBJECT
@@ -269,7 +269,7 @@ private:
     ScalarFillStyle *m_style;
 };
 
-/*! A colour per mesh vertex, interpolated across each triangle by the GPU
+/*! A color per mesh vertex, interpolated across each triangle by the GPU
  *  (Gouraud). Continuous mode gives a smooth seam-free gradient — the
  *  artifact-free alternative to marching-squares contour bands. */
 class SmoothDepthFillSublayer : public ISublayer

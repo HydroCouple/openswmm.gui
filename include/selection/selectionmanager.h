@@ -48,7 +48,7 @@ struct SWMMObjectRef {
         LandUse = 6,
         Control = 7,
         // Non-spatial data objects (Slice BM.0). Values appended at end so
-        // existing serialisation / sidecar `.oswp` files keep working.
+        // existing serialization / sidecar `.oswp` files keep working.
         Curve = 8,
         TimeSeries = 9,
         TimePattern = 10,

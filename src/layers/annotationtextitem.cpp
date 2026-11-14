@@ -17,8 +17,8 @@ namespace
 {
 
 /**
- * @brief Encode a colour for JSON including alpha.
- * @param[in] c Colour value; validity is not checked.
+ * @brief Encode a color for JSON including alpha.
+ * @param[in] c Color value; validity is not checked.
  * @return QColor::HexArgb string.
  */
 QString colorToString(const QColor &c)
@@ -27,10 +27,10 @@ QString colorToString(const QColor &c)
 }
 
 /**
- * @brief Decode a named/hex annotation colour with a retained-value fallback.
- * @param[in] s Colour text; empty selects fallback.
- * @param[in] fallback Existing colour retained for invalid input.
- * @return Parsed valid colour or fallback, without changing either input.
+ * @brief Decode a named/hex annotation color with a retained-value fallback.
+ * @param[in] s Color text; empty selects fallback.
+ * @param[in] fallback Existing color retained for invalid input.
+ * @return Parsed valid color or fallback, without changing either input.
  */
 QColor colorFromString(const QString &s, const QColor &fallback)
 {

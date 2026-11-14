@@ -434,7 +434,7 @@ void sampleRasterCentroid(SamplingProgress &promise, const Job &job, const QVect
  *  pixel therefore carries the same weight, so the area-weighted mean is the
  *  arithmetic mean of the included pixels.
  *
- *  A cell smaller than one pixel catches no centre at all; those fall back to
+ *  A cell smaller than one pixel catches no center at all; those fall back to
  *  the nearest pixel under the centroid so a fine mesh over a coarse raster
  *  still gets values rather than a wall of NoData. * @brief Compute footprint-weighted raster means or categorical majorities.
  * @param[in,out] promise Calling-thread cancellation/progress adapter.
@@ -739,9 +739,9 @@ OGRLayer *openVectorLayer(const Job &job, DatasetGuard &g, QString *err)
     return ol;
 }
 
-/*! Natural-neighbour interpolation of N numeric fields from a scattered point
+/*! Natural-neighbor interpolation of N numeric fields from a scattered point
  *  source. One triangulation serves every target: weightsAt() exposes the
- *  natural-neighbour coordinates, so the same weights blend each field. * @param[in,out] promise Calling-thread cancellation/progress adapter.
+ *  natural-neighbor coordinates, so the same weights blend each field. * @param[in,out] promise Calling-thread cancellation/progress adapter.
  * @param[in] job Point-source field names, scope, CRS, interpolation variant and target limits.
  * @param[in] ol Non-null borrowed OGR layer, read through the dataset owned by this worker.
  * @param[in,out] r Receives numeric assignments/skips and any interpolation error.
@@ -766,7 +766,7 @@ void sampleVectorNaturalNeighbour(SamplingProgress &promise, const Job &job, OGR
             !job.filterBySelection || job.selectedIds.contains(static_cast<long long>(f->GetFID()));
         const OGRGeometry *geom = f->GetGeometryRef();
         if (keep && geom && !geom->IsEmpty()) {
-            // Envelope centre — exact for points, and a sane stand-in for the
+            // Envelope center — exact for points, and a sane stand-in for the
             // odd multipoint / small polygon a "point" layer sometimes holds.
             OGREnvelope env;
             geom->getEnvelope(&env);

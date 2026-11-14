@@ -9,7 +9,7 @@
  *         markerChainageChanged to the profile chart's cursor, and the chart's
  *         cursorChainageChanged back to the overlay).
  *
- * Behaviour:
+ * Behavior:
  *   - Left-press within a few pixels of the profile line begins a drag and
  *     snaps the marker to the nearest point on the line.
  *   - Mouse-move projects the cursor onto the line → chainage, moves the
@@ -100,9 +100,9 @@ signals:
     /*! \brief Emitted while the marker is dragged. \p chainage is scene-unit
      *  distance along the path.
      * @note Emitted at successful grab and each move, even equal value; chainage in overlay scene
-     *   Euclidean units (canvas map scale), not necessarily project metres or geodesic distance.
+     *   Euclidean units (canvas map scale), not necessarily project meters or geodesic distance.
      *   Consumer converts to plot units as needed. No emission on release/deactivate.
-     * @param[in] chainage Current nearest path distance in scene Euclidean units, not necessarily model metres.
+     * @param[in] chainage Current nearest path distance in scene Euclidean units, not necessarily model meters.
      */
     void markerChainageChanged(double chainage);
 

@@ -21,7 +21,7 @@
  *
  *         Zoom-dependent aggregation: when the whole selection collapses to
  *         less than a beacon's width on screen (i.e. zoomed out), ONE ring is
- *         drawn at its centre rather than N rings stacked on the same pixel.
+ *         drawn at its center rather than N rings stacked on the same pixel.
  *         Zoomed in far enough to tell the features apart, each gets its own.
  *
  *         Off-screen selections draw nothing by design — "Zoom to Selection"
@@ -63,7 +63,7 @@ class SelectionBeaconOverlay : public QObject
 public:
     /**
      * @param[in] parent Optional QObject owner, usually canvas.
-     * @note Initializes empty anchors, gold colour and33msGUI timer. Timeout stops flash at
+     * @note Initializes empty anchors, gold color and33msGUI timer. Timeout stops flash at
      *   elapsed>=800ms then emits one final repaint; all methods/timer/painter access serialized on
      *   owning GUI thread.
      */
@@ -85,8 +85,8 @@ public:
      */
     [[nodiscard]] bool isEmpty() const { return m_anchors.isEmpty(); }
 
-    /*! Accent colour; defaults to the selection colour the caller passes.
-     * @param[in] c Valid accent colour; invalid/equal ignored.
+    /*! Accent color; defaults to the selection color the caller passes.
+     * @param[in] c Valid accent color; invalid/equal ignored.
      * @note Change emits needsRepaint. Painter replaces alpha for ring/ticks/flash, so supplied
      *   alpha is not preserved uniformly; default gold(255, 200, 0). Does not restart flash.
      */
@@ -111,7 +111,7 @@ public:
 signals:
     /*! Emitted while the flash animates so the canvas repaints its overlay
      *  stage. Stops firing once the flash has finished.
-     * @note Emitted by anchor/valid colour edits and approximately30Hzflash timer, including final
+     * @note Emitted by anchor/valid color edits and approximately30Hzflash timer, including final
      *   steady-only repaint. No timer emits after flash stopped; paint itself does not request
      *   another frame.
      */

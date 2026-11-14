@@ -94,7 +94,7 @@ public:
     /**
      * @brief Queue checkpoint publication for an active run/resume accepted boundary.
      * @param[in] newPath Absolute round-trip UTF-8 path without NULs; actual write/alias/exclusive checks run on the worker.
-     * @return False when not busy, cancelled, path-invalid, or no longer accepting saves; true means queued, not saved.
+     * @return False when not busy, canceled, path-invalid, or no longer accepting saves; true means queued, not saved.
      * @details Call on the controller thread. Inspect/export do not accept save requests; saves arriving after run processing closes are reported as unprocessed-save errors.
      */
     bool queueSave(const QString &newPath);
@@ -136,7 +136,7 @@ signals:
     void saved(quint64 generation, const CheckpointSaveResult &result);
     /**
      * @brief Publish terminal operation state after clearing controller busy state.
-     * @param[in] result Value-only result; stale/cancelled inspections expose no reusable metadata.
+     * @param[in] result Value-only result; stale/canceled inspections expose no reusable metadata.
      */
     void finished(const CheckpointResult &result);
 

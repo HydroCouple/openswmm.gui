@@ -165,7 +165,7 @@ void ColorRampEditorDialog::buildUi()
         row->addWidget(new QLabel(tr("Preset:"), this));
         m_presetCombo = new QComboBox(this);
         m_presetCombo->addItem(tr("(custom)"));
-        // Full builtin catalogue — the old dialog hard-coded 7 of them.
+        // Full builtin catalog — the old dialog hard-coded 7 of them.
         const QStringList names = RasterColorRamp::builtinNames();
         for (const QString &n : names)
             m_presetCombo->addItem(n);

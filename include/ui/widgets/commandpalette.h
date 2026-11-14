@@ -44,7 +44,7 @@ public:
 
     /*! Reload actions, clear the filter, center over the parent window
      *  and show.
-     * @note Selects the first command, positions near the parent's upper centre, raises/activates the window and focuses the filter. Reload invalidates prior model indexes.
+     * @note Selects the first command, positions near the parent's upper center, raises/activates the window and focuses the filter. Reload invalidates prior model indexes.
      */
     void popup();
 

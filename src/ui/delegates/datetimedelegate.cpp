@@ -25,7 +25,7 @@ QWidget *DateTimeDelegate::createEditor(QWidget *parent, const QStyleOptionViewI
     auto *edit = new QDateTimeEdit(parent);
     edit->setDisplayFormat(openswmmvis::core::swmmDateTimeDisplayFormat());
     edit->setCalendarPopup(true);
-    // Wall-clock convention: SWMM times are timezone-naive and labelled UTC so
+    // Wall-clock convention: SWMM times are timezone-naive and labeled UTC so
     // no local-time / DST arithmetic is ever applied on the round trip (GH #2,
     // see core/swmmdatetime.h). A default-spec editor would relabel the value
     // LocalTime and shift it on the way back out.

@@ -38,7 +38,7 @@ QChar guessDelimiter(const QString &sampleLine)
 
 namespace
 {
-/** @brief Parse @p text with @p fmt as SWMM wall-clock time, labelled UTC.
+/** @brief Parse @p text with @p fmt as SWMM wall-clock time, labeled UTC.
  *  QDateTime::fromString() labels the result local time, which moves or drops
  *  a stamp inside a daylight-saving gap. SWMM times have no zone, so the date
  *  and time are parsed separately and joined under UTC (no conversion). */
@@ -142,7 +142,7 @@ namespace
 {
 
 // Engine's TBLSEPSTR = " \t\n\r," — split on whitespace or comma and drop
-// empties. Pre-compiled regex matches the engine's strtok() behaviour.
+// empties. Pre-compiled regex matches the engine's strtok() behavior.
 /**
  * @brief Split a DAT record using whitespace or comma separators, dropping empty fields.
  * @param[in] line Record text; no quoting or inline-comment syntax is interpreted.

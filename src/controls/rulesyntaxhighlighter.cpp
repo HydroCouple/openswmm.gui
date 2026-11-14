@@ -123,7 +123,7 @@ QStringList RuleSyntaxHighlighter::allKeywords()
 
 void RuleSyntaxHighlighter::rebuildFormats_()
 {
-    // Resolve palette colours. The fallback (when m_palette is default-
+    // Resolve palette colors. The fallback (when m_palette is default-
     // constructed) uses the QPalette::Active group's default roles.
     const QColor highlight = m_palette.color(QPalette::Active, QPalette::Highlight);
     const QColor linkVisited = m_palette.color(QPalette::Active, QPalette::LinkVisited);

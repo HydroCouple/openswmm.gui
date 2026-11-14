@@ -43,7 +43,7 @@ class MeshEdgeStyle : public SublayerStyle
     Q_PROPERTY(double wideWidthPx READ wideWidthPx WRITE setWideWidthPx NOTIFY styleChanged)
     Q_PROPERTY(QColor wideColor READ wideColor WRITE setWideColor NOTIFY styleChanged)
 
-    // Boundary-condition colouring moved to MeshBcStyle (meshbcsublayer.h)
+    // Boundary-condition coloring moved to MeshBcStyle (meshbcsublayer.h)
     // — BC indicators are their own sublayer now, with per-type visibility.
     // Legacy "bc*"-prefixed JSON keys migrate in
     // SWMM2DMeshLayer::onSublayersJsonLoaded.
@@ -143,7 +143,7 @@ public:
     }
 
     /*! The embedded slope classification scheme. The default 2-class scheme
-     *  reproduces the legacy thin/wide split; the renderer colours edges by
+     *  reproduces the legacy thin/wide split; the renderer colors edges by
      *  slope class when the scheme is customized past that default.
      * @return Borrowed scheme valid for this style's lifetime; setters/loading can replace it. */
     [[nodiscard]] const ClassificationScheme &scheme() const { return m_scheme; }

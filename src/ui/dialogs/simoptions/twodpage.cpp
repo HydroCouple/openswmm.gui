@@ -901,7 +901,7 @@ void TwoDPage::buildUi()
             [this](qint64) { updateOutputSizeEstimate(); });
 
     // Variables checklist — one row per engine dataset group, in bit order.
-    // The tooltip names the GUI consumers so a user knows what greys out.
+    // The tooltip names the GUI consumers so a user knows what grays out.
     auto *varsBox = new QWidget(outGroup);
     auto *varsLay = new QVBoxLayout(varsBox);
     varsLay->setContentsMargins(0, 0, 0, 0);
@@ -1572,7 +1572,7 @@ void TwoDPage::read()
     selectComboByData(m_heatRadiativeCombo,
                       getExt("HEAT_RADIATIVE_EXCHANGE", QStringLiteral("AUTO")).toUpper());
     // An engine that reports nothing for these keys predates them: show the
-    // legacy behaviour it runs, not the new-model preference.
+    // legacy behavior it runs, not the new-model preference.
     selectComboByData(m_couplingLawCombo, getExt("COUPLING_LAW", QStringLiteral("ORIFICE")));
     selectComboByData(m_couplingCoeffsCombo, getExt("COUPLING_COEFFS", QStringLiteral("DEFAULT")));
     selectComboByData(m_couplingHeadCombo, getExt("COUPLING_HEAD", QStringLiteral("CELL")));

@@ -9,7 +9,7 @@
  *
  * The throw and the numerical abort are injected with the test-only env
  * SWMMVIS_TEST_FAULT=&lt;phase&gt;:&lt;kind&gt; read once by SimulationRunner::start().
- * Decks and artefacts land in the reviewable output_simrunner_failures/ dir
+ * Decks and artifacts land in the reviewable output_simrunner_failures/ dir
  * (under SWMMVIS_GUI_TEST_DATA, else the working directory).
  *
  * @author    Caleb Buahin <caleb.buahin@gmail.com>

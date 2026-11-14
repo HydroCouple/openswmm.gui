@@ -3,7 +3,7 @@
  * @brief     Rain-gage file/column/format coupling in the Attribute Table
  *         (review follow-ups R3 and A-2).
  *
- * Two behaviours, both about the fact that a rain file's COLUMN belongs to the
+ * Two behaviors, both about the fact that a rain file's COLUMN belongs to the
  * FILE it was picked from:
  *
  *   R3 — editing the path reconciles the column in the same breath, and the
@@ -198,7 +198,7 @@ void TestRainGageFileColumn::pathEditBindsFirstColumnAndUndoesAsOneStep()
     // The format flip has to undo as well. It is the engine's implicit
     // side-effect of setting a column, so it is recorded as its own command
     // inside the macro — without that, undo left the gage USER_CSV with no
-    // column and Station ID greyed out for good.
+    // column and Station ID grayed out for good.
     QCOMPARE(m_model->data(m_model->index(m_row, m_fmtCol), Qt::EditRole).toInt(),
              int(SWMMRainGagePropertyAdapter::AutoDetect));
 }

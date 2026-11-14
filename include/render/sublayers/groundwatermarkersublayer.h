@@ -49,16 +49,16 @@ public:
     /** @return Marker size in logical pixels, [2, 40]. */
     [[nodiscard]] double markerSizePx() const { return m_markerSizePx; }
 
-    /** @param v New colour; emits styleChanged on a change. */
+    /** @param v New color; emits styleChanged on a change. */
     void setSourceColor(const QColor &v);
-    /** @param v New colour; emits styleChanged on a change. */
+    /** @param v New color; emits styleChanged on a change. */
     void setBedColor(const QColor &v);
-    /** @param v New colour; emits styleChanged on a change. */
+    /** @param v New color; emits styleChanged on a change. */
     void setNoExchangeColor(const QColor &v);
     /** @param v Size clamped to [2, 40] logical pixels; emits styleChanged on a change. */
     void setMarkerSizePx(double v);
 
-    /** @return Colours (ARGB) and marker size. */
+    /** @return Colors (ARGB) and marker size. */
     [[nodiscard]] QJsonObject toJson() const override;
     /** @param j Partial object; absent or invalid keys keep their current values. */
     void fromJson(const QJsonObject &j) override;
@@ -66,7 +66,7 @@ public:
 private:
     QColor m_sourceColor = QColor(0x1f, 0x5f, 0xd6, 235);     // blue
     QColor m_bedColor = QColor(0x0b, 0x8a, 0x6f, 235);        // teal
-    QColor m_noExchangeColor = QColor(0x8c, 0x8c, 0x8c, 200); // grey
+    QColor m_noExchangeColor = QColor(0x8c, 0x8c, 0x8c, 200); // gray
     double m_markerSizePx = 9.0;
 };
 

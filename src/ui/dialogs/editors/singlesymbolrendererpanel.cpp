@@ -8,7 +8,7 @@
  *
  *         For SWMM kinds the panel reuses the existing FeatureStyleEditor
  *         family (point/line/polygon archetypes) via the existing
- *         StyleEditorRegistry — no behaviour duplicated, just routed
+ *         StyleEditorRegistry — no behavior duplicated, just routed
  *         differently.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */

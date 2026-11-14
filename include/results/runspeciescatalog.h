@@ -121,7 +121,7 @@ public:
     /*! \brief The model's MSX species declarations (BULK / WALL, declared
      *  units). Empty for a null engine or a model without `[REACTIONS]`. */
     static QVector<DeclaredSpecies> declaredFromEngine(SWMM_Engine engine);
-    /*! \brief Normalise a stored unit spelling ("MG/L" -> "mg/L"). */
+    /*! \brief Normalize a stored unit spelling ("MG/L" -> "mg/L"). */
     static QString normalizedUnits(const QString &units);
     /*! \brief Display units for a `.out` unit code; empty when unknown. */
     static QString unitsForCode(int code);

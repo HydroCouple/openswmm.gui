@@ -18,7 +18,7 @@
  *
  * Field names are Import Feature Layer's attribute keys where a column has
  * one (invertElev, maxDepth, fromNode, …) so an exported layer re-imports
- * with Auto-match (plan Q9); every other column gets a sanitised form of its
+ * with Auto-match (plan Q9); every other column gets a sanitized form of its
  * label. Choice columns are written as their INP tokens.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
@@ -60,7 +60,7 @@ namespace openswmmvis::io
 
 /*!
  * \brief The output field name for a table column: Import Feature Layer's
- *        key when the column maps to one, otherwise the sanitised label.
+ *        key when the column maps to one, otherwise the sanitized label.
  * @param[in] category Model category used to choose compatible import attribute keys.
  * @param[in] spec Attribute-table column metadata.
  * @return Import key when recognized, otherwise a sanitized column label; not guaranteed unique until the collector resolves collisions.

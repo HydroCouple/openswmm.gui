@@ -9,7 +9,7 @@
  * of `InteractiveChartView` that adds an orthogonal `EditMode` axis on top of
  * the base Select/Pan/Zoom modes:
  *
- *   - **None**         — base Select/Pan/Zoom behaviour only.
+ *   - **None**         — base Select/Pan/Zoom behavior only.
  *   - **EditPoints**   — hit-test on scatter; drag X+Y to move the vertex
  *                        (axis locks configurable via setLockX/setLockY);
  *                        Shift-drag rubber-band selects multiple; drag a

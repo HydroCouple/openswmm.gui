@@ -127,7 +127,7 @@ TEST(LabelPainter, LabelRectAnchoredByPlacement)
     cfg.placement = LabelConfig::Centre;
     const QSizeF sz(40.0, 10.0);
     const QRectF r = LabelPainter::labelRect(cfg, QPointF(100.0, 100.0), sz);
-    // Centre placement puts the box centred on the anchor.
+    // Center placement puts the box centered on the anchor.
     EXPECT_DOUBLE_EQ(r.center().x(), 100.0);
     EXPECT_DOUBLE_EQ(r.center().y(), 100.0);
     EXPECT_DOUBLE_EQ(r.width(), 40.0);

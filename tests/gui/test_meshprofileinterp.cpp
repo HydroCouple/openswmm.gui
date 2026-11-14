@@ -33,7 +33,7 @@ namespace
 
 // Build a sample with chainage c, bed elevation g, current depth d.
 // cellHasSurface defaults to false (no-data), which keeps the legacy
-// bridge-every-gap behaviour for the pre-existing cases below.
+// bridge-every-gap behavior for the pre-existing cases below.
 /**
  * @brief Build one owned profile sample for wet-band/intercept assertions.
  * @param[in] c Chainage in shared arbitrary horizontal units.
@@ -145,7 +145,7 @@ private slots:
         };
         const QVector<double> t = tops(s);
 
-        // The crest is dry; its neighbours in the gap are bridged wet (~11).
+        // The crest is dry; its neighbors in the gap are bridged wet (~11).
         QVERIFY2(std::isnan(t[3]), "crest must be dry");
         QVERIFY(!std::isnan(t[2]) && std::abs(t[2] - 11.0) < 1e-9);
         QVERIFY(!std::isnan(t[4]) && std::abs(t[4] - 11.0) < 1e-9);
@@ -233,7 +233,7 @@ private slots:
 
     // ── Shoreline intercepts (premature-truncation fix) ────────────────────
     // The painted band must taper to the exact WSE/ground crossing between the
-    // last wet sample and its dry neighbour, not stop with a vertical cliff.
+    // last wet sample and its dry neighbor, not stop with a vertical cliff.
 
     // Flat pool (WSE 1.0) over a rising bed: ground passes 1.0 at chainage
     // 1.5, halfway between the last wet sample (c=1, g=0.5) and the dry one
@@ -306,7 +306,7 @@ private slots:
         QVERIFY(std::abs(e - (1.8 - 0.2 * tExp)) < 1e-12);
     }
 
-    // No intercept when the dry neighbour's ground stays BELOW the surface —
+    // No intercept when the dry neighbor's ground stays BELOW the surface —
     // a no-data / unbridged termination (e.g. the split flank of a pool over
     // a low bench) keeps its hard edge rather than inventing a crossing.
     /**
@@ -325,7 +325,7 @@ private slots:
         QVERIFY(!MeshProfileInterp::shorelineIntercept(s, t, 0, 1, true, nullptr, nullptr));
     }
 
-    // No intercept at an off-mesh (NaN ground) neighbour or at the data edge.
+    // No intercept at an off-mesh (NaN ground) neighbor or at the data edge.
     /**
      * @brief Verify shoreline interception refuses off-mesh NaN neighbor and unavailable leading
      * data edge.
@@ -340,7 +340,7 @@ private slots:
             mk(2, std::numeric_limits<double>::quiet_NaN(), 0.0, true),
         };
         const QVector<double> t = tops(s);
-        // Off-mesh neighbour on the trailing side.
+        // Off-mesh neighbor on the trailing side.
         QVERIFY(!MeshProfileInterp::shorelineIntercept(s, t, 0, 1, true, nullptr, nullptr));
         // Leading side of a run starting at sample 0: data edge.
         QVERIFY(!MeshProfileInterp::shorelineIntercept(s, t, 0, 1, false, nullptr, nullptr));

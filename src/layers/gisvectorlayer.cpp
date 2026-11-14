@@ -79,7 +79,7 @@ namespace
 /**
  * @brief Seed one simple-marker rule from legacy vector symbology.
  * @param[out] style Existing layers are replaced and opacity set to one.
- * @param[in] sym Marker fields and line colour/width/dash source; richer labels/polygon brush settings are not transferred.
+ * @param[in] sym Marker fields and line color/width/dash source; richer labels/polygon brush settings are not transferred.
  */
 void seedSymbolStyleFromGISVectorSymbol(OpenSWMM::Render::SymbolStyle &style,
                                         const GISVectorSymbol &sym)
@@ -114,7 +114,7 @@ void seedSymbolStyleFromGISVectorSymbol(OpenSWMM::Render::SymbolStyle &style,
  * @brief Project the first compositional symbol layer onto typed vector defaults.
  * @param[in] style First layer supplies marker/line/outline/fill properties; additional layers and overall opacity are ignored.
  * @param[in] fallback Values retained for missing/nonconvertible properties, or returned unchanged for an empty layer list.
- * @return Owned typed symbol; numeric/enum ranges are unchecked and polygon fill becomes a solid colour brush.
+ * @return Owned typed symbol; numeric/enum ranges are unchecked and polygon fill becomes a solid color brush.
  */
 GISVectorSymbol deriveGISVectorSymbolFromStyle(const OpenSWMM::Render::SymbolStyle &style,
                                                const GISVectorSymbol &fallback)
@@ -132,7 +132,7 @@ GISVectorSymbol deriveGISVectorSymbolFromStyle(const OpenSWMM::Render::SymbolSty
         const QColor c = it.value().value<QColor>();
         if (c.isValid())
             return c;
-        // SymbolStyleAdapter sometimes stores colours as their #AARRGGBB
+        // SymbolStyleAdapter sometimes stores colors as their #AARRGGBB
         // name string — accept that form too.
         const QColor s(it.value().toString());
         return s.isValid() ? s : def;
@@ -164,7 +164,7 @@ GISVectorSymbol deriveGISVectorSymbolFromStyle(const OpenSWMM::Render::SymbolSty
 
     // ── Line (linestring features) ──────────────────────────────────
     // SymbolStyleAdapter writes "color"/"width" for the stroke; fall
-    // back to the marker outline so a single colour edit affects both.
+    // back to the marker outline so a single color edit affects both.
     QPen linePen = out.linePen;
     linePen.setColor(readColor(QStringLiteral("color"), linePen.color()));
     linePen.setWidthF(readReal(QStringLiteral("width"), linePen.widthF()));
@@ -409,7 +409,7 @@ GISVectorLayer::GISVectorLayer(const QString &filePath, const QString &layerName
         // Seed the default Rule's SingleSymbolRenderer with a SymbolStyle
         // populated from the layer's GISVectorSymbol defaults. Without
         // this seed the renderer ships an empty SymbolStyle and the
-        // Symbology tab reads invalid colours / size 0 on first open.
+        // Symbology tab reads invalid colors / size 0 on first open.
         auto single = std::make_unique<OpenSWMM::Render::SingleSymbolRenderer>();
         OpenSWMM::Render::SymbolStyle style;
         seedSymbolStyleFromGISVectorSymbol(style, m_symbol);

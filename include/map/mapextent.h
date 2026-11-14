@@ -163,7 +163,7 @@ public:
     void expandToInclude(const MapExtent &other);
 
     /*!
-     * \brief Grows the extent by \p factor on all sides (relative to centre).
+     * \brief Grows the extent by \p factor on all sides (relative to center).
      * \param factor  e.g. 0.1 for 10 % padding on each side.
      * @note Adds factor*current width/height to EACH side, so total dimensions
      *   multiply(1+2*factor). No finite/range clamp; negative shrinks, below minus 0.5 inverts.
@@ -172,7 +172,7 @@ public:
     void growByFactor(double factor);
 
     /*!
-     * \brief Returns a new extent scaled by \p factor around the centre point.
+     * \brief Returns a new extent scaled by \p factor around the center point.
      * @param[in] factor Requested whole width/height multiplier about current center; no
      *   finite/nonnegative check.
      * @return New extent with dimensions multiplied by factor; zero collapses, negative reverses

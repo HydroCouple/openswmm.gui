@@ -158,7 +158,7 @@ void TestSpeciesAttributes::outCodeRejectsUnknownAndMalformed()
     // Malformed: prefix with no name must not resolve to index 0.
     QCOMPARE(speciesOutCode(QStringLiteral("qual:"), species, SWMM_OUT_NODE_POLLUT_BASE), -1);
     // Case sensitivity: species names are engine identifiers, compared
-    // exactly. A near-miss must fail loudly rather than pick a neighbour.
+    // exactly. A near-miss must fail loudly rather than pick a neighbor.
     QCOMPARE(speciesOutCode(QStringLiteral("qual:tss"), species, SWMM_OUT_NODE_POLLUT_BASE), -1);
 }
 
@@ -203,7 +203,7 @@ void TestSpeciesAttributes::inflowConstituentsLiftTheExclusionForAgeOnly()
     // No pollutants: FLOW + age still offered (the pure-age model).
     QCOMPARE(inflowConstituentNames({}).size(), 2);
 
-    // The age entry is labelled in HOURS — a bare "__WATER_AGE__" combo
+    // The age entry is labeled in HOURS — a bare "__WATER_AGE__" combo
     // row invites a mg/L-shaped number (amendment §6's unit warning).
     QVERIFY(inflowConstituentLabel(QString::fromLatin1(kWaterAgeName))
                 .contains(QStringLiteral("hours")));

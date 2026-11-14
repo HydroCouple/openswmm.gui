@@ -1,13 +1,13 @@
 /**
  * @file      swmm2dresultslayer.cpp
- * @brief     renders 2D surface-routing depth as a colour-mapped overlay on the canvas.
+ * @brief     renders 2D surface-routing depth as a color-mapped overlay on the canvas.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
  *
  * Slice CF.MVP — 2D inundation results layer implementation. The graphics
  * item closely mirrors `SWMM2DMeshGraphicsItem` from
- * [src/layers/swmm2dmeshlayer.cpp]; only the per-triangle colour function
+ * [src/layers/swmm2dmeshlayer.cpp]; only the per-triangle color function
  * differs (depth → inundation ramp instead of elevation → terrain ramp).
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
@@ -66,7 +66,7 @@
 #include <utility>
 
 // ---------------------------------------------------------------------------
-// Inundation colour ramp (2026-09-01) — mirrors the "Water Depth" builtin
+// Inundation color ramp (2026-09-01) — mirrors the "Water Depth" builtin
 // (RasterColorRamp::waterDepth): translucent near-white blue at barely-wet
 // deepening to a fully opaque navy at maximum depth (user direction: deeper
 // water = dark blue, shallower = lighter shade; the shoreline fades into
@@ -92,9 +92,9 @@ constexpr Stop kInundationStops[] = {
 /**
  * @brief Below-cutoff/nonpositive-range returns transparent black; otherwise clamps normalized
  *   depth and linearly interpolates the water-depth stop RGBA.
- * @param[in] depth Physical depth metres.
- * @param[in] dry_depth Transparent cutoff metres.
- * @param[in] max_depth Upper ramp endpoint metres.
+ * @param[in] depth Physical depth meters.
+ * @param[in] dry_depth Transparent cutoff meters.
+ * @param[in] max_depth Upper ramp endpoint meters.
  * @param[out] r,g,b Replaced8-bit RGB components.
  * @param[out] a Replaced8-bit opacity.
  */
@@ -232,9 +232,9 @@ bool cellIndicesInRange(const std::array<int, 4> &cell, int nVerts)
  *  \p vz is consulted for the quad diagonal (elevation ordering).
  * @brief Builds VFR fan in original cell order, chooses quad diagonal from geometry/elevation and
  *   stores subareas m². No source/state ownership escapes.
- * @param[in] vx Source X metres; vy must have same length.
- * @param[in] vy Source Y metres.
- * @param[in] vz Source bed elevations metres; missing slots fall back0.
+ * @param[in] vx Source X meters; vy must have same length.
+ * @param[in] vy Source Y meters.
+ * @param[in] vz Source bed elevations meters; missing slots fall back0.
  * @param[in] cells Original triangle/quad cyclic connectivity.
  * @param[out] fan Replaced display triplets, preserving invalid-cell fan slots as all minus one.
  * @param[out] triCell Replaced display-to-original-cell map.
@@ -426,7 +426,7 @@ public:
         auto paintBandPass = [&] {
             // --- Pass 2 (optional): filled isobands. Phase 9 — sublayer gate +
             // sublayer-style-driven band count. VS.8 — the ContourBandStyle bag
-            // also drives the colour source (named ramp / two-colour gradient,
+            // also drives the color source (named ramp / two-color gradient,
             // optionally inverted), the classification range (auto [dry, max]
             // or a fixed user range) and the smooth-vs-flat rendering mode.
             if (paintBands && maxDepth > dryDepth) {
@@ -457,7 +457,7 @@ public:
                         c.setAlphaF(c.alphaF() * alphaScalar);
                         return c;
                     };
-                    // The scheme's below / above colours: outer bands from the dry depth to the
+                    // The scheme's below / above colors: outer bands from the dry depth to the
                     // first level and from the last level to the run's maximum (QSG parity).
                     QColor belowCol = bs ? bs->scheme().belowColor() : QColor();
                     QColor aboveCol = bs ? bs->scheme().aboveColor() : QColor();
@@ -507,8 +507,8 @@ public:
                             p->drawConvexPolygon(bp.verts.data(), int(bp.verts.size()));
                         }
                     } else {
-                        // Flat — classify each cell by its centre depth and fill
-                        // the whole triangle with the band colour (the per-cell
+                        // Flat — classify each cell by its center depth and fill
+                        // the whole triangle with the band color (the per-cell
                         // "stepped" look raster GIS users expect).
                         for (const auto &t : tris) {
                             if (!std::isfinite(t.depth) ||
@@ -544,7 +544,7 @@ public:
         };
         auto paintIsolinePass = [&] {
             // --- Pass 3 (optional): iso-line contour strokes. Phase 9 — sublayer
-            // gate + sublayer-style-driven iso count + colour + line width.
+            // gate + sublayer-style-driven iso count + color + line width.
             // VS.8 — levels by count OR fixed interval + base, index contours
             // every Nth level, and along-line labels (decimals / font / halo).
             if (paintIsolines && maxDepth > dryDepth) {
@@ -587,7 +587,7 @@ public:
                         // Index-contour predicate. FixedInterval mode follows
                         // the topographic-map convention (levels at multiples
                         // of indexEvery × interval from the base contour);
-                        // Count mode emphasises every Nth ordinal level.
+                        // Count mode emphasizes every Nth ordinal level.
                         const int idxEvery = isoStyle ? isoStyle->indexEvery() : 0;
                         QHash<double, int> ordinalOf;
                         for (int i = 0; i < int(levels.size()); ++i)
@@ -734,7 +734,7 @@ public:
             // Issue 3 — iterate the DEDUPLICATED edge set (m_sceneEdges) so each
             // undirected edge is stroked exactly once. Previously every triangle
             // drew all three of its edges, stroking each shared edge twice; with a
-            // translucent edge colour the two strokes composited into a dark wash.
+            // translucent edge color the two strokes composited into a dark wash.
             if (auto *edgeSub = layer_->meshEdgeSublayer(); edgeSub && edgeSub->isVisible()) {
                 const auto *es = edgeSub->edgeStyle();
                 const QColor col = es ? es->color() : QColor(0, 0, 0, 130);
@@ -747,7 +747,7 @@ public:
                 if (es)
                     pen.setStyle(es->dashPattern());
                 // Slope emphasis (as on the mesh layer): edges steeper than the slope break,
-                // as a fraction of the steepest edge, take the wide width and colour.
+                // as a fraction of the steepest edge, take the wide width and color.
                 const float maxSlope = layer_->m_maxEdgeSlope;
                 const bool slopeOn = es && es->useSlopeDrivenWidth() && maxSlope > 0.f;
                 const float splitSlope = slopeOn ? float(es->slopeBreak()) * maxSlope : 0.f;
@@ -844,8 +844,8 @@ public:
             p->setPen(Qt::NoPen);
             p->setOpacity(p->opacity() * sub->opacity());
             for (const auto &t : tris) {
-                // The scheme's log scale and below / above colours apply; below the range is
-                // drawn only with a below colour.
+                // The scheme's log scale and below / above colors apply; below the range is
+                // drawn only with a below color.
                 const QColor fill = !std::isfinite(t.depth) ? QColor(Qt::transparent)
                                     : style->classified() ? colors.classifiedColor(t.depth, levels)
                                                           : colors.valueColor(t.depth);
@@ -895,7 +895,7 @@ public:
             const OpenSWMM::Render::ClassificationColorSampler colors(
                 style->scheme(), lo, hi, style->classified() ? bands : 0);
             const auto colorAt = [&](double value) {
-                // The scheme's log scale and below / above colours apply.
+                // The scheme's log scale and below / above colors apply.
                 QColor color = style->classified() ? colors.classifiedColor(value, levels)
                                                    : colors.valueColor(value);
                 color.setAlphaF(color.alphaF() * sub->opacity());
@@ -908,7 +908,7 @@ public:
             for (auto *buffer : {&values, &clippedValues, &partValues})
                 buffer->reserve(6);
             // Where the ramp starts (the log floor under a log scale); below it the scheme's
-            // below colour when set, otherwise nothing.
+            // below color when set, otherwise nothing.
             const double lowCut = colors.lowerBound();
             const auto emitPolygon = [&](const auto &pts, const auto &vals) {
                 for (size_t k = 1; k + 1 < pts.size(); ++k) {
@@ -1102,7 +1102,7 @@ public:
                 std::vector<double> levels;
                 QVector<QColor> colors;
                 // Bands for the triangles in view; zoomed far out, each cell
-                // takes its band's colour instead (as the scene graph does).
+                // takes its band's color instead (as the scene graph does).
                 size_t inView = 0;
                 if (scalar->bandStyling(*frame, levels, colors))
                     for (int i = 0; i < tris.size(); ++i)
@@ -1245,13 +1245,13 @@ public:
         }
 
         // --- VS.10: optional per-cell value labels. Driven by the base
-        // OpenSWMMVisLayer::labelConfig(). Wet cells are labelled with their
+        // OpenSWMMVisLayer::labelConfig(). Wet cells are labeled with their
         // current scalar value (depth) on a coarse screen-pixel grid so the
         // labels don't overdraw; drawn in screen space so the font size is
         // constant across zoom. Mirrors the isoline-label halo treatment.
-        // NOTE for finishing pass: the labelled quantity is hard-coded to
+        // NOTE for finishing pass: the labeled quantity is hard-coded to
         // depth; wire it to the active result variable + add proper
-        // collision avoidance when the labelling engine is generalised.
+        // collision avoidance when the labeling engine is generalized.
         {
             const auto &lc = layer_->labelConfig();
             if (lc.enabled) {
@@ -1421,7 +1421,7 @@ private:
      * @param[in] option Unused exposed option; placement is anchored to whole mesh bounds to avoid
      *   tile-dependent glyph popping.
      * @note Gates velocity sublayer, clips by physical/style dry cutoff and small running-speed
-     *   fraction; grid retains strongest triangle per screen bucket. Uses style length/colour/heads
+     *   fraction; grid retains strongest triangle per screen bucket. Uses style length/color/heads
      *   or legacy fallback, cosmetic width and layer/sublayer alpha; saves/restores painter.
      */
     void paintVelocityGlyphs(QPainter *p, const QStyleOptionGraphicsItem *option)
@@ -1442,7 +1442,7 @@ private:
         const qreal alpha = std::clamp<qreal>(layer_->velocityOpacity(), 0.0, 1.0);
 
         // VS.8 — the VelocityVectorStyle bag is the single source of truth
-        // for sizing / colour / placement. The legacy layer fields survive
+        // for sizing / color / placement. The legacy layer fields survive
         // only for the (never-hit) no-sublayer case.
         const OpenSWMM::Render::VelocityVectorStyle *vs = velSub ? velSub->vectorStyle() : nullptr;
 
@@ -1471,7 +1471,7 @@ private:
 
         auto drawGlyph = [&](const SWMM2DResultsLayer::SceneTri &t) {
             // Glyph length: style-driven scaling (linear / sqrt / log with
-            // min/max pixel clamps); legacy normalised-log fallback when no
+            // min/max pixel clamps); legacy normalized-log fallback when no
             // style bag is bound.
             double lenPx = 0.0;
             if (vs) {
@@ -2351,7 +2351,7 @@ QDateTime HDF5Mesh2DSource::simTimeAt(int timeIdx) const
     // 1899-12-30), NOT days-since-start: the engine writes
     // SimulationSnapshot::sim_time (= ctx.current_date) verbatim
     // (Default2DOutputPlugin.cpp), and only the HDF5 units *attribute* is
-    // mislabelled "days since simulation start". Treating it as relative and
+    // mislabeled "days since simulation start". Treating it as relative and
     // adding sim_start_ double-counted the epoch and shifted every 2D frame
     // ~126 years into the future (2152 vs 2026), so the animation controller's
     // causal compare (ti <= cursor) was always false and 2D playback froze on
@@ -2407,8 +2407,8 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString &name, OpenSWMMVisWorkspace
         new OpenSWMM::Render::IsolineSublayer(QStringLiteral("results2d.isolines"), this);
     m_velocityVectorSublayer =
         new OpenSWMM::Render::VelocityVectorSublayer(QStringLiteral("results2d.velocity"), this);
-    // Direct mesh-fill depth visualisations (alternatives to the
-    // marching-squares contour bands): flat per-cell colour, and per-vertex
+    // Direct mesh-fill depth visualizations (alternatives to the
+    // marching-squares contour bands): flat per-cell color, and per-vertex
     // Gouraud (smooth seam-free gradient). Continuous color mapping by default.
     m_cellDepthFillSublayer = new OpenSWMM::Render::CellDepthFillSublayer(
         QStringLiteral("results2d.cellDepthFill"), this);
@@ -2509,7 +2509,7 @@ QList<OpenSWMM::Render::ISublayer *> SWMM2DResultsLayer::sublayers() const
     // 2026-06-21 — the depth color ramp and direction-only flow arrows were
     // removed: contour bands now serve as the depth fill, and velocity
     // vectors already convey flow direction.
-    // Slice GUI-2026-05-30 §2 — order is user-customisable and cached in
+    // Slice GUI-2026-05-30 §2 — order is user-customizable and cached in
     // m_sublayerOrder; seeded once from the defaults above.
     if (m_sublayerOrder.isEmpty()) {
         OpenSWMM::Render::ISublayer *defaults[] = {
@@ -2638,7 +2638,7 @@ void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
         if (peak > 0 && !max_velocity_user_set_)
             max_velocity_ = peak;
     }
-    // Auto-seed max_velocity_ from stored velocities or a bounded RT0 scan so the colour
+    // Auto-seed max_velocity_ from stored velocities or a bounded RT0 scan so the color
     // ramp + arrow-length log scaling are anchored to the run's peak speed.
     // The layer's per-frame applyCurrentFlux_() only auto-GROWS max_velocity_;
     // without this seed it starts at the default (1 m/s) and shallow-flow
@@ -2711,7 +2711,7 @@ void SWMM2DResultsLayer::setSource(std::unique_ptr<IMesh2DSource> source)
     // A cell's temporal peak mean depth bounds its VFR stage. The maximum
     // stage above that cell's lowest corner also bounds any wet-fan average.
     // Seed this bound before playback: scanning mean depths alone lets the
-    // colour range grow when a shallow, partially wet slope is first visited.
+    // color range grow when a shallow, partially wet slope is first visited.
     if (source_ && n > 0 && !cells_.empty() && !max_depth_user_set_) {
         const auto peaks = maxDepthPerCell();
         double peak = 0.01;
@@ -2746,7 +2746,7 @@ namespace
 /**
  * @brief Folds finite maxima over common cell prefix only; no resize,NaN never lowers finite
  *   values.
- * @param[in] field Per-cell4corner candidate signed depths metres.
+ * @param[in] field Per-cell4corner candidate signed depths meters.
  * @param[in] maximum Mutable existing corner maxima, initialized NaN if unseen.
  */
 void foldSurfaceMaximum(const std::vector<CellWaterGeometry::CornerDepths> &field,
@@ -2960,7 +2960,7 @@ bool SWMM2DResultsLayer::loadFrame_(int t)
 
     // Auto-track running max depth (unless the user explicitly pinned it).
     // The finite guard is belt-and-braces after the sanitize above: one Inf
-    // peak would otherwise collapse the colour ramp for the rest of the run
+    // peak would otherwise collapse the color ramp for the rest of the run
     // (max_depth_ never shrinks).
     if (!max_depth_user_set_ && !current_depths_.empty()) {
         const float peak = *std::max_element(current_depths_.begin(), current_depths_.end());
@@ -3570,7 +3570,7 @@ void SWMM2DResultsLayer::refreshTimeRange()
     // Live master gate: when live rendering is switched off mid-run, freeze the
     // 2D layer ENTIRELY — and crucially, return BEFORE emitting timeRangeChanged.
     // Frames keep streaming into the source via pushDepths even while off, so
-    // emitting the (growing) range would re-normalise the animation cursor
+    // emitting the (growing) range would re-normalize the animation cursor
     // against an ever-larger timespan and make the slider drift even though the
     // displayed frame is held — the "slider still progressing when live updating
     // is off" bug. The range and cursor now hold until live rendering is
@@ -4043,7 +4043,7 @@ void SWMM2DResultsLayer::setCurrentSimTime(QDateTime t)
     // replaces the O(n) linear scan). The H5 /time dataset is monotonically
     // increasing, so bisect index space for the first frame >= t, then pick
     // the nearer of that frame and its predecessor. simTimeAt() is O(1), so
-    // no need to materialise the times.
+    // no need to materialize the times.
     int lo = 0, hi = n - 1;
     while (lo < hi) {
         const int mid = lo + (hi - lo) / 2;
@@ -4436,7 +4436,7 @@ bool SWMM2DResultsLayer::velocityAtScene_(const QPointF &scenePt, float &outVx, 
     if (idx < 0 || idx >= m_sceneTris.size() || idx >= static_cast<int>(tris_.size()))
         return false;
     // A cell the solver marks dry this frame carries no flow, even if its
-    // vertices borrowed a velocity from a still-wet neighbour. Gate on the
+    // vertices borrowed a velocity from a still-wet neighbor. Gate on the
     // cell's own mean depth so arrows never appear in a dry cell.
     const int cell = triCell_[size_t(idx)];
     if (cell < 0 || cell >= static_cast<int>(depths.size()) ||
@@ -4833,7 +4833,7 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
 
     // Scene-space points, in three steps (issue #155):
     //
-    //   1. metres → model-CRS linear unit. Every 2D source hands us SI metres
+    //   1. meters → model-CRS linear unit. Every 2D source hands us SI meters
     //      because the solver runs in SI; the model CRS may be foot-based
     //      (EPSG:2249 & friends), in which case skipping this shrinks the
     //      results ~0.3048x toward the CRS origin while the .2dm-backed
@@ -5027,7 +5027,7 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
     // Issue 3 — deduplicated wireframe edge set (each undirected edge stored
     // once). Mirrors SWMM2DMeshLayer::rebuildSceneGeometry's pushEdge so the
     // results wireframe matches the mesh layer and no shared edge is stroked
-    // twice; double-stroking the translucent edge colour darkened the overlay.
+    // twice; double-stroking the translucent edge color darkened the overlay.
     {
         QSet<QPair<int, int>> seen;
         seen.reserve(static_cast<int>(tris_.size()) * 3);
@@ -5051,7 +5051,7 @@ void SWMM2DResultsLayer::rebuildSceneGeometry_()
             m_sceneEdges.append(e);
         };
         // Walk the CELL boundary (true quad outline — the VFR diagonal is a
-        // storage-model artefact, not a mesh edge, so it is never stroked).
+        // storage-model artifact, not a mesh edge, so it is never stroked).
         for (const auto &cell : cells_) {
             const int nv = cellVertexCount(cell);
             for (int k = 0; k < nv; ++k)
@@ -5193,7 +5193,7 @@ void SWMM2DResultsLayer::fastSurfaceFields_(SurfaceJob &job) const
     // Per-cell steps are independent; saved results use every core for them.
     const bool parallel = !job.live;
     job.surfaces.resize(n);
-    std::vector<float> bed(n, 0.f); // cell-centre fallback where vertex beds are unusable
+    std::vector<float> bed(n, 0.f); // cell-center fallback where vertex beds are unusable
     forBlocks(n, parallel, [&](size_t first, size_t last) {
         for (size_t c = first; c < last; ++c) {
             job.surfaces[c] = CellWaterGeometry::reconstruct(cellSplit_[c], depths[c], vz_);
@@ -5361,7 +5361,7 @@ void SWMM2DResultsLayer::applyCurrentFlux_(const std::vector<float> *savedVx,
             const auto &cell = cells_[size_t(c)];
             const int nv = cellVertexCount(cell);
             // Depth weight × 3/nv: the plan's 1/nv-per-incident-cell rule,
-            // normalised so all-triangle meshes are unchanged (a quad's four
+            // normalized so all-triangle meshes are unchanged (a quad's four
             // corners each get 3/4 of a triangle's vote).
             const float wgt = (nv == 3) ? depth : depth * 0.75f;
             for (int k = 0; k < nv; ++k) {
@@ -5472,7 +5472,7 @@ void SWMM2DResultsLayer::setFallbackCoordinateScale(double metresPerModelUnit)
 
 double SWMM2DResultsLayer::resolveCoordinateScale_() const
 {
-    // Divisor that takes the source's SI metres back to the model CRS's own
+    // Divisor that takes the source's SI meters back to the model CRS's own
     // linear unit, so the OGR transform is fed coordinates in the unit its
     // source CRS actually declares. Issue #155.
     if (source_) {
@@ -5592,8 +5592,8 @@ QList<OpenSWMM::Render::LegendSymbolItem> SWMM2DResultsLayer::sublayerLegendItem
         if (bs) {
             // Slice US.2 — rows straight from the classification scheme so the
             // value labels follow the actual class edges (equal interval,
-            // quantile, Jenks, …) and pick up per-class colour overrides. The
-            // swatch colours match colorForBand the renderer paints with.
+            // quantile, Jenks, …) and pick up per-class color overrides. The
+            // swatch colors match colorForBand the renderer paints with.
             const auto items =
                 bs->scheme().legendItems(dry, mx, depthClassificationSamples(bs->scheme()));
             for (LegendSymbolItem item : items) {
@@ -5662,7 +5662,7 @@ QList<OpenSWMM::Render::LegendSymbolItem> SWMM2DResultsLayer::sublayerLegendItem
     }
 
     // Velocity arrows — visible only when the feed has data. Delegates to
-    // the sublayer so the rows match the painted colour bands exactly.
+    // the sublayer so the rows match the painted color bands exactly.
     if (m_flowStreakSublayer->isVisible())
         out.append(m_flowStreakSublayer->legendSymbolItems());
     // The engine's own visibility: a velocity row legends its own arrows and
@@ -5833,7 +5833,7 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
     // Each rule mirrors the style the renderers draw. ruleList() reseeds the
     // rules from the live styles, and an edit in the Layer Styling dock writes
     // back only the props it changed, so editing one field never resets the
-    // others. Renderer swaps (graduated / categorised) write nothing.
+    // others. Renderer swaps (graduated / categorized) write nothing.
     using Props = QVariantMap;
     using Writer = std::function<void(const QString &, const QVariant &)>;
     using Resolve = std::function<ISublayer *()>;
@@ -5861,7 +5861,7 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
         m_ruleBindings.append(b);
         return b;
     };
-    // The dock's colour pickers mean "none" by a fully transparent colour.
+    // The dock's color pickers mean "none" by a fully transparent color.
     const auto optionalColor = [](const QColor &c) { return c.isValid() ? c : QColor(0, 0, 0, 0); };
     const auto fromOptional = [](const QVariant &v) {
         const QColor c = v.value<QColor>();
@@ -5913,7 +5913,7 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
                      sc.setAboveColor(fromOptional(v));
                  st->setScheme(sc);
              } else if (key == QLatin1String("lowColor") || key == QLatin1String("highColor")) {
-                 // Picked colours replace a named ramp: the two-colour gradient.
+                 // Picked colors replace a named ramp: the two-color gradient.
                  st->setColorRampName(QString());
                  key == QLatin1String("lowColor") ? st->setLowColor(v.value<QColor>())
                                                   : st->setHighColor(v.value<QColor>());
@@ -5962,7 +5962,7 @@ void SWMM2DResultsLayer::buildRuleListLazy() const
     }
 
     // ── Velocity vectors: the velocity row's arrows (its ResultVectorStyle).
-    //    A picked colour means one colour for every arrow, and a picked
+    //    A picked color means one color for every arrow, and a picked
     //    scale a fixed px per m/s, so each switches its mode to take effect.
     const auto velocityStyle = [self]() -> ResultVectorStyle * {
         auto *row = self->velocityResultSublayer();

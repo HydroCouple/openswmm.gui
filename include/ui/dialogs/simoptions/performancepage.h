@@ -7,7 +7,7 @@
  *
  * Simulation Options → System / Performance.
  *
- * Parallelisation (`THREADS`) plus the one-click fast preset. The preset also
+ * Parallelization (`THREADS`) plus the one-click fast preset. The preset also
  * sets `MINIMUM_STEP`, which lives on Routing & Hydraulics, so the page is
  * handed a setter rather than reaching across pages or going through the
  * context (PLAN §4.1).

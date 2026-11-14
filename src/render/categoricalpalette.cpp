@@ -36,7 +36,7 @@ const QList<QColor> &tab10()
         QColor(0x94, 0x67, 0xbd), // purple
         QColor(0x8c, 0x56, 0x4b), // brown
         QColor(0xe3, 0x77, 0xc2), // pink
-        QColor(0x7f, 0x7f, 0x7f), // grey
+        QColor(0x7f, 0x7f, 0x7f), // gray
         QColor(0xbc, 0xbd, 0x22), // olive
         QColor(0x17, 0xbe, 0xcf), // cyan
     };
@@ -178,7 +178,7 @@ struct NamedPalette {
 };
 
 /**
- * @brief Borrow the immutable categorical palette catalogue used for lookups and menus.
+ * @brief Borrow the immutable categorical palette catalog used for lookups and menus.
  * @return Process-lifetime entries mapping canonical keys and display names to palette
  *         accessor functions, in UI order. The registry has no mutable caller-owned state.
  */

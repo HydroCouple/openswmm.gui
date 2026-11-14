@@ -234,7 +234,7 @@ int rowOf(const QListWidget *cats, const QString &title)
     return -1;
 }
 
-/*! Enabled state of a sidebar row (rows are greyed, never hidden — PLAN §4.3). */
+/*! Enabled state of a sidebar row (rows are grayed, never hidden — PLAN §4.3). */
 /** @brief Read a sidebar item's enabled flag.
  * @param[in] cats Non-null live list, unchanged.
  * @param[in] row Valid index whose item exists; unchecked before dereference.
@@ -340,7 +340,7 @@ void TestSimulationOptionsGates::reportStartReloadsEarlierSimulationWindow()
     // read() also runs after Apply: clear the old bounds before loading values.
     QVERIFY(setWindow("10/13/2026", "09:00:00", "10:00:00", "09:30:07"));
     page.read();
-    // SWMM dates are UTC-labelled wall clock (owner rule 2026-11-12, review E-14).
+    // SWMM dates are UTC-labeled wall clock (owner rule 2026-11-12, review E-14).
     QCOMPARE(report->dateTime(), QDateTime(QDate(2026, 10, 13), QTime(9, 30, 7), QTimeZone::UTC));
     page.write();
     QCOMPARE(ctx.option("REPORT_START_DATE"), QStringLiteral("10/13/2026"));
@@ -459,7 +459,7 @@ void TestSimulationOptionsGates::reachability()
                                                 .arg(untagged.join(QStringLiteral(", ")))));
 }
 
-/*! Test 4a — the 2D row follows the module toggle, greyed with a reason. */
+/*! Test 4a — the 2D row follows the module toggle, grayed with a reason. */
 /** @brief Require the 2D category to gray out with an explanatory tooltip when its module toggle is off, then reenable without tooltip when on. */
 void TestSimulationOptionsGates::twoDRowGate()
 {
@@ -1198,7 +1198,7 @@ void TestSimulationOptionsGates::groundwaterThermalShortcutJoinsOuterCancelUndoS
 
 /** @brief Require accepted heat activation and routing edits to share one Apply undo command, while later un-applied heat disable reverts on Cancel.
  * Checks exact enable/routing states across undo/redo and empty history for the
- * cancelled segment. */
+ * canceled segment. */
 void TestSimulationOptionsGates::heatConfigurationSharesOuterUndoAndCancelSegment()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));

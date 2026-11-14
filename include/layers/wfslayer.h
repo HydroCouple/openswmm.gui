@@ -9,7 +9,7 @@
  * The feature half of the OGC family, which this GUI has never had: WMS,
  * WMTS and WCS all answer with pictures, and a WFS answers with the data.
  * That makes it the one of the four whose result can be queried, classified
- * and labelled like any other vector layer — so it is one, deriving from
+ * and labeled like any other vector layer — so it is one, deriving from
  * GISVectorLayer rather than repeating it.
  *
  * GDAL does not fetch it. This build compiles GDAL without curl, so

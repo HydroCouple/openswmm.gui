@@ -8,7 +8,7 @@
  *         and a version with no worker fails loudly instead of silently
  *         running some other engine.
  *
- * Decks and artefacts land in the reviewable output_simrunner_legacy_524/
+ * Decks and artifacts land in the reviewable output_simrunner_legacy_524/
  * dir (under SWMMVIS_GUI_TEST_DATA, else the working directory).
  *
  * @author    Caleb Buahin <caleb.buahin@gmail.com>

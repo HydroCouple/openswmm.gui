@@ -78,7 +78,7 @@ public:
     /**
      * @brief Read rule identity, validation icon/error or text alignment.
      * @param[in] index Existing row index from this model.
-     * @param[in] role DisplayRole/EditRole returns name; DecorationRole gives validation icon; ToolTipRole gives Invalid-state diagnostic with optional line; TextAlignmentRole gives left/centre.
+     * @param[in] role DisplayRole/EditRole returns name; DecorationRole gives validation icon; ToolTipRole gives Invalid-state diagnostic with optional line; TextAlignmentRole gives left/center.
      * @return Requested value or invalid QVariant for bad rows/unsupported roles.
      */
     QVariant data(const QModelIndex &index, int role = Qt::DisplayRole) const override;

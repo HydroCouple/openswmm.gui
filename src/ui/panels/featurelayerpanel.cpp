@@ -73,13 +73,13 @@ enum FieldColumn { ColName = 0, ColType = 1, ColDescription = 2, ColCount };
 enum VertexColumn { VColPart = 0, VColRing, VColIndex, VColX, VColY, VColZ, VColCount };
 
 // The (part, ring, vertex) address rides on each row's first item, so a
-// rebuild or a sort cannot desynchronise row number from vertex — the same
+// rebuild or a sort cannot desynchronize row number from vertex — the same
 // guarantee the feature grid gets from stashing the id on column 0.
 constexpr int kPartRole = Qt::UserRole;
 constexpr int kRingRole = Qt::UserRole + 1;
 constexpr int kIndexRole = Qt::UserRole + 2;
 
-/*! Fixed-point with enough digits for projected metres (sub-micron) and for
+/*! Fixed-point with enough digits for projected meters (sub-micron) and for
  *  degrees (~0.1 mm). Display only — an untouched coordinate is never written
  *  back from its formatted text, so this rounding cannot creep into the
  *  geometry.
@@ -603,7 +603,7 @@ void FeatureLayerPanel::refreshDetails()
     const bool is3D = has && l->isThreeD();
     // The 2D/3D dimension is fixed at creation, so the source combo is
     // read-only for a 2D layer rather than offering a change that cannot be
-    // honoured.
+    // honored.
     m_zSourceCombo->setEnabled(is3D);
     m_zLayerCombo->setEnabled(
         is3D && (p.source == ZPolicy::Source::Raster || p.source == ZPolicy::Source::Mesh));
@@ -690,7 +690,7 @@ void FeatureLayerPanel::refreshFeatureTable()
         auto *idItem = new QTableWidgetItem(QString::number(f.id));
         idItem->setFlags(idItem->flags() & ~Qt::ItemIsEditable);
         // The id rides on the row so a sort or a partial refresh cannot
-        // desynchronise row number from feature.
+        // desynchronize row number from feature.
         idItem->setData(Qt::UserRole, QVariant::fromValue<qlonglong>(f.id));
         m_featureTable->setItem(row, 0, idItem);
 
@@ -830,7 +830,7 @@ void FeatureLayerPanel::onFeatureCellChanged(int row, int column)
     if (!cmd->lastError().isEmpty())
         emit message(cmd->lastError());
 
-    // Re-read: coercion may have normalised what the user typed ("3.50" for
+    // Re-read: coercion may have normalized what the user typed ("3.50" for
     // a Real becomes 3.5), and showing the raw text would be a lie.
     refreshFeatureTable();
 }
@@ -1105,7 +1105,7 @@ void FeatureLayerPanel::onVertexCellChanged(int row, int column)
         }
         // The ordinate the user did NOT touch is read from the geometry, never
         // from its sibling cell: that cell holds a 6-decimal rendering, and
-        // taking it back would quietly quantise a coordinate nobody edited.
+        // taking it back would quietly quantize a coordinate nobody edited.
         const QPointF cur = ring.pts.at(i);
         // Compare the edited ordinate exactly. QPointF::operator== is a FUZZY
         // compare, whose relative tolerance at a northing of 5e6 is ~5e-6 —

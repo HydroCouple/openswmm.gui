@@ -22,7 +22,7 @@ namespace openswmmvis::simulation
 /**
  * @brief Copy available snow water/energy balances into display strings on the engine-owning worker.
  * @param[in] eng Borrowed initialized engine, accessed serially.
- * @return Owning rows using cubic metres and kJ in both project unit systems; absent/failed domains are omitted.
+ * @return Owning rows using cubic meters and kJ in both project unit systems; absent/failed domains are omitted.
  * @details Mesh arrays are read in chunks of 1024 cells; a failed mesh chunk suppresses that domain while independently read subcatchment rows remain. Only value strings cross to the GUI.
  */
 inline QStringList snowLedgerRows(SWMM_Engine eng)

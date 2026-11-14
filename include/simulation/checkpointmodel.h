@@ -95,7 +95,7 @@ public:
     /**
      * @brief Replace the frozen input/engine/profile recipe used for inspection and runs.
      * @param[in] r Value-only context copied into model storage.
-     * @details A changed recipe invalidates the IO generation and marks all compatibility results stale without cancelling a running simulation. Identical recipe still refreshes other context fields.
+     * @details A changed recipe invalidates the IO generation and marks all compatibility results stale without canceling a running simulation. Identical recipe still refreshes other context fields.
      */
     void setContext(const CheckpointRequest &r);
     /**

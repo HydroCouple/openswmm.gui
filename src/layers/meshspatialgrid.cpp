@@ -138,7 +138,7 @@ void MeshSpatialGrid::rebuild(const QVector<QRectF> &bboxes)
     const int totalMemberships = cellOffsets[nCells];
 
     // ── Pass 2: fill cellIndices using a scratch write head per cell ──
-    // Initialise writePos[k] = cellOffsets[k], then post-increment per
+    // Initialize writePos[k] = cellOffsets[k], then post-increment per
     // insertion. Insertion order within a cell is preserved (smaller bbox
     // indices appear before larger ones), which makes the test fixtures
     // deterministic.

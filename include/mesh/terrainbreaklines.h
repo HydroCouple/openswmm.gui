@@ -11,7 +11,7 @@
  *
  * Finds the lines along which the DEM bends sharply — curbs, building walls,
  * channel banks, retaining walls — so the mesh generator can lay an edge on
- * them. Output is polylines in window pixel coordinates (pixel centres at
+ * them. Output is polylines in window pixel coordinates (pixel centers at
  * +0.5); the caller converts them to mesh coordinates.
  *
  * Detector. At every pixel the smoothed Hessian of z (second differences,
@@ -24,7 +24,7 @@
  * from a plane before the mesh has to follow it.
  *
  *  1. non-maximum suppression across the line (|λ| compared with the two
- *     neighbours along the curvature direction, ties broken one way so a
+ *     neighbors along the curvature direction, ties broken one way so a
  *     step's two responding pixels yield one line);
  *  2. hysteresis: seeds with |λ| >= tolerance, grown 8-connected through
  *     |λ| >= lowRatio · tolerance;
@@ -32,11 +32,11 @@
  *     and absorbs the corner pixel of a diagonal step; closed loops (a
  *     building outline) are returned closed (first == last). Each point is
  *     placed at the sub-pixel peak of |λ| across the line (a parabola
- *     through the pixel and its two neighbours), so a step between two
- *     pixels lands on their shared boundary rather than on either centre;
+ *     through the pixel and its two neighbors), so a step between two
+ *     pixels lands on their shared boundary rather than on either center;
  *  4. chains shorter than minPixels points are dropped.
  *
- * A 3×3 neighbourhood containing NaN (nodata) gives |λ| = 0, so the edge of
+ * A 3×3 neighborhood containing NaN (nodata) gives |λ| = 0, so the edge of
  * the data is never mistaken for a wall. Tolerance must sit above the DEM
  * noise (≈ 3–4 σ), as for the terrain size field.
  *
@@ -239,7 +239,7 @@ private:
     int m_nmsDone = 0;        ///< rows suppressed (0 … m_nmsDone−1)
     QVector<float> m_z[3];    ///< z rows by row % 3
     QVector<float> m_mag[3];  ///< |λ| rows by row % 3
-    QVector<quint8> m_dir[3]; ///< quantised direction 0..3 rows by row % 3
+    QVector<quint8> m_dir[3]; ///< quantized direction 0..3 rows by row % 3
     /*! Per pixel: bits 0–2 state (0 none, 1 weak, 2 strong, 3 line,
      *  4 traced), bits 3–4 the across-line direction, bits 5–7 the sub-pixel
      *  offset of the break along it, (q − 4)/8 of a step. */
@@ -249,7 +249,7 @@ private:
      * @brief Poll the retained cancellation predicate and combine it with sticky detector/cache
      * errors.
      * @return True when explicit/scratch error text is nonempty after polling, false otherwise.
-     * A true predicate stores Terrain feature extraction cancelled even if a prior cache error
+     * A true predicate stores Terrain feature extraction canceled even if a prior cache error
      * exists; false does not clear prior errors. Empty predicate simply checks current errors.
      * Callback executes synchronously, may throw and must not reenter/mutate detector; no
      * callback ownership change or direct mask IO.

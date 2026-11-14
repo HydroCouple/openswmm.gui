@@ -14,7 +14,7 @@
  * holds a detached copy while the edit is undone, the layer owns it while the
  * edit is applied, and THE FEATURE ID IS STABLE across redo/undo cycles so
  * selections, property panels and later commands keep referring to the same
- * thing. FeatureStore::addFeature's FID-reuse path exists solely to honour
+ * thing. FeatureStore::addFeature's FID-reuse path exists solely to honor
  * that contract.
  *
  * Every tool and every view mutates a FeatureLayer through these commands and
@@ -270,7 +270,7 @@ private:
  * \brief Replace one feature's attributes.
  *
  * Used by the attribute table and the property panel alike, which is what
- * keeps the two views synchronised through one undo history.
+ * keeps the two views synchronized through one undo history.
  */
 class EditFeatureAttributesCommand : public FeatureCommandBase
 {

@@ -6,7 +6,7 @@
  * @brief     GIS-style editor for SwmmElementSymbolAdapter (Slice U-V3).
  *
  *         Wraps the live SwmmElementSymbolAdapter Q_PROPERTYs with
- *         colour, outline/size, label/font and flow-arrow controls, with
+ *         color, outline/size, label/font and flow-arrow controls, with
  *         a live base-symbol preview swatch.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */

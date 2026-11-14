@@ -244,7 +244,7 @@ QDateTime AnimationController::driverStartTime() const
     // simulation start. endDateTime() is the last frame's time, so the
     // span must open at the first frame's time too; anchoring on
     // START_DATE left a dead zone at the left of the global slider
-    // whenever REPORT_START != START_DATE (frame 0 normalised to > 0).
+    // whenever REPORT_START != START_DATE (frame 0 normalized to > 0).
     if (primaryDrives())
         return m_primaryLayer->reportedStartDateTime();
     if (m_fallback2D && m_fallback2D->source())
@@ -342,7 +342,7 @@ void AnimationController::updateTimerInterval()
     // 2D layer drives playback so its TemporalSpec should govern). Falls
     // back to the legacy formula (kDefaultStepMs / speed) when no spec
     // is enabled, preserving every existing project's animation
-    // behaviour unchanged.
+    // behavior unchanged.
     int ms = static_cast<int>(kDefaultStepMs / m_speed);
     const OpenSWMM::Render::TemporalSpec *activeSpec = nullptr;
     if (primaryDrives())
@@ -563,9 +563,9 @@ void AnimationController::onTimerTick()
         return;
     }
 
-    // Slice Z.13-controller — end-of-range behaviour comes from the
+    // Slice Z.13-controller — end-of-range behavior comes from the
     // toolbar Cycle checkbox (m_loop, default on) OR the primary's
-    // TemporalSpec when enabled. Three behaviours:
+    // TemporalSpec when enabled. Three behaviors:
     //   - m_loop=false AND (spec disabled OR loop=false, pingPong=false):
     //     pause on reaching the end. Preserves the legacy UX.
     //   - loop: wrap to rangeMin and keep playing.
@@ -582,7 +582,7 @@ void AnimationController::onTimerTick()
         }
     } else if (m_fallback2D) {
         // Slice Z.13-controller-2d-fallback — 2D layer's spec drives end-of-
-        // range behaviour when no 1D primary is set. The frame-rate path is
+        // range behavior when no 1D primary is set. The frame-rate path is
         // handled in updateTimerInterval below.
         const auto &spec = m_fallback2D->temporalSpec();
         if (spec.enabled) {

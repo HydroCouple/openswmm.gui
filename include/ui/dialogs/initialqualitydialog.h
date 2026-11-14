@@ -234,7 +234,7 @@ private:
     QTableWidget *m_table = nullptr;
     QLabel *m_hintLabel = nullptr;
     /// U2: `[INITIAL_QUALITY] FILE <csv>` reference and the table rows that
-    /// came from it (shown greyed; neither re-written nor removed on OK).
+    /// came from it (shown grayed; neither re-written nor removed on OK).
     QLineEdit *m_fileEdit = nullptr;
     QPushButton *m_removeButton = nullptr;
     QSet<int> m_fileRows;

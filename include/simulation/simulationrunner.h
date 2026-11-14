@@ -174,7 +174,7 @@ public:
      * \brief Scan a .inp for a `[2D_OPTIONS]` key and return its value as a
      *        QString verbatim (empty when absent).
      *
-     *  Used by the GUI to honour engine-side settings — e.g. matching the
+     *  Used by the GUI to honor engine-side settings — e.g. matching the
      *  render dry-cell threshold to the engine's `DRY_DEPTH` so shallow
      *  inundation runs aren't clipped.
      * @param[in] inpPath UTF-8 model path read synchronously.
@@ -191,7 +191,7 @@ signals:
     void started(int jobId);
 
     /**
-     * @brief Emitted once the engine is initialised and its OPTIONS
+     * @brief Emitted once the engine is initialized and its OPTIONS
      *        section has been parsed. Carries the engine-side simulation
      *        window as calendar QDateTime values. The GUI status model
      *        uses these to render readable start / end / current columns.
@@ -262,7 +262,7 @@ signals:
 
     // ── Slice CF.MVP — 2D inundation viz hooks ─────────────────────────────
     //
-    // Emitted once the engine has initialised and 2D is active. Carries the
+    // Emitted once the engine has initialized and 2D is active. Carries the
     // mesh geometry queried via `swmm_2d_*` on the worker thread (read-only
     // calls; safe to make there because the engine's 2D mesh is immutable
     // after SurfaceRouter2D::initialize). The GUI builds an
@@ -279,9 +279,9 @@ signals:
      * @brief Publish an owning initialized 2D geometry snapshot without solver pointers.
      * @param[in] jobId Stable run correlation ID.
      * @param[in] h5Path Predicted HDF5 output path, empty if undeclared.
-     * @param[in] vx Vertex X in engine SI metres.
-     * @param[in] vy Vertex Y in engine SI metres.
-     * @param[in] vz Bed elevations in metres.
+     * @param[in] vx Vertex X in engine SI meters.
+     * @param[in] vy Vertex Y in engine SI meters.
+     * @param[in] vz Bed elevations in meters.
      * @param[in] cellFlat Zero-based native-cell connectivity, four entries per cell; triangle slot three is -1.
      */
     void twoDInitialized(int jobId, QString h5Path, QVector<double> vx, QVector<double> vy,
@@ -293,7 +293,7 @@ signals:
     /**
      * @brief Publish one live cell-depth snapshot.
      * @param[in] jobId Stable run correlation ID.
-     * @param[in] depths Native-cell depths in metres.
+     * @param[in] depths Native-cell depths in meters.
      * @param[in] simTime Nominal simulation timestamp on the common UTC basis.
      * @param[in] elapsedSec Accepted elapsed simulation seconds used to pair fields.
      */
@@ -313,7 +313,7 @@ signals:
     /**
      * @brief Publish immutable native-cell edge geometry.
      * @param[in] jobId Stable run correlation ID.
-     * @param[in] length Edge lengths in metres, four slots per native cell.
+     * @param[in] length Edge lengths in meters, four slots per native cell.
      * @param[in] nx Dimensionless outward-normal X, same layout.
      * @param[in] ny Dimensionless outward-normal Y, same layout; triangle padding is zero.
      */
@@ -327,7 +327,7 @@ signals:
     /**
      * @brief Publish signed live edge flux paired to a cell-depth frame.
      * @param[in] jobId Stable run correlation ID.
-     * @param[in] flux Cubic metres per second, positive outward, four slots per native cell with zero triangle padding.
+     * @param[in] flux Cubic meters per second, positive outward, four slots per native cell with zero triangle padding.
      * @param[in] simTime Snapshot timestamp on the common UTC basis.
      * @param[in] elapsedSec Accepted elapsed seconds used for field pairing.
      */
@@ -346,8 +346,8 @@ signals:
     /**
      * @brief Publish rainfall process fields for the same accepted live frame.
      * @param[in] jobId Stable run correlation ID.
-     * @param[in] rainfall Native-cell rainfall intensity in metres/second.
-     * @param[in] rainCum Native-cell cumulative rainfall volume in cubic metres.
+     * @param[in] rainfall Native-cell rainfall intensity in meters/second.
+     * @param[in] rainCum Native-cell cumulative rainfall volume in cubic meters.
      * @param[in] simTime Snapshot timestamp.
      * @param[in] elapsedSec Accepted elapsed seconds for field pairing.
      */
@@ -363,7 +363,7 @@ signals:
     /**
      * @brief Publish wet-masked signed vertex render depths without clamping negative shoreline values.
      * @param[in] jobId Stable run correlation ID.
-     * @param[in] vdepths Vertex water depth relative to bed in metres, matching initialized vertex order.
+     * @param[in] vdepths Vertex water depth relative to bed in meters, matching initialized vertex order.
      * @param[in] simTime Snapshot timestamp.
      * @param[in] elapsedSec Accepted elapsed seconds for field pairing.
      */
@@ -377,7 +377,7 @@ signals:
     /**
      * @brief Publish solver-native cell water-surface elevations.
      * @param[in] jobId Stable run correlation ID.
-     * @param[in] heads Native-cell heads in metres above the model datum.
+     * @param[in] heads Native-cell heads in meters above the model datum.
      * @param[in] simTime Snapshot timestamp.
      * @param[in] elapsedSec Accepted elapsed seconds for field pairing.
      */
@@ -401,8 +401,8 @@ signals:
     /**
      * @brief Publish whole-run cumulative native-cell maxima.
      * @param[in] jobId Stable run correlation ID.
-     * @param[in] maxDepth Maximum depths so far in metres.
-     * @param[in] maxVel Maximum speeds so far in metres/second.
+     * @param[in] maxDepth Maximum depths so far in meters.
+     * @param[in] maxVel Maximum speeds so far in meters/second.
      * @details Receiver retains the newest envelope rather than a time-indexed history.
      */
     void twoDEnvelopesAvailable(int jobId, QVector<float> maxDepth, QVector<float> maxVel);

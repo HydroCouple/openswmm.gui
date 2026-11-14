@@ -146,7 +146,7 @@ private slots:
 
     /**
      *
-     * @brief Require polygon centre pixel to carry the configured red fill with outline disabled.
+     * @brief Require polygon center pixel to carry the configured red fill with outline disabled.
      *
      */
     void drawFill_fillsInterior()
@@ -173,7 +173,7 @@ private slots:
 
     /**
      *
-     * @brief Require outline-only drawing to leave the centre of the polygon white.
+     * @brief Require outline-only drawing to leave the center of the polygon white.
      *
      */
     void drawFill_outlineOnlyLeavesInteriorUntouched()

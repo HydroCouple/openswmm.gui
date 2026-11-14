@@ -237,7 +237,7 @@ CorridorReadResult readCorridorSources(const QVector<CorridorSource> &sources,
                     QStringLiteral("could not create the source-to-mesh CRS transformation."));
         }
         QCryptographicHash digest(QCryptographicHash::Sha256);
-        // Preserve persisted centreline digests exactly. The new role has its
+        // Preserve persisted centerline digests exactly. The new role has its
         // own prefix so the same selected geometry cannot change roles silently.
         if (source.bankPair)
             digestString(digest, QByteArrayLiteral("bank-pair-v1"));

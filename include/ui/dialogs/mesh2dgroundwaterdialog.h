@@ -141,7 +141,7 @@ public:
      * @param[in] initialPage Page to select after UI construction; InitialConditions shares the
      * Aquifer page.
      * @param[in] units Borrowed optional unit system for project labels; unit
-     * changes/destruction invalidate the editor, and null uses metre-based labels.
+     * changes/destruction invalidate the editor, and null uses meter-based labels.
      * @details GUI-thread engine/widget access only. Captures porous-thermal API support, loads
      * exact raw versus displayed option baselines and staged table models, then gates editing to
      * BUILDING/OPENED state without probing setters. Constructor does not write authored engine
@@ -279,7 +279,7 @@ private slots:
      * @details Missing view is a no-op; absent engine or inactive kernel displays a status
      * explanation. Reports dimensions, continuity/storage/water ledgers in SI m³, cumulative
      * requested/accepted edge volumes, native-concentration-times-m³ species terms, LTS firings
-     * and saturated-thickness/closure census in metres. Failed optional reads omit sections; no
+     * and saturated-thickness/closure census in meters. Failed optional reads omit sections; no
      * authoring/runtime values are changed and no claim of a complete diagnostic dump is made.
      */
     void refreshState();
@@ -334,7 +334,7 @@ private:
      * content/children.
      * @details Shows species/age/temperature flags, bulk/layered chemistry, diffusion stability
      * and thermal model/conduction choices. Thermal numeric units are seconds, W/m/K, m² K/W,
-     * Celsius, W/m² and metre boundary depth regardless of project length units. Connections
+     * Celsius, W/m² and meter boundary depth regardless of project length units. Connections
      * gate supported/active controls and retain inactive choices without enabling parent
      * processes or writing engine state.
      */

@@ -56,7 +56,7 @@ namespace
 constexpr int kModeContinuous = 0;
 constexpr int kModeClassified = 1;
 
-// The colour-swatch cell delegate now lives in ui/widgets/colorcelldelegate.h
+// The color-swatch cell delegate now lives in ui/widgets/colorcelldelegate.h
 // (shared with the raster Paletted class table).
 
 } // namespace
@@ -194,7 +194,7 @@ void ClassificationEditor::buildUi()
     }
     form->addRow(m_customRangeRow);
 
-    // Log scale and the colours of values outside the range (opt-in per host).
+    // Log scale and the colors of values outside the range (opt-in per host).
     m_outsideRow = new QWidget(box);
     {
         auto *grid = new QFormLayout(m_outsideRow);
@@ -638,7 +638,7 @@ void ClassificationEditor::onRampChanged(const RasterColorRamp &ramp)
 {
     const QString name = m_rampCombo->currentText();
     // Custom ramps must travel by PAYLOAD, not name: the scheme's resolve
-    // path only knows the builtin catalogue and degrades unknown names to
+    // path only knows the builtin catalog and degrades unknown names to
     // grayscale (the historic "custom ramp applies gray" bug).
     const bool custom = m_rampCombo->currentIsCustom();
     mutateScheme([&](ClassificationScheme &s) {

@@ -15,7 +15,7 @@
  * Spatial services use explicit traditional GIS axis order. Viewport edges are sampled before
  * transformation. Loaded-layer boundaries preserve polygon holes and multipart structure;
  * transient preview items are transformed to the canvas CRS and never become persistent layers.
- * Layer/filter/selection notifications let consumers discard stale catalogue previews.
+ * Layer/filter/selection notifications let consumers discard stale catalog previews.
  * All facade and engine operations are confined to the GUI thread.
  * @author Caleb Buahin <caleb.buahin@gmail.com>
  * @date 2026
@@ -1072,7 +1072,7 @@ private:
         }
         if (mPreviewSuppressed)
             return true; // A local selection/filter refresh must respect manual removal.
-        // Local catalogue filtering replaces the source collection. Preserve the
+        // Local catalog filtering replaces the source collection. Preserve the
         // user's visibility/opacity choice instead of resurrecting hidden points.
         const bool visible = !mPreviewLayer || mPreviewLayer->isVisible();
         const double layerOpacity = mPreviewLayer ? mPreviewLayer->opacity() : 1.;

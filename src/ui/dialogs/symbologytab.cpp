@@ -100,7 +100,7 @@ SymbologyTab::SymbologyTab(const RendererPanelContext &ctx, QWidget *parent)
     auto *topRow = new QWidget(this);
     auto *topLay = new QHBoxLayout(topRow);
     topLay->setContentsMargins(0, 0, 0, 0);
-    // Bold: this combo is the gateway to every data-driven control (colour
+    // Bold: this combo is the gateway to every data-driven control (color
     // ramps, size-by-value, width-by-value). Presented as a plain label it
     // reads like a minor setting, and users looked for "width by attribute"
     // in the symbol editor — where it cannot exist, because only a
@@ -114,7 +114,7 @@ SymbologyTab::SymbologyTab(const RendererPanelContext &ctx, QWidget *parent)
     m_rendererCombo = new QComboBox(topRow);
     for (const auto &entry : RendererPanelRegistry::instance().entries()) {
         m_rendererCombo->addItem(entry.displayName, entry.rendererId);
-        // Gap A4.2 — declarative applicability: grey out renderer classes
+        // Gap A4.2 — declarative applicability: gray out renderer classes
         // that make no sense for this kind (e.g. Graduated on Rain gages,
         // which expose no numeric attributes) with a tooltip explaining why.
         if (entry.applicable && !entry.applicable(m_ctx)) {

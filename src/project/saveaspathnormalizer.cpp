@@ -35,7 +35,7 @@ QString tailExt(const QString &path)
     return QFileInfo(path).suffix().toLower();
 }
 
-// Strip exactly one trailing recognised-extension layer, IF the layer is in
+// Strip exactly one trailing recognized-extension layer, IF the layer is in
 // `writable`. Returns the input unchanged when no strip applies. Operates
 // on the full path so leading directory segments stay intact.
 //
@@ -100,7 +100,7 @@ SaveAsPathResult normalizeSaveAsPath(const QString &dialogPath,
     }
 
     // For .oswp saves, the inpPath the caller writes is `<stem>.inp`.
-    // `<stem>` is the basename with ALL trailing recognised extensions
+    // `<stem>` is the basename with ALL trailing recognized extensions
     // stripped — i.e. `working` post-collapse minus the outer .oswp.
     if (r.isProject) {
         QFileInfo fi(working);
@@ -125,7 +125,7 @@ SaveAsPathResult normalizeSaveAsPath(const QString &dialogPath,
         // is relative to the *current drive*, so absolutePath() returned
         // "D:/p" and produced "D:/p/m.inp" instead of "/p/m.inp".
         // The non-project branch below already returns `working` verbatim, so
-        // preserving the caller's directory as given is the consistent behaviour.
+        // preserving the caller's directory as given is the consistent behavior.
         const QString dir = fi.path();
         r.inpPath = dir + QLatin1Char('/') + stem + QStringLiteral(".inp");
     } else {

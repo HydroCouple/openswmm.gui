@@ -14,8 +14,8 @@
  *           │ │   / Classified, ramp + invert, method, classes,    │   │
  *           │ │   custom range, class table, Auto-classify)        │   │
  *           │ │   [ ] Clip out-of-range values                     │   │
- *           │ │ Paletted: palette combo, Value/Label/Colour table, │   │
- *           │ │   Classify unique values · Load colour table · + − │   │
+ *           │ │ Paletted: palette combo, Value/Label/Color table, │   │
+ *           │ │   Classify unique values · Load color table · + − │   │
  *           │ │ Multiband: R / G / B / A band spins                │   │
  *           │ └────────────────────────────────────────────────────┘   │
  *           │ Hillshade relief (graduated only)                        │

@@ -28,8 +28,8 @@ class ContourBandStyle : public SublayerStyle
     Q_OBJECT
     Q_PROPERTY(QString attribute READ attribute WRITE setAttribute NOTIFY styleChanged)
     Q_PROPERTY(int bandCount READ bandCount WRITE setBandCount NOTIFY styleChanged)
-    // VS.8 — colour source: a named built-in/custom ramp ("" = use the
-    // two-colour lowColor→highColor gradient), optionally inverted.
+    // VS.8 — color source: a named built-in/custom ramp ("" = use the
+    // two-color lowColor→highColor gradient), optionally inverted.
     Q_PROPERTY(QString colorRampName READ colorRampName WRITE setColorRampName NOTIFY styleChanged)
     Q_PROPERTY(bool invertRamp READ invertRamp WRITE setInvertRamp NOTIFY styleChanged)
     Q_PROPERTY(QColor lowColor READ lowColor WRITE setLowColor NOTIFY styleChanged)
@@ -38,7 +38,7 @@ class ContourBandStyle : public SublayerStyle
     Q_PROPERTY(QColor aboveMaxColor READ aboveMaxColor WRITE setAboveMaxColor NOTIFY styleChanged)
     Q_PROPERTY(bool smoothBands READ smoothBands WRITE setSmoothBands NOTIFY styleChanged)
     // VS.8 — fixed classification range. Off = auto-track the layer's
-    // [dryDepth, maxDepth] range (legacy behaviour).
+    // [dryDepth, maxDepth] range (legacy behavior).
     Q_PROPERTY(bool useCustomRange READ useCustomRange WRITE setUseCustomRange NOTIFY styleChanged)
     Q_PROPERTY(double rangeMin READ rangeMin WRITE setRangeMin NOTIFY styleChanged)
     Q_PROPERTY(double rangeMax READ rangeMax WRITE setRangeMax NOTIFY styleChanged)
@@ -85,13 +85,13 @@ public:
     /** @brief Read the two-color ramp upper endpoint.
      * @return Stored/forwarded value; initially RGBA(200,220,255,200). */
     [[nodiscard]] QColor highColor() const { return m_scheme.highColor(); }
-    /** @brief Read the colour of values below the band range (the scheme's below colour).
+    /** @brief Read the color of values below the band range (the scheme's below color).
      * @return Transparent when unset (nothing drawn there), the initial state. */
     [[nodiscard]] QColor belowMinColor() const
     {
         return m_scheme.belowColor().isValid() ? m_scheme.belowColor() : QColor(0, 0, 0, 0);
     }
-    /** @brief Read the colour of values above the band range (the scheme's above colour).
+    /** @brief Read the color of values above the band range (the scheme's above color).
      * @return Transparent when unset (the last band then saturates), the initial state. */
     [[nodiscard]] QColor aboveMaxColor() const
     {
@@ -182,7 +182,7 @@ public:
      * decides whether to replace it; other style fields are retained. */
     void setScheme(const ClassificationScheme &s);
 
-    /*! VS.8 — band colour at the midpoint of band \p bandIndex out of
+    /*! VS.8 — band color at the midpoint of band \p bandIndex out of
      *  \p bandCount. Forwards to scheme().colorForClass — samples the named
      *  ramp (inverted when requested) or lerps lowColor→highColor when the
      *  ramp name is empty. Authored alpha is retained; callers apply the sublayer opacity. */
@@ -228,7 +228,7 @@ public:
     QString id() const override { return m_id; }
     // Label tracks the classified attribute: the terrain mesh classifies bed
     // ELEVATION, the results layer classifies water DEPTH. Hardcoding "Depth"
-    // mislabelled the terrain sublayer.
+    // mislabeled the terrain sublayer.
     /** @brief Describe this pass for the UI.
      * @return Translated Elevation Contours when the attribute equals elevation ignoring case,
      * otherwise Depth Contours. */

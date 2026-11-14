@@ -98,7 +98,7 @@ QueryPredicate parseQuery(const QString &whereClause);
  *  first-seen order.  Empty when `pred.root` is null.
  *
  *  Callers use this to build a row map holding ONLY the columns the
- *  query compares, instead of materialising every column of every row.
+ *  query compares, instead of materializing every column of every row.
  *  On a 272k-row / 55-column table that is the difference between ~30M
  *  cell reads per filter pass and ~272k.
  *

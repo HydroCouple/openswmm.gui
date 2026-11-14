@@ -9,7 +9,7 @@
  *        test_nninterpdegenerate.cpp focuses on refusal cases plus a flat-field
  *        control. These cases add linear/nonlinear weight characterization:
  *
- *          - Mathematical invariants that any correct natural-neighbour scheme
+ *          - Mathematical invariants that any correct natural-neighbor scheme
  *            must satisfy (exact-seed NaN and near-seed convergence, constant and linear
  *            reproduction inside the hull, NaN outside it).
  *          - Golden values at asymmetric query points, captured from the
@@ -43,7 +43,7 @@
 #define GOLDEN_LAPLACE_83_64 247.53346615670281
 
 // Why a tolerance and not exact equality: interpolate() accumulates its
-// weighted sum while walking a QHash, and Qt randomises QHash iteration order
+// weighted sum while walking a QHash, and Qt randomizes QHash iteration order
 // per process. The summation order — and therefore the last ULP — changes from
 // run to run. That is PRE-EXISTING behavior, not a consequence of the
 // weightsAt() extraction: the same variation is observable on the unmodified
@@ -59,7 +59,7 @@ namespace
 // A 6x6 lattice over [0,15]^2 with deterministic jitter.
 //
 // Density matters: interpolate() returns NaN whenever the Delaunay insertion
-// cavity touches the hull, so with a sparse seed set (say 4 corners + 1 centre)
+// cavity touches the hull, so with a sparse seed set (say 4 corners + 1 center)
 // EVERY query falls back — there is no interior path left to characterize. The
 // jitter breaks the cocircularity a perfect lattice would otherwise produce,
 // which the in-circle test treats as degenerate.
@@ -83,7 +83,7 @@ QVector<QPointF> seeds()
     return pts;
 }
 
-// z = 2x - 3y + 7 sampled at the seeds — natural-neighbour coordinates
+// z = 2x - 3y + 7 sampled at the seeds — natural-neighbor coordinates
 // reproduce a linear field exactly, for both variants.
 /**
  *

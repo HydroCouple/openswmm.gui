@@ -256,8 +256,8 @@ void CurveEditChartView::mouseMoveEvent(QMouseEvent *e)
         const double dx = m_lockX ? 0.0 : (cur.x() - m_pressValue.x());
         const double dy = m_lockY ? 0.0 : (cur.y() - m_pressValue.y());
         // Apply per-vertex; the provider validates each setPointAt against
-        // neighbours and silently refuses moves that would break monotonicity.
-        // The drag thus "snags" at boundaries — desired behaviour.
+        // neighbors and silently refuses moves that would break monotonicity.
+        // The drag thus "snags" at boundaries — desired behavior.
         for (int k = 0; k < m_dragIndices.size(); ++k) {
             const int idx = m_dragIndices.at(k);
             const auto &init = m_dragInitial.at(k);

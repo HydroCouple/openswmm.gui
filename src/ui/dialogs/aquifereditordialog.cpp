@@ -274,7 +274,7 @@ void AquiferEditorDialog::buildUi_()
         if (!unit.isEmpty())
             s->setSuffix(QLatin1Char(' ') + unit);
         s->setMinimumWidth(OpenSWMM::Ui::kSpinMinWidthPx);
-        // Focus drives which callout the diagram emphasises.
+        // Focus drives which callout the diagram emphasizes.
         s->installEventFilter(this);
         m_spins[k] = s;
         connect(s, &QDoubleSpinBox::valueChanged, this, &AquiferEditorDialog::onFieldEdited_);
@@ -369,7 +369,7 @@ void AquiferEditorDialog::buildUi_()
 
 bool AquiferEditorDialog::eventFilter(QObject *watched, QEvent *event)
 {
-    // A focus move changes no data, only which callout is emphasised.
+    // A focus move changes no data, only which callout is emphasized.
     if (event->type() == QEvent::FocusIn || event->type() == QEvent::FocusOut)
         refreshDiagram_();
     return QDialog::eventFilter(watched, event);

@@ -151,7 +151,7 @@ private slots:
         QVERIFY(validate(pm).contains(QStringLiteral("folded")));
     }
 
-    /*! L-shaped centreline, width 2, 2 quads across, 5 m along: 5 stations,
+    /*! L-shaped centerline, width 2, 2 quads across, 5 m along: 5 stations,
      *  8 convex CCW quads, a mitred outer corner at (11,-1). */
     void swept_lShape()
     {
@@ -186,7 +186,7 @@ private slots:
         QCOMPARE(pm.xy[2], QPointF(0, 1));
     }
 
-    /*! along = 0 keeps one station per centreline vertex; bad inputs fail. */
+    /*! along = 0 keeps one station per centerline vertex; bad inputs fail. */
     void swept_validation()
     {
         SweptPatch p;
@@ -332,7 +332,7 @@ private slots:
     }
 
     /**
-     * @brief Verify distinct submillimetre stations remain distinct at a billion-unit coordinate
+     * @brief Verify distinct submillimeter stations remain distinct at a billion-unit coordinate
      * origin.
      * @note Along spacing zero or 0.0001, width 0.0002, validates input and nonempty result;
      * guards coordinate-relative fuzzy equality collapsing representable points. No file IO.
@@ -1098,7 +1098,7 @@ private slots:
         }
 
         // Every patch boundary vertex exists exactly once and is referenced
-        // by both a triangle and a quad; the centre vertex (50,50) is
+        // by both a triangle and a quad; the center vertex (50,50) is
         // referenced by quads only.
         auto countAt = [&](const QPointF &xy) {
             int n = 0;

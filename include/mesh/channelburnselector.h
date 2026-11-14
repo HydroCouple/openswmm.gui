@@ -27,7 +27,7 @@
  * The engine's isOpen() whitelist has classified a street both ways, and
  * tests/gui/test_xsectsampler.cpp pins that answer precisely because it moves;
  * deriving D-F ("streets opt-in, default off") from it would let a whitelist
- * change silently start burning every kerb line in the model.
+ * change silently start burning every curb line in the model.
  *
  * SECTION GEOMETRY.  IRREGULAR sections are rebuilt from the raw [TRANSECTS]
  * station/elevation pairs, NOT from `XsectSampler::outline()`, which mirrors

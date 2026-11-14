@@ -35,7 +35,7 @@ namespace openswmmvis::ui
 
 /*!
  * \class RelativePathPicker
- * \brief A QLineEdit + browse-button widget that normalises display
+ * \brief A QLineEdit + browse-button widget that normalizes display
  *        paths against a project anchor.
  *
  * \details The widget exposes two views of the same value:

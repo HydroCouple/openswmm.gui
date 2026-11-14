@@ -35,7 +35,7 @@ QRectF unionOf(const QRectF &a, const QRectF &b)
  * rectangle is not null. Zero-width or zero-height line bounds remain usable. */
 bool usableBBox(const QRectF &r)
 {
-    // Zero-size bboxes (degenerate cells) are still locatable by centre;
+    // Zero-size bboxes (degenerate cells) are still locatable by center;
     // only negative-size / non-finite / null rects are unusable.
     return !r.isNull() && r.width() >= 0.0 && r.height() >= 0.0 && std::isfinite(r.left()) &&
            std::isfinite(r.top()) && std::isfinite(r.right()) && std::isfinite(r.bottom());
@@ -74,7 +74,7 @@ void MeshRenderChunkIndex::build(const QVector<QRectF> &cellBBoxes,
     const double cw = extent.width() > 0.0 ? extent.width() / cols : 1.0;
     const double ch = extent.height() > 0.0 ? extent.height() / rows : 1.0;
 
-    // Grid cell of a bbox centre. Clamped so borderline centres (on the
+    // Grid cell of a bbox center. Clamped so borderline centers (on the
     // extent edge) land in the outermost row/column.
     auto gridCellOf = [&](const QRectF &r) -> int {
         const double cx = r.left() + r.width() * 0.5;

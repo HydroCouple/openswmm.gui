@@ -99,7 +99,7 @@ TransectChartView::TransectChartView(QWidget *parent) : QChartView(parent)
 
     // Overbank — split into LEFT shoulder (leftmost → xLeftBank) and RIGHT
     // shoulder (xRightBank → rightmost). Matches legacy Dprevplot.pas
-    // semantics where the overbank colour paints only the floodplain
+    // semantics where the overbank color paints only the floodplain
     // shoulders, not the channel section.
     auto makeOverbank = [&]() {
         auto *s = new QLineSeries(m_chart);
@@ -184,7 +184,7 @@ TransectChartView::TransectChartView(QWidget *parent) : QChartView(parent)
     m_handles->setVisible(m_handlesVisible);
 
     // Selection overlay — drawn on top of the base handles in a contrasting
-    // colour so the user can see which handles correspond to the table's
+    // color so the user can see which handles correspond to the table's
     // selected rows. Painted larger than the base handle so it visibly
     // wraps around the handle even when the same point appears in both.
     m_selectedOverlay = new QScatterSeries(m_chart);
@@ -555,7 +555,7 @@ void TransectChartView::rebuildSeriesFromProvider_()
     const double yFloor = yMin - kEarthFillPad * yRange;
 
     // The three zone fills below use the same flat baseline y = yFloor;
-    // each fill's lower edge spans only its zone's X range so the colour
+    // each fill's lower edge spans only its zone's X range so the color
     // changes at the bank stations.
 
     // Split the topography into LEFT overbank, CHANNEL, and RIGHT overbank
@@ -821,13 +821,13 @@ void TransectChartView::zoomAroundViewportPoint_(const QPoint &viewportPx, qreal
         return;
     const QPointF chartPos = m_chart->mapToValue(m_chart->mapFromScene(mapToScene(viewportPx)));
     Q_UNUSED(chartPos);
-    // Use QChart::zoom which zooms about the centre. For about-cursor zoom,
+    // Use QChart::zoom which zooms about the center. For about-cursor zoom,
     // shift the view rect so the cursor's chart point remains stationary
     // after the scale.
     const QRectF plot = m_chart->plotArea();
     const QPointF cursorScene = mapToScene(viewportPx);
     const QPointF cursorPlotF(cursorScene.x() - plot.x(), cursorScene.y() - plot.y());
-    // Translate so the cursor's plot position is the zoom centre.
+    // Translate so the cursor's plot position is the zoom center.
     const qreal dx = plot.width() / 2.0 - cursorPlotF.x();
     const qreal dy = plot.height() / 2.0 - cursorPlotF.y();
     m_chart->scroll(-dx, dy);

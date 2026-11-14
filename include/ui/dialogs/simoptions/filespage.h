@@ -115,7 +115,7 @@ private slots:
     /**
      * @brief Append a blank end-of-run draft save row and immediately browse for its path.
      * Chooses Native when the current engine reports vertices or omitted legacy state,
-     * Auto otherwise. Selects its path cell; cancelled browse leaves the blank row for
+     * Auto otherwise. Selects its path cell; canceled browse leaves the blank row for
      * later completion/removal. Missing model/view is a no-op; no engine schedule write.
      */
     void onHotstartSaveAddRow();

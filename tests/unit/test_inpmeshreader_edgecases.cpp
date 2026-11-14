@@ -7,13 +7,13 @@
 // The snapshots were generated on 2026-11-11 from the single-pass byte reader in the same build in
 // which it was proven field-identical to the former QString reader (4984a9932) on every case, the
 // repository corpus and the Phase 0 fixtures up to 10 M cells — so they pin the former reader's
-// behaviour (error texts, Qt number rules, BOM/CR/Unicode handling, overlay precedence).
+// behavior (error texts, Qt number rules, BOM/CR/Unicode handling, overlay precedence).
 //
 // Environment:
 //   MESH_EDGE_OUT_DIR=<dir>   where the case files are written
 //                             (default <repo>/tests/output/inpmeshreader_edgecases)
 //   MESH_EDGE_GOLDEN_WRITE=1  (re)write the snapshots instead of comparing — only for a deliberate
-//                             behaviour change, reviewed in the diff of the .txt files.
+//                             behavior change, reviewed in the diff of the .txt files.
 #include "mesh/inpmeshreader.h"
 
 #include <QByteArray>

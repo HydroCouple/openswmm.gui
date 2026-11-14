@@ -266,7 +266,7 @@ private slots:
     /**
      * @brief Write the synthetic bank transect before/after/truth CSV to the review artifact
      * directory.
-     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * @note Synthetic four-triangle Cartesian bank fixture with common meter-like XY/Z units; no
      * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
      * hydraulic simulation.
      */
@@ -275,7 +275,7 @@ private slots:
     /**
      * @brief Verify adverse-bank marching signed depth equals pool stage5 minus linear bed
      * within1e-9, including negative dry values.
-     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * @note Synthetic four-triangle Cartesian bank fixture with common meter-like XY/Z units; no
      * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
      * hydraulic simulation.
      *
@@ -299,7 +299,7 @@ private slots:
     /**
      * @brief Verify extrapolated dry-depth crossing is within1e-3 of x16.25 while old sentinel
      * field extends past19.9.
-     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * @note Synthetic four-triangle Cartesian bank fixture with common meter-like XY/Z units; no
      * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
      * hydraulic simulation.
      *
@@ -330,7 +330,7 @@ private slots:
     /**
      * @brief Verify bed above pool yields marching value below dry threshold and old field
      * exposes >1-unit false depth.
-     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * @note Synthetic four-triangle Cartesian bank fixture with common meter-like XY/Z units; no
      * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
      * hydraulic simulation.
      *
@@ -359,7 +359,7 @@ private slots:
     /**
      * @brief Verify no extrapolated corner elevation-plus-signed-depth exceeds maximum supplying
      * wet-corner stage.
-     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * @note Synthetic four-triangle Cartesian bank fixture with common meter-like XY/Z units; no
      * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
      * hydraulic simulation.
      *
@@ -391,7 +391,7 @@ private slots:
     /**
      * @brief Verify fully wet strip corner depths and synthetic all-zero no-data corners remain
      * unchanged.
-     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * @note Synthetic four-triangle Cartesian bank fixture with common meter-like XY/Z units; no
      * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
      * hydraulic simulation.
      *
@@ -421,14 +421,14 @@ private slots:
     /**
      * @brief Verify downhill dry corner stays unavailable0 while adverse dry corner becomes
      * negative maxEta-bed.
-     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * @note Synthetic four-triangle Cartesian bank fixture with common meter-like XY/Z units; no
      * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
      * hydraulic simulation.
      *
      * @details ADVERSE SLOPE ONLY. A dry corner whose bed falls BELOW the driving head
      *  keeps the sentinel: extrapolating there would inject standing water into
      *  a dry cell and spread the pool one cell downhill in every direction —
-     *  the flood-fill behaviour this feature does not do. Regression pin for
+     *  the flood-fill behavior this feature does not do. Regression pin for
      *  the 2026-08-04 live-render breakage.
      */
     void doesNotExtrapolateDownhill()
@@ -445,7 +445,7 @@ private slots:
     /**
      * @brief Verify dry corner remains nonpositive across bed elevations below/at/above pool
      * stage.
-     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * @note Synthetic four-triangle Cartesian bank fixture with common meter-like XY/Z units; no
      * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
      * hydraulic simulation.
      *
@@ -466,7 +466,7 @@ private slots:
     /**
      * @brief Verify CellSurfaceInterp depth remains exactly equal before/after adverse-bank
      * sentinel extrapolation.
-     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * @note Synthetic four-triangle Cartesian bank fixture with common meter-like XY/Z units; no
      * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
      * hydraulic simulation.
      *
@@ -498,7 +498,7 @@ private slots:
     /**
      * @brief Verify wet-corner fill admission includes solver-dry bank cells but excludes an
      * all-no-data dry cell.
-     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * @note Synthetic four-triangle Cartesian bank fixture with common meter-like XY/Z units; no
      * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
      * hydraulic simulation.
      *
@@ -528,7 +528,7 @@ private slots:
     /**
      * @brief Verify triangle overload parity,3/nv mixed-cell weighting and nonplanar quad
      * mean-depth closure within stated1e-6/1e-9 tolerances.
-     * @note Synthetic four-triangle Cartesian bank fixture with common metre-like XY/Z units; no
+     * @note Synthetic four-triangle Cartesian bank fixture with common meter-like XY/Z units; no
      * engine/layer/file reads. Only suite setup writes diagnostic CSV, assertions do not run
      * hydraulic simulation.
      *
@@ -536,7 +536,7 @@ private slots:
      *  CellSplit overload. (a) The triangle path is bit-identical to the
      *  historical array<int,3> overload on the strip. (b) On a flat mesh where
      *  a quad shares an edge with a triangle, each incident cell votes with
-     *  depth × 3/nv — the plan's 1/nv weighting normalised so triangles are
+     *  depth × 3/nv — the plan's 1/nv weighting normalized so triangles are
      *  unchanged — so the shared vertex blends 3/4·h_q against 1·h_t, and a
      *  quad-only vertex reads the quad's own depth.
      */

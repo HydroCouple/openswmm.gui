@@ -11,7 +11,7 @@
  * over the twelve AquiferProvider::Param values plus the upper-zone
  * evaporation pattern, and a SectionPreviewWidget showing the two-zone
  * groundwater illustration (buildAquiferDiagram) whose callouts track the
- * form and emphasise the focused field. Soft validation (plan D6) is shown in
+ * form and emphasize the focused field. Soft validation (plan D6) is shown in
  * a status label and forwarded to the diagram; the engine bounds stay the
  * hard limits via the spin-box ranges.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.

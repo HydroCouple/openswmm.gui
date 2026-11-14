@@ -624,7 +624,7 @@ QString TimeseriesEditorDialog::currentName() const
 void TimeseriesEditorDialog::setProjectAnchor(const QString &dir)
 {
     // Slice IO-11d — caller wires this to the active project's .inp dir;
-    // empty disables relative-path display (legacy behaviour).
+    // empty disables relative-path display (legacy behavior).
     if (dir == m_projectAnchor)
         return;
     m_projectAnchor = dir;
@@ -868,7 +868,7 @@ void TimeseriesEditorDialog::buildUi_(const QVector<TimeseriesProvider *> &provi
 
     // ── Row editing: Add / Delete / Copy / Paste ────────────────────────────
     // Phase 6.7.3.4-followup. Add/Delete go through Insert/DeletePointsCommand;
-    // Copy serialises selected rows to TSV; Paste parses via TimeseriesParse
+    // Copy serializes selected rows to TSV; Paste parses via TimeseriesParse
     // (shared with file import) so Excel- and CSV-derived clipboard text
     // round-trips with the same time-format handling.
     m_actAddRow = m_toolbar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("AddRow")),
@@ -2752,7 +2752,7 @@ void TimeseriesEditorDialog::buildListPane_()
     // Step D — Explicit initial sizes (override sizeHints so the chart
     // pane doesn't collapse to a sliver) + stretch factors that grow the
     // chart preferentially on dialog resize. setSizes is honored as the
-    // initial layout; stretch factors govern subsequent resize behaviour.
+    // initial layout; stretch factors govern subsequent resize behavior.
     // QSettings restoreState in Step E.2 overrides these on reopen.
     m_listPane->setMinimumWidth(180);
     if (m_chartView)
@@ -2793,7 +2793,7 @@ void TimeseriesEditorDialog::rebindActiveProvider_(TimeseriesProvider *p)
     // toolbar disabled; only the Create-submit path (bindNewProvider_) used to
     // switch it back on. Picking an existing series out of the list landed
     // here instead, which bound the provider, filled the grid and drew the
-    // chart but left every editing action greyed out — refreshSourceModeCard's
+    // chart but left every editing action grayed out — refreshSourceModeCard's
     // per-action setEnabled cannot undo that, because a disabled QToolBar
     // disables its buttons regardless of the QAction's own state.
     if (m_toolbar)

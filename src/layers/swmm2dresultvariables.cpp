@@ -566,7 +566,7 @@ bool SWMM2DResultsLayer::applyResultRowDefaults_(OpenSWMM::Render::ISublayer *ba
         sub->vectorStyle()->setSizeMode(OpenSWMM::Render::ResultVectorStyle::SizeMode::FixedScale);
         return shown;
     }
-    // Darcy velocity: the vector style's own arrows (sized and coloured by magnitude).
+    // Darcy velocity: the vector style's own arrows (sized and colored by magnitude).
     if (auto *sub = qobject_cast<ResultVectorSublayer *>(base); sub && sub->vectorKey() == kDarcyKey)
         return shown;
     return false;
@@ -659,7 +659,7 @@ void SWMM2DResultsLayer::migrateEngineStateToRows_()
                    streaks = m_flowStreakSublayer->isVisible();
         auto *vs = velocity->vectorStyle();
         // The former arrows' style, so they look the same: fixed px per m/s,
-        // dry-depth cutoff and the speed range as the colour range.
+        // dry-depth cutoff and the speed range as the color range.
         if (const auto *old = m_velocityVectorSublayer->vectorStyle()) {
             vs->setSpacingPx(old->glyphSpacingPx());
             vs->setMinLengthPx(old->glyphLengthMinPx());
@@ -1199,7 +1199,7 @@ SWMM2DResultsLayer::resultVectorGeometry(const ResultVectorSublayer *sub, const 
     // flow-streak engine; every other row traces static streaks here.
     const bool animatedStreaks = sub == velocityResultSublayer();
     // Nothing drawn here: hidden, or no arrows and streaks off or animated by
-    // the flow-streak engine. The colour range is still reported when asked
+    // the flow-streak engine. The color range is still reported when asked
     // (the style editor shows it), otherwise the frame reads are skipped.
     const bool drawn = sub->isVisible() && sub->opacity() > 0 && pixelsPerScene > 0 &&
                        std::isfinite(pixelsPerScene) &&
@@ -1264,7 +1264,7 @@ SWMM2DResultsLayer::resultVectorGeometry(const ResultVectorSublayer *sub, const 
         return out; // nothing moves
     const double tiny = magMax * 1e-6;
 
-    // Bound scalars: a missing or failed frame hides the glyphs it would size or colour.
+    // Bound scalars: a missing or failed frame hides the glyphs it would size or color.
     std::shared_ptr<const Mesh2DScalarFrame> sizeFrame, colorFrame;
     if (style->sizeMode() == Style::SizeMode::Scalar)
         sizeFrame = resultFrame(style->sizeKey(), time);
@@ -1305,7 +1305,7 @@ SWMM2DResultsLayer::resultVectorGeometry(const ResultVectorSublayer *sub, const 
     if (colorUnits)
         *colorUnits = units;
     if (!drawn)
-        return out; // only the colour range was asked for
+        return out; // only the color range was asked for
     const auto colorAt = [&](int c, double magnitude) {
         return sub->colorFor(bound(colorFrame, c, magnitude), colorLo, colorHi);
     };
@@ -1422,7 +1422,7 @@ SWMM2DResultsLayer::resultVectorGeometry(const ResultVectorSublayer *sub, const 
             if (!fieldAt(q, ux, uy, c))
                 break;
             // Midpoint step with unit speed: streaks show direction and
-            // pattern; their colour carries the magnitude.
+            // pattern; their color carries the magnitude.
             double m = std::hypot(ux, uy);
             const QPointF mid = q + QPointF(ux / m, -uy / m) * (0.5 * stepLength);
             double mx, my;

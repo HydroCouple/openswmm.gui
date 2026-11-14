@@ -9,7 +9,7 @@
  *         again in-process below) so the assertions are not vacuous on a UTC
  *         machine: the labels must be the same strings a UTC run produces.
  *         Also pins what makes UtcTimeAxis usable as a drop-in for
- *         QDateTimeAxis: both edges labelled, the numeric range stays true
+ *         QDateTimeAxis: both edges labeled, the numeric range stays true
  *         epoch milliseconds, a chart zoom relabels and re-emits the range as
  *         instants, duplicate labels collapse instead of colliding.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -72,7 +72,7 @@ private slots:
     void initTestCase()
     {
         // Belt and braces with the ctest TZ: a non-UTC, DST-observing zone
-        // in-process too (Qt honours $TZ on Unix; the product bug is a Windows
+        // in-process too (Qt honors $TZ on Unix; the product bug is a Windows
         // report, where it uses system APIs — hence the class, not this).
         qputenv("TZ", "America/Denver");
 #ifndef Q_OS_WIN

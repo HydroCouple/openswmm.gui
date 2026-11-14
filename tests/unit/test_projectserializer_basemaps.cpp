@@ -1,6 +1,6 @@
 /**
  * @file      test_projectserializer_basemaps.cpp
- * @brief     Unit tests for the basemap JSON serialisation format (schema v3).
+ * @brief     Unit tests for the basemap JSON serialization format (schema v3).
  *
  * Tests check local JSON fixture conventions and the production schema constant.
  * Production basemap serializer/deserializer methods are not invoked; assertions
@@ -41,7 +41,7 @@ TEST(ProjectSerializerBasemaps, CurrentSchemaVersionIsAtLeastThree)
 // XYZ JSON structure
 // ---------------------------------------------------------------------------
 
-// Helper — build a minimal XYZ basemap entry as the serialiser would.
+// Helper — build a minimal XYZ basemap entry as the serializer would.
 /**
  *
  * @brief Build a test-local XYZ JSON convention fixture, without production serialization.
@@ -136,7 +136,7 @@ TEST(ProjectSerializerBasemaps, HeadersStoredAsJsonObject)
  */
 TEST(ProjectSerializerBasemaps, EmptyHeadersOmittedFromEntry)
 {
-    // When there are no headers the serialiser should omit the "headers" key
+    // When there are no headers the serializer should omit the "headers" key
     // (checked here by convention: a freshly built entry without headers
     // does not contain the key).
     const QJsonObject entry = makeXYZEntry(QStringLiteral("NoHeaders"),
@@ -229,7 +229,7 @@ TEST(ProjectSerializerBasemaps, WMSEntryHasRequiredKeys)
 TEST(ProjectSerializerBasemaps, SchemaV2DocumentHasNoBasemapsKey)
 {
     // A schema v2 .oswp file must not contain "basemaps" — if it does the
-    // deserialiser must skip it (ver < 3 guard).  Simulate the guard logic.
+    // deserializer must skip it (ver < 3 guard).  Simulate the guard logic.
     QJsonObject root;
     root["schemaVersion"] = 2;
     root["inpPath"] = QStringLiteral("/some/model.inp");
@@ -241,7 +241,7 @@ TEST(ProjectSerializerBasemaps, SchemaV2DocumentHasNoBasemapsKey)
     root["basemaps"] = fakeBasemaps;
 
     const int ver = root["schemaVersion"].toInt(0);
-    // The deserialiser only processes basemaps when ver >= 3.
+    // The deserializer only processes basemaps when ver >= 3.
     const bool wouldProcess = (ver >= 3);
     EXPECT_FALSE(wouldProcess) << "Schema v2 document should not trigger basemap deserialization";
 }
@@ -284,7 +284,7 @@ TEST(ProjectSerializerBasemaps, BasemapsArrayRoundTripViaJSON)
     root["schemaVersion"] = 3;
     root["basemaps"] = arr;
 
-    // Serialise → parse → verify.
+    // Serialize → parse → verify.
     const QJsonDocument doc(root);
     const QJsonDocument parsed = QJsonDocument::fromJson(doc.toJson());
     ASSERT_FALSE(parsed.isNull());

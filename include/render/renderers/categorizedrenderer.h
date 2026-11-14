@@ -9,11 +9,11 @@
  *         symbols + a fallback symbol, JSON-round-trips them faithfully, and
  *         returns the matching symbol for a given value (or fallback when
  *         missing). The full Map Symbology Dialog editor for adding /
- *         renaming / colouring categories is deferred to Slice **BI.3**.
+ *         renaming / coloring categories is deferred to Slice **BI.3**.
  *
  *         The stub is intentionally functional rather than a no-op: existing
  *         tests in the renderer test file can confirm full round-trip + paint
- *         behaviour, so when BI.3 lands its editor it inherits a working
+ *         behavior, so when BI.3 lands its editor it inherits a working
  *         engine instead of having to build one from scratch.
  *
  *         Cross-slice: Slice BI Phase 8.13.6 (see GUI_IMPLEMENTATION_PLAN.md
@@ -118,7 +118,7 @@ public:
 
     // ── Per-class editing (Slice BB Phase 8.6.16) ──────────────────────
     // classKey is the category index as a string ("0", "1", …). The
-    // per-class color edit writes the colour into every layer of
+    // per-class color edit writes the color into every layer of
     // m_categories[idx].symbol that already has a "color" slot. Symbol
     // swap replaces the whole SymbolStyle on that category. Size / width
     // are not editable here (use setSymbolForClass for full control).

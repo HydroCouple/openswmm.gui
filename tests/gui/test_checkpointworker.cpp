@@ -343,7 +343,7 @@ private slots:
     }
     /** @brief Require cancellation after native completion to discard a compatibility result still queued to the GUI.
      * Parks GUI event delivery while polling the future for up to 30 s, then cancels,
-     * waits for delivery and checks cancelled/unsuccessful/empty-metadata cleanup. */
+     * waits for delivery and checks canceled/unsuccessful/empty-metadata cleanup. */
     void cancellationAfterNativeCompletionStillDiscardsQueuedInspection()
     {
         Fixture f("late-cancel");

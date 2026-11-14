@@ -26,7 +26,7 @@ class TestResultVariableExportDialog : public QObject
     /**
      *
      * @brief Build the immutable one-cell scalar export fixture.
-     * @return Shared owned square geometry in EPSG:32618/metres with TSS saturated-zone
+     * @return Shared owned square geometry in EPSG:32618/meters with TSS saturated-zone
      * concentration descriptor MG/L, scalar 42 and Valid status. Contains no live source/
      * engine/QObject pointers; no file creation or physical validity checks here.
      *

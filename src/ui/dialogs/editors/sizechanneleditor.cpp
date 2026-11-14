@@ -160,7 +160,7 @@ void SizeChannelEditor::refreshFromModel()
     if (!m_style || m_suppress)
         return;
     SizeChannel ch = channel();
-    // Q4 — a channel never switched on starts from the kind's colour
+    // Q4 — a channel never switched on starts from the kind's color
     // attribute and its static size → 3× that.
     if (!ch.enabled && ch.attribute.isEmpty()) {
         const int colourRow =

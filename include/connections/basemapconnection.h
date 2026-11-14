@@ -229,7 +229,7 @@ struct WCSConnection {
  * other connection here names a source of pictures, fetched afresh for each
  * viewport and painted behind the model. A WFS answers with the features
  * themselves, fetched once and held as a vector layer that can be queried,
- * classified and labelled like any shapefile.
+ * classified and labeled like any shapefile.
  *
  * What that changes for this struct: there is no format or resolution to
  * remember, because the format is whatever the collection can be read in and

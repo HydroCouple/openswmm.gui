@@ -270,7 +270,7 @@ void WMTSLayer::fetchCache(const MapExtent &canvasExtent, const QSize &viewportS
     }
 
     // Use canvas extent for zoom-level selection: OGC scaleDenominator is
-    // always in metres/pixel, so the comparison must be in metres regardless
+    // always in meters/pixel, so the comparison must be in meters regardless
     // of the tile CRS.  tileExtent (which may be in degrees for EPSG:4326
     // tile matrices) would produce a dimensionally incorrect scale value.
     const WMTSTileMatrix *matrix = selectTileMatrix(*tms, canvasExtent, vpW);
@@ -286,7 +286,7 @@ void WMTSLayer::fetchCache(const MapExtent &canvasExtent, const QSize &viewportS
 
     // Tile geographic dimensions in tile-CRS native units.
     // OGC: scaleDenominator × kOgcPS = metres per pixel regardless of CRS.
-    // For geographic (degree-unit) tile CRS convert metres → degrees at equator.
+    // For geographic (degree-unit) tile CRS convert meters → degrees at equator.
     constexpr double kOgcPS = 0.00028;
     constexpr double kMetersPerDegree = 111319.49;
     const bool geoTileCrs = srs() && srs()->isGeographic();
@@ -382,7 +382,7 @@ void WMTSLayer::render(QPainter *painter, const MapExtent &extent, const QSize &
         }
     }
 
-    // Use canvas extent for zoom level selection (scale denominators are in metres).
+    // Use canvas extent for zoom level selection (scale denominators are in meters).
     const WMTSTileMatrix *matrix = selectTileMatrix(*tms, extent, vpW);
     if (!matrix)
         return;
@@ -446,7 +446,7 @@ void WMTSLayer::render(QPainter *painter, const MapExtent &extent, const QSize &
                 // between adjacent tiles whenever the projection curves
                 // within a tile — visible as "random / shifting" seams as
                 // the view pans. quadToQuad keeps every reprojected corner
-                // exact, so neighbouring tiles share their exact pixel
+                // exact, so neighboring tiles share their exact pixel
                 // corners and no inter-tile gap can appear.
                 double xs[4] = {tileLeft, tileRight, tileRight, tileLeft};
                 double ys[4] = {tileTop, tileTop, tileBottom, tileBottom};
@@ -1006,7 +1006,7 @@ void WMTSLayer::applyCRSFromTileMatrixSet(const QString &tmsId)
         if (!ok || code <= 0)
             return;
         // Walk backward past numeric/version tokens (e.g. "0", "6.18") to find
-        // the authority name.  Use toDouble so "6.18" is recognised as numeric.
+        // the authority name.  Use toDouble so "6.18" is recognized as numeric.
         for (int i = parts.size() - 2; i >= 0; --i) {
             bool numOk = false;
             parts.at(i).toDouble(&numOk);

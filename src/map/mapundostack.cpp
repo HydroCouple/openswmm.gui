@@ -820,7 +820,7 @@ void AddSubcatchmentCommand::redo()
         const double sqUnits = EditGeometry::polygonArea(m_polygon);
         if (sqUnits > 0.0) {
             // Convert square map units → SWMM area unit:
-            //   SI  (CMS/LPS/MLD): metres → hectares  (÷ 10 000)
+            //   SI  (CMS/LPS/MLD): meters → hectares  (÷ 10 000)
             //   US  (CFS/GPM/MGD): feet   → acres     (÷ 43 560)
             const bool si = UnitSystem::instance()->isSI();
             const double area = si ? sqUnits / 10000.0 : sqUnits / 43560.0;

@@ -12,7 +12,7 @@
  *     with the file's label and units, and skips static/envelope fields and
  *     datasets a fixed attribute already plots.
  *   - A variable series reads each frame once however many cells are asked,
- *     turns non-Valid cells into gaps (never zero), and honours live tails.
+ *     turns non-Valid cells into gaps (never zero), and honors live tails.
  *   - An unknown key is refused with a message.
  *   - The comparison plot gives each variable its own chart row, titled by
  *     the variable's label.
@@ -111,7 +111,7 @@ public:
      * @brief Copy the unit-square fixture coordinates and two triangle connectivities.
      * @param[out] vx Borrowed vector replaced with four xcoordinates 0/1/1/0.
      * @param[out] vy Borrowed vector replaced with four ycoordinates 0/0/1/1.
-     * @param[out] vz Borrowed vector replaced with four elevations 1 in fixture metres.
+     * @param[out] vz Borrowed vector replaced with four elevations 1 in fixture meters.
      * @param[out] tris Borrowed vector replaced with two zero-based triples(0,1,2)/(0,2,3).
      * @return Always true after assignment; allocations may throw with partial vector updates.
      * Outputs own copied data, source is unchanged; no file handles or model ownership.
@@ -128,7 +128,7 @@ public:
     /**
      * @brief Return two dry zero depths for an available fixture frame.
      * @param[in] t Zero-based frame index in[0,4); out-of-range refuses.
-     * @param[out] depths Borrowed vector replaced with two zero metre values on success,
+     * @param[out] depths Borrowed vector replaced with two zero meter values on success,
      * unchanged on refusal.
      * @return True for valid t, false otherwise; no source mutation/IO, vector allocation may
      * throw.
@@ -281,7 +281,7 @@ private slots:
     /**
      * @brief Verify two cells across fixed depth and two catalog variables produce six series in
      * three chart rows.
-     * @note Groundwater table row keeps label/metres and recharge row two series; every resolved
+     * @note Groundwater table row keeps label/meters and recharge row two series; every resolved
      * series succeeds. GUI dialog/model/layer lifetimes nested, no file or engine simulation.
      */
     void comparisonPlotGivesEachVariableItsOwnRow();

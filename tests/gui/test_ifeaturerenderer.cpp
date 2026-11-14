@@ -419,8 +419,8 @@ void TestIFeatureRenderer::symbolLayer_jsonRoundTrip()
     out.fromJson(j);
 
     QCOMPARE(out.kind, SymbolLayerKind::SimpleLine);
-    // X1 — colour props rehydrate as QColor variants on load (the in-memory
-    // canonical form); compare colour VALUES, not string representations.
+    // X1 — color props rehydrate as QColor variants on load (the in-memory
+    // canonical form); compare color VALUES, not string representations.
     QCOMPARE(out.props.value(QStringLiteral("color")).value<QColor>(),
              QColor(QStringLiteral("#1f77b4")));
     QCOMPARE(out.props.value(QStringLiteral("width")).toDouble(), 2.5);
@@ -457,7 +457,7 @@ void TestIFeatureRenderer::symbolStyle_jsonRoundTripEmpty()
 
 void TestIFeatureRenderer::symbolStyle_jsonRoundTripStacked()
 {
-    // "Double-ringed manhole" style — outer ring + inner ring + centre cross.
+    // "Double-ringed manhole" style — outer ring + inner ring + center cross.
     SymbolStyle in;
     in.opacity = 0.85;
 
@@ -574,7 +574,7 @@ void TestIFeatureRenderer::legendSymbolItem_optionalFieldsOmitted()
 }
 
 // A trivial concrete subclass to confirm IFeatureRenderer compiles as an
-// abstract interface and can be derived from. No behaviour beyond returning
+// abstract interface and can be derived from. No behavior beyond returning
 // stable defaults — full renderers arrive in sub-phase 8.13.6.2.
 namespace
 {
@@ -778,8 +778,8 @@ void TestIFeatureRenderer::graduatedRenderer_legendItemsMatchBins()
     QCOMPARE(items.at(3).range.first, 3.0);
     QCOMPARE(items.at(3).range.second, 4.0); // last bin closes exactly at maxValue
 
-    // Each swatch carries the matching per-bin colour (override applied).
-    // X1 — the override writes QColor variants; compare colour VALUES.
+    // Each swatch carries the matching per-bin color (override applied).
+    // X1 — the override writes QColor variants; compare color VALUES.
     QCOMPARE(items.at(0).symbol.layers.at(0).props.value(QStringLiteral("color")).value<QColor>(),
              QColor(QStringLiteral("#440154")));
     QCOMPARE(items.at(3).symbol.layers.at(0).props.value(QStringLiteral("color")).value<QColor>(),
@@ -828,7 +828,7 @@ void TestIFeatureRenderer::graduatedRenderer_symbolForOverridesColorInBaseSymbol
     r.setClassifyAttribute(QStringLiteral("flow"));
     r.setRange(0.0, 10.0);
     r.setBinColors({QColor(QStringLiteral("#000000")), QColor(QStringLiteral("#ffffff"))});
-    // Base symbol's colour is some sentinel; the renderer must overwrite it.
+    // Base symbol's color is some sentinel; the renderer must overwrite it.
     r.setBaseSymbol(makeMarker(QStringLiteral("#ff00ff"), 12.0));
 
     QVariantMap attrs;
@@ -837,7 +837,7 @@ void TestIFeatureRenderer::graduatedRenderer_symbolForOverridesColorInBaseSymbol
     const SymbolStyle s = r.symbolFor({}, attrs);
     // Size from the template is preserved.
     QCOMPARE(s.layers.at(0).props.value(QStringLiteral("size")).toDouble(), 12.0);
-    // Colour is overwritten to bin 1's white. (Gap A1.2 — compare as
+    // Color is overwritten to bin 1's white. (Gap A1.2 — compare as
     // QColor via the tolerant read; the canonical in-memory encoding is a
     // QColor variant, not a hex string.)
     QCOMPARE(SymbolProps::readColor(s.layers.at(0).props, QStringLiteral("color")),
@@ -925,8 +925,8 @@ void TestIFeatureRenderer::graduatedRenderer_widthAxisJsonRoundTrip()
 }
 
 // F3 — the size axis can follow an attribute of its own, interpolated over
-// that attribute's sampled value range rather than the colour bin index. A
-// marker can therefore be coloured by one field and sized by another.
+// that attribute's sampled value range rather than the color bin index. A
+// marker can therefore be colored by one field and sized by another.
 void TestIFeatureRenderer::graduatedRenderer_sizeAttributeInterpolatesOverOwnRange()
 {
     GraduatedRenderer r;
@@ -953,7 +953,7 @@ void TestIFeatureRenderer::graduatedRenderer_sizeAttributeInterpolatesOverOwnRan
 
     // b = 5 sits at the midpoint of [0,10] → midpoint of [2,12] px.
     QVariantMap attrs;
-    attrs.insert(QStringLiteral("a"), 1.0); // bottom colour bin
+    attrs.insert(QStringLiteral("a"), 1.0); // bottom color bin
     attrs.insert(QStringLiteral("b"), 5.0);
     const SymbolStyle mid = r.symbolFor({}, attrs);
     QCOMPARE(mid.layers.at(0).props.value(QStringLiteral("size")).toDouble(), 7.0);
@@ -1025,7 +1025,7 @@ void TestIFeatureRenderer::graduatedRenderer_sizeAttributeJsonRoundTrip()
 
     // Back-compat: a project written before the independent axis existed
     // carries no sizeAttribute key and must keep following the classify
-    // attribute (the historical bin-mapped behaviour).
+    // attribute (the historical bin-mapped behavior).
     QJsonObject legacy = j;
     legacy.remove(QStringLiteral("sizeAttribute"));
     legacy.remove(QStringLiteral("sizeValueMin"));
@@ -1135,7 +1135,7 @@ void TestIFeatureRenderer::ruleBasedRenderer_emptyExpressionMatches()
 {
     RuleBasedRenderer r;
     RuleBasedRenderer::Rule rule;
-    rule.expression = QString(); // empty = matches always (stub behaviour)
+    rule.expression = QString(); // empty = matches always (stub behavior)
     rule.label = QStringLiteral("Always");
     rule.symbol = makeMarker(QStringLiteral("#e377c2"));
     r.addRule(rule);
@@ -1186,7 +1186,7 @@ void TestIFeatureRenderer::classEdit_singleSymbol_colorSizeWidthSymbol()
     QVERIFY(r.supportsClassEdit(ClassEditKind::Width));
     QVERIFY(r.supportsClassEdit(ClassEditKind::Symbol));
 
-    // Colour edit writes through to every layer that has a colour slot.
+    // Color edit writes through to every layer that has a color slot.
     // (Gap A1.2 — compare as QColor; canonical encoding is a QColor variant.)
     r.setColorForClass(QStringLiteral("single"), QColor(QStringLiteral("#abcdef")));
     QCOMPARE(SymbolProps::readColor(r.symbol().layers.at(0).props, QStringLiteral("color")),
@@ -1219,7 +1219,7 @@ void TestIFeatureRenderer::classEdit_graduated_colorOverridesPersistThroughRampS
     r.setRange(0.0, 10.0);
     r.setBaseSymbol(makeMarker(QStringLiteral("#000000")));
 
-    // Override bin 2 to a specific colour.
+    // Override bin 2 to a specific color.
     QVERIFY(r.supportsClassEdit(ClassEditKind::Color));
     QVERIFY(!r.supportsClassEdit(ClassEditKind::Size));
     r.setColorForClass(QStringLiteral("2"), QColor(QStringLiteral("#aabbcc")));
@@ -1242,7 +1242,7 @@ void TestIFeatureRenderer::classEdit_graduated_clearOverridesReverts()
 
     r.clearClassEditOverrides();
     QVERIFY(r.binColorOverrides().isEmpty());
-    // Bin 1 colour now comes from the default Viridis ramp again.
+    // Bin 1 color now comes from the default Viridis ramp again.
     QVERIFY(r.colorForBin(1).name(QColor::HexRgb).toLower() != QStringLiteral("#deadbe"));
 }
 
@@ -1274,7 +1274,7 @@ void TestIFeatureRenderer::classEdit_categorized_colorAndSymbolEditsByIndex()
     QVERIFY(r.supportsClassEdit(ClassEditKind::Symbol));
     QVERIFY(!r.supportsClassEdit(ClassEditKind::Size)); // not editable here
 
-    // Colour edit on index 1 mutates the second category's symbol.
+    // Color edit on index 1 mutates the second category's symbol.
     // (Gap A1.2 — compare as QColor; canonical encoding is a QColor variant.)
     r.setColorForClass(QStringLiteral("1"), QColor(QStringLiteral("#abcdef")));
     QCOMPARE(SymbolProps::readColor(r.categories().at(1).symbol.layers.at(0).props,
@@ -1297,7 +1297,7 @@ void TestIFeatureRenderer::classEdit_categorized_outOfRangeIndexIsNoOp()
     CategorizedRenderer r;
     r.addCategory({QStringLiteral("a"), {}, makeMarker(QStringLiteral("#1f77b4"))});
 
-    // Out-of-range index, non-int key, and invalid colour all silently no-op.
+    // Out-of-range index, non-int key, and invalid color all silently no-op.
     r.setColorForClass(QStringLiteral("5"), QColor(QStringLiteral("#ff0000")));
     r.setColorForClass(QStringLiteral("apple"), QColor(QStringLiteral("#ff0000")));
     r.setColorForClass(QStringLiteral("0"), QColor());
@@ -1355,7 +1355,7 @@ void TestIFeatureRenderer::factory_graduatedSymbolForHasColorForPointAndLine()
     using FeatureSublayer = OpenSWMM::Render::FeatureSublayer;
 
     // The historical failure: a default-constructed GraduatedRenderer has
-    // an EMPTY base symbol, so symbolFor() returned a colour-less style and
+    // an EMPTY base symbol, so symbolFor() returned a color-less style and
     // paint fell back to the legacy ramp. The factory must prevent that for
     // BOTH points (fillColor grammar) and lines (color grammar).
     for (auto archetype : {FeatureSublayer::Archetype::Point, FeatureSublayer::Archetype::Line}) {

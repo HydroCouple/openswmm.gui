@@ -6,11 +6,11 @@
  * @brief     Simulation times must display as authored whatever the machine's
  *         time zone (tutorial bug report, 2026-10-17; GitHub issue #11).
  *
- *         Qt 6 QDateTimeEdit::setDateTime() CONVERTS a UTC-labelled value to
+ *         Qt 6 QDateTimeEdit::setDateTime() CONVERTS a UTC-labeled value to
  *         the editor's zone. The Simulation Status panel used a local-zone
  *         editor and showed every time shifted by the UTC offset (+9 h for
  *         the reporter). Runs under TZ=Asia/Tokyo (set in CMake) so the
- *         assertion is not vacuous on a UTC machine. Unix only: Qt honours
+ *         assertion is not vacuous on a UTC machine. Unix only: Qt honors
  *         $TZ there.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */

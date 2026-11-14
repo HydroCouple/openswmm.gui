@@ -87,7 +87,7 @@ QVector<double> quantileBreaks(QVector<double> sortedFinite, int nBins)
 }
 
 // VS.3 — Fisher–Jenks optimal natural breaks. Classic dynamic-programming
-// formulation minimising the total within-class sum of squared deviations.
+// formulation minimizing the total within-class sum of squared deviations.
 // Returns the (nBins-1) interior break values (global min/max excluded).
 // Large inputs are stride-downsampled to keep the O(n²·k) DP bounded.
 /**

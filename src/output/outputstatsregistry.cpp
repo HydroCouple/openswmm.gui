@@ -121,7 +121,7 @@ void OutputStatsRegistry::recomputeLabels()
     // Two-pass: (1) compute the basename for every slot from the cached
     // tooltipPath (captured at register-time), (2) walk in registration
     // order and append "(N)" when an earlier slot already claimed the
-    // same basename. The first occurrence stays unlabelled so single-
+    // same basename. The first occurrence stays unlabeled so single-
     // output projects (the common case) read naturally.
     QHash<QString, int> seen;
     for (auto &s : m_slots) {

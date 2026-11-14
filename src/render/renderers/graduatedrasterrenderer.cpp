@@ -1,6 +1,6 @@
 /**
  * @file      graduatedrasterrenderer.cpp
- * @brief     continuous (stretched) or classified single-band colouring.
+ * @brief     continuous (stretched) or classified single-band coloring.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
@@ -23,7 +23,7 @@ namespace OpenSWMM::Render
 namespace
 {
 
-/*! Legend swatch: a single SimpleFill layer carrying the colour — the same
+/*! Legend swatch: a single SimpleFill layer carrying the color — the same
  *  shape every raster / feature renderer emits, so the legend views share
  *  one code path (§J.5).
  * @param c Color copied into the canonical color property without validation.
@@ -112,12 +112,12 @@ void GraduatedRasterRenderer::rebake()
     m_hi = hi;
 
     // Continuous LUT: texel i samples the ramp at positionForTexel(i) so a
-    // value round-trips through ScalarRampLut::indexFor to the same colour
+    // value round-trips through ScalarRampLut::indexFor to the same color
     // the scheme would return (inversion is applied by colorAtF).
     for (int i = 0; i < ScalarRampLut::kSize; ++i)
         m_lut[size_t(i)] = m_scheme.colorAtF(ScalarRampLut::positionForTexel(i)).rgba();
 
-    // Classified colours: one per class over the CURRENT edges (n may differ
+    // Classified colors: one per class over the CURRENT edges (n may differ
     // from scheme.classCount() for Manual breaks); overrides win inside
     // colorForClass.
     const int n = classCount();

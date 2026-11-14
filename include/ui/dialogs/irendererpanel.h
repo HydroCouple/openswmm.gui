@@ -195,7 +195,7 @@ public:
         QString displayName; // shown in the dropdown
         Factory factory;
         Applicable applicable;  // Gap A4.2 — null => always applicable
-        QString disabledReason; // tooltip shown on the greyed-out row
+        QString disabledReason; // tooltip shown on the grayed-out row
     };
 
     /**
@@ -278,7 +278,7 @@ public:
         QStringLiteral(ID_STRING), QStringLiteral(DISPLAY_STRING), FACTORY);
 
 /*! Gap A4.2 — registration with a declarative applicability predicate +
- *  tooltip reason for the greyed-out dropdown row. */
+ *  tooltip reason for the grayed-out dropdown row. */
 #define REGISTER_RENDERER_PANEL_GATED(ID_STRING, DISPLAY_STRING, FACTORY, APPLICABLE,              \
                                       REASON_STRING)                                               \
     static const openswmmvis::ui::RendererPanelRegistrar s_register_renderer_##__LINE__(           \

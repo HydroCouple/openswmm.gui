@@ -23,8 +23,8 @@ namespace OpenSWMM::Render
 
 namespace
 {
-// Build a single-fill legend swatch SymbolStyle for a class colour. Stores
-// both the fill spec props and a "color" hex (the legend colour readers look
+// Build a single-fill legend swatch SymbolStyle for a class color. Stores
+// both the fill spec props and a "color" hex (the legend color readers look
 // for "color" on the first layer).
 /** @brief Build a single-fill legend swatch with a thin gray outline.
  * @param c Color copied into canonical fillColor and color QVariant properties,
@@ -95,7 +95,7 @@ QColor PalettedRasterRenderer::colorForValue(double value, bool isNoData) const
     const auto it = m_valueToIndex.constFind(k);
     if (it != m_valueToIndex.constEnd())
         return m_classes.at(it.value()).color;
-    // Unlisted value: derive a stable colour from the palette so the raster
+    // Unlisted value: derive a stable color from the palette so the raster
     // still draws rather than vanishing.
     return paletteColor(k);
 }

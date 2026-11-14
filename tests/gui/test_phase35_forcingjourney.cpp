@@ -113,7 +113,7 @@ bool writeFile(const QString &path, const QByteArray &bytes)
            f.flush();
 }
 /** @brief Build the two-cell forcing-selection geometry.
- * @return Independent six-vertex mesh with a triangle of area two and quad of area four square metres; success is not explicitly set. */
+ * @return Independent six-vertex mesh with a triangle of area two and quad of area four square meters; success is not explicitly set. */
 mesh::MeshResult geometry()
 {
     mesh::MeshResult m;
@@ -161,8 +161,8 @@ struct Journey {
     }
     /** @brief Dispatch a synthetic picker event at projected map coordinates.
      * @param[in] type Press, move or release event; all other types dispatch through the double-click handler.
-     * @param[in] x Map easting in metres.
-     * @param[in] y Map northing in metres.
+     * @param[in] x Map easting in meters.
+     * @param[in] y Map northing in meters.
      * Requires an opened journey and routes directly to the picker rather than through QApplication mouse delivery. */
     void mouse(QEvent::Type type, double x, double y)
     {
@@ -181,7 +181,7 @@ struct Journey {
         else
             picker.mouseDoubleClickEvent(&event);
     }
-    /** @brief Select both fixture cells using a box from (-0.2,-0.2) to (4.2,2.2) metres through picker handlers. */
+    /** @brief Select both fixture cells using a box from (-0.2,-0.2) to (4.2,2.2) meters through picker handlers. */
     void selectRectangle()
     {
         picker.setMode(MapToolPick2DCells::Mode::Box);
@@ -225,7 +225,7 @@ struct Ledgers {
 /** @brief Run a reopened groundwater model to completion and read water/species ledgers.
  * @param[in] path Input deck opened by a newly owned engine.
  * @param[in] prefix Output stem for retained .rpt/.out files.
- * @param[in,out] out Required initialized accumulator; step count is incremented without resetting and ledger fields are assigned sequentially, so failure may leave partial results. Water fields are cubic metres and species fields concentration-times-cubic-metres.
+ * @param[in,out] out Required initialized accumulator; step count is incremented without resetting and ledger fields are assigned sequentially, so failure may leave partial results. Water fields are cubic meters and species fields concentration-times-cubic-meters.
  * @param[out] error Required diagnostic assigned on allocation/lifecycle/ledger failure, inactive groundwater or exceeding ten thousand steps; unchanged on success.
  * @return True only after initialization, active-kernel check, completion, end and all ledger reads succeed. The owned engine is closed/destroyed on every path. */
 bool simulate(const QString &path, const QString &prefix, Ledgers *out, QString *error)

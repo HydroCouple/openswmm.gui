@@ -3,7 +3,7 @@
 // The engine's node time-flooded aggregators return SECONDS — OutputReader
 // counts flooded report periods and multiplies by report_step, and the
 // legacy statsrpt.c divides by 3600 for its display-only "hours" column.
-// The GUI column has always been labelled "(hr)", and a comment in
+// The GUI column has always been labeled "(hr)", and a comment in
 // swmmattributetablemodel.cpp asserted the value "is already hours", so the
 // cell read 3600x high on all three paths that serve it
 // (SWMMResultsLayer::nodeStatTimeFlooded, the node_stat_time_flooded getter

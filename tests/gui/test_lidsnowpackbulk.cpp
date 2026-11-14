@@ -326,7 +326,7 @@ private slots:
         QVERIFY(!(source.index(row,column(source,"removal/s/Wall")).flags()&Qt::ItemIsEditable));
         QVERIFY(Model::applyValues(layer.get(),DC::DataLIDControls,targets("BC"),"removal/s/Tracer",30.,&undo));
         double value=-1; QCOMPARE(swmm_lid_get_removal(e,swmm_lid_index(e,"BC_A"),swmm_pollutant_count(e),&value),SWMM_OK); QCOMPARE(value,30.);
-        // Adding a new definition invalidates historical catalogue assumptions instead of redirecting a row.
+        // Adding a new definition invalidates historical catalog assumptions instead of redirecting a row.
         QCOMPARE(swmm_reaction_species_add(e,"Later",0,"mg/L",1.e-6,1.e-3),SWMM_OK); undo.undo();
         QCOMPARE(undo.count(),0); QCOMPARE(swmm_lid_get_removal(e,swmm_lid_index(e,"BC_A"),swmm_pollutant_count(e),&value),SWMM_OK); QCOMPARE(value,30.);
     }

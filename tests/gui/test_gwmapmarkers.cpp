@@ -1,10 +1,10 @@
 /**
  * @file      test_gwmapmarkers.cpp
  * @brief     R7 (Phase 4A, 2026-10-30): [GW_SOURCES] and [2D_AQUIFER_NODE] map markers
- *            and mesh fill coloured by cell TAG as categories.
+ *            and mesh fill colored by cell TAG as categories.
  *
  * The markers are read from the model engine (never a separate copy): editing a row
- * through the engine and announcing the edit moves or recolours its marker; hiding the
+ * through the engine and announcing the edit moves or recolors its marker; hiding the
  * Groundwater Markers sublayer removes them from the rendered map. Files are written to
  * tests/output/gw_phase4a_2026-10-30/markers for review.
  *
@@ -154,7 +154,7 @@ int markerIndex(const SWMM2DMeshLayer &mesh, const QString &name)
 
 /**
  * @brief Render the mesh layer's CPU scene item over its extent.
- * @return 200 x 100 image of scene rect x 0..20, y -10..0 (10 px per metre).
+ * @return 200 x 100 image of scene rect x 0..20, y -10..0 (10 px per meter).
  */
 QImage render(SWMM2DMeshLayer &mesh, const QString &file)
 {
@@ -254,7 +254,7 @@ private slots:
     }
 
     /**
-     * @brief Colour by "Cell tag": one category per distinct tag (sorted), untagged cells
+     * @brief Color by "Cell tag": one category per distinct tag (sorted), untagged cells
      * no data, legend rows named by tag, and a tag edit updates the categories.
      */
     void meshFillColoursByTagCategories()

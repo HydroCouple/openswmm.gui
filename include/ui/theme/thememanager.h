@@ -51,7 +51,7 @@ public:
     /*! Change the mode and re-apply the palette. Emits themeChanged()
      *  when the effective scheme actually changes.
      * @param[in] mode Requested policy; an identical value is a no-op.
-     * @note Calls apply() but does not persist preferences. A policy change resolving to the same colour scheme emits no themeChanged().
+     * @note Calls apply() but does not persist preferences. A policy change resolving to the same color scheme emits no themeChanged().
      */
     void setMode(Mode mode);
 

@@ -204,7 +204,7 @@ void HydraulicsPage::buildUi()
     // Knobs for the explicit Godunov FV routing solver. Both groups are
     // enabled only while the Models / Processes tab's flow-routing combo
     // says FV; the engine accepts FV_* keys as inert under any other
-    // routing model, so a greyed-out group never invalidates the project.
+    // routing model, so a grayed-out group never invalidates the project.
     m_fvGroup = new QGroupBox(tr("Finite volume solver"), this);
     auto *fvForm = new QFormLayout(m_fvGroup);
 
@@ -529,7 +529,7 @@ void HydraulicsPage::buildUi()
     // ── Skip steady state ───────────────────────────────────────────────
     // On the shared Routing tab, not Dynamic Wave: isInSteadyState() is called
     // from the main routing step with no routing-model guard, so the option is
-    // honoured under every method (PLAN §7 Q1).
+    // honored under every method (PLAN §7 Q1).
     // LAT_FLOW_TOL / SYS_FLOW_TOL only matter when SKIP_STEADY_STATE is on
     // — engine treats them as the change thresholds for declaring a period
     // "steady". Grouping the three together makes the dependency clear.
@@ -551,8 +551,8 @@ void HydraulicsPage::buildUi()
     m_sysFlowTolSpin->setToolTip(tr("System flow tolerance (SYS_FLOW_TOL)."));
     skipForm->addRow(tr("System flow tol:"), m_sysFlowTolSpin);
 
-    // Grey out the tolerance spins when skip-steady is off — they remain
-    // serialised either way so toggling back on restores the prior values.
+    // Gray out the tolerance spins when skip-steady is off — they remain
+    // serialized either way so toggling back on restores the prior values.
     connect(m_skipSteadyBox, &QCheckBox::toggled, this, [this](bool) { emit gateInputsChanged(); });
 
     rtLay->addWidget(skipGroup);
@@ -900,7 +900,7 @@ void HydraulicsPage::refreshGates()
     if (m_ufK3Spin && m_ufMethodCombo)
         m_ufK3Spin->setEnabled(m_ufMethodCombo->currentData().toString() != QLatin1String("NONE"));
 
-    // The tolerances are serialised either way, so toggling skip-steady back
+    // The tolerances are serialized either way, so toggling skip-steady back
     // on restores the prior values.
     const bool skip = m_skipSteadyBox && m_skipSteadyBox->isChecked();
     if (m_latFlowTolSpin)
@@ -918,7 +918,7 @@ void HydraulicsPage::applyCapabilities()
                                                "(TPA / unsteady-friction) option surface.");
 
     // Disable one item of a combo the way the original did: the VALUE cannot
-    // exist on this engine, so the item goes grey and the selection falls back.
+    // exist on this engine, so the item goes gray and the selection falls back.
     const auto disableItem = [](QComboBox *combo, const char *data, const QString &tip,
                                 int fallbackIdx) {
         if (!combo)

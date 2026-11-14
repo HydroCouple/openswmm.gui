@@ -237,7 +237,7 @@ public:
 
     /*! \brief Slice IO-11d — set the directory used to display external-file
      *  paths in relative form. Typically the parent dir of the active
-     *  project's `.inp`. Empty disables relativisation (legacy behaviour).
+     *  project's `.inp`. Empty disables relativization (legacy behavior).
      *  The provider stores absolute paths regardless; this only affects
      *  what the dialog *shows* in the read-only path field.
      * @param[in] dir Copied display-base directory; empty leaves provider path displayed directly.

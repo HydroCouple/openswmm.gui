@@ -13,7 +13,7 @@
  *         Differences from the mesh path:
  *
  *         - Ground comes from mesh::DTMSampler (bilinear) rather than
- *           GISRasterLayer::valueAt (nearest-neighbour), so the profile follows
+ *           GISRasterLayer::valueAt (nearest-neighbor), so the profile follows
  *           the DEM smoothly instead of stair-stepping across pixels.
  *         - Coordinates are transformed. The traced polyline is in SCENE coords
  *           (sx = canvasX, sy = -canvasY); DTMSampler wants the RASTER's native

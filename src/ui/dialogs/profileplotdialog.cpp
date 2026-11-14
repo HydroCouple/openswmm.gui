@@ -1,6 +1,6 @@
 /**
  * @file      profileplotdialog.cpp
- * @brief     Composition: a `ProfilePlotWidget` (the chart) in the centre, a `ProfileLayerPanel`
+ * @brief     Composition: a `ProfilePlotWidget` (the chart) in the center, a `ProfileLayerPanel`
  *            on the right (layer toggles), a Sources panel listing every `SWMMResultsLayer` in the
  *            active project's `AnimationController`.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
@@ -394,7 +394,7 @@ void ProfilePlotDialog::buildLayout()
     auto *headerLabel = new QLabel(header, this);
     root->addWidget(headerLabel);
 
-    // Centre row: plot + right column.
+    // Center row: plot + right column.
     auto *centre = new QHBoxLayout;
     centre->setSpacing(6);
     root->addLayout(centre, /*stretch=*/1);
@@ -545,7 +545,7 @@ void ProfilePlotDialog::buildLayout()
     // Initial push: options → plot widget (visibility / labels / terrain).
     m_plot->setLayerToggles(togglesFromOptions(m_options));
     // Record the plot-level styles as they stand now, so the FIRST edit is
-    // recognised as an edit. Seeding deliberately restyles nothing — opening
+    // recognized as an edit. Seeding deliberately restyles nothing — opening
     // the dialog must not stamp defaults over each source's saved style.
     pushEditedPlotStylesToSources();
 
@@ -724,7 +724,7 @@ void ProfilePlotDialog::buildLayout()
             {{m_pathStatic.links[pathLinkIdx].name, SWMMModelLayer::kKindLink}});
     });
     // Blank-area click in the plot clears the selection on the bound model
-    // layer, mirroring the deselect behaviour of an empty-area map click.
+    // layer, mirroring the deselect behavior of an empty-area map click.
     connect(m_plot, &ProfilePlotWidget::backgroundClicked, this, [this]() {
         if (!m_model)
             return;
@@ -737,7 +737,7 @@ void ProfilePlotDialog::buildLayout()
         connect(m_model, &SWMMModelLayer::selectionChanged, m_plot,
                 &ProfilePlotWidget::setSelectedElementNames);
         m_plot->setSelectedElementNames(m_model->selectedElementNames());
-        // Applied LID edits synchronise the storage depth in the engine.
+        // Applied LID edits synchronize the storage depth in the engine.
         // Refresh the snapshot on the GUI queue after that edit completes.
         connect(
             m_model, &SWMMModelLayer::modelEdited, this,
@@ -1040,7 +1040,7 @@ void ProfilePlotDialog::buildLayout()
             });
     // Right-click on blank profile background still shows a context menu
     // — Properties remains available, but the element-specific Zoom item
-    // is greyed out since there's no element under the cursor.
+    // is grayed out since there's no element under the cursor.
     connect(m_plot, &ProfilePlotWidget::backgroundRightClicked, this,
             [this, openOptionsDialog](const QPoint &globalPos) {
                 QMenu menu(this);
@@ -1080,7 +1080,7 @@ void ProfilePlotDialog::populateSourcesPanel()
     const QList<SWMMResultsLayer *> layers = openswmmvis::ui::profileResultSources(
         m_anim.data(), m_projectWindow.data(), m_canvas.data());
 
-    // Read persisted per-layer visibility / colour / name / style from
+    // Read persisted per-layer visibility / color / name / style from
     // QSettings.  Same key scheme the ProfileOptionsDialog Sources tab
     // uses so the two surfaces stay coherent — toggling either updates
     // the other after a populateSourcesPanel pass.
@@ -1115,8 +1115,8 @@ void ProfilePlotDialog::populateSourcesPanel()
             SWMMResultsLayer *layer = layerByFile.value(fp, nullptr);
             if (!layer)
                 continue;
-            // Colour & name first so the per-source style helper sees the
-            // final categorical colour if it needs to derive defaults.
+            // Color & name first so the per-source style helper sees the
+            // final categorical color if it needs to derive defaults.
             const QString colorName = settings.value(QStringLiteral("color")).toString();
             if (!colorName.isEmpty()) {
                 QColor c(colorName);
@@ -1453,7 +1453,7 @@ void ProfilePlotDialog::rebindSources()
     // Snapshot the user's per-output preferences from the options object
     // so the worker thread can build the right series subset.  Default
     // EGL visibility tracks `currentEgl`, Max HGL band tracks
-    // `maxHglBand`, etc. — matches the pre-refactor visual behaviour.
+    // `maxHglBand`, etc. — matches the pre-refactor visual behavior.
     const bool optCurrentHglLine = m_options->currentHglLine();
     const bool optCurrentHglFill = m_options->currentHglFill();
     const bool optCurrentEgl = m_options->currentEgl();
@@ -1528,7 +1528,7 @@ void ProfilePlotDialog::rebindSources()
             // is visible whenever either is on (legend still shows one
             // HGL entry); the widget gates paintHglFill on
             // currentHglFill and the HGL branch of paintSeriesCurrentLine
-            // on currentHglLine. Pen / brush are neutralised to NoPen /
+            // on currentHglLine. Pen / brush are neutralized to NoPen /
             // NoBrush when their toggle is off so the legend swatch
             // reflects exactly what's drawn (paintLegend reads
             // pen.style() / brush.style()).

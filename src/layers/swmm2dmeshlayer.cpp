@@ -75,7 +75,7 @@
 #include <limits>
 
 // ---------------------------------------------------------------------------
-// Elevation colour ramp — same 5-stop ramp as SWMM2DMeshQSGRenderer
+// Elevation color ramp — same 5-stop ramp as SWMM2DMeshQSGRenderer
 // ---------------------------------------------------------------------------
 namespace
 {
@@ -180,7 +180,7 @@ public:
         // opacity edits flow through these sublayer flags into the passes
         // below. fill + edges default on; nodes / bands / isolines default
         // off (see SWMM2DMeshLayer ctor). A null sublayer falls back to the
-        // historic "always visible" behaviour for fill/edges.
+        // historic "always visible" behavior for fill/edges.
         const auto *fillSub = m_layer->meshFillSublayer();
         const auto *edgeSub = m_layer->meshEdgeSublayer();
         const auto *nodeSub = m_layer->meshNodeSublayer();
@@ -212,7 +212,7 @@ public:
         const qreal fillOpacity = fillSub ? fillSub->opacity() : 1.0;
         const qreal edgeOpacity = edgeSub ? edgeSub->opacity() : 1.0;
 
-        // Multiply a colour's alpha channel by a 0..1 sublayer opacity.
+        // Multiply a color's alpha channel by a 0..1 sublayer opacity.
         auto withOpacity = [](QColor c, qreal op) {
             c.setAlpha(qBound(0, int(c.alpha() * op + 0.5), 255));
             return c;
@@ -306,10 +306,10 @@ public:
             return (maxX < exposed.left() || minX > exposed.right() || maxY < exposed.top() ||
                     minY > exposed.bottom());
         };
-        // Style-driven fill colour — parity with the QSG fill's
+        // Style-driven fill color — parity with the QSG fill's
         // schemeDrivesColor branch: the default "Terrain" ramp keeps the
         // byte-identical legacy path; a user-picked ramp, inversion or
-        // Classified mode routes colour through the fill sublayer's
+        // Classified mode routes color through the fill sublayer's
         // ClassificationScheme. (Previously this path hardcoded the legacy
         // ramp, so ramp edits only changed the GPU pipeline.)
         const auto *fillStyleQ = fillSub ? fillSub->fillStyle() : nullptr;
@@ -319,9 +319,9 @@ public:
             fillStyleQ ? fillStyleQ->scheme() : OpenSWMM::Render::ClassificationScheme();
         const bool fillClassified =
             fillScheme.mode() == OpenSWMM::Render::ClassificationScheme::ClassMode::Classified;
-        // Colour source (QSG parity): bed elevation, or the per-cell attribute the style
-        // picks ("Colour by"); a categorical attribute takes one palette colour per value;
-        // a cell without a value takes the no-data colour.
+        // Color source (QSG parity): bed elevation, or the per-cell attribute the style
+        // picks ("Colour by"); a categorical attribute takes one palette color per value;
+        // a cell without a value takes the no-data color.
         const bool attrMode = useRampFill && fillStyleQ && !fillStyleQ->colorsByElevation();
         const bool catMode = attrMode && fillStyleQ->colorsByCategory();
         const QByteArray attrKey = attrMode ? fillStyleQ->colorByAttributeKey() : QByteArray();
@@ -359,10 +359,10 @@ public:
         const QVector<double> fillClassEdges =
             fillClassified ? fillScheme.levelEdges(cMin, cMax, {}) : QVector<double>{};
 
-        // \p ca — the class colour's own alpha (255 for continuous ramps and
+        // \p ca — the class color's own alpha (255 for continuous ramps and
         // the flat fill): a fully transparent classified class must vanish.
         // \p attrIdx indexes the per-cell attribute values (parallel to m_sceneTris); -1 for
-        // overview quads, which carry no attribute and fall back to the flat fill colour.
+        // overview quads, which carry no attribute and fall back to the flat fill color.
         // @return False when the cell is not drawn (below the style's range).
         auto fillColor = [&](const SWMM2DMeshLayer::SceneTri &t, int attrIdx, int &cr, int &cg,
                              int &cb, int &ca) -> bool {
@@ -376,7 +376,7 @@ public:
                     if (cValOk)
                         cVal = double(attrVals[attrIdx]);
                 }
-                // Below the ramp: the scheme's below colour when set, otherwise not drawn.
+                // Below the ramp: the scheme's below color when set, otherwise not drawn.
                 if (!catMode && cValOk &&
                     (!std::isfinite(cVal) ||
                      (cVal < fillRampStart && !fillScheme.belowColor().isValid())))
@@ -392,7 +392,7 @@ public:
                     cg = cc.green();
                     cb = cc.blue();
                 } else if (fillSchemeDrives) {
-                    // Log scale and below / above colours come with the scheme.
+                    // Log scale and below / above colors come with the scheme.
                     const QColor sc = fillClassified
                                           ? fillScheme.colorForClassified(cVal, fillClassEdges)
                                           : fillScheme.colorForValue(cVal, cMin, cMax);
@@ -505,7 +505,7 @@ public:
             // enabling bands on a multi-million-triangle mesh stays affordable.
             const auto &contourTris = useLod ? overview : tris;
 
-            // Slice US.3 — class edges + colours from the band sublayer's
+            // Slice US.3 — class edges + colors from the band sublayer's
             // ClassificationScheme (method-aware: equal interval matches the
             // legacy even spacing; quantile / Jenks bin the vertex elevations).
             std::vector<double> levels;
@@ -533,7 +533,7 @@ public:
                 v1 = t.z1;
                 v2 = t.z2;
             };
-            // The scheme's below / above colours: outer bands from the data's minimum to the
+            // The scheme's below / above colors: outer bands from the data's minimum to the
             // first level and from the last level to the data's maximum (QSG parity).
             const QColor belowCol = bandStyle ? bandStyle->scheme().belowColor() : QColor();
             const QColor aboveCol = bandStyle ? bandStyle->scheme().aboveColor() : QColor();
@@ -545,7 +545,7 @@ public:
             if (outerAbove)
                 marchLevels.push_back(zMax);
             const int marchBands = int(marchLevels.size()) - 1;
-            // "Interpolate band boundaries": off fills each cell flat with its band colour.
+            // "Interpolate band boundaries": off fills each cell flat with its band color.
             const auto bands =
                 !bandStyle || bandStyle->smoothBands()
                     ? OpenSWMM::Contour::marchingTrianglesIsobands(contourTris, marchLevels, extract)
@@ -564,7 +564,7 @@ public:
                     : bandStyle
                         ? bandStyle->colorForBand(idx, nBands)
                         : OpenSWMM::Contour::viridisAt((double(idx) + 0.5) / double(nBands));
-                // Multiply, don't overwrite: the band colour's own alpha (a
+                // Multiply, don't overwrite: the band color's own alpha (a
                 // fully transparent class must vanish) composes with the
                 // sublayer opacity slider.
                 col.setAlphaF(col.alphaF() * bandOp);
@@ -618,8 +618,8 @@ public:
         constexpr int kBcTypes = OpenSWMM::Render::MeshBcStyle::kBcTypeCount;
 
         if (edgesVisible && !useLod) {
-            // The BC Wall colour marks walls on the mesh BOUNDARY only (GPU parity,
-            // owner 2026-11-13); interior edges keep the Mesh Edges colours.
+            // The BC Wall color marks walls on the mesh BOUNDARY only (GPU parity,
+            // owner 2026-11-13); interior edges keep the Mesh Edges colors.
             const bool wallRecolour = slotsUsable && bcStyle->wallVisible();
             QPen thinPen(withOpacity(thinColor, edgeOpacity));
             thinPen.setWidthF(edgeStyle ? edgeStyle->lineWidthPx() : 0.35);
@@ -687,7 +687,7 @@ public:
 
         // ---- Pass 3: bed-elevation iso-lines (IsolineSublayer) ---------------
         // Marching-triangles, N evenly-spaced levels in [zMin, zMax]. Off by
-        // default; line colour / width / count come from IsolineStyle.
+        // default; line color / width / count come from IsolineStyle.
         if (hasElev && isoVisible) {
             const auto *isoStyle = isoSub->isolineStyle();
             const double widthPx = isoStyle ? isoStyle->lineWidthPx() : 1.0;
@@ -839,7 +839,7 @@ public:
 
         // ---- Pass 5c: groundwater sources / aquifer node beds (R7) ------------
         // A handful of markers: drawn at every zoom (no vertex LOD gate).
-        // Sources are squares, beds diamonds; an EXCHANGE NO bed is grey.
+        // Sources are squares, beds diamonds; an EXCHANGE NO bed is gray.
         if (const auto *gwSub = m_layer->groundwaterMarkerSublayer();
             gwSub && gwSub->isVisible() && !m_layer->groundwaterSceneMarkers().isEmpty()) {
             using Kind = OpenSWMMVis::Groundwater::GroundwaterMapMarker::Kind;
@@ -1010,7 +1010,7 @@ SWMM2DMeshLayer::SWMM2DMeshLayer(mesh::MeshResult result, const QString &sourceP
 
     // Mesh vertices default ON: the renderers' LOD gates
     // (kMarkerMinCellAreaPx — cells ≥ ~14 px across) mean the dots only
-    // materialise once the user zooms in close enough to work with
+    // materialize once the user zooms in close enough to work with
     // individual vertices, so the historic "off to avoid noise" default is
     // superseded by the zoom gate.
     m_meshNodeSublayer->setVisible(true);
@@ -1434,7 +1434,7 @@ void buildVertexAdjacency(const mesh::MeshResult &meshData, QVector<int> &ptr, Q
  *  logic of resizeBCsToMesh's second half; the member delegates here).
  *  Sized mesh::edgeSlotCount(nCells); a triangle's unused slot 3 is false.
  * @param[in] meshData Stable mesh with valid practical endpoint identities; boundary markers supply optional forced boundary pairs.
- * @return Owned stride-four flags true for endpoint pairs used at most once OR present in explicit boundary markers; triangle padding false. No geometric area/engine-neighbour test or source mutation.
+ * @return Owned stride-four flags true for endpoint pairs used at most once OR present in explicit boundary markers; triangle padding false. No geometric area/engine-neighbor test or source mutation.
  */
 QVector<bool> buildBoundaryFlags(const mesh::MeshResult &meshData)
 {
@@ -1774,7 +1774,7 @@ void SWMM2DMeshLayer::finishSceneGeometryAsync()
             m_bc = std::move(d->bcDefaults);
         m_pendingScenePts = QVector<QPointF>();
         m_sceneGeomComplete = true;
-        // Edges (and therefore BC-coloured edges) only exist from here on the
+        // Edges (and therefore BC-colored edges) only exist from here on the
         // progressive path — refresh the legend inputs now, not in the light
         // build, which has no edges at all.
         refreshSublayerLegendInputs();
@@ -1801,7 +1801,7 @@ void SWMM2DMeshLayer::finishSceneGeometryAsync()
 //
 // Bins triangle centroids into a fixed-resolution grid (~15k cells), averages
 // elevation per cell, and emits one quad (two SceneTris) per occupied cell.
-// Corner heights are averaged from the up-to-4 neighbouring cell means so the
+// Corner heights are averaged from the up-to-4 neighboring cell means so the
 // existing hillshade face-normal still produces relief on the coarse mesh.
 // Empty cells (holes in the source mesh) emit nothing, so the overview keeps
 // the mesh's outline. Cost is one O(triangles) binning pass at load time.
@@ -2173,7 +2173,7 @@ void SWMM2DMeshLayer::refreshSublayerLegendInputs()
 }
 
 // ---------------------------------------------------------------------------
-// Per-cell attribute colouring — values flow through mesh::cellParamValue()
+// Per-cell attribute coloring — values flow through mesh::cellParamValue()
 // so a parameter added to the registry lights up here for free.
 // ---------------------------------------------------------------------------
 
@@ -2213,7 +2213,7 @@ const QVector<float> &SWMM2DMeshLayer::cellAttributeValues(const QByteArray &key
     // Parallel to m_sceneTris — the sub-triangle fan, which skips degenerate
     // cells and holds two entries per quad. Each fan entry carries its
     // cell's value (SceneTri::cell); indexing by mesh cell index here would
-    // silently shift every colour.
+    // silently shift every color.
     m_attrCacheVals.reserve(m_sceneTris.size());
 
     double lo = std::numeric_limits<double>::max();
@@ -2598,9 +2598,9 @@ bool SWMM2DMeshLayer::applyMeshVertexZ(int vertexIdx, double z)
                 m_sceneTris[first + s] = fan[s];
         }
         // Keep the elevation range a valid superset (expand only). A loosened
-        // range slightly compresses the colour ramp until the next full
+        // range slightly compresses the color ramp until the next full
         // rebuild; re-tightening exactly would cost O(N). Incident mesh edges'
-        // slope styling and the far-zoom overview colour are left until the
+        // slope styling and the far-zoom overview color are left until the
         // next full rebuild (both are secondary to the fill/hillshade update).
         if (z < m_zMin)
             m_zMin = z;
@@ -2620,7 +2620,7 @@ bool SWMM2DMeshLayer::applyMeshVertexZ(int vertexIdx, double z)
     // branch above changes z0/z1/z2/zAvg — the exact inputs to the hillshade —
     // without going through rebuildSceneGeometry(), which is where the bump
     // normally lives. Without this the caches report a hit and re-upload the
-    // pre-edit colours: repaintRequested fires, the frame redraws, and the
+    // pre-edit colors: repaintRequested fires, the frame redraws, and the
     // shading does not change. Unconditional (the rebuild branches bump too);
     // a redundant increment costs nothing but a cache miss.
     ++m_geomRevision;
@@ -2670,7 +2670,7 @@ QPair<int, int> SWMM2DMeshLayer::findEdgeNeighbour(int triIdx, int edgeLocal) co
     mesh::edgeEndpoints(tri, edgeLocal, va, vb);
     if (va < 0 || vb < 0 || va >= m_vertTriPtr.size() - 1)
         return {-1, -1};
-    // Walk cells incident to va; the neighbour must also be incident to vb.
+    // Walk cells incident to va; the neighbor must also be incident to vb.
     const int beg = m_vertTriPtr[va];
     const int end = m_vertTriPtr[va + 1];
     for (int k = beg; k < end; ++k) {
@@ -2687,7 +2687,7 @@ QPair<int, int> SWMM2DMeshLayer::findEdgeNeighbour(int triIdx, int edgeLocal) co
                 return {t2, e2};
         }
     }
-    return {-1, -1}; // boundary edge — no neighbour
+    return {-1, -1}; // boundary edge — no neighbor
 }
 
 bool SWMM2DMeshLayer::applyMeshEdgeConveyance(int triIdx, int edgeLocal, double conveyance)
@@ -2709,7 +2709,7 @@ bool SWMM2DMeshLayer::applyMeshEdgeConveyance(int triIdx, int edgeLocal, double 
         m_bc[flat].conveyance = conveyance;
         changed = true;
     }
-    // Mirror to the neighbour slot when this is an interior edge — keeps
+    // Mirror to the neighbor slot when this is an interior edge — keeps
     // the GUI in sync with the engine's symmetry invariant (the engine's
     // post-parse drain does the same thing).
     const auto nbr = findEdgeNeighbour(triIdx, edgeLocal);
@@ -2944,7 +2944,7 @@ bool SWMM2DMeshLayer::applyMeshTriangleTag(int triIdx, const QString &tag)
     if (m_mesh.triangles[triIdx].tag == tag)
         return true;
     m_mesh.triangles[triIdx].tag = tag;
-    ++m_attrRevision; // tag categories (fill colour, legend) follow the edit
+    ++m_attrRevision; // tag categories (fill color, legend) follow the edit
     scheduleLegendInputRefresh();
     emit attributeChanged(mesh::MeshObjectRef::cell(m_sourcePath, triIdx).name);
     emit repaintRequested();
@@ -2987,7 +2987,7 @@ bool SWMM2DMeshLayer::clearMeshTriangleInfil(int triIdx)
  *  correctly ignore the first signal. */
 void SWMM2DMeshLayer::announceInfilDefaultsChanged()
 {
-    ++m_attrRevision;             // fill-colour cache key — inherited
+    ++m_attrRevision;             // fill-color cache key — inherited
     scheduleLegendInputRefresh(); // values feed cellAttributeValues()
     emit attributeChanged(mesh::MeshObjectRef::layerKey(m_sourcePath));
     emit meshEditsChanged();
@@ -3223,11 +3223,11 @@ QList<OpenSWMM::Render::ISublayer *> SWMM2DMeshLayer::sublayers() const
     //   contour bands         → filled isobands above hillshade
     //   edges                 → mesh wireframe
     //   BC indicators         → boundary-condition ring above the wireframe
-    //   isolines              → labelled contour lines
+    //   isolines              → labeled contour lines
     //   vertex markers        → mesh vertex glyphs
     //   coupled nodes         → SWMM-coupled vertex markers
     //   coupled cells         → direct node-to-cell footprints
-    // Slice GUI-2026-05-30 §2 — order is user-customisable and cached in
+    // Slice GUI-2026-05-30 §2 — order is user-customizable and cached in
     // m_sublayerOrder; seeded once from the defaults above.
     if (m_sublayerOrder.isEmpty()) {
         OpenSWMM::Render::ISublayer *defaults[] = {
@@ -3309,7 +3309,7 @@ void SWMM2DMeshLayer::onCanvasCRSChanged(const SpatialReferenceSystem *newCanvas
 // Mesh layer's own Q_PROPERTYs form the first subject (the legacy
 // Display/Hillshade/Contours tabs). Each individually-stylable sublayer
 // is added as a separate subject so the dialog surfaces its full style
-// bag (colours, marker sizes, dash patterns, label toggles, ...) rather
+// bag (colors, marker sizes, dash patterns, label toggles, ...) rather
 // than just the layer-level boolean shims.
 // ---------------------------------------------------------------------------
 
@@ -3391,7 +3391,7 @@ void SWMM2DMeshLayer::buildRuleListLazy() const
     // Styling dock writes back only the props it changed (keys as the dock's
     // SymbolStyleAdapters write them, plus the specs' own keys where they
     // differ), so editing one field never resets the others. Renderer swaps
-    // (graduated / categorised) write nothing: the mesh decorations draw from
+    // (graduated / categorized) write nothing: the mesh decorations draw from
     // the sublayer styles.
     using Props = QVariantMap;
     using Writer = std::function<void(const QString &, const QVariant &)>;
@@ -3418,15 +3418,15 @@ void SWMM2DMeshLayer::buildRuleListLazy() const
         return b;
     };
     const auto rgb = [](const QVariant &v) { return v.value<QColor>(); };
-    // The dock's colour pickers mean "none" by a fully transparent colour.
+    // The dock's color pickers mean "none" by a fully transparent color.
     const auto optionalColor = [](const QColor &c) { return c.isValid() ? c : QColor(0, 0, 0, 0); };
     const auto fromOptional = [](const QVariant &v) {
         const QColor c = v.value<QColor>();
         return c.isValid() && c.alpha() > 0 ? c : QColor();
     };
 
-    // ── Mesh fill: the fill's attribute and classification (two colours, fixed range, log
-    //    scale, colours outside the range) ───────────────────────────────
+    // ── Mesh fill: the fill's attribute and classification (two colors, fixed range, log
+    //    scale, colors outside the range) ───────────────────────────────
     bind(0, SymbolLayerKind::RasterColorRamp, m_meshFillSublayer,
          [self, optionalColor] {
              const auto *st = self->m_meshFillSublayer->fillStyle();
@@ -3444,7 +3444,7 @@ void SWMM2DMeshLayer::buildRuleListLazy() const
          [self, rgb, fromOptional](const QString &key, const QVariant &v) {
              auto *st = self->m_meshFillSublayer->fillStyle();
              if (key == QLatin1String("attribute")) {
-                 // The cell attribute the fill colours by (elevation, mannings, initDepth, …).
+                 // The cell attribute the fill colors by (elevation, mannings, initDepth, …).
                  st->setColorByAttribute(
                      MeshFillStyle::attributeFromKey(v.toString().trimmed().toLatin1()));
                  return;
@@ -3457,7 +3457,7 @@ void SWMM2DMeshLayer::buildRuleListLazy() const
              } else if (key == QLatin1String("aboveMaxColor")) {
                  sc.setAboveColor(fromOptional(v));
              } else if (key == QLatin1String("lowColor") || key == QLatin1String("highColor")) {
-                 // Picked colours replace a named ramp: the two-colour gradient.
+                 // Picked colors replace a named ramp: the two-color gradient.
                  sc.setRampName(QString());
                  key == QLatin1String("lowColor") ? sc.setLowColor(rgb(v)) : sc.setHighColor(rgb(v));
              } else if (key == QLatin1String("minValue") || key == QLatin1String("maxValue")) {
@@ -3470,7 +3470,7 @@ void SWMM2DMeshLayer::buildRuleListLazy() const
              st->setScheme(sc);
          });
 
-    // ── Hillshade: the terrain fill colour and the layer's sun ──────────
+    // ── Hillshade: the terrain fill color and the layer's sun ──────────
     bind(1, SymbolLayerKind::Hillshade, m_meshFillSublayer,
          [self] {
              const auto *st = self->m_meshFillSublayer->fillStyle();

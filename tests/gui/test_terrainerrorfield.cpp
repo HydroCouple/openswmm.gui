@@ -868,7 +868,7 @@ private slots:
     /**
      * @brief Verify refinement reports a triangle cap and immediate cancellation distinctly.
      * @note 100 square/.2 sizecallback,cap 1000 sets capped with<=1002 live cells;next
-     * millioncap/canceltrue sets cancelled. Local mesh can retain partial refinement after
+     * millioncap/canceltrue sets canceled. Local mesh can retain partial refinement after
      * either stop, no external IO.
      */
     void capsAndCancellationAreReported()
@@ -894,7 +894,7 @@ private slots:
      * @brief Run an opt-in large-cell refinement benchmark and report wall time and process peak
      * RSS.
      * @note Skips SWMMVIS_TERRAIN_SCALE_CELLS<100000,otherwise target-deriveduniformsize on 1000
-     * square; requires uncapped/uncancelled output with>.85*targetcells. UnixRSSnormalized
+     * square; requires uncapped/uncanceled output with>.85*targetcells. UnixRSSnormalized
      * tobytes,elsezero. No hard time or memory gate,substantial local allocation,informational
      * logging only.
      */
@@ -942,7 +942,7 @@ private slots:
      * DEFLATEGeoTIFF under mesh_largedem_perf_2026-10. CACHE_MIB/TOL/MESHCRS tune indexing;
      * INDEX_ONLY reports summary statistics and returns. Otherwise refines with 20 millioncell
      * cap,appends largedem_benchmark.csv, optional DUMP writes exact-hex vertices/query results
-     * under output folder; final gate only not cancelled. Preserves existing synthetic file,may
+     * under output folder; final gate only not canceled. Preserves existing synthetic file,may
      * consume substantial disk/RAM/time,no timing pass threshold; reads raster/header and
      * releases GDAL/CRS resources locally.
      */

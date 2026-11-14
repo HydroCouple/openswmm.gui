@@ -46,7 +46,7 @@ void SimulationOptionsDialog::fastPresetValues(int &out_threads, double &out_min
     // adaptive step. ~2.6x on the Bellinge 1D/2D benchmark (8 P-cores) with
     // BETTER mass balance than the as-shipped run (+2.8% vs -3.4%
     // flow-routing continuity at 24h). Efficiency cores are excluded on
-    // purpose: the barrier-synchronised solvers run at E-core speed when one
+    // purpose: the barrier-synchronized solvers run at E-core speed when one
     // joins the team (THREAD_LIMITS_AND_OVERSUBSCRIPTION_PLAN §5.1).
     out_threads = fastPresetThreads();
     out_min_step_sec = 1.0;
@@ -96,7 +96,7 @@ QDateTime SimulationOptionsDialog::parseEngineDateTime(const QString &date, cons
 // this file no longer hand-rolls the epoch/rounding math.
 //
 // SWMM dates are plain wall clock with no zone and no daylight saving, so
-// every QDateTime in this dialog is labelled UTC (offset 0) and nothing is
+// every QDateTime in this dialog is labeled UTC (offset 0) and nothing is
 // converted (owner rule, 2026-11-12). The dialog used to label them local
 // time, which made a window spanning a daylight-saving change an hour short
 // and rewrote a start time inside the spring-forward gap

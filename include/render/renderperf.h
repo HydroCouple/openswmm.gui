@@ -6,7 +6,7 @@
  * @brief     Opt-in canvas render-pipeline profiling category. Enable with:
  *           QT_LOGGING_RULES="openswmm.render.perf.debug=true"
  *         Times MapRenderJob passes (total + per layer), the QGraphicsScene
- *         rasterisation, and MapCanvas::paintEvent. Zero-cost when disabled
+ *         rasterization, and MapCanvas::paintEvent. Zero-cost when disabled
  *         (qCDebug skips argument evaluation; the explicit isDebugEnabled()
  *         gates skip the QElapsedTimer work too). Definition lives in
  *         src/render/qsg2drenderstats.cpp.

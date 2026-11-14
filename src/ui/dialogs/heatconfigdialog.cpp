@@ -75,7 +75,7 @@ struct ChannelPreviewProgress {
  * [0,100].
  * @param[in,out] userData Nonnull pointer to ChannelPreviewProgress that remains alive for the
  * synchronous API call; its optional dialog is borrowed.
- * @return Zero without a dialog; otherwise 1 when the user has cancelled, 0 to continue.
+ * @return Zero without a dialog; otherwise 1 when the user has canceled, 0 to continue.
  * @note Pumps all GUI events on the calling thread, so this callback must run on the GUI thread and
  * its context/dialog/engine lifetimes must survive event processing. The engine argument is unused.
  */
@@ -2138,7 +2138,7 @@ void HeatConfigDialog::previewElements()
          * Argument `engine`: borrowed transaction engine; `user`: nonnull stack Context valid for
          * this
          * synchronous call. Returns SWMM_ERR_BADPARAM both on failure and successful preview so no
-         * settings persist. Context read/cancelled flags distinguish those outcomes; UI rows
+         * settings persist. Context read/canceled flags distinguish those outcomes; UI rows
          * survive.
          */
         [](SWMM_Engine engine, void *user) -> int {

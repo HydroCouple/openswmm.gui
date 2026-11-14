@@ -10,7 +10,7 @@
  *         the animation period.
  *
  *         Carved out of MeshEdgeStyle (which used to carry colorByBC + the
- *         per-type colours/widths) so BC indicators are a first-class
+ *         per-type colors/widths) so BC indicators are a first-class
  *         sublayer: their own layer-tree row with visibility/opacity, their
  *         own styling tab, and — new — per-BC-type visibility. The
  *         sublayer's own isVisible() replaces the old colorByBC master
@@ -44,8 +44,8 @@ class MeshBcStyle : public SublayerStyle
     Q_OBJECT
     // Wall marks the walls of the mesh BOUNDARY: when the sublayer is visible and
     // wallVisible is on, boundary edges whose BC is Wall are drawn in wallColor.
-    // Interior edges (Wall by construction) keep MeshEdgeStyle's colours
-    // (owner 2026-11-13: the edge colour must show). Wall has no width — Wall
+    // Interior edges (Wall by construction) keep MeshEdgeStyle's colors
+    // (owner 2026-11-13: the edge color must show). Wall has no width — Wall
     // edges ARE the wireframe and keep MeshEdgeStyle's line widths.
     Q_PROPERTY(bool wallVisible READ wallVisible WRITE setWallVisible NOTIFY styleChanged)
     Q_PROPERTY(QColor wallColor READ wallColor WRITE setWallColor NOTIFY styleChanged)
@@ -262,7 +262,7 @@ public:
      * Does not automatically mark the style customized; the caller owns that policy. */
     void setRatingCurveWidthPx(double v) { setBcWidth(6, v); }
 
-    /*! Colour for BC type index \p t (0..kBcTypeCount-1). Out-of-range
+    /*! Color for BC type index \p t (0..kBcTypeCount-1). Out-of-range
      *  indices fold onto Wall so a corrupt/forward-version BC value cannot
      *  read past the array. */
     /** @param t Raw BC index; values outside [0,7) read Wall slot zero.
@@ -331,7 +331,7 @@ public:
      * are bypassed; unknown keys are ignored. */
     void fromJson(const QJsonObject &j) override;
 
-    /*! Migration: seed colours/widths from a legacy MeshEdgeStyle JSON
+    /*! Migration: seed colors/widths from a legacy MeshEdgeStyle JSON
      *  object (the pre-split "bc*"-prefixed keys, including the even older
      *  single "bcWidthPx"). The caller decides sublayer visibility from the
      *  legacy "colorByBC" flag — this only copies the styling. */

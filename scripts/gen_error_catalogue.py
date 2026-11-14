@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""Generate appendix A8 — the error and warning catalogue — from the engine.
+"""Generate appendix A8 — the error and warning catalog — from the engine.
 
 The engine is the only source of truth for these codes, and SWMMVis shows two
 numbering systems side by side: `simulationstatusmodel.cpp` renders a failed run
 as `ERROR [<cffi code>] <engine message>`, where the message itself embeds
 `ERROR nnn:`. A reader looking up either number needs one page that has both, so
-the GUI carries its own catalogue rather than linking out.
+the GUI carries its own catalog rather than linking out.
 
 The page is generated in full — skeleton included — so `--check` is a plain file
 diff with no in-file edit markers to respect.

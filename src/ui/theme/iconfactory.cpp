@@ -34,8 +34,8 @@ const char *kGlyphGrays[] = {
 
 /**
  * @brief Blend RGB channel values without retaining input alpha.
- * @param[in] fg Foreground colour.
- * @param[in] bg Background colour.
+ * @param[in] fg Foreground color.
+ * @param[in] bg Background color.
  * @param[in] fgShare Foreground weight, expected in [0,1]; no clamp is applied here.
  * @return Opaque QColor with integer-truncated weighted RGB channels.
  */
@@ -48,9 +48,9 @@ QColor mixed(const QColor &fg, const QColor &bg, qreal fgShare)
 }
 
 /**
- * @brief Resolve a monochrome glyph colour from the current scheme and icon interaction mode.
+ * @brief Resolve a monochrome glyph color from the current scheme and icon interaction mode.
  * @param[in] mode Active uses text, Selected selectionText, Disabled a 50% hint/window mix, Normal hintText.
- * @return Theme-derived colour; unknown modes follow Normal.
+ * @return Theme-derived color; unknown modes follow Normal.
  */
 QColor glyphColorFor(QIcon::Mode mode)
 {
@@ -87,7 +87,7 @@ public:
      * @brief Draw a rendered cached icon into the requested painter rectangle at device scale.
      * @param[in,out] painter Required painter; device DPR is read when available.
      * @param[in] rect Destination logical-pixel rectangle.
-     * @param[in] mode Interaction mode selecting glyph colour.
+     * @param[in] mode Interaction mode selecting glyph color.
      * @param[in] state On/Off state forwarded but ignored by the rendering implementation.
      */
     void paint(QPainter *painter, const QRect &rect, QIcon::Mode mode, QIcon::State state) override
@@ -101,7 +101,7 @@ public:
     /**
      * @brief Render/cache a standard-scale alias icon.
      * @param[in] size Logical icon dimensions.
-     * @param[in] mode Interaction mode selecting glyph colour.
+     * @param[in] mode Interaction mode selecting glyph color.
      * @param[in] state On/Off state, ignored.
      * @return Raster from scaledPixmap() at scale one.
      */
@@ -111,9 +111,9 @@ public:
     }
 
     /**
-     * @brief Load/recolour/rasterize SVG at a scale and cache it by alias/scheme/mode/size/scale.
+     * @brief Load/recolor/rasterize SVG at a scale and cache it by alias/scheme/mode/size/scale.
      * @param[in] size Logical dimensions; empty returns a null pixmap.
-     * @param[in] mode Glyph interaction colour.
+     * @param[in] mode Glyph interaction color.
      * @param[in] state On/Off state, ignored and not part of the cache key.
      * @param[in] scale Positive finite render scale/device-pixel ratio, expected valid.
      * @return Cached/new transparent-background raster, or null for missing/invalid SVG content.
@@ -180,8 +180,8 @@ private:
 
     /**
      * @brief Copy source bytes and replace only the fixed monochrome hex family with the requested glyph RGB.
-     * @param[in] glyph Replacement colour; alpha is omitted by HexRgb encoding.
-     * @return Recoloured bytes or empty for absent source. Literal replacement is case-sensitive; no XML-wide colour parsing occurs.
+     * @param[in] glyph Replacement color; alpha is omitted by HexRgb encoding.
+     * @return Recolored bytes or empty for absent source. Literal replacement is case-sensitive; no XML-wide color parsing occurs.
      */
     QByteArray recoloredSvg(const QColor &glyph)
     {

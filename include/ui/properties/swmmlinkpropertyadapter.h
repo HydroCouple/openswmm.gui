@@ -299,7 +299,7 @@ public:
     // user can tweak a single dimension without opening the dialog. The
     // engine has no per-geom setter, so each setter read-modify-writes the
     // whole tuple (mirrors the loss-coeff slots). `xsectShapeId` lets the
-    // Property Browser grey out geoms that don't apply to the current
+    // Property Browser gray out geoms that don't apply to the current
     // shape (see openswmmvis::xsectGeomApplies).
     /**
      * @return SWMM_XSectShape engine ID, or zero when unresolved/unreadable; not the GUI metadata row ordinal.
@@ -329,7 +329,7 @@ public:
     // Read-only post-run summary statistics (mirror of the node adapter's
     // Slice QA.2 block and the Attribute Table's link dynamics columns).
     // Zero until a run's results are bound via setStatsSource; the three
-    // pump utilisation getters are meaningful only on pumps.
+    // pump utilization getters are meaningful only on pumps.
     /**
      * @brief Read the maximum flow in project flow units from the selected simulation source.
      * @return Ambient engine statistic when source UUID is null or no registry is bound; otherwise the resolved result-layer statistic for this object ID. Missing engine objects/output layers return zero.
@@ -588,7 +588,7 @@ public slots:
     // Inline cross-section geom setters — read-modify-write the engine
     // xsect tuple (shape + the other three geoms preserved). No-op when
     // the geom doesn't apply to the current shape, so a stray write from
-    // a greyed cell can't corrupt the section.
+    // a grayed cell can't corrupt the section.
     /**
      * @brief Update raw cross-section geometry slot 1 while preserving the shape and other slots.
      * @param[in] v New value in the shape-specific slot units; unused numeric slots remain writable for later shape switches.
@@ -787,7 +787,7 @@ class SWMMConduitPropertyAdapter : public SWMMLinkPropertyAdapter
         SWMMLinkPropertyAdapter::FlapGate flapGate READ flapGate WRITE setFlapGate NOTIFY changed)
     // Slice SC.1 — compound-attribute "Edit…" cells.
     Q_PROPERTY(LinkCompoundEditRef xsection READ xsectionRef WRITE setXsectionRef NOTIFY changed)
-    // Direct inline geom1..geom4 (generic labels; PropertiesPanel greys
+    // Direct inline geom1..geom4 (generic labels; PropertiesPanel grays
     // out the ones that don't apply to the current shape).
     Q_PROPERTY(double geom1 READ xsectGeom1 WRITE setXsectGeom1 NOTIFY changed)
     Q_PROPERTY(double geom2 READ xsectGeom2 WRITE setXsectGeom2 NOTIFY changed)
@@ -828,7 +828,7 @@ class SWMMPumpPropertyAdapter : public SWMMLinkPropertyAdapter
     Q_PROPERTY(double startupDepth READ pumpStartupDepth WRITE setPumpStartupDepth NOTIFY changed)
     Q_PROPERTY(double shutoffDepth READ pumpShutoffDepth WRITE setPumpShutoffDepth NOTIFY changed)
     // Read-only post-run summary — the shared link block plus the pump
-    // utilisation trio (Attribute Table parity; see the base class).
+    // utilization trio (Attribute Table parity; see the base class).
     Q_PROPERTY(double statMaxFlow READ statMaxFlow NOTIFY changed)
     Q_PROPERTY(double statMaxVelocity READ statMaxVelocity NOTIFY changed)
     Q_PROPERTY(double statMaxFilling READ statMaxFilling NOTIFY changed)
@@ -870,7 +870,7 @@ class SWMMOrificePropertyAdapter : public SWMMLinkPropertyAdapter
         double openCloseRate READ orificeOpenCloseRate WRITE setOrificeOpenCloseRate NOTIFY changed)
     Q_PROPERTY(LinkCompoundEditRef xsection READ xsectionRef WRITE setXsectionRef NOTIFY changed)
     // Direct inline geom1..geom4 (orifices use CIRCULAR / RECT_CLOSED, so
-    // only geom1/geom2 ever apply; the rest grey out).
+    // only geom1/geom2 ever apply; the rest gray out).
     Q_PROPERTY(double geom1 READ xsectGeom1 WRITE setXsectGeom1 NOTIFY changed)
     Q_PROPERTY(double geom2 READ xsectGeom2 WRITE setXsectGeom2 NOTIFY changed)
     Q_PROPERTY(double geom3 READ xsectGeom3 WRITE setXsectGeom3 NOTIFY changed)
@@ -912,7 +912,7 @@ class SWMMWeirPropertyAdapter : public SWMMLinkPropertyAdapter
         SWMMLinkPropertyAdapter::FlapGate flapGate READ flapGate WRITE setFlapGate NOTIFY changed)
     Q_PROPERTY(LinkCompoundEditRef xsection READ xsectionRef WRITE setXsectionRef NOTIFY changed)
     // Direct inline geom1..geom4 (weirs use RECT_OPEN / TRAPEZOIDAL /
-    // TRIANGULAR; inapplicable geoms grey out per shape).
+    // TRIANGULAR; inapplicable geoms gray out per shape).
     Q_PROPERTY(double geom1 READ xsectGeom1 WRITE setXsectGeom1 NOTIFY changed)
     Q_PROPERTY(double geom2 READ xsectGeom2 WRITE setXsectGeom2 NOTIFY changed)
     Q_PROPERTY(double geom3 READ xsectGeom3 WRITE setXsectGeom3 NOTIFY changed)

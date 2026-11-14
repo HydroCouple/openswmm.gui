@@ -42,9 +42,9 @@ public:
      * @param[in] parent Optional QWidget owner; caller manages parentless window-modal dialog.
      * @brief Build geometric ownership-review tabs, default subcatchment-weather representation and
      *   explicit-uniform checkbox unchecked.
-     * @note Capture area-display units from engine flow units once: US divides square metres by
+     * @note Capture area-display units from engine flow units once: US divides square meters by
      *   acre factor, SI by 10000 for hectares; query failure falls back initialized US branch.
-     *   Receiver table always square metres and displayed cells one-based. No preview/write at
+     *   Receiver table always square meters and displayed cells one-based. No preview/write at
      *   construction; model edit/close/geometry and mesh edit signals invalidate draft,
      *   selection/CRS changes have no dedicated subscription here.
      */
@@ -95,7 +95,7 @@ private slots:
      *   model/engine identity, but owners must keep dialog/mesh/canvas alive through reentry. All
      *   competing footprints are reviewed, including outside edit scope.
      * @note Success stores review, mesh geometry revision and both CRS WKT strings, populates
-     *   project-area source table and square-metre receiver budgets/options text. Enable Apply only
+     *   project-area source table and square-meter receiver budgets/options text. Enable Apply only
      *   valid review with before!=after. Invalid review error retained for display; unavailable
      *   runtime budget is not inferred from geometric area. No engine authoring replacement/undo in
      *   this method.

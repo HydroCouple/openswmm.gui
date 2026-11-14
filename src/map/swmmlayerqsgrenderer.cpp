@@ -132,19 +132,19 @@ PerfSampler &sampler()
 // Shape-agnostic glyph emitter.
 //
 // Emits a triangle fan (or triangle pair / quad) that fills the requested
-// MarkerShape inside a (2 r) bounding box centred at (sx, sy). The
+// MarkerShape inside a (2 r) bounding box centered at (sx, sy). The
 // pixel-fan approach keeps geometry uniform across shapes and avoids
 // per-shape vertex-attribute juggling.
 //
-// VertexT is either QSGGeometry::Point2D (no colour) or
-// QSGGeometry::ColoredPoint2D (per-vertex colour). The MakeVert lambda
+// VertexT is either QSGGeometry::Point2D (no color) or
+// QSGGeometry::ColoredPoint2D (per-vertex color). The MakeVert lambda
 // builds the right vertex type for the caller.
 //
 // Cross-cap arms (Plus, Cross, XCross) are emitted as two thin
 // rectangles. Star is a 10-vertex two-triangle-fan (outer + inner
 // vertices) — visually convincing for ~6 px markers without a custom
 // shader. Pentagon/Hexagon/Arrow/HalfCircle are emitted as triangle fans
-// from the centre.
+// from the center.
 //
 // Circle segment count scales with the requested radius so small
 // markers stay cheap and big markers stay round. A 24-segment fan at
@@ -161,7 +161,7 @@ PerfSampler &sampler()
  * @param[in] shape Supported canonical shape; unhandled enum emits no body.
  * @param[in] v Borrowed/moved callable mapping each emitted XY to output vertex.
  * @note Common shapes emit independent triangles; Circle fixed16fansegments, HalfCircle12, star
- *   alternating inner ratio0.382, cross/plus two rectangles. No rotation, view scaling, colour
+ *   alternating inner ratio0.382, cross/plus two rectangles. No rotation, view scaling, color
  *   processing or validity/overflow check. Caller reserves/serializes destination; allocation
  *   failure may leave partial append.
  */
@@ -228,7 +228,7 @@ void appendMarkerShapeImpl(std::vector<VertexT> &out, float sx, float sy, float 
         out.push_back(v(sx - r, sy));
         break;
     case Shape::Star: {
-        // Five-pointed star: triangle fan from centre to alternating
+        // Five-pointed star: triangle fan from center to alternating
         // outer / inner vertices around the circle.
         constexpr int kPoints = 5;
         const float inner = r * 0.382f;     // golden-ratio-ish inset
@@ -321,7 +321,7 @@ void appendMarkerShapeImpl(std::vector<VertexT> &out, float sx, float sy, float 
 }
 
 /**
- * @param[in,out] out Append-only uncoloured triangle vertices, no clearing.
+ * @param[in,out] out Append-only uncolored triangle vertices, no clearing.
  * @param[in] sx Glyph center X in output geometry frame.
  * @param[in] sy Glyph center Y in same frame.
  * @param[in] r Finite nonnegative glyph radius in same units, no local clamp.
@@ -342,7 +342,7 @@ void appendNodeGlyphTriangles(std::vector<QSGGeometry::Point2D> &out, float sx, 
 }
 
 /**
- * @param[in,out] out Append-only uncoloured triangle vertices, no clearing.
+ * @param[in,out] out Append-only uncolored triangle vertices, no clearing.
  * @param[in] sx Glyph center X in output geometry frame.
  * @param[in] sy Glyph center Y in same frame.
  * @param[in] r Finite nonnegative glyph radius in same units, no local clamp.
@@ -366,7 +366,7 @@ void appendGageTriangles(
  * @param[in] by Second endpoint Y.
  * @param[in] hw Stroke HALF-width in same finite coordinate units, caller supplies nonnegative.
  * @note Segment length<1e-9returns, otherwise perpendicular quad with butt caps. No
- *   joins/culling/colour/finite validation or resource upload; allocation may partially append.
+ *   joins/culling/color/finite validation or resource upload; allocation may partially append.
  */
 void appendThickSegment(std::vector<QSGGeometry::Point2D> &out, float ax, float ay, float bx,
                         float by, float hw)
@@ -390,12 +390,12 @@ void appendThickSegment(std::vector<QSGGeometry::Point2D> &out, float ax, float 
 }
 
 // Emit a dashed line as a run of thick quads (QSG has no native dash on a
-// flat-colour material, so we tessellate). dash_on / dash_off are in the same
+// flat-color material, so we tessellate). dash_on / dash_off are in the same
 // (scene) units as the endpoints — callers scale pixel sizes by invView. This
 // revives the subcatchment centroid→outlet connector that the CPU painter drew
 // with a cosmetic Qt::DashLine pen before subcatchments moved to the QSG path.
 /**
- * @param[in,out] out Append-only uncoloured triangles.
+ * @param[in,out] out Append-only uncolored triangles.
  * @param[in] ax First endpoint X.
  * @param[in] ay First endpoint Y.
  * @param[in] bx Second endpoint X.
@@ -439,7 +439,7 @@ void appendDashedThickLine(std::vector<QSGGeometry::Point2D> &out, float ax, flo
 constexpr int kRingSegs = 48; // 48 chords reads as smooth at a ~12 px radius
 
 /**
- * @param[in,out] out Append-only uncoloured triangle list.
+ * @param[in,out] out Append-only uncolored triangle list.
  * @param[in] cx Circle center X.
  * @param[in] cy Circle center Y.
  * @param[in] r Finite radius in scene units, nonpositive ignored.
@@ -485,7 +485,7 @@ void appendDashedRing(std::vector<QSGGeometry::Point2D> &out, float cx, float cy
 // segment buffer. `lenScene` is the arrow length in scene units
 // (arrowSize_px * invView). Returns silently on degenerate polylines.
 /**
- * @param[in,out] out Append-only coloured triangle list.
+ * @param[in,out] out Append-only colored triangle list.
  * @param[in] xy Borrowed finite interleaved absolute scene XY,2*countentries.
  * @param[in] count Polyline vertex count, at least2needed.
  * @param[in] ox Precision anchor X subtracted before float narrowing.
@@ -497,7 +497,7 @@ void appendDashedRing(std::vector<QSGGeometry::Point2D> &out, float cx, float cy
  * @param[in] cb Already-premultiplied blue byte.
  * @param[in] ca Alpha byte.
  * @note Null/short/zero-total polyline emits nothing. Finds half-arclength local tangent, rotates
- *   centered+xtriangle and appends3vertices. No current-flow gate, source mutation, colour
+ *   centered+xtriangle and appends3vertices. No current-flow gate, source mutation, color
  *   premultiplication or geographic conversion here; caller supplies coherent values.
  */
 void appendFlowArrowColored(std::vector<QSGGeometry::ColoredPoint2D> &out, const double *xy,
@@ -570,14 +570,14 @@ QSGGeometryNode *makeFlatColorNode(QSGGeometry::DrawingMode mode, QColor color, 
     return node;
 }
 
-// §QSG-3 — per-vertex coloured node (mirrors swmm2dmeshqsgrenderer.cpp's
+// §QSG-3 — per-vertex colored node (mirrors swmm2dmeshqsgrenderer.cpp's
 // makeColoredNode). Used for nodesSel so each glyph carries its own
-// colour (selection brush, or per-feature override) without needing a
-// separate QSGGeometryNode per colour.
+// color (selection brush, or per-feature override) without needing a
+// separate QSGGeometryNode per color.
 /**
  * @param[in] mode QSG drawing mode, typically DrawTriangles.
  * @return New node owning empty ColoredPoint2D geometry and QSGVertexColorMaterial; caller/parent
- *   owns node. Caller supplies premultiplied vertex colours and render-thread lifetime.
+ *   owns node. Caller supplies premultiplied vertex colors and render-thread lifetime.
  */
 QSGGeometryNode *makeColoredNode(QSGGeometry::DrawingMode mode)
 {
@@ -617,11 +617,11 @@ inline QSGNode::DirtyState geometryDirtyFlags(bool wasEmpty, int n)
 }
 
 /**
- * @param[in,out] node Required coloured geometry node with matching vertex layout/triangle mode;
+ * @param[in,out] node Required colored geometry node with matching vertex layout/triangle mode;
  *   all existing children must be reusable same-family geometry nodes.
  * @param[in] verts Immutable premultiplied vertex array, size must fit int.
  * @note Copy first<=60000vertices to node, spill further chunks into reused/new DrawTriangles
- *   coloured children, empty surplus child geometry without deleting. Dirty flags handle
+ *   colored children, empty surplus child geometry without deleting. Dirty flags handle
  *   empty→populated. Existing unrelated children/layout are unsafe; caller supplies dedicated
  *   family. Render-thread resource operation, no GPU completion guarantee/rollback on allocation.
  */
@@ -674,12 +674,12 @@ void uploadColoredVerts(QSGGeometryNode *node,
     }
 }
 
-// Coloured variant of appendNodeGlyphTriangles — bakes the colour into
+// Colored variant of appendNodeGlyphTriangles — bakes the color into
 // every emitted vertex so the QSGVertexColorMaterial pipeline picks it
-// up. Shape selection is identical to the flat-colour version so
+// up. Shape selection is identical to the flat-color version so
 // positions stay consistent between the two paths.
 /**
- * @param[in,out] out Append-only coloured triangle list.
+ * @param[in,out] out Append-only colored triangle list.
  * @param[in] sx Glyph center X in output geometry frame.
  * @param[in] sy Glyph center Y in same frame.
  * @param[in] r Finite nonnegative glyph radius in same units, no local clamp.
@@ -791,9 +791,9 @@ void appendMarkerOutlineColored(std::vector<QSGGeometry::ColoredPoint2D> &out, f
 
 /**
  * @param[in,out] node Required node with Point2D geometry; matching layout/capacity owned by node.
- * @param[in] verts Immutable uncoloured vertices, size/byte count fit int.
+ * @param[in] verts Immutable uncolored vertices, size/byte count fit int.
  * @note Resize/copy whole stream and mark geometry plus first-population material dirty. No
- *   chunking/index-limit protection unlike coloured helper; caller bounds flat stream.
+ *   chunking/index-limit protection unlike colored helper; caller bounds flat stream.
  *   Render-thread resource call, no model change/GPU completion guarantee.
  */
 void uploadVerts(QSGGeometryNode *node, const std::vector<QSGGeometry::Point2D> &verts)
@@ -811,7 +811,7 @@ void uploadVerts(QSGGeometryNode *node, const std::vector<QSGGeometry::Point2D> 
 /**
  * @param[in,out] node Required QSGGeometryNode with actual QSGFlatColorMaterial, unchecked cast.
  * @param[in] color New flat QColor copied, including invalid.
- * @note Changed colour sets material and DirtyMaterial; equal no-op. No vertex upload or ownership
+ * @note Changed color sets material and DirtyMaterial; equal no-op. No vertex upload or ownership
  *   transfer, render-thread only.
  */
 void setNodeColor(QSGGeometryNode *node, QColor color)
@@ -824,13 +824,13 @@ void setNodeColor(QSGGeometryNode *node, QColor color)
 }
 
 // Selection helpers. The QSG renderer drives QSGFlatColorMaterial nodes,
-// which take a single QColor — so we surface pen colour for outlines /
-// line nodes and brush colour for fills. Width/cap/join from the
+// which take a single QColor — so we surface pen color for outlines /
+// line nodes and brush color for fills. Width/cap/join from the
 // selection pen aren't representable here (no per-vertex line width on
 // QSGGeometry::DrawTriangles).
 /**
  * @param[in] key Required NUL-terminated Latin-1 preference object-kind key.
- * @return Selection pen colour including alpha, yellow fallback if singleton absent. Does not carry
+ * @return Selection pen color including alpha, yellow fallback if singleton absent. Does not carry
  *   width/dash/cap/join or mutate preferences; caller handles premultiplication.
  */
 QColor selPenColor(const char *key)
@@ -840,7 +840,7 @@ QColor selPenColor(const char *key)
 }
 /**
  * @param[in] key Required NUL-terminated Latin-1 preference object-kind key.
- * @return Selection brush colour including alpha, yellow fallback if singleton absent. Does not
+ * @return Selection brush color including alpha, yellow fallback if singleton absent. Does not
  *   carry width/dash/cap/join or mutate preferences; caller handles premultiplication.
  */
 QColor selBrushColor(const char *key)
@@ -874,7 +874,7 @@ void SWMMLayerQSGRenderer::setLayer(SWMMModelLayer *layer)
         // selectionChanged is absorbed without triggering a full rebuild.
         connect(m_layer, &SWMMModelLayer::selectionChanged, this, [this](const QStringList &) {
             // §QSG-3 — selection updates need a full rebuild
-            // because selection colour is baked per-vertex into
+            // because selection color is baked per-vertex into
             // the base buckets. The selection-only branch in
             // updatePaintNode is therefore unused for nodes.
             m_contentDirty = true;
@@ -893,7 +893,7 @@ void SWMMLayerQSGRenderer::setLayer(SWMMModelLayer *layer)
         });
         // Geometry mutations (add / move / delete a node, link, subcatchment or
         // gage) must ALWAYS force a full content rebuild. They cannot ride the
-        // repaintRequested handler above: its selection-absorb optimisation
+        // repaintRequested handler above: its selection-absorb optimization
         // (m_selectionPending, set when a selection change is coalesced with the
         // repaint that follows it) can swallow the repaint a just-added object
         // emits, leaving the new object out of the QSG geometry until an
@@ -991,10 +991,10 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
     QSGGeometryNode *gagesSelCasing = nullptr;
 
     if (!root) {
-        // Selection style — pens carry outline colour, brushes carry
-        // fill colour (incl. alpha). selPoly is the polygon outline;
+        // Selection style — pens carry outline color, brushes carry
+        // fill color (incl. alpha). selPoly is the polygon outline;
         // selPolyFill, selNode, selGage are fills. selLine is the link
-        // halo's stroke colour. cap/join/width from the pens aren't
+        // halo's stroke color. cap/join/width from the pens aren't
         // representable on a QSGFlatColorMaterial.
         const QColor selPoly = selPenColor("subcatchment");
         const QColor selPolyFill = selBrushColor("subcatchment");
@@ -1003,8 +1003,8 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         const QColor selLine = selPenColor("link");
 
         root = new QSGTransformNode();
-        // #33 Stage 1b — catchFill is now vertex-coloured so each subcatchment
-        // can carry its own per-feature override colour (Graduated/Categorized).
+        // #33 Stage 1b — catchFill is now vertex-colored so each subcatchment
+        // can carry its own per-feature override color (Graduated/Categorized).
         catchFill = makeColoredNode(QSGGeometry::DrawTriangles);
         catchSelFill = makeFlatColorNode(QSGGeometry::DrawTriangles, selPolyFill);
         // Feedback C13 — outlines are tessellated as pixel-width quads (same
@@ -1015,16 +1015,16 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                                       m_layer->subcatchmentSymbol().outlineColor);
         catchSelEdge = makeFlatColorNode(QSGGeometry::DrawTriangles, selPoly);
         // Subcatchment centroid→outlet connector lines (dashed, tessellated as
-        // thick quads). Base grey + a bolder orange highlight for the selected
+        // thick quads). Base gray + a bolder orange highlight for the selected
         // subcatchment, mirroring the old CPU painter pens.
         catchOutletLines =
             makeFlatColorNode(QSGGeometry::DrawTriangles, QColor(110, 110, 110, 200));
         catchOutletLinesSel =
             makeFlatColorNode(QSGGeometry::DrawTriangles, QColor(255, 140, 0, 230));
-        // §QSG-3 — vertex-coloured base node buckets. Per-vertex colour
-        // lets each glyph carry its own colour: kind's fillColor for
-        // unselected nodes, selection brush colour for selected nodes,
-        // per-feature override colour where applicable. Eliminates the
+        // §QSG-3 — vertex-colored base node buckets. Per-vertex color
+        // lets each glyph carry its own color: kind's fillColor for
+        // unselected nodes, selection brush color for selected nodes,
+        // per-feature override color where applicable. Eliminates the
         // separate `nodesSel` overlay (which had a latent rendering bug
         // — its geometry uploads silently didn't paint despite correct
         // vertex/material/parent state).
@@ -1032,22 +1032,22 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         outfallsBase = makeColoredNode(QSGGeometry::DrawTriangles);
         storageBase = makeColoredNode(QSGGeometry::DrawTriangles);
         dividersBase = makeColoredNode(QSGGeometry::DrawTriangles);
-        // CPU-parity — vertex-coloured so per-gage renderer overrides
+        // CPU-parity — vertex-colored so per-gage renderer overrides
         // (featureColor) and the kind opacity fade bake per vertex, same
         // as the node buckets.
         gagesBase = makeColoredNode(QSGGeometry::DrawTriangles);
-        // #33 Stage 1b — link base node is vertex-coloured for per-feature
-        // (Graduated/Categorized) link colours; the selection halo stays flat.
+        // #33 Stage 1b — link base node is vertex-colored for per-feature
+        // (Graduated/Categorized) link colors; the selection halo stays flat.
         lines = makeColoredNode(QSGGeometry::DrawTriangles);
         linesSel = makeFlatColorNode(QSGGeometry::DrawTriangles, selLine);
-        // §QSG-3 — nodesSel uses vertex-coloured material so each
-        // selected glyph carries its own colour in the vertex stream.
+        // §QSG-3 — nodesSel uses vertex-colored material so each
+        // selected glyph carries its own color in the vertex stream.
         // The same QSGFlatColorMaterial node used to silently swallow
         // post-creation geometry uploads on the macOS Metal backend
         // (verified by FBO dump: 24 verts in the geometry, opaque
         // yellow material, valid widget coords, but zero yellow pixels
-        // in the rendered frame).  The vertex-coloured path uses the
-        // exact same code shape as SWMM2DMeshQSGRenderer's coloured
+        // in the rendered frame).  The vertex-colored path uses the
+        // exact same code shape as SWMM2DMeshQSGRenderer's colored
         // triangle node, which paints correctly in the same offscreen
         // FBO setup.
         nodesSel = makeColoredNode(QSGGeometry::DrawTriangles);
@@ -1116,7 +1116,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
     // ---- Shared render params (used by both full and selection-only paths) --
     // sx_r / invView are pixel-scale ratios so they're safe as float;
     // cull bounds, however, are scene-space coordinates and must stay
-    // in double — float quantises projected-CRS coords (6-7 digit
+    // in double — float quantizes projected-CRS coords (6-7 digit
     // magnitudes) to ~1 m, which trips false-positive / false-negative
     // cull decisions at high zoom and can flash links in and out as
     // the viewport scrolls.
@@ -1128,7 +1128,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
     // recompute and the vertex building must agree on the same anchor, or the
     // transform matrix (which uses the recomputed m_anchorX/Y) and the vertices
     // (which use ox/oy) disagree, throwing every vertex off by the anchor delta
-    // and quantising the un-anchored coords to a float grid (the "fishnet
+    // and quantizing the un-anchored coords to a float grid (the "fishnet
     // conduits + invisible nodes on first load" bug).
     double ox = m_anchorX, oy = m_anchorY;
     // Wide cull margin (half the viewport on each side) so a pan that
@@ -1164,16 +1164,16 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         // Re-sync the local anchor to the freshly recomputed member so the
         // vertices built below and the transform matrix at the end of this
         // function use the SAME origin. Without this, the first rebuild after
-        // a model load (anchor 0 → scene-centre) builds every vertex against
+        // a model load (anchor 0 → scene-center) builds every vertex against
         // a stale origin, producing the fishnet + off-screen-nodes artifact.
         ox = m_anchorX;
         oy = m_anchorY;
 
         // Material refresh.
-        // Selection style — pens carry outline colour, brushes carry
-        // fill colour (incl. alpha). selPoly is the polygon outline;
+        // Selection style — pens carry outline color, brushes carry
+        // fill color (incl. alpha). selPoly is the polygon outline;
         // selPolyFill, selNode, selGage are fills. selLine is the link
-        // halo's stroke colour. cap/join/width from the pens aren't
+        // halo's stroke color. cap/join/width from the pens aren't
         // representable on a QSGFlatColorMaterial.
         const QColor selPoly = selPenColor("subcatchment");
         const QColor selPolyFill = selBrushColor("subcatchment");
@@ -1181,7 +1181,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         const QColor selGage = selBrushColor("gage");
         const QColor selLine = selPenColor("link");
         // #33 Stage 1b — catchFill + lines are now QSGVertexColorMaterial;
-        // their colours are baked per-vertex at upload time, so NO
+        // their colors are baked per-vertex at upload time, so NO
         // material-level setColor (which would crash the static_cast).
         setNodeColor(catchSelFill, selPolyFill);
         // CPU-parity — fade the subcatchment outline by the kind's
@@ -1195,13 +1195,13 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         }
         setNodeColor(catchSelEdge, selPoly);
         // §QSG-3 — junctionsBase/outfallsBase/storageBase/dividersBase
-        // use QSGVertexColorMaterial; colours are baked per-vertex at
+        // use QSGVertexColorMaterial; colors are baked per-vertex at
         // upload time, no material-level setColor required.
-        // gagesBase now uses QSGVertexColorMaterial — per-gage colour (incl.
+        // gagesBase now uses QSGVertexColorMaterial — per-gage color (incl.
         // featureColor overrides + kind opacity fade) bakes per vertex at
         // upload time; material-level setColor would crash the static_cast.
         setNodeColor(linesSel, selLine);
-        // §QSG-3 — nodesSel uses QSGVertexColorMaterial; the colour is
+        // §QSG-3 — nodesSel uses QSGVertexColorMaterial; the color is
         // baked into each vertex at upload time, so no material-level
         // setColor is needed (and would crash trying to static_cast).
         setNodeColor(gagesSel, selGage);
@@ -1231,8 +1231,8 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 m_catchTriCache.revision = rev;
             }
 
-            // #33 Stage 1b — fillBase is vertex-coloured (per-subcatchment
-            // override colour); selection fill + edges stay flat.
+            // #33 Stage 1b — fillBase is vertex-colored (per-subcatchment
+            // override color); selection fill + edges stay flat.
             std::vector<QSGGeometry::ColoredPoint2D> fillBase;
             std::vector<QSGGeometry::Point2D> fillSel, edgeBase, edgeSelTris, edgeSelCasing;
             const float selEdgeHW = 1.5f * invView;
@@ -1255,7 +1255,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                     continue;
                 const auto &tris = m_catchTriCache.tris[i];
                 const bool sel = size_t(i) < cSel.size() && cSel[i];
-                // Per-feature override colour (Graduated/Categorized) or the
+                // Per-feature override color (Graduated/Categorized) or the
                 // kind default; `i` is the catch SoA index = featureColor key.
                 const QColor fc = m_layer->featureColor(SWMMModelLayer::CatSubcatchments, i);
                 const QColor cc = fc.isValid() ? fc : catchDef;
@@ -1375,12 +1375,12 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
             static constexpr SWMMModelLayer::Category kLinkCat[5] = {
                 SWMMModelLayer::CatConduits, SWMMModelLayer::CatPumps, SWMMModelLayer::CatOrifices,
                 SWMMModelLayer::CatWeirs, SWMMModelLayer::CatOutlets};
-            // Per-link-type colour + half-width, mirroring the CPU
+            // Per-link-type color + half-width, mirroring the CPU
             // linkPenForType(): start from the kind's preference pen, then let
-            // the per-type SWMMElementSymbol override colour / width. Without
-            // this every link took the conduit colour + width, so on initial
+            // the per-type SWMMElementSymbol override color / width. Without
+            // this every link took the conduit color + width, so on initial
             // load all link types rendered the same conduit blue at conduit
-            // thickness. The per-feature Graduated/Categorized colour
+            // thickness. The per-feature Graduated/Categorized color
             // (featureColor) still wins over this default when present.
             auto *prefs = PreferencesManager::instance();
             struct LinkStyle {
@@ -1528,7 +1528,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                         bb.top() > cullY1)
                         continue;
                 }
-                // Per-feature colour: link type → category → featureColor(cat,i)
+                // Per-feature color: link type → category → featureColor(cat,i)
                 // (m_kindFeatureColors is SoA-indexed, so `i` is the key).
                 const int lt = (int(i) < links.size() && links[int(i)].linkType >= 0 &&
                                 links[int(i)].linkType < 5)
@@ -1593,8 +1593,8 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         // ---- Nodes ---------------------------------------------------------
         if (m_layer->showNodes() && m_layer->qsgOwnsKind(SWMMModelLayer::QsgNodes)) {
             constexpr float kMinPx = 1.0f;
-            // §QSG-3 — vertex-coloured buckets. Each glyph emits 3..24
-            // verts in its kind's bucket with the chosen colour baked
+            // §QSG-3 — vertex-colored buckets. Each glyph emits 3..24
+            // verts in its kind's bucket with the chosen color baked
             // into each vertex. Selected nodes use selBrushColor;
             // unselected nodes use the kind's fillColor (no per-feature
             // override yet — wire to layer->featureColor() in a later
@@ -1706,7 +1706,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 }
                 // CPU-parity — per-feature SIZE override (Graduated "size by
                 // value") and SHAPE override (Categorized / Rule-based). The
-                // CPU painter honoured both (swmmlayeritem.cpp node loop);
+                // CPU painter honored both (swmmlayeritem.cpp node loop);
                 // this path rendered every node of a kind at the uniform
                 // struct size/shape, so the output-size axis showed only on
                 // the QPainter path. Negative sentinels = no override.
@@ -1721,11 +1721,11 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                 if (pxR < kMinPx)
                     continue;
                 const float r = pxR * invView;
-                // #33 Stage 1 (X3) — per-feature override colour from the
+                // #33 Stage 1 (X3) — per-feature override color from the
                 // renderer-driven cache (Graduated / Categorized). `i` is the
                 // node SoA index, which is exactly what featureColor() is keyed
                 // by (m_kindFeatureColors is SoA-indexed). Invalid → no override
-                // → keep the kind's struct colour above. This is what makes the
+                // → keep the kind's struct color above. This is what makes the
                 // GPU path match the CPU SWMMLayerItem path.
                 {
                     const QColor ov = m_layer->featureColor(cat, i);
@@ -1740,9 +1740,9 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                     if (kop < 1.0)
                         cA = uchar(cA * kop);
                 }
-                // Selection: replace the per-kind/per-feature base colour with
-                // the selection brush colour. Same shape and size, just a
-                // recolour — matches CPU painter behaviour.
+                // Selection: replace the per-kind/per-feature base color with
+                // the selection brush color. Same shape and size, just a
+                // recolor — matches CPU painter behavior.
                 if (size_t(i) < nSel.size() && nSel[i]) {
                     cR = selR;
                     cG = selG;
@@ -1768,7 +1768,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                     const QPen selection =
                         PreferencesManager::instance()->selectionPen(QStringLiteral("node"));
                     // A-18: ring the selected glyph in the casing tone, unless the user chose
-                    // an outline colour of their own (one that differs from the selection fill).
+                    // an outline color of their own (one that differs from the selection fill).
                     const QColor fill = selBrushColor("node");
                     outline = selection.color() == fill ? OpenSWMM::Render::selectionCasingColor(fill) : selection.color();
                     outlineWidth = std::max(float(selection.widthF()), 1.5f);
@@ -1832,7 +1832,7 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
                     if (p.x() < cullX0 || p.x() > cullX1 || p.y() < cullY0 || p.y() > cullY1)
                         continue;
                     // CPU-parity — per-gage renderer overrides: size from
-                    // featureSize (Graduated "size by value"), colour from
+                    // featureSize (Graduated "size by value"), color from
                     // featureColor (Graduated / Categorized), faded by the
                     // kind opacity. Negative / invalid sentinels = struct.
                     float pxR = gagePxR;
@@ -1890,10 +1890,10 @@ QSGNode *SWMMLayerQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaintNode
         const float selEdgeHW = 1.5f * invView;
         const float selHW = 2.0f * invView;
         const float casingHW = OpenSWMM::Render::kSelectionCasingPx * invView;
-        // Selection style — pens carry outline colour, brushes carry
-        // fill colour (incl. alpha). selPoly is the polygon outline;
+        // Selection style — pens carry outline color, brushes carry
+        // fill color (incl. alpha). selPoly is the polygon outline;
         // selPolyFill, selNode, selGage are fills. selLine is the link
-        // halo's stroke colour. cap/join/width from the pens aren't
+        // halo's stroke color. cap/join/width from the pens aren't
         // representable on a QSGFlatColorMaterial.
         const QColor selPoly = selPenColor("subcatchment");
         const QColor selPolyFill = selBrushColor("subcatchment");

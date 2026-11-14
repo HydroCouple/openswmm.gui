@@ -19,7 +19,7 @@ using namespace mesh;
  *
  * @brief Build an elevated uniform triangle grid for mesh-splice checks.
  * @param n Nonnegative cells per axis, default 20; counts/products must fit indices.
- * @param h Positive grid spacing in metres, default 2.
+ * @param h Positive grid spacing in meters, default 2.
  * @return Owned ok mesh with (n+1)^2 vertices at z=10 m and 2*n*n counterclockwise
  * triangles, tag soil, Manning n .04 and initial depth .2 m. No size validation,
  * neighbor reconstruction, boundaries or model/engine mutation.
@@ -54,9 +54,9 @@ static MeshResult grid(int n = 20, double h = 2)
 /**
  *
  * @brief Build a straight channel-mesh burn request for a controlled reach.
- * @param a Upstream XY in metres, default (7,20).
- * @param b Distinct downstream XY in metres, default (33,20).
- * @return Owned request with 2-metre target channel cells, forced half-width 20 m,
+ * @param a Upstream XY in meters, default (7,20).
+ * @param b Distinct downstream XY in meters, default (33,20).
+ * @return Owned request with 2-meter target channel cells, forced half-width 20 m,
  * no 1D removal, river ID, bed fall 5 to 4 m and authored trapezoid stations/elevations.
  * Production builder supplies the profile; no local validity check or mesh mutation.
  *
@@ -333,7 +333,7 @@ TEST(ChannelBurnMesh, MixedSuccessSpliceDoesNotRequireOneFillPerCavity)
  *
  * @brief Assert successful burn topology and total positive cell area.
  * @param result Borrowed burn result; requires ok and a buildable cavity topology.
- * @param area Expected total cell area in square metres, compared at 1e-6 tolerance.
+ * @param area Expected total cell area in square meters, compared at 1e-6 tolerance.
  * Fatal assertions stop only this helper; it records failures without returning a
  * status or changing the result. Does not verify attributes or every quality metric.
  *

@@ -31,7 +31,7 @@
 
 using namespace OpenSWMM::Render;
 
-// ── Minimal ISublayer subclass parameterised on isDynamic ────────────────
+// ── Minimal ISublayer subclass parameterized on isDynamic ────────────────
 class FakeSublayer : public ISublayer
 {
     Q_OBJECT
@@ -278,7 +278,7 @@ void TestSublayerHostDispatch::dispatchTick_passes_period_but_doesnt_require_con
     // (the QSG renderer reads the authoritative value from the
     // AnimationController when building SublayerContext). The signature
     // exists so an override CAN stash it for per-host caching. Verify
-    // calling with any int is legal and does not affect behaviour.
+    // calling with any int is legal and does not affect behavior.
     FakeHost host;
     FakeSublayer s(true, QStringLiteral("s"));
     host.addSublayer(&s);

@@ -54,7 +54,7 @@ OpenSWMM::Render::IFeatureRenderer *rendererFor(OpenSWMMVisLayer *layer)
 // layers' kind-qualified legend facades instead. These helpers dispatch to
 // whichever path the layer supports.
 /**
- * @brief Snapshot current legend class colour using renderer then model/1D-results facade routing.
+ * @brief Snapshot current legend class color using renderer then model/1D-results facade routing.
  * @param[in] layer Optional borrowed layer; serialize against renderer replacement.
  * @param[in] key Exact current legend class key, kind-qualified where required.
  * @return Routed query result, including renderer unknown-key convention; invalid QColor for
@@ -72,10 +72,10 @@ QColor readClassColor(OpenSWMMVisLayer *layer, const QString &key)
 }
 
 /**
- * @brief Apply legend class colour through supported feature renderer or model/1D-results facade.
+ * @brief Apply legend class color through supported feature renderer or model/1D-results facade.
  * @param[in] layer Optional borrowed layer.
  * @param[in] key Exact current class key.
- * @param[in] c Colour including invalid reset marker.
+ * @param[in] c Color including invalid reset marker.
  * @note Renderer route explicitly emits layer repaintRequested after setter regardless of success;
  *   facades handle notifications themselves. Unsupported/null route no-op. Does not check
  *   capability, save full style or report rejection.
@@ -159,7 +159,7 @@ void SetRendererClassColorCommand::applyColor(const QColor &c)
 
 void SetRendererClassColorCommand::redo()
 {
-    // QUndoStack::push calls redo() immediately; the colour edit must
+    // QUndoStack::push calls redo() immediately; the color edit must
     // happen exactly once per redo, including this initial call.
     applyColor(m_newColor);
     m_firstRedo = false;

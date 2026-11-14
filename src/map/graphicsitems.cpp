@@ -29,7 +29,7 @@ NodeGraphicsItem::NodeGraphicsItem(const QString &name, double sceneX, double sc
     setAcceptHoverEvents(true);
     setToolTip(name);
 
-    // Position in scene coords; bounding rect in local (pixel) coords centred at origin
+    // Position in scene coords; bounding rect in local (pixel) coords centered at origin
     setPos(sceneX, sceneY);
     setRect(-radius, -radius, radius * 2.0, radius * 2.0);
 }
@@ -397,7 +397,7 @@ void ScaleBarItem::paint(QPainter *painter, const QStyleOptionGraphicsItem * /*o
 
     const int maxLen = m_settings ? m_settings->maxBarLength() : 100;
 
-    // Round to a "nice" bar length in metres
+    // Round to a "nice" bar length in meters
     double barMetres = maxLen * m_metresPerPixel;
     double magnitude = std::pow(10.0, std::floor(std::log10(barMetres)));
     double nice = barMetres / magnitude;

@@ -12,7 +12,7 @@
  * and unknown persisted document kinds remain pending until their factory appears. Model
  * lifetime signals close associated views before their model facade becomes unavailable.
  *
- * Worker callbacks are marshalled to the GUI thread. Shutdown first suppresses continuations,
+ * Worker callbacks are marshaled to the GUI thread. Shutdown first suppresses continuations,
  * requests cancellation and joins workers; the manager then calls plugin shutdown. Host
  * destruction removes preferences pages, views, docks, ribbon tabs and actions in dependency
  * order. Native libraries stay pinned, so retained Qt callback code cannot be unloaded.

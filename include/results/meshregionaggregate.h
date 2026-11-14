@@ -100,11 +100,11 @@ double aggregateFrame(const std::vector<float> &values,
 
 /*!
  * \brief One region per distinct non-empty tag, sorted case-insensitively,
- *        labelled "Tag: <tag>".
+ *        labeled "Tag: <tag>".
  * \param cellTags Per-cell tags (engine cell order); empty = untagged.
  */
 QVector<MeshRegion> tagRegions(const QStringList &cellTags);
-/** @return The whole domain (cells 0..cellCount-1), labelled "Domain". */
+/** @return The whole domain (cells 0..cellCount-1), labeled "Domain". */
 MeshRegion domainRegion(int cellCount);
 
 /*!

@@ -9,7 +9,7 @@
  *         with `{token}` placeholders, where `{name}` is the element id and
  *         every other token is an attribute lookup (see the resolver in
  *         swmmlayeritem.cpp). Small as it is, typing it blind is unforgiving
- *         — a misspelt token is not an error, it silently substitutes an
+ *         — a misspelled token is not an error, it silently substitutes an
  *         empty string, so the label just comes out short and nothing says
  *         why.
  *
@@ -44,7 +44,7 @@ class LabelExpressionDialog : public QDialog
 
 public:
     /*!
-     * \param fields  Themeable attributes for the sublayer being labelled;
+     * \param fields  Themeable attributes for the sublayer being labeled;
      *                these become the insertable token list.
      * \param initial The expression to seed the editor with.
      * @param[in] parent Optional QWidget owner; caller manages parentless modal dialog.

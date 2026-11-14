@@ -5,7 +5,7 @@
  *         encrypted credentials.
  *
  * The store uses QSettings internally with the default QCoreApplication
- * organisation/application names.  The fixture redirects both to
+ * organization/application names.  The fixture redirects both to
  * test-specific strings and removes the test group in TearDown so real
  * user settings are never touched.
  *

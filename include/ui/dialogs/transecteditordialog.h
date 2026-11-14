@@ -31,7 +31,7 @@
  *
  * Right-click on the chart pops a context menu whose "Chart properties…"
  * entry opens a QPropertyModel-backed editor over the TransectChartView's
- * Q_PROPERTY surface (overbank/channel/ground-fill colours, handle size,
+ * Q_PROPERTY surface (overbank/channel/ground-fill colors, handle size,
  * handles-visible).
  *
  * Per Slice BM.0-Add-New the dialog exposes a static `createNew(...)`

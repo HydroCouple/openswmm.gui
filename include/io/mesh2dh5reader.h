@@ -45,13 +45,13 @@
  *     (depth, head, rainfall, …) and \ref openswmmvis::io::Mesh2DH5Reader::cellCount / \ref openswmmvis::io::Mesh2DH5Reader::triangleCount are
  *     per cell. \ref openswmmvis::io::Mesh2DH5Reader::readCells returns the cells verbatim (v3 = −1 for a
  *     triangle; `_FillValue` / negative entries and /Mesh2_face_nv are
- *     honoured as padding).
+ *     honored as padding).
  *   - \ref openswmmvis::io::Mesh2DH5Reader::readTriangles returns the DISPLAY sub-triangle fan: one triangle
  *     per triangle cell, TWO per quad (split on the same Begnudelli–Sanders
  *     diagonal as the engine's storage model, via mesh::cellGeom — hence
  *     /Mesh2_node_z is consulted). \ref openswmmvis::io::Mesh2DH5Reader::triangleFaceMap maps each display
  *     triangle back to its cell (the identity for an all-triangle file);
- *     \ref openswmmvis::io::Mesh2DH5Reader::displayTriangleCount is its length. Consumers colour each display
+ *     \ref openswmmvis::io::Mesh2DH5Reader::displayTriangleCount is its length. Consumers color each display
  *     triangle with the CELL's value.
  *   - Per-edge arrays (\ref openswmmvis::io::Mesh2DH5Reader::readEdgeFluxAt, \ref openswmmvis::io::Mesh2DH5Reader::readEdgeGeometry) are ALWAYS
  *     returned with stride \ref openswmmvis::io::Mesh2DH5Reader::kEdgeStride (4) — `[cell * 4 + localEdge]`,
@@ -86,7 +86,7 @@ namespace openswmmvis::io
 /*!
  * \brief How a 2D result source's XY coordinates relate to the model's CRS.
  *
- * The engine's 2D solver runs in SI, so every x/y it writes is in **metres**
+ * The engine's 2D solver runs in SI, so every x/y it writes is in **meters**
  * — even when the model (and its `.2dm` mesh, and its `[OPTIONS] CRS`) is
  * authored in feet. Consumers must divide by \ref metresPerModelUnit before
  * reprojecting out of \ref crs, or the results land ~0.3048x toward the CRS
@@ -212,9 +212,9 @@ public:
     int edgeStride() const;
 
     /*! \brief Read vertex coordinates into \p vx,\p vy,\p vz. Resizes output.
-     * @param[out] vx Vertex X coordinates in stored engine SI metres.
+     * @param[out] vx Vertex X coordinates in stored engine SI meters.
      * @param[out] vy Vertex Y coordinates in the same vertex order and units.
-     * @param[out] vz Vertex bed elevations in metres; this dataset is required.
+     * @param[out] vz Vertex bed elevations in meters; this dataset is required.
      * @return True after all three reads; false with a stored diagnostic on closed/missing data or IO failure. Outputs can be partially resized/filled on failure.
      */
     bool readMeshGeometry(std::vector<double> &vx, std::vector<double> &vy,
@@ -222,7 +222,7 @@ public:
 
     /*! \brief Read the cells verbatim. \p cells[c] = {v0,v1,v2,v3}, with
      *  v3 = −1 for a triangle (cyclic order for a quad). Indices are
-     *  normalised to 0-based (`start_index`), padding is taken from
+     *  normalized to 0-based (`start_index`), padding is taken from
      *  `_FillValue` / negative entries / `/Mesh2_face_nv`.
      * @param[out] cells Copied zero-based connectivity, unchanged when cache loading fails.
      * @return True after validating and caching connectivity/display fan; false with a diagnostic on malformed layout or vertex indices.
@@ -280,7 +280,7 @@ public:
     /*!
      * \brief Read one time slice of \c /Mesh2_face_depth.
      * \param timeIdx 0-based time index (must be < timeCount()).
-     * \param depths  Output, resized to triangleCount(). Values in metres.
+     * \param depths  Output, resized to triangleCount(). Values in meters.
      * \returns true on success.
      */
     bool readDepthsAt(int timeIdx, std::vector<float> &depths) const;
@@ -291,8 +291,8 @@ public:
      * @brief Read compact depths and optional edge flux for a bounded native-cell selection.
      * @param[in] timeIdx Zero-based available report frame.
      * @param[in] cells Strictly increasing distinct IDs below cellCount(), bounded by Mesh2DHydraulicFrame::maxCells; empty is allowed.
-     * @param[out] depths Metres in selection order, cleared on failure.
-     * @param[out] flux Outward-positive cubic metres per second, four slots per selected cell; empty when the dataset is absent or the read fails.
+     * @param[out] depths Meters in selection order, cleared on failure.
+     * @param[out] flux Outward-positive cubic meters per second, four slots per selected cell; empty when the dataset is absent or the read fails.
      * @param[out] stats Optional selection/layout counters reset on entry; may contain partial diagnostics on failure.
      * @return True when depth and any present flux dataset were read, false on invalid selection or read/metadata failure. Missing/unallocated values become NaN.
      */
@@ -303,7 +303,7 @@ public:
      * @brief Read a single native-cell depth without materializing a whole frame.
      * @param[in] timeIdx Zero-based available report frame.
      * @param[in] cell Zero-based native cell index.
-     * @param[out] depth Metres, initialized to NaN before validation; may remain NaN for an unavailable value even on success.
+     * @param[out] depth Meters, initialized to NaN before validation; may remain NaN for an unavailable value even on success.
      * @return False on invalid indices or dataset/read failure; invalid-index rejection need not set lastError().
      */
     bool readDepthAt(int timeIdx, int cell, float &depth) const;
@@ -379,7 +379,7 @@ public:
      * \brief Read one time slice of \c /Mesh2_node_head — the engine's
      *        pseudo-Laplacian vertex-head reconstruction.
      * \param timeIdx 0-based time index (must be < timeCount()).
-     * \param heads   Output, resized to vertexCount(). Values in metres,
+     * \param heads   Output, resized to vertexCount(). Values in meters,
      *                read as double — heads carry the elevation datum, and a
      *                float ulp at high z exceeds the dry-depth threshold.
      * \returns true on success; false (without HDF5 error spam — presence is
@@ -394,7 +394,7 @@ public:
      *        render field: dry-cell bed elevations never contribute, negative
      *        over the dry side of partially wet cells).
      * \param timeIdx 0-based time index (must be < timeCount()).
-     * \param depths  Output, resized to vertexCount(). Metres; float is ample
+     * \param depths  Output, resized to vertexCount(). Meters; float is ample
      *                because the datum is subtracted engine-side in double.
      * \returns true on success; false (presence probed once via H5Lexists and
      *          cached) when the file predates the dataset — callers then fall
@@ -430,7 +430,7 @@ public:
      *                (\c [cell*kEdgeStride + localEdge], file width repacked).
      * \param nx,ny   Output, same layout.
      * \returns true on success.
-     * @details Lengths are in metres and normals are dimensionless. Triangle padding slots are zero. Output vectors may be partially populated when an error is reported.
+     * @details Lengths are in meters and normals are dimensionless. Triangle padding slots are zero. Output vectors may be partially populated when an error is reported.
      */
     bool readEdgeGeometry(std::vector<float> &length, std::vector<float> &nx,
                           std::vector<float> &ny) const;

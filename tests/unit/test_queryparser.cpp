@@ -190,7 +190,7 @@ TEST(QueryParser, MissingFieldEvaluatesFalse)
 // Referenced-field collection
 // ---------------------------------------------------------------------------
 //
-// The Attribute Table's filter proxy uses this to materialise ONLY the
+// The Attribute Table's filter proxy uses this to materialize ONLY the
 // columns a predicate compares, instead of every column of every row.  If
 // it under-reports a field, that column silently goes missing from the row
 // map and the predicate reads it as absent — i.e. quietly wrong results,

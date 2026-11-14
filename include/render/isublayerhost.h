@@ -32,7 +32,7 @@
  *         through the individual ISublayer instances.
  *
  *         Sublayer ownership is the host's responsibility — the interface
- *         does not prescribe a smart-pointer flavour; concrete hosts pick
+ *         does not prescribe a smart-pointer flavor; concrete hosts pick
  *         what fits their existing lifetime story (typically QObject
  *         parent-child for layers that already lean on Qt ownership).
  *

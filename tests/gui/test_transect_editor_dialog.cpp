@@ -13,8 +13,8 @@
  *  TransectProvider (10):
  * - setAllPoints rejects non-monotone stations + emits mutationRejected.
  * - setElevationAt validates index; emits pointsChanged.
- * - setPointAt enforces strict-monotone with neighbours.
- * - setPointLive clamps station between neighbours; clamped flag set.
+ * - setPointAt enforces strict-monotone with neighbors.
+ * - setPointLive clamps station between neighbors; clamped flag set.
  * - insertPoint inserts at sorted position; rejects equal-station collision.
  * - removePointsAt removes duplicate indices once and retains the other points.
  * - setRoughness emits roughnessChanged exactly once on change, none on no-op.
@@ -37,7 +37,7 @@
  * - headerData reflects unitsSuffix override.
  * - setData(col 1) updates elevation; chart-bound side stays consistent.
  * - setData(col 0) X-edit enforced via provider monotonicity (refused at
- *      neighbour collision).
+ *      neighbor collision).
  *
  *  TransectChartView (3):
  * - setProvider rebuilds the channel line for a transect without configured banks.
@@ -198,7 +198,7 @@ private slots:
 
     /**
      *
-     * @brief Require a middle station colliding with either neighbour to fail and station 0.5 to
+     * @brief Require a middle station colliding with either neighbor to fail and station 0.5 to
      * succeed.
      * The right test equals station two rather than exceeding it; checks stored station
      * only, without elevation, signal or non-finite assertions.
@@ -219,7 +219,7 @@ private slots:
 
     /**
      *
-     * @brief Require an oversized live drag to clamp strictly inside neighbouring stations and
+     * @brief Require an oversized live drag to clamp strictly inside neighboring stations and
      * report clamping.
      * Then accepts station 0.5 without clamping. Checks returned flag and bounds, without
      * pinning clamp epsilon or sending actual mouse events.
@@ -230,7 +230,7 @@ private slots:
         TransectProvider p(QStringLiteral("T4"));
         QVERIFY(p.setAllPoints({{0.0, 10.0}, {1.0, 5.0}, {2.0, 8.0}}));
         bool clamped = false;
-        // Try to push idx 1 past the right neighbour at 2.0 — gets clamped.
+        // Try to push idx 1 past the right neighbor at 2.0 — gets clamped.
         QVERIFY(p.setPointLive(1, 5.0, 5.0, &clamped));
         QVERIFY(clamped);
         QVERIFY(p.pointAt(1).station < 2.0);
@@ -527,7 +527,7 @@ private slots:
 
     /**
      *
-     * @brief Require moving the middle station beyond its right neighbour to fail without
+     * @brief Require moving the middle station beyond its right neighbor to fail without
      * changing station one.
      * Then accepts station 0.5. Checks provider station values only, without signal counts,
      * live-drag clamping or elevation comparisons.
@@ -539,7 +539,7 @@ private slots:
         QVERIFY(p.setAllPoints({{0.0, 0.0}, {1.0, 0.0}, {2.0, 0.0}}));
         TransectStationTableModel m;
         m.setProvider(&p);
-        // Try to push middle station past the right neighbour.
+        // Try to push middle station past the right neighbor.
         QVERIFY(!m.setData(m.index(1, 0), 2.5, Qt::EditRole));
         QCOMPARE(p.pointAt(1).station, 1.0);
         // OK move within bounds.
@@ -585,9 +585,9 @@ private slots:
     void chartView_SplitsAtBankStations()
     {
         // Bank stations partition the topography into three series:
-        //   left overbank  : stations ≤ xLeftBank   (overbank colour)
-        //   channel        : stations ∈ [xL, xR]    (channel colour)
-        //   right overbank : stations ≥ xRightBank  (overbank colour)
+        //   left overbank  : stations ≤ xLeftBank   (overbank color)
+        //   channel        : stations ∈ [xL, xR]    (channel color)
+        //   right overbank : stations ≥ xRightBank  (overbank color)
         // Interpolated cut vertices land exactly at each bank station so the
         // three series meet pixel-perfectly at the bank markers.
         TransectChartView view;
@@ -713,7 +713,7 @@ private slots:
         };
 
         // Row 1 onward: 5 → 4 and 10 → 12 would each break the order cell by
-        // cell against the old neighbours; as a block they are valid.
+        // cell against the old neighbors; as a block they are valid.
         selectRow(1);
         QVERIFY(clip->pasteText(QStringLiteral("Station\tElevation\n4\t1\n12\t5\n15\t9\n")));
         QCOMPARE(d->pointCount(), 4);

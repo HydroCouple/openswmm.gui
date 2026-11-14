@@ -3,7 +3,7 @@
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
- * @brief     Layer that colour-maps SWMM simulation output over the network
+ * @brief     Layer that color-maps SWMM simulation output over the network
  *         geometry for interactive time-stepped playback.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
@@ -59,7 +59,7 @@ enum class ClassEditKind; // Gap B1 — legend facade (full def in ifeaturerende
 
 /*!
  * \enum SWMMResultVariable
- * \brief Selectable result output variables for colour-mapped display.
+ * \brief Selectable result output variables for color-mapped display.
  */
 enum class SWMMResultVariable {
     // Node results
@@ -89,17 +89,17 @@ enum class SWMMResultVariable {
  * \class SWMMResultsLayer
  * \brief Overlays time-stepped simulation results on the SWMM network geometry.
  * \details Reads output from an OpenSWMMEngine binary results file (.out), maps
- *          a selected variable at the current simulation time step to a colour
- *          ramp, and paints the network elements with those colours.
+ *          a selected variable at the current simulation time step to a color
+ *          ramp, and paints the network elements with those colors.
  *
  *          Supports:
  *          - Animation: step forward/backward through the time series.
  *          - Any SWMMResultVariable (node depth/head, link flow/velocity, etc.).
- *          - A configurable RasterColorRamp for consistent colour mapping.
+ *          - A configurable RasterColorRamp for consistent color mapping.
  *          - Legend rendering.
  *
  *          The layer delegates geometry loading to an associated SWMMModelLayer
- *          and only manages the colour-mapping / time-stepped rendering.
+ *          and only manages the color-mapping / time-stepped rendering.
  */
 class SWMMResultsLayer : public OpenSWMMVisLayer,
                          public OpenSWMM::Render::ISublayerHost,
@@ -139,7 +139,7 @@ public:
      * @param[in] resultsFilePath Stored binary output path for later open/live operations.
      * @param[in] modelLayer Optional nonowned model geometry/topology/attributes source; must outlive every operation that uses it.
      * @param[in] parent Optional workspace QObject owner.
-     * @note Copies model CRS when present, owns eleven category sublayers/default renderer and seeds profile colours/pens from a process-wide palette counter. Substyle changes can refetch the current frame and request structural repaint; source selection changes request value restyle. Use GUI-thread state/scene operations and serialized output-reader access.
+     * @note Copies model CRS when present, owns eleven category sublayers/default renderer and seeds profile colors/pens from a process-wide palette counter. Substyle changes can refetch the current frame and request structural repaint; source selection changes request value restyle. Use GUI-thread state/scene operations and serialized output-reader access.
      */
     explicit SWMMResultsLayer(const QString &resultsFilePath, class SWMMModelLayer *modelLayer,
                               OpenSWMMVisWorkspace *parent = nullptr);
@@ -216,11 +216,11 @@ public:
      *          (cycled by an internal layer counter), but user-editable via
      *          the Sources panel.  Persisted in .oswp once the result-layer
      *          schema upgrades to objects (currently still a path-string array).
-     * @return Copied categorical/profile identity colour; individual overlay pen/brush colours are independent after construction.
+     * @return Copied categorical/profile identity color; individual overlay pen/brush colors are independent after construction.
      */
     [[nodiscard]] QColor profileLineColor() const;
     /**
-     * @param[in] color Raw identity colour, copied without validity check.
+     * @param[in] color Raw identity color, copied without validity check.
      * @note Equality is a no-op; change emits profileLineColorChanged() only. Existing profile overlay pens/brushes retain their independent values.
      */
     void setProfileLineColor(const QColor &color);
@@ -235,7 +235,7 @@ public:
     //
     // Defaults are derived from profileLineColor() at construction.
     // setProfileLineColor() does NOT re-derive them: once the user
-    // customises a pen, it stays put across colour changes.  Each setter
+    // customizes a pen, it stays put across color changes.  Each setter
     // emits the matching changed() signal; the dialog uses that to
     // refresh its preview swatch.
     // -------------------------------------------------------------------
@@ -306,8 +306,8 @@ public:
      *          profileEglLinePen,
      *          profileMaxHglLinePen, profileMaxHglFillBrush,
      *          profileMaxEglLinePen
-     *        Values are QPen / QBrush variants — Qt serialises them via
-     *        QDataStream so colour, width, style, and dash pattern all round-trip.
+     *        Values are QPen / QBrush variants — Qt serializes them via
+     *        QDataStream so color, width, style, and dash pattern all round-trip.
      * @param[in,out] settings Borrowed QSettings positioned at the caller-selected group/array index. Writes six QPen/QBrush variants relative to that position, without entering/leaving groups.
      * @note Qt preserves complete pen/brush variant details; this method performs settings writes but does not call sync(), inspect status or report persistence failure.
      */
@@ -370,7 +370,7 @@ public:
      *        layer leaves live mode and emits \ref resultsFinalized.
      * \returns the current period count (unchanged when not live).
      * @return Current stored period count, unchanged for closed/nonlive/refresh failure.
-     * @note GUI-thread/serialized reader access. Only growth updates count/end/report origin and clears whole-run ranges/statistics; first data fetches stepzero, marks structural and emits current step/time. Emits totalTimeStepsChanged()/periodsAppended() on growth, then resultsFinalized() if footer detected. It neither follows the newest step automatically nor emits repaintRequested() directly; count decreases are ignored. Inflight full-run range scans are not cancelled here.
+     * @note GUI-thread/serialized reader access. Only growth updates count/end/report origin and clears whole-run ranges/statistics; first data fetches stepzero, marks structural and emits current step/time. Emits totalTimeStepsChanged()/periodsAppended() on growth, then resultsFinalized() if footer detected. It neither follows the newest step automatically nor emits repaintRequested() directly; count decreases are ignored. Inflight full-run range scans are not canceled here.
      */
     int refreshLive();
 
@@ -436,12 +436,12 @@ public:
     // names or when the underlying file is closed.
     //
     // Each aggregator is one O(n_periods) walk of the .out file, so all
-    // four are memoised per node index (see m_nodeStats / nodeStatsFor,
+    // four are memoized per node index (see m_nodeStats / nodeStatsFor,
     // cleared by closeResults()) — same reason and same shape as the
     // link / subcatchment caches below.
     /**
      * @param[in] nodeName Exact case-sensitive object name resolved through this output's cached ID map.
-     * @return Maximum reported node water depth in file length units (feet or metres). Unknown name/closed source/failed contributing getter yields zero for the unavailable statistic, which is indistinguishable from a true zero.
+     * @return Maximum reported node water depth in file length units (feet or meters). Unknown name/closed source/failed contributing getter yields zero for the unavailable statistic, which is indistinguishable from a true zero.
      * @note Lazy per-output-index memoization can read complete series on first access; serialize with all other reader/cache users. Report-step extrema/integrals need not match routing-step report summaries. Caches clear on close/live growth; current-model topology/units/area changes alone do not invalidate them.
      */
     [[nodiscard]] double nodeStatMaxDepth(const QString &nodeName) const;
@@ -659,7 +659,7 @@ public:
      */
     void stepBackward(bool loop = false);
 
-    // ----- Variable & colour mapping --------------------------------------
+    // ----- Variable & color mapping --------------------------------------
 
     /**
      * @return Stored legacy layer-level variable enum, initially NodeDepth; per-kind renderers/substyles can select independent attributes.
@@ -682,7 +682,7 @@ public:
     void setColorRamp(const RasterColorRamp &ramp);
 
     /*!
-     * \brief Automatically sets the colour ramp range from the data min/max
+     * \brief Automatically sets the color ramp range from the data min/max
      *        across all time steps for the current variable.
      * @note No-op when closed/no periods/unsupported variable. Otherwise captures path/variable/count and schedules an independent-reader scan; guarded GUI completion updates only legacy ramp min/max then requests repaint. It does not retarget/reclassify category renderers, rebuild current overrides or mark scene dirty. No generation guard prevents older variable/source scan completion overwriting the current ramp.
      */
@@ -802,12 +802,12 @@ public:
     [[nodiscard]] bool supportsClassEdit(OpenSWMM::Render::ClassEditKind kind) const;
     /**
      * @param[in] classKey Exact kindKey + U+001F separator + renderer-specific inner class key.
-     * @return Renderer class colour, invalid QColor for malformed kind key/missing slot or renderer-specific miss.
+     * @return Renderer class color, invalid QColor for malformed kind key/missing slot or renderer-specific miss.
      */
     [[nodiscard]] QColor colorForClass(const QString &classKey) const;
     /**
      * @param[in] classKey Kind-qualified renderer class identity.
-     * @param[in] color Colour forwarded without layer-level validity/equality/capability checks.
+     * @param[in] color Color forwarded without layer-level validity/equality/capability checks.
      * @note Malformed key/missing slot is a no-op; otherwise renderer handles inner key, overrides rebuild, Values dirtiness/repaint requested even if edit had no effect. Does not refresh rule mirror or emit rendererChanged().
      */
     void setColorForClass(const QString &classKey, const QColor &color);
@@ -933,7 +933,7 @@ public:
      * @param[in] canvasExtent Ignored by network population; forwarded to trace analysis population.
      * @param[in] canvasSRS Ignored by network population (no transform applied here); forwarded to trace analysis. Model cache coordinates must match expected scene map frame.
      * @note GUI-thread operation skips hidden/transparent/unbound-model state. Analysis parts populate before output-handle/period prerequisite; network then resets item caches and appends visible categories without deleting prior items. Caller must depopulate first to avoid duplicates/dangling caches.
-     * @note Colour priority is kind override then sampled legacy ramp then static style; invalid/missing themed rows can be omitted. Points ignore view transforms, lines use cosmetic pens, polygons honour patterned fill on population, arrows use signed flow midpoint and full-run magnitude scale. Applies shared model selection and labels afterward. No source frame fetch occurs here.
+     * @note Color priority is kind override then sampled legacy ramp then static style; invalid/missing themed rows can be omitted. Points ignore view transforms, lines use cosmetic pens, polygons honor patterned fill on population, arrows use signed flow midpoint and full-run magnitude scale. Applies shared model selection and labels afterward. No source frame fetch occurs here.
      */
     void populateScene(QGraphicsScene *scene, const MapExtent &canvasExtent,
                        const SpatialReferenceSystem *canvasSRS) override;
@@ -1050,7 +1050,7 @@ public:
      *        Replaces the generic ISublayer::legendSymbolItems()
      *        single-swatch output with graduated legend rows that reflect
      *        what populateScene actually paints (5 bins from m_colorRamp,
-     *        ranged across each sublayer's sampled attribute range, labelled
+     *        ranged across each sublayer's sampled attribute range, labeled
      *        with value samples). Used by LegendLayerTreeModel when the
      *        layer is a SWMMResultsLayer; the generic ISublayer aggregator
      *        remains the fallback for other host layers.
@@ -1090,7 +1090,7 @@ signals:
      */
     void scenarioNameChanged(const QString &name);
     /**
-     * @param[in] color New raw profile identity colour; individual pens remain unchanged.
+     * @param[in] color New raw profile identity color; individual pens remain unchanged.
      */
     void profileLineColorChanged(const QColor &color);
     /**
@@ -1142,7 +1142,7 @@ signals:
      */
     void resultsOpenFinished(bool ok);
     /*! \brief Emitted when setRenderer() swaps the renderer pointer.
-     * @note Emitted for layer renderer replacement and category slot changes. Category change also requests repaint; layer-level setRenderer() does not. Direct per-class colour edits and per-frame classifications can update without this signal.
+     * @note Emitted for layer renderer replacement and category slot changes. Category change also requests repaint; layer-level setRenderer() does not. Direct per-class color edits and per-frame classifications can update without this signal.
      */
     void rendererChanged();
 
@@ -1191,7 +1191,7 @@ private:
 
     /**
      * @param[in] step Valid zero-based available report period; closed/out-of-range is a no-op retaining old caches.
-     * @note GUI-thread serialized reader access. Collects selected variable, visible sublayer colour/label/expression/arrow fields, installed renderer attributes and enabled size channels. Resolves qual:name against run species, logs first unresolved token per run, drops unneeded per-variable buffers, reads needed full-object vectors and updates legacy mirrors/overrides.
+     * @note GUI-thread serialized reader access. Collects selected variable, visible sublayer color/label/expression/arrow fields, installed renderer attributes and enabled size channels. Resolves qual:name against run species, logs first unresolved token per run, drops unneeded per-variable buffers, reads needed full-object vectors and updates legacy mirrors/overrides.
      * @note Reader result statuses are not checked after buffer resize; no failure signal/transactional restore is supplied. Does not set m_currentStep, emit time/repaint or mark scene dirty itself.
      */
     void fetchResultsForStep(int step);
@@ -1201,11 +1201,11 @@ private:
      */
     void buildOutputIdMaps();
 
-    /*! Slice §Y.2 — apply current per-feature colour / pen state to the
+    /*! Slice §Y.2 — apply current per-feature color / pen state to the
      *  cached scene items without destroying / recreating them. Called from
      *  refreshScene when m_sceneDirty == ValuesDirty.
      * @param[in] scene Borrowed destination for label refresh; should contain all cached items.
-     * @note GUI-thread value-only path recolours existing nonnull items/hides missing values and adjusts line pens, then reapplies selection/labels. Does not recreate missing rows or marker geometry/size, arrow geometry or polygon fill pattern (uses solid brush); incompatible category cache counts are skipped, not automatically escalated. RequiresStructuralRebuildForRestyle() must gate arrows.
+     * @note GUI-thread value-only path recolors existing nonnull items/hides missing values and adjusts line pens, then reapplies selection/labels. Does not recreate missing rows or marker geometry/size, arrow geometry or polygon fill pattern (uses solid brush); incompatible category cache counts are skipped, not automatically escalated. RequiresStructuralRebuildForRestyle() must gate arrows.
      */
     void restyleScene(QGraphicsScene *scene);
 
@@ -1218,12 +1218,12 @@ private:
 
     /*! L-1 — (re)build / update per-feature labels from labelConfig(). Each
      *  visible feature gets a "name: value unit" text item showing the
-     *  current timestep's value for the colouring attribute. Called at the
+     *  current timestep's value for the coloring attribute. Called at the
      *  end of populateScene (structural) and restyleScene (per-frame) so the
      *  text follows the animation. No-op (and clears) when labels are off.
      * @param[in] scene Optional destination; null/unbound model clears all labels.
      * @note GUI thread resolves enabled sublayer config or layer fallback, scale-window gates via owning canvas views and updates labels only for existing visible feature items with matching category counts. Expressions substitute case-insensitive name and exact result tokens, unknown/nonfinite values empty; no arithmetic/evaluation engine.
-     * @note Default text adds descriptor unit strings to raw native values without conversion. Explicit field shows value only; expressions retain literal text. Uses label decimal/font/colour/halo settings, anchors at scene-bounds centre plus scene-unit placement offsets, applies layer opacity, and deletes disabled-category labels. No collision layout, source IO or signal occurs here.
+     * @note Default text adds descriptor unit strings to raw native values without conversion. Explicit field shows value only; expressions retain literal text. Uses label decimal/font/color/halo settings, anchors at scene-bounds center plus scene-unit placement offsets, applies layer opacity, and deletes disabled-category labels. No collision layout, source IO or signal occurs here.
      */
     void refreshLabels(QGraphicsScene *scene);
     /**
@@ -1234,7 +1234,7 @@ private:
 
     /*! Slice §Y.2 — incremental restyle path can't safely handle line
      *  sublayers with flow arrows on (arrow geometry depends on the flow
-     *  value, not just its colour). Returns true when at least one visible
+     *  value, not just its color). Returns true when at least one visible
      *  sublayer would need a structural rebuild.
      * @return True if a visible positive-opacity line-category sublayer requests flow arrows, false otherwise. Does not inspect actual flow availability or layer visibility.
      */
@@ -1276,7 +1276,7 @@ private:
     int m_reportStepSec = 0;
 
     // Per-source profile styling -----------------------------------------
-    // Initialised from m_profileLineColor at construction; independently
+    // Initialized from m_profileLineColor at construction; independently
     // editable thereafter (color changes do NOT clobber them).
     QPen m_profileHglLinePen;
     QBrush m_profileHglFillBrush;
@@ -1305,12 +1305,12 @@ private:
     // 2026-07-19 — period 0's report time; see reportedStartDateTime().
     QDateTime m_reportedStartDateTime;
 
-    // Variable & colour mapping -------------------------------------------
+    // Variable & color mapping -------------------------------------------
     SWMMResultVariable m_variable = SWMMResultVariable::NodeDepth;
     RasterColorRamp m_colorRamp;
     bool m_showLegend = true;
 
-    // Slice BI Phase 8.13.6.3 — renderer plumbing. Initialised eagerly in
+    // Slice BI Phase 8.13.6.3 — renderer plumbing. Initialized eagerly in
     // the ctor (default GraduatedRenderer) so renderer() never returns null.
     // The existing paint loop still reads m_colorRamp / m_variable; 8.13.6.4
     // refactors that to consult m_renderer instead.
@@ -1400,7 +1400,7 @@ private:
      *  for c, when no result vector is available for the kind's scope,
      *  or when the category cannot resolve an output scope.
      * @param[in] c Category ordinal; invalid returns without mutation.
-     * @note Clears that category colour/size/width/shape/dash/range caches first; unbound model/output/missing renderer/empty category returns without active overrides. Otherwise maps model names to output indices, asks renderer per row, retains fallback ramp colour where possible and applies sublayer size channel last.
+     * @note Clears that category color/size/width/shape/dash/range caches first; unbound model/output/missing renderer/empty category returns without active overrides. Otherwise maps model names to output indices, asks renderer per row, retains fallback ramp color where possible and applies sublayer size channel last.
      * @note Numeric classify/independent-size lookup currently uses hydraulic-only mappers here; qual:name values fetched elsewhere are not resolved by those local lookups. Categorized nonnumeric fallback caches current-model identify strings by category/attribute and count, without automatically invalidating equal-count attribute edits.
      * @note Graduated classification can schedule full-run range scans; FixedOverRun adds extrema to current frame samples rather than collecting full-run distribution. No signals/dirty escalation emitted here; caller coordinates scene refresh and serialized state access.
      */
@@ -1435,7 +1435,7 @@ private:
      *  classify attribute maps to \p outCode and whose RangeMode is
      *  FixedOverRun, so breaks span the whole run instead of the frame
      *  that happened to be showing at install time.
-     * @param[in] scope Zero node, one link, two subcatch; other values select no colour kinds.
+     * @param[in] scope Zero node, one link, two subcatch; other values select no color kinds.
      * @param[in] outCode Resolved scope output code; negative is a no-op.
      * @note Clears breaks/rebuilds matching FixedOverRun graduated kinds and matching fixed-run point/line size channels from newly cached extremes. Marks Values only if any rebuilt; caller emits repaint. Does not refresh rule mirror or reader buffers.
      */
@@ -1546,7 +1546,7 @@ private:
     // point) so paint order looks correct out of the box.
     OpenSWMM::Render::FeatureSublayer *m_featureSublayers[SWMMModelLayer::NumCategories] = {};
 
-    // User-customisable sublayer paint order (Slice GUI-2026-05-30 §2).
+    // User-customizable sublayer paint order (Slice GUI-2026-05-30 §2).
     // Populated lazily on first sublayers() / moveSublayer() call from the
     // archetype-default sequence (polygon → line → marker).  Reordered via
     // moveSublayer(); persisted by ISublayerHost::saveSublayersToJson and

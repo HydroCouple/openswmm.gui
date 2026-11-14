@@ -730,7 +730,7 @@ TableClipboard::CellResult TableClipboard::writeThroughDelegate(const QModelInde
     };
 
     QWidget *w = editorWidget(editor);
-    if (!w) { // expression editors, colour pickers, ...
+    if (!w) { // expression editors, color pickers, ...
         dispose();
         return writePlain(index, token);
     }

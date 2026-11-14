@@ -45,9 +45,9 @@ template <typename Enum> QString enumToString(Enum v)
     return QString::fromLatin1(QMetaEnum::fromType<Enum>().valueToKey(static_cast<int>(v)));
 }
 
-// Structured font serialisation — QFont::toString/fromString is brittle
+// Structured font serialization — QFont::toString/fromString is brittle
 // when the family is empty (the default-constructed app font on macOS
-// before QGuiApplication initialises), so write each meaningful field.
+// before QGuiApplication initializes), so write each meaningful field.
 /** @brief Save the font fields explicitly supported by the legend style schema.
  * @param f Font inspected without mutation, including a default application font.
  * @return Owned family, pointSizeF, weight, italic, underline and strikeOut

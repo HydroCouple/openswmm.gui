@@ -18,7 +18,7 @@
  * says so — which is the assertion the phase actually needs.
  *
  * The fixture is a real .inp (tests/data/inlets/street_inlet.inp) and every
- * artefact is written to tests/output/inlets/ so it can be reviewed
+ * artifact is written to tests/output/inlets/ so it can be reviewed
  * (CLAUDE.md §4.1), never to a temp dir.
  *
  * @author    Caleb Buahin <caleb.buahin@gmail.com>

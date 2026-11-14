@@ -103,7 +103,7 @@ private slots:
     void onMeshRemove();
     /**
      * @brief Browse for a mesh and ask the project window to import it asynchronously.
-     * No project or cancelled picker returns. The project performs copying/parsing/layer
+     * No project or canceled picker returns. The project performs copying/parsing/layer
      * adoption; one-shot meshImportFinished connection on this page handles the next
      * completion, without a request identifier. Its ok flag gates success, borrowed
      * message supplies failure text, and borrowed meshPath supplies a basename to find

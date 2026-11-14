@@ -63,7 +63,7 @@ QString trn(const char *s, int n)
     return QCoreApplication::translate("RainGageAssignment", s, nullptr, n);
 }
 
-// Generated objects are named NNG_### (Natural-Neighbour Gage). The pattern is
+// Generated objects are named NNG_### (Natural-Neighbor Gage). The pattern is
 // also how a later run RECOGNISES its own output, so it must stay stable.
 const QString kGenPrefix = QStringLiteral("NNG_");
 
@@ -88,7 +88,7 @@ bool isGeneratedName(const QString &name)
     return re.match(name).hasMatch();
 }
 
-// Same 1e-7 quantisation NaturalNeighbourInterpolator uses to snap-dedupe its
+// Same 1e-7 quantization NaturalNeighbourInterpolator uses to snap-dedupe its
 // seeds, so the plan and the interpolator agree on which gages are distinct.
 /**
  * @brief Quantize a location onto the same site grid as natural-neighbor deduplication.
@@ -121,12 +121,12 @@ QString rdiiMember(const QString &node)
 }
 
 /*! Run fn(begin, end) over [0, n) in chunks on the global pool, counting
- *  progress and honouring cancellation. Results must be written by index so
+ *  progress and honoring cancellation. Results must be written by index so
  *  the outcome is independent of scheduling. * @tparam Fn Callable accepting half-open begin/end indexes and writing disjoint result positions.
  * @param[in] n Nonnegative work-item count.
  * @param[in,out] progress Optional atomic cancellation/progress object valid until all chunks return.
  * @param[in] fn Callback invoked concurrently on global-pool threads for chunks of at most 64 items.
- * @details Blocks until all scheduled chunks finish. Cancelled chunks are skipped; already-started callbacks perform their own cancellation checks if needed.
+ * @details Blocks until all scheduled chunks finish. Canceled chunks are skipped; already-started callbacks perform their own cancellation checks if needed.
  */
 template <class Fn> void parallelChunks(int n, Progress *progress, Fn &&fn)
 {
@@ -816,7 +816,7 @@ Plan interpolatedPlan(const Input &in, Progress *progress)
 
     // An un-located gage is fatal here, not merely excluded: interpolation is
     // a statement about the whole network, and silently dropping a gage would
-    // redistribute its rainfall onto its neighbours without the user knowing.
+    // redistribute its rainfall onto its neighbors without the user knowing.
     if (!in.unlocated.isEmpty()) {
         plan.error = tr("These rain gages have no map location: %1.\n\n"
                         "Interpolation needs every gage placed. Give them "
@@ -1000,7 +1000,7 @@ Plan interpolatedPlan(const Input &in, Progress *progress)
         return candidate;
     };
 
-    // Blend every cluster from its key's dequantised weights, so a series is a
+    // Blend every cluster from its key's dequantized weights, so a series is a
     // pure function of the key rather than of whichever member came first.
     const QStringList keys = members.keys();
     QVector<GageBlend::BlendResult> blends(keys.size());
@@ -1150,7 +1150,7 @@ Plan computePlan(const Input &in, Progress *progress)
                                  plan.splitGroups));
 
     // A generated gage is a bookkeeping object, not a physical instrument: it
-    // has no real location. Park them at the centre of the gage network so
+    // has no real location. Park them at the center of the gage network so
     // they render somewhere sensible instead of at the origin.
     double cx = 0.0, cy = 0.0;
     for (const GageSite &s : in.gages) {

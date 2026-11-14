@@ -48,7 +48,7 @@ public:
      *  treat that as a request to add one series per attribute.
      *
      *  Mesh kinds (`Mesh2DCell` / `Mesh2DEdge` / `Mesh2DVertex`) get their
-     *  fixed list from `attributesForKind`; the caller greys out entries the
+     *  fixed list from `attributesForKind`; the caller grays out entries the
      *  layer can't serve. Returns `nullptr` for `Kind::Unknown` or
      *  `Kind::Observed` (those don't use this picker).
      * @param[in] kind Supported node/link/subcatchment/mesh/system kind. System dispatches to createForSystem().
@@ -63,7 +63,7 @@ public:
                                       const QStringList &speciesNames = QStringList());
 
     /*! \brief V0 / R4: the same menu with the species taken from the run's
-     *  catalog — every entry labelled with its kind badge and units
+     *  catalog — every entry labeled with its kind badge and units
      *  (`RunSpeciesCatalog::pickerLabel`); species the `.out` lacks (2D-only
      *  MSX species) are listed disabled with the reason. On nodes and links
      *  each pollutant carrying a load is followed by its load and cumulative
@@ -81,7 +81,7 @@ public:
     /*! \brief Pop a "Plot time series" context menu for a 2D mesh kind at
      *  \p globalPos and return what the user picked — one entry, or every
      *  enabled entry when "All attributes" was chosen. Entries
-     *  \p availability can't serve (`supportsAttribute` false) are greyed
+     *  \p availability can't serve (`supportsAttribute` false) are grayed
      *  out with \p unavailableTip as tooltip; pass nullptr to enable all.
      *  With an \p availability layer, the 2D catalog variables it lists
      *  (`resultDescriptorsForKind`) follow under Surface / Groundwater

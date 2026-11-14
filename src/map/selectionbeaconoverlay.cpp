@@ -97,7 +97,7 @@ void SelectionBeaconOverlay::paint(QPainter &p,
     const QRectF bounds(QPointF(xMin, yMin), QPointF(xMax, yMax));
 
     // Zoomed out far enough that the whole selection lands inside one
-    // beacon: collapse to a single ring at its centre. Drawing N coincident
+    // beacon: collapse to a single ring at its center. Drawing N coincident
     // rings there would just stack alpha into a blob and say nothing more.
     const bool aggregate = px.size() > kMaxBeacons || (bounds.width() <= kBeaconRadiusPx * 2 &&
                                                        bounds.height() <= kBeaconRadiusPx * 2);

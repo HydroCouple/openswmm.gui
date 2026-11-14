@@ -19,7 +19,7 @@
  *   - connecting links are drawn per link TYPE: a pump gets a symbol rather
  *     than a barrel, and an orifice gets a wall with fill above and below the
  *     opening rather than a pipe.
- *   - a stage that VARIES (tidal, time series) is never labelled with a number.
+ *   - a stage that VARIES (tidal, time series) is never labeled with a number.
  *
  * Fixtures are built in memory (`swmm_engine_new` + the object/setter API), so
  * nothing here needs an .inp on disk. Mirrors the pattern in
@@ -95,7 +95,7 @@ int countLeadersContaining(const SectionDiagramModel &m, const QString &needle)
 
 /**
  * @brief Allocate two junctions and one1-unit circular conduit for elevation annotations.
- * @param[in] invUp Upstream J1 invert in fixture model length units, labelled feet.
+ * @param[in] invUp Upstream J1 invert in fixture model length units, labeled feet.
  * @param[in] invDn Downstream J2 invert in same units.
  * @return Owning BUILDING engine handle with10-unit node depths and1000-unit link, nullptr if
  * allocation
@@ -412,7 +412,7 @@ void TestSectionModelBuilders::irregularSectionDrawsTheTransectAsSurveyed()
 {
     SWMM_Engine e = buildConduitFixture(100.0, 99.0);
     QVERIFY(e);
-    // Off-centre thalweg at station 15, wide right overbank, ×2 stations.
+    // Off-center thalweg at station 15, wide right overbank, ×2 stations.
     QCOMPARE(swmm_transect_add(e, "T1"), SWMM_OK);
     const int t = swmm_transect_count(e) - 1;
     swmm_transect_set_roughness(e, t, 0.05, 0.05, 0.03);
@@ -619,7 +619,7 @@ void TestSectionModelBuilders::storageSilhouetteFollowsItsShape()
 
 void TestSectionModelBuilders::outfallDrawsReceivingWaterOnlyWhenItHasAStage()
 {
-    // FIXED supplies a tailwater elevation, so water is drawn and labelled with
+    // FIXED supplies a tailwater elevation, so water is drawn and labeled with
     // it. FREE supplies none — the pipe discharges to air, and drawing a water
     // body there would invent a boundary the model does not have.
     SWMM_Engine ef = swmm_engine_new();
@@ -759,7 +759,7 @@ namespace
  * lengths;
  * nullptr allocation failure, later edit statuses unchecked. Caller destroys engine. XY/inverts
  * use
- * common feet-labelled fixture units; no file/solver lifecycle or retained source pointers.
+ * common feet-labeled fixture units; no file/solver lifecycle or retained source pointers.
  *
  * @details J0 -> B1 -> J1 -> C1 -> J2 -> B2 -> J3, laid out west-to-east so every
  *  heading resolves. Selecting C1 must show B1 at its upstream node and B2 at
@@ -833,7 +833,7 @@ void TestSectionModelBuilders::linkProfileStubsTheOtherPipesAtBothEnds()
 
     const SectionDiagramModel m = buildLinkProfile(e, swmm_link_index(e, "C1"), kUnits);
 
-    // The branch at each end is drawn and labelled with its own invert.
+    // The branch at each end is drawn and labeled with its own invert.
     QVERIFY2(leadersNaming(m, QStringLiteral("B1")) > 0,
              "upstream node's other pipe was not stubbed");
     QVERIFY2(leadersNaming(m, QStringLiteral("B2")) > 0,
@@ -917,7 +917,7 @@ void TestSectionModelBuilders::linkProfileStubsDoNotWidenTheDrawing()
     QVERIFY(e);
     const QRectF withStubs = buildLinkProfile(e, swmm_link_index(e, "C1"), kUnits).computeBounds();
 
-    // Same reach length in both fixtures? No — normalise by length instead.
+    // Same reach length in both fixtures? No — normalize by length instead.
     const double plainRatio = plain.width() / 1000.0;      // C1 is 1000 long
     const double stubbedRatio = withStubs.width() / 100.0; // C1 is 100 long
     QVERIFY2(stubbedRatio <= plainRatio + 1.0e-9,

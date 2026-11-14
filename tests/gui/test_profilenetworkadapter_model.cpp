@@ -1,6 +1,6 @@
 /**
  * @file      test_profilenetworkadapter_model.cpp
- * @brief     Regression guard for the link-offset normalisation contract that
+ * @brief     Regression guard for the link-offset normalization contract that
  *         `profilenetworkadapter_model.cpp` relies on.
  *
  * What is being pinned
@@ -9,7 +9,7 @@
  * `swmm_link_get_offset_up/dn()` ALWAYS returns the conduit-end offset as
  * **depth above the connecting node invert**, regardless of whether the
  * source .inp declared `LINK_OFFSETS DEPTH` or `LINK_OFFSETS ELEVATION`.
- * `PostParseResolver` in the engine normalises ELEVATION-mode input to
+ * `PostParseResolver` in the engine normalizes ELEVATION-mode input to
  * DEPTH at parse time (see openswmm.engine
  * src/engine/input/PostParseResolver.cpp lines 1013–1022 for conduits and
  * 463–470 for orifices), so the GUI no longer applies any second
@@ -301,7 +301,7 @@ private slots:
         QCOMPARE(elevVals.linkType, 0);
 
         // Both fixtures describe the same physical conduit; after engine
-        // normalisation the API surface must return the same depths.
+        // normalization the API surface must return the same depths.
         QCOMPARE(depthVals.offsetUp, 0.5);
         QCOMPARE(depthVals.offsetDn, 1.5);
         QCOMPARE(elevVals.offsetUp, 0.5);

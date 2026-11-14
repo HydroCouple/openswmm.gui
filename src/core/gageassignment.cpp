@@ -40,7 +40,7 @@ inline double dist2(const QPointF &a, const QPointF &b)
 }
 
 // Two gages closer than this are treated as one site. Matches the snap-dedupe
-// quantisation NaturalNeighbourInterpolator applies to its seeds (1e-7), so the
+// quantization NaturalNeighbourInterpolator applies to its seeds (1e-7), so the
 // two agree on which gages are distinct.
 constexpr double kSiteCoincidenceTol2 = 1e-14;
 
@@ -216,7 +216,7 @@ void ThiessenIndex::build(const QVector<QPointF> &sites, const QRectF &extent)
             live.append(i);
     }
 
-    // Delaunay neighbours, triangulated in a normalised frame for conditioning
+    // Delaunay neighbors, triangulated in a normalized frame for conditioning
     // (the same treatment NaturalNeighbourInterpolator gives its seeds).
     if (live.size() >= 3) {
         double minX = sites[live[0]].x(), maxX = minX;
@@ -238,7 +238,7 @@ void ThiessenIndex::build(const QVector<QPointF> &sites, const QRectF &extent)
             if (cdt.build(norm, &vertexOf)) {
                 cdt.removeSuperTriangles();
                 // Vertex id -> original site index (duplicates after
-                // normalisation collapse onto their first occurrence).
+                // normalization collapse onto their first occurrence).
                 QHash<int, int> siteOfVertex;
                 for (int k = 0; k < live.size(); ++k)
                     if (!siteOfVertex.contains(vertexOf[k]))
@@ -275,7 +275,7 @@ void ThiessenIndex::build(const QVector<QPointF> &sites, const QRectF &extent)
                 if (j != i)
                     m_nbrs[i].append(j);
 
-    // Materialise each cell inside the padded extent, for its bounding box.
+    // Materialize each cell inside the padded extent, for its bounding box.
     // Bounds by hand: QRectF::united() ignores zero-size rectangles, so it
     // cannot fold in points (or a degenerate extent).
     const QRectF e = extent.normalized();
@@ -494,7 +494,7 @@ ClusterKey quantizeWeights(const QVector<double> &w, double tol, double wEps)
     if (n == 0 || !(tol > 0.0))
         return key;
 
-    // Clamp the microscopic tail away, then renormalise what survives.
+    // Clamp the microscopic tail away, then renormalize what survives.
     QVector<double> clamped(n, 0.0);
     double total = 0.0;
     for (int i = 0; i < n; ++i) {

@@ -6,7 +6,7 @@
  * @brief     Per-sublayer styling panel for SWMM2DMeshLayer.
  *
  *         Pattern (same as Swmm2DResultsStylePanel): each control is
- *         initialised from the style bag BEFORE its change-signal is
+ *         initialized from the style bag BEFORE its change-signal is
  *         connected, so construction never fires spurious writes;
  *         afterwards every edit applies live.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -167,7 +167,7 @@ Swmm2DMeshStylePanel::Swmm2DMeshStylePanel(SWMM2DMeshLayer *layer, QWidget *pare
            m_layer->groundwaterMarkerSublayer());
 }
 
-// ─── Terrain fill (ramp + attribute colouring + hillshade) ──────────────────
+// ─── Terrain fill (ramp + attribute coloring + hillshade) ──────────────────
 
 QWidget *Swmm2DMeshStylePanel::buildTerrainFillTab(QWidget *parent)
 {
@@ -181,7 +181,7 @@ QWidget *Swmm2DMeshStylePanel::buildTerrainFillTab(QWidget *parent)
     lay->addWidget(makeSublayerHeader(page, sub, tr("Show terrain fill")));
 
     if (st) {
-        // ── Colour by attribute ─────────────────────────────────────────
+        // ── Color by attribute ─────────────────────────────────────────
         // Bed elevation is the default; any registry cell parameter
         // (Manning's n, init depth, infiltration …) can drive the fill.
         // Previously colorByAttribute / noDataColor / categoryPalette had
@@ -585,7 +585,7 @@ QWidget *Swmm2DMeshStylePanel::buildBcTab(QWidget *parent)
                 vis->setToolTip(tr("Draws wall edges on the mesh boundary in the Wall colour "
                                    "while this sublayer is shown; interior edges keep the "
                                    "Mesh Edges colours."));
-            // Types not present in the mesh stay editable but are greyed so
+            // Types not present in the mesh stay editable but are grayed so
             // the user can see which rows currently draw nothing.
             if (!present.contains(t))
                 vis->setText(vis->text() + tr(" (none in mesh)"));

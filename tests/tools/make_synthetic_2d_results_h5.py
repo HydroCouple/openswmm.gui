@@ -7,7 +7,7 @@ variables, one whole-mesh chunk per frame for face and edge hydraulics, shuffle
 plus deflate level 4, and the static edge geometry. It is meant for timing the
 GUI's 2D results display on large meshes, not for hydraulic checks: depth is a
 rising water surface over an undulating sloped bed, velocity a smooth field,
-and edge flux depth * (v . n) * length (not conservative between neighbours).
+and edge flux depth * (v . n) * length (not conservative between neighbors).
 
 Example (5,999,648 triangles, 6 frames, ~1.5 GB):
     python -I make_synthetic_2d_results_h5.py --side 1732 --frames 6 out.2d.h5
@@ -49,7 +49,7 @@ def main():
     face_nodes = np.full((faces, 4), -1, dtype=np.int32)
     face_nodes[:, :3] = tri
 
-    px, py = nx_[tri], ny_[tri]  # local metres, [face, corner]
+    px, py = nx_[tri], ny_[tri]  # local meters, [face, corner]
     face_xl, face_yl = px.mean(axis=1), py.mean(axis=1)
     face_z = node_z[tri].mean(axis=1)
 

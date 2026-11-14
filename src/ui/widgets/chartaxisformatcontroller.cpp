@@ -66,7 +66,7 @@ void ChartAxisFormatController::openDialog(QWidget *parent)
     if (!m_chart)
         return;
 
-    // ChartProperties seeds non-format attributes (title/range/colours/theme)
+    // ChartProperties seeds non-format attributes (title/range/colors/theme)
     // from the live chart; override its label-format fields with our persistent
     // state so the dialog opens showing the current per-chart choice.
     auto *cp = new ChartProperties(m_chart);

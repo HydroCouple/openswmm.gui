@@ -60,7 +60,7 @@ private:
         // Standard layout: (origin_x, dx, 0, origin_y, 0, -dy).
         // Use origin (0, H) and -dy = -1 so row 0 corresponds to y=H-1
         // (north-up). World (x, y) maps to col=x, row=(H-1)-y for integer
-        // pixel centres at (col+0.5, row+0.5).
+        // pixel centers at (col+0.5, row+0.5).
         double geo[6] = {0.0, 1.0, 0.0, double(H), 0.0, -1.0};
         ds->SetGeoTransform(geo);
 
@@ -102,7 +102,7 @@ private slots:
         QVERIFY(!s.isOpen());
     }
 
-    /*! Open a known ramp + sample at exact pixel centres. */
+    /*! Open a known ramp + sample at exact pixel centers. */
     /**
      *
      * @brief Require exact corner/interior pixel-center samples to equal the constructed ramp
@@ -141,7 +141,7 @@ private slots:
         mesh::DTMSampler s;
         QVERIFY(s.open(path));
 
-        // World (1.0, 9.0) is midway between four pixel centres at
+        // World (1.0, 9.0) is midway between four pixel centers at
         // (0.5,9.5), (1.5,9.5), (0.5,8.5), (1.5,8.5) with values
         // 90, 91, 80, 81 → bilinear average = 85.5.
         const double v = s.sample(1.0, 9.0);

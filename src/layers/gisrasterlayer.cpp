@@ -1,6 +1,6 @@
 /**
  * @file      gisrasterlayer.cpp
- * @brief     colour-ramp rendering and on-demand viewport warping.
+ * @brief     color-ramp rendering and on-demand viewport warping.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -61,7 +61,7 @@ using OpenSWMM::Render::IRasterRenderer;
 using OpenSWMM::Render::MultiBandColorRenderer;
 using OpenSWMM::Render::PalettedRasterRenderer;
 
-// Colour tables larger than this are filtered to the values actually present
+// Color tables larger than this are filtered to the values actually present
 // in the band sample (a 256-slot table on a 6-class land-use grid would
 // otherwise put 250 unused rows in the legend).
 constexpr int kColorTableFilterThreshold = 32;
@@ -90,22 +90,22 @@ QList<PalettedRasterRenderer::Class> classesFromColorTable(const GDALColorTable 
     return out;
 }
 
-// VS.6 — composite a hillshade lighting factor over already-colourised
+// VS.6 — composite a hillshade lighting factor over already-colorized
 // pixels, using a Horn 3×3 surface-normal estimate from the elevation grid.
 // Mirrors the mesh renderer's normal·light shading (swmm2dmeshqsgrenderer.cpp)
 // adapted to a regular grid. NoData / NaN pixels are left untouched.
 /**
- * @param[in,out] img Matching w-by-h ARGB32 colourized pixels, modified RGB with alpha retained.
- * @param[in] raw Stable finite row-major elevations covering w*h entries; nodata/NaN centre pixels are skipped but invalid neighbours are not independently repaired.
+ * @param[in,out] img Matching w-by-h ARGB32 colorized pixels, modified RGB with alpha retained.
+ * @param[in] raw Stable finite row-major elevations covering w*h entries; nodata/NaN center pixels are skipped but invalid neighbors are not independently repaired.
  * @param[in] w,h Dimensions; either below three leaves image unchanged.
  * @param[in] cellX,cellY Positive finite output map-unit spacings; nonpositive returns unchanged.
  * @param[in] azDeg Finite clockwise-from-north light azimuth degrees.
  * @param[in] altDeg Finite light elevation degrees.
  * @param[in] zFactor Finite vertical-to-horizontal gradient scale.
  * @param[in] strength Finite0..1 blend request; raw value is not clamped by this helper.
- * @param[in] hasNoData Whether exact nodata equality suppresses centre processing.
+ * @param[in] hasNoData Whether exact nodata equality suppresses center processing.
  * @param[in] noData Nodata marker in raw vertical units.
- * @note Clamps edge sampling and uses Horn gradients with image-row north sign correction. Requires valid finite neighbouring elevations for representable lighting/channel conversion; no allocation, source mutation or georeferencing.
+ * @note Clamps edge sampling and uses Horn gradients with image-row north sign correction. Requires valid finite neighboring elevations for representable lighting/channel conversion; no allocation, source mutation or georeferencing.
  */
 void applyHillshadeInPlace(QImage &img, const std::vector<double> &raw, int w, int h, double cellX,
                            double cellY, double azDeg, double altDeg, double zFactor,
@@ -133,7 +133,7 @@ void applyHillshadeInPlace(QImage &img, const std::vector<double> &raw, int w, i
             if (std::isnan(c) || (hasNoData && c == noData))
                 continue; // transparent NoData — leave as-is
 
-            // Horn central differences (8-neighbour weighted).
+            // Horn central differences (8-neighbor weighted).
             const double dzdx = ((elev(x + 1, y - 1) + 2 * elev(x + 1, y) + elev(x + 1, y + 1)) -
                                  (elev(x - 1, y - 1) + 2 * elev(x - 1, y) + elev(x - 1, y + 1))) /
                                 (8.0 * cellX);
@@ -179,7 +179,7 @@ GISRasterLayer::GISRasterLayer(const QString &filePath, OpenSWMMVisWorkspace *pa
     setLayerType(SWMMRasterLayer);
 
     // P5/R-1 — the raster renderer is the single source of truth for raster
-    // colouring; warpToCanvas() paints through a clone of it. Start with a
+    // coloring; warpToCanvas() paints through a clone of it. Start with a
     // continuous grayscale GraduatedRasterRenderer so the layer renders
     // immediately; applyOpenResult() swaps in the dataset-appropriate default.
     m_rasterRenderer = std::make_unique<GraduatedRasterRenderer>();
@@ -222,13 +222,13 @@ void GISRasterLayer::setRasterRenderer(std::unique_ptr<OpenSWMM::Render::IRaster
     if (r.get() == m_rasterRenderer.get())
         return;
     {
-        // Tile warps colourise through a clone() snapshot, so the swap only
+        // Tile warps colorize through a clone() snapshot, so the swap only
         // needs to be atomic w.r.t. other GUI-thread readers; the lock is
         // kept for consistency with autoStretchColorRamp().
         QMutexLocker lock(&m_datasetMutex);
         m_rasterRenderer = std::move(r);
     }
-    // Cached tiles were colourised by the previous renderer — drop them (and
+    // Cached tiles were colorized by the previous renderer — drop them (and
     // any in-flight warp's result) before asking for a repaint. The legend
     // views rebuild on repaintRequested too.
     invalidateCache();
@@ -295,13 +295,13 @@ QString GISRasterLayer::detectVerticalUnit() const
 
     const char *wkt = m_dataset->GetProjectionRef();
     if (!wkt || !*wkt)
-        return QStringLiteral("m"); // no CRS — most global DEMs are metres
+        return QStringLiteral("m"); // no CRS — most global DEMs are meters
 
     OGRSpatialReference srs;
     if (srs.importFromWkt(wkt) != OGRERR_NONE)
         return QStringLiteral("m");
 
-    // Geographic CRS (lat/lon): elevation virtually always in metres
+    // Geographic CRS (lat/lon): elevation virtually always in meters
     // (SRTM, 3DEP arc-second, Copernicus DEM, etc.)
     if (srs.IsGeographic())
         return QStringLiteral("m");
@@ -427,7 +427,7 @@ QVector<double> GISRasterLayer::sampleValues(int band, int maxSamples) const
 
     // Regular grid over the whole raster, at most maxSamples points, aspect
     // preserved. bufW < rasterW lets GDAL serve the read from the nearest
-    // overview; nearest-neighbour keeps real cell values (no blending), which
+    // overview; nearest-neighbor keeps real cell values (no blending), which
     // matters for unique-value discovery on categorical rasters.
     const int rasterW = m_dataset->GetRasterXSize();
     const int rasterH = m_dataset->GetRasterYSize();
@@ -540,7 +540,7 @@ double GISRasterLayer::valueAt(double mapX, double mapY, const SpatialReferenceS
     if (ok)
         *ok = false;
 
-    // Reads m_dataset (single-pixel RasterIO); serialise against the
+    // Reads m_dataset (single-pixel RasterIO); serialize against the
     // post-.ovr-build reload that reopens it.
     QMutexLocker lock(&m_datasetMutex);
 
@@ -777,7 +777,7 @@ GISRasterLayer::WarpParams GISRasterLayer::snapshotWarpParams() const
     p.renderBand = m_renderBand;
     p.bands = {m_renderBand};
     // A MultiBandColorRenderer with three valid bands switches the warp onto
-    // the RGB composite path; anything else colourises the render band.
+    // the RGB composite path; anything else colorizes the render band.
     if (auto *mb = dynamic_cast<const MultiBandColorRenderer *>(m_rasterRenderer.get())) {
         const int n = bandCount();
         const auto valid = [n](int b) { return b >= 1 && b <= n; };
@@ -1006,7 +1006,7 @@ struct GISRasterLayer::OpenResult {
     double statMax = 0.0;
     int xSize = 0, ySize = 0, bands = 0;
     // Default-renderer inputs: band 1's data type (the RGB composite path
-    // only renders Byte without saturating) and its colour table, if any.
+    // only renders Byte without saturating) and its color table, if any.
     GDALDataType bandType = GDT_Unknown;
     QList<PalettedRasterRenderer::Class> colorTable;
     qint64 msOpen = 0, msMeta = 0, msStats = 0, msTotal = 0;
@@ -1049,7 +1049,7 @@ GISRasterLayer::OpenResult GISRasterLayer::doOpenWork(const QString &filePath)
     if (const char *wkt = r.dataset->GetProjectionRef(); wkt && *wkt != '\0')
         r.wkt = QString::fromUtf8(wkt);
 
-    // No-data value, data type and colour table (all band 1 — the default
+    // No-data value, data type and color table (all band 1 — the default
     // render band; setRenderBand re-reads NoData for other bands).
     if (r.bands > 0) {
         GDALRasterBand *b1 = r.dataset->GetRasterBand(1);
@@ -1117,7 +1117,7 @@ void GISRasterLayer::applyOpenResult(const OpenResult &r)
 
     // Dataset-appropriate default renderer (a persisted style, when there is
     // one, is applied by the project loader after openFinished):
-    //   colour table          ⇒ Paletted, from the table
+    //   color table          ⇒ Paletted, from the table
     //   ≥3 Byte bands         ⇒ RGB composite of bands 1,2,3 (+4 as alpha)
     //   otherwise             ⇒ Graduated continuous grayscale over band 1's
     //                           statistics (the historic raster look)
@@ -1266,7 +1266,7 @@ void GISRasterLayer::openAsync(const QString &filePath)
 
 void GISRasterLayer::closeDataset()
 {
-    // Serialise against valueAt() probing m_dataset (tile warps read through
+    // Serialize against valueAt() probing m_dataset (tile warps read through
     // their own pooled handles and never touch this one).
     QMutexLocker lock(&m_datasetMutex);
 
@@ -1450,7 +1450,7 @@ QImage GISRasterLayer::warpToCanvas(GDALDataset *src, const MapExtent &canvasExt
 
     // Output bands: the RGB composite path (MultiBandColorRenderer) warps the
     // R,G,B[,A] bands the snapshot names; everything else warps the single
-    // render band through the colourise loop below.
+    // render band through the colorize loop below.
     const bool isRGB = params.rgb && params.bands.size() >= 3;
     const int outBands = isRGB ? int(params.bands.size()) : 1;
 
@@ -1465,8 +1465,8 @@ QImage GISRasterLayer::warpToCanvas(GDALDataset *src, const MapExtent &canvasExt
         srcDS = src;
 
     // Create in-memory destination dataset.
-    // RGB stays GDT_Byte (3×8-bit colour). Single-band stays Float64 so
-    // DTM elevations (typically Float32 in metres, range 0–3000+) survive
+    // RGB stays GDT_Byte (3×8-bit color). Single-band stays Float64 so
+    // DTM elevations (typically Float32 in meters, range 0–3000+) survive
     // the warp without clamping to 0–255. Float64 also makes the in-loop
     // NoData test exact (the source NoData double round-trips intact).
     GDALDriver *memDriver = GetGDALDriverManager()->GetDriverByName("MEM");
@@ -1619,7 +1619,7 @@ QImage GISRasterLayer::warpToCanvas(GDALDataset *src, const MapExtent &canvasExt
             }
         }
     } else {
-        // Single-band: read Float64 elevations and apply the linear colour
+        // Single-band: read Float64 elevations and apply the linear color
         // ramp. NaN pixels (warped destination NoData sentinel above) are
         // rendered fully transparent so the layer underneath shows through
         // — the user explicitly asked NoData not to render.
@@ -1633,16 +1633,16 @@ QImage GISRasterLayer::warpToCanvas(GDALDataset *src, const MapExtent &canvasExt
                 const double val = raw[y * pixelWidth + x];
                 const bool isNoData =
                     std::isnan(val) || (params.hasNoData && val == params.noDataValue);
-                // P5/R-1 — colourise through the raster renderer snapshot
+                // P5/R-1 — colorize through the raster renderer snapshot
                 // (a clone of the single source of truth). The renderer
                 // returns transparent for the no-data case, matching the
-                // previous behaviour.
+                // previous behavior.
                 row[x] = params.renderer ? params.renderer->colorForValue(val, isNoData).rgba() : 0;
             }
         }
 
         // VS.6 — optional hillshade relief overlay. Composites a lighting
-        // factor derived from the warped elevation grid over the colour-ramped
+        // factor derived from the warped elevation grid over the color-ramped
         // pixels. Cell sizes come from the destination geotransform (world
         // units per pixel). NOTE for finishing pass: verify the azimuth
         // orientation against a known DEM — image-row Y runs opposite to

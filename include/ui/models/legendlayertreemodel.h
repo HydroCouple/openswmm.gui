@@ -9,7 +9,7 @@
  *
  *         The model is a thin view over the canvas's live layer list +
  *         each layer's IFeatureRenderer::legendSymbolItems(). It does
- *         not own state; per-class colour edits write through to the
+ *         not own state; per-class color edits write through to the
  *         renderer via SetRendererClassColorCommand on the canvas's
  *         MapUndoStack, and the model resets in response to the layer's
  *         repaintRequested signal so external edits show up live.
@@ -121,7 +121,7 @@ public:
      */
     QModelIndex parent(const QModelIndex &child) const override;
     /**
-     * @brief Read cached legend labels, class colours/sizes, override visibility and routing identities.
+     * @brief Read cached legend labels, class colors/sizes, override visibility and routing identities.
      * @param[in] idx Current model index.
      * @param[in] role Qt display/edit/check/decoration or custom ClassKey/LayerPtr/Editable/SublayerId roles.
      * @return Requested value or invalid for unavailable/unsupported cells. LayerPtrRole is borrowed; sizes retain the renderer's class-size convention, without conversion.
@@ -132,15 +132,15 @@ public:
      * @brief Route legend-item edits to the shared overlay style or project renderer undo commands.
      * @param[in] idx Existing keyed symbol cell; headers are rejected.
      * @param[in] value CheckStateRole uses Checked for visible; Item edits use label text; Color uses a valid QColor; Size uses a convertible value greater than zero.
-     * @param[in] role CheckStateRole for Item visibility, or EditRole for label/colour/size.
+     * @param[in] role CheckStateRole for Item visibility, or EditRole for label/color/size.
      * @return True for an accepted route, false for unsupported/invalid cells or values.
-     * @note Visibility/label edits write the override store directly. Colour/size edits push onto the canvas undo stack when available; without a stack they still return true and emit dataChanged without changing the renderer. Resets may occur synchronously through shared-object signals.
+     * @note Visibility/label edits write the override store directly. Color/size edits push onto the canvas undo stack when available; without a stack they still return true and emit dataChanged without changing the renderer. Resets may occur synchronously through shared-object signals.
      */
     bool setData(const QModelIndex &idx, const QVariant &value, int role = Qt::EditRole) override;
     /**
      * @brief Advertise class edits supported by the cached renderer and optional overlay style.
      * @param[in] idx Current model index.
-     * @return Enabled/selectable for valid rows; colour and positive cached size may be editable, and keyed Item cells gain label editing/checkboxes when style-bound. Invalid indexes have no flags.
+     * @return Enabled/selectable for valid rows; color and positive cached size may be editable, and keyed Item cells gain label editing/checkboxes when style-bound. Invalid indexes have no flags.
      */
     Qt::ItemFlags flags(const QModelIndex &idx) const override;
     /**

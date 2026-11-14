@@ -121,7 +121,7 @@ void TestSelectionBeacon::beaconSizeIsIndependentOfZoom()
     ov.setAnchors({QPointF(0.0, 0.0)});
 
     // Three views three orders of magnitude apart. A single anchor sits at
-    // the centre in all of them, so any change in ink is the beacon scaling
+    // the center in all of them, so any change in ink is the beacon scaling
     // with the view — exactly what must not happen.
     const int a = ink(render(ov, 10.0));
     const int b = ink(render(ov, 0.1));

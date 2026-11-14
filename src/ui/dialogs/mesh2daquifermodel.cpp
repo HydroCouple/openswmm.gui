@@ -1466,7 +1466,7 @@ QString Mesh2DAquiferBoundaryModel::validate(SWMM_Engine engine, const QList<Row
                 concentrations.insert(key(row));
         }
     }
-    // Build only requested edge counts from authoring connectivity: neighbour
+    // Build only requested edge counts from authoring connectivity: neighbor
     // geometry need not have been initialized when this editor opens.
     for (int cell = 0; cell < count; ++cell) {
         int vertices[4]{}, nv = 0;

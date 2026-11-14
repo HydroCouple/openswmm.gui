@@ -48,7 +48,7 @@ struct UiFixture {
     }
     /** @brief Create another host sharing the native window but no private contributions.
      * @param[in] id Distinct configured plugin identity.
-     * @param[in] bridge Optional approved native dialog catalogue callbacks.
+     * @param[in] bridge Optional approved native dialog catalog callbacks.
      * @return Owning host. */
     std::unique_ptr<GuiExtensionHost> makeHost(const QString &id, ExtensionUiBridge bridge = {})
     {

@@ -116,7 +116,7 @@ public:
     /**
      * @param[in] id Stable tab ID, first match; unknown no-op.
      * @param[in] visible Desired QTabBar visibility.
-     * @note Equality no-op. Qt may auto-select neighbouring visible tab and emit current-change
+     * @note Equality no-op. Qt may auto-select neighboring visible tab and emit current-change
      *   callback; explicit visibility/layout application covers noncurrent change. No selection
      *   history or contextual-state persistence. Can be called before finalize, but finalize
      *   rehides contextual tabs.

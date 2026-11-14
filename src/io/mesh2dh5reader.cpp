@@ -565,7 +565,7 @@ QVector<Mesh2DResultVariable> describeFaceDataset(hid_t file, const QString &nam
 }
 
 // One cell slice, never the whole time/species cube. Both outputs are atomic
-// on failure; raw missing values are normalised before optional water masks.
+// on failure; raw missing values are normalized before optional water masks.
 /**
  * @brief Decode one cell slice using bounded scratch storage and allocated-chunk coverage.
  * @param[in] file Borrowed file handle under the HDF5 mutex.

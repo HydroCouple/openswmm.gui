@@ -696,7 +696,7 @@ private slots:
     }
 
     // tok[9] is legacy's fixedDepth (Dsw) and tok[10] its nodeElev (Egwt); the
-    // rows used to be labelled "Threshold Twgr" and "Hstar".
+    // rows used to be labeled "Threshold Twgr" and "Hstar".
     /**
      *
      * @brief Require legacy-named gwTw/gwHstar widgets to have buddy labels identifying Dsw and

@@ -69,7 +69,7 @@ struct RasterZonalResult {
  * @param[in] request Raster band and convex triangle/quad footprints in the mesh CRS, which must
  * equal the raster's projected CRS. NoData and masked pixels are excluded from validAreas.
  * @param[in] cancelled Optional synchronous cancellation callback.
- * @return Aligned per-cell areas, means and class areas; error/cancelled carry no values.
+ * @return Aligned per-cell areas, means and class areas; error/canceled carry no values.
  * @details Opens its own dataset, so it can run on a worker thread.
  */
 RasterZonalResult integrateRasterZonal(const RasterZonalRequest &request,

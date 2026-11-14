@@ -2,7 +2,7 @@
  * @file      test_classificationscheme.cpp
  * @brief     Slice US.1 — unit coverage for the shared ClassificationScheme:
  *         levelEdges per method (incl. Manual + degenerate ranges), JSON
- *         round-trip, revision stamping, class colours + overrides.
+ *         round-trip, revision stamping, class colors + overrides.
  *
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -164,7 +164,7 @@ TEST(ClassificationScheme, ClassIndexForClampsAndBuckets)
     EXPECT_EQ(ClassificationScheme::classIndexFor(1.0, {}), 0);
 }
 
-// ── Colours + overrides ─────────────────────────────────────────────────
+// ── Colors + overrides ─────────────────────────────────────────────────
 
 TEST(ClassificationScheme, ColorOverrideWinsAndClears)
 {

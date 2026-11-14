@@ -29,7 +29,7 @@ namespace
  * mutation.
  *
  * @details Stations closer than this (relative to the section width) are the same station.
- * Sections are authored in survey units, so an absolute floor of a micrometre-scale value would
+ * Sections are authored in survey units, so an absolute floor of a micrometer-scale value would
  * be meaningless; the tolerance scales.
  */
 double stationEps(double width) noexcept
@@ -282,7 +282,7 @@ QString validateSection(const SectionGeometry &s)
     return QString();
 }
 
-// ─────────────────────── Normalisation and lateral queries ────────────────
+// ─────────────────────── Normalization and lateral queries ────────────────
 
 NormalizedSection normalizeSection(const SectionGeometry &s, const BurnOptions &opt,
                                    QStringList *warnings, QString *err)
@@ -652,7 +652,7 @@ NormalizedSection blendSections(const NormalizedSection &a, const NormalizedSect
     if (w >= 1.0)
         return b;
 
-    // Normalised station: u in [-1, 0] maps onto [sMin, 0], u in [0, 1] onto
+    // Normalized station: u in [-1, 0] maps onto [sMin, 0], u in [0, 1] onto
     // [0, sMax].  Sampling on the union of both sections' own u positions
     // keeps every authored break point of both.
     auto uOf = [](const NormalizedSection &s, double station) {
@@ -698,7 +698,7 @@ NormalizedSection blendSections(const NormalizedSection &a, const NormalizedSect
     }
 
     // The thalweg of a blend of two thalweg-anchored sections is still 0, but
-    // rounding can leave it a hair above; re-normalise so relZ's min is exact.
+    // rounding can leave it a hair above; re-normalize so relZ's min is exact.
     if (!out.relZ.isEmpty()) {
         const double m = *std::min_element(out.relZ.cbegin(), out.relZ.cend());
         if (m != 0.0)

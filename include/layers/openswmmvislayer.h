@@ -151,7 +151,7 @@ public:
     enum OpenSWMMVisLayerType {
         SWMMDefaultLayer = 0,
         SWMMModelLayer = 1,              /*!< SWMM network (nodes/links/subcatchments). */
-        SWMMResultsLayer = 2,            /*!< SWMM simulation results (colour-mapped). */
+        SWMMResultsLayer = 2,            /*!< SWMM simulation results (color-mapped). */
         SWMMGISLayer = 3,                /*!< Generic GIS layer (abstract parent). */
         SWMMVectorLayer = 4,             /*!< GDAL OGR vector features. */
         SWMMRasterLayer = 5,             /*!< GDAL raster dataset. */
@@ -598,7 +598,7 @@ public:
 
     // ----- Optional labels (VS.10) ----------------------------------------
     //
-    // Uniform, optional element labelling for every layer kind. Default
+    // Uniform, optional element labeling for every layer kind. Default
     // disabled (LabelConfig::enabled == false). Feature-bearing layers paint
     // labels per this config; subclasses that need extra bookkeeping on
     // change (e.g. SWMMModelLayer syncing its legacy m_showLabels flag)

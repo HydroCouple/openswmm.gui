@@ -170,7 +170,7 @@ void MapToolPick2DCells::requestPlotAt_(const QPoint &pixel, const QPoint &globa
 
     // Same context-menu picker the 1D select tool uses; entries the layer
     // can't serve (no edge flux → no velocity; no rainfall datasets) are
-    // greyed out via Mesh2DRunLayer::supportsAttribute.
+    // grayed out via Mesh2DRunLayer::supportsAttribute.
     using namespace openswmmvis;
     const plot::Mesh2DRunLayer availability(layer);
     const QVector<plot::ResultDescriptor> attrs = ui::AttributePickerMenu::execForMeshKind(

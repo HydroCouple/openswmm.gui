@@ -861,7 +861,7 @@ void NodeCompoundEditDialog::buildTreatmentPage()
                                                        .arg(why)));
         }
         // Always re-read so a rejected edit reverts and an accepted
-        // one normalises (engine may canonicalise whitespace).
+        // one normalizes (engine may canonicalize whitespace).
         refreshActivePage();
     });
 

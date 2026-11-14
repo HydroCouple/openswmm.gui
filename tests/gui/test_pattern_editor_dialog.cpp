@@ -853,7 +853,7 @@ private slots:
         QVERIFY(dlg.previewLineSeries());
         QCOMPARE(dlg.previewLineSeries()->count(), 2 * p->factorCount());
 
-        // Smooth → one point per slot at the slot centre.
+        // Smooth → one point per slot at the slot center.
         dlg.setStepLinePreview(false);
         QCOMPARE(dlg.previewLineSeries()->count(), p->factorCount());
 

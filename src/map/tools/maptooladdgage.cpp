@@ -40,7 +40,7 @@ SWMMModelLayer *OpenSWMMVisMapToolAddGage::activeModelLayer() const
 
 QString OpenSWMMVisMapToolAddGage::nextAvailableName(SWMMModelLayer *layer) const
 {
-    // Feedback C12 — honour Preferences → Naming like the node/link tools
+    // Feedback C12 — honor Preferences → Naming like the node/link tools
     // do (this used to hard-code "RG").
     const QString prefix =
         PreferencesManager::instance()->elementNamePrefix(QStringLiteral("raingage"));

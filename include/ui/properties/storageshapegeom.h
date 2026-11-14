@@ -12,7 +12,7 @@
  *         runtime, so (exactly as `xsectshapegeom.h` does for link geom1..geom4)
  *         the rows stay generic and this table supplies the shape-specific label
  *         and applicability that PropertiesPanel / the attribute table use to
- *         label, tooltip and grey them.
+ *         label, tooltip and gray them.
  *
  *         Ordinals match `SWMMNodePropertyAdapter::StorageShape` and the engine's
  *         `SWMM_StorageShape`.

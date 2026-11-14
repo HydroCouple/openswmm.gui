@@ -31,7 +31,7 @@ const SeriesInfo *findSeries(const TimeSeriesDataset &d, const QString &id)
         if (s.id == id) return &s;
     return nullptr;
 }
-/** @brief Represent an instant or explicitly labelled calendar date on the plot coordinate axis. */
+/** @brief Represent an instant or explicitly labeled calendar date on the plot coordinate axis. */
 QDateTime displayTime(const SeriesInfo &s, qint64 key)
 {
     return s.timeBasis == TimeBasis::Instant

@@ -116,7 +116,7 @@ public:
     /*!
      * \brief Create a new table.
      * \param gpkgPath  Container; created via \ref ensureGeoPackage first.
-     * \param table     Sanitised name (see \ref sanitizeTableName).
+     * \param table     Sanitized name (see \ref sanitizeTableName).
      * \param type      Geometry type; decides the table's OGR geometry type.
      * \param hasZ      When true the table is created 2.5D (wkbSetZ).
      * \param schema    Attribute columns; may be empty. Each column's default,
@@ -310,7 +310,7 @@ public:
     [[nodiscard]] bool removeField(const QString &name, QString *error = nullptr);
 
     /*!
-     * \brief Rename column \p from to \p to (sanitised), keeping its values,
+     * \brief Rename column \p from to \p to (sanitized), keeping its values,
      *        default, description and value list.
      * \details Fails when \p to is already a column or the driver cannot
      *          alter field definitions.

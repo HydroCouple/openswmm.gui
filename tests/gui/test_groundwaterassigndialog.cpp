@@ -802,7 +802,7 @@ private slots:
     /**
      *
      * @brief Require conservative pixel/cell integration to preview silently, assign 0.002/0.004
-     * m3/s and emit the six-square-metre recipe audit.
+     * m3/s and emit the six-square-meter recipe audit.
      * Checks units, full coverage and exact transport snapshots through undo/redo;
      * waits at most ten seconds for the preview worker.
      *
@@ -857,7 +857,7 @@ private slots:
      *
      * @brief Require NoData coverage to refuse complete coverage, then explicit valid-area policy
      * to assign 0.0015/0.004 m3/s.
-     * Checks the half-square-metre uncovered audit and no writes during the refused preview.
+     * Checks the half-square-meter uncovered audit and no writes during the refused preview.
      *
      */
     void conservativePartialCoverageRequiresDeliberatePolicy()
@@ -1645,7 +1645,7 @@ private slots:
     }
 
     /**
-     * @brief Gate (cancel / stale): cancelling a surface-quality preview and applying a preview
+     * @brief Gate (cancel / stale): canceling a surface-quality preview and applying a preview
      * after the rows changed elsewhere both leave the model as it was, with no undo entry.
      */
     void surfaceCancelAndStaleLeaveModelUnchanged()

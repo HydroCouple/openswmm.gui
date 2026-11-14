@@ -334,7 +334,7 @@ private slots:
         // inches, to stay bit-identical to legacy's binary rain interface file.
         // So it agrees with an equivalent double-precision time series only to
         // float precision (0.20f is 0.20000000298..., which lands ~1.2e-8 off
-        // after the VOLUME conversion). That is correct behaviour, not drift —
+        // after the VOLUME conversion). That is correct behavior, not drift —
         // hence a float-sized tolerance rather than a double-sized one.
         constexpr double kFloatTol = 1e-6;
         for (int k = 0; k < 4; ++k)

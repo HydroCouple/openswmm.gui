@@ -267,5 +267,5 @@ TEST(MeshRenderChunkIndexTest, InvalidBBoxesAreSkippedButIndexSpaceIsKept)
     EXPECT_EQ(ids.size(), cells.size() - 2);
     EXPECT_FALSE(ids.contains(5));
     EXPECT_FALSE(ids.contains(7));
-    EXPECT_TRUE(ids.contains(6)); // neighbours unaffected
+    EXPECT_TRUE(ids.contains(6)); // neighbors unaffected
 }

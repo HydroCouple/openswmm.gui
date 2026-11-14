@@ -182,7 +182,7 @@ QVariant parseDefaultLiteral(const char *literal, FieldType type)
 /*! The name of the coded domain this store creates for \p field of \p table.
  *  Domain names are per GeoPackage, and every FeatureLayer keeps its own
  *  long-open handle that does not see tables created after it opened, so
- *  names must not collide by construction: sanitised names never contain
+ *  names must not collide by construction: sanitized names never contain
  *  "__", so "a" + "b_c" → "a__b_c" and "a_b" + "c" → "a_b__c".
  * @param[in] table Stored/sanitized table name.
  * @param[in] field Stored/sanitized field name.

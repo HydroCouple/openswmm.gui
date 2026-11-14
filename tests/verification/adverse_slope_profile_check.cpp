@@ -166,14 +166,14 @@ double clampToDrivingHead(int t, double depthBlend, const W& b,
     return std::max(0.0, std::min(depthBlend, capDepth));
 }
 
-// OLD behaviour: bare blend, floored at 0 (pre-fix depthAtCellInterp).
+// OLD behavior: bare blend, floored at 0 (pre-fix depthAtCellInterp).
 double depthOld(int t, const W& b, const std::vector<double>& dv)
 {
     const double blend = b.w*dv[tris[t][0]] + b.v*dv[tris[t][1]] + b.u*dv[tris[t][2]];
     return std::max(0.0, blend);
 }
 
-// NEW behaviour: dry-cell mask + blend + driving-head clamp.
+// NEW behavior: dry-cell mask + blend + driving-head clamp.
 double depthNew(int t, const W& b, const std::vector<double>& dv, double cellH)
 {
     if (cellH < kDryDepth) return 0.0;                 // dry-cell mask
@@ -210,7 +210,7 @@ int main()
 
     bool pass = true;
     const double eps = 1e-6;
-    // Walk the centreline (y = 5) across the bank from wet flat into dry crest.
+    // Walk the centerline (y = 5) across the bank from wet flat into dry crest.
     for (double x = 8.0; x <= 19.0 + 1e-9; x += 1.0) {
         const double py = 5.0;
         const int t = pickCell(x, py);

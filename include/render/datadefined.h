@@ -22,7 +22,7 @@
  *         Storage convention: each `SymbolLayer::props` may carry an
  *         optional `"sizeData"` (markers) or `"widthData"` (lines)
  *         payload holding a `DataDefinedScalar` JSON. Renderers that
- *         honour data-defined output read the struct, evaluate it
+ *         honor data-defined output read the struct, evaluate it
  *         against the feature's attribute map, and write the resolved
  *         number into `props["size"] / props["width"]` before returning
  *         the SymbolStyle from `symbolFor`. Painters that already read
@@ -68,7 +68,7 @@ struct DataDefinedScalar {
      *  - value ≤ valueMin → returns `outMin`.
      *  - value ≥ valueMax → returns `outMax`.
      *  - When `valueMin == valueMax` → returns `(outMin + outMax) * 0.5`
-     *    so the output is well-defined and centred.
+     *    so the output is well-defined and centered.
      *
      *  Linear curve: `outMin + t * (outMax - outMin)` where `t = (v - valueMin) / (valueMax - valueMin)`.
      *  Sqrt curve:   uses `sqrt(t)` as the interpolation parameter.

@@ -34,7 +34,7 @@ SymbolStyle SingleSymbolRenderer::symbolFor(const FeatureRef &, const QVariantMa
     // write the resolved scalar into the symbol's size/width prop. We
     // don't know up-front whether the symbol layer is a marker (size) or
     // a line (width), so we set both keys whose presence the painter
-    // already honours — the irrelevant one is benign.
+    // already honors — the irrelevant one is benign.
     SymbolStyle out = m_symbol;
     const QVariant raw = attrs.value(m_sizeData.attribute);
     bool ok = false;

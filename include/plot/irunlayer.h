@@ -263,7 +263,7 @@ struct SeriesData {
     std::vector<double>
         timesJulian; ///< SWMM DateTime; convert via openswmmvis::core::swmmDateTimeToQDateTime.
     std::vector<double> values; ///< Same length as timesJulian.
-    bool ok = false;            ///< False if the source couldn't fulfil the request.
+    bool ok = false;            ///< False if the source couldn't fulfill the request.
     QString errorMessage;       ///< Populated when ok == false.
     bool displayOnly = false; ///< Decimated data: never consume for statistics or export.
     bool allowPairing = true; ///< False until observation clock/statistic pairing is explicitly prepared.

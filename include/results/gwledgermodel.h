@@ -89,7 +89,7 @@ public:
     /** @return Row whose key() equals \p key, or -1. */
     int rowForKey(const QString &key) const;
     /*! \brief Comparison-plot descriptor for \p row (a mesh-variable
-     *  descriptor keyed by key(), labelled "Groundwater ledger — …,
+     *  descriptor keyed by key(), labeled "Groundwater ledger — …,
      *  cumulative"); invalid for an unavailable row. */
     plot::ResultDescriptor descriptor(int row) const;
     /** @return descriptor() of every available row, in row order. */

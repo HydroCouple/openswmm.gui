@@ -208,7 +208,7 @@ bool TimeseriesTableModel::setData(const QModelIndex &index, const QVariant &val
 
         if (m_layout == LayoutMode::SharedGrid) {
             // Submit one MovePointCommand per provider; individual providers
-            // validate neighbour order and can reject independently.
+            // validate neighbor order and can reject independently.
             QUndoStack *stack = m_undoStack;
             if (stack)
                 stack->beginMacro(tr("Edit timeseries time"));

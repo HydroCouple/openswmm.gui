@@ -11,7 +11,7 @@
  *         sampled at the current animation timestep. RangeMode controls how the
  *         value range behaves over the time axis:
  *           - FixedOverRun        : range spans the whole run (default; stable
- *                                   colours across frames — best for comparing
+ *                                   colors across frames — best for comparing
  *                                   timesteps).
  *           - PerFrameAutoStretch : range is recomputed each frame from that
  *                                   frame's values (best for seeing structure

@@ -13,7 +13,7 @@
  * Qsg2DDirtyState splits invalidation into orthogonal domains:
  *
  *   Geometry  — mesh topology or scene coordinates changed
- *   Style     — colour ramp / opacity / widths / marker or contour settings
+ *   Style     — color ramp / opacity / widths / marker or contour settings
  *   Data      — result values changed (time-step advance)
  *   Selection — highlighted cells / edges / vertices changed
  *   Lod       — the level-of-detail content key changed, or the view left

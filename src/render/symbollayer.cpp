@@ -94,15 +94,15 @@ SymbolLayerKind symbolLayerKindFromString(const QString &s)
 namespace
 {
 
-// X1 — colour props are QColor *variants* in memory (the typed spec readers
+// X1 — color props are QColor *variants* in memory (the typed spec readers
 // use QVariant::value<QColor>(), which does not parse hex strings), but
 // QJsonObject::fromVariantMap silently drops QColor variants (they have no
-// JSON mapping). Convert colours to hex at the JSON boundary on save and
+// JSON mapping). Convert colors to hex at the JSON boundary on save and
 // back to QColor variants on load so both the readers and persistence work.
 //
 // Gap A1.2 — key *suffix* heuristic instead of a fixed list: the old list
 // missed the raster grammar keys (noDataColor / lineColor / wideColor), so
-// raster symbol colours stayed hex strings after load and every
+// raster symbol colors stayed hex strings after load and every
 // value<QColor>() read silently fell back to defaults.
 /** @brief Recognize property keys eligible for color rehydration on JSON load.
  * @param key Exact property name, matched case-sensitively.
@@ -140,7 +140,7 @@ void SymbolLayer::fromJson(const QJsonObject &j)
 {
     kind = symbolLayerKindFromString(j.value(QStringLiteral("kind")).toString());
     props = j.value(QStringLiteral("props")).toObject().toVariantMap();
-    // X1 — rehydrate colour keys saved as hex strings into QColor variants
+    // X1 — rehydrate color keys saved as hex strings into QColor variants
     // (the in-memory canonical form; see toJson).
     for (auto it = props.begin(); it != props.end(); ++it) {
         if (!isColorPropKey(it.key()))

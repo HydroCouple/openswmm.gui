@@ -22,7 +22,7 @@ namespace OpenSWMM::Render
 namespace
 {
 
-// Gap A1.2 — colour convention now lives in one place: SymbolProps
+// Gap A1.2 — color convention now lives in one place: SymbolProps
 // (render/symbolstyle.h). Local alias keeps the call sites unchanged.
 using SymbolProps::overrideColorInPlace;
 
@@ -73,7 +73,7 @@ QColor UnclassedColorsRenderer::colorForValue(double v) const
     if (v > mx) {
         return m_ramp.colorAt(1.0);
     }
-    // Degenerate range: emit the midpoint colour so we never divide by zero.
+    // Degenerate range: emit the midpoint color so we never divide by zero.
     if (qFuzzyCompare(mn + 1.0, mx + 1.0))
         return m_ramp.colorAt(0.5);
 

@@ -46,7 +46,7 @@ public:
      * @return True on success; false triggers partial-contribution cleanup and a Plugins diagnostic.
      * @note GUI thread only. A failed initialization may still be followed by shutdown(). */
     virtual bool initialize(ExtensionHost *host, QString *error) = 0;
-    /** @brief Release plugin-owned resources after the host has cancelled and joined jobs.
+    /** @brief Release plugin-owned resources after the host has canceled and joined jobs.
      * @note GUI thread only; release outstanding leases/scopes and detach observers here.
      * The host subsequently destroys its UI contributions. The native library remains loaded. */
     virtual void shutdown() = 0;

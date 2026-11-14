@@ -12,7 +12,7 @@
  * — the funnel every GUI save path goes through — and assert the delta is
  * captured and the signal fires. They deliberately do NOT call any engine
  * write function themselves: the engine round's lesson is that a gate which
- * bypasses the production caller certifies a behaviour users never get.
+ * bypasses the production caller certifies a behavior users never get.
  *
  * Output lands in ./test_savewarnings_output/ (CLAUDE.md §4.1).
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -620,7 +620,7 @@ private slots:
     }
 
     /** @brief Verify two saves exactly round-trip narrow-cell coordinates and small mesh/coupling/boundary attributes.
-     * Uses mesh-declared metres or feet and checks engine initialization converts US feet to metres with 0.3048. The engine is opened and initialized to distinguish nearby vertices; this deliberately extreme geometry is not hydraulically simulated. */
+     * Uses mesh-declared meters or feet and checks engine initialization converts US feet to meters with 0.3048. The engine is opened and initialized to distinguish nearby vertices; this deliberately extreme geometry is not hydraulically simulated. */
     void meshSave_preservesNumericPrecision()
     {
         QFETCH(bool, external);
@@ -1151,7 +1151,7 @@ private slots:
     }
 
     /** @brief Verify two saves persist the complete inline geometry, attributes and boundary-group payload with mesh units intact.
-     * Checks connectivity, coordinates, elevation, roughness, initial depth, flow and conveyance; opens and initializes a real engine to verify physical metre coordinates using 0.3048 for a feet mesh in a US project, without time stepping. */
+     * Checks connectivity, coordinates, elevation, roughness, initial depth, flow and conveyance; opens and initializes a real engine to verify physical meter coordinates using 0.3048 for a feet mesh in a US project, without time stepping. */
     void inlineMeshPayload()
     {
         QFETCH(bool, usProject);

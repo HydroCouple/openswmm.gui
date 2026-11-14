@@ -99,12 +99,12 @@ public:
     void setAttributeVisible(openswmmvis::plot::PlotAttribute a, bool on);
     /**
      * @param[in] a Attribute key.
-     * @return Value copy of stored pen or a 1.6-pixel seed-colour pen; unsupported attributes use a neutral grey seed. Querying does not insert an entry.
+     * @return Value copy of stored pen or a 1.6-pixel seed-color pen; unsupported attributes use a neutral gray seed. Querying does not insert an entry.
      */
     [[nodiscard]] QPen penFor(openswmmvis::plot::PlotAttribute a) const;
     /**
      * @param[in] a Raw attribute key; not membership-validated.
-     * @param[in] pen Complete pen copied without colour/width/dash validation; logical-pixel width is used by the plot.
+     * @param[in] pen Complete pen copied without color/width/dash validation; logical-pixel width is used by the plot.
      * @note Compares against the stored map value (default QPen if absent), not the seeded penFor() fallback. A changed entry emits changed(); visibility is unaffected.
      */
     void setPenFor(openswmmvis::plot::PlotAttribute a, const QPen &pen);
@@ -187,7 +187,7 @@ public:
     [[nodiscard]] bool envelopesVisible() const { return m_envelopesVisible; }
     /**
      * @brief Inspect track-pane chrome without reading result samples.
-     * @return Envelope alpha fraction, initially 0.25, used with each track pen colour.
+     * @return Envelope alpha fraction, initially 0.25, used with each track pen color.
      */
     [[nodiscard]] double envelopeOpacity() const { return m_envelopeOpacity; }
     /**
@@ -353,112 +353,112 @@ public:
 
     /**
      * @brief Inspect rendering for depth above invert at path nodes.
-     * @return Complete pen value via penFor(), including colour/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
+     * @return Complete pen value via penFor(), including color/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
      */
     [[nodiscard]] QPen nodeDepthPen() const;
     /**
      * @brief Style the depth above invert at path nodes track independently of visibility.
-     * @param[in] p Complete pen passed to setPenFor(), without range/colour validation. Effective stored changes emit changed(); no persistence occurs.
+     * @param[in] p Complete pen passed to setPenFor(), without range/color validation. Effective stored changes emit changed(); no persistence occurs.
      */
     void setNodeDepthPen(const QPen &p);
     /**
      * @brief Inspect rendering for hydraulic head at path nodes.
-     * @return Complete pen value via penFor(), including colour/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
+     * @return Complete pen value via penFor(), including color/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
      */
     [[nodiscard]] QPen nodeHeadPen() const;
     /**
      * @brief Style the hydraulic head at path nodes track independently of visibility.
-     * @param[in] p Complete pen passed to setPenFor(), without range/colour validation. Effective stored changes emit changed(); no persistence occurs.
+     * @param[in] p Complete pen passed to setPenFor(), without range/color validation. Effective stored changes emit changed(); no persistence occurs.
      */
     void setNodeHeadPen(const QPen &p);
     /**
      * @brief Inspect rendering for stored volume at path nodes.
-     * @return Complete pen value via penFor(), including colour/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
+     * @return Complete pen value via penFor(), including color/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
      */
     [[nodiscard]] QPen nodeVolumePen() const;
     /**
      * @brief Style the stored volume at path nodes track independently of visibility.
-     * @param[in] p Complete pen passed to setPenFor(), without range/colour validation. Effective stored changes emit changed(); no persistence occurs.
+     * @param[in] p Complete pen passed to setPenFor(), without range/color validation. Effective stored changes emit changed(); no persistence occurs.
      */
     void setNodeVolumePen(const QPen &p);
     /**
      * @brief Inspect rendering for lateral inflow at path nodes.
-     * @return Complete pen value via penFor(), including colour/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
+     * @return Complete pen value via penFor(), including color/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
      */
     [[nodiscard]] QPen nodeLateralInflowPen() const;
     /**
      * @brief Style the lateral inflow at path nodes track independently of visibility.
-     * @param[in] p Complete pen passed to setPenFor(), without range/colour validation. Effective stored changes emit changed(); no persistence occurs.
+     * @param[in] p Complete pen passed to setPenFor(), without range/color validation. Effective stored changes emit changed(); no persistence occurs.
      */
     void setNodeLateralInflowPen(const QPen &p);
     /**
      * @brief Inspect rendering for total inflow at path nodes.
-     * @return Complete pen value via penFor(), including colour/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
+     * @return Complete pen value via penFor(), including color/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
      */
     [[nodiscard]] QPen nodeTotalInflowPen() const;
     /**
      * @brief Style the total inflow at path nodes track independently of visibility.
-     * @param[in] p Complete pen passed to setPenFor(), without range/colour validation. Effective stored changes emit changed(); no persistence occurs.
+     * @param[in] p Complete pen passed to setPenFor(), without range/color validation. Effective stored changes emit changed(); no persistence occurs.
      */
     void setNodeTotalInflowPen(const QPen &p);
     /**
      * @brief Inspect rendering for overflow at path nodes.
-     * @return Complete pen value via penFor(), including colour/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
+     * @return Complete pen value via penFor(), including color/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
      */
     [[nodiscard]] QPen nodeOverflowPen() const;
     /**
      * @brief Style the overflow at path nodes track independently of visibility.
-     * @param[in] p Complete pen passed to setPenFor(), without range/colour validation. Effective stored changes emit changed(); no persistence occurs.
+     * @param[in] p Complete pen passed to setPenFor(), without range/color validation. Effective stored changes emit changed(); no persistence occurs.
      */
     void setNodeOverflowPen(const QPen &p);
     /**
      * @brief Inspect rendering for flow at path links.
-     * @return Complete pen value via penFor(), including colour/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
+     * @return Complete pen value via penFor(), including color/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
      */
     [[nodiscard]] QPen linkFlowPen() const;
     /**
      * @brief Style the flow at path links track independently of visibility.
-     * @param[in] p Complete pen passed to setPenFor(), without range/colour validation. Effective stored changes emit changed(); no persistence occurs.
+     * @param[in] p Complete pen passed to setPenFor(), without range/color validation. Effective stored changes emit changed(); no persistence occurs.
      */
     void setLinkFlowPen(const QPen &p);
     /**
      * @brief Inspect rendering for water depth at path links.
-     * @return Complete pen value via penFor(), including colour/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
+     * @return Complete pen value via penFor(), including color/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
      */
     [[nodiscard]] QPen linkDepthPen() const;
     /**
      * @brief Style the water depth at path links track independently of visibility.
-     * @param[in] p Complete pen passed to setPenFor(), without range/colour validation. Effective stored changes emit changed(); no persistence occurs.
+     * @param[in] p Complete pen passed to setPenFor(), without range/color validation. Effective stored changes emit changed(); no persistence occurs.
      */
     void setLinkDepthPen(const QPen &p);
     /**
      * @brief Inspect rendering for velocity at path links.
-     * @return Complete pen value via penFor(), including colour/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
+     * @return Complete pen value via penFor(), including color/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
      */
     [[nodiscard]] QPen linkVelocityPen() const;
     /**
      * @brief Style the velocity at path links track independently of visibility.
-     * @param[in] p Complete pen passed to setPenFor(), without range/colour validation. Effective stored changes emit changed(); no persistence occurs.
+     * @param[in] p Complete pen passed to setPenFor(), without range/color validation. Effective stored changes emit changed(); no persistence occurs.
      */
     void setLinkVelocityPen(const QPen &p);
     /**
      * @brief Inspect rendering for stored volume at path links.
-     * @return Complete pen value via penFor(), including colour/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
+     * @return Complete pen value via penFor(), including color/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
      */
     [[nodiscard]] QPen linkVolumePen() const;
     /**
      * @brief Style the stored volume at path links track independently of visibility.
-     * @param[in] p Complete pen passed to setPenFor(), without range/colour validation. Effective stored changes emit changed(); no persistence occurs.
+     * @param[in] p Complete pen passed to setPenFor(), without range/color validation. Effective stored changes emit changed(); no persistence occurs.
      */
     void setLinkVolumePen(const QPen &p);
     /**
      * @brief Inspect rendering for dimensionless capacity ratio at path links.
-     * @return Complete pen value via penFor(), including colour/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
+     * @return Complete pen value via penFor(), including color/alpha, logical-pixel width and dash/cap/join. Visibility and data units are independent.
      */
     [[nodiscard]] QPen linkCapacityPen() const;
     /**
      * @brief Style the dimensionless capacity ratio at path links track independently of visibility.
-     * @param[in] p Complete pen passed to setPenFor(), without range/colour validation. Effective stored changes emit changed(); no persistence occurs.
+     * @param[in] p Complete pen passed to setPenFor(), without range/color validation. Effective stored changes emit changed(); no persistence occurs.
      */
     void setLinkCapacityPen(const QPen &p);
 

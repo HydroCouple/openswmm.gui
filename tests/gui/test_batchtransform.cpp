@@ -11,7 +11,7 @@
  *         those (a projection failure left ten junctions ~4e7 units out in
  *         WW-2024), and the per-point code left such a point at its INPUT
  *         value. Quietly relocating them under a performance banner would be
- *         a geometry change, so that behaviour is pinned here.
+ *         a geometry change, so that behavior is pinned here.
  *
  *         `SWMM_BATCH_TRANSFORM_TIMING=1` additionally prints a
  *         per-point vs batched comparison at model scale.
@@ -57,7 +57,7 @@ OGRCoordinateTransformation *makeCT()
  * @param xs Borrowed mutable x array with at least n entries (longitude degrees here).
  * @param ys Borrowed mutable y array with at least n entries (latitude degrees here).
  * @param n Nonnegative point count.
- * Successful points become projected metres. Return flags are ignored and failed
+ * Successful points become projected meters. Return flags are ignored and failed
  * point outputs follow OGR's actual behavior; this reference does not explicitly
  * restore originals after failure. No allocation/ownership transfer or assertions.
  *

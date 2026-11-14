@@ -1476,7 +1476,7 @@ private slots:
      * pickTimeseries() with an empty/unknown name — disables the whole toolbar,
      * and only the Create-submit path used to switch it back on. Picking an
      * existing series out of the list bound the provider and filled the grid but
-     * left every mutation greyed out, so an inline series could not be edited.
+     * left every mutation grayed out, so an inline series could not be edited.
      *
      * Asserting on the QToolBar and not just the QActions is the point: a
      * disabled QToolBar disables its buttons regardless of each QAction's own
@@ -1958,7 +1958,7 @@ private slots:
         QCOMPARE(p.pointAt(0).value, 1.0);
     }
 
-    /*! The simulation start is held as a UTC-labelled wall-clock time, like the
+    /*! The simulation start is held as a UTC-labeled wall-clock time, like the
      *  series points: rows stepped from it across a daylight-saving change keep
      *  increasing wall-clock times (the engine refuses times that go back). The
      *  stepping half is a gate only where the local zone changes clocks on

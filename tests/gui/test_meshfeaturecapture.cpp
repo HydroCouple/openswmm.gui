@@ -46,7 +46,7 @@ using namespace mesh;
 namespace
 {
 
-constexpr double kPx = 0.5; // metres per pixel
+constexpr double kPx = 0.5; // meters per pixel
 
 struct Dem {
     int cols = 0, rows = 0;
@@ -55,7 +55,7 @@ struct Dem {
      * @brief Access one mutable row-major DEM fixture sample.
      * @param[in] c Column in [0, cols), unchecked.
      * @param[in] r Row in [0, rows), unchecked.
-     * @return Borrowed elevation reference, metres, valid until z reallocates or Dem dies. No
+     * @return Borrowed elevation reference, meters, valid until z reallocates or Dem dies. No
      * allocation or external raster access; caller controls mutation.
      */
     float &at(int c, int r) { return z[size_t(r) * cols + c]; }
@@ -85,9 +85,9 @@ Dem streetDem()
 }
 
 /**
- * @brief Convert extracted pixel chains into the synthetic mesh's metre coordinates.
+ * @brief Convert extracted pixel chains into the synthetic mesh's meter coordinates.
  * @param[in] pixelChains Stable pixel coordinates, preserved, empty chains allowed.
- * @return Owned chains with both coordinates multiplied by kPx (0.5 metres/pixel), preserving
+ * @return Owned chains with both coordinates multiplied by kPx (0.5 meters/pixel), preserving
  * order and closure. No CRS transformation, snapping, validation or model registration.
  */
 QVector<QVector<QPointF>> toMesh(const QVector<QVector<QPointF>> &pixelChains)
@@ -115,9 +115,9 @@ struct Setup {
  * fixture.
  * @param[in,out] s Owned setup replaced incrementally; must remain at a stable address while its
  * size field callback refers to its terrain member.
- * @param[in] tolerance Positive terrain/breakline tolerance in metres, default 0.1.
+ * @param[in] tolerance Positive terrain/breakline tolerance in meters, default 0.1.
  * @return True on terrain and size-field success, false leaves partial setup without rollback.
- * Domain [2,98] by [2,58] metres, near size 4, cap 16, floor 0.5; breaklines suppress refinement
+ * Domain [2,98] by [2,58] meters, near size 4, cap 16, floor 0.5; breaklines suppress refinement
  * cones. Captures borrowed s.terrain pointer in s.size, no file IO or global model changes.
  */
 bool prepare(Setup &s, double tolerance = 0.1)
@@ -159,7 +159,7 @@ bool prepare(Setup &s, double tolerance = 0.1)
  * calls.
  * @param[in] cols Positive column count, unchecked product/index arithmetic.
  * @param[in] rows Positive row count.
- * @return Owning callable taking mesh x/y in metres, returning elevation metres or NaN off-grid;
+ * @return Owning callable taking mesh x/y in meters, returning elevation meters or NaN off-grid;
  * floors x/kPx and y/kPx. Caller supplies finite coordinates fitting int conversion. Does not
  * copy storage or retain ownership; concurrent calls require stable read-only backing vector.
  */
@@ -177,7 +177,7 @@ std::function<double(double, double)> demElevation(const std::vector<float> *z, 
  * @brief Configure a generator with borrowed setup-backed size and elevation callbacks.
  * @param[in] s Prepared stable setup which must outlive the generator and every generate call.
  * @param[in] streets True permits aligned quads between captured facing terrain lines.
- * @return Owned generator with copied domain/lines/options, h 4 nominal area and 0.5 metre
+ * @return Owned generator with copied domain/lines/options, h 4 nominal area and 0.5 meter
  * minimum; callbacks borrow s.size and s.dem.z. No mesh generation, ownership transfer or file
  * IO here.
  */
@@ -236,10 +236,10 @@ double freeTriangleMinAngle(const MeshResult &m)
 
 /**
  * @brief Compute minimum Euclidean distance to any polyline segment.
- * @param[in] p Finite query coordinate in the same metre units as lines.
+ * @param[in] p Finite query coordinate in the same meter units as lines.
  * @param[in] lines Stable polylines, preserved; vectors shorter than two points contribute no
  * segment.
- * @return Minimum clamped-projection distance in metres, infinity when no segments; zero-length
+ * @return Minimum clamped-projection distance in meters, infinity when no segments; zero-length
  * segments act as points. No allocation, closure inference or geometry mutation.
  */
 double distToLines(const QPointF &p, const QVector<QVector<QPointF>> &lines)
@@ -262,9 +262,9 @@ double distToLines(const QPointF &p, const QVector<QVector<QPointF>> &lines)
 /**
  * @brief Count sampled kept-line locations farther than tolerance from any actual mesh edge.
  * @param[in] r Stable valid mesh, undirected cell edges deduplicated locally.
- * @param[in] lines Stable kept polylines in mesh metre coordinates, preserved.
+ * @param[in] lines Stable kept polylines in mesh meter coordinates, preserved.
  * @return Count among five equally spaced samples per segment with nearest edge distance > 1e-7
- * metres; shared endpoints may be counted repeatedly. Allocates local edges/set, no exact
+ * meters; shared endpoints may be counted repeatedly. Allocates local edges/set, no exact
  * topological identity test.
  */
 int pointsOffEdges(const MeshResult &r, const QVector<QVector<QPointF>> &lines)
@@ -308,7 +308,7 @@ int pointsOffEdges(const MeshResult &r, const QVector<QVector<QPointF>> &lines)
 /**
  * @brief Sum geometric areas across all fixture cells.
  * @param[in] r Stable mesh with valid vertex references, preserved.
- * @return Total squared metres, zero when empty; no overlap or hole correction, local
+ * @return Total squared meters, zero when empty; no overlap or hole correction, local
  * accumulation.
  */
 double meshArea(const MeshResult &r)
@@ -323,7 +323,7 @@ double meshArea(const MeshResult &r)
 /**
  * @brief Count edges with unsupported cell use relative to the rectangular fixture boundary.
  * @param[in] r Stable valid mesh, preserved.
- * @param[in] box Domain rectangle in the same metre coordinates.
+ * @param[in] box Domain rectangle in the same meter coordinates.
  * @return Number of unique edges used other than twice, except one-use edges whose two endpoints
  * each lie within 1e-9 of some box side. Endpoints need not match the same side in this helper.
  * Local edge-map allocation; no repair, hole handling or global conformity guarantee.
@@ -418,7 +418,7 @@ QPair<int, QStringList> worstFaces(const MeshResult &r, double limit, int count)
 
 /*! Grading gate for meshes with terrain break lines and strips: the median
  *  face near 1:1, none above 3, and at most 0.1 % above 2.1 (a triangle
- *  resting on a fixed strip edge cannot always shrink to its neighbour). */
+ *  resting on a fixed strip edge cannot always shrink to its neighbor). */
 /**
  * @brief Apply the terrain-strip grading acceptance thresholds and produce diagnostics.
  * @param[in] r Stable valid mesh, used to count faces above ratio 2.1.
@@ -491,8 +491,8 @@ private slots:
     /**
      * @brief Verify captured terrain curbs create aligned street quads while building walls
      * remain conforming edges.
-     * @note Synthetic half-metre DEM, one strip and >=8 quads within carriageway, edge angles
-     * within 5 degrees; kept points on edges, >100 original curb samples within 0.5 metre, area
+     * @note Synthetic half-meter DEM, one strip and >=8 quads within carriageway, edge angles
+     * within 5 degrees; kept points on edges, >100 original curb samples within 0.5 meter, area
      * 5376 within 1e-6, no nonconforming edges or <10 degree cells, free triangles >=30-1e-6
      * degrees, feature grading passes. Terrain lines must not become boundary edges; writes
      * street_strip CSV review geometry and logs metrics.
@@ -635,7 +635,7 @@ private slots:
     /**
      * @brief Verify terrain lines yield clearance to a crossing conduit and a domain-hugging
      * response.
-     * @note Successful mesh keeps terrain points >=0.5 metre from conduit and drops near-domain
+     * @note Successful mesh keeps terrain points >=0.5 meter from conduit and drops near-domain
      * line; marker 100 conduit chain remains present. Local generator only, no files written by
      * this slot.
      */
@@ -678,7 +678,7 @@ private slots:
     /**
      * @brief Verify closed terrain lines neither carve holes nor block region tagging across
      * building footprints.
-     * @note Explicit 4 by 4 metre user hole alone removes area, total 5360 within 1e-6; sampled
+     * @note Explicit 4 by 4 meter user hole alone removes area, total 5360 within 1e-6; sampled
      * building annulus cells exist and all receive outside lawn tag. No terrain-source/model
      * mutation.
      */
@@ -720,7 +720,7 @@ private slots:
     /**
      * @brief Verify near-parallel responses below the refinement floor collapse to one accepted
      * terrain line.
-     * @note Lines 0.3 metre apart, minimum cell 0.5, successful mesh and every accepted sample
+     * @note Lines 0.3 meter apart, minimum cell 0.5, successful mesh and every accepted sample
      * on an edge. Does not assert which original line survives.
      */
     void crowdedLinesKeepOnlyOne()
@@ -747,7 +747,7 @@ private slots:
     /**
      * @brief Verify an out-and-back terrain response preserves a valid leg without thin-cell
      * artifacts.
-     * @note Half-metre leg separation/floor, one accepted line, all samples on edges, zero <10
+     * @note Half-meter leg separation/floor, one accepted line, all samples on edges, zero <10
      * degree cells; local mesh, no output artifacts.
      */
     void hairpinKeepsOneLeg()
@@ -777,7 +777,7 @@ private slots:
     /**
      * @brief Verify a sparse long line does not inflate the clearance of an independently dense
      * nearby line.
-     * @note Two-point line y 18 and half-metre-sampled line y 12, successful mesh retains a y 12
+     * @note Two-point line y 18 and half-meter-sampled line y 12, successful mesh retains a y 12
      * point within 1e-9. No requirement that every candidate line is kept.
      */
     void sparseLineDoesNotWidenOthers()
@@ -808,7 +808,7 @@ private slots:
     /**
      * @brief Verify four-million-pixel urban terrain capture and generation produce many valid
      * graded street strips.
-     * @note One square kilometre, half-metre pixels/40 metre blocks/8 metre streets; >1000
+     * @note One square kilometer, half-meter pixels/40 meter blocks/8 meter streets; >1000
      * strips, dropped < placed/20, no <10 degree cells, minimum >=20 degrees and feature grading
      * passes. Writes city_strips cell/line CSVs under review root, logs extraction/meshing time
      * and metrics; no hard timing gate, substantial local memory/CPU use.

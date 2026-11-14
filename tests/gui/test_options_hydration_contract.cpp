@@ -6,9 +6,9 @@
  *
  * Contract (see docs/GUI_IMPLEMENTATION_PLAN.md §M.1): every in-scope control
  * must hydrate from the active project's engine at all three of:
- *   1. Project open      — modelled here as syncFromEngine() on a fresh engine.
- *   2. Tab activation    — modelled here as setActiveProject(&perProject).
- *   3. External mutation — modelled here as setFlowUnits(units, engine), which
+ *   1. Project open      — modeled here as syncFromEngine() on a fresh engine.
+ *   2. Tab activation    — modeled here as setActiveProject(&perProject).
+ *   3. External mutation — modeled here as setFlowUnits(units, engine), which
  *                          writes through to the engine AND emits unitsChanged
  *                          through the facade.
  *
@@ -97,7 +97,7 @@ private slots:
     void trigger3_externalMutation_writesEngineAndFiresFacade();
 
     // LINK_OFFSETS ABI round-trip — covers the second audit entry at the
-    // engine layer. The engine's standard OPTIONS switch did not recognise
+    // engine layer. The engine's standard OPTIONS switch did not recognize
     // LINK_OFFSETS until Slice CX Phase CX.4 added it (2026-05-22); this
     // case is the regression guard for that engine patch. The full GUI-side
     // leg lives on SWMMVisProjectWindow and is parked under the swmmvis_core
@@ -376,7 +376,7 @@ void TestOptionsHydrationContract::linkOffsets_fileRoundTripsThroughSave()
     const QString src = writeDeck(QStringLiteral("offsets_elev.inp"), "ELEVATION");
     QVERIFY(!src.isEmpty());
 
-    // ---- Read: the parser must honour ELEVATION, not fall back to default.
+    // ---- Read: the parser must honor ELEVATION, not fall back to default.
     SWMM_Engine e = swmm_engine_create();
     QVERIFY(e != nullptr);
     QCOMPARE(swmm_engine_open(e, src.toUtf8().constData(),
@@ -666,7 +666,7 @@ void TestOptionsHydrationContract::fvOptions_retiredNodeKeysAcceptAndFreeze()
     // Retired engine-side and removed from the dialog in the same round.
     // Older projects and scripts still write them, so the C API must accept
     // ANY value (never fail the set) and keep reporting the built-in
-    // behaviour (never echo the value) — exactly the FV_JUNCTION_MODEL
+    // behavior (never echo the value) — exactly the FV_JUNCTION_MODEL
     // convention. Against the pre-retirement engine every row here fails,
     // because the values used to round-trip.
     const struct {

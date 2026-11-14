@@ -117,7 +117,7 @@ public:
 
     /*! \brief Push every provider back to the engine via
      *  `swmm_control_clear_rules` + a `swmm_control_add_rule` loop. Used
-     *  by the layer's apply-helpers and by the project-save serialiser.
+     *  by the layer's apply-helpers and by the project-save serializer.
      * @param[in] engineHandle Borrowed editable engine used synchronously; null returns zero without touching local providers.
      * @return Number of bodies added after clearing, or zero on clear/add failure (also zero for successful empty output).
      * @details Snapshots readable original bodies first; a failed add attempts to clear and restore that snapshot. Restore return codes are ignored, so rollback is best-effort. Providers and cached validation remain unchanged.

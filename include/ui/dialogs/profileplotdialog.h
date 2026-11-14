@@ -5,7 +5,7 @@
  * @license   GPL-3.0-or-later
  * @brief     Slice BC's host dialog for the longitudinal profile plot.
  *
- *         Composition: a `ProfilePlotWidget` (the chart) in the centre, a
+ *         Composition: a `ProfilePlotWidget` (the chart) in the center, a
  *         `ProfileLayerPanel` on the right (layer toggles), a Sources
  *         panel listing every `SWMMResultsLayer` in the active project's
  *         `AnimationController`.  Animation-cursor sync goes through the
@@ -205,7 +205,7 @@ private slots:
     void onAnimationTimeChanged(const QDateTime &dt);
     /**
      * @brief Read primary result LID cell states for path nodes when either LID overlay is enabled.
-     * Respects the primary source checkbox, scales bottom/top/pressure/head between feet/metres to
+     * Respects the primary source checkbox, scales bottom/top/pressure/head between feet/meters to
      * model FLOW_UNITS, and reports unavailable/hidden source status. Updates only plot
      * state/action visibility, not simulation values.
      */
@@ -388,7 +388,7 @@ private:
         int boundaryTriIdx = -1; ///< opposite side of a shared-edge trace
         double bed = 0.0;        ///< result bed in profile elevation units
         bool breakBefore = false;
-        /// signed temporal-maximum depth in metres; NaN until the envelope is applied
+        /// signed temporal-maximum depth in meters; NaN until the envelope is applied
         double signedMaxDepth = std::numeric_limits<double>::quiet_NaN();
     };
 
@@ -585,7 +585,7 @@ private:
      *        `ProfilePlotOptions::changed` is one signal for every property,
      *        so a blind push would restyle all sources whenever any unrelated
      *        option (a label toggle, say) changed — quietly undoing per-source
-     *        customisation. Hence the snapshot below: only the pens that
+     *        customization. Hence the snapshot below: only the pens that
      *        actually differ from what was last seen get pushed.
      *
      * Result is true when at least one source was restyled.

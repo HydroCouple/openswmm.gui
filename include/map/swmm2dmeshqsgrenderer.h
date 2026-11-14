@@ -11,7 +11,7 @@
  * Rendering:
  *   Pass 1 — filled triangles: QSGGeometry::ColoredPoint2D +
  *             QSGVertexColorMaterial.  Per-vertex colors encode elevation
- *             colour ramp × hillshade, computed once per geometry/zoom
+ *             color ramp × hillshade, computed once per geometry/zoom
  *             change and reused on pan.
  *   Pass 2 — edges: two QSGGeometryNode (thin/wide), thick-segment quads
  *             (DrawTriangles) so line widths are consistent across RHI
@@ -144,7 +144,7 @@ protected:
      * @note Offscreen-bbox path empties ordinary fill/line/label/node/selection passes and
      *   invalidates built coverage/LOD without consuming pending dirtiness. Label texture cache
      *   is keyed solely by formatted level text,
-     *   so colour/DPR changes do not themselves replace an existing text entry.
+     *   so color/DPR changes do not themselves replace an existing text entry.
      */
     QSGNode *updatePaintNode(QSGNode *oldNode, UpdatePaintNodeData *) override;
 
@@ -178,7 +178,7 @@ private:
         QSGGeometryNode *isoband = nullptr;
         QSGGeometryNode *edgeThin = nullptr;
         QSGGeometryNode *edgeWide = nullptr;
-        QSGGeometryNode *edgeWall = nullptr; // boundary Wall edges in the BC Wall colour
+        QSGGeometryNode *edgeWall = nullptr; // boundary Wall edges in the BC Wall color
         QSGGeometryNode *edgeBc[6] = {}; // non-Wall BC types
         QSGGeometryNode *contour = nullptr;
         QSGNode *contourLabels = nullptr;
@@ -194,7 +194,7 @@ private:
     SceneNodes m_nodes;
     QSGTransformNode *m_sceneRoot = nullptr;
 
-    // Fixed scene-space anchor (bbox centre) — keeps float vertex coords
+    // Fixed scene-space anchor (bbox center) — keeps float vertex coords
     // small even in UTM coordinates; stable across pans. Recomputed only
     // when the geometry domain is dirty.
     double m_anchorX = 0.0;
@@ -223,10 +223,10 @@ private:
     // Keyed by the rendered label string ("12.4", "20.0", …). QSGTexture
     // ownership is held by us; we delete them in ~SWMM2DMeshQSGRenderer
     // via deleteLater() because QSGTextures must be released on the
-    // QQuickWindow's render thread. Cached so we don't rasterise the
+    // QQuickWindow's render thread. Cached so we don't rasterize the
     // same level value every frame.
     mutable QHash<QString, QSGTexture *> m_labelTextureCache;
-    /// Colour and opacity the cached label textures were drawn with; a change empties the cache.
+    /// Color and opacity the cached label textures were drawn with; a change empties the cache.
     QString m_labelTextureStyle;
 
     /**
@@ -265,7 +265,7 @@ private:
     quint64 m_isolineCacheScheme = 0; ///< Slice US.3 — ClassificationScheme::revision()
     std::vector<OpenSWMM::Contour::IsoLineSegment> m_cachedSegs;
 
-    // ── Pass 1 per-triangle fill-colour cache ──────────────────────────
+    // ── Pass 1 per-triangle fill-color cache ──────────────────────────
     // The ramp branch of Pass 1 computes, for every visible triangle, an
     // elevation-ramp sample × hillshade lighting × alpha blend. The RGB
     // part of that computation is invariant under pan and zoom (it only
@@ -281,14 +281,14 @@ private:
     //
     // Cache key (compared structurally each paint):
     //   geomRevision   — mesh geometry version from the layer
-    //   zMin / zMax    — elevation range used to normalise zAvg
+    //   zMin / zMax    — elevation range used to normalize zAvg
     //   azimuth, altitude, zExaggeration, shadowFloor, strength
     //                  — hillshade lighting inputs
     //   ramp           — RasterColorRamp; compared structurally (minValue,
     //                    maxValue, clampMin/Max, interp, stops)
     //
     // The flat-fill branch (useRamp=false / no elevation) produces a
-    // constant colour for every triangle and is not cached. The flat
+    // constant color for every triangle and is not cached. The flat
     // branch also doesn't invalidate the cache, so toggling the ramp off
     // and back on can reuse a still-valid cache if all other inputs
     // matched.
@@ -301,11 +301,11 @@ private:
     //
     // colorByAttribute (MeshFillStyle) widens two of these fields:
     //   m_fillCacheRev      also XORs the layer's attrRevision(), so a
-    //                       per-cell Manning's edit invalidates the colours.
+    //                       per-cell Manning's edit invalidates the colors.
     //   m_fillCacheZMin/Max hold the *classification* range — the attribute's
     //                       observed span in attribute mode, the elevation
     //                       span in the historic elevation mode.
-    //   m_fillCacheAttrKey  which attribute the cached colours were built
+    //   m_fillCacheAttrKey  which attribute the cached colors were built
     //                       from; switching attributes changes nothing else
     //                       in the key, so it must be compared on its own.
     bool m_fillCacheValid = false;

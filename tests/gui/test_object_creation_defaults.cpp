@@ -201,7 +201,7 @@ void TestObjectCreationDefaults::usDefaults_appliedToDrawnObjects()
     QCOMPARE(scf, 1.0);
 }
 
-/** @brief Verify an SI project receives metre-based conduit diameter/length and storage depth defaults. */
+/** @brief Verify an SI project receives meter-based conduit diameter/length and storage depth defaults. */
 void TestObjectCreationDefaults::siDefaults_selectedBySiProject()
 {
     auto layer = openLayer(QStringLiteral("object_defaults_cms.inp"));
@@ -235,7 +235,7 @@ void TestObjectCreationDefaults::siDefaults_selectedBySiProject()
 /** @brief Verify new subcatchments use the project Curve Number infiltration family and its defaults rather than zero-initialized Horton metadata. */
 void TestObjectCreationDefaults::curveNumberProject_getsCurveNumberFamily()
 {
-    // swmm_subcatch_add zero-initialises infil_model, so a fresh subcatchment
+    // swmm_subcatch_add zero-initializes infil_model, so a fresh subcatchment
     // always reads HORTON. The applier must key off the project's
     // INFILTRATION option instead, or the CN/Green-Ampt defaults are dead.
     auto layer = openLayer(QStringLiteral("object_defaults_cn.inp"));

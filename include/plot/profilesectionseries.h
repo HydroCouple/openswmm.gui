@@ -118,7 +118,7 @@ bool sampleSeries(Section &section, const Definition &definition,
  * @brief Validate section identity, path counts/coordinates, source references and series policy/style.
  * @param[in] d Definition to inspect without mutation. Requires a nonzero finite path of 2..100000 points, 1..64 unique sources containing primarySourceId, and at most 128 uniquely named nonreserved series.
  * @param[out] error Optional first-failure diagnostic cleared on entry.
- * @return True when structural requirements hold: nonblank identity/sceneCRS/horizontalUnits, m/ft elevation units, known roles/policies, valid colour, pen width (0,32], opacity [0,1], finite range bounds and increasing custom range. Does not access source files/catalogs, verify a CRS definition/horizontal-unit token or validate every pen enum/dash field.
+ * @return True when structural requirements hold: nonblank identity/sceneCRS/horizontalUnits, m/ft elevation units, known roles/policies, valid color, pen width (0,32], opacity [0,1], finite range bounds and increasing custom range. Does not access source files/catalogs, verify a CRS definition/horizontal-unit token or validate every pen enum/dash field.
  */
 bool validateDefinition(const Definition &d, QString *error = nullptr);
 /**

@@ -82,7 +82,7 @@ public:
     [[nodiscard]] double wallDrag() const;
     void setWallDrag(double v);
     /**
-     * @return Constant prescribed discharge per metre of edge in project flow units per metre; missing storage reads as zero.
+     * @return Constant prescribed discharge per meter of edge in project flow units per meter; missing storage reads as zero.
      */
     [[nodiscard]] double bcFlow() const;
     /**
@@ -128,8 +128,8 @@ public slots:
      */
     void setBCSlope(double v);
     /**
-     * @brief Change the constant prescribed discharge per metre of boundary edge.
-     * @param[in] v Discharge in project flow units per metre, passed unchanged without local validation.
+     * @brief Change the constant prescribed discharge per meter of boundary edge.
+     * @param[in] v Discharge in project flow units per meter, passed unchanged without local validation.
      */
     void setBCFlow(double v);
     /**
@@ -173,7 +173,7 @@ private slots:
 
 private:
     /*! Mutate one field of the stored BC slot and write it back through
-     *  `applyMeshEdgeBC`. Centralises the read-modify-write so each
+     *  `applyMeshEdgeBC`. Centralizes the read-modify-write so each
      *  setter is one line.
      * @brief Read-modify-write one complete edge BC slot through the shared layer.
      * @tparam F Synchronous callable accepting MeshEdgeBC&.

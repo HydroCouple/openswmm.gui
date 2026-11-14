@@ -11,7 +11,7 @@
  * profile (SWMMVisProjectWindow::activateTerrainProfileTool), which routes the
  * same polyline to RasterProfileSampler instead of MeshProfileSampler.
  *
- * Behaviour (mirrors MapToolPick2DCells's lasso idiom):
+ * Behavior (mirrors MapToolPick2DCells's lasso idiom):
  *   - Left-click adds a polyline vertex.
  *   - Mouse-move shows a live rubber segment from the last vertex to the cursor.
  *   - Double-click or Enter finishes (needs ≥ 2 vertices) and emits
@@ -46,7 +46,7 @@ public:
      */
     explicit MapToolMeshProfile(MapCanvas *canvas, QObject *parent = nullptr);
     /**
-     * @brief Destroy value trace/base QObject state; does not emit traced/cancelled result or
+     * @brief Destroy value trace/base QObject state; does not emit traced/canceled result or
      *   detach itself from canvas.
      */
     ~MapToolMeshProfile() override = default;

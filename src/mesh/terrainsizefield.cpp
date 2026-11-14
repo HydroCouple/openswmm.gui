@@ -154,7 +154,7 @@ void TerrainSizeField::dilateMinimum()
 {
     // A feature on a block boundary is seen only by the blocks whose far
     // corner touches it, so it refines one side. Taking the minimum over the
-    // 3×3 output neighbourhood makes the refinement symmetric (one output
+    // 3×3 output neighborhood makes the refinement symmetric (one output
     // cell either side); gradation limiting downstream does the rest.
     if (m_outCols <= 0 || m_outRows <= 0)
         return;

@@ -112,7 +112,7 @@ template <class SpinT, class Fn> void onValue(SpinT *s, QObject *ctx, Fn fn)
 }
 
 /**
- * @brief Grey the rows of props the rule's layer does not draw (render/rulestylesync.h):
+ * @brief Gray the rows of props the rule's layer does not draw (render/rulestylesync.h):
  *        the adapter carries them as the "ignoredKeys" property, key → reason.
  * @param[in] adapter The editor's adapter.
  * @param[in] rows Each control with the prop key it writes.
@@ -297,7 +297,7 @@ ContourBandSymbolStyleEditor::ContourBandSymbolStyleEditor(ContourBandSymbolStyl
     root->setContentsMargins(8, 8, 8, 8);
     QFormLayout *f = nullptr;
     // Title tracks the classified attribute (terrain = bed elevation,
-    // results = water depth) so the terrain editor isn't mislabelled "Depth".
+    // results = water depth) so the terrain editor isn't mislabeled "Depth".
     const bool elev =
         m_a && m_a->attribute().compare(QLatin1String("elevation"), Qt::CaseInsensitive) == 0;
     auto *box = group(this, elev ? tr("Elevation Contours") : tr("Depth Contours"), f);

@@ -113,7 +113,7 @@ public:
      * \brief Returns the categorical color assigned to path \p index.
      *        Useful for the picker dialog to render a matching color chip.
      * @param[in] index Candidate path ordinal.
-     * @return Shared categorical palette colour by ordinal, gray out of-range. Does not include
+     * @return Shared categorical palette color by ordinal, gray out of-range. Does not include
      *   highlight alpha/casing or stored preferences.
      */
     [[nodiscard]] QColor colorForPath(int index) const;

@@ -57,7 +57,7 @@ public:
      *                     assumption (which otherwise picks a zoom level
      *                     too low for @2x tiles, wasting the extra pixels).
      * @param[in] parent Ignored; this constructor deliberately gives the layer no QObject/workspace parent. Caller must arrange its lifetime.
-     * @note Nonpositive tileSizePx substitutes 256. Creates an owned network manager and WGS84/Mercator references, sets world Mercator extent/metres and imagery category, but fetches no tiles. Default LRU budget is 400 entries. Network calls belong to the constructing GUI thread.
+     * @note Nonpositive tileSizePx substitutes 256. Creates an owned network manager and WGS84/Mercator references, sets world Mercator extent/meters and imagery category, but fetches no tiles. Default LRU budget is 400 entries. Network calls belong to the constructing GUI thread.
      */
     explicit XYZTileLayer(const QString &urlTemplate, int tileSizePx = 256,
                           QObject *parent = nullptr);
@@ -193,7 +193,7 @@ private:
     /**
      * @param[in] wgs84Extent Finite positive longitude/latitude-degree rectangle; only longitude span determines resolution.
      * @param[in] vpWidth Logical output width in pixels.
-     * @return Zoom zero through nineteen, using floor(ideal+0.7) to favour detail; invalid extent/nonpositive width returns two. Logical tile size uses configured pixel ratio and must remain positive. No fetch/cache mutation.
+     * @return Zoom zero through nineteen, using floor(ideal+0.7) to favor detail; invalid extent/nonpositive width returns two. Logical tile size uses configured pixel ratio and must remain positive. No fetch/cache mutation.
      */
     int bestZoom(const QRectF &wgs84Extent, int vpWidth) const;
     /**

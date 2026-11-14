@@ -7,10 +7,10 @@
  * Gates (workplans/UNIFIED_2D_RESULTS_RENDERING_PLAN_2026-10-31.md, rev. 2026-11-01):
  * x/y components pair into vectors and get no scalar rows; the derived magnitude and the
  * unsaturated column average compute correctly; scalar toggles round-trip (old "presentation"
- * JSON still loads); defaults show depth filled contours, velocity streaks, labelled water-table
+ * JSON still loads); defaults show depth filled contours, velocity streaks, labeled water-table
  * isolines and the column average; the depth and velocity rows drive the optimized passes, which
  * no longer appear as rows; older projects migrate; vector geometry points the right way in
- * scene coordinates and follows its colour binding; the scene graph draws cell fill, filled
+ * scene coordinates and follows its color binding; the scene graph draws cell fill, filled
  * contours and isolines of one scalar at once. Fixtures land in
  * tests/output/unified_2d_results_2026-11-01/.
  *
@@ -692,7 +692,7 @@ private slots:
         QVERIFY(!scalarRow(old, "surface:Mesh2_face_vx")); // the hidden component row retires
     }
 
-    /** @brief Arrows follow the field (scene Y runs opposite to model Y) and their colour
+    /** @brief Arrows follow the field (scene Y runs opposite to model Y) and their color
      * binding; static streaks advance along the field; the velocity row leaves streaks to the
      * animated pass. */
     void vectorGeometryArrowsAndStreaks()
@@ -723,7 +723,7 @@ private slots:
             QVERIFY(arrow.tip.y() < arrow.tail.y()); // +y north is up the screen
             colors.insert(arrow.color.rgba());
         }
-        QCOMPARE(colors.size(), 2); // one colour per cell's water table
+        QCOMPARE(colors.size(), 2); // one color per cell's water table
         QVERIFY(!geometry.streaks.empty());
         for (const auto &streak : geometry.streaks)
             QVERIFY(streak.points.back().x() > streak.points.front().x());
@@ -1062,7 +1062,7 @@ private slots:
         QCOMPARE(currentTab(panel), QStringLiteral("resultArrowsTab"));
     }
 
-    /** @brief The streak colour classes, hidden while colouring by speed is off, are disabled and
+    /** @brief The streak color classes, hidden while coloring by speed is off, are disabled and
      * drop a draft, so an edit the user can no longer see never blocks OK/Apply. */
     void hiddenFlowClassificationNeverBlocksAccept()
     {
@@ -1186,8 +1186,8 @@ private slots:
         QVERIFY(layer.staticWaterCacheable());
     }
 
-    /** @brief A vector row's colour editor shows the |v| range of the displayed frame whether or
-     * not the row draws arrows (streaks only, hidden). Without a range (constant colour, no wet
+    /** @brief A vector row's color editor shows the |v| range of the displayed frame whether or
+     * not the row draws arrows (streaks only, hidden). Without a range (constant color, no wet
      * cell) it is disabled, so it never blocks OK/Apply, and shows blank bounds with a note
      * rather than its range boxes' limits and an error. */
     void vectorColourEditorNeverBlocksAccept()
@@ -1262,7 +1262,7 @@ private slots:
         QVERIFY(fill && !fill->isEnabled() && fill->hasValidDraft());
         QCOMPARE(fill->findChild<QLabel *>("classificationStatus")->text(), none);
 
-        auto *darcy = vectorRow(layer, kDarcy); // arrows coloured by magnitude
+        auto *darcy = vectorRow(layer, kDarcy); // arrows colored by magnitude
         QVERIFY(panel.focusResult(darcy->id()));
         QVERIFY(editor()->isEnabled() && editor()->hasValidDraft());
         darcy->setVisible(false);
@@ -1775,7 +1775,7 @@ private slots:
         QVERIFY(at(row) < at(layer.meshEdgeSublayer()));
     }
 
-    /** @brief The colour range of surface arrows covers only the cells they are drawn on. */
+    /** @brief The color range of surface arrows covers only the cells they are drawn on. */
     void arrowColourRangeSkipsDryCells()
     {
         auto owned = std::make_unique<FieldSource>();
@@ -1853,7 +1853,7 @@ private slots:
                     .contains(QStringLiteral("Whole-run range requires")));
     }
 
-    /** @brief Sizing or colouring by a scalar variable binds the first listed variable when none
+    /** @brief Sizing or coloring by a scalar variable binds the first listed variable when none
      * is bound, so the arrows do not vanish. */
     void scalarBindingPicksTheFirstVariable()
     {
@@ -1892,7 +1892,7 @@ private slots:
         QVERIFY(panel.findChild<QStackedWidget *>("depthFillPasses"));
     }
 
-    /** @brief While a picker opened from the page (a modal colour or ramp dialog) is open, the
+    /** @brief While a picker opened from the page (a modal color or ramp dialog) is open, the
      * page is neither replaced nor refreshed under it; it catches up once the picker closes. */
     void pageWaitsForAnOpenPicker()
     {
@@ -2051,7 +2051,7 @@ private slots:
                  "the label node does not carry the pass opacity");
     }
 
-    /** @brief The vector legend and the style panel's colour range follow the time the scene
+    /** @brief The vector legend and the style panel's color range follow the time the scene
      * graph drew, not a newer current time. */
     void vectorLegendAndPanelFollowTheDrawnTime()
     {
@@ -2103,7 +2103,7 @@ private slots:
         const auto &shown = darcy->vectorStyle()->colorScheme();
         QVERIFY2(cells.contains(shown.formatValue(hi0)) && !cells.contains(shown.formatValue(hi1)),
                  qPrintable(cells.join(QLatin1Char('|'))));
-        // The colour editor stays usable while the drawn frame has a range, although the newer
+        // The color editor stays usable while the drawn frame has a range, although the newer
         // current frame cannot be read.
         auto lagging = std::make_unique<FieldSource>();
         lagging->values["Mesh2_face_gw_qx"] = {1e-7f, 3e-7f};
@@ -2221,7 +2221,7 @@ private slots:
         QCOMPARE(rows, (QStringList{"results2d.meshVertices", "results2d.meshEdges"}));
     }
 
-    /** @brief Audit, on a real results file, what every colour classification editor of every
+    /** @brief Audit, on a real results file, what every color classification editor of every
      * result row shows: enabled state, the bounds in its range boxes and its status line, next
      * to the frame's own value range. Skips unless CLASSIFICATION_AUDIT_H5 names a .2d.h5 and
      * CLASSIFICATION_AUDIT_OUT a folder; writes classification_audit.tsv there. */
@@ -2255,7 +2255,7 @@ private slots:
                 auto *vector = qobject_cast<ResultVectorSublayer *>(s);
                 if (!scalar && !vector)
                     continue;
-                // The values the row's colours classify: the frame's range, or |v| over the
+                // The values the row's colors classify: the frame's range, or |v| over the
                 // cells the vector row draws.
                 double lo = std::numeric_limits<double>::quiet_NaN(), hi = lo;
                 QString drawn = QStringLiteral("-");

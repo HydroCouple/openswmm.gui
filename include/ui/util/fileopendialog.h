@@ -63,7 +63,7 @@ public:
      */
     static void rememberSelection(const QString &type, const QStringList &paths)
     {
-        // A cancelled picker must not erase history. For multiple files, remember
+        // A canceled picker must not erase history. For multiple files, remember
         // the last selected file's folder (normally all selections share a folder).
         for (auto it = paths.crbegin(); it != paths.crend(); ++it) {
             if (it->isEmpty())

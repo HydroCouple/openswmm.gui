@@ -140,7 +140,7 @@ mesh::MeshResult makeStrip(int wide, double height = 1.0)
 
 /**
  *
- * @brief Fan-triangulate the fixture polygon around its vertex-mean centre.
+ * @brief Fan-triangulate the fixture polygon around its vertex-mean center.
  * @param ring Borrowed unclosed nonempty polygon, intended convex/counterclockwise
  * so the mean lies inside and all fan cells are valid; no validation performed.
  * @return Owned ok mesh with ring vertices first, mean last and one triangle per edge,

@@ -20,7 +20,7 @@
  * \brief Tool that pans the map canvas by click-dragging.
  * \details On mouse press the tool records the anchor point.  As the mouse moves,
  *          the canvas extent is shifted so the anchor follows the cursor.
- *          Releasing the mouse finalises the pan and pushes an undo command.
+ *          Releasing the mouse finalizes the pan and pushes an undo command.
  */
 class OpenSWMMVisMapToolPan : public OpenSWMMVisMapTool
 {

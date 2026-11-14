@@ -284,7 +284,7 @@ TEST_F(BurnSelectorTest, StreetsAreGatedOnTheirOwnOptionNotOnTheEnginesAnswer)
     // The gate must NOT be derived from the engine's open/closed answer. That
     // whitelist has carried STREET both ways (tests/gui/test_xsectsampler.cpp
     // pins it precisely because it moves), and deriving the default from it
-    // would silently start burning every kerb line in the model the day it
+    // would silently start burning every curb line in the model the day it
     // flips. So this asserts the BEHAVIOUR, which holds either way.
     BurnSelector sel;
 

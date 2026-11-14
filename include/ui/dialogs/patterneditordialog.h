@@ -15,7 +15,7 @@
  *   │  list view   │   row labels are          │ ─────────────────────────│
  *   │              │   Jan..Dec / Sun..Sat /   │  Step-line preview       │
  *   │              │   00:00..23:00 etc.)      │  (one slot per category, │
- *   │              │                           │   markers at slot centre │
+ *   │              │                           │   markers at slot center │
  *   │              │  [ Normalize sum=1.0 ]    │   on InteractiveChartView│
  *   │ [New][Dup]   │                           │   for zoom + pan)        │
  *   │ [Ren][Del]   │                           │                          │
@@ -203,11 +203,11 @@ public:
     void done(int result) override;
     /**
      * @brief Expose the preview line, rebuilt from factors when data or style changes.
-     * @return Borrowed chart-owned series, with slot-centre points or paired step endpoints.
+     * @return Borrowed chart-owned series, with slot-center points or paired step endpoints.
      */
     QLineSeries *previewLineSeries() const noexcept { return m_lineSeries; }
     /**
-     * @brief Expose the slot-centre marker series.
+     * @brief Expose the slot-center marker series.
      * @return Borrowed chart-owned series; it can be empty/hidden when markers are disabled.
      */
     QScatterSeries *previewMarkerSeries() const noexcept { return m_scatterSeries; }
@@ -287,7 +287,7 @@ public:
     void deleteCurrentSilently();
 
     /**
-     * @brief Read whether slot values are drawn as horizontal steps rather than centre-to-centre
+     * @brief Read whether slot values are drawn as horizontal steps rather than center-to-center
      * lines.
      * @return Inverse of the stored smooth-preview flag; does not inspect actual series points.
      */
@@ -296,7 +296,7 @@ public:
     /**
      * @brief Change preview interpolation and rebuild chart data/ranges only when the flag
      * differs.
-     * @param stepLine True emits two endpoints per slot; false connects slot centres with
+     * @param stepLine True emits two endpoints per slot; false connects slot centers with
      * straight
      * segments, without spline interpolation. Provider factors and undo history are unchanged.
      */
@@ -304,13 +304,13 @@ public:
 
     /**
      * @brief Read the stored marker preference without inspecting chart visibility.
-     * @return True when slot-centre markers are requested, including when no provider is bound.
+     * @return True when slot-center markers are requested, including when no provider is bound.
      */
     bool arePreviewMarkersVisible() const noexcept { return m_markersOn; }
 
     /**
      * @brief Change the marker preference and rebuild the preview only when it differs.
-     * @param visible True requests one scatter marker per slot centre. Does not mutate factors
+     * @param visible True requests one scatter marker per slot center. Does not mutate factors
      * or persist immediately; normal closeEvent saves plot preferences.
      */
     void setPreviewMarkersVisible(bool visible);
@@ -525,7 +525,7 @@ private:
      * @brief Rebuild line/scatter/category labels and axes from current factors without mutating
      * provider.
      * Missing chart parts are inert; empty binding clears data/labels and sets both ranges 0..1.
-     * Steps use paired slot endpoints; straight mode uses slot centres. Markers use centres.
+     * Steps use paired slot endpoints; straight mode uses slot centers. Markers use centers.
      * X spans 0..count; Y spans zero to max(1, 1.1 times largest positive factor), clipping any
      * negative values rather than deriving a negative minimum. Existing ranges are replaced.
      */
@@ -600,7 +600,7 @@ private:
     QChart *m_chart = nullptr;
     ChartAxisFormatController *m_axisFmt = nullptr; ///< Per-chart axis number format.
     QLineSeries *m_lineSeries = nullptr;            ///< Step-line (or smooth) factor preview.
-    QScatterSeries *m_scatterSeries = nullptr;      ///< Slot-centre markers.
+    QScatterSeries *m_scatterSeries = nullptr;      ///< Slot-center markers.
     QCategoryAxis *m_xAxis = nullptr;               ///< Categorical labels (Jan, Sun, 00:00 …).
     QValueAxis *m_yAxis = nullptr;
 

@@ -45,7 +45,7 @@ class LabelPainter
 public:
     /*!
      * \brief Whether a label is visible at the given canvas scale denominator
-     *        (the "1:N" map scale). Honours LabelConfig::minScale / maxScale
+     *        (the "1:N" map scale). Honors LabelConfig::minScale / maxScale
      *        (0 = unbounded): hidden when zoomed further out than minScale or
      *        further in than maxScale. A non-finite / non-positive denominator
      *        is treated as "always visible" (gating disabled).

@@ -35,9 +35,9 @@ namespace OpenSWMM::Render
  *
  *        The "Standard" set per slice X.18:
  *          - font family + size + bold/italic (via QFont)
- *          - text colour
- *          - halo (colour + radius in pixels) for legibility on busy maps
- *          - placement hint (auto / above / below / left / right / centre)
+ *          - text color
+ *          - halo (color + radius in pixels) for legibility on busy maps
+ *          - placement hint (auto / above / below / left / right / center)
  *          - field name (label expression — empty means "object name" for
  *            SWMMModelLayer, or the layer's labelField property for
  *            GISVectorLayer)
@@ -72,7 +72,7 @@ struct LabelConfig {
      *  round-trip independent of platform font metrics. */
     qreal fontSizePt = 9.0;
 
-    /*! Text fill colour. */
+    /*! Text fill color. */
     QColor color = QColor(20, 20, 20);
 
     /*! Halo (outline around glyphs) — when `haloEnabled`, the painter
@@ -91,7 +91,7 @@ struct LabelConfig {
         Below,             /*!< Below the anchor.                        */
         Left,              /*!< Left of the anchor, right-aligned text.  */
         Right,             /*!< Right of the anchor, left-aligned text.  */
-        Centre,            /*!< Anchor centred horizontally and vert.    */
+        Centre,            /*!< Anchor centered horizontally and vert.    */
     };
     Placement placement = AutoPlacement;
 

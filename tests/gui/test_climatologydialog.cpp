@@ -610,7 +610,7 @@ void TestClimatologyDialog::evaporationTemperaturePreviewLabelsDailyEstimates()
     swmm_engine_destroy(e);
 }
 
-/** @brief Verify preview headers and values use inches/day for CFS and millimetres/day for CMS.
+/** @brief Verify preview headers and values use inches/day for CFS and millimeters/day for CMS.
  * Checks engine unit-system selection and preserves equivalent constant-source values 1 and 25.4 in their respective display units. */
 void TestClimatologyDialog::evaporationPreviewUsesModelDisplayUnits()
 {

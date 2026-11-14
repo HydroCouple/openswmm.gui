@@ -10,7 +10,7 @@
  *         feature. The compositional model (a list of SymbolLayers) is
  *         the central design of §J.3: a single struct can describe both
  *         a uniform Qt::blue circle and a double-ringed manhole with a
- *         centre cross.
+ *         center cross.
  *
  *         opacity multiplies the per-SymbolLayer alpha so the whole stack
  *         can be faded in / out without touching each layer's props.
@@ -54,21 +54,21 @@ struct SymbolStyle {
 
 /*!
  * \namespace SymbolProps
- * \brief Canonical colour prop accessors for SymbolLayer prop bags (gap A1.2).
+ * \brief Canonical color prop accessors for SymbolLayer prop bags (gap A1.2).
  *
- *        Convention (X1): colours live in memory as QColor *variants*;
+ *        Convention (X1): colors live in memory as QColor *variants*;
  *        SymbolLayer::toJson/fromJson convert to/from hex strings at the
  *        JSON boundary. Historically some writers stored hex strings in
  *        memory while readers used QVariant::value<QColor>() (which does
- *        not parse hex), silently dropping colours. These helpers end the
+ *        not parse hex), silently dropping colors. These helpers end the
  *        split: reads tolerate BOTH encodings forever (back-compat with
- *        styles authored before the canonicalisation); writes emit the one
+ *        styles authored before the canonicalization); writes emit the one
  *        canonical form. All new code must go through them.
  */
 namespace SymbolProps
 {
 
-/*! Tolerant colour read: accepts a QColor variant or a hex/named string.
+/*! Tolerant color read: accepts a QColor variant or a hex/named string.
  *  Returns \a fallback when the key is absent or unparseable.
  * @param props Property map to inspect without mutation.
  * @param key Exact case-sensitive lookup key, without normalization.
@@ -84,7 +84,7 @@ namespace SymbolProps
  * @param c Color to copy, including an invalid color; no parsing or validation occurs. */
 void writeColor(QVariantMap &props, const QString &key, const QColor &c);
 
-/*! First resolvable colour across the stack, checking the grammar keys
+/*! First resolvable color across the stack, checking the grammar keys
  *  "fillColor" (marker/fill specs), then "color" (line spec), then
  *  "outlineColor" per layer. Matches the legend-swatch convention.
  * @param style Stack inspected in stored bottom-to-top order, including disabled-looking layers.
@@ -93,8 +93,8 @@ void writeColor(QVariantMap &props, const QString &key, const QColor &c);
  * data-defined expressions are not evaluated. */
 [[nodiscard]] QColor firstColor(const SymbolStyle &style, const QColor &fallback = QColor());
 
-/*! Write \a c into whichever colour slot(s) each layer already advertises
- *  ("fillColor" and/or "color"). Layers without a colour slot are left
+/*! Write \a c into whichever color slot(s) each layer already advertises
+ *  ("fillColor" and/or "color"). Layers without a color slot are left
  *  untouched. Single shared copy of the helper previously duplicated in
  *  Graduated / Categorized / SingleSymbol / UnclassedColors renderers.
  * @param[in,out] style Stack whose existing fillColor/color entries are replaced.

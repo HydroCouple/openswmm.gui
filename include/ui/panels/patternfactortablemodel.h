@@ -82,7 +82,7 @@ public:
     /**
      * @param[in] index Expected this model root cell; validates provider, index and row/column 0
      *   range.
-     * @param[in] role Display/Edit returns raw double; TextAlignment right/vertical-centre; other
+     * @param[in] role Display/Edit returns raw double; TextAlignment right/vertical-center; other
      *   roles invalid.
      * @return Dimensionless provider multiplier at row, not a percent. Invalid QVariant for bad
      *   cell/unsupported role, no input mutation.

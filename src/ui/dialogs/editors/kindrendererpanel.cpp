@@ -239,7 +239,7 @@ void KindRendererPanel::buildUi()
 
     // "Size by:" — independent attribute for the size/width axis. The
     // "(same as color)" entry (empty data) keeps the historical bin-mapped
-    // behaviour; picking a field scales sizes over that field's own range.
+    // behavior; picking a field scales sizes over that field's own range.
     m_sizeAttrRow = new QWidget(m_graduatedBox);
     {
         auto *rowLay = new QHBoxLayout(m_sizeAttrRow);
@@ -493,7 +493,7 @@ void KindRendererPanel::onOutputAxisChanged()
 void KindRendererPanel::onSizeAttributeChanged(int comboRow)
 {
     // Push the independent size attribute onto the current GraduatedRenderer.
-    // Empty data ("(same as color)") restores the bin-mapped behaviour.
+    // Empty data ("(same as color)") restores the bin-mapped behavior.
     if (m_suppressEdits)
         return;
     auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(currentRenderer());

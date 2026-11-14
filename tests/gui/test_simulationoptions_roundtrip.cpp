@@ -31,7 +31,7 @@
  *
  *   1. `wroteAnyChanges()` is false after Apply — the dialog's own dirty count
  *      (writeIfChanged's numeric-aware compare) saw nothing to write.
- *   2. The model serialised BEFORE the dialog existed and AFTER Apply is
+ *   2. The model serialized BEFORE the dialog existed and AFTER Apply is
  *      equal after line/whitespace normalization in every [OPTIONS]-class section — [OPTIONS],
  *      [REPORT], [FILES], [EVENTS], [2D_OPTIONS], [TITLE] — so a write the
  *      dirty count missed (e.g. a value re-formatted to the same number)
@@ -172,7 +172,7 @@ const QStringList kOwnedSections = {
     QStringLiteral("FILES"), QStringLiteral("EVENTS"),  QStringLiteral("2D_OPTIONS"),
 };
 
-//! Section name → its normalised body (trimmed lines, comments/blank removed).
+//! Section name → its normalized body (trimmed lines, comments/blank removed).
 /** @brief Extract normalized bodies of sections owned by the options dialog.
  * @param[in] text Full input/writer text, unchanged.
  * @return Owned map for TITLE/OPTIONS/REPORT/FILES/EVENTS/2D_OPTIONS, combining
@@ -242,7 +242,7 @@ private:
         SWMM_Engine e = layer->engine();
         QVERIFY(e);
 
-        // 1. Serialise BEFORE the dialog touches anything.
+        // 1. Serialize BEFORE the dialog touches anything.
         const QString before = fixture(stem + QStringLiteral("_before.inp"));
         QCOMPARE(swmm_model_write(e, before.toUtf8().constData()), 0);
 
@@ -813,7 +813,7 @@ private slots:
         QVERIFY(dlg.wroteAnyChanges());
     }
 
-    /** @brief Register accepted edit, accepted no-op, cancelled edit and duplicate-refusal/cancel child-dialog interactions. */
+    /** @brief Register accepted edit, accepted no-op, canceled edit and duplicate-refusal/cancel child-dialog interactions. */
     void nestedWaterAgeEditorTracksOwningProject_data()
     {
         QTest::addColumn<QString>("action");

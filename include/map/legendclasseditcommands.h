@@ -6,7 +6,7 @@
  * @brief     QUndoCommand wrappers for per-class renderer edits driven from
  *         the legend (Slice BB Phase 8.6.16).
  *
- *         Every per-class colour / size / symbol edit issued by the
+ *         Every per-class color / size / symbol edit issued by the
  *         legend's right-click menu or by the LegendPropertiesDialog
  *         Layers tab flows through one of these commands so Ctrl+Z
  *         reverses it uniformly across every view of the same data
@@ -39,23 +39,23 @@ namespace openswmmvis::map
 
 /*!
  * \class SetRendererClassColorCommand
- * \brief Records a per-class colour change on a layer's IFeatureRenderer.
+ * \brief Records a per-class color change on a layer's IFeatureRenderer.
  *
- *        The "old" colour is read from `renderer->colorForClass(classKey)`
+ *        The "old" color is read from `renderer->colorForClass(classKey)`
  *        at construction time. For renderers with optional overrides
- *        (GraduatedRenderer) an invalid old colour denotes "no override
+ *        (GraduatedRenderer) an invalid old color denotes "no override
  *        was active", and undo restores that state by writing back an
- *        invalid colour — which the renderer's setColorForClass treats
+ *        invalid color — which the renderer's setColorForClass treats
  *        as "drop override".
  *
- *        mergeWith() collapses rapid colour-picker drags on the SAME
+ *        mergeWith() collapses rapid color-picker drags on the SAME
  *        (layer, classKey) into one undoable step.
  */
 class SetRendererClassColorCommand : public QUndoCommand
 {
 public:
     /**
-     * @brief Snapshot original class colour at construction and store target for subsequent
+     * @brief Snapshot original class color at construction and store target for subsequent
      *   undo/redo.
      * @param[in] layer Optional borrowed layer guarded by QPointer; null/deletion makes application
      *   no-op.
@@ -73,27 +73,27 @@ public:
                                  QUndoCommand *parent = nullptr);
 
     /**
-     * @brief Apply the original captured class colour through the current renderer/facade route.
+     * @brief Apply the original captured class color through the current renderer/facade route.
      * @note Null/deleted layer no-op; unsupported/key errors are ignored. Original snapshot belongs
      *   to construction-time renderer state, not a full style snapshot.
      */
     void undo() override;
     /**
-     * @brief Apply latest target class colour, including initial push; no first-redo skip.
+     * @brief Apply latest target class color, including initial push; no first-redo skip.
      * @note Uses current renderer/key route and its notifications; no engine edits or success
      *   reporting.
      */
     void redo() override;
 
     /**
-     * @return Stable command-family discriminator 0x4C4C4543 for colour used by QUndoStack before
+     * @return Stable command-family discriminator 0x4C4C4543 for color used by QUndoStack before
      *   mergeWith; no mutation.
      */
-    int id() const override { return 0x4C4C4543; /* "LCEC" — legend class-edit colour */ }
+    int id() const override { return 0x4C4C4543; /* "LCEC" — legend class-edit color */ }
     /**
      * @param[in] other Optional borrowed incoming command; must be same concrete class and
      *   identical guarded layer/key.
-     * @return True when matched: replaces only this target colour with incoming target, preserving
+     * @return True when matched: replaces only this target color with incoming target, preserving
      *   original before snapshot. False for null/different class/target. Does not apply value
      *   itself or impose a time threshold; Qt has normally already redone incoming command.
      */
@@ -101,8 +101,8 @@ public:
 
 private:
     /**
-     * @brief Dispatch a stored class colour to current live layer route.
-     * @param[in] c Colour including invalid reset value, passed verbatim.
+     * @brief Dispatch a stored class color to current live layer route.
+     * @param[in] c Color including invalid reset value, passed verbatim.
      * @note Deleted layer no-op. Single feature renderer receives setColorForClass then explicit
      *   repaintRequested even if setter rejects; model/1D-results facade handles own repaint.
      *   Unsupported layer no-op; errors are ignored.

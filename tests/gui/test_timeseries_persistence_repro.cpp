@@ -451,7 +451,7 @@ private slots:
     /*! Open a GeoPackage, edit, Save to the same file, reopen. With
      *  priorRunRow the file first gets a `simulations` row "run_1" owning the
      *  model rows — a stand-in for a file that also received run output (the
-     *  output plugin was not run here; the rows are relabelled with sqlite3). */
+     *  output plugin was not run here; the rows are relabeled with sqlite3). */
     void gpkgSaveInPlace()
     {
         QFETCH(bool, priorRunRow);

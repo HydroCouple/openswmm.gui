@@ -11,7 +11,7 @@
  *
  * FLOW_ROUTING was *built* here and *wired* on Routing & Hydraulics; T4 gave
  * the combo to the page that gates on it and left a read-only mirror behind
- * (PLAN §2.1) — one key, one editor, no synchronisation burden.
+ * (PLAN §2.1) — one key, one editor, no synchronization burden.
  *
  * The Domain × Species transport matrix is the engine's own view of what will
  * be carried where. Its 2D column is editable and mirrors the 2D page's

@@ -1,12 +1,12 @@
 /**
  * @file      maptoolfeaturedraw.h
- * @brief     Digitising tools that draw into a FeatureLayer
+ * @brief     Digitizing tools that draw into a FeatureLayer
  *            (workplans/MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN_2026-09-07.md §3.3).
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
  *
- * Digitising tools that draw into a FeatureLayer
+ * Digitizing tools that draw into a FeatureLayer
  * (workplans/MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN_2026-09-07.md §3.3).
  *
  * The interaction contract is copied verbatim from
@@ -193,7 +193,7 @@ protected:
      *   canvas. 3D layer sampleZ runs before validation, unsampled count ignored. Invalid geometry
      *   emits drawRejected then cancels.
      * @note Stack push runs insertion; command error emits drawRejected, otherwise featureDrawn. No
-     *   stack deletes command without applying/signalling. Always cancel and Scene/Overlay
+     *   stack deletes command without applying/signaling. Always cancel and Scene/Overlay
      *   invalidate after viable command attempt. AddHole/AddPart inherit this NEW-feature insertion
      *   behavior; selected original is not replaced.
      */

@@ -71,7 +71,7 @@ struct ExtensionUiBridge {
     std::function<bool(const QUuid &, QString *)>
         cancelRunAttempt; ///< Cancel only the current matching native attempt UUID.
     std::function<QList<QVariantMap>(OpenSWMM::Sdk::IModelInstance *, const QString &)>
-        plotVariables; ///< Active-result descriptor catalogue.
+        plotVariables; ///< Active-result descriptor catalog.
     std::function<bool(OpenSWMM::Sdk::IModelInstance *, const QString &, const QString &,
                        const QString &)>
         timeSeries; ///< Open a standard series panel.
@@ -81,7 +81,7 @@ struct ExtensionUiBridge {
     std::function<bool(const QString &)> openDialog; ///< Trigger a known enabled dialog action.
     std::function<QAction *(const QString &)> dialogAction; ///< Resolve approved dialog action metadata.
     std::function<QMetaObject::Connection(QObject *, std::function<void()>)>
-        watchDialogActions; ///< Observe native approved-command catalogue registration changes.
+        watchDialogActions; ///< Observe native approved-command catalog registration changes.
     std::function<void(const QUuid &, const QString &, double, const QString &)>
         progressChanged; ///< Publish one operation with a plugin-qualified title; negative is busy.
     std::function<void(const QUuid &)>

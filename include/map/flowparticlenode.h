@@ -49,14 +49,14 @@ public:
      * @param[in] fadeSeconds Birth/death/retirement fade duration in flow seconds, default0.5; raw
      *   shader uniform.
      * @param[in] trackedId Birth ID to highlight, zero no tracked particle; geometry dependency.
-     * @param[in] appearance Immutable anchor/viewport scene coordinates, colour/palette revision,
+     * @param[in] appearance Immutable anchor/viewport scene coordinates, color/palette revision,
      *   opacity/fade/taper and allocation hints. Palette callback must own stable data; bump
      *   revision on callback/style change.
-     * @note Same frame/scale/trackedID/anchor/colour/revision/viewport skips geometry but
+     * @note Same frame/scale/trackedID/anchor/color/revision/viewport skips geometry but
      *   uniforms/DirtyMaterial still update. Small same-frame scale change<=10% of old positive
      *   scale can defer geometry one call (including view changes), then rebuild. Fully empty
      *   null→null call skips all uniforms.
-     * @note Reuses prepared frame ribbon when its scale/revision/colour/viewport/trackedID match,
+     * @note Reuses prepared frame ribbon when its scale/revision/color/viewport/trackedID match,
      *   correcting anchor offset; otherwise builds private ribbon synchronously using prior frame
      *   and retained population/history high-water hints. Frame data never mutated. Exceptions
      *   propagate without transactional rollback.

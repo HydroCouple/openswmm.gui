@@ -91,7 +91,7 @@ public:
 
     /*! \returns parameter \p k (0..ParamCount-1), or 0 if out of range.
      * @brief Read a snowpack parameter in engine authoring units.
-     * @param[in] k Param index: melt coefficients use in/hr/degree F or mm/hr/degree C; temperature uses F or C; snow/free-water/cover/removal depths use inches or mm water equivalent. Surface/removal fractions are dimensionless. UEB forest/drift are dimensionless, ground heat W/m2, extinction depth metres, and initial energy kJ/m2 in both unit systems.
+     * @param[in] k Param index: melt coefficients use in/hr/degree F or mm/hr/degree C; temperature uses F or C; snow/free-water/cover/removal depths use inches or mm water equivalent. Surface/removal fractions are dimensionless. UEB forest/drift are dimensionless, ground heat W/m2, extinction depth meters, and initial energy kJ/m2 in both unit systems.
      * @return Stored value, or zero for an out-of-range index; no conversion occurs.
      */
     double param(int k) const noexcept;

@@ -95,7 +95,7 @@ void TestA11ySceneExposure::sceneItemsAreNotAccessibleChildren()
 }
 
 // Diagnostic: a QTableView the size of the Attribute Table on a large model.
-// QAccessibleTable materialises one accessible cell per visible cell and the
+// QAccessibleTable materializes one accessible cell per visible cell and the
 // macOS bridge wraps each in a QMacAccessibilityElement. This slot reports the
 // count rather than asserting a threshold — it exists to locate the source of
 // the ~94 million wrappers seen in the field, and to make the number visible

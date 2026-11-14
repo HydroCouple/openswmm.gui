@@ -165,17 +165,17 @@ public:
     // Style accessors — exposed so the right-click context menu's
     // QPropertyModel-backed editor can drive them.
     /**
-     * @brief Read the cached overbank line/handle colour.
+     * @brief Read the cached overbank line/handle color.
      * @return Current stored preview/style value.
      */
     QColor overbankColor() const noexcept { return m_overbankColor; }
     /**
-     * @brief Read the cached channel line/bank-marker colour.
+     * @brief Read the cached channel line/bank-marker color.
      * @return Current stored preview/style value.
      */
     QColor channelColor() const noexcept { return m_channelColor; }
     /**
-     * @brief Read the cached channel earth-fill colour.
+     * @brief Read the cached channel earth-fill color.
      * @return Current stored preview/style value.
      */
     QColor groundFillColor() const noexcept { return m_groundFillColor; }
@@ -191,18 +191,18 @@ public:
     bool handlesVisible() const noexcept { return m_handlesVisible; }
 
     /**
-     * @brief Change the overbank line/handle colour and emit its signal only when the QColor differs.
-     * @param[in] c Colour including alpha; no validity check occurs. Only the corresponding series are updated immediately.
+     * @brief Change the overbank line/handle color and emit its signal only when the QColor differs.
+     * @param[in] c Color including alpha; no validity check occurs. Only the corresponding series are updated immediately.
      */
     void setOverbankColor(const QColor &c);
     /**
-     * @brief Change the channel line/bank-marker colour and emit its signal only when the QColor differs.
-     * @param[in] c Colour including alpha; no validity check occurs. Only the corresponding series are updated immediately.
+     * @brief Change the channel line/bank-marker color and emit its signal only when the QColor differs.
+     * @param[in] c Color including alpha; no validity check occurs. Only the corresponding series are updated immediately.
      */
     void setChannelColor(const QColor &c);
     /**
-     * @brief Change the channel earth-fill colour and emit its signal only when the QColor differs.
-     * @param[in] c Colour including alpha; no validity check occurs. Only the corresponding series are updated immediately.
+     * @brief Change the channel earth-fill color and emit its signal only when the QColor differs.
+     * @param[in] c Color including alpha; no validity check occurs. Only the corresponding series are updated immediately.
      */
     void setGroundFillColor(const QColor &c);
     /**
@@ -303,7 +303,7 @@ public:
 
     /*! \brief Highlight the given station indices on the chart. Pass an
      *  empty vector to clear. Implemented as a second scatter overlay so
-     *  the base handle series stays one-colour.
+     *  the base handle series stays one-color.
      * @param[in] indices Zero-based provider indexes stored verbatim, without sorting/deduplication. Invalid entries are omitted from drawing; a later full rebuild removes invalid stored entries.
      * @note No selection-change signal is emitted by this setter.
      */
@@ -361,17 +361,17 @@ signals:
     void contextMenuRequestedAt(const QPoint &globalPos);
 
     /**
-     * @brief Announce changed cached overbank line/handle colour.
+     * @brief Announce changed cached overbank line/handle color.
      * @param[in] color Current accepted value.
      */
     void overbankColorChanged(const QColor &color);
     /**
-     * @brief Announce changed cached channel line/bank-marker colour.
+     * @brief Announce changed cached channel line/bank-marker color.
      * @param[in] color Current accepted value.
      */
     void channelColorChanged(const QColor &color);
     /**
-     * @brief Announce changed cached channel earth-fill colour.
+     * @brief Announce changed cached channel earth-fill color.
      * @param[in] color Current accepted value.
      */
     void groundFillColorChanged(const QColor &color);
@@ -556,14 +556,14 @@ private:
     QLineSeries *m_channelLine = nullptr;
     QScatterSeries *m_handles = nullptr;
     /*! \brief Selection overlay — repaints the selected handles in a
-     *  contrasting colour without disturbing the base m_handles series. */
+     *  contrasting color without disturbing the base m_handles series. */
     QScatterSeries *m_selectedOverlay = nullptr;
     QVector<int> m_selectedIndices;
     QLineSeries *m_leftBankMark = nullptr;
     QLineSeries *m_rightBankMark = nullptr;
     // Horizontal bankfull lines: at the elevation of each bank station,
     // extended across the corresponding overbank shoulder — HEC-RAS
-    // convention for visualising bankfull water surface.
+    // convention for visualizing bankfull water surface.
     QLineSeries *m_leftBankfullLine = nullptr;
     QLineSeries *m_rightBankfullLine = nullptr;
     // Encroachment-station markers (dashed). Hidden when value == 0.

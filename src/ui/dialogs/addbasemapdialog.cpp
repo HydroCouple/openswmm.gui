@@ -1215,7 +1215,7 @@ void AddBasemapDialog::onArcGISConnect()
     if (base.isEmpty())
         return;
 
-    // Normalise: if the user pasted the full MapServer URL, don't double-append.
+    // Normalize: if the user pasted the full MapServer URL, don't double-append.
     // ArcGIS REST tile endpoint: {serviceBase}/tile/{z}/{row}/{col}
     // ArcGIS REST metadata endpoint: {serviceBase}?f=json
     const bool endsWithMapServer =

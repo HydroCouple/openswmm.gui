@@ -100,7 +100,7 @@ void LandUseRegistry::remove(LandUseProvider *p)
     emit providerAboutToBeRemoved(p);
 
     // Iteration 4 — the engine-side object goes too (this used to be a
-    // Qt-side-only delete, so the land use was re-materialised on the next
+    // Qt-side-only delete, so the land use was re-materialized on the next
     // loadFromEngine with its buildup/washoff/coverage columns intact).
     if (m_engineHandle) {
         auto *eng = static_cast<SWMM_Engine>(m_engineHandle);

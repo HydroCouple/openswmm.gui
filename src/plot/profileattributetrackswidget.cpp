@@ -35,7 +35,7 @@ constexpr int kDefaultTrackH = 110;
 constexpr int kXTickCount = 6; // matches the profile's tick count
 
 /**
- * @brief Resolve painter colours from the current application theme.
+ * @brief Resolve painter colors from the current application theme.
  * @return Borrowed immutable token table; use on the GUI thread.
  */
 inline const openswmmvis::ui::ThemeColors &plotTheme()
@@ -274,7 +274,7 @@ void ProfileAttributeTracksWidget::paintTrack(QPainter &p, int trackIdx) const
     }
 
     // Clip data drawing to the track body so panning can't bleed into the
-    // neighbouring track or the y-tick gutter.
+    // neighboring track or the y-tick gutter.
     p.setClipRect(r.adjusted(0.5, 0.5, -0.5, -0.5));
 
     const bool envOn = !m_options || m_options->envelopesVisible();

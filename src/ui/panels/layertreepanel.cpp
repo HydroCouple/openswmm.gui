@@ -24,7 +24,7 @@
 #include "layers/swmm2dresultslayer.h"  // active 2D analysis layer (context menu)
 #include "layers/gisvectorlayer.h"      // zoom retry once async open finishes
 #include "layers/unavailablelayer.h"    // saved layer that did not reopen
-#include "render/attributecandidates.h" // Slice CTX.3 — grey out empty Style items
+#include "render/attributecandidates.h" // Slice CTX.3 — gray out empty Style items
 #include "render/ifeaturerenderer.h"    // Slice CTX.2 — checkmark active style
 // Slice S3 — sublayer-row pattern under ISublayerHost layers without kind rows.
 #include "render/isublayer.h"
@@ -181,7 +181,7 @@ using openswmmvis::ui::CategoryInfo;
 using openswmmvis::ui::CatFeatureLayers;
 using openswmmvis::ui::CatCount;
 
-// Wrapper that keeps the qWarning() on unrecognised types — the extracted
+// Wrapper that keeps the qWarning() on unrecognized types — the extracted
 // helper is headless and can't log, so the GUI-side wrapper emits the
 // diagnostic before falling back to CatFeatureLayers.
 /**
@@ -266,7 +266,7 @@ const char *iconAliasForSwmmCategory(OpenSWMMVis::SwmmCategory c)
  */
 /**
  * @param[in] key 2D result variable key ("surface:Mesh2_face_depth", "derived:gw_theta_unsat_mean", ...).
- * @return Resource alias of the icon for what the variable measures; generic colour ramp otherwise.
+ * @return Resource alias of the icon for what the variable measures; generic color ramp otherwise.
  */
 QString iconAliasForResultKey(const QString &key)
 {
@@ -397,7 +397,7 @@ QString iconAliasForSublayer(const OpenSWMM::Render::ISublayer *s, OpenSWMMVisLa
     return QStringLiteral(":/swmmvis/Layers");
 }
 
-/** @return The themed icon (glyph grey follows the theme) for a ":/swmmvis/" resource path. */
+/** @return The themed icon (glyph gray follows the theme) for a ":/swmmvis/" resource path. */
 QIcon themedSublayerIcon(const QString &resource)
 {
     const QString prefix = QStringLiteral(":/swmmvis/");
@@ -1542,7 +1542,7 @@ bool LayerTreeModel::canDropMimeData(const QMimeData *data, Qt::DropAction actio
     // Layer drop: only inside the layer's OWN category (between its
     // sibling rows, or onto the category header = move to bottom). The
     // layer's type decides its category, so a cross-category drop could
-    // never be honoured — refuse it so the view shows the forbidden cursor.
+    // never be honored — refuse it so the view shows the forbidden cursor.
     if (data->hasFormat(QStringLiteral("application/x-layerrow"))) {
         if (!parent.isValid())
             return false;
@@ -1946,7 +1946,7 @@ QList<OpenSWMM::Render::ISublayer *> LayerTreeModel::siblingSublayers(const Subl
 }
 
 // ---------------------------------------------------------------------------
-// Canvas signal handlers — categorisation invalidates on every layer mutation,
+// Canvas signal handlers — categorization invalidates on every layer mutation,
 // so a full reset (cheap: fewer than ~20 layers in practice) is the simplest
 // correct thing to do.
 // ---------------------------------------------------------------------------
@@ -2060,7 +2060,7 @@ void LayerTreePanel::setupUi()
     m_searchEdit->setClearButtonEnabled(true);
     vlay->addWidget(m_searchEdit);
 
-    // Tree view — categorised by layer type. No add-layer toolbar here; those
+    // Tree view — categorized by layer type. No add-layer toolbar here; those
     // actions live on the main application toolbar (actionAddVectorData etc.).
     // Per-layer ops are reachable via the right-click context menu.
     m_treeView = new QTreeView(this);
@@ -2101,7 +2101,7 @@ void LayerTreePanel::setupUi()
     m_treeView->setColumnWidth(1, 60);
     m_treeView->expandAll();
 
-    // Re-expand on every reset so newly-categorised layers (and the result
+    // Re-expand on every reset so newly-categorized layers (and the result
     // of filter changes) are visible without manual expand.
     // Sublayer headings the user collapsed stay collapsed (expandTree()).
     connect(m_model, &QAbstractItemModel::modelReset, this, &LayerTreePanel::expandTree);

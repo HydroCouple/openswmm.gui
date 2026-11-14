@@ -230,10 +230,10 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace, cons
     // map edit rather than mutating the engine unrecoverably.
     mModelLayer->setEditCanvas(mCanvas);
 
-    // Mirror the prefs' link colours into the layer's per-link-type
+    // Mirror the prefs' link colors into the layer's per-link-type
     // symbol structs. The painter / GL renderers read the full QPen
     // straight from PreferencesManager so cap/join/style edits are
-    // honoured end-to-end (and outlets pick up their own pen, not the
+    // honored end-to-end (and outlets pick up their own pen, not the
     // conduit fallback); this mirror exists only for the QSG renderer
     // and SWMMResultsLayer, which still read fillColor / size off
     // conduitSymbol() etc.
@@ -262,7 +262,7 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace, cons
     // structs. The painter / GL / QSG paths all read fill, outline, and
     // size off the SWMMElementSymbol so one push here covers every
     // renderer. PreferencesManager::nodePen / nodeBrush / nodeSize
-    // normalise their argument internally, so the lower-case kind keys
+    // normalize their argument internally, so the lower-case kind keys
     // below match the canonical "Junction" / "Outfall" / … forms.
     auto applyNodeStyleFromPreferences = [this]() {
         auto *prefs = PreferencesManager::instance();
@@ -291,7 +291,7 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace, cons
         mModelLayer->setDividerSymbol(syms[3]);
         mModelLayer->setVirtualJunctionSymbol(syms[4]);
         mModelLayer->setInletJunctionSymbol(syms[5]);
-        // The dashed connector overlay follows the inlet-junction colour so
+        // The dashed connector overlay follows the inlet-junction color so
         // the relation and its node read as one thing (§3.2).
         auto connector = mModelLayer->inletConnectorSymbol();
         connector.fillColor = syms[5].fillColor;
@@ -309,7 +309,7 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace, cons
                     applyLinkColorsFromPreferences();
                     // Painter renderers consume linkPen() directly —
                     // kick a repaint so width/cap/join edits land
-                    // immediately even when the colour didn't change.
+                    // immediately even when the color didn't change.
                     if (mModelLayer)
                         emit mModelLayer->repaintRequested();
                 } else if (key.startsWith(QLatin1String("NodePen/")) ||
@@ -619,7 +619,7 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace, cons
             mMeasureTotalLabel->setText(QStringLiteral("%1 %2").arg(total, 0, 'f', 2).arg(sym));
         });
 
-        // Show/hide + initialise combos when the active tool changes
+        // Show/hide + initialize combos when the active tool changes
         connect(mCanvas, &MapCanvas::activeToolChanged, this, [this](OpenSWMMVisMapTool *tool) {
             const bool isMeasure = (tool == mMeasureTool);
             if (isMeasure) {
@@ -2043,7 +2043,7 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // against FileFilterRegistry's InputRead entries (built-in `.inp`
     // writer + any plugin-supplied writers like GeoPackage).  Empty
     // pluginId == built-in `.inp` writer, so an unmatched extension
-    // falls through to legacy behaviour without a separate code path.
+    // falls through to legacy behavior without a separate code path.
     auto pluginIdForExt = [](const QString &ext) -> QString {
         auto *registry = openswmmvis::FileFilterRegistry::instance();
         for (const auto &entry : registry->entriesFor(openswmmvis::FilterKind::InputRead)) {
@@ -2252,7 +2252,7 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     }
 
     // Mesh edits live on the SWMM2DMeshLayer (its own MeshResult / BC SoA),
-    // not in the engine that the writer below serialises. Push them into the
+    // not in the engine that the writer below serializes. Push them into the
     // engine's in-memory 2D mesh first so vertex-Z / conveyance / BC edits are
     // saved. The engine remains the source of truth for everything the GUI
     // mesh model does not carry (coupling maps, Manning's n, units, options).
@@ -2330,7 +2330,7 @@ bool SWMMVisProjectWindow::saveAs(const QString &newPath, QString *errorOut)
     // it, whichever path set it (the reprojection path used to reach only
     // the engine's spatial frame, which the .inp writer did not read).
     // Only an authority-coded CRS is pushed: it is a single token the
-    // [OPTIONS] reader round-trips verbatim, whereas re-serialising a
+    // [OPTIONS] reader round-trips verbatim, whereas re-serializing a
     // WKT-only CRS could alter the original string. A CRS the open merely
     // DEFAULTED (from [MAP] UNITS or the preferences) is never written — a
     // model that carried no CRS must stay that way; see crsAssigned().
@@ -3250,7 +3250,7 @@ void SWMMVisProjectWindow::refreshActive2DCellHighlight()
 
     // Apply the highlight to the active 2D results layer only; clear every
     // other 2D results layer so a stale highlight never lingers on a
-    // de-activated run (fixes the old unkeyed push-to-all-layers behaviour).
+    // de-activated run (fixes the old unkeyed push-to-all-layers behavior).
     for (OpenSWMMVisLayer *l : mCanvas->layers()) {
         auto *res = qobject_cast<SWMM2DResultsLayer *>(l);
         if (!res)
@@ -3328,7 +3328,7 @@ void SWMMVisProjectWindow::setTerrainVerticalUnit(const QString &unit, bool mark
     // when the unit string is unchanged because the project-construction
     // default (`mTerrainVertFactor = 1.0`) doesn't reflect the model's
     // FLOW_UNITS — so the first DEM selection in a US-customary project
-    // would otherwise display raw metres labelled as feet until the user
+    // would otherwise display raw meters labeled as feet until the user
     // manually toggled the unit combo.
     const double rasterToSI = (newUnit == QLatin1String("ft")) ? 0.3048 : 1.0;
     const double modelToSI = mUnits->isSI() ? 1.0 : 0.3048;

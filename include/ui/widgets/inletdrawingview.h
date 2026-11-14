@@ -54,7 +54,7 @@ class InletProvider;
 namespace openswmmvis::ui
 {
 
-/*! \brief Colours for the drawing. Taken from the widget palette — the same
+/*! \brief Colors for the drawing. Taken from the widget palette — the same
  *  source `StreetSectionPreview` uses — so the drawing follows the app theme
  *  without a second palette to keep in sync. */
 struct InletTheme {
@@ -66,8 +66,8 @@ struct InletTheme {
     QColor text;       ///< Labels.
 
     /**
-     * @brief Derive engineering-drawing colours from standard widget palette roles.
-     * @param[in] pal Base/window-text/mid/highlight colours; values are copied.
+     * @brief Derive engineering-drawing colors from standard widget palette roles.
+     * @param[in] pal Base/window-text/mid/highlight colors; values are copied.
      * @return Theme using Base background, WindowText outlines/text, Mid pavement/dimensions and Highlight accents.
      */
     static InletTheme fromPalette(const QPalette &pal);
@@ -87,7 +87,7 @@ public:
      *  \param design       The inlet whose parameters are drawn.
      *  \param units        Unit system used for the callout suffixes; may be
      *                      null, in which case US units (ft, ft/s) are used.
-     *  \param theme        Colours.
+     *  \param theme        Colors.
      *  \param customCurve  Points of the referenced capture curve, supplied by
      *                      the host from the curve registry. Only read for a
      *                      CUSTOM design; an empty list draws empty axes.

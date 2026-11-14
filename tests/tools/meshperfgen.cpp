@@ -48,10 +48,10 @@ constexpr double kPi = 3.14159265358979323846;
 /**
  *
  * @brief Evaluate the deterministic analytical terrain used by mesh fixtures.
- * @param x Finite planar x in metres.
- * @param y Finite planar y in metres.
- * @param domainW Positive domain width in metres, positioning the channel/tributary.
- * @return Elevation in metres from regional slope, sinusoidal ridges/corrugation and
+ * @param x Finite planar x in meters.
+ * @param y Finite planar y in meters.
+ * @param domainW Positive domain width in meters, positioning the channel/tributary.
+ * @return Elevation in meters from regional slope, sinusoidal ridges/corrugation and
  * Gaussian channel cuts. No random sampling, parameter validation or file writes.
  *
  */
@@ -83,7 +83,7 @@ double terrainZ(double x, double y, double domainW)
  * @param coupledCount Requested coupling nodes, clamped to [0,vertexCount].
  * @return False if either file cannot open; true after both are written/closed.
  * Does not check fprintf/fclose errors, validate the generated deck or remove partial
- * outputs. Uses 2-metre XY spacing, analytical elevations, Manning .035 and optional
+ * outputs. Uses 2-meter XY spacing, analytical elevations, Manning .035 and optional
  * tag-based vertex couplings (Cd .65, area 2 m2). Products/counts must fit int64 and
  * resource limits. Existing same-name files are truncated; allocation failures propagate.
  * The wrapper already declares J1, so multiple generated Jk names can duplicate an

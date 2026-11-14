@@ -10,12 +10,12 @@
  *         (the dialog's Cancel + the .oswp block), and the Symbology-tab
  *         panel mounted by LayerStyleDialog.
  *
- *         Fixtures are synthesised with GDAL into the repository tests/output/
+ *         Fixtures are synthesized with GDAL into the repository tests/output/
  *         raster_style so a human can open them in QGIS afterwards — never
  *         a temp dir (CLAUDE.md §4.1):
  *           gradient_f32.tif — 50×50 Float32, value = x + y (0..98),
  *                              NoData −9999 in the 5×5 top-left corner
- *           landuse_ct.tif   — 20×20 Byte, quadrants 1..4, 5-entry colour table
+ *           landuse_ct.tif   — 20×20 Byte, quadrants 1..4, 5-entry color table
  *           rgb3.tif         — 20×20 3-band Byte (R 200, G x·10, B 50)
  *           multi_u16.tif    — 20×20 3-band UInt16 (all 1000)
  *         All in EPSG:32633, 10 m pixels, origin 500000 E / 4601000 N.
@@ -108,10 +108,10 @@ QString fixture(const char *name)
 
 /**
  *
- * @brief Assign the fixed projected-metre transform and CRS to a fixture dataset.
+ * @brief Assign the fixed projected-meter transform and CRS to a fixture dataset.
  * @param ds Nonnull borrowed writable GDAL dataset, retained by its caller.
  * @return False for transform/CRS import/projection failure, true otherwise. Sets
- * 10-metre north-up pixels at (500000,4601000), EPSG:32633. Frees WKT bytes; export
+ * 10-meter north-up pixels at (500000,4601000), EPSG:32633. Frees WKT bytes; export
  * status is inferred from its pointer. Earlier transform mutation is not rolled back
  * if later steps fail; does not close/flush the dataset.
  *
@@ -192,7 +192,7 @@ bool buildGradient()
  * @return True for creation, band write and color-table assignment, false otherwise.
  * Sets five palette entries (transparent zero plus red/green/blue/yellow), declares
  * palette interpretation without checking that status and closes the dataset. Partial
- * files can survive failure; uses the common projected-metre transform.
+ * files can survive failure; uses the common projected-meter transform.
  *
  */
 bool buildLanduse()
@@ -272,7 +272,7 @@ bool buildMultiU16()
  * @brief Compute the full bounds for the fixed fixture affine transform.
  * @param wPx Positive raster columns.
  * @param hPx Positive raster rows.
- * @return Owned extent in EPSG:32633 metres with 10-metre pixels and fixed origin.
+ * @return Owned extent in EPSG:32633 meters with 10-meter pixels and fixed origin.
  * No file metadata read, reprojection or dimensional validation.
  *
  */
@@ -285,7 +285,7 @@ MapExtent rasterExtent(int wPx, int hPx)
  *
  * @brief Request async tiles for a fixture viewport, then composite the layer.
  * @param layer Borrowed mutable raster layer; viewport/cache state changes in place.
- * @param e Borrowed target bounds in the fixed EPSG:32633 metre canvas CRS.
+ * @param e Borrowed target bounds in the fixed EPSG:32633 meter canvas CRS.
  * @param size Positive output pixel dimensions.
  * @return Owned transparent-background ARGB32_Premultiplied composite after up to
  * 40 rounds of repaint waits (250 ms each), stopping on a quiet round after the
@@ -312,7 +312,7 @@ QImage renderLayer(GISRasterLayer &layer, const MapExtent &e, const QSize &size)
     return img;
 }
 
-/*! Opaque colours that cover at least \p minPixels pixels, and the
+/*! Opaque colors that cover at least \p minPixels pixels, and the
  *  transparent-pixel count. Dominance filtering keeps a stray resampled edge
  *  pixel from inflating the count. */
 struct ColourCensus {
@@ -504,7 +504,7 @@ private slots:
         QCOMPARE(c1.dominant, 3);
 
         // In-place edit: 5 classes. Without invalidation the cached tile
-        // would still show 3 colours.
+        // would still show 3 colors.
         auto *g = dynamic_cast<GraduatedRasterRenderer *>(layer.rasterRenderer());
         QVERIFY(g);
         ClassificationScheme s = g->scheme();
@@ -619,7 +619,7 @@ private slots:
      * restoration of the opening full style snapshot.
      *
      */
-    /*! A-05: the paletted raster's colour column carries each class colour as accessible text. */
+    /*! A-05: the paletted raster's color column carries each class color as accessible text. */
     void palettedColourColumnExposesAccessibleText()
     {
         GISRasterLayer layer(fixture("landuse_ct.tif"));

@@ -108,7 +108,7 @@ public slots:
     /**
      * @brief Cancel outstanding work or reject an idle editor without applying a draft.
      * @details Clears policy/ownership readiness and disables Apply. With an active watcher,
-     * requests cancellation, advances the serial and leaves the window open with cancelling
+     * requests cancellation, advances the serial and leaves the window open with canceling
      * status; a later close can reject after work settles. Otherwise calls QDialog::reject().
      * Does not undo already committed batches.
      */

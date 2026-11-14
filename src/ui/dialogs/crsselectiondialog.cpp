@@ -207,10 +207,10 @@ void CRSSelectionDialog::buildTree(const QString &authority, const QString &type
 
     // ── Synthetic "Local" group ─────────────────────────────────────
     // Two non-EPSG entries that mint a SpatialReferenceSystem via
-    // localFromMapUnits().  Use when the source data has no recognisable
+    // localFromMapUnits().  Use when the source data has no recognizable
     // CRS but the units (ft / m) are known — keeps coordinates in their
     // original numeric form while giving the 2D mesh writer a real linear
-    // unit to honour.  Filtered out when an authority filter or a
+    // unit to honor.  Filtered out when an authority filter or a
     // mismatching type filter is active so the picker stays consistent.
     const bool typeAllowsLocal =
         typeFilter.isEmpty() ||

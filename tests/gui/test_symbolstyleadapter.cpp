@@ -256,7 +256,7 @@ void TestSymbolStyleAdapter::markerShape_roundTripsAsInt()
     // Static-review fixup: MarkerShape is `enum class : int`, so the
     // setter takes a typed value rather than raw int (header
     // signature changed from int to MarkerShape during Slice Z.4
-    // canonicalisation). The test still verifies the same round-trip
+    // canonicalization). The test still verifies the same round-trip
     // semantic.
     Rule rule;
     SymbolStyleAdapter adapter(&rule);

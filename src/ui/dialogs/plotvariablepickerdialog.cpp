@@ -165,7 +165,7 @@ void PlotVariablePickerDialog::addDescriptorLeaf(QTreeWidgetItem *group, const O
         addAttributeLeaf(group, ref, d.attr, availability, units);
         return;
     }
-    // A species leaf (Y2b-2): labelled and united by the Y2a authorities
+    // A species leaf (Y2b-2): labeled and united by the Y2a authorities
     // (age reads hours, never mg/L) and keyed by NAME (D-G1).
     auto *leaf = new QTreeWidgetItem(group);
     leaf->setText(0, QStringLiteral("%1 (%2)").arg(d.label(), d.unitLabel(units)));
@@ -192,7 +192,7 @@ void PlotVariablePickerDialog::buildTree(const QVector<ObjectRef> &features,
     for (const ObjectRef &ref : features) {
         // Y2b-2: the run decides what is plottable — the fixed set plus
         // any species the open .out carries. With no availability layer
-        // the fixed set alone appears (a legacy run's behaviour).
+        // the fixed set alone appears (a legacy run's behavior).
         const QVector<ResultDescriptor> descriptors =
             availability ? availability->resultDescriptorsForKind(ref.kind)
                          : resultDescriptorsForKind(ref.kind, QStringList());

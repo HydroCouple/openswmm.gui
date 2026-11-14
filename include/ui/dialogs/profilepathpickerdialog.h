@@ -52,7 +52,7 @@ public:
 
     /*!
      * \brief Index (0-based) of the path the user accepted, or -1 when
-     *        the dialog was cancelled.
+     *        the dialog was canceled.
      * @return Last index stored by OK, initially -1; Cancel BUTTON explicitly sets -1. Plain
      *   QDialog rejection/window close after reuse does not independently reset prior accepted
      *   value, so check result. No live focused-row query, ownership transfer or candidate

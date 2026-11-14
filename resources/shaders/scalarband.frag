@@ -4,7 +4,7 @@
 // first level or at/below the cutoff are not drawn; the band is the number of interior levels
 // at or below the value; the last band saturates.
 // Isolines: within a level's half width in screen pixels (from the value's screen-space
-// gradient), antialiased over one pixel. Colours are premultiplied.
+// gradient), antialiased over one pixel. Colors are premultiplied.
 
 layout(location = 0) in float value;
 layout(location = 0) out vec4 fragColor;

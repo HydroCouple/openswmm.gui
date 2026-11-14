@@ -287,7 +287,7 @@ def cmd_pipe_sizes(args: argparse.Namespace) -> int:
     return 0
 
 
-# The adapters that drive the twelve object kinds the legacy manual catalogued.
+# The adapters that drive the twelve object kinds the legacy manual cataloged.
 # A9 routes to the chapters; this check is what keeps those chapters complete.
 LABEL_ADAPTERS = [
     "src/ui/properties/swmmnodepropertyadapter.cpp",
@@ -302,7 +302,7 @@ LABEL_RE = re.compile(
     r'property\s*==\s*QLatin1String\("([A-Za-z0-9_]+)"\)\s*\)?\s*'
     r'return\s+tr\("((?:[^"\\]|\\.)*)"\)')
 # Unit suffixes are injected at runtime from UnitSystem, and the manual writes
-# the bare label. Drop the whole parenthesised group when it holds a placeholder
+# the bare label. Drop the whole parenthesized group when it holds a placeholder
 # — "(%1)", but also "(%1³)" and "(%1/hr)" — then any placeholder left over.
 UNIT_GROUP_RE = re.compile(r"\s*\([^()]*%\d[^()]*\)")
 PLACEHOLDER_RE = re.compile(r"\s*%\d\s*")

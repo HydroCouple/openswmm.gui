@@ -201,7 +201,7 @@ inline double quadEtaFromMeanDepth(const double zs[6], double a1, double a2, dou
  * Each cell's η comes from its own planar-bed closure (triangle: the B&S 2006
  * inversion; quad: the two-sub-triangle sum, \ref quadEtaFromMeanDepth). The
  * depth weight is scaled by 3/nv — the plan's "1/nv per incident cell"
- * weighting normalised so an all-triangle mesh is bit-identical to the
+ * weighting normalized so an all-triangle mesh is bit-identical to the
  * historical (h-weighted) result: a triangle contributes h, a quad 3h/4.
  *
  * \p vsum,\p wsum are caller-owned scratch (resized here) so the per-frame
@@ -211,7 +211,7 @@ inline double quadEtaFromMeanDepth(const double zs[6], double a1, double a2, dou
  * incident cell this frame.
  * @param[in] cells Stable mesh connectivity; quads must supply valid in-range subtriangle indices and positive finite areas consistent with v.
  * @param[in] cellDepths Cell mean depths; only common prefix with connectivity is processed. Cells failing h>=dryF or finite weighted-stage checks are skipped.
- * @param[in] cellZc Cell-centre bed fallback heights; must cover every processed cell because invalid corner geometry can access this vector directly. Same datum/unit as vz.
+ * @param[in] cellZc Cell-center bed fallback heights; must cover every processed cell because invalid corner geometry can access this vector directly. Same datum/unit as vz.
  * @param[in] vz Vertex bed heights defining output length; nonfinite heights yield no finite output vote.
  * @param[in] dryF Positive finite wet-cell depth threshold in the same vertical unit; h equal to threshold can contribute.
  * @param[out] vsum Resized/reset weighted-stage accumulator, one float per vertex. Must not alias other scratch/input/output vectors.
@@ -284,7 +284,7 @@ inline void reconstructVertexSignedDepths(const std::vector<CellSplit> &cells,
         if (wsum[v] > 0.0f) {
             const double d = double(vsum[v]) / double(wsum[v]) - vz[v];
             // Non-finite vertex elevation (e.g. DTM nodata) must yield a dry
-            // vertex, not a NaN that the colour ramp turns into garbage.
+            // vertex, not a NaN that the color ramp turns into garbage.
             outVertexDepth[v] = std::isfinite(d) ? float(d) : 0.0f;
         }
 }
@@ -293,7 +293,7 @@ inline void reconstructVertexSignedDepths(const std::vector<CellSplit> &cells,
  *  triangle as a one-sub-triangle \ref CellSplit and delegates.
  * @param[in] tris Stable mesh connectivity; each triangle is wrapped into a temporary one-half CellSplit before delegation.
  * @param[in] cellDepths Cell mean depths; only common prefix with connectivity is processed. Cells failing h>=dryF or finite weighted-stage checks are skipped.
- * @param[in] cellZc Cell-centre bed fallback heights; must cover every processed cell because invalid corner geometry can access this vector directly. Same datum/unit as vz.
+ * @param[in] cellZc Cell-center bed fallback heights; must cover every processed cell because invalid corner geometry can access this vector directly. Same datum/unit as vz.
  * @param[in] vz Vertex bed heights defining output length; nonfinite heights yield no finite output vote.
  * @param[in] dryF Positive finite wet-cell depth threshold in the same vertical unit; h equal to threshold can contribute.
  * @param[out] vsum Resized/reset weighted-stage accumulator, one float per vertex. Must not alias other scratch/input/output vectors.
@@ -347,7 +347,7 @@ inline void reconstructVertexSignedDepths(const std::vector<std::array<int, 3>> 
  * unchanged. A filled corner above the pool is non-supplying in
  * CellSurfaceInterp (sd < 0) exactly as the sentinel was, so the profile path
  * is unaffected on the canonical bank case.
- * @note z and signed-depth values use one vertical datum/unit (normally metres). Only finite wet-corner stages supply maxEta; nonfinite bed corners remain untouched. Nonpositive/NaN depth corners at/above that head can receive a nonpositive value, but dry corners below it remain unchanged to avoid adding downhill water. No allocation or intercell propagation occurs.
+ * @note z and signed-depth values use one vertical datum/unit (normally meters). Only finite wet-corner stages supply maxEta; nonfinite bed corners remain untouched. Nonpositive/NaN depth corners at/above that head can receive a nonpositive value, but dry corners below it remain unchanged to avoid adding downhill water. No allocation or intercell propagation occurs.
  */
 inline void extrapolateDryCorners(double z0, double z1, double z2, float &sd0, float &sd1,
                                   float &sd2)
@@ -383,9 +383,9 @@ inline void extrapolateDryCorners(double z0, double z1, double z2, float &sd0, f
         // corner BELOW the driving head is the opposite — the bed falls away
         // from the water, which is where the solver's dryness is meaningful
         // (the water drained, or never arrived). Extrapolating there would
-        // inject d metres of standing water into a dry cell and spread the
+        // inject d meters of standing water into a dry cell and spread the
         // pool downhill one cell in every direction, which is the flood-fill
-        // behaviour this feature explicitly does not do. Leave the sentinel.
+        // behavior this feature explicitly does not do. Leave the sentinel.
         if (d > 0.0)
             continue;
         *sd[k] = float(d);

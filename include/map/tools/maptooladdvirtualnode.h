@@ -92,7 +92,7 @@ public:
      * @param[in] painter Optional active widget-pixel overlay painter; null or invalid hover no-op.
      * @param[in] extent Unused current canvas-map extent.
      * @param[in] srs Unused borrowed current canvas CRS.
-     * @brief Draw hover split preview using current model virtual-junction colour, dotted7pixelring
+     * @brief Draw hover split preview using current model virtual-junction color, dotted7pixelring
      *   and10pixelcross.
      * @note Projects stored native closest point layer→canvas with ignored status then to pixels;
      *   point may differ from clamped split fraction near conduit ends. Saves/restores painter

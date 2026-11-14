@@ -113,7 +113,7 @@ public:
      * @param[in] parent Optional owner/parent for stack-local modal picker, must survive nested
      *   event loop.
      * @return Current bound provider name on ANY dialog exit, not conditional on accepted result or
-     *   actual commit. Empty only if no provider bound; cancelling new-card flow with existing
+     *   actual commit. Empty only if no provider bound; canceling new-card flow with existing
      *   rules can return an existing name.
      * @note Blocking GUI picker; existing edits/CRUD may already be committed. Text flush is via
      *   selection/open/rename/closeEvent; QDialog done/reject paths can bypass closeEvent and are
