@@ -544,6 +544,9 @@ TEST(BurnedRasterWriter, SourceAliasesAreRefused)
 TEST(BurnedRasterWriter, ReportShortWriteFailsWithoutReplacingPriorReport)
 {
 #ifdef Q_OS_UNIX
+    // The process already runs ~11 threads; a forked child that keeps them crashes on macOS
+    // (SIGABRT/SIGSEGV), so re-execute the test binary for the child instead.
+    GTEST_FLAG_SET(death_test_style, "threadsafe");
     const QString csv = outPath("limited_report.csv");
     const QByteArray before("Prior complete report\n");
     {
@@ -605,6 +608,7 @@ TEST(BurnedRasterWriter, RefusesRasterThatNeedsAnAuxiliaryFile)
 TEST(BurnedRasterWriter, FinalRasterFlushFailureDoesNotReportSuccess)
 {
 #ifdef Q_OS_UNIX
+    GTEST_FLAG_SET(death_test_style, "threadsafe"); // same fork hazard as above
     const QString src = outPath("flush_source.tif");
     const QString dst = outPath("flush_stage.tif");
     QFile::remove(dst);
