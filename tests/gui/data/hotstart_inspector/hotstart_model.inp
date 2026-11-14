@@ -1,0 +1,54 @@
+[TITLE]
+Hot-start inspector fixture: saves an OpenSWMM and a SWMM 5 hot-start file at the end of the run
+
+[OPTIONS]
+FLOW_UNITS           CFS
+INFILTRATION         HORTON
+FLOW_ROUTING         DYNWAVE
+START_DATE           01/01/2024
+START_TIME           00:00:00
+REPORT_START_DATE    01/01/2024
+REPORT_START_TIME    00:00:00
+END_DATE             01/01/2024
+END_TIME             02:00:00
+REPORT_STEP          00:15:00
+WET_STEP             00:05:00
+DRY_STEP             00:05:00
+ROUTING_STEP         0:00:10
+
+[FILES]
+SAVE HOTSTART "hs_native.hsf" NATIVE
+SAVE HOTSTART "hs_legacy.hsf" LEGACY
+
+[JUNCTIONS]
+;;Name  Elevation  MaxDepth  InitDepth  SurDepth  Aponded
+J1      100        10        0          0         0
+J2      99         10        0          0         0
+
+[OUTFALLS]
+;;Name  Elevation  Type  Gated
+O1      95         FREE  NO
+
+[CONDUITS]
+;;Name  From  To  Length  Roughness  InOffset  OutOffset  InitFlow  MaxFlow
+C1      J1    J2  400     0.013      0         0          0         0
+C2      J2    O1  400     0.013      0         0          0         0
+
+[XSECTIONS]
+;;Link  Shape     Geom1  Geom2  Geom3  Geom4  Barrels
+C1      CIRCULAR  2      0      0      0      1
+C2      CIRCULAR  2      0      0      0      1
+
+[POLLUTANTS]
+;;Name  Units  Crain  Cgw  Crdii  Kdecay  SnowOnly  Co-Pollutant  Co-Frac  Cdwf  Cinit
+TSS     MG/L   0      0    0      0       NO        *             0        25    0
+
+[DWF]
+;;Node  Constituent  Baseline
+J1      FLOW         1.5
+J1      TSS          25
+
+[COORDINATES]
+J1  0    0
+J2  400  0
+O1  800  0

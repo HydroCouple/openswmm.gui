@@ -1,0 +1,8 @@
+# Edit the template rather than the configured version header.
+include/version.h
+# Upstream and generated code keeps its own formatting.
+vendor/**
+build*/**
+tests/verification/**
+tests/output/**
+tests/**/data/**

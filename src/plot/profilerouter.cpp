@@ -1,7 +1,10 @@
-/*!
- * \file   profilerouter.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      profilerouter.cpp
+ * @brief     Slice BC's profile-path picker.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "plot/profilerouter.h"
@@ -25,25 +28,37 @@ namespace
 constexpr double kInf = std::numeric_limits<double>::infinity();
 
 // Adjacency entry: (neighbor node, edge index in Graph::edges).
-struct Adj { int neighbor; int edgeIdx; };
+struct Adj {
+    int neighbor;
+    int edgeIdx;
+};
 
 // Internal-only path representation: keeps edge *indices* (positions in
 // Graph::edges) for unambiguous filtering, since user-supplied linkIds are
 // not guaranteed to be unique.  Converted to the public Path (with
 // linkIds) at result-emit time.
-struct InternalPath
-{
+struct InternalPath {
     QVector<int> nodes;
     QVector<int> edgeIdxs;
-    double       weight = 0.0;
+    double weight = 0.0;
 
+    /**
+     * @brief Test whether an internal candidate traverses any edge positions.
+     * @return True for empty edgeIdxs, independent of nodes/weight.
+     */
     [[nodiscard]] bool isEmpty() const { return edgeIdxs.isEmpty(); }
 };
 
+/**
+ * @brief Convert internal edge positions to caller-supplied link IDs.
+ * @param[in] ip Candidate whose nodes/weight are copied.
+ * @param[in] g Original graph used by the candidate.
+ * @return Owned public path with one link ID per edge position, using -1 if an unexpected out-of-range position is encountered.
+ */
 Path toPublicPath(const InternalPath &ip, const Graph &g)
 {
     Path p;
-    p.nodes  = ip.nodes;
+    p.nodes = ip.nodes;
     p.weight = ip.weight;
     p.linkIds.reserve(ip.edgeIdxs.size());
     for (int e : ip.edgeIdxs) {
@@ -55,13 +70,21 @@ Path toPublicPath(const InternalPath &ip, const Graph &g)
     return p;
 }
 
+/**
+ * @brief Build traversal adjacency indexed by graph nodes.
+ * @param[in] g Nonnegative nodeCount; invalid endpoint edges are skipped without inspecting weights.
+ * @param[in] undirected Whether to append both directions for every valid directed edge.
+ * @return Owned adjacency preserving input-edge order and positions; duplicate/self-loop edges are retained.
+ */
 QVector<QVector<Adj>> buildAdjacency(const Graph &g, bool undirected)
 {
     QVector<QVector<Adj>> adj(g.nodeCount);
     for (int i = 0; i < g.edges.size(); ++i) {
         const Edge &e = g.edges[i];
-        if (e.fromNode < 0 || e.fromNode >= g.nodeCount) continue;
-        if (e.toNode   < 0 || e.toNode   >= g.nodeCount) continue;
+        if (e.fromNode < 0 || e.fromNode >= g.nodeCount)
+            continue;
+        if (e.toNode < 0 || e.toNode >= g.nodeCount)
+            continue;
         adj[e.fromNode].push_back({e.toNode, i});
         if (undirected)
             adj[e.toNode].push_back({e.fromNode, i});
@@ -69,17 +92,23 @@ QVector<QVector<Adj>> buildAdjacency(const Graph &g, bool undirected)
     return adj;
 }
 
-InternalPath dijkstra(const QVector<QVector<Adj>> &adj,
-                      const Graph &g,
-                      int src,
-                      int dst,
-                      const QSet<int> &removedEdges,
-                      const QSet<int> &removedNodes)
+/**
+ * @brief Find one shortest route after excluding supplied edge/node positions.
+ * @param[in] adj Valid node-indexed adjacency derived from g.
+ * @param[in] g Matching graph with finite nonnegative weights.
+ * @param[in] src Valid source index; allowed even if listed in removedNodes.
+ * @param[in] dst Valid destination index.
+ * @param[in] removedEdges Graph edge positions to suppress.
+ * @param[in] removedNodes Node indices forbidden as neighbors except src.
+ * @return Internal route with original edge positions and cost, or empty edges when unreachable. No time/iteration cap is checked in this helper.
+ */
+InternalPath dijkstra(const QVector<QVector<Adj>> &adj, const Graph &g, int src, int dst,
+                      const QSet<int> &removedEdges, const QSet<int> &removedNodes)
 {
     const int N = adj.size();
     QVector<double> dist(N, kInf);
-    QVector<int>    prevEdge(N, -1);
-    QVector<int>    prevNode(N, -1);
+    QVector<int> prevEdge(N, -1);
+    QVector<int> prevNode(N, -1);
 
     dist[src] = 0.0;
     using Item = std::pair<double, int>;
@@ -89,16 +118,20 @@ InternalPath dijkstra(const QVector<QVector<Adj>> &adj,
     while (!pq.empty()) {
         auto [d, u] = pq.top();
         pq.pop();
-        if (d > dist[u]) continue;
-        if (u == dst) break;
+        if (d > dist[u])
+            continue;
+        if (u == dst)
+            break;
 
         for (const Adj &a : adj[u]) {
-            if (removedEdges.contains(a.edgeIdx))    continue;
-            if (a.neighbor != src && removedNodes.contains(a.neighbor)) continue;
+            if (removedEdges.contains(a.edgeIdx))
+                continue;
+            if (a.neighbor != src && removedNodes.contains(a.neighbor))
+                continue;
             const double w = g.edges[a.edgeIdx].weight;
             const double nd = d + w;
             if (nd < dist[a.neighbor]) {
-                dist[a.neighbor]     = nd;
+                dist[a.neighbor] = nd;
                 prevEdge[a.neighbor] = a.edgeIdx;
                 prevNode[a.neighbor] = u;
                 pq.emplace(nd, a.neighbor);
@@ -107,7 +140,8 @@ InternalPath dijkstra(const QVector<QVector<Adj>> &adj,
     }
 
     InternalPath p;
-    if (dist[dst] == kInf) return p;
+    if (dist[dst] == kInf)
+        return p;
 
     QVector<int> nodesRev;
     QVector<int> edgesRev;
@@ -129,9 +163,14 @@ InternalPath dijkstra(const QVector<QVector<Adj>> &adj,
     return p;
 }
 
+/**
+ * @brief Hash an internal route's ordered edge positions for candidate deduplication.
+ * @param[in] p Candidate; nodes and weight are deliberately excluded.
+ * @return FNV-style 64-bit sequence hash; collisions are possible and treated as duplicates by the caller.
+ */
 quint64 pathHash(const InternalPath &p)
 {
-    quint64 h = 14695981039346656037ULL;  // FNV-1a 64-bit
+    quint64 h = 14695981039346656037ULL; // FNV-1a 64-bit
     for (int e : p.edgeIdxs) {
         h ^= static_cast<quint64>(e + 1);
         h *= 1099511628211ULL;
@@ -145,10 +184,7 @@ quint64 pathHash(const InternalPath &p)
 // Public API
 // ---------------------------------------------------------------------------
 
-Result enumerateSimplePaths(const Graph &g,
-                            int startNode,
-                            int endNode,
-                            const Options &opts)
+Result enumerateSimplePaths(const Graph &g, int startNode, int endNode, const Options &opts)
 {
     Result r;
 
@@ -156,8 +192,7 @@ Result enumerateSimplePaths(const Graph &g,
         r.error = QStringLiteral("Empty graph.");
         return r;
     }
-    if (startNode < 0 || startNode >= g.nodeCount ||
-        endNode   < 0 || endNode   >= g.nodeCount) {
+    if (startNode < 0 || startNode >= g.nodeCount || endNode < 0 || endNode >= g.nodeCount) {
         r.error = QStringLiteral("Endpoint out of range.");
         return r;
     }
@@ -165,7 +200,8 @@ Result enumerateSimplePaths(const Graph &g,
         r.error = QStringLiteral("Start and end nodes must differ.");
         return r;
     }
-    if (opts.maxPaths <= 0) return r;
+    if (opts.maxPaths <= 0)
+        return r;
 
     QElapsedTimer timer;
     timer.start();
@@ -189,8 +225,10 @@ Result enumerateSimplePaths(const Graph &g,
         if (!opts.undirected) {
             reverseAdj.resize(g.nodeCount);
             for (const Edge &e : g.edges) {
-                if (e.fromNode < 0 || e.fromNode >= g.nodeCount) continue;
-                if (e.toNode   < 0 || e.toNode   >= g.nodeCount) continue;
+                if (e.fromNode < 0 || e.fromNode >= g.nodeCount)
+                    continue;
+                if (e.toNode < 0 || e.toNode >= g.nodeCount)
+                    continue;
                 reverseAdj[e.toNode].push_back(e.fromNode);
             }
         }
@@ -202,13 +240,15 @@ Result enumerateSimplePaths(const Graph &g,
             const int u = stack.takeLast();
             if (opts.undirected) {
                 for (const Adj &a : adj[u]) {
-                    if (canReach[a.neighbor]) continue;
+                    if (canReach[a.neighbor])
+                        continue;
                     canReach[a.neighbor] = true;
                     stack.push_back(a.neighbor);
                 }
             } else {
                 for (int p : reverseAdj[u]) {
-                    if (canReach[p]) continue;
+                    if (canReach[p])
+                        continue;
                     canReach[p] = true;
                     stack.push_back(p);
                 }
@@ -226,23 +266,27 @@ Result enumerateSimplePaths(const Graph &g,
     // path; curWeight tracks the running edge-weight sum so we don't have
     // to re-walk the path on each emit.
     QVector<bool> visited(g.nodeCount, false);
-    QVector<int>  curNodes;
-    QVector<int>  curEdges;
-    double        curWeight = 0.0;
+    QVector<int> curNodes;
+    QVector<int> curEdges;
+    double curWeight = 0.0;
 
     QVector<InternalPath> collected;
     collected.reserve(std::min(opts.maxPaths, 1024));
 
     const bool capWallClock = (opts.softCapMs > 0);
-    bool       truncated    = false;
+    bool truncated = false;
 
     // Iterative DFS using an explicit stack would be more memory-efficient
     // for very deep paths but harder to read; recursion is fine here since
     // path depth is bounded by g.nodeCount which is small (< 100k for any
     // realistic SWMM model).  std::function lets the lambda recurse.
     std::function<void(int)> dfs = [&](int u) {
-        if (truncated) return;
-        if (collected.size() >= opts.maxPaths) { truncated = true; return; }
+        if (truncated)
+            return;
+        if (collected.size() >= opts.maxPaths) {
+            truncated = true;
+            return;
+        }
         if (capWallClock && timer.elapsed() >= opts.softCapMs) {
             truncated = true;
             return;
@@ -250,20 +294,22 @@ Result enumerateSimplePaths(const Graph &g,
 
         if (u == endNode) {
             InternalPath p;
-            p.nodes    = curNodes;
+            p.nodes = curNodes;
             p.edgeIdxs = curEdges;
-            p.weight   = curWeight;
+            p.weight = curWeight;
             collected.push_back(std::move(p));
             return;
         }
 
         for (const Adj &a : adj[u]) {
-            if (visited[a.neighbor]) continue;
+            if (visited[a.neighbor])
+                continue;
             // Reachability prune: skip neighbors from which endNode is not
             // reachable.  Cuts DFS exploration to the component (or directed
             // ancestor-set) containing endNode and prevents large unrelated
             // branches from soaking the wall-clock budget.
-            if (!canReach[a.neighbor]) continue;
+            if (!canReach[a.neighbor])
+                continue;
             const double w = g.edges[a.edgeIdx].weight;
 
             visited[a.neighbor] = true;
@@ -278,7 +324,8 @@ Result enumerateSimplePaths(const Graph &g,
             curNodes.pop_back();
             visited[a.neighbor] = false;
 
-            if (truncated) return;
+            if (truncated)
+                return;
         }
     };
 
@@ -292,9 +339,7 @@ Result enumerateSimplePaths(const Graph &g,
     // the picker dialog's "first row" useful, and any caller that grabs
     // result.paths.first() still gets the best one.
     std::sort(collected.begin(), collected.end(),
-              [](const InternalPath &a, const InternalPath &b) {
-                  return a.weight < b.weight;
-              });
+              [](const InternalPath &a, const InternalPath &b) { return a.weight < b.weight; });
 
     r.truncated = truncated;
     r.paths.reserve(collected.size());
@@ -303,10 +348,7 @@ Result enumerateSimplePaths(const Graph &g,
     return r;
 }
 
-Result kShortestPaths(const Graph &g,
-                      int startNode,
-                      int endNode,
-                      const Options &opts)
+Result kShortestPaths(const Graph &g, int startNode, int endNode, const Options &opts)
 {
     Result r;
 
@@ -314,8 +356,7 @@ Result kShortestPaths(const Graph &g,
         r.error = QStringLiteral("Empty graph.");
         return r;
     }
-    if (startNode < 0 || startNode >= g.nodeCount ||
-        endNode   < 0 || endNode   >= g.nodeCount) {
+    if (startNode < 0 || startNode >= g.nodeCount || endNode < 0 || endNode >= g.nodeCount) {
         r.error = QStringLiteral("Endpoint out of range.");
         return r;
     }
@@ -323,7 +364,8 @@ Result kShortestPaths(const Graph &g,
         r.error = QStringLiteral("Start and end nodes must differ.");
         return r;
     }
-    if (opts.k <= 0) return r;
+    if (opts.k <= 0)
+        return r;
 
     QElapsedTimer timer;
     timer.start();
@@ -331,7 +373,8 @@ Result kShortestPaths(const Graph &g,
     const auto adj = buildAdjacency(g, opts.undirected);
 
     InternalPath p0 = dijkstra(adj, g, startNode, endNode, {}, {});
-    if (p0.isEmpty()) return r;
+    if (p0.isEmpty())
+        return r;
 
     QVector<InternalPath> accepted;
     accepted.push_back(p0);
@@ -364,43 +407,53 @@ Result kShortestPaths(const Graph &g,
                 removedNodes.insert(prev.nodes[n]);
 
             for (const InternalPath &a : accepted) {
-                if (a.edgeIdxs.size() <= j) continue;
+                if (a.edgeIdxs.size() <= j)
+                    continue;
                 bool sameRoot = true;
                 for (int n = 0; n < j; ++n) {
-                    if (a.edgeIdxs[n] != prev.edgeIdxs[n]) { sameRoot = false; break; }
+                    if (a.edgeIdxs[n] != prev.edgeIdxs[n]) {
+                        sameRoot = false;
+                        break;
+                    }
                 }
-                if (sameRoot) removedEdges.insert(a.edgeIdxs[j]);
+                if (sameRoot)
+                    removedEdges.insert(a.edgeIdxs[j]);
             }
 
-            InternalPath spur = dijkstra(adj, g, spurNode, endNode,
-                                         removedEdges, removedNodes);
-            if (spur.isEmpty()) continue;
+            InternalPath spur = dijkstra(adj, g, spurNode, endNode, removedEdges, removedNodes);
+            if (spur.isEmpty())
+                continue;
 
             InternalPath cand;
             cand.nodes.reserve(j + 1 + spur.nodes.size() - 1);
             cand.edgeIdxs.reserve(j + spur.edgeIdxs.size());
             double rootWeight = 0.0;
-            for (int n = 0; n <= j; ++n) cand.nodes.push_back(prev.nodes[n]);
-            for (int e = 0; e < j;  ++e) {
+            for (int n = 0; n <= j; ++n)
+                cand.nodes.push_back(prev.nodes[n]);
+            for (int e = 0; e < j; ++e) {
                 cand.edgeIdxs.push_back(prev.edgeIdxs[e]);
                 rootWeight += g.edges[prev.edgeIdxs[e]].weight;
             }
             for (int n = 1; n < spur.nodes.size(); ++n)
                 cand.nodes.push_back(spur.nodes[n]);
-            for (int e : spur.edgeIdxs) cand.edgeIdxs.push_back(e);
+            for (int e : spur.edgeIdxs)
+                cand.edgeIdxs.push_back(e);
             cand.weight = rootWeight + spur.weight;
 
             const quint64 h = pathHash(cand);
-            if (seenCandidates.contains(h)) continue;
+            if (seenCandidates.contains(h))
+                continue;
             seenCandidates.insert(h);
             candidates.push_back(std::move(cand));
         }
 
-        if (candidates.isEmpty()) break;
+        if (candidates.isEmpty())
+            break;
 
         int bestIdx = 0;
         for (int i = 1; i < candidates.size(); ++i) {
-            if (candidates[i].weight < candidates[bestIdx].weight) bestIdx = i;
+            if (candidates[i].weight < candidates[bestIdx].weight)
+                bestIdx = i;
         }
         accepted.push_back(candidates[bestIdx]);
         candidates.removeAt(bestIdx);
@@ -413,9 +466,7 @@ emit_result:
     return r;
 }
 
-Result kShortestPathsThrough(const Graph &g,
-                             const QVector<int> &waypoints,
-                             const Options &opts)
+Result kShortestPathsThrough(const Graph &g, const QVector<int> &waypoints, const Options &opts)
 {
     Result r;
     if (waypoints.size() < 2) {
@@ -433,7 +484,8 @@ Result kShortestPathsThrough(const Graph &g,
             r.error = leg.error;
             return r;
         }
-        if (leg.paths.isEmpty()) return r;
+        if (leg.paths.isEmpty())
+            return r;
         const Path &p = leg.paths.first();
 
         if (combined.nodes.isEmpty()) {
@@ -446,10 +498,12 @@ Result kShortestPathsThrough(const Graph &g,
             combined.weight += p.weight;
         }
 
-        if (leg.truncated) r.truncated = true;
+        if (leg.truncated)
+            r.truncated = true;
     }
 
-    if (!combined.isEmpty()) r.paths.push_back(combined);
+    if (!combined.isEmpty())
+        r.paths.push_back(combined);
     return r;
 }
 

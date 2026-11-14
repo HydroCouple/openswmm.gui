@@ -1,137 +1,295 @@
-/*!
- * \file   noderenderingprefs.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      noderenderingprefs.cpp
+ * @brief     Q_PROPERTY-wrapped view onto PreferencesManager's per-node-type outline pen, fill
+ *            brush, and marker size (junction / outfall / storage / divider).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "core/noderenderingprefs.h"
 
 #include "core/preferencesmanager.h"
 
-namespace {
+namespace
+{
 const QString kJunction = QStringLiteral("junction");
-const QString kOutfall  = QStringLiteral("outfall");
-const QString kStorage  = QStringLiteral("storage");
-const QString kDivider  = QStringLiteral("divider");
+const QString kOutfall = QStringLiteral("outfall");
+const QString kStorage = QStringLiteral("storage");
+const QString kDivider = QStringLiteral("divider");
 const QString kVirtualJunction = QStringLiteral("virtual_junction");
+const QString kInletJunction = QStringLiteral("inlet_junction");
+const QString kRainGage = QStringLiteral("raingage");         // feedback C14
+const QString kSubcatchment = QStringLiteral("subcatchment"); // feedback C14
 } // anonymous
 
-NodeRenderingPrefs::NodeRenderingPrefs(QObject *parent)
-    : QObject(parent)
+NodeRenderingPrefs::NodeRenderingPrefs(QObject *parent) : QObject(parent) {}
+
+QPen NodeRenderingPrefs::junctionPen() const
 {
+    return PreferencesManager::instance()->nodePen(kJunction);
+}
+QBrush NodeRenderingPrefs::junctionFill() const
+{
+    return PreferencesManager::instance()->nodeBrush(kJunction);
+}
+double NodeRenderingPrefs::junctionSize() const
+{
+    return PreferencesManager::instance()->nodeSize(kJunction);
 }
 
-QPen   NodeRenderingPrefs::junctionPen()  const { return PreferencesManager::instance()->nodePen(kJunction); }
-QBrush NodeRenderingPrefs::junctionFill() const { return PreferencesManager::instance()->nodeBrush(kJunction); }
-double NodeRenderingPrefs::junctionSize() const { return PreferencesManager::instance()->nodeSize(kJunction); }
+QPen NodeRenderingPrefs::outfallPen() const
+{
+    return PreferencesManager::instance()->nodePen(kOutfall);
+}
+QBrush NodeRenderingPrefs::outfallFill() const
+{
+    return PreferencesManager::instance()->nodeBrush(kOutfall);
+}
+double NodeRenderingPrefs::outfallSize() const
+{
+    return PreferencesManager::instance()->nodeSize(kOutfall);
+}
 
-QPen   NodeRenderingPrefs::outfallPen()   const { return PreferencesManager::instance()->nodePen(kOutfall); }
-QBrush NodeRenderingPrefs::outfallFill()  const { return PreferencesManager::instance()->nodeBrush(kOutfall); }
-double NodeRenderingPrefs::outfallSize()  const { return PreferencesManager::instance()->nodeSize(kOutfall); }
+QPen NodeRenderingPrefs::storagePen() const
+{
+    return PreferencesManager::instance()->nodePen(kStorage);
+}
+QBrush NodeRenderingPrefs::storageFill() const
+{
+    return PreferencesManager::instance()->nodeBrush(kStorage);
+}
+double NodeRenderingPrefs::storageSize() const
+{
+    return PreferencesManager::instance()->nodeSize(kStorage);
+}
 
-QPen   NodeRenderingPrefs::storagePen()   const { return PreferencesManager::instance()->nodePen(kStorage); }
-QBrush NodeRenderingPrefs::storageFill()  const { return PreferencesManager::instance()->nodeBrush(kStorage); }
-double NodeRenderingPrefs::storageSize()  const { return PreferencesManager::instance()->nodeSize(kStorage); }
+QPen NodeRenderingPrefs::dividerPen() const
+{
+    return PreferencesManager::instance()->nodePen(kDivider);
+}
+QBrush NodeRenderingPrefs::dividerFill() const
+{
+    return PreferencesManager::instance()->nodeBrush(kDivider);
+}
+double NodeRenderingPrefs::dividerSize() const
+{
+    return PreferencesManager::instance()->nodeSize(kDivider);
+}
 
-QPen   NodeRenderingPrefs::dividerPen()   const { return PreferencesManager::instance()->nodePen(kDivider); }
-QBrush NodeRenderingPrefs::dividerFill()  const { return PreferencesManager::instance()->nodeBrush(kDivider); }
-double NodeRenderingPrefs::dividerSize()  const { return PreferencesManager::instance()->nodeSize(kDivider); }
+QPen NodeRenderingPrefs::virtualJunctionPen() const
+{
+    return PreferencesManager::instance()->nodePen(kVirtualJunction);
+}
+QBrush NodeRenderingPrefs::virtualJunctionFill() const
+{
+    return PreferencesManager::instance()->nodeBrush(kVirtualJunction);
+}
+double NodeRenderingPrefs::virtualJunctionSize() const
+{
+    return PreferencesManager::instance()->nodeSize(kVirtualJunction);
+}
 
-QPen   NodeRenderingPrefs::virtualJunctionPen()  const { return PreferencesManager::instance()->nodePen(kVirtualJunction); }
-QBrush NodeRenderingPrefs::virtualJunctionFill() const { return PreferencesManager::instance()->nodeBrush(kVirtualJunction); }
-double NodeRenderingPrefs::virtualJunctionSize() const { return PreferencesManager::instance()->nodeSize(kVirtualJunction); }
+QPen NodeRenderingPrefs::inletJunctionPen() const
+{
+    return PreferencesManager::instance()->nodePen(kInletJunction);
+}
+QBrush NodeRenderingPrefs::inletJunctionFill() const
+{
+    return PreferencesManager::instance()->nodeBrush(kInletJunction);
+}
+double NodeRenderingPrefs::inletJunctionSize() const
+{
+    return PreferencesManager::instance()->nodeSize(kInletJunction);
+}
 
 void NodeRenderingPrefs::setJunctionPen(const QPen &pen)
 {
-    if (junctionPen() == pen) return;
+    if (junctionPen() == pen)
+        return;
     PreferencesManager::instance()->setNodePen(kJunction, pen);
     emit junctionPenChanged(pen);
 }
 void NodeRenderingPrefs::setJunctionFill(const QBrush &brush)
 {
-    if (junctionFill() == brush) return;
+    if (junctionFill() == brush)
+        return;
     PreferencesManager::instance()->setNodeBrush(kJunction, brush);
     emit junctionFillChanged(brush);
 }
 void NodeRenderingPrefs::setJunctionSize(double sizePx)
 {
-    if (qFuzzyCompare(junctionSize(), sizePx)) return;
+    if (qFuzzyCompare(junctionSize(), sizePx))
+        return;
     PreferencesManager::instance()->setNodeSize(kJunction, sizePx);
     emit junctionSizeChanged(sizePx);
 }
 
 void NodeRenderingPrefs::setOutfallPen(const QPen &pen)
 {
-    if (outfallPen() == pen) return;
+    if (outfallPen() == pen)
+        return;
     PreferencesManager::instance()->setNodePen(kOutfall, pen);
     emit outfallPenChanged(pen);
 }
 void NodeRenderingPrefs::setOutfallFill(const QBrush &brush)
 {
-    if (outfallFill() == brush) return;
+    if (outfallFill() == brush)
+        return;
     PreferencesManager::instance()->setNodeBrush(kOutfall, brush);
     emit outfallFillChanged(brush);
 }
 void NodeRenderingPrefs::setOutfallSize(double sizePx)
 {
-    if (qFuzzyCompare(outfallSize(), sizePx)) return;
+    if (qFuzzyCompare(outfallSize(), sizePx))
+        return;
     PreferencesManager::instance()->setNodeSize(kOutfall, sizePx);
     emit outfallSizeChanged(sizePx);
 }
 
 void NodeRenderingPrefs::setStoragePen(const QPen &pen)
 {
-    if (storagePen() == pen) return;
+    if (storagePen() == pen)
+        return;
     PreferencesManager::instance()->setNodePen(kStorage, pen);
     emit storagePenChanged(pen);
 }
 void NodeRenderingPrefs::setStorageFill(const QBrush &brush)
 {
-    if (storageFill() == brush) return;
+    if (storageFill() == brush)
+        return;
     PreferencesManager::instance()->setNodeBrush(kStorage, brush);
     emit storageFillChanged(brush);
 }
 void NodeRenderingPrefs::setStorageSize(double sizePx)
 {
-    if (qFuzzyCompare(storageSize(), sizePx)) return;
+    if (qFuzzyCompare(storageSize(), sizePx))
+        return;
     PreferencesManager::instance()->setNodeSize(kStorage, sizePx);
     emit storageSizeChanged(sizePx);
 }
 
 void NodeRenderingPrefs::setDividerPen(const QPen &pen)
 {
-    if (dividerPen() == pen) return;
+    if (dividerPen() == pen)
+        return;
     PreferencesManager::instance()->setNodePen(kDivider, pen);
     emit dividerPenChanged(pen);
 }
 void NodeRenderingPrefs::setDividerFill(const QBrush &brush)
 {
-    if (dividerFill() == brush) return;
+    if (dividerFill() == brush)
+        return;
     PreferencesManager::instance()->setNodeBrush(kDivider, brush);
     emit dividerFillChanged(brush);
 }
 void NodeRenderingPrefs::setDividerSize(double sizePx)
 {
-    if (qFuzzyCompare(dividerSize(), sizePx)) return;
+    if (qFuzzyCompare(dividerSize(), sizePx))
+        return;
     PreferencesManager::instance()->setNodeSize(kDivider, sizePx);
     emit dividerSizeChanged(sizePx);
 }
 
 void NodeRenderingPrefs::setVirtualJunctionPen(const QPen &pen)
 {
-    if (virtualJunctionPen() == pen) return;
+    if (virtualJunctionPen() == pen)
+        return;
     PreferencesManager::instance()->setNodePen(kVirtualJunction, pen);
     emit virtualJunctionPenChanged(pen);
 }
 void NodeRenderingPrefs::setVirtualJunctionFill(const QBrush &brush)
 {
-    if (virtualJunctionFill() == brush) return;
+    if (virtualJunctionFill() == brush)
+        return;
     PreferencesManager::instance()->setNodeBrush(kVirtualJunction, brush);
     emit virtualJunctionFillChanged(brush);
 }
 void NodeRenderingPrefs::setVirtualJunctionSize(double sizePx)
 {
-    if (qFuzzyCompare(virtualJunctionSize(), sizePx)) return;
+    if (qFuzzyCompare(virtualJunctionSize(), sizePx))
+        return;
     PreferencesManager::instance()->setNodeSize(kVirtualJunction, sizePx);
     emit virtualJunctionSizeChanged(sizePx);
+}
+
+void NodeRenderingPrefs::setInletJunctionPen(const QPen &pen)
+{
+    if (inletJunctionPen() == pen)
+        return;
+    PreferencesManager::instance()->setNodePen(kInletJunction, pen);
+    emit inletJunctionPenChanged(pen);
+}
+void NodeRenderingPrefs::setInletJunctionFill(const QBrush &brush)
+{
+    if (inletJunctionFill() == brush)
+        return;
+    PreferencesManager::instance()->setNodeBrush(kInletJunction, brush);
+    emit inletJunctionFillChanged(brush);
+}
+void NodeRenderingPrefs::setInletJunctionSize(double sizePx)
+{
+    if (qFuzzyCompare(inletJunctionSize(), sizePx))
+        return;
+    PreferencesManager::instance()->setNodeSize(kInletJunction, sizePx);
+    emit inletJunctionSizeChanged(sizePx);
+}
+
+// Feedback C14 — rain gage + subcatchment rows share the node store.
+QPen NodeRenderingPrefs::rainGagePen() const
+{
+    return PreferencesManager::instance()->nodePen(kRainGage);
+}
+QBrush NodeRenderingPrefs::rainGageFill() const
+{
+    return PreferencesManager::instance()->nodeBrush(kRainGage);
+}
+double NodeRenderingPrefs::rainGageSize() const
+{
+    return PreferencesManager::instance()->nodeSize(kRainGage);
+}
+QPen NodeRenderingPrefs::subcatchmentPen() const
+{
+    return PreferencesManager::instance()->nodePen(kSubcatchment);
+}
+QBrush NodeRenderingPrefs::subcatchmentFill() const
+{
+    return PreferencesManager::instance()->nodeBrush(kSubcatchment);
+}
+
+void NodeRenderingPrefs::setRainGagePen(const QPen &pen)
+{
+    if (rainGagePen() == pen)
+        return;
+    PreferencesManager::instance()->setNodePen(kRainGage, pen);
+    emit rainGagePenChanged(pen);
+}
+void NodeRenderingPrefs::setRainGageFill(const QBrush &brush)
+{
+    if (rainGageFill() == brush)
+        return;
+    PreferencesManager::instance()->setNodeBrush(kRainGage, brush);
+    emit rainGageFillChanged(brush);
+}
+void NodeRenderingPrefs::setRainGageSize(double sizePx)
+{
+    if (qFuzzyCompare(rainGageSize(), sizePx))
+        return;
+    PreferencesManager::instance()->setNodeSize(kRainGage, sizePx);
+    emit rainGageSizeChanged(sizePx);
+}
+void NodeRenderingPrefs::setSubcatchmentPen(const QPen &pen)
+{
+    if (subcatchmentPen() == pen)
+        return;
+    PreferencesManager::instance()->setNodePen(kSubcatchment, pen);
+    emit subcatchmentPenChanged(pen);
+}
+void NodeRenderingPrefs::setSubcatchmentFill(const QBrush &brush)
+{
+    if (subcatchmentFill() == brush)
+        return;
+    PreferencesManager::instance()->setNodeBrush(kSubcatchment, brush);
+    emit subcatchmentFillChanged(brush);
 }

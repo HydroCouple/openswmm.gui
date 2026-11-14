@@ -1,9 +1,12 @@
-/*!
- * \file   propertyeditorregistry.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      propertyeditorregistry.cpp
+ * @brief     Slice BM Phase 6.3.2 — `PropertyEditorRegistry`.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/properties/propertyeditorregistry.h"
 
 #include <QDebug>
@@ -21,8 +24,7 @@ void PropertyEditorRegistry::registerFactory(const QString &kind, Factory factor
         return;
     }
     if (!factory) {
-        qWarning() << "PropertyEditorRegistry::registerFactory: null factory for"
-                   << kind;
+        qWarning() << "PropertyEditorRegistry::registerFactory: null factory for" << kind;
         return;
     }
     if (m_factories.contains(kind)) {
@@ -39,8 +41,7 @@ bool PropertyEditorRegistry::hasFactory(const QString &kind) const
     return m_factories.contains(kind);
 }
 
-std::unique_ptr<IPropertyEditor>
-PropertyEditorRegistry::create(const QString &kind) const
+std::unique_ptr<IPropertyEditor> PropertyEditorRegistry::create(const QString &kind) const
 {
     auto it = m_factories.constFind(kind);
     if (it == m_factories.constEnd())

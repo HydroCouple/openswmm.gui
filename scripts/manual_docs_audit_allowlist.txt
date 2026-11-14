@@ -1,0 +1,8 @@
+# Property rows whose label is documented under a different wording, so the
+# literal label string does not appear in docs/manual.
+#
+# One property key per line; the text after # is the reason and is required.
+# Checked by: scripts/manual_docs_audit.py property-labels
+
+storageParam2  # 14_hydraulics.md:177 collapses the three into "Shape Param 1 / 2 / 3"
+storageParam3  # 14_hydraulics.md:177 collapses the three into "Shape Param 1 / 2 / 3"

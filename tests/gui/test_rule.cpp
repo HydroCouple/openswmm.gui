@@ -1,9 +1,9 @@
-/*!
- * \file   test_rule.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Tests for Slice Z.1 — Rule + RuleList data model.
+/**
+ * @file      test_rule.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Tests for Slice Z.1 — Rule + RuleList data model.
  *
  *         Success criterion (RENDERING_RULE_MODEL_PLAN.md §16, Z.1):
  *           - JSON round-trip fixtures pass.
@@ -12,6 +12,7 @@
  *
  *         No paint / pixel tests in this slice — Z.2/Z.3 ship the UI
  *         that consumes the model; Z.6 covers pixel-level migration.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include <QCoreApplication>
@@ -40,74 +41,394 @@ class TestRule : public QObject
 
 private slots:
     // ── Rule ──────────────────────────────────────────────────────────
+    /**
+     *
+     * @brief Pin default single renderer, empty name/filter, visible state, unrestricted zero
+     * scales and Normal blend token.
+     *
+     */
     void rule_defaultConstructorHasSingleRenderer();
+    /**
+     *
+     * @brief Require the named constructor to retain the transferred renderer pointer and
+     * supplied title.
+     *
+     */
     void rule_namedConstructorKeepsRenderer();
+    /**
+     *
+     * @brief Require a null constructor renderer to be replaced by a nonnull single renderer.
+     *
+     */
     void rule_namedConstructorWithNullRendererSubstitutes();
+    /**
+     *
+     * @brief Require six distinct name/visibility/filter/scale/blend edits to emit six
+     * ruleChanged signals.
+     *
+     */
     void rule_propertyEditsEmitSignal();
+    /**
+     *
+     * @brief Require equal name and default visibility/minimum-scale/blend setters to emit no
+     * changes.
+     *
+     */
     void rule_propertyEditsAreIdempotent();
+    /**
+     *
+     * @brief Require renderer replacement to emit rendererReplaced and ruleChanged exactly once
+     * and adopt graduated identity.
+     *
+     */
     void rule_setRendererEmitsBothSignals();
+    /**
+     *
+     * @brief Require an empty renderer replacement to leave a usable single renderer.
+     *
+     */
     void rule_setRendererNullSubstitutes();
+    /**
+     *
+     * @brief Round-trip default rule metadata and renderer identity through in-memory JSON.
+     *
+     */
     void rule_jsonRoundTripDefault();
+    /**
+     *
+     * @brief Round-trip populated name, hidden flag, filter text, scale bounds, Screen blend and
+     * graduated identity.
+     * The filter is preserved as text without evaluation.
+     *
+     */
     void rule_jsonRoundTripPopulated();
+    /**
+     *
+     * @brief Require single, graduated, categorized and rule renderer identity to survive rule
+     * JSON reconstruction.
+     *
+     */
     void rule_jsonRoundTripAllFourRendererKinds();
+    /**
+     *
+     * @brief Require rule JSON without renderer metadata to fail with an empty result.
+     *
+     */
     void rule_jsonFromMissingRendererReturnsNull();
+    /**
+     *
+     * @brief Require an unknown renderer identity token to fail rule deserialization.
+     *
+     */
     void rule_jsonFromUnknownRendererIdReturnsNull();
+    /**
+     *
+     * @brief Require minimal single-renderer JSON to decode with visible state, zero scale bounds
+     * and Normal blend.
+     *
+     */
     void rule_jsonTolerantOfMissingOptionalKeys();
+    /**
+     *
+     * @brief Require distinct rule/renderer addresses and unchanged clone name after renaming the
+     * source.
+     *
+     */
     void rule_cloneIsIndependent();
+    /**
+     *
+     * @brief Require cloned categorized rule to preserve populated name, visibility, filter,
+     * scales and blend.
+     *
+     */
     void rule_cloneCarriesAllProperties();
 
     // ── RuleList ──────────────────────────────────────────────────────
+    /**
+     *
+     * @brief Pin empty rule-list count, active index -1 and null active rule.
+     *
+     */
     void ruleList_emptyByDefault();
+    /**
+     *
+     * @brief Require first append to return a rule, activate index zero and emit one
+     * active/structural signal each.
+     *
+     */
     void ruleList_appendActivatesFirstRule();
+    /**
+     *
+     * @brief Require later appends to preserve active index zero without active-index signals.
+     *
+     */
     void ruleList_appendDoesNotChangeActiveOnSubsequentAppends();
+    /**
+     *
+     * @brief Require insertion before the active rule to shift its index while retaining its
+     * name.
+     *
+     */
     void ruleList_insertShiftsActiveIndex();
+    /**
+     *
+     * @brief Require removal before active c to shift its index from two to one.
+     *
+     */
     void ruleList_removeAdjustsActiveIndex();
+    /**
+     *
+     * @brief Require moving active b to the end to update active index while retaining that rule.
+     *
+     */
     void ruleList_moveTracksActiveRule();
+    /**
+     *
+     * @brief Require clear to empty the list, reset active index and emit one active/structural
+     * signal each.
+     *
+     */
     void ruleList_clearResetsState();
+    /**
+     *
+     * @brief Require excessive positive index to clamp to the last rule and negative input to
+     * clear selection.
+     *
+     */
     void ruleList_setActiveIndexClamps();
+    /**
+     *
+     * @brief Require indexOf to return two appended-rule indices and -1 for null.
+     *
+     */
     void ruleList_indexOfFindsRule();
+    /**
+     *
+     * @brief Round-trip three rule entries and check order/name, second visibility and third
+     * renderer identity.
+     *
+     */
     void ruleList_jsonArrayRoundTrip();
+    /**
+     *
+     * @brief Require nonobject and renderer-less array entries to be skipped while preserving the
+     * two valid entries in order.
+     *
+     */
     void ruleList_jsonSkipsMalformedEntries();
+    /**
+     *
+     * @brief Require five structural signals across append/move/remove/clear and no signal from
+     * clearing an already empty list.
+     *
+     */
     void ruleList_signalsFireOnStructuralChange();
+    /**
+     *
+     * @brief Require an owned rule rename to forward one ruleChanged signal with its list index.
+     *
+     */
     void ruleList_signalsFireOnRulePropertyChange();
+    /**
+     *
+     * @brief Require moving the first of four entries to the end to shift intervening order
+     * stably.
+     *
+     */
     void ruleList_movePreservesOrder();
+    /**
+     *
+     * @brief Require removal before active c to preserve its exact pointer with the adjusted
+     * index.
+     *
+     */
     void ruleList_removeIndexBeforeActiveKeepsRuleSelected();
 
     // ── Legacy migration ──────────────────────────────────────────────
+    /**
+     *
+     * @brief Require empty legacy migration to leave an empty list without structural signals.
+     *
+     */
     void migration_emptySublayersArrayIsNoop();
+    /**
+     *
+     * @brief Require three legacy sublayer objects to yield three rules with endpoint names taken
+     * from IDs.
+     *
+     */
     void migration_eachSublayerBecomesOneRule();
+    /**
+     *
+     * @brief Require legacy ID/hidden state to become rule metadata and opacity to reside on the
+     * single symbol.
+     *
+     */
     void migration_preservesNameVisibilityOpacity();
+    /**
+     *
+     * @brief Require a hidden legacy sublayer to create a hidden rule.
+     *
+     */
     void migration_invisibleSublayerProducesInvisibleRule();
+    /**
+     *
+     * @brief Require legacy alpha above/below range to migrate to symbol opacity one/zero.
+     *
+     */
     void migration_opacityClampsToUnitInterval();
+    /**
+     *
+     * @brief Require legacy migration to append after an existing native rule without replacing
+     * it.
+     *
+     */
     void migration_appendsToExistingRules();
+    /**
+     *
+     * @brief Require legacy metadata without ID to use the Sublayer placeholder name.
+     *
+     */
     void migration_missingIdGetsPlaceholderName();
+    /**
+     *
+     * @brief Require migrated rules to survive modern JSON with selected names, hidden state and
+     * 0.8 symbol opacity.
+     *
+     */
     void migration_resultantRulesRoundTripThroughJson();
 
     // ── Z.7 — Rule.rebinPerFrame ─────────────────────────────────────
+    /**
+     *
+     * @brief Pin rebinPerFrame disabled by default.
+     *
+     */
     void rebinPerFrame_defaultsFalse();
+    /**
+     *
+     * @brief Require enabling per-frame rebinning to update the flag and emit once.
+     *
+     */
     void rebinPerFrame_setterEmitsSignal();
+    /**
+     *
+     * @brief Require repeating enabled rebin state to emit no change.
+     *
+     */
     void rebinPerFrame_isIdempotent();
+    /**
+     *
+     * @brief Require default false rebinPerFrame to be omitted from compact JSON.
+     *
+     */
     void rebinPerFrame_omittedFromJsonWhenDefault();
+    /**
+     *
+     * @brief Require explicitly enabled per-frame rebinning to survive JSON.
+     *
+     */
     void rebinPerFrame_jsonRoundTripWhenSet();
+    /**
+     *
+     * @brief Require the clone to retain explicitly enabled per-frame rebinning.
+     *
+     */
     void rebinPerFrame_cloneCarriesValue();
 
     // ── Z.11 — Rule.symbolLevelsEnabled ──────────────────────────────
+    /**
+     *
+     * @brief Pin symbol-level rendering disabled by default.
+     *
+     */
     void symbolLevels_defaultsFalse();
+    /**
+     *
+     * @brief Require enabling symbol levels to update the flag and emit once.
+     *
+     */
     void symbolLevels_setterEmitsSignal();
+    /**
+     *
+     * @brief Require explicitly enabled symbol levels to survive JSON.
+     *
+     */
     void symbolLevels_jsonRoundTripWhenSet();
+    /**
+     *
+     * @brief Require the clone to retain explicitly enabled symbol levels.
+     *
+     */
     void symbolLevels_cloneCarriesValue();
 
     // ── Z.2 — Rule-as-ILayerStyleSubject adapter ─────────────────────
+    /**
+     *
+     * @brief Require a rule-style subject title to equal the initial rule name.
+     * This does not edit the name later or assert a title-change signal.
+     *
+     */
     void subject_titleTracksRuleName();
+    /**
+     *
+     * @brief Require an unnamed rule subject to display Rule.
+     *
+     */
     void subject_titleFallsBackWhenRuleNameEmpty();
+    /**
+     *
+     * @brief Require the subject to expose the original borrowed Rule as its property object.
+     *
+     */
     void subject_propertyObjectIsTheRule();
+    /**
+     *
+     * @brief Require the subject to preserve the explicit rule.7 routing token.
+     *
+     */
     void subject_routingIdIsExposed();
+    /**
+     *
+     * @brief Require the subject section to default to Rules.
+     *
+     */
     void subject_sectionDefaultsToRules();
+    /**
+     *
+     * @brief Require a custom subject-section label to be retained.
+     *
+     */
     void subject_sectionCanBeOverridden();
+    /**
+     *
+     * @brief Require null rule-list input to produce no subjects.
+     *
+     */
     void subjectsFromRuleList_emptyForNullList();
+    /**
+     *
+     * @brief Require an empty rule list to produce no subjects.
+     *
+     */
     void subjectsFromRuleList_emptyForEmptyList();
+    /**
+     *
+     * @brief Require three rules to yield three style subjects.
+     *
+     */
     void subjectsFromRuleList_oneSubjectPerRule();
+    /**
+     *
+     * @brief Require two list subjects to use rule.0 and rule.1 routing IDs in order.
+     *
+     */
     void subjectsFromRuleList_routingIdsAreSequential();
+    /**
+     *
+     * @brief Require subject titles to preserve the two source-rule names in order.
+     *
+     */
     void subjectsFromRuleList_titlesMatchRuleNames();
 };
 
@@ -162,10 +483,10 @@ void TestRule::rule_propertyEditsAreIdempotent()
     Rule r;
     r.setName(QStringLiteral("X"));
     QSignalSpy spy(&r, &Rule::ruleChanged);
-    r.setName(QStringLiteral("X"));      // no-op
-    r.setVisible(true);                  // already true
-    r.setMinScale(0.0);                  // already 0
-    r.setBlendMode(QStringLiteral("Normal"));  // already Normal
+    r.setName(QStringLiteral("X"));           // no-op
+    r.setVisible(true);                       // already true
+    r.setMinScale(0.0);                       // already 0
+    r.setBlendMode(QStringLiteral("Normal")); // already Normal
     QCOMPARE(spy.count(), 0);
 }
 
@@ -272,7 +593,7 @@ void TestRule::rule_jsonTolerantOfMissingOptionalKeys()
     // No name, no isVisible, no scale, no blend, no filter.
     auto r = Rule::fromJson(j);
     QVERIFY(r);
-    QCOMPARE(r->isVisible(), true);          // default
+    QCOMPARE(r->isVisible(), true); // default
     QCOMPARE(r->minScale(), 0.0);
     QCOMPARE(r->maxScale(), 0.0);
     QCOMPARE(r->blendMode(), QStringLiteral("Normal"));
@@ -348,9 +669,9 @@ void TestRule::ruleList_appendDoesNotChangeActiveOnSubsequentAppends()
 void TestRule::ruleList_insertShiftsActiveIndex()
 {
     RuleList rl;
-    rl.append(std::make_unique<Rule>(QStringLiteral("a"), nullptr));  // active=0
+    rl.append(std::make_unique<Rule>(QStringLiteral("a"), nullptr)); // active=0
     rl.append(std::make_unique<Rule>(QStringLiteral("b"), nullptr));
-    rl.setActiveIndex(1);  // active is 'b'
+    rl.setActiveIndex(1); // active is 'b'
 
     rl.insert(0, std::make_unique<Rule>(QStringLiteral("z"), nullptr));
     QCOMPARE(rl.count(), 3);
@@ -365,9 +686,9 @@ void TestRule::ruleList_removeAdjustsActiveIndex()
     rl.append(std::make_unique<Rule>(QStringLiteral("a"), nullptr));
     rl.append(std::make_unique<Rule>(QStringLiteral("b"), nullptr));
     rl.append(std::make_unique<Rule>(QStringLiteral("c"), nullptr));
-    rl.setActiveIndex(2);  // 'c'
+    rl.setActiveIndex(2); // 'c'
 
-    rl.remove(0);  // remove 'a' — 'c' shifts to 1
+    rl.remove(0); // remove 'a' — 'c' shifts to 1
     QCOMPARE(rl.activeIndex(), 1);
     QCOMPARE(rl.activeRule()->name(), QStringLiteral("c"));
 }
@@ -378,9 +699,9 @@ void TestRule::ruleList_moveTracksActiveRule()
     rl.append(std::make_unique<Rule>(QStringLiteral("a"), nullptr));
     rl.append(std::make_unique<Rule>(QStringLiteral("b"), nullptr));
     rl.append(std::make_unique<Rule>(QStringLiteral("c"), nullptr));
-    rl.setActiveIndex(1);  // 'b'
+    rl.setActiveIndex(1); // 'b'
 
-    rl.move(1, 2);  // 'b' to last position
+    rl.move(1, 2); // 'b' to last position
     QCOMPARE(rl.activeIndex(), 2);
     QCOMPARE(rl.activeRule()->name(), QStringLiteral("b"));
 }
@@ -425,12 +746,10 @@ void TestRule::ruleList_indexOfFindsRule()
 void TestRule::ruleList_jsonArrayRoundTrip()
 {
     RuleList rl;
-    rl.append(std::make_unique<Rule>(QStringLiteral("a"),
-                                     std::make_unique<SingleSymbolRenderer>()));
-    rl.append(std::make_unique<Rule>(QStringLiteral("b"),
-                                     std::make_unique<GraduatedRenderer>()));
-    rl.append(std::make_unique<Rule>(QStringLiteral("c"),
-                                     std::make_unique<CategorizedRenderer>()));
+    rl.append(
+        std::make_unique<Rule>(QStringLiteral("a"), std::make_unique<SingleSymbolRenderer>()));
+    rl.append(std::make_unique<Rule>(QStringLiteral("b"), std::make_unique<GraduatedRenderer>()));
+    rl.append(std::make_unique<Rule>(QStringLiteral("c"), std::make_unique<CategorizedRenderer>()));
     rl.at(1)->setVisible(false);
 
     const QJsonArray arr = rl.toJson();
@@ -456,9 +775,9 @@ void TestRule::ruleList_jsonSkipsMalformedEntries()
         good[QStringLiteral("name")] = QStringLiteral("ok");
         arr.append(good);
     }
-    arr.append(QJsonValue("not-an-object"));  // skip
+    arr.append(QJsonValue("not-an-object")); // skip
     {
-        QJsonObject orphan;  // no renderer → fromJson returns null → skip
+        QJsonObject orphan; // no renderer → fromJson returns null → skip
         orphan[QStringLiteral("name")] = QStringLiteral("noisy");
         arr.append(orphan);
     }
@@ -483,12 +802,12 @@ void TestRule::ruleList_signalsFireOnStructuralChange()
     RuleList rl;
     QSignalSpy spy(&rl, &RuleList::ruleListChanged);
 
-    rl.append(std::make_unique<Rule>());          // +1
-    rl.append(std::make_unique<Rule>());          // +1
-    rl.move(0, 1);                                // +1
-    rl.remove(0);                                 // +1
-    rl.clear();                                   // +1
-    rl.clear();                                   // no-op (empty already)
+    rl.append(std::make_unique<Rule>()); // +1
+    rl.append(std::make_unique<Rule>()); // +1
+    rl.move(0, 1);                       // +1
+    rl.remove(0);                        // +1
+    rl.clear();                          // +1
+    rl.clear();                          // no-op (empty already)
     QCOMPARE(spy.count(), 5);
 }
 
@@ -528,7 +847,7 @@ void TestRule::ruleList_removeIndexBeforeActiveKeepsRuleSelected()
 
     rl.remove(0);
     QCOMPARE(rl.activeIndex(), 1);
-    QCOMPARE(rl.activeRule(), active);   // same Rule, new index
+    QCOMPARE(rl.activeRule(), active); // same Rule, new index
 }
 
 // ─────────────── Legacy migration ────────────────────────────────────
@@ -545,11 +864,11 @@ void TestRule::migration_emptySublayersArrayIsNoop()
 void TestRule::migration_eachSublayerBecomesOneRule()
 {
     QJsonArray arr;
-    for (const char *id : { "results.junctions", "results.conduits", "results.subcatchments" }) {
+    for (const char *id : {"results.junctions", "results.conduits", "results.subcatchments"}) {
         QJsonObject sl;
-        sl[QStringLiteral("id")]        = QString::fromLatin1(id);
+        sl[QStringLiteral("id")] = QString::fromLatin1(id);
         sl[QStringLiteral("isVisible")] = true;
-        sl[QStringLiteral("opacity")]   = 1.0;
+        sl[QStringLiteral("opacity")] = 1.0;
         arr.append(sl);
     }
     RuleList rl;
@@ -562,9 +881,9 @@ void TestRule::migration_eachSublayerBecomesOneRule()
 void TestRule::migration_preservesNameVisibilityOpacity()
 {
     QJsonObject sl;
-    sl[QStringLiteral("id")]        = QStringLiteral("results.conduits.lines");
+    sl[QStringLiteral("id")] = QStringLiteral("results.conduits.lines");
     sl[QStringLiteral("isVisible")] = false;
-    sl[QStringLiteral("opacity")]   = 0.65;
+    sl[QStringLiteral("opacity")] = 0.65;
     QJsonArray arr;
     arr.append(sl);
 
@@ -585,7 +904,7 @@ void TestRule::migration_preservesNameVisibilityOpacity()
 void TestRule::migration_invisibleSublayerProducesInvisibleRule()
 {
     QJsonObject sl;
-    sl[QStringLiteral("id")]        = QStringLiteral("hidden");
+    sl[QStringLiteral("id")] = QStringLiteral("hidden");
     sl[QStringLiteral("isVisible")] = false;
     QJsonArray arr;
     arr.append(sl);

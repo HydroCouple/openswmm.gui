@@ -1,10 +1,16 @@
-/*!
- * \file   curveeditordialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      curveeditordialog.cpp
+ * @brief     Layout (left → right).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/curveeditordialog.h"
+#include "ui/util/usernotice.h"
+#include "core/swmmidentifier.h"
+#include "core/unitsystem.h"
 #include "ui/theme/iconfactory.h"
 #include "ui/theme/themehelpers.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
@@ -12,10 +18,14 @@
 #include "core/preferencesmanager.h"
 #include "curve/curveprovider.h"
 #include "curve/curveregistry.h"
+#include "curve/curveundocommands.h"
 #include "ui/panels/curvepointtablemodel.h"
 #include "ui/widgets/chartaxisformatcontroller.h"
 #include "ui/widgets/curveeditchartview.h"
 #include "ui/widgets/interactivechartview.h"
+#include "ui/editors/dataobjectdraftsession.h"
+#include "ui/editors/dataobjectstructureedit.h"
+#include "ui/util/tableclipboard.h"
 
 #include <QAction>
 #include <QChart>
@@ -34,6 +44,7 @@
 #include <QLabel>
 #include <QLineEdit>
 #include <QLineSeries>
+#include <QLocale>
 #include <QListView>
 #include <QMenu>
 #include <QMessageBox>
@@ -53,36 +64,69 @@
 #include <QVBoxLayout>
 
 #include <algorithm>
+#include <cmath>
+#include <optional>
 #include <limits>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using openswmmvis::curve::CurvePoint;
 using openswmmvis::curve::CurveProvider;
 using openswmmvis::curve::CurveRegistry;
 using openswmmvis::curve::CurveType;
 
-namespace {
+namespace
+{
 
 constexpr std::array<CurveType, 11> kAllTypes = {
-    CurveType::Storage, CurveType::Diversion, CurveType::Rating,
-    CurveType::Shape,   CurveType::Control,   CurveType::Tidal,
-    CurveType::Pump1,   CurveType::Pump2,     CurveType::Pump3,
-    CurveType::Pump4,   CurveType::Pump5,
+    CurveType::Storage, CurveType::Diversion, CurveType::Rating, CurveType::Shape,
+    CurveType::Control, CurveType::Tidal,     CurveType::Pump1,  CurveType::Pump2,
+    CurveType::Pump3,   CurveType::Pump4,     CurveType::Pump5,
 };
 
+/*! Put \p target into \p live (the registry mirrors it to the engine), read
+ *  the engine back and say whether the model kept it. Used by Apply, its undo
+ *  / redo, and to restore a deleted curve when Undo brings it back. */
+bool writeCurve(CurveRegistry *registry, CurveProvider *live, const CurveProvider::Params &target)
+{
+    if (!live->setParams(target))
+        return false;
+    if (void *engine = registry->engineHandle())
+        registry->loadFromEngine(engine, live->name()); // what the model holds now
+    return live->params().sameAs(target, 1e-9);
+}
+
+/*! A pasted number in C or the system locale's notation (review E-18). */
+std::optional<double> pastedNumber(const QString &text)
+{
+    const QString s = text.trimmed();
+    bool ok = false;
+    double v = s.toDouble(&ok);
+    if (!ok)
+        v = QLocale().toDouble(s, &ok);
+    if (!ok || !std::isfinite(v))
+        return std::nullopt;
+    return v;
+}
+
+/*! Records an edit already made to the draft as one step of the editor's undo. */
+void recordDraftEdit(QUndoStack *undo, CurveProvider *draft, const CurveProvider::Params &before,
+                     const QString &text)
+{
+    if (undo && draft && !(draft->params() == before))
+        undo->push(new openswmmvis::curve::SetCurveParamsCommand(draft, before, draft->params(), text));
+}
 } // namespace
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Construction
 // ─────────────────────────────────────────────────────────────────────────────
 
-CurveEditorDialog::CurveEditorDialog(CurveRegistry *registry,
-                                      QUndoStack *undoStack,
-                                      QWidget *parent)
-    : QDialog(parent, openswmmvis::ui::floatingPanelFlags())
-    , m_registry(registry)
-    , m_undoStack(undoStack)
+CurveEditorDialog::CurveEditorDialog(CurveRegistry *registry, QUndoStack *undoStack,
+                                     QWidget *parent)
+    : QDialog(parent, openswmmvis::ui::floatingPanelFlags()), m_registry(registry),
+      m_undoStack(undoStack)
 {
     setWindowTitle(tr("Curve Editor"));
     // Iteration 2 (D3) — naming wires the app-wide layout persistence.
@@ -91,48 +135,87 @@ CurveEditorDialog::CurveEditorDialog(CurveRegistry *registry,
 
     buildUi_();
     buildCreateCard_();
-    if (m_createCard) m_createCard->hide();
+    if (m_createCard)
+        m_createCard->hide();
 
     if (m_registry) {
-        connect(m_registry, &CurveRegistry::providerAdded,
-                this, &CurveEditorDialog::onProviderAdded_);
-        connect(m_registry, &CurveRegistry::providerAboutToBeRemoved,
-                this, &CurveEditorDialog::onProviderRemoved_);
-        connect(m_registry, &CurveRegistry::providerRenamed,
-                this, &CurveEditorDialog::onProviderRenamed_);
+        connect(m_registry, &CurveRegistry::providerAdded, this,
+                &CurveEditorDialog::onProviderAdded_);
+        connect(m_registry, &CurveRegistry::providerAboutToBeRemoved, this,
+                &CurveEditorDialog::onProviderRemoved_);
+        connect(m_registry, &CurveRegistry::providerRenamed, this,
+                &CurveEditorDialog::onProviderRenamed_);
     }
+    // Edits reach the model at Apply; the curves they are held for follow
+    // the model (or report a conflict) through copyFor_().
+    // Axis titles carry project units; follow a units change (project
+    // switch, Simulation Options flow units).
+    connect(UnitSystem::instance(), &UnitSystem::unitsChanged, this, [this] { refreshChart_(); });
 
     rebuildListModel_();
     if (m_listModel->rowCount() > 0) {
         const QModelIndex src = m_listModel->index(0, 0);
         const QModelIndex view = m_listProxy ? m_listProxy->mapFromSource(src) : src;
-        if (view.isValid()) m_listView->setCurrentIndex(view);
-        else bindProvider_(nullptr);
+        if (view.isValid())
+            m_listView->setCurrentIndex(view);
+        else
+            bindProvider_(nullptr);
     } else {
         bindProvider_(nullptr);
     }
+    setAccessibleDescription(tr("Changes are held until you choose Apply. Apply writes them to "
+                                "the model as one step you can undo."));
+    if (m_table)
+        m_table->setAccessibleName(tr("Curve values"));
+    if (m_listView)
+        m_listView->setAccessibleName(tr("Curve objects"));
+    if (m_chartView)
+        m_chartView->setAccessibleName(tr("Curve preview"));
+    if (registry)
+        connect(registry, &QObject::destroyed, this, &CurveEditorDialog::invalidateContext);
+    // Registries outlive an engine reload; their owning layer announces the
+    // close before any cached engine handle becomes invalid.
+    if (registry && registry->parent() &&
+        registry->parent()->metaObject()->indexOfSignal("engineAboutToClose()") >= 0)
+        connect(registry->parent(), SIGNAL(engineAboutToClose()), this, SLOT(invalidateContext()));
+    if (undoStack)
+        connect(undoStack, &QObject::destroyed, this, &CurveEditorDialog::invalidateContext);
 }
 
 CurveEditorDialog::~CurveEditorDialog() = default;
 
-CurveEditorDialog *CurveEditorDialog::createNew(CurveRegistry *registry,
-                                                 QUndoStack *undoStack,
-                                                 QWidget *parent)
+void CurveEditorDialog::invalidateContext()
+{
+    if (!m_contextValid)
+        return;
+    m_contextValid = false;
+    setEnabled(false);
+    if (m_registry)
+        m_registry->disconnect(this);
+    m_registry.clear();
+    m_undoStack.clear();
+    bindProvider_(nullptr);
+    if (m_chartView)
+        m_chartView->setUndoStack(nullptr);
+    if (m_listModel)
+        m_listModel->clear();
+    reject();
+}
+
+CurveEditorDialog *CurveEditorDialog::createNew(CurveRegistry *registry, QUndoStack *undoStack,
+                                                QWidget *parent)
 {
     auto *dlg = new CurveEditorDialog(registry, undoStack, parent);
-    dlg->m_mode = Mode::CreateNew;
-    if (dlg->m_createCard) dlg->m_createCard->show();
-    if (dlg->m_nameEdit)   dlg->m_nameEdit->setFocus();
+    dlg->onNewClicked_();
     dlg->setWindowTitle(tr("New Curve"));
     return dlg;
 }
 
-QString CurveEditorDialog::pickCurve(CurveRegistry *registry,
-                                      QUndoStack    *undoStack,
-                                      const QString &initialName,
-                                      QWidget       *parent)
+QString CurveEditorDialog::pickCurve(CurveRegistry *registry, QUndoStack *undoStack,
+                                     const QString &initialName, QWidget *parent)
 {
-    if (!registry) return {};
+    if (!registry)
+        return {};
 
     // Stack-allocated so we can exec() modally without WA_DeleteOnClose.
     // Mirrors PatternEditorDialog::pickPattern and
@@ -142,9 +225,7 @@ QString CurveEditorDialog::pickCurve(CurveRegistry *registry,
     if (initialName.isEmpty()) {
         // CreateNew — reveal the create-card without instantiating a
         // second dialog (we already own one on the stack).
-        dlg.m_mode = Mode::CreateNew;
-        if (dlg.m_createCard) dlg.m_createCard->show();
-        if (dlg.m_nameEdit)   dlg.m_nameEdit->setFocus();
+        dlg.onNewClicked_();
         dlg.setWindowTitle(tr("New Curve"));
     } else {
         dlg.setWindowTitle(tr("Edit Curve"));
@@ -153,9 +234,9 @@ QString CurveEditorDialog::pickCurve(CurveRegistry *registry,
     }
     dlg.exec();
 
-    // Return whatever's currently highlighted — applies to all exit paths
-    // (Apply, OK, Close). All edits are already persisted through the
-    // registry MVC layer regardless of which button was used.
+    // Return whatever's currently highlighted — applies to every exit path
+    // (Close button, Esc, title-bar close). Unapplied edits were applied or
+    // discarded when the dialog was left (DataObjectDraftSession).
     auto *p = dlg.currentProvider();
     return p ? p->name() : QString();
 }
@@ -165,9 +246,14 @@ void CurveEditorDialog::openForCurve(const QString &name)
     show();
     raise();
     activateWindow();
-    if (!m_registry || name.isEmpty()) return;
+    if (!m_registry || name.isEmpty())
+        return;
     auto *p = m_registry->findByName(name);
-    if (p) selectProviderInList_(p);
+    if (p) {
+        if (m_mode == Mode::CreateNew)
+            onCancelCreateClicked_();
+        selectProviderInList_(p);
+    }
 }
 
 CurveProvider *CurveEditorDialog::currentProvider() const noexcept
@@ -181,7 +267,8 @@ CurveProvider *CurveEditorDialog::currentProvider() const noexcept
 
 void CurveEditorDialog::populateTypeCombo_(QComboBox *combo) const
 {
-    if (!combo) return;
+    if (!combo)
+        return;
     combo->clear();
     for (CurveType t : kAllTypes)
         combo->addItem(CurveProvider::typeLabel(t), int(t));
@@ -193,6 +280,18 @@ void CurveEditorDialog::buildUi_()
     outer->setContentsMargins(0, 0, 0, 0);
     outer->setSpacing(0);
 
+    // Edits go to a draft copy of each curve; the model changes at Apply.
+    m_draftUndo = new QUndoStack(this);
+    m_session = new DataObjectDraftSession({{}, // every edit goes to the draft at once
+                                            [this] { return dirtyCount_(); },
+                                            [this](QString *why) { return applyDrafts_(why); },
+                                            [this] { revertDrafts_(); }},
+                                           this);
+    if (m_registry) // the registry belongs to the model layer
+        m_session->setModel(m_registry->parent()); // Save / Run / Close ask about drafts
+    connect(m_draftUndo, &QUndoStack::indexChanged, m_session, &DataObjectDraftSession::noteEdited);
+    connect(m_session, &DataObjectDraftSession::changed, this, &CurveEditorDialog::refreshDraftMarks_);
+
     m_splitter = new QSplitter(Qt::Horizontal, this);
     m_splitter->setObjectName(QStringLiteral("main"));
     m_splitter->setChildrenCollapsible(false);
@@ -202,7 +301,7 @@ void CurveEditorDialog::buildUi_()
     // ── Left pane: curves list + CRUD buttons ───────────────────────────────
     {
         auto *host = new QWidget(m_splitter);
-        auto *lay  = new QVBoxLayout(host);
+        auto *lay = new QVBoxLayout(host);
         lay->setContentsMargins(8, 8, 8, 8);
         lay->addWidget(new QLabel(tr("Curves"), host));
 
@@ -221,8 +320,8 @@ void CurveEditorDialog::buildUi_()
         m_listView = new QListView(host);
         // Inline rename: click-and-wait on selected row or F2 enters edit
         // mode; itemChanged routes the new text through the registry.
-        m_listView->setEditTriggers(QAbstractItemView::SelectedClicked
-                                     | QAbstractItemView::EditKeyPressed);
+        m_listView->setEditTriggers(QAbstractItemView::SelectedClicked |
+                                    QAbstractItemView::EditKeyPressed);
         m_listView->setSelectionMode(QAbstractItemView::SingleSelection);
         m_listView->setUniformItemSizes(true);
         m_listView->setContextMenuPolicy(Qt::CustomContextMenu);
@@ -238,28 +337,27 @@ void CurveEditorDialog::buildUi_()
                 [this](int) { applyTypeFilter_(); });
         lay->addWidget(m_listView, 1);
 
-        connect(m_listView->selectionModel(), &QItemSelectionModel::currentChanged,
-                this, [this](const QModelIndex &, const QModelIndex &) {
-                    onListSelectionChanged_();
-                });
-        connect(m_listView, &QListView::customContextMenuRequested,
-                this, &CurveEditorDialog::onListContextMenu_);
-        connect(m_listModel, &QStandardItemModel::itemChanged,
-                this, &CurveEditorDialog::onListItemRenamed_);
+        connect(m_listView->selectionModel(), &QItemSelectionModel::currentChanged, this,
+                [this](const QModelIndex &, const QModelIndex &) { onListSelectionChanged_(); });
+        connect(m_listView, &QListView::customContextMenuRequested, this,
+                &CurveEditorDialog::onListContextMenu_);
+        connect(m_listModel, &QStandardItemModel::itemChanged, this,
+                &CurveEditorDialog::onListItemRenamed_);
 
         auto *crudRow = new QHBoxLayout();
-        m_newBtn    = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")), tr("New"), host);
-        m_renameBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Rename")), tr("Rename"), host);
-        m_deleteBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")), tr("Delete"), host);
+        m_newBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Add")),
+                                   tr("New"), host);
+        m_renameBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Rename")),
+                                      tr("Rename"), host);
+        m_deleteBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("Delete")),
+                                      tr("Delete"), host);
         m_newBtn->setToolTip(tr("Create a new curve."));
         m_renameBtn->setToolTip(tr("Rename the selected curve."));
         m_deleteBtn->setToolTip(tr("Delete the selected curve."));
-        connect(m_newBtn,    &QPushButton::clicked,
-                this, &CurveEditorDialog::onNewClicked_);
-        connect(m_renameBtn, &QPushButton::clicked,
-                this, &CurveEditorDialog::onRenameClicked_);
-        connect(m_deleteBtn, &QPushButton::clicked,
-                this, &CurveEditorDialog::onDeleteCurveClicked_);
+        connect(m_newBtn, &QPushButton::clicked, this, &CurveEditorDialog::onNewClicked_);
+        connect(m_renameBtn, &QPushButton::clicked, this, &CurveEditorDialog::onRenameClicked_);
+        connect(m_deleteBtn, &QPushButton::clicked, this,
+                &CurveEditorDialog::onDeleteCurveClicked_);
         crudRow->addWidget(m_newBtn);
         crudRow->addStretch(1);
         crudRow->addWidget(m_renameBtn);
@@ -272,16 +370,17 @@ void CurveEditorDialog::buildUi_()
     // ── Center pane: type combo + point table + row controls ────────────────
     {
         auto *host = new QWidget(m_splitter);
-        auto *lay  = new QVBoxLayout(host);
+        auto *lay = new QVBoxLayout(host);
         lay->setContentsMargins(8, 8, 8, 8);
 
         auto *typeRow = new QHBoxLayout();
         typeRow->addWidget(new QLabel(tr("Type:"), host));
         m_typeCombo = new QComboBox(host);
+        m_typeCombo->setObjectName(QStringLiteral("curve_typeCombo"));
         populateTypeCombo_(m_typeCombo);
         typeRow->addWidget(m_typeCombo, 1);
-        connect(m_typeCombo, &QComboBox::currentIndexChanged,
-                this, &CurveEditorDialog::onTypeComboChanged_);
+        connect(m_typeCombo, &QComboBox::currentIndexChanged, this,
+                &CurveEditorDialog::onTypeComboChanged_);
         lay->addLayout(typeRow);
 
         m_typeHint = new QLabel(host);
@@ -291,24 +390,26 @@ void CurveEditorDialog::buildUi_()
 
         m_table = new QTableView(host);
         m_tableModel = new CurvePointTableModel(this);
+        m_tableModel->setUndoStack(m_draftUndo); // cell edits undo in the editor
         m_table->setModel(m_tableModel);
-        m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+        m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
         m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
         m_table->setSelectionMode(QAbstractItemView::ExtendedSelection);
         m_table->setAlternatingRowColors(true);
         m_table->setContextMenuPolicy(Qt::CustomContextMenu);
-        connect(m_table, &QWidget::customContextMenuRequested,
-                this, &CurveEditorDialog::onTableContextMenu_);
+        connect(m_table, &QWidget::customContextMenuRequested, this,
+                &CurveEditorDialog::onTableContextMenu_);
         lay->addWidget(m_table, 1);
 
         auto *rowBtns = new QHBoxLayout();
         rowBtns->addStretch(1);
-        m_addRowBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("AddRow")), tr("Add Row"), host);
-        m_delRowBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("DeleteRow")), tr("Delete Row(s)"), host);
-        connect(m_addRowBtn, &QPushButton::clicked,
-                this, &CurveEditorDialog::onAddRowClicked_);
-        connect(m_delRowBtn, &QPushButton::clicked,
-                this, &CurveEditorDialog::onDeleteRowsClicked_);
+        m_addRowBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("AddRow")),
+                                      tr("Add Row"), host);
+        m_delRowBtn =
+            new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("DeleteRow")),
+                            tr("Delete Row(s)"), host);
+        connect(m_addRowBtn, &QPushButton::clicked, this, &CurveEditorDialog::onAddRowClicked_);
+        connect(m_delRowBtn, &QPushButton::clicked, this, &CurveEditorDialog::onDeleteRowsClicked_);
         rowBtns->addWidget(m_addRowBtn);
         rowBtns->addWidget(m_delRowBtn);
         lay->addLayout(rowBtns);
@@ -319,15 +420,13 @@ void CurveEditorDialog::buildUi_()
         m_copyAct = new QAction(tr("Copy"), this);
         m_copyAct->setShortcut(QKeySequence::Copy);
         m_copyAct->setShortcutContext(Qt::WidgetWithChildrenShortcut);
-        connect(m_copyAct, &QAction::triggered,
-                this, &CurveEditorDialog::onCopyRowsClicked_);
+        connect(m_copyAct, &QAction::triggered, this, &CurveEditorDialog::onCopyRowsClicked_);
         addAction(m_copyAct);
 
         m_pasteAct = new QAction(tr("Paste"), this);
         m_pasteAct->setShortcut(QKeySequence::Paste);
         m_pasteAct->setShortcutContext(Qt::WidgetWithChildrenShortcut);
-        connect(m_pasteAct, &QAction::triggered,
-                this, &CurveEditorDialog::onPasteRowsClicked_);
+        connect(m_pasteAct, &QAction::triggered, this, &CurveEditorDialog::onPasteRowsClicked_);
         addAction(m_pasteAct);
 
         m_splitter->addWidget(host);
@@ -336,7 +435,7 @@ void CurveEditorDialog::buildUi_()
     // ── Right pane: toolbar + line/scatter chart preview ────────────────────
     {
         auto *host = new QWidget(m_splitter);
-        auto *lay  = new QVBoxLayout(host);
+        auto *lay = new QVBoxLayout(host);
         lay->setContentsMargins(0, 0, 0, 0);
         lay->setSpacing(0);
 
@@ -364,8 +463,10 @@ void CurveEditorDialog::buildUi_()
         m_yAxis->setLabelFormat(prefs->plotYAxisFormat().printfSpec());
         m_chart->addAxis(m_xAxis, Qt::AlignBottom);
         m_chart->addAxis(m_yAxis, Qt::AlignLeft);
-        m_line->attachAxis(m_xAxis);    m_line->attachAxis(m_yAxis);
-        m_scatter->attachAxis(m_xAxis); m_scatter->attachAxis(m_yAxis);
+        m_line->attachAxis(m_xAxis);
+        m_line->attachAxis(m_yAxis);
+        m_scatter->attachAxis(m_xAxis);
+        m_scatter->attachAxis(m_yAxis);
 
         // CurveEditChartView extends InteractiveChartView with vertex-drag
         // editing. The chart, axes, and line/scatter series are owned by
@@ -375,7 +476,7 @@ void CurveEditorDialog::buildUi_()
         // CurveProvider (MVC).
         m_chartView = new CurveEditChartView(m_chart, m_line, host);
         m_chartView->setRenderHint(QPainter::Antialiasing, true);
-        m_chartView->setUndoStack(m_undoStack);
+        m_chartView->setUndoStack(m_draftUndo);
         // Per-chart axis number format (decimals / sig figs / custom printf),
         // reachable via the chart's right-click "Chart Properties…" entry.
         m_axisFmt = new ChartAxisFormatController(m_chart, this);
@@ -383,22 +484,25 @@ void CurveEditorDialog::buildUi_()
         lay->addWidget(m_chartView, 1);
 
         // Build toolbar actions.
-        auto *aFit = m_chartToolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Extent")),
-                                                 tr("Fit"));
+        auto *aFit = m_chartToolBar->addAction(
+            openswmmvis::ui::IconFactory::icon(QStringLiteral("Extent")), tr("Fit"));
         aFit->setToolTip(tr("Zoom to extent (F)"));
         aFit->setShortcut(QKeySequence(Qt::Key_F));
         aFit->setShortcutContext(Qt::WidgetWithChildrenShortcut);
-        connect(aFit, &QAction::triggered, this,
-                [this]() { if (m_chartView) m_chartView->resetZoom(); });
+        connect(aFit, &QAction::triggered, this, [this]() {
+            if (m_chartView)
+                m_chartView->resetZoom();
+        });
 
-        auto *aZIn = m_chartToolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomIn")),
-                                                 tr("Zoom in"));
+        auto *aZIn = m_chartToolBar->addAction(
+            openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomIn")), tr("Zoom in"));
         aZIn->setCheckable(true);
         aZIn->setToolTip(tr("Click-zoom in (Ctrl++)"));
         connect(aZIn, &QAction::toggled, this, [this, aZIn](bool on) {
-            if (!m_chartView) return;
+            if (!m_chartView)
+                return;
             m_chartView->setMode(on ? InteractiveChartView::Mode::ZoomIn
-                                     : InteractiveChartView::Mode::Select);
+                                    : InteractiveChartView::Mode::Select);
             if (on && m_chartPanAction) {
                 const QSignalBlocker b(m_chartPanAction);
                 m_chartPanAction->setChecked(false);
@@ -411,14 +515,15 @@ void CurveEditorDialog::buildUi_()
         });
         m_chartZoomInAction = aZIn;
 
-        auto *aZOut = m_chartToolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomOut")),
-                                                  tr("Zoom out"));
+        auto *aZOut = m_chartToolBar->addAction(
+            openswmmvis::ui::IconFactory::icon(QStringLiteral("ZoomOut")), tr("Zoom out"));
         aZOut->setCheckable(true);
         aZOut->setToolTip(tr("Click-zoom out (Ctrl+-)"));
         connect(aZOut, &QAction::toggled, this, [this](bool on) {
-            if (!m_chartView) return;
+            if (!m_chartView)
+                return;
             m_chartView->setMode(on ? InteractiveChartView::Mode::ZoomOut
-                                     : InteractiveChartView::Mode::Select);
+                                    : InteractiveChartView::Mode::Select);
             if (on && m_chartPanAction) {
                 const QSignalBlocker b(m_chartPanAction);
                 m_chartPanAction->setChecked(false);
@@ -432,14 +537,15 @@ void CurveEditorDialog::buildUi_()
 
         m_chartToolBar->addSeparator();
 
-        auto *aPan = m_chartToolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("Move")),
-                                                 tr("Pan"));
+        auto *aPan = m_chartToolBar->addAction(
+            openswmmvis::ui::IconFactory::icon(QStringLiteral("Move")), tr("Pan"));
         aPan->setCheckable(true);
         aPan->setToolTip(tr("Left-drag pans the chart"));
         connect(aPan, &QAction::toggled, this, [this](bool on) {
-            if (!m_chartView) return;
+            if (!m_chartView)
+                return;
             m_chartView->setMode(on ? InteractiveChartView::Mode::Pan
-                                     : InteractiveChartView::Mode::Select);
+                                    : InteractiveChartView::Mode::Select);
             if (on && m_chartZoomInAction) {
                 const QSignalBlocker b(m_chartZoomInAction);
                 m_chartZoomInAction->setChecked(false);
@@ -454,16 +560,17 @@ void CurveEditorDialog::buildUi_()
         // ── Edit / axis-lock toolbar (mirrors transect/timeseries editors) ──
         m_chartToolBar->addSeparator();
 
-        auto *aEdit = m_chartToolBar->addAction(openswmmvis::ui::IconFactory::icon(QStringLiteral("SelectEdit")),
-                                                 tr("Edit points"));
+        auto *aEdit = m_chartToolBar->addAction(
+            openswmmvis::ui::IconFactory::icon(QStringLiteral("SelectEdit")), tr("Edit points"));
         aEdit->setCheckable(true);
         aEdit->setToolTip(tr("Drag vertices to edit (E)"));
         aEdit->setShortcut(QKeySequence(Qt::Key_E));
         aEdit->setShortcutContext(Qt::WidgetWithChildrenShortcut);
         connect(aEdit, &QAction::toggled, this, [this](bool on) {
-            if (!m_chartView) return;
+            if (!m_chartView)
+                return;
             m_chartView->setEditMode(on ? CurveEditChartView::EditMode::EditPoints
-                                         : CurveEditChartView::EditMode::None);
+                                        : CurveEditChartView::EditMode::None);
             // Editing is mutually exclusive with Pan/Zoom modes.
             if (on) {
                 m_chartView->setMode(InteractiveChartView::Mode::Select);
@@ -480,8 +587,10 @@ void CurveEditorDialog::buildUi_()
                     m_chartZoomOutAction->setChecked(false);
                 }
             }
-            if (m_chartLockXAction) m_chartLockXAction->setEnabled(on);
-            if (m_chartLockYAction) m_chartLockYAction->setEnabled(on);
+            if (m_chartLockXAction)
+                m_chartLockXAction->setEnabled(on);
+            if (m_chartLockYAction)
+                m_chartLockYAction->setEnabled(on);
         });
         m_chartEditAction = aEdit;
 
@@ -491,7 +600,8 @@ void CurveEditorDialog::buildUi_()
         aLockX->setToolTip(tr("Constrain vertex drag to Y only"));
         aLockX->setEnabled(false);
         connect(aLockX, &QAction::toggled, this, [this](bool on) {
-            if (m_chartView) m_chartView->setLockX(on);
+            if (m_chartView)
+                m_chartView->setLockX(on);
         });
         m_chartLockXAction = aLockX;
 
@@ -501,31 +611,47 @@ void CurveEditorDialog::buildUi_()
         aLockY->setToolTip(tr("Constrain vertex drag to X only"));
         aLockY->setEnabled(false);
         connect(aLockY, &QAction::toggled, this, [this](bool on) {
-            if (m_chartView) m_chartView->setLockY(on);
+            if (m_chartView)
+                m_chartView->setLockY(on);
         });
         m_chartLockYAction = aLockY;
+
+        // Draft edits undo here, step by step; Apply is one step on the
+        // project's undo stack.
+        m_chartToolBar->addSeparator();
+        QAction *aUndo = m_draftUndo->createUndoAction(this, tr("Undo"));
+        aUndo->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Undo")));
+        aUndo->setShortcut(QKeySequence::Undo);
+        aUndo->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+        m_chartToolBar->addAction(aUndo);
+        QAction *aRedo = m_draftUndo->createRedoAction(this, tr("Redo"));
+        aRedo->setIcon(openswmmvis::ui::IconFactory::icon(QStringLiteral("Redo")));
+        aRedo->setShortcut(QKeySequence::Redo);
+        aRedo->setShortcutContext(Qt::WidgetWithChildrenShortcut);
+        m_chartToolBar->addAction(aRedo);
 
         // MVC chart<->table selection sync. Dialog mediates between the two
         // views (selection state is not part of the provider model).
         connect(m_chartView, &CurveEditChartView::selectionChanged, this,
                 [this](const QVector<int> &indices) {
-                    if (m_suppressTableSelectionSync) return;
+                    if (m_suppressTableSelectionSync)
+                        return;
                     if (!m_table || !m_table->selectionModel() || !m_tableModel)
                         return;
                     m_suppressChartSelectionSync = true;
                     auto *sel = m_table->selectionModel();
                     sel->clearSelection();
                     for (int row : indices) {
-                        if (row < 0 || row >= m_tableModel->rowCount()) continue;
+                        if (row < 0 || row >= m_tableModel->rowCount())
+                            continue;
                         const QModelIndex tl = m_tableModel->index(row, 0);
-                        const QModelIndex br = m_tableModel->index(
-                            row, m_tableModel->columnCount() - 1);
-                        sel->select(QItemSelection(tl, br),
-                                    QItemSelectionModel::Select);
+                        const QModelIndex br =
+                            m_tableModel->index(row, m_tableModel->columnCount() - 1);
+                        sel->select(QItemSelection(tl, br), QItemSelectionModel::Select);
                     }
                     if (!indices.isEmpty())
                         m_table->scrollTo(m_tableModel->index(indices.first(), 0),
-                                           QAbstractItemView::EnsureVisible);
+                                          QAbstractItemView::EnsureVisible);
                     m_suppressChartSelectionSync = false;
                 });
 
@@ -536,6 +662,17 @@ void CurveEditorDialog::buildUi_()
     m_splitter->setStretchFactor(1, 2);
     m_splitter->setStretchFactor(2, 3);
 
+    // Apply / Revert / Close. Close is wired to close() rather than
+    // accept()/reject(): on Qt >= 6.3 done() bypasses closeEvent(), and close()
+    // is the one path every exit (button, Esc, title bar) shares. Not the
+    // default button — Enter in a table cell must never dismiss the editor.
+    auto *footer = new DataObjectDraftFooter(m_session, this);
+    footer->setObjectName(QStringLiteral("curve_draftFooter"));
+    footer->setContentsMargins(8, 6, 8, 6); // outer runs at 0 margins
+    footer->closeButton()->setObjectName(QStringLiteral("curve_closeBtn"));
+    connect(footer, &DataObjectDraftFooter::closeRequested, this, &QDialog::close);
+    outer->addWidget(footer);
+
     m_status = new QStatusBar(this);
     m_countLabel = new QLabel(m_status);
     m_status->addPermanentWidget(m_countLabel);
@@ -545,10 +682,12 @@ void CurveEditorDialog::buildUi_()
     // when the chart view is constructed). Needs both widgets to be alive,
     // hence wired here at the end of buildUi_.
     if (m_table && m_table->selectionModel() && m_chartView) {
-        connect(m_table->selectionModel(), &QItemSelectionModel::selectionChanged,
-                this, [this](const QItemSelection &, const QItemSelection &) {
-                    if (m_suppressChartSelectionSync) return;
-                    if (!m_chartView || !m_table->selectionModel()) return;
+        connect(m_table->selectionModel(), &QItemSelectionModel::selectionChanged, this,
+                [this](const QItemSelection &, const QItemSelection &) {
+                    if (m_suppressChartSelectionSync)
+                        return;
+                    if (!m_chartView || !m_table->selectionModel())
+                        return;
                     QVector<int> rows;
                     for (const auto &idx : m_table->selectionModel()->selectedRows())
                         rows.push_back(idx.row());
@@ -563,7 +702,8 @@ void CurveEditorDialog::buildUi_()
 void CurveEditorDialog::buildCreateCard_()
 {
     auto *outer = qobject_cast<QVBoxLayout *>(layout());
-    if (!outer) return;
+    if (!outer)
+        return;
 
     m_createCard = new QFrame(this);
     m_createCard->setFrameShape(QFrame::StyledPanel);
@@ -600,12 +740,10 @@ void CurveEditorDialog::buildCreateCard_()
 
     outer->insertWidget(0, m_createCard);
 
-    connect(m_nameEdit, &QLineEdit::textChanged,
-            this, &CurveEditorDialog::onCreateNewNameChanged_);
-    connect(m_createBtn, &QPushButton::clicked,
-            this, &CurveEditorDialog::onCreateNewSubmit_);
-    connect(m_cancelCreateBtn, &QPushButton::clicked,
-            this, &CurveEditorDialog::onCancelCreateClicked_);
+    connect(m_nameEdit, &QLineEdit::textChanged, this, &CurveEditorDialog::onCreateNewNameChanged_);
+    connect(m_createBtn, &QPushButton::clicked, this, &CurveEditorDialog::onCreateNewSubmit_);
+    connect(m_cancelCreateBtn, &QPushButton::clicked, this,
+            &CurveEditorDialog::onCancelCreateClicked_);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -616,15 +754,14 @@ void CurveEditorDialog::rebuildListModel_()
 {
     m_listModel->clear();
     m_listModel->setHorizontalHeaderLabels({tr("Curves")});
-    if (!m_registry) return;
+    if (!m_registry)
+        return;
     for (CurveProvider *p : m_registry->providers()) {
         auto *item = new QStandardItem(p->name());
-        item->setData(QVariant::fromValue(reinterpret_cast<quintptr>(p)),
-                      Qt::UserRole + 1);
+        item->setData(QVariant::fromValue(reinterpret_cast<quintptr>(p)), Qt::UserRole + 1);
         // Stash the curve type so the filter proxy can match on it.
         item->setData(int(p->type()), Qt::UserRole + 2);
-        item->setToolTip(p->name() + tr("  ·  %1")
-                                       .arg(CurveProvider::typeLabel(p->type())));
+        item->setToolTip(p->name() + tr("  ·  %1").arg(CurveProvider::typeLabel(p->type())));
         m_listModel->appendRow(item);
     }
     applyTypeFilter_();
@@ -632,7 +769,8 @@ void CurveEditorDialog::rebuildListModel_()
 
 void CurveEditorDialog::applyTypeFilter_()
 {
-    if (!m_listProxy || !m_filterCombo) return;
+    if (!m_listProxy || !m_filterCombo)
+        return;
     const int data = m_filterCombo->currentData().toInt();
     if (data < 0) {
         m_listProxy->setFilterRegularExpression(QRegularExpression{});
@@ -645,16 +783,20 @@ void CurveEditorDialog::applyTypeFilter_()
 
 void CurveEditorDialog::selectProviderInList_(CurveProvider *p)
 {
-    if (!p) return;
+    if (!p)
+        return;
     for (int r = 0; r < m_listModel->rowCount(); ++r) {
         const auto src = m_listModel->index(r, 0);
         auto *item = m_listModel->itemFromIndex(src);
-        if (!item) continue;
-        if (reinterpret_cast<CurveProvider *>(
-                item->data(Qt::UserRole + 1).value<quintptr>()) == p) {
-            const QModelIndex view = m_listProxy
-                ? m_listProxy->mapFromSource(src) : src;
-            if (view.isValid()) m_listView->setCurrentIndex(view);
+        if (!item)
+            continue;
+        if (reinterpret_cast<CurveProvider *>(item->data(Qt::UserRole + 1).value<quintptr>()) ==
+            p) {
+            if (m_listProxy && !m_listProxy->mapFromSource(src).isValid())
+                m_filterCombo->setCurrentIndex(0);
+            const QModelIndex view = m_listProxy ? m_listProxy->mapFromSource(src) : src;
+            if (view.isValid())
+                m_listView->setCurrentIndex(view);
             return;
         }
     }
@@ -662,39 +804,47 @@ void CurveEditorDialog::selectProviderInList_(CurveProvider *p)
 
 void CurveEditorDialog::onListSelectionChanged_()
 {
+    if (!m_contextValid)
+        return;
     const QModelIndex view = m_listView->currentIndex();
-    const QModelIndex src = (m_listProxy && view.isValid())
-        ? m_listProxy->mapToSource(view) : view;
+    const QModelIndex src = (m_listProxy && view.isValid()) ? m_listProxy->mapToSource(view) : view;
     CurveProvider *p = nullptr;
     if (src.isValid()) {
         auto *item = m_listModel->itemFromIndex(src);
         if (item)
-            p = reinterpret_cast<CurveProvider *>(
-                item->data(Qt::UserRole + 1).value<quintptr>());
+            p = reinterpret_cast<CurveProvider *>(item->data(Qt::UserRole + 1).value<quintptr>());
     }
     bindProvider_(p);
 }
 
 void CurveEditorDialog::bindProvider_(CurveProvider *p)
 {
+    if (!m_contextValid)
+        p = nullptr;
     if (m_current == p && p) {
         refreshChart_();
         updateStatusBar_();
         return;
     }
-    if (m_current) m_current->disconnect(this);
+    for (const auto &c : std::as_const(m_bindConnections))
+        disconnect(c);
+    m_bindConnections.clear();
     m_current = QPointer<CurveProvider>(p);
+    m_edited = copyFor_(p); // the table, chart and type edit the draft
+    CurveProvider *e = m_edited.data();
 
-    if (m_tableModel) m_tableModel->setProvider(p);
-    if (m_chartView)  m_chartView->setProvider(p);
+    if (m_tableModel)
+        m_tableModel->setProvider(e);
+    if (m_chartView)
+        m_chartView->setProvider(e);
 
     // Sync the type combo to the active provider's type without re-triggering
     // a write back to the provider.
     if (m_typeCombo) {
         m_suppressTypeSignal = true;
-        if (p) {
+        if (e) {
             for (int i = 0; i < m_typeCombo->count(); ++i) {
-                if (m_typeCombo->itemData(i).toInt() == int(p->type())) {
+                if (m_typeCombo->itemData(i).toInt() == int(e->type())) {
                     m_typeCombo->setCurrentIndex(i);
                     break;
                 }
@@ -703,24 +853,28 @@ void CurveEditorDialog::bindProvider_(CurveProvider *p)
         m_typeCombo->setEnabled(p != nullptr);
         m_suppressTypeSignal = false;
     }
-    if (m_typeHint)   m_typeHint->setText(p ? CurveProvider::typeLabel(p->type())
-                                            : tr("(no curve selected)"));
-    if (m_addRowBtn)  m_addRowBtn->setEnabled(p != nullptr);
-    if (m_delRowBtn)  m_delRowBtn->setEnabled(p != nullptr);
-    if (m_renameBtn)  m_renameBtn->setEnabled(p != nullptr);
-    if (m_deleteBtn)  m_deleteBtn->setEnabled(p != nullptr);
+    if (m_typeHint)
+        m_typeHint->setText(e ? CurveProvider::typeLabel(e->type()) : tr("(no curve selected)"));
+    if (m_addRowBtn)
+        m_addRowBtn->setEnabled(p != nullptr);
+    if (m_delRowBtn)
+        m_delRowBtn->setEnabled(p != nullptr);
+    if (m_renameBtn)
+        m_renameBtn->setEnabled(p != nullptr);
+    if (m_deleteBtn)
+        m_deleteBtn->setEnabled(p != nullptr);
 
-    if (m_current) {
-        connect(m_current, &CurveProvider::pointsChanged,
-                this, &CurveEditorDialog::onProviderPointsChanged_);
-        connect(m_current, &CurveProvider::pointsInserted,
-                this, &CurveEditorDialog::onProviderPointsChanged_);
-        connect(m_current, &CurveProvider::pointsRemoved,
-                this, &CurveEditorDialog::onProviderPointsChanged_);
-        connect(m_current, &CurveProvider::typeChanged,
-                this, &CurveEditorDialog::onProviderTypeChanged_);
-        connect(m_current, &CurveProvider::mutationRejected,
-                this, &CurveEditorDialog::onMutationRejected_);
+    if (e) {
+        m_bindConnections << connect(e, &CurveProvider::pointsChanged, this,
+                                     &CurveEditorDialog::onProviderPointsChanged_)
+                          << connect(e, &CurveProvider::pointsInserted, this,
+                                     &CurveEditorDialog::onProviderPointsChanged_)
+                          << connect(e, &CurveProvider::pointsRemoved, this,
+                                     &CurveEditorDialog::onProviderPointsChanged_)
+                          << connect(e, &CurveProvider::typeChanged, this,
+                                     &CurveEditorDialog::onProviderTypeChanged_)
+                          << connect(e, &CurveProvider::mutationRejected, this,
+                                     &CurveEditorDialog::onMutationRejected_);
     }
 
     refreshChart_();
@@ -733,25 +887,32 @@ void CurveEditorDialog::bindProvider_(CurveProvider *p)
 
 void CurveEditorDialog::refreshChart_()
 {
-    if (!m_line || !m_scatter || !m_xAxis || !m_yAxis) return;
+    if (!m_line || !m_scatter || !m_xAxis || !m_yAxis)
+        return;
     QList<QPointF> pts;
-    if (m_current) {
-        for (const auto &p : m_current->points())
+    if (m_edited) {
+        for (const auto &p : m_edited->points())
             pts.append({p.x, p.y});
     }
     m_line->replace(pts);
     m_scatter->replace(pts);
 
-    if (m_current && m_current->pointCount() > 0) {
+    if (m_edited && m_edited->pointCount() > 0) {
         double xMin = pts.first().x(), xMax = pts.last().x();
-        double yMin =  std::numeric_limits<double>::infinity();
+        double yMin = std::numeric_limits<double>::infinity();
         double yMax = -std::numeric_limits<double>::infinity();
         for (const auto &p : pts) {
             yMin = std::min(yMin, p.y());
             yMax = std::max(yMax, p.y());
         }
-        if (xMin == xMax) { xMin -= 0.5; xMax += 0.5; }
-        if (yMin == yMax) { yMin -= 0.5; yMax += 0.5; }
+        if (xMin == xMax) {
+            xMin -= 0.5;
+            xMax += 0.5;
+        }
+        if (yMin == yMax) {
+            yMin -= 0.5;
+            yMax += 0.5;
+        }
         const double xPad = 0.05 * (xMax - xMin);
         const double yPad = 0.05 * (yMax - yMin);
         m_xAxis->setRange(xMin - xPad, xMax + xPad);
@@ -761,21 +922,20 @@ void CurveEditorDialog::refreshChart_()
         m_yAxis->setRange(0.0, 1.0);
     }
 
-    // Axis titles track the provider's type labels.
-    m_xAxis->setTitleText(m_current ? CurveProvider::xLabel(m_current->type())
-                                     : tr("X"));
-    m_yAxis->setTitleText(m_current ? CurveProvider::yLabel(m_current->type())
-                                     : tr("Y"));
+    // Axis titles track the provider's type, with project units.
+    m_xAxis->setTitleText(m_edited ? CurveProvider::xTitle(m_edited->type()) : tr("X"));
+    m_yAxis->setTitleText(m_edited ? CurveProvider::yTitle(m_edited->type()) : tr("Y"));
 }
 
 void CurveEditorDialog::updateStatusBar_()
 {
-    if (!m_countLabel) return;
-    if (!m_current) {
+    if (!m_countLabel)
+        return;
+    if (!m_edited) {
         m_countLabel->setText({});
         return;
     }
-    m_countLabel->setText(tr("%1 points").arg(m_current->pointCount()));
+    m_countLabel->setText(tr("%1 points").arg(m_edited->pointCount()));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -784,8 +944,9 @@ void CurveEditorDialog::updateStatusBar_()
 
 void CurveEditorDialog::onAddRowClicked_()
 {
-    if (!m_current) return;
-    const int n = m_current->pointCount();
+    if (!m_edited)
+        return;
+    const int n = m_edited->pointCount();
 
     // If a row is selected, the new point lands immediately after it (between
     // selected and next, or appended at end when the last row is selected).
@@ -796,34 +957,39 @@ void CurveEditorDialog::onAddRowClicked_()
             selectedRow = std::max(selectedRow, idx.row());
         if (selectedRow < 0) {
             const QModelIndex cur = m_table->selectionModel()->currentIndex();
-            if (cur.isValid()) selectedRow = cur.row();
+            if (cur.isValid())
+                selectedRow = cur.row();
         }
     }
 
     double newX = 0.0, newY = 0.0;
     if (n == 0) {
-        newX = 0.0; newY = 0.0;
+        newX = 0.0;
+        newY = 0.0;
     } else if (selectedRow < 0 || selectedRow >= n - 1) {
         // No selection, or last row selected → append after the last point.
-        const auto &last = m_current->pointAt(n - 1);
+        const auto &last = m_edited->pointAt(n - 1);
         newX = last.x + 1.0;
         newY = last.y;
     } else {
         // Insert between selectedRow and the row after it; midpoint preserves
         // the strict-ascending-X invariant by construction.
-        const auto &a = m_current->pointAt(selectedRow);
-        const auto &b = m_current->pointAt(selectedRow + 1);
+        const auto &a = m_edited->pointAt(selectedRow);
+        const auto &b = m_edited->pointAt(selectedRow + 1);
         newX = 0.5 * (a.x + b.x);
         newY = 0.5 * (a.y + b.y);
     }
 
     QString reason;
-    const int newRow = m_current->insertPoint(newX, newY, &reason);
+    const CurveProvider::Params before = m_edited->params();
+    const int newRow = m_edited->insertPoint(newX, newY, &reason);
     if (newRow < 0) {
-        if (m_status) m_status->showMessage(
-            tr("Add row rejected: %1").arg(reason), 4000);
+        notifyUser(this, NoticeSeverity::Warning,
+                   tr("Add row rejected: %1").arg(reason),
+                   m_status, 4000);
         return;
     }
+    recordDraftEdit(m_draftUndo, m_edited, before, tr("Add row"));
     if (m_table && m_tableModel) {
         const QModelIndex mi = m_tableModel->index(newRow, 0);
         if (mi.isValid()) {
@@ -833,82 +999,104 @@ void CurveEditorDialog::onAddRowClicked_()
     }
 }
 
-void CurveEditorDialog::invokeAddRow() { onAddRowClicked_(); }
+void CurveEditorDialog::invokeAddRow()
+{
+    onAddRowClicked_();
+}
 
 void CurveEditorDialog::onDeleteRowsClicked_()
 {
-    if (!m_current || !m_table) return;
+    if (!m_edited || !m_table)
+        return;
     const auto sel = m_table->selectionModel();
-    if (!sel) return;
+    if (!sel)
+        return;
     QVector<int> rows;
-    for (const auto &idx : sel->selectedRows()) rows.push_back(idx.row());
+    for (const auto &idx : sel->selectedRows())
+        rows.push_back(idx.row());
     if (rows.isEmpty() && sel->currentIndex().isValid())
         rows.push_back(sel->currentIndex().row());
-    if (!rows.isEmpty()) m_current->removePointsAt(rows);
+    if (rows.isEmpty())
+        return;
+    const CurveProvider::Params before = m_edited->params();
+    m_edited->removePointsAt(rows);
+    recordDraftEdit(m_draftUndo, m_edited, before, tr("Delete row(s)"));
 }
 
-void CurveEditorDialog::invokeDeleteRows() { onDeleteRowsClicked_(); }
+void CurveEditorDialog::invokeDeleteRows()
+{
+    onDeleteRowsClicked_();
+}
 
 void CurveEditorDialog::onCopyRowsClicked_()
 {
-    if (!m_current) return;
+    if (!m_edited)
+        return;
     QVector<int> rows;
     if (m_table && m_table->selectionModel()) {
         for (const auto &idx : m_table->selectionModel()->selectedRows())
             rows.push_back(idx.row());
     }
     if (rows.isEmpty()) {
-        for (int i = 0; i < m_current->pointCount(); ++i) rows.push_back(i);
+        for (int i = 0; i < m_edited->pointCount(); ++i)
+            rows.push_back(i);
     }
     std::sort(rows.begin(), rows.end());
     rows.erase(std::unique(rows.begin(), rows.end()), rows.end());
 
     QStringList lines;
-    lines.reserve(rows.size());
+    lines.reserve(rows.size() + 1);
+    // Header row with units; Paste skips non-numeric lines.
+    lines << QStringLiteral("%1\t%2").arg(CurveProvider::xTitle(m_edited->type()),
+                                          CurveProvider::yTitle(m_edited->type()));
     for (int r : rows) {
-        if (r < 0 || r >= m_current->pointCount()) continue;
-        const auto &p = m_current->pointAt(r);
-        lines << QStringLiteral("%1\t%2")
-                     .arg(QString::number(p.x, 'g', 15),
-                          QString::number(p.y, 'g', 15));
+        if (r < 0 || r >= m_edited->pointCount())
+            continue;
+        const auto &p = m_edited->pointAt(r);
+        lines << QStringLiteral("%1\t%2").arg(QString::number(p.x, 'g', 15),
+                                              QString::number(p.y, 'g', 15));
     }
     QGuiApplication::clipboard()->setText(lines.join(QLatin1Char('\n')));
-    if (m_status) m_status->showMessage(
-        tr("Copied %1 row(s) to clipboard.").arg(rows.size()), 2500);
+    if (m_status)
+        m_status->showMessage(tr("Copied %1 row(s) to clipboard.").arg(rows.size()), 2500);
 }
 
 void CurveEditorDialog::onPasteRowsClicked_()
 {
-    if (!m_current) return;
+    if (!m_edited)
+        return;
     const QString text = QGuiApplication::clipboard()->text();
     if (text.isEmpty()) {
-        if (m_status) m_status->showMessage(tr("Clipboard is empty."), 2500);
+        if (m_status)
+            m_status->showMessage(tr("Clipboard is empty."), 2500);
         return;
     }
 
-    // Accept tab / comma / whitespace as delimiters so Excel TSV, CSV exports
-    // and plain " x y" tables all round-trip.
-    const QStringList rawLines = text.split(
-        QRegularExpression(QStringLiteral("[\r\n]+")), Qt::SkipEmptyParts);
+    // Cells split as a spreadsheet copies them (tab, else semicolon where the
+    // comma is the decimal mark, else comma), so "1,5<tab>2,5" is (1.5, 2.5)
+    // and not (1, 5) (review E-18); a line with one cell splits on blanks, so
+    // plain " x y" tables still paste. Numbers in C or the system locale.
     QVector<openswmmvis::curve::CurvePoint> parsed;
-    parsed.reserve(rawLines.size());
     int skipped = 0;
-    for (const QString &line : rawLines) {
-        const QString trimmed = line.trimmed();
-        if (trimmed.isEmpty() || trimmed.startsWith('#') || trimmed.startsWith(';'))
+    for (QStringList cells : TableClipboard::parseDelimited(text)) {
+        if (cells.size() == 1)
+            cells = cells.first().split(QRegularExpression(QStringLiteral("\\s+")),
+                                        Qt::SkipEmptyParts);
+        const QString first = cells.isEmpty() ? QString() : cells.first().trimmed();
+        if (first.isEmpty() || first.startsWith('#') || first.startsWith(';'))
             continue;
-        const QStringList cells = trimmed.split(
-            QRegularExpression(QStringLiteral("[\\s,\\t]+")), Qt::SkipEmptyParts);
-        if (cells.size() < 2) { ++skipped; continue; }
-        bool okX = false, okY = false;
-        const double x = cells.at(0).toDouble(&okX);
-        const double y = cells.at(1).toDouble(&okY);
-        if (!okX || !okY) { ++skipped; continue; }
-        parsed.push_back({x, y});
+        const auto x = cells.size() >= 2 ? pastedNumber(cells.at(0)) : std::nullopt;
+        const auto y = cells.size() >= 2 ? pastedNumber(cells.at(1)) : std::nullopt;
+        if (!x || !y) {
+            ++skipped;
+            continue;
+        }
+        parsed.push_back({*x, *y});
     }
     if (parsed.isEmpty()) {
-        if (m_status) m_status->showMessage(
-            tr("No valid X,Y rows in clipboard."), 3000);
+        notifyUser(this, NoticeSeverity::Warning,
+                   tr("No valid X,Y rows in clipboard."),
+                   m_status, 3000);
         return;
     }
 
@@ -918,20 +1106,23 @@ void CurveEditorDialog::onPasteRowsClicked_()
     int startRow = -1;
     if (m_table && m_table->selectionModel()) {
         for (const auto &idx : m_table->selectionModel()->selectedRows()) {
-            if (startRow < 0 || idx.row() < startRow) startRow = idx.row();
+            if (startRow < 0 || idx.row() < startRow)
+                startRow = idx.row();
         }
     }
 
-    const auto curr = m_current->points();
+    const auto curr = m_edited->points();
     QVector<openswmmvis::curve::CurvePoint> newPts;
     newPts.reserve(std::max(curr.size(), parsed.size()));
     if (startRow < 0) {
         newPts = curr;
-        for (const auto &p : parsed) newPts.push_back(p);
+        for (const auto &p : parsed)
+            newPts.push_back(p);
     } else {
         for (int i = 0; i < startRow && i < curr.size(); ++i)
             newPts.push_back(curr.at(i));
-        for (const auto &p : parsed) newPts.push_back(p);
+        for (const auto &p : parsed)
+            newPts.push_back(p);
         const int tailStart = startRow + parsed.size();
         for (int i = tailStart; i < curr.size(); ++i)
             newPts.push_back(curr.at(i));
@@ -940,53 +1131,67 @@ void CurveEditorDialog::onPasteRowsClicked_()
     // Provider requires strictly ascending X. Sort first so an out-of-order
     // paste still has a chance; duplicate-X collisions remain a rejection.
     std::sort(newPts.begin(), newPts.end(),
-              [](const openswmmvis::curve::CurvePoint &a,
-                 const openswmmvis::curve::CurvePoint &b) { return a.x < b.x; });
+              [](const openswmmvis::curve::CurvePoint &a, const openswmmvis::curve::CurvePoint &b) {
+                  return a.x < b.x;
+              });
 
     QString reason;
-    if (!m_current->setAllPoints(newPts, &reason)) {
-        if (m_status) m_status->showMessage(
-            tr("Paste rejected: %1").arg(reason), 4000);
+    const CurveProvider::Params before = m_edited->params();
+    if (!m_edited->setAllPoints(newPts, &reason)) {
+        notifyUser(this, NoticeSeverity::Warning,
+                   tr("Paste rejected: %1").arg(reason),
+                   m_status, 4000);
         return;
     }
+    recordDraftEdit(m_draftUndo, m_edited, before, tr("Paste rows"));
     if (m_status) {
         QString msg = tr("Pasted %1 row(s).").arg(parsed.size());
-        if (skipped > 0) msg += tr(" %1 line(s) skipped.").arg(skipped);
+        if (skipped > 0)
+            msg += tr(" %1 line(s) skipped.").arg(skipped);
         m_status->showMessage(msg, 3000);
     }
 }
 
 void CurveEditorDialog::onTableContextMenu_(const QPoint &pos)
 {
-    if (!m_table || !m_current) return;
+    if (!m_table || !m_edited)
+        return;
 
     const QModelIndex idx = m_table->indexAt(pos);
     const bool hasRowAtCursor = idx.isValid();
 
     QMenu menu(this);
-    QAction *actAdd   = menu.addAction(tr("Add Row"));
-    QAction *actDel   = menu.addAction(tr("Delete Row(s)"));
-    actDel->setEnabled(hasRowAtCursor
-        || (m_table->selectionModel()
-            && !m_table->selectionModel()->selectedRows().isEmpty()));
+    QAction *actAdd = menu.addAction(tr("Add Row"));
+    QAction *actDel = menu.addAction(tr("Delete Row(s)"));
+    actDel->setEnabled(hasRowAtCursor || (m_table->selectionModel() &&
+                                          !m_table->selectionModel()->selectedRows().isEmpty()));
     menu.addSeparator();
-    QAction *actCopy  = menu.addAction(tr("Copy"));
+    QAction *actCopy = menu.addAction(tr("Copy"));
     actCopy->setShortcut(QKeySequence::Copy);
     QAction *actPaste = menu.addAction(tr("Paste"));
     actPaste->setShortcut(QKeySequence::Paste);
 
     QAction *picked = menu.exec(m_table->viewport()->mapToGlobal(pos));
-    if (picked == actAdd)        onAddRowClicked_();
-    else if (picked == actDel)   onDeleteRowsClicked_();
-    else if (picked == actCopy)  onCopyRowsClicked_();
-    else if (picked == actPaste) onPasteRowsClicked_();
+    if (picked == actAdd)
+        onAddRowClicked_();
+    else if (picked == actDel)
+        onDeleteRowsClicked_();
+    else if (picked == actCopy)
+        onCopyRowsClicked_();
+    else if (picked == actPaste)
+        onPasteRowsClicked_();
 }
 
 void CurveEditorDialog::onTypeComboChanged_(int index)
 {
-    if (m_suppressTypeSignal || !m_current || !m_typeCombo) return;
+    if (m_suppressTypeSignal || !m_edited || !m_typeCombo)
+        return;
     const auto t = static_cast<CurveType>(m_typeCombo->itemData(index).toInt());
-    if (t != m_current->type()) m_current->setType(t);
+    if (t == m_edited->type())
+        return;
+    const CurveProvider::Params before = m_edited->params();
+    m_edited->setType(t);
+    recordDraftEdit(m_draftUndo, m_edited, before, tr("Change curve type"));
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -995,40 +1200,44 @@ void CurveEditorDialog::onTypeComboChanged_(int index)
 
 void CurveEditorDialog::onProviderAdded_(CurveProvider *p)
 {
-    if (!p) return;
+    if (!p)
+        return;
     auto *item = new QStandardItem(p->name());
-    item->setData(QVariant::fromValue(reinterpret_cast<quintptr>(p)),
-                  Qt::UserRole + 1);
+    item->setData(QVariant::fromValue(reinterpret_cast<quintptr>(p)), Qt::UserRole + 1);
     item->setData(int(p->type()), Qt::UserRole + 2);
-    item->setToolTip(p->name() + tr("  ·  %1")
-                                   .arg(CurveProvider::typeLabel(p->type())));
+    item->setToolTip(p->name() + tr("  ·  %1").arg(CurveProvider::typeLabel(p->type())));
     m_listModel->appendRow(item);
 }
 
 void CurveEditorDialog::onProviderRemoved_(CurveProvider *p)
 {
-    if (!p) return;
+    if (!p)
+        return;
     for (int r = 0; r < m_listModel->rowCount(); ++r) {
         auto *item = m_listModel->item(r);
-        if (!item) continue;
-        if (reinterpret_cast<CurveProvider *>(
-                item->data(Qt::UserRole + 1).value<quintptr>()) == p) {
+        if (!item)
+            continue;
+        if (reinterpret_cast<CurveProvider *>(item->data(Qt::UserRole + 1).value<quintptr>()) ==
+            p) {
             m_listModel->removeRow(r);
             break;
         }
     }
-    if (m_current == p) bindProvider_(nullptr);
+    if (m_current == p)
+        bindProvider_(nullptr);
+    dropDraft_(p);
 }
 
-void CurveEditorDialog::onProviderRenamed_(CurveProvider *p,
-                                            const QString &, const QString &now)
+void CurveEditorDialog::onProviderRenamed_(CurveProvider *p, const QString &, const QString &now)
 {
-    if (!p) return;
+    if (!p)
+        return;
     for (int r = 0; r < m_listModel->rowCount(); ++r) {
         auto *item = m_listModel->item(r);
-        if (!item) continue;
-        if (reinterpret_cast<CurveProvider *>(
-                item->data(Qt::UserRole + 1).value<quintptr>()) == p) {
+        if (!item)
+            continue;
+        if (reinterpret_cast<CurveProvider *>(item->data(Qt::UserRole + 1).value<quintptr>()) ==
+            p) {
             m_suppressListItemRename = true;
             item->setText(now);
             m_suppressListItemRename = false;
@@ -1047,30 +1256,20 @@ void CurveEditorDialog::onProviderPointsChanged_()
 
 void CurveEditorDialog::onProviderTypeChanged_()
 {
-    if (m_typeHint && m_current)
-        m_typeHint->setText(CurveProvider::typeLabel(m_current->type()));
-    // Keep the filter-role role in sync so the type filter combo keeps
-    // the row visible (or hides it) after the type changes.
-    if (m_current) {
-        for (int r = 0; r < m_listModel->rowCount(); ++r) {
-            auto *item = m_listModel->item(r);
-            if (!item) continue;
-            if (reinterpret_cast<CurveProvider *>(
-                    item->data(Qt::UserRole + 1).value<quintptr>()) == m_current) {
-                m_suppressListItemRename = true;
-                item->setData(int(m_current->type()), Qt::UserRole + 2);
-                m_suppressListItemRename = false;
-                break;
-            }
-        }
+    if (m_typeHint && m_edited)
+        m_typeHint->setText(CurveProvider::typeLabel(m_edited->type()));
+    if (m_typeCombo && m_edited) { // also after a draft Undo / Revert
+        const QSignalBlocker quiet(m_typeCombo);
+        m_typeCombo->setCurrentIndex(m_typeCombo->findData(int(m_edited->type())));
     }
-    // Axis titles need refresh; refreshChart_ rebuilds them.
+    // Axis titles need refresh; refreshChart_ rebuilds them. The list's type
+    // filter role follows the model's curve (copyFor_).
     refreshChart_();
 }
 
 void CurveEditorDialog::onMutationRejected_(const QString &reason)
 {
-    if (m_status) m_status->showMessage(reason, 4000);
+    notifyUser(this, NoticeSeverity::Warning, reason, m_status, 4000);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1079,7 +1278,13 @@ void CurveEditorDialog::onMutationRejected_(const QString &reason)
 
 void CurveEditorDialog::onNewClicked_()
 {
-    if (!m_createCard) return;
+    if (!m_contextValid || !m_registry || !m_createCard)
+        return;
+    if (m_listView) {
+        m_listView->clearSelection();
+        m_listView->setCurrentIndex({});
+    }
+    bindProvider_(nullptr);
     m_mode = Mode::CreateNew;
     if (m_nameEdit) {
         m_nameEdit->clear();
@@ -1088,31 +1293,39 @@ void CurveEditorDialog::onNewClicked_()
     m_createCard->show();
 }
 
-void CurveEditorDialog::invokeNew() { onNewClicked_(); }
+void CurveEditorDialog::invokeNew()
+{
+    onNewClicked_();
+}
 
 void CurveEditorDialog::onCancelCreateClicked_()
 {
-    if (m_createCard) m_createCard->hide();
+    if (m_createCard)
+        m_createCard->hide();
     m_mode = Mode::Edit;
-    if (m_nameEdit) m_nameEdit->clear();
+    if (m_nameEdit)
+        m_nameEdit->clear();
 }
 
 void CurveEditorDialog::onRenameClicked_()
 {
     // No intermediate dialog — start inline edit on the current list row.
     // The itemChanged handler routes the new text through the registry.
-    if (!m_listView) return;
+    if (!m_listView)
+        return;
     const QModelIndex idx = m_listView->currentIndex();
-    if (!idx.isValid()) return;
+    if (!idx.isValid())
+        return;
     m_listView->edit(idx);
 }
 
 void CurveEditorDialog::onListItemRenamed_(QStandardItem *item)
 {
-    if (!item || !m_registry || m_suppressListItemRename) return;
-    auto *p = reinterpret_cast<CurveProvider *>(
-        item->data(Qt::UserRole + 1).value<quintptr>());
-    if (!p) return;
+    if (!item || !m_registry || m_suppressListItemRename)
+        return;
+    auto *p = reinterpret_cast<CurveProvider *>(item->data(Qt::UserRole + 1).value<quintptr>());
+    if (!p)
+        return;
     const QString newName = item->text().trimmed();
     if (newName.isEmpty() || newName == p->name()) {
         // Revert any stray whitespace edits.
@@ -1121,56 +1334,82 @@ void CurveEditorDialog::onListItemRenamed_(QStandardItem *item)
         m_suppressListItemRename = false;
         return;
     }
-    if (!m_registry->rename(p, newName)) {
+    if (!DataObjectDraftSession::commit({renameObjectEdit(m_registry.data(), p->name(), newName)},
+                                        m_undoStack,
+                                        tr("Rename curve %1 to %2").arg(p->name(), newName))) {
         // Revert and notify; do not pop a modal — show inline status.
         m_suppressListItemRename = true;
         item->setText(p->name());
         m_suppressListItemRename = false;
-        if (m_status)
-            m_status->showMessage(
-                tr("A curve named “%1” already exists.").arg(newName), 4000);
+        notifyUser(this, NoticeSeverity::Warning,
+                   tr("A curve named “%1” already exists.").arg(newName),
+                   m_status, 4000);
     }
 }
 
 bool CurveEditorDialog::renameCurrent(const QString &newName)
 {
-    if (!m_current || !m_registry) return false;
-    return m_registry->rename(m_current, newName.trimmed());
+    if (!m_current || !m_registry)
+        return false;
+    const QString from = m_current->name(), to = newName.trimmed();
+    return DataObjectDraftSession::commit({renameObjectEdit(m_registry.data(), from, to)},
+                                          m_undoStack, tr("Rename curve %1 to %2").arg(from, to));
 }
 
 void CurveEditorDialog::onDeleteCurveClicked_()
 {
-    if (!m_current || !m_registry) return;
+    if (!m_current || !m_registry)
+        return;
     const QString name = m_current->name();
-    const auto reply = QMessageBox::question(
-        this, tr("Delete Curve"),
-        tr("Delete curve “%1”?\n\nAny model object referencing this curve "
-           "(storage units, outlets, pumps, custom cross-sections, etc.) "
-           "will lose its reference.").arg(name),
-        QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
-    if (reply != QMessageBox::Yes) return;
+    // Plan D8 — say what the engine detaches, and that Undo will not re-attach it.
+    QString text = tr("Delete curve “%1”?").arg(name);
+    void *engine = m_registry->engineHandle();
+    const QString uses = dataObjectUses(engine, swmm_table_analyze_impact,
+                                        CurveRegistry::engineTableIndex(engine, name));
+    if (!uses.isEmpty())
+        text += QLatin1String("\n\n") + uses + QLatin1Char(' ') +
+                tr("Those uses lose this curve; Undo brings back the curve and its points, but "
+                   "not those uses.");
+    const auto reply = QMessageBox::question(this, tr("Delete Curve"), text,
+                                             QMessageBox::Yes | QMessageBox::No, QMessageBox::No);
+    if (reply != QMessageBox::Yes)
+        return;
     deleteCurrentSilently();
 }
 
 void CurveEditorDialog::deleteCurrentSilently()
 {
-    if (!m_current || !m_registry) return;
-    m_registry->remove(m_current);
+    if (!m_current || !m_registry)
+        return;
+    const QString name = m_current->name();
+    const CurveProvider::Params kept = m_current->params();
+    DataObjectDraftSession::commit(
+        {deleteObjectEditWith(
+            m_registry.data(), name,
+            [type = kept.type](CurveRegistry *r, const QString &n) { return r->create(n, type); },
+            [registry = m_registry, kept](CurveProvider *p) {
+                return registry && writeCurve(registry.data(), p, kept);
+            })},
+        m_undoStack, tr("Delete curve %1").arg(name));
 }
 
 void CurveEditorDialog::onListContextMenu_(const QPoint &pos)
 {
-    if (!m_listView) return;
+    if (!m_listView)
+        return;
     const QModelIndex idx = m_listView->indexAt(pos);
-    if (!idx.isValid()) return;
+    if (!idx.isValid())
+        return;
     m_listView->setCurrentIndex(idx);
 
     QMenu menu(this);
     QAction *actRename = menu.addAction(tr("Rename…"));
     QAction *actDelete = menu.addAction(tr("Delete"));
     QAction *picked = menu.exec(m_listView->viewport()->mapToGlobal(pos));
-    if (picked == actRename) onRenameClicked_();
-    else if (picked == actDelete) onDeleteCurveClicked_();
+    if (picked == actRename)
+        onRenameClicked_();
+    else if (picked == actDelete)
+        onDeleteCurveClicked_();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1192,11 +1431,15 @@ bool CurveEditorDialog::isCreateEnabled() const
     return m_createBtn && m_createBtn->isEnabled();
 }
 
-void CurveEditorDialog::submitCreateNew() { onCreateNewSubmit_(); }
+void CurveEditorDialog::submitCreateNew()
+{
+    onCreateNewSubmit_();
+}
 
 void CurveEditorDialog::onCreateNewNameChanged_(const QString &text)
 {
-    if (!m_createBtn || !m_nameValidationLabel || !m_nameEdit) return;
+    if (!m_createBtn || !m_nameValidationLabel || !m_nameEdit)
+        return;
     const QString trimmed = text.trimmed();
     if (trimmed.isEmpty()) {
         m_createBtn->setEnabled(false);
@@ -1204,11 +1447,12 @@ void CurveEditorDialog::onCreateNewNameChanged_(const QString &text)
         m_nameEdit->setStyleSheet(QString());
         return;
     }
+    const QString why = openswmmvis::swmmIdentifierProblem(trimmed); // feedback C10
     const bool collides = m_registry && m_registry->hasName(trimmed);
-    if (collides) {
+    if (!why.isEmpty() || collides) {
         m_createBtn->setEnabled(false);
         m_nameValidationLabel->setText(
-            tr("A curve named “%1” already exists.").arg(trimmed));
+            !why.isEmpty() ? why : tr("A curve named “%1” already exists.").arg(trimmed));
         m_nameValidationLabel->show();
         m_nameEdit->setStyleSheet(openswmmvis::ui::theme::errorBorderStyle());
     } else {
@@ -1220,19 +1464,202 @@ void CurveEditorDialog::onCreateNewNameChanged_(const QString &text)
 
 void CurveEditorDialog::onCreateNewSubmit_()
 {
-    if (!m_registry || !m_nameEdit) return;
+    if (!m_registry || !m_nameEdit)
+        return;
     const QString name = m_nameEdit->text().trimmed();
-    if (name.isEmpty() || m_registry->hasName(name)) return;
+    if (name.isEmpty() || m_registry->hasName(name) || !openswmmvis::isValidSwmmIdentifier(name))
+        return;
     const auto type = static_cast<CurveType>(
         m_createTypeCombo ? m_createTypeCombo->currentData().toInt() : int(CurveType::Storage));
 
-    CurveProvider *p = m_registry->create(name, type);
-    if (!p) return;
+    if (!DataObjectDraftSession::commit(
+            {createObjectEditWith(
+                m_registry.data(), name,
+                [type](CurveRegistry *r, const QString &n) { return r->create(n, type); },
+                [](CurveProvider *) { return true; })},
+            m_undoStack, tr("Create curve %1").arg(name)))
+        return;
+    CurveProvider *p = m_registry->findByName(name);
+    if (!p)
+        return;
 
     m_mode = Mode::Edit;
-    if (m_createCard) m_createCard->hide();
+    if (m_createCard)
+        m_createCard->hide();
     setWindowTitle(tr("Curve Editor — %1").arg(name));
     selectProviderInList_(p);
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Drafts — the editor edits a copy; Apply writes it to the model
+// ─────────────────────────────────────────────────────────────────────────────
+
+void CurveEditorDialog::done(int result)
+{
+    if (m_contextValid && m_registry && !m_session->resolveBeforeClose())
+        return;
+    QDialog::done(result);
+}
+
+CurveProvider *CurveEditorDialog::copyFor_(CurveProvider *live)
+{
+    if (!live)
+        return nullptr;
+    for (const auto &d : std::as_const(m_drafts))
+        if (d.live == live)
+            return d.copy;
+    Draft d;
+    d.live = live;
+    d.base = live->params();
+    d.copy = new CurveProvider(live->name(), d.base.type, this);
+    d.copy->setParams(d.base);
+    m_drafts.push_back(d);
+
+    CurveProvider *copy = d.copy;
+    const auto edited = [this] { m_session->noteEdited(); }; // table, type, row buttons, paste
+    for (auto signal : {&CurveProvider::pointsChanged, &CurveProvider::pointsInserted,
+                        &CurveProvider::pointsRemoved}) {
+        connect(copy, signal, this, edited);
+        connect(live, signal, this, [this, live] { onLiveChanged_(live); });
+    }
+    connect(copy, &CurveProvider::typeChanged, this, edited);
+    connect(live, &CurveProvider::typeChanged, this, [this, live] {
+        // The list's type filter shows what the model holds.
+        for (int r = 0; r < m_listModel->rowCount(); ++r) {
+            auto *item = m_listModel->item(r);
+            if (item && reinterpret_cast<CurveProvider *>(
+                            item->data(Qt::UserRole + 1).value<quintptr>()) == live) {
+                m_suppressListItemRename = true;
+                item->setData(int(live->type()), Qt::UserRole + 2);
+                m_suppressListItemRename = false;
+            }
+        }
+        onLiveChanged_(live);
+    });
+    // Renames take effect at once (registry); the copy follows.
+    connect(live, &CurveProvider::nameChanged, copy,
+            [copy](const QString &, const QString &now) { copy->setName(now); });
+    return copy;
+}
+
+void CurveEditorDialog::onLiveChanged_(CurveProvider *live)
+{
+    if (m_applying)
+        return;
+    for (auto &d : m_drafts) {
+        if (d.live != live)
+            continue;
+        if (!(d.copy->params() == d.base)) {
+            m_session->noteExternalChange(); // keep the user's draft; Apply asks
+            return;
+        }
+        d.base = live->params();
+        if (!(d.copy->params() == d.base)) {
+            d.copy->setParams(d.base); // unedited: follow the model
+            m_draftUndo->clear();      // its steps were recorded against the old values
+        }
+        return;
+    }
+}
+
+void CurveEditorDialog::dropDraft_(CurveProvider *live)
+{
+    for (int i = 0; i < m_drafts.size(); ++i) {
+        if (m_drafts.at(i).live != live)
+            continue;
+        CurveProvider *copy = m_drafts.at(i).copy;
+        m_drafts.remove(i);
+        live->disconnect(this);
+        if (m_edited.data() == copy)
+            bindProvider_(nullptr);
+        m_draftUndo->clear(); // steps may refer to the dropped copy
+        copy->deleteLater();
+        m_session->noteEdited();
+        return;
+    }
+}
+
+int CurveEditorDialog::dirtyCount_() const
+{
+    int n = 0;
+    for (const auto &d : m_drafts)
+        if (d.live && !(d.copy->params() == d.live->params()))
+            ++n;
+    return n;
+}
+
+bool CurveEditorDialog::applyDrafts_(QString *reason)
+{
+    QVector<DataObjectDraftSession::Edit> edits;
+    QStringList names;
+    void *engine = m_registry ? m_registry->engineHandle() : nullptr;
+    for (const auto &d : std::as_const(m_drafts)) {
+        if (!d.live || d.copy->params() == d.live->params())
+            continue;
+        names << d.live->name();
+        // Replayed by Undo/Redo after this editor may have closed: guarded
+        // pointers, names and values only, never `this`.
+        edits.append({[registry = m_registry, engine, live = d.live, name = d.live->name(),
+                       before = d.live->params(), after = d.copy->params()](bool forward) {
+            if (!registry || registry->engineHandle() != engine)
+                return false;
+            CurveProvider *p = stepTarget(registry.data(), live, name);
+            return p && writeCurve(registry.data(), p, forward ? after : before);
+        }});
+    }
+    if (edits.isEmpty())
+        return true;
+    m_applying = true;
+    const bool ok = DataObjectDraftSession::commit(
+        edits, m_undoStack,
+        names.size() == 1 ? tr("Edit curve %1").arg(names.first())
+                          : tr("Edit %n curve(s)", nullptr, int(names.size())));
+    m_applying = false;
+    if (!ok) {
+        *reason = tr("the model did not accept %1; nothing was changed")
+                      .arg(names.join(QStringLiteral(", ")));
+        return false;
+    }
+    revertDrafts_(); // the copies now take what the model kept
+    return true;
+}
+
+void CurveEditorDialog::revertDrafts_()
+{
+    for (auto &d : m_drafts) {
+        if (!d.live)
+            continue;
+        d.base = d.live->params();
+        d.copy->setParams(d.base);
+    }
+    m_draftUndo->clear();
+    refreshChart_();
+    updateStatusBar_();
+}
+
+void CurveEditorDialog::refreshDraftMarks_()
+{
+    if (!m_listModel)
+        return;
+    m_suppressListItemRename = true; // font changes emit itemChanged
+    for (int r = 0; r < m_listModel->rowCount(); ++r) {
+        QStandardItem *item = m_listModel->item(r);
+        if (!item)
+            continue;
+        auto *live = reinterpret_cast<CurveProvider *>(item->data(Qt::UserRole + 1).value<quintptr>());
+        bool dirty = false;
+        for (const auto &d : std::as_const(m_drafts))
+            if (d.live == live)
+                dirty = !(d.copy->params() == live->params());
+        if (item->font().italic() == dirty)
+            continue;
+        QFont font = item->font();
+        font.setItalic(dirty);
+        item->setFont(font);
+        item->setData(dirty ? tr("Unapplied changes: Apply writes them to the model") : QVariant(),
+                      Qt::AccessibleDescriptionRole);
+    }
+    m_suppressListItemRename = false;
 }
 
 } // namespace openswmmvis::ui

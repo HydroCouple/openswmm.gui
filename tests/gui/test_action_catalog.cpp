@@ -4,6 +4,16 @@
 // only the application/platform-theme layer. Failures here mean a catalog
 // edit broke an invariant the palette / shortcut editor / tabbed toolbar
 // rely on.
+
+/**
+ * @file      test_action_catalog.cpp
+ * @brief     Tests for action catalog.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include <QtTest/QtTest>
 
 #include <QFile>
@@ -15,6 +25,7 @@
 using openswmmvis::ui::ActionCatalogEntry;
 using openswmmvis::ui::ActionRegistry;
 using openswmmvis::ui::kActionCatalog;
+using openswmmvis::ui::kActionCatalogStrip;
 using openswmmvis::ui::kActionCatalogTabs;
 
 class TestActionCatalog : public QObject
@@ -27,10 +38,16 @@ private slots:
     void requiredFieldsPresent();
     void defaultShortcutsResolve();
     void noDuplicateDefaultShortcuts();
+    void noDefaultUsesCtrlAlt();
     void tabsAreKnown();
     void iconAliasesResolveInQrc();
 };
 
+/**
+ *
+ * @brief Require every catalog action ID to be nonempty and unique.
+ *
+ */
 void TestActionCatalog::uniqueIds()
 {
     QSet<QString> seen;
@@ -43,33 +60,49 @@ void TestActionCatalog::uniqueIds()
     }
 }
 
+/**
+ *
+ * @brief Require every catalog objectName to be nonempty and unique.
+ *
+ */
 void TestActionCatalog::uniqueObjectNames()
 {
     QSet<QString> seen;
     for (const ActionCatalogEntry &e : kActionCatalog) {
         const QString name = QString::fromLatin1(e.objectName);
-        QVERIFY2(!name.isEmpty(),
-                 qPrintable(QStringLiteral("entry '%1' has empty objectName")
-                                .arg(QLatin1String(e.id))));
+        QVERIFY2(
+            !name.isEmpty(),
+            qPrintable(QStringLiteral("entry '%1' has empty objectName").arg(QLatin1String(e.id))));
         QVERIFY2(!seen.contains(name),
-                 qPrintable(QStringLiteral("objectName '%1' used by two entries")
-                                .arg(name)));
+                 qPrintable(QStringLiteral("objectName '%1' used by two entries").arg(name)));
         seen.insert(name);
     }
 }
 
+/**
+ *
+ * @brief Require every catalog entry to have nonempty category and menu-path strings.
+ *
+ */
 void TestActionCatalog::requiredFieldsPresent()
 {
     for (const ActionCatalogEntry &e : kActionCatalog) {
-        QVERIFY2(e.category && *e.category,
-                 qPrintable(QStringLiteral("entry '%1' has empty category")
-                                .arg(QLatin1String(e.id))));
-        QVERIFY2(e.menuPath && *e.menuPath,
-                 qPrintable(QStringLiteral("entry '%1' has empty menuPath")
-                                .arg(QLatin1String(e.id))));
+        QVERIFY2(
+            e.category && *e.category,
+            qPrintable(QStringLiteral("entry '%1' has empty category").arg(QLatin1String(e.id))));
+        QVERIFY2(
+            e.menuPath && *e.menuPath,
+            qPrintable(QStringLiteral("entry '%1' has empty menuPath").arg(QLatin1String(e.id))));
     }
 }
 
+/**
+ *
+ * @brief Require each nonempty catalog shortcut specification to resolve to at least one platform
+ * binding.
+ * Uses the registry singleton and GUI platform theme without creating a main window.
+ *
+ */
 void TestActionCatalog::defaultShortcutsResolve()
 {
     // Non-empty specs must resolve to at least one binding — this is what
@@ -82,16 +115,20 @@ void TestActionCatalog::defaultShortcutsResolve()
             continue;
         const auto bindings = registry->defaultShortcuts(QLatin1String(e.id));
         QVERIFY2(!bindings.isEmpty(),
-                 qPrintable(QStringLiteral(
-                     "entry '%1' default shortcut '%2' resolves to nothing")
-                         .arg(QLatin1String(e.id), spec)));
+                 qPrintable(QStringLiteral("entry '%1' default shortcut '%2' resolves to nothing")
+                                .arg(QLatin1String(e.id), spec)));
     }
 }
 
+/**
+ *
+ * @brief Require nonempty portable-text default bindings to be unique across catalog IDs.
+ *
+ */
 void TestActionCatalog::noDuplicateDefaultShortcuts()
 {
     auto *registry = ActionRegistry::instance();
-    QHash<QString, QString> seen;   // portable sequence -> id
+    QHash<QString, QString> seen; // portable sequence -> id
     for (const ActionCatalogEntry &e : kActionCatalog) {
         const QString id = QString::fromLatin1(e.id);
         const auto bindings = registry->defaultShortcuts(id);
@@ -99,30 +136,61 @@ void TestActionCatalog::noDuplicateDefaultShortcuts()
             const QString key = seq.toString(QKeySequence::PortableText);
             if (key.isEmpty())
                 continue;
-            QVERIFY2(!seen.contains(key),
-                     qPrintable(QStringLiteral(
-                         "default shortcut '%1' assigned to both '%2' and '%3'")
-                             .arg(key, seen.value(key), id)));
+            QVERIFY2(
+                !seen.contains(key),
+                qPrintable(QStringLiteral("default shortcut '%1' assigned to both '%2' and '%3'")
+                               .arg(key, seen.value(key), id)));
             seen.insert(key, id);
         }
     }
 }
 
+/*! A-13: no default may use Ctrl+Alt. On Windows AltGr arrives as Ctrl+Alt, so a Ctrl+Alt+key
+ *  default swallows characters such as { [ ] } @ on German, Polish and other layouts. */
+void TestActionCatalog::noDefaultUsesCtrlAlt()
+{
+    auto *registry = ActionRegistry::instance();
+    QStringList offenders;
+    for (const ActionCatalogEntry &e : kActionCatalog)
+        for (const QKeySequence &seq : registry->defaultShortcuts(QLatin1String(e.id)))
+            for (int i = 0; i < seq.count(); ++i) {
+                const Qt::KeyboardModifiers mods = seq[i].keyboardModifiers();
+                if ((mods & Qt::ControlModifier) && (mods & Qt::AltModifier))
+                    offenders << QStringLiteral("%1 (%2)").arg(
+                        QLatin1String(e.id), seq.toString(QKeySequence::PortableText));
+            }
+    QVERIFY2(offenders.isEmpty(), qPrintable(offenders.join(QStringLiteral(", "))));
+}
+
+/**
+ *
+ * @brief Require every nonempty catalog tab to exist in the declared tab list; empty menu-only
+ * tabs are allowed.
+ *
+ */
 void TestActionCatalog::tabsAreKnown()
 {
     QSet<QString> known;
     for (const char *tab : kActionCatalogTabs)
         known.insert(QString::fromLatin1(tab));
+    known.insert(QString::fromLatin1(kActionCatalogStrip)); // Quick Access cluster
     for (const ActionCatalogEntry &e : kActionCatalog) {
         const QString tab = QString::fromLatin1(e.tab);
         if (tab.isEmpty())
-            continue;   // menu-only entry
-        QVERIFY2(known.contains(tab),
-                 qPrintable(QStringLiteral("entry '%1' names unknown tab '%2'")
-                                .arg(QLatin1String(e.id), tab)));
+            continue; // menu-only entry
+        QVERIFY2(
+            known.contains(tab),
+            qPrintable(
+                QStringLiteral("entry '%1' names unknown tab '%2'").arg(QLatin1String(e.id), tab)));
     }
 }
 
+/**
+ *
+ * @brief Require every nonempty icon alias to resolve in the linked swmmvis Qt resource
+ * collection.
+ *
+ */
 void TestActionCatalog::iconAliasesResolveInQrc()
 {
     // P3 — every non-empty icon alias must exist under :/swmmvis/ (the
@@ -130,8 +198,7 @@ void TestActionCatalog::iconAliasesResolveInQrc()
     for (const ActionCatalogEntry &e : kActionCatalog) {
         if (!e.icon || !*e.icon)
             continue;
-        const QString path =
-            QStringLiteral(":/swmmvis/%1").arg(QLatin1String(e.icon));
+        const QString path = QStringLiteral(":/swmmvis/%1").arg(QLatin1String(e.icon));
         QVERIFY2(QFile::exists(path),
                  qPrintable(QStringLiteral("entry '%1' icon alias '%2' missing from qrc")
                                 .arg(QLatin1String(e.id), QLatin1String(e.icon))));

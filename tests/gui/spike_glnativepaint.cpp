@@ -14,6 +14,15 @@
 //
 // Run:  ./spike_glnativepaint   (interactive — close the window)
 
+/**
+ * @file      spike_glnativepaint.cpp
+ * @brief     Tests for spike glnativepaint.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include <QApplication>
 #include <QDebug>
 #include <QGraphicsItem>
@@ -30,7 +39,8 @@
 #include <QStyleOptionGraphicsItem>
 #include <QTimer>
 
-namespace {
+namespace
+{
 
 // Vertex shader: pass-through 2D position, no MVP needed (we draw in
 // clip space directly so the triangle survives whatever transform
@@ -53,19 +63,22 @@ void main() {
 class GLTriangleItem : public QGraphicsItem
 {
 public:
-    explicit GLTriangleItem() {
-        setFlag(QGraphicsItem::ItemUsesExtendedStyleOption, true);
-    }
+    /** @brief Enable extended style options for the scene-owned native-paint probe item. */
+    explicit GLTriangleItem() { setFlag(QGraphicsItem::ItemUsesExtendedStyleOption, true); }
 
-    QRectF boundingRect() const override {
+    /** @brief Expose a large fixed scene bound so the item paint hook remains eligible.
+     * @return Rectangle from -1e6 to +1e6 on both axes; the actual triangle is drawn directly in GL clip space. */
+    QRectF boundingRect() const override
+    {
         // Whole scene — we paint in clip space, so positioning doesn't
         // matter; we just want our paint() to be invoked every frame.
         return QRectF(-1e6, -1e6, 2e6, 2e6);
     }
 
-    void paint(QPainter *painter,
-               const QStyleOptionGraphicsItem *,
-               QWidget *) override
+    /** @brief Enter native painting and draw a green clip-space triangle with a lazily allocated shader/VBO.
+     * @param[in,out] painter Required active painter expected to target the OpenGL viewport.
+     * The unnamed style-option/widget arguments are ignored. Requires a current compatible GL context on the painting thread; missing context or shader failure logs a warning and ends native painting before returning. Owns shader/VBO resources, clears the GL color buffer, logs first-context details and reports a post-draw GL error; it does not restore arbitrary application GL state beyond QPainter native-paint bracketing. */
+    void paint(QPainter *painter, const QStyleOptionGraphicsItem *, QWidget *) override
     {
         ++m_paintCount;
 
@@ -80,23 +93,20 @@ public:
         }
         if (m_paintCount == 1) {
             qInfo() << "[spike] GL vendor :"
-                    << reinterpret_cast<const char *>(
-                           ctx->functions()->glGetString(GL_VENDOR));
+                    << reinterpret_cast<const char *>(ctx->functions()->glGetString(GL_VENDOR));
             qInfo() << "[spike] GL renderer:"
-                    << reinterpret_cast<const char *>(
-                           ctx->functions()->glGetString(GL_RENDERER));
+                    << reinterpret_cast<const char *>(ctx->functions()->glGetString(GL_RENDERER));
             qInfo() << "[spike] GL version :"
-                    << reinterpret_cast<const char *>(
-                           ctx->functions()->glGetString(GL_VERSION));
+                    << reinterpret_cast<const char *>(ctx->functions()->glGetString(GL_VERSION));
         }
 
         QOpenGLExtraFunctions *gl = ctx->extraFunctions();
 
         if (!m_program) {
             m_program = std::make_unique<QOpenGLShaderProgram>();
-            if (!m_program->addShaderFromSourceCode(QOpenGLShader::Vertex,   kVertSrc)
-             || !m_program->addShaderFromSourceCode(QOpenGLShader::Fragment, kFragSrc)
-             || !m_program->link()) {
+            if (!m_program->addShaderFromSourceCode(QOpenGLShader::Vertex, kVertSrc) ||
+                !m_program->addShaderFromSourceCode(QOpenGLShader::Fragment, kFragSrc) ||
+                !m_program->link()) {
                 qWarning() << "[spike] shader link failed:" << m_program->log();
                 m_program.reset();
                 painter->endNativePainting();
@@ -106,9 +116,7 @@ public:
             m_vbo.create();
             m_vbo.bind();
             const float verts[6] = {
-                 0.0f,  0.5f,
-                -0.5f, -0.5f,
-                 0.5f, -0.5f,
+                0.0f, 0.5f, -0.5f, -0.5f, 0.5f, -0.5f,
             };
             m_vbo.allocate(verts, sizeof(verts));
             m_vbo.release();
@@ -147,6 +155,10 @@ private:
 
 } // namespace
 
+/** @brief Run the interactive rendering probe until its window closes.
+ * @param[in] argc Process argument count passed to QApplication.
+ * @param[in,out] argv Standard mutable process argument array, whose storage must outlive QApplication.
+ * @return Application event-loop exit code; visual correctness and warning inspection are manual, not automated assertions. Creates a scene-owned item and a view-owned QOpenGLWidget viewport; the stack scene outlives the view. */
 int main(int argc, char **argv)
 {
     QApplication app(argc, argv);

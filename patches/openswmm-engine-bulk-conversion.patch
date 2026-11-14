@@ -1,0 +1,572 @@
+--- a/include/openswmm/engine/openswmm_edit.h
++++ b/include/openswmm/engine/openswmm_edit.h
+@@ -861,6 +861,28 @@
+  * (refactored engine only; see openswmm_nodes.h swmm_node_set_virtual)
+  * ========================================================================= */
+ 
++/** Junction roles accepted as node conversion targets in addition to the base enums. */
++enum { SWMM_CONVERT_VIRTUAL = 4, SWMM_CONVERT_INLET = 5 };
++
++/** One output per input index. A matching source_type is a no-op. A nonzero status
++ * is a refusal and dependency_node identifies a related node when available.
++ * Release each details member with swmm_conversion_result_free after use. */
++typedef struct SWMM_TypeChange {
++    int source_type;
++    int status;
++    int dependency_node;
++    SWMM_ConversionResult details;
++} SWMM_TypeChange;
++
++/** Preview (apply=0) or perform a same-family batch in order. Caller supplies
++ * unique object indices and count zero-initialized output records. On SWMM_OK
++ * inspect each status separately. A refused object incurs no changes.
++ * Inlet targets require a design, capture node and placement; design=-2
++ * previews topology only, before collecting the assignment. */
++SWMM_ENGINE_API int swmm_convert_types(SWMM_Engine engine, int nodes, int target,
++                                       const int* indices, int count, int design, int capture,
++                                       int placement, int apply, SWMM_TypeChange* results);
++
+ /**
+  * @brief Split a conduit at normalized position t, inserting a new node.
+  *
+--- a/src/engine/core/openswmm_edit_impl.cpp
++++ b/src/engine/core/openswmm_edit_impl.cpp
+@@ -33,6 +33,10 @@
+ #include "../edit/VirtualJunctionOps.hpp"
+ #include "../../../include/openswmm/engine/openswmm_edit.h"
+ 
++#include "ErrorCodes.hpp"
++#include "../../../include/openswmm/engine/openswmm_infrastructure.h"
++#include <unordered_set>
++#include <algorithm>
+ #include <cstring>
+ #include <cstdlib>
+ #include <memory>
+@@ -111,6 +115,189 @@
+ // extern "C" API
+ // ============================================================================
+ 
++namespace {
++using namespace openswmm;
++
++struct IncidentLinks {
++    int count = 0;
++    int first = -1;
++    int second = -1;
++
++    void add(int link) {
++        if (count == 0)
++            first = link;
++        if (count == 1)
++            second = link;
++        ++count;
++    }
++};
++
++int link_conversion_rule(const SimulationContext& ctx, int link, bool hosts_inlet, int& blocker) {
++    if (ctx.links.type[link] != LinkType::CONDUIT)
++        return SWMM_OK;
++    for (int node : {ctx.links.node1[link], ctx.links.node2[link]}) {
++        if (node >= 0 && node < ctx.n_nodes() && ctx.nodes.is_virtual[node]) {
++            blocker = node;
++            return ERR_VJ_LINK_COUNT;
++        }
++    }
++    if (hosts_inlet)
++        return ERR_INLET_USAGE_SHAPE;
++    return SWMM_OK;
++}
++
++class ConversionBatch {
++public:
++    ConversionBatch(SimulationContext& ctx, bool nodes, int target, int design, int capture,
++                    int placement, bool apply)
++        : ctx(ctx), nodes(nodes), target(target), design(design), capture(capture),
++          placement(placement), apply(apply) {
++        const bool role = nodes && target >= SWMM_CONVERT_VIRTUAL;
++        if (role || !nodes) {
++            const auto& usages = ctx.inlet_usages;
++            for (int i = 0; i < usages.count(); ++i) {
++                if (usages.link_index[i] >= 0)
++                    hosted.insert(usages.link_index[i]);
++                receivers.insert(usages.node_index[i]);
++            }
++        }
++        if (role || (nodes && target == SWMM_NODE_DIVIDER)) {
++            incident.resize(ctx.n_nodes());
++            for (int i = 0; i < ctx.n_links(); ++i) {
++                const int a = ctx.links.node1[i], b = ctx.links.node2[i];
++                if (a >= 0 && a < ctx.n_nodes())
++                    incident[a].add(i);
++                // Divider warnings count distinct links. Virtual rules count attached ends.
++                if (b >= 0 && b < ctx.n_nodes() && (role || a != b))
++                    incident[b].add(i);
++            }
++        }
++        if (role)
++            coupled = edit::vj_coupled_nodes(ctx);
++        if (nodes && apply)
++            outfalls = std::count(ctx.nodes.type.begin(), ctx.nodes.type.end(), NodeType::OUTFALL);
++    }
++
++    void process(int idx, SWMM_TypeChange& row) {
++        row = {};
++        row.source_type = -1;
++        row.dependency_node = -1;
++        if (idx < 0 || idx >= (nodes ? ctx.n_nodes() : ctx.n_links())) {
++            row.status = SWMM_ERR_BADINDEX;
++            return;
++        }
++        if (!nodes) {
++            row.source_type = internal_to_c_link_type(ctx.links.type[idx]);
++            if (row.source_type == target)
++                return;
++            row.status = link_conversion_rule(ctx, idx, hosted.count(idx), row.dependency_node);
++            if (apply && !row.status) {
++                LinkType to;
++                c_to_internal_link_type(target, to);
++                conversion_to_c(edit::convert_link(ctx, idx, to), &row.details);
++            }
++            return;
++        }
++
++        const auto base = ctx.nodes.type[idx];
++        row.source_type = ctx.nodes.is_inlet[idx]     ? static_cast<int>(SWMM_CONVERT_INLET)
++                          : ctx.nodes.is_virtual[idx] ? static_cast<int>(SWMM_CONVERT_VIRTUAL)
++                                                      : internal_to_c_node_type(base);
++        if (row.source_type == target)
++            return;
++        if (target == SWMM_CONVERT_VIRTUAL && row.source_type == SWMM_CONVERT_INLET) {
++            if (apply) {
++                edit::ij_set_inlet(ctx, idx, false);
++                conversion_to_c({target, {"is_inlet", "inlet_usage"}, {}}, &row.details);
++            }
++            return;
++        }
++        if (target >= SWMM_CONVERT_VIRTUAL)
++            row.status = promotion_rule(idx);
++        if (row.status || !apply)
++            return;
++
++        // Every rejectable operation precedes this point. Indices, source type and
++        // owning stores stay stable throughout this synchronous engine call.
++        NodeType to = NodeType::JUNCTION;
++        if (target < SWMM_CONVERT_VIRTUAL)
++            c_to_internal_node_type(target, to);
++        edit::ConversionResult details{target, {}, {}};
++        if (base != to) {
++            const int degree = incident.empty() ? -1 : incident[idx].count;
++            details = edit::convert_node(ctx, idx, to, degree, outfalls);
++            if (base == NodeType::OUTFALL)
++                --outfalls;
++            if (to == NodeType::OUTFALL)
++                ++outfalls;
++            if (row.source_type == SWMM_CONVERT_INLET)
++                details.cleared_fields.push_back("inlet_usage");
++        } else if (target == SWMM_NODE_JUNCTION) {
++            edit::vj_clear_virtual(ctx, idx);
++            details.cleared_fields.push_back("is_virtual");
++            if (row.source_type == SWMM_CONVERT_INLET) {
++                details.cleared_fields.push_back("is_inlet");
++                details.cleared_fields.push_back("inlet_usage");
++            }
++        }
++        if (target >= SWMM_CONVERT_VIRTUAL && !ctx.nodes.is_virtual[idx])
++            edit::vj_promote_checked(ctx, idx, incident[idx].first);
++        if (target == SWMM_CONVERT_INLET) {
++            const int usage = ctx.inlet_usages.add_row(-1, idx, design, capture);
++            ctx.inlet_usages.placement[usage] = placement;
++            ctx.nodes.is_inlet[idx] = 1;
++        }
++        details.new_type = target;
++        conversion_to_c(details, &row.details);
++    }
++
++private:
++    int promotion_rule(int idx) const {
++        const auto& pair = incident[idx];
++        if (const int code = edit::vj_section_rule(ctx, idx, pair.count, pair.first, pair.second))
++            return code;
++        if (coupled[idx])
++            return ERR_VJ_LATERAL_INFLOW;
++        if (receivers.count(idx))
++            return ERR_IJ_CAPTURE_NODE;
++        const bool inlet = target == SWMM_CONVERT_INLET;
++        const auto routing = ctx.options.routing_model;
++        if (routing != RoutingModel::DYNWAVE && (inlet || routing != RoutingModel::FV))
++            return ERR_VJ_ROUTING_MODEL;
++        if (!inlet)
++            return SWMM_OK;
++        if (hosted.count(pair.first) || hosted.count(pair.second))
++            return ERR_IJ_USAGE_ON_PAIR;
++        if (design == -2 && !apply) {
++            if (edit::ij_conduit_shape_ok(ctx, pair.first, false) ||
++                edit::ij_conduit_shape_ok(ctx, pair.first, true))
++                return SWMM_OK;
++            return ERR_IJ_NOT_STREET;
++        }
++        if (design < 0 || design >= ctx.inlets.count())
++            return ERR_IJ_DESIGN;
++        if (capture < 0 || capture >= ctx.n_nodes() || capture == idx ||
++            ctx.nodes.is_virtual[capture])
++            return ERR_IJ_CAPTURE_NODE;
++        if (placement < SWMM_INLET_AUTOMATIC || placement > SWMM_INLET_ON_SAG)
++            return SWMM_ERR_BADPARAM;
++        // vj_section_rule already established identical shapes on both links.
++        if (!edit::ij_conduit_shape_ok(ctx, pair.first, edit::ij_design_is_drop(ctx, design)))
++            return ERR_IJ_NOT_STREET;
++        return SWMM_OK;
++    }
++
++    SimulationContext& ctx;
++    bool nodes;
++    int target, design, capture, placement;
++    bool apply;
++    int outfalls = 0;
++    std::vector<IncidentLinks> incident;
++    std::vector<bool> coupled;
++    std::unordered_set<int> hosted, receivers;
++};
++} // namespace
++
+ // ---------------------------------------------------------------------------
+ // Recorded deletes — the handle pairs a record with the engine that made it.
+ // ---------------------------------------------------------------------------
+@@ -702,6 +889,23 @@
+     return SWMM_OK;
+ }
+ 
++SWMM_ENGINE_API int swmm_convert_types(SWMM_Engine engine, int nodes, int target,
++                                       const int* indices, int count, int design, int capture,
++                                       int placement, int apply, SWMM_TypeChange* results) {
++    CHECK_HANDLE(engine);
++    auto& ctx = to_engine(engine)->context();
++    CHECK_EDITABLE(ctx);
++    if ((nodes != 0 && nodes != 1) || target < 0 ||
++        target >
++            (nodes ? static_cast<int>(SWMM_CONVERT_INLET) : static_cast<int>(SWMM_LINK_OUTLET)) ||
++        count < 0 || (count && (!indices || !results)))
++        return SWMM_ERR_BADPARAM;
++    ConversionBatch batch(ctx, nodes != 0, target, design, capture, placement, apply != 0);
++    for (int i = 0; i < count; ++i)
++        batch.process(indices[i], results[i]);
++    return SWMM_OK;
++}
++
+ SWMM_ENGINE_API int swmm_link_convert(SWMM_Engine engine, int idx, int new_type,
+                                       SWMM_ConversionResult* result_out) {
+     CHECK_HANDLE(engine);
+@@ -717,6 +921,11 @@
+     if (ctx.links.type[ui] == internal_new)
+         return SWMM_ERR_BADPARAM; // same type — no-op
+ 
++    int blocker = -1;
++    const int rule =
++        link_conversion_rule(ctx, idx, ctx.inlet_usages.find_by_link(idx) >= 0, blocker);
++    if (rule)
++        return rule;
+     auto res = openswmm::edit::convert_link(ctx, idx, internal_new);
+     conversion_to_c(res, result_out);
+     return SWMM_OK;
+--- a/src/engine/edit/VirtualJunctionOps.cpp
++++ b/src/engine/edit/VirtualJunctionOps.cpp
+@@ -116,13 +116,47 @@
+ // vj_rule_violation
+ // ============================================================================
+ 
+-int vj_rule_violation(const SimulationContext& ctx, int node_idx) {
+-    if (node_idx < 0 || node_idx >= ctx.n_nodes())
+-        return ERR_VJ_LINK_COUNT;
+-
+-    int j1 = -1, j2 = -1;
+-    const int touches = find_attached(ctx, node_idx, j1, j2);
+-
++template <typename Visitor>
++static bool visit_surface_nodes(const SimulationContext& ctx, Visitor visit) {
++    if (ctx.twod_io.mesh != nullptr) {
++        const auto& m = *ctx.twod_io.mesh;
++        // The [2D_*_NODE_MAP] handlers store the node NAME; the index is
++        // resolved only when the surface router initialises, so at post-parse
++        // validation the name is what identifies the coupling point.
++        const auto index = [&](int stored, const std::string& name) {
++            return stored >= 0 || name.empty() ? stored : ctx.node_names.find(name);
++        };
++        for (std::size_t v = 0; v < m.vert_coupled_node.size(); ++v) {
++            const std::string& nm =
++                (v < m.vert_coupled_node_name.size()) ? m.vert_coupled_node_name[v] : std::string{};
++            if (visit(index(m.vert_coupled_node[v], nm)))
++                return true;
++        }
++        for (std::size_t t = 0; t < m.tri_coupled_node.size(); ++t) {
++            const std::string& nm =
++                (t < m.tri_coupled_node_name.size()) ? m.tri_coupled_node_name[t] : std::string{};
++            if (visit(index(m.tri_coupled_node[t], nm)))
++                return true;
++        }
++        for (const auto& row : m.tri_couplings)
++            if (visit(index(row.node, row.node_name)))
++                return true;
++    }
++
++    return false;
++}
++
++std::vector<bool> vj_coupled_nodes(const SimulationContext& ctx) {
++    std::vector<bool> coupled(ctx.n_nodes(), false);
++    visit_surface_nodes(ctx, [&](int node) {
++        if (node >= 0 && node < ctx.n_nodes())
++            coupled[node] = true;
++        return false;
++    });
++    return coupled;
++}
++
++int vj_section_rule(const SimulationContext& ctx, int node_idx, int touches, int j1, int j2) {
+     // Rule 1: exactly two attached links, both conduits.
+     if (touches != 2 || ctx.links.type[static_cast<std::size_t>(j1)] != LinkType::CONDUIT ||
+         ctx.links.type[static_cast<std::size_t>(j2)] != LinkType::CONDUIT)
+@@ -152,6 +186,20 @@
+         std::fabs(offset_at_node(ctx, j2, node_idx)) > VJ_OFFSET_TOL)
+         return ERR_VJ_OFFSET;
+ 
++    return 0;
++}
++
++int vj_rule_violation(const SimulationContext& ctx, int node_idx) {
++    if (node_idx < 0 || node_idx >= ctx.n_nodes())
++        return ERR_VJ_LINK_COUNT;
++
++    int j1 = -1, j2 = -1;
++    const int touches = find_attached(ctx, node_idx, j1, j2);
++
++    const int section = vj_section_rule(ctx, node_idx, touches, j1, j2);
++    if (section)
++        return section;
++
+     // Rule 5: no 2D surface coupling. A virtual junction has no opening —
+     // its sealed head cannot pond against the overlying surface — so it
+     // cannot be a coupling point. Every point lateral source ([INFLOWS],
+@@ -159,44 +207,16 @@
+     // runtime API) IS permitted: the dynamic-wave update integrates it at
+     // the zero-storage node and the finite-volume solver splits it into the
+     // two spliced cells (plans/VJ_LATERAL_INFLOW_PLAN_2026-09-04.md).
+-    if (ctx.twod_io.mesh != nullptr) {
+-        const auto& m = *ctx.twod_io.mesh;
+-        // The [2D_*_NODE_MAP] handlers store the node NAME; the index is
+-        // resolved only when the surface router initialises, so at post-parse
+-        // validation the name is what identifies the coupling point.
+-        const auto targets = [&](int stored, const std::string& name) {
+-            if (stored >= 0)
+-                return stored == node_idx;
+-            return !name.empty() && ctx.node_names.find(name) == node_idx;
+-        };
+-        for (std::size_t v = 0; v < m.vert_coupled_node.size(); ++v) {
+-            const std::string& nm =
+-                (v < m.vert_coupled_node_name.size()) ? m.vert_coupled_node_name[v] : std::string{};
+-            if (targets(m.vert_coupled_node[v], nm))
+-                return ERR_VJ_LATERAL_INFLOW;
+-        }
+-        for (std::size_t t = 0; t < m.tri_coupled_node.size(); ++t) {
+-            const std::string& nm =
+-                (t < m.tri_coupled_node_name.size()) ? m.tri_coupled_node_name[t] : std::string{};
+-            if (targets(m.tri_coupled_node[t], nm))
+-                return ERR_VJ_LATERAL_INFLOW;
+-        }
+-        for (const auto& row : m.tri_couplings)
+-            if (targets(row.node, row.node_name))
+-                return ERR_VJ_LATERAL_INFLOW;
+-    }
+-
+-    return 0;
++    return visit_surface_nodes(ctx, [node_idx](int mapped) { return mapped == node_idx; })
++               ? ERR_VJ_LATERAL_INFLOW
++               : 0;
+ }
+ 
+ // ============================================================================
+ // vj_apply_derived_geometry
+ // ============================================================================
+ 
+-void vj_apply_derived_geometry(SimulationContext& ctx, int node_idx) {
+-    int j1 = -1, j2 = -1;
+-    if (find_attached(ctx, node_idx, j1, j2) < 1 || j1 < 0)
+-        return;
++static void apply_pipe_geometry(SimulationContext& ctx, int node_idx, int j1) {
+     const auto ui = static_cast<std::size_t>(node_idx);
+     ctx.nodes.full_depth[ui] = ctx.links.xsect_y_full[static_cast<std::size_t>(j1)];
+     ctx.nodes.sur_depth[ui] = 0.0;
+@@ -205,6 +225,13 @@
+     // rim_depth is deliberately NOT touched: it is user/split-supplied
+     // rendering data, not derived geometry, and this runs on every load and
+     // every set-virtual.
++}
++
++void vj_apply_derived_geometry(SimulationContext& ctx, int node_idx) {
++    int j1 = -1, j2 = -1;
++    if (find_attached(ctx, node_idx, j1, j2) < 1 || j1 < 0)
++        return;
++    apply_pipe_geometry(ctx, node_idx, j1);
+ }
+ 
+ // ============================================================================
+@@ -237,37 +264,42 @@
+     }
+ }
+ 
+-int vj_set_virtual(SimulationContext& ctx, int node_idx, bool make_virtual) {
+-    if (node_idx < 0 || node_idx >= ctx.n_nodes())
+-        return -1;
++void vj_promote_checked(SimulationContext& ctx, int node_idx, int j1) {
+     const auto ui = static_cast<std::size_t>(node_idx);
+-
+-    if (!make_virtual) {
+-        vj_clear_virtual(ctx, node_idx);
+-        return 0;
+-    }
+-
+-    if (ctx.nodes.type[ui] != NodeType::JUNCTION)
+-        return -1;
+-    const int code = vj_rule_violation(ctx, node_idx);
+-    if (code != 0)
+-        return code;
+-
+     // The full depth is about to be replaced by the derived pipe crown. When
+     // the node carried a taller max depth (a real manhole being converted),
+     // keep it as the rendering rim so the drawn ground surface doesn't drop.
+     // Only the INTERACTIVE path reaches here — an INP load applies the derived
+     // geometry directly, where full_depth is still 0.
+-    int j1 = -1, j2 = -1;
+-    if (ui < ctx.nodes.rim_depth.size() && ctx.nodes.rim_depth[ui] == 0.0 &&
+-        find_attached(ctx, node_idx, j1, j2) >= 1 && j1 >= 0) {
++    if (ui < ctx.nodes.rim_depth.size() && ctx.nodes.rim_depth[ui] == 0.0) {
+         const double crown = ctx.links.xsect_y_full[static_cast<std::size_t>(j1)];
+         if (ctx.nodes.full_depth[ui] > crown)
+             ctx.nodes.rim_depth[ui] = ctx.nodes.full_depth[ui];
+     }
+ 
+     ctx.nodes.is_virtual[ui] = 1;
+-    vj_apply_derived_geometry(ctx, node_idx);
++    apply_pipe_geometry(ctx, node_idx, j1);
++}
++
++int vj_set_virtual(SimulationContext& ctx, int node_idx, bool make_virtual) {
++    if (node_idx < 0 || node_idx >= ctx.n_nodes())
++        return -1;
++    const auto ui = static_cast<std::size_t>(node_idx);
++
++    if (!make_virtual) {
++        vj_clear_virtual(ctx, node_idx);
++        return 0;
++    }
++
++    if (ctx.nodes.type[ui] != NodeType::JUNCTION)
++        return -1;
++    const int code = vj_rule_violation(ctx, node_idx);
++    if (code != 0)
++        return code;
++
++    int first = -1, second = -1;
++    find_attached(ctx, node_idx, first, second);
++    vj_promote_checked(ctx, node_idx, first);
+     return 0;
+ }
+ 
+@@ -625,7 +657,6 @@
+ // Inlet junctions
+ // ============================================================================
+ 
+-namespace {
+ 
+ /**
+  * @brief Check a link cross-section against ordinary/drop inlet shape rules.
+@@ -658,7 +689,6 @@
+     return t == "DROP_GRATE" || t == "DROP_CURB";
+ }
+ 
+-} // namespace
+ 
+ int ij_host_conduit(const SimulationContext& ctx, int host_kind, int host_idx) {
+     if (host_kind == 0) {
+--- a/src/engine/edit/VirtualJunctionOps.hpp
++++ b/src/engine/edit/VirtualJunctionOps.hpp
+@@ -40,6 +40,7 @@
+ 
+ #include "../core/SimulationContext.hpp"
+ #include <string>
++#include <vector>
+ 
+ namespace openswmm::edit {
+ 
+@@ -65,6 +66,12 @@
+  * @note Invalid node indices return ERR_VJ_LINK_COUNT. Does not enforce JUNCTION type or engine lifecycle; geometric equality compares stored fields exactly except the 1e-9 internal-foot offset tolerance.
+  */
+ int vj_rule_violation(const SimulationContext& ctx, int node_idx);
++// Shared with bulk conversion, which indexes both incident links and surface mappings once.
++int vj_section_rule(const SimulationContext& ctx, int node_idx, int count, int first, int second);
++std::vector<bool> vj_coupled_nodes(const SimulationContext& ctx);
++void vj_promote_checked(SimulationContext& ctx, int node_idx, int first_link);
++bool ij_conduit_shape_ok(const SimulationContext& ctx, int link_idx, bool drop);
++bool ij_design_is_drop(const SimulationContext& ctx, int design_idx);
+ 
+ /**
+  * @brief Apply the derived-geometry contract to a validated virtual junction:
+--- a/src/engine/edit/TypeConverter.cpp
++++ b/src/engine/edit/TypeConverter.cpp
+@@ -80,6 +80,11 @@
+ }
+ 
+ ConversionResult convert_node(SimulationContext& ctx, int idx, NodeType new_type) {
++    return convert_node(ctx, idx, new_type, -1, -1);
++}
++
++ConversionResult convert_node(SimulationContext& ctx, int idx, NodeType new_type, int degree,
++                              int outfalls) {
+     ConversionResult result;
+     result.new_type = internal_to_c_node_type(new_type);
+     const auto ui = static_cast<std::size_t>(idx);
+@@ -129,11 +134,13 @@
+     // New-type warnings (new defaults are applied by set_node_type below).
+     if (new_type == NodeType::DIVIDER) {
+         // Count connecting links to warn if degree != 3
+-        int degree = 0;
+-        for (int i = 0; i < ctx.n_links(); ++i) {
+-            const auto li = static_cast<std::size_t>(i);
+-            if (ctx.links.node1[li] == idx || ctx.links.node2[li] == idx)
+-                ++degree;
++        if (degree < 0) {
++            degree = 0;
++            for (int i = 0; i < ctx.n_links(); ++i) {
++                const auto li = static_cast<std::size_t>(i);
++                if (ctx.links.node1[li] == idx || ctx.links.node2[li] == idx)
++                    ++degree;
++            }
+         }
+         if (degree != 3)
+             result.warnings.push_back(
+@@ -143,12 +150,9 @@
+ 
+     // Warn if we're converting the only OUTFALL away from OUTFALL
+     if (old_type == NodeType::OUTFALL && new_type != NodeType::OUTFALL) {
+-        int outfall_count = 0;
+-        for (int i = 0; i < ctx.n_nodes(); ++i) {
+-            if (i != idx && ctx.nodes.type[static_cast<std::size_t>(i)] == NodeType::OUTFALL)
+-                ++outfall_count;
+-        }
+-        if (outfall_count == 0)
++        if (outfalls < 0)
++            outfalls = std::count(nd.type.begin(), nd.type.end(), NodeType::OUTFALL);
++        if (outfalls == 1)
+             result.warnings.push_back("Model will have no outfall boundary after this conversion");
+     }
+ 
+--- a/src/engine/edit/TypeConverter.hpp
++++ b/src/engine/edit/TypeConverter.hpp
+@@ -72,6 +72,8 @@
+  *     warnings.
+  */
+ ConversionResult convert_node(SimulationContext& ctx, int idx, NodeType new_type);
++ConversionResult convert_node(SimulationContext& ctx, int idx, NodeType new_type, int degree,
++                              int outfalls);
+ 
+ /**
+  * @brief Replace one link subtype row and report cleared fields/warnings.

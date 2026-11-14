@@ -1,9 +1,10 @@
-/*!
- * \file   temporalspec.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  TemporalSpec impl + JSON round-trip (Slice Z.13-data).
+/**
+ * @file      temporalspec.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     TemporalSpec impl + JSON round-trip (Slice Z.13-data).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/temporalspec.h"
@@ -14,18 +15,22 @@
 namespace OpenSWMM::Render
 {
 
-namespace {
+namespace
+{
 
-struct Mapping { TemporalMode m; const char *token; };
+struct Mapping {
+    TemporalMode m;
+    const char *token;
+};
 constexpr std::array<Mapping, 3> kModeMap = {{
-    {TemporalMode::Single,     "single"},
-    {TemporalMode::Range,      "range"},
+    {TemporalMode::Single, "single"},
+    {TemporalMode::Range, "range"},
     {TemporalMode::Cumulative, "cumulative"},
 }};
 
-/*! Frame-rate clamp matches the existing AnimationController's
- *  speed-range expectations: 0.1 fps minimum (10 s per frame is the
- *  slowest meaningful tick), 60 fps maximum (modern displays cap there). */
+/** @brief Clamp a finite playback rate to the supported timer range.
+ * @param v Requested finite frames per second.
+ * @return v clamped to [0.1,60]; no nonfinite-value validation is performed. */
 qreal clampFps(qreal v)
 {
     return std::clamp(v, 0.1, 60.0);
@@ -36,14 +41,16 @@ qreal clampFps(qreal v)
 QString temporalModeToString(TemporalMode m)
 {
     for (const auto &x : kModeMap)
-        if (x.m == m) return QString::fromLatin1(x.token);
+        if (x.m == m)
+            return QString::fromLatin1(x.token);
     return QStringLiteral("single");
 }
 
 TemporalMode temporalModeFromString(const QString &s)
 {
     for (const auto &x : kModeMap)
-        if (s == QLatin1String(x.token)) return x.m;
+        if (s == QLatin1String(x.token))
+            return x.m;
     return TemporalMode::Single;
 }
 
@@ -74,22 +81,20 @@ QJsonObject TemporalSpec::toJson() const
 TemporalSpec TemporalSpec::fromJson(const QJsonObject &j)
 {
     TemporalSpec s;
-    s.enabled        = j.value(QStringLiteral("enabled")).toBool(false);
-    s.timeField      = j.value(QStringLiteral("timeField")).toString();
-    s.mode           = temporalModeFromString(
-                           j.value(QStringLiteral("mode")).toString());
+    s.enabled = j.value(QStringLiteral("enabled")).toBool(false);
+    s.timeField = j.value(QStringLiteral("timeField")).toString();
+    s.mode = temporalModeFromString(j.value(QStringLiteral("mode")).toString());
     if (j.contains(QStringLiteral("frameRateFps")))
-        s.frameRateFps = clampFps(
-            j.value(QStringLiteral("frameRateFps")).toDouble(12.0));
-    s.loop           = j.value(QStringLiteral("loop")).toBool(false);
-    s.pingPong       = j.value(QStringLiteral("pingPong")).toBool(false);
+        s.frameRateFps = clampFps(j.value(QStringLiteral("frameRateFps")).toDouble(12.0));
+    s.loop = j.value(QStringLiteral("loop")).toBool(false);
+    s.pingPong = j.value(QStringLiteral("pingPong")).toBool(false);
     if (j.contains(QStringLiteral("startTime"))) {
-        s.startTime = QDateTime::fromString(
-            j.value(QStringLiteral("startTime")).toString(), Qt::ISODate);
+        s.startTime =
+            QDateTime::fromString(j.value(QStringLiteral("startTime")).toString(), Qt::ISODate);
     }
     if (j.contains(QStringLiteral("endTime"))) {
-        s.endTime = QDateTime::fromString(
-            j.value(QStringLiteral("endTime")).toString(), Qt::ISODate);
+        s.endTime =
+            QDateTime::fromString(j.value(QStringLiteral("endTime")).toString(), Qt::ISODate);
     }
     s.rangeWindowSec = j.value(QStringLiteral("rangeWindowSec")).toDouble(0.0);
     return s;
@@ -97,15 +102,10 @@ TemporalSpec TemporalSpec::fromJson(const QJsonObject &j)
 
 bool TemporalSpec::operator==(const TemporalSpec &other) const
 {
-    return enabled        == other.enabled
-        && timeField      == other.timeField
-        && mode           == other.mode
-        && qFuzzyCompare(frameRateFps + 1.0, other.frameRateFps + 1.0)
-        && loop           == other.loop
-        && pingPong       == other.pingPong
-        && startTime      == other.startTime
-        && endTime        == other.endTime
-        && qFuzzyCompare(rangeWindowSec + 1.0, other.rangeWindowSec + 1.0);
+    return enabled == other.enabled && timeField == other.timeField && mode == other.mode &&
+           qFuzzyCompare(frameRateFps + 1.0, other.frameRateFps + 1.0) && loop == other.loop &&
+           pingPong == other.pingPong && startTime == other.startTime && endTime == other.endTime &&
+           qFuzzyCompare(rangeWindowSec + 1.0, other.rangeWindowSec + 1.0);
 }
 
 } // namespace OpenSWMM::Render

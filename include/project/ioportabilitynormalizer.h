@@ -1,9 +1,9 @@
-/*!
- * \file   ioportabilitynormalizer.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Pre-save check for IO portability across `.inp` and `.gpkg`.
+/**
+ * @file      ioportabilitynormalizer.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Pre-save check for IO portability across `.inp` and `.gpkg`.
  *
  *         Slice IO-10. Sits between `SWMMVis::onSaveAs` (path dialog
  *         resolution) and `SWMMVisProjectWindow::saveAs` (the engine
@@ -25,7 +25,9 @@
  *         dominate the portability burden.
  *
  *         See `openswmm.gui/docs/IO_PORTABILITY_PLAN.md` §3.8.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMMVIS_PROJECT_IO_PORTABILITY_NORMALIZER_H
 #define OPENSWMMVIS_PROJECT_IO_PORTABILITY_NORMALIZER_H
 
@@ -37,7 +39,8 @@
 // header directly — it's a slim C header with no transitive Qt pulls.
 #include <openswmm/engine/openswmm_engine.h>
 
-namespace openswmmvis::project {
+namespace openswmmvis::project
+{
 
 /*!
  * \brief Per-slot preview row returned by the normalizer.
@@ -48,27 +51,27 @@ namespace openswmmvis::project {
  *          user can confirm or override.
  */
 struct SlotPreview {
-    int     role          = 0;   ///< SWMM_FilePathRole numeric value.
-    QString role_label;          ///< Human-readable role name.
-    QString owner;               ///< Empty for scalar slots.
-    QString original;            ///< Token currently stored on the engine.
-    QString absolute;            ///< Resolved absolute path (or empty).
-    QString preview_relative;    ///< What the writer would emit (INP only).
-    bool    crosses_volume = false;
-    bool    file_missing   = false;
-    QString warning;             ///< Empty on a clean slot.
+    int role = 0;             ///< SWMM_FilePathRole numeric value.
+    QString role_label;       ///< Human-readable role name.
+    QString owner;            ///< Empty for scalar slots.
+    QString original;         ///< Token currently stored on the engine.
+    QString absolute;         ///< Resolved absolute path (or empty).
+    QString preview_relative; ///< What the writer would emit (INP only).
+    bool crosses_volume = false;
+    bool file_missing = false;
+    QString warning; ///< Empty on a clean slot.
 };
 
 /*!
  * \brief Outcome of a single pre-flight pass.
  *
- * \details `slotPreviews` always lists every scalar role examined; `warnings`
- *          deduplicates the per-slot warning strings for one-line
+ * \details `slotPreviews` lists populated supported scalar roles; `warnings`
+ *          collects the per-slot warning strings for one-line
  *          surfacing in a status bar.
  */
 struct PreflightResult {
     QVector<SlotPreview> slotPreviews;
-    QStringList          warnings;
+    QStringList warnings;
 };
 
 /*!
@@ -78,15 +81,24 @@ struct PreflightResult {
 class IoPortabilityNormalizer
 {
 public:
-    /*! Walk the scalar slots and produce previews against `dst_inp_path`. */
-    static PreflightResult preflightInpSave(SWMM_Engine engine,
-                                              const QString& dst_inp_path);
+    /*! Walk the scalar slots and produce previews against `dst_inp_path`.
+     * @param[in] engine Borrowed engine; null yields empty results. Engine failures/unsupported or empty roles are omitted.
+     * @param[in] dst_inp_path Proposed input filename whose absolute parent anchors relative previews.
+     * @return Read-only path previews and cross-volume warnings; does not test input file existence or mutate engine paths.
+     */
+    static PreflightResult preflightInpSave(SWMM_Engine engine, const QString &dst_inp_path);
 
-    /*! Walk the scalar slots and verify every USE-direction file exists. */
-    static PreflightResult preflightGpkgSave(SWMM_Engine engine,
-                                               const QString& dst_gpkg_path);
+    /*! Walk the scalar slots and verify every USE-direction file exists.
+     * @param[in] engine Borrowed engine; null yields empty results. Empty/unsupported roles are omitted.
+     * @param[in] dst_gpkg_path Proposed GeoPackage filename, currently unused.
+     * @return Populated scalar slots with missing USE-direction path warnings; QFileInfo::exists() does not guarantee a readable regular file.
+     */
+    static PreflightResult preflightGpkgSave(SWMM_Engine engine, const QString &dst_gpkg_path);
 
 private:
+    /**
+     * @brief Prevent instantiation of this stateless read-only preflight utility.
+     */
     IoPortabilityNormalizer() = delete;
 };
 

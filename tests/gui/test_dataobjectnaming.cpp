@@ -1,6 +1,6 @@
-/*!
- * \file   test_dataobjectnaming.cpp
- * \brief  Slice DA.1 contract test — pins the engine ABI surface that
+/**
+ * @file      test_dataobjectnaming.cpp
+ * @brief     Slice DA.1 contract test — pins the engine ABI surface that
  *         `SWMMModelLayer::dataObjectCount` / `dataObjectNameAt` rely on
  *         for Control Rules and Unit Hydrographs in the Object Browser.
  *
@@ -13,13 +13,17 @@
  *
  * Fix relies on two new engine APIs:
  *   - DA-ENG-01: swmm_hydrograph_group_count / swmm_hydrograph_group_id
- *   - DA-ENG-02: swmm_control_get_id (parses RULE <name> server-side)
+ *   - DA-ENG-02: swmm_control_get_id (parses RULE name server-side)
  *
  * Self-contained: pulls in only the engine target. The GUI sentinel
  * mapping (SWMM_ERR_BADPARAM → "Rule N [unnamed]") is replicated here
  * via a small helper that mirrors the switch arms in
  * `src/layers/swmmmodellayer.cpp` so a regression in the GUI mapping
  * surfaces alongside the engine-ABI changes.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <openswmm/engine/openswmm_engine.h>
@@ -32,22 +36,43 @@
 
 #include <cstring>
 
-namespace {
+namespace
+{
 
 // Replicates the DataControls arm of SWMMModelLayer::dataObjectNameAt
 // (src/layers/swmmmodellayer.cpp). Kept in sync as the contract surface
 // between the engine ABI and the GUI Object Browser.
+/**
+ *
+ * @brief Mirror the Object Browser rule-name mapping for engine-ABI contract tests.
+ * @param e Borrowed valid engine containing the rule rows.
+ * @param row Zero-based rule index; invalid access is delegated to the engine.
+ * @return Owned UTF-8 name on success, translated one-based Rule N [unnamed] on
+ * BADPARAM, empty on other errors. Uses a fixed 128-byte output buffer, so long-ID
+ * behavior follows the API. Does not alter rules or run their expressions.
+ *
+ */
 QString guiNameForControlRule(SWMM_Engine e, int row)
 {
     char buf[128] = {};
     const int rc = swmm_control_get_id(e, row, buf, sizeof(buf));
-    if (rc == SWMM_OK) return QString::fromUtf8(buf);
+    if (rc == SWMM_OK)
+        return QString::fromUtf8(buf);
     if (rc == SWMM_ERR_BADPARAM)
         return QObject::tr("Rule %1 [unnamed]").arg(row + 1);
     return {};
 }
 
 // Replicates the DataHydrographs arm of dataObjectNameAt.
+/**
+ *
+ * @brief Mirror the Object Browser hydrograph group-name mapping.
+ * @param e Borrowed valid engine with group rows.
+ * @param row Zero-based group enumeration index, not a raw monthly hydrograph row.
+ * @return Copied UTF-8 ID on success or empty on API error; fixed 128-byte buffer.
+ * No model mutation or borrowed identifier escapes.
+ *
+ */
 QString guiNameForHydrographGroup(SWMM_Engine e, int row)
 {
     char buf[128] = {};
@@ -76,12 +101,10 @@ private slots:
         SWMM_Engine e = swmm_engine_new();
         QVERIFY(e);
         for (int m = 0; m < 12; ++m) {
-            QCOMPARE(swmm_hydrograph_add(e, "SanSewer", m, 0,
-                                          0.05, 1.0, 2.0, 0, 0, 0),
-                     SWMM_OK);
+            QCOMPARE(swmm_hydrograph_add(e, "SanSewer", m, 0, 0.05, 1.0, 2.0, 0, 0, 0), SWMM_OK);
         }
-        QCOMPARE(swmm_hydrograph_count(e),       12);
-        QCOMPARE(swmm_hydrograph_group_count(e),  1);
+        QCOMPARE(swmm_hydrograph_count(e), 12);
+        QCOMPARE(swmm_hydrograph_group_count(e), 1);
         QCOMPARE(guiNameForHydrographGroup(e, 0), QStringLiteral("SanSewer"));
         swmm_engine_destroy(e);
     }
@@ -91,11 +114,11 @@ private slots:
     {
         SWMM_Engine e = swmm_engine_new();
         QVERIFY(e);
-        QCOMPARE(swmm_hydrograph_add(e, "Combined", 0, 0, 0.1, 1, 2, 0,0,0), SWMM_OK);
-        QCOMPARE(swmm_hydrograph_add(e, "Sanitary", 0, 0, 0.1, 1, 2, 0,0,0), SWMM_OK);
-        QCOMPARE(swmm_hydrograph_add(e, "Combined", 1, 0, 0.1, 1, 2, 0,0,0), SWMM_OK);
-        QCOMPARE(swmm_hydrograph_add(e, "Storm",    0, 0, 0.1, 1, 2, 0,0,0), SWMM_OK);
-        QCOMPARE(swmm_hydrograph_add(e, "Sanitary", 1, 0, 0.1, 1, 2, 0,0,0), SWMM_OK);
+        QCOMPARE(swmm_hydrograph_add(e, "Combined", 0, 0, 0.1, 1, 2, 0, 0, 0), SWMM_OK);
+        QCOMPARE(swmm_hydrograph_add(e, "Sanitary", 0, 0, 0.1, 1, 2, 0, 0, 0), SWMM_OK);
+        QCOMPARE(swmm_hydrograph_add(e, "Combined", 1, 0, 0.1, 1, 2, 0, 0, 0), SWMM_OK);
+        QCOMPARE(swmm_hydrograph_add(e, "Storm", 0, 0, 0.1, 1, 2, 0, 0, 0), SWMM_OK);
+        QCOMPARE(swmm_hydrograph_add(e, "Sanitary", 1, 0, 0.1, 1, 2, 0, 0, 0), SWMM_OK);
 
         QCOMPARE(swmm_hydrograph_group_count(e), 3);
         QCOMPARE(guiNameForHydrographGroup(e, 0), QStringLiteral("Combined"));
@@ -113,8 +136,7 @@ private slots:
         SWMM_Engine e = swmm_engine_new();
         QVERIFY(e);
         QCOMPARE(swmm_hydrograph_add_gage(e, "GageOnly", "G1"), SWMM_OK);
-        QCOMPARE(swmm_hydrograph_add(e, "Params", -1, 0,
-                                      0.1, 1, 2, 0, 0, 0), SWMM_OK);
+        QCOMPARE(swmm_hydrograph_add(e, "Params", -1, 0, 0.1, 1, 2, 0, 0, 0), SWMM_OK);
 
         QCOMPARE(swmm_hydrograph_group_count(e), 2);
         QCOMPARE(guiNameForHydrographGroup(e, 0), QStringLiteral("Params"));
@@ -132,10 +154,10 @@ private slots:
     {
         SWMM_Engine e = swmm_engine_new();
         QVERIFY(e);
-        QCOMPARE(swmm_control_add_rule(e,
-            "RULE PumpOnHigh\n"
-            "IF NODE J1 DEPTH > 5\n"
-            "THEN PUMP P1 STATUS = ON"), SWMM_OK);
+        QCOMPARE(swmm_control_add_rule(e, "RULE PumpOnHigh\n"
+                                          "IF NODE J1 DEPTH > 5\n"
+                                          "THEN PUMP P1 STATUS = ON"),
+                 SWMM_OK);
         QCOMPARE(guiNameForControlRule(e, 0), QStringLiteral("PumpOnHigh"));
         swmm_engine_destroy(e);
     }
@@ -145,12 +167,12 @@ private slots:
     {
         SWMM_Engine e = swmm_engine_new();
         QVERIFY(e);
-        QCOMPARE(swmm_control_add_rule(e,
-            "rule WeirBypass\nIF NODE J1 DEPTH < 1\nTHEN PUMP P1 STATUS = OFF"),
-            SWMM_OK);
-        QCOMPARE(swmm_control_add_rule(e,
-            "Rule TankFill\nIF NODE J1 DEPTH < 2\nTHEN PUMP P1 STATUS = ON"),
-            SWMM_OK);
+        QCOMPARE(swmm_control_add_rule(
+                     e, "rule WeirBypass\nIF NODE J1 DEPTH < 1\nTHEN PUMP P1 STATUS = OFF"),
+                 SWMM_OK);
+        QCOMPARE(swmm_control_add_rule(
+                     e, "Rule TankFill\nIF NODE J1 DEPTH < 2\nTHEN PUMP P1 STATUS = ON"),
+                 SWMM_OK);
         QCOMPARE(guiNameForControlRule(e, 0), QStringLiteral("WeirBypass"));
         QCOMPARE(guiNameForControlRule(e, 1), QStringLiteral("TankFill"));
         swmm_engine_destroy(e);
@@ -164,8 +186,8 @@ private slots:
         SWMM_Engine e = swmm_engine_new();
         QVERIFY(e);
         // No RULE keyword at all.
-        QCOMPARE(swmm_control_add_rule(e,
-            "IF NODE J1 DEPTH > 5\nTHEN PUMP P1 STATUS = ON"), SWMM_OK);
+        QCOMPARE(swmm_control_add_rule(e, "IF NODE J1 DEPTH > 5\nTHEN PUMP P1 STATUS = ON"),
+                 SWMM_OK);
         // RULES (plural) — must not match the RULE keyword.
         QCOMPARE(swmm_control_add_rule(e, "RULES are not RULE\n"), SWMM_OK);
 
@@ -183,14 +205,14 @@ private slots:
         QVERIFY(e);
         QCOMPARE(swmm_control_count(e), 0);
 
-        QCOMPARE(swmm_control_add_rule(e,
-            "RULE R1\nIF NODE J1 DEPTH > 5\nTHEN PUMP P1 STATUS = ON"),
+        QCOMPARE(
+            swmm_control_add_rule(e, "RULE R1\nIF NODE J1 DEPTH > 5\nTHEN PUMP P1 STATUS = ON"),
             SWMM_OK);
         QCOMPARE(swmm_control_count(e), 1);
         QCOMPARE(guiNameForControlRule(e, 0), QStringLiteral("R1"));
 
-        QCOMPARE(swmm_control_add_rule(e,
-            "RULE R2\nIF NODE J1 DEPTH < 1\nTHEN PUMP P1 STATUS = OFF"),
+        QCOMPARE(
+            swmm_control_add_rule(e, "RULE R2\nIF NODE J1 DEPTH < 1\nTHEN PUMP P1 STATUS = OFF"),
             SWMM_OK);
         QCOMPARE(swmm_control_count(e), 2);
         QCOMPARE(guiNameForControlRule(e, 1), QStringLiteral("R2"));
@@ -206,16 +228,16 @@ private slots:
         QVERIFY(e);
         QCOMPARE(swmm_hydrograph_group_count(e), 0);
 
-        QCOMPARE(swmm_hydrograph_add(e, "GroupA", -1, 0, 0.1, 1, 2, 0,0,0), SWMM_OK);
+        QCOMPARE(swmm_hydrograph_add(e, "GroupA", -1, 0, 0.1, 1, 2, 0, 0, 0), SWMM_OK);
         QCOMPARE(swmm_hydrograph_group_count(e), 1);
         QCOMPARE(guiNameForHydrographGroup(e, 0), QStringLiteral("GroupA"));
 
         // Adding another row in the same group doesn't change the count.
-        QCOMPARE(swmm_hydrograph_add(e, "GroupA",  0, 0, 0.1, 1, 2, 0,0,0), SWMM_OK);
+        QCOMPARE(swmm_hydrograph_add(e, "GroupA", 0, 0, 0.1, 1, 2, 0, 0, 0), SWMM_OK);
         QCOMPARE(swmm_hydrograph_group_count(e), 1);
 
         // A new group bumps the count by exactly one.
-        QCOMPARE(swmm_hydrograph_add(e, "GroupB", -1, 0, 0.1, 1, 2, 0,0,0), SWMM_OK);
+        QCOMPARE(swmm_hydrograph_add(e, "GroupB", -1, 0, 0.1, 1, 2, 0, 0, 0), SWMM_OK);
         QCOMPARE(swmm_hydrograph_group_count(e), 2);
         QCOMPARE(guiNameForHydrographGroup(e, 1), QStringLiteral("GroupB"));
         swmm_engine_destroy(e);

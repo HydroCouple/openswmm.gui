@@ -1,8 +1,10 @@
-/*!
- * \file   newprojectdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      newprojectdialog.cpp
+ * @brief     wizard-style single dialog for File → New Project.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/dialogs/newprojectdialog.h"
@@ -21,8 +23,7 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 
-NewProjectDialog::NewProjectDialog(QWidget *parent)
-    : QDialog(parent)
+NewProjectDialog::NewProjectDialog(QWidget *parent) : QDialog(parent)
 {
     setWindowTitle(tr("New SWMM Project"));
     // Iteration 2 (D3) — naming wires the app-wide layout persistence.
@@ -36,11 +37,10 @@ void NewProjectDialog::buildUi()
 {
     auto *outer = new QVBoxLayout(this);
 
-    auto *header = new QLabel(
-        tr("Create a new SWMM model with the options below. "
-           "After clicking OK the project opens as an untitled window — "
-           "use File → Save As to give it a real path."),
-        this);
+    auto *header = new QLabel(tr("Create a new SWMM model with the options below. "
+                                 "After clicking OK the project opens as an untitled window — "
+                                 "use File → Save As to give it a real path."),
+                              this);
     header->setWordWrap(true);
     outer->addWidget(header);
 
@@ -51,24 +51,20 @@ void NewProjectDialog::buildUi()
     form->addRow(tr("Project &name"), m_nameEdit);
 
     m_flowUnitsCombo = new QComboBox(this);
-    m_flowUnitsCombo->addItems({QStringLiteral("CFS"), QStringLiteral("GPM"),
-                                 QStringLiteral("MGD"), QStringLiteral("CMS"),
-                                 QStringLiteral("LPS"), QStringLiteral("MLD")});
+    m_flowUnitsCombo->addItems({QStringLiteral("CFS"), QStringLiteral("GPM"), QStringLiteral("MGD"),
+                                QStringLiteral("CMS"), QStringLiteral("LPS"),
+                                QStringLiteral("MLD")});
     form->addRow(tr("Flow &units"), m_flowUnitsCombo);
 
     m_infiltrationCombo = new QComboBox(this);
-    m_infiltrationCombo->addItems({QStringLiteral("HORTON"),
-                                    QStringLiteral("MODIFIED_HORTON"),
-                                    QStringLiteral("GREEN_AMPT"),
-                                    QStringLiteral("MODIFIED_GREEN_AMPT"),
-                                    QStringLiteral("CURVE_NUMBER")});
+    m_infiltrationCombo->addItems(
+        {QStringLiteral("HORTON"), QStringLiteral("MODIFIED_HORTON"), QStringLiteral("GREEN_AMPT"),
+         QStringLiteral("MODIFIED_GREEN_AMPT"), QStringLiteral("CURVE_NUMBER")});
     form->addRow(tr("&Infiltration model"), m_infiltrationCombo);
 
     m_routingCombo = new QComboBox(this);
-    m_routingCombo->addItems({QStringLiteral("STEADY"),
-                               QStringLiteral("KINWAVE"),
-                               QStringLiteral("DYNWAVE"),
-                               QStringLiteral("FV")});
+    m_routingCombo->addItems({QStringLiteral("STEADY"), QStringLiteral("KINWAVE"),
+                              QStringLiteral("DYNWAVE"), QStringLiteral("FV")});
     form->addRow(tr("Flow &routing"), m_routingCombo);
 
     m_startEdit = new QDateTimeEdit(this);
@@ -87,10 +83,13 @@ void NewProjectDialog::buildUi()
     m_crsBtn = new QPushButton(tr("Choose…"), this);
     crsRow->addWidget(m_crsEdit, 1);
     crsRow->addWidget(m_crsBtn);
-    form->addRow(tr("&CRS"), crsRow);
+    // addRow(QString, QLayout*) builds a buddy-less label, which shows the
+    // '&' literally ("&CRS"). Give the mnemonic a widget to focus.
+    auto *crsLabel = new QLabel(tr("&CRS"), this);
+    crsLabel->setBuddy(m_crsBtn);
+    form->addRow(crsLabel, crsRow);
 
-    auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel,
-                                     this);
+    auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, this);
     outer->addWidget(bb);
 
     connect(m_crsBtn, &QPushButton::clicked, this, &NewProjectDialog::onChooseCrs);
@@ -101,7 +100,7 @@ void NewProjectDialog::buildUi()
 void NewProjectDialog::seedDefaults()
 {
     auto *prefs = PreferencesManager::instance();
-    const auto  sim = prefs->simulationDefaults();
+    const auto sim = prefs->simulationDefaults();
 
     m_nameEdit->setText(QStringLiteral("Untitled"));
     m_flowUnitsCombo->setCurrentText(sim.flowUnits);
@@ -113,15 +112,11 @@ void NewProjectDialog::seedDefaults()
     m_startEdit->setDateTime(start);
     m_endEdit->setDateTime(start.addSecs(24 * 3600));
 
-    if (!prefs->defaultCrsAuthority().isEmpty() && prefs->defaultCrsCode() > 0)
-    {
-        const QString code = QStringLiteral("%1:%2")
-                                 .arg(prefs->defaultCrsAuthority())
-                                 .arg(prefs->defaultCrsCode());
+    if (!prefs->defaultCrsAuthority().isEmpty() && prefs->defaultCrsCode() > 0) {
+        const QString code =
+            QStringLiteral("%1:%2").arg(prefs->defaultCrsAuthority()).arg(prefs->defaultCrsCode());
         m_crsEdit->setText(code);
-    }
-    else
-    {
+    } else {
         m_crsEdit->setText(QStringLiteral("EPSG:4326"));
     }
 }
@@ -129,8 +124,7 @@ void NewProjectDialog::seedDefaults()
 void NewProjectDialog::onChooseCrs()
 {
     CRSSelectionDialog dlg(this);
-    if (dlg.exec() == QDialog::Accepted)
-    {
+    if (dlg.exec() == QDialog::Accepted) {
         const QString code = dlg.selectedAuthCode();
         if (!code.isEmpty())
             m_crsEdit->setText(code);
@@ -139,20 +133,18 @@ void NewProjectDialog::onChooseCrs()
 
 void NewProjectDialog::onAccept()
 {
-    if (m_endEdit->dateTime() <= m_startEdit->dateTime())
-    {
-        QMessageBox::warning(this, tr("Invalid simulation window"),
-            tr("End must be after Start."));
+    if (m_endEdit->dateTime() <= m_startEdit->dateTime()) {
+        QMessageBox::warning(this, tr("Invalid simulation window"), tr("End must be after Start."));
         return;
     }
-    m_result.name              = m_nameEdit->text().trimmed();
+    m_result.name = m_nameEdit->text().trimmed();
     if (m_result.name.isEmpty())
         m_result.name = QStringLiteral("Untitled");
-    m_result.flowUnits         = m_flowUnitsCombo->currentText();
+    m_result.flowUnits = m_flowUnitsCombo->currentText();
     m_result.infiltrationModel = m_infiltrationCombo->currentText();
-    m_result.flowRouting       = m_routingCombo->currentText();
-    m_result.startDateTime     = m_startEdit->dateTime();
-    m_result.endDateTime       = m_endEdit->dateTime();
-    m_result.crsAuthCode       = m_crsEdit->text().trimmed();
+    m_result.flowRouting = m_routingCombo->currentText();
+    m_result.startDateTime = m_startEdit->dateTime();
+    m_result.endDateTime = m_endEdit->dateTime();
+    m_result.crsAuthCode = m_crsEdit->text().trimmed();
     accept();
 }

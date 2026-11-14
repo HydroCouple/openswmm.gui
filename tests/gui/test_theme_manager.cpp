@@ -2,11 +2,29 @@
 // token palette to the application, themeChanged fires exactly on
 // effective-scheme changes, and System mode under the offscreen QPA
 // (which reports Unknown) falls back to Light.
+
+/**
+ * @file      test_theme_manager.cpp
+ * @brief     Tests for theme manager.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include <QtTest/QtTest>
 
 #include <QApplication>
+#include <functional>
+#include <QImage>
+#include <QLineEdit>
+#include <QListWidget>
 #include <QPalette>
 #include <QSignalSpy>
+#include <QStyleFactory>
+#include <QTableWidget>
+#include <QTreeWidget>
+#include <QVBoxLayout>
 
 #include "ui/theme/thememanager.h"
 #include "ui/theme/themetokens.h"
@@ -20,10 +38,38 @@ class TestThemeManager : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     *
+     * @brief Require fresh System mode under an offscreen/Unknown scheme to use Light tokens for
+     * Window, PlaceholderText and Mid.
+     * Depends on a fresh process/default settings and an offscreen platform; applies
+     * the palette globally without restoring a previous palette.
+     *
+     */
     void systemModeFallsBackToLightOffscreen();
+    /**
+     *
+     * @brief Require Dark mode/token identity and selected palette roles, with distinct disabled
+     * text, then return the global mode to Light.
+     *
+     */
     void darkModeAppliesDarkPalette();
+    /**
+     *
+     * @brief Require no signal on repeated Light/apply and one signal for each Dark/System
+     * effective-scheme change.
+     * Assumes offscreen System resolves to Light; leaves global mode System.
+     *
+     */
     void themeChangedFiresOnSchemeChangeOnly();
+    /**
+     *
+     * @brief Require all three theme modes to round-trip their string forms and unknown Sepia to
+     * fall back to System.
+     *
+     */
     void modeStringRoundTrip();
+    void focusedItemViewsShowTheFocusRing();
 };
 
 void TestThemeManager::systemModeFallsBackToLightOffscreen()
@@ -46,12 +92,12 @@ void TestThemeManager::darkModeAppliesDarkPalette()
     QCOMPARE(theme->effectiveScheme(), Qt::ColorScheme::Dark);
     QCOMPARE(&theme->colors(), &darkColors());
 
-    QCOMPARE(qApp->palette().color(QPalette::Window),    darkColors().surfaceWindow);
-    QCOMPARE(qApp->palette().color(QPalette::Base),      darkColors().surfaceRaised);
+    QCOMPARE(qApp->palette().color(QPalette::Window), darkColors().surfaceWindow);
+    QCOMPARE(qApp->palette().color(QPalette::Base), darkColors().surfaceRaised);
     QCOMPARE(qApp->palette().color(QPalette::Highlight), darkColors().selectionFill);
     // Disabled group derived, distinct from enabled text.
-    QVERIFY(qApp->palette().color(QPalette::Disabled, QPalette::Text)
-            != qApp->palette().color(QPalette::Active, QPalette::Text));
+    QVERIFY(qApp->palette().color(QPalette::Disabled, QPalette::Text) !=
+            qApp->palette().color(QPalette::Active, QPalette::Text));
 
     theme->setMode(ThemeManager::Mode::Light);
     QCOMPARE(qApp->palette().color(QPalette::Window), lightColors().surfaceWindow);
@@ -63,27 +109,77 @@ void TestThemeManager::themeChangedFiresOnSchemeChangeOnly()
     theme->setMode(ThemeManager::Mode::Light);
 
     QSignalSpy spy(theme, &ThemeManager::themeChanged);
-    theme->setMode(ThemeManager::Mode::Light);   // no-op: same mode
+    theme->setMode(ThemeManager::Mode::Light); // no-op: same mode
     QCOMPARE(spy.count(), 0);
-    theme->apply();                              // same scheme re-applied
+    theme->apply(); // same scheme re-applied
     QCOMPARE(spy.count(), 0);
-    theme->setMode(ThemeManager::Mode::Dark);    // scheme flips
+    theme->setMode(ThemeManager::Mode::Dark); // scheme flips
     QCOMPARE(spy.count(), 1);
-    theme->setMode(ThemeManager::Mode::System);  // offscreen system == light
+    theme->setMode(ThemeManager::Mode::System); // offscreen system == light
     QCOMPARE(spy.count(), 2);
 }
 
 void TestThemeManager::modeStringRoundTrip()
 {
-    QCOMPARE(ThemeManager::modeFromString(ThemeManager::modeToString(
-                 ThemeManager::Mode::System)), ThemeManager::Mode::System);
-    QCOMPARE(ThemeManager::modeFromString(ThemeManager::modeToString(
-                 ThemeManager::Mode::Light)), ThemeManager::Mode::Light);
-    QCOMPARE(ThemeManager::modeFromString(ThemeManager::modeToString(
-                 ThemeManager::Mode::Dark)), ThemeManager::Mode::Dark);
-    // Unknown input degrades to System, never crashes or picks Dark.
-    QCOMPARE(ThemeManager::modeFromString(QStringLiteral("Sepia")),
+    QCOMPARE(ThemeManager::modeFromString(ThemeManager::modeToString(ThemeManager::Mode::System)),
              ThemeManager::Mode::System);
+    QCOMPARE(ThemeManager::modeFromString(ThemeManager::modeToString(ThemeManager::Mode::Light)),
+             ThemeManager::Mode::Light);
+    QCOMPARE(ThemeManager::modeFromString(ThemeManager::modeToString(ThemeManager::Mode::Dark)),
+             ThemeManager::Mode::Dark);
+    // Unknown input degrades to System, never crashes or picks Dark.
+    QCOMPARE(ThemeManager::modeFromString(QStringLiteral("Sepia")), ThemeManager::Mode::System);
+}
+
+/*! A-11: with the theme applied, a table, list or tree reached by Tab draws the theme's focus
+ *  ring around its current cell. Fusion alone marks it with a faint fill only. */
+void TestThemeManager::focusedItemViewsShowTheFocusRing()
+{
+    qApp->setStyle(QStyleFactory::create(QStringLiteral("Fusion")));
+    auto *theme = ThemeManager::instance();
+    theme->setMode(ThemeManager::Mode::Light);
+    theme->apply();
+    const QColor ring = theme->colors().focusRing;
+    const auto ringPixels = [ring](const QImage &img) {
+        int n = 0;
+        for (int y = 0; y < img.height(); ++y)
+            for (int x = 0; x < img.width(); ++x) {
+                const QColor c = img.pixelColor(x, y);
+                if (std::abs(c.red() - ring.red()) + std::abs(c.green() - ring.green()) +
+                        std::abs(c.blue() - ring.blue()) < 60)
+                    ++n;
+            }
+        return n;
+    };
+    const QList<std::function<QAbstractItemView *()>> views = {
+        [] { return new QTableWidget(3, 2); },
+        [] {
+            auto *list = new QListWidget;
+            list->addItems({QStringLiteral("a"), QStringLiteral("b")});
+            return list;
+        },
+        [] {
+            auto *tree = new QTreeWidget;
+            tree->addTopLevelItem(new QTreeWidgetItem({QStringLiteral("a")}));
+            return tree;
+        }};
+    for (const auto &make : views) {
+        QWidget window;
+        auto *layout = new QVBoxLayout(&window);
+        auto *before = new QLineEdit(&window);
+        QAbstractItemView *view = make();
+        layout->addWidget(before);
+        layout->addWidget(view);
+        window.resize(260, 200);
+        window.show();
+        window.activateWindow();
+        QVERIFY(QTest::qWaitForWindowActive(&window));
+        before->setFocus();
+        QTest::keyClick(before, Qt::Key_Tab);
+        QTRY_VERIFY(view->hasFocus());
+        const QImage img = view->grab().toImage().convertToFormat(QImage::Format_RGB32);
+        QVERIFY2(ringPixels(img) > 100, view->metaObject()->className());
+    }
 }
 
 QTEST_MAIN(TestThemeManager)

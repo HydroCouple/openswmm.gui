@@ -1,9 +1,12 @@
-/*!
- * \file   legendpropertiesdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      legendpropertiesdialog.cpp
+ * @brief     for a shared LegendOverlayStyle.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/legendpropertiesdialog.h"
 
 #include "render/legendoverlaystyle.h"
@@ -16,7 +19,8 @@
 #include <QTreeView>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using OpenSWMM::Render::LegendOverlayStyle;
 
@@ -31,7 +35,8 @@ LegendPropertiesDialog::LegendPropertiesDialog(LegendOverlayStyle *style, QWidge
     resize(420, 520);
 
     // Snapshot for Cancel — captured before any edits flow through.
-    if (m_style) m_snapshot = m_style->toJson();
+    if (m_style)
+        m_snapshot = m_style->toJson();
 
     auto *root = new QVBoxLayout(this);
 
@@ -44,20 +49,20 @@ LegendPropertiesDialog::LegendPropertiesDialog(LegendOverlayStyle *style, QWidge
 
     auto *pm = new QPropertyModel(m_style.data(), this);
     m_tree->setModel(pm);
-    m_tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
-    m_tree->header()->setStretchLastSection(true);
+    m_tree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
+    m_tree->header()->setStretchLastSection(false);
     m_tree->expandAll();
 
     root->addWidget(m_tree, 1);
 
-    auto *bb = new QDialogButtonBox(
-        QDialogButtonBox::Reset | QDialogButtonBox::Close,
-        this);
+    auto *bb = new QDialogButtonBox(QDialogButtonBox::Reset | QDialogButtonBox::Close, this);
     bb->button(QDialogButtonBox::Close)->setDefault(true);
-    bb->button(QDialogButtonBox::Reset)->setToolTip(tr("Restore all fields to their built-in defaults"));
-    connect(bb, &QDialogButtonBox::rejected, this, &QDialog::accept);   // Close == accept current state.
-    connect(bb->button(QDialogButtonBox::Reset), &QPushButton::clicked,
-            this, &LegendPropertiesDialog::onResetClicked);
+    bb->button(QDialogButtonBox::Reset)
+        ->setToolTip(tr("Restore all fields to their built-in defaults"));
+    connect(bb, &QDialogButtonBox::rejected, this,
+            &QDialog::accept); // Close == accept current state.
+    connect(bb->button(QDialogButtonBox::Reset), &QPushButton::clicked, this,
+            &LegendPropertiesDialog::onResetClicked);
     root->addWidget(bb);
 
     // Live preview: as the property model writes through to the style's
@@ -73,13 +78,15 @@ LegendPropertiesDialog::LegendPropertiesDialog(LegendOverlayStyle *style, QWidge
 void LegendPropertiesDialog::reject()
 {
     // Cancel — revert any live-preview edits applied since construction.
-    if (m_style) m_style->fromJson(m_snapshot);
+    if (m_style)
+        m_style->fromJson(m_snapshot);
     QDialog::reject();
 }
 
 void LegendPropertiesDialog::onResetClicked()
 {
-    if (!m_style) return;
+    if (!m_style)
+        return;
     m_style->resetToDefaults();
     // Force the tree to re-read every cell since resetToDefaults() fires
     // setters that write through QMetaProperty already, but the view

@@ -1,11 +1,24 @@
+/**
+ * @file      commandpalette.cpp
+ * @brief     UI redesign P7 — the command palette (Ctrl+Shift+P): a frameless popup with a filter
+ *            line and a relevance-sorted action list reaching every ActionRegistry-registered
+ *            capability (dock toggles and dialog launchers included).
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include "ui/widgets/commandpalette.h"
 
 #include "ui/dialogs/dialoglayoutwatcher.h"
 #include "ui/widgets/commandpalettemodel.h"
 
+#include <QAccessible>
 #include <QAction>
 #include <QEvent>
 #include <QKeyEvent>
+#include <QLabel>
 #include <QLineEdit>
 #include <QListView>
 #include <QMainWindow>
@@ -13,9 +26,11 @@
 #include <QStyledItemDelegate>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
+namespace
+{
 
 /*! Icon + title left, category chip + shortcut hint right; grayed when
  *  the action is disabled. */
@@ -24,6 +39,12 @@ class PaletteDelegate : public QStyledItemDelegate
 public:
     using QStyledItemDelegate::QStyledItemDelegate;
 
+    /**
+     * @brief Paint an action row with icon/title, category and shortcut hints using disabled/selected palette states.
+     * @param[in,out] painter Required painter; custom drawing saves/restores its state.
+     * @param[in] option View geometry/palette; option.widget must exist for platform style drawing.
+     * @param[in] index Palette model row exposing the custom action roles.
+     */
     void paint(QPainter *painter, const QStyleOptionViewItem &option,
                const QModelIndex &index) const override
     {
@@ -34,20 +55,17 @@ public:
 
         // Base row (selection background, icon, title).
         opt.text.clear();
-        opt.widget->style()->drawControl(QStyle::CE_ItemViewItem, &opt,
-                                         painter, opt.widget);
+        opt.widget->style()->drawControl(QStyle::CE_ItemViewItem, &opt, painter, opt.widget);
 
         const QRect r = option.rect.adjusted(6, 0, -8, 0);
         const bool selected = option.state & QStyle::State_Selected;
         const QPalette &pal = option.palette;
-        const QPalette::ColorGroup group =
-            index.data(CommandPaletteModel::EnabledRole).toBool()
-                ? QPalette::Active
-                : QPalette::Disabled;
-        const QColor fg = pal.color(group, selected ? QPalette::HighlightedText
-                                                    : QPalette::Text);
-        const QColor hint = pal.color(group, selected ? QPalette::HighlightedText
-                                                      : QPalette::PlaceholderText);
+        const QPalette::ColorGroup group = index.data(CommandPaletteModel::EnabledRole).toBool()
+                                               ? QPalette::Active
+                                               : QPalette::Disabled;
+        const QColor fg = pal.color(group, selected ? QPalette::HighlightedText : QPalette::Text);
+        const QColor hint =
+            pal.color(group, selected ? QPalette::HighlightedText : QPalette::PlaceholderText);
 
         painter->save();
         const QIcon icon = index.data(Qt::DecorationRole).value<QIcon>();
@@ -81,15 +99,20 @@ public:
         }
 
         painter->setPen(fg);
-        const QString title = fm.elidedText(index.data(Qt::DisplayRole).toString(),
-                                            Qt::ElideRight, rightEdge - x);
+        const QString title =
+            fm.elidedText(index.data(Qt::DisplayRole).toString(), Qt::ElideRight, rightEdge - x);
         painter->drawText(QRect(x, r.top(), rightEdge - x, r.height()),
                           Qt::AlignVCenter | Qt::AlignLeft, title);
         painter->restore();
     }
 
-    QSize sizeHint(const QStyleOptionViewItem &option,
-                   const QModelIndex &index) const override
+    /**
+     * @brief Ensure palette action rows are at least 26 logical pixels high.
+     * @param[in] option Base delegate rendering options.
+     * @param[in] index Model row used by the base size calculation.
+     * @return Base width and height enlarged to at least 26.
+     */
+    QSize sizeHint(const QStyleOptionViewItem &option, const QModelIndex &index) const override
     {
         QSize s = QStyledItemDelegate::sizeHint(option, index);
         s.setHeight(qMax(s.height(), 26));
@@ -97,7 +120,7 @@ public:
     }
 };
 
-}   // namespace
+} // namespace
 
 CommandPalette::CommandPalette(QMainWindow *parent)
     : QDialog(parent, Qt::FramelessWindowHint | Qt::Dialog)
@@ -128,19 +151,29 @@ CommandPalette::CommandPalette(QMainWindow *parent)
     mList->setUniformItemSizes(true);
     mList->setEditTriggers(QAbstractItemView::NoEditTriggers);
     mList->setSelectionMode(QAbstractItemView::SingleSelection);
-    mList->setFocusPolicy(Qt::NoFocus);   // the filter keeps focus; keys forward
+    mList->setFocusPolicy(Qt::NoFocus); // the filter keeps focus; keys forward
     mList->setFixedHeight(330);
     mList->setAccessibleName(tr("Command list"));
     layout->addWidget(mList);
+
+    mStatus = new QLabel(this);
+    mStatus->setObjectName(QStringLiteral("commandPaletteStatus"));
+    mStatus->setTextFormat(Qt::PlainText);
+    mStatus->setWordWrap(true);
+    mStatus->setAccessibleName(tr("Command availability"));
+    mStatus->hide();
+    layout->addWidget(mStatus);
 
     mFilter->installEventFilter(this);
     connect(mFilter, &QLineEdit::textChanged, this, [this](const QString &text) {
         mModel->setFilterPattern(text);
         if (mModel->rowCount() > 0)
             mList->setCurrentIndex(mModel->index(0, 0));
+        updateStatus();
     });
-    connect(mList, &QListView::activated, this,
-            [this](const QModelIndex &) { triggerCurrent(); });
+    connect(mList, &QListView::activated, this, [this](const QModelIndex &) { triggerCurrent(); });
+    connect(mList->selectionModel(), &QItemSelectionModel::currentChanged, this,
+            [this] { updateStatus(); });
 }
 
 void CommandPalette::popup()
@@ -150,10 +183,11 @@ void CommandPalette::popup()
     mModel->setFilterPattern(QString());
     if (mModel->rowCount() > 0)
         mList->setCurrentIndex(mModel->index(0, 0));
+    updateStatus();
 
     if (auto *parent = parentWidget()) {
-        const QPoint center = parent->mapToGlobal(
-            QPoint(parent->width() / 2, parent->height() / 4));
+        const QPoint center =
+            parent->mapToGlobal(QPoint(parent->width() / 2, parent->height() / 4));
         move(center.x() - width() / 2, center.y());
     }
     show();
@@ -204,10 +238,32 @@ void CommandPalette::triggerCurrent()
 {
     const QModelIndex index = mList->currentIndex();
     QAction *action = mModel->actionAt(index);
-    if (!action || !action->isEnabled())
+    if (!action)
         return;
+    if (!action->isEnabled()) {
+        updateStatus();
+        QAccessibleAnnouncementEvent announcement(mStatus, mStatus->text());
+        QAccessible::updateAccessibility(&announcement);
+        return;
+    }
     hide();
     action->trigger();
+}
+
+void CommandPalette::updateStatus()
+{
+    const QModelIndex index = mList->currentIndex();
+    QAction *action = mModel->actionAt(index);
+    if (!action || action->isEnabled()) {
+        mStatus->clear();
+        mStatus->hide();
+        return;
+    }
+    const QString title = index.data(Qt::DisplayRole).toString();
+    const QString reason = index.data(CommandPaletteModel::DisabledReasonRole).toString();
+    mStatus->setText(reason.isEmpty() ? tr("%1 is not available right now.").arg(title)
+                                      : tr("%1 is not available: %2").arg(title, reason));
+    mStatus->show();
 }
 
 void CommandPalette::moveSelection(int delta)
@@ -220,4 +276,4 @@ void CommandPalette::moveSelection(int delta)
     mList->setCurrentIndex(mModel->index(row, 0));
 }
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui

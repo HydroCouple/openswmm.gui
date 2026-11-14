@@ -1,9 +1,12 @@
-/*!
- * \file   cursorwindowslider.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      cursorwindowslider.cpp
+ * @brief     Replaces the two-thumb RangeSliderWidget on the animation toolbar.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/cursorwindowslider.h"
 
 #include <QKeyEvent>
@@ -14,16 +17,17 @@
 
 #include <algorithm>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-namespace {
-constexpr int kThumbHalfW  = 5;     // thumb width = 10 px
+namespace
+{
+constexpr int kThumbHalfW = 5; // thumb width = 10 px
 constexpr int kTrackHeight = 6;
-constexpr int kMargin      = kThumbHalfW + 2;  // gutter so the thumb doesn't clip
+constexpr int kMargin = kThumbHalfW + 2; // gutter so the thumb doesn't clip
 } // namespace
 
-CursorWindowSlider::CursorWindowSlider(QWidget *parent)
-    : QWidget(parent)
+CursorWindowSlider::CursorWindowSlider(QWidget *parent) : QWidget(parent)
 {
     setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(true);
@@ -33,7 +37,8 @@ CursorWindowSlider::CursorWindowSlider(QWidget *parent)
 void CursorWindowSlider::setCursorNorm(qreal v)
 {
     v = std::clamp(v, qreal(0.0), qreal(1.0));
-    if (qFuzzyCompare(m_cursor, v)) return;
+    if (qFuzzyCompare(m_cursor, v))
+        return;
     m_cursor = v;
     update();
     emit cursorChanged(m_cursor);
@@ -42,15 +47,25 @@ void CursorWindowSlider::setCursorNorm(qreal v)
 void CursorWindowSlider::setWindowNorm(qreal w)
 {
     w = std::clamp(w, qreal(0.0), qreal(1.0));
-    if (qFuzzyCompare(m_windowNorm, w)) return;
+    if (qFuzzyCompare(m_windowNorm, w))
+        return;
     m_windowNorm = w;
     update();
     emit windowNormChanged(m_windowNorm);
 }
 
-int CursorWindowSlider::trackLeft()  const noexcept { return kMargin; }
-int CursorWindowSlider::trackRight() const noexcept { return width() - kMargin; }
-int CursorWindowSlider::trackWidth() const noexcept { return std::max(1, trackRight() - trackLeft()); }
+int CursorWindowSlider::trackLeft() const noexcept
+{
+    return kMargin;
+}
+int CursorWindowSlider::trackRight() const noexcept
+{
+    return width() - kMargin;
+}
+int CursorWindowSlider::trackWidth() const noexcept
+{
+    return std::max(1, trackRight() - trackLeft());
+}
 
 qreal CursorWindowSlider::pixelToNorm(int px) const noexcept
 {
@@ -86,9 +101,9 @@ void CursorWindowSlider::paintEvent(QPaintEvent * /*e*/)
     // Look-back window band: [cursor − windowNorm, cursor], clamped at 0. This
     // is the "range rendered around the slider" — a non-interactive decoration
     // whose width is driven entirely by the Window spin box, not by a thumb.
-    const qreal loN  = std::max(qreal(0.0), m_cursor - m_windowNorm);
-    const int   xLo  = normToPixel(loN);
-    const int   xCur = normToPixel(m_cursor);
+    const qreal loN = std::max(qreal(0.0), m_cursor - m_windowNorm);
+    const int xLo = normToPixel(loN);
+    const int xCur = normToPixel(m_cursor);
     const QRect bandRect(xLo, trackY, std::max(0, xCur - xLo), kTrackHeight);
     p.setBrush(pal.color(QPalette::Highlight));
     p.drawRoundedRect(bandRect, 3, 3);
@@ -97,8 +112,7 @@ void CursorWindowSlider::paintEvent(QPaintEvent * /*e*/)
     // track, not a height-proportional slab (a tall host row would
     // otherwise stretch it).
     const int thumbH = std::min(height() - 2, 18);
-    QRect t(xCur - kThumbHalfW, (height() - thumbH) / 2,
-            2 * kThumbHalfW, thumbH);
+    QRect t(xCur - kThumbHalfW, (height() - thumbH) / 2, 2 * kThumbHalfW, thumbH);
     p.setBrush(pal.color(QPalette::Button));
     p.setPen(QPen(pal.color(QPalette::Dark), 1));
     p.drawRoundedRect(t, 3, 3);
@@ -112,7 +126,7 @@ void CursorWindowSlider::mousePressEvent(QMouseEvent *e)
     }
     m_dragging = true;
     setCursor(Qt::SizeHorCursor);
-    setCursorNorm(pixelToNorm(e->pos().x()));   // click-to-seek, then drag
+    setCursorNorm(pixelToNorm(e->pos().x())); // click-to-seek, then drag
     setFocus();
     e->accept();
 }
@@ -150,11 +164,21 @@ void CursorWindowSlider::keyPressEvent(QKeyEvent *e)
     // timeline ends. The window band follows the cursor (its width is unchanged).
     const qreal step = (e->modifiers() & Qt::ShiftModifier) ? 0.05 : 0.01;
     switch (e->key()) {
-    case Qt::Key_Left:  setCursorNorm(m_cursor - step); break;
-    case Qt::Key_Right: setCursorNorm(m_cursor + step); break;
-    case Qt::Key_Home:  setCursorNorm(0.0);             break;
-    case Qt::Key_End:   setCursorNorm(1.0);             break;
-    default: QWidget::keyPressEvent(e); return;
+    case Qt::Key_Left:
+        setCursorNorm(m_cursor - step);
+        break;
+    case Qt::Key_Right:
+        setCursorNorm(m_cursor + step);
+        break;
+    case Qt::Key_Home:
+        setCursorNorm(0.0);
+        break;
+    case Qt::Key_End:
+        setCursorNorm(1.0);
+        break;
+    default:
+        QWidget::keyPressEvent(e);
+        return;
     }
     // 2026-07-19 — a keyboard nudge is a complete gesture: mark it ended so
     // the host's coalescing seek fires immediately instead of after the

@@ -1,22 +1,24 @@
-/*!
- * \file   transectregistry.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      transectregistry.cpp
+ * @brief     TransectProvider instances.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "transect/transectregistry.h"
 
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
+#include <openswmm/engine/openswmm_edit.h> // swmm_transect_delete
 
-#include <QDebug>   // qWarning for setAllPoints rejection
+#include <QDebug> // qWarning for setAllPoints rejection
 
-namespace openswmmvis::transect {
-
-TransectRegistry::TransectRegistry(QObject *parent)
-    : QObject(parent)
+namespace openswmmvis::transect
 {
-}
+
+TransectRegistry::TransectRegistry(QObject *parent) : QObject(parent) {}
 
 TransectRegistry::~TransectRegistry() = default;
 
@@ -27,7 +29,8 @@ TransectProvider *TransectRegistry::findByName(const QString &name) const
 
 void TransectRegistry::wireProviderSignals_(TransectProvider *p)
 {
-    if (!p) return;
+    if (!p)
+        return;
     connect(p, &TransectProvider::nameChanged, this,
             [this, p](const QString &prev, const QString &now) {
                 m_byLowerName.remove(prev.toLower());
@@ -54,19 +57,45 @@ void TransectRegistry::wireProviderSignals_(TransectProvider *p)
 
 TransectProvider *TransectRegistry::create(const QString &name)
 {
-    if (name.isEmpty() || hasName(name)) return nullptr;
+    if (name.isEmpty() || hasName(name))
+        return nullptr;
     auto *p = new TransectProvider(name, this);
     m_providers.push_back(p);
     m_byLowerName.insert(name.toLower(), p);
     wireProviderSignals_(p);
+    // Reach the engine at creation so the object can be selected where it
+    // is referenced (pickers list engine names, setters resolve them there)
+    // while its editor is still open. Parameters follow through
+    // saveToEngine. Skipped when the engine already has it (loadFromEngine).
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const QByteArray id = name.toUtf8();
+        if (swmm_transect_index(eng, id.constData()) < 0)
+            swmm_transect_add(eng, id.constData());
+    }
+
     emit providerAdded(p);
     return p;
 }
 
 void TransectRegistry::remove(TransectProvider *p)
 {
-    if (!p || !m_providers.contains(p)) return;
+    if (!p || !m_providers.contains(p))
+        return;
     emit providerAboutToBeRemoved(p);
+
+    // Delete the ENGINE copy too (perf-plan Phase A3, and a bug fix: without
+    // this the engine kept the transect forever — saveToEngine only ever
+    // adds/updates — so a "deleted" transect reappeared in the written INP).
+    // Same engine-first pattern as rename() above; swmm_transect_delete also
+    // resets IRREGULAR links that referenced it.
+    if (m_engineHandle) {
+        auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
+        const int idx = swmm_transect_index(eng, p->name().toUtf8().constData());
+        if (idx >= 0)
+            swmm_transect_delete(eng, idx, nullptr);
+    }
+
     m_byLowerName.remove(p->name().toLower());
     m_providers.removeOne(p);
     p->deleteLater();
@@ -74,10 +103,11 @@ void TransectRegistry::remove(TransectProvider *p)
 
 bool TransectRegistry::rename(TransectProvider *p, const QString &newName)
 {
-    if (!p || newName.isEmpty()) return false;
-    const bool caseOnly =
-        p->name().compare(newName, Qt::CaseInsensitive) == 0;
-    if (!caseOnly && hasName(newName)) return false;
+    if (!p || newName.isEmpty())
+        return false;
+    const bool caseOnly = p->name().compare(newName, Qt::CaseInsensitive) == 0;
+    if (!caseOnly && hasName(newName))
+        return false;
 
     // Rename in the engine too. Without this, saveToEngine saw an unknown
     // name and ADDED a second transect, orphaning the original along with
@@ -85,9 +115,7 @@ bool TransectRegistry::rename(TransectProvider *p, const QString &newName)
     if (m_engineHandle) {
         auto *eng = static_cast<SWMM_Engine>(m_engineHandle);
         const int idx = swmm_transect_index(eng, p->name().toUtf8().constData());
-        if (idx >= 0 &&
-            swmm_transect_rename(eng, idx, newName.toUtf8().constData())
-                != SWMM_OK)
+        if (idx >= 0 && swmm_transect_rename(eng, idx, newName.toUtf8().constData()) != SWMM_OK)
             return false;
     }
 
@@ -95,69 +123,89 @@ bool TransectRegistry::rename(TransectProvider *p, const QString &newName)
     return true;
 }
 
-int TransectRegistry::loadFromEngine(void *engineHandle)
+namespace
 {
-    if (!engineHandle) return 0;
+/*! Read every field of engine transect \p i into \p p (name excepted). */
+void readTransect(SWMM_Engine eng, int i, TransectProvider *p)
+{
+    // Comments.
+    char cbuf[1024] = {};
+    if (swmm_transect_get_comments(eng, i, cbuf, sizeof(cbuf)) == SWMM_OK)
+        p->setComments(QString::fromUtf8(cbuf));
+
+    // Roughness.
+    double nL = 0.0, nR = 0.0, nC = 0.0;
+    if (swmm_transect_get_roughness(eng, i, &nL, &nR, &nC) == SWMM_OK)
+        p->setRoughness(nL, nR, nC);
+
+    // Bank stations.
+    double xLb = 0.0, xRb = 0.0;
+    if (swmm_transect_get_bank_stations(eng, i, &xLb, &xRb) == SWMM_OK)
+        p->setBankStations(xLb, xRb);
+
+    // Encroachment stations.
+    double xLe = 0.0, xRe = 0.0;
+    if (swmm_transect_get_encroachment_stations(eng, i, &xLe, &xRe) == SWMM_OK)
+        p->setEncroachmentStations(xLe, xRe);
+
+    // Modifiers.
+    double xF = 1.0, yF = 0.0, lF = 1.0;
+    if (swmm_transect_get_modifiers(eng, i, &xF, &yF, &lF) == SWMM_OK)
+        p->setModifiers(xF, yF, lF);
+
+    // Stations.
+    const int npts = swmm_transect_get_station_count(eng, i);
+    QVector<TransectPoint> pts;
+    pts.reserve(qMax(0, npts));
+    for (int j = 0; j < npts; ++j) {
+        double st = 0.0, e = 0.0;
+        if (swmm_transect_get_station(eng, i, j, &st, &e) != SWMM_OK)
+            continue;
+        pts.push_back({st, e});
+    }
+    if (pts.isEmpty() && p->pointCount() == 0)
+        return;
+    // Bypass invariant: engine source-of-truth is authoritative.
+    QString reason;
+    if (!p->setAllPoints(std::move(pts), &reason))
+        qWarning().noquote() << "[transect-load]" << p->name() << "setAllPoints rejected:" << reason;
+}
+} // namespace
+
+int TransectRegistry::loadFromEngine(void *engineHandle, const QString &onlyName)
+{
+    if (!engineHandle)
+        return 0;
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
-    m_engineHandle = engineHandle;  // remember for the no-arg saveToEngine()
+    m_engineHandle = engineHandle; // remember for the no-arg saveToEngine()
+
+    // One named transect: refresh it from the engine (what the model now holds).
+    if (!onlyName.isEmpty()) {
+        TransectProvider *p = findByName(onlyName);
+        const int i = swmm_transect_index(eng, onlyName.toUtf8().constData());
+        if (!p || i < 0)
+            return 0;
+        readTransect(eng, i, p);
+        return 1;
+    }
 
     const int n = swmm_transect_count(eng);
-    if (n <= 0) return 0;
+    if (n <= 0)
+        return 0;
 
     int added = 0;
     for (int i = 0; i < n; ++i) {
         const char *cid = swmm_transect_id(eng, i);
-        if (!cid || !*cid) continue;
+        if (!cid || !*cid)
+            continue;
         const QString id = QString::fromUtf8(cid);
-        if (hasName(id)) continue;
+        if (hasName(id))
+            continue;
 
         TransectProvider *p = create(id);
-        if (!p) continue;
-
-        // Comments.
-        char cbuf[1024] = {};
-        if (swmm_transect_get_comments(eng, i, cbuf, sizeof(cbuf)) == SWMM_OK)
-            p->setComments(QString::fromUtf8(cbuf));
-
-        // Roughness.
-        double nL = 0.0, nR = 0.0, nC = 0.0;
-        if (swmm_transect_get_roughness(eng, i, &nL, &nR, &nC) == SWMM_OK)
-            p->setRoughness(nL, nR, nC);
-
-        // Bank stations.
-        double xLb = 0.0, xRb = 0.0;
-        if (swmm_transect_get_bank_stations(eng, i, &xLb, &xRb) == SWMM_OK)
-            p->setBankStations(xLb, xRb);
-
-        // Encroachment stations.
-        double xLe = 0.0, xRe = 0.0;
-        if (swmm_transect_get_encroachment_stations(eng, i, &xLe, &xRe) == SWMM_OK)
-            p->setEncroachmentStations(xLe, xRe);
-
-        // Modifiers.
-        double xF = 1.0, yF = 0.0, lF = 1.0;
-        if (swmm_transect_get_modifiers(eng, i, &xF, &yF, &lF) == SWMM_OK)
-            p->setModifiers(xF, yF, lF);
-
-        // Stations.
-        const int npts = swmm_transect_get_station_count(eng, i);
-        if (npts > 0) {
-            QVector<TransectPoint> pts;
-            pts.reserve(npts);
-            for (int j = 0; j < npts; ++j) {
-                double s = 0.0, e = 0.0;
-                if (swmm_transect_get_station(eng, i, j, &s, &e) != SWMM_OK) continue;
-                pts.push_back({s, e});
-            }
-            // Bypass invariant: engine source-of-truth is authoritative.
-            QString reason;
-            const bool ok = p->setAllPoints(std::move(pts), &reason);
-            if (!ok) {
-                qWarning().noquote()
-                    << "[transect-load]" << id
-                    << "setAllPoints rejected:" << reason;
-            }
-        }
+        if (!p)
+            continue;
+        readTransect(eng, i, p);
         ++added;
     }
     return added;
@@ -168,28 +216,33 @@ int TransectRegistry::saveToEngine()
     return saveToEngine(m_engineHandle);
 }
 
-int TransectRegistry::saveToEngine(void *engineHandle)
+int TransectRegistry::saveToEngine(void *engineHandle, const QString &onlyName)
 {
-    if (!engineHandle) return 0;
+    if (!engineHandle)
+        return 0;
     auto *eng = static_cast<SWMM_Engine>(engineHandle);
     m_engineHandle = engineHandle;
 
     int written = 0;
     for (TransectProvider *p : m_providers) {
+        if (!onlyName.isEmpty() && p->name().compare(onlyName, Qt::CaseInsensitive) != 0)
+            continue;
         const QByteArray idUtf8 = p->name().toUtf8();
         int idx = swmm_transect_index(eng, idUtf8.constData());
         if (idx < 0) {
-            if (swmm_transect_add(eng, idUtf8.constData()) != SWMM_OK) continue;
+            if (swmm_transect_add(eng, idUtf8.constData()) != SWMM_OK)
+                continue;
             idx = swmm_transect_index(eng, idUtf8.constData());
-            if (idx < 0) continue;
+            if (idx < 0)
+                continue;
         }
         swmm_transect_set_comments(eng, idx, p->comments().toUtf8().constData());
         swmm_transect_set_roughness(eng, idx, p->nLeftBank(), p->nRightBank(), p->nChannel());
         swmm_transect_set_bank_stations(eng, idx, p->xLeftBank(), p->xRightBank());
-        swmm_transect_set_encroachment_stations(eng, idx,
-            p->xLeftEncroachment(), p->xRightEncroachment());
-        swmm_transect_set_modifiers(eng, idx,
-            p->stationMultiplier(), p->elevationOffset(), p->meanderFactor());
+        swmm_transect_set_encroachment_stations(eng, idx, p->xLeftEncroachment(),
+                                                p->xRightEncroachment());
+        swmm_transect_set_modifiers(eng, idx, p->stationMultiplier(), p->elevationOffset(),
+                                    p->meanderFactor());
         swmm_transect_clear_stations(eng, idx);
         for (const auto &pt : p->points())
             swmm_transect_add_station(eng, idx, pt.station, pt.elevation);

@@ -1,9 +1,12 @@
-/*!
- * \file   dashstylecombo.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      dashstylecombo.cpp
+ * @brief     mirroring QGIS's "Stroke style" picker.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/dashstylecombo.h"
 
 #include <QIcon>
@@ -11,27 +14,28 @@
 #include <QPen>
 #include <QPixmap>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-DashStyleCombo::DashStyleCombo(QWidget *parent)
-    : QComboBox(parent)
+DashStyleCombo::DashStyleCombo(QWidget *parent) : QComboBox(parent)
 {
     setIconSize(QSize(64, 18));
-    addItem(iconFor(Qt::SolidLine),      tr("Solid"),       int(Qt::SolidLine));
-    addItem(iconFor(Qt::DashLine),       tr("Dashed"),      int(Qt::DashLine));
-    addItem(iconFor(Qt::DotLine),        tr("Dotted"),      int(Qt::DotLine));
-    addItem(iconFor(Qt::DashDotLine),    tr("Dash-dot"),    int(Qt::DashDotLine));
-    addItem(iconFor(Qt::DashDotDotLine), tr("Dash-dot-dot"),int(Qt::DashDotDotLine));
-    addItem(iconFor(Qt::NoPen),          tr("None"),        int(Qt::NoPen));
+    addItem(iconFor(Qt::SolidLine), tr("Solid"), int(Qt::SolidLine));
+    addItem(iconFor(Qt::DashLine), tr("Dashed"), int(Qt::DashLine));
+    addItem(iconFor(Qt::DotLine), tr("Dotted"), int(Qt::DotLine));
+    addItem(iconFor(Qt::DashDotLine), tr("Dash-dot"), int(Qt::DashDotLine));
+    addItem(iconFor(Qt::DashDotDotLine), tr("Dash-dot-dot"), int(Qt::DashDotDotLine));
+    addItem(iconFor(Qt::NoPen), tr("None"), int(Qt::NoPen));
 
-    connect(this, qOverload<int>(&QComboBox::currentIndexChanged),
-            this, [this](int) { emit penStyleChanged(penStyle()); });
+    connect(this, qOverload<int>(&QComboBox::currentIndexChanged), this,
+            [this](int) { emit penStyleChanged(penStyle()); });
 }
 
 Qt::PenStyle DashStyleCombo::penStyle() const
 {
     const int idx = currentIndex();
-    if (idx < 0) return Qt::SolidLine;
+    if (idx < 0)
+        return Qt::SolidLine;
     return static_cast<Qt::PenStyle>(itemData(idx).toInt());
 }
 

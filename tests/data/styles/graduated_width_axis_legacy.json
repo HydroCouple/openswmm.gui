@@ -1,0 +1,38 @@
+{
+    "schema": "swmmvis-style/v1",
+    "layerType": "SWMMResultsLayer",
+    "sublayers": [
+        {
+            "id": "results.conduits",
+            "visible": true,
+            "opacity": 1,
+            "style": {
+                "attribute": "flow",
+                "color": "#ff3c3c3c",
+                "useColorRamp": true,
+                "lineWidthPx": 1.5,
+                "dashPattern": 1,
+                "showFlowArrows": true,
+                "arrowLengthPx": 16,
+                "arrowWidthPx": 8,
+                "arrowColor": "#dc141414",
+                "renderAsLine": true
+            }
+        }
+    ],
+    "kindRenderers": {
+        "Conduits": {
+            "id": "graduated",
+            "classifyAttribute": "LinkFlow",
+            "outputColorEnabled": true,
+            "outputSizeEnabled": false,
+            "outputSizeMin": 2,
+            "outputSizeMax": 18,
+            "outputWidthEnabled": true,
+            "outputWidthMin": 1.5,
+            "outputWidthMax": 9,
+            "sourceKind": "dynamic",
+            "rangeMode": "fixedOverRun"
+        }
+    }
+}

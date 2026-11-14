@@ -1,0 +1,21 @@
+Running main() from /Users/calebbuahin/Documents/Projects/vcpkg/buildtrees/gtest/src/v1.15.2-41f5afb119.clean/googletest/src/gtest_main.cc
+[==========] Running 6 tests from 1 test suite.
+[----------] Global test environment set-up.
+[----------] 6 tests from LardTransportTest
+[ RUN      ] LardTransportTest.SteadySourceArrivesIntactAtEveryRoutingStep
+[       OK ] LardTransportTest.SteadySourceArrivesIntactAtEveryRoutingStep (139 ms)
+[ RUN      ] LardTransportTest.NoElementEverExceedsTheSource
+[       OK ] LardTransportTest.NoElementEverExceedsTheSource (70 ms)
+[ RUN      ] LardTransportTest.QualityMassBalanceClosesMidTransient
+[       OK ] LardTransportTest.QualityMassBalanceClosesMidTransient (33 ms)
+[ RUN      ] LardTransportTest.PlugFlowDecayMatchesTheExponentialAndBeatsTheCstr
+[       OK ] LardTransportTest.PlugFlowDecayMatchesTheExponentialAndBeatsTheCstr (21 ms)
+[ RUN      ] LardTransportTest.SegmentStoreConservesMassUnderEveryOperation
+[       OK ] LardTransportTest.SegmentStoreConservesMassUnderEveryOperation (0 ms)
+[ RUN      ] LardTransportTest.OrificePassthroughDeliversTheSteadySignal
+[       OK ] LardTransportTest.OrificePassthroughDeliversTheSteadySignal (17 ms)
+[----------] 6 tests from LardTransportTest (281 ms total)
+
+[----------] Global test environment tear-down
+[==========] 6 tests from 1 test suite ran. (281 ms total)
+[  PASSED  ] 6 tests.

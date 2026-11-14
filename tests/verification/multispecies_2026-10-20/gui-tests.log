@@ -1,0 +1,20 @@
+********* Start testing of TestReactionSystemEditor *********
+Config: Using QtTest library 6.9.3, Qt 6.9.3 (arm64-little_endian-lp64 shared (dynamic) release build; by Apple LLVM 16.0.0 (clang-1600.0.26.3)), macos 27.0.1
+PASS   : TestReactionSystemEditor::initTestCase()
+QWARN  : TestReactionSystemEditor::duplicateIdentityDoesNotOverwriteSavedRows() qt.qpa.fonts: Populating font family aliases took 38 ms. Replace uses of missing font family "Sans Serif" with one that exists to avoid this cost.
+PASS   : TestReactionSystemEditor::duplicateIdentityDoesNotOverwriteSavedRows()
+PASS   : TestReactionSystemEditor::invalidationStopsExpressionEditorsAndLateWrites()
+PASS   : TestReactionSystemEditor::constructsWithNullEngine()
+PASS   : TestReactionSystemEditor::structuredCrudReachesEngine()
+PASS   : TestReactionSystemEditor::fileTabShowsStructuredEdits()
+PASS   : TestReactionSystemEditor::fileTabEditsReachEngine()
+PASS   : TestReactionSystemEditor::badTextGatesTheTabSwitch()
+PASS   : TestReactionSystemEditor::initOverridesCommit()
+PASS   : TestReactionSystemEditor::sourcesTabOpensConfiguration()
+PASS   : TestReactionSystemEditor::extendedSectionsSurviveFileAndStructuredEdits()
+PASS   : TestReactionSystemEditor::survivingOverrideRemainsEditable()
+PASS   : TestReactionSystemEditor::removingUncommittedRowPreservesOtherOverride()
+PASS   : TestReactionSystemEditor::changingOverrideIdentityReplacesOriginal()
+PASS   : TestReactionSystemEditor::cleanupTestCase()
+Totals: 15 passed, 0 failed, 0 skipped, 0 blacklisted, 609ms
+********* Finished testing of TestReactionSystemEditor *********

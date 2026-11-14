@@ -1,15 +1,11 @@
-/*!
- * \file   openswmmvisgraphicsview.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
- * \pre
- * \bug
- * \warning
- * \todo
+/**
+ * @file      openswmmvisgraphicsview.cpp
+ * @brief     raster buffer, hosting interactive vector items in scene coordinates.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @details
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QGraphicsScene>
@@ -51,14 +47,6 @@ OpenSWMMVisGraphicsView::OpenSWMMVisGraphicsView(OpenSWMMVisScene *scene, QWidge
     setMouseTracking(true);
 }
 
-OpenSWMMVisGraphicsView::OpenSWMMVisGraphicsView(QWidget *parent)
-    : QGraphicsView(parent)
-{
+OpenSWMMVisGraphicsView::OpenSWMMVisGraphicsView(QWidget *parent) : QGraphicsView(parent) {}
 
-}
-
-OpenSWMMVisGraphicsView::~OpenSWMMVisGraphicsView()
-{
-
-}
-
+OpenSWMMVisGraphicsView::~OpenSWMMVisGraphicsView() {}

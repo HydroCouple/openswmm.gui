@@ -1,8 +1,9 @@
-/*!
- * \file   test_comparisonplot_scatter.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_comparisonplot_scatter.cpp
+ * @brief     Tests for comparisonplot scatter.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * COMPARISON_PLOT_1V1_AND_TREE_PLAN Phase 2 — pins the 1v1 scatter pairing
  * that ComparisonPlotDialog::rebuildCharts builds per attribute row:
@@ -22,7 +23,9 @@
  * Self-contained: links seriespairing.cpp + comparisonplotmodel.cpp and a
  * stub IRunLayer; no dialog/widget linkage (the dialog pulls GDAL-heavy
  * layer deps).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "plot/comparisonplotmodel.h"
 #include "plot/irunlayer.h"
 #include "plot/plotattribute.h"
@@ -42,17 +45,38 @@ using namespace openswmmvis::plot;
 class RampRunLayer : public IRunLayer
 {
 public:
+    /** @brief Store a synthetic arithmetic time/value ramp.
+     * @param[in] name Scenario label moved into the fixture.
+     * @param[in] t0 Starting timestamp in Julian days.
+     * @param[in] step Report spacing in days.
+     * @param[in] n Number of samples generated; nonpositive values yield no samples.
+     * @param[in] base Initial numeric value, increasing by one per sample regardless of requested attribute.
+     * No range or finiteness checks are performed. */
     RampRunLayer(QString name, double t0, double step, int n, double base)
-        : m_name(std::move(name)), m_t0(t0), m_step(step), m_n(n), m_base(base) {}
+        : m_name(std::move(name)), m_t0(t0), m_step(step), m_n(n), m_base(base)
+    {
+    }
 
-    QString    scenarioName()      const override { return m_name; }
-    UnitSystem unitSystem()        const override { return UnitSystem::SI; }
-    double     startDateJulian()   const override { return m_t0; }
-    int        periodCount()       const override { return m_n; }
-    int        reportStepSeconds() const override
-    { return static_cast<int>(m_step * 86400.0); }
+    /** @brief Expose the stored scenario label.
+     * @return An independent string value of the configured name. */
+    QString scenarioName() const override { return m_name; }
+    /** @brief Identify the synthetic ramp units.
+     * @return SI for every requested attribute. */
+    UnitSystem unitSystem() const override { return UnitSystem::SI; }
+    /** @brief Expose the ramp start timestamp.
+     * @return Configured t0 in Julian days. */
+    double startDateJulian() const override { return m_t0; }
+    /** @brief Expose the configured ramp sample count.
+     * @return Stored n without clamping. */
+    int periodCount() const override { return m_n; }
+    /** @brief Convert configured report spacing to integral seconds.
+     * @return step multiplied by 86400 and truncated to int; the fixture requires a value representable by int. */
+    int reportStepSeconds() const override { return static_cast<int>(m_step * 86400.0); }
 
-    void getSeriesAt(const ObjectRef&, PlotAttribute, SeriesData& out) const override
+    /** @brief Replace time/value vectors with the configured ramp and mark the request successful.
+     * The unnamed object and attribute arguments are ignored.
+     * @param[out] out Required series object; vectors become t0+k*step and base+k for 0<=k<n. Other metadata/error fields are not reset. */
+    void getSeriesAt(const ObjectRef &, PlotAttribute, SeriesData &out) const override
     {
         out.timesJulian.clear();
         out.values.clear();
@@ -65,10 +89,10 @@ public:
 
 private:
     QString m_name;
-    double  m_t0;
-    double  m_step;
-    int     m_n;
-    double  m_base;
+    double m_t0;
+    double m_step;
+    int m_n;
+    double m_base;
 };
 
 class TestComparisonPlotScatter : public QObject
@@ -83,9 +107,10 @@ private slots:
     void everyAttributeRowProducesPairs();
 };
 
+/** @brief Verify equal time grids pair all four samples with expected baseline/comparison values. */
 void TestComparisonPlotScatter::identicalStepsPairAllSamples()
 {
-    const std::vector<double> t  = {0.0, 0.25, 0.5, 0.75};
+    const std::vector<double> t = {0.0, 0.25, 0.5, 0.75};
     const std::vector<double> bv = {1.0, 2.0, 3.0, 4.0};
     const std::vector<double> cv = {1.5, 2.5, 3.5, 4.5};
 
@@ -95,6 +120,7 @@ void TestComparisonPlotScatter::identicalStepsPairAllSamples()
     QCOMPARE(ps.y[2], 3.5);
 }
 
+/** @brief Verify one-sample streams pair on an identical timestamp despite lacking a report-step estimate. */
 void TestComparisonPlotScatter::singleSampleStreamsPairOnExactTimestamp()
 {
     // Regression: with <2 baseline samples the legacy walk used
@@ -106,41 +132,50 @@ void TestComparisonPlotScatter::singleSampleStreamsPairOnExactTimestamp()
     QCOMPARE(ps.y[0], 20.0);
 }
 
+/** @brief Verify hourly and quarter-hour grids pair only the four shared hourly timestamps. */
 void TestComparisonPlotScatter::differingStepsPairCommonTimestampsOnly()
 {
     // Baseline hourly (step 1/24), comparison every 15 min (step 1/96):
     // only top-of-hour samples coincide. Tolerance = half the smaller
     // step, so off-hour fine-run samples must NOT pair.
     std::vector<double> bt, bv, ct, cv;
-    for (int k = 0; k < 4; ++k)  { bt.push_back(k / 24.0); bv.push_back(k); }
-    for (int k = 0; k < 13; ++k) { ct.push_back(k / 96.0); cv.push_back(100.0 + k); }
+    for (int k = 0; k < 4; ++k) {
+        bt.push_back(k / 24.0);
+        bv.push_back(k);
+    }
+    for (int k = 0; k < 13; ++k) {
+        ct.push_back(k / 96.0);
+        cv.push_back(100.0 + k);
+    }
 
     const PairedSamples ps = pairSamplesNearest(bt, bv, ct, cv);
     QCOMPARE(ps.x.size(), std::size_t(4));
     for (std::size_t k = 0; k < ps.x.size(); ++k) {
         QCOMPARE(ps.x[k], double(k));
-        QCOMPARE(ps.y[k], 100.0 + 4.0 * k);   // every 4th fine sample
+        QCOMPARE(ps.y[k], 100.0 + 4.0 * k); // every 4th fine sample
     }
 }
 
+/** @brief Verify a NaN baseline value is omitted while later finite paired samples survive. */
 void TestComparisonPlotScatter::nonFiniteValuesAreDropped()
 {
     const double nan = std::numeric_limits<double>::quiet_NaN();
-    const std::vector<double> t  = {0.0, 0.25, 0.5};
-    const PairedSamples ps = pairSamplesNearest(t, {1.0, nan, 3.0},
-                                                t, {4.0, 5.0, 6.0});
+    const std::vector<double> t = {0.0, 0.25, 0.5};
+    const PairedSamples ps = pairSamplesNearest(t, {1.0, nan, 3.0}, t, {4.0, 5.0, 6.0});
     QCOMPARE(ps.x.size(), std::size_t(2));
     QCOMPARE(ps.x[1], 3.0);
     QCOMPARE(ps.y[1], 6.0);
 }
 
+/** @brief Verify disjoint baseline/comparison time intervals produce no pairs. */
 void TestComparisonPlotScatter::disjointRangesYieldEmptyPairing()
 {
-    const PairedSamples ps = pairSamplesNearest({0.0, 0.25}, {1.0, 2.0},
-                                                {10.0, 10.25}, {3.0, 4.0});
+    const PairedSamples ps = pairSamplesNearest({0.0, 0.25}, {1.0, 2.0}, {10.0, 10.25}, {3.0, 4.0});
     QVERIFY(ps.x.empty());
 }
 
+/** @brief Verify the model-based per-attribute pairing recipe produces eight pairs for each of two rows.
+ * Builds synthetic baseline/comparison runs and reproduces the dialog recipe directly without constructing its widget. */
 void TestComparisonPlotScatter::everyAttributeRowProducesPairs()
 {
     // Second-row regression: 2 runs × 2 attribute rows, same object and
@@ -150,21 +185,20 @@ void TestComparisonPlotScatter::everyAttributeRowProducesPairs()
     ComparisonPlotModel model;
 
     RunSource baseline;
-    baseline.layer = std::make_shared<RampRunLayer>(
-        QStringLiteral("baseline.out"), 0.0, 0.25, 8, 0.0);
-    const int baseIdx = model.addRunSource(std::move(baseline));   // run 0 = default baseline
+    baseline.layer =
+        std::make_shared<RampRunLayer>(QStringLiteral("baseline.out"), 0.0, 0.25, 8, 0.0);
+    const int baseIdx = model.addRunSource(std::move(baseline)); // run 0 = default baseline
 
     RunSource comparison;
-    comparison.layer = std::make_shared<RampRunLayer>(
-        QStringLiteral("scenario.out"), 0.0, 0.25, 8, 50.0);
+    comparison.layer =
+        std::make_shared<RampRunLayer>(QStringLiteral("scenario.out"), 0.0, 0.25, 8, 50.0);
     model.addRunSource(std::move(comparison));
 
-    const QVector<PlotAttribute> attrs = {PlotAttribute::NodeDepth,
-                                          PlotAttribute::NodeTotalInflow};
+    const QVector<PlotAttribute> attrs = {PlotAttribute::NodeDepth, PlotAttribute::NodeTotalInflow};
     for (PlotAttribute a : attrs) {
         for (int run = 0; run < 2; ++run) {
             SeriesSpec spec;
-            spec.runIndex  = run;
+            spec.runIndex = run;
             spec.objectRef = ObjectRef::forNode(QStringLiteral("J1"));
             spec.attribute = a;
             QVERIFY(model.addSeries(std::move(spec)) >= 0);
@@ -179,7 +213,8 @@ void TestComparisonPlotScatter::everyAttributeRowProducesPairs()
         QMap<QString, SeriesData> baseByObj;
         for (int sIdx : row.seriesIndices) {
             const SeriesSpec &spec = model.spec(sIdx);
-            if (spec.runIndex != baseIdx) continue;
+            if (spec.runIndex != baseIdx)
+                continue;
             SeriesData data;
             model.resolveSeries(sIdx, data);
             QVERIFY(data.ok);
@@ -191,15 +226,15 @@ void TestComparisonPlotScatter::everyAttributeRowProducesPairs()
         int paired = 0;
         for (int sIdx : row.seriesIndices) {
             const SeriesSpec &spec = model.spec(sIdx);
-            if (spec.runIndex == baseIdx) continue;
+            if (spec.runIndex == baseIdx)
+                continue;
             auto baseIt = baseByObj.find(spec.objectRef.name);
             QVERIFY(baseIt != baseByObj.end());
             SeriesData data;
             model.resolveSeries(sIdx, data);
             QVERIFY(data.ok);
             const PairedSamples ps = pairSamplesNearest(
-                baseIt.value().timesJulian, baseIt.value().values,
-                data.timesJulian, data.values);
+                baseIt.value().timesJulian, baseIt.value().values, data.timesJulian, data.values);
             QCOMPARE(ps.x.size(), std::size_t(8));
             ++paired;
         }

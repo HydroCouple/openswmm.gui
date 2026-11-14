@@ -1,6 +1,6 @@
-/*!
- * \file   test_object_defaults_prefs.cpp
- * \brief  Pins PreferencesManager::ObjectDefaults — the per-object-type
+/**
+ * @file      test_object_defaults_prefs.cpp
+ * @brief     Pins PreferencesManager::ObjectDefaults — the per-object-type
  *         creation-defaults bundle.
  *         Plan: workplans/OBJECT_CREATION_DEFAULTS_PLAN_2026-08-03.md
  *
@@ -14,6 +14,10 @@
  *  3. setObjectDefaults → objectDefaults round-trips fields through
  *     QSettings for both sets.
  *  4. setObjectDefaults emits preferenceChanged("Defaults", "ObjectDefaults").
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QtTest/QtTest>
@@ -29,10 +33,45 @@ class TestObjectDefaultsPrefs : public QObject
     Q_OBJECT
 
 private slots:
+    /**
+     *
+     * @brief Select dedicated openswmm-test/objectdefaults-test Qt identity and remove its
+     * object-default settings group.
+     * Mutates persistent test namespace and global application identity without restoration;
+     * sync errors unchecked. Requires isolated process and serialized settings access.
+     *
+     */
     void initTestCase();
+    /**
+     *
+     * @brief Pin representative US/SI creation defaults, including
+     * length/rainfall/storage/weir/outlet distinctions and dimensionless seeds.
+     * Reads seed structs without changing settings or creating model objects.
+     *
+     */
     void compiledSeedsPinTheTable();
+    /**
+     *
+     * @brief Write selected US object defaults and require matching values plus an untouched seed
+     * field on readback.
+     * Persists changes in the dedicated test settings namespace; no process reload or SI write
+     * here.
+     *
+     */
     void roundTripPersistsFields();
+    /**
+     *
+     * @brief Require separate US/SI conduit-diameter defaults to retain independent persisted
+     * values.
+     *
+     */
     void usAndSiSetsAreIndependent();
+    /**
+     *
+     * @brief Require a defaults setter to emit one Defaults/ObjectDefaults preference
+     * notification.
+     *
+     */
     void setterEmitsPreferenceChanged();
 };
 
@@ -71,7 +110,7 @@ void TestObjectDefaultsPrefs::compiledSeedsPinTheTable()
     QCOMPARE(us.conduitBarrels, 1);
     QCOMPARE(si.conduitGeom1, 0.3);
     QCOMPARE(si.conduitLength, 120.0);
-    QCOMPARE(si.conduitRoughness, 0.013);   // dimensionless — no override
+    QCOMPARE(si.conduitRoughness, 0.013); // dimensionless — no override
 
     QCOMPARE(us.pumpInitStateOn, true);
 
@@ -119,14 +158,14 @@ void TestObjectDefaultsPrefs::roundTripPersistsFields()
     using OD = PreferencesManager::ObjectDefaults;
 
     OD d = OD::usSeed();
-    d.junctionMaxDepth  = 12.5;
-    d.conduitGeom1      = 1.5;
-    d.conduitRoughness  = 0.024;
-    d.subcatchWidth     = 321.0;
-    d.weirCd            = 2.9;
-    d.outfallType       = QStringLiteral("NORMAL");
-    d.pumpInitStateOn   = false;
-    d.gageIntervalMin   = 5;
+    d.junctionMaxDepth = 12.5;
+    d.conduitGeom1 = 1.5;
+    d.conduitRoughness = 0.024;
+    d.subcatchWidth = 321.0;
+    d.weirCd = 2.9;
+    d.outfallType = QStringLiteral("NORMAL");
+    d.pumpInitStateOn = false;
+    d.gageIntervalMin = 5;
     p->setObjectDefaults(d, /*si=*/false);
 
     const OD r = p->objectDefaults(/*si=*/false);

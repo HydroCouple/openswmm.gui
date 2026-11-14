@@ -1,0 +1,112 @@
+{
+  "tests": 9,
+  "failures": 0,
+  "disabled": 0,
+  "errors": 0,
+  "timestamp": "2026-10-05T23:38:45Z",
+  "time": "0.957s",
+  "name": "AllTests",
+  "testsuites": [
+    {
+      "name": "RichardsColumn",
+      "tests": 9,
+      "failures": 0,
+      "disabled": 0,
+      "errors": 0,
+      "timestamp": "2026-10-05T23:38:45Z",
+      "time": "0.957s",
+      "testsuite": [
+        {
+          "name": "RetentionStorageInverseIncludingSaturation",
+          "file": "\/Users\/calebbuahin\/Documents\/Projects\/cbuahin_github\/openswmm.engine\/tests\/unit\/engine\/test_richards_column.cpp",
+          "line": 20,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-10-05T23:38:45Z",
+          "time": "0s",
+          "classname": "RichardsColumn"
+        },
+        {
+          "name": "SealedInfiltrationConservesAndWetsTopFirst",
+          "file": "\/Users\/calebbuahin\/Documents\/Projects\/cbuahin_github\/openswmm.engine\/tests\/unit\/engine\/test_richards_column.cpp",
+          "line": 29,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-10-05T23:38:45Z",
+          "time": "0.021s",
+          "classname": "RichardsColumn"
+        },
+        {
+          "name": "HydrostaticZeroFlowAtFullSaturation",
+          "file": "\/Users\/calebbuahin\/Documents\/Projects\/cbuahin_github\/openswmm.engine\/tests\/unit\/engine\/test_richards_column.cpp",
+          "line": 38,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-10-05T23:38:45Z",
+          "time": "0s",
+          "classname": "RichardsColumn"
+        },
+        {
+          "name": "HeadBoundaryDrivesCapillaryRiseAndBalances",
+          "file": "\/Users\/calebbuahin\/Documents\/Projects\/cbuahin_github\/openswmm.engine\/tests\/unit\/engine\/test_richards_column.cpp",
+          "line": 47,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-10-05T23:38:45Z",
+          "time": "0s",
+          "classname": "RichardsColumn"
+        },
+        {
+          "name": "BatchMatchesIndependentControllersForDifferentWetness",
+          "file": "\/Users\/calebbuahin\/Documents\/Projects\/cbuahin_github\/openswmm.engine\/tests\/unit\/engine\/test_richards_column.cpp",
+          "line": 57,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-10-05T23:38:45Z",
+          "time": "0.014s",
+          "classname": "RichardsColumn"
+        },
+        {
+          "name": "InvalidSaturatedStorageRollsBackWholeBatch",
+          "file": "\/Users\/calebbuahin\/Documents\/Projects\/cbuahin_github\/openswmm.engine\/tests\/unit\/engine\/test_richards_column.cpp",
+          "line": 68,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-10-05T23:38:45Z",
+          "time": "0s",
+          "classname": "RichardsColumn"
+        },
+        {
+          "name": "FreeDrainageAndEvaporationCloseWaterBalance",
+          "file": "\/Users\/calebbuahin\/Documents\/Projects\/cbuahin_github\/openswmm.engine\/tests\/unit\/engine\/test_richards_column.cpp",
+          "line": 73,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-10-05T23:38:45Z",
+          "time": "0.005s",
+          "classname": "RichardsColumn"
+        },
+        {
+          "name": "MaterialBarrierRestrictsDrainageWithoutLosingWater",
+          "file": "\/Users\/calebbuahin\/Documents\/Projects\/cbuahin_github\/openswmm.engine\/tests\/unit\/engine\/test_richards_column.cpp",
+          "line": 81,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-10-05T23:38:45Z",
+          "time": "0.018s",
+          "classname": "RichardsColumn"
+        },
+        {
+          "name": "TighteningTimeToleranceConvergesWettingProfile",
+          "file": "\/Users\/calebbuahin\/Documents\/Projects\/cbuahin_github\/openswmm.engine\/tests\/unit\/engine\/test_richards_column.cpp",
+          "line": 95,
+          "status": "RUN",
+          "result": "COMPLETED",
+          "timestamp": "2026-10-05T23:38:45Z",
+          "time": "0.896s",
+          "classname": "RichardsColumn"
+        }
+      ]
+    }
+  ]
+}

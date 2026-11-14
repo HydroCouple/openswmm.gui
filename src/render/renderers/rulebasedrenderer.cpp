@@ -1,8 +1,10 @@
-/*!
- * \file   rulebasedrenderer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      rulebasedrenderer.cpp
+ * @brief     First-match expression evaluation and persistence for rule-based symbols.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/renderers/rulebasedrenderer.h"
@@ -26,8 +28,7 @@ void RuleBasedRenderer::addRule(Rule r)
     m_rules.append(std::move(r));
 }
 
-SymbolStyle RuleBasedRenderer::symbolFor(const FeatureRef &,
-                                          const QVariantMap &attrs) const
+SymbolStyle RuleBasedRenderer::symbolFor(const FeatureRef &, const QVariantMap &attrs) const
 {
     // Slice X.25 — first-match rule evaluation via the lightweight
     // ExpressionEvaluator.  Rules are checked in order; the first rule
@@ -35,12 +36,9 @@ SymbolStyle RuleBasedRenderer::symbolFor(const FeatureRef &,
     // still match always (legacy "default rule first" pattern).  Mal-
     // formed expressions are skipped (treated as no-match) so a broken
     // rule can't shadow later ones.
-    for (const Rule &r : m_rules)
-    {
+    for (const Rule &r : m_rules) {
         QString err;
-        if (ExpressionEvaluator::eval(r.expression, attrs, &err)
-            && err.isEmpty())
-        {
+        if (ExpressionEvaluator::eval(r.expression, attrs, &err) && err.isEmpty()) {
             return r.symbol;
         }
     }
@@ -52,11 +50,10 @@ QList<LegendSymbolItem> RuleBasedRenderer::legendSymbolItems() const
     QList<LegendSymbolItem> items;
     items.reserve(m_rules.size());
     int idx = 0;
-    for (const Rule &r : m_rules)
-    {
+    for (const Rule &r : m_rules) {
         LegendSymbolItem item;
-        item.label     = r.label.isEmpty() ? r.expression : r.label;
-        item.symbol    = r.symbol;
+        item.label = r.label.isEmpty() ? r.expression : r.label;
+        item.symbol = r.symbol;
         item.sortIndex = idx++;
         items.append(item);
     }
@@ -69,16 +66,14 @@ QJsonObject RuleBasedRenderer::toJson() const
     obj.insert(QStringLiteral("id"), rendererId());
 
     QJsonArray rules;
-    for (const Rule &r : m_rules)
-    {
+    for (const Rule &r : m_rules) {
         QJsonObject ro;
         ro.insert(QStringLiteral("expression"), r.expression);
         if (!r.label.isEmpty())
             ro.insert(QStringLiteral("label"), r.label);
         ro.insert(QStringLiteral("symbol"), r.symbol.toJson());
         // Only emit scaleRange when non-default to keep the JSON compact.
-        if (r.scaleRange.first != 0.0 || r.scaleRange.second != 0.0)
-        {
+        if (r.scaleRange.first != 0.0 || r.scaleRange.second != 0.0) {
             QJsonObject sr;
             sr.insert(QStringLiteral("min"), r.scaleRange.first);
             sr.insert(QStringLiteral("max"), r.scaleRange.second);
@@ -95,17 +90,15 @@ void RuleBasedRenderer::fromJson(const QJsonObject &j)
 {
     m_rules.clear();
     const QJsonArray rules = j.value(QStringLiteral("rules")).toArray();
-    for (const QJsonValue &v : rules)
-    {
+    for (const QJsonValue &v : rules) {
         const QJsonObject ro = v.toObject();
         Rule r;
         r.expression = ro.value(QStringLiteral("expression")).toString();
-        r.label      = ro.value(QStringLiteral("label")).toString();
+        r.label = ro.value(QStringLiteral("label")).toString();
         r.symbol.fromJson(ro.value(QStringLiteral("symbol")).toObject());
-        if (ro.contains(QStringLiteral("scaleRange")))
-        {
+        if (ro.contains(QStringLiteral("scaleRange"))) {
             const QJsonObject sr = ro.value(QStringLiteral("scaleRange")).toObject();
-            r.scaleRange.first  = sr.value(QStringLiteral("min")).toDouble(0.0);
+            r.scaleRange.first = sr.value(QStringLiteral("min")).toDouble(0.0);
             r.scaleRange.second = sr.value(QStringLiteral("max")).toDouble(0.0);
         }
         m_rules.append(r);

@@ -1,9 +1,12 @@
-/*!
- * \file   irendererpanel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      irendererpanel.cpp
+ * @brief     Slice X.2.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/irendererpanel.h"
 
 // Header-only include for the QObject upcast — no qobject_cast to layer
@@ -13,17 +16,18 @@
 
 #include <QObject>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
-RendererPanelContext RendererPanelContext::resolve(
-    OpenSWMMVisLayer *layer,
-    std::optional<OpenSWMMVis::SwmmCategory> category,
-    OpenSWMM::Render::Rule *rule)
+RendererPanelContext
+RendererPanelContext::resolve(OpenSWMMVisLayer *layer,
+                              std::optional<OpenSWMMVis::SwmmCategory> category,
+                              OpenSWMM::Render::Rule *rule)
 {
     RendererPanelContext ctx;
     ctx.hostLayer = layer;
-    ctx.category  = category;
-    ctx.rule      = rule;
+    ctx.category = category;
+    ctx.rule = rule;
 
     // Gap A4.1 — single copy of the rule → RuleList → owning-layer parent
     // walk previously duplicated across the kind / categorized panels.
@@ -42,10 +46,10 @@ RendererPanelContext RendererPanelContext::resolve(
     }
 
     if (layerForProvider) {
-        if (auto *provider = qobject_cast<OpenSWMM::Render::IAttributeProvider *>(
-                layerForProvider)) {
-            ctx.fields = provider->availableAttributes(
-                category.value_or(OpenSWMMVis::CatJunctions));
+        if (auto *provider =
+                qobject_cast<OpenSWMM::Render::IAttributeProvider *>(layerForProvider)) {
+            ctx.fields =
+                provider->availableAttributes(category.value_or(OpenSWMMVis::CatJunctions));
         }
         ctx.animated = layerForProvider->inherits("SWMMResultsLayer");
     }
@@ -62,22 +66,20 @@ RendererPanelRegistry &RendererPanelRegistry::instance()
     return s;
 }
 
-void RendererPanelRegistry::registerRenderer(QString rendererId,
-                                              QString displayName,
-                                              RendererPanelRegistry::Factory factory,
-                                              RendererPanelRegistry::Applicable applicable,
-                                              QString disabledReason)
+void RendererPanelRegistry::registerRenderer(QString rendererId, QString displayName,
+                                             RendererPanelRegistry::Factory factory,
+                                             RendererPanelRegistry::Applicable applicable,
+                                             QString disabledReason)
 {
-    m_entries.push_back({std::move(rendererId), std::move(displayName),
-                         std::move(factory), std::move(applicable),
-                         std::move(disabledReason)});
+    m_entries.push_back({std::move(rendererId), std::move(displayName), std::move(factory),
+                         std::move(applicable), std::move(disabledReason)});
 }
 
-const RendererPanelRegistry::Entry *
-RendererPanelRegistry::find(const QString &rendererId) const
+const RendererPanelRegistry::Entry *RendererPanelRegistry::find(const QString &rendererId) const
 {
     for (const auto &e : m_entries)
-        if (e.rendererId == rendererId) return &e;
+        if (e.rendererId == rendererId)
+            return &e;
     return nullptr;
 }
 

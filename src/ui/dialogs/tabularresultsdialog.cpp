@@ -1,13 +1,24 @@
-/*!
- * \file   tabularresultsdialog.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      tabularresultsdialog.cpp
+ * @brief     Two view modes: - **By object** — pick an object kind + a variable; one row per
+ *            object, one column per report time. - **By variable** — pick an object; one row per
+ *            report time, one column per variable of that kind. V6: every value is an IRunLayer
+ *            series of a ResultDescriptor (species, loads, 2D variables and 2D regions included).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/tabularresultsdialog.h"
 
+#include "layers/swmm2dresultslayer.h"
 #include "layers/swmmresultslayer.h"
+#include "plot/mesh2drunlayer.h"
+#include "plot/pollutantload.h"
+#include "plot/swmmoutrunlayer.h"
 #include "ui/theme/iconfactory.h"
+#include "ui/util/tableclipboard.h"
 
 #include <openswmm/engine/openswmm_output.h>
 
@@ -17,24 +28,69 @@
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
+#include <QMessageBox>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QSet>
 #include <QStandardItemModel>
 #include <QTableView>
-#include <QTextStream>
 #include <QVBoxLayout>
 
-#include <vector>
+#include <algorithm>
+#include <set>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
+
+using plot::ObjectRef;
+using plot::ResultDescriptor;
+using plot::SeriesData;
+using plot::SeriesRequest;
+
+namespace
+{
+ObjectRef::Kind objectKind(int kind)
+{
+    switch (kind) {
+    case TabularResultsDialog::Nodes:
+        return ObjectRef::Kind::Node;
+    case TabularResultsDialog::Links:
+        return ObjectRef::Kind::Link;
+    case TabularResultsDialog::Subcatchments:
+        return ObjectRef::Kind::Subcatch;
+    case TabularResultsDialog::System:
+        return ObjectRef::Kind::System;
+    case TabularResultsDialog::Cells2D:
+    case TabularResultsDialog::Regions2D:
+        return ObjectRef::Kind::Mesh2DCell;
+    default:
+        return ObjectRef::Kind::Unknown;
+    }
+}
+
+bool is1D(int kind)
+{
+    return kind >= TabularResultsDialog::Nodes && kind <= TabularResultsDialog::System;
+}
+} // namespace
 
 TabularResultsDialog::TabularResultsDialog(SWMMResultsLayer *layer, QWidget *parent)
-    : QDialog(parent), m_layer(layer)
+    : TabularResultsDialog(layer, nullptr, parent)
+{
+}
+
+TabularResultsDialog::TabularResultsDialog(SWMMResultsLayer *layer, SWMM2DResultsLayer *mesh,
+                                           QWidget *parent)
+    : QDialog(parent), m_layer(layer), m_mesh(mesh)
 {
     setWindowTitle(tr("Tabular Results"));
     // Iteration 2 (D3) — naming wires the app-wide layout persistence.
     setObjectName(QStringLiteral("TabularResultsDialog"));
     resize(1080, 640);
+    if (layer)
+        m_run1D = std::make_unique<plot::SwmmOutRunLayer>(layer);
+    if (mesh)
+        m_run2D = std::make_unique<plot::Mesh2DRunLayer>(mesh);
     buildUi();
     onModeChanged();
 }
@@ -48,17 +104,37 @@ void TabularResultsDialog::buildUi()
     // Mode + selectors row.
     auto *modeGrp = new QGroupBox(tr("View"), this);
     auto *modeRow = new QHBoxLayout(modeGrp);
-    m_byObjectRadio   = new QRadioButton(tr("By object"),   modeGrp);
+    m_byObjectRadio = new QRadioButton(tr("By object"), modeGrp);
     m_byVariableRadio = new QRadioButton(tr("By variable"), modeGrp);
     m_byObjectRadio->setChecked(true);
 
     m_kindCombo = new QComboBox(modeGrp);
-    m_kindCombo->addItem(tr("Nodes"),         0);
-    m_kindCombo->addItem(tr("Links"),         1);
-    m_kindCombo->addItem(tr("Subcatchments"), 2);
+    m_kindCombo->setObjectName(QStringLiteral("tabularKind"));
+    if (m_layer) {
+        m_kindCombo->addItem(tr("Nodes"), int(Nodes));
+        m_kindCombo->addItem(tr("Links"), int(Links));
+        m_kindCombo->addItem(tr("Subcatchments"), int(Subcatchments));
+        m_kindCombo->addItem(tr("System"), int(System));
+    }
+    if (m_mesh) {
+        m_kindCombo->addItem(tr("2D cells (map selection)"), int(Cells2D));
+        m_kindCombo->addItem(tr("2D regions (selection, tags, domain)"), int(Regions2D));
+    }
 
     m_varOrObjCombo = new QComboBox(modeGrp);
-    m_varOrObjCombo->setMinimumWidth(220);
+    m_varOrObjCombo->setObjectName(QStringLiteral("tabularVariableOrObject"));
+    m_varOrObjCombo->setMinimumWidth(260);
+
+    m_aggregateLabel = new QLabel(tr("Aggregate:"), modeGrp);
+    m_aggregateCombo = new QComboBox(modeGrp);
+    m_aggregateCombo->setObjectName(QStringLiteral("tabularAggregate"));
+    for (auto a : {results::MeshAggregate::AreaWeightedMean, results::MeshAggregate::Mean,
+                   results::MeshAggregate::Sum, results::MeshAggregate::Mass})
+        m_aggregateCombo->addItem(results::aggregateLabel(a), int(a));
+    m_aggregateCombo->setToolTip(
+        tr("How the cells of a region combine at each report time. Mass = concentration x "
+           "water volume (depth x cell area); offered for surface species concentrations. "
+           "Missing cells are left out, never counted as zero."));
 
     modeRow->addWidget(m_byObjectRadio);
     modeRow->addWidget(m_byVariableRadio);
@@ -67,16 +143,20 @@ void TabularResultsDialog::buildUi()
     modeRow->addWidget(m_kindCombo);
     modeRow->addWidget(new QLabel(tr("Variable / Object:"), modeGrp));
     modeRow->addWidget(m_varOrObjCombo, 1);
+    modeRow->addWidget(m_aggregateLabel);
+    modeRow->addWidget(m_aggregateCombo);
     root->addWidget(modeGrp);
 
     // Table.
     m_model = new QStandardItemModel(this);
-    m_table = new QTableView(this);
-    m_table->setModel(m_model);
-    m_table->setSortingEnabled(true);
-    m_table->setAlternatingRowColors(true);
-    m_table->horizontalHeader()->setSectionResizeMode(QHeaderView::ResizeToContents);
-    root->addWidget(m_table, 1);
+    m_tableView = new QTableView(this);
+    openswmmvis::ui::TableClipboard::install(m_tableView, {.copyOnly = true});
+    m_tableView->setModel(m_model);
+    m_tableView->setSortingEnabled(true);
+    m_tableView->setAlternatingRowColors(true);
+    m_tableView->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_tableView->horizontalHeader()->setSectionResizeMode(QHeaderView::Interactive);
+    root->addWidget(m_tableView, 1);
 
     // Buttons.
     auto *btnRow = new QHBoxLayout;
@@ -84,6 +164,9 @@ void TabularResultsDialog::buildUi()
                                    tr("Export CSV…"), this);
     auto *tsvBtn = new QPushButton(openswmmvis::ui::IconFactory::icon(QStringLiteral("ExportCsv")),
                                    tr("Export TSV…"), this);
+    csvBtn->setToolTip(tr("Header, a Units row, then the rows; missing values are blank (not "
+                          "zero) and the Status column says what is missing."));
+    tsvBtn->setToolTip(csvBtn->toolTip());
     auto *closeBtn = new QPushButton(tr("Close"), this);
     btnRow->addWidget(csvBtn);
     btnRow->addWidget(tsvBtn);
@@ -91,236 +174,305 @@ void TabularResultsDialog::buildUi()
     btnRow->addWidget(closeBtn);
     root->addLayout(btnRow);
 
-    connect(m_byObjectRadio,   &QRadioButton::toggled, this, &TabularResultsDialog::onModeChanged);
-    connect(m_byVariableRadio, &QRadioButton::toggled, this, &TabularResultsDialog::onModeChanged);
-    connect(m_kindCombo,       QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &TabularResultsDialog::onSelectionChanged);
-    connect(m_varOrObjCombo,   QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &TabularResultsDialog::onSelectionChanged);
-    connect(csvBtn,   &QPushButton::clicked, this, &TabularResultsDialog::onExportCsvClicked);
-    connect(tsvBtn,   &QPushButton::clicked, this, &TabularResultsDialog::onExportTsvClicked);
+    connect(m_byObjectRadio, &QRadioButton::toggled, this, &TabularResultsDialog::onModeChanged);
+    connect(m_kindCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &TabularResultsDialog::onModeChanged);
+    connect(m_aggregateCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &TabularResultsDialog::onModeChanged);
+    connect(m_varOrObjCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &TabularResultsDialog::onSelectionChanged);
+    connect(csvBtn, &QPushButton::clicked, this, &TabularResultsDialog::onExportCsvClicked);
+    connect(tsvBtn, &QPushButton::clicked, this, &TabularResultsDialog::onExportTsvClicked);
     connect(closeBtn, &QPushButton::clicked, this, &QDialog::accept);
+}
+
+void TabularResultsDialog::setCellTags(const QStringList &tags)
+{
+    m_cellTags = tags;
+    onModeChanged();
+}
+
+results::MeshAggregate TabularResultsDialog::currentAggregate() const
+{
+    return static_cast<results::MeshAggregate>(m_aggregateCombo->currentData().toInt());
+}
+
+std::vector<int> TabularResultsDialog::selectedCells() const
+{
+    // The map's selection, mapped exactly as the 2D style panel's
+    // selected-cell table maps it (display triangle -> engine cell).
+    std::set<int> cells;
+    if (m_mesh) {
+        const auto &triCell = m_mesh->triCellMap();
+        for (int triangle : m_mesh->highlightedCells())
+            if (triangle >= 0 && std::size_t(triangle) < triCell.size() &&
+                triCell[std::size_t(triangle)] >= 0)
+                cells.insert(triCell[std::size_t(triangle)]);
+    }
+    return {cells.begin(), cells.end()};
+}
+
+QVector<results::MeshRegion> TabularResultsDialog::regions() const
+{
+    QVector<results::MeshRegion> out;
+    const auto *src = m_mesh ? m_mesh->source() : nullptr;
+    const int cells = src ? src->triangleCount() : 0;
+    if (cells <= 0)
+        return out;
+    const auto selection = selectedCells();
+    if (!selection.empty())
+        out.append({tr("Selection"), selection});
+    if (m_cellTags.size() == cells)
+        out += results::tagRegions(m_cellTags);
+    out.append(results::domainRegion(cells));
+    for (auto &r : out)
+        r.label = tr("%1 (%n cells)", nullptr, int(r.cells.size())).arg(r.label);
+    return out;
+}
+
+QVector<ResultDescriptor> TabularResultsDialog::descriptorsFor(int kind) const
+{
+    QVector<ResultDescriptor> out;
+    if (is1D(kind)) {
+        if (m_run1D)
+            out = m_run1D->resultDescriptorsForKind(objectKind(kind));
+        return out;
+    }
+    if (!m_run2D)
+        return out;
+    const auto cellDescriptors = m_run2D->resultDescriptorsForKind(ObjectRef::Kind::Mesh2DCell);
+    for (const ResultDescriptor &d : cellDescriptors) {
+        if (!d.isMeshVariable() && !m_run2D->supportsAttribute(d.attr))
+            continue;
+        if (kind == Regions2D) {
+            // Regions aggregate the depth and the catalog variables.
+            if (!d.isMeshVariable() && d.attr != plot::PlotAttribute::Mesh2DDepth)
+                continue;
+            if (currentAggregate() == results::MeshAggregate::Mass && !m_run2D->massAvailable(d))
+                continue;
+        }
+        out.append(d);
+    }
+    return out;
+}
+
+QVector<TabularResultsDialog::Row> TabularResultsDialog::rowsFor(int kind) const
+{
+    QVector<Row> rows;
+    switch (kind) {
+    case Nodes:
+    case Links:
+    case Subcatchments: {
+        SWMM_Output h = m_layer ? m_layer->outputHandle() : nullptr;
+        if (!h)
+            break;
+        const int n = kind == Nodes   ? swmm_output_get_node_count(h)
+                      : kind == Links ? swmm_output_get_link_count(h)
+                                      : swmm_output_get_subcatch_count(h);
+        for (int i = 0; i < n; ++i) {
+            const char *id = kind == Nodes   ? swmm_output_get_node_id(h, i)
+                             : kind == Links ? swmm_output_get_link_id(h, i)
+                                             : swmm_output_get_subcatch_id(h, i);
+            const QString name = QString::fromUtf8(id);
+            rows.append({name, ObjectRef(objectKind(kind), name), -1});
+        }
+        break;
+    }
+    case System:
+        if (m_layer && m_layer->outputHandle())
+            rows.append({tr("System"), ObjectRef::forSystem(), -1});
+        break;
+    case Cells2D:
+        for (int c : selectedCells())
+            rows.append({tr("Cell %1").arg(c), ObjectRef::forMesh2DCell(c), -1});
+        break;
+    case Regions2D: {
+        const auto all = regions();
+        for (int r = 0; r < all.size(); ++r)
+            rows.append({all[r].label, ObjectRef{}, r});
+        break;
+    }
+    default:
+        break;
+    }
+    return rows;
+}
+
+QString TabularResultsDialog::headerFor(const ResultDescriptor &d) const
+{
+    return d.label();
+}
+
+QString TabularResultsDialog::unitsFor(const ResultDescriptor &d, int kind) const
+{
+    if (kind == Regions2D)
+        return m_run2D ? m_run2D->regionUnits(d, currentAggregate()) : QString();
+    if (is1D(kind)) {
+        if (!m_run1D)
+            return {};
+        // .out flow columns are in the run's flow units (LPS, MGD, ...).
+        using PA = plot::PlotAttribute;
+        static const QSet<PA> flows{PA::NodeLateralInflow, PA::NodeTotalInflow,
+                                    PA::NodeOverflow,      PA::LinkFlow,
+                                    PA::SubcatchRunoff,    PA::SubcatchGwFlow,
+                                    PA::SystemRunoff,      PA::SystemDwInflow,
+                                    PA::SystemGwInflow,    PA::SystemRdiiInflow,
+                                    PA::SystemExtInflow,   PA::SystemLatInflow,
+                                    PA::SystemFlooding,    PA::SystemOutflow};
+        const QString flow =
+            plot::pollutantload::flowUnitsName(m_layer ? m_layer->flowUnits() : -1);
+        if (!d.isSpecies() && !d.isMeshVariable() && flows.contains(d.attr) && !flow.isEmpty())
+            return flow;
+        return d.unitLabel(m_run1D->unitSystem());
+    }
+    return d.unitLabel(plot::UnitSystem::SI);
+}
+
+QVector<SeriesData> TabularResultsDialog::fetch(int kind, const QVector<Row> &rows,
+                                                const ResultDescriptor &d) const
+{
+    QVector<SeriesData> out;
+    if (kind == Regions2D) {
+        if (!m_run2D)
+            return QVector<SeriesData>(rows.size());
+        const auto all = regions();
+        QVector<results::MeshRegion> wanted;
+        for (const Row &r : rows)
+            wanted.append(r.region >= 0 && r.region < all.size() ? all[r.region]
+                                                                 : results::MeshRegion{});
+        m_run2D->getRegionSeries(wanted, d, currentAggregate(), out);
+        return out;
+    }
+    const plot::IRunLayer *run = is1D(kind) ? static_cast<const plot::IRunLayer *>(m_run1D.get())
+                                            : static_cast<const plot::IRunLayer *>(m_run2D.get());
+    if (!run)
+        return QVector<SeriesData>(rows.size());
+    QVector<SeriesRequest> requests;
+    for (const Row &r : rows)
+        requests.append({r.ref, d, 0});
+    run->getSeriesBatch(requests, out);
+    return out;
 }
 
 void TabularResultsDialog::onModeChanged()
 {
-    if (!m_layer) return;
-    SWMM_Output handle = m_layer->outputHandle();
-    if (!handle) return;
-    const bool byObject = m_byObjectRadio->isChecked();
+    const int kind = m_kindCombo->currentData().toInt();
+    const bool regions2D = kind == Regions2D;
+    m_aggregateLabel->setVisible(regions2D);
+    m_aggregateCombo->setVisible(regions2D);
 
     m_varOrObjCombo->blockSignals(true);
     m_varOrObjCombo->clear();
-
-    if (byObject) {
-        // List variables for the current kind.
-        const int kind = m_kindCombo->currentData().toInt();
-        switch (kind) {
-        case 0:  // node
-            m_varOrObjCombo->addItem(tr("Depth"),         SWMM_OUT_NODE_DEPTH);
-            m_varOrObjCombo->addItem(tr("Head"),          SWMM_OUT_NODE_HEAD);
-            m_varOrObjCombo->addItem(tr("Volume"),        SWMM_OUT_NODE_VOLUME);
-            m_varOrObjCombo->addItem(tr("Lateral inflow"),SWMM_OUT_NODE_LATERAL_INFLOW);
-            m_varOrObjCombo->addItem(tr("Total inflow"),  SWMM_OUT_NODE_TOTAL_INFLOW);
-            m_varOrObjCombo->addItem(tr("Overflow"),      SWMM_OUT_NODE_OVERFLOW);
-            break;
-        case 1:  // link
-            m_varOrObjCombo->addItem(tr("Flow"),     SWMM_OUT_LINK_FLOW);
-            m_varOrObjCombo->addItem(tr("Depth"),    SWMM_OUT_LINK_DEPTH);
-            m_varOrObjCombo->addItem(tr("Velocity"), SWMM_OUT_LINK_VELOCITY);
-            m_varOrObjCombo->addItem(tr("Volume"),   SWMM_OUT_LINK_VOLUME);
-            m_varOrObjCombo->addItem(tr("Capacity"), SWMM_OUT_LINK_CAPACITY);
-            break;
-        default: // subcatch
-            m_varOrObjCombo->addItem(tr("Rainfall"),    SWMM_OUT_SUBCATCH_RAINFALL);
-            m_varOrObjCombo->addItem(tr("Snow depth"),  SWMM_OUT_SUBCATCH_SNOW_DEPTH);
-            m_varOrObjCombo->addItem(tr("Evap"),        SWMM_OUT_SUBCATCH_EVAP);
-            m_varOrObjCombo->addItem(tr("Infiltration"),SWMM_OUT_SUBCATCH_INFIL);
-            m_varOrObjCombo->addItem(tr("Runoff"),      SWMM_OUT_SUBCATCH_RUNOFF);
-            break;
-        }
-        rebuildByObject();
-    } else {
-        // List objects of the current kind.
-        const int kind = m_kindCombo->currentData().toInt();
-        int n = 0;
-        auto idOf = [&](int idx) -> const char* {
-            switch (kind) {
-            case 0: return swmm_output_get_node_id(handle, idx);
-            case 1: return swmm_output_get_link_id(handle, idx);
-            default: return swmm_output_get_subcatch_id(handle, idx);
+    m_comboDescriptors.clear();
+    m_comboRows.clear();
+    if (m_kindCombo->count() > 0) {
+        if (m_byObjectRadio->isChecked()) {
+            m_comboDescriptors = descriptorsFor(kind);
+            for (const ResultDescriptor &d : std::as_const(m_comboDescriptors)) {
+                const QString units = unitsFor(d, kind);
+                m_varOrObjCombo->addItem(units.isEmpty()
+                                             ? headerFor(d)
+                                             : QStringLiteral("%1 (%2)").arg(headerFor(d), units));
+                if (!d.variableNote.isEmpty()) // e.g. loads: report-step, not the .rpt total
+                    m_varOrObjCombo->setItemData(m_varOrObjCombo->count() - 1, d.variableNote,
+                                                 Qt::ToolTipRole);
             }
-        };
-        switch (kind) {
-        case 0: n = swmm_output_get_node_count(handle);     break;
-        case 1: n = swmm_output_get_link_count(handle);     break;
-        default:n = swmm_output_get_subcatch_count(handle); break;
+        } else {
+            m_comboRows = rowsFor(kind);
+            for (const Row &r : std::as_const(m_comboRows))
+                m_varOrObjCombo->addItem(r.label);
         }
-        for (int i = 0; i < n; ++i) {
-            m_varOrObjCombo->addItem(QString::fromUtf8(idOf(i)), i);
-        }
-        rebuildByVariable();
     }
     m_varOrObjCombo->blockSignals(false);
+    onSelectionChanged();
 }
 
 void TabularResultsDialog::onSelectionChanged()
 {
-    if (m_byObjectRadio->isChecked()) rebuildByObject();
-    else                                rebuildByVariable();
+    if (m_byObjectRadio->isChecked())
+        rebuildByObject();
+    else
+        rebuildByVariable();
 }
 
 void TabularResultsDialog::rebuildByObject()
 {
-    if (!m_layer) return;
-    SWMM_Output handle = m_layer->outputHandle();
-    if (!handle) return;
-    const int periods = swmm_output_get_period_count(handle);
     const int kind = m_kindCombo->currentData().toInt();
-    const int var  = m_varOrObjCombo->currentData().toInt();
-
-    auto countOf = [&]() -> int {
-        switch (kind) {
-        case 0:  return swmm_output_get_node_count(handle);
-        case 1:  return swmm_output_get_link_count(handle);
-        default: return swmm_output_get_subcatch_count(handle);
-        }
-    };
-    auto idOf = [&](int idx) -> const char* {
-        switch (kind) {
-        case 0:  return swmm_output_get_node_id(handle, idx);
-        case 1:  return swmm_output_get_link_id(handle, idx);
-        default: return swmm_output_get_subcatch_id(handle, idx);
-        }
-    };
-    auto fetchSeries = [&](int idx, std::vector<float>& v) -> bool {
-        switch (kind) {
-        case 0: return swmm_output_get_node_series(handle, idx, var, 0, periods - 1, v.data()) == 0;
-        case 1: return swmm_output_get_link_series(handle, idx, var, 0, periods - 1, v.data()) == 0;
-        default:return swmm_output_get_subcatch_series(handle, idx, var, 0, periods - 1, v.data()) == 0;
-        }
-    };
-
-    const int n = countOf();
-    m_model->clear();
-    QStringList headers;
-    headers << tr("Object");
-    for (int p = 0; p < periods; ++p)
-        headers << tr("t=%1").arg(p);
-    m_model->setHorizontalHeaderLabels(headers);
-
-    std::vector<float> ser(periods);
-    for (int j = 0; j < n; ++j) {
-        QList<QStandardItem*> row;
-        row << new QStandardItem(QString::fromUtf8(idOf(j)));
-        if (fetchSeries(j, ser)) {
-            for (int p = 0; p < periods; ++p) {
-                auto *it = new QStandardItem(QString::number(double(ser[p]), 'f', 3));
-                it->setData(double(ser[p]), Qt::EditRole);
-                row << it;
-            }
-        }
-        m_model->appendRow(row);
+    const int index = m_varOrObjCombo->currentIndex();
+    m_table = {};
+    if (index >= 0 && index < m_comboDescriptors.size()) {
+        const ResultDescriptor &d = m_comboDescriptors[index];
+        const QVector<Row> rows = rowsFor(kind);
+        QStringList labels;
+        for (const Row &r : rows)
+            labels.append(r.label);
+        m_table = results::tableByObject(labels, fetch(kind, rows, d), unitsFor(d, kind),
+                                         d.variableNote);
     }
+    results::fillItemModel(m_table, *m_model);
 }
 
 void TabularResultsDialog::rebuildByVariable()
 {
-    if (!m_layer) return;
-    SWMM_Output handle = m_layer->outputHandle();
-    if (!handle) return;
-    const int periods = swmm_output_get_period_count(handle);
     const int kind = m_kindCombo->currentData().toInt();
-    const int objIdx = m_varOrObjCombo->currentData().toInt();
-    if (periods <= 0 || objIdx < 0) return;
-
-    QVector<QPair<QString,int>> vars;
-    switch (kind) {
-    case 0:
-        vars = {{tr("Depth"), SWMM_OUT_NODE_DEPTH}, {tr("Head"), SWMM_OUT_NODE_HEAD},
-                {tr("Volume"), SWMM_OUT_NODE_VOLUME},
-                {tr("Lat inflow"), SWMM_OUT_NODE_LATERAL_INFLOW},
-                {tr("Tot inflow"), SWMM_OUT_NODE_TOTAL_INFLOW},
-                {tr("Overflow"), SWMM_OUT_NODE_OVERFLOW}};
-        break;
-    case 1:
-        vars = {{tr("Flow"), SWMM_OUT_LINK_FLOW}, {tr("Depth"), SWMM_OUT_LINK_DEPTH},
-                {tr("Velocity"), SWMM_OUT_LINK_VELOCITY},
-                {tr("Volume"), SWMM_OUT_LINK_VOLUME}, {tr("Capacity"), SWMM_OUT_LINK_CAPACITY}};
-        break;
-    default:
-        vars = {{tr("Rainfall"), SWMM_OUT_SUBCATCH_RAINFALL},
-                {tr("Snow"), SWMM_OUT_SUBCATCH_SNOW_DEPTH},
-                {tr("Evap"), SWMM_OUT_SUBCATCH_EVAP},
-                {tr("Infil"), SWMM_OUT_SUBCATCH_INFIL},
-                {tr("Runoff"), SWMM_OUT_SUBCATCH_RUNOFF}};
-        break;
-    }
-
-    m_model->clear();
-    QStringList headers;
-    headers << tr("Period");
-    for (const auto &p : vars) headers << p.first;
-    m_model->setHorizontalHeaderLabels(headers);
-
-    QVector<std::vector<float>> cols(vars.size());
-    for (int c = 0; c < vars.size(); ++c) {
-        cols[c].resize(periods);
-        const int v = vars[c].second;
-        int rc = -1;
-        if (kind == 0) rc = swmm_output_get_node_series(handle, objIdx, v, 0, periods - 1, cols[c].data());
-        else if (kind == 1) rc = swmm_output_get_link_series(handle, objIdx, v, 0, periods - 1, cols[c].data());
-        else  rc = swmm_output_get_subcatch_series(handle, objIdx, v, 0, periods - 1, cols[c].data());
-        if (rc != 0) cols[c].assign(periods, 0.0f);
-    }
-
-    for (int p = 0; p < periods; ++p) {
-        QList<QStandardItem*> row;
-        row << new QStandardItem(QString::number(p));
-        row.first()->setData(p, Qt::EditRole);
-        for (int c = 0; c < vars.size(); ++c) {
-            auto *it = new QStandardItem(QString::number(double(cols[c][p]), 'f', 3));
-            it->setData(double(cols[c][p]), Qt::EditRole);
-            row << it;
+    const int index = m_varOrObjCombo->currentIndex();
+    m_table = {};
+    if (index >= 0 && index < m_comboRows.size()) {
+        const Row &row = m_comboRows[index];
+        const QVector<ResultDescriptor> descriptors = descriptorsFor(kind);
+        QStringList headers, units, notes;
+        QVector<SeriesData> series;
+        if (kind == Regions2D) {
+            for (const ResultDescriptor &d : descriptors) {
+                headers.append(headerFor(d));
+                units.append(unitsFor(d, kind));
+                notes.append(d.variableNote);
+                series.append(fetch(kind, {row}, d).value(0));
+            }
+        } else if (const plot::IRunLayer *run =
+                       is1D(kind) ? static_cast<const plot::IRunLayer *>(m_run1D.get())
+                                  : static_cast<const plot::IRunLayer *>(m_run2D.get())) {
+            QVector<SeriesRequest> requests;
+            for (const ResultDescriptor &d : descriptors) {
+                headers.append(headerFor(d));
+                units.append(unitsFor(d, kind));
+                notes.append(d.variableNote);
+                requests.append({row.ref, d, 0});
+            }
+            run->getSeriesBatch(requests, series);
         }
-        m_model->appendRow(row);
+        m_table = results::tableByVariable(headers, units, series, notes);
     }
+    results::fillItemModel(m_table, *m_model);
+}
+
+bool TabularResultsDialog::exportTo(const QString &path, QChar delimiter, QString *error) const
+{
+    return results::writeDelimited(m_table, path, delimiter, error);
 }
 
 void TabularResultsDialog::exportDelimited(const QString &path, QChar delim)
 {
-    QFile f(path);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) return;
-    QTextStream out(&f);
-    const int rows = m_model->rowCount();
-    const int cols = m_model->columnCount();
-    for (int c = 0; c < cols; ++c) {
-        if (c) out << delim;
-        out << m_model->headerData(c, Qt::Horizontal).toString();
-    }
-    out << '\n';
-    for (int r = 0; r < rows; ++r) {
-        for (int c = 0; c < cols; ++c) {
-            if (c) out << delim;
-            out << m_model->index(r, c).data(Qt::DisplayRole).toString();
-        }
-        out << '\n';
-    }
+    QString error;
+    if (!exportTo(path, delim, &error))
+        QMessageBox::warning(this, tr("Export failed"), tr("Cannot export %1: %2").arg(path, error));
 }
 
 void TabularResultsDialog::onExportCsvClicked()
 {
-    const QString path = QFileDialog::getSaveFileName(this, tr("Export CSV"),
-        QStringLiteral("results.csv"), tr("CSV (*.csv)"));
-    if (path.isEmpty()) return;
+    const QString path = QFileDialog::getSaveFileName(
+        this, tr("Export CSV"), QStringLiteral("results.csv"), tr("CSV (*.csv)"));
+    if (path.isEmpty())
+        return;
     exportDelimited(path, QLatin1Char(','));
 }
 
 void TabularResultsDialog::onExportTsvClicked()
 {
-    const QString path = QFileDialog::getSaveFileName(this, tr("Export TSV"),
-        QStringLiteral("results.tsv"), tr("TSV (*.tsv)"));
-    if (path.isEmpty()) return;
+    const QString path = QFileDialog::getSaveFileName(
+        this, tr("Export TSV"), QStringLiteral("results.tsv"), tr("TSV (*.tsv)"));
+    if (path.isEmpty())
+        return;
     exportDelimited(path, QLatin1Char('\t'));
 }
 

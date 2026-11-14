@@ -1,0 +1,49 @@
+[TITLE]
+Storage / outfall fixture for the node-profile probe.
+The initial depth of a storage unit can only be set by the parser: the C API's
+swmm_node_set_initial_depth() writes the node's CURRENT depth, while
+swmm_node_get_initial_depth() reads init_depth, so an in-memory fixture cannot
+exercise the water surface. Hence this file.
+
+[OPTIONS]
+FLOW_UNITS           CFS
+INFILTRATION         HORTON
+FLOW_ROUTING         DYNWAVE
+START_DATE           01/01/2020
+START_TIME           00:00:00
+END_DATE             01/01/2020
+END_TIME             06:00:00
+REPORT_STEP          00:05:00
+ROUTING_STEP         00:00:15
+
+[JUNCTIONS]
+;;Name  Elev   MaxDepth  InitDepth  SurDepth  Aponded
+J1      106.0  8.0       0.0        0.0       0.0
+
+[STORAGE]
+;;Name  Elev   MaxDepth  InitDepth  Shape       A1/L  A2/W  A0/Z
+POND    100.0  10.0      4.0        FUNCTIONAL  500   1.5   200
+
+[OUTFALLS]
+;;Name  Elev   Type   StageData  Gated
+OF_FIX  90.0   FIXED  95.0       YES
+OF_FREE 90.0   FREE              NO
+
+[CONDUITS]
+;;Name  From    To       Length  N      InOff  OutOff  InitFlow  MaxFlow
+C1      J1      POND     300     0.013  0.0    0.0     0         0
+C2      POND    OF_FIX   120     0.013  0.0    1.0     0         0
+C3      J1      OF_FREE  200     0.013  0.0    0.0     0         0
+
+[XSECTIONS]
+;;Link  Shape     Geom1  Geom2  Geom3  Geom4  Barrels
+C1      CIRCULAR  2.5    0      0      0      1
+C2      CIRCULAR  3.0    0      0      0      1
+C3      CIRCULAR  1.5    0      0      0      1
+
+[COORDINATES]
+;;Node  X      Y
+J1      0      300
+POND    300    300
+OF_FIX  600    300
+OF_FREE 300    0

@@ -1,0 +1,11 @@
+OpenSWMM Engine
+Copyright 2026 HydroCouple Developers
+
+Licensed under the Apache License, Version 2.0 (Apache-2.0).
+The canonical license text is maintained at the repository root:
+
+https://github.com/HydroCouple/openswmm.engine/blob/swmm6_rel/LICENSE
+
+SWMMVis consumes the prebuilt installed OpenSWMMEngine CMake package and
+links against the engine as a shared library. The engine's license is
+independent of the GUI's GPL-3.0-or-later license.

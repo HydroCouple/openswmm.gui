@@ -1,30 +1,33 @@
-/*!
- * \file   importpreviewmodel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      importpreviewmodel.cpp
+ * @brief     FEATURE_LAYER_TO_SWMM_IMPORT — read-only table model over an ImportPlan: one row per
+ *            feature, columns Action | Name | Detail.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/import/importpreviewmodel.h"
 
 #include <QBrush>
 #include <QColor>
 
-namespace openswmmvis::import {
+namespace openswmmvis::import
+{
 
-namespace {
+namespace
+{
 
 // Soft row tints readable in both light and dark themes.
-const QColor kCreateTint(76, 175, 80, 46);    // green
-const QColor kUpdateTint(33, 150, 243, 46);   // blue
-const QColor kSkipTint(128, 128, 128, 32);    // gray
-const QColor kErrorTint(244, 67, 54, 52);     // red
+const QColor kCreateTint(76, 175, 80, 46);  // green
+const QColor kUpdateTint(33, 150, 243, 46); // blue
+const QColor kSkipTint(128, 128, 128, 32);  // gray
+const QColor kErrorTint(244, 67, 54, 52);   // red
 
 } // namespace
 
-ImportPreviewModel::ImportPreviewModel(QObject *parent)
-    : QAbstractTableModel(parent)
-{
-}
+ImportPreviewModel::ImportPreviewModel(QObject *parent) : QAbstractTableModel(parent) {}
 
 void ImportPreviewModel::setPlan(const ImportPlan &plan, bool resultMode)
 {
@@ -46,13 +49,16 @@ QString ImportPreviewModel::summaryText() const
 {
     if (m_plan.items.isEmpty())
         return {};
-    return m_resultMode
-               ? tr("%1 created, %2 updated, %3 skipped, %4 error(s)")
-                     .arg(m_plan.createCount).arg(m_plan.updateCount)
-                     .arg(m_plan.skipCount).arg(m_plan.errorCount)
-               : tr("%1 to create, %2 to update, %3 skipped, %4 error(s)")
-                     .arg(m_plan.createCount).arg(m_plan.updateCount)
-                     .arg(m_plan.skipCount).arg(m_plan.errorCount);
+    return m_resultMode ? tr("%1 created, %2 updated, %3 skipped, %4 error(s)")
+                              .arg(m_plan.createCount)
+                              .arg(m_plan.updateCount)
+                              .arg(m_plan.skipCount)
+                              .arg(m_plan.errorCount)
+                        : tr("%1 to create, %2 to update, %3 skipped, %4 error(s)")
+                              .arg(m_plan.createCount)
+                              .arg(m_plan.updateCount)
+                              .arg(m_plan.skipCount)
+                              .arg(m_plan.errorCount);
 }
 
 int ImportPreviewModel::rowCount(const QModelIndex &parent) const
@@ -86,17 +92,20 @@ QVariant ImportPreviewModel::data(const QModelIndex &idx, int role) const
             }
             break;
         case NameCol:
-            return it.name.isEmpty()
-                       ? tr("(fid %1)").arg(it.fid) : it.name;
+            return it.name.isEmpty() ? tr("(fid %1)").arg(it.fid) : it.name;
         case DetailCol:
             return it.messages.join(QStringLiteral("; "));
         }
     } else if (role == Qt::BackgroundRole) {
         switch (it.action) {
-        case PlannedItem::Action::Create: return QBrush(kCreateTint);
-        case PlannedItem::Action::Update: return QBrush(kUpdateTint);
-        case PlannedItem::Action::Skip:   return QBrush(kSkipTint);
-        case PlannedItem::Action::Error:  return QBrush(kErrorTint);
+        case PlannedItem::Action::Create:
+            return QBrush(kCreateTint);
+        case PlannedItem::Action::Update:
+            return QBrush(kUpdateTint);
+        case PlannedItem::Action::Skip:
+            return QBrush(kSkipTint);
+        case PlannedItem::Action::Error:
+            return QBrush(kErrorTint);
         }
     } else if (role == Qt::ToolTipRole && idx.column() == DetailCol) {
         return it.messages.join(QStringLiteral("\n"));
@@ -104,15 +113,17 @@ QVariant ImportPreviewModel::data(const QModelIndex &idx, int role) const
     return {};
 }
 
-QVariant ImportPreviewModel::headerData(int section, Qt::Orientation o,
-                                        int role) const
+QVariant ImportPreviewModel::headerData(int section, Qt::Orientation o, int role) const
 {
     if (o != Qt::Horizontal || role != Qt::DisplayRole)
         return QAbstractTableModel::headerData(section, o, role);
     switch (section) {
-    case ActionCol: return tr("Action");
-    case NameCol:   return tr("Name");
-    case DetailCol: return tr("Detail");
+    case ActionCol:
+        return tr("Action");
+    case NameCol:
+        return tr("Name");
+    case DetailCol:
+        return tr("Detail");
     }
     return {};
 }

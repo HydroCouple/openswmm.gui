@@ -1,7 +1,10 @@
-/*!
- * \file   maptoolzoom.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date 2026
+/**
+ * @file      maptoolzoom.cpp
+ * @brief     Tool that zooms the map canvas by rubber-band rectangle or mouse wheel.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/tools/maptoolzoom.h"
@@ -22,18 +25,23 @@ QCursor OpenSWMMVisMapToolZoom::cursor() const
     return Qt::CrossCursor;
 }
 
-double OpenSWMMVisMapToolZoom::zoomFactor() const { return m_zoomFactor; }
+double OpenSWMMVisMapToolZoom::zoomFactor() const
+{
+    return m_zoomFactor;
+}
 
 void OpenSWMMVisMapToolZoom::setZoomFactor(double factor)
 {
-    if (!qFuzzyCompare(m_zoomFactor, factor))
-    {
+    if (!qFuzzyCompare(m_zoomFactor, factor)) {
         m_zoomFactor = factor;
         emit zoomFactorChanged(factor);
     }
 }
 
-bool OpenSWMMVisMapToolZoom::zoomInMode() const { return m_zoomInDefault; }
+bool OpenSWMMVisMapToolZoom::zoomInMode() const
+{
+    return m_zoomInDefault;
+}
 
 void OpenSWMMVisMapToolZoom::setZoomInMode(bool zoomIn)
 {
@@ -54,24 +62,21 @@ void OpenSWMMVisMapToolZoom::deactivate()
 
 void OpenSWMMVisMapToolZoom::mousePressEvent(QMouseEvent *event)
 {
-    if (event->button() == Qt::LeftButton || event->button() == Qt::RightButton)
-    {
-        m_dragging     = true;
+    if (event->button() == Qt::LeftButton || event->button() == Qt::RightButton) {
+        m_dragging = true;
         // Left-click uses the tool's default mode; right-click inverts it
-        m_zoomIn       = (event->button() == Qt::LeftButton) ? m_zoomInDefault : !m_zoomInDefault;
-        m_startPixel   = event->pos();
+        m_zoomIn = (event->button() == Qt::LeftButton) ? m_zoomInDefault : !m_zoomInDefault;
+        m_startPixel = event->pos();
         m_currentPixel = event->pos();
     }
 }
 
 void OpenSWMMVisMapToolZoom::mouseMoveEvent(QMouseEvent *event)
 {
-    if (m_dragging)
-    {
+    if (m_dragging) {
         m_currentPixel = event->pos();
         if (m_canvas)
-            m_canvas->invalidate(MapCanvas::Overlay,
-                                 QStringLiteral("zoom-tool-rubberband"));
+            m_canvas->invalidate(MapCanvas::Overlay, QStringLiteral("zoom-tool-rubberband"));
     }
 }
 
@@ -84,24 +89,19 @@ void OpenSWMMVisMapToolZoom::mouseReleaseEvent(QMouseEvent *event)
 
     QRect pixRect = QRect(m_startPixel, event->pos()).normalized();
 
-    if (pixRect.width() < 4 && pixRect.height() < 4)
-    {
+    if (pixRect.width() < 4 && pixRect.height() < 4) {
         // Single click — smooth zoom around the click point
         double factor = m_zoomIn ? m_zoomFactor : (1.0 / m_zoomFactor);
         m_canvas->zoomAroundCursor(factor, event->pos());
-    }
-    else if (m_zoomIn)
-    {
+    } else if (m_zoomIn) {
         // Zoom to rubber-band rectangle
         double x1, y1, x2, y2;
-        toMapCoords(pixRect.left(),  pixRect.top(),    x1, y1);
+        toMapCoords(pixRect.left(), pixRect.top(), x1, y1);
         toMapCoords(pixRect.right(), pixRect.bottom(), x2, y2);
 
         MapExtent newExtent(qMin(x1, x2), qMin(y1, y2), qMax(x1, x2), qMax(y1, y2));
         m_canvas->setExtent(newExtent);
-    }
-    else
-    {
+    } else {
         // Zoom out: the current view fits inside the rubber-band area
         double mx, my;
         toMapCoords(m_startPixel.x(), m_startPixel.y(), mx, my);
@@ -111,8 +111,7 @@ void OpenSWMMVisMapToolZoom::mouseReleaseEvent(QMouseEvent *event)
     // Extent already mutated above (setExtent / zoomOut / zoomAroundCursor
     // emit extentChanged on their own); we just need raster + scene to
     // rebuild for the new extent.
-    m_canvas->invalidate(MapCanvas::Raster | MapCanvas::Scene,
-                         QStringLiteral("zoom-tool-commit"));
+    m_canvas->invalidate(MapCanvas::Raster | MapCanvas::Scene, QStringLiteral("zoom-tool-commit"));
 }
 
 void OpenSWMMVisMapToolZoom::wheelEvent(QWheelEvent *event)
@@ -130,9 +129,8 @@ void OpenSWMMVisMapToolZoom::wheelEvent(QWheelEvent *event)
     event->accept();
 }
 
-void OpenSWMMVisMapToolZoom::paint(QPainter *painter,
-                               const MapExtent &,
-                               const SpatialReferenceSystem *)
+void OpenSWMMVisMapToolZoom::paint(QPainter *painter, const MapExtent &,
+                                   const SpatialReferenceSystem *)
 {
     if (!m_dragging)
         return;

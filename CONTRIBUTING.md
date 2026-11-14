@@ -103,23 +103,7 @@ Contributors are encouraged to add themselves to `AUTHORS.md` as part of their p
 
 ## 6. How to Cite openswmm.gui
 
-If you use openswmm.gui in published research, teaching materials, or engineering reports, please cite the software to give appropriate credit and help others discover the project.
-
-### Recommended Citation Format
-
-Until a formal publication is available, please cite the software repository directly:
-
-```
-Buahin, C. (2026). openswmm.gui [Computer software]. GitHub. https://github.com/HydroCouple/openswmm.gui
-```
-
-### DOI & Archival
-
-Each stable release of openswmm.gui is archived and assigned a **DOI via [Zenodo](https://zenodo.org)**. The DOI for each release is listed in the [GitHub Releases](../../releases) page and in the repository badge. When citing a specific version, use the version-specific DOI so that your reference is reproducible.
-
-### Publications
-
-If a peer-reviewed publication describing the software becomes available, it will be listed here and should be preferred over the repository citation. Authors of accepted publications describing openswmm.gui contributions are encouraged to notify the Technical Manager so the reference can be added.
+Cite [SWMMVis (OpenSWMM GUI)](CITATION.cff) with its version or full commit. For simulations, also cite the [OpenSWMM Engine version used](https://github.com/HydroCouple/openswmm.engine#how-to-cite).
 
 ---
 

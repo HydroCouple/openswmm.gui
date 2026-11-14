@@ -1,0 +1,60 @@
+[TITLE]
+Probe: .tsf rain file in [RAINGAGES] - explicit column vs bare path
+
+[OPTIONS]
+FLOW_UNITS           CFS
+INFILTRATION         HORTON
+FLOW_ROUTING         KINWAVE
+START_DATE           01/01/2007
+START_TIME           00:00:00
+REPORT_START_DATE    01/01/2007
+REPORT_START_TIME    00:00:00
+END_DATE             01/01/2007
+END_TIME             04:00:00
+REPORT_STEP          00:05:00
+WET_STEP             00:05:00
+DRY_STEP             00:05:00
+ROUTING_STEP         0:00:30
+
+[RAINGAGES]
+;;Name           Format       Intvl    SCF      Source
+RG_COL           INTENSITY    0:05     1.0      FILE "rain_multicolumn.tsf:NO_SUCH_COL"
+RG_BARE          INTENSITY    0:05     1.0      FILE "rain_multicolumn.tsf"
+
+[SUBCATCHMENTS]
+;;Name  Raingage  Outlet  Area  %Imperv  Width  %Slope  CurbLen
+S_COL   RG_COL    J1      10    100      500    0.5     0
+S_BARE  RG_BARE   J1      10    100      500    0.5     0
+
+[SUBAREAS]
+;;Subcat  N-Imperv  N-Perv  S-Imperv  S-Perv  PctZero  RouteTo
+S_COL     0.01      0.1     0.0       0.0     100      OUTLET
+S_BARE    0.01      0.1     0.0       0.0     100      OUTLET
+
+[INFILTRATION]
+;;Subcat  MaxRate  MinRate  Decay  DryTime  MaxInfil
+S_COL     3.0      0.5      4      7        0
+S_BARE    3.0      0.5      4      7        0
+
+[JUNCTIONS]
+;;Name  Elev  MaxDepth  InitDepth  SurDepth  Aponded
+J1      10    5         0          0         0
+
+[OUTFALLS]
+;;Name  Elev  Type  StageData  Gated
+O1      0     FREE             NO
+
+[CONDUITS]
+;;Name  Node1  Node2  Length  Roughness  In-Offset  Out-Offset  InitFlow  MaxFlow
+C1      J1     O1     400     0.01       0          0           0         0
+
+[XSECTIONS]
+;;Link  Shape     Geom1  Geom2  Geom3  Geom4  Barrels
+C1      CIRCULAR  3.0    0      0      0      1
+
+[REPORT]
+INPUT              NO
+CONTROLS           NO
+SUBCATCHMENTS      ALL
+NODES              ALL
+LINKS              ALL

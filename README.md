@@ -1,18 +1,27 @@
-# OpenSWMM GUI
+# SWMMVis
+
+SWMMVis is HydroCouple’s Qt desktop interface for stormwater modeling. [OpenSWMM Engine](https://github.com/HydroCouple/openswmm.engine) is developed by Caleb Buahin and HydroCouple Developers. It builds on EPA SWMM 5.
 
 <p align="center">
-  <img src="resources/images/screenshot1.png" alt="OpenSWMM GUI" width="1200"> 
+  <img src="resources/images/swmmvis-demo.gif" alt="SWMMVis animating 2D flood results over an aerial basemap" width="900">
 </p>
 
-**Qt6/C++ graphical user interface for the OpenSWMM storm-water simulation engine (v6.0.0)**
+*Animated 2D flood results in SWMMVis.*
 
 [![Build and Package](../../actions/workflows/build_and_test.yml/badge.svg?branch=swmm6_gui)](../../actions/workflows/build_and_test.yml)
 [![Documentation](../../actions/workflows/documentation.yml/badge.svg?branch=swmm6_gui)](../../actions/workflows/documentation.yml)
 [![CodeQL](../../actions/workflows/codeql.yml/badge.svg?branch=swmm6_gui)](../../actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/HydroCouple/openswmm.gui/badge)](https://securityscorecards.dev/viewer/?uri=github.com/HydroCouple/openswmm.gui)
+[![Issues](https://img.shields.io/github/issues/HydroCouple/openswmm.gui)](https://github.com/HydroCouple/openswmm.gui/issues)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
 
+[GUI documentation](https://www.hydrocouple.org/openswmm.gui/) · [Engine documentation](https://hydrocouple.org/openswmm.engine) · [Engine source](https://github.com/HydroCouple/openswmm.engine)
+
 ---
+
+## How to cite
+
+Cite [SWMMVis (OpenSWMM GUI)](CITATION.cff) with its version or full commit. For simulations, also cite the [OpenSWMM Engine version used](https://github.com/HydroCouple/openswmm.engine#how-to-cite).
 
 ## Overview
 
@@ -23,7 +32,10 @@ Key capabilities:
 - Interactive map canvas with pan/zoom, CRS reprojection, and layer management (vector, raster, WMS/WMTS, XYZ tiles, SWMM model & results layers)
 - SWMM model setup, editing, and validation
 - Simulation control and results visualization
+- Groundwater options, exterior head/flow and chemistry boundaries, bulk/SIGMA layer initial assignments, combined layered chemistry and porous soil heat, and per-species layer results with validation and undo (requires the matching development engine)
 - GIS data import/export via GDAL
+
+The matching development engine supports qualified standalone CPU RK2 groundwater, chemistry/age, soil heat, finite surface/soil contacts and accepted surface latent cooling. Surface boundaries, copied runtime sources and weather participate in the same accepted transaction. Owned water-only degree-day/UEB snow and independent water-only or qualified native LEGACY pollutant networks also support managed RK2 restart. Managed numerical, binary or mesh-HDF5 sessions preserve calendars, native weather and immutable hourly meteorology, pending batches and receipts. Further thermal and network/catchment combinations retain their documented restrictions; see the [qualified transport profiles](https://github.com/HydroCouple/openswmm.engine/blob/swmm6_rel/docs/design/groundwater-transport.md).
 
 ## Dependencies
 
@@ -33,6 +45,7 @@ Key capabilities:
 | [GDAL](https://gdal.org/) | 3.x | GIS/CRS support — installed via vcpkg |
 | [openswmm.engine](https://github.com/HydroCouple/openswmm.engine) | branch `swmm6_rel` | Engine — expected at `../openswmm.engine` |
 | [QPropertyModel](https://github.com/cbuahin/QPropertyModel) | branch `dev` | Property editor — expected at `../QPropertyModel` |
+| [Data Sources](https://github.com/HydroCouple/hydrocouple.gui.data) | pinned CMake revision | Built and bundled automatically; a sibling `../openswmm.gui.data` checkout takes precedence |
 | [vcpkg](https://github.com/microsoft/vcpkg) | `2025.03.19` | Package manager |
 | CMake | 3.21+ | Build system |
 
@@ -40,7 +53,8 @@ Key capabilities:
 
 ### 1. Clone sibling repositories
 
-All three repos must be siblings in the same parent directory:
+Sibling checkouts provide a convenient local development layout. QPropertyModel
+and Data Sources are fetched automatically when no local checkout is available:
 
 ```bash
 # From the directory that will contain all repos:
@@ -85,6 +99,18 @@ cmake --build --preset=Windows
 
 Debug builds append `-debug` to the preset name (e.g., `Darwin-debug`).
 
+The default build also compiles the Data Sources GUI plugin against the current
+GUI SDK and bundles it in `plugins/gui` beside the executable. On macOS this is
+`SWMMVis.app/Contents/MacOS/plugins/gui`; installed Windows/Linux packages use
+`bin/plugins/gui`. The same module and license notices are included by CPack.
+A Data-only rebuild refreshes application deployment and signing automatically.
+
+Configure with `-DOPENSWMM_DATA_SOURCE_DIR=/path/to/openswmm.gui.data` to choose a
+checkout, or `-DSWMMVIS_BUNDLE_DATA_PLUGIN=OFF` to omit the bundled plugin.
+`OPENSWMM_DATA_GIT_REPOSITORY` and `OPENSWMM_DATA_GIT_TAG` override the fallback
+source/revision. SDK-only builds do not fetch or build Data. Embedded Data tests
+are off by default; enable `OPENSWMM_DATA_BUILD_TESTS` to build them with the GUI.
+
 ### 4. Run tests
 
 ```bash
@@ -98,8 +124,46 @@ ctest --test-dir build/darwin -C Release --output-on-failure
 Generated with Doxygen and published to GitHub Pages on every push to `main`/`swmm6_gui`:
 
 ```bash
-doxygen docs/Doxyfile   # output → docs/html/
+cd docs
+doxygen Doxyfile   # output → docs/html/ from the repository root
 ```
+
+The GUI documentation includes the user manual, the **GUI Extensions** author
+guide, and references for the public SDK and private extension implementation.
+The SDK and extension host belong to this repository; individual plugins can
+be developed in separate repositories against the installed SDK.
+
+## Contributing
+
+Contributions are welcome — bug reports, fixes, new features, docs, tests, and examples.
+
+1. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow and the [Code of Conduct](CODE_OF_CONDUCT.md).
+2. Fork the repo and create a feature branch.
+3. Build the application and ensure the relevant unit and GUI tests pass with `ctest` (see [Building](#building)).
+4. Follow existing style and naming, and update documentation for user-facing changes.
+5. Open a PR against `dev`.
+
+### Contributor License Agreement
+
+First-time contributors must sign the project [CLA](CLA.md) before a pull request can be merged. The CLA grants the project a perpetual, royalty-free copyright and patent license to your contributions and preserves the project's ability to relicense in the future; **you retain full copyright ownership** of your work.
+
+Sign by posting the following comment on your pull request, or by email as described in [CLA §9](CLA.md#9-how-to-sign):
+
+> I have read the CLA Document and I hereby sign the CLA.
+
+Once signed, the CLA covers future contributions to this project. Automated CLA signing is not yet enabled; see the CLA for current instructions.
+
+### Corporate Contributor License Agreement
+
+Organizations contributing through their employees or designated contributors must also submit a [Corporate CLA (CCLA)](CCLA.md), as described in [CLA §6](CLA.md#6-corporate-contributors). The CCLA supplements the individual CLA. Complete Schedules A, B, and C and submit the agreement using the instructions in those documents.
+
+## License
+
+SWMMVis is distributed under the **GNU General Public License, version 3 or later** — see [LICENSE](LICENSE).
+
+## Acknowledgments
+
+SWMMVis builds on the [OpenSWMM engine](https://github.com/HydroCouple/openswmm.engine) and uses Qt and GDAL for its interface and GIS capabilities. See [AUTHORS.md](AUTHORS.md) for project contributors and acknowledgments.
 
 ## Disclaimer
 

@@ -1,9 +1,9 @@
-/*!
- * \file   binsampler.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Compute frozen break values across animation frames (Slice Z.7).
+/**
+ * @file      binsampler.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Compute frozen break values across animation frames (Slice Z.7).
  *
  *         Animation binning lifecycle (RENDERING_RULE_MODEL_PLAN.md §14.1):
  *           1. At Rule creation, sample the bound attribute across all
@@ -20,6 +20,7 @@
  *         frames. Z.7 ships just the sampler + the Rule-side opt-in
  *         flag. Integration with AnimationController + the result-layer
  *         paint loop is the named Z.7a follow-up.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef OPENSWMM_RENDER_BINSAMPLER_H
@@ -50,19 +51,33 @@ namespace OpenSWMM::Render
  *         The set of selected frames is deterministic: index 0 first,
  *         then index = round(i * stride) for i in [1, k-1], where k =
  *         ceil(sampleRate * frameCount). This means the first and last
- *         frames are always sampled when sampleRate is high enough.
+ *         frames are always sampled when at least two frames are selected.
+ * @param[in] binner Configured classification method; its settings and manual breaks
+ *                   are read without modification.
+ * @param[in] perFrameValues Attribute samples grouped by animation frame. Selected
+ *                          frames are concatenated in frame order without unit conversion.
+ * @param[in] sampleRate Finite requested fraction of frames, clamped to [0,1]. At least
+ *                       one frame is selected whenever perFrameValues is non-empty.
+ * @return Break values computed by binner for the flattened sample, or an empty vector
+ *         for no frames. Manual mode follows computeBreaks()'s existing manual-break rule.
+ * @pre Flattened sample counts must fit the implementation's int-sized allocation count.
+ * @note Sampling is deterministic and does not modify the binner or supplied frame values.
  */
 [[nodiscard]] QVector<double>
 sampleBreaksAcrossFrames(const IntervalBinner &binner,
-                          const QVector<QVector<double>> &perFrameValues,
-                          double sampleRate = 0.2);
+                         const QVector<QVector<double>> &perFrameValues, double sampleRate = 0.2);
 
 /*! \brief Indices of the frames the sampler would pick, for the same
  *         \p frameCount and \p sampleRate. Pure function — useful for
  *         tests and for showing the user which frames were sampled.
- *         Returns an empty vector when frameCount == 0. */
-[[nodiscard]] QVector<int>
-sampledFrameIndices(int frameCount, double sampleRate);
+ *         Returns an empty vector when frameCount is non-positive.
+ * @param[in] frameCount Number of available frames; values <=0 produce no indices.
+ * @param[in] sampleRate Finite requested sampling fraction, clamped to [0,1].
+ * @return Increasing frame indices in [0,frameCount-1]. The requested count is
+ *         ceil(clamp(sampleRate,0,1)*frameCount), clamped to [1,frameCount]. A single
+ *         selected frame is index zero; two or more include both first and last frames.
+ */
+[[nodiscard]] QVector<int> sampledFrameIndices(int frameCount, double sampleRate);
 
 } // namespace OpenSWMM::Render
 

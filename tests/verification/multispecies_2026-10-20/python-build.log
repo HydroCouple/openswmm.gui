@@ -1,0 +1,4 @@
+[0/2] Re-checking globbed directories...
+[1/4] Cythonizing _reactions.pyx → _reactions.cxx
+[2/4] Building CXX object openswmm/engine/CMakeFiles/engine__reactions.dir/cython_gen/engine__reactions/_reactions.cxx.o
+[3/4] Linking CXX shared module openswmm/engine/_reactions.cpython-313-darwin.so

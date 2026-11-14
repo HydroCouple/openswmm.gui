@@ -1,0 +1,35 @@
+[TITLE]
+Name references between data objects: an aquifer's ET pattern and a custom inlet's capture curve.
+
+[OPTIONS]
+FLOW_UNITS CFS
+FLOW_ROUTING DYNWAVE
+
+[JUNCTIONS]
+J1 10 5
+
+[OUTFALLS]
+OUT1 8 FREE
+
+[CONDUITS]
+C1 J1 OUT1 100 0.016 0 0
+
+[XSECTIONS]
+C1 CIRCULAR 1 0 0 0 1
+
+[COORDINATES]
+J1 0 0
+OUT1 100 0
+
+[PATTERNS]
+ETPat MONTHLY 1 1 1 1 1 1 1 1 1 1 1 1
+
+[AQUIFERS]
+AQ1 .5 .15 .30 .1 12 15 .35 14 .002 0 3.5 .40 ETPat
+
+[CURVES]
+CapCurve DIVERSION 0 0
+CapCurve 10 5
+
+[INLETS]
+IN1 CUSTOM CapCurve

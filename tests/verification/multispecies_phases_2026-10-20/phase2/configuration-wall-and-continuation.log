@@ -1,0 +1,70 @@
+Running main() from /Users/calebbuahin/Documents/Projects/vcpkg/buildtrees/gtest/src/v1.15.2-41f5afb119.clean/googletest/src/gtest_main.cc
+[==========] Running 29 tests from 2 test suites.
+[----------] Global test environment set-up.
+[----------] 27 tests from ReactionsConfigTest
+[ RUN      ] ReactionsConfigTest.FullConfigParsesAndPopulates
+[       OK ] ReactionsConfigTest.FullConfigParsesAndPopulates (3 ms)
+[ RUN      ] ReactionsConfigTest.UndeclaredSpeciesReferenceFailsOpen
+[       OK ] ReactionsConfigTest.UndeclaredSpeciesReferenceFailsOpen (1 ms)
+[ RUN      ] ReactionsConfigTest.PollutantNameCollisionFailsOpen
+[       OK ] ReactionsConfigTest.PollutantNameCollisionFailsOpen (1 ms)
+[ RUN      ] ReactionsConfigTest.SubcatchmentScopeParsesAndRoundTrips
+[       OK ] ReactionsConfigTest.SubcatchmentScopeParsesAndRoundTrips (1 ms)
+[ RUN      ] ReactionsConfigTest.DuplicateProcessComponentIdFailsOpen
+[       OK ] ReactionsConfigTest.DuplicateProcessComponentIdFailsOpen (1 ms)
+[ RUN      ] ReactionsConfigTest.EmbeddedFallbackAppliesAndExternalWins
+[       OK ] ReactionsConfigTest.EmbeddedFallbackAppliesAndExternalWins (2 ms)
+[ RUN      ] ReactionsConfigTest.EmbeddedSectionsLostOnSaveAreReported
+[       OK ] ReactionsConfigTest.EmbeddedSectionsLostOnSaveAreReported (1 ms)
+[ RUN      ] ReactionsConfigTest.NodeLinkQualityRowsParse
+[       OK ] ReactionsConfigTest.NodeLinkQualityRowsParse (1 ms)
+[ RUN      ] ReactionsConfigTest.NodeLinkQualityErrorsAreLoudAndTransactional
+[       OK ] ReactionsConfigTest.NodeLinkQualityErrorsAreLoudAndTransactional (8 ms)
+[ RUN      ] ReactionsConfigTest.NodeLinkQualityRowsConsumed
+[       OK ] ReactionsConfigTest.NodeLinkQualityRowsConsumed (5 ms)
+[ RUN      ] ReactionsConfigTest.UnquotedCommaExpressionsParse
+[       OK ] ReactionsConfigTest.UnquotedCommaExpressionsParse (1 ms)
+[ RUN      ] ReactionsConfigTest.NodeLinkQualityWorksEmbedded
+[       OK ] ReactionsConfigTest.NodeLinkQualityWorksEmbedded (1 ms)
+[ RUN      ] ReactionsConfigTest.UnpopulatedHydraulicVariablesAreRefused
+[       OK ] ReactionsConfigTest.UnpopulatedHydraulicVariablesAreRefused (9 ms)
+[ RUN      ] ReactionsConfigTest.PopulatedHydraulicVariablesStayAccepted
+[       OK ] ReactionsConfigTest.PopulatedHydraulicVariablesStayAccepted (1 ms)
+[ RUN      ] ReactionsConfigTest.UnusedTimestepAndAreaUnitsAreReported
+[       OK ] ReactionsConfigTest.UnusedTimestepAndAreaUnitsAreReported (1 ms)
+[ RUN      ] ReactionsConfigTest.RainfallConcentrationParsesRoundTripsAndValidates
+[       OK ] ReactionsConfigTest.RainfallConcentrationParsesRoundTripsAndValidates (4 ms)
+[ RUN      ] ReactionsConfigTest.SourcePatternsParametersAndReportRoundTrip
+[       OK ] ReactionsConfigTest.SourcePatternsParametersAndReportRoundTrip (1 ms)
+[ RUN      ] ReactionsConfigTest.ExtendedSectionsValidateTransactionally
+[       OK ] ReactionsConfigTest.ExtendedSectionsValidateTransactionally (1 ms)
+[ RUN      ] ReactionsConfigTest.SourceMassUnitsAndPatternClockDoNotAccumulateAcrossSteps
+[       OK ] ReactionsConfigTest.SourceMassUnitsAndPatternClockDoNotAccumulateAcrossSteps (1 ms)
+[ RUN      ] ReactionsConfigTest.PerElementParameterFeedsTermsRatesEquilibriaAndFormula
+[       OK ] ReactionsConfigTest.PerElementParameterFeedsTermsRatesEquilibriaAndFormula (1 ms)
+[ RUN      ] ReactionsConfigTest.DryStorageDoesNotExecuteTankFormula
+[       OK ] ReactionsConfigTest.DryStorageDoesNotExecuteTankFormula (1 ms)
+[ RUN      ] ReactionsConfigTest.WallStateStaysAttachedWhileBulkAdvects
+[       OK ] ReactionsConfigTest.WallStateStaysAttachedWhileBulkAdvects (1 ms)
+[ RUN      ] ReactionsConfigTest.ConcentrationSourceUsesExternalWaterAndDryWeatherFlow
+[       OK ] ReactionsConfigTest.ConcentrationSourceUsesExternalWaterAndDryWeatherFlow (1 ms)
+[ RUN      ] ReactionsConfigTest.PatternTimestepOptionUsesSecondsAndRejectsNonfiniteValues
+[       OK ] ReactionsConfigTest.PatternTimestepOptionUsesSecondsAndRejectsNonfiniteValues (1 ms)
+[ RUN      ] ReactionsConfigTest.DeletingGeometryDropsOwnedRowsAndPreservesSurvivingIdentities
+[       OK ] ReactionsConfigTest.DeletingGeometryDropsOwnedRowsAndPreservesSurvivingIdentities (1 ms)
+[ RUN      ] ReactionsConfigTest.SubcatchmentExpressionsRejectUnavailableContextTransactionally
+[       OK ] ReactionsConfigTest.SubcatchmentExpressionsRejectUnavailableContextTransactionally (1 ms)
+[ RUN      ] ReactionsConfigTest.WallGeometryExchangeConservesMassAcrossAreaUnitsWetDryAndBarrels
+[       OK ] ReactionsConfigTest.WallGeometryExchangeConservesMassAcrossAreaUnitsWetDryAndBarrels (4 ms)
+[----------] 27 tests from ReactionsConfigTest (66 ms total)
+
+[----------] 2 tests from ReactionContinuation
+[ RUN      ] ReactionContinuation.NetworkAndWetPoolsRestoreClockInventoryLedgerAndBinaryOutput
+[       OK ] ReactionContinuation.NetworkAndWetPoolsRestoreClockInventoryLedgerAndBinaryOutput (3763 ms)
+[ RUN      ] ReactionContinuation.ChangedChemistryAndTruncationRefuseWithoutChangingTheFreshSession
+[       OK ] ReactionContinuation.ChangedChemistryAndTruncationRefuseWithoutChangingTheFreshSession (15 ms)
+[----------] 2 tests from ReactionContinuation (3779 ms total)
+
+[----------] Global test environment tear-down
+[==========] 29 tests from 2 test suites ran. (3846 ms total)
+[  PASSED  ] 29 tests.

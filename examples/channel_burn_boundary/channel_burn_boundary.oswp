@@ -1,0 +1,87 @@
+{
+  "schemaVersion": 5,
+  "canvas": {
+    "crsAuthority": "EPSG",
+    "crsCode": 3857,
+    "extent": [
+      -14,
+      -4,
+      54,
+      36
+    ]
+  },
+  "gisLayers": [
+    {
+      "type": "raster",
+      "path": "terrain.asc",
+      "name": "Flat terrain (10 m)"
+    },
+    {
+      "type": "vector",
+      "path": "study_domain.geojson",
+      "layerName": "study_domain",
+      "name": "Study domain"
+    }
+  ],
+  "sessions": [
+    {
+      "inpPath": "channel_burn_boundary.inp",
+      "engineVersion": "6.0.0",
+      "layer": {
+        "crsAuthority": "EPSG",
+        "crsCode": 3857
+      },
+      "terrain": {
+        "activeLayerPath": "terrain.asc",
+        "verticalUnit": "m"
+      },
+      "meshGenerationOptions": {
+        "version": 1,
+        "controls": {
+          "meshCellSizeSpin": 4,
+          "meshMinCellSizeSpin": 0.05,
+          "meshTerrainTolSpin": 0.1,
+          "meshTerrainModeCombo": 0,
+          "meshCoarsenSpin": 1,
+          "meshNodesAsVerticesBox": false,
+          "meshConduitsBox": false,
+          "meshSubcatchBox": false,
+          "meshMapNodesBox": false,
+          "meshBurnEnabledBox": true,
+          "meshBurnAllOpenRadio": true,
+          "meshBurnChannelCellSize": 2,
+          "meshBurnGeometryTolerance": 0.05,
+          "meshBurnConvertNodesBox": true,
+          "meshBurnTruncateBox": true,
+          "meshBurnQuadCorridorBox": true,
+          "meshBurnClipToBanksBox": true,
+          "meshBurnForceHalfWidth": 2,
+          "meshBurnMaxHalfWidth": 4,
+          "meshBurnChainageStep": 0,
+          "meshBurnLateralStep": 0,
+          "meshBurnStringCount": 0,
+          "meshBurnSectionBlend": 0,
+          "meshBurnMaxIncision": 0,
+          "meshBurnMonotoneBox": false,
+          "meshExternalBox": true,
+          "meshInlineBox": false
+        }
+      },
+      "channelBurn": {
+        "version": 2,
+        "enabled": true,
+        "selector": {
+          "mode": 0
+        },
+        "options": {
+          "geometryToleranceM": 0.05,
+          "channelCellSize": 2,
+          "removeBurnedFrom1D": true,
+          "convertInterfaceNodes": true,
+          "truncateAtBoundary": true,
+          "quadCorridor": true
+        }
+      }
+    }
+  ]
+}

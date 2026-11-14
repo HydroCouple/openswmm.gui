@@ -1,8 +1,11 @@
-/*!
- * \file   culvertcodecombobox.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      culvertcodecombobox.cpp
+ * @brief     Phase 0 of docs/ATTRIBUTE_EDITOR_WIRING_PLAN_2026-06-04.md — inline combobox editor
+ *            for the conduit "Culvert Code" Property Browser row.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/properties/culvertcodecombobox.h"
@@ -12,15 +15,14 @@
 
 #include <openswmm/engine/openswmm_links.h>
 
-CulvertCodeComboBox::CulvertCodeComboBox(QWidget *parent)
-    : QComboBox(parent)
+CulvertCodeComboBox::CulvertCodeComboBox(QWidget *parent) : QComboBox(parent)
 {
     addItem(culvertCodeLabel(0), 0);
     for (const CulvertCodeInfo &c : culvertCodes())
         addItem(culvertCodeLabel(c.code), c.code);
 
-    connect(this, QOverload<int>::of(&QComboBox::currentIndexChanged),
-            this, &CulvertCodeComboBox::onCurrentIndexChanged);
+    connect(this, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
+            &CulvertCodeComboBox::onCurrentIndexChanged);
 }
 
 void CulvertCodeComboBox::setValue(const CulvertCodeRef &ref)
@@ -34,16 +36,18 @@ void CulvertCodeComboBox::setValue(const CulvertCodeRef &ref)
 
 void CulvertCodeComboBox::onCurrentIndexChanged(int /*index*/)
 {
-    if (m_suppressApply) return;
-    if (!m_ref.engine || m_ref.linkName.isEmpty()) return;
+    if (m_suppressApply)
+        return;
+    if (!m_ref.engine || m_ref.linkName.isEmpty())
+        return;
 
-    const int idx = swmm_link_index(m_ref.engine,
-                                    m_ref.linkName.toUtf8().constData());
-    if (idx < 0) return;
+    const int idx = swmm_link_index(m_ref.engine, m_ref.linkName.toUtf8().constData());
+    if (idx < 0)
+        return;
 
     const int code = currentData().toInt();
     if (m_ref.layer)
-        m_ref.layer->applyLinkCulvertCode(idx, code);   // MVC refresh path
+        m_ref.layer->applyLinkCulvertCode(idx, code); // MVC refresh path
     else
         swmm_link_set_culvert_code(m_ref.engine, idx, code);
     m_ref.code = code;

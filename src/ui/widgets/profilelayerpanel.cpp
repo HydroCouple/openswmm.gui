@@ -1,7 +1,12 @@
-/*!
- * \file   profilelayerpanel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      profilelayerpanel.cpp
+ * @brief     Pure UI surface — owns the layer-visibility checkboxes (Current HGL / Current EGL /
+ *            Max HGL) plus the Max-HGL render-mode radios (Min↔max band vs Invert→max fill) and
+ *            emits a single `togglesChanged` signal when any value changes.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/widgets/profilelayerpanel.h"
@@ -16,8 +21,7 @@
 #include <QSpinBox>
 #include <QVBoxLayout>
 
-ProfileLayerPanel::ProfileLayerPanel(QWidget *parent)
-    : QWidget(parent)
+ProfileLayerPanel::ProfileLayerPanel(QWidget *parent) : QWidget(parent)
 {
     auto *outer = new QVBoxLayout(this);
     outer->setContentsMargins(8, 8, 8, 8);
@@ -32,10 +36,9 @@ ProfileLayerPanel::ProfileLayerPanel(QWidget *parent)
     gndLay->setContentsMargins(8, 6, 8, 6);
     m_useTerrain = new QCheckBox(tr("Use terrain DEM for ground line"), gnd);
     m_useTerrain->setChecked(false);
-    m_useTerrain->setToolTip(
-        tr("When enabled, the ground line is sampled from the active "
-           "terrain raster at the DEM's resolution.  Node rim elevations "
-           "(invert + max depth) are unaffected."));
+    m_useTerrain->setToolTip(tr("When enabled, the ground line is sampled from the active "
+                                "terrain raster at the DEM's resolution.  Node rim elevations "
+                                "(invert + max depth) are unaffected."));
     gndLay->addWidget(m_useTerrain);
     outer->addWidget(gnd);
 
@@ -69,11 +72,11 @@ ProfileLayerPanel::ProfileLayerPanel(QWidget *parent)
     m_maxHgl = new QCheckBox(tr("Show"), hgl);
     m_maxHgl->setChecked(true);
     hglLay->addWidget(m_maxHgl);
-    m_hglEnvelope  = new QRadioButton(tr("Min↔max band"),    hgl);
+    m_hglEnvelope = new QRadioButton(tr("Min↔max band"), hgl);
     m_hglInvertMax = new QRadioButton(tr("Invert→max fill"), hgl);
     m_hglEnvelope->setChecked(true);
     m_hglGroup = new QButtonGroup(this);
-    m_hglGroup->addButton(m_hglEnvelope,  0);
+    m_hglGroup->addButton(m_hglEnvelope, 0);
     m_hglGroup->addButton(m_hglInvertMax, 1);
     hglLay->addWidget(m_hglEnvelope);
     hglLay->addWidget(m_hglInvertMax);
@@ -88,11 +91,11 @@ ProfileLayerPanel::ProfileLayerPanel(QWidget *parent)
     auto *lbl = new QGroupBox(tr("Labels (secondary axis)"), this);
     auto *lblLay = new QVBoxLayout(lbl);
     lblLay->setContentsMargins(8, 6, 8, 6);
-    m_nodeLabels   = new QCheckBox(tr("Node names"), lbl);
-    m_linkLabels   = new QCheckBox(tr("Link names"), lbl);
+    m_nodeLabels = new QCheckBox(tr("Node names"), lbl);
+    m_linkLabels = new QCheckBox(tr("Link names"), lbl);
     m_inlineLabels = new QCheckBox(tr("Inline node IDs (over glyphs)"), lbl);
-    m_nodeLabels  ->setChecked(false);
-    m_linkLabels  ->setChecked(false);
+    m_nodeLabels->setChecked(false);
+    m_linkLabels->setChecked(false);
     m_inlineLabels->setChecked(false);
     lblLay->addWidget(m_nodeLabels);
     lblLay->addWidget(m_linkLabels);
@@ -100,17 +103,17 @@ ProfileLayerPanel::ProfileLayerPanel(QWidget *parent)
 
     auto *orientLabel = new QLabel(tr("Orientation:"), lbl);
     lblLay->addWidget(orientLabel);
-    m_orientVertical   = new QRadioButton(tr("Vertical (90°)"),  lbl);
-    m_orientDiagonal   = new QRadioButton(tr("Diagonal"),        lbl);
+    m_orientVertical = new QRadioButton(tr("Vertical (90°)"), lbl);
+    m_orientDiagonal = new QRadioButton(tr("Diagonal"), lbl);
     m_orientHorizontal = new QRadioButton(tr("Horizontal (0°)"), lbl);
     m_orientVertical->setChecked(true);
     m_orientGroup = new QButtonGroup(this);
     m_orientGroup->addButton(m_orientVertical,
-        static_cast<int>(ProfilePlotWidget::LayerToggles::Vertical));
+                             static_cast<int>(ProfilePlotWidget::LayerToggles::Vertical));
     m_orientGroup->addButton(m_orientDiagonal,
-        static_cast<int>(ProfilePlotWidget::LayerToggles::Diagonal));
+                             static_cast<int>(ProfilePlotWidget::LayerToggles::Diagonal));
     m_orientGroup->addButton(m_orientHorizontal,
-        static_cast<int>(ProfilePlotWidget::LayerToggles::Horizontal));
+                             static_cast<int>(ProfilePlotWidget::LayerToggles::Horizontal));
     lblLay->addWidget(m_orientVertical);
 
     // Diagonal row: radio + custom-angle spinbox side-by-side.
@@ -143,10 +146,10 @@ ProfileLayerPanel::ProfileLayerPanel(QWidget *parent)
     // The angle spinbox is additionally gated on the Diagonal radio.
     auto gateOrient = [this]() {
         const bool on = m_nodeLabels->isChecked() || m_linkLabels->isChecked();
-        m_orientVertical  ->setEnabled(on);
-        m_orientDiagonal  ->setEnabled(on);
+        m_orientVertical->setEnabled(on);
+        m_orientDiagonal->setEnabled(on);
         m_orientHorizontal->setEnabled(on);
-        m_angleSpin       ->setEnabled(on && m_orientDiagonal->isChecked());
+        m_angleSpin->setEnabled(on && m_orientDiagonal->isChecked());
     };
     gateOrient();
 
@@ -157,21 +160,20 @@ ProfileLayerPanel::ProfileLayerPanel(QWidget *parent)
     };
     connect(m_currentHglLine, &QCheckBox::toggled, this, wire);
     connect(m_currentHglFill, &QCheckBox::toggled, this, wire);
-    connect(m_currentEgl,     &QCheckBox::toggled, this, wire);
-    connect(m_maxHgl,       &QCheckBox::toggled, this, wire);
-    connect(m_nodeLabels,   &QCheckBox::toggled, this, wire);
-    connect(m_linkLabels,   &QCheckBox::toggled, this, wire);
+    connect(m_currentEgl, &QCheckBox::toggled, this, wire);
+    connect(m_maxHgl, &QCheckBox::toggled, this, wire);
+    connect(m_nodeLabels, &QCheckBox::toggled, this, wire);
+    connect(m_linkLabels, &QCheckBox::toggled, this, wire);
     connect(m_inlineLabels, &QCheckBox::toggled, this, wire);
-    connect(m_useTerrain,   &QCheckBox::toggled, this, wire);
-    connect(m_hglGroup, &QButtonGroup::idToggled,
-            this, [this](int, bool) { emitTogglesChanged(); });
-    connect(m_orientGroup, &QButtonGroup::idToggled,
-            this, [this, gateOrient](int, bool) {
+    connect(m_useTerrain, &QCheckBox::toggled, this, wire);
+    connect(m_hglGroup, &QButtonGroup::idToggled, this,
+            [this](int, bool) { emitTogglesChanged(); });
+    connect(m_orientGroup, &QButtonGroup::idToggled, this, [this, gateOrient](int, bool) {
         gateOrient();
         emitTogglesChanged();
     });
-    connect(m_angleSpin, qOverload<int>(&QSpinBox::valueChanged),
-            this, [this](int) { emitTogglesChanged(); });
+    connect(m_angleSpin, qOverload<int>(&QSpinBox::valueChanged), this,
+            [this](int) { emitTogglesChanged(); });
 }
 
 ProfilePlotWidget::LayerToggles ProfileLayerPanel::toggles() const
@@ -180,15 +182,18 @@ ProfilePlotWidget::LayerToggles ProfileLayerPanel::toggles() const
     LO t;
     t.currentHglLine = m_currentHglLine->isChecked();
     t.currentHglFill = m_currentHglFill->isChecked();
-    t.currentEgl     = m_currentEgl->isChecked();
-    t.maxHglBand     = m_maxHgl->isChecked();
-    t.showNodeLabels   = m_nodeLabels->isChecked();
-    t.showLinkLabels   = m_linkLabels->isChecked();
+    t.currentEgl = m_currentEgl->isChecked();
+    t.maxHglBand = m_maxHgl->isChecked();
+    t.showNodeLabels = m_nodeLabels->isChecked();
+    t.showLinkLabels = m_linkLabels->isChecked();
     t.inlineNodeLabels = m_inlineLabels->isChecked();
     t.useTerrainGround = m_useTerrain->isChecked();
-    if      (m_orientHorizontal->isChecked()) t.labelOrientation = LO::Horizontal;
-    else if (m_orientDiagonal->isChecked())   t.labelOrientation = LO::Diagonal;
-    else                                       t.labelOrientation = LO::Vertical;
+    if (m_orientHorizontal->isChecked())
+        t.labelOrientation = LO::Horizontal;
+    else if (m_orientDiagonal->isChecked())
+        t.labelOrientation = LO::Diagonal;
+    else
+        t.labelOrientation = LO::Vertical;
     t.labelAngleDeg = m_angleSpin->value();
     return t;
 }
@@ -211,14 +216,20 @@ void ProfileLayerPanel::setToggles(const ProfilePlotWidget::LayerToggles &t)
     m_currentHglFill->setChecked(t.currentHglFill);
     m_currentEgl->setChecked(t.currentEgl);
     m_maxHgl->setChecked(t.maxHglBand);
-    m_nodeLabels  ->setChecked(t.showNodeLabels);
-    m_linkLabels  ->setChecked(t.showLinkLabels);
+    m_nodeLabels->setChecked(t.showNodeLabels);
+    m_linkLabels->setChecked(t.showLinkLabels);
     m_inlineLabels->setChecked(t.inlineNodeLabels);
-    m_useTerrain  ->setChecked(t.useTerrainGround);
+    m_useTerrain->setChecked(t.useTerrainGround);
     switch (t.labelOrientation) {
-    case LO::Horizontal: m_orientHorizontal->setChecked(true); break;
-    case LO::Diagonal:   m_orientDiagonal  ->setChecked(true); break;
-    case LO::Vertical:   m_orientVertical  ->setChecked(true); break;
+    case LO::Horizontal:
+        m_orientHorizontal->setChecked(true);
+        break;
+    case LO::Diagonal:
+        m_orientDiagonal->setChecked(true);
+        break;
+    case LO::Vertical:
+        m_orientVertical->setChecked(true);
+        break;
     }
     m_angleSpin->setValue(std::clamp(t.labelAngleDeg, 1, 89));
     emit togglesChanged(t);

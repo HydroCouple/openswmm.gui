@@ -1,9 +1,10 @@
-/*!
- * \file   binsampler.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Frame-sampler implementation (Slice Z.7).
+/**
+ * @file      binsampler.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Frame-sampler implementation (Slice Z.7).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/binsampler.h"
@@ -22,8 +23,10 @@ QVector<int> sampledFrameIndices(int frameCount, double sampleRate)
     const double clamped = std::clamp(sampleRate, 0.0, 1.0);
     // Always include at least one frame so the sample is non-empty.
     int k = static_cast<int>(std::ceil(clamped * frameCount));
-    if (k < 1) k = 1;
-    if (k > frameCount) k = frameCount;
+    if (k < 1)
+        k = 1;
+    if (k > frameCount)
+        k = frameCount;
 
     QVector<int> indices;
     indices.reserve(k);
@@ -37,23 +40,23 @@ QVector<int> sampledFrameIndices(int frameCount, double sampleRate)
     const double stride = (frameCount - 1) / static_cast<double>(k - 1);
     for (int i = 0; i < k; ++i) {
         int idx = static_cast<int>(std::round(i * stride));
-        if (idx < 0) idx = 0;
-        if (idx > frameCount - 1) idx = frameCount - 1;
+        if (idx < 0)
+            idx = 0;
+        if (idx > frameCount - 1)
+            idx = frameCount - 1;
         indices.append(idx);
     }
     return indices;
 }
 
-QVector<double>
-sampleBreaksAcrossFrames(const IntervalBinner &binner,
-                          const QVector<QVector<double>> &perFrameValues,
-                          double sampleRate)
+QVector<double> sampleBreaksAcrossFrames(const IntervalBinner &binner,
+                                         const QVector<QVector<double>> &perFrameValues,
+                                         double sampleRate)
 {
     if (perFrameValues.isEmpty())
         return {};
 
-    const QVector<int> idx = sampledFrameIndices(perFrameValues.size(),
-                                                  sampleRate);
+    const QVector<int> idx = sampledFrameIndices(perFrameValues.size(), sampleRate);
 
     // Flatten selected frames into one sample vector.
     QVector<double> flat;

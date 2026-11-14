@@ -1,21 +1,17 @@
-/*!
- * \file   swmmlayer.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \version
- * \description
- * \license
- * \copyright
- * \date 2026
- * \pre
- * \bug
- * \warning
- * \todo
+/**
+ * @file      openswmmvislayer.cpp
+ * @brief     Abstract base class for all layers displayed in the MapCanvas.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @details
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "project/openswmmvisworkspace.h"
 #include "layers/openswmmvislayer.h"
 #include "map/spatialreferencesystem.h"
-#include "render/ifeaturerenderer.h"   // complete type for the setRenderer() default
+#include "render/ifeaturerenderer.h" // complete type for the setRenderer() default
 #include "ui/dialogs/ilayerstylesubject.h"
 
 #include <QGraphicsScene>
@@ -30,19 +26,15 @@
 // ---------------------------------------------------------------------------
 
 OpenSWMMVisLayer::OpenSWMMVisLayer(OpenSWMMVisWorkspace *parent)
-    : QObject(parent),
-      m_layerId(QUuid::createUuid().toString(QUuid::WithoutBraces)),
-      mParent(parent),
-      mName("Unlabeled Layer"),
+    : QObject(parent), m_layerId(QUuid::createUuid().toString(QUuid::WithoutBraces)),
+      mParent(parent), mName("Unlabeled Layer"),
       mLayerType(OpenSWMMVisLayer::OpenSWMMVisLayerType::SWMMDefaultLayer)
 {
 }
 
 OpenSWMMVisLayer::OpenSWMMVisLayer(const QString &name, OpenSWMMVisWorkspace *parent)
-    : QObject(parent),
-      m_layerId(QUuid::createUuid().toString(QUuid::WithoutBraces)),
-      mParent(parent),
-      mName(name),
+    : QObject(parent), m_layerId(QUuid::createUuid().toString(QUuid::WithoutBraces)),
+      mParent(parent), mName(name),
       mLayerType(OpenSWMMVisLayer::OpenSWMMVisLayerType::SWMMDefaultLayer)
 {
 }
@@ -57,14 +49,19 @@ OpenSWMMVisLayer::~OpenSWMMVisLayer()
 // Identity
 // ---------------------------------------------------------------------------
 
-QString OpenSWMMVisLayer::layerId() const { return m_layerId; }
+QString OpenSWMMVisLayer::layerId() const
+{
+    return m_layerId;
+}
 
-QString OpenSWMMVisLayer::name() const { return mName; }
+QString OpenSWMMVisLayer::name() const
+{
+    return mName;
+}
 
 void OpenSWMMVisLayer::setName(const QString &name)
 {
-    if (mName != name)
-    {
+    if (mName != name) {
         mName = name;
         emit nameChanged(name);
     }
@@ -77,8 +74,7 @@ OpenSWMMVisLayer::OpenSWMMVisLayerType OpenSWMMVisLayer::layerType() const
 
 void OpenSWMMVisLayer::setLayerType(OpenSWMMVisLayerType type)
 {
-    if (mLayerType != type)
-    {
+    if (mLayerType != type) {
         mLayerType = type;
         emit layerTypeChanged(type);
     }
@@ -88,25 +84,29 @@ void OpenSWMMVisLayer::setLayerType(OpenSWMMVisLayerType type)
 // Visibility & Opacity
 // ---------------------------------------------------------------------------
 
-bool OpenSWMMVisLayer::isVisible() const { return m_visible; }
+bool OpenSWMMVisLayer::isVisible() const
+{
+    return m_visible;
+}
 
 void OpenSWMMVisLayer::setVisible(bool visible)
 {
-    if (m_visible != visible)
-    {
+    if (m_visible != visible) {
         m_visible = visible;
         emit visibilityChanged(visible);
         emit repaintRequested();
     }
 }
 
-double OpenSWMMVisLayer::opacity() const { return m_opacity; }
+double OpenSWMMVisLayer::opacity() const
+{
+    return m_opacity;
+}
 
 void OpenSWMMVisLayer::setOpacity(double opacity)
 {
     opacity = std::clamp(opacity, 0.0, 1.0);
-    if (!qFuzzyCompare(m_opacity, opacity))
-    {
+    if (!qFuzzyCompare(m_opacity, opacity)) {
         m_opacity = opacity;
         emit opacityChanged(opacity);
         emit repaintRequested();
@@ -123,7 +123,8 @@ void OpenSWMMVisLayer::setOpacity(double opacity)
 // signal to re-bind its tick scheduling.
 void OpenSWMMVisLayer::setTemporalSpec(const OpenSWMM::Render::TemporalSpec &spec)
 {
-    if (m_temporalSpec == spec) return;
+    if (m_temporalSpec == spec)
+        return;
     m_temporalSpec = spec;
     emit temporalSpecChanged(m_temporalSpec);
     emit repaintRequested();
@@ -133,7 +134,8 @@ void OpenSWMMVisLayer::setTemporalSpec(const OpenSWMM::Render::TemporalSpec &spe
 // this, mutate their own state, then chain to this implementation.
 void OpenSWMMVisLayer::setLabelConfig(const OpenSWMM::Render::LabelConfig &cfg)
 {
-    if (m_labelConfig == cfg) return;
+    if (m_labelConfig == cfg)
+        return;
     m_labelConfig = cfg;
     emit labelConfigChanged();
     emit repaintRequested();
@@ -148,7 +150,8 @@ void OpenSWMMVisLayer::setLabelConfig(const OpenSWMM::Render::LabelConfig &cfg)
 // time to clip output to / outside the source polygon layer.
 void OpenSWMMVisLayer::setMaskSpec(const OpenSWMM::Render::MaskSpec &spec)
 {
-    if (m_maskSpec == spec) return;
+    if (m_maskSpec == spec)
+        return;
     m_maskSpec = spec;
     emit maskSpecChanged(m_maskSpec);
     emit repaintRequested();
@@ -157,10 +160,10 @@ void OpenSWMMVisLayer::setMaskSpec(const OpenSWMM::Render::MaskSpec &spec)
 // ---------------------------------------------------------------------------
 // Auxiliary storage (Slice Z.15-attach)
 // ---------------------------------------------------------------------------
-void OpenSWMMVisLayer::setAuxStorageSpec(
-    const OpenSWMM::Render::AuxiliaryStorageSpec &spec)
+void OpenSWMMVisLayer::setAuxStorageSpec(const OpenSWMM::Render::AuxiliaryStorageSpec &spec)
 {
-    if (m_auxStorageSpec == spec) return;
+    if (m_auxStorageSpec == spec)
+        return;
     m_auxStorageSpec = spec;
     emit auxStorageSpecChanged(m_auxStorageSpec);
     emit repaintRequested();
@@ -174,10 +177,10 @@ void OpenSWMMVisLayer::setAuxStorageSpec(
 // hands it over here; per-entry diffs are the tab's concern, not the
 // layer's. We still gate on equality so a no-op apply doesn't spam
 // repaints.
-void OpenSWMMVisLayer::setJoins(
-    const QVector<OpenSWMM::Render::JoinSpec> &joins)
+void OpenSWMMVisLayer::setJoins(const QVector<OpenSWMM::Render::JoinSpec> &joins)
 {
-    if (m_joins == joins) return;
+    if (m_joins == joins)
+        return;
     m_joins = joins;
     emit joinsChanged(m_joins);
     emit repaintRequested();
@@ -188,7 +191,8 @@ void OpenSWMMVisLayer::setJoins(
 // ---------------------------------------------------------------------------
 void OpenSWMMVisLayer::setDiagramSpec(const OpenSWMM::Render::DiagramSpec &spec)
 {
-    if (m_diagramSpec == spec) return;
+    if (m_diagramSpec == spec)
+        return;
     m_diagramSpec = spec;
     emit diagramSpecChanged(m_diagramSpec);
     emit repaintRequested();
@@ -198,7 +202,10 @@ void OpenSWMMVisLayer::setDiagramSpec(const OpenSWMM::Render::DiagramSpec &spec)
 // Spatial Reference & Extent
 // ---------------------------------------------------------------------------
 
-SpatialReferenceSystem *OpenSWMMVisLayer::srs() const { return m_srs; }
+SpatialReferenceSystem *OpenSWMMVisLayer::srs() const
+{
+    return m_srs;
+}
 
 void OpenSWMMVisLayer::setSRS(SpatialReferenceSystem *srs, bool ownsSRS)
 {
@@ -226,7 +233,7 @@ void OpenSWMMVisLayer::setSRS(SpatialReferenceSystem *srs, bool ownsSRS)
 
     // Adopt the object either way — the ownership contract is the caller's
     // expectation regardless of whether the value changed.
-    m_srs     = srs;
+    m_srs = srs;
     m_ownsSRS = ownsSRS;
 
     if (!sameValue)
@@ -238,8 +245,8 @@ QString OpenSWMMVisLayer::crsDescription() const
     if (!m_srs)
         return QStringLiteral("(none)");
 
-    const QString auth = m_srs->toAuthority();   // e.g. "EPSG:2926" or ""
-    const QString desc = m_srs->description();   // e.g. "NAD83(HARN) / WA South"
+    const QString auth = m_srs->toAuthority(); // e.g. "EPSG:2926" or ""
+    const QString desc = m_srs->description(); // e.g. "NAD83(HARN) / WA South"
     if (!auth.isEmpty() && !desc.isEmpty())
         return auth + QStringLiteral(" - ") + desc;
     if (!auth.isEmpty())
@@ -249,7 +256,10 @@ QString OpenSWMMVisLayer::crsDescription() const
     return QStringLiteral("(unknown)");
 }
 
-MapExtent OpenSWMMVisLayer::extent() const { return m_extent; }
+MapExtent OpenSWMMVisLayer::extent() const
+{
+    return m_extent;
+}
 
 void OpenSWMMVisLayer::setExtent(const MapExtent &extent)
 {
@@ -318,8 +328,7 @@ void OpenSWMMVisLayer::depopulateScene(QGraphicsScene *scene)
     // Remove all items from the scene that belong to this layer.
     // Subclasses can override for more efficient removal strategies.
     QList<QGraphicsItem *> toRemove;
-    for (QGraphicsItem *item : scene->items())
-    {
+    for (QGraphicsItem *item : scene->items()) {
         if (item->data(0).value<quintptr>() == reinterpret_cast<quintptr>(this))
             toRemove.append(item);
     }
@@ -328,24 +337,21 @@ void OpenSWMMVisLayer::depopulateScene(QGraphicsScene *scene)
     // subsequent repopulate) leaves the layer's pixels on screen until an
     // unrelated repaint occurs.
     QRectF dirty;
-    for (QGraphicsItem *item : toRemove)
-    {
+    for (QGraphicsItem *item : toRemove) {
         dirty = dirty.united(item->sceneBoundingRect());
         scene->removeItem(item);
         delete item;
     }
-    if (!toRemove.isEmpty())
-    {
+    if (!toRemove.isEmpty()) {
         if (dirty.isNull())
-            scene->update();          // fallback: refresh entire scene
+            scene->update(); // fallback: refresh entire scene
         else
             scene->invalidate(dirty); // refresh only the vacated region
     }
 }
 
-void OpenSWMMVisLayer::refreshScene(QGraphicsScene *scene,
-                                const MapExtent &canvasExtent,
-                                const SpatialReferenceSystem *canvasSRS)
+void OpenSWMMVisLayer::refreshScene(QGraphicsScene *scene, const MapExtent &canvasExtent,
+                                    const SpatialReferenceSystem *canvasSRS)
 {
     // Default: full rebuild (backward-compatible for layers that
     // don't override this method).
@@ -356,30 +362,32 @@ void OpenSWMMVisLayer::refreshScene(QGraphicsScene *scene,
 // Slice U-2 — default styleSubjects() returns an empty list. Built-in
 // General / Rendering / Metadata tabs in LayerStyleDialog still render,
 // so layers that don't override remain usable.
-std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>>
-OpenSWMMVisLayer::styleSubjects()
+std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>> OpenSWMMVisLayer::styleSubjects()
 {
     return {};
 }
 
-void OpenSWMMVisLayer::render(QPainter * /*painter*/,
-                          const MapExtent & /*extent*/,
-                          const QSize & /*imageSize*/,
-                          const SpatialReferenceSystem * /*srs*/)
+void OpenSWMMVisLayer::render(QPainter * /*painter*/, const MapExtent & /*extent*/,
+                              const QSize & /*imageSize*/, const SpatialReferenceSystem * /*srs*/)
 {
     // Default: no-op. Raster layer subclasses override this.
 }
 
-void OpenSWMMVisLayer::fetchCache(const MapExtent & /*extent*/,
-                               const QSize & /*viewportSize*/,
-                               const SpatialReferenceSystem * /*srs*/)
+void OpenSWMMVisLayer::fetchCache(const MapExtent & /*extent*/, const QSize & /*viewportSize*/,
+                                  const SpatialReferenceSystem * /*srs*/)
 {
     // Default: no-op. Raster layer subclasses override this.
 }
 
-double OpenSWMMVisLayer::layerZValue() const { return m_layerZValue; }
+double OpenSWMMVisLayer::layerZValue() const
+{
+    return m_layerZValue;
+}
 
-void OpenSWMMVisLayer::setLayerZValue(double z) { m_layerZValue = z; }
+void OpenSWMMVisLayer::setLayerZValue(double z)
+{
+    m_layerZValue = z;
+}
 
 // Default no-op renderer sink. Defined out-of-line (not inline in the header)
 // because destroying the by-value unique_ptr parameter requires the complete
