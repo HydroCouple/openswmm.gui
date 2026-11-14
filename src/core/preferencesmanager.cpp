@@ -529,6 +529,38 @@ void PreferencesManager::setAppearanceMode(const QString &mode)
     emit preferenceChanged(QStringLiteral("Appearance"), QStringLiteral("Mode"));
 }
 
+QString PreferencesManager::appearanceHighContrast() const
+{
+    return m_settings
+        .value(QStringLiteral("%1/Appearance/HighContrast").arg(kGroupRoot),
+               QStringLiteral("Automatic"))
+        .toString();
+}
+
+void PreferencesManager::setAppearanceHighContrast(const QString &value)
+{
+    if (value == appearanceHighContrast())
+        return;
+    m_settings.setValue(QStringLiteral("%1/Appearance/HighContrast").arg(kGroupRoot), value);
+    emit preferenceChanged(QStringLiteral("Appearance"), QStringLiteral("HighContrast"));
+}
+
+QString PreferencesManager::appearanceReduceMotion() const
+{
+    return m_settings
+        .value(QStringLiteral("%1/Appearance/ReduceMotion").arg(kGroupRoot),
+               QStringLiteral("Automatic"))
+        .toString();
+}
+
+void PreferencesManager::setAppearanceReduceMotion(const QString &value)
+{
+    if (value == appearanceReduceMotion())
+        return;
+    m_settings.setValue(QStringLiteral("%1/Appearance/ReduceMotion").arg(kGroupRoot), value);
+    emit preferenceChanged(QStringLiteral("Appearance"), QStringLiteral("ReduceMotion"));
+}
+
 QString PreferencesManager::defaultCrsMode() const
 {
     return m_settings

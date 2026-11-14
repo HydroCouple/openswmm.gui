@@ -26,6 +26,7 @@
 #include "render/smoothfillraster.h"
 #include "render/flowparticlecontroller.h"
 #include "render/flowparticlelayercontroller.h"
+#include "ui/theme/reducedmotion.h"
 #include <QGraphicsRectItem>
 #include "project/projectserializer.h"
 #include "swmmvis.h"
@@ -1998,6 +1999,20 @@ private slots:
         QVERIFY(layer.prepareFlowStreaksForCapture(layer.m_sceneBBox, 8));
         QCOMPARE(layer.flowParticles(layer.m_sceneBBox, 8, layer.frameRevision())->clock,
                  before->clock);
+        // Review A-21: reduced motion holds the streaks with Animate still on, and they move
+        // again once motion is allowed.
+        style->setAnimated(true);
+        openswmmvis::ui::setMotionReduced(true);
+        layer.advanceFlowStreaks(1);
+        QVERIFY(layer.prepareFlowStreaksForCapture(layer.m_sceneBBox, 8));
+        QCOMPARE(layer.flowParticles(layer.m_sceneBBox, 8, layer.frameRevision())->clock,
+                 before->clock);
+        openswmmvis::ui::setMotionReduced(false);
+        layer.advanceFlowStreaks(1);
+        QVERIFY(layer.prepareFlowStreaksForCapture(layer.m_sceneBBox, 8));
+        QVERIFY(layer.flowParticles(layer.m_sceneBBox, 8, layer.frameRevision())->clock !=
+                before->clock);
+        style->setAnimated(false);
         sub->setVisible(false);
         const auto hidden = paint();
         QCOMPARE(hidden.pixelColor(400, 400), QColor(Qt::white));

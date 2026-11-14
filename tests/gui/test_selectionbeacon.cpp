@@ -18,6 +18,8 @@
 #include <QtTest/QtTest>
 
 #include <QImage>
+
+#include "ui/theme/reducedmotion.h"
 #include <QPainter>
 
 #include "map/selectionbeaconoverlay.h"
@@ -32,6 +34,7 @@ private slots:
     void beaconSizeIsIndependentOfZoom();
     void separatedFeaturesEachGetABeacon();
     void collapsedSelectionAggregatesToOne();
+    void reducedMotionKeepsTheRingWithoutTheFlash();
 
 private:
     static constexpr int kSide = 400;
@@ -181,6 +184,30 @@ void TestSelectionBeacon::collapsedSelectionAggregatesToOne()
              qPrintable(QStringLiteral("expected aggregation: %1 collapsed vs %2 spread")
                             .arg(collapsed)
                             .arg(spread)));
+}
+
+/**
+ * @brief Review A-21: with motion reduced the selection keeps its steady ring and cross, and the
+ *   expanding flash never starts.
+ */
+void TestSelectionBeacon::reducedMotionKeepsTheRingWithoutTheFlash()
+{
+    SelectionBeaconOverlay moving;
+    moving.setAnchors({QPointF(0, 0)});
+    QTest::qWait(150); // the flash ring has grown away from the steady one
+    const int withFlash = ink(render(moving, 1.0));
+
+    openswmmvis::ui::setMotionReduced(true);
+    SelectionBeaconOverlay still;
+    still.setAnchors({QPointF(0, 0)});
+    openswmmvis::ui::setMotionReduced(false);
+    const QImage steady = render(still, 1.0);
+    QVERIFY(ink(steady) > 0); // the ring still marks the selection
+    QVERIFY2(withFlash > ink(steady),
+             qPrintable(QStringLiteral("%1 vs %2").arg(withFlash).arg(ink(steady))));
+    // Once the flash is over, the moving beacon looks exactly like the still one.
+    QTest::qWait(SelectionBeacon::kFlashDurationMs);
+    QCOMPARE(render(moving, 1.0), steady);
 }
 
 QTEST_MAIN(TestSelectionBeacon)

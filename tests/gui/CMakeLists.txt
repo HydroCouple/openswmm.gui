@@ -57,6 +57,15 @@ function(add_swmmvis_gui_test TEST_NAME)
     if("${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp" IN_LIST ARGN)
         target_sources(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/src/results/summarytables.cpp)
     endif()
+    # A-21: ThemeManager reads the system's contrast and motion settings.
+    if("${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp" IN_LIST ARGN)
+        if(APPLE)
+            target_sources(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/src/platform/systemaccessibility.mm)
+            target_link_libraries(${TEST_NAME} PRIVATE "-framework AppKit")
+        else()
+            target_sources(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/src/platform/systemaccessibility.cpp)
+        endif()
+    endif()
     # G-01: the project window and the project file show the model's labels and backdrop; the
     # main window and the profile plot list and save its profiles.
     set(g01_sources "")

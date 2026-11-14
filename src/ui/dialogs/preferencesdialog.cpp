@@ -1620,6 +1620,27 @@ QWidget *PreferencesDialog::buildAppearancePage()
     f->addRow(m_appearanceLightRadio);
     f->addRow(m_appearanceDarkRadio);
 
+    // Review A-21 — Automatic follows the operating system's accessibility settings (macOS and
+    // Windows); On and Off override them.
+    const auto preferenceCombo = [page](const QString &name) {
+        auto *combo = new QComboBox(page);
+        combo->setObjectName(name);
+        combo->addItem(tr("Automatic (follow the system)"), QStringLiteral("Automatic"));
+        combo->addItem(tr("On"), QStringLiteral("On"));
+        combo->addItem(tr("Off"), QStringLiteral("Off"));
+        return combo;
+    };
+    m_highContrastCombo = preferenceCombo(QStringLiteral("highContrastCombo"));
+    m_highContrastCombo->setToolTip(
+        tr("Stronger text, borders, focus and selection in the application's controls and plot "
+           "axes. Data colors on the map and in plots do not change."));
+    f->addRow(tr("&High contrast:"), m_highContrastCombo);
+    m_reduceMotionCombo = preferenceCombo(QStringLiteral("reduceMotionCombo"));
+    m_reduceMotionCombo->setToolTip(
+        tr("Keep the map still: the selection marker does not flash and 2D flow streaks do not "
+           "move. Playback you start still runs."));
+    f->addRow(tr("Reduce &motion:"), m_reduceMotionCombo);
+
     return page;
 }
 
@@ -1663,6 +1684,13 @@ void PreferencesDialog::readFromManager()
         m_appearanceSystemRadio->setChecked(mode == ThemeManager::Mode::System);
         m_appearanceLightRadio->setChecked(mode == ThemeManager::Mode::Light);
         m_appearanceDarkRadio->setChecked(mode == ThemeManager::Mode::Dark);
+        const auto select = [](QComboBox *combo, const QString &value) {
+            const int index = combo->findData(
+                ThemeManager::preferenceToString(ThemeManager::preferenceFromString(value)));
+            combo->setCurrentIndex(index < 0 ? 0 : index);
+        };
+        select(m_highContrastCombo, p->appearanceHighContrast());
+        select(m_reduceMotionCombo, p->appearanceReduceMotion());
     }
 
     m_showLicenseOnStartupBox->setChecked(LicenseAgreementDialog::shouldShowOnStartup());
@@ -1949,6 +1977,12 @@ void PreferencesDialog::writeToManager()
             mode = ThemeManager::Mode::Dark;
         p->setAppearanceMode(ThemeManager::modeToString(mode));
         ThemeManager::instance()->setMode(mode); // applies live on Apply/OK
+        const QString contrast = m_highContrastCombo->currentData().toString();
+        const QString motion = m_reduceMotionCombo->currentData().toString();
+        p->setAppearanceHighContrast(contrast);
+        p->setAppearanceReduceMotion(motion);
+        ThemeManager::instance()->setContrastPreference(ThemeManager::preferenceFromString(contrast));
+        ThemeManager::instance()->setMotionPreference(ThemeManager::preferenceFromString(motion));
     }
 
     LicenseAgreementDialog::setShowOnStartup(m_showLicenseOnStartupBox->isChecked());

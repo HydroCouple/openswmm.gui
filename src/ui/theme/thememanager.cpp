@@ -10,6 +10,7 @@
  */
 
 #include "ui/theme/thememanager.h"
+#include "ui/theme/reducedmotion.h"
 #include "ui/theme/themetokens.h"
 
 #include <QApplication>
@@ -41,7 +42,7 @@ QColor mixed(const QColor &fg, const QColor &bg, qreal fgShare)
 
 } // namespace
 
-ThemeManager::ThemeManager(QObject *parent) : QObject(parent)
+ThemeManager::ThemeManager(QObject *parent) : QObject(parent), mSystem(platform::systemAccessibility())
 {
     // In System mode, follow the OS appearance live.
     if (auto *hints = QGuiApplication::styleHints()) {
@@ -50,6 +51,15 @@ ThemeManager::ThemeManager(QObject *parent) : QObject(parent)
                 apply();
         });
     }
+    // Qt 6.9 does not report the contrast and motion settings, so read them again whenever the
+    // application becomes active (the user changes them in the system's settings and returns).
+    if (auto *gui = qobject_cast<QGuiApplication *>(QCoreApplication::instance()))
+        connect(gui, &QGuiApplication::applicationStateChanged, this,
+                [this](Qt::ApplicationState state) {
+                    if (state == Qt::ApplicationActive)
+                        refreshSystemSettings();
+                });
+    setMotionReduced(reduceMotion());
 }
 
 ThemeManager *ThemeManager::instance()
@@ -86,7 +96,88 @@ Qt::ColorScheme ThemeManager::effectiveScheme() const
 
 const ThemeColors &ThemeManager::colors() const
 {
-    return effectiveScheme() == Qt::ColorScheme::Dark ? darkColors() : lightColors();
+    const bool dark = effectiveScheme() == Qt::ColorScheme::Dark;
+    if (highContrast())
+        return dark ? highContrastDarkColors() : highContrastLightColors();
+    return dark ? darkColors() : lightColors();
+}
+
+bool ThemeManager::highContrast() const
+{
+    return mContrast == Preference::On ||
+           (mContrast == Preference::Automatic && mSystem.highContrast);
+}
+
+bool ThemeManager::reduceMotion() const
+{
+    return mMotion == Preference::On || (mMotion == Preference::Automatic && mSystem.reduceMotion);
+}
+
+void ThemeManager::setContrastPreference(Preference preference)
+{
+    if (preference == mContrast)
+        return;
+    const bool before = highContrast();
+    mContrast = preference;
+    if (highContrast() != before)
+        apply();
+}
+
+void ThemeManager::setMotionPreference(Preference preference)
+{
+    if (preference == mMotion)
+        return;
+    const bool before = reduceMotion();
+    mMotion = preference;
+    publishMotion(before);
+}
+
+void ThemeManager::publishMotion(bool before)
+{
+    setMotionReduced(reduceMotion());
+    if (reduceMotion() != before)
+        emit motionChanged();
+}
+
+void ThemeManager::refreshSystemSettings()
+{
+    const platform::SystemAccessibility now = mReader ? mReader() : platform::systemAccessibility();
+    if (now == mSystem)
+        return;
+    const bool contrastBefore = highContrast();
+    const bool motionBefore = reduceMotion();
+    mSystem = now;
+    if (highContrast() != contrastBefore)
+        apply();
+    publishMotion(motionBefore);
+}
+
+void ThemeManager::setSystemSettingsReader(std::function<platform::SystemAccessibility()> reader)
+{
+    mReader = std::move(reader);
+    refreshSystemSettings();
+}
+
+QString ThemeManager::preferenceToString(Preference preference)
+{
+    switch (preference) {
+    case Preference::On:
+        return QStringLiteral("On");
+    case Preference::Off:
+        return QStringLiteral("Off");
+    case Preference::Automatic:
+        break;
+    }
+    return QStringLiteral("Automatic");
+}
+
+ThemeManager::Preference ThemeManager::preferenceFromString(const QString &text)
+{
+    if (text.compare(QStringLiteral("On"), Qt::CaseInsensitive) == 0)
+        return Preference::On;
+    if (text.compare(QStringLiteral("Off"), Qt::CaseInsensitive) == 0)
+        return Preference::Off;
+    return Preference::Automatic;
 }
 
 void ThemeManager::apply()
@@ -137,16 +228,20 @@ void ThemeManager::apply()
     // Item views draw the outline around their current cell; Fusion alone gives that cell only
     // a faint fill (review A-11). Buttons and combo boxes keep Fusion's own focus frame: QSS
     // `outline` does not change how they are drawn.
+    // High contrast widens the focus outline as well as darkening its color (review A-21).
     const QString focus = c.focusRing.name(QColor::HexRgb);
+    const int focusWidth = highContrast() ? 3 : 2;
     app->setStyleSheet(
         QStringLiteral("QToolButton:focus, QPushButton:focus, QComboBox:focus, "
                        "QTabBar::tab:focus, QAbstractItemView:focus "
-                       "{ outline: 2px solid %1; outline-offset: -2px; }\n"
+                       "{ outline: %2px solid %1; outline-offset: -%2px; }\n"
                        "QToolBar { spacing: 3px; }\n")
-            .arg(focus));
+            .arg(focus)
+            .arg(focusWidth));
 
-    if (scheme != mAppliedScheme) {
+    if (scheme != mAppliedScheme || highContrast() != mAppliedContrast) {
         mAppliedScheme = scheme;
+        mAppliedContrast = highContrast();
         emit themeChanged();
     }
 }

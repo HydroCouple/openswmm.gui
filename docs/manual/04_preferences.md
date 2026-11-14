@@ -294,10 +294,27 @@ Leaving a field blank falls back to the default shown as its placeholder.
 | **System (follow OS appearance)** | Tracks the operating system's light/dark setting live |
 | **Light** | Always light |
 | **Dark** | Always dark |
+| **High contrast** | **Automatic** follows the operating system's increase-contrast setting; **On** or **Off** overrides it |
+| **Reduce motion** | **Automatic** follows the operating system's reduce-motion setting; **On** or **Off** overrides it |
 
-This is the same setting as **View → Appearance ▸**; changing it in one place
-updates the other. The palette, the widget style and the action icons all
-follow the chosen mode.
+The theme mode is the same setting as **View → Appearance ▸**; changing it in
+one place updates the other. The palette, the widget style and the action icons
+all follow the chosen mode.
+
+**High contrast** strengthens the application's own colors: black or white
+text, darker borders, a wider focus outline, and stronger selection and plot
+axes. It does not change data colors: color ramps, series colors and the
+symbology of map layers stay as they are.
+
+**Reduce motion** keeps the map still. Selecting objects shows the steady
+selection marker without its expanding flash, and 2D flow streaks are drawn
+without moving; each layer's **Animate** setting is kept for when motion is
+allowed. Playback that you start on the Animation tab still runs.
+
+**Automatic** reads the settings in macOS (**System Settings → Accessibility →
+Display**: *Increase contrast*, *Reduce motion*) and Windows (*High contrast*,
+and *Show animations in Windows* turned off). After changing them there, return
+to the application and it updates. On Linux, **Automatic** leaves both off.
 
 \fig{04_preferences_appearance.png, The Appearance page with the System; Light and Dark radio buttons}
 

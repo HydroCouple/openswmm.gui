@@ -33,6 +33,8 @@
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
+#include "ui/theme/reducedmotion.h"
+#include "ui/theme/thememanager.h"
 #include "core/preferencesmanager.h"
 #include "ui/dialogs/preferencesdialog.h"
 
@@ -118,6 +120,7 @@ private slots:
     void structure();
     void noScrollAt1280x800();
     void meshDefaultsShareIndependentControls();
+    void accessibilityChoicesPersistAndApplyLive();
 };
 
 /** @brief Redirect INI settings to retained artifacts before preference singleton creation and clear/synchronize the test store. */
@@ -348,6 +351,43 @@ void TestPreferencesDialogRoundtrip::meshDefaultsShareIndependentControls()
             QDir(settingsDir()).filePath(QString("mesh-preferences-%1.png").arg(i))));
     }
     PreferencesManager::instance()->setTwoDDefaults(PreferencesManager::TwoDDefaults{});
+}
+
+/**
+ * @brief Review A-21: High contrast and Reduce motion are saved, applied live on Apply and shown
+ *   again on reopen; the test returns both to Automatic.
+ */
+void TestPreferencesDialogRoundtrip::accessibilityChoicesPersistAndApplyLive()
+{
+    using openswmmvis::ui::ThemeManager;
+    auto *theme = ThemeManager::instance();
+    theme->setSystemSettingsReader([] { return openswmmvis::platform::SystemAccessibility{}; });
+    const auto choose = [](PreferencesDialog &dialog, const QString &value) {
+        for (const char *name : {"highContrastCombo", "reduceMotionCombo"}) {
+            auto *combo = dialog.findChild<QComboBox *>(QString::fromLatin1(name));
+            QVERIFY(combo);
+            combo->setCurrentIndex(combo->findData(value));
+        }
+        QVERIFY(QMetaObject::invokeMethod(&dialog, "onApply", Qt::DirectConnection));
+    };
+    {
+        PreferencesDialog dialog(nullptr);
+        QCOMPARE(dialog.findChild<QComboBox *>("highContrastCombo")->currentData().toString(),
+                 QStringLiteral("Automatic"));
+        choose(dialog, QStringLiteral("On"));
+    }
+    QCOMPARE(PreferencesManager::instance()->appearanceHighContrast(), QStringLiteral("On"));
+    QCOMPARE(PreferencesManager::instance()->appearanceReduceMotion(), QStringLiteral("On"));
+    QVERIFY(theme->highContrast());
+    QVERIFY(openswmmvis::ui::motionReduced());
+    PreferencesDialog reopened(nullptr);
+    QCOMPARE(reopened.findChild<QComboBox *>("highContrastCombo")->currentData().toString(),
+             QStringLiteral("On"));
+    QCOMPARE(reopened.findChild<QComboBox *>("reduceMotionCombo")->currentData().toString(),
+             QStringLiteral("On"));
+    choose(reopened, QStringLiteral("Automatic"));
+    QVERIFY(!theme->highContrast());
+    QVERIFY(!openswmmvis::ui::motionReduced());
 }
 
 QTEST_MAIN(TestPreferencesDialogRoundtrip)
