@@ -145,8 +145,9 @@ add_swmmvis_unit_test(test_outputstatsregistry
 # Needs Qt6::Gui because outputstatsregistry.cpp's transitive includes
 # (swmmresultslayer.h → openswmmvislayer.h) pull in <QPaintDevice>. Needs
 # openswmm_engine because the same chain pulls in swmmmodellayer.h which
-# pulls in <openswmm/engine/openswmm_callbacks.h>.
-target_link_libraries(test_outputstatsregistry PRIVATE Qt6::Gui openswmm_engine)
+# pulls in <openswmm/engine/openswmm_callbacks.h>. meshkit::runtime: the chain
+# also reaches preferencesmanager.h, which includes MeshKit's mesh/meshresolution.h.
+target_link_libraries(test_outputstatsregistry PRIVATE Qt6::Gui openswmm_engine meshkit::runtime)
 
 # Slice RB.5 — Sidecar auto-create regression coverage (sidecarPathFor +
 # Preferences/AutoCreateOswpOnOpen default). The full integration tests
