@@ -48,7 +48,7 @@ Group headings are display aids; exported column names remain unchanged.
 | Rain gages | none — the engine keeps no statistics for gages |
 
 Every one of these reads an engine statistics vector, so they are all zero until a
-run has been initialised. **Max/Full Depth** is the engine's maximum-depth ÷
+run has been initialized. **Max/Full Depth** is the engine's maximum-depth ÷
 full-depth ratio, and is therefore dimensionless. **Pump Cycles** is counted from
 the results file at report-step resolution and is a **lower bound**: a pump that
 switches off and back on between two report times is invisible to it — shorten
@@ -98,7 +98,7 @@ domain. Choose a **2D variable** and an **Aggregate**:
 | **Sum** | The total of the cell values |
 | **Mass** | Concentration × water volume, for surface species concentrations in mass-per-volume units |
 
-The columns summarise those values over the run. A cell without a value at a
+The columns summarize those values over the run. A cell without a value at a
 report is left out rather than counted as zero, and the region's tooltip says
 how many reports were affected.
 
@@ -214,7 +214,7 @@ them:
 ## Tips and gotchas
 
 - **Result columns are empty before a run.** They read engine statistics, which do
-  not exist until a simulation has been initialised.
+  not exist until a simulation has been initialized.
 - **`Ctrl+Shift+A` focuses a dock, not a window.** If nothing seems to happen,
   check that the Attribute Table dock is visible (`Ctrl+4`).
 - **The query bar is shared.** The same expression syntax works in the attribute

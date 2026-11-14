@@ -17,7 +17,7 @@
  * species the run carries adds a "Max" column and every pollutant its total
  * load (R4: integrated from the report-step samples of flow x concentration,
  * net of reversing flow on links — not the .rpt's routing-step totals). Sums of samples are
- * labelled "(sample sum)"; the subcatchment rates gain time-integral
+ * labeled "(sample sum)"; the subcatchment rates gain time-integral
  * columns (volume / depth). A "2D regions" tab (when a 2D run is given)
  * lists the map-selected cells, the selection, each cell tag and the domain
  * for one 2D variable and aggregate, with Max / Min / time-weighted Mean /
@@ -183,7 +183,7 @@ private:
     SWMMObjectRef::ObjectType currentObjectType() const;
     /**
      * @brief Clear and refill the node table: max depth/head/overflow, the SUM of the stored
-     *   volume samples (labelled "sample sum": not a time integral), then per `.out` species its
+     *   volume samples (labeled "sample sum": not a time integral), then per `.out` species its
      *   maximum and per pollutant its total load (time integral of total inflow x concentration).
      * @note Series come from `SwmmOutRunLayer` (V6); a failed or all-missing series is a blank
      *   cell, never 0 or a sentinel. Hydraulic values are rounded to three decimals (volume sum to
@@ -198,7 +198,7 @@ private:
     void populateLinkStats();
     /**
      * @brief Clear and refill the subcatchment table: peak runoff, the sample SUMS of
-     *   runoff/infiltration/evaporation (labelled as such), their time integrals (runoff volume in
+     *   runoff/infiltration/evaporation (labeled as such), their time integrals (runoff volume in
      *   the flow units' volume, infiltration and evaporation depth in in | mm) and per species
      *   its maximum.
      * @note Same source, missing-value and rounding rules as populateNodeStats().

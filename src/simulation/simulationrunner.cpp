@@ -163,7 +163,7 @@ struct TestFault {
 
 // swmm_2d_get_run_stats → SimulationRunner::twoDSolverStats, queued onto the
 // GUI thread. Called from the worker with the engine still open; a refused
-// read (2D not active, solver finalised) simply emits nothing.
+// read (2D not active, solver finalized) simply emits nothing.
 /**
  * @brief Capture snow ledgers on the engine-owning worker and queue copied rows to the GUI.
  * @param[in] self Non-null runner kept alive through worker completion.
@@ -1035,7 +1035,7 @@ void SimulationRunner::start()
                         Qt::QueuedConnection);
 
                     // CF.2.4 — ship time-invariant edge geometry so the GUI
-                    // can reconstruct cell-centred velocity from per-tick
+                    // can reconstruct cell-centered velocity from per-tick
                     // flux without re-deriving lengths/normals from vertex
                     // coords. Engine returns doubles; convert to float for
                     // the wire (RT0 doesn't need double precision) and
@@ -1279,9 +1279,9 @@ void SimulationRunner::start()
                 // Rate-limited by the surrounding kTickIntervalMs gate. Pulls
                 // the latest per-triangle depth from the in-process engine
                 // and ships it to the GUI thread, where SWMM2DResultsLayer
-                // recolours the mesh. Engine API returns doubles; we
+                // recolors the mesh. Engine API returns doubles; we
                 // downcast to float for the wire because mm-level depth
-                // precision is plenty for colour mapping and the HDF5
+                // precision is plenty for color mapping and the HDF5
                 // reader produces float to match.
                 // Back-pressure: the four queued payloads below are only
                 // rate-limited on THIS side. If the GUI thread takes longer
@@ -1348,7 +1348,7 @@ void SimulationRunner::start()
                     // Per-tick rainfall intensity + cumulative volume per
                     // cell. Both calls must succeed (older engines lack
                     // them) or nothing is emitted and the GUI keeps the
-                    // Rainfall entries greyed out until the HDF5 swap-in.
+                    // Rainfall entries grayed out until the HDF5 swap-in.
                     {
                         std::vector<double> rawRain(twoD_n_tri), rawCum(twoD_n_tri);
                         // Match saved rainfall at this tick's timestamp. The
@@ -1492,7 +1492,7 @@ void SimulationRunner::start()
             }
 
             // Final 2D solver telemetry — a short run can finish before any
-            // progress tick, and end() finalises the marcher's counters.
+            // progress tick, and end() finalizes the marcher's counters.
             if (twoD_active)
                 emitTwoDSolverStats(rawSelf, rawSelf->m_jobId, eng);
 
@@ -1539,7 +1539,7 @@ void SimulationRunner::start()
                 lastErr != SWMM_OK ? engineFailureText(eng, lastErr) : QString();
             const bool cancelled = rawSelf->m_cancel.load();
 
-            // Report + close. A cancelled run still writes the report —
+            // Report + close. A canceled run still writes the report —
             // swmm_engine_end has finalized the stats up to the stop point,
             // so the summary tables cover the simulated span, and closing
             // the report properly suppresses the plugin's "[Report
@@ -1556,7 +1556,7 @@ void SimulationRunner::start()
             if (cancelled)
                 return {false,
                         0,
-                        QStringLiteral("Cancelled — report written up to the "
+                        QStringLiteral("Canceled — report written up to the "
                                        "stop point"),
                         runoffErr,
                         routingErr,
@@ -1757,7 +1757,7 @@ void SimulationRunner::start()
                 handleLine(pending);
 
             if (cancelled)
-                return {false, 0, QStringLiteral("Cancelled"), 0.0, 0.0};
+                return {false, 0, QStringLiteral("Canceled"), 0.0, 0.0};
 
             const int exitCode = worker.exitCode();
             // A worker that emitted an {"type":"error"} line but still
@@ -1790,7 +1790,7 @@ void SimulationRunner::start()
 
     const auto future =
         QtConcurrent::run(enginePool(), [body, phase, runLog]() -> SimulationResult {
-            // Last line of defence for the run: nothing thrown by the worker
+            // Last line of defense for the run: nothing thrown by the worker
             // may escape the future. Report it as a failed run, with the
             // phase it was in, and write it to the run log.
             try {

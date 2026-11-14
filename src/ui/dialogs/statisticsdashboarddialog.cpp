@@ -865,7 +865,7 @@ void StatisticsDashboardDialog::refreshMeshVariables()
                 continue;
             add(d);
         }
-        // Review G-07: the saved run's per-cell heat budgets, totalled over regions.
+        // Review G-07: the saved run's per-cell heat budgets, totaled over regions.
         for (const ResultDescriptor &d : run.heatBudgetDescriptors()) {
             add(d);
             m_meshVariable->setItemData(

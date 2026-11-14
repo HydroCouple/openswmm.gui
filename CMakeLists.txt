@@ -101,7 +101,7 @@ include(BuildInfo)
 
 # ── Qt root discovery from env ──────────────────────────────────────────────
 # CMakePresets inject CMAKE_PREFIX_PATH from $env{QT_ROOT_DIR}. Replicate the
-# same behaviour for non-preset `cmake -B build` invocations so a developer
+# same behavior for non-preset `cmake -B build` invocations so a developer
 # with QT_ROOT_DIR (or Qt6_DIR / QTDIR) exported in their shell can configure
 # without a preset. list(PREPEND) keeps cache-var / command-line overrides
 # winning when both mechanisms are active.
@@ -215,7 +215,7 @@ set(
 
         # ── Render ───────────────────────────────────────────────────────────
         include/render/categoricalpalette.h
-        # Slice BB-α — colour-ramp data type + interval binner.
+        # Slice BB-α — color-ramp data type + interval binner.
         include/render/colorramp.h
         include/render/intervalbinner.h
         # Slice US.1 — shared classification scheme (UNIFIED_STYLING plan S1).
@@ -247,7 +247,7 @@ set(
         include/render/renderers/graduatedrenderer.h
         include/render/renderers/categorizedrenderer.h
         include/render/renderers/rulebasedrenderer.h
-        # Slice Z.9 — continuous-colour (no-bins) renderer
+        # Slice Z.9 — continuous-color (no-bins) renderer
         # (RENDERING_RULE_MODEL_PLAN.md §5).
         include/render/renderers/unclassedcolorsrenderer.h
         # Slice BI Phase 8.13.6.7 — raster-renderer sister interface +
@@ -865,11 +865,11 @@ set(
         include/ui/widgets/fractionaltimespan.h
         include/ui/widgets/treatmentexpressionedit.h
         include/ui/widgets/gwfexpressionedit.h
-        # Slice BB-α — colour-ramp combobox with gradient-swatch dropdown.
+        # Slice BB-α — color-ramp combobox with gradient-swatch dropdown.
         include/ui/widgets/colorrampcombobox.h
         # Slice US.1 — shared classification editor (UNIFIED_STYLING plan S1).
         include/ui/widgets/classificationeditor.h
-        # Colour-swatch table cell shared by the classification editor and
+        # Color-swatch table cell shared by the classification editor and
         # the raster paletted class table.
         include/ui/widgets/colorcelldelegate.h
         # Slice D1-a — ClassificationScheme property-grid cell editor + the
@@ -1072,7 +1072,7 @@ set(
 
         # Render
         src/render/categoricalpalette.cpp
-        # Slice BB-α — colour-ramp data type + interval binner impls.
+        # Slice BB-α — color-ramp data type + interval binner impls.
         src/render/colorramp.cpp
         src/render/labelconfig.cpp
         # Slice US.B3 — shared label painter impl (UNIFIED_STYLING plan B3).
@@ -1851,7 +1851,7 @@ set(
         src/ui/widgets/rangeslider.cpp
         src/ui/widgets/statssummarypanel.cpp
         src/ui/widgets/labeledcontrols.cpp
-        # Slice BB-α — colour-ramp combobox impl.
+        # Slice BB-α — color-ramp combobox impl.
         src/ui/widgets/colorrampcombobox.cpp
         # Slice US.1 — shared classification editor impl (UNIFIED_STYLING plan S1).
         src/ui/widgets/classificationeditor.cpp
@@ -2426,7 +2426,7 @@ if(APPLE)
     #     /Applications/SWMMVis.app/Contents/MacOS/openswmm model.inp [rpt] [out]
     #
     # Contents/MacOS is where an auxiliary executable belongs in a bundle: it
-    # stays inside the signed, notarisable unit and shares the dylibs already
+    # stays inside the signed, notarizable unit and shares the dylibs already
     # deployed in Contents/Frameworks. The engine ships it with an
     # "@loader_path;@loader_path/../lib" rpath, neither of which resolves from
     # Contents/MacOS, so add the Frameworks path the same way the legacy worker
@@ -2502,7 +2502,7 @@ if(APPLE)
     #
     #   2. --timestamp on an AD-HOC identity.  A secure timestamp requires a real
     #      Developer ID; ad-hoc signatures cannot carry one. Likewise --options
-    #      runtime (Hardened Runtime) is only meaningful for notarised builds.
+    #      runtime (Hardened Runtime) is only meaningful for notarized builds.
     #      Both belong exclusively to the real-identity path.
     #
     #   3. No COMMAND_ERROR_IS_FATAL.  So when codesign failed for (1), CMake
@@ -2516,7 +2516,7 @@ if(APPLE)
     set(_codesign_notarize_opts "")
     if(NOT _codesign_identity STREQUAL "-")
         # Real Developer ID: enable Hardened Runtime + secure timestamp so the
-        # bundle can be notarised.
+        # bundle can be notarized.
         set(_codesign_notarize_opts "--options runtime --timestamp")
     endif()
 
