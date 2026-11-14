@@ -6,7 +6,7 @@
  * on the model: every [AQUIFERS] parameter gets exactly one callout, the water
  * table sits Egw − Ebot above the aquifer bottom, an Egw at or below Ebot
  * collapses the saturated zone to an "unknown" hatch, and the focused field's
- * callout is the one emphasised. No engine, no widget.
+ * callout is the one emphasized. No engine, no widget.
  *
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -172,10 +172,10 @@ void TestAquiferDiagram::everyParameterHasOneCallout()
     QCOMPARE(countDimsContaining(m, QStringLiteral("ETs")), 1);
     QCOMPARE(countDimsContaining(m, QStringLiteral("Egw")), 1);
     QCOMPARE(m.dims.size(), 2);
-    // Schematic ground surface and receiving node are labelled as the
+    // Schematic ground surface and receiving node are labeled as the
     // subcatchment's, never given a number.
     QCOMPARE(countLeadersContaining(m, QStringLiteral("per subcatchment")), 2);
-    // Nothing is emphasised or warned about by default.
+    // Nothing is emphasized or warned about by default.
     QCOMPARE(countLeadersContaining(m, aquiferActiveCalloutPrefix()), 0);
     QCOMPARE(countLeadersContaining(m, aquiferWarningCalloutPrefix()), 0);
     for (const DiagramDim &d : m.dims)

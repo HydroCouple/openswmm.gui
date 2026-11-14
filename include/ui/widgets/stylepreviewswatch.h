@@ -6,7 +6,7 @@
  * @brief     Small live-preview widget used by every style editor.
  *
  *         Renders a representative "point" / "line" / "polygon" sample
- *         using the current colour, size/width, and shape parameters
+ *         using the current color, size/width, and shape parameters
  *         provided via setter calls. Editors push state into the swatch
  *         on every property change and the swatch repaints.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -41,13 +41,13 @@ public:
      */
     void setKind(Kind k);
 
-    /*! Fill / single-symbol colour. For lines this is the stroke colour.
-     * @param[in] c Sample colour copied without validity checks; polygon alpha is replaced by fill opacity when painting.
+    /*! Fill / single-symbol color. For lines this is the stroke color.
+     * @param[in] c Sample color copied without validity checks; polygon alpha is replaced by fill opacity when painting.
      */
     void setColor(const QColor &c);
 
     /*! Stroke / outline pen (points use it as marker outline).
-     * @param[in] pen Point/polygon outline pen; line preview uses its dash style with separately configured width/colour.
+     * @param[in] pen Point/polygon outline pen; line preview uses its dash style with separately configured width/color.
      */
     void setStrokePen(const QPen &pen);
 
@@ -73,7 +73,7 @@ public:
      */
     void setShowArrows(bool v);
 
-    /*! For PolygonKind: fill alpha (0..1), replacing the single-symbol colour
+    /*! For PolygonKind: fill alpha (0..1), replacing the single-symbol color
      *  alpha during preview rendering.
      * @param[in] v Finite alpha value; stored unchanged then clamped to [0,1] when painting polygons.
      */

@@ -275,7 +275,7 @@ void SimulationStatusModel::finishJob(int jobId, bool success, int errCode, cons
     // step-loop tick may have stopped a sub-routing-step shy of the end
     // (engine step returns elapsed == 0 to signal "done") which would
     // otherwise leave the Current column a few seconds before End.
-    // For cancelled / failed runs we leave Current where the last tick
+    // For canceled / failed runs we leave Current where the last tick
     // left it so the user can see exactly when execution stopped.
     if (rec.status == SimulationJobStatus::Success && rec.endSimDate.isValid())
         rec.currentSimDate = rec.endSimDate;
@@ -423,8 +423,8 @@ QVariant SimulationStatusModel::data(const QModelIndex &index, int role) const
         if (role == Qt::ToolTipRole && index.column() == 0)
             return rec.warnings.at(index.row());
         if (role == Qt::ForegroundRole) {
-            // The failure row (finishJob) uses the error colour; warnings the
-            // warning colour. Theme tokens keep text contrast on light and
+            // The failure row (finishJob) uses the error color; warnings the
+            // warning color. Theme tokens keep text contrast on light and
             // dark themes (the fixed hex values were below 4.5:1).
             const auto &c = openswmmvis::ui::ThemeManager::instance()->colors();
             if (rec.warnings.at(index.row()).startsWith(QLatin1String("ERROR ")))

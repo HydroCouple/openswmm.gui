@@ -1,7 +1,7 @@
 /**
  * @file      colorcelldelegate.cpp
- * @brief     Paints the cell's Qt::BackgroundRole colour as a rounded swatch (checkerboard behind
- *            translucent colours) and opens QColorDialog on double-click, writing the pick back to
+ * @brief     Paints the cell's Qt::BackgroundRole color as a rounded swatch (checkerboard behind
+ *            translucent colors) and opens QColorDialog on double-click, writing the pick back to
  *            Qt::BackgroundRole.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026

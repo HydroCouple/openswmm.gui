@@ -30,7 +30,7 @@ struct RainGageInfo {
 /** @brief Owning metadata for preparing rainfall in the engine's native input conventions. */
 struct RainfallModelInfo {
     QString depthUnit; ///< Exactly mm for SI flow units or in for US flow units.
-    QDateTime start; ///< Configured timezone-naive model start, UTC-labelled to avoid DST arithmetic.
+    QDateTime start; ///< Configured timezone-naive model start, UTC-labeled to avoid DST arithmetic.
     QList<RainGageInfo> gages; ///< At most 5000 copied gages; no engine/widget pointer escapes.
 };
 /** @brief Read rainfall metadata without acquiring a write scope or modifying the model. */

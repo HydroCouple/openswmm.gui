@@ -4,7 +4,7 @@
  *         four type-aware subclasses (Junction / Outfall / Storage /
  *         Divider). Exercises:
  *           - The depth/elev/area scalar block that already shipped in
- *             Slice Z.5.3 (regression cover, no behaviour change here).
+ *             Slice Z.5.3 (regression cover, no behavior change here).
  *           - X / Y coord getters reading via `swmm_spatial_get_node_coord`.
  *           - The `coordChangeRequested` signal fired by setXCoord /
  *             setYCoord when the new value differs from the cached coord.

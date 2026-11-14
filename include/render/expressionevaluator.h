@@ -3,7 +3,7 @@
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
- * @brief     Minimal SQL-flavoured expression evaluator for the
+ * @brief     Minimal SQL-flavored expression evaluator for the
  *         RuleBasedRenderer.  Slice X.25.
  *
  *         Goal: cover the QGIS / SQL-WHERE common cases so styles

@@ -154,7 +154,7 @@ public:
     [[nodiscard]] QFont font() const { return m_font; }
     /**
      * @brief Inspect stored annotation state without layout/source resolution.
-     * @return Glyph fill colour including alpha, copied without validity checks. Returns a value copy.
+     * @return Glyph fill color including alpha, copied without validity checks. Returns a value copy.
      */
     [[nodiscard]] QColor fillColor() const { return m_fillColor; }
 
@@ -165,7 +165,7 @@ public:
     [[nodiscard]] bool outlineEnabled() const { return m_outlineEnabled; }
     /**
      * @brief Inspect stored annotation state without layout/source resolution.
-     * @return Glyph-outline colour including alpha; no validity check. Returns a value copy.
+     * @return Glyph-outline color including alpha; no validity check. Returns a value copy.
      */
     [[nodiscard]] QColor outlineColor() const { return m_outlineColor; }
     /**
@@ -181,7 +181,7 @@ public:
     [[nodiscard]] bool haloEnabled() const { return m_haloEnabled; }
     /**
      * @brief Inspect stored annotation state without layout/source resolution.
-     * @return Halo stroke colour including alpha. Returns a value copy.
+     * @return Halo stroke color including alpha. Returns a value copy.
      */
     [[nodiscard]] QColor haloColor() const { return m_haloColor; }
     /**
@@ -197,12 +197,12 @@ public:
     [[nodiscard]] bool backgroundEnabled() const { return m_bgEnabled; }
     /**
      * @brief Inspect stored annotation state without layout/source resolution.
-     * @return Background card colour including alpha. Returns a value copy.
+     * @return Background card color including alpha. Returns a value copy.
      */
     [[nodiscard]] QColor backgroundFillColor() const { return m_bgFill; }
     /**
      * @brief Inspect stored annotation state without layout/source resolution.
-     * @return Card border colour including alpha. Returns a value copy.
+     * @return Card border color including alpha. Returns a value copy.
      */
     [[nodiscard]] QColor backgroundOutlineColor() const { return m_bgOutline; }
     /**
@@ -279,7 +279,7 @@ public:
     void setPinned(bool pinned);
 
     /*! Serialize to a project-file JSON entry.
-     * @return Owned raw identity/content/position/style/link/offset/pin object. Colours encode ARGB, font uses QFont text; no source resolution, validation or disk IO occurs.
+     * @return Owned raw identity/content/position/style/link/offset/pin object. Colors encode ARGB, font uses QFont text; no source resolution, validation or disk IO occurs.
      */
     [[nodiscard]] QJsonObject toJson() const;
 
@@ -287,7 +287,7 @@ public:
      *  current values for missing keys; linked/layout fields use their
      *  defaults. Restores a supplied `id` instead of regenerating it.
      * @param[in] obj Permissive entry decoded directly without typed setters or numeric clamps. Missing/ill-typed traditional style fields retain current values; absent feature/expression/callout/offset/pinned fields reset those newer fields to empty/false/zero.
-     * @note Restores an explicitly present string ID, including empty, without uniqueness checks. Invalid colour/font strings retain prior values. Always emits positionChanged(), textChanged() then changed(), without all typed style notifications; no error result/rollback is supplied.
+     * @note Restores an explicitly present string ID, including empty, without uniqueness checks. Invalid color/font strings retain prior values. Always emits positionChanged(), textChanged() then changed(), without all typed style notifications; no error result/rollback is supplied.
      */
     void fromJson(const QJsonObject &obj);
 
@@ -331,7 +331,7 @@ public slots:
     void setFont(const QFont &f);
     /**
      * @brief Edit the persisted annotation presentation value.
-     * @param[in] c Glyph fill colour including alpha, copied without validity checks.
+     * @param[in] c Glyph fill color including alpha, copied without validity checks.
      * @note Exact equality is a no-op. A change emits fillColorChanged() then changed(). Numeric/style inputs are not otherwise validated or clamped; use finite meaningful geometry.
      */
     void setFillColor(const QColor &c);
@@ -344,7 +344,7 @@ public slots:
     void setOutlineEnabled(bool on);
     /**
      * @brief Edit the persisted annotation presentation value.
-     * @param[in] c Glyph-outline colour including alpha; no validity check.
+     * @param[in] c Glyph-outline color including alpha; no validity check.
      * @note Exact equality is a no-op. A change emits outlineColorChanged() then changed(). Numeric/style inputs are not otherwise validated or clamped; use finite meaningful geometry.
      */
     void setOutlineColor(const QColor &c);
@@ -363,7 +363,7 @@ public slots:
     void setHaloEnabled(bool on);
     /**
      * @brief Edit the persisted annotation presentation value.
-     * @param[in] c Halo stroke colour including alpha.
+     * @param[in] c Halo stroke color including alpha.
      * @note Exact equality is a no-op. A change emits haloColorChanged() then changed(). Numeric/style inputs are not otherwise validated or clamped; use finite meaningful geometry.
      */
     void setHaloColor(const QColor &c);
@@ -382,13 +382,13 @@ public slots:
     void setBackgroundEnabled(bool on);
     /**
      * @brief Edit the persisted annotation presentation value.
-     * @param[in] c Background card colour including alpha.
+     * @param[in] c Background card color including alpha.
      * @note Exact equality is a no-op. A change emits backgroundFillColorChanged() then changed(). Numeric/style inputs are not otherwise validated or clamped; use finite meaningful geometry.
      */
     void setBackgroundFillColor(const QColor &c);
     /**
      * @brief Edit the persisted annotation presentation value.
-     * @param[in] c Card border colour including alpha.
+     * @param[in] c Card border color including alpha.
      * @note Exact equality is a no-op. A change emits backgroundOutlineColorChanged() then changed(). Numeric/style inputs are not otherwise validated or clamped; use finite meaningful geometry.
      */
     void setBackgroundOutlineColor(const QColor &c);
@@ -436,7 +436,7 @@ signals:
     void fontChanged(const QFont &value);
     /**
      * @brief Notify a typed annotation-state edit before aggregate changed().
-     * @param[in] value New raw value. Glyph fill colour including alpha, copied without validity checks.
+     * @param[in] value New raw value. Glyph fill color including alpha, copied without validity checks.
      * @note fromJson() emits only position/text/aggregate notifications, not every typed style signal.
      */
     void fillColorChanged(const QColor &value);
@@ -449,7 +449,7 @@ signals:
     void outlineEnabledChanged(bool value);
     /**
      * @brief Notify a typed annotation-state edit before aggregate changed().
-     * @param[in] value New raw value. Glyph-outline colour including alpha; no validity check.
+     * @param[in] value New raw value. Glyph-outline color including alpha; no validity check.
      * @note fromJson() emits only position/text/aggregate notifications, not every typed style signal.
      */
     void outlineColorChanged(const QColor &value);
@@ -468,7 +468,7 @@ signals:
     void haloEnabledChanged(bool value);
     /**
      * @brief Notify a typed annotation-state edit before aggregate changed().
-     * @param[in] value New raw value. Halo stroke colour including alpha.
+     * @param[in] value New raw value. Halo stroke color including alpha.
      * @note fromJson() emits only position/text/aggregate notifications, not every typed style signal.
      */
     void haloColorChanged(const QColor &value);
@@ -487,13 +487,13 @@ signals:
     void backgroundEnabledChanged(bool value);
     /**
      * @brief Notify a typed annotation-state edit before aggregate changed().
-     * @param[in] value New raw value. Background card colour including alpha.
+     * @param[in] value New raw value. Background card color including alpha.
      * @note fromJson() emits only position/text/aggregate notifications, not every typed style signal.
      */
     void backgroundFillColorChanged(const QColor &value);
     /**
      * @brief Notify a typed annotation-state edit before aggregate changed().
-     * @param[in] value New raw value. Card border colour including alpha.
+     * @param[in] value New raw value. Card border color including alpha.
      * @note fromJson() emits only position/text/aggregate notifications, not every typed style signal.
      */
     void backgroundOutlineColorChanged(const QColor &value);

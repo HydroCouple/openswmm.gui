@@ -42,7 +42,7 @@ namespace ObjectDefaultsApplier
  * @note Junction writes maximum/initial/surcharge depths and ponded area. Outfall writes type/flap
  *   gate. Storage writes maximum depth, functional area coefficients and constant seepage
  *   (inches/hour or mm/hour, replacing Green-Ampt seep parameters). Divider writes type only.
- *   Depths use project feet/metres and ponded area square feet/metres; no invert/coordinates/curve
+ *   Depths use project feet/meters and ponded area square feet/meters; no invert/coordinates/curve
  *   assignment is supplied.
  */
 void applyNodeDefaults(SWMM_Engine engine, int idx, int nodeType);
@@ -71,7 +71,7 @@ void applyNodeDefaults(SWMM_Engine engine, int idx, int nodeType);
  *   opening per second, zero instantaneous).
  * @note Weir forces rectangular-open geometry with saved height/length, and sets type, discharge
  *   coefficient, end contractions and flap gate. Outlet writes rating type/coefficient/exponent and
- *   flap gate without assigning a tabular curve. Geometric lengths/depths use project feet/metres;
+ *   flap gate without assigning a tabular curve. Geometric lengths/depths use project feet/meters;
  *   coefficients retain each engine subtype convention. No validation/conversion is added around
  *   saved values.
  */
@@ -93,7 +93,7 @@ void applyLinkDefaults(SWMM_Engine engine, int idx, int linkType, bool skipLengt
  *   error or rollback. No undo entry, model/cache refresh, Qt notification or preference
  *   persistence is performed. Apply before geometry-derived overrides and never to
  *   replay/restoration primitives.
- * @note Writes optional area (acres/hectares), width (feet/metres), slope and
+ * @note Writes optional area (acres/hectares), width (feet/meters), slope and
  *   impervious/zero-storage percentages, Manning surface coefficients and depression depths
  *   (inches/mm). Values are passed through without local validation.
  * @note Reads PROJECT INFILTRATION option, trimmed/uppercased; getter failure defaults Horton.

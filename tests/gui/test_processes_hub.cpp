@@ -289,7 +289,7 @@ private slots:
         const char *kReactions = "org.hydrocouple.openswmm.reactions";
         QCOMPARE(swmm_process_component_find(e, kReactions), -1);
 
-        // The engine's catalogue is what the Id combo offers.
+        // The engine's catalog is what the Id combo offers.
         const auto known = ProcessComponentsModel::knownIds();
         QVERIFY(known.size() >= 6);
         bool hasReactions = false;

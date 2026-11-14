@@ -7,10 +7,10 @@
  *
  * Each case is a control that once changed nothing on screen (owner report 2026-11-13: "the
  * mesh edges color is not reflecting in the rendering"), checked on the scene-graph renderer
- * (vertices per colour) and, where the CPU path differed, on a QPainter render:
- *   - the Mesh Edges colour with Boundary Conditions shown (walls recolour boundary edges only);
+ * (vertices per color) and, where the CPU path differed, on a QPainter render:
+ *   - the Mesh Edges color with Boundary Conditions shown (walls recolor boundary edges only);
  *   - edge and results stroke dashes, vertex outlines, stepped contour bands, the no-data
- *     colour, the edge/vertex zoom thresholds saved with the sublayers;
+ *     color, the edge/vertex zoom thresholds saved with the sublayers;
  *   - the Layer Styling dock rules writing only the edited field to the drawn pass;
  *   - results: the hidden terrain row, per-frame depth ranges, vector controls a mode ignores.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -91,7 +91,7 @@ template <typename F> void forEachGeometry(QSGNode *root, F &&visit)
                 visit(g);
     }
 }
-/** @return Vertices drawn with a flat material of exactly this colour. */
+/** @return Vertices drawn with a flat material of exactly this color. */
 int flatVertices(QSGNode *root, const QColor &color)
 {
     int count = 0;
@@ -101,7 +101,7 @@ int flatVertices(QSGNode *root, const QColor &color)
     });
     return count;
 }
-/** @return Per-vertex-coloured vertices of this opaque colour (or of any colour if invalid). */
+/** @return Per-vertex-colored vertices of this opaque color (or of any color if invalid). */
 int coloredVertices(QSGNode *root, const QColor &color = QColor())
 {
     int count = 0;
@@ -116,7 +116,7 @@ int coloredVertices(QSGNode *root, const QColor &color = QColor())
     });
     return count;
 }
-/** @return Per-vertex-coloured vertices that satisfy pred. */
+/** @return Per-vertex-colored vertices that satisfy pred. */
 template <typename P> int coloredWhere(QSGNode *root, P &&pred)
 {
     int count = 0;
@@ -130,7 +130,7 @@ template <typename P> int coloredWhere(QSGNode *root, P &&pred)
     });
     return count;
 }
-/** @return Pixels of exactly this colour. */
+/** @return Pixels of exactly this color. */
 int pixels(const QImage &image, const QColor &color)
 {
     int count = 0;
@@ -296,8 +296,8 @@ class Test2DStyleRenderGaps : public QObject
 
 private slots:
     // ── Mesh layer ──────────────────────────────────────────────────────────
-    /** @brief The owner's report: the edge colour shows while BC walls are drawn; walls
-     *  recolour the boundary edges only (QSG and QPainter). */
+    /** @brief The owner's report: the edge color shows while BC walls are drawn; walls
+     *  recolor the boundary edges only (QSG and QPainter). */
     void edgeColourShowsBesideBoundaryWalls()
     {
         SWMM2DMeshLayer layer(squareMesh(), "edge-colour.2dm");
@@ -378,8 +378,8 @@ private slots:
         QCOMPARE(coloredVertices(root.get()), 6); // two cells, one triangle each
         QVERIFY2(smooth > 6, qPrintable(QString::number(smooth)));
     }
-    /** @brief A new no-data colour repaints cells without a value (fill cache key). The fill
-     *  shades each cell by its slope, so the test reads the hue, not the exact colour. */
+    /** @brief A new no-data color repaints cells without a value (fill cache key). The fill
+     *  shades each cell by its slope, so the test reads the hue, not the exact color. */
     void noDataColourRepaints()
     {
         SWMM2DMeshLayer layer(squareMesh(), "nodata.2dm"); // Manning's n unset: no data
@@ -434,7 +434,7 @@ private slots:
         QCOMPARE(st->lineWidthPx(), 5.);
         QCOMPARE(st->color(), QColor(220, 20, 30));
         QCOMPARE(st->dashPattern(), Qt::DotLine);
-        // The panel changes the colour while the dock still shows the old one.
+        // The panel changes the color while the dock still shows the old one.
         st->setColor(QColor(20, 60, 220));
         edges->setLineWidthPx(6);
         QCOMPARE(st->lineWidthPx(), 6.);
@@ -450,7 +450,7 @@ private slots:
         QCOMPARE(layer.meshNodeSublayer()->nodeStyle()->shape(), MeshNodeStyle::MarkerShape::Diamond);
         QCOMPARE(layer.meshNodeSublayer()->nodeStyle()->color(), fill);
         QCOMPARE(layer.meshNodeSublayer()->opacity(), .4);
-        // Picked band colours replace the named ramp.
+        // Picked band colors replace the named ramp.
         Rule *bands = ruleNamed(layer.ruleList(), "Contour bands");
         std::unique_ptr<QObject> bandAdapter(SymbolStyleAdapter::createFor(bands));
         auto *band = qobject_cast<ContourBandSymbolStyleAdapter *>(bandAdapter.get());
@@ -586,7 +586,7 @@ private slots:
         QCOMPARE(fill->highColor(), QColor(0, 0, 128));
         QVERIFY(fill->colorRampName().isEmpty());
     }
-    /** @brief The vector page greys the controls the current mode ignores. */
+    /** @brief The vector page grays the controls the current mode ignores. */
     void vectorPanelGreysIgnoredControls()
     {
         SWMM2DResultsLayer layer;
@@ -620,7 +620,7 @@ private slots:
     }
 
     // ── Round 2 (owner decisions D1–D6) ─────────────────────────────────────
-    /** @brief The colour scheme's log scale, outside-the-range colours and their JSON. */
+    /** @brief The color scheme's log scale, outside-the-range colors and their JSON. */
     void schemeLogScaleAndOutsideColours()
     {
         ClassificationScheme sc;
@@ -662,7 +662,7 @@ private slots:
         QVERIFY(!ClassificationScheme().toJson().contains("logScale"));
         QVERIFY(!ClassificationScheme().toJson().contains("belowColor"));
     }
-    /** @brief The mesh fill draws cells below its range in the below colour. */
+    /** @brief The mesh fill draws cells below its range in the below color. */
     void meshFillDrawsBelowTheRange()
     {
         auto mesh = squareMesh();
@@ -688,7 +688,7 @@ private slots:
         QCOMPARE(coloredVertices(root.get()), 6);
         QCOMPARE(coloredWhere(root.get(), [](const auto &v) { return v.g > 2 * v.r && v.g > 2 * v.b; }), 3);
     }
-    /** @brief The results depth fill draws below its range (below colour) and log-scales. */
+    /** @brief The results depth fill draws below its range (below color) and log-scales. */
     void resultsDepthFillOutsideAndLog()
     {
         SWMM2DResultsLayer layer;
@@ -723,7 +723,7 @@ private slots:
         QVERIFY(qAbs(sampler.position(std::sqrt(1.5 * 3.0)) - 0.5) < 1e-12); // geometric middle
         QVERIFY(qAbs(sampler.valueAt(0.5) - std::sqrt(1.5 * 3.0)) < 1e-9);
     }
-    /** @brief Band below / above colours fill the regions outside the band range. */
+    /** @brief Band below / above colors fill the regions outside the band range. */
     void bandsDrawOutsideTheirRange()
     {
         SWMM2DMeshLayer layer(squareMesh(), "bands-outside.2dm"); // bed 0 … 2
@@ -743,7 +743,7 @@ private slots:
         QVERIFY(st->scheme().belowColor().isValid());
         root.reset(renderer.sync(root.release()));
         QCOMPARE(coloredWhere(root.get(), [](const auto &v) { return v.g > 2 * v.r && v.g > 2 * v.b; }), 6);
-        // The old default above colour (never drawn) does not come back from a file.
+        // The old default above color (never drawn) does not come back from a file.
         QJsonObject old = st->toJson();
         old.insert("aboveMaxColor", "#c8ffffff");
         st->fromJson(old);
@@ -795,8 +795,8 @@ private slots:
         QVERIFY(!ruleNamed(layer.ruleList(), "Hillshade"));
         QVERIFY(ruleNamed(layer.ruleList(), "Depth color ramp"));
     }
-    /** @brief The colour-ramp rules write the log scale, the colours outside the range and (mesh)
-     *  the fill's attribute; controls a layer does not draw are greyed in the dock's editor. */
+    /** @brief The color-ramp rules write the log scale, the colors outside the range and (mesh)
+     *  the fill's attribute; controls a layer does not draw are grayed in the dock's editor. */
     void dockRampRulesWriteTheNewFields()
     {
         SWMM2DMeshLayer mesh(squareMesh(), "dock-ramp.2dm");
@@ -823,7 +823,7 @@ private slots:
         depth->setAboveMaxColor(QColor(200, 0, 0));
         QCOMPARE(results.cellDepthFillSublayer()->fillStyle()->scheme().aboveColor(),
                  QColor(200, 0, 0));
-        // Greyed with the reason: the results Attribute; enabled on the mesh layer.
+        // Grayed with the reason: the results Attribute; enabled on the mesh layer.
         const auto attributeEdit = [](QWidget *editor) -> QLineEdit * {
             for (auto *edit : editor->findChildren<QLineEdit *>())
                 if (!qobject_cast<QAbstractSpinBox *>(edit->parentWidget()))
@@ -840,7 +840,7 @@ private slots:
         QVERIFY(meshEditor && attributeEdit(meshEditor.get())->isEnabled());
     }
     /** @brief The vertex rule's tagged settings drive the mesh layer's Coupled Vertices row;
-     *  on results they are greyed. */
+     *  on results they are grayed. */
     void dockTaggedSettingsDriveCoupledVertices()
     {
         SWMM2DMeshLayer mesh(squareMesh(), "dock-tagged.2dm");
@@ -880,7 +880,7 @@ private slots:
         shapes->setShapeValue(int(MarkerShape::Diamond));
         QCOMPARE(mesh.meshNodeSublayer()->nodeStyle()->shape(), MeshNodeStyle::MarkerShape::Diamond);
     }
-    /** @brief Legends list the below/above-range colours that are set, around the class rows. */
+    /** @brief Legends list the below/above-range colors that are set, around the class rows. */
     void legendShowsOutsideRangeColours()
     {
         const auto colourOf = [](const LegendSymbolItem &row) {

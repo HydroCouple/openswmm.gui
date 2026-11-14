@@ -37,7 +37,7 @@ class SpatialReferenceSystem;
  *     the target QImage.
  *  4. When all layers have painted, finished(QImage) is emitted on the GUI thread.
  *
- * Cancellation: Call cancel() to skip remaining layers; a cancelled worker
+ * Cancellation: Call cancel() to skip remaining layers; a canceled worker
  * normally discards its image before queuing finished(). A queued callback can
  * still race cancellation.
  *
@@ -54,7 +54,7 @@ public:
      * \param extent       Geographic extent in canvas-CRS coordinates.
      * \param imageSize    Pixel dimensions of the output image.
      * \param srs          Canvas CRS (not owned; must outlive the job).
-     * \param bgColor      Background fill colour for the buffer.
+     * \param bgColor      Background fill color for the buffer.
      * \param parent       Qt parent.
      * @param[in] devicePixelRatio Output device-pixel/logical-pixel ratio; nonpositive/NaN falls
      *   back1, positive infinity is not explicitly rejected.
@@ -88,7 +88,7 @@ public:
      *   state/raw pointers and dispatches global QtConcurrent worker. Builds premultiplied ARGB
      *   backing at round(logicalSize*dpr), sets DPR, fills background, then visible raster layers
      *   render in list order with layer opacity.
-     * @note Cooperative cancel checked between layers and before queued publication; cancelled work
+     * @note Cooperative cancel checked between layers and before queued publication; canceled work
      *   is DISCARDED rather than emitting partial image. Cancel after last check can race queued
      *   delivery and still emit. No per-layer interruption, exception/failure signal,
      *   allocation-size validation or layer ownership capture. Completion posts through application
@@ -122,7 +122,7 @@ public:
 signals:
 
     /*!
-     * \brief Emitted on the GUI thread when rendering is complete (or cancelled).
+     * \brief Emitted on the GUI thread when rendering is complete (or canceled).
      * \param result   The composited raster image, sized to imageSize.
      * @note Result owns implicitly shared image data with DEVICE backing dimensions
      *   round(imageSize*dpr) and DPR metadata, so logical image size follows requested viewport.

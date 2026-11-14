@@ -344,7 +344,7 @@ void TestMarkerShape::spec_roundTripIsLossless()
     QCOMPARE(back.outlineWidth, s.outlineWidth);
     QCOMPARE(back.rotationDeg, s.rotationDeg);
     QCOMPARE(back.offsetPx, s.offsetPx);
-    // Colours round-trip through JSON via SymbolLayer's serialisation.
+    // Colors round-trip through JSON via SymbolLayer's serialization.
     QCOMPARE(back.fillColor.alpha(), s.fillColor.alpha());
 }
 
@@ -353,7 +353,7 @@ void TestMarkerShape::spec_partialPropsFallBackToDefaults()
     SymbolLayer layer;
     layer.kind = SymbolLayerKind::SimpleMarker;
     layer.props[QStringLiteral("shape")] = static_cast<int>(MarkerShape::Diamond);
-    // No size, no colours, no outline.
+    // No size, no colors, no outline.
     MarkerSymbolLayerSpec back = MarkerSymbolLayerSpec::fromSymbolLayer(layer);
     QCOMPARE(back.shape, MarkerShape::Diamond);
     MarkerSymbolLayerSpec defaults;

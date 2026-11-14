@@ -968,7 +968,7 @@ public:
 
     /*! Vertical unit of the active terrain raster ("m" or "ft").
      * @return Copied cached authored unit token; may be arbitrary string because setter normalizes
-     *   only empty. Exact ft is treated as feet, all other strings as metres.
+     *   only empty. Exact ft is treated as feet, all other strings as meters.
  */
     [[nodiscard]] QString terrainVerticalUnit() const { return mTerrainVertUnit; }
 
@@ -976,11 +976,11 @@ public:
      * \brief Sets the terrain raster's vertical unit and updates the conversion
      *        factor applied when computing node/link invert elevations.
      * @param[in] unit Copied raster vertical-unit token; empty becomes m, exact case-sensitive ft
-     *   uses 0.3048 metres, every other token treated as metres.
+     *   uses 0.3048 meters, every other token treated as meters.
      * @param[in] markDirty On changed token/factor mark project dirty when true; false for
      *   restoration.
-     * @note Recompute even unchanged token when project SI mode changes. Factor = raster-to-metres
-     *   / model-to-metres; offset remains model ft/m. Changed token/factor updates canvas unit
+     * @note Recompute even unchanged token when project SI mode changes. Factor = raster-to-meters
+     *   / model-to-meters; offset remains model ft/m. Changed token/factor updates canvas unit
      *   label, generic node/LID/link tools and emits activeTerrainChanged even if raster null. No
      *   engine coordinates changed.
      */
@@ -1032,7 +1032,7 @@ signals:
  */
     void modelLoadFinished(bool ok, const QList<QString> &warnings, const QList<QString> &errors);
     /*! Fired after a SUCCESSFUL save whose engine write emitted warnings —
-     *  the save-time analogue of the open path's warning routing. The list is
+     *  the save-time analog of the open path's warning routing. The list is
      *  the delta across this write only. Data-loss notices (embedded
      *  [REACTION_*] dropped) arrive here; SWMMVis routes every entry to the
      *  log panel and escalates the data-loss family to a modal.

@@ -204,7 +204,7 @@ void applyMarkerSymbolToElement(const OpenSWMM::Render::SymbolLayer &layer, SWMM
 /**
  * @param[in] layer Stable typed first SymbolLayer, parsed through corresponding spec defaults.
  * @param[in, out] sym Mutable legacy symbol updated in place, unrelated fields retained.
- * @brief Apply Line spec outline colour/width, arrows and labels to legacy value; pixel dimensions
+ * @brief Apply Line spec outline color/width, arrows and labels to legacy value; pixel dimensions
  *   unchanged, no layer notification or range checks.
  */
 void applyLineSymbolToElement(const OpenSWMM::Render::SymbolLayer &layer, SWMMElementSymbol &sym)
@@ -365,7 +365,7 @@ SymbolLayerKind layerKindFor(SWMMModelLayer::Category c)
 /**
  * @param[in] s Legacy symbol value, pixel dimensions and QColor variants.
  * @param[in] c Category choosing point/line/fill archetype.
- * @return Owned one-layer SymbolStyle with canonical colour/width/size/glyph/label props and link
+ * @return Owned one-layer SymbolStyle with canonical color/width/size/glyph/label props and link
  *   arrow metadata. No layer mutation or signals.
  */
 SymbolStyle styleFromElementSymbol(const SWMMElementSymbol &s, SWMMModelLayer::Category c)
@@ -373,16 +373,16 @@ SymbolStyle styleFromElementSymbol(const SWMMElementSymbol &s, SWMMModelLayer::C
     SymbolStyle style;
     SymbolLayer layer;
     layer.kind = layerKindFor(c);
-    // X1 — canonical colour encoding: QColor *variants* under the keys the
+    // X1 — canonical color encoding: QColor *variants* under the keys the
     // typed spec readers use (Marker/Fill specs read "fillColor" +
-    // "outlineColor"; Line spec reads its pen colour from "color"). The
+    // "outlineColor"; Line spec reads its pen color from "color"). The
     // previous hex-string writes under "color"/"outlineColor" were invisible
     // to the spec readers (value<QColor>() does not parse hex) and to the
     // legend (reads "color" only) — the dialog opened on defaults and the
     // legend fell back to gray.
     if (layer.kind == SymbolLayerKind::SimpleLine) {
         // The legacy link painter draws with the *pen* (outlineColor); the
-        // line grammar's editable colour key is "color". Keep fillColor too
+        // line grammar's editable color key is "color". Keep fillColor too
         // so the struct round-trips losslessly (M1.a).
         layer.props.insert(QStringLiteral("color"), QVariant::fromValue(s.outlineColor));
         layer.props.insert(QStringLiteral("fillColor"), QVariant::fromValue(s.fillColor));
@@ -420,15 +420,15 @@ SymbolStyle styleFromElementSymbol(const SWMMElementSymbol &s, SWMMModelLayer::C
     return style;
 }
 
-// A symbol-layer prop colour may be stored two ways depending on the editing
+// A symbol-layer prop color may be stored two ways depending on the editing
 // path: the *SymbolStyleAdapter editors write a QColor variant; the
 // struct-regen path (styleFromElementSymbol) writes a hex string. Read both.
 // Tries `primary`, then optional `secondary`, key.
 /**
- * @param[in] props Property bag accepting QColor variant or parseable colour string.
+ * @param[in] props Property bag accepting QColor variant or parseable color string.
  * @param[in] primary Required Latin-1 primary key.
  * @param[in] secondary Optional fallback key used when primary invalid.
- * @return First valid parsed colour, otherwise invalid; no bag mutation.
+ * @return First valid parsed color, otherwise invalid; no bag mutation.
  */
 QColor propColor(const QVariantMap &props, const char *primary, const char *secondary = nullptr)
 {
@@ -477,7 +477,7 @@ int propShape(const QVariantMap &props)
  * @param[in] style Value symbol; only first layer read.
  * @param[in] fallback Baseline fields retained for absent/invalid props.
  * @return Owned legacy symbol with present supported fields overlaid; empty style returns fallback.
- *   Line colour/width remap to outline fields, arrowWidth absent retains fallback; numeric values
+ *   Line color/width remap to outline fields, arrowWidth absent retains fallback; numeric values
  *   not clamped.
  */
 SWMMElementSymbol elementSymbolFromStyle(const SymbolStyle &style,
@@ -525,7 +525,7 @@ SWMMElementSymbol elementSymbolFromStyle(const SymbolStyle &style,
 
     // P1 — line archetype override. The legacy painter draws links with the
     // *pen* (outlineColor / outlineWidth); LineSymbolStyleAdapter writes the
-    // editable line colour/width under "color"/"width". The generic reads
+    // editable line color/width under "color"/"width". The generic reads
     // above put those into fillColor/size (unused by the line painter), so
     // remap them onto the pen here. This makes the canonical first write
     // correct for lines without relying on the secondary back-prop.
@@ -590,7 +590,7 @@ SWMMModelLayer::SWMMModelLayer(const QString &modelFilePath, OpenSWMMVisWorkspac
     m_inletJunctionSym.size = 9.0;
     m_inletJunctionSym.markerShape = Marker::Diamond;
     // Dashed host → capture-node connector (§3.2). fillColor is the line
-    // colour and outlineWidth the line width; no marker is drawn.
+    // color and outlineWidth the line width; no marker is drawn.
     m_inletConnectorSym.fillColor = QColor(0, 120, 255);
     m_inletConnectorSym.outlineColor = QColor(0, 120, 255);
     m_inletConnectorSym.outlineWidth = 1.5;
@@ -603,9 +603,9 @@ SWMMModelLayer::SWMMModelLayer(const QString &modelFilePath, OpenSWMMVisWorkspac
     m_dividerSym.fillColor = Qt::green;
     m_dividerSym.size = 8.0;
     m_dividerSym.markerShape = Marker::Diamond;
-    // Link kinds paint from the per-kind symbol's fillColor (line colour) and
+    // Link kinds paint from the per-kind symbol's fillColor (line color) and
     // size (line width in px) — see linkPenForType() in swmmlayeritem.cpp and
-    // the QSG link pass. The fill colours below already match the global
+    // the QSG link pass. The fill colors below already match the global
     // PreferencesManager link-pen defaults (kDefault*Color), and `size` is
     // seeded to the matching default pen widths, so first-open is pixel-
     // identical to the previous prefs-driven look; per-layer dialog edits then
@@ -683,7 +683,7 @@ SWMMModelLayer::SWMMModelLayer(const QString &modelFilePath, OpenSWMMVisWorkspac
     // Feedback C14 — rain gage + subcatchment defaults come from Preferences
     // → Rendering → Network Symbols with the same "inherited" semantics as
     // the link pens above: a field still equal to the value it inherited
-    // follows later preference edits; an explicitly customised one stays.
+    // follows later preference edits; an explicitly customized one stays.
     {
         const QString gageKey = QStringLiteral("raingage");
         const QString subKey = QStringLiteral("subcatchment");
@@ -753,7 +753,7 @@ SWMMModelLayer::SWMMModelLayer(const QString &modelFilePath, OpenSWMMVisWorkspac
                 });
     }
 
-    // Slice BI Phase 8.13.6.5 — initialise renderer so renderer() never
+    // Slice BI Phase 8.13.6.5 — initialize renderer so renderer() never
     // returns nullptr. Placeholder SingleSymbolRenderer is unused by the
     // current paint loop (which still reads m_*Sym directly); the paint
     // refactor swaps in a MultiKindRenderer adapter and flips the path.
@@ -1270,7 +1270,7 @@ SWMM_Engine SWMMModelLayer::createBlankEngine(const NewProjectSpec &spec, QStrin
     }
 
     // NOTE: [MAP] UNITS has no C-API setter — the CRS derivation in
-    // adoptOpenEngine covers the in-session behaviour, and the .oswp
+    // adoptOpenEngine covers the in-session behavior, and the .oswp
     // sidecar written on first Save As preserves the CRS across reopen.
 
     if (!failures.isEmpty()) {
@@ -1451,7 +1451,7 @@ bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine, QList<QString> &warning
     // user edits in the Attribute Table + Property Browser.  The
     // simulation runner calls swmm_engine_initialize itself before
     // running — see src/simulation/simulationrunner.cpp:198 — so
-    // skipping it here doesn't affect run behaviour.
+    // skipping it here doesn't affect run behavior.
 
     QElapsedTimer crsTimer;
     crsTimer.start();
@@ -1470,7 +1470,7 @@ bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine, QList<QString> &warning
     //   2a. LocalAuto mode (default): auto-generate a local CRS from the
     //       [MAP] Units field — gives a correct unit (ft/m) without
     //       requiring a geographic CRS or user prompt.
-    //   2b. EPSG mode: user-configured authority/code (legacy behaviour).
+    //   2b. EPSG mode: user-configured authority/code (legacy behavior).
     //   3. Untitled local SRS — triggers the CRS picker in the project
     //      window (truly unknown, no [MAP] Units either).
     {
@@ -1819,7 +1819,7 @@ double SWMMModelLayer::maxMarkerHalfBoundPx() const
     // Circles: half-bound = radius = size / 2.
     // Squares / triangles / diamonds: the visible bound a click has to
     // reach is the shape's outer vertex. For a size-N square the
-    // worst case (corner) sits at N / 2 * sqrt(2) from the centre.
+    // worst case (corner) sits at N / 2 * sqrt(2) from the center.
     // Legacy SWMM treats all glyphs as "within sym.size/2 of centre"
     // for hit-testing so this is conservatively larger than what the
     // renderer strictly needs — but that's the entire point: it
@@ -2201,7 +2201,7 @@ QString SWMMModelLayer::dataObjectNameAt(DataCategory c, int row) const
         // engine accessor `swmm_control_get_id` (DA-ENG-02), which parses
         // the first token after the RULE keyword. Only fall back to a
         // sentinel "Rule N [unnamed]" when the rule text is malformed —
-        // previously we always synthesised "Rule N" regardless of the
+        // previously we always synthesized "Rule N" regardless of the
         // user-supplied identifier.
         char buf[128] = {};
         const int rc = swmm_control_get_id(m_engine, row, buf, sizeof(buf));
@@ -2281,7 +2281,7 @@ QString SWMMModelLayer::suggestUniqueDataObjectName(DataCategory c) const
     const QString prefix = prefixFor(c);
     const int n = dataObjectCount(c);
 
-    // Materialise the existing name set once (case-insensitive). For
+    // Materialize the existing name set once (case-insensitive). For
     // typical N (< 1000) this is well within budget; suggestUniqueDataObjectName
     // runs at most once per New… dialog open.
     QSet<QString> existing;
@@ -2766,7 +2766,7 @@ void SWMMModelLayer::setCategoryOpacity(Category c, qreal opacity)
     if (qFuzzyCompare(m_categoryOpacity[i] + 1.0, clamped + 1.0))
         return;
     m_categoryOpacity[i] = clamped;
-    m_needsRebuild = true; // re-bake per-feature colours with new alpha
+    m_needsRebuild = true; // re-bake per-feature colors with new alpha
     emit presentationChanged();
     emit repaintRequested();
 }
@@ -3712,7 +3712,7 @@ void SWMMModelLayer::setKindRenderer(Category c,
     if (idx >= m_kindRenderers.size())
         return;
 
-    // When the new renderer is a SingleSymbol, write its colour / outline /
+    // When the new renderer is a SingleSymbol, write its color / outline /
     // size back to the legacy SWMMElementSymbol field for that kind so the
     // existing bucketed paint loop reflects the change. For Graduated /
     // Categorized / Rule-based renderers, we just store; canvas paint stays
@@ -4134,7 +4134,7 @@ void SWMMModelLayer::classifyGraduatedIfNeeded(Category c, OpenSWMM::Render::Gra
                                                               sampleAttr(g->classifyAttribute()));
 
     // Independent size attribute — derive its value range once (invalidated
-    // by setSizeAttribute) so sizeForValue/widthForValue can normalise.
+    // by setSizeAttribute) so sizeForValue/widthForValue can normalize.
     if (g->sizeAxisIndependent() && !g->sizeValueRangeValid()) {
         const QVector<double> samples = sampleAttr(g->sizeAttribute());
         double mn = std::numeric_limits<double>::infinity();
@@ -4161,7 +4161,7 @@ void SWMMModelLayer::rebuildKindFeatureColors(Category c)
     if (!r)
         return;
     // Data-derive Graduated breaks + range from the kind's own attribute
-    // values before sampling per-feature colours. Without this the renderer
+    // values before sampling per-feature colors. Without this the renderer
     // stays at its default range ([0,1]) and every feature clamps into one
     // bin. No-op once classified (the editor clears breaks to re-classify).
     if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(r))
@@ -4810,7 +4810,7 @@ QVariantMap SWMMModelLayer::identifyAt(double mapX, double mapY,
     //   2. LINKS (TIGHTER tolerance — tolerLayer / 3). Only considered
     //      when no node / gage was in range. Users reported links were
     //      "too easy" — the pick had to be near the drawn stroke, not
-    //      anywhere in the neighbourhood.
+    //      anywhere in the neighborhood.
     //
     //   3. SUBCATCHMENTS (point-in-polygon only). No tolerance — the
     //      click has to land inside the polygon. Matches the "works
@@ -5133,7 +5133,7 @@ int SWMMModelLayer::nodeIndex(const QString &name) const
 int SWMMModelLayer::linkIndex(const QString &name) const
 {
     // Namespaced per kind, so this still finds a link whose name collides
-    // with a node's — the behaviour the old linear scan had, and which the
+    // with a node's — the behavior the old linear scan had, and which the
     // single-keyed m_nameToSoa cannot express (see the header).
     const auto it = m_linkByName.constFind(name);
     return (it == m_linkByName.constEnd()) ? -1 : it.value();
@@ -5438,9 +5438,9 @@ double SWMMModelLayer::polylineLengthInModelUnits(const QVector<QPointF> &vertic
 
     auto *crs = srs();
 
-    // Sum segment lengths in metres. For geographic CRSes we use WGS-84
+    // Sum segment lengths in meters. For geographic CRSes we use WGS-84
     // great-circle distance per segment so lon/lat polylines don't get
-    // multiplied by a meaningless degrees-to-metres factor.
+    // multiplied by a meaningless degrees-to-meters factor.
     double metres = 0.0;
     if (crs && crs->isGeographic()) {
         constexpr double R = 6378137.0; // WGS-84 sphere
@@ -5463,7 +5463,7 @@ double SWMMModelLayer::polylineLengthInModelUnits(const QVector<QPointF> &vertic
     }
 
     // SWMM stores conduit length in the FLOW_UNITS system's linear unit:
-    // feet for US-customary (CFS/GPM/MGD), metres for SI (CMS/LPS/MLD).
+    // feet for US-customary (CFS/GPM/MGD), meters for SI (CMS/LPS/MLD).
     const QString fu = getOption(QByteArrayLiteral("FLOW_UNITS"), QStringLiteral("CFS")).toUpper();
     const bool isSI =
         (fu == QLatin1String("CMS") || fu == QLatin1String("LPS") || fu == QLatin1String("MLD"));
@@ -5628,7 +5628,7 @@ namespace
 //   Depth  -> Elevation:  elev  = depth + invert  (depth 0 yields the invert).
 //   Elevation -> Depth:   depth = max(0, elev - invert)  (clamp inverts below).
 // The engine always stores offsets as DEPTHS above the node invert, whatever
-// LINK_OFFSETS says (PostParseResolver normalises elevations at open; the
+// LINK_OFFSETS says (PostParseResolver normalizes elevations at open; the
 // .inp writer re-adds the invert on save). So the numbers the engine holds
 // are the same physical geometry in either mode, and legacy's two answers to
 // "Should all link offsets be converted?" map onto the depth store as:
@@ -7700,7 +7700,7 @@ SWMMModelLayer::LinkGeom SWMMModelLayer::linkGeomFromEngine(SWMM_Engine engine, 
         swmm_spatial_get_link_vertices(engine, i, vx.data(), vy.data(), vertCount);
 
         // Clean the FULL polyline [from-node, interior..., to-node] so a
-        // bend point coincident with a node endpoint (or a neighbour) is
+        // bend point coincident with a node endpoint (or a neighbor) is
         // collapsed too, then strip the endpoints back off. m_links[]
         // stays interior-only; cachedLinkPolyline re-adds node positions.
         QVector<QPointF> full(vertCount);
@@ -8469,7 +8469,7 @@ bool rewriteControlRules(SWMM_Engine eng, const std::vector<std::string> &snap,
 }
 
 // Helper: locate the slot whose parsed `RULE <name>` header equals `name`
-// (case-insensitive, matching the engine's keyword tokeniser). Returns
+// (case-insensitive, matching the engine's keyword tokenizer). Returns
 // -1 if not found. The caller passes the snapshot's ID list rather than
 // re-walking the engine on every call.
 /**
@@ -8639,7 +8639,7 @@ bool SWMMModelLayer::applyControlRuleRename(const QString &oldName, const QStrin
     QString rewritten = QString::fromUtf8(snap[static_cast<std::size_t>(slot)].c_str());
     if (!rewriteRuleHeader(rewritten, newName)) {
         // Body has no parseable RULE header — engine would reject the
-        // rename round-trip anyway. Synthesise a header so the body becomes
+        // rename round-trip anyway. Synthesize a header so the body becomes
         // well-formed.
         rewritten = QStringLiteral("RULE %1\n").arg(newName) + rewritten;
     }
@@ -9384,7 +9384,7 @@ void SWMMModelLayer::buildGeometryCache()
     QElapsedTimer geomTimer;
     geomTimer.start();
 
-    // Also refresh the per-category index buckets used by the virtualised
+    // Also refresh the per-category index buckets used by the virtualized
     // Object Browser tree model. These are cheap (O(N) once, indexing into
     // already-cached SoA) and must stay coherent with m_nodes / m_links /
     // m_catchments / m_gages any time those are repopulated.
@@ -9540,9 +9540,9 @@ void SWMMModelLayer::LinkSpatialGrid::rebuild(const QVector<QRectF> &bboxes)
     // which stretches the union to 23.8M x 70.3M around a network that really
     // spans 27,000 x 22,000. Cell size then scales up to satisfy the 1024^2
     // cap, the whole network lands in ONE cell, and every query degenerates
-    // to a linear scan -- the "takes forever" behaviour on that file.
+    // to a linear scan -- the "takes forever" behavior on that file.
     //
-    // Tukey fences on the bbox centres, with a deliberately generous
+    // Tukey fences on the bbox centers, with a deliberately generous
     // multiplier: for a well-formed model the fence is wider than the data,
     // so the extent is exactly the union and nothing changes. Percentile
     // clipping was rejected -- 10 bad rows out of 281,902 is 0.0035%, far
@@ -9855,7 +9855,7 @@ void SWMMModelLayer::rebuildSceneCoords()
     uint32_t totalVerts = 0;
     {
         // Offsets are pure arithmetic — the polyline is from-node + interior
-        // bends + to-node — so the old counting pre-pass, which materialised a
+        // bends + to-node — so the old counting pre-pass, which materialized a
         // fresh QVector<QPointF> per link via cachedLinkPolyline() just to read
         // its size(), is not needed. On a 280k-link model that alone was 280k
         // throwaway heap allocations before any projection happened.
@@ -10700,7 +10700,7 @@ QStringList SWMMModelLayer::nodesInRect(double canvasMinX, double canvasMinY, do
     transformRectToLayer(m_transform, canvasMinX, canvasMinY, canvasMaxX, canvasMaxY, lMinX, lMinY,
                          lMaxX, lMaxY);
 
-    // Radius search from the rect centre; circumradius guarantees all corners
+    // Radius search from the rect center; circumradius guarantees all corners
     // are covered. Results are post-filtered to the exact rectangle.
     const double cx = (lMinX + lMaxX) * 0.5;
     const double cy = (lMinY + lMaxY) * 0.5;
@@ -10768,7 +10768,7 @@ bool SWMMModelLayer::snapNearestPoint(double mapX, double mapY, double mapRadius
     bool found = false;
 
     // Squared distance threshold below which a candidate equals excludePos.
-    // 1e-12 is sub-micrometre — tight enough to reject only the exact
+    // 1e-12 is sub-micrometer — tight enough to reject only the exact
     // drag-start vertex while always accepting every other vertex.
     constexpr double kExcludeEps2 = 1e-12;
 

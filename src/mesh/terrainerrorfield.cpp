@@ -327,7 +327,7 @@ struct TerrainErrorField::Impl {
         const double v = floatTiles ? double(t->zf[i]) : t->zd[i];
         return !std::isfinite(v) || v == noData ? nan : v * scale;
     }
-    // Mesh-CRS pixel centre relative to origin, for absolute column/row.
+    // Mesh-CRS pixel center relative to origin, for absolute column/row.
     /**
      * @brief Resolve one tile sample center into mesh coordinates relative to the field origin.
      * @param[in] t Required borrowed live tile; transformed arrays present when toMesh is

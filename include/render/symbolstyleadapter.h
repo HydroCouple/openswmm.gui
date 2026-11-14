@@ -58,12 +58,12 @@ class SymbolStyleAdapter : public QObject
     /*! \brief Overall symbol opacity in [0, 1]. */
     Q_PROPERTY(qreal opacity READ opacity WRITE setOpacity NOTIFY changed)
 
-    /*! \brief Fill colour of the first SymbolLayer's "fillColor" prop
+    /*! \brief Fill color of the first SymbolLayer's "fillColor" prop
      *         (markers, polygons). Invalid when the layer doesn't carry
      *         a convertible fillColor; writes insert the key when needed. */
     Q_PROPERTY(QColor fillColor READ fillColor WRITE setFillColor NOTIFY changed)
 
-    /*! \brief Stroke colour ("color" prop on lines, "outlineColor" on
+    /*! \brief Stroke color ("color" prop on lines, "outlineColor" on
      *         markers / fills). The setter writes both keys to stay
      *         archetype-agnostic. */
     Q_PROPERTY(QColor strokeColor READ strokeColor WRITE setStrokeColor NOTIFY changed)

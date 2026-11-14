@@ -63,7 +63,7 @@ inline QPointF toScene(double mx, double my)
  *  kind's renderer. Returns 0 for renderer classes / symbol-layer
  *  kinds that don't carry a per-line offset (Graduated/Categorized,
  *  marker / fill layers, empty styles), preserving the legacy "no
- *  shift" paint behaviour.
+ *  shift" paint behavior.
  *
  *  Graduated / Categorized per-class offsets need a per-feature
  *  lookup that this paint loop doesn't have today — the named
@@ -164,7 +164,7 @@ void drawNodeGlyph(QPainter *p, const QPointF &c, double r, OpenSWMM::Render::Ma
  * @param[in] angleRad Counterclockwise mathematical angle radians in current frame.
  * @param[in] lenScene Arrow length in same frame, finite positive expected.
  * @param[in] widthScene Full width in same frame; nonpositive uses1.2×length.
- * @param[in] fill Solid triangle fill/one-unit outline colour.
+ * @param[in] fill Solid triangle fill/one-unit outline color.
  * @note Rotates local+x triangle about center and draws it; overwrites painter brush/pen without
  *   save/restore, no geometry validation or model mutation. Despite parameter names caller may pass
  *   device pixels.
@@ -467,7 +467,7 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
 
         // Phase 8.13.6.4 — when subcatchments use a non-Single renderer,
         // fall through to per-feature setBrush so each polygon gets its
-        // own bin / category colour. drawPolygon is already per-feature.
+        // own bin / category color. drawPolygon is already per-feature.
         const bool catchOverrides = m_layer->kindUsesOverrides(SWMMModelLayer::CatSubcatchments);
 
         const auto &cps = m_layer->m_catchScenePts;
@@ -524,7 +524,7 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
                 if (size_t(ol.catchIdx) < catchHid.size() && catchHid[ol.catchIdx])
                     continue;
                 // Skip selected here — they get a second, bolder pass below
-                // so the highlight isn't drawn under the grey base line.
+                // so the highlight isn't drawn under the gray base line.
                 if (size_t(ol.catchIdx) < catchSel.size() && catchSel[ol.catchIdx])
                     continue;
                 if (!exposed.isNull()) {
@@ -558,16 +558,16 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
 
     // ---------------------------------------------------------------- Links
     if (!qsgLinks && m_layer->m_showLinks) {
-        // Per-link-type pen comes from PreferencesManager so colour,
+        // Per-link-type pen comes from PreferencesManager so color,
         // width and dash are user-tunable from the
         // Preferences dialog's Rendering page. Outlets (case 4) now
         // pull their own pen instead of falling back to the conduit
         // symbol.
         // Pen resolution mirrors the QSG renderer: start from the kind's
         // preference pen, then let the per-kind SWMMElementSymbol override
-        // colour and width. The old prefs-only read meant thickness /
-        // colour edits in the style dialog never reached this (CPU) paint
-        // path even though the QSG path honoured them.
+        // color and width. The old prefs-only read meant thickness /
+        // color edits in the style dialog never reached this (CPU) paint
+        // path even though the QSG path honored them.
         auto linkPenForType = [this](int linkType) {
             auto *prefs = PreferencesManager::instance();
             QPen pen;
@@ -610,9 +610,9 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
         std::array<QPainterPath, 5> selPathsByType;
 
         // Phase 8.13.6.4 — when a link kind's renderer is Graduated /
-        // Categorized, group its paths into colour-keyed sub-buckets
-        // so drawPath() can still batch per colour (5 bins ⇒ 5 sub-
-        // buckets per kind). Selected links don't use override colours
+        // Categorized, group its paths into color-keyed sub-buckets
+        // so drawPath() can still batch per color (5 bins ⇒ 5 sub-
+        // buckets per kind). Selected links don't use override colors
         // (the selection halo wins).
         constexpr std::array<SWMMModelLayer::Category, 5> linkTypeToCategory = {
             SWMMModelLayer::CatConduits, SWMMModelLayer::CatPumps,   SWMMModelLayer::CatOrifices,
@@ -621,8 +621,8 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
         std::array<bool, 5> typeUsesOverrides{};
         for (int t = 0; t < 5; ++t)
             typeUsesOverrides[t] = m_layer->kindUsesOverrides(linkTypeToCategory[t]);
-        // Keyed by (colour, stroke width) — a Graduated theme can vary
-        // BOTH per feature, and bucketing on colour alone silently
+        // Keyed by (color, stroke width) — a Graduated theme can vary
+        // BOTH per feature, and bucketing on color alone silently
         // collapsed every width onto the kind's base pen.
         std::array<QMap<quint64, QPainterPath>, 5> overridePathsByType;
 
@@ -736,8 +736,8 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
             };
 
             // Phase 8.13.6.4 — non-selected links in an override-active
-            // kind feed the per-colour sub-bucket. Selected links bypass
-            // overrides so the selection halo paints in its own colour.
+            // kind feed the per-color sub-bucket. Selected links bypass
+            // overrides so the selection halo paints in its own color.
             if (sel) {
                 emitPath(selPathsByType[size_t(type)]);
             } else if (typeUsesOverrides[size_t(type)]) {
@@ -746,7 +746,7 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
                 const QRgb rgba = col.isValid() ? col.rgba() : 0u;
                 // Line archetypes carry the renderer's width axis in the size
                 // channel (see SWMMModelLayer::rebuildKindFeatureColors).
-                // Quantise to 1/16 px so near-equal widths still share a pen.
+                // Quantize to 1/16 px so near-equal widths still share a pen.
                 const double wOv = m_layer->featureSize(cat, i);
                 const quint32 wq =
                     (wOv > 0.0) ? quint32(std::lround(std::min(wOv, 256.0) * 16.0)) : 0u;
@@ -761,7 +761,7 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
         // Large projected coordinates (e.g. State Plane ~2e6) feed QPainter's
         // raster engine garbage at low zoom — the conduit "flashing lines"
         // bug. Project each path to device pixels in double and stroke with
-        // the transform reset, so the rasteriser only ever sees small on-screen
+        // the transform reset, so the rasterizer only ever sees small on-screen
         // coordinates. This is the CPU-path equivalent of the content anchor
         // the QSG renderer already uses.
         const QTransform xf = painter->transform();
@@ -787,7 +787,7 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
                 painter->setPen(pen);
                 drawDevicePath(pathsByType[size_t(t)]);
             }
-            // Phase 8.13.6.4 override path — one pen per unique colour
+            // Phase 8.13.6.4 override path — one pen per unique color
             // within the kind. The pen's width / style / cap / join are
             // inherited from the kind's base pen so Graduated /
             // Categorized stays visually consistent with the kind.
@@ -808,7 +808,7 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
             }
         }
 
-        // Selected-link highlight pass. The selection pen drives colour
+        // Selected-link highlight pass. The selection pen drives color
         // and is interpreted ADDITIVELY: its widthF() is added on top
         // of the per-link-type base pen, so the halo always projects
         // beyond the base line regardless of the link's own width. The
@@ -959,7 +959,7 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
         // — all junctions draw together, then outfalls, etc. Each bucket
         // also tracks the SoA index alongside the scene point so the
         // per-feature override path (Phase 8.13.6.4) can look up the
-        // bin / category colour for that specific feature.
+        // bin / category color for that specific feature.
         struct Bucket {
             const SWMMElementSymbol *sym;
             int nodeType;
@@ -982,7 +982,7 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
         };
 
         // Expand the cull window by the largest marker radius (in scene
-        // units at the current zoom) so glyphs whose centre sits outside
+        // units at the current zoom) so glyphs whose center sits outside
         // exposedRect but whose body straddles it still draw.
         const double haloScene = 16.0 * invViewScale;
 
@@ -1017,7 +1017,7 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
         }
 
         // Device-space projection (same large-coordinate remedy as the link
-        // strokes): map each glyph centre to pixels and draw with the transform
+        // strokes): map each glyph center to pixels and draw with the transform
         // reset, so node markers don't garble at low zoom with large projected
         // coords. Scene-unit radii are scaled back to pixels via the view scale.
         const QTransform xf = painter->transform();
@@ -1059,7 +1059,7 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
                         devGlyph(c, r, kindShape);
                 } else {
                     // Phase 8.13.6.4 per-feature override path — fill
-                    // colour comes from the renderer's per-feature
+                    // color comes from the renderer's per-feature
                     // cache. Phase 8.13.43-α extends with per-feature
                     // SIZE override (negative sentinel = no override,
                     // keep kind's default glyph radius).
@@ -1082,13 +1082,13 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
 
             // Selection-highlight pass. Pen + brush both come from
             // PreferencesManager. The outline keeps the symbol's own
-            // colour as a fallback when the user hasn't set a custom
-            // pen colour (selectionPen("node") otherwise wins).
+            // color as a fallback when the user hasn't set a custom
+            // pen color (selectionPen("node") otherwise wins).
             if (!b.selPts.isEmpty()) {
                 auto *prefs = PreferencesManager::instance();
                 QPen pen = prefs->selectionPen(QStringLiteral("node"));
                 const QBrush brush = prefs->selectionBrush(QStringLiteral("node"));
-                if (pen.color() == brush.color()) // A-18: two-tone unless customised
+                if (pen.color() == brush.color()) // A-18: two-tone unless customized
                     pen.setColor(OpenSWMM::Render::selectionCasingColor(brush.color()));
                 pen.setWidthF(std::max(pen.widthF(), 1.5));
                 pen.setCosmetic(true);
@@ -1099,7 +1099,7 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
             }
 
             // Virtual-junction mark — a dotted ring encircling the dot with
-            // a small gap, in the symbol's own colour (D-G1: the glyph body
+            // a small gap, in the symbol's own color (D-G1: the glyph body
             // stays the junction blue; the ring is what sets it apart).
             if (b.sym == &m_layer->m_virtualJunctionSym) {
                 QPen ring(fade(b.sym->fillColor), 1.0, Qt::DotLine);
@@ -1219,7 +1219,7 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
             auto *prefs = PreferencesManager::instance();
             QPen pen = prefs->selectionPen(QStringLiteral("gage"));
             const QBrush brush = prefs->selectionBrush(QStringLiteral("gage"));
-            if (pen.color() == brush.color()) // A-18: two-tone unless customised
+            if (pen.color() == brush.color()) // A-18: two-tone unless customized
                 pen.setColor(OpenSWMM::Render::selectionCasingColor(brush.color()));
             pen.setWidthF(std::max(pen.widthF(), 1.5));
             pen.setCosmetic(true);
@@ -1235,13 +1235,13 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
     // Labeling overhaul (LAYER_STYLING_LABELING_PLAN_2026-08-16):
     //  * text resolves from LabelConfig::expression ({token} template) or
     //    fieldName, falling back to the object name;
-    //  * every visible kind is labelled — nodes, links, subcatchments and
+    //  * every visible kind is labeled — nodes, links, subcatchments and
     //    rain gages — with the per-kind SWMMElementSymbol.showLabel /
-    //    labelFont / labelColor acting as a per-kind enable + font/colour
+    //    labelFont / labelColor acting as a per-kind enable + font/color
     //    override on top of the layer-level LabelConfig;
     //  * drawn in DEVICE space through the shared LabelPainter, so the
     //    point size is constant across zoom (screen-space contract);
-    //  * honours the min/max scale window (LabelPainter::scaleVisible)
+    //  * honors the min/max scale window (LabelPainter::scaleVisible)
     //    against the owning MapCanvas' scale denominator;
     //  * greedy screen-rect collision pruning, highest priorityField value
     //    first (unset priority = insertion order).
@@ -1285,7 +1285,7 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
                 return nullptr;
             }
         };
-        // A kind is labelled when the layer-level config is on, or the
+        // A kind is labeled when the layer-level config is on, or the
         // kind's own showLabel toggle (Symbology → Labels group) is set.
         auto kindOn = [&](SWMMModelLayer::Category c) {
             if (layerOn)
@@ -1330,11 +1330,11 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
                     // actually set displaces the layer's LabelConfig.
                     //
                     // `font` used to be assigned unconditionally while size
-                    // and colour were guarded. SWMMElementSymbol::labelFont
+                    // and color were guarded. SWMMElementSymbol::labelFont
                     // is a default-constructed QFont, so merely ticking a
                     // kind's "Show labels" — without touching its font —
                     // silently reset that kind's family/weight/slant to the
-                    // application default while the size and colour set on
+                    // application default while the size and color set on
                     // the Labels tab correctly survived.
                     if (s->labelFont != QFont()) {
                         eff.font = s->labelFont;
@@ -1521,7 +1521,7 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
                         continue;
                     const double *p = flat + size_t(offsets[i]) * 2;
                     // Midpoint of the middle segment — cheap and close
-                    // enough to the visual centre for labelling.
+                    // enough to the visual center for labeling.
                     const uint32_t m0 = (cnt - 1) / 2, m1 = m0 + 1;
                     const QPointF mid((p[m0 * 2] + p[m1 * 2]) * 0.5,
                                       (p[m0 * 2 + 1] + p[m1 * 2 + 1]) * 0.5);
@@ -1531,7 +1531,7 @@ void SWMMLayerItem::paint(QPainter *painter, const QStyleOptionGraphicsItem *opt
                 }
             }
 
-            // ── Subcatchments (bbox centre) ──
+            // ── Subcatchments (bbox center) ──
             if (m_layer->m_showSubcatchments && kindOn(SWMMModelLayer::CatSubcatchments)) {
                 const auto &cboxes = m_layer->m_catchSceneBBoxes;
                 for (int i = 0; i < m_layer->m_catchments.size(); ++i) {

@@ -56,7 +56,7 @@ class OutputStatsRegistry;
  *
  *  It uses QPropertyModel / QPropertyItemDelegate so any Q_PROPERTY exposed
  *  by a QObject (layer, feature, SWMM element) is automatically displayed
- *  with the correct editor widget (check box, spin box, colour picker, …).
+ *  with the correct editor widget (check box, spin box, color picker, …).
  *
  *  The panel has a layer drop-down so the user can switch between the
  *  properties of any of the layers that returned results in the last
@@ -174,7 +174,7 @@ public:
     /*! Slice QA.2 — bind the per-project OutputStatsRegistry so the
      *  Stats-source combo above the property tree can populate from
      *  every loaded SWMMResultsLayer. Pass nullptr to hide the combo
-     *  (matches today's behaviour for projects with no results loaded
+     *  (matches today's behavior for projects with no results loaded
      *  yet). Idempotent — repeated calls re-wire signals safely.
      * @param[in] registry Optional borrowed RAW per-project registry, caller detaches before
      *   destroying; not QPointer-protected.
@@ -258,7 +258,7 @@ public slots:
      */
     void onObjectEditedExternally(const QString &name);
 
-    /*! LINK_OFFSETS mode changed: a bound link's offset rows are labelled
+    /*! LINK_OFFSETS mode changed: a bound link's offset rows are labeled
      *  "Inlet/Outlet Offset" vs "… Elevation", and the label is captured when
      *  the adapter is bound, so replay the bind. No-op unless a link is shown.
      * @brief Rebind currently selected identify result when any cached link adapter exists,
@@ -349,7 +349,7 @@ private slots:
 
     /*! Slice BM.0-Browse-Edit (2026-05-25) — right-click on a property
      *  row. For `DataObjectRef` rows: builds "Edit <name> in <editor>…"
-     *  routed through ComprehensiveEditorRegistry (greyed-out with gap
+     *  routed through ComprehensiveEditorRegistry (grayed-out with gap
      *  tooltip when the editor hasn't shipped yet). For
      *  `NodeCompoundEditRef` rows: single "Edit…" launching
      *  NodeCompoundEditDialog. Otherwise: no menu pops.

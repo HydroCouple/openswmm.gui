@@ -69,7 +69,7 @@ AutoCoupleResult findCoincidentNodes(const MeshResult &mesh,
         tol = defaultCoincidenceTol(mesh);
 
     // Hash the candidate vertices on a tol-sized grid so each node only
-    // probes its 3×3 neighbourhood — O(V + N) instead of O(V × N) for the
+    // probes its 3×3 neighborhood — O(V + N) instead of O(V × N) for the
     // whole-mesh scan.
     QHash<GridKey, QList<int>> grid;
     auto addCandidate = [&](int vi) {

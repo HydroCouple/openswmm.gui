@@ -442,7 +442,7 @@ void TestSublayerInterface::legendItem_sublayerId_absent_when_empty()
 {
     // Items not produced by a sublayer must NOT emit the sublayerId key —
     // keeps existing .oswp / .swmm-style.json files clean and forward-
-    // compatible. Verifies the symmetric "skip empty" behaviour the
+    // compatible. Verifies the symmetric "skip empty" behavior the
     // sibling fields (userLabel, classKey) already use.
     LegendSymbolItem a;
     a.label = QStringLiteral("Single style");

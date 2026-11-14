@@ -20,7 +20,7 @@
  *  - **Per-cell overrides** — mesh::pushCellInfilEdit, one `[2D_INFILTRATION]`
  *    row per cell. The command snapshots each cell's PROVENANCE, so undoing an
  *    assignment made over an inheriting cell restores INHERITANCE rather than
- *    a materialised copy carrying identical numbers.
+ *    a materialized copy carrying identical numbers.
  *  - **Region tag** — mesh::pushInfilDefaultsEdit, one
  *    `[2D_INFILTRATION_DEFAULTS]` row. Offered only when every selected cell
  *    shares one non-empty tag, because that is the only case where "these

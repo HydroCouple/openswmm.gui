@@ -319,7 +319,7 @@ void FilesPage::buildReportContentsGroup(QVBoxLayout *parentLayout, QWidget *pag
     flagsForm->addRow(QString(), m_rptAveragesBox);
     flagsForm->addRow(QString(), m_rptLinkStepsBox);
 
-    // DISABLED short-circuits everything else — grey out the dependent
+    // DISABLED short-circuits everything else — gray out the dependent
     // controls when it's on so the user knows nothing else matters.
     auto syncDisabledShortCircuit = [this, flagsGroup]() {
         const bool disabled = m_rptDisabledBox && m_rptDisabledBox->isChecked();
@@ -349,7 +349,7 @@ void FilesPage::buildReportContentsGroup(QVBoxLayout *parentLayout, QWidget *pag
 
     // ---- selectors -----------------------------------------------------
     // Per-kind: a row with [○ None] [○ All] [○ Selected] [name list edit].
-    // The line-edit greys out unless Selected is chosen.
+    // The line-edit grays out unless Selected is chosen.
     auto buildSelector = [this, grp](const QString &label, QRadioButton **noneR,
                                      QRadioButton **allR, QRadioButton **someR, QLineEdit **listE) {
         auto *row = new QGroupBox(label, grp);
@@ -541,7 +541,7 @@ void FilesPage::buildUi()
     // QPushButton + QFileDialog branch here.
     //
     // The mode combo (USE/SAVE) drives the picker's acceptMode so SAVE
-    // rows pick the "Save as" dialog flavour. Filters are coarse — most
+    // rows pick the "Save as" dialog flavor. Filters are coarse — most
     // legacy SWMM secondary refs are plain text/CSV; the hot-start USE
     // row gets its own *.hsf filter.
     const QString projectAnchor =
@@ -566,7 +566,7 @@ void FilesPage::buildUi()
             row->addWidget(new QLabel(QObject::tr("Mode:"), secondary));
             row->addWidget(modeCombo);
 
-            // Mode change → pick the right file-dialog flavour on next browse.
+            // Mode change → pick the right file-dialog flavor on next browse.
             connect(modeCombo, qOverload<int>(&QComboBox::currentIndexChanged), picker,
                     [picker, modeCombo, defaultSave] {
                         bool save = defaultSave;
@@ -644,7 +644,7 @@ void FilesPage::buildUi()
                                tr("path relative to the .inp directory"), this);
     // Slice IO-11c — feed the same project anchor into the delegate so
     // file picks under the .inp directory commit as relative tokens,
-    // matching the [FILES] picker behaviour set up immediately above.
+    // matching the [FILES] picker behavior set up immediately above.
     m_hotstartSavesPathDel->setProjectAnchor(projectAnchor);
     m_hotstartSavesDtDel = new HotstartSavesDateTimeDelegate(this);
     m_hotstartSavesFmtDel = new HotstartSavesFormatDelegate(this);
@@ -950,7 +950,7 @@ void FilesPage::buildUi()
 
     // Open the path-cell persistent editor for every row so the browse
     // "…" button is visible without click-to-edit.  Args column keeps
-    // the default click-to-edit behaviour.
+    // the default click-to-edit behavior.
     auto openPersistentPluginPath = [this](int row) {
         if (!m_pluginsView || !m_pluginsModel)
             return;
@@ -984,13 +984,13 @@ void FilesPage::buildUi()
         const int row = m_pluginsModel->appendRow(QString(), QString());
         m_pluginsView->setCurrentIndex(m_pluginsModel->index(row, PluginsTableModel::ColPath));
     });
-    // Slice RC.4 — Plugins tab honours `is_builtin` from the engine's
+    // Slice RC.4 — Plugins tab honors `is_builtin` from the engine's
     // plugin discovery API. Built-ins (today: Default Input / Output /
     // Report / StateIO + GeoPackage when OPENSWMM_HAS_GEOPACKAGE) are
     // statically linked into the engine, so a user attempting to
     // "Remove" the row from the .inp's [PLUGINS] section cannot
     // actually unload them — the singleton stays alive in-process.
-    // Greying the Remove button when the selected row's path matches a
+    // Graying the Remove button when the selected row's path matches a
     // built-in plugin_id makes that constraint visible.
     auto builtInPluginIds = [] {
         QSet<QString> ids;
@@ -1030,7 +1030,7 @@ void FilesPage::buildUi()
 
     // U1 (2026-09-07) — [PROCESS_COMPONENTS] table. Same MVC shape as the
     // plugins table above: model over the engine registrations, combo
-    // delegate for the id (engine's built-in catalogue, free text allowed),
+    // delegate for the id (engine's built-in catalog, free text allowed),
     // PathBrowseDelegate for the config file. Reaction editor auto-registers
     // its component straight into the engine; this table re-reads on open.
     auto *compGroup = new QGroupBox(tr("Process components ([PROCESS_COMPONENTS])"), pluginsPage);
@@ -1383,7 +1383,7 @@ void FilesPage::browseForOutputFile()
 // A new row is NATIVE where the SWMM 5 file would drop state the engine
 // names (water age, reaction species, the 2D aquifer, storage-node LIDs —
 // swmm_hotstart_legacy_omits), and on any model with a 2D mesh. Everywhere
-// else it is AUTO, the long-standing behaviour.
+// else it is AUTO, the long-standing behavior.
 /**
  * @brief Choose a new draft row's hot-start serialization preference from current model state.
  * @param e Borrowed optional engine valid during vertex/legacy-omission queries.

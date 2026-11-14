@@ -151,7 +151,7 @@ void TestHotStartInspector::unitsFollowTheModelsFlowUnits()
     QCOMPARE(units.length, 0.3048);
     QCOMPARE(units.flow, 28.31685);
 
-    // Shown in metres, edited in metres, stored in feet.
+    // Shown in meters, edited in meters, stored in feet.
     const QString copy = copyOf(m_native, QStringLiteral("si_edit"));
     HotStartDocument document;
     QString error;

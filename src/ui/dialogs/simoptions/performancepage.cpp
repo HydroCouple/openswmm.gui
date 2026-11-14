@@ -149,7 +149,7 @@ void PerformancePage::refreshThreadsEffectiveLabel()
         text = tr("Effective threads: %1.").arg(parts.join(QStringLiteral(" · ")));
     }
     if (over) {
-        // Not-colour-alone: glyph + text carry the warning as well as colour.
+        // Not-color-alone: glyph + text carry the warning as well as color.
         text += tr(" <span style=\"color:#D06F00\">&#9888; %1 threads exceed the "
                    "%2 logical processors — the run will be oversubscribed and "
                    "is usually slower.</span>")

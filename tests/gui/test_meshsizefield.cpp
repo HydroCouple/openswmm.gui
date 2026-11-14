@@ -153,7 +153,7 @@ private slots:
         QVERIFY(f.build(QRectF(0, 0, 1000, 1000), {midSegment()}, {}, {}, baseOptions()));
 
         // On the segment the distance is ~0 (within one grid pitch of
-        // discretisation), so the permitted area is the near area plus at
+        // discretization), so the permitted area is the near area plus at
         // most the gradation growth across one pitch.
         const double nearArea = kSqrt3_4 * 10.0 * 10.0;
         const double a = f.targetAreaAt(500.0, 500.0);
@@ -179,7 +179,7 @@ private slots:
         // March away from the segment: the permitted size must be
         // monotonically non-decreasing, and h(d) must never exceed
         // near + g*d by more than the chamfer's ~8% overestimate plus one
-        // pitch of discretisation.
+        // pitch of discretization.
         double prev = 0.0;
         for (int i = 0; i <= 40; ++i) {
             const double d = i * 10.0;

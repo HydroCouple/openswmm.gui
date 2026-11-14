@@ -79,7 +79,7 @@ public:
 
     /*! True when a value has been published and no newer job superseded
      *  it. When false and hasValue() is true, value() is stale-but-
-     *  renderable (double-buffer behaviour).
+     *  renderable (double-buffer behavior).
      * @return True only for a nonzero published generation equal to the newest submitted one. */
     [[nodiscard]] bool upToDate() const { return m_published != 0 && m_published == m_submitted; }
 

@@ -5,7 +5,7 @@
  * Every layer that renders data in a CRS different from the canvas CRS
  * relies on SpatialReferenceSystem::createTransformationTo() to build an
  * OGR coordinate transformation. If that primitive drifts, every layer's
- * "project on the fly" behaviour breaks silently.
+ * "project on the fly" behavior breaks silently.
  *
  * This test verifies the round trip for a known point and confirms the
  * axis ordering used across the codebase (traditional GIS: lon/lat,
@@ -32,7 +32,7 @@ private slots:
     /**
      *
      * @brief Require traditional longitude/latitude order to project the known NYC coordinate
-     * within one metre of the reference.
+     * within one meter of the reference.
      *
      */
     void wgs84ToWebMercatorMatchesReference();

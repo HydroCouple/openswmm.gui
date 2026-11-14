@@ -33,7 +33,7 @@
 namespace openswmmvis::curve
 {
 
-/*! \brief Curve flavour. Numeric values match the engine's
+/*! \brief Curve flavor. Numeric values match the engine's
  *  TableType (1..11) so static_cast<int>(type) is safe. */
 enum class CurveType {
     Storage = 1,   ///< Depth → Surface Area.
@@ -172,7 +172,7 @@ public:
     bool setYAt(int i, double newY, QString *reasonOut = nullptr);
 
     /*! \brief Change both X + Y at index \p i. Validates that the new X
-     *  still slots strictly between neighbours.
+     *  still slots strictly between neighbors.
      * @param[in] i Zero-based existing point index.
      * @param[in] newX X value in xUnit(type()) units, strictly between existing neighboring X values.
      * @param[in] newY Y value in yUnit(type()) units.

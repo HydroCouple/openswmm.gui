@@ -6,15 +6,15 @@
  * @brief     Per-series rendering style for chart plots (comprehensive schema).
  *
  * One `SeriesStyle` describes everything the chart needs to render a
- * single line on a `QChart`: pen (colour / width / dash / cap / join),
+ * single line on a `QChart`: pen (color / width / dash / cap / join),
  * marker (visible / shape / size / fill / border), point labels (visible
- * / font / colour / precision), area fill (visible / colour), opacity,
+ * / font / color / precision), area fill (visible / color), opacity,
  * and a user-editable legend name.
  *
  * Styles round-trip through `QJsonObject` so per-series tweaks persist
  * across sessions. Invalid `QColor`s for the marker-border, marker-fill,
- * point-label, and area-fill colours mean "derive from the main series
- * colour" — callers should fall back via `effectiveMarkerFillColor()`
+ * point-label, and area-fill colors mean "derive from the main series
+ * color" — callers should fall back via `effectiveMarkerFillColor()`
  * and friends rather than treating those as transparent.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
@@ -76,34 +76,34 @@ struct SeriesStyle {
 
     /**
      * @brief Serialize raw rendering fields for project/settings persistence.
-     * @return Independent object using ARGB colour strings, stable enum tokens and QFont text. Empty legend/custom-label text and invalid optional colours are omitted; no range normalization occurs.
+     * @return Independent object using ARGB color strings, stable enum tokens and QFont text. Empty legend/custom-label text and invalid optional colors are omitted; no range normalization occurs.
      */
     QJsonObject toJson() const;
     /**
      * @brief Read a style over the struct defaults, tolerating absent/ill-typed fields.
      * @param[in] obj Persisted object; unknown keys are ignored and recognized keys use Qt conversion defaults.
-     * @return Independent style. Enum strings use documented fallbacks; numeric dimensions/opacity/precision and the integer format mode are not range-validated. Invalid optional colours retain their derived-colour behavior.
+     * @return Independent style. Enum strings use documented fallbacks; numeric dimensions/opacity/precision and the integer format mode are not range-validated. Invalid optional colors retain their derived-color behavior.
      */
     static SeriesStyle fromJson(const QJsonObject &obj);
 
     /**
-     * @brief Resolve an optional rendering colour without changing stored fields.
-     * @return Explicit valid marker fill or the main series colour.
+     * @brief Resolve an optional rendering color without changing stored fields.
+     * @return Explicit valid marker fill or the main series color.
      */
     QColor effectiveMarkerFillColor() const;
     /**
-     * @brief Resolve an optional rendering colour without changing stored fields.
-     * @return Explicit valid marker border or main colour darkened by QColor factor 140.
+     * @brief Resolve an optional rendering color without changing stored fields.
+     * @return Explicit valid marker border or main color darkened by QColor factor 140.
      */
     QColor effectiveMarkerBorderColor() const;
     /**
-     * @brief Resolve an optional rendering colour without changing stored fields.
-     * @return Explicit valid label colour or main colour darkened by QColor factor 160.
+     * @brief Resolve an optional rendering color without changing stored fields.
+     * @return Explicit valid label color or main color darkened by QColor factor 160.
      */
     QColor effectivePointLabelColor() const;
     /**
-     * @brief Resolve an optional rendering colour without changing stored fields.
-     * @return Explicit valid area colour or main colour with alpha replaced by 0.25. No style.opacity multiplier is applied here.
+     * @brief Resolve an optional rendering color without changing stored fields.
+     * @return Explicit valid area color or main color with alpha replaced by 0.25. No style.opacity multiplier is applied here.
      */
     QColor effectiveAreaFillColor() const; // alpha-baked fallback if invalid
 };
@@ -111,7 +111,7 @@ struct SeriesStyle {
 /*! \brief Returns a default styled cycle position — the 12-color cycle
  *  used when new series are added without an explicit style. Wraps modulo 12.
  * @param[in] cycleIndex Any signed cycle position; negative positions wrap too.
- * @return Default-constructed style with only its colour replaced by the twelve-colour cycle selection.
+ * @return Default-constructed style with only its color replaced by the twelve-color cycle selection.
  */
 SeriesStyle defaultStyleForCycle(int cycleIndex);
 
@@ -167,17 +167,17 @@ QString penJoinStyleToString(Qt::PenJoinStyle s);
 Qt::PenJoinStyle penJoinStyleFromString(const QString &s);
 
 /*! \brief Build a QPen from the line-related fields of \a style.
- *  Width / cap / join / dash all wired up; colour with alpha from `opacity`.
+ *  Width / cap / join / dash all wired up; color with alpha from `opacity`.
  * @param[in] style Raw line style; expected valid nonnegative width and opacity in [0,1]. showLine does not affect this pen.
- * @return Pen copying dash/width/cap/join; valid main-colour alpha is multiplied by opacity only when opacity is below one. No series or global state is changed.
+ * @return Pen copying dash/width/cap/join; valid main-color alpha is multiplied by opacity only when opacity is below one. No series or global state is changed.
  */
 QPen penForStyle(const SeriesStyle &style);
 
 /*! \brief Apply every field of \a style to \a series.
  *
  *  Sets the line pen, marker visibility / shape / size / fill / border,
- *  series opacity, point-label visibility / font / colour / precision,
- *  optional area-fill brush (only honoured if the series supports it via
+ *  series opacity, point-label visibility / font / color / precision,
+ *  optional area-fill brush (only honored if the series supports it via
  *  `setBrush()` — the area-fill toggle wires that on automatically),
  *  and the legend name when `style.legendName` is non-empty.
  *

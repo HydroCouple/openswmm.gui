@@ -65,7 +65,7 @@ BurnNodePlan planFor(const QVector<BurnNodePlan> &plans, const QString &id)
 
 /**
  *
- * @brief Build an origin-centred square domain for clipping fixtures.
+ * @brief Build an origin-centered square domain for clipping fixtures.
  * @param half Intended positive half-side in common fixture coordinate units,
  * default 10; no finite/degeneracy check.
  * @return Owned domain with one unclosed counterclockwise ring for positive half;
@@ -269,7 +269,7 @@ TEST(ChannelBurnBoundary, HoleIndexGivesTheSameAnswerAsTheLinearScan)
     outer << QPointF(0, 0) << QPointF(1000, 0) << QPointF(1000, 1000) << QPointF(0, 1000);
     linear.rings.append(outer);
     // A 20x20 lattice of small square and triangular holes, some sharing
-    // edges with their neighbours.
+    // edges with their neighbors.
     for (int j = 0; j < 20; ++j)
         for (int i = 0; i < 20; ++i) {
             const double x = 25 + 48 * i, y = 25 + 48 * j, s = (i + j) % 3 == 0 ? 24 : 15;
@@ -417,10 +417,10 @@ namespace
 
 /**
  *
- * @brief Build a straight connector-test creek with one-metre bank height.
+ * @brief Build a straight connector-test creek with one-meter bank height.
  * @param id Copied conduit ID, default creek.
- * @param x0 Upstream x in metres at y=0, default -8.
- * @param x1 Distinct downstream x in metres, default 8.
+ * @param x0 Upstream x in meters at y=0, default -8.
+ * @param x1 Distinct downstream x in meters, default 8.
  * @return Owned profile with bed fall 10 to 9 m, section widths 2/4 m at depths
  * 0/1 m, zero chainageStep and no bank clipping. No domain clipping/local validity check.
  *
@@ -442,7 +442,7 @@ BurnProfile creekProfile(const QString &id = QStringLiteral("creek"), double x0 
 /**
  *
  * @brief Enable a fixed-length connector rule without planning a split.
- * @param length Desired connector length in metres; normally finite positive.
+ * @param length Desired connector length in meters; normally finite positive.
  * @return Owned enabled rule with fixedLength assigned and other defaults retained.
  * No range validation, Courant calculation or network mutation.
  *
@@ -569,7 +569,7 @@ TEST(ChannelBurnConnector, AutomaticLengthIsCourantAtTheRoutingStepFlooredAtTwoC
     ASSERT_EQ(plan.splits.size(), 1);
     EXPECT_NEAR(plan.splits[0].t, 4.0 / 16.0, 1e-12);
     rule.horizontalUnitToSI = 0.5;
-    rule.cellSize = 0; // mesh units are half a metre
+    rule.cellSize = 0; // mesh units are half a meter
     plan = planBurnReplacement({creekProfile()}, n, unitSquare(), rule);
     ASSERT_EQ(plan.splits.size(), 1);
     EXPECT_NEAR(plan.splits[0].t, 2 * std::sqrt(9.81) / 16.0, 1e-9);

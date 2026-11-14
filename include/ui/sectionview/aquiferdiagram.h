@@ -15,7 +15,7 @@
  * The twelve [AQUIFERS] values are reported in callouts; zone geometry is a
  * schematic with minimum visible heights. The ground surface and
  * the lateral-flow arrow to the receiving node belong to the subcatchment that
- * uses the aquifer, so they are drawn schematically and labelled
+ * uses the aquifer, so they are drawn schematically and labeled
  * "per subcatchment" rather than given invented numbers (plan D4).
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
@@ -56,14 +56,14 @@ struct AquiferDiagramInput {
     QString rateLabel = QStringLiteral("in/hr");
 
     /*! SWMM_AquiferParam code (0..11, the AquiferProvider::Param order) of the
-     *  form field that has focus; its callout is emphasised. -1 = none. */
+     *  form field that has focus; its callout is emphasized. -1 = none. */
     int activeParam = -1;
 
     /*! Soft-validation texts (plan D6); each is drawn as a warning callout. */
     QStringList warnings;
 };
 
-/*! Prefix put on the emphasised callout's text (the leader model carries no
+/*! Prefix put on the emphasized callout's text (the leader model carries no
  *  accent flag; dimension lines use their own `accent`).
  * @return Owned QString containing ▶ plus space, prepended to focused parameter callout. No
  *   model/palette access.

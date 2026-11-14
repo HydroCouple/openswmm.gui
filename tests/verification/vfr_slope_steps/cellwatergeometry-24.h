@@ -60,7 +60,7 @@ using CornerDepths = std::array<double,4>;
 // Presentation state is separate from stored water and the solver's dry flag.
 enum class DisplayState : unsigned char { Invalid, Dry, ThinFilm, PartiallyWet, Wet };
 struct VisibilityPolicy {
-    double filmDepth = 0.0; // SI metres; zero shows every positive surface
+    double filmDepth = 0.0; // SI meters; zero shows every positive surface
     bool showThinFilms = false;
 };
 

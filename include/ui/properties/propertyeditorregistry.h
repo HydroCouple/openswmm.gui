@@ -17,7 +17,7 @@
  * registry on every selection change via `editorFor(ref, kind)`. A null
  * factory result means "no concrete editor today" and the legacy
  * property-tree path stays in charge — the registry never replaces
- * existing behaviour silently.
+ * existing behavior silently.
  *
  * Thread-safety: registration happens at startup; lookup is read-only
  * after that. No mutex.

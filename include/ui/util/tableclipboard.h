@@ -5,7 +5,7 @@
  * @license   GPL-3.0-or-later
  * @brief     Excel-style copy / paste of selected table rows for editor dialogs.
  *
- * One helper gives every editor table the same clipboard behaviour:
+ * One helper gives every editor table the same clipboard behavior:
  *
  *  - **Copy** (Ctrl/Cmd+C) puts the selected cells' rows on the clipboard as
  *    tab-separated text with a header line, which Excel, Sheets and text

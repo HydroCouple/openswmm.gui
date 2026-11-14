@@ -10,7 +10,7 @@
  * workplans/CHANNEL_BURN_IN_PLAN_2026-09-21.md (§4.1-§4.3).
  *
  * WHAT THIS IS.  One conduit plus its cross-section is turned into a 3D bed
- * surface: a densified centreline, a bed elevation interpolated between the
+ * surface: a densified centerline, a bed elevation interpolated between the
  * two end inverts, and a lateral shape sampled at a fixed ladder of signed
  * offsets.  That is everything the raster burn (P1) and the corridor lattice
  * (P2/P3) need, and nothing else — no GDAL, no engine handle, no Qt GUI.
@@ -18,8 +18,8 @@
  *
  * WHY RELATIVE ELEVATIONS.  A transect's absolute elevations are a survey
  * datum that may agree with neither the node inverts nor the DEM.  The one
- * quantity that is reliably the modeller's intent is the SHAPE, so the shape
- * is normalised to `e_rel(s) = elev(s) − min(elev)` and re-anchored on the
+ * quantity that is reliably the modeler's intent is the SHAPE, so the shape
+ * is normalized to `e_rel(s) = elev(s) − min(elev)` and re-anchored on the
  * interpolated invert.  The burn is then consistent with 1D hydraulics by
  * construction (plan §4.1, D-I).
  *
@@ -50,10 +50,10 @@
 namespace mesh
 {
 
-/*! \brief Where `s = 0` sits on the authored section — i.e. what the digitised
+/*! \brief Where `s = 0` sits on the authored section — i.e. what the digitized
  *         link polyline is taken to follow (plan D-D). */
 enum class SectionAnchor {
-    Thalweg,      ///< The deepest point. Default: a digitised polyline follows the visible channel.
+    Thalweg,      ///< The deepest point. Default: a digitized polyline follows the visible channel.
     BankMidpoint, ///< Midway between the bank stations. For surveyed-section workflows.
     StationZero   ///< Raw station 0, no shift.
 };
@@ -79,7 +79,7 @@ struct SectionGeometry {
 /*!
  * \brief Every knob the burn takes (plan §3).
  *
- * Persisted lengths use model units, except geometryTolerance (metres).
+ * Persisted lengths use model units, except geometryTolerance (meters).
  * The dialog converts horizontal lengths to mesh-CRS units and elevations to
  * output vertical units before preparing worker inputs.
  */
@@ -117,7 +117,7 @@ struct BurnOptions {
     double channelCellSize = 0.0;  ///< 0 = derive from the size field.
     double channelAspectMax = 4.0; ///< Streamwise-elongated cells are wanted here.
     double geometryTolerance =
-        0.05; ///< Channel elevation tolerance, in metres (independent of DEM tolerance).
+        0.05; ///< Channel elevation tolerance, in meters (independent of DEM tolerance).
     qint64 maxCorridorVertices =
         2000000; ///< Preparation allocation guard; further limited by mesh cell budget.
     bool roughnessFromTransect = true; ///< n_left / n_channel / n_right -> per-cell Manning's n.
@@ -173,7 +173,7 @@ struct ChannelBurnSettings {
 };
 
 /*!
- * \brief A section after normalisation: elevations relative to the thalweg,
+ * \brief A section after normalization: elevations relative to the thalweg,
  *        stations shifted so `s = 0` is the anchor, extent clipped.
  *
  * \p sMin is negative and \p sMax positive whenever the clip left the anchor
@@ -207,7 +207,7 @@ struct NormalizedSection {
 /*! \brief One conduit's inputs to the burn. */
 struct ChannelInput {
     QString conduitId;
-    QVector<QPointF> centerline; ///< Map CRS, >= 2 points, as digitised.
+    QVector<QPointF> centerline; ///< Map CRS, >= 2 points, as digitized.
     double zUp = 0.0;            ///< node1.invertElev + link.offset1 (profilebuilder.cpp:65).
     double zDn = 0.0;            ///< node2.invertElev + link.offset2 (profilebuilder.cpp:72).
     SectionGeometry section;
@@ -340,7 +340,7 @@ sectionFromTransect(const QVector<double> &stations, const QVector<double> &elev
  */
 [[nodiscard]] QString validateSection(const SectionGeometry &s);
 
-// ── Normalisation and lateral queries ──────────────────────────────────────
+// ── Normalization and lateral queries ──────────────────────────────────────
 
 /**
  * @brief Validate, datum-normalize, anchor and clip a cross-section without changing source
@@ -514,7 +514,7 @@ sectionFromTransect(const QVector<double> &stations, const QVector<double> &elev
  * guarantee on result. Allocates union station ladder/output; no unit conversion, source
  * mutation or retained references.
  *
- * @details Station-normalised blend of two sections, \p w = 0 gives \p a.
+ * @details Station-normalized blend of two sections, \p w = 0 gives \p a.
  *
  * Both sections are resampled onto `u ∈ [−1, 1]` (0 = anchor, ±1 = the respective clipped
  * extent) before mixing, which is what keeps a 3 m ditch and a 30 m creek from producing a

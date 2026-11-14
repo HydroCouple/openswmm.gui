@@ -1,6 +1,6 @@
 /**
  * @file      colorbutton.cpp
- * @brief     Click → QColorDialog; the button shows the current colour as a filled swatch with a
+ * @brief     Click → QColorDialog; the button shows the current color as a filled swatch with a
  *            thin outline.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
@@ -70,7 +70,7 @@ void ColorButton::paintEvent(QPaintEvent *event)
 {
     // Paint the standard button chrome first so the widget integrates with
     // the platform theme (focus ring, pressed-state shading), then overlay
-    // a colour swatch in the middle.
+    // a color swatch in the middle.
     QPushButton::paintEvent(event);
 
     QPainter p(this);

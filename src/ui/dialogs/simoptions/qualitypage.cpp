@@ -128,7 +128,7 @@ void QualityPage::buildUi()
     auto *solForm = new QFormLayout(solGroup);
 
     // Boundary re-entry quality at outfalls — solver-independent (both engines
-    // honour it), which is exactly what this tab is for.
+    // honor it), which is exactly what this tab is for.
     m_outfallBackflowCombo = new QComboBox(solGroup);
     m_outfallBackflowCombo->addItem(tr("Hold last concentration (legacy)"), QStringLiteral("LAST"));
     m_outfallBackflowCombo->addItem(tr("Fresh (zero concentration and age)"),

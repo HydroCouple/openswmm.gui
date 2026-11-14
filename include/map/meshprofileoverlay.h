@@ -75,7 +75,7 @@ public:
     // ── Geometry helpers (chainage ↔ scene point along the polyline) ──────
     /**
      * @return Cached sum of scene Euclidean segment lengths, zero for empty/single point; not
-     *   necessarily project-metres length after reprojection. Nonfinite input can propagate.
+     *   necessarily project-meters length after reprojection. Nonfinite input can propagate.
      */
     [[nodiscard]] double totalLength() const { return m_total; }
     /**

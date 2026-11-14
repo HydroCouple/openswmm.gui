@@ -93,7 +93,7 @@ QString SWMMNodePropertyAdapter::displayLabelFor(const QString &property) const
     // The property browser has no per-row tooltip, so the label says it.
     // …and on an inlet junction the same field is the street's flood
     // threshold (the optional [INLET_JUNCTIONS] MaxDepth), so it gets the
-    // name a street-drainage modeller expects.
+    // name a street-drainage modeler expects.
     if (property == QLatin1String("rimDepth"))
         return (nodeKind() == InletJunction) ? tr("Street Max Depth (%1)").arg(L)
                                              : tr("Max Depth, Display (%1)").arg(L);
@@ -823,7 +823,7 @@ GETTER(seepRate, swmm_node_get_storage_seep_rate)
 GETTER(crownElev, swmm_node_get_crown_elev)
 GETTER(fullVolume, swmm_node_get_full_volume)
 // Slice QA.2 — stats getters now dispatch on m_statsSourceId.
-//   - null UUID  → today's behaviour: read from m_engine's ambient
+//   - null UUID  → today's behavior: read from m_engine's ambient
 //                   post-run stats via swmm_node_get_stat_*. Preserves
 //                   the existing single-output workflow for users who
 //                   haven't picked a source from the combo.
@@ -1143,7 +1143,7 @@ InitialQualityEditRef SWMMNodePropertyAdapter::initialQualityRef() const
 // single union slot (outfall_param) keyed by the current outfall_type.
 // Getters return 0 / empty when the live type doesn't match the property
 // they belong to, so the picker / spinbox naturally shows "unassigned"
-// for inapplicable rows. PropertiesPanel additionally greys those rows
+// for inapplicable rows. PropertiesPanel additionally grays those rows
 // out via setRowEditable so the user sees they don't apply.
 
 double SWMMNodePropertyAdapter::outfallStage() const

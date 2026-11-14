@@ -3,7 +3,7 @@
  * @brief     Renders one node profile per node type and per connecting-link type,
  *        so the type-distinguishing drawing can be reviewed as pixels.
  *
- * Not a test: the assertions that guard this behaviour live in
+ * Not a test: the assertions that guard this behavior live in
  * tests/gui/test_sectionmodelbuilders.cpp. This exists because "a storage unit
  * should not look like a junction" is a claim about a picture, and the only way
  * to check a picture is to look at it.

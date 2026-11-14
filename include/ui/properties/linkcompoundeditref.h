@@ -75,7 +75,7 @@ Q_DECLARE_METATYPE(LinkCompoundEditRef)
 /*! Install the `LinkCompoundEditRef → QString` metatype converter so
  *  the read-only DisplayRole path on QPropertyModel renders `summary`
  *  in the cell when the user isn't actively editing. Idempotent — safe
- *  to call multiple times from different initialisers.
+ *  to call multiple times from different initializers.
  * @details Installs the Qt value-to-QString converter once using a local registration flag. Call during GUI startup before concurrent use; no engine ownership is acquired.
  */
 void registerLinkCompoundEditRefConverter();

@@ -16,7 +16,7 @@
  *   - Y axis      — yAutoRange, yMin, yMax, yGridVisible
  *   - X axis      — xGridVisible
  *   - Fonts       — axisLabelFont, tickLabelFont
- *   - Colours     — backgroundColor, plotAreaColor, gridColor
+ *   - Colors     — backgroundColor, plotAreaColor, gridColor
  *   - Theme       — chartTheme (enum)
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
@@ -200,17 +200,17 @@ public:
     QFont tickLabelFont() const;
     /**
      * @brief Inspect chart configuration or its specified fallback.
-     * @return Live background brush colour, invalid when no chart exists.
+     * @return Live background brush color, invalid when no chart exists.
      */
     QColor backgroundColor() const;
     /**
      * @brief Inspect chart configuration or its specified fallback.
-     * @return Live plot-area brush colour, invalid when no chart exists; visibility is not encoded in this value.
+     * @return Live plot-area brush color, invalid when no chart exists; visibility is not encoded in this value.
      */
     QColor plotAreaColor() const;
     /**
      * @brief Inspect chart configuration or its specified fallback.
-     * @return Cached last set grid colour, initially RGB 204/204/204; not a scan of current axis pens.
+     * @return Cached last set grid color, initially RGB 204/204/204; not a scan of current axis pens.
      */
     QColor gridColor() const noexcept { return m_gridColor; }
     /**
@@ -360,19 +360,19 @@ public slots:
     void setTickLabelFont(const QFont &font);
     /**
      * @brief Edit the chart configuration through its property adapter.
-     * @param[in] c Background brush colour; no validity checks.
+     * @param[in] c Background brush color; no validity checks.
      * @note No-op without a chart; otherwise replaces the brush and emits backgroundColorChanged(), even if unchanged.
      */
     void setBackgroundColor(const QColor &c);
     /**
      * @brief Edit the chart configuration through its property adapter.
-     * @param[in] c Plot-area colour; invalid colour hides plot-area background.
+     * @param[in] c Plot-area color; invalid color hides plot-area background.
      * @note No-op without a chart; otherwise sets brush/visibility and emits plotAreaColorChanged(), even if unchanged.
      */
     void setPlotAreaColor(const QColor &c);
     /**
      * @brief Edit the chart configuration through its property adapter.
-     * @param[in] c Colour copied into every existing chart axis grid pen; other pen fields are preserved.
+     * @param[in] c Color copied into every existing chart axis grid pen; other pen fields are preserved.
      * @note No-op without a chart, including the cache. Otherwise caches/applies and emits gridColorChanged(), even if unchanged. Later-added axes are not initialized here.
      */
     void setGridColor(const QColor &c);
@@ -615,7 +615,7 @@ private:
     QPointer<QChart> m_chart;
 
     // Cached values for QChart configuration that's awkward to read back
-    // (grid colour isn't a first-class QChart attribute; it's per-axis pen).
+    // (grid color isn't a first-class QChart attribute; it's per-axis pen).
     bool m_yAutoRange = true;
     QColor m_gridColor = QColor("#cccccc");
     LegendPosition m_legendPosition = Top;

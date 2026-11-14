@@ -1,8 +1,8 @@
 /**
  * @file      labelconfigeditor.cpp
  * @brief     LAYER_STYLING_LABELING_PLAN_2026-08-16 — the per-sublayer label boxes (kind tree
- *            panel, feature style editors) previously exposed only enabled / expression / colour,
- *            silently dropping the other ~12 LabelConfig fields the paint paths honour (font,
+ *            panel, feature style editors) previously exposed only enabled / expression / color,
+ *            silently dropping the other ~12 LabelConfig fields the paint paths honor (font,
  *            halo, placement, scale window, background, priority).
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026

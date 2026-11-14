@@ -230,7 +230,7 @@ public:
     bool setValueLive(int i, double newValue);
 
     /*! \brief Change both time + value at index \a i. Validates that the new
-     *  time still slots between neighbours strictly.
+     *  time still slots between neighbors strictly.
      * @param[in] i Zero-based existing index.
      * @param[in] newTime Absolute timestamp strictly between existing neighboring times.
      * @param[in] newValue Authored value without range/finiteness checks.

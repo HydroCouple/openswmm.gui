@@ -3,20 +3,20 @@
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
- * @brief     Custom colour-ramp editor (redesigned 2026-08).
+ * @brief     Custom color-ramp editor (redesigned 2026-08).
  *
  * Authors a stand-alone RasterColorRamp for the user's custom-ramp library
  * (PreferencesManager → Rendering/CustomRamps). Layout:
  *   ┌─ Name: [            ]  (overwrite warning when it collides) ────┐
  *   ├─ Preset ▾ (all builtins)   Interpolation ▾   [Reverse]         ─┤
  *   ├─ [ live gradient preview — repaints on edit and resize ]       ─┤
- *   ├─ Stop table: Position | Colour  (+ Add / Remove stop)          ─┤
+ *   ├─ Stop table: Position | Color  (+ Add / Remove stop)          ─┤
  *   ├─ Saved custom ramps: ▾  [Load] [Delete]                        ─┤
  *   └─ OK / Cancel (OK disabled until named and ≥ 2 stops)           ─┘
  *
  * Unlike the previous incarnation, stop POSITIONS are genuinely editable
- * (the old dialog only recoloured evenly spaced samples), presets cover
- * the full builtin catalogue via RasterColorRamp::builtinNames(), naming
+ * (the old dialog only recolored evenly spaced samples), presets cover
+ * the full builtin catalog via RasterColorRamp::builtinNames(), naming
  * happens in-dialog (no follow-up QInputDialog), and custom ramps can be
  * deleted (first caller of PreferencesManager::removeCustomColorRamp).
  * The caller reads the result via ramp() / rampName() on accept and does

@@ -19,7 +19,7 @@
  *
  * WHAT IT PRODUCES.  The crossing itself, as a normalized position along the
  * ORIGINAL polyline — which is exactly what `InsertNodeSplitCommand` takes —
- * plus the inside portion of the centreline, which is the part that gets
+ * plus the inside portion of the centerline, which is the part that gets
  * burned.
  *
  * ORDER MATTERS WHEN APPLYING THIS.  An outfall must be terminal, and
@@ -44,7 +44,7 @@
 namespace mesh
 {
 
-/*! \brief One point where a centreline crosses the domain edge. */
+/*! \brief One point where a centerline crosses the domain edge. */
 struct BoundaryCrossing {
     QPointF point;         ///< On the domain ring.
     double t = 0.0;        ///< Normalized position along the whole polyline, [0, 1] —
@@ -146,8 +146,8 @@ struct BurnConnectorRule {
     double fixedLength = 0.0;        ///< > 0 overrides the automatic length.
     double routingStepS = 0.0;       ///< Model routing step, seconds.
     double cellSize = 0.0;           ///< Channel cell size (floor is two of these).
-    double verticalUnitToSI = 1.0;   ///< Metres per mesh z unit.
-    double horizontalUnitToSI = 1.0; ///< Metres per mesh xy unit.
+    double verticalUnitToSI = 1.0;   ///< Meters per mesh z unit.
+    double horizontalUnitToSI = 1.0; ///< Meters per mesh xy unit.
 };
 
 struct BurnReplacementPlan {

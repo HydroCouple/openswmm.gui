@@ -8,7 +8,7 @@
  * Slice SP.2 (workplans/SECTION_PREVIEW_WORKPLAN.md).
  *
  * A `SectionDiagramModel` is a plain value describing WHAT to draw in model
- * units (feet or metres — the diagram never converts): filled shapes, ground
+ * units (feet or meters — the diagram never converts): filled shapes, ground
  * hatch, dimension lines with arrowheads, leader lines with landing text, and
  * an optional plan-view compass inset. `paintSectionDiagram()` maps it into a
  * pixel rect and paints it.
@@ -17,7 +17,7 @@
  * model from engine state with no QWidget, no palette and no event loop, and
  * tests assert on the model's contents rather than on rendered pixels.
  *
- * All colours come from the supplied QPalette, so the diagrams follow the
+ * All colors come from the supplied QPalette, so the diagrams follow the
  * app theme (including dark mode) with no per-widget stylesheet.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
@@ -50,16 +50,16 @@ enum class DiagramRole {
     Gravel,     //!< Void storage (LID storage layer, gravel bed).
     Vegetation, //!< Planting / turf.
     Water,      //!< Ponded or flowing water.
-    Muted,      //!< De-emphasised (unknown / not-yet-entered values).
+    Muted,      //!< De-emphasized (unknown / not-yet-entered values).
     Accent      //!< Highlighted item (e.g. the geom being edited).
 };
 
 /*!
- * Material pattern drawn INSIDE a filled polygon, on top of its flat colour.
+ * Material pattern drawn INSIDE a filled polygon, on top of its flat color.
  *
  * This is what makes a LID layer stack read as engineered materials rather than
- * as coloured bands: a soil layer that is stippled and a storage layer full of
- * gravel outlines are distinguishable at a glance and in greyscale, which flat
+ * as colored bands: a soil layer that is stippled and a storage layer full of
+ * gravel outlines are distinguishable at a glance and in grayscale, which flat
  * fills separated only by hue are not.
  *
  * Patterns are generated procedurally from a fixed seed, so a given layer looks
@@ -89,11 +89,11 @@ struct DiagramPoly {
     /*! Draw with a dashed outline and a hatch fill — used for LID layers whose
      *  values the engine cannot read back. */
     bool unknown = false;
-    /*! Optional text drawn centred inside the polygon. */
+    /*! Optional text drawn centered inside the polygon. */
     QString insetLabel;
 };
 
-/*! A polyline (no fill), e.g. a centreline or a water surface. */
+/*! A polyline (no fill), e.g. a centerline or a water surface. */
 struct DiagramPolyline {
     QPolygonF pts;
     DiagramRole role = DiagramRole::Muted;
@@ -267,7 +267,7 @@ struct SectionDiagramModel {
     QString title;    //!< Bold header, e.g. "C-12 — Cross-Section".
     QString subtitle; //!< Secondary header, e.g. "CIRCULAR".
     QString footer;   //!< Single-line readout under the drawing.
-    /*! Shown centred instead of the drawing when there is nothing to render
+    /*! Shown centered instead of the drawing when there is nothing to render
      *  (no selection, DUMMY section, geometry not resolvable). */
     QString emptyText;
 
@@ -297,7 +297,7 @@ struct SectionDiagramModel {
 
     /*!
      * Width:height the DRAWN content should aim for, when choosing the
-     * automatic exaggeration. 0 → fill the pane (the legacy behaviour, kept
+     * automatic exaggeration. 0 → fill the pane (the legacy behavior, kept
      * for models whose x axis is not a real length).
      *
      * Deriving the ratio from the model's own proportions rather than from the
@@ -313,7 +313,7 @@ struct SectionDiagramModel {
     /*! Draw the achieved V:H ratio on the drawing.
      *
      *  Only meaningful when BOTH axes are real lengths. Node profiles put
-     *  connecting pipes on a normalised x axis, where a ratio would be
+     *  connecting pipes on a normalized x axis, where a ratio would be
      *  arithmetic on an arbitrary unit, so they leave this false. */
     bool annotateExaggeration = false;
 
@@ -356,7 +356,7 @@ struct SectionDiagramModel {
 };
 
 /*!
- * \brief Paint \p model into \p target using \p palette for all colours.
+ * \brief Paint \p model into \p target using \p palette for all colors.
  *
  * Reserves margins for the title / footer and for leader landings, fits the
  * model bounds into what remains, and declutters progressively as the target
@@ -382,7 +382,7 @@ struct SectionDiagramModel {
  *   budget returns after possible header.
  * @param[in] model Borrowed coherent Y-up model with finite coordinates, common units; not mutated
  *   or validated against engine.
- * @param[in] palette Borrowed semantic colour source resolved at paint time.
+ * @param[in] palette Borrowed semantic color source resolved at paint time.
  * @param[in] viewport Relative geometry zoom/pixel pan, finite expected; zoom clamped [0.05,200],
  *   text/glyph sizes and annotation offsets remain pixel-sized.
  * @note Optional fitRectOut assigned once fit computed, BEFORE final <= 2 pixel-fit rejection;
@@ -409,7 +409,7 @@ void paintSectionDiagram(QPainter &painter, const QRectF &target, const SectionD
                          const QPalette &palette, const DiagramViewport &viewport = {},
                          QRectF *fitRectOut = nullptr, double *achievedExaggerationOut = nullptr);
 
-/*! Resolve a role to its fill colour (exposed for tests + the icon renderer).
+/*! Resolve a role to its fill color (exposed for tests + the icon renderer).
  * @param[in] role Semantic role, unknown enum handled by documented fallback.
  * @param[in] palette Borrowed theme palette.
  * @return Role-specific opaque RGB blend from palette Base/Highlight/WindowText and material
@@ -418,7 +418,7 @@ void paintSectionDiagram(QPainter &painter, const QRectF &target, const SectionD
  */
 [[nodiscard]] QColor diagramFillColor(DiagramRole role, const QPalette &palette);
 
-/*! Resolve a role to its stroke colour.
+/*! Resolve a role to its stroke color.
  * @param[in] role Semantic role, unknown enum handled by documented fallback.
  * @param[in] palette Borrowed theme palette.
  * @return Muted uses palette Mid, Accent darkened Highlight, Storage brown/text blend, every other

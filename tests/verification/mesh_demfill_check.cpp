@@ -127,7 +127,7 @@ FillResult demCoverageFill(std::vector<double> &z, const std::vector<Tri> &tris,
 
     // The seeding pass above propagates inward from the hole boundary and
     // writes each vertex once, so a wide hole comes out flattened toward its
-    // centre. Relax the filled set (covered vertices stay fixed) so the
+    // center. Relax the filled set (covered vertices stay fixed) so the
     // result is the discrete harmonic interpolant: a linear terrain gradient
     // is then carried across the hole instead of collapsing to its mean.
     std::vector<double> next(allFilled.size());
@@ -186,7 +186,7 @@ Grid makeGrid(int N, double a, double b, double c)
     return g;
 }
 
-// Chebyshev-radius `rad` square hole centred on the grid.
+// Chebyshev-radius `rad` square hole centered on the grid.
 int punchHole(Grid &g, int rad)
 {
     const int mid = g.N / 2;
@@ -231,7 +231,7 @@ void test1_adjacency()
     for (int i = 0; i < nv; ++i) if (cur[i] != off[i + 1]) cursorsExact = false;
     check(cursorsExact, "each vertex slice filled exactly to its reserved end");
 
-    // Corner vertex 0 belongs to one triangle; centre of a 5x5 belongs to six.
+    // Corner vertex 0 belongs to one triangle; center of a 5x5 belongs to six.
     const int centre = 2 * 5 + 2;
     std::printf("    deg(corner 0)=%d  deg(centre)=%d\n",
                 off[1] - off[0], off[centre + 1] - off[centre]);

@@ -59,7 +59,7 @@ enum class ThroatType {
     Vertical = 2,
 };
 
-/*! \brief Custom-inlet capture-curve flavour. Values match
+/*! \brief Custom-inlet capture-curve flavor. Values match
  *  `SWMM_InletCurveKind`. */
 enum class InletCurveKind {
     None = 0,

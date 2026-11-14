@@ -121,10 +121,10 @@ QPointF unitVec(const QPointF &v)
 /**
  * @brief Add a nine-point plain text item to the drawing scene.
  * @param[in,out] c Context with a required scene owning the new item.
- * @param[in] pos Scene position (centre when centred, otherwise top-left).
+ * @param[in] pos Scene position (center when centered, otherwise top-left).
  * @param[in] s Display text.
- * @param[in] colour Text brush colour.
- * @param[in] centred Centre the item bounding box around pos when true.
+ * @param[in] colour Text brush color.
+ * @param[in] centred Center the item bounding box around pos when true.
  * @return Borrowed scene-owned text item.
  */
 QGraphicsSimpleTextItem *addText(Ctx &c, const QPointF &pos, const QString &s, const QColor &colour,
@@ -149,8 +149,8 @@ QGraphicsSimpleTextItem *addText(Ctx &c, const QPointF &pos, const QString &s, c
  * @param[in,out] c Drawing context/scene receiving the new text item.
  * @param[in] pos Scene label position.
  * @param[in] label Callout text also stored under CalloutRole.
- * @param[in] centred Centre the text bounding box around pos when true.
- * @return Borrowed scene-owned item, coloured with theme.text.
+ * @param[in] centred Center the text bounding box around pos when true.
+ * @return Borrowed scene-owned item, colored with theme.text.
  */
 QGraphicsSimpleTextItem *addNote(Ctx &c, const QPointF &pos, const QString &label,
                                  bool centred = false)
@@ -199,7 +199,7 @@ void addDimension(Ctx &c, const QPointF &a, const QPointF &b, double offset, con
     addArrowHead(c, a2, a2 - b2);
     addArrowHead(c, b2, b2 - a2);
 
-    addNote(c, (a2 + b2) / 2.0 + n * (11.0 * sgn), label, /*centred*/ true);
+    addNote(c, (a2 + b2) / 2.0 + n * (11.0 * sgn), label, /*centered*/ true);
 }
 
 /**
@@ -621,7 +621,7 @@ void buildSlotted(Ctx &c, const InletDesignData &d)
                      QBrush(c.theme.background));
 }
 
-/*! \brief CUSTOM: the referenced capture curve plotted with axes labelled
+/*! \brief CUSTOM: the referenced capture curve plotted with axes labeled
  *  per the curve kind.
  * @param[in,out] c Context/scene receiving curve axes/path and identity/kind callouts.
  * @param[in] d Design selecting Rating (depth) or Diversion (approach-flow) X meaning.

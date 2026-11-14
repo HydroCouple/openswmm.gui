@@ -123,7 +123,7 @@ public:
     [[nodiscard]] PolygonFeatureSublayerStyle *polygonStyle() const;
 
     /** @brief Produce a one-row fallback preview for this category.
-     * @return Independent row labelled with displayName/id, using a basic marker/line/fill
+     * @return Independent row labeled with displayName/id, using a basic marker/line/fill
      * kind, fallback color and point size or line width. Visibility, ramp classes, labels,
      * opacity, arrow details and most archetype properties are not applied here. */
     QList<LegendSymbolItem> legendSymbolItems() const override;

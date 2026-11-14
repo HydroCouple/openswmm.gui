@@ -192,10 +192,10 @@ public:
     /** @brief Expose the number of valid synthetic depth frames.
      * @return Two frames. */
     int timeCount() const override { return 2; }
-    /** @brief Replace geometry outputs with a two-triangle unit square in metres.
-     * @param[out] x Four vertex x coordinates: 0, 1, 0, 1 metres.
-     * @param[out] y Four vertex y coordinates: 0, 0, 1, 1 metres.
-     * @param[out] z Four zero bed elevations in metres.
+    /** @brief Replace geometry outputs with a two-triangle unit square in meters.
+     * @param[out] x Four vertex x coordinates: 0, 1, 0, 1 meters.
+     * @param[out] y Four vertex y coordinates: 0, 0, 1, 1 meters.
+     * @param[out] z Four zero bed elevations in meters.
      * @param[out] cells Two triangles using zero-based vertex indices (0,1,3) and (0,3,2).
      * @return Always true; all output vectors are replaced. */
     bool readMeshGeometry(std::vector<double> &x, std::vector<double> &y, std::vector<double> &z,
@@ -207,7 +207,7 @@ public:
         cells = {{0, 1, 3}, {0, 3, 2}};
         return true;
     }
-    /** @brief Read a uniform one-metre depth for both synthetic cells.
+    /** @brief Read a uniform one-meter depth for both synthetic cells.
      * @param[in] t Zero-based frame index; only 0 and 1 are accepted.
      * @param[out] depths Replaced with two ones on success; unchanged for an invalid index.
      * @return True for a valid frame, false otherwise. */
@@ -226,7 +226,7 @@ public:
         return QDateTime(QDate(2026, 1, 1), QTime()).addSecs(t * 60);
     }
     /** @brief Declare the synthetic geometry's linear unit.
-     * @return A declared coordinate reference with stored units m and one metre per model unit; no CRS identifier is assigned. */
+     * @return A declared coordinate reference with stored units m and one meter per model unit; no CRS identifier is assigned. */
     openswmmvis::io::CoordinateReference coordinateReference() const override
     {
         openswmmvis::io::CoordinateReference ref;
@@ -835,7 +835,7 @@ private slots:
         prefs->setProjectOpenDirectory({});
         QCOMPARE(FileOpenDialog::startDirectory("models", fallback), fallback);
     }
-    /** @brief Verify nice scale-bar distances and labels round in feet, miles and metres, including zero distance. */
+    /** @brief Verify nice scale-bar distances and labels round in feet, miles and meters, including zero distance. */
     void scaleBarUsesRoundDisplayUnits()
     {
         ScaleBarSettings settings;
@@ -1049,8 +1049,8 @@ private slots:
         renderer.setLayer(layer);
         renderer.setMapExtent(canvas.extent());
 
-        const QColor casing(0x1D, 0x1D, 0x1F); // default selection colours are yellow
-        // Flat-colour overlays in draw order: (colour, vertex count).
+        const QColor casing(0x1D, 0x1D, 0x1F); // default selection colors are yellow
+        // Flat-color overlays in draw order: (color, vertex count).
         const auto flatNodes = [](QSGNode *root) {
             QList<QPair<QColor, int>> out;
             for (QSGNode *c = root->firstChild(); c; c = c->nextSibling()) {
@@ -1627,13 +1627,13 @@ private slots:
         QCOMPARE(results.kindRenderer(SWMMModelLayer::CatConduits)->rendererId(),
                  QString("categorized"));
     }
-    /** @brief A-05: the categorized and rule-based colour columns carry each swatch's colour as accessible text. */
+    /** @brief A-05: the categorized and rule-based color columns carry each swatch's color as accessible text. */
     void rendererColourColumnsExposeAccessibleText()
     {
         SWMMModelLayer layer(fixture());
         QList<QString> warnings, errors;
         QVERIFY(layer.loadModel(warnings, errors));
-        // Pick red in the panel's colour dialog: the swatch's text must follow the pick.
+        // Pick red in the panel's color dialog: the swatch's text must follow the pick.
         const auto pickRedInFirstRow = [this](IRendererPanel *panel) {
             auto *view = panel->findChild<QTableView *>();
             if (!view)
@@ -1676,7 +1676,7 @@ private slots:
 
         auto categorized = std::make_unique<OpenSWMM::Render::CategorizedRenderer>();
         categorized->setClassifyAttribute("maxDepth");
-        // No symbol colours: the panel gives each row its own swatch colour.
+        // No symbol colors: the panel gives each row its own swatch color.
         categorized->addCategory({QStringLiteral("1"), {}, {}});
         categorized->addCategory({QStringLiteral("2"), {}, {}});
         layer.setKindRenderer(SWMMModelLayer::CatJunctions, std::move(categorized));

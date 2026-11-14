@@ -25,7 +25,7 @@ namespace OpenSWMM::Render
  * \struct BasemapRenderParams
  * \brief Brightness / contrast / saturation / resampling for a basemap.
  *
- *        Values centred on zero / one so a default-constructed instance
+ *        Values centered on zero / one so a default-constructed instance
  *        is a no-op pass-through.  `applyTo()` mutates the supplied
  *        QImage in place; for ARGB32_Premultiplied inputs (the format
  *        every basemap layer's composed tile uses) the transform is
@@ -37,11 +37,11 @@ struct BasemapRenderParams {
     double brightness = 0.0;
 
     /*! [0, 4] — multiplicative pivot-around-0.5 scale on each channel.
-     *  1 = no change, >1 = more contrast, <1 = greyer. */
+     *  1 = no change, >1 = more contrast, <1 = grayer. */
     double contrast = 1.0;
 
     /*! [-1, +1] — saturation shift.  0 = unchanged, +1 = fully
-     *  saturated mix, -1 = fully desaturated (greyscale). */
+     *  saturated mix, -1 = fully desaturated (grayscale). */
     double saturation = 0.0;
 
     /*! \enum Resampling
@@ -64,7 +64,7 @@ struct BasemapRenderParams {
      * @brief Apply brightness, contrast, and saturation to an image in place.
      * @details Apply brightness / contrast / saturation to \p img in place.
      *  No-op when isIdentity() so callers can guard cheaply.  The
-     *  `resampling` field is honoured separately via the painter's
+     *  `resampling` field is honored separately via the painter's
      *  SmoothPixmapTransform render hint.
      * @param[in,out] img Image to modify. A null image or identity adjustment is left
      *                   unchanged. Other formats are converted to ARGB32; ARGB32 and

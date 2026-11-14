@@ -93,12 +93,12 @@ QByteArray fileBytes(const QString &path)
  *
  * @brief Create a north-up Float32 DEM with a controlled NoData patch.
  * @param path Test-owned output filename; existing raster can be replaced.
- * @param z Constant elevation in metres outside the patch, converted to Float32.
+ * @param z Constant elevation in meters outside the patch, converted to Float32.
  * @param w Positive columns, default 80, with representable allocation size.
  * @param h Positive rows, default 60.
  * @return True if GTiff creation and every row write succeed; false otherwise.
- * Registers GDAL, sets one-metre pixels at (-10,30), and uses -9999 where pixel
- * centres have x in [20,26] and y in [-6,0]. No CRS is assigned. Transform/NoData/
+ * Registers GDAL, sets one-meter pixels at (-10,30), and uses -9999 where pixel
+ * centers have x in [20,26] and y in [-6,0]. No CRS is assigned. Transform/NoData/
  * close status is unchecked; failure can leave a partial file. Dataset closes after
  * write failure/success; allocation exceptions are not caught.
  *
@@ -140,7 +140,7 @@ bool makeFlatDem(const QString &path, double z, int w = 80, int h = 60)
  *
  * @brief Sample one pixel in the controlled unrotated fixture grid.
  * @param path Borrowed one-band raster filename, requiring prior GDAL registration.
- * @param wx Finite world x in the raster coordinate units (metres for these fixtures).
+ * @param wx Finite world x in the raster coordinate units (meters for these fixtures).
  * @param wy Finite world y in the same units.
  * @return Pixel value or NaN for failed open, outside extent, failed read leaving
  * NaN, or exact -9999 sentinel. Assumes a valid axis-aligned transform with nonzero
@@ -198,13 +198,13 @@ QVector<double> readAll(const QString &path, int *w = nullptr, int *h = nullptr)
  *
  * @brief Build a straight trapezoidal burn profile for raster fixtures.
  * @param id Copied conduit identifier.
- * @param zUp Upstream bed elevation in metres at x0.
- * @param zDn Downstream bed elevation in metres at x1.
- * @param x0 Upstream x in metres, at y=0.
- * @param x1 Downstream x in metres; intended greater than x0.
- * @return Owned production-built profile: 4-metre base width, side slope 2,
- * 0..2-metre section depths, forced half-width 2 m, maximum half-width 8 m and
- * 0.5-metre chainage sampling. No local validation; caller checks profile validity.
+ * @param zUp Upstream bed elevation in meters at x0.
+ * @param zDn Downstream bed elevation in meters at x1.
+ * @param x0 Upstream x in meters, at y=0.
+ * @param x1 Downstream x in meters; intended greater than x0.
+ * @return Owned production-built profile: 4-meter base width, side slope 2,
+ * 0..2-meter section depths, forced half-width 2 m, maximum half-width 8 m and
+ * 0.5-meter chainage sampling. No local validation; caller checks profile validity.
  *
  */
 BurnProfile channel(const QString &id, double zUp, double zDn, double x0, double x1)
@@ -234,7 +234,7 @@ BurnProfile channel(const QString &id, double zUp, double zDn, double x0, double
  * @brief Build the standard CREEK1 raster-burn request without running it.
  * @param src Copied source raster path, not opened here.
  * @param dst Copied test-owned destination path, not cleared here.
- * @return Owned request with a 50-metre west-east profile falling from 8 to 7 m,
+ * @return Owned request with a 50-meter west-east profile falling from 8 to 7 m,
  * and forceHalfWidth 2 m; remaining writer/rule options retain defaults.
  *
  */
@@ -276,7 +276,7 @@ TEST(BurnedRasterWriter, BurnsTheCorridorAndLeavesTheSourceAlone)
     ASSERT_EQ(st.perConduit.size(), 1);
     EXPECT_EQ(st.perConduit.first().conduitId, QStringLiteral("CREEK1"));
 
-    // Pixel centres sit at X.5, so the centreline pixel here is at chainage
+    // Pixel centers sit at X.5, so the centerline pixel here is at chainage
     // 25.5: bed = 8 - (1/50)·25.5 = 7.49, and |offset| = 0.5 is inside the
     // 2 m flat bed, so the pixel holds the invert exactly.
     EXPECT_NEAR(sampleAt(dst, 25.5, 0.5), 7.49, 1e-4);

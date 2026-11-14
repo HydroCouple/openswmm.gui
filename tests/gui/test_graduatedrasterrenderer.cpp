@@ -8,17 +8,17 @@
  *         renderer), MultiBandColorRenderer, and makeRasterRenderer().
  *
  *         Contracts pinned here:
- *           - Continuous mode colours a value exactly as the scheme's ramp
+ *           - Continuous mode colors a value exactly as the scheme's ramp
  *             would at the LUT texel position (ScalarRampLut contract),
- *             inversion included; underflow is hidden and overflow saturates to the end colour
+ *             inversion included; underflow is hidden and overflow saturates to the end color
  *             regardless of the retained legacy clip flag.
- *           - Classified mode colours by class edge interval; data-driven
+ *           - Classified mode colors by class edge interval; data-driven
  *             methods use the sample handed to reclassify(); Manual breaks
- *             and per-class colour overrides are honoured.
+ *             and per-class color overrides are honored.
  *           - NoData / non-finite → transparent in both modes.
  *           - Legend: 6 sampled rows (Continuous) or one row per class with
  *             range / classKey / label override (Classified).
- *           - JSON round-trip reproduces colours without the sample (edges
+ *           - JSON round-trip reproduces colors without the sample (edges
  *             persist); missing edges are re-derived.
  *           - clone() is independent; the factory dispatches on "id".
  *
@@ -69,8 +69,8 @@ QColor swatchColor(const LegendSymbolItem &item)
  * avoided.
  * @return QRgb packed RGBA value, no allocation/mutation or retained input.
  *
- * @details The renderer quantises to the 8-bit QRgb the tile pixel actually holds;
- *  scheme colours built via fromRgbF carry float components that do not
+ * @details The renderer quantizes to the 8-bit QRgb the tile pixel actually holds;
+ *  scheme colors built via fromRgbF carry float components that do not
  *  round-trip through QColor::operator==, so compare on the packed value.
  */
 QRgb px(const QColor &c)
@@ -257,14 +257,14 @@ void TestGraduatedRasterRenderer::continuous_lutMatchesSchemeAtTexels()
     r.setDataRange(0.0, 100.0);
 
     // Values that land exactly on LUT texels must reproduce the scheme's
-    // colour at that texel's position.
+    // color at that texel's position.
     for (int i : {0, 1, 64, 128, 200, 255}) {
         const double f = ScalarRampLut::positionForTexel(i);
         const double v = f * 100.0;
         QCOMPARE(px(r.colorForValue(v)), px(r.scheme().colorAtF(f)));
     }
     // A value between texels rounds to the nearest texel (never more than
-    // one texel away from the exact ramp colour).
+    // one texel away from the exact ramp color).
     const QColor mid = r.colorForValue(50.0);
     const QColor ref = r.scheme().colorAtF(0.5);
     QVERIFY(std::abs(mid.red() - ref.red()) <= 2);
@@ -328,7 +328,7 @@ void TestGraduatedRasterRenderer::classified_equalIntervalEdgesAndColours()
     // Underflow is transparent; overflow keeps the final class.
     QCOMPARE(px(r.colorForValue(-1.0)), px(QColor(Qt::transparent)));
     QCOMPARE(px(r.colorForValue(101.0)), px(colorOfClass(3)));
-    // Adjacent classes are distinct colours.
+    // Adjacent classes are distinct colors.
     QVERIFY(px(colorOfClass(0)) != px(colorOfClass(1)));
 }
 

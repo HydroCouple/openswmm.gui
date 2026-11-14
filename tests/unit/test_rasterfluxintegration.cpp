@@ -27,7 +27,7 @@ class TestRasterFluxIntegration : public QObject
     /**
      *
      * @brief Build a CRS string for controlled density-integration fixtures.
-     * @param epsg Supported EPSG code, default projected metre CRS 32618; cases also use
+     * @param epsg Supported EPSG code, default projected meter CRS 32618; cases also use
      * projected-foot 2263, neighboring zone 32619 and geographic 4326 for refusal checks.
      * @return Owned exported WKT after freeing GDAL bytes. Import/export errors are not
      * checked; requires functioning GDAL spatial-reference support. No dataset mutation.
@@ -239,7 +239,7 @@ private slots:
     }
     /**
      *
-     * @brief Verify projected-foot area conversion plus mm/hour, inch/hour and metre/day density
+     * @brief Verify projected-foot area conversion plus mm/hour, inch/hour and meter/day density
      * scales/offsets yield equivalent SI flows.
      *
      */

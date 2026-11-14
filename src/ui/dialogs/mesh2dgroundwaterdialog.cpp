@@ -1086,7 +1086,7 @@ void Mesh2DGroundwaterDialog::loadFromEngine()
     refreshState();
 
     // The setter also marks options authored; querying lifecycle avoids a
-    // hidden model change when this dialog is only inspected or cancelled.
+    // hidden model change when this dialog is only inspected or canceled.
     // Switched off, the aquifer stays inspectable but read-only (plan §5).
     const bool editable = canEdit(m_engine);
     const QString locked = processLockReason(m_engine, LockableProcess::Groundwater2D);
@@ -1971,7 +1971,7 @@ void Mesh2DGroundwaterDialog::setForTargetEdges()
     value->setObjectName("gwBoundarySetValue");
     value->setRange(-1.0e9, 1.0e9);
     value->setDecimals(6);
-    form->addRow(tr("Head:"), value); // relabelled by update()
+    form->addRow(tr("Head:"), value); // relabeled by update()
     auto *distribution = new QComboBox(&ask);
     distribution->setObjectName("gwBoundarySetDistribution");
     distribution->addItem(tr("The same flow on each edge"), QStringLiteral("EACH"));

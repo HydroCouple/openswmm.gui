@@ -43,7 +43,7 @@
 // Opt in with SWMM_LOG_FILE=<path>, or SWMM_LOG_FILE=1 for the default
 // location under AppDataLocation/logs.  The chosen path is printed to
 // stderr and written as the file's first line, so the location is always
-// discoverable.  The previous handler is chained so platform behaviour
+// discoverable.  The previous handler is chained so platform behavior
 // (and any handler a test installs LATER, which replaces this one) is
 // unchanged.  Messages arrive from worker threads too, hence the mutex.
 
@@ -171,7 +171,7 @@ int main(int argc, char *argv[])
     // last few children of a QSGTransformNode) didn't actually paint
     // pixels under Metal, even with correct vertex/material/parent
     // state (verified via diagnostic dump — vertexCount=24, parent==root,
-    // mode=DrawTriangles, opaque colour, valid widget coords, but 0
+    // mode=DrawTriangles, opaque color, valid widget coords, but 0
     // matching pixels in the grabbed FBO). The OpenGL backend doesn't
     // exhibit this bug. Must be set BEFORE QGuiApplication is constructed
     // or the env var has no effect.
@@ -254,7 +254,7 @@ int main(int argc, char *argv[])
     // BEFORE QGuiApplication construction. Drivers downgrade silently
     // when 16x isn't supported (typically to 8x or 4x), so this is
     // safe on weaker GPUs — we just pay zero for the bump where the
-    // hardware can't honour it. Combined with QQuickItem::setAntialiasing
+    // hardware can't honor it. Combined with QQuickItem::setAntialiasing
     // on the renderers, this is the practical ceiling for AA via the
     // builtin QSGFlatColorMaterial / QSGVertexColorMaterial pipelines;
     // going further would need a custom AA fragment shader.

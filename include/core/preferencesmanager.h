@@ -98,8 +98,8 @@ public:
      *
      *  Stored under SWMMVis/Preferences/Selection/Pen/&lt;Class&gt;. On first
      *  load, legacy SWMMVis/Preferences/Selection/Color/&lt;Class&gt; values
-     *  are migrated into both a pen (with the saved colour) and a brush
-     *  (with the saved colour, alpha 180 for polygons / 255 for glyphs)
+     *  are migrated into both a pen (with the saved color) and a brush
+     *  (with the saved color, alpha 180 for polygons / 255 for glyphs)
      *  and the legacy key is removed.
      * @param[in] className Feature class: link, node, subcatchment or gage, case-insensitive; unknown names use Default.
      * @return Saved outline pen or the compiled style fallback for the canonical type.
@@ -130,7 +130,7 @@ public:
     void setSelectionBrush(const QString &className, const QBrush &brush);
 
     /*! Convenience wrapper around `selectionPen(className).color()`.
-     *  Retained for callers that only need the colour.
+     *  Retained for callers that only need the color.
      * @param[in] className Feature class: link, node, subcatchment or gage, case-insensitive; unknown names use Default.
      * @return Current canonical style pen color.
      */
@@ -288,7 +288,7 @@ public:
     void setSnapTolerancePx(int px);
 
     /*! If true, also snap to link polyline and subcatchment polygon vertices
-     *  in addition to node/gage centres. Default true.
+     *  in addition to node/gage centers. Default true.
      * @brief Whether link bends and polygon vertices supplement node/gage snapping.
      * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.
      */
@@ -315,7 +315,7 @@ public:
      */
     void setLabelLodM11Min(qreal m11);
 
-    /*! Full rendering pen for a link subtype — colour, width, cap, join,
+    /*! Full rendering pen for a link subtype — color, width, cap, join,
      *  style and dash are all user-tunable via the Preferences dialog's
      *  Rendering page (a QPropertyModel-backed editor).
      *
@@ -339,7 +339,7 @@ public:
     void setLinkPen(const QString &linkType, const QPen &pen);
 
     /*! Convenience wrapper around `linkPen(linkType).color()`. Retained
-     *  for call sites that only need the colour.
+     *  for call sites that only need the color.
      * @param[in] linkType Link subtype: conduit, pump, orifice, weir or outlet, case-insensitive; unknown names use Conduit.
      * @return Current canonical style pen color.
      */
@@ -353,7 +353,7 @@ public:
      */
     void resetLinkPenToDefault(const QString &linkType);
 
-    /*! Outline pen for a node marker class — colour, width, cap, join,
+    /*! Outline pen for a node marker class — color, width, cap, join,
      *  style and dash are all user-tunable via the Preferences dialog's
      *  Rendering page (a QPropertyModel-backed editor).
      *
@@ -415,7 +415,7 @@ public:
     void resetNodeStyleToDefault(const QString &nodeType);
 
     // ── Rendering / Custom color ramps (Slice BB-α) ──────────────────────
-    /*! User-authored colour ramps keyed by display name, stored under
+    /*! User-authored color ramps keyed by display name, stored under
      *  SWMMVis/Preferences/Rendering/CustomRamps as a JSON array. Each
      *  entry is the RasterColorRamp::toJson() payload plus a "name"
      *  field. Reads return the latest persisted map; writes update both
@@ -1062,7 +1062,7 @@ public:
      *  synthesized .inp on File→New (when the 2D module default is on) and
      *  used as the missing-key fallbacks in Simulation Options' 2D tab,
      *  plus the mesh-generation seeds MeshGenerationDialog starts from.
-     *  Distances are stored in SI (metres); consumers unit-scale exactly
+     *  Distances are stored in SI (meters); consumers unit-scale exactly
      *  as the mesh dialog's seedDefaults always has. Persisted under
      *  SWMMVis/Preferences/TwoDDefaults. */
     struct TwoDDefaults {
@@ -1098,13 +1098,13 @@ public:
         double meshCellSizeM = 0.0; ///< 0 = inherit minimum target for new configurations
         double meshCoarsenFactor =
             0.0;                    ///< Legacy multiplier; 0 = no maximum for new configurations
-        double meshSizeRatio = 2.0; ///< neighbour edge-length ratio
+        double meshSizeRatio = 2.0; ///< neighbor edge-length ratio
         double meshMinCellSizeM = 6.096;    ///< 20 ft; 0 = cell size / 4
         double meshTerrainToleranceM = 0.0; ///< 0 = automatic elevation estimate
         std::optional<mesh::ResolutionSettings> meshResolution;
         /**
          * @brief Resolve optional modern resolution settings or migrate legacy mesh-size defaults.
-         * @return Modern settings verbatim when present; otherwise SI metre values with minimum fallback 6.096 m, optional feature/maximum/tolerance and copied transition ratio.
+         * @return Modern settings verbatim when present; otherwise SI meter values with minimum fallback 6.096 m, optional feature/maximum/tolerance and copied transition ratio.
          */
         mesh::ResolutionSettings resolutionSettings() const
         {
@@ -1148,7 +1148,7 @@ public:
 
     /**
      * @brief Read 2D solver and mesh-generation defaults for new configurations.
-     * @return Owning defaults with missing keys filled from compiled seeds; mesh resolution lengths are canonical metres.
+     * @return Owning defaults with missing keys filled from compiled seeds; mesh resolution lengths are canonical meters.
      */
     [[nodiscard]] TwoDDefaults twoDDefaults() const;
     /**

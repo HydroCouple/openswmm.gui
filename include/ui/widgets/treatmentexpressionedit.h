@@ -67,8 +67,8 @@ public:
     static QStringList allKeywords(); ///< variables + functions
 
     /**
-     * @brief Replace token colours/formats and rehighlight the attached document.
-     * @param[in] palette Active colour roles for variables/functions/operators/numbers/unknown tokens; invalid colours use compiled fallbacks.
+     * @brief Replace token colors/formats and rehighlight the attached document.
+     * @param[in] palette Active color roles for variables/functions/operators/numbers/unknown tokens; invalid colors use compiled fallbacks.
      */
     void setPalette(const QPalette &palette);
 
@@ -76,7 +76,7 @@ protected:
     /**
      * @brief Assign lexical formats to operators, number-like spans and identifier tokens in one text block.
      * @param[in] text Block text supplied by QSyntaxHighlighter; no document content is changed.
-     * @note Lexical colouring is advisory; numeric syntax and identifier validity are decided by engine validation. Vocabulary identifiers match case-insensitively.
+     * @note Lexical coloring is advisory; numeric syntax and identifier validity are decided by engine validation. Vocabulary identifiers match case-insensitively.
      */
     void highlightBlock(const QString &text) override;
 

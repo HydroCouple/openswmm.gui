@@ -120,7 +120,7 @@ Qsg2DLodDecision Qsg2DLodPolicy::decide(const Qsg2DLodInputs &in)
     case Qsg2DLodDecision::Far:
         d.drawFill = in.wantFill;
         d.useAggregateFill = true;
-        // Honour the configurable per-pass thresholds even at Far so the
+        // Honor the configurable per-pass thresholds even at Far so the
         // "show edges/vertices at N px/cell" control — where 0 means
         // "always show when the sublayer is visible" — is respected across
         // the entire zoom range, not just Mid/Near. With the default
@@ -157,7 +157,7 @@ Qsg2DLodDecision Qsg2DLodPolicy::decide(const Qsg2DLodInputs &in)
         // Vertex markers were pinned to the Near bucket, so a marker
         // threshold below Near's floor (kNearMinCellAreaPx) did nothing.
         // Gate on the (configurable) threshold here too so the "show
-        // vertices at" control is honoured across the whole zoom range.
+        // vertices at" control is honored across the whole zoom range.
         // Results renderers keep the default 200 px² (> Mid's 160 ceiling),
         // so this is a no-op for them.
         d.drawVertexMarkers = in.wantVertexMarkers && d.avgCellAreaPx >= in.markerMinCellAreaPx;

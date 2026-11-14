@@ -5,7 +5,7 @@
  * @date      2026
  * @license   GPL-3.0-or-later
  *
- * Slice AT.3 — pins the model-surface behaviour that the series-tree
+ * Slice AT.3 — pins the model-surface behavior that the series-tree
  * checkbox toggle in `ComparisonPlotDialog::onSeriesItemChanged` drives:
  *   - `ComparisonPlotModel::updateStyle` flips `SeriesStyle::showLine`
  *     in-place,
@@ -18,7 +18,7 @@
  *     style.showLine = checked;
  *     m_model->updateStyle(idx, style);
  *
- * — pinning that model behaviour is the load-bearing piece. The
+ * — pinning that model behavior is the load-bearing piece. The
  * `QTreeWidgetItem::checkState` ↔ `style.showLine` plumbing is a
  * two-line Qt idiom and is exercised in the manual verification plan.
  *
@@ -147,7 +147,7 @@ void TestComparisonPlotSeriesTree::updateStyleFlipsShowLine()
  * Despite the historical slot name, the assertions require unconditional emission rather than no-op deduplication. */
 void TestComparisonPlotSeriesTree::updateStyleNoOpDoesNotEmit()
 {
-    // Pin current model behaviour: `updateStyle` emits styleChanged on
+    // Pin current model behavior: `updateStyle` emits styleChanged on
     // every call (the dialog's onStyleChanged slot is cheap — a single
     // pen rewrite — so the model doesn't bother deduping). The checkbox
     // toggle still produces exactly one update per click because the

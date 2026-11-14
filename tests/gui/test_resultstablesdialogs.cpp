@@ -129,7 +129,7 @@ QStringList reportRow(const QString &rpt, const QString &section, const QString 
 using openswmmvis::io::Mesh2DResultVariable;
 using openswmmvis::io::Mesh2DValueStatus;
 
-/*! Four triangles around an off-centre vertex (areas 0.5, 1.5, 1.5, 0.5 m2),
+/*! Four triangles around an off-center vertex (areas 0.5, 1.5, 1.5, 0.5 m2),
  *  three one-minute frames, a TSS surface concentration (MG/L) with cell 2
  *  Missing at frame 1 and cell 3 waterless, and depths 0.1(c+1) + 0.01 t
  *  (cell 3 dry). */
@@ -317,7 +317,7 @@ private slots:
                      round(max(outSeries(0, id, SWMM_OUT_NODE_HEAD)), 3));
             QCOMPARE(cell(nodes, r, columnOf(nodes, {"Max overflow"})),
                      round(max(outSeries(0, id, SWMM_OUT_NODE_OVERFLOW)), 3));
-            // Before V6 the header was "Volume"; it is now labelled a sample sum.
+            // Before V6 the header was "Volume"; it is now labeled a sample sum.
             QCOMPARE(cell(nodes, r, columnOf(nodes, {"Volume"})),
                      round(sum(outSeries(0, id, SWMM_OUT_NODE_VOLUME)), 1));
         }
@@ -449,7 +449,7 @@ private slots:
     }
 
     /*! V6 + R4: Statistics lists species maxima and pollutant totals; the
-     *  totals equal the .rpt load summaries; sample sums are labelled and
+     *  totals equal the .rpt load summaries; sample sums are labeled and
      *  the subcatchment rates gain time integrals. */
     void statisticsListsSpeciesLoadsAndIntegrals()
     {
@@ -486,7 +486,7 @@ private slots:
                      nodeTip.contains(QStringLiteral("every routing step")),
                  qPrintable(nodeTip));
 
-        // Subcatchment: sample sums labelled; runoff volume is the time integral.
+        // Subcatchment: sample sums labeled; runoff volume is the time integral.
         QVERIFY(columnOf(subs, {"Runoff (sample sum)"}) > 0);
         const int s1 = rowOf(subs, QStringLiteral("S1"));
         const auto runoff = outSeries(2, "S1", SWMM_OUT_SUBCATCH_RUNOFF);

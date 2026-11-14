@@ -353,9 +353,9 @@ void ColorRampComboBox::openEditor()
         return;
     const std::unique_ptr<openswmmvis::ui::ColorRampEditorDialog> dlg(editor.data());
     if (result != QDialog::Accepted || !dlg || dlg->rampName().isEmpty()) {
-        // User cancelled — restore the pre-edit selection (previously this
+        // User canceled — restore the pre-edit selection (previously this
         // reset to row 0 = Grayscale without even emitting rampChanged,
-        // desynchronising the combo from the style it edits).
+        // desynchronizing the combo from the style it edits).
         if (m_lastRampRow >= 0 && m_lastRampRow < count())
             setCurrentIndex(m_lastRampRow);
         return;

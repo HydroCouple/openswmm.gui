@@ -136,7 +136,7 @@ std::optional<EntityKind> entityKindForCategory(SWMMModelLayer::Category cat)
 // since each setter tag's prefix matches its EntityKind 1:1 and a
 // category's schema only uses its own prefix. A cross-kind column would
 // fall back to the old name lookup rather than silently read a
-// neighbouring object, so the fast path is correct by construction and
+// neighboring object, so the fast path is correct by construction and
 // not merely by audit.
 /**
  * @param[in] layer Optional borrowed source, null -1.
@@ -758,7 +758,7 @@ QList<ColumnSpec> linkDynamicsBlock()
     };
 }
 
-// Pump-only utilisation statistics, appended after the shared link block.
+// Pump-only utilization statistics, appended after the shared link block.
 /**
  * @return Pump cycles/count, on-time HOURS and pumped volume/project volume, read-only tags. Cycle
  *   tooltip records report-step lower-bound reconstruction; no run sampling here. Metadata only, no
@@ -768,7 +768,7 @@ QList<ColumnSpec> pumpDynamicsBlock()
 {
     ColumnSpec cycles = roGet(QStringLiteral("Pump cycles"), QStringLiteral("Pump Cycles"),
                               QStringLiteral("link_stat_pump_cycles"));
-    // Unlike its neighbours this one can be badly low, not just slightly, so
+    // Unlike its neighbors this one can be badly low, not just slightly, so
     // say so where the user will see it. Reconstructing cycles from an output
     // file cannot see a pump that switches off and back on entirely between
     // two report times — see SWMMResultsLayer::linkStatPumpCycles.
@@ -1130,7 +1130,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             compoundCol("XSection", "Cross Section", "link_xsect_ref"),
             // Direct inline geom1..geom4 alongside the XSection editor.
             // Generic labels (meaning varies per shape, surfaced as the
-            // cell tooltip); flags() greys the ones that don't apply.
+            // cell tooltip); flags() grays the ones that don't apply.
             num("Geom 1", "Geom 1", "link_xsect_geom1", 0.0, 1e9, 4, UnitKind::None),
             num("Geom 2", "Geom 2", "link_xsect_geom2", 0.0, 1e9, 4, UnitKind::None),
             num("Geom 3", "Geom 3", "link_xsect_geom3", 0.0, 1e9, 4, UnitKind::None),
@@ -1191,7 +1191,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             // (RECT_OPEN / TRAPEZOIDAL / TRIANGULAR) automatically.
             xsectShapeCol(SWMM_LINK_WEIR),
             compoundCol("XSection", "Cross Section", "link_xsect_ref"),
-            // Direct inline geom1..geom4 (flags() greys inapplicable geoms).
+            // Direct inline geom1..geom4 (flags() grays inapplicable geoms).
             num("Geom 1", "Geom 1", "link_xsect_geom1", 0.0, 1e9, 4, UnitKind::None),
             num("Geom 2", "Geom 2", "link_xsect_geom2", 0.0, 1e9, 4, UnitKind::None),
             num("Geom 3", "Geom 3", "link_xsect_geom3", 0.0, 1e9, 4, UnitKind::None),
@@ -1222,7 +1222,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             xsectShapeCol(SWMM_LINK_ORIFICE),
             compoundCol("XSection", "Cross Section", "link_xsect_ref"),
             // Direct inline geom1..geom4 (orifices use CIRCULAR / RECT_CLOSED,
-            // so only Geom 1/2 ever apply; the rest grey out).
+            // so only Geom 1/2 ever apply; the rest gray out).
             num("Geom 1", "Geom 1", "link_xsect_geom1", 0.0, 1e9, 4, UnitKind::None),
             num("Geom 2", "Geom 2", "link_xsect_geom2", 0.0, 1e9, 4, UnitKind::None),
             num("Geom 3", "Geom 3", "link_xsect_geom3", 0.0, 1e9, 4, UnitKind::None),
@@ -1289,7 +1289,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
             num("Snow scale", "Snow Scale Factor", "subcatch_snow_scale_factor", 1e-6, 1e3, 4),
             // Phase 3 — Rain gage + outlet pickers (DataObjectRef cells),
             // infiltration model enum, and the per-model parameter columns.
-            // Parameter columns are always present (no per-row greying in the
+            // Parameter columns are always present (no per-row graying in the
             // table); they read/write the active model's shared param store.
             compoundCol("Rain gage", "Rain Gage", "subcatch_rain_gage_ref"),
             compoundCol("Snow pack", "Snow Pack", "subcatch_snowpack_ref"),
@@ -1390,7 +1390,7 @@ QList<ColumnSpec> schemaForCategory(SWMMModelLayer::Category cat)
 // independent columns. These wrappers match the single-double
 // SetterEntry shape: each setter re-reads the other two coefficients
 // then writes the full triple — same contract the Property Browser's
-// setLossInlet/Outlet/Avg slots honour (§S.1 Q-S4 decision).
+// setLossInlet/Outlet/Avg slots honor (§S.1 Q-S4 decision).
 /**
  * @param[in] e Borrowed engine, C API validates handle/lifecycle.
  * @param[in] idx Current zero-based link index.
@@ -1492,7 +1492,7 @@ int lossSetAvg(SWMM_Engine e, int idx, double v)
 // read-modify-writes (mirrors lossSet*).
 //
 // All four cells show their stored value and accept edits whatever the
-// current shape is. They used to blank + grey every geom the live shape
+// current shape is. They used to blank + gray every geom the live shape
 // didn't use, which read as "the editors are broken" — a CIRCULAR conduit
 // showed three permanently empty, uneditable columns — and threw away the
 // width a user had already typed when they flipped the shape. The only
@@ -1679,7 +1679,7 @@ int xsectGeomOrdinalForTag(const QString &tag)
     return 0;
 }
 // Current SWMM_XSECT_* shape id for the named link, or -1 on lookup
-// failure. Used by data()/flags() to grey out inapplicable geom cells.
+// failure. Used by data()/flags() to gray out inapplicable geom cells.
 /**
  * @param[in] layer Optional borrowed source, needs live engine.
  * @param[in] name Exact nonempty object name, UTF-8 lookup.
@@ -2656,7 +2656,7 @@ int exfilImdSet(SWMM_Engine e, int idx, double v)
 // .out counterpart both return seconds (OutputReader multiplies the
 // flooded period count by report_step, and statsrpt.c divides by 3600 for
 // its display-only "hours" column), while the column here has always been
-// labelled "Time Flooded (hr)" — so the cell read 3600x high.
+// labeled "Time Flooded (hr)" — so the cell read 3600x high.
 //
 // Link surcharge time genuinely is hours already (linkStatsFor divides).
 /**
@@ -2759,7 +2759,7 @@ ResultsStatFn resultsStatForUncached(const QString &tag)
         return &SWMMResultsLayer::linkStatVolFlow;
     if (tag == QStringLiteral("link_stat_surcharge_time"))
         return &SWMMResultsLayer::linkStatSurchargeTime;
-    // Pump utilisation. linkStatPumpOnTime already returns HOURS, so it
+    // Pump utilization. linkStatPumpOnTime already returns HOURS, so it
     // stands in for pumpOnTimeHoursGet (the engine getter reports seconds)
     // rather than for the raw C function.
     if (tag == QStringLiteral("link_stat_pump_cycles"))
@@ -2778,7 +2778,7 @@ ResultsStatFn resultsStatForUncached(const QString &tag)
     return nullptr;
 }
 
-// Memoised for the same reason as setterFor below — data() dispatches
+// Memoized for the same reason as setterFor below — data() dispatches
 // through this for every dynamics cell it paints.
 /**
  * @param[in] tag Exact setter/getter token, no case/whitespace normalization.
@@ -2946,7 +2946,7 @@ SetterEntry setterForUncached(const QString &tag)
     if (tag == QStringLiteral("link_seep_rate"))
         return {EntityKind::Link, &swmm_link_set_seep_rate, &swmm_link_get_seep_rate};
     // Inline cross-section geom1..geom4 (read-modify-write over the engine
-    // xsect tuple; see xsectGeomGet/Set). flags() greys the geoms that
+    // xsect tuple; see xsectGeomGet/Set). flags() grays the geoms that
     // don't apply to a given row's shape.
     if (tag == QStringLiteral("link_xsect_shape"))
         return {EntityKind::Link, nullptr, nullptr, &xsectShapeSet, &xsectShapeGet};
@@ -3203,7 +3203,7 @@ SetterEntry setterForUncached(const QString &tag)
 // The chain above is ~100 QString comparisons and used to run for EVERY
 // cell read — data(), flags() and commitValueDirect() all dispatch through
 // it — so a full-grid walk (filter, sort, export) paid it millions of
-// times. Memoise per tag; those three are GUI-thread-only, so a plain
+// times. Memoize per tag; those three are GUI-thread-only, so a plain
 // function-local static needs no lock.
 //
 // Returns BY VALUE: SetterEntry is a kind plus a few function pointers,
@@ -4626,7 +4626,7 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
         // THAT run's .out file, not the editing engine (which never runs a
         // simulation and so has no statistics at all). Tags with no output
         // counterpart — the three pump-only ones — fall through to the
-        // engine path below and keep their existing behaviour.
+        // engine path below and keep their existing behavior.
         if (spec.setter.contains(QLatin1String("_stat_"))) {
             if (m_resultsSource) {
                 if (const auto fn = resultsStatFor(spec.setter)) {
@@ -4829,7 +4829,7 @@ Qt::ItemFlags SWMMAttributeTableModel::flags(const QModelIndex &index) const
         // Storage dimension cells: editable only for the shapes that use them.
         // Also keeps the curve / functional-coefficient cells from being edited on a
         // node whose shape doesn't use them — the engine would reject or silently
-        // reinterpret the write, and the panel already greys the same rows.
+        // reinterpret the write, and the panel already grays the same rows.
         if (const int ord = storageParamOrdinalForTag(spec.setter); ord > 0) {
             const int shape = storageShapeForName(m_layer, objectNameAt(index.row()));
             if (shape < 0 || !openswmmvis::storageGeomApplies(shape, ord))
@@ -6408,7 +6408,7 @@ void SWMMAttributeTableModel::refreshObject(const QString &name)
         m_rowCacheValid[row] = false;
     // This is the mirror for edits made ANYWHERE else (Property Browser,
     // compound dialogs, undo) — including ones that add or remove inflow /
-    // DWF / RDII / treatment entries, which the compound cells summarise.
+    // DWF / RDII / treatment entries, which the compound cells summarize.
     // Without this the compound counts survived an external edit and the
     // cell kept showing the pre-edit summary.
     //

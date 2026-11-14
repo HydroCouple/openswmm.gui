@@ -120,7 +120,7 @@ QPolygonF offsetPolyline(const QPolygonF &input, qreal offsetPx, qreal miterLimi
         const QPointF shiftedB(input[i].x() + offsetPx * nrmB->x(),
                                input[i].y() + offsetPx * nrmB->y());
 
-        // Direction along segment A: (input[i] - input[i-1]) normalised.
+        // Direction along segment A: (input[i] - input[i-1]) normalized.
         // We can recover it from the right-normal: (nrmA.y, -nrmA.x).
         const QPointF dirA(nrmA->y(), -nrmA->x());
         const QPointF dirB(nrmB->y(), -nrmB->x());

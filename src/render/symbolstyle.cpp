@@ -43,7 +43,7 @@ void SymbolStyle::fromJson(const QJsonObject &j)
     opacity = op.isDouble() ? op.toDouble() : 1.0;
 }
 
-// ── SymbolProps — canonical colour prop accessors (gap A1.2) ──────────
+// ── SymbolProps — canonical color prop accessors (gap A1.2) ──────────
 
 namespace SymbolProps
 {
@@ -76,7 +76,7 @@ QColor firstColor(const SymbolStyle &style, const QColor &fallback)
 {
     // Key order matches the legend-swatch convention established by the
     // X1 fix in the legend views: fill first (marker/fill grammar), then
-    // line colour, then outline as a last resort.
+    // line color, then outline as a last resort.
     static const QString kKeys[] = {QStringLiteral("fillColor"), QStringLiteral("color"),
                                     QStringLiteral("outlineColor")};
     for (const SymbolLayer &sl : style.layers) {

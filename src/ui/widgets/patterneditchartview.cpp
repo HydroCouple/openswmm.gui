@@ -264,7 +264,7 @@ void PatternEditChartView::mouseReleaseEvent(QMouseEvent *e)
     if (m_horizontalDrag) {
         if (!m_swapHistory.isEmpty() && m_undoStack) {
             // The picked vertex started at m_dragStartSlot and was walked one
-            // neighbour at a time. Rewind the chain (so the undo stack
+            // neighbor at a time. Rewind the chain (so the undo stack
             // re-applies it cleanly via redo), then push one macro with a
             // SwapPatternFactorsCommand per step.
             for (int k = m_swapHistory.size() - 1; k >= 0; --k) {
@@ -302,7 +302,7 @@ void PatternEditChartView::mouseReleaseEvent(QMouseEvent *e)
 
 void PatternEditChartView::contextMenuEvent(QContextMenuEvent *e)
 {
-    // Defer to base behaviour (which emits chartContextMenuRequested for the
+    // Defer to base behavior (which emits chartContextMenuRequested for the
     // dialog's plot-style menu) — pattern factor slots are fixed-count, so
     // no insert/delete actions are meaningful here.
     InteractiveChartView::contextMenuEvent(e);

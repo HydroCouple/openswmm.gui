@@ -6,7 +6,7 @@
  * @license   GPL-3.0-or-later
  *
  * Slice BB-α — RasterColorRamp data type, HSV interpolation, built-in
- * catalogue, JSON round-trip. Self-contained: pulls in render/colorramp.cpp
+ * catalog, JSON round-trip. Self-contained: pulls in render/colorramp.cpp
  * only.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
@@ -187,7 +187,7 @@ private slots:
         QCOMPARE(r.colorAt(0.5).alpha(), 0);
     }
 
-    // ---- Built-in catalogue ---------------------------------------------------
+    // ---- Built-in catalog ---------------------------------------------------
 
     /**
      *

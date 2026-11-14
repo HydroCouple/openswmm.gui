@@ -65,7 +65,7 @@ public:
     /** @return True when \p node has a bed column (exact ID match). */
     bool hasNode(const QString &node) const { return m_columns.contains(node); }
 
-    /*! \brief The rate and cumulative node descriptors, labelled with the
+    /*! \brief The rate and cumulative node descriptors, labeled with the
      *  sign convention, in the file's volume unit (rate = unit/s). */
     QVector<ResultDescriptor> nodeDescriptors() const;
     /** @return True when \p d is one of the two exchange descriptors. */

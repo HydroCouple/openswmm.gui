@@ -149,7 +149,7 @@ void GraduatedRendererBinding::setScheme(const ClassificationScheme &s)
 
     // Binner (method / count / manual breaks). setBinner clears the cached
     // breaks so the layer rebuild re-classifies from data — exactly the old
-    // onBinCountChanged / onBinMethodChanged / onAutoClassify behaviour.
+    // onBinCountChanged / onBinMethodChanged / onAutoClassify behavior.
     if (s.binner().method() != prev.binner().method() ||
         s.binner().binCount() != prev.binner().binCount() ||
         s.binner().manualBreaks() != prev.binner().manualBreaks()) {
@@ -179,7 +179,7 @@ void GraduatedRendererBinding::setScheme(const ClassificationScheme &s)
         gf->clearBreaks();
     }
 
-    // Ramp (name / custom payload / invert / two-colour). Preserve the
+    // Ramp (name / custom payload / invert / two-color). Preserve the
     // renderer's value range.
     if (s.rampName() != prev.rampName() || s.invertRamp() != prev.invertRamp() ||
         s.hasCustomRamp() != prev.hasCustomRamp() ||
@@ -188,7 +188,7 @@ void GraduatedRendererBinding::setScheme(const ClassificationScheme &s)
         gf->setRamp(rendererRampFromScheme(s, gf->ramp().minValue, gf->ramp().maxValue));
     }
 
-    // Per-class colour overrides — push diffs (set / clear).
+    // Per-class color overrides — push diffs (set / clear).
     {
         const auto &prevOv = prev.colorOverrides();
         const auto &nextOv = s.colorOverrides();

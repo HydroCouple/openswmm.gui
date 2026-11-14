@@ -7,10 +7,10 @@
  *         §2, Decision 2).
  *
  *         Today every sublayer style bag stores sizes in screen pixels
- *         (constant-on-screen behaviour the user asked for in the
+ *         (constant-on-screen behavior the user asked for in the
  *         2026-05-25 conversation). The seam is preserved: every size
  *         field reads through a SizeUnit so adding MapUnits later is
- *         localised to the renderer.
+ *         localized to the renderer.
  *
  *         Cross-slice: Slice S1 (sublayer foundation). Consumed by
  *         every ISublayer style bag.

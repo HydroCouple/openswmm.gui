@@ -1,4 +1,4 @@
-// A tab is labelled with the model's BASE NAME, so two models called the same
+// A tab is labeled with the model's BASE NAME, so two models called the same
 // thing in different folders are indistinguishable on the tab bar. The fix is
 // a tooltip carrying the full path (refreshSubWindowTabToolTips).
 //

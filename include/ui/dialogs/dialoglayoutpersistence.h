@@ -136,7 +136,7 @@ QRect clampToVisibleScreen(const QRect &saved, int titleBarStrip = -1);
  *  which gathers every open window onto the main window's display.
  *  No-op when \p preferred is null and the window is already well placed.
  *
- *  \note Only the title-bar strip above the client rect is modelled; left,
+ *  \note Only the title-bar strip above the client rect is modeled; left,
  *  right and bottom frame borders (Windows/Linux) are not, so a restored
  *  window can still sit a few border pixels past those edges.
  * @param[in] widget Optional borrowed widget; operate on its containing window, null no-op.
@@ -166,7 +166,7 @@ void applyAlwaysOnTopPolicy(QDialog *d);
  *   macOS: a plain Qt::Dialog window (no Qt::Tool — that would hide the dialog
  *          when the app is deactivated; no WindowStaysOnTopHint — that floats
  *          above every app system-wide). The "stay above the main window"
- *          behaviour is instead provided by attaching the dialog as an NSWindow
+ *          behavior is instead provided by attaching the dialog as an NSWindow
  *          child window (see openswmmvis::platform::attachAsChildWindow, driven
  *          from the app-wide show event filter).
  *   Windows/X11: Qt::Tool + WindowStaysOnTopHint keeps the dialog above the

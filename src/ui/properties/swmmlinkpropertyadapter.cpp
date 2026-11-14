@@ -447,7 +447,7 @@ int SWMMLinkPropertyAdapter::barrels() const
 // Direct inline cross-section geometry. Each getter pulls the whole xsect
 // tuple and returns the requested slot (cheap O(1) engine call; same
 // no-cache contract as the loss-coeff getters). `xsectShapeId` is the
-// shape used by PropertiesPanel / the table to grey out inapplicable geoms.
+// shape used by PropertiesPanel / the table to gray out inapplicable geoms.
 int SWMMLinkPropertyAdapter::xsectShapeId() const
 {
     const int idx = linkIdx();

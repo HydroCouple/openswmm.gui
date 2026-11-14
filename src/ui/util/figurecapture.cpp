@@ -55,7 +55,7 @@ namespace openswmmvis::ui
 namespace
 {
 
-/*! Actions that raise a NATIVE file/colour picker. Triggering one headless
+/*! Actions that raise a NATIVE file/color picker. Triggering one headless
  *  blocks forever with nobody to dismiss it, so the engine refuses them and
  *  the manifest must mark those figures lane:"human".
  * @return Static set of known file/open/save/export/import/print action IDs; this is a fixed guard list, not runtime inspection of every action.
@@ -270,11 +270,11 @@ QString stripMnemonic_(const QString &text)
  *
  *  The offscreen QPA returns an empty frame for scene-graph content, so a map
  *  or mesh figure silently comes back as a flat rectangle. Counting distinct
- *  colours over a coarse grid separates that from a real screenshot without
- *  scanning every pixel. A populated dialog runs to hundreds of colours; an
+ *  colors over a coarse grid separates that from a real screenshot without
+ *  scanning every pixel. A populated dialog runs to hundreds of colors; an
  *  empty frame is 1-2.
  * @param[in] img Rendered image to sample on an approximately 64-by-64 grid.
- * @return True for a null image or at most twelve distinct sampled colours; false once a thirteenth colour appears. This heuristic does not establish semantic capture correctness.
+ * @return True for a null image or at most twelve distinct sampled colors; false once a thirteenth color appears. This heuristic does not establish semantic capture correctness.
  */
 bool looksBlank_(const QImage &img)
 {
@@ -825,7 +825,7 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
                 headers << head;
                 if (head.compare(spec.editCell, Qt::CaseInsensitive) != 0)
                     continue;
-                // Honour the selected row: hostSelect picks the object the
+                // Honor the selected row: hostSelect picks the object the
                 // figure is about, and opening row 0 regardless produced an
                 // inflows page reading "0 on this node (model total: 4)".
                 const int row = view->currentIndex().isValid() ? view->currentIndex().row() : 0;
@@ -1187,7 +1187,7 @@ void FigureCapture::grabInto(QWidget *target, const FigureSpec &spec)
         return;
     }
 
-    // Render at mRenderScale rather than calling grab(): grab() honours the
+    // Render at mRenderScale rather than calling grab(): grab() honors the
     // widget's device pixel ratio, which is 1 under the offscreen QPA, and the
     // manual wants 2x captures. Painting into a DPR-scaled pixmap re-runs the
     // paint pipeline at device resolution, so text and vector chrome are
@@ -1449,7 +1449,7 @@ void FigureCapture::dismissOpenedBy(const FigureSpec &spec)
 {
     // Only an action row opens anything. A window or widget row must leave the
     // UI as it found it: closing a dialog the row did not open once rejected
-    // the startup licence agreement, which the app reads as "declined" and
+    // the startup license agreement, which the app reads as "declined" and
     // quits on — the capture took itself down after two figures.
     if (!spec.action.isEmpty())
         dismissDialogs();

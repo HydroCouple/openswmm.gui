@@ -61,9 +61,9 @@ private:
         return m_outDir;
     }
 
-    /*! 10x10 GeoTIFF where world (x, y) at a pixel centre has
-     *  z = col + 10 * (H - 1 - row) — i.e. z rises 1 per metre east and 10 per
-     *  metre north. Origin (0, H), 1 m pixels, north-up, EPSG:26911 (a metric
+    /*! 10x10 GeoTIFF where world (x, y) at a pixel center has
+     *  z = col + 10 * (H - 1 - row) — i.e. z rises 1 per meter east and 10 per
+     *  meter north. Origin (0, H), 1 m pixels, north-up, EPSG:26911 (a metric
      *  projected CRS so the canvas-CRS equality path is exercised). */
     /**
      *
@@ -158,11 +158,11 @@ private slots:
                     .samples.isEmpty());
     }
 
-    /*! West→east trace at y = 4.5 (pixel-row centre). z = x - 0.5 + 40, so the
+    /*! West→east trace at y = 4.5 (pixel-row center). z = x - 0.5 + 40, so the
      *  first sample (x=0.5) is 40 and the last (x=9.5) is 49. */
     /**
      *
-     * @brief Require the eastward profile to span nine metres with monotone chainage and ground
+     * @brief Require the eastward profile to span nine meters with monotone chainage and ground
      * 40+chainage.
      * Checks ground-only status, no hydraulic crossings and 1e-6 elevation tolerance.
      *
@@ -196,7 +196,7 @@ private slots:
         }
     }
 
-    /*! Bilinear, not nearest-neighbour: a trace at a half-pixel offset in y
+    /*! Bilinear, not nearest-neighbor: a trace at a half-pixel offset in y
      *  must land halfway between the two pixel rows (z = ... + 45, not 40/50). */
     /**
      *
@@ -207,7 +207,7 @@ private slots:
     void midRowTrace_isBilinearNotNearest()
     {
         const QString path = buildRamp();
-        // y = 5.0 sits exactly between row centres 4.5 (z base 40) and
+        // y = 5.0 sits exactly between row centers 4.5 (z base 40) and
         // 5.5 (z base 50) → base 45.
         const QVector<QPointF> line{mapToScene(0.5, 5.0), mapToScene(9.5, 5.0)};
 
@@ -222,7 +222,7 @@ private slots:
     /**
      *
      * @brief Require a 3.28084 vertical factor to convert ground to feet without changing
-     * nine-metre horizontal chainage.
+     * nine-meter horizontal chainage.
      *
      */
     void verticalFactor_scalesGround()
@@ -297,7 +297,7 @@ private slots:
      *  emits an exact sample at the corner. */
     /**
      *
-     * @brief Require a four-metre east/four-metre north dog-leg to have monotone eight-metre
+     * @brief Require a four-meter east/four-meter north dog-leg to have monotone eight-meter
      * chainage and final ground 84.
      * The case does not explicitly assert an exact sample at the corner.
      *
@@ -324,7 +324,7 @@ private slots:
     /*! The sample cap holds for a very long trace. */
     /**
      *
-     * @brief Require a nine-metre trace with 1e-5 step hint to remain within kMaxSamples plus two
+     * @brief Require a nine-meter trace with 1e-5 step hint to remain within kMaxSamples plus two
      * endpoints.
      *
      */

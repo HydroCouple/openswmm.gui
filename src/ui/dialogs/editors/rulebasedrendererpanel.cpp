@@ -9,9 +9,9 @@
  *         "no editor registered" placeholder.
  *
  *         Layout (QGIS-aligned):
- *           - Rules table : Expression | Label | Colour
+ *           - Rules table : Expression | Label | Color
  *           - Buttons     : Add / Remove / Move up / Move down / Clear
- *           - Fallback    : colour swatch + label for the no-match case
+ *           - Fallback    : color swatch + label for the no-match case
  *
  *         First-match order matters; explicit Move up/down controls preserve order.
  *         The expression evaluator is active. Empty expressions match always,
@@ -238,7 +238,7 @@ public:
         btnRow->addStretch();
         vlay->addLayout(btnRow);
 
-        // Fallback group — colour the renderer returns when no rule matches.
+        // Fallback group — color the renderer returns when no rule matches.
         auto *fbBox = new QGroupBox(tr("Fallback (no-match)"), box);
         auto *fbLay = new QHBoxLayout(fbBox);
         fbLay->addWidget(new QLabel(tr("Colour:"), fbBox));
@@ -569,7 +569,7 @@ private:
 
 } // namespace
 
-// Gap A4.2 — rule expressions reference attributes; grey out when the
+// Gap A4.2 — rule expressions reference attributes; gray out when the
 // provider exposes none.
 REGISTER_RENDERER_PANEL_GATED(
     "rule", "Rule-based",

@@ -68,7 +68,7 @@ public:
      *   write.
      */
     void setField(const openswmmvis::feature::FieldDef &f);
-    /*! The field as currently entered (name sanitised).
+    /*! The field as currently entered (name sanitized).
      * @return New FieldDef from current controls: name sanitizeFieldName, trimmed description/text
      *   default, choice tokens/labels trimmed, Fixed stored as Text, Boolean typed. Numeric
      *   nonempty default coerced now and can become zero if invalid, so caller must validate first.
@@ -86,7 +86,7 @@ public:
 
     /*!
      * \brief The same check, on a field already built.
-     * \param raw  The name as typed, before sanitising.
+     * \param raw  The name as typed, before sanitizing.
      * @param[in] f Already-built candidate, name assumed sanitized by caller; this helper only
      *   tests name emptiness, not sanitization equality or type validity.
      * @param[in] existing Raw existing names, case-insensitive collision check against f.name; no

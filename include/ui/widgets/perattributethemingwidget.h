@@ -4,7 +4,7 @@
  * @date      2026
  * @license   GPL-3.0-or-later
  * @brief     Slice BA — status-bar theming widget that picks which result
- *         variable drives the SWMMResultsLayer colour fill.
+ *         variable drives the SWMMResultsLayer color fill.
  *
  * Mirrors the legacy SWMM-GUI's per-attribute combo: one combo box per
  * object kind (Node / Link / Subcatchment) plus a "follow primary"

@@ -9,7 +9,7 @@
  * SVBC round B. GISVectorLayer has carried a selectionChanged(QSet<qint64>)
  * signal since day one — with zero subscribers, which is why picking a
  * feature on the map never reached the Attribute Table. This is the GIS
- * analogue of SWMMVisProjectWindow's inline SWMM-layer bridge, as its own
+ * analog of SWMMVisProjectWindow's inline SWMM-layer bridge, as its own
  * small QObject so it is testable with a light MapCanvas fixture (the SWMM
  * bridge is reachable only through a full project window).
  *

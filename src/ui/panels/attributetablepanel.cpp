@@ -541,7 +541,7 @@ QList<openswmmvis::ColumnSpec> specsFor(const QAbstractItemModel *src)
     return {};
 }
 
-// Evaluates one QueryPredicate against a source model, materialising ONLY
+// Evaluates one QueryPredicate against a source model, materializing ONLY
 // the columns the predicate actually names.
 //
 // This used to build a whole-row QVariantMap over every column — and then
@@ -1375,8 +1375,8 @@ void AttributeTablePanel::buildUi()
     m_view->horizontalHeader()->setStretchLastSection(false);
     m_view->verticalHeader()->setDefaultSectionSize(m_view->verticalHeader()->minimumSectionSize());
 
-    // Use a sharper selection colour than the OS default — the
-    // OS-grey for inactive widgets is hard to spot when the table
+    // Use a sharper selection color than the OS default — the
+    // OS-gray for inactive widgets is hard to spot when the table
     // doesn't have focus (which is the common case during cross-view
     // selection from the canvas).  Yellow matches the canvas's
     // selection-highlight convention so the two views look related.
@@ -1957,7 +1957,7 @@ static QString projectScopeKeyFor(const SWMMModelLayer *layer)
         QCryptographicHash::hash(canonical, QCryptographicHash::Sha1).toHex().left(8);
     QString base = info.completeBaseName();
     // Strip path separators / chars QSettings would treat as
-    // groups (defence-in-depth — completeBaseName already excludes
+    // groups (defense-in-depth — completeBaseName already excludes
     // directory separators).
     base.replace(QRegularExpression(QStringLiteral("[/\\\\\\s]")), QStringLiteral("_"));
     if (base.isEmpty())
@@ -2657,7 +2657,7 @@ void AttributeTablePanel::onZoomToSelectedClicked()
 // ---------------------------------------------------------------------------
 // Copy — selected rows to the clipboard as TSV
 //
-// Everything is read through the proxy, so the copy honours the query filter,
+// Everything is read through the proxy, so the copy honors the query filter,
 // "show selected only", the user's sort, and any hidden columns — what you see
 // is what you paste.  TSV (not CSV) because that is what Excel / Sheets accept
 // straight out of the clipboard. Clipboard text flattens embedded tabs/newlines
@@ -2678,7 +2678,7 @@ QString AttributeTablePanel::selectionAsTsv() const
         return {};
 
     // Selected rows, in the order they appear on screen.  Nothing selected →
-    // copy the whole visible table (matching Export CSV's behaviour).
+    // copy the whole visible table (matching Export CSV's behavior).
     QList<int> rows;
     if (auto *sm = m_view->selectionModel(); sm && sm->hasSelection()) {
         const QModelIndexList sel = sm->selectedRows();
@@ -2876,7 +2876,7 @@ void AttributeTablePanel::onExportCsvClicked()
         header << quoteCsv(m_proxy->headerData(c, Qt::Horizontal).toString());
     out << header.join(sep) << '\n';
 
-    // Honour the "show selected only" filter — what's visible is what
+    // Honor the "show selected only" filter — what's visible is what
     // gets exported.
     const int nRow = m_proxy->rowCount();
     for (int r = 0; r < nRow; ++r) {
@@ -3017,7 +3017,7 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
             connect(copyVal, &QAction::triggered, this, [this, col, selRows, cellValue]() {
                 applyValueToSelectedRows(col, selRows, cellValue);
             });
-            // The "prompt for a value" flavour needs a typed input dialog. A
+            // The "prompt for a value" flavor needs a typed input dialog. A
             // reference column (coupled node / time series / curve) prompts
             // with the same closed picker as its cell editor, so choosing one
             // node for many vertices stays a single undo step (the Mesh 2D
@@ -3260,7 +3260,7 @@ void AttributeTablePanel::onContextMenuRequested(const QPoint &pos)
     // Bulk "apply to selected" — when the clicked column is a simple
     // editable attribute (Numeric / Integer / Enum / Text) and ≥2 rows
     // are selected, offer to push one value into that column for every
-    // selected object. Two flavours: copy the clicked cell's value, or
+    // selected object. Two flavors: copy the clicked cell's value, or
     // prompt for one. Per-row editability is respected (e.g. an
     // inapplicable cross-section geom is skipped) and the whole batch
     // collapses into a single undo step.
@@ -3686,7 +3686,7 @@ void AttributeTablePanel::onQueryApplyClicked()
         }
     }
     if (!pred.error.isEmpty()) {
-        // Parser error — colour the line edit + show the message.
+        // Parser error — color the line edit + show the message.
         m_queryEdit->setStyleSheet(QStringLiteral("background-color: #FFD6D6;"));
         m_queryStatus->setText(tr("Error col %1: %2").arg(pred.errorPos).arg(pred.error));
         return;

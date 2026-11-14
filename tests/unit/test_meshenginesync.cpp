@@ -147,7 +147,7 @@ TEST(MeshEngineSync, EditsPersistAndFidelityPreserved)
     bcs[mesh::edgeSlot(7, 0)].flow = kF;
     bcs[mesh::edgeSlot(7, 0)].tseries.clear();
 
-    // ---- Push edits into the engine, then serialise ----------------------
+    // ---- Push edits into the engine, then serialize ----------------------
     QStringList warnings;
     ASSERT_TRUE(mesh::pushMeshEditsToEngine(e, meshState, bcs, &warnings));
     EXPECT_TRUE(warnings.isEmpty()) << warnings.join("; ").toStdString();
@@ -470,7 +470,7 @@ TEST(MeshEngineSync, PushedBcStateReadsBackFromEngine)
 
 // 2026-09-03 — 1D↔2D unit exchange. On a US-customary project the GUI's
 // editing engine is only OPENED, so the engine holds BC constants in DISPLAY
-// units (feet / CFS per metre) and scales them itself at initialize. The push
+// units (feet / CFS per meter) and scales them itself at initialize. The push
 // therefore has to send display units too; sending m³/s/m here made a constant
 // SPECIFIED_FLOW shrink by 0.0283 on every save → reopen of a US model.
 TEST(MeshEngineSync, UsProjectFlowBcRoundTripsInDisplayUnits)

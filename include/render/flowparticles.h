@@ -24,7 +24,7 @@ namespace OpenSWMM::Render
 struct FlowParticleField {
     std::array<QPointF, 3> velocity{};       // scene displacement / flow second
     std::array<QPointF, 3> edgeCorrection{}; // quadratic, tangent to opposite face
-    std::array<float, 3> speed{};            // SI magnitude for layer colouring
+    std::array<float, 3> speed{};            // SI magnitude for layer coloring
     std::array<float, 3> depth{{1, 1, 1}};
     std::array<double, 3> outwardFlux{{NAN, NAN, NAN}};
     double velocityDepth = 1; // converts native velocity back to discharge for time blending
@@ -753,7 +753,7 @@ public:
      * minimumLifetime and trailSeconds must be positive; maximumLifetime>=minimumLifetime;
      * speed, fadeSeconds, cutoff, historyTolerance, referenceSpeed and publicationInterval
      * nonnegative; 0<speedExponent<=1; maxParticles>=1 and maxHistory>=3. Times are
-     * animation/flow seconds, cutoff metres, tolerance scene units, and referenceSpeed
+     * animation/flow seconds, cutoff meters, tolerance scene units, and referenceSpeed
      * scene units per flow second. speed is a dimensionless display gain.
      * @return False for invalid input before mutation, true after copying settings.
      * Allocation/copy errors propagate and may have grown storage/history pools before

@@ -162,7 +162,7 @@ enum class ContourMode : int {
  *        Canonical SymbolLayer props keys:
  *          - "mode"           → int (cast of ContourMode)
  *          - "binner"         → IntervalBinner JSON (drives the breaks)
- *          - "ramp"           → RasterColorRamp JSON (drives filled-band colours)
+ *          - "ramp"           → RasterColorRamp JSON (drives filled-band colors)
  *          - "lineColor"      → QColor (used when ramp-per-line is off)
  *          - "lineWidthPx"    → qreal
  *          - "labelEveryN"    → int (label every Nth line; 0 disables)
@@ -185,7 +185,7 @@ struct ContourSymbolLayerSpec {
 
     /*! Slice Z.6a — when true (default), filled isobands sample the
      *  ramp continuously between low and high (smooth gradient). When
-     *  false, each band picks a discrete viridis-step colour at its
+     *  false, each band picks a discrete viridis-step color at its
      *  centroid (categorical look). Mirrors the legacy
      *  ContourBandStyle::smoothBands toggle so the paint integration
      *  preserves both visual modes. */
@@ -229,7 +229,7 @@ struct MeshEdgeSymbolLayerSpec {
     int lodMinZoom = 0;
 
     /*! Slice Z.6a — slope-driven width emphasis. When `useSlopeDrivenWidth`
-     *  is true, edges whose normalised slope exceeds `slopeBreak` paint
+     *  is true, edges whose normalized slope exceeds `slopeBreak` paint
      *  at `wideWidthPx` with `wideColor` instead of the base width/color.
      *  Mirrors the legacy MeshEdgeStyle slope fields so the paint
      *  integration preserves the existing wireframe look. */
@@ -325,7 +325,7 @@ struct VelocityVectorSymbolLayerSpec {
     qreal dryDepthCutoff = 0.01;
 
     /** @brief Build a fresh VectorGlyph symbol layer from this specification.
-     * Copies length scale (pixels per m/s), lengths/spacing/head size (pixels), dry-depth cutoff (metres) and color verbatim; no clamping is applied.
+     * Copies length scale (pixels per m/s), lengths/spacing/head size (pixels), dry-depth cutoff (meters) and color verbatim; no clamping is applied.
      * @return Independent value with default layer metadata and this spec's properties. */
     [[nodiscard]] SymbolLayer toSymbolLayer() const;
     /** @brief Read this paint specification from a property map.
@@ -334,7 +334,7 @@ struct VelocityVectorSymbolLayerSpec {
     [[nodiscard]] static VelocityVectorSymbolLayerSpec fromSymbolLayer(const SymbolLayer &layer);
     /** @brief Set the layer kind to VectorGlyph and write this spec's canonical properties.
      * @param[in,out] layer Destination; unrelated property keys and other layer metadata
-     * are retained. Copies length scale (pixels per m/s), lengths/spacing/head size (pixels), dry-depth cutoff (metres) and color verbatim; no clamping is applied. No signals or paint work are triggered. */
+     * are retained. Copies length scale (pixels per m/s), lengths/spacing/head size (pixels), dry-depth cutoff (meters) and color verbatim; no clamping is applied. No signals or paint work are triggered. */
     void writeToSymbolLayer(SymbolLayer &layer) const;
 };
 

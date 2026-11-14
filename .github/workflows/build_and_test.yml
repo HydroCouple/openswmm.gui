@@ -358,7 +358,7 @@ jobs:
       # sibling-directory probe and its network FetchContent — a CI configure
       # must never reach out to github.com mid-build. fetch-depth 1: only the
       # tagged tree is read, never its history. `openswmm.engine.v524` is the
-      # sibling name the multi-engine plan standardised on.
+      # sibling name the multi-engine plan standardized on.
       - name: Checkout EPA SWMM 5.2.4 sources
         uses: actions/checkout@v4
         with:
@@ -761,7 +761,7 @@ jobs:
           #
           # The actual defect was in CMakePresets.json: the Windows presets set
           # CMAKE_CXX_FLAGS as a preset cache variable, which OVERWRITES CMake's MSVC
-          # initialiser (/DWIN32 /D_WINDOWS /GR /EHsc) rather than adding to it. The
+          # initializer (/DWIN32 /D_WINDOWS /GR /EHsc) rather than adding to it. The
           # whole Windows leg was therefore built with RTTI off (/GR absent) and no
           # unwind semantics (/EHsc absent), while Qt6 and GDAL ship built with both —
           # an ABI mismatch across the link, which is a known source of exactly this

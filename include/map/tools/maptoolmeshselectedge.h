@@ -245,7 +245,7 @@ private:
     // The single edge this tool last put in the selection (plain click,
     // right-click, or the far end of the last committed path), or -1 after
     // a box-select / a miss, where "the selected edge" is ambiguous. Only
-    // honoured while it is still in the selection.
+    // honored while it is still in the selection.
     int m_lastEdgeSlot = -1;
     static constexpr int kDragThreshPx = 6;
     static constexpr double kPickTolPx = 8.0;

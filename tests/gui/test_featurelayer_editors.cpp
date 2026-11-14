@@ -394,7 +394,7 @@ private slots:
         };
         const QStringList regionItems = texts(regionCombo);
         QVERIFY2(regionItems.size() >= 3, qPrintable(regionItems.join(" | ")));
-        // "(none)", then the Region-role layer, labelled with its role.
+        // "(none)", then the Region-role layer, labeled with its role.
         QVERIFY2(regionItems.at(1).contains(QStringLiteral("picker_regions")) &&
                      regionItems.at(1).contains(featureLayerRoleLabel(FeatureLayerRole::Region)),
                  qPrintable(regionItems.join(" | ")));

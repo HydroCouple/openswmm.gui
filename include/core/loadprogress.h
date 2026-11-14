@@ -187,7 +187,7 @@ public:
      */
     [[nodiscard]] int percent() const { return m_lastPct; }
 
-    /*! Current stage label, or empty before the first labelled tick.     * @return Copy of the last nonempty status label supplied to setStage().
+    /*! Current stage label, or empty before the first labeled tick.     * @return Copy of the last nonempty status label supplied to setStage().
      */
     [[nodiscard]] QString label() const { return m_label; }
 

@@ -3,7 +3,7 @@
  * @brief     Replaces GISRasterLayer's former "three or more bands ⇒ RGB" hard-wire with a
  *            renderer the user can see and switch away from: it names which bands feed the red /
  *            green / blue (/ alpha) channels, and installing any other IRasterRenderer on a
- *            multi-band raster puts the layer back on the single-band colour path for the chosen
+ *            multi-band raster puts the layer back on the single-band color path for the chosen
  *            render band.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
@@ -38,7 +38,7 @@ void MultiBandColorRenderer::setBands(int red, int green, int blue, int alpha)
 QColor MultiBandColorRenderer::colorForValue(double /*value*/, bool /*isNoData*/) const
 {
     // The RGB composite is assembled from the warped byte bands directly;
-    // there is no scalar → colour mapping to answer.
+    // there is no scalar → color mapping to answer.
     return QColor(Qt::transparent);
 }
 

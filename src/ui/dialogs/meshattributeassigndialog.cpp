@@ -408,7 +408,7 @@ void MeshAttributeAssignDialog::buildUi(Source initialSource, const QString &dep
                "copy, so a later region-level edit still reaches it."));
         v->addWidget(m_keepInherited);
 
-        // Region-defaults writing never materialises an override, so the
+        // Region-defaults writing never materializes an override, so the
         // "leave inheriting cells alone" guard has nothing to guard.
         connect(m_writeDefaults, &QRadioButton::toggled, m_keepInherited,
                 [this](bool on) { m_keepInherited->setEnabled(!on); });
@@ -545,7 +545,7 @@ void MeshAttributeAssignDialog::onModeChanged()
     if (m == Mode::MultiNumeric && m_targetTable->rowCount() == 0)
         onAddTargetRow();
 
-    // Natural neighbour interpolates a continuous surface; interpolating a
+    // Natural neighbor interpolates a continuous surface; interpolating a
     // class code is meaningless, so it is not offered for the lookup mode.
     if (auto *model = qobject_cast<QStandardItemModel *>(m_samplingCombo->model())) {
         const int nnRow = m_samplingCombo->findData(int(Sampling::NaturalNeighbour));
@@ -574,7 +574,7 @@ void MeshAttributeAssignDialog::onSamplingChanged()
     m_nnVariantCombo->setVisible(nn);
     m_nnVariantLbl->setVisible(nn);
     if (nn && m_srcRaster->isChecked()) {
-        // Natural neighbour needs scattered points, which only a vector layer
+        // Natural neighbor needs scattered points, which only a vector layer
         // can supply; fall back rather than silently sampling something else.
         m_srcVector->setChecked(true);
     }

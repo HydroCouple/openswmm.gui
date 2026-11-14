@@ -22,7 +22,7 @@
  * Selected-element overlays are ALWAYS drawn when a selection exists,
  * regardless of bucket, so hidden dense passes never hide the selection.
  *
- * The decision also carries a contentKey() — bucket plus a quantised zoom
+ * The decision also carries a contentKey() — bucket plus a quantized zoom
  * octave — that the renderers use as the rebuild key: zooming re-creates
  * content only when the key changes (or the view leaves the coverage rect
  * content was built for), never on every wheel tick. Both the bucket and
@@ -73,7 +73,7 @@ struct Qsg2DLodInputs {
     int previousZoomStep = std::numeric_limits<int>::min();
 
     /*! Far-bucket threshold on mean projected cell area (px²). The default
-     *  keeps the historic results-renderer behaviour; the terrain-mesh
+     *  keeps the historic results-renderer behavior; the terrain-mesh
      *  renderer lowers it to 4.0 so the switch to the aggregate/overview
      *  fill happens at the same zoom as the QPainter fallback's
      *  `nativeTriSpan × pxPerScene < 2 px` test (span² = area). */
@@ -93,7 +93,7 @@ struct Qsg2DLodDecision {
     enum Bucket { Far = 0, Mid = 1, Near = 2 };
 
     Bucket bucket = Near;
-    int zoomStep = 0;           ///< quantised log2(px per map unit)
+    int zoomStep = 0;           ///< quantized log2(px per map unit)
     double avgCellAreaPx = 0.0; ///< diagnostic: mean projected cell area
 
     // Per-pass verdicts — already combined with the user intents, i.e.

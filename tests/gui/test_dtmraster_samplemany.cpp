@@ -101,7 +101,7 @@ private:
     }
 
     /*! Deterministic query set: interior points, edge/half-pixel band,
-     *  just-outside points, and exact pixel centres. */
+     *  just-outside points, and exact pixel centers. */
     /**
      *
      * @brief Build repeatable random, pixel-center and corner-band sampling queries.
@@ -122,7 +122,7 @@ private:
         }
         for (int c = 0; c < kW; c += 7)
             for (int r = 0; r < kH; r += 7)
-                pts.append(QPointF(c + 0.5, r + 0.5)); // pixel centres
+                pts.append(QPointF(c + 0.5, r + 0.5)); // pixel centers
         pts.append(QPointF(0.25, 0.25));               // corner clamp band
         pts.append(QPointF(kW - 0.25, kH - 0.25));
         return pts;
@@ -252,7 +252,7 @@ private slots:
      *  range-test boundary FP contraction may flip the in-range verdict
      *  between the two inline expansions, and the loop must then emit NaN —
      *  never index the strip buffer with an unwritten (previously
-     *  uninitialised) Anchor. Regression test for the large-DEM segfault
+     *  uninitialized) Anchor. Regression test for the large-DEM segfault
      *  where a network straddling the DEM edge generates exactly these
      *  edge-exact queries. */
     /**

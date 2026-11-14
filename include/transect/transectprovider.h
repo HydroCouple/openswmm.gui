@@ -219,7 +219,7 @@ public:
     bool setElevationAt(int i, double newElev, QString *reasonOut = nullptr);
 
     /*! \brief Edit both station and elevation at index \p i. Validates that
-     *  the new station still slots strictly between neighbours.
+     *  the new station still slots strictly between neighbors.
      * @param[in] i Zero-based existing index.
      * @param[in] newStation Station in project length units, strictly between existing neighbors.
      * @param[in] newElev Elevation in project length units.

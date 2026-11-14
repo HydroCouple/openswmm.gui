@@ -136,7 +136,7 @@ private:
      * @param[in] searchText Database keyword filter forwarded unchanged; synthetic entries match
      *   label or literal local, case-insensitively. Slots supply trimmed editor text.
      * @brief Replace all items with type/area/CRS groups and expand them synchronously.
-     * @note Groups follow first database occurrence; empty area becomes Other. Local metre/foot
+     * @note Groups follow first database occurrence; empty area becomes Other. Local meter/foot
      *   leaves precede database groups when eligible. All groups are enabled but not selectable.
      *   Removing rows can clear stored selection through Qt selection notifications; selection is
      *   not restored. No CRS allocation, coordinate change or undo operation.

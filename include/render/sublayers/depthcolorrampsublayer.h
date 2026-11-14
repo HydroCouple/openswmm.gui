@@ -1,6 +1,6 @@
 /**
  * @file      depthcolorrampsublayer.h
- * @brief     Dynamic graduated colour-ramp fill over a 2D mesh.
+ * @brief     Dynamic graduated color-ramp fill over a 2D mesh.
  *         Plan §3 — second sublayer in the SWMM2DResultsLayer default mix.
  *         Slice S5.2.
  *
@@ -29,7 +29,7 @@ class DepthColorRampStyle : public SublayerStyle
     Q_PROPERTY(QString attribute READ attribute WRITE setAttribute NOTIFY styleChanged)
     Q_PROPERTY(double minValue READ minValue WRITE setMinValue NOTIFY styleChanged)
     Q_PROPERTY(double maxValue READ maxValue WRITE setMaxValue NOTIFY styleChanged)
-    // VS.8 — named built-in/custom ramp ("" = two-colour low→high
+    // VS.8 — named built-in/custom ramp ("" = two-color low→high
     // gradient, the legacy default), optionally inverted.
     Q_PROPERTY(QString colorRampName READ colorRampName WRITE setColorRampName NOTIFY styleChanged)
     Q_PROPERTY(bool invertRamp READ invertRamp WRITE setInvertRamp NOTIFY styleChanged)
@@ -153,7 +153,7 @@ public:
      * decides whether to replace it; other style fields are retained. */
     void setScheme(const ClassificationScheme &s);
 
-    /*! VS.8 / US.2 — colour at normalised ramp position \p f in [0,1]:
+    /*! VS.8 / US.2 — color at normalized ramp position \p f in [0,1]:
      *  forwards to scheme().colorAtF — samples the named ramp (inverted when
      *  requested) or lerps lowColor→highColor when the ramp name is empty. */
     /** @param f Finite normalized ramp position; scheme clamps to [0,1] and applies inversion.

@@ -1,13 +1,13 @@
 /**
  * @file      qsgpremultiply.h
  * @brief     Premultiplied-alpha helper shared by the QSG map renderers (terrain mesh, 2D results,
- *            1D network), which all emit vertex colours into QSGVertexColorMaterial.
+ *            1D network), which all emit vertex colors into QSGVertexColorMaterial.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
  *
  * Premultiplied-alpha helper shared by the QSG map renderers (terrain mesh,
- * 2D results, 1D network), which all emit vertex colours into
+ * 2D results, 1D network), which all emit vertex colors into
  * QSGVertexColorMaterial.
  *
  * Qt-Core-only so it can be unit-tested headlessly — see
@@ -25,13 +25,13 @@ namespace OpenSWMM::Render
 
 /**
  * @brief Convert a straight-alpha color channel to the premultiplied representation.
- * @details Premultiply one straight-alpha colour channel for QSGVertexColorMaterial,
- *  which samples vertex colours as PREMULTIPLIED alpha (Qt scene-graph
- *  contract). Feeding straight-alpha colours makes the compositor
+ * @details Premultiply one straight-alpha color channel for QSGVertexColorMaterial,
+ *  which samples vertex colors as PREMULTIPLIED alpha (Qt scene-graph
+ *  contract). Feeding straight-alpha colors makes the compositor
  *  un-premultiply them on blend, clamping every semi-transparent fill toward
  *  saturation — ochre → pure yellow, hillshaded tan → salmon pink, and the
  *  off-white high-terrain stops → background white, which reads as the mesh
- *  being "truncated" at far zoom. At alpha 0 a straight-alpha colour blends
+ *  being "truncated" at far zoom. At alpha 0 a straight-alpha color blends
  *  ADDITIVELY (One / OneMinusSrcAlpha), painting its raw RGB over whatever
  *  is beneath — a fully transparent classification band must premultiply to
  *  (0,0,0,0) to disappear.

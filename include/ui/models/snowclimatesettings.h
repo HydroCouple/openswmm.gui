@@ -68,7 +68,7 @@ struct SnowClimateSettings {
      * @brief Read global snow, radiation, cloud and UEB settings into this editor draft.
      * @param[in] engine Borrowed engine handle, never modified.
      * @return True after all getters succeed; false may leave earlier fields/options updated. No rollback or UI notification occurs.
-     * @note step uses seconds, radiation site elevation metres and coordinates degrees; UEB parameter units are specified by uebFields.
+     * @note step uses seconds, radiation site elevation meters and coordinates degrees; UEB parameter units are specified by uebFields.
      */
     bool load(SWMM_Engine engine)
     {

@@ -94,7 +94,7 @@ public:
 
     /*! Self-contained shapes (everything except IRREGULAR / CUSTOM / STREET).
      *  \param shape  A SWMM_XSectShape code.
-     *  \param si     true → metres/CMS, false → feet/CFS.
+     *  \param si     true → meters/CMS, false → feet/CFS.
      * @param[in] geom1 Full depth/diameter in selected display length, shape-specific semantics per
      *   SWMM_XSectShape.
      * @param[in] geom2 Finite second [XSECTIONS] geometry field; may be width, sediment depth,
@@ -141,7 +141,7 @@ public:
      * @param[in] nChannel Finite positive channel Manning n.
      * @param[in] nRight Finite nonnegative right overbank n; 0 uses channel.
      * @param[in] lengthFactor Finite nonnegative main-channel/floodplain length ratio; 0 means 1.
-     * @param[in] si True metres/CMS, false feet/CFS.
+     * @param[in] si True meters/CMS, false feet/CFS.
      * @return Independent copied-table sampler, invalid if fewer than 2 paired points, nonpositive
      *   channel roughness or engine rejects transect. Extra unmatched input entries silently
      *   ignored, sizes must fit int. Roughness affects hydraulic radius/conveyance, no input
@@ -164,7 +164,7 @@ public:
      * @param[in] backWidth Backing width in selected length, 0 none.
      * @param[in] backSlope Backing slope in PERCENT.
      * @param[in] backRoughness Backing Manning n.
-     * @param[in] si True metres/CMS, false feet/CFS.
+     * @param[in] si True meters/CMS, false feet/CFS.
      * @return Independent owning sampler, invalid on engine rejection/degenerate resulting table.
      *   Caller supplies finite valid street parameters; wrapper adds no validation/reporting. No
      *   model handle retained.
@@ -180,7 +180,7 @@ public:
      * @param[in] normDepths Borrowed finite ascending normalized y/yFull profile, normally [0,1].
      * @param[in] normWidths Borrowed normalized width/wMax values corresponding to depths; only
      *   min(array sizes) pairs consumed.
-     * @param[in] si True metres/CMS, false feet/CFS.
+     * @param[in] si True meters/CMS, false feet/CFS.
      * @return Independent copied custom-shape sampler or invalid for fewer than 2 paired
      *   points/nonpositive depth/engine rejection. Unmatched tail ignored, array count must fit
      *   int. No input/model mutation; ordered valid normalized profile caller responsibility.
@@ -221,7 +221,7 @@ public:
     /*!
      * \brief Closed outline polygon of the section, in section coordinates.
      *
-     * The polygon is centred on x = 0 with y measured UP from the invert
+     * The polygon is centered on x = 0 with y measured UP from the invert
      * (y = 0 at the invert, y = yFull at the crown / top of bank), i.e. the
      * natural coordinate system for a section drawing — the painter flips Y.
      *

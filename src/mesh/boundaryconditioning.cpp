@@ -129,7 +129,7 @@ bool simpleRing(const OGRLinearRing *ring)
 
 // Collapse each ring on its own, keeping the original ring wherever the
 // collapsed one is not simple. After opening, rings are at least a gap
-// apart, so a ring that stays simple cannot reach its neighbours.
+// apart, so a ring that stays simple cannot reach its neighbors.
 /**
  * @brief Return a polygon copy with per-ring short-edge collapse and isolated-ring validity
  * guards.
@@ -407,7 +407,7 @@ OGRGeometry *conditionMeshRegion(const OGRGeometry *region, double gap, double s
             }
             const OGRPolygon core = rectangle(cx0, cy0, cx1, cy1);
             GeomPtr clipped = own(conditioned->Intersection(&core));
-            // Neighbouring tiles buffer different inputs, so their seam
+            // Neighboring tiles buffer different inputs, so their seam
             // vertices agree only to rounding. Snapping every piece to one
             // grid makes them coincide, so the union fuses the seam instead
             // of leaving near-duplicate rings that cross in the mesh.

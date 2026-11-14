@@ -31,7 +31,7 @@ using namespace OpenSWMM::Sdk;
 struct PendingPackage {
     QString path; ///< Populated by the worker only after its own successful atomic creation.
     std::shared_ptr<std::atomic_bool> cancelled = std::make_shared<std::atomic_bool>(false);
-    std::atomic_int publication{0}; ///< 0 preparing, 1 cancelled, 2 publication committed.
+    std::atomic_int publication{0}; ///< 0 preparing, 1 canceled, 2 publication committed.
     /** @brief Request cancellation until publication commits, including after worker settlement. */
     void cancel()
     {
@@ -45,7 +45,7 @@ struct PendingPackage {
         int expected = 0;
         return publication.compare_exchange_strong(expected, 2);
     }
-    /** @brief Remove only this cancelled operation's unexposed native output. */
+    /** @brief Remove only this canceled operation's unexposed native output. */
     void discardCancelled()
     {
         if (publication.load() != 2 && cancelled->load() && !path.isEmpty()) {

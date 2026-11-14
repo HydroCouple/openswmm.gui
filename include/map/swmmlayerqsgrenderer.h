@@ -23,7 +23,7 @@
  * repaint() + grabFramebuffer() synchronously, so async building races with
  * the grab and produces empty frames. All geometry is built synchronously
  * inside updatePaintNode (on the render thread, which is the main thread for
- * QQuickWidget). Stage 1-6 optimisations still eliminate the O(N) cost for
+ * QQuickWidget). Stage 1-6 optimizations still eliminate the O(N) cost for
  * pan and reduce rebuild cost significantly.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  * @license   GPL-3.0-or-later
@@ -69,7 +69,7 @@ public:
      * @param[in] layer Optional borrowed model guarded by QPointer; null clears binding.
      * @note Equal pointer no-op. Disconnects old model→this connections, binds
      *   selection/repaint/geometry signals, resets triangulation/selection/pending flags and marks
-     *   content dirty/update. Selection currently requests FULL geometry rebuild because colour
+     *   content dirty/update. Selection currently requests FULL geometry rebuild because color
      *   baked in base vertices, absorbing immediately following repaint; geometry always
      *   invalidates independently.
      * @note Does not alter model qsgRenderKinds, geometry, opacity or ownership. Does not bump
@@ -135,15 +135,15 @@ protected:
      *   forces rebuild after resource resets when needed.
      * @note 15top-level geometry children: catch fill/selection/outline, outlet
      *   connectors/selection, link base/selection, four node buckets, gage base,
-     *   unused-or-selection node overlay and gage overlay. Per-vertex coloured streams split
-     *   at60000vertices into child nodes; flat streams remain single allocation. Base colours
+     *   unused-or-selection node overlay and gage overlay. Per-vertex colored streams split
+     *   at60000vertices into child nodes; flat streams remain single allocation. Base colors
      *   premultiplied, category alpha/hidden flags applied. Layer opacity belongs to host
      *   QQuickItem, not read/applied here.
      * @note Links tessellate continuous stroke/round caps plus original-polyline midpoint arrows;
      *   selection width uses conduit size+1pixel, not each kind width. Current GPU path does not
      *   apply CPU perpendicular line offsets/dash style. Node/gage radii below1pixel suppressed.
-     *   Virtual/inlet symbol handling and node feature size/shape/colour applied; gage shape
-     *   remains kind default with size/colour override. Labels/inlet capture connectors/LID badges
+     *   Virtual/inlet symbol handling and node feature size/shape/color applied; gage shape
+     *   remains kind default with size/color override. Labels/inlet capture connectors/LID badges
      *   remain CPU item responsibilities.
      * @note Always update root matrix for current extent/item dimensions using anchor-relative
      *   floats. Cached margins permit pan-only matrix update; canvas CRS/source geometry must
@@ -174,7 +174,7 @@ private:
     // how far the viewport has drifted from the cached cull window.
     MapExtent m_lastBuiltExtent;
 
-    // Fixed scene-space centre of the dataset bounding box, recomputed at
+    // Fixed scene-space center of the dataset bounding box, recomputed at
     // the start of each content rebuild.  Vertex coords stored as
     // float(sceneCoord - anchor) keep float magnitudes small (UTM precision)
     // and are stable across pans — only the matrix translate changes on pan.

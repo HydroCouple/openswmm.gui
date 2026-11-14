@@ -207,7 +207,7 @@ double DTMSampler::sample(double x, double y) const
     // the bilinear formula below is uniform.
     //
     // CAREFUL: RasterIO fills `window` CONTIGUOUSLY in row-major order for the
-    // xSize×ySize region it actually read — it does NOT honour the {v00,v10,v01,v11}
+    // xSize×ySize region it actually read — it does NOT honor the {v00,v10,v01,v11}
     // layout the formula below expects. Only the 2×2 case coincides.
     //
     // For a 1-wide × 2-tall read (last column, interpolating in y) GDAL writes:
@@ -215,7 +215,7 @@ double DTMSampler::sample(double x, double y) const
     // i.e. the second ROW lands in the v10 slot. The old code did
     //     window[1] = window[0]; window[3] = window[2];
     // which clobbered that second row and then copied window[2] — a slot RasterIO
-    // never wrote, still 0 from the initialiser. Result: v01 = v11 = 0 and the
+    // never wrote, still 0 from the initializer. Result: v01 = v11 = 0 and the
     // sample collapsed to v00*(1-dy). On the ramp fixture that returned 29.5
     // instead of 54.0. Every DEM sample on the raster's LAST COLUMN with a
     // fractional y was silently halved toward zero.

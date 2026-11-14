@@ -18,7 +18,7 @@
  *     looser bound PLUS a convergence check that the error falls with the
  *     ladder (parabolicConvergesWithTheLadder);
  *   - IRREGULAR — the engine tabulates a transect on N_TRANSECT_TBL = 51
- *     normalised points with linear interpolation, so the comparison is at
+ *     normalized points with linear interpolation, so the comparison is at
  *     table resolution, and the authored geometry is checked directly.
  *
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
@@ -53,7 +53,7 @@ private slots:
 namespace
 {
 
-/*! Flow area of a normalised section at \p d, by exact trapezoidal integration
+/*! Flow area of a normalized section at \p d, by exact trapezoidal integration
  *  of the wetted part. The profile is piecewise linear, so this is exact. */
 /** @brief Integrate wetted area exactly over the fixture piecewise-linear profile.
  * @param[in] ns Valid normalized section with station and relZ vectors of equal size and ordered station coordinates.
@@ -233,7 +233,7 @@ void TestChannelBurn::parabolicConvergesWithTheLadder()
 void TestChannelBurn::irregularKeepsTheAuthoredAsymmetry()
 {
     // 12-point transect with a non-zero Xfactor / Yfactor, deliberately
-    // asymmetric: the thalweg sits left of centre.
+    // asymmetric: the thalweg sits left of center.
     const QVector<double> st = {0.0,  5.0,  10.0, 14.0, 18.0, 20.0,
                                 22.0, 26.0, 32.0, 40.0, 50.0, 60.0};
     const QVector<double> el = {812.0, 808.0, 804.0, 801.0, 799.5, 799.0,
@@ -284,7 +284,7 @@ void TestChannelBurn::irregularKeepsTheAuthoredAsymmetry()
         double refW = 0.0;
         QCOMPARE(swmm_xsect_width_of_depth(x, d, &refW), SWMM_OK);
         const double gotW = topWidthAtDepth(ns, d);
-        // 51-point normalised table + linear interpolation: a depth between
+        // 51-point normalized table + linear interpolation: a depth between
         // two table rows is read off the chord, so the tolerance is the table's,
         // not the geometry's.
         QVERIFY2(std::abs(gotW - refW) <= 2.0e-2 * std::max(1.0, refW),

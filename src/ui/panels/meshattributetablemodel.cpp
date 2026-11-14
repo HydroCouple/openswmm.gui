@@ -723,7 +723,7 @@ void MeshAttributeTableModel::rebuildColumns()
                          "from the project's curves."))
             << text(QStringLiteral("group"), tr("Group"), tr("Optional named boundary group."))
             // The aquifer boundary is a compound record (hydraulic row plus the species terms
-            // it must carry), so it is summarised here and edited on the Edge boundaries page.
+            // it must carry), so it is summarized here and edited on the Edge boundaries page.
             << ro(QStringLiteral("gwBoundary.type"), tr("Aquifer Boundary"), UnitKind::None,
                   tr("Groundwater (2D aquifer) boundary on this exterior edge: Head, Flow or "
                      "none. Edit aquifer boundaries… (Properties or the row menu) opens the "
@@ -1449,7 +1449,7 @@ bool MeshAttributeTableModel::setData(const QModelIndex &index, const QVariant &
             // edited field is folded into the cell's currently-resolved row
             // and the whole thing is pushed through the one funnel that
             // snapshots provenance, so undo can put an inheriting cell back
-            // to inheriting rather than to a materialised copy.
+            // to inheriting rather than to a materialized copy.
             mesh::InfilRow next;
             if (!editedInfilRow(m_layer, row, key, v, &next))
                 return false;

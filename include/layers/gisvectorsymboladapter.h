@@ -112,12 +112,12 @@ public:
     [[nodiscard]] double markerSize() const { return m_sym.markerSize; }
     /**
      * @brief Inspect the adapter's current cached symbol property.
-     * @return Point fill colour including alpha. Returned by value without consulting the source layer.
+     * @return Point fill color including alpha. Returned by value without consulting the source layer.
      */
     [[nodiscard]] QColor markerFill() const { return m_sym.markerFill; }
     /**
      * @brief Inspect the adapter's current cached symbol property.
-     * @return Point outline colour including alpha. Returned by value without consulting the source layer.
+     * @return Point outline color including alpha. Returned by value without consulting the source layer.
      */
     [[nodiscard]] QColor markerOutline() const { return m_sym.markerOutline; }
     /**
@@ -128,7 +128,7 @@ public:
 
     /**
      * @brief Edit cached symbology and write the whole updated value back synchronously.
-     * @param[in] v Point glyph ordinal; only point geometry uses it. Numeric values should be finite and meaningful; the adapter adds no range/colour/enum validation.
+     * @param[in] v Point glyph ordinal; only point geometry uses it. Numeric values should be finite and meaningful; the adapter adds no range/color/enum validation.
      * @note Exact equality is a no-op. Otherwise changes local state, invokes the optional writer and emits symbolChanged(). Writer-side resynchronization can emit additional notifications; no rollback/error result is provided.
      */
     void setMarkerShape(MarkerShape v)
@@ -140,7 +140,7 @@ public:
     }
     /**
      * @brief Edit cached symbology and write the whole updated value back synchronously.
-     * @param[in] v Point marker diameter in logical pixels. Numeric values should be finite and meaningful; the adapter adds no range/colour/enum validation.
+     * @param[in] v Point marker diameter in logical pixels. Numeric values should be finite and meaningful; the adapter adds no range/color/enum validation.
      * @note qFuzzyCompare equality is a no-op. Otherwise changes local state, invokes the optional writer and emits symbolChanged(). Writer-side resynchronization can emit additional notifications; no rollback/error result is provided.
      */
     void setMarkerSize(double v)
@@ -152,7 +152,7 @@ public:
     }
     /**
      * @brief Edit cached symbology and write the whole updated value back synchronously.
-     * @param[in] v Point fill colour including alpha. Numeric values should be finite and meaningful; the adapter adds no range/colour/enum validation.
+     * @param[in] v Point fill color including alpha. Numeric values should be finite and meaningful; the adapter adds no range/color/enum validation.
      * @note Exact equality is a no-op. Otherwise changes local state, invokes the optional writer and emits symbolChanged(). Writer-side resynchronization can emit additional notifications; no rollback/error result is provided.
      */
     void setMarkerFill(const QColor &v)
@@ -164,7 +164,7 @@ public:
     }
     /**
      * @brief Edit cached symbology and write the whole updated value back synchronously.
-     * @param[in] v Point outline colour including alpha. Numeric values should be finite and meaningful; the adapter adds no range/colour/enum validation.
+     * @param[in] v Point outline color including alpha. Numeric values should be finite and meaningful; the adapter adds no range/color/enum validation.
      * @note Exact equality is a no-op. Otherwise changes local state, invokes the optional writer and emits symbolChanged(). Writer-side resynchronization can emit additional notifications; no rollback/error result is provided.
      */
     void setMarkerOutline(const QColor &v)
@@ -176,7 +176,7 @@ public:
     }
     /**
      * @brief Edit cached symbology and write the whole updated value back synchronously.
-     * @param[in] v Point outline width in logical pixels. Numeric values should be finite and meaningful; the adapter adds no range/colour/enum validation.
+     * @param[in] v Point outline width in logical pixels. Numeric values should be finite and meaningful; the adapter adds no range/color/enum validation.
      * @note qFuzzyCompare equality is a no-op. Otherwise changes local state, invokes the optional writer and emits symbolChanged(). Writer-side resynchronization can emit additional notifications; no rollback/error result is provided.
      */
     void setMarkerOutlineW(double v)
@@ -187,10 +187,10 @@ public:
         commit();
     }
 
-    // Line — decompose QPen into colour/width/dash for the property editor.
+    // Line — decompose QPen into color/width/dash for the property editor.
     /**
      * @brief Inspect the adapter's current cached symbol property.
-     * @return Line pen colour including alpha; other pen properties are retained. Returned by value without consulting the source layer.
+     * @return Line pen color including alpha; other pen properties are retained. Returned by value without consulting the source layer.
      */
     [[nodiscard]] QColor lineColor() const { return m_sym.linePen.color(); }
     /**
@@ -205,7 +205,7 @@ public:
     [[nodiscard]] Qt::PenStyle lineDash() const { return m_sym.linePen.style(); }
     /**
      * @brief Edit cached symbology and write the whole updated value back synchronously.
-     * @param[in] v Line pen colour including alpha; other pen properties are retained. Numeric values should be finite and meaningful; the adapter adds no range/colour/enum validation.
+     * @param[in] v Line pen color including alpha; other pen properties are retained. Numeric values should be finite and meaningful; the adapter adds no range/color/enum validation.
      * @note Exact equality is a no-op. Otherwise changes local state, invokes the optional writer and emits symbolChanged(). Writer-side resynchronization can emit additional notifications; no rollback/error result is provided.
      */
     void setLineColor(const QColor &v)
@@ -219,7 +219,7 @@ public:
     }
     /**
      * @brief Edit cached symbology and write the whole updated value back synchronously.
-     * @param[in] v Line pen width in logical pixels because scene pens are cosmetic. Numeric values should be finite and meaningful; the adapter adds no range/colour/enum validation.
+     * @param[in] v Line pen width in logical pixels because scene pens are cosmetic. Numeric values should be finite and meaningful; the adapter adds no range/color/enum validation.
      * @note qFuzzyCompare equality is a no-op. Otherwise changes local state, invokes the optional writer and emits symbolChanged(). Writer-side resynchronization can emit additional notifications; no rollback/error result is provided.
      */
     void setLineWidth(double v)
@@ -233,7 +233,7 @@ public:
     }
     /**
      * @brief Edit cached symbology and write the whole updated value back synchronously.
-     * @param[in] v Line pen dash/style enum; other pen properties are retained. Numeric values should be finite and meaningful; the adapter adds no range/colour/enum validation.
+     * @param[in] v Line pen dash/style enum; other pen properties are retained. Numeric values should be finite and meaningful; the adapter adds no range/color/enum validation.
      * @note Exact equality is a no-op. Otherwise changes local state, invokes the optional writer and emits symbolChanged(). Writer-side resynchronization can emit additional notifications; no rollback/error result is provided.
      */
     void setLineDash(Qt::PenStyle v)
@@ -249,12 +249,12 @@ public:
     // Polygon — same QBrush/QPen decomposition.
     /**
      * @brief Inspect the adapter's current cached symbol property.
-     * @return Polygon brush colour including alpha; existing brush style is retained. Returned by value without consulting the source layer.
+     * @return Polygon brush color including alpha; existing brush style is retained. Returned by value without consulting the source layer.
      */
     [[nodiscard]] QColor polygonFill() const { return m_sym.polygonFill.color(); }
     /**
      * @brief Inspect the adapter's current cached symbol property.
-     * @return Polygon outline colour including alpha; other pen properties are retained. Returned by value without consulting the source layer.
+     * @return Polygon outline color including alpha; other pen properties are retained. Returned by value without consulting the source layer.
      */
     [[nodiscard]] QColor polygonOutlineColor() const { return m_sym.polygonOutline.color(); }
     /**
@@ -264,7 +264,7 @@ public:
     [[nodiscard]] double polygonOutlineWidth() const { return m_sym.polygonOutline.widthF(); }
     /**
      * @brief Edit cached symbology and write the whole updated value back synchronously.
-     * @param[in] v Polygon brush colour including alpha; existing brush style is retained. Numeric values should be finite and meaningful; the adapter adds no range/colour/enum validation.
+     * @param[in] v Polygon brush color including alpha; existing brush style is retained. Numeric values should be finite and meaningful; the adapter adds no range/color/enum validation.
      * @note Exact equality is a no-op. Otherwise changes local state, invokes the optional writer and emits symbolChanged(). Writer-side resynchronization can emit additional notifications; no rollback/error result is provided.
      */
     void setPolygonFill(const QColor &v)
@@ -278,7 +278,7 @@ public:
     }
     /**
      * @brief Edit cached symbology and write the whole updated value back synchronously.
-     * @param[in] v Polygon outline colour including alpha; other pen properties are retained. Numeric values should be finite and meaningful; the adapter adds no range/colour/enum validation.
+     * @param[in] v Polygon outline color including alpha; other pen properties are retained. Numeric values should be finite and meaningful; the adapter adds no range/color/enum validation.
      * @note Exact equality is a no-op. Otherwise changes local state, invokes the optional writer and emits symbolChanged(). Writer-side resynchronization can emit additional notifications; no rollback/error result is provided.
      */
     void setPolygonOutlineColor(const QColor &v)
@@ -292,7 +292,7 @@ public:
     }
     /**
      * @brief Edit cached symbology and write the whole updated value back synchronously.
-     * @param[in] v Cosmetic polygon outline width in logical pixels. Numeric values should be finite and meaningful; the adapter adds no range/colour/enum validation.
+     * @param[in] v Cosmetic polygon outline width in logical pixels. Numeric values should be finite and meaningful; the adapter adds no range/color/enum validation.
      * @note qFuzzyCompare equality is a no-op. Otherwise changes local state, invokes the optional writer and emits symbolChanged(). Writer-side resynchronization can emit additional notifications; no rollback/error result is provided.
      */
     void setPolygonOutlineWidth(double v)
@@ -323,12 +323,12 @@ public:
     [[nodiscard]] QFont labelFont() const { return m_sym.labelFont; }
     /**
      * @brief Inspect the adapter's current cached symbol property.
-     * @return Legacy label colour including alpha. Returned by value without consulting the source layer.
+     * @return Legacy label color including alpha. Returned by value without consulting the source layer.
      */
     [[nodiscard]] QColor labelColor() const { return m_sym.labelColor; }
     /**
      * @brief Edit cached symbology and write the whole updated value back synchronously.
-     * @param[in] v Legacy label visibility request; no inherited layer label-policy synchronization is performed by this adapter. Numeric values should be finite and meaningful; the adapter adds no range/colour/enum validation.
+     * @param[in] v Legacy label visibility request; no inherited layer label-policy synchronization is performed by this adapter. Numeric values should be finite and meaningful; the adapter adds no range/color/enum validation.
      * @note Exact equality is a no-op. Otherwise changes local state, invokes the optional writer and emits symbolChanged(). Writer-side resynchronization can emit additional notifications; no rollback/error result is provided.
      */
     void setShowLabels(bool v)
@@ -340,7 +340,7 @@ public:
     }
     /**
      * @brief Edit cached symbology and write the whole updated value back synchronously.
-     * @param[in] v Exact physical OGR field name for legacy labels; not validated against a source. Numeric values should be finite and meaningful; the adapter adds no range/colour/enum validation.
+     * @param[in] v Exact physical OGR field name for legacy labels; not validated against a source. Numeric values should be finite and meaningful; the adapter adds no range/color/enum validation.
      * @note Exact equality is a no-op. Otherwise changes local state, invokes the optional writer and emits symbolChanged(). Writer-side resynchronization can emit additional notifications; no rollback/error result is provided.
      */
     void setLabelField(const QString &v)
@@ -352,7 +352,7 @@ public:
     }
     /**
      * @brief Edit cached symbology and write the whole updated value back synchronously.
-     * @param[in] v Legacy label font, retaining Qt point/pixel sizing. Numeric values should be finite and meaningful; the adapter adds no range/colour/enum validation.
+     * @param[in] v Legacy label font, retaining Qt point/pixel sizing. Numeric values should be finite and meaningful; the adapter adds no range/color/enum validation.
      * @note Exact equality is a no-op. Otherwise changes local state, invokes the optional writer and emits symbolChanged(). Writer-side resynchronization can emit additional notifications; no rollback/error result is provided.
      */
     void setLabelFont(const QFont &v)
@@ -364,7 +364,7 @@ public:
     }
     /**
      * @brief Edit cached symbology and write the whole updated value back synchronously.
-     * @param[in] v Legacy label colour including alpha. Numeric values should be finite and meaningful; the adapter adds no range/colour/enum validation.
+     * @param[in] v Legacy label color including alpha. Numeric values should be finite and meaningful; the adapter adds no range/color/enum validation.
      * @note Exact equality is a no-op. Otherwise changes local state, invokes the optional writer and emits symbolChanged(). Writer-side resynchronization can emit additional notifications; no rollback/error result is provided.
      */
     void setLabelColor(const QColor &v)

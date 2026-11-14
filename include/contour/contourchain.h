@@ -1,13 +1,13 @@
 /**
  * @file      contourchain.h
  * @brief     chain unordered marching-triangles segments of ONE iso-level into polylines by
- *            matching quantised endpoints.
+ *            matching quantized endpoints.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
  *
  * VS.8 — chain unordered marching-triangles segments of ONE iso-level into
- * polylines by matching quantised endpoints. The result drives along-line
+ * polylines by matching quantized endpoints. The result drives along-line
  * label placement (one label every N screen pixels). Shared by the
  * QPainter isoline pass (SWMM2DResultsGraphicsItem) and the QSG renderer
  * (SWMM2DResultsQSGRenderer).

@@ -6,7 +6,7 @@
  * @brief     Slice CF.3.3 — canvas map tool that selects 2D mesh cells via
  *         box or lasso, then applies cell selection; right-click opens the plot attribute menu.
  *
- * Behaviour:
+ * Behavior:
  *   - **Box mode (default)** — left-click and drag rubber-band; on release,
  *     prefers editable-mesh cell queries, then applies SelectionManager highlights.
  *     Mirrors the existing OpenSWMMVisMapToolSelect rubber-band logic.

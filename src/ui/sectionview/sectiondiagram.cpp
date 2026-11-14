@@ -62,12 +62,12 @@ inline QString tr_(const char *s)
 }
 
 /*! Blend \p over onto \p base by \p t (0..1) — keeps derived fills tied to the
- *  palette so dark themes stay legible without a second colour table.
+ *  palette so dark themes stay legible without a second color table.
  * @param[in] base Borrowed first QColor.
  * @param[in] over Borrowed second QColor.
  * @param[in] t Expected finite interpolation weight [0,1]; not explicitly clamped.
  * @return RGB component-wise linear blend, alpha defaults fully opaque rather than compositing
- *   either input alpha. No gamma correction/colour-space conversion or mutation. Out-of-range
+ *   either input alpha. No gamma correction/color-space conversion or mutation. Out-of-range
  *   inputs follow QColor::fromRgbF behavior.
  */
 QColor mix(const QColor &base, const QColor &over, qreal t)
@@ -82,7 +82,7 @@ QColor mix(const QColor &base, const QColor &over, qreal t)
  *   save/restore.
  * @param[in] tip Finite screen-coordinate apex.
  * @param[in] angleRad Finite direction radians, 0 points +x; head extends backwards.
- * @param[in] color Copied fill colour including alpha.
+ * @param[in] color Copied fill color including alpha.
  * @brief Draw fixed 6.5 pixel triangular arrowhead, half-width 0.38×length. No input
  *   validation/clipping setup, caller manages outer state.
  */
@@ -370,7 +370,7 @@ void drawWaveTrain(QPainter &p, const QPolygonF &px)
 }
 
 /*!
- * Draw one schematic device glyph, \p s pixels across, centred on \p at.
+ * Draw one schematic device glyph, \p s pixels across, centered on \p at.
  *
  * Everything here is pixel geometry: these symbols stand in for objects the
  * model gives no dimensions for (a pump curve is not a casing size), so drawing
@@ -482,7 +482,7 @@ void paintSymbol(QPainter &p, const QPointF &at, DiagramSymbolKind kind, double 
 } // namespace
 
 // ---------------------------------------------------------------------------
-// Colour roles
+// Color roles
 // ---------------------------------------------------------------------------
 
 QColor diagramFillColor(DiagramRole role, const QPalette &palette)
@@ -498,7 +498,7 @@ QColor diagramFillColor(DiagramRole role, const QPalette &palette)
         return mix(base, text, 0.12);
     // Redder and stronger than Soil, which it may sit next to: a tank shell has
     // to be the most saturated thing in a node profile or "brown structure"
-    // just reads as a dirty grey manhole.
+    // just reads as a dirty gray manhole.
     case DiagramRole::Storage:
         return mix(base, QColor(146, 92, 48), 0.40);
     case DiagramRole::Soil:
@@ -528,7 +528,7 @@ QColor diagramStrokeColor(DiagramRole role, const QPalette &palette)
     case DiagramRole::Accent:
         return palette.color(QPalette::Highlight).darker(120);
     // Brown ink, not black: the shell outline is the widest stroke on a storage
-    // profile, and leaving it the text colour made the fill look like a tint
+    // profile, and leaving it the text color made the fill look like a tint
     // rather than like a material.
     case DiagramRole::Storage:
         return mix(text, QColor(104, 60, 28), 0.62);
@@ -752,11 +752,11 @@ void paintSectionDiagram(QPainter &p, const QRectF &target, const SectionDiagram
         f.sy = f.fitRect.height() / b.height();
 
         // Resolve the vertical exaggeration, then fit the box while HOLDING
-        // that ratio — which is the uniform-scale fit generalised: whichever
+        // that ratio — which is the uniform-scale fit generalized: whichever
         // axis runs out of room first sets the scale, and the other follows
         // the ratio.
         //
-        // Filling the box on both axes independently (the old behaviour) is
+        // Filling the box on both axes independently (the old behavior) is
         // what made shallow pipes look steep: it silently adopts whatever
         // exaggeration the aspect ratio happens to imply, often 15:1 or more.
         if (!model.uniformScale) {
@@ -780,7 +780,7 @@ void paintSectionDiagram(QPainter &p, const QRectF &target, const SectionDiagram
                 } else {
                     // Legacy: fill the pane on both axes. Kept UNSNAPPED and
                     // uncapped for models whose x axis is not a real length
-                    // (node profiles use a normalised frame, LID stacks a
+                    // (node profiles use a normalized frame, LID stacks a
                     // nominal plan width), where a V:H ratio is arithmetic on
                     // an arbitrary unit and rounding it would silently resize
                     // the drawing.
@@ -893,7 +893,7 @@ void paintSectionDiagram(QPainter &p, const QRectF &target, const SectionDiagram
     if (achievedExaggerationOut)
         *achievedExaggerationOut = fit.ve;
 
-    // User zoom/pan layered over the fit. Scaling about the fit rect's centre
+    // User zoom/pan layered over the fit. Scaling about the fit rect's center
     // keeps "zoom out then in" returning to the same place.
     const double zoom = std::clamp(viewport.zoom, 0.05, 200.0);
     sx *= zoom;
@@ -1388,7 +1388,7 @@ void paintSectionDiagram(QPainter &p, const QRectF &target, const SectionDiagram
                                                                       std::clamp(room, 0.0, 220.0));
             const double w = fm.horizontalAdvance(cap);
 
-            // Centred under the dial while it fits there; only a caption that
+            // Centered under the dial while it fits there; only a caption that
             // does not fit reaches inboard, so the common case is unchanged.
             const bool wide = w > planRect.width() - 4.0;
             QRectF cr(sign > 0.0 || !wide ? planRect.left() : planRect.right() - w,
@@ -1396,7 +1396,7 @@ void paintSectionDiagram(QPainter &p, const QRectF &target, const SectionDiagram
 
             // Plated like the spoke labels: a caption that reached inboard is
             // over the drawing in margin placement. Over bare background the
-            // plate is the background colour and shows as nothing.
+            // plate is the background color and shows as nothing.
             QColor plate = palette.color(QPalette::Base);
             plate.setAlphaF(0.82);
             p.setPen(Qt::NoPen);

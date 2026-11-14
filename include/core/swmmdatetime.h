@@ -17,7 +17,7 @@
  * end-of-day) rather than truncating — which is what fixes the "00:15 shown as
  * 00:14" defect (GH #1).
  *
- * Time is treated as a timezone-naive wall clock. The QDateTime is labelled
+ * Time is treated as a timezone-naive wall clock. The QDateTime is labeled
  * `Qt::UTC` purely so that no local-time / daylight-saving arithmetic is ever
  * applied on the round-trip (GH #2). Never feed the results of these helpers
  * through `toLocalTime()` / `toUTC()` for conversion purposes.
@@ -44,7 +44,7 @@
 namespace openswmmvis::core
 {
 
-/*! \brief SWMM DateTime double → UTC-labelled QDateTime (wall clock).
+/*! \brief SWMM DateTime double → UTC-labeled QDateTime (wall clock).
  *
  *  Delegates decoding to the engine, which rounds to the nearest second and
  *  clamps end-of-day. Returns an invalid QDateTime when \p value is not finite
@@ -52,7 +52,7 @@ namespace openswmmvis::core
  *
  * @param[in] value Absolute SWMM date/time in days since 1899-12-30, with time
  *                  represented by the fractional day; not elapsed simulation seconds.
- * @return UTC-labelled wall-clock date/time at whole-second resolution, or an invalid
+ * @return UTC-labeled wall-clock date/time at whole-second resolution, or an invalid
  *         QDateTime for a non-finite input or an invalid decoded calendar date.
  * @note The UTC label suppresses local timezone/DST arithmetic. It does not convert
  *       a local instant to UTC. Rounding at midnight is clamped within the decoded day.
@@ -75,7 +75,7 @@ inline QDateTime swmmDateTimeToQDateTime(double value)
 /**
  * @brief Decode checkpoint/report dates while retaining millisecond resolution.
  * @param[in] value Absolute SWMM date/time in fractional days since 1899-12-30.
- * @return UTC-labelled wall-clock QDateTime, or an invalid value for non-finite,
+ * @return UTC-labeled wall-clock QDateTime, or an invalid value for non-finite,
  *         unsupported, or invalid calendar input.
  * @details The day is obtained with floor(), and its fractional part is rounded to
  *          the nearest millisecond. A rounded 24-hour remainder can advance to the

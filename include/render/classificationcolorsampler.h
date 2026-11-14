@@ -76,8 +76,8 @@ public:
         return rampColor(f);
     }
     /**
-     * @brief Colour of a value classified by \p edges (ClassificationScheme::levelEdges): the
-     *        scheme's below / above colour outside them when set, otherwise its class colour
+     * @brief Color of a value classified by \p edges (ClassificationScheme::levelEdges): the
+     *        scheme's below / above color outside them when set, otherwise its class color
      *        (transparent below, the last class above). Nonfinite values are transparent.
      */
     [[nodiscard]] QColor classifiedColor(double value, const QVector<double> &edges) const
@@ -101,15 +101,15 @@ public:
             return value > 0.0 ? std::log(value / m_logFloor) / std::log(hi / m_logFloor) : -1.0;
         return hi > lo ? (value - lo) / (hi - lo) : 0.0;
     }
-    /** @return The ramp colour at position \p f, clamped to [0, 1], inversion applied. */
+    /** @return The ramp color at position \p f, clamped to [0, 1], inversion applied. */
     [[nodiscard]] QColor rampColor(double f) const
     {
         f = std::clamp(f, 0.0, 1.0);
         return m_ramp.colorAt(m_invert ? 1.0 - f : f);
     }
-    /** @return The scheme's below-range colour (invalid: not drawn). */
+    /** @return The scheme's below-range color (invalid: not drawn). */
     [[nodiscard]] QColor belowColor() const { return m_below; }
-    /** @return The scheme's above-range colour (invalid: the top colour). */
+    /** @return The scheme's above-range color (invalid: the top color). */
     [[nodiscard]] QColor aboveColor() const { return m_above; }
     /** @return True when positions are logarithmic. */
     [[nodiscard]] bool logScale() const { return m_logFloor > 0.0; }

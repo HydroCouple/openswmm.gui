@@ -122,7 +122,7 @@ QString formatValue(double v)
 
 /*! Editors: a combo for the two enum columns, a validated line edit for every
  *  numeric one. A line edit (rather than a spin box) because "blank" is a
- *  meaningful state in both numeric flavours — an unset parameter is NaN, and
+ *  meaningful state in both numeric flavors — an unset parameter is NaN, and
  *  an unset region hydraulic inherits the '*' row. */
 class RegionDefaultsDelegate : public QStyledItemDelegate
 {

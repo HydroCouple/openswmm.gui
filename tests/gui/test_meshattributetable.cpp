@@ -1157,7 +1157,7 @@ private slots:
         QCOMPARE(count, 1);
     }
 
-    /** Phase 4: the aquifer boundary (a compound engine record) is summarised read-only on
+    /** Phase 4: the aquifer boundary (a compound engine record) is summarized read-only on
      *  edges in the table and Properties — one edge, and several with Mixed where they differ —
      *  follows a model edit, and Edit… requests the Edge boundaries page on exactly the
      *  selected edges of the active mesh. */
@@ -1262,7 +1262,7 @@ private slots:
         QVERIFY(!edit->isEnabled());
     }
 
-    /** Phase 4d (review G-03): boundary inflow quality is summarised read-only on edges in the
+    /** Phase 4d (review G-03): boundary inflow quality is summarized read-only on edges in the
      *  table and Properties (Mixed where several edges differ), follows a model edit, and Edit…
      *  requests the Surface Quality Boundary inflow tab on exactly the selected edges of the
      *  active mesh; it is disabled while water quality is switched off. */
@@ -2007,7 +2007,7 @@ private slots:
             QVERIFY(edges.rowForRef(mesh::MeshObjectRef::edge(path, 2, e)) >= 0);
         QCOMPARE(edges.rowForRef(mesh::MeshObjectRef::edge(path, 2, 2)),
                  edges.rowForRef(mesh::MeshObjectRef::edge(path, 0, 0)));
-        // The quad's edge 3 = (1,4) is a boundary row labelled "2:3".
+        // The quad's edge 3 = (1,4) is a boundary row labeled "2:3".
         MapCanvas canvas;
         canvas.addLayer(&layer, false);
         PropertiesPanel properties;

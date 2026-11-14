@@ -111,7 +111,7 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
     // paths when a PJ_CONTEXT is first created, so GDAL_DATA/PROJ_DATA have to
     // be in the environment before ANY GDAL/PROJ call. The SWMMVis constructor
     // pumps events (see main.cpp) and can create a MapCanvas, which creates a
-    // PROJ context — so constructing it in the member-initialiser list, as this
+    // PROJ context — so constructing it in the member-initializer list, as this
     // did previously, published the paths too late. On macOS/Linux a
     // system-installed PROJ masked the mistake; on Windows there is no system
     // proj.db and every CRS lookup came back empty.
@@ -267,7 +267,7 @@ SWMMVisApplication::SWMMVisApplication(int &argc, char *argv[])
         // A figure-capture run runs in its own, empty settings scope, so this
         // prompt would fire on every run — and declining it quits the app, so
         // the capture would take itself down before reaching its second
-        // figure. The licence figures are captured from an explicit manifest
+        // figure. The license figures are captured from an explicit manifest
         // row instead.
         if (qEnvironmentVariableIsSet("SWMMVIS_CAPTURE_MANIFEST"))
             return;
@@ -308,7 +308,7 @@ bool SWMMVisApplication::eventFilter(QObject *watched, QEvent *event)
             // layout are not what we're trying to keep on top.
             if (dlg->isWindow()) {
                 // Defer until after the Show is processed so we operate on the
-                // realised platform window. raise()+activateWindow() brings the
+                // realized platform window. raise()+activateWindow() brings the
                 // dialog above the main window without the always-on-top hint
                 // (which would also stay above other apps).
                 QTimer::singleShot(0, dlg, [dlg]() {

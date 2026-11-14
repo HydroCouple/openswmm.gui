@@ -476,10 +476,10 @@ TEST(SwashesExamples, CuratedPayloadIsInputOnly)
 // ── One coordinate frame per case ───────────────────────────────────────────
 //
 // Every deck of a SWASHES case shares one plan frame so that opening the 1D
-// and 2D decks shows the channel in the same place: the centreline is y = 0,
-// nodes sit at their chainage x_i = i*dx from 0, the 2D strip is centred on
+// and 2D decks shows the channel in the same place: the centerline is y = 0,
+// nodes sit at their chainage x_i = i*dx from 0, the 2D strip is centered on
 // y = 0, and anything sacrificial (the closed-basin spillway OUTF, the dry
-// dummy pair JD1/OD1 in the 2D decks) sits past the outlet on the centreline
+// dummy pair JD1/OD1 in the 2D decks) sits past the outlet on the centerline
 // with conduit Length equal to plan distance. Before this gate the 1D chains
 // ran along the 2D strip's bottom wall (y = 0 vs a strip on [0, W]).
 
@@ -561,7 +561,7 @@ TEST(SwashesExamples, DecksShareOneFrame)
             ++checked1d;
         }
 
-        // 2D deck: strip centred on y = 0, x from 0; dummy pair past the outlet.
+        // 2D deck: strip centered on y = 0, x from 0; dummy pair past the outlet.
         if (QFile::exists(d.absoluteFilePath(QStringLiteral("2d_explicit.inp")))) {
             const QString text =
                 QString::fromUtf8(readFile(d.absoluteFilePath(QStringLiteral("2d_explicit.inp"))));

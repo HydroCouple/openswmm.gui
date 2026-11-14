@@ -70,7 +70,7 @@ QDir output()
  * @brief Create or overwrite a one-row Float64 EPSG:3857 GeoTIFF in the current case's evidence
  * directory.
  * @param values Borrowed first-band cells, also defining raster width; expected nonempty.
- * The helper copies values and leaves caller storage unchanged. Cell size is one metre,
+ * The helper copies values and leaves caller storage unchanged. Cell size is one meter,
  * origin0/1, y step minus1; -9999 is no-data.
  * @param multiband If true, write a second same-width band filled with0.9.
  * @return Persistent values.tif path if requested pixel writes succeed, empty on dataset
@@ -114,7 +114,7 @@ QString raster(const QVector<double> &values, bool multiband = false)
  *
  * @brief Create or overwrite a10-by10 Float64 projected raster with left/right halves0.2/0.8.
  * @return Persistent mesh-values.tif path on successful pixel write or empty on create/
- * write refusal. Uses EPSG:3857, one-metre cells, origin0/10 and negative y step; closes
+ * write refusal. Uses EPSG:3857, one-meter cells, origin0/10 and negative y step; closes
  * dataset. Metadata-setter statuses are unchecked and no no-data value is assigned.
  *
  */
@@ -149,7 +149,7 @@ QString meshRaster()
  * projected/geographic CRS.
  * @param model Borrowed mutable layer, retained by the caller with its engine.
  * @param geographic If true, transform the two authored EPSG:3857 positions into
- * EPSG:4326 using traditional x/y order and apply native node moves; otherwise keep metres.
+ * EPSG:4326 using traditional x/y order and apply native node moves; otherwise keep meters.
  * @return True on load and requested transform/moves success, false otherwise. Truncates
  * model.inp in output(), updates model path/SRS and may leave partial model edits on
  * failure; file byte-write length and CRS import statuses are not checked. New SRS is
@@ -202,7 +202,7 @@ bool load(SWMMModelLayer &model, bool geographic = false)
  * @brief Build a strict-CRS three-cell sampling job with quadrilateral footprints and one snow
  * target.
  * @param path Borrowed raster path copied into the owned result; not opened here.
- * @return Owned raster job selecting indices0/1/2, one-metre-square footprints/centroids,
+ * @return Owned raster job selecting indices0/1/2, one-meter-square footprints/centroids,
  * EPSG:3857, band1, snow key and inclusive zero/one target range. Callers may override
  * source, sampling, CRS and mode before executing; no sampling occurs in this helper.
  *

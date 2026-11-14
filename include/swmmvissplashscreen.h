@@ -3,14 +3,14 @@
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
- * @brief     Application startup splash screen with configurable message colour
+ * @brief     Application startup splash screen with configurable message color
  *         and text alignment.
  *
  * @details SWMMVisSplashScreen extends QSplashScreen to allow custom text
- *          colour and alignment, matching the SWMMVis branding.  The
+ *          color and alignment, matching the SWMMVis branding.  The
  *          `onShowMessage` slot stores text then invokes the base showMessage with an empty string
  *          to repaint multi-line startup progress messages in
- *          the correct colour and position.
+ *          the correct color and position.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -22,12 +22,12 @@
 
 /*!
  * \class SWMMVisSplashScreen
- * \brief Startup splash screen with configurable message text colour and
+ * \brief Startup splash screen with configurable message text color and
  *        alignment.
  *
  * \details Overrides QSplashScreen::drawContents() to paint the status
- *          message using the colour and alignment set via setColor() /
- *          setAlignment().  The default colour is white and the default
+ *          message using the color and alignment set via setColor() /
+ *          setAlignment().  The default color is white and the default
  *          alignment is Qt::AlignBottom | Qt::AlignHCenter, matching the
  *          standard QSplashScreen layout.
  */
@@ -68,8 +68,8 @@ public:
     virtual ~SWMMVisSplashScreen();
 
     /*!
-     * \brief Sets the colour used to draw the status message text.
-     * \param color  Message text colour (default: white).
+     * \brief Sets the color used to draw the status message text.
+     * \param color  Message text color (default: white).
      * @note Copies color only, no validation or immediate repaint request; next custom draw uses
      *   it.
      */
@@ -84,7 +84,7 @@ public:
     void setAlignment(Qt::Alignment alignment);
 
     /*!
-     * \brief Overridden to draw the status message in the configured colour
+     * \brief Overridden to draw the status message in the configured color
      *        and at the configured alignment.
      * \param painter  Active painter for the splash widget.
      * @note Painter must be nonnull/active; pen/font state is changed without save/restore. Draw
@@ -108,7 +108,7 @@ public slots:
     void onShowMessage(const QString &message);
 
 private:
-    QColor mColor;            ///< Text colour for the status message.
+    QColor mColor;            ///< Text color for the status message.
     Qt::Alignment mAlignment; ///< Alignment flags for the status message.
     QString mMessage;         ///< Current message text displayed on the splash.
 };

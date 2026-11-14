@@ -61,7 +61,7 @@ public:
      */
     [[nodiscard]] QFont font() const { return m_font; }
     /**
-     * @return Raw display-unit enum, initially Auto; Auto selects metric metre/kilometre only, not
+     * @return Raw display-unit enum, initially Auto; Auto selects metric meter/kilometer only, not
      *   CRS imperial units.
      */
     [[nodiscard]] Units units() const { return m_units; }
@@ -130,8 +130,8 @@ public:
     void setCompactNotation(bool compact);
 
     /*!
-     * \brief Format a distance (in metres) as a string using the current units setting.
-     * \param metres    Distance in metres.
+     * \brief Format a distance (in meters) as a string using the current units setting.
+     * \param metres    Distance in meters.
      * \param rawUnits  When true, ignores the Units setting and appends "units"
      *                  (used for local / undefined CRS where no real-world unit is known).
      * @return Owned distance plus suffix, empty for unsupported Units enum when rawUnits false.
@@ -145,17 +145,17 @@ public:
     [[nodiscard]] QString formatLabel(double metres, bool rawUnits = false) const;
 
     /*!
-     * \brief Returns the metres value that \c formatLabel() will actually display,
+     * \brief Returns the meters value that \c formatLabel() will actually display,
      *        i.e. the input rounded in the active unit. Use this to sync bar length
      *        to the label.
-     * @param[in] metres Distance metres, finite practical range expected.
-     * @return Distance rounded in selected display units then converted back to metres; unknown
+     * @param[in] metres Distance meters, finite practical range expected.
+     * @return Distance rounded in selected display units then converted back to meters; unknown
      *   enum returns input unchanged. Auto threshold chosen from unrounded input, so label/bar must
      *   use consistent basis. No raw-unit option, nonfinite/decimal-overflow guard or mutation.
      */
     [[nodiscard]] double roundedMetres(double metres) const;
     /**
-     * @param[in] maximumMetres Maximum positive finite distance metres, or arbitrary raw-unit
+     * @param[in] maximumMetres Maximum positive finite distance meters, or arbitrary raw-unit
      *   number when rawUnits true.
      * @param[in] rawUnits True bypasses configured real-world unit conversion.
      * @return Largest1/2/5decade distance in selected display units not exceeding ordinary positive

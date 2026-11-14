@@ -139,7 +139,7 @@ TerrainToolbar::TerrainToolbar(const QString &title, QWidget *parent) : QToolBar
         addWidget(spacer);
     }
 
-    // Initialise unit labels and keep them in sync with the active project.
+    // Initialize unit labels and keep them in sync with the active project.
     updateUnitLabels();
     connect(UnitSystem::instance(), &UnitSystem::unitsChanged, this,
             [this]() { updateUnitLabels(); });

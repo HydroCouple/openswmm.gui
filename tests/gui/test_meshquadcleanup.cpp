@@ -484,7 +484,7 @@ private slots:
 
     /*! Diagonal swap: a regular hexagon split into two quads by the diagonal
      *  A–B, where A and B carry fans of triangles so they have valence 5 and
-     *  the other four hexagon vertices valence 3. Re-diagonalising lowers
+     *  the other four hexagon vertices valence 3. Re-diagonalizing lowers
      *  Σ|valence − 4|; the swap is taken, everything stays convex CCW, no
      *  quad contains both A and B afterwards, and a re-run is a no-op. */
     void diagonalSwap_valencePair()

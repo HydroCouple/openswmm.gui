@@ -81,8 +81,8 @@ struct Mesh2DExtractionJob {
 
     /*! \brief Extract every request into \p out. Checks \p cancel before each
      *  frame and counts frames read in \p framesDone. Returns false when
-     *  cancelled or the file cannot be opened; \p out is then incomplete.
-     * @param[out] out Replaced with one default response per job request, then populated in request order. A failed/cancelled run may retain partial data with ok still false.
+     *  canceled or the file cannot be opened; \p out is then incomplete.
+     * @param[out] out Replaced with one default response per job request, then populated in request order. A failed/canceled run may retain partial data with ok still false.
      * @param[in] cancel Atomic flag checked before opening and before each frame; set from another thread to request cancellation.
      * @param[in,out] framesDone Relaxed atomic progress counter, incremented for each valid-time frame processed; not reset by run().
      * @return False for pre-cancellation, file-open/no-frame failure or cancellation during extraction; true means the frame loop completed, not that every series succeeded. Invalid cell requests receive per-response errors.
@@ -120,7 +120,7 @@ public:
     QString scenarioName() const override;
     /**
      * @brief Report guarded mesh-source metadata.
-     * @return SI unconditionally. Depth/HGL are metres; rainfall intensity/depth are converted to mm/hr and mm, while catalog variables retain metadata units.
+     * @return SI unconditionally. Depth/HGL are meters; rainfall intensity/depth are converted to mm/hr and mm, while catalog variables retain metadata units.
      */
     UnitSystem unitSystem() const override;
     /**
@@ -149,7 +149,7 @@ public:
      * @param[in] ref Cell identity, edge with local slot, or vertex for depth/HGL; source-local indices are validated by the applicable path.
      * @param[in] attr Fixed quantity compatible with ref.kind.
      * @param[in,out] out firstPeriod requests a clamped [firstPeriod,timeCount) tail; samples/ok/error are replaced, while direct-path early failures may leave a prior periodCount. Times are SWMM/OLE-Automation days.
-     * @note Saved-file cell full-history requests can return Loading/Loading cancelled instead of data when deferral is enabled. Live tails read immediately. Invalid timestamps/unreadable cell frames are skipped; dry reconstruction/catalog status gaps can yield NaN values. ok denotes a completed tail or a nonempty timestamp vector, not that every value is finite.
+     * @note Saved-file cell full-history requests can return Loading/Loading canceled instead of data when deferral is enabled. Live tails read immediately. Invalid timestamps/unreadable cell frames are skipped; dry reconstruction/catalog status gaps can yield NaN values. ok denotes a completed tail or a nonempty timestamp vector, not that every value is finite.
      */
     void getSeriesAt(const ObjectRef &ref, PlotAttribute attr, SeriesData &out) const override;
     /*! Fixed attributes as before; a 2D catalog variable resolves through
@@ -247,10 +247,10 @@ public:
      * @note Does not inspect cancellation status or enforce that every response is successful. Host should pass only its intended completed result set and then refresh views.
      */
     bool acceptExtraction(const Mesh2DExtractionJob &job, const QVector<SeriesData> &results);
-    /*! \brief A cancelled job's series resolve as "Loading cancelled" until
+    /*! \brief A canceled job's series resolve as "Loading cancelled" until
      *  \ref retryCancelled queues them again.
-     * @param[in] job Prepared snapshot whose in-flight requests should become cancelled. Stale revisions are ignored after cache validation.
-     * @note Moves only keys still in flight into cancelled state, giving Loading cancelled on future deferred requests. Does not signal a worker atomic cancellation flag; the host controls that separately.
+     * @param[in] job Prepared snapshot whose in-flight requests should become canceled. Stale revisions are ignored after cache validation.
+     * @note Moves only keys still in flight into canceled state, giving Loading canceled on future deferred requests. Does not signal a worker atomic cancellation flag; the host controls that separately.
      */
     void cancelExtraction(const Mesh2DExtractionJob &job);
     /**
@@ -260,7 +260,7 @@ public:
     void retryCancelled();
     /**
      * @brief Inspect retained cancellation keys.
-     * @return Whether the cancelled set is nonempty without first validating the current source revision; later queries can clear stale state.
+     * @return Whether the canceled set is nonempty without first validating the current source revision; later queries can clear stale state.
      */
     bool hasCancelled() const { return !m_cancelled.empty(); }
 
@@ -287,7 +287,7 @@ private:
     void getSeriesAtUncached(const ObjectRef &ref, PlotAttribute attr, SeriesData &out) const;
     /**
      * @brief Drop stale per-series/cache/queue state when layer/source or saved-file revision changes.
-     * @note Compares sourceRevision and, for HDF5, absolute path/size/mtime/timeCount/historyGeneration/dryDepth. A change clears numeric cache and pending/in-flight/cancelled sets and marks geometry caches unready. Does not cancel an already detached worker or clear remembered variable descriptors.
+     * @note Compares sourceRevision and, for HDF5, absolute path/size/mtime/timeCount/historyGeneration/dryDepth. A change clears numeric cache and pending/in-flight/canceled sets and marks geometry caches unready. Does not cancel an already detached worker or clear remembered variable descriptors.
      */
     void validateSourceCache_() const;
     /*! \brief Read the saved run's groundwater ledger and node-exchange names
@@ -295,7 +295,7 @@ private:
      *  sources get neither: their file is complete only after the run. */
     void ensureGroundwater_() const;
     /*! \brief Resolve a System ledger term or a Node exchange series into
-     *  \p out (honouring out.firstPeriod); out.ok false with the reason when
+     *  \p out (honoring out.firstPeriod); out.ok false with the reason when
      *  the run, term or node has none. */
     void groundwaterSeries_(const ObjectRef &ref, const ResultDescriptor &d,
                             SeriesData &out) const;
@@ -313,7 +313,7 @@ private:
     mutable std::size_t m_cacheBytes = 0;
     /*! \brief Cached bed elevation per triangle = mean of vertex z's, and
      *  planimetric cell area (m², shoelace over the cell's SI vertices).
-     * @note Lazily reads SI source cells and vertex elevations. Z is the arithmetic mean of 3/4 vertex values, treating unavailable Z indices as zero; areas sum absolute triangle-fan areas in square metres. Failure leaves the cache unready for a later retry. Requires stable consistent X/Y coordinate arrays; no source ownership is retained.
+     * @note Lazily reads SI source cells and vertex elevations. Z is the arithmetic mean of 3/4 vertex values, treating unavailable Z indices as zero; areas sum absolute triangle-fan areas in square meters. Failure leaves the cache unready for a later retry. Requires stable consistent X/Y coordinate arrays; no source ownership is retained.
      */
     void ensureZBedCache_() const;
 
@@ -354,14 +354,14 @@ private:
      * @param[in] src Stable source with cell catalog and timestamp/frame reads. Caller serializes its non-thread-safe access as required.
      * @param[in] requests All ordered requests; pending entries must have valid cell indices and supported fixed/catalog descriptors.
      * @param[in] pending Indices into requests/out to process, copied for filtering.
-     * @param[in] zBed Optional cell bed means in metres; missing entries use zero for HGL.
+     * @param[in] zBed Optional cell bed means in meters; missing entries use zero for HGL.
      * @param[in] cellArea Optional positive cell plan areas in m2, required for rain depth/mean.
      * @param[in] cellNv Optional per-cell edge counts; missing entries default to three.
-     * @param[in] dryDepth Reconstruction dryness threshold in metres.
+     * @param[in] dryDepth Reconstruction dryness threshold in meters.
      * @param[in,out] out Pre-sized to requests with cleared samples/errors/ok for pending entries. Appends values/time pairs and updates firstPeriod/periodCount; completed nonempty series get ok true even with all-NaN values.
      * @param[in] cancel Optional relaxed atomic cancellation flag, checked before each frame.
      * @param[in,out] framesDone Optional relaxed progress counter incremented per valid-time processed frame, without reset.
-     * @return False only on observed cancellation, retaining partial unfinished output. True for loop completion including per-request dataset/key/geometry refusals. Catalog data is raw metadata units, rain rate/depth becomes mm/hr/mm, volume m3, depth/HGL metres. No common source-generation consistency check is made in the loop.
+     * @return False only on observed cancellation, retaining partial unfinished output. True for loop completion including per-request dataset/key/geometry refusals. Catalog data is raw metadata units, rain rate/depth becomes mm/hr/mm, volume m3, depth/HGL meters. No common source-generation consistency check is made in the loop.
      */
     static bool extractCellFrames_(IMesh2DSource &src, const QVector<SeriesRequest> &requests,
                                    QVector<int> pending, const std::vector<float> &zBed,

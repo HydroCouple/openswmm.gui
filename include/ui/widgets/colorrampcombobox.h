@@ -3,7 +3,7 @@
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
- * @brief     Slice BB-α — QComboBox that previews built-in + custom colour
+ * @brief     Slice BB-α — QComboBox that previews built-in + custom color
  *         ramps as horizontal gradient swatches in the dropdown.
  *
  *         Mirrors the QGIS / ArcGIS Pro idiom: each row shows the actual
@@ -133,7 +133,7 @@ private:
     void openEditor();
 
     /*! Row of the last real ramp selection (builtin/custom). Restored when
-     *  the "Edit Custom Ramp…" flow is cancelled — previously the cancel
+     *  the "Edit Custom Ramp…" flow is canceled — previously the cancel
      *  path reset to row 0, silently switching the user's ramp to
      *  Grayscale. */
     int m_lastRampRow = 0;

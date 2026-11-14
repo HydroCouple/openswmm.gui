@@ -48,7 +48,7 @@ OutputReader openProfileReader(SWMMResultsLayer *layer)
 // Note: `end_period` in the engine API is INCLUSIVE — passing
 // `periodCount` instead of `periodCount - 1` asks the engine for one more
 // value than the buffer can hold and trips an out-of-range error that
-// leaves the buffer uninitialised → bogus values rendered as the HGL.
+// leaves the buffer uninitialized → bogus values rendered as the HGL.
 /**
  * @brief Read a complete node variable row using inclusive [0,periodCount-1].
  * @param[in] handle Private borrowed output reader.

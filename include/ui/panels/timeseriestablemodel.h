@@ -26,7 +26,7 @@
  * signal.
  *
  * Read-only when **any** bound provider is in ExternalFile source mode
- * (per Phase 6.7.3.4 spec — "grid greys out and the user is prompted to
+ * (per Phase 6.7.3.4 spec — "grid grays out and the user is prompted to
  * click Convert-to-Inline").
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
@@ -152,7 +152,7 @@ public:
      *   attempted, even if provider rejects, all shared rows skipped, or values unchanged. No
      *   confirmed-success/atomicity guarantee.
      * @note ANY external provider makes whole grid read-only. Shared time edit loops all live
-     *   providers and groups MovePointCommands in macro if stack exists; NO preflight neighbour
+     *   providers and groups MovePointCommands in macro if stack exists; NO preflight neighbor
      *   validation despite old source comment, later rejection can leave partial alignment.
      *   Divergent time edits provider 0 only. Values edit mapped provider via
      *   SetPointValueCommand/direct setter. Provider owns monotonic/finite checks and rejection

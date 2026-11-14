@@ -70,7 +70,7 @@ class SWMMSubcatchPropertyAdapter : public QObject
     /*! Infiltration model (Horton / Mod-Horton / Green-Ampt / Mod-GA / CN). */
     Q_PROPERTY(InfilModel infilModel READ infilModel WRITE setInfilModel NOTIFY changed)
     // Per-model parameter rows. Editability is gated by the live model in
-    // PropertiesPanel (mirror of the storage Functional/Tabular greying).
+    // PropertiesPanel (mirror of the storage Functional/Tabular graying).
     Q_PROPERTY(double hortonF0 READ hortonF0 WRITE setHortonF0 NOTIFY changed)
     Q_PROPERTY(double hortonFmin READ hortonFmin WRITE setHortonFmin NOTIFY changed)
     Q_PROPERTY(double hortonDecay READ hortonDecay WRITE setHortonDecay NOTIFY changed)

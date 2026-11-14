@@ -245,7 +245,7 @@ private slots:
         QCOMPARE(adapter.xCoord(), -2000.0);
         QCOMPARE(adapter.yCoord(), -2000.0);
 
-        // Labelled like the node adapter's rows.
+        // Labeled like the node adapter's rows.
         QCOMPARE(adapter.displayLabelFor(QStringLiteral("xCoord")), QStringLiteral("X Coordinate"));
         QCOMPARE(adapter.displayLabelFor(QStringLiteral("yCoord")), QStringLiteral("Y Coordinate"));
 

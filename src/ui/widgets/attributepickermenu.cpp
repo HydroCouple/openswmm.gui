@@ -114,7 +114,7 @@ QMenu *AttributePickerMenu::createForObjectKind(ObjectRef::Kind kind, UnitSystem
         }
         break;
 
-    // 2D mesh kinds: fixed list, no species. Callers grey out entries the
+    // 2D mesh kinds: fixed list, no species. Callers gray out entries the
     // layer can't serve (IRunLayer::supportsAttribute) after construction.
     case ObjectRef::Kind::Mesh2DCell:
     case ObjectRef::Kind::Mesh2DEdge:

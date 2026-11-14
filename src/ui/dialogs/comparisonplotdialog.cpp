@@ -274,7 +274,7 @@ void ComparisonPlotDialog::buildUi()
 
     // ----- Right pane: vertical splitter of chart rows ----------------------
     // Slice AT.2: rows live in a Qt::Vertical QSplitter so the user can
-    // drag handles between them; on add we equalise sizes so the first
+    // drag handles between them; on add we equalize sizes so the first
     // chart fills the entire pane until a second one shows up.
     // Slice AT.3: wrap the chart splitter in an outer vertical splitter
     // that also hosts the RangeSliderWidget and StatsSummaryPanel.
@@ -735,7 +735,7 @@ void ComparisonPlotDialog::exportSeriesData(const QVector<int> &seriesIndices)
         return;
 
     // The native dialog doesn't always swap the suffix when the user
-    // changes filters — honour the filter over a stale default suffix.
+    // changes filters — honor the filter over a stale default suffix.
     const bool wantDat = selectedFilter.contains(QStringLiteral("*.dat"));
     if (wantDat && !path.endsWith(QStringLiteral(".dat"), Qt::CaseInsensitive)) {
         if (path.endsWith(QStringLiteral(".csv"), Qt::CaseInsensitive))
@@ -919,7 +919,7 @@ void ComparisonPlotDialog::equaliseChartSplitterSizes()
     if (n == 0)
         return;
     const int total = std::max(m_chartsSplitter->height(),
-                               n * 220); // honour per-row min height
+                               n * 220); // honor per-row min height
     const int per = total / n;
     QList<int> sizes;
     sizes.reserve(n);
@@ -1403,7 +1403,7 @@ void ComparisonPlotDialog::onSeriesTreeContextMenu(const QPoint &pos)
     QMenu menu(this);
     if (isSeries) {
         // Slice AT.3 polish — Plot This Only is meaningless on a one-series
-        // row; grey it out so the user knows it's a no-op.
+        // row; gray it out so the user knows it's a no-op.
         const auto &targetSpec = m_model->spec(seriesIdx);
         int rowSiblingCount = 0;
         for (const auto &row : m_model->rows()) {
@@ -2478,7 +2478,7 @@ void ComparisonPlotDialog::onLoadButtonClicked_()
 {
     if (m_load) {
         m_load->cancel.store(true);
-        m_loadButton->setEnabled(false); // honoured within one frame read
+        m_loadButton->setEnabled(false); // honored within one frame read
         return;
     }
     for (int r = 0; r < m_model->runSourceCount(); ++r)

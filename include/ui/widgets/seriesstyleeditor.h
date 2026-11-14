@@ -7,7 +7,7 @@
  *
  * Replaces the original hand-rolled form widget with a `QTreeView` driven
  * by `QPropertyModel` over a `SeriesStyleObject`. Editors for every visual
- * attribute (colour pickers, font dialogs, enum combos for dash/cap/join,
+ * attribute (color pickers, font dialogs, enum combos for dash/cap/join,
  * etc.) come from the QPropertyModel item-delegate machinery — no
  * per-control wiring is needed here.
  *

@@ -220,7 +220,7 @@ void ObjectBrowserPanel::refresh()
     //
     // Every reload starts fully collapsed — user-driven expansion (clicking
     // a category, or selecting an object via the bus) is the only thing
-    // that opens a category. SWMMObjectTreeModel only materialises rows
+    // that opens a category. SWMMObjectTreeModel only materializes rows
     // that the view actually paints, so a collapsed tree means zero leaf
     // data() calls until the user expands.
     auto *sm = m_view->selectionModel();
@@ -423,7 +423,7 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
                 newOrder.removeAt(fullPos);
                 newOrder.prepend(cat);
             } else if (picked == actUp || picked == actDown) {
-                // Step past the VISIBLE neighbour, not the next entry of the
+                // Step past the VISIBLE neighbor, not the next entry of the
                 // full order: the tree hides empty categories, so swapping
                 // with a hidden one left the visible order unchanged
                 // (feedback C5 — "Move Up does nothing").
@@ -433,8 +433,8 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
                 if (neighbour == SWMMModelLayer::NumCategories || nbPos < 0)
                     return;
                 newOrder.removeAt(fullPos);
-                // Up: land just before the neighbour (its index is unchanged
-                // by the removal above). Down: the neighbour shifted one slot
+                // Up: land just before the neighbor (its index is unchanged
+                // by the removal above). Down: the neighbor shifted one slot
                 // left, so inserting at its OLD index lands just after it.
                 newOrder.insert(nbPos, cat);
             } else if (picked == actBot) {
@@ -498,7 +498,7 @@ void ObjectBrowserPanel::onContextMenuRequested(const QPoint &pos)
 
     // Delete… — spatial objects only for now (node/link/subcatchment/gage),
     // routed through the same undoable DeleteObjectCommand path the map's
-    // right-click delete and the attribute table use, so behaviour is
+    // right-click delete and the attribute table use, so behavior is
     // identical regardless of where the delete starts. Data-object leaves
     // (curves, patterns, …) get no Delete yet — pending the generic
     // DeleteDataObjectCommand + engine delete APIs (see
@@ -646,7 +646,7 @@ void ObjectBrowserPanel::zoomToObject(const SWMMObjectRef &ref)
     // layer-CRS bounding box (single point for nodes / gages, polyline
     // bbox for links, polygon bbox for subcatchments). Anything that
     // previously fell off the identifyByName() X/Y path — subcatchments
-    // and multi-vertex links without centred X/Y attrs — is now covered.
+    // and multi-vertex links without centered X/Y attrs — is now covered.
     // Unknown name → NaN-sentinel extent; finiteness check rejects it.
     const MapExtent obj = m_canvas->extentInCanvasCRS(m_layer, m_layer->objectExtent(ref.name));
     if (!std::isfinite(obj.xMin()) || !std::isfinite(obj.yMin()) || !std::isfinite(obj.xMax()) ||

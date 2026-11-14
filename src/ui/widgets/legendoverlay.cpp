@@ -145,7 +145,7 @@ void paintSymbol(QPainter &p, const OpenSWMM::Render::SymbolStyle &symbol, const
 /**
  * @brief Delegate swatch seed selection to the shared legend-content authority.
  * @param[in] style Symbol style.
- * @return Shared LegendContent colour/fallback result.
+ * @return Shared LegendContent color/fallback result.
  */
 QColor firstSymbolColor(const OpenSWMM::Render::SymbolStyle &style)
 {
@@ -453,7 +453,7 @@ void LegendOverlay::anchorToCanvas()
         x = margin;
         y = (ch - h) / 2;
         break;
-    case Style::Anchor::Free: // honour current pos; just clamp.
+    case Style::Anchor::Free: // honor current pos; just clamp.
         clampInsideCanvas();
         return;
     }
@@ -583,11 +583,11 @@ void LegendOverlay::paintLegend(QPainter &p, const QSize &size, int scrollY,
             const int rowH = std::max(fm.height(), symbolExtent(row.symbol, swatchSize).height());
             const int itemTop = y;
             // Rows with no symbol are sub-headers (kind / section titles).
-            // The old behaviour painted them with the gray fallback patch —
-            // exactly the "patch on the layer label" artefact. Headers are
+            // The old behavior painted them with the gray fallback patch —
+            // exactly the "patch on the layer label" artifact. Headers are
             // text-only; swatches appear only on rows that carry a symbol
             // (graduated bins, categorized classes, or the single-symbol
-            // header that embeds the feature's colour).
+            // header that embeds the feature's color).
             const bool hasSwatch = !row.symbol.layers.isEmpty();
             if (hasSwatch) {
                 paintSymbol(p, row.symbol, QRectF(padding, y, symbolW, rowH), swatchSize);
@@ -828,11 +828,11 @@ void LegendOverlay::contextMenuEvent(QContextMenuEvent *event)
             // doesn't capture stale references after the menu closes.
             QPointer<OpenSWMMVisLayer> layerPtr = itemLayer;
             const QString classKeyCopy = classKey;
-            // Best-effort starting colour for the colour picker — current
+            // Best-effort starting color for the color picker — current
             // override if any, else first symbol color from the legend row.
             QColor seed = LC::colorForClass(itemLayer, classKey);
             if (!seed.isValid()) {
-                // Walk the canonical rows to find this class's colour.
+                // Walk the canonical rows to find this class's color.
                 for (const auto &row : LC::legendItemsFor(itemLayer)) {
                     if (row.classKey == classKey) {
                         seed = firstSymbolColor(row.symbol);
@@ -847,7 +847,7 @@ void LegendOverlay::contextMenuEvent(QContextMenuEvent *event)
                     seed.isValid() ? seed : QColor(Qt::white), this, tr("Change legend color"),
                     QColorDialog::ShowAlphaChannel);
                 if (!picked.isValid())
-                    return; // user cancelled.
+                    return; // user canceled.
                 if (auto *stack = m_canvas->undoStack()) {
                     stack->push(new openswmmvis::map::SetRendererClassColorCommand(
                         layerPtr.data(), classKeyCopy, picked));

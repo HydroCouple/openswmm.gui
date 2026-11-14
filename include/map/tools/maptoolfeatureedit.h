@@ -14,7 +14,7 @@
  * Vertex editing follows OpenSWMMVisMapToolEditVertex's contract
  * (maptooleditvertex.h:29-39) — drag a handle to move it, right-click a
  * segment to insert, right-click a handle to delete, Escape to cancel — but
- * generalised: a FeatureLayer geometry has parts and interior rings, so a
+ * generalized: a FeatureLayer geometry has parts and interior rings, so a
  * handle is addressed by (part, ring, vertex) rather than by a bare index.
  * Handles are painted on the overlay, not added as scene items, exactly as the
  * SWMM vertex editor does.

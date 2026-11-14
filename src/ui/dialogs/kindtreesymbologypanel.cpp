@@ -349,7 +349,7 @@ void KindTreeSymbologyPanel::onTreeSelectionChanged()
     const QModelIndex idx = m_tree->currentIndex();
     if (!idx.isValid())
         return;
-    // Roles live on column 0 only — normalise so clicking the badge column
+    // Roles live on column 0 only — normalize so clicking the badge column
     // still resolves the row's category/routing id.
     const QModelIndex idx0 = idx.sibling(idx.row(), 0);
     const QVariant catVar = m_model->data(idx0, kCategoryRole);
@@ -410,7 +410,7 @@ void KindTreeSymbologyPanel::onTreeItemChanged(QStandardItem *item)
         if ((m->categoryCheckState(cat) != Qt::Unchecked) != visible)
             m->setCategoryVisible(cat, visible);
     }
-    // For result layers, per-kind visibility is honoured at the sublayer
+    // For result layers, per-kind visibility is honored at the sublayer
     // level — toggling here flips the matching FeatureSublayer.
     if (auto *res = qobject_cast<SWMMResultsLayer *>(m_layer.data())) {
         if (auto *sub = res->featureSublayer(cat))
@@ -459,7 +459,7 @@ void KindTreeSymbologyPanel::mountEditorForCategory(OpenSWMMVis::SwmmCategory ca
     auto *tab = new SymbologyTab(ctx, m_stack);
 
     // L-1 — for results layers, add a per-sublayer Labels editor beside the
-    // renderer editor so each kind can be labelled independently with its own
+    // renderer editor so each kind can be labeled independently with its own
     // expression. 1D model layers don't carry the per-feature result values
     // an expression references, so labels there stay on the layer Labels tab.
     OpenSWMM::Render::FeatureSublayerStyle *fstyle = nullptr;

@@ -6,9 +6,9 @@
  * @brief     VS.6 — categorical (paletted) raster renderer.
  *
  *         Maps discrete integer class values (land-use / soil / zone codes)
- *         to colours, the raster analogue of CategorizedRenderer on the
+ *         to colors, the raster analog of CategorizedRenderer on the
  *         feature side. Each class carries a value, a human label, and a
- *         colour. Classes not explicitly listed fall back to a wrapping
+ *         color. Classes not explicitly listed fall back to a wrapping
  *         CategoricalPalette lookup so an unclassified raster still draws.
  *
  *         Implements IRasterRenderer so GISRasterLayer can swap it in via
@@ -31,7 +31,7 @@ namespace OpenSWMM::Render
 
 /*!
  * \class PalettedRasterRenderer
- * \brief Discrete value → colour raster renderer (categorical rasters).
+ * \brief Discrete value → color raster renderer (categorical rasters).
  */
 class PalettedRasterRenderer final : public IRasterRenderer
 {
@@ -40,7 +40,7 @@ public:
     struct Class {
         int value = 0; /*!< The raster cell value (rounded to int). */
         QString label; /*!< Legend label; defaults to the value. */
-        QColor color;  /*!< Swatch + pixel colour. */
+        QColor color;  /*!< Swatch + pixel color. */
     };
 
     /** @brief Construct no explicit classes and a Tab10 fallback palette. */
@@ -67,7 +67,7 @@ public:
     void setPaletteName(QString name);
 
     /*! Build the class list automatically from a set of observed integer
-     *  values, assigning labels = the value and colours from the palette.
+     *  values, assigning labels = the value and colors from the palette.
      * @param uniqueValues Ordered input values, copied without enforcing uniqueness
      * or sorting. Colors cycle by list position, not the integer value. Replaces
      * existing classes and rebuilds the cache; duplicate lookup uses the last row. */

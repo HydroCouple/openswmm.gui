@@ -34,7 +34,7 @@ enum class ProcessPhase : quint32 {
     Running = 2,   ///< Native runner/worker has started its execution path.
     Succeeded = 3, ///< Settled successfully; a late cancel cannot change this outcome.
     Failed = 4,    ///< Settled with an explicit worker/preparation error.
-    Cancelled = 5  ///< Settled as cancelled; no output rollback is implied.
+    Cancelled = 5  ///< Settled as canceled; no output rollback is implied.
 };
 
 /** @brief Owning metadata for one unique accepted attempt, independent of row IDs/titles.

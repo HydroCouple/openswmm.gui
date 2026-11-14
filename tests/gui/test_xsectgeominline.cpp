@@ -377,7 +377,7 @@ private slots:
     // ====================================================================
 
     // Every link subclass carries the five shared stat* rows read-only;
-    // pumps additionally carry the utilisation trio, which the other kinds
+    // pumps additionally carry the utilization trio, which the other kinds
     // must NOT expose. Reading through the meta-object catches READ-
     // accessor typos moc only surfaces at runtime; the never-run editing
     // engine yields zeros.

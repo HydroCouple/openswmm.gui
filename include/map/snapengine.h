@@ -82,7 +82,7 @@ public:
      * @param[in] painter Optional borrowed active overlay painter; null is a no-op.
      * @param[in] tool Optional borrowed tool with live canvas for map-to-widget conversion.
      * @param[in] result Previously computed candidate; unsnapped draws nothing.
-     * @param[in] color Pen colour copied into a two-pixel pen; default orange.
+     * @param[in] color Pen color copied into a two-pixel pen; default orange.
      * @note Converts candidate using canvas map coordinates, draws an unfilled nine-pixel-radius
      *   ellipse, and restores painter state. Caller must align painter with widget pixel
      *   coordinates and ensure snapped native frame is compatible; no transform reset,

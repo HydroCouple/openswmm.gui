@@ -58,7 +58,7 @@ void MapRenderJob::start()
         // Allocate the device-pixel-sized backing image but tell Qt its
         // logical size is imageSize (via setDevicePixelRatio). Layer
         // render() then operates in logical coordinates exactly as before,
-        // while float tile rects are rasterised at full device precision —
+        // while float tile rects are rasterized at full device precision —
         // closes the sub-pixel seams visible at the boundaries of raster
         // basemap tiles on Retina displays.
         const QSize devSize(qRound(imageSize.width() * dpr), qRound(imageSize.height() * dpr));
@@ -100,7 +100,7 @@ void MapRenderJob::start()
                                     QString::fromLatin1(layer->metaObject()->className()))
                                .arg(layerTimer.elapsed());
             }
-        } // QPainter destroyed — img is finalised
+        } // QPainter destroyed — img is finalized
 
         if (perfOn)
             qCDebug(lcRenderPerf).noquote()

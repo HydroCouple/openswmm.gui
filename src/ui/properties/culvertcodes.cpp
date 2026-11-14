@@ -13,7 +13,7 @@
  * deviations from the legacy text, both deliberate:
  *   - code 11 reads "0 deg. wingwall flares" (the legacy string lost
  *     the leading "0"; HDS-5 chart 11 is the straight-sides 0-deg case);
- *   - em-dashes/quotes normalised to ASCII (encoding hygiene rule).
+ *   - em-dashes/quotes normalized to ASCII (encoding hygiene rule).
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 

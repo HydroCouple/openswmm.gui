@@ -32,7 +32,7 @@
  * query() is hot — it is called twice per frame (tri + edge grids) from the
  * QSG renderer / QPainter fallback. It mutates \c seen and \c epoch through
  * mutable members so the hot path needs zero allocations. Callers must
- * serialise query() — the existing call sites are all on the Qt
+ * serialize query() — the existing call sites are all on the Qt
  * render / paint thread, so this is implicit.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */

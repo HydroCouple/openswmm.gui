@@ -196,7 +196,7 @@ private slots:
         }
     }
 
-    /*! Per-method parameter masking — what the attribute table greys out. */
+    /*! Per-method parameter masking — what the attribute table grays out. */
     void masks_matchTheDocumentedPositionalLayout()
     {
         QCOMPARE(infilParamCount(InfilMethod::Horton), 5);

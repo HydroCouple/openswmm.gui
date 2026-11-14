@@ -2,14 +2,14 @@
  * @file      meshenginesync.h
  * @brief     Push the GUI mesh layer's edited state (vertex Z, per-edge conveyance, per-edge
  *            boundary conditions) into the live engine's in-memory 2D mesh, so a subsequent
- *            `swmm_model_write*` serialises the edits.
+ *            `swmm_model_write*` serializes the edits.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
  *
  * Push the GUI mesh layer's edited state (vertex Z, per-edge conveyance,
  * per-edge boundary conditions) into the live engine's in-memory 2D mesh,
- * so a subsequent `swmm_model_write*` serialises the edits. The engine is
+ * so a subsequent `swmm_model_write*` serializes the edits. The engine is
  * the source of truth on save: it already round-trips coupling maps,
  * Manning's n, units, and options that the lightweight GUI mesh model does
  * not retain, so syncing the few editable fields back into it is lossless
@@ -91,9 +91,9 @@ QString validateMeshSaveData(const MeshResult &mesh, const QVector<MeshEdgeBC> &
  * @return False for absent engine mesh, vertex-count mismatch or checked API rejection; true can
  * still mean cell/edge updates were skipped, inspect flags/warnings. No rollback. Bulk z and
  * stage/depth use engine/layer xy length ratio (fallback 1), coupling area retains authored
- * mesh-length-squared convention. Constant boundary flow converts display units per metre to SI
+ * mesh-length-squared convention. Constant boundary flow converts display units per meter to SI
  * only when the post-prepare engine state is initialized; otherwise stays display units per
- * metre. Clears/reauthors vertex names/tags, optional coupling Cd/area and matching-count cell
+ * meter. Clears/reauthors vertex names/tags, optional coupling Cd/area and matching-count cell
  * coupling rows; clears edge name slots before type-specific assignment and pushes conveyance
  * even when resetting defaults. BC group labels have no setter and only retained authored-row
  * writer reattachment can preserve them. Allocates temporary arrays/strings, can log per-call

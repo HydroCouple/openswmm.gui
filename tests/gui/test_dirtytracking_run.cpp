@@ -274,7 +274,7 @@ void TestDirtyTrackingRun::registryFlushWithoutEditDoesNotMarkEdited()
              "could not create probe aquifer");
 
     // AquiferEditorDialog::pickAquifer runs `dlg.exec(); registry->saveToEngine();`
-    // — the flush happens whether the user accepted or cancelled, and it writes
+    // — the flush happens whether the user accepted or canceled, and it writes
     // every provider unconditionally. Dirty tracking must therefore key off the
     // provider edit, not off the flush, or opening a data editor and pressing
     // Cancel would force a full .inp rewrite before the next run.

@@ -131,7 +131,7 @@ private slots:
         QVERIFY(!f.host->cancelOperation(c, &error));
         QVERIFY(!error.isEmpty());
     }
-    /** @brief A cancellation winning while queued skips user work and retains a cancelled terminal. */
+    /** @brief A cancellation winning while queued skips user work and retains a canceled terminal. */
     void queuedCancellationSkipsWorker()
     {
         JobActivityFixture f;
@@ -171,7 +171,7 @@ private slots:
         QVERIFY(!state.startedAt.isValid());
         QVERIFY(state.finishedAt.isValid());
     }
-    /** @brief Worker-thread cancellation is ordered before a normal-return cancelled outcome. */
+    /** @brief Worker-thread cancellation is ordered before a normal-return canceled outcome. */
     void runningCancellationIsDistinctFromCompletion()
     {
         JobActivityFixture f;

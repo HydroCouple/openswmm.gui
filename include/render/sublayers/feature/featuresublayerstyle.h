@@ -37,8 +37,8 @@ namespace OpenSWMM::Render
  *
  *        All sublayers — points, lines, polygons — share these knobs:
  *
- *          attribute     QString  output variable name driving the colour
- *          color         QColor   fallback / single-symbol colour
+ *          attribute     QString  output variable name driving the color
+ *          color         QColor   fallback / single-symbol color
  *          useColorRamp  bool     when true, paint uses the layer-level
  *                                 ramp keyed by `attribute`; when false the
  *                                 single `color` is used (handy for static
@@ -220,7 +220,7 @@ public:
     }
 
     /*! Results layers: marker size follows a result variable (by area),
-     *  whatever renderer colours the kind. */
+     *  whatever renderer colors the kind. */
     /** @return Borrowed area-scaled marker channel, replaced by setSizeChannel()/fromJson(). */
     [[nodiscard]] const SizeChannel &sizeChannel() const { return m_sizeChannel; }
     /** @brief Replace the result-driven marker-size channel using area scaling.
@@ -279,7 +279,7 @@ private:
 // Line archetype — Conduit / Pump / Orifice / Weir / Outlet
 //
 // Folds the legacy ConduitArrowSublayer in via showFlowArrows + the
-// arrow*Px knobs, so each link kind controls its own arrow behaviour.
+// arrow*Px knobs, so each link kind controls its own arrow behavior.
 // ---------------------------------------------------------------------------
 
 class LineFeatureSublayerStyle : public FeatureSublayerStyle
@@ -411,7 +411,7 @@ public:
     }
 
     /*! Results layers: stroke width follows a result variable (linearly),
-     *  whatever renderer colours the kind. */
+     *  whatever renderer colors the kind. */
     /** @return Borrowed linear stroke-width channel, replaced by setWidthChannel()/fromJson(). */
     [[nodiscard]] const SizeChannel &widthChannel() const { return m_widthChannel; }
     /** @brief Replace the result-driven stroke-width channel using linear scaling.

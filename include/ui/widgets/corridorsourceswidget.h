@@ -78,7 +78,7 @@ private:
      */
     void refreshFields();
     /**
-     * @brief Enable width controls for centreline uniform/field modes, disable them for bank pairs and refresh along-spacing help.
+     * @brief Enable width controls for centerline uniform/field modes, disable them for bank pairs and refresh along-spacing help.
      */
     void syncSourceMode();
     /**

@@ -24,14 +24,14 @@ namespace OpenSWMM::Render
 namespace
 {
 
-// Gap A1.2 — colour convention now lives in one place: SymbolProps
+// Gap A1.2 — color convention now lives in one place: SymbolProps
 // (render/symbolstyle.h). Local alias keeps the call sites unchanged.
 using SymbolProps::overrideColorInPlace;
 
-// Slice BB-α legacy-load shim: synthesise a discrete ramp from a list of
-// per-bin colours saved by pre-BB-α schemas. The synthesised ramp uses N
+// Slice BB-α legacy-load shim: synthesize a discrete ramp from a list of
+// per-bin colors saved by pre-BB-α schemas. The synthesized ramp uses N
 // even-spaced stops so colorAt at each bin midpoint reproduces the
-// original colour exactly.
+// original color exactly.
 /** @brief Build RGB ramp stops at the legacy bins' normalized midpoint positions.
  * @param binColors Ordered per-bin colors copied without validity checks.
  * @param mn Lower data bound, stored verbatim without validation.
@@ -52,7 +52,7 @@ RasterColorRamp rampFromBinColors(const QList<QColor> &binColors, double mn, dou
     stops.reserve(n);
     for (int i = 0; i < n; ++i) {
         // Sample at bin midpoint so the ramp evaluated at each midpoint
-        // returns the original colour.
+        // returns the original color.
         const double pos = (n == 1) ? 0.5 : (static_cast<double>(i) + 0.5) / static_cast<double>(n);
         stops.append({pos, binColors.at(i)});
     }
@@ -96,8 +96,8 @@ QList<QColor> GraduatedRenderer::binColors() const
 
 void GraduatedRenderer::setBinColors(QList<QColor> colors)
 {
-    // Legacy compatibility: build a discrete ramp from the per-bin colours
-    // and adopt the colour count as the bin count. autoClassify can be
+    // Legacy compatibility: build a discrete ramp from the per-bin colors
+    // and adopt the color count as the bin count. autoClassify can be
     // called afterwards to recompute breaks from real data.
     if (colors.isEmpty())
         return;
@@ -209,7 +209,7 @@ QColor GraduatedRenderer::colorForBin(int bin) const
     // Overrides survive ramp swaps; cleared explicitly via clearClassEditOverrides().
     if (const auto it = m_binColorOverrides.constFind(bin); it != m_binColorOverrides.constEnd())
         return it.value();
-    // Sample the ramp at the bin's normalised midpoint so the legend
+    // Sample the ramp at the bin's normalized midpoint so the legend
     // swatch and the painted pixel agree.
     const double t = (static_cast<double>(bin) + 0.5) / static_cast<double>(n);
     return m_ramp.colorAt(t);
@@ -221,7 +221,7 @@ QColor GraduatedRenderer::colorForClass(const QString &classKey) const
     const int bin = classKey.toInt(&ok);
     if (!ok || bin < 0)
         return {};
-    // Only report the override; absence is signalled by an invalid colour
+    // Only report the override; absence is signaled by an invalid color
     // so undo-command snapshots can tell "no override" from "override = X".
     const auto it = m_binColorOverrides.constFind(bin);
     return it != m_binColorOverrides.constEnd() ? it.value() : QColor{};
@@ -236,7 +236,7 @@ void GraduatedRenderer::setColorForClass(const QString &classKey, const QColor &
     if (color.isValid())
         m_binColorOverrides.insert(bin, color);
     else
-        m_binColorOverrides.remove(bin); // invalid colour ⇒ drop override.
+        m_binColorOverrides.remove(bin); // invalid color ⇒ drop override.
 }
 
 void GraduatedRenderer::clearClassEditOverrides()
@@ -281,7 +281,7 @@ SymbolStyle GraduatedRenderer::symbolFor(const FeatureRef &, const QVariantMap &
         return styled;
     }
 
-    // Compute the bin index once; colour (and the size axes when they
+    // Compute the bin index once; color (and the size axes when they
     // follow the classify attribute) key off it.
     const int n = m_binner.binCount();
     int bin = 0;
@@ -300,13 +300,13 @@ SymbolStyle GraduatedRenderer::symbolFor(const FeatureRef &, const QVariantMap &
             bin = n - 1;
     }
 
-    // Output axis 1 — colour. Default-on (preserves prior behaviour).
+    // Output axis 1 — color. Default-on (preserves prior behavior).
     // Skipped when the classify value is missing/non-numeric (pre-size-
     // attribute code returned the bare base symbol in that case).
     if (ok && m_outputColorEnabled)
         overrideColorInPlace(styled, colorForBin(bin));
 
-    // Size/width axes — driven by the classify bin (historical behaviour)
+    // Size/width axes — driven by the classify bin (historical behavior)
     // or, when an independent size attribute is set, interpolated over that
     // attribute's own sampled value range.
     if (m_outputSizeEnabled || m_outputWidthEnabled) {
@@ -408,7 +408,7 @@ QJsonObject GraduatedRenderer::toJson() const
     // P2 — static/dynamic source + range mode.
     obj.insert(QStringLiteral("sourceKind"), attributeSourceKindToString(m_sourceKind));
     obj.insert(QStringLiteral("rangeMode"), rangeModeToString(m_rangeMode));
-    // Slice BB Phase 8.6.16 — per-bin colour overrides. Stored as a flat
+    // Slice BB Phase 8.6.16 — per-bin color overrides. Stored as a flat
     // {"bin": "#aarrggbb", …} object so missing keys = no override.
     if (!m_binColorOverrides.isEmpty()) {
         QJsonObject jo;
@@ -445,7 +445,7 @@ void GraduatedRenderer::fromJson(const QJsonObject &j)
         m_lastBreaks.append(v.toDouble());
 
     // Legacy load shim: pre-BB-α projects stored a flat `binColors` array
-    // + `minValue` + `maxValue`. Synthesise a discrete ramp + equal-
+    // + `minValue` + `maxValue`. Synthesize a discrete ramp + equal-
     // interval binner so the project's visuals survive.
     const bool hasLegacy =
         j.contains(QStringLiteral("binColors")) && !j.contains(QStringLiteral("ramp"));
@@ -468,7 +468,7 @@ void GraduatedRenderer::fromJson(const QJsonObject &j)
     m_baseSymbol.fromJson(j.value(QStringLiteral("baseSymbol")).toObject());
 
     // Slice BI Phase 8.13.43-α — output-axis toggles. Default-on for color
-    // (preserves prior behaviour), default-off for size.
+    // (preserves prior behavior), default-off for size.
     if (j.contains(QStringLiteral("outputColorEnabled")))
         m_outputColorEnabled = j.value(QStringLiteral("outputColorEnabled")).toBool(true);
     if (j.contains(QStringLiteral("outputSizeEnabled")))
@@ -481,7 +481,7 @@ void GraduatedRenderer::fromJson(const QJsonObject &j)
     // VS.4 — independent line-width axis. If the project predates VS.4
     // (no width keys) but used the size axis, migrate: the old size axis
     // wrote BOTH "size" and "width" from the same px range, so reproduce
-    // that width behaviour to preserve the project's visuals.
+    // that width behavior to preserve the project's visuals.
     if (j.contains(QStringLiteral("outputWidthEnabled"))) {
         m_outputWidthEnabled = j.value(QStringLiteral("outputWidthEnabled")).toBool(false);
         m_outputWidthMin = j.value(QStringLiteral("outputWidthMin")).toDouble(0.5);
@@ -497,7 +497,7 @@ void GraduatedRenderer::fromJson(const QJsonObject &j)
     m_sourceKind = attributeSourceKindFromString(j.value(QStringLiteral("sourceKind")).toString());
     m_rangeMode = rangeModeFromString(j.value(QStringLiteral("rangeMode")).toString());
 
-    // Slice BB Phase 8.6.16 — per-bin colour overrides.
+    // Slice BB Phase 8.6.16 — per-bin color overrides.
     m_binColorOverrides.clear();
     const QJsonObject jo = j.value(QStringLiteral("binColorOverrides")).toObject();
     for (auto it = jo.constBegin(); it != jo.constEnd(); ++it) {

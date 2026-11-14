@@ -1317,7 +1317,7 @@ private slots:
      * Successful read auto-stretches; existing Analysis selections and background tabs are
      * preserved. A success with empty .out logs error but
      * does not rewrite runner status to failure.
-     * @note 2D initialization consumes copied SI metre geometry and flat four-slot connectivity
+     * @note 2D initialization consumes copied SI meter geometry and flat four-slot connectivity
      * (v3=-1 triangles), creates or reuses layer by absolute snoopy_h5_path (empty paths can
      * match), installs uniquely owned EngineMesh2DSource, applies model CRS/fallback coordinate
      * scale and positive engine dry depth, and selects it. Live source has preference frame/byte
@@ -2052,7 +2052,7 @@ private:
      * @note Success/cancel renames layer final/partial before opening stored snoopy_h5_path;
      * missing file or silent open failure retains old bounded in-memory source. On open, set
      * saved simulation start when known, scan every readable depth frame for strictly greatest
-     * positive cell depth (metres), then transfer unique source ownership to layer. Failed/empty
+     * positive cell depth (meters), then transfer unique source ownership to layer. Failed/empty
      * frames are ignored; ties retain the earliest peak. No scientific finite-data validation
      * beyond source read/max behavior.
      * @note Positive peak sets max color depth without changing dry-depth or thin-film policies.
@@ -2079,7 +2079,7 @@ private:
     /*! Live 1D results (LIVE_1D_RESULTS_PLAN_V2 §4.3): per running job, the
      *  SWMMResultsLayer tailing its .out. Filled on the first progress tick
      *  whose header is on disk, refreshed on every later tick, released in
-     *  the finished handler (which finalises the same layer in place). */
+     *  the finished handler (which finalizes the same layer in place). */
     QHash<int, QPointer<class SWMMResultsLayer>> mLive1DLayers;
 
     /**

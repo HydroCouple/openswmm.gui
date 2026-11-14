@@ -34,7 +34,7 @@ namespace
 
 /**
  *
- * @brief Build the standard metre-based lattice profile options.
+ * @brief Build the standard meter-based lattice profile options.
  * @return Owned forced half-width 2 m, no bank clipping, maximum half-width 6 m,
  * one interior string and chainage step 1 m; other fields retain defaults.
  *
@@ -54,7 +54,7 @@ BurnOptions options()
  *
  * @brief Construct the symmetric section used by lattice fixtures.
  * @return Owned production section reconstructed from depths 0,1,2 m and widths
- * 4,8,12 m (4-metre base, side slope 2H:1V). No local validity assertion.
+ * 4,8,12 m (4-meter base, side slope 2H:1V). No local validity assertion.
  *
  */
 SectionGeometry trapezoid()
@@ -70,7 +70,7 @@ SectionGeometry trapezoid()
  *
  * @brief Build a straight west-east one-percent falling lattice profile.
  * @param id Copied conduit ID, default C1.
- * @param len Intended positive centreline length in metres, default 40.
+ * @param len Intended positive centerline length in meters, default 40.
  * @return Owned profile starting at (0,0), upstream elevation 10 m and downstream
  * 10-0.01*len m, with trapezoid() and options(). Invalid input is left to production
  * validation; no fixture file or engine mutation.
@@ -90,10 +90,10 @@ BurnProfile straight(const QString &id = QStringLiteral("C1"), double len = 40.0
 /**
  *
  * @brief Build a sampled quarter-circle profile for bend validity checks.
- * @param radius Positive arc radius in metres, large enough for the intended valid
+ * @param radius Positive arc radius in meters, large enough for the intended valid
  * corridor; tighter cases deliberately test refusal.
  * @return Owned 25-point arc from (0,0) to (radius,radius), elevation fall 10 to 9 m,
- * standard trapezoid and 0.5-metre chainage step. Uses production profile validation.
+ * standard trapezoid and 0.5-meter chainage step. Uses production profile validation.
  *
  */
 BurnProfile curved(double radius)
@@ -253,15 +253,15 @@ TEST(ChannelBurnLattice, CurvedCorridorStaysValidAndStreamwise)
     EXPECT_TRUE(validate(pm).isEmpty());
 
     // Streamwise alignment: each cell's along-channel edge must follow the
-    // local centreline tangent. Compare the (i → i+1) edge at the cell's own
-    // station against the centreline's own direction there.
+    // local centerline tangent. Compare the (i → i+1) edge at the cell's own
+    // station against the centerline's own direction there.
     double worstDeg = 0.0;
     for (int i = 0; i + 1 < lat.nAlong; ++i) {
         const QPointF a = lat.xy[lat.at(i, lat.nAcross / 2)];
         const QPointF b = lat.xy[lat.at(i + 1, lat.nAcross / 2)];
         const double ang = std::atan2(b.y() - a.y(), b.x() - a.x());
 
-        // Centreline tangent at the same station, from the profile itself.
+        // Centerline tangent at the same station, from the profile itself.
         const double t0 = lat.chainage[i], t1 = lat.chainage[i + 1];
         const auto ptAt = [&](double t) {
             const auto it = std::upper_bound(p.chainage.cbegin(), p.chainage.cend(), t);
@@ -503,7 +503,7 @@ TEST(ChannelBurnLattice, ConflictingOverlapCannotHideAnInteriorRidge)
     surface.build({a, b});
     QPointF xy[3] = {{0, 0}, {1, 0}, {1, 1}};
     double z[3] = {0, 0, 0};
-    // Envelope samples at these corners all equal zero, but its centre is
+    // Envelope samples at these corners all equal zero, but its center is
     // higher. Competing authored planes must be rejected, not certified flat.
     for (auto p : xy)
         EXPECT_DOUBLE_EQ(surface.sample(p).z, 0);
@@ -641,7 +641,7 @@ TEST(ChannelBurnLattice, SliversThinnerThanTheJoinToleranceAreNotChannelErrors)
     const auto any = [](const QPointF &) { return true; };
     EXPECT_GT(surface.error(xy, z, any).maximum, 0.01);
     EXPECT_EQ(surface.error(xy, z, any, 0.05).maximum, 0.0);
-    // The same cell pushed a metre into the corridor is a real overlap.
+    // The same cell pushed a meter into the corridor is a real overlap.
     const QPointF deep[3] = {QPointF(x - 1.0, bankY + 1.0), QPointF(x + 1.0, bankY + 1.0),
                              QPointF(x, bankY - 3.0)};
     EXPECT_GT(surface.error(deep, z, any, 0.05).maximum, 0.1);

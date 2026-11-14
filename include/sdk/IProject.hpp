@@ -99,7 +99,7 @@ public:
      * @param[in] featureId Source FID returned by boundaryFeatures().
      * @param[out] error Optional missing-feature, wrong-geometry or CRS failure detail.
      * @return Polygon/MultiPolygon GeoJSON geometry preserving holes and parts; empty on failure.
-     * @note Use an envelope only to query a remote catalogue, then intersect results with this actual geometry. */
+     * @note Use an envelope only to query a remote catalog, then intersect results with this actual geometry. */
     virtual QJsonObject boundaryPolygon(const QString &layerId, qint64 featureId,
                                         QString *error = nullptr) const = 0;
     /** Transient points/footprints in RFC 7946 GeoJSON; never persisted as model layers. */

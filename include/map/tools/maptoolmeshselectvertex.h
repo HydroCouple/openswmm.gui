@@ -75,7 +75,7 @@ public:
      *   vertices.
      * @note Right uses current mesh-key matching vertex selection; if none,12pixelpick selects one
      *   with global Replace. Existing selected IDs are not revalidated against current topology
-     *   here. Menu shows single Z and SI-labelled depth/HGL choices, no data availability gating;
+     *   here. Menu shows single Z and SI-labeled depth/HGL choices, no data availability gating;
      *   selected attribute or All emits plotVertexSeriesRequested. Target/manager/canvas lifetime
      *   must survive nested loop. No event acceptance.
      */

@@ -9,7 +9,7 @@
  *         simple-marker pass, a simple-line pass, a hatch-fill pass.
  *         Multiple SymbolLayers stack inside a SymbolStyle (bottom-up
  *         paint order) so users can build composite symbols (e.g. an outer
- *         ring + an inner ring + a centre cross marker for a double-ringed
+ *         ring + an inner ring + a center cross marker for a double-ringed
  *         manhole) without inventing one-off symbol classes.
  *
  *         Properties are stored as a QVariantMap to keep the type

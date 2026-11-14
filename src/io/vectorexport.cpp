@@ -217,7 +217,7 @@ struct ProgressBridge {
 /**
  * @brief Convert GDAL fractional progress into export work counters.
  * @param[in] fraction GDAL progress fraction for one translation.
- * @param[in,out] data Nullable borrowed ProgressBridge pointer; its callback may set cancelled.
+ * @param[in,out] data Nullable borrowed ProgressBridge pointer; its callback may set canceled.
  * @return GDAL TRUE to continue, FALSE after the caller requests cancellation; the unused message argument is ignored.
  */
 int CPL_STDCALL bridgeProgress(double fraction, const char *, void *data)
@@ -793,7 +793,7 @@ bool exportRaster(const QString &sourcePath, const QString &destination,
             GDALTranslateOptionsFree(opts);
         }
     } else {
-        // Nearest-neighbour (GDAL's default): a warp must not invent values,
+        // Nearest-neighbor (GDAL's default): a warp must not invent values,
         // and the raster may be categorical.
         argv << QStringLiteral("-t_srs") << targetSrsWkt;
         GDALWarpAppOptions *opts = GDALWarpAppOptionsNew(argv.data(), nullptr);

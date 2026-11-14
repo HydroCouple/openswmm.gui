@@ -164,7 +164,7 @@ void OpenSWMMVisMapToolMeasure::mousePressEvent(QMouseEvent *event)
     toMapCoords(event->pos().x(), event->pos().y(), mx, my);
 
     if (m_finalized) {
-        // Start a brand-new measurement on the first click after finalisation.
+        // Start a brand-new measurement on the first click after finalization.
         clearMeasurement();
     }
 
@@ -324,7 +324,7 @@ void OpenSWMMVisMapToolMeasure::paint(QPainter *painter, const MapExtent &,
     // DISTANCE MODE
     // -----------------------------------------------------------------------
 
-    // Committed segments — thicker when finalised
+    // Committed segments — thicker when finalized
     if (m_vertices.size() >= 2) {
         painter->save();
         painter->setPen(QPen(m_lineColor, m_finalized ? 3 : 2));
@@ -483,7 +483,7 @@ double OpenSWMMVisMapToolMeasure::geodesicDistance(const QPointF &a, const QPoin
 /*!
  * Spherical-excess area formula adapted for geographic coordinates (lon/lat).
  * Vertices are assumed to be in WGS-84 degrees after any transform.
- * Returns area in square metres.
+ * Returns area in square meters.
  */
 double OpenSWMMVisMapToolMeasure::geodesicArea(const QVector<QPointF> &vertices) const
 {

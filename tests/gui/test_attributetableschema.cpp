@@ -6,7 +6,7 @@
  *
  *   1. The conduit cross-section block (XSection compound cell, inline
  *      Geom 1-4, Barrels) is present, carries the right delegates, and
- *      stays EDITABLE for the tested circular/irregular shape cases. It used to blank + grey each geom
+ *      stays EDITABLE for the tested circular/irregular shape cases. It used to blank + gray each geom
  *      the live shape didn't consume, so a CIRCULAR conduit showed three
  *      permanently empty uneditable columns — which reads as broken
  *      editors, and threw away a width typed before a shape switch.
@@ -3981,7 +3981,7 @@ private slots:
     // Panel-level: the query bar filters on the columns it names
     // =====================================================================
     //
-    // The filter proxy used to materialise EVERY column of every row (twice)
+    // The filter proxy used to materialize EVERY column of every row (twice)
     // to test a predicate that reads one. It now resolves the predicate's
     // field names to columns once and reads only those. That is only a
     // performance change if the accepted-row set is unchanged, so these pin

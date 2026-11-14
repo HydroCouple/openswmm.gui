@@ -403,14 +403,14 @@ private slots:
         QCOMPARE(AnalysisStore::analyses(package, &error).size(), 1);
         w.setHasChanges(false);
     }
-    /** @brief Verify running/cancelled outputs produce marked partial analyses and completion refreshes the same analysis ID in place.
-     * Replaces output with doubled flow, recalculates both views while preserving independent styles, and verifies cancelled recalculation preserves displayed data while removing the package for a later rebuild. Each async request is limited to fifteen seconds. */
+    /** @brief Verify running/canceled outputs produce marked partial analyses and completion refreshes the same analysis ID in place.
+     * Replaces output with doubled flow, recalculates both views while preserving independent styles, and verifies canceled recalculation preserves displayed data while removing the package for a later rebuild. Each async request is limited to fifteen seconds. */
     void partialRunsAndRecalculate()
     {
         // One conduit S -> O carrying a constant dry-weather flow.
         /** @brief Write and simulate a one-conduit CMS trace fixture with constant dry-weather inflow.
          * Argument `stem`: stem under the captured evidence folder for INP/report/output files.
-         * Argument `flow`: source flow in cubic metres per second.
+         * Argument `flow`: source flow in cubic meters per second.
          * Returns: output path when model-open-for-writing and engine run succeed, otherwise empty; file-write byte counts are unchecked. */
         auto writeModel = [&](const QString &stem, double flow) {
             const auto inp = path(stem + ".inp"), out = path(stem + ".out"),
@@ -499,7 +499,7 @@ private slots:
         QVERIFY(!flow->displayName().contains("partial"));
         QVERIFY(!registry->run(live).fingerprint.isEmpty());
 
-        // A cancelled simulation is analyzed as partial too.
+        // A canceled simulation is analyzed as partial too.
         const auto cancelledOut = path("cancelled.out");
         QVERIFY(writeBytes(cancelledOut, complete));
         const auto cancelled = registry->beginRun(cancelledOut, snapshot.toJson());
@@ -535,7 +535,7 @@ private slots:
         QCOMPARE(AnalysisStore::analyses(livePackage, &error).size(), 1);
         QVERIFY(AnalysisStore::read(livePackage, liveId, &error));
 
-        // Cancelling a recalculation leaves no package and the layers untouched;
+        // Canceling a recalculation leaves no package and the layers untouched;
         // the next request rebuilds.
         controller->recalculate(live);
         controller->cancel();

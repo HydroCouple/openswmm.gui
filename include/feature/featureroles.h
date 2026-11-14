@@ -17,7 +17,7 @@
  * same way every mesh-cell editor takes its parameters from
  * mesh::cellParamSpecs().
  *
- * A role is a schema template plus a label — never a behaviour switch. The
+ * A role is a schema template plus a label — never a behavior switch. The
  * layer stays a plain OGR table whatever its role, so every consumer that
  * accepts "a vector layer" keeps working.
  *
@@ -193,7 +193,7 @@ enum class RegionCells { Auto, Triangles, RequiredQuads };
 
 /*!
  * \brief Whether boundary-condition field \p field carries a value for the
- *        BC type token \p bcType (§4.7: the editors grey out the others).
+ *        BC type token \p bcType (§4.7: the editors gray out the others).
  * \details Mirrors MeshAttributeTableModel's per-type masking: each type
  *          reads one parameter; `bc_type`, `group` and `conveyance` apply
  *          throughout. Fields of other roles always apply.

@@ -46,7 +46,7 @@ constexpr qreal kEqualAlpha = 0.75; // no path highlighted
 // so an overlay band starting at 1e7 leaves 4 orders of magnitude of
 // headroom — large enough that no realistic layer stack can collide.
 // Halos sit above the path lines so endpoints remain visible when paths
-// overlap them.  Transparency on the pen colours (kDimAlpha/kEqualAlpha)
+// overlap them.  Transparency on the pen colors (kDimAlpha/kEqualAlpha)
 // lets the user still see whatever sits underneath.
 constexpr qreal kZBase = 1.0e7;
 constexpr qreal kZDimmed = kZBase + 0.0;
@@ -135,7 +135,7 @@ void ProfilePathOverlay::setEndpoints(int startEngineNodeIdx, int endEngineNodeI
         p2.setCosmetic(true);
         halo->setPen(p2);
         // With ItemIgnoresTransformations the item's rect is in pixels and
-        // its setPos() is in scene coords.  Centre the rect on (0,0) and
+        // its setPos() is in scene coords.  Center the rect on (0,0) and
         // position the item at the node's scene point.
         halo->setRect(-r, -r, 2 * r, 2 * r);
         halo->setPos(p);

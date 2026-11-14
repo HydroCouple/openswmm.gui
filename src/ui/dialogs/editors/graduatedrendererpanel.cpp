@@ -7,7 +7,7 @@
  *         class.  Slice X.4.
  *
  *         For now this is a thin wrapper around KindRendererPanel (which
- *         already has the colour ramp + bin method + class-breaks table
+ *         already has the color ramp + bin method + class-breaks table
  *         the user asked for in §S2+S5).  A future iteration can promote
  *         the panel content here once the SWMM-specific bits have been
  *         pulled out.
@@ -52,7 +52,7 @@ public:
         auto *lay = new QVBoxLayout(this);
         lay->setContentsMargins(0, 0, 0, 0);
         // Feedback C2 — size / outline / labels stay editable under a
-        // classified renderer (colour still comes from the classes).
+        // classified renderer (color still comes from the classes).
         QWidget *base = createBaseSymbolGroup(ctx, this);
         if (base)
             lay->addWidget(base);
@@ -76,7 +76,7 @@ public:
                                       this));
             lay->addStretch();
         }
-        // "Size by value" owns the size axis while it is on: grey the static
+        // "Size by value" owns the size axis while it is on: gray the static
         // size / line-width spin so the two don't fight.
         if (base && panel) {
             auto greyStaticSize = [base](bool sizeByValue) {
@@ -105,7 +105,7 @@ public:
 
 } // namespace
 
-// Gap A4.2 — Graduated classifies a numeric attribute; grey the dropdown
+// Gap A4.2 — Graduated classifies a numeric attribute; gray the dropdown
 // row out for kinds whose provider exposes none (e.g. Rain gages).
 REGISTER_RENDERER_PANEL_GATED("graduated", "Graduated",
                               ([](const RendererPanelContext &ctx, QWidget *parent)

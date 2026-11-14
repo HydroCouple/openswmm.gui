@@ -705,7 +705,7 @@ private:
      * @param[in] instance Live model whose loaded boundary is the fixture area.
      * @param[in] checks Current owning assertion results.
      * @param[in] done GUI-thread continuation receiving the augmented results.
-     * @note Optional, enabled by SDK_DATA_CATALOGUE; all catalogue responses are local fixtures. */
+     * @note Optional, enabled by SDK_DATA_CATALOGUE; all catalog responses are local fixtures. */
     static void exerciseDataPreviewNow(ExtensionHost *host, IModelInstance *instance,
                                        QJsonObject checks,
                                        const std::shared_ptr<EventConformance> &events,

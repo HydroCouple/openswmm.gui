@@ -63,7 +63,7 @@ public:
  *  1. Calls QApplication's constructor and configures bundled GIS data paths/settings identity.
  *  2. Seeds examples and constructs the main window before showing the splash.
  *  3. Applies Fusion/theme, installs dialog filters and displays/finishes the splash.
- *  4. Shows the main window and schedules the startup licence prompt.
+ *  4. Shows the main window and schedules the startup license prompt.
  *
  * The application object remains alive for the full run of exec().
  */
@@ -82,11 +82,11 @@ public:
      *   ownership transfer of caller argument storage.
      * @note Configure GIS paths and hydrocouple/application identity before constructing main
      *   window. Capture-manifest mode redirects INI settings beside manifest/default outDir and
-     *   CLEARS that scope, forces light theme and skips startup licence; directory creation/read
+     *   CLEARS that scope, forces light theme and skips startup license; directory creation/read
      *   failures are not reported here. Seeds bundled examples in user data directory.
      * @note Main/splash are allocated as parentless top-level widgets and held raw; destructor body
      *   does not explicitly delete them. Main window exists before splash is created. Deferred
-     *   declined licence calls quit after event loop starts. Constructor can show windows/process
+     *   declined license calls quit after event loop starts. Constructor can show windows/process
      *   UI; do not call from worker or before required QML registration.
      */
     SWMMVisApplication(int &argc, char *argv[]);

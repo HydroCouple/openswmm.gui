@@ -61,7 +61,7 @@ struct SaveAsPathResult {
  *                     Empty input returns an empty result with
  *                     isProject=false, wasNormalized=false.
  *  \param writableExtensions  Lowercase extensions (no leading dot) that
- *                     the GUI's FileFilterRegistry recognises as writable
+ *                     the GUI's FileFilterRegistry recognizes as writable
  *                     formats — today: `{"inp", "oswp", "gpkg"}`. The
  *                     normalizer only collapses `<ext>.<ext>` duplicates
  *                     when *both* halves appear in this set, so a user-

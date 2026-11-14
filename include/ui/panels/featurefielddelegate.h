@@ -20,7 +20,7 @@
  *   - Text           → line edit.
  * Display shows a choice's label. A value outside its list (a Fixed value no
  * longer offered, or a series name the project does not define yet) is drawn
- * in the warning colour with a tooltip — flagged, never refused (plan Q4).
+ * in the warning color with a tooltip — flagged, never refused (plan Q4).
  *
  * A VIEW only: setModelData writes through the model, which for both feature
  * views pushes an EditFeatureAttributesCommand — so every edit stays one undo
@@ -59,7 +59,7 @@ public:
      *   changes do not update delegate.
      * @param[in] parent Optional QObject owner.
      * @brief Create GUI-thread field editor delegate with no model-name callback, empty length
-     *   suffix, BC gating disabled and default warning colour. No editor/model mutation.
+     *   suffix, BC gating disabled and default warning color. No editor/model mutation.
      */
     explicit FeatureFieldDelegate(const openswmmvis::feature::FieldDef &field,
                                   QObject *parent = nullptr);
@@ -86,7 +86,7 @@ public:
      */
     void setLengthUnit(const QString &unit) { m_lengthUnit = unit; }
     /*! Column of the row's `bc_type` in the same model. When set, a BC
-     *  parameter the row's type does not read is drawn greyed (§4.7). -1
+     *  parameter the row's type does not read is drawn grayed (§4.7). -1
      *  (the default) disables it.
      * @param[in] column Logical sibling column containing bc_type EditRole, negative disables
      *   applicability check; upper bound not validated.
@@ -177,8 +177,8 @@ protected:
      * @param[in,out] option Required style option: base called BEFORE local null check, so null is
      *   not a supported safe input.
      * @param[in] index Cell whose EditRole/list membership/applicability affects decoration.
-     * @note After base setup, out-of-list sets normal/highlight text warning colour+italic; else
-     *   unused BC field sets normal Text disabled colour only. Does not change
+     * @note After base setup, out-of-list sets normal/highlight text warning color+italic; else
+     *   unused BC field sets normal Text disabled color only. Does not change
      *   flags/editability/value or show tooltip. Callback may be invoked synchronously; caller
      *   requests repaint on configuration changes.
      */

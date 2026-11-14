@@ -37,7 +37,7 @@ struct ChannelBurnExportResult {
  * sampling surface.
  * @param[in] request Borrowed export settings, unchanged. projectPath/sourcePath must be
  * nonempty; source must be readable single-band DEM with CRS/geotransform, meshCRSWkt parseable.
- * rasterZToSI and meshZToSI are positive finite metres per respective elevation unit. Options
+ * rasterZToSI and meshZToSI are positive finite meters per respective elevation unit. Options
  * already use mesh units. Empty outputDirectory selects project-directory/terrain. Pending
  * artifacts are inherited/protected; their shared ownership is not transferred from caller. No
  * caller engine/GDAL handles are accepted.

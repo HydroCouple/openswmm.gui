@@ -66,7 +66,7 @@ inline QString hintItalicStyle()
 }
 
 /*! Validation-error text color of the current theme.
- * @return Current error colour as an RGB foreground stylesheet; caller reapplies after theme changes.
+ * @return Current error color as an RGB foreground stylesheet; caller reapplies after theme changes.
  */
 inline QString errorTextStyle()
 {
@@ -75,7 +75,7 @@ inline QString errorTextStyle()
 }
 
 /*! Validation-error border of the current theme.
- * @return Current error colour as a one-pixel solid RGB border stylesheet.
+ * @return Current error color as a one-pixel solid RGB border stylesheet.
  */
 inline QString errorBorderStyle()
 {
@@ -86,7 +86,7 @@ inline QString errorBorderStyle()
 /*! Iteration 2 (D5) — bold section heading for pseudo-headings that used
  *  to be raw &lt;b&gt; tags or ad-hoc bold stylesheets. Palette-driven text
  *  color, so it stays theme-live.
- * @return Bold-font stylesheet without overriding colour.
+ * @return Bold-font stylesheet without overriding color.
  */
 inline QString sectionHeadingStyle()
 {

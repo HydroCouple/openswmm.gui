@@ -758,7 +758,7 @@ private slots:
 
     /** @brief Keep four simultaneously open Data tools clipped through dock layout changes.
      * @details Exercises all live tool widgets together without a network request. Each
-     * state retains an image so paint artefacts can be compared with native geometry. */
+     * state retains an image so paint artifacts can be compared with native geometry. */
     void installedDataToolsPaintWithinTheirOwnDocks()
     {
         const auto module = qEnvironmentVariable("SDK_NOAA_DATA_MODULE");
@@ -1061,7 +1061,7 @@ private slots:
         QCOMPARE(fixture.window->hasChanges(), wasDirty);
     }
 
-    /** @brief Hidden preview geometry stays hidden during direct rendering, style refresh and catalogue replacement. */
+    /** @brief Hidden preview geometry stays hidden during direct rendering, style refresh and catalog replacement. */
     void nativeFeaturePreviewVisibilitySurvivesRefreshAndReplacement()
     {
         ViewFixture fixture(model(), path("host.ini"));
@@ -1113,7 +1113,7 @@ private slots:
         QVERIFY(render("preview-visible-again") > 20);
         layer->setVisible(false);
         auto features = collection["features"].toArray();
-        features.removeLast(); // The Data catalogue filter publishes a new subset.
+        features.removeLast(); // The Data catalog filter publishes a new subset.
         collection["features"] = features;
         QVERIFY2(project->showPreview(collection, &error), qPrintable(error));
         QVERIFY(!layer);
@@ -1211,7 +1211,7 @@ private slots:
         QList<qint64> fids{42};
         QVERIFY(previews->previewLayer(session, &fids).isNull());
         QVERIFY(fids.isEmpty());
-        // Catalogue records use string identities, so GDAL chooses the native FIDs.
+        // Catalog records use string identities, so GDAL chooses the native FIDs.
         const QStringList ids{"USGS-03", "USGS-01", "USGS-02"};
         const QList<QPointF> points{{-76.01, 39.995}, {-75.99, 40.015}, {-76.0, 40.005}};
         QJsonArray features;
@@ -1393,7 +1393,7 @@ private slots:
             {"preparedMs", preparedNanoseconds / 1e6}}).toJson());
     }
 
-    /** @brief Dense labelled previews repaint without rebuilding their projected items or glyphs. */
+    /** @brief Dense labeled previews repaint without rebuilding their projected items or glyphs. */
     void densePreviewLabelsReuseSceneItems()
     {
         ViewFixture fixture(model(), path("host.ini"));

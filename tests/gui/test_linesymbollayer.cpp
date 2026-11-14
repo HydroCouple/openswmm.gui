@@ -10,7 +10,7 @@
  *             round-trip through SymbolLayer.
  *           - All 5 arrow placement modes round-trip through string.
  *           - Arrow placement produces representative pixel coverage;
- *             end/both/centred cases also check coarse spatial distribution.
+ *             end/both/centered cases also check coarse spatial distribution.
  *           - Custom dash patterns survive round-trip.
  *           - Reverse flag flips arrow direction.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.

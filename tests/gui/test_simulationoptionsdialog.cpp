@@ -136,7 +136,7 @@ void TestSimulationOptionsDialog::formatEngineDateTimeMatchesInpFormat()
 /** @brief Require year-start and year-end second-resolution Qt dates to survive dialog date/time string conversion. */
 void TestSimulationOptionsDialog::parseEngineDateTimeRoundTrips()
 {
-    // SWMM dates are UTC-labelled wall clock (owner rule 2026-11-12, review E-14).
+    // SWMM dates are UTC-labeled wall clock (owner rule 2026-11-12, review E-14).
     QDateTime original(QDate(2026, 1, 1), QTime(0, 0, 0), QTimeZone::UTC);
     QString d, t;
     SimulationOptionsDialog::formatEngineDateTime(original, d, t);

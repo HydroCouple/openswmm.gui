@@ -94,7 +94,7 @@ public:
     /**
      * @brief Read the mean absolute diagonal affine pixel step, with a closed-sampler fallback.
      * @return (abs(geo[1])+abs(geo[5]))/2 in native raster-CRS units when open; 1.0 when closed.
-     * Shear/rotation terms are ignored, so this is not a full pixel-vector length or metre
+     * Shear/rotation terms are ignored, so this is not a full pixel-vector length or meter
      * conversion. No raster read or mutation; dataset lifetime must remain stable.
      */
     [[nodiscard]] double pixelSize() const;

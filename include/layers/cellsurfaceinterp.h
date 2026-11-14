@@ -71,7 +71,7 @@ namespace CellSurfaceInterp
  *   4. cap η at the max over WET corners (driving head — guards
  *      extrapolating weights at/outside the edge);
  *   5. return max(0, η − ground_interp).
- * @note All XY positions must use one finite coordinate system; z/signed-depth values must be finite and share one vertical unit/datum (normally SI metres). The sample is not checked for containment. Only an exactly zero barycentric denominator sets degenerate; near-degenerate/nonfinite arithmetic has no separate failure report. Negative signed depths are excluded as suppliers just like zero sentinels. No mutation/allocation occurs.
+ * @note All XY positions must use one finite coordinate system; z/signed-depth values must be finite and share one vertical unit/datum (normally SI meters). The sample is not checked for containment. Only an exactly zero barycentric denominator sets degenerate; near-degenerate/nonfinite arithmetic has no separate failure report. Negative signed depths are excluded as suppliers just like zero sentinels. No mutation/allocation occurs.
  */
 inline double depthAt(const QPointF &p, const QPointF &a, const QPointF &b, const QPointF &c,
                       double z0, double z1, double z2, double sd0, double sd1, double sd2,
@@ -138,7 +138,7 @@ inline double depthAt(const QPointF &p, const QPointF &a, const QPointF &b, cons
     } else {
         // Renormalized wet-corner blend: η is the weight-renormalized average
         // of the wet corners' η. On an all-wet edge this equals the plain
-        // barycentric lerp (continuous with fully-wet neighbours); toward a
+        // barycentric lerp (continuous with fully-wet neighbors); toward a
         // non-supplying corner the weights shrink together, so η holds level
         // (zero gradient in the dry direction) and depth = max(0, η − ground)
         // lands the waterline at the sub-cell bed intercept — the surface

@@ -80,7 +80,7 @@ public:
     /**
      * @brief Replace the NODE flow formulation/material metadata and notify an edit.
      * @param[in] options Richards model, cell resolution, water-content absolute tolerance, relative tolerance, and maximum step in seconds.
-     * @param[in] materials Per-layer retention records; alpha and specific storage use inverse metres in both unit systems.
+     * @param[in] materials Per-layer retention records; alpha and specific storage use inverse meters in both unit systems.
      * @details Always marks dirty and emits paramsChanged(). Engine validation occurs on save; a material vector whose count differs from nodeLayers() is not passed by the registry.
      */
     void setNodeFlow(SWMM_LidRichardsOptions options, QVector<SWMM_LidRichardsMaterial> materials);

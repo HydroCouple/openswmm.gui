@@ -13,7 +13,7 @@
  * GetGeomType→OGRGeometryTypeToName / GetFeatureCount(true) / GetSpatialRef),
  * asserting the layer count, names, geometry types (incl. a …Z case), feature
  * counts and CRS the picker will display. The production function is
- * compile-verified by the SWMMVis Gate-0 build and behaviourally verified via
+ * compile-verified by the SWMMVis Gate-0 build and behaviorally verified via
  * the dialog in the manual matrix.
  *
  * Fixtures are written to ${PROJECT_SOURCE_DIR}/tests/output (FIXTURE_OUT_DIR),

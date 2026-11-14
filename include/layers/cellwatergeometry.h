@@ -27,7 +27,7 @@ struct Surface {
     double level = 0.0; // eta relative to datum, never rounded to float
     State state = State::Invalid;
     /**
-     * @param[in] z Bed elevation in the surface datum/unit, normally SI metres.
+     * @param[in] z Bed elevation in the surface datum/unit, normally SI meters.
      * @return level-(z-datum) only for Wet state and finite z, otherwise NaN; negative values carry a below-bed trace, not an invalid sentinel. Assumes stored datum/level are valid for Wet state.
      */
     double signedDepth(double z) const
@@ -42,7 +42,7 @@ struct Surface {
 /**
  * @brief Recover one common cell stage from triangle/quad mean storage at a local elevation datum.
  * @param[in] cell Valid triangle/quad connectivity; positive quad depth additionally requires two positive finite-area subtriangles with readable elevation indices.
- * @param[in] meanDepth Nonnegative finite mean depth in bed vertical units, normally SI metres.
+ * @param[in] meanDepth Nonnegative finite mean depth in bed vertical units, normally SI meters.
  * @param[in] z Vertex bed elevations with one datum/unit, indexed by cell vertices/subtriangles.
  * @return Owned Invalid surface for bad depth/required geometry, Dry for exactly zero depth, otherwise Wet when finite stage is recovered. Datum is minimum corner bed, level is relative stage. Dry quad input does not validate quad area/split details.
  * @note Performs no allocation/source mutation and retains no references.
@@ -92,7 +92,7 @@ using CornerDepths = std::array<double, 4>;
 // Presentation state is separate from stored water and the solver's dry flag.
 enum class DisplayState : unsigned char { Invalid, Dry, ThinFilm, PartiallyWet, Wet };
 struct VisibilityPolicy {
-    double filmDepth = 0.0; // SI metres; zero shows every positive surface
+    double filmDepth = 0.0; // SI meters; zero shows every positive surface
     bool showThinFilms = false;
 };
 
@@ -103,7 +103,7 @@ struct DepthSummary {
 };
 
 /**
- * @param[in] depths Up to four signed corner depths, normally metres.
+ * @param[in] depths Up to four signed corner depths, normally meters.
  * @param[in] count Number of active corners, caller constrained zero through four.
  * @return Deepest nonnegative depth and flags for negative/invalid values; first nonfinite returns immediately with any earlier maximum/negative flag retained. Does not distinguish true dry state by itself.
  */
@@ -125,7 +125,7 @@ inline DepthSummary summarizeDepths(const CornerDepths &depths, int count)
 
 /**
  * @param[in] depths Previously summarized signed traces; Invalid flag takes precedence.
- * @param[in] policy Finite nonnegative film threshold in the depth unit (SI metres in layer use); showThinFilms does not alter classification.
+ * @param[in] policy Finite nonnegative film threshold in the depth unit (SI meters in layer use); showThinFilms does not alter classification.
  * @return Invalid, ThinFilm at/below threshold plus four float-epsilon-scaled tolerance, otherwise PartiallyWet when any negative trace exists or Wet. This overload never returns Dry.
  */
 inline DisplayState displayState(const DepthSummary &depths, const VisibilityPolicy &policy)
@@ -282,7 +282,7 @@ inline CornerDepths inclinedCorners(const VertexDepthReconstruct::CellSplit &cel
  * @brief Request the connected-neighborhood surface fit using common geometry inputs.
  * @param[in] cells Stable valid triangle/quad splits and areas, one per depth/surface entry.
  * @param[in] surfaces Physical reconstructed surfaces, one per cell.
- * @param[in] x,y,z Finite vertex-coordinate arrays of equal length; z/vertical values use SI metres and XY share one projected horizontal coordinate system. Cell indices must be valid.
+ * @param[in] x,y,z Finite vertex-coordinate arrays of equal length; z/vertical values use SI meters and XY share one projected horizontal coordinate system. Cell indices must be valid.
  * @param[in] topology Shared-edge slots built for exactly this ordered mesh.
  * @param[in] depths Positive finite participating mean depths, one per cell.
  * @param[in] flux Four outward side-flux slots per cell, including padded triangle slot; finite opposite-sign/matching shared flux establishes flowing contact. Values are compared for relative consistency without unit conversion.
@@ -316,7 +316,7 @@ inline std::vector<CornerDepths> flowingCornerDepths(
  * @brief Project visible physical stages to shared wet-fan corner traces for display.
  * @param[in] cells Ordered valid mesh splits, matching topology slots.
  * @param[in] surfaces Physical states; must cover cells when reconstructed has full cell length, otherwise the common prefix is processed.
- * @param[in] z Finite vertex beds indexed by cells, in policy vertical units (normally metres).
+ * @param[in] z Finite vertex beds indexed by cells, in policy vertical units (normally meters).
  * @param[in] topology Endpoint connections built for this exact mesh; indices must be in4*cells range.
  * @param[out] out Replaced with one four-slot signed-depth array per cell. Hidden/unusable corners are NaN; output must not alias reconstructed.
  * @param[in] policy Visibility threshold applied before joining and to supplied reconstructed traces.

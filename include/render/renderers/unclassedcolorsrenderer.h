@@ -8,11 +8,11 @@
  *         UnclassedColorsRenderer is the per-feature sibling of
  *         GraduatedRenderer that skips the IntervalBinner entirely:
  *         instead of bucketing the attribute value into N classes, it
- *         normalises the value linearly into [0, 1] over the ramp's
+ *         normalizes the value linearly into [0, 1] over the ramp's
  *         (minValue, maxValue) and samples the ramp directly.
  *
  *         Use case: 2D depth fields, continuous flow rates, anywhere the
- *         user wants smooth colour transitions instead of stepped bins.
+ *         user wants smooth color transitions instead of stepped bins.
  *         Equivalent to QGIS / ArcGIS Pro's "Unclassed Colors" /
  *         "Continuous" symbology.
  *
@@ -39,8 +39,8 @@ namespace OpenSWMM::Render
 
 /*!
  * \class UnclassedColorsRenderer
- * \brief Maps a continuous numeric attribute to a continuous colour ramp,
- *        no bin discretisation.
+ * \brief Maps a continuous numeric attribute to a continuous color ramp,
+ *        no bin discretization.
  */
 class UnclassedColorsRenderer final : public IFeatureRenderer
 {
@@ -78,7 +78,7 @@ public:
 
     /*! The SymbolStyle template. At paint time the renderer overrides
      *  the "color" prop on every SymbolLayer with the ramp-sampled
-     *  colour, as well as existing fillColor slots.
+     *  color, as well as existing fillColor slots.
      * @return Borrowed template; no ramp sampling occurs on access. */
     [[nodiscard]] const SymbolStyle &baseSymbol() const { return m_baseSymbol; }
     /** @brief Replace the complete template without validation or notifications.
@@ -99,7 +99,7 @@ public:
      * @param c Color copied verbatim, including invalid input; sampling ignores it. */
     void setAboveRangeColor(QColor c) { m_aboveRange = c; }
 
-    /*! Colour for NaN / non-finite / missing-attribute values.
+    /*! Color for NaN / non-finite / missing-attribute values.
      *  Default: fully transparent.
      * @return Stored missing-data color, which can be invalid if explicitly assigned. */
     [[nodiscard]] QColor noDataColor() const { return m_noData; }
@@ -115,7 +115,7 @@ public:
      * @param n Count clamped to at least two with no upper bound or notification. */
     void setLegendLabelCount(int n) { m_legendLabelCount = (n < 2) ? 2 : n; }
 
-    /*! Map one raw attribute value to its rendered colour. Public for
+    /*! Map one raw attribute value to its rendered color. Public for
      *  unit tests, the legend builder, and any caller that needs to
      *  preview the renderer without invoking the full symbolFor path.
      * @param v Scalar in the ramp bounds' units; bounds must be finite and ordered.

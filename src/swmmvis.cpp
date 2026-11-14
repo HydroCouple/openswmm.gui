@@ -747,7 +747,7 @@ void SWMMVis::initializeDefaultWorkspaceSession()
 {
     if (!mProject)
         mProject = OpenSWMMVisWorkspace::newInstance(QString(), this);
-    // (Workspace-init chatter removed — Message Log is for modelling
+    // (Workspace-init chatter removed — Message Log is for modeling
     // events only, not GUI-lifecycle noise.)
 }
 
@@ -879,7 +879,7 @@ public:
     void paint(QPainter *painter, const QStyleOptionViewItem &option,
                const QModelIndex &index) const override
     {
-        // Paint the default cell background first (selection colour,
+        // Paint the default cell background first (selection color,
         // alternating rows, grid lines) using the real index so the
         // styling the view expects is applied.
         QStyleOptionViewItem bgOpt = option;
@@ -979,7 +979,7 @@ void SWMMVis::initializeWelcomeScreen()
     connect(ui->commandLinkButtonClearRecentFiles, &QCommandLinkButton::clicked, this,
             &SWMMVis::onClearRecentFiles);
 
-    // Persist "show welcome on startup" toggle and honour it at launch.
+    // Persist "show welcome on startup" toggle and honor it at launch.
     mShowWelcomeScreenOnStartUp =
         mSettings.value(QStringLiteral("SWMMVis::ShowWelcomeOnStartup"), true).toBool();
     ui->checkBoxShowWelcomeOnStartUp->setChecked(mShowWelcomeScreenOnStartUp);
@@ -1218,7 +1218,7 @@ void SWMMVis::applyProjectOpenToActions(bool open)
 {
     // Add-feature actions are available whenever a project is open; they
     // do not require an edit session. actionGenerateMesh is intentionally
-    // omitted — it produces a separate .2dm artefact and is reachable
+    // omitted — it produces a separate .2dm artifact and is reachable
     // even before a project is bound.
     static const QStringList kProjectOnlyActions = {
         QStringLiteral("actionAddJunction"),
@@ -2094,7 +2094,7 @@ void SWMMVis::initializeAnimationToolBar()
     mDateTimeEditAnimationTime = new QDateTimeEdit(this);
     mDateTimeEditAnimationTime->setAccessibleName(tr("Animation time"));
     mDateTimeEditAnimationTime->setDisplayFormat(QStringLiteral("MM/dd/yyyy hh:mm:ss.zzz"));
-    // Simulation times are UTC-labelled wall clocks; a local-zone editor
+    // Simulation times are UTC-labeled wall clocks; a local-zone editor
     // would convert them and show the clock shifted by the UTC offset.
     // Display only: nothing consumes edits made here.
     mDateTimeEditAnimationTime->setTimeSpec(Qt::UTC);
@@ -2139,7 +2139,7 @@ void SWMMVis::initializeAnimationToolBar()
 
     // Cycle toggle — sits after the speed selector. Checked (the default)
     // wraps playback to the start of the range on reaching the end;
-    // unchecked restores the legacy pause-at-end behaviour.
+    // unchecked restores the legacy pause-at-end behavior.
     mCheckBoxAnimationCycle = new QCheckBox(tr("Cycle"), this);
     mCheckBoxAnimationCycle->setChecked(true);
     mCheckBoxAnimationCycle->setContentsMargins(6, 0, 4, 0);
@@ -3136,7 +3136,7 @@ void SWMMVis::onPlotTimeSeriesFromOutputLayer(SWMMResultsLayer *layer)
         default:
             break;
         }
-        // Y2b-2 (amendment D-Y4): the run's species, labelled/united by
+        // Y2b-2 (amendment D-Y4): the run's species, labeled/united by
         // the descriptor authorities and carried BY NAME (QString data —
         // the accept path below tells the two apart by variant type).
         // V0: labels and units from the run's species catalog; R4: node and
@@ -3391,7 +3391,7 @@ void SWMMVis::initializeObjectBrowserDockWidget()
             });
 
     // Slice S — per-object visibility no longer goes through the panel's
-    // signals. The virtualised SWMMObjectTreeModel's setData() calls the
+    // signals. The virtualized SWMMObjectTreeModel's setData() calls the
     // layer's setObjectVisibleAt / setCategoryVisible directly, so the
     // previous objectVisibilityChanged / objectsVisibilityChanged bridges
     // are gone.
@@ -3463,7 +3463,7 @@ void SWMMVis::openTimeSeriesPlotFor(const SWMMObjectRef &ref)
     menu->deleteLater();
 
     if (!picked)
-        return; // user cancelled
+        return; // user canceled
 
     // descriptorFrom tells fixed / species / "All attributes" apart —
     // attributeFrom would read a species action as the sentinel. An
@@ -3800,7 +3800,7 @@ void SWMMVis::openComparisonPlotForDescriptorOnLayer(
         return;
     }
 
-    // Honour the caller-supplied results layer when given (e.g. Object
+    // Honor the caller-supplied results layer when given (e.g. Object
     // Browser's "Plot Time Series ▸ <layer>" submenu); otherwise target the
     // project window's ACTIVE 1D results layer.
     SWMMResultsLayer *resultsLayer = preferred;
@@ -4334,7 +4334,7 @@ void SWMMVis::tickLive1DResults(int jobId, SWMMVisProjectWindow *pw, const QStri
             return;
     }
 
-    // Promote once the file carries data: colour ramp, active 1D layer,
+    // Promote once the file carries data: color ramp, active 1D layer,
     // animation primary — the same promotion the finish handler does, just
     // earlier, so the map/animation/plots follow the run.
     if (!hadData && rl->totalTimeSteps() > 0) {
@@ -4626,8 +4626,8 @@ void SWMMVis::initializeFeatureLayerActions()
     // No icon is assigned here on purpose. registerActions() runs a
     // theme-aware sweep that gives every catalog-registered action the icon
     // named by its catalog row, and it runs AFTER initializeSettings() has
-    // applied the colour scheme. Constructing an icon now — before the theme
-    // exists — is not merely redundant: IconFactory memoises per
+    // applied the color scheme. Constructing an icon now — before the theme
+    // exists — is not merely redundant: IconFactory memoizes per
     // (alias, scheme, mode), so an early call caches the wrong entry. Every
     // other in-code action here (actionMeshAssignFromRaster and friends) is
     // built icon-less for the same reason.
@@ -5287,7 +5287,7 @@ void SWMMVis::initializeMenus()
             bool separatorAfter;
         };
         // DA.3 / BM.0.3 ordering: tables first, then quality, then
-        // subsurface, then dynamic-behaviour (rules + street drainage),
+        // subsurface, then dynamic-behavior (rules + street drainage),
         // and finally unit hydrographs. Streets precede Inlets and both
         // follow Transects because an inlet design is only meaningful
         // against a street cross-section (Inlets plan §2.1).
@@ -5317,7 +5317,7 @@ void SWMMVis::initializeMenus()
             act->setObjectName(QString::fromLatin1(e.objectName));
             // Slice BM.0-Add-New — disable gap categories with a tooltip
             // naming the future editor slice (mirrors the Object Browser
-            // context-menu behaviour).
+            // context-menu behavior).
             if (!ObjectBrowserPanel::hasComplexEditor(e.dc)) {
                 act->setEnabled(false);
                 act->setToolTip(ObjectBrowserPanel::gapTooltipFor(e.dc));
@@ -5784,7 +5784,7 @@ void SWMMVis::initializeMenus()
     // Bring All to Front.
     mMenuWindow = new QMenu(tr("&Window"), this);
     // Off by default in Qt — without this the Reset Window Positions tooltip,
-    // which is where the action's behaviour is actually explained, never shows.
+    // which is where the action's behavior is actually explained, never shows.
     mMenuWindow->setToolTipsVisible(true);
 
     mActionWindowMinimize = mMenuWindow->addAction(tr("&Minimize"));
@@ -5839,7 +5839,7 @@ void SWMMVis::initializeMenus()
 
 void SWMMVis::initializeSettings()
 {
-    // (Settings-I/O chatter removed — Message Log is for modelling
+    // (Settings-I/O chatter removed — Message Log is for modeling
     // events only.)
     onSetProgressBarBusy(true);
 
@@ -5961,7 +5961,7 @@ void SWMMVis::closeEvent(QCloseEvent *event)
     // running, the event loop ends and pool teardown calls
     // QThreadPool::waitForDone(), which keeps the (now windowless) process
     // alive in the Dock until the simulation finishes on its own — looking
-    // like a hang. Cancelling lets
+    // like a hang. Canceling lets
     // each worker flush partial output, kill its legacy-worker subprocess, and
     // exit promptly so teardown returns immediately. Un-pause first: a paused
     // step loop parks in a sleep and would never observe the cancel otherwise
@@ -6268,7 +6268,7 @@ bool SWMMVis::saveProjectWindowAs(SWMMVisProjectWindow *pw)
     // so the dialog opens on the format-of-record (per-project memory under
     // SWMMVis/Project/<inpPath>/LastSaveAsFilter). Falls back to the first
     // filter when no preference exists; in that case the default suffix is
-    // seeded from `.inp` so existing behaviour is preserved.
+    // seeded from `.inp` so existing behavior is preserved.
     const QString prefBase =
         suggested.isEmpty() ? QString()
                             : QStringLiteral("SWMMVis/Project/%1/LastSaveAsFilter").arg(suggested);
@@ -7190,7 +7190,7 @@ void SWMMVis::attachMesh2DLayersAsync(SWMMVisProjectWindow *window, const QStrin
                 MapCanvas *canvas = window->canvas();
                 canvas->zoomToFullExtent();
                 // Optional SWMMVIS_STARTUP_SNAPSHOT_ZOOM=<factor> zooms into the
-                // mesh centre by that linear fraction before grabbing — lets the
+                // mesh center by that linear fraction before grabbing — lets the
                 // harness evidence zoom-gated detail (wireframe/vertices) that is
                 // hidden at full extent.
                 const double zf = qEnvironmentVariable("SWMMVIS_STARTUP_SNAPSHOT_ZOOM").toDouble();
@@ -7281,7 +7281,7 @@ namespace
 {
 
 /**
- * @brief Infer metres per authored mesh coordinate for a 2D source without explicit CRS metadata.
+ * @brief Infer meters per authored mesh coordinate for a 2D source without explicit CRS metadata.
  * @param window Optional borrowed project; absent model/engine or unit-query failure returns one.
  * @return One for SI model or first loaded mesh declaring SI; otherwise 0.3048 for US model.
  * Without a mesh, US flow units alone imply scaling. Uses first mesh rather than active-mesh
@@ -7468,7 +7468,7 @@ void SWMMVis::load2DResultsForAttempt(SWMMVisProjectWindow *window, const QStrin
             const int nFrames = srcRaw->timeCount();
             int peakFrame = 0;
             float peakDepth = 0.0f;
-            // Histogram of WET cell depths over every frame, so the colour
+            // Histogram of WET cell depths over every frame, so the color
             // ramp can be anchored to a high percentile rather than the
             // absolute peak. Anchoring to the peak lets a few very deep
             // cells (a coupling spill, a pit, a pond) stretch the ramp so
@@ -7519,7 +7519,7 @@ void SWMMVis::load2DResultsForAttempt(SWMMVisProjectWindow *window, const QStrin
                     rampMax = peakDepth;
             }
 
-            // Honour the model's DRY_DEPTH so the GUI render
+            // Honor the model's DRY_DEPTH so the GUI render
             // threshold (cells AND velocity/flow vectors) matches
             // what the solver considers wet — without this, the GUI
             // default clips shallow runs invisibly. Prefer the live
@@ -7539,7 +7539,7 @@ void SWMMVis::load2DResultsForAttempt(SWMMVisProjectWindow *window, const QStrin
                 if (!alive() || result->source() != srcRaw) return;
             }
 
-            // Tune the inundation colour ramp's upper bound to the
+            // Tune the inundation color ramp's upper bound to the
             // actual data peak; default (0.5 m) is way too loose
             // for typical overland-flow demos.
             if (peakDepth > 0.0f) {
@@ -7602,7 +7602,7 @@ void SWMMVis::load2DResultsForAttempt(SWMMVisProjectWindow *window, const QStrin
             // An auto-load only claims the slot when it is still empty;
             // an explicit add is the user naming what they want to look
             // at, so it takes the slot outright (matching the 1D
-            // Add SWMM Results behaviour).
+            // Add SWMM Results behavior).
             if (explicitAdd || !window->active2DResultsLayer())
                 window->setActive2DResultsLayer(resLayer);
             if (!alive() || result->source() != srcRaw) return;
@@ -10323,7 +10323,7 @@ void SWMMVis::onUserFlags()
 
     UserFlagsDialog dlg(pw->modelLayer()->ensureUserFlagsModel(), this);
     dlg.exec();
-    // Apply may have written even if the dialog was later cancelled.
+    // Apply may have written even if the dialog was later canceled.
     if (dlg.wroteAnyChanges())
         pw->setHasChanges(true);
 }
@@ -10707,10 +10707,10 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
         }
     }
 
-    // Slice QB.3 — honour the Simulation Options → Output tab override
+    // Slice QB.3 — honor the Simulation Options → Output tab override
     // (Slice AA-4 QSettings round-trip) when present, falling back to
     // the sibling `<inpStem>.{rpt,out}` default so unchanged projects
-    // keep today's behaviour. Strategy C per §Q.5 — GUI-only resolution,
+    // keep today's behavior. Strategy C per §Q.5 — GUI-only resolution,
     // no engine OPTIONS surface. Surface a log line naming the resolved
     // paths so the user can see which files the run will write.
     const QString rptPath = componentRun ? componentRequest.report() :
@@ -11339,7 +11339,7 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
                     [](SimulationRunner *active) { return active && active->supportsPause(); }));
             }
 
-            // Success path OR cancelled path — both preserve the .out
+            // Success path OR canceled path — both preserve the .out
             // on disk (engine_end + engine_report run regardless). Log
             // different text and auto-load the partial results so the
             // user can still inspect whatever was written.
@@ -11381,7 +11381,7 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
             // either way, and the user explicitly asked for Cancel to
             // save results. Only skip on engine-error with no output.
             const bool hasResults = (success || (cancelled && partialResults)) && outHasData && componentResultCurrent();
-            // The layer this job was tailing live, if any. Finalising it
+            // The layer this job was tailing live, if any. Finalizing it
             // in place keeps its identity, so open plots / the animation
             // controller bound to it never see a swap.
             SWMMResultsLayer *liveLayer = self->mLive1DLayers.take(finishedJobId).data();
@@ -11506,7 +11506,7 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
             if (!layerCurrent())
                 return;
             // Issue #155 — the live engine source hands over the solver's
-            // SI metres and has no metadata channel to say so; set the
+            // SI meters and has no metadata channel to say so; set the
             // factor before setSource so the first build already uses it.
             layer->setFallbackCoordinateScale(undeclared2DCoordinateScale(pwGuard.data()));
             if (!layerCurrent())
@@ -11526,7 +11526,7 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
             // can pick it up without an extra connect-time capture.
             layer->setProperty("snoopy_h5_path", h5Canon);
 
-            // Honour the engine's [2D_OPTIONS] DRY_DEPTH so the GUI
+            // Honor the engine's [2D_OPTIONS] DRY_DEPTH so the GUI
             // threshold matches what the solver considers wet — without
             // this, the layer's default (0.1 mm) clips below the engine
             // dry depth and leaves a fringe of "should-be-wet" cells
@@ -11819,7 +11819,7 @@ void SWMMVis::adoptFinished2DResults(int finishedJobId, bool success, int errCod
     auto it = mActive2DResultsLayers.find(finishedJobId);
     if (it == mActive2DResultsLayers.end())
         return;
-    // A cancelled run (success=false, errCode=0) is adopted like
+    // A canceled run (success=false, errCode=0) is adopted like
     // a finished one: the engine wrote and closed the .h5 up to
     // the stop point, so the partial results are scrubbable and
     // persist across save/reopen. Genuine failures (errCode!=0)
@@ -11855,7 +11855,7 @@ void SWMMVis::adoptFinished2DResults(int finishedJobId, bool success, int errCod
             if (h5Src->open(h5Path)) {
                 const int nFrames = h5Src->timeCount();
                 // Scan all frames for the run's actual peak so
-                // the colour ramp + dry-cell threshold match
+                // the color ramp + dry-cell threshold match
                 // the data range. Without this, setSource()
                 // defaults to the LAST frame (often fully
                 // drained) AND the layer's auto-grown
@@ -12476,7 +12476,7 @@ void SWMMVis::onAddVectorLayer()
                     for (const QString &name : toOpen) {
                         auto *vl = new GISVectorLayer(QString());
                         // A file with no CRS is assumed to be in the canvas CRS already.
-                        // That is the long-standing behaviour and is usually right for
+                        // That is the long-standing behavior and is usually right for
                         // local-coordinate data, but it is the reason a layer occasionally
                         // lands in the wrong place — so say it out loud rather than only
                         // in the openswmm.load.vector logging category, which is off by
@@ -12715,7 +12715,7 @@ void SWMMVis::onAddMesh2DLayer()
     }
 
     // Start in the project folder — the mesh a user reaches for most often is
-    // one they just generated for a neighbouring model.
+    // one they just generated for a neighboring model.
     const QString modelPath = pw->modelLayer()->modelFilePath();
     const QString startDir = !modelPath.isEmpty() ? QFileInfo(modelPath).absolutePath()
                              : mRecentFiles.isEmpty()

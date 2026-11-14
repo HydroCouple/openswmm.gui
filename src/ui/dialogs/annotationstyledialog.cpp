@@ -217,7 +217,7 @@ void AnnotationStyleDialog::buildUi()
     root->addLayout(form);
 
     // Property tree — every style attribute is exposed here. QPropertyModel
-    // auto-resolves an editor for QColor (colour picker), QFont (font
+    // auto-resolves an editor for QColor (color picker), QFont (font
     // dialog), bool (checkbox), and numeric types (spin boxes); no
     // per-field delegate wiring is needed.
     m_tree = new QTreeView(this);
@@ -232,7 +232,7 @@ void AnnotationStyleDialog::buildUi()
         // QPropertyItemDelegate is what binds QColor → QColorDialog,
         // QFont → QFontDialog, bool → checkbox editor, etc. Without it the
         // tree falls back to plain text editors and the user can't drive a
-        // colour picker from the row.
+        // color picker from the row.
         m_tree->setItemDelegate(new AnnotationPropertyDelegate(this));
         m_tree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
         m_tree->header()->setStretchLastSection(true);

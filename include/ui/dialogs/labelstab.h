@@ -6,8 +6,8 @@
  * @brief     Labels tab content for LayerStyleDialog.  Slice X.18.
  *
  *         A GIS-aligned label-style editor — Enabled toggle, font family
- *         + size + bold/italic, text colour, halo (colour + radius),
- *         placement (auto / above / below / left / right / centre), field
+ *         + size + bold/italic, text color, halo (color + radius),
+ *         placement (auto / above / below / left / right / center), field
  *         picker and expression builder, and visibility scale window.
  *         The editor reads from and writes back through the host layer's
  *         `labelConfig()` / `setLabelConfig()` pair so the canvas + the

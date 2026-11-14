@@ -20,7 +20,7 @@
  *
  *         No provider available (Rule-based path with no host, GIS-vector
  *         layer that hasn't implemented it yet) — fall through to the
- *         legacy free-text QLineEdit behaviour.
+ *         legacy free-text QLineEdit behavior.
  *
  *         See docs/RENDERING_DIALOG_DEMO_PLAN.md §2.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.

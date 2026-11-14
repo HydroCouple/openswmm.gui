@@ -45,7 +45,7 @@ public:
     void setSettings(const mesh::ResolutionSettings &settings);
     /**
      * @brief Re-express physical controls in a new display length unit while preserving collected SI settings.
-     * @param[in] metresPerUnit Required positive finite scale to metres; no explicit validation occurs before conversion/division.
+     * @param[in] metresPerUnit Required positive finite scale to meters; no explicit validation occurs before conversion/division.
      * @param[in] label Unit suffix appended to distance controls; dimensionless transition is unaffected.
      * @note Values may be rounded/clamped by control ranges during rehydration.
      */

@@ -338,7 +338,7 @@ QVector<BoundaryCrossing> boundaryCrossings(const QVector<QPointF> &path, const 
         return out;
 
     // Inside-ness of each interval between consecutive candidates (and the two
-    // open ends). A candidate is a crossing only where the two neighbouring
+    // open ends). A candidate is a crossing only where the two neighboring
     // intervals disagree.
     QVector<double> bounds;
     bounds.reserve(cand.size() + 2);
@@ -461,7 +461,7 @@ static double bankHeightAt(const BurnProfile &p, double c)
  * @param[in] c Finite endpoint chainage in profile horizontal units.
  * @param[in] rule Borrowed scales/settings, unchanged; positive fixedLength returns directly
  * without cell floor. Automatic positive routing step/horizontal scale uses
- * sqrt(9.81*depthMetres), divided by metres per horizontal unit, then max with 2*cellSize.
+ * sqrt(9.81*depthMetres), divided by meters per horizontal unit, then max with 2*cellSize.
  * Caller provides finite positive unit factors.
  * @return Connector length in profile XY units, potentially zero for disabled automatic
  * settings. Does not inspect rule.enabled, validate finite/range values, allocate or mutate

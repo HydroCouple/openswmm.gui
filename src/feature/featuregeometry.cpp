@@ -637,7 +637,7 @@ Ring ringFromOgrLine(const OGRLineString *ls, bool closedRing)
         // Compare the DIFFERENCE, not the values: qFuzzyCompare is a relative
         // test and is false for (0.0, 0.0), so a ring closing at the origin
         // would keep its duplicate closing vertex. qFuzzyIsNull(0.0) is true,
-        // so this still recognises the exact close a GeoPackage round trip
+        // so this still recognizes the exact close a GeoPackage round trip
         // produces.
         if (qFuzzyIsNull(first.x() - last.x()) && qFuzzyIsNull(first.y() - last.y()))
             --count;

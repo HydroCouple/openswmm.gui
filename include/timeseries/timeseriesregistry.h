@@ -238,15 +238,15 @@ public:
      *  timeseries dialog already receives the registry. Seeded (and
      *  re-seeded) by SWMMModelLayer::ensureTimeseriesRegistry(), which also
      *  forwards START_DATE / START_TIME option edits. Invalid = unknown.
-     *  Held as a UTC-labelled wall-clock time, like the series points.
+     *  Held as a UTC-labeled wall-clock time, like the series points.
      * @return Copied cached simulation start, invalid when unknown.
      */
     QDateTime simulationStart() const { return m_simulationStart; }
     /**
      * @brief Update the cached project time anchor without shifting provider samples.
      * @param[in] start Project start or invalid when unknown; its date and time of day are kept
-     *   and labelled UTC, whatever zone it carried.
-     * @details Series points are UTC-labelled wall-clock times (the engine has no time zone). A
+     *   and labeled UTC, whatever zone it carried.
+     * @details Series points are UTC-labeled wall-clock times (the engine has no time zone). A
      *   local-time start stepped across a daylight-saving change gave wall-clock times that go
      *   backwards, which the engine refuses. Identical timestamps are a no-op; otherwise emits
      *   simulationStartChanged() after assignment.

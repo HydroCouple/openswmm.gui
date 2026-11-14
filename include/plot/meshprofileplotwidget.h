@@ -149,7 +149,7 @@ public:
      */
     [[nodiscard]] QRectF visibleDataRange() const;
     /**
-     * @brief Multiply both visible spans about the current centre.
+     * @brief Multiply both visible spans about the current center.
      * @param[in] factor Finite positive span multiplier; below one zooms in, above one out. Nonpositive is ignored; NaN is not explicitly rejected.
      * @note Disables fit mode and schedules repaint; no data-extent clamp or immediate range signal occurs.
      */

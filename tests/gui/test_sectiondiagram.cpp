@@ -36,7 +36,7 @@ namespace
 /**
  *
  * @brief Build the section painter box/dimension/leader fixture.
- * @return Owned model with title/subtitle/footer, a 2-by-2 metre box, a labelled
+ * @return Owned model with title/subtitle/footer, a 2-by-2 meter box, a labeled
  * 2-m dimension and one invert leader. No engine access or image allocation.
  *
  */
@@ -580,8 +580,8 @@ void TestSectionDiagram::lidLayersCarryMaterialTextures()
 
     const SectionDiagramModel m = buildLidLayerDiagram(in);
 
-    // Soil must be stippled and storage gravelled: colour alone does not
-    // survive greyscale printing, and it is the material — not the hue — that
+    // Soil must be stippled and storage gravelled: color alone does not
+    // survive grayscale printing, and it is the material — not the hue — that
     // tells a reviewer which layer they are looking at.
     bool stipple = false, gravel = false, hatch = false;
     for (const DiagramPoly &p : m.polys) {
@@ -787,7 +787,7 @@ namespace
  *
  * @brief Build a 120-m sloping reach with about 4.5 m vertical content for exaggeration tests.
  * @return Owned model with target drawn aspect six, automatic exaggeration cap ten
- * and annotation enabled; conduit and muted upper polyline are in metre coordinates.
+ * and annotation enabled; conduit and muted upper polyline are in meter coordinates.
  *
  */
 SectionDiagramModel makeReachModel()
@@ -985,7 +985,7 @@ namespace
 //! \p m plus an inlet/outlet compass pair, as a link profile carries.
 /**
  *
- * @brief Append labelled inlet/outlet compass fixtures to an owned section model copy.
+ * @brief Append labeled inlet/outlet compass fixtures to an owned section model copy.
  * @param m By-value model to extend; existing planInsets are retained. Each new
  * dial has a 90-degree upstream B spoke and a 20-degree C1 spoke.
  * @return Modified owned model with left/right captions; input caller data is not
@@ -1057,7 +1057,7 @@ QPair<int, int> diffRows(const QImage &a, const QImage &b)
 //! A reach with leader labels on both ends — what actually sets the margins.
 /**
  *
- * @brief Build the metre reach fixture with title/subtitle and four end leaders.
+ * @brief Build the meter reach fixture with title/subtitle and four end leaders.
  * @return Owned makeReachModel result extended with crown/invert labels and
  * left/right pixel offsets; these labels exercise painter margin allocation.
  *
@@ -1305,7 +1305,7 @@ void TestSectionDiagram::planInsetTitleIsNotCutToTheDialWidth()
 
     // Both captions are past the dial's width, so both are anchored the same
     // way and the difference in reach is purely the difference in text — a
-    // short caption is centred under the dial and would compare apples to
+    // short caption is centered under the dial and would compare apples to
     // oranges.
     const QString kShort = QStringLiteral("Inlet · MANHOLE_1234");
     const QString kLong = QStringLiteral("Inlet · MANHOLE_1234567890");

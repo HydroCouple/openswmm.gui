@@ -6,7 +6,7 @@
  * @brief     Mode-aware link offset accessors for the editing surfaces.
  *
  * The engine stores every link offset / crest as a DEPTH above the node
- * invert regardless of LINK_OFFSETS (the parser normalises elevations at open
+ * invert regardless of LINK_OFFSETS (the parser normalizes elevations at open
  * and the .inp writer re-adds the invert on save). Legacy SWMM-GUI shows the
  * user the value as it appears in the file, so in ELEVATION mode the property
  * editor and attribute table must present `depth + invert` and accept an

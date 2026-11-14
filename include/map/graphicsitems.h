@@ -100,13 +100,13 @@ public:
 
     /** Set a scalar result value (0–1 normalized) and override the fill brush.
      * @param[in] value Ignored scalar argument, not stored, normalized or validated.
-     * @param[in] color Colour directly replaces fill brush with solid QBrush.
+     * @param[in] color Color directly replaces fill brush with solid QBrush.
      * @note Requests item update; no engine/result lookup or attribute metadata update. Sets
      *   internal result-present flag, which does not restore prior style later.
      */
     void setResultValue(double value, const QColor &color);
     /**
-     * @brief Clear result-present flag and request repaint. Existing result colour remains; no
+     * @brief Clear result-present flag and request repaint. Existing result color remains; no
      *   saved brush/pen restored or engine state changed.
      */
     void clearResultValue();
@@ -210,13 +210,13 @@ public:
 
     /**
      * @param[in] value Ignored scalar argument, not stored, normalized or validated.
-     * @param[in] color Colour directly replaces pen colour (other current pen fields retained).
+     * @param[in] color Color directly replaces pen color (other current pen fields retained).
      * @note Requests item update; no engine/result lookup or attribute metadata update. Sets
      *   internal result-present flag, which does not restore prior style later.
      */
     void setResultValue(double value, const QColor &color);
     /**
-     * @brief Clear result-present flag and request repaint. Existing result colour remains; no
+     * @brief Clear result-present flag and request repaint. Existing result color remains; no
      *   saved brush/pen restored or engine state changed.
      */
     void clearResultValue();
@@ -301,13 +301,13 @@ public:
 
     /**
      * @param[in] value Ignored scalar argument, not stored, normalized or validated.
-     * @param[in] color Colour directly replaces fill brush with solid QBrush.
+     * @param[in] color Color directly replaces fill brush with solid QBrush.
      * @note Requests item update; no engine/result lookup or attribute metadata update. No
      *   result-present flag is stored.
      */
     void setResultValue(double value, const QColor &color);
     /**
-     * @brief Request repaint only. Existing result colour remains; no saved brush/pen restored or
+     * @brief Request repaint only. Existing result color remains; no saved brush/pen restored or
      *   engine state changed.
      */
     void clearResultValue();
@@ -756,7 +756,7 @@ public:
      * @param[in] painter Required active local-item painter; null not guarded when drawing.
      * @param[in] option Ignored borrowed graphics style option.
      * @param[in] widget Ignored borrowed widget.
-     * @brief Draw1/2/5decade nice bar/ticks and configured label from metres-per-pixel scale. No
+     * @brief Draw1/2/5decade nice bar/ticks and configured label from meters-per-pixel scale. No
      *   CRS calculation/query performed here.
      * @note Painter state NOT saved/restored, caller guards. Nonpositive scale returns; caller
      *   supplies finite positive scale/max length to avoid log/division problems. Settings max
@@ -772,7 +772,7 @@ public:
      */
     void setMapUnitsPerPixel(double mpp) { m_mapUnitsPerPixel = mpp; }
     /**
-     * @param[in] mpp Physical metres/pixel (or raw scale when raw mode desired), positive finite
+     * @param[in] mpp Physical meters/pixel (or raw scale when raw mode desired), positive finite
      *   expected.
      * @brief Store numeric scale used by paint without validation, recalculation or update();
      *   caller schedules repaint.
@@ -794,7 +794,7 @@ public:
 
 private:
     double m_mapUnitsPerPixel = 1.0;
-    double m_metresPerPixel = 1.0; /*!< CRS-aware metres/pixel; set by caller. */
+    double m_metresPerPixel = 1.0; /*!< CRS-aware meters/pixel; set by caller. */
     bool m_rawCRS = false;
     ScaleBarSettings *m_settings = nullptr;
 };

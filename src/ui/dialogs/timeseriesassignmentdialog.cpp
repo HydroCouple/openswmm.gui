@@ -381,7 +381,7 @@ QString choiceLabel(const TimeSeriesDataset &dataset, const SeriesInfo &series)
 }
 
 /** @brief Pick a series among the loaded observation datasets, or Browse… for a GeoPackage.
- * @return False when cancelled or nothing was chosen; a failed Browse is reported in place. */
+ * @return False when canceled or nothing was chosen; a failed Browse is reported in place. */
 bool chooseObservationSeries(QWidget *parent, const QObject *model, const QJsonObject &current,
                              std::shared_ptr<const TimeSeriesDataset> *dataset, QString *seriesId)
 {

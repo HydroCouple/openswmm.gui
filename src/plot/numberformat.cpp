@@ -64,7 +64,7 @@ QString formatEngineering(double v, int decimals)
         return QStringLiteral("%1e+00").arg(QString::number(0.0, 'f', decimals));
     int e3 = static_cast<int>(std::floor(std::log10(std::fabs(v)) / 3.0)) * 3;
     double mant = v / std::pow(10.0, e3);
-    // Rounding at `decimals` can carry the mantissa to 1000 — renormalise.
+    // Rounding at `decimals` can carry the mantissa to 1000 — renormalize.
     const double lim = 1000.0 - 0.5 * std::pow(10.0, -decimals);
     if (std::fabs(mant) >= lim) {
         mant /= 1000.0;

@@ -5,7 +5,7 @@
 // newly opened model when Welcome was hidden, while ordinary tab switching
 // remains entirely under QMdiArea's control.
 //
-// Ground truth for the underlying Qt behaviour is tests/scratch/
+// Ground truth for the underlying Qt behavior is tests/scratch/
 // mdi_tab_probe.cpp; the QMdiArea facts these tests pin down are:
 //   * QMdiArea::QMdiArea snapshots palette(QPalette::Dark) once and has no
 //     PaletteChange handling (qmdiarea.cpp:1681), and its paintEvent fills
@@ -313,7 +313,7 @@ void TestMdiTabMaximize::restoredModelCannotShowThroughTheWelcome()
     w.area->setActiveSubWindow(welcome);
     QApplication::processEvents();
 
-    // Qt's documented behaviour, not the defect: the model stays put.
+    // Qt's documented behavior, not the defect: the model stays put.
     QVERIFY(model->isVisible());
     QVERIFY(!model->isMaximized());
     QCOMPARE(visibleStrays(w.area), 0);

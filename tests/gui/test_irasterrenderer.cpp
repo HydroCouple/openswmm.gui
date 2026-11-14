@@ -273,7 +273,7 @@ void TestIRasterRenderer::colorForValue_degenerateRangeReturnsFirstStop()
         {0.0, QColor(Qt::red)},
         {1.0, QColor(Qt::blue)},
     });
-    // Any in-range value (== 5.0) collapses to the first stop's colour.
+    // Any in-range value (== 5.0) collapses to the first stop's color.
     QCOMPARE(r.colorForValue(5.0), QColor(Qt::red));
 }
 
@@ -304,7 +304,7 @@ void TestIRasterRenderer::legendSymbolItems_oneItemPerStop()
     QCOMPARE(items.at(1).sortIndex, 1);
     QCOMPARE(items.at(2).sortIndex, 2);
 
-    // Each swatch is a single-layer SimpleFill whose colour matches the stop.
+    // Each swatch is a single-layer SimpleFill whose color matches the stop.
     // (Gap A1.2 — compare as QColor via the tolerant read; the canonical
     // in-memory encoding is a QColor variant, not a hex string.)
     const auto first = items.first().symbol.layers;

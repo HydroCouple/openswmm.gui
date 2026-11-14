@@ -145,7 +145,7 @@ struct CellMesh {
 /**
  * @brief Copy native geometry into scaled mesh types and cache centroid/display-fan data.
  * @param[in] src Non-null borrowed geometry source on its permitted thread.
- * @param[in] unitFactor Multiplier from SI metres to model coordinate/elevation units.
+ * @param[in] unitFactor Multiplier from SI meters to model coordinate/elevation units.
  * @param[out] out Scaled geometry/area/cache data, possibly partially assigned on failure.
  * @return False for failed/empty geometry or invalid first-three corner indices; an out-of-range fourth corner is treated as triangle padding.
  */
@@ -269,7 +269,7 @@ bool loadFrame(IMesh2DSource *src, const CellMesh &m, Mesh2DVariable var, int fr
             if (!src->readDepthsAt(frame, a))
                 return false;
             // Everything in `a` is engine SI at this point and the tail scales
-            // it, so the model-unit bed elevation is converted back to metres
+            // it, so the model-unit bed elevation is converted back to meters
             // before it is added.
             const int lim = std::min(n, int(a.size()));
             for (int i = 0; i < lim; ++i)
@@ -304,7 +304,7 @@ bool loadFrame(IMesh2DSource *src, const CellMesh &m, Mesh2DVariable var, int fr
 /*! Whole-run maximum of \p var in MODEL units: the engine's ENVELOPES dataset
  *  when the file carries it (one read), else a scan of every frame — the only
  *  part of the export that is slow on a long run, so the scan reports progress
- *  and honours cancellation.
+ *  and honors cancellation.
  * @param[in] src Borrowed result source.
  * @param[in] m Cell geometry defining output length and bed datum.
  * @param[in] var Supported whole-run depth, head, or speed variable.
@@ -562,7 +562,7 @@ using Kd2 = nanoflann::KDTreeSingleIndexAdaptor<nanoflann::L2_Simple_Adaptor<dou
 
 /*! Cell adjacency across shared edges, for the Green–Gauss gradient.
  *
- *  Slot `[cell * kEdgeStride + k]` holds the neighbour across local edge k, or
+ *  Slot `[cell * kEdgeStride + k]` holds the neighbor across local edge k, or
  *  -1 on a boundary edge. Edge length and outward normal are recomputed here in
  *  MODEL units, so the module works the same whether or not the source carries
  *  the engine's cached (SI) edge geometry. */
@@ -637,7 +637,7 @@ CellAdjacency buildAdjacency(const CellMesh &m)
     return a;
 }
 
-/*! Green–Gauss cell gradients of \p phi plus the neighbour-stencil bounds that
+/*! Green–Gauss cell gradients of \p phi plus the neighbor-stencil bounds that
  *  clamp the reconstruction, so a steep wet/dry front cannot overshoot.
  * @param[in] m Cell areas, geometry, and vertex counts in model units.
  * @param[in] adj Matching four-slot adjacency/edge normals.
@@ -753,7 +753,7 @@ void buildInterpolator(const CellMesh &m, const Mesh2DExportOptions &opt, Interp
  *
  *  Every method resolves the containing cell first, so a pixel outside the mesh
  *  (a hole, a concave notch, a bounding-box corner) carries no stencil and is
- *  written as NoData — natural neighbour would otherwise extrapolate happily
+ *  written as NoData — natural neighbor would otherwise extrapolate happily
  *  across a hole, because its Delaunay hull spans it.
  *
  *  Green–Gauss stores the containing cell plus the offset from its centroid, so

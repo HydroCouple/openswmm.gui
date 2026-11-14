@@ -155,7 +155,7 @@ struct BlendResult {
  * \param sources  Contributing gages; must be non-empty and index-aligned
  *                 with \p weights.
  * \param weights  Blend weights; need not sum to exactly 1 (they are used as
- *                 given, so the caller's normalisation is what is honoured).
+ *                 given, so the caller's normalization is what is honored).
  * \returns The blended series plus its volume-conservation figures. On refusal
  *          \ref BlendResult::error is set and \ref BlendResult::points is empty.
  *

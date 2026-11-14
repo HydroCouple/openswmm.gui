@@ -44,7 +44,7 @@ LegendDock::LegendDock(QWidget *parent) : QDockWidget(tr("Legend"), parent)
     m_tree->setUniformRowHeights(true);
     m_tree->setAllColumnsShowFocus(true);
     // Match QGIS / ArcGIS: click directly on the swatch chip opens the
-    // colour picker without a separate selection step.
+    // color picker without a separate selection step.
     m_tree->setItemDelegateForColumn(LegendLayerTreeModel::ColColor, new LegendColorDelegate(this));
 
     // Slice S4 P5 — enable right-click on legend rows. The handler builds

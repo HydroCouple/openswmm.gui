@@ -39,7 +39,7 @@ jobs:
 
       - name: Audit the manual
         # All three read only in-repo sources, so this job never needs the
-        # engine checkout. The error-catalogue check, which does, runs in
+        # engine checkout. The error-catalog check, which does, runs in
         # build_and_test.yml where the engine is already cloned.
         run: |
           python3 scripts/manual_docs_audit.py crosswalk --strict

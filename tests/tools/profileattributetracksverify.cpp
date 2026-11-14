@@ -840,7 +840,7 @@ int main(int argc, char *argv[])
     // ── §3.9 — a path element missing from the .out reads as a GAP ─────────
     {
         Profile sparse = *depth.sources.front().data;
-        // Keep the hole off the ends: a node whose only surviving neighbour
+        // Keep the hole off the ends: a node whose only surviving neighbor
         // sits across the gap is an isolated vertex, and a polyline through
         // one point paints nothing — correct, but not what this check is for.
         const int n = int(sparse.byPath.size());
@@ -856,7 +856,7 @@ int main(int argc, char *argv[])
         tracks->setCurrentPeriod(std::max(0, out.periods / 2));
         QApplication::processEvents();
 
-        // The gap node's own column must carry no curve pixel; its neighbours
+        // The gap node's own column must carry no curve pixel; its neighbors
         // must. A zero-filled row would instead put the curve on the floor.
         const QImage img = tracks->grab().toImage();
         // ±2 px around the node's column: the end nodes sit on the track

@@ -55,9 +55,9 @@ using namespace mesh;
 namespace
 {
 
-/*! ft → m. The deck is CFS (feet); the DEM below is metres. */
+/*! ft → m. The deck is CFS (feet); the DEM below is meters. */
 constexpr double kFtToM = 0.3048;
-/*! What the mesh pipeline would carry as zConversionFactor: raster metres are
+/*! What the mesh pipeline would carry as zConversionFactor: raster meters are
  *  multiplied by this to reach model feet. The burn needs its RECIPROCAL. */
 constexpr double kZConv = 1.0 / kFtToM;
 constexpr double kNoData = -9999.0;
@@ -94,12 +94,12 @@ QString outPath(const char *n)
 
 /**
  *
- * @brief Create the controlled metre-elevation raster covering the deck XY extent.
+ * @brief Create the controlled meter-elevation raster covering the deck XY extent.
  * @param path Test-owned output filename, potentially replacing an earlier raster.
  * @return True if GTiff creation and all row writes succeed; false otherwise.
- * Registers GDAL and writes 280x130 Float32 cells, 32-metre elevations, one-unit
+ * Registers GDAL and writes 280x130 Float32 cells, 32-meter elevations, one-unit
  * north-up pixels from (-35,65), declared -9999 NoData and no CRS. XY is deliberately
- * shared with model coordinates while only elevations convert feet/metres. Transform,
+ * shared with model coordinates while only elevations convert feet/meters. Transform,
  * NoData and close statuses are unchecked; partial files can remain on failure.
  *
  */
@@ -133,7 +133,7 @@ bool writeFlatDem(const QString &path)
  * @param path Borrowed one-band fixture path with GDAL drivers already registered.
  * @param wx Finite x in shared fixture/raster XY coordinate units.
  * @param wy Finite y in the same units.
- * @return Metre elevation, or NaN for failed open, outside extent, an untouched
+ * @return Meter elevation, or NaN for failed open, outside extent, an untouched
  * failed-read sentinel or exact -9999 NoData. Assumes valid nonzero axis-aligned
  * transform; ignores transform/read status, opens/closes read-only and never interpolates.
  *
@@ -154,7 +154,7 @@ double sampleAt(const QString &path, double wx, double wy)
     return (v == kNoData) ? std::numeric_limits<double>::quiet_NaN() : v;
 }
 
-/*! The centrelines the GUI's own cache would hand the selector, matching the
+/*! The centerlines the GUI's own cache would hand the selector, matching the
  *  fixture's [COORDINATES] and [VERTICES]. */
 QHash<QString, QVector<QPointF>> polylines()
 {
@@ -170,7 +170,7 @@ class BurnEndToEnd : public ::testing::Test
 protected:
     /**
      *
-     * @brief Own/open the US-unit creek deck and create a persistent flat metre DEM.
+     * @brief Own/open the US-unit creek deck and create a persistent flat meter DEM.
      * Creates eng without simulation initialization, writes reports under configured output,
      * and sets burn widths/chainage in model feet. Fatal assertions can stop setup early;
      * TearDown still releases any created engine. DEM artifacts remain for review.
@@ -233,11 +233,11 @@ protected:
 
     /**
      *
-     * @brief Convert model-foot elevations to metres and write a burn raster.
+     * @brief Convert model-foot elevations to meters and write a burn raster.
      * @param profiles Borrowed valid profiles, with shared XY and bed/section elevations
      * in model feet; copies are converted, originals unchanged.
      * @param dst Borrowed test-owned output path, passed to production writer.
-     * @param src Borrowed source DEM with elevations in metres.
+     * @param src Borrowed source DEM with elevations in meters.
      * @return Writer statistics, including partial/default stats if writing fails; records
      * a nonfatal expectation rather than returning success. Horizontal scale is 1 and
      * vertical scale .3048. Parent/destination cleanup is caller-controlled; no engine edits.
@@ -287,7 +287,7 @@ TEST_F(BurnEndToEnd, TheBurnedRasterHoldsTheChannelBedInTheRastersOwnUnits)
     EXPECT_NEAR(c1->length(), 2.0 * std::hypot(60.0, 10.0), 1e-9);
     EXPECT_NEAR(bedZAt(*c1, c1->length() * 0.5), 99.5, 1e-9);
 
-    // In the raster that bed is METRES, and the pixel centre nearest the bend
+    // In the raster that bed is METRES, and the pixel center nearest the bend
     // carries it. The cross-check is the whole point: 99.5 ft is 30.3276 m, and
     // the 3.28x mistake would write 326.3 or 30.3 / 3.28 instead.
     const double got = sampleAt(dst, 60.5, 9.5);
@@ -325,7 +325,7 @@ TEST_F(BurnEndToEnd, TheBedFallsDownstreamAlongTheWholeReach)
     ASSERT_TRUE(std::isfinite(a) && std::isfinite(b) && std::isfinite(c));
     EXPECT_GT(a, b);
     EXPECT_GT(b, c);
-    // 99 ft and 98.2 ft in metres bracket the whole reach.
+    // 99 ft and 98.2 ft in meters bracket the whole reach.
     EXPECT_LT(a, 99.0 * kFtToM + 0.05);
     EXPECT_GT(c, 98.2 * kFtToM - 0.05);
 }

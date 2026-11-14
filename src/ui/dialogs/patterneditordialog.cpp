@@ -851,7 +851,7 @@ void PatternEditorDialog::refreshChart_()
     double maxV = 0.0;
 
     if (m_smoothPreview) {
-        // Smooth mode: one point per slot at the slot centre.
+        // Smooth mode: one point per slot at the slot center.
         for (int i = 0; i < n; ++i) {
             const double v = m_edited->factor(i);
             m_lineSeries->append(i + 0.5, v);
@@ -874,7 +874,7 @@ void PatternEditorDialog::refreshChart_()
     }
     m_scatterSeries->setVisible(m_markersOn);
 
-    // Categorical x labels — Jan, Sun, 00:00 etc. — anchored at slot centres.
+    // Categorical x labels — Jan, Sun, 00:00 etc. — anchored at slot centers.
     for (int i = 0; i < n; ++i) {
         m_xAxis->append(PatternProvider::rowLabel(m_edited->type(), i), i + 0.5);
     }

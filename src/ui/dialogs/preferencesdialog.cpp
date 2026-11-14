@@ -236,7 +236,7 @@ QWidget *PreferencesDialog::buildGeneralPage()
     f->addRow(tr("P&rofile endpoint halo radius"), m_profileHaloRadiusSpin);
 
     // Helper that paints a color-swatch onto a QPushButton and updates the
-    // associated "pending" QColor when the user picks a new colour via
+    // associated "pending" QColor when the user picks a new color via
     // QColorDialog.
     /**
      * @brief Connect a pending color swatch picker. Argument `btn`: required borrowed button owned
@@ -327,8 +327,8 @@ QWidget *PreferencesDialog::buildSelectionPage()
 
     // Per-class selection pens + brushes. QPenPropertyItem and
     // QBrushPropertyItem from QPropertyModel give the full set of
-    // children (colour / width / cap / join / style / dash for pens,
-    // colour / style for brushes). Edits route through
+    // children (color / width / cap / join / style / dash for pens,
+    // color / style for brushes). Edits route through
     // SelectionRenderingPrefs's Q_PROPERTY setters straight into
     // PreferencesManager. Width semantics for the link pen are
     // ADDITIVE — see PreferencesManager::selectionPen() docs.
@@ -513,7 +513,7 @@ QWidget *PreferencesDialog::buildRenderingPage()
 
     // Link pens — full QPen editor per link type. QPenPropertyItem
     // exposes width / dash-offset / style / cap / join / brush as
-    // expandable children, so users can dial in not just colour but
+    // expandable children, so users can dial in not just color but
     // line thickness and cap shape (the non-conduit defaults are
     // round-capped — see kPumpPenDefault et al. in preferencesmanager.cpp).
     auto *linkGroup = new QGroupBox(tr("Link Pens"), page);

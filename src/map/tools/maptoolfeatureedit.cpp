@@ -398,7 +398,7 @@ void OpenSWMMVisMapToolEditFeatureVertex::mousePressEvent(QMouseEvent *event)
             double mx = 0, my = 0;
             toMapCoords(pos.x(), pos.y(), mx, my);
             // A vertex inserted into a 3D ring is unsampled until the next
-            // resample; NaN is the honest value, not the neighbours' average.
+            // resample; NaN is the honest value, not the neighbors' average.
             r->insertVertex(s.vertex + 1, QPointF(mx, my),
                             std::numeric_limits<double>::quiet_NaN());
             if (layer->isThreeD() && layer->zPolicy().resampleOnEdit)

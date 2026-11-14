@@ -10,7 +10,7 @@
  * Tabs: Simulation Window · Time Steps · Events.
  *
  * "Skip steady state" is NOT here — it moved to Routing & Hydraulics › Routing
- * in T4, because SKIP_STEADY_STATE is honoured under every routing method
+ * in T4, because SKIP_STEADY_STATE is honored under every routing method
  * (PLAN §7 Q1, resolved by measurement).
  *
  * The 2D page mirrors two of these steps and multiplies by the run length for

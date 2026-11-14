@@ -4,7 +4,7 @@
  * @date      2026
  * @license   GPL-3.0-or-later
  * @brief     Map layer backed by a GDAL raster dataset with configurable
- *         colour-ramp rendering and on-demand viewport warping.
+ *         color-ramp rendering and on-demand viewport warping.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -52,13 +52,13 @@ class IRasterRenderer;
  * \brief A map layer backed by a GDAL raster dataset.
  * \details Reads any GDAL-supported raster format (GeoTIFF, NetCDF, HDF5 …),
  *          warps the requested tile into the canvas CRS using GDALWarp, renders
- *          the result with a configurable colour ramp, and caches the warped tile
+ *          the result with a configurable color ramp, and caches the warped tile
  *          until the extent or CRS changes.
  *
- *          Colouring is delegated to the layer's IRasterRenderer (see
+ *          Coloring is delegated to the layer's IRasterRenderer (see
  *          rasterRenderer()): a GraduatedRasterRenderer (continuous stretch or
  *          classified ramp over one band), a PalettedRasterRenderer
- *          (categorical values, incl. an embedded GDAL colour table) or a
+ *          (categorical values, incl. an embedded GDAL color table) or a
  *          MultiBandColorRenderer (RGB(A) composite of three / four Byte bands).
  */
 class GISRasterLayer : public TilePyramidLayer
@@ -124,15 +124,15 @@ public:
     /*!
      * \brief Heuristically detects the vertical unit of the raster's elevation
      *        values from the embedded CRS metadata.
-     * \return \c "m" for metre-based or geographic CRS (most global DEMs),
+     * \return \c "m" for meter-based or geographic CRS (most global DEMs),
      *         \c "ft" for US-customary projected CRS (state plane feet, etc.).
      *         Returns \c "m" when no CRS metadata is present.
-     * @note Heuristic only: geographic/unknown/unrecognized CRS defaults to metres; linear scale near0.3048 selects feet. Does not inspect sample magnitudes, convert values or guarantee an independently correct vertical datum. Reads the primary handle without its own mutex; serialize source replacement.
+     * @note Heuristic only: geographic/unknown/unrecognized CRS defaults to meters; linear scale near0.3048 selects feet. Does not inspect sample magnitudes, convert values or guarantee an independently correct vertical datum. Reads the primary handle without its own mutex; serialize source replacement.
      */
     [[nodiscard]] QString detectVerticalUnit() const;
 
     /*!
-     * \brief Sets the 1-based band index to render on the single-band colour
+     * \brief Sets the 1-based band index to render on the single-band color
      *        path. Re-reads that band's NoData value and, when the live
      *        renderer is a GraduatedRasterRenderer, re-seeds its data range
      *        and classification from the band's statistics / sample.
@@ -177,7 +177,7 @@ public:
      * @param[in] band 1-based source band.
      * @param[in] maxSamples Positive target grid budget used only for the first uncached read of this band. Later calls return cached values regardless of a new budget, even nonpositive.
      * @return Owned finite/non-nodata sample in decimated row-major order, or empty for invalid source/budget/read failure. Grid preserves approximate aspect with each axis at least one pixel, so extremely narrow rasters can exceed the requested target count. Samples remain in raw band units.
-     * @note Holds dataset mutex through overview-aware nearest-neighbour read/filter/cache; rare classes may be missed. Cache identity excludes budget and clears on close/reopen.
+     * @note Holds dataset mutex through overview-aware nearest-neighbor read/filter/cache; rare classes may be missed. Cache identity excludes budget and clears on close/reopen.
      */
     [[nodiscard]] QVector<double> sampleValues(int band, int maxSamples = 200000) const;
 
@@ -191,13 +191,13 @@ public:
      */
     [[nodiscard]] QList<int> uniqueValues(int band, int cap = 256) const;
 
-    /*! \brief True when band 1 carries a GDAL colour table (paletted raster).
-     * @return Whether band one has a nonnull GDAL colour table, under primary mutex; false when closed/missing. No signal or palette ownership transfer.
+    /*! \brief True when band 1 carries a GDAL color table (paletted raster).
+     * @return Whether band one has a nonnull GDAL color table, under primary mutex; false when closed/missing. No signal or palette ownership transfer.
      */
     [[nodiscard]] bool hasColorTable() const;
 
     /*!
-     * \brief Band 1's GDAL colour table as paletted classes (value, label =
+     * \brief Band 1's GDAL color table as paletted classes (value, label =
      *        value, RGBA). Tables larger than 32 entries are filtered to the
      *        values actually observed in the band sample so unused palette
      *        slots do not flood the legend.
@@ -222,10 +222,10 @@ public:
 
     // ----- Raster renderer (Slice BI Phase 8.13.6.7; P5/R-1 full switch) ---
     // The raster renderer is the §J.2 seam every raster paint path goes
-    // through: warpToCanvas() colourises single-band tiles via
+    // through: warpToCanvas() colorizes single-band tiles via
     // m_rasterRenderer->colorForValue(), and a MultiBandColorRenderer
     // switches the warp onto the RGB composite path. The open-time default
-    // is chosen from the dataset (colour table ⇒ Paletted; ≥3 Byte bands ⇒
+    // is chosen from the dataset (color table ⇒ Paletted; ≥3 Byte bands ⇒
     // MultiBandColor; otherwise Graduated continuous grayscale over the band
     // statistics). Persisted / restored by StyleFileIO + ProjectSerializer.
 
@@ -245,7 +245,7 @@ public:
      *          returns null.  Emits \ref rasterRendererChanged() when the
      *          pointer actually changes.
      * @param[in] r Exclusively owned fresh nonnull renderer; null is ignored. Never wrap an already layer-owned raw pointer.
-     * @note Replacement under primary mutex invalidates colourized/queued tiles and generation, then emits rasterRendererChanged()/repaintRequested(). Already running warps complete but their old-generation image is discarded.
+     * @note Replacement under primary mutex invalidates colorized/queued tiles and generation, then emits rasterRendererChanged()/repaintRequested(). Already running warps complete but their old-generation image is discarded.
      */
     void setRasterRenderer(std::unique_ptr<OpenSWMM::Render::IRasterRenderer> r);
 
@@ -267,7 +267,7 @@ public:
      * \param canvasSRS   Canvas CRS.
      * \param band        1-based band index.
      * \param ok          Set to true if a valid value was found.
-     * @return Raw finite native-unit value from the full-resolution containing source pixel, or NaN for closed/invalid band/extent/geotransform/CRS conversion/outside/nodata/read failure. No bilinear blend, colourization, hillshade or vertical conversion.
+     * @return Raw finite native-unit value from the full-resolution containing source pixel, or NaN for closed/invalid band/extent/geotransform/CRS conversion/outside/nodata/read failure. No bilinear blend, colorization, hillshade or vertical conversion.
      * @note Optional ok is initialized false and set true only on finite non-nodata success. Null/missing CRS references assume source-coordinate compatibility; different usable CRS uses an identity-pointer-keyed cached transform. Holds primary dataset mutex throughout. Caller must keep canvas/inherited SRS objects stable during lookup.
      */
     [[nodiscard]] double valueAt(double mapX, double mapY, const SpatialReferenceSystem *canvasSRS,
@@ -345,7 +345,7 @@ public:
 
     // ----- VS.6 — hillshade relief overlay (single-band DTM rasters) ---------
     // When enabled, warpToCanvas() composites a hillshade lighting factor over
-    // the colour-ramped pixels using the warped elevation grid. Parameters
+    // the color-ramped pixels using the warped elevation grid. Parameters
     // mirror HillshadeSymbolLayerSpec; stored as primitives to keep this
     // header free of the render/ spec include.
     /**
@@ -446,7 +446,7 @@ private:
      */
     void closeDataset();
     /**
-     * @note GUI-thread operation clears produced tiles, queue and queued/inflight key set then increments generation. Running warps are not cancelled; their stale results are rejected. Same-key requeue can cause harmless duplicate work. No repaint signal is emitted by this helper.
+     * @note GUI-thread operation clears produced tiles, queue and queued/inflight key set then increments generation. Running warps are not canceled; their stale results are rejected. Same-key requeue can cause harmless duplicate work. No repaint signal is emitted by this helper.
      */
     void invalidateCache();
 
@@ -469,12 +469,12 @@ private:
 
     // Snapshot of everything a worker-thread tile warp reads, taken on the
     // GUI thread at launch so the worker never dereferences live layer state
-    // (the renderer is a clone() — zero locking in the colourise loop).
+    // (the renderer is a clone() — zero locking in the colorize loop).
     struct WarpParams {
         int renderBand = 1;
         // RGB composite path (MultiBandColorRenderer): `bands` lists the
         // source bands feeding R, G, B (and optionally A); otherwise it holds
-        // the single render band and the colourise loop runs.
+        // the single render band and the colorize loop runs.
         bool rgb = false;
         QVector<int> bands;
         bool hasNoData = false;
@@ -502,7 +502,7 @@ private:
      * @param[in] canvasSRS Optional stable borrowed target CRS; absent/failed explicit reprojection can fall back to geotransform-only assumptions.
      * @param[in] pixelWidth,pixelHeight Positive output pixel dimensions with practical allocation/product limits.
      * @param[in] params Stable immutable band/renderer/nodata/hillshade snapshot, with valid band indices for src.
-     * @return Owned ARGB32 image or null for explicit setup failure. Scalar destination usesFloat64/NaN nodata and renderer colours; RGB usesByte channels (values can saturate) with optional alpha.
+     * @return Owned ARGB32 image or null for explicit setup failure. Scalar destination usesFloat64/NaN nodata and renderer colors; RGB usesByte channels (values can saturate) with optional alpha.
      * @note Uses an overview-aware bilinear-decimated window when possible, then GDAL warp with approximate transformer0.125destinationpixel tolerance. Warp execution/final RasterIO statuses are unchecked, so nonnull image is not a full-success guarantee. All live-layer settings are avoided; parallel callers need separate handles/CRS objects/snapshots.
      */
     [[nodiscard]] QImage warpToCanvas(GDALDataset *src, const MapExtent &canvasExtent,
@@ -582,7 +582,7 @@ private:
      * @param[in] extent Finite positive canvas bounds with representable grid indices.
      * @param[in] viewportSize Width chooses nearest log2 resolution; nonpositive width substitutes1024.
      * @param[in] canvasSRS Optional borrowed CRS copied as current template; null retains previous template.
-     * @note GUI-thread queues uncached/unqueued viewport tiles in centre-out order after seed tiles, at most4096viewport cells. Does not launch workers itself or remove older offscreen queued requests; invalidation resets the queue.
+     * @note GUI-thread queues uncached/unqueued viewport tiles in center-out order after seed tiles, at most4096viewport cells. Does not launch workers itself or remove older offscreen queued requests; invalidation resets the queue.
      */
     void requestTiles(const MapExtent &extent, const QSize &viewportSize,
                       const SpatialReferenceSystem *canvasSRS);
@@ -639,7 +639,7 @@ private:
      */
     void finishSlot(TileSlot &slot);
 
-    /*! \brief Band 1's GDAL colour table, unfiltered. Caller holds
+    /*! \brief Band 1's GDAL color table, unfiltered. Caller holds
      *         m_datasetMutex. Empty when there is none. */
     /**
      * @return Owned unfiltered band-one palette classes, empty for closed/missing palette.
@@ -706,10 +706,10 @@ private:
     // Persistent scene item (kept visible as placeholder until new warp completes)
     RasterTileItem *m_sceneItem = nullptr;
 
-    // Single source of truth for raster colouring (P5/R-1). Initialised
+    // Single source of truth for raster coloring (P5/R-1). Initialized
     // eagerly in the ctor (a grayscale GraduatedRasterRenderer) so
     // rasterRenderer() never returns null; applyOpenResult() replaces it with
-    // the dataset-appropriate default, and warpToCanvas() colourises through
+    // the dataset-appropriate default, and warpToCanvas() colorizes through
     // a clone of it.
     std::unique_ptr<OpenSWMM::Render::IRasterRenderer> m_rasterRenderer;
 };

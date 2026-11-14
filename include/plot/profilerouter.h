@@ -139,7 +139,7 @@ struct Result {
  *          pruning, so even paths with very heavy weights are returned as
  *          long as the path-count and wall-clock caps allow.
  *
- *          Honours \p opts.maxPaths (hard cap on collected paths) and
+ *          Honors \p opts.maxPaths (hard cap on collected paths) and
  *          \p opts.softCapMs (wall-clock soft cap).  When either fires the
  *          collected paths are sorted and returned with
  *          \p Result::truncated = true.

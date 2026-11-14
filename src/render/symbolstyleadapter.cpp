@@ -86,12 +86,12 @@ template <typename T> T readPropOn(const Rule *rule, const QString &key, const T
     return it.value().value<T>();
 }
 
-/*! Tolerant colour read for the properties dialog. A SymbolLayer colour prop
+/*! Tolerant color read for the properties dialog. A SymbolLayer color prop
  *  may be stored as a QColor variant (the *SymbolStyleAdapter write path) OR a
  *  "#AARRGGBB" hex string (the struct-regen path styleFromElementSymbol), and
  *  the fill may live under either "fillColor" (typed-spec path) or "color"
  *  (struct-regen path). value<QColor>() does NOT parse a hex QString in this
- *  codebase, so a plain read returned an invalid colour and the dialog opened
+ *  codebase, so a plain read returned an invalid color and the dialog opened
  *  showing defaults. This reader accepts both encodings and an optional
  *  secondary key.
  * @param rule Optional borrowed rule, inspected without mutation.
@@ -414,7 +414,7 @@ void SymbolStyleAdapter::setStrokeColor(const QColor &c)
     const bool b = writeProp<QColor>(QStringLiteral("outlineColor"), c);
     if (!a && !b) {
         // Nothing changed (neither key existed differently) — still
-        // ensure both are set so subsequent reads find a valid colour.
+        // ensure both are set so subsequent reads find a valid color.
         writeProp<QColor>(QStringLiteral("color"), c);
     }
 }
@@ -466,7 +466,7 @@ QObject *createAdapterFor(Rule *rule, QObject *parent);
 QObject *SymbolStyleAdapter::createFor(Rule *rule, QObject *parent)
 {
     QObject *adapter = createAdapterFor(rule, parent);
-    // Keys the rule's layer does not draw (2D layers, render/rulestylesync.h): the editors grey
+    // Keys the rule's layer does not draw (2D layers, render/rulestylesync.h): the editors gray
     // those rows with the reason as tooltip.
     if (const SymbolLayer *layer = firstLayerOf(rule); adapter && layer)
         if (const QVariantMap ignored = layer->props.value(QStringLiteral("_ignored")).toMap();

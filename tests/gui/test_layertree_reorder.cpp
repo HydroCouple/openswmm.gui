@@ -522,7 +522,7 @@ private slots:
     // the model scene once — the cost this measures.
     //
     // A = grouped insert (this slice): each GIS layer lands under the model.
-    // B = the pre-slice behaviour, append at the top, which repopulates
+    // B = the pre-slice behavior, append at the top, which repopulates
     //     nothing. B is the same layers on the same canvas, so the
     //     difference is the repopulate and nothing else.
     //
@@ -573,7 +573,7 @@ private slots:
             canvas.takeLayer(canvas.layers().indexOf(gis[size_t(i)].get()), false);
         QCOMPARE(canvas.layerCount(), 1);
 
-        // B — pre-slice behaviour: straight onto the top of the stack.
+        // B — pre-slice behavior: straight onto the top of the stack.
         t.restart();
         for (int i = 0; i < n; ++i)
             canvas.insertLayer(canvas.layerCount(), gis[size_t(i)].get(), false);

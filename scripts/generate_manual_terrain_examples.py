@@ -69,7 +69,7 @@ def main():
     build('terrain_bowl','T3: square terrain bowl with a central drain',9,9,25,25,(-100,-100),bowl,
           [('J1',96.5,0.5,0,0),('J2',96.25,1,32.5,0),('J3',96,1,65,0),('J4',95.75,1,97.5,0)],
           [('C1','J1','J2',32.5,0.6),('C2','J2','J3',32.5,0.6),('C3','J3','J4',32.5,0.6),('C4','J4','OUT1',32.5,0.6)],[(40,'J1')])
-    # GDAL-readable ESRI ASCII grid: northernmost row first, cell-centre samples.
+    # GDAL-readable ESRI ASCII grid: northernmost row first, cell-center samples.
     rows=['ncols 240','nrows 240','xllcorner -120','yllcorner -120','cellsize 1','NODATA_value -9999']
     rows += [' '.join(f'{bowl(-119.5+i,119.5-j):.4f}' for i in range(240)) for j in range(240)]
     (ROOT/'terrain_bowl.asc').write_text('\n'.join(rows)+'\n')

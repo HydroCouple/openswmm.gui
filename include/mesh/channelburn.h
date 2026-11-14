@@ -16,14 +16,14 @@
  *
  * FRAMES.  Everything here is in the RASTER's own frame — its horizontal CRS
  * and its vertical unit.  That is deliberate: mixing a model elevation in feet
- * with a DEM in metres burns the channel 3.28x too deep, and the cheapest
- * defence is to make the conversion a single, explicit, testable step
+ * with a DEM in meters burns the channel 3.28x too deep, and the cheapest
+ * defense is to make the conversion a single, explicit, testable step
  * (\ref mesh::toRasterFrame) instead of a rule the rest of the code has to remember.
  * The coordinate transform itself belongs to the caller — a GDAL/OGR handle
  * must not cross the worker-thread boundary.
  *
  * PROJECTION, NOT SWEEPING.  A pixel is located by NEAREST-POINT projection
- * onto the densified centreline.  Swept normals cross on the inside of a tight
+ * onto the densified centerline.  Swept normals cross on the inside of a tight
  * bend and make the (chainage, offset) map multi-valued there; nearest-point
  * projection is single-valued everywhere by construction.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -46,7 +46,7 @@ namespace mesh
 /*! \brief Where a point landed on one conduit's corridor. */
 struct BurnProjection {
     int profile = -1;      ///< Index into the caller's profile vector; < 0 = no hit.
-    double chainage = 0.0; ///< Distance along that profile's centreline.
+    double chainage = 0.0; ///< Distance along that profile's centerline.
     double offset = 0.0;   ///< Signed lateral distance. **Positive = right of the
                            ///<     downstream direction**, matching [TRANSECTS], whose
                            ///<     stations ascend from the left bank to the right.
@@ -74,11 +74,11 @@ struct BurnRule {
 };
 
 /*!
- * \brief Uniform-hash index over the burn set's centreline segments.
+ * \brief Uniform-hash index over the burn set's centerline segments.
  *
  * Self-contained: \ref build copies what it needs, so the profiles may be
  * moved or destroyed afterwards. Queries are O(segments in a 3x3 cell
- * neighbourhood), with the cell sized so that neighbourhood always covers the
+ * neighborhood), with the cell sized so that neighborhood always covers the
  * widest corridor.
  */
 class BurnCorridorIndex
@@ -120,7 +120,7 @@ public:
      * @brief Project a raster-frame point onto the nearest eligible segment of each nearby
      * profile.
      * @param[in] p Borrowed query point in this index's horizontal CRS/units, unchanged; finite
-     * coordinates and cell quotients/neighbour arithmetic must fit int, unchecked.
+     * coordinates and cell quotients/neighbor arithmetic must fit int, unchecked.
      * @param[out] out Optional borrowed vector; null does nothing, otherwise cleared first then
      * receives at most one projection per profile in unspecified hash order. No pointer
      * retained. Selects nearest segment by squared Euclidean distance; equal-distance ties keep

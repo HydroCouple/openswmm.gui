@@ -56,7 +56,7 @@ GisVectorSymbolEditor::GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter, QW
         form->addRow(tr("S&ize:"), m_markerSize);
 
         m_markerFill = new ColorButton(page);
-        m_markerFill->setShowAlpha(true); // allow per-colour transparency
+        m_markerFill->setShowAlpha(true); // allow per-color transparency
         form->addRow(tr("Fill:"), m_markerFill);
 
         m_markerStroke = new ColorButton(page);

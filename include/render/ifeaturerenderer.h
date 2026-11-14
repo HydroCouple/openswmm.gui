@@ -63,7 +63,7 @@ namespace OpenSWMM::Render
  *        returns false for a kind also no-ops the matching setter.
  */
 enum class ClassEditKind {
-    Color, /*!< Per-class swatch / fill colour. */
+    Color, /*!< Per-class swatch / fill color. */
     Size,  /*!< Per-class marker size (points / squares / triangles…). */
     Width, /*!< Per-class line width (polylines / strokes). */
     Symbol /*!< Wholesale per-class SymbolStyle replacement. */
@@ -116,7 +116,7 @@ public:
     [[nodiscard]] virtual QList<LegendSymbolItem> legendSymbolItems() const = 0;
 
     /*!
-     * \brief Serialises this renderer to a JSON object.
+     * \brief Serializes this renderer to a JSON object.
      *        The "id" field equals rendererId(); remaining keys are
      *        renderer-specific.
      * @return Owned JSON snapshot of the renderer's persistent configuration.
@@ -158,7 +158,7 @@ public:
      *         basis. Defaults to false so opt-in is explicit. */
     [[nodiscard]] virtual bool supportsClassEdit(ClassEditKind /*kind*/) const { return false; }
 
-    /*! \brief Read the current colour for \p classKey. Returns an invalid
+    /*! \brief Read the current color for \p classKey. Returns an invalid
      *         QColor when the renderer has no explicit value for that class
      *         (e.g. GraduatedRenderer with no override at that bin index,
      *         where the legend swatch comes from sampling the ramp).
@@ -174,7 +174,7 @@ public:
      *         SetRendererClassSizeCommand to snapshot the "before" state. */
     [[nodiscard]] virtual qreal sizeForClass(const QString & /*classKey*/) const { return -1.0; }
 
-    /*! \brief Override the colour for the class identified by \p classKey.
+    /*! \brief Override the color for the class identified by \p classKey.
      *         Has no effect when supportsClassEdit(Color) is false. */
     virtual void setColorForClass(const QString & /*classKey*/, const QColor & /*color*/) {}
 

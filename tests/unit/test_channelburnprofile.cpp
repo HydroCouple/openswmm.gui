@@ -34,9 +34,9 @@ namespace
  *
  * @brief Integrate wetted section area exactly for a piecewise-linear fixture.
  * @param ns Borrowed normalized section with equal station/relZ lengths, ascending
- * station coordinates in metres and relative elevations in metres; not validated.
- * @param d Water depth above the section datum in metres.
- * @return Wetted area in square metres from clipped trapezoids/triangles. Nonpositive
+ * station coordinates in meters and relative elevations in meters; not validated.
+ * @param d Water depth above the section datum in meters.
+ * @return Wetted area in square meters from clipped trapezoids/triangles. Nonpositive
  * depth yields zero for ordinary nonnegative sections; no extrapolation beyond the
  * station extent and no input mutation.
  *
@@ -68,9 +68,9 @@ double areaAtDepth(const NormalizedSection &ns, double d)
 /**
  *
  * @brief Sum horizontal spans wetted by the fixture waterline.
- * @param ns Borrowed equal-length station/relZ arrays in metres, ascending stations.
- * @param d Water depth in metres relative to the section datum.
- * @return Wetted width in metres, with partial spans split at the waterline. An
+ * @param ns Borrowed equal-length station/relZ arrays in meters, ascending stations.
+ * @param d Water depth in meters relative to the section datum.
+ * @return Wetted width in meters, with partial spans split at the waterline. An
  * exactly dry flat segment contributes zero. No validation or mutation.
  *
  */
@@ -96,10 +96,10 @@ double topWidthAtDepth(const NormalizedSection &ns, double d)
 /**
  *
  * @brief Evaluate the analytical symmetric trapezoid width ladder.
- * @param depths Borrowed depths in metres, retained in input order.
- * @param b Bottom width in metres.
+ * @param depths Borrowed depths in meters, retained in input order.
+ * @param b Bottom width in meters.
  * @param z Dimensionless horizontal/vertical side slope on each bank.
- * @return Owned widths b+2*z*depth in metres. No finite, sign or ordering checks;
+ * @return Owned widths b+2*z*depth in meters. No finite, sign or ordering checks;
  * this is a local formula reference rather than an engine cross-section lookup.
  *
  */

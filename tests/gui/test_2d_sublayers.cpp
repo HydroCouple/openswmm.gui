@@ -172,7 +172,7 @@ private slots:
     void velocityVector_glyph_spacing_floor();
     /**
      *
-     * @brief Round-trip pixel-per-m/s glyph scale, head size, color and metre dry-depth cutoff.
+     * @brief Round-trip pixel-per-m/s glyph scale, head size, color and meter dry-depth cutoff.
      *
      */
     void velocityVector_json_roundTrip();
@@ -451,7 +451,7 @@ void Test2DSublayers::velocityVector_json_roundTrip()
 
 void Test2DSublayers::velocityVector_legacy_json_seedsScheme()
 {
-    // Old files have no "classification" key — the loose legacy colour keys must
+    // Old files have no "classification" key — the loose legacy color keys must
     // seed the embedded scheme through the forwarders so saved styles load.
     QJsonObject legacy;
     legacy.insert(QStringLiteral("colorByMagnitude"), true);

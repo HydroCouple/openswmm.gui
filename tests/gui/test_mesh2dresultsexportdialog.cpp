@@ -107,7 +107,7 @@ private slots:
     void oversizedRasterIsRefusedWithPixelCount();
 };
 
-//! Mnemonics unique, icon-only buttons named, persistence contract honoured.
+//! Mnemonics unique, icon-only buttons named, persistence contract honored.
 void TestMesh2DResultsExportDialog::a11yInvariantsHold()
 {
     Mesh2DResultsExportDialog dlg(makeInputs(12));
@@ -220,7 +220,7 @@ void TestMesh2DResultsExportDialog::optionsRoundTrip()
     QVERIFY2(!o.basePath.endsWith(QStringLiteral(".tif")),
              "the writers append their own suffix and extension");
 
-    // The neighbour count only applies to inverse distance weighting.
+    // The neighbor count only applies to inverse distance weighting.
     QVERIFY(child<QSpinBox>(dlg, "idwNeighboursSpin")->isEnabled());
     child<QComboBox>(dlg, "interpCombo")
         ->setCurrentIndex(

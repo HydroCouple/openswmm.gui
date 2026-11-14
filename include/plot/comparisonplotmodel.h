@@ -46,7 +46,7 @@ struct RunSource {
     bool isTransient = false;         ///< True when owned by the dialog (loaded ad hoc).
     SeriesStyle defaultStyle;         ///< Cycle position for series in this run.
 
-    int cycleSeed = 0; ///< Internal: used to spread colours within the run.
+    int cycleSeed = 0; ///< Internal: used to spread colors within the run.
 };
 
 /*! \brief One chart series — points at a RunSource via index and identifies
@@ -244,13 +244,13 @@ public:
     // ----- SeriesSpec list ------------------------------------------------
 
     /*! \brief Append a series spec. Auto-assigns a default style cycle if
-     *  `spec.style.color` equals the default colour. Returns the series index.
-     * @param[in] spec Specification moved into storage without structural/source validation. If its colour alone equals default SeriesStyle colour and its run index exists, the entire style is replaced by the next cycle style, even if other style fields were customized.
+     *  `spec.style.color` equals the default color. Returns the series index.
+     * @param[in] spec Specification moved into storage without structural/source validation. If its color alone equals default SeriesStyle color and its run index exists, the entire style is replaced by the next cycle style, even if other style fields were customized.
      * @return Appended index; derives rows, emits seriesAdded() then rowsChanged(). Invalid stored specs remain present but are omitted from rows.
      */
     int addSeries(SeriesSpec spec);
     /*! Append a selection with one row derivation and one view notification.
-     * @param[in] specs Specifications in append order, moved from the passed-by-value vector. Uses the same colour-only style replacement test as addSeries().
+     * @param[in] specs Specifications in append order, moved from the passed-by-value vector. Uses the same color-only style replacement test as addSeries().
      * @return Number appended, not the starting index. Empty input returns zero silently; otherwise derives rows once and emits seriesBatchAdded() then rowsChanged(), without per-series added signals.
      */
     int addSeriesBatch(QVector<SeriesSpec> specs);

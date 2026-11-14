@@ -131,7 +131,7 @@ void BurnCorridorIndex::build(const QVector<BurnProfile> &profiles)
     if (m_seg.isEmpty())
         return;
 
-    // One cell must cover the widest corridor, so a 3x3 neighbourhood around a
+    // One cell must cover the widest corridor, so a 3x3 neighborhood around a
     // query always holds every segment that can claim it.  A degenerate R of 0
     // falls back to the mean segment length so the grid stays useful.
     const double meanLen = (segCount > 0) ? segLenSum / double(segCount) : 1.0;

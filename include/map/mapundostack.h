@@ -1349,7 +1349,7 @@ private:
  *          inlets, land uses, hydrograph groups, and control rules need new
  *          engine delete APIs first (see
  *          workplans/GUI_DELETE_ALL_OBJECTS_PLAN_2026-07-22.md); supports()
- *          returns false for those so callers can grey the menu action.
+ *          returns false for those so callers can gray the menu action.
  */
 class DeleteDataObjectCommand : public MapCommand
 {
@@ -1902,7 +1902,7 @@ struct GeneratedOutfallSpec {
  *        (CHANNEL_BURN_IN_PLAN_2026-09-21.md §6).
  *
  * \details Retyping a node previously bypassed undo entirely except inside
- *          \ref InsertNodeSplitCommand. This is the general command, modelled
+ *          \ref InsertNodeSplitCommand. This is the general command, modeled
  *          on it: redo() converts through `SWMMModelLayer::applyNodeConvert`
  *          (so the cache and the four refresh signals behave) and then applies
  *          \ref GeneratedOutfallSpec; undo() converts back to the type the
@@ -1986,7 +1986,7 @@ private:
      *   directly to named node.
      * @note Null/closed/missing target or applyOutfall=false no-op. Does not validate target
      *   outfall subtype or check statuses, markEdited or explicitly invalidate/refresh after direct
-     *   scalars. Project feet/metres; empty tag leaves current tag unchanged.
+     *   scalars. Project feet/meters; empty tag leaves current tag unchanged.
      */
     void applySpec();
 

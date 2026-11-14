@@ -9,7 +9,7 @@
  * HTTP headers are persisted under `http-header/{key}` sub-groups,
  * matching QGIS's PATH_PREFIX convention.
  *
- * QSettings organisation / application keys follow the main app (set by
+ * QSettings organization / application keys follow the main app (set by
  * QCoreApplication::setOrganizationName / setApplicationName).
  * The store lives under the "BasemapConnections" top-level group.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -255,7 +255,7 @@ private:
      */
     explicit BasemapConnectionStore(QObject *parent = nullptr);
 
-    // Helpers for header map serialisation
+    // Helpers for header map serialization
     /**
      * @brief Replace the complete http-header subgroup in the current settings group.
      * @param[in,out] s Settings positioned at a connection group; the group position is restored before return.

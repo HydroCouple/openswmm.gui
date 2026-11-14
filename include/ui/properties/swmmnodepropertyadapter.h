@@ -360,7 +360,7 @@ public:
     // shared union `outfall_param` slot, so switching outfall type is
     // destructive of the prior-type's assignment — getters return 0 /
     // empty when the current outfall type doesn't match what the property
-    // means. PropertiesPanel greys out the inapplicable rows via
+    // means. PropertiesPanel grays out the inapplicable rows via
     // `setRowEditable` to reinforce this visually.
     /**
      * @return Prescribed fixed outfall stage in project length units; zero when current type is not FIXED or the node is unavailable.
@@ -389,7 +389,7 @@ public:
     //   Tabular            → storageCurveRef()
     //   Functional         → storageCoeffA/ExpB/ConstC()   (A·d^B + C)
     //   geometric shapes   → storageParam1/2/3()           (raw L/W/Z)
-    // The panel greys the inapplicable rows; see storageshapegeom.h.
+    // The panel grays the inapplicable rows; see storageshapegeom.h.
     // Inlet-junction accessors (INLET_EDITOR_AND_INLET_JUNCTION_GUI_PLAN
     // §3.4). Like the outfall / storage blocks they live on the base class so
     // the cpp reuses nodeIdx() / m_engine; only
@@ -1037,7 +1037,7 @@ public slots:
     // ------------------------------------------------------------------
     //
     // The four `statMax*` getters dispatch on `m_statsSourceId`:
-    //   - null UUID  → today's behaviour (read from m_engine via
+    //   - null UUID  → today's behavior (read from m_engine via
     //                   swmm_node_get_stat_*, i.e. the editing-engine's
     //                   ambient post-run stats).
     //   - non-null   → look up the corresponding SWMMResultsLayer via
@@ -1266,7 +1266,7 @@ public:
  *  inflow / DWF / RDII / treatment compound rows) and adds the eight editable
  *  usage fields plus a read-only context block.
  *
- *  `rimDepth` is re-labelled "Street Max Depth": unlike a sealed virtual
+ *  `rimDepth` is re-labeled "Street Max Depth": unlike a sealed virtual
  *  junction, an inlet junction floods above the street section's full depth,
  *  and this is the optional `[INLET_JUNCTIONS]` MaxDepth override for it (see
  *  displayLabelFor). It is still not read by the solver's routing — it is the
@@ -1411,7 +1411,7 @@ class SWMMStoragePropertyAdapter : public SWMMNodePropertyAdapter
     Q_PROPERTY(QString couplingCoo READ couplingCoo WRITE setCouplingCoo NOTIFY changed)
     // Slice AG.4 — storage geometry. The Shape combobox switches between a tabular
     // depth–area curve, the functional power-law form, and the four geometric shapes.
-    // PropertiesPanel greys out the rows that don't apply to the live shape (curve vs.
+    // PropertiesPanel grays out the rows that don't apply to the live shape (curve vs.
     // coefficients vs. dimensions), mirroring the outfall stage-data wiring.
     //
     // The three dimension rows keep GENERIC names (Param 1/2/3) because QPropertyModel

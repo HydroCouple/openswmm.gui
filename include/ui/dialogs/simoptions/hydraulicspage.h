@@ -16,7 +16,7 @@
  *
  * "Skip steady state" lands on the shared Routing tab rather than Dynamic
  * Wave: SWMMEngine::isInSteadyState() is called from the main routing step
- * with no routing-model guard, so SKIP_STEADY_STATE is honoured under every
+ * with no routing-model guard, so SKIP_STEADY_STATE is honored under every
  * method (PLAN §7 Q1, resolved by measurement).
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */

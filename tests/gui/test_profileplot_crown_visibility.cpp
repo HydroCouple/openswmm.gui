@@ -18,7 +18,7 @@
  * ground = invert + maxDepth = 1.0 and one circular-style closed conduit
  * whose crown lands on / above / below that ground line. The conduit outline
  * is repainted in an opaque pure-red 3 px pen — the only red on the canvas
- * (same unique-colour trick as test_meshprofile_shoreline_render) — and the
+ * (same unique-color trick as test_meshprofile_shoreline_render) — and the
  * assertions scan rendered rows for red bands: the crown must survive as a
  * band strictly below the plot-rect top edge.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.

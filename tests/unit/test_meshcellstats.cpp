@@ -196,7 +196,7 @@ TEST(MeshCflStats, SliverDominatesTheMinimumAndTheWorkProxy)
     const auto ss = mesh::computeCflStats(withSliver);
 
     // The 0.001-wide sliver against a d/sqrt(3) = 5.77 uniform cell lands
-    // near 0.058 — about 100x down. Assert the behaviour with room, not a
+    // near 0.058 — about 100x down. Assert the behavior with room, not a
     // round number that happens to sit on the boundary.
     ASSERT_EQ(ss.count, 3);
     EXPECT_LT(ss.min, su.min / 50.0);

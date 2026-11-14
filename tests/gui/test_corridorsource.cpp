@@ -29,7 +29,7 @@ class TestCorridorSource : public QObject
      * CRS.
      * @return Owned value selecting FID seven, roads layer, width/across/along two and
      * matching source/mesh WKT. Does not read the dataset; initTestCase/init must prepare
-     * members and file before use. Distances are projected EPSG:32618 metres.
+     * members and file before use. Distances are projected EPSG:32618 meters.
      *
      */
     CorridorSource source() const
@@ -149,7 +149,7 @@ private slots:
      * bank fixtures.
      * Deletes any previous selected_roads.gpkg in the chosen evidence directory, creates
      * roads with width/label fields and FIDs seven through ten plus a 64-bit FID above 2^53.
-     * Stores projected metre coordinates; the null-width feature is explicitly updated.
+     * Stores projected meter coordinates; the null-width feature is explicitly updated.
      * Files remain as evidence; no preservation of a pre-existing same-name file.
      *
      */
@@ -184,7 +184,7 @@ private slots:
     }
     /**
      *
-     * @brief Require two banks to define one valid ten-quad 10-by-4-metre patch independently of
+     * @brief Require two banks to define one valid ten-quad 10-by-4-meter patch independently of
      * scalar width.
      * Checks tag, sorted selected FIDs, bank metadata, canonical source dependency, stamps
      * and repeatable geometry digest. Reversing selected id order preserves vertices/digest;
@@ -246,7 +246,7 @@ private slots:
      * @brief Require asymmetric banks in every orientation to yield a valid patch retaining the
      * middle bank vertex.
      * Fetches reversal flags, rewrites both lines and checks one patch, explicit point
-     * 500003/4500005 and 10-by-6-metre bounds; no cross-row byte-identical patch comparison.
+     * 500003/4500005 and 10-by-6-meter bounds; no cross-row byte-identical patch comparison.
      *
      */
     void bankPairAsymmetricAndReversed()
@@ -398,7 +398,7 @@ private slots:
      * @brief Require selected line/multipart features to yield three valid width-field patches
      * without narrowing a large FID.
      * Checks sorted IDs including 2^53+1, resolved-source count, nonempty/repeatable digest,
-     * canonical source dependency and fresh stamps. Pins the first patch's signed four-metre
+     * canonical source dependency and fresh stamps. Pins the first patch's signed four-meter
      * width; does not compare every generated vertex or perform a solver run.
      *
      */
@@ -424,7 +424,7 @@ private slots:
     }
     /**
      *
-     * @brief Require a scalar-width road to produce one patch tagged river with two-metre
+     * @brief Require a scalar-width road to produce one patch tagged river with two-meter
      * transverse width.
      * Checks absolute first-edge separation only, without digest/stamp or full topology
      * comparison beyond successful read.
@@ -693,7 +693,7 @@ private slots:
     /**
      *
      * @brief Require an unprojectable second vertex to fail the whole road instead of silently
-     * joining its neighbours.
+     * joining its neighbors.
      * Rewrites a feature with declared geographic longitude/latitude including latitude
      * 100, then checks vertex-two diagnostic and no patches. Dataset layer metadata remains
      * its fixture CRS; declared sourceCRSWkt drives this test's transformation.
@@ -729,7 +729,7 @@ private slots:
      * @brief Require geographic longitude/latitude to transform in traditional x/y order into the
      * projected target.
      * Rewrites a short road near longitude -75/latitude 40 and checks first patch x within
-     * two metres of 500000 and y between 4.4/4.5 million. Does not check exact transformed
+     * two meters of 500000 and y between 4.4/4.5 million. Does not check exact transformed
      * vertices or update the dataset's layer CRS metadata.
      *
      */

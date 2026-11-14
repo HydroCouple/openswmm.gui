@@ -75,7 +75,7 @@ constexpr auto kHydrographs = SWMMModelLayer::DataHydrographs;
 using openswmmvis::ui::DataObjectDraftFooter;
 using openswmmvis::ui::DataObjectDraftSession;
 
-// Slice AT.3 palette colours (matches the comparison-plot conventions). For
+// Slice AT.3 palette colors (matches the comparison-plot conventions). For
 // a non-aggressive editor we lower the alpha so triangle interiors don't
 // drown the composite line.
 const std::array<QColor, 3> kTrianglePens = {
@@ -544,7 +544,7 @@ QWidget *HydrographGroupEditor::buildRightPane()
     m_axisFmt = new openswmmvis::ui::ChartAxisFormatController(m_chart, this);
 
     // Composite (summation) series — added FIRST so it draws behind the
-    // triangles. Dashed grey line.
+    // triangles. Dashed gray line.
     m_sumSeries = new QLineSeries;
     m_sumSeries->setName(tr("Composite"));
     QPen sumPen(QColor(0x35, 0x35, 0x35));
@@ -581,7 +581,7 @@ QWidget *HydrographGroupEditor::buildRightPane()
     }
 
     // Click a legend marker to toggle the series on/off. Hidden series
-    // grey out their marker so the user can tell what's off.
+    // gray out their marker so the user can tell what's off.
     const auto markers = m_chart->legend()->markers();
     for (auto *mk : markers) {
         connect(mk, &QLegendMarker::clicked, this, &HydrographGroupEditor::onLegendMarkerClicked);
@@ -1374,7 +1374,7 @@ void HydrographGroupEditor::onLegendMarkerClicked()
     QAbstractSeries *series = marker->series();
     const bool show = !series->isVisible();
     series->setVisible(show);
-    marker->setVisible(true); // keep the marker itself visible (greyed)
+    marker->setVisible(true); // keep the marker itself visible (grayed)
     // Dim the marker label when its series is hidden so the user can tell.
     QBrush b = marker->labelBrush();
     QColor c = b.color();
@@ -1414,7 +1414,7 @@ void HydrographGroupEditor::showPlotStyleMenu(const QPoint &globalPos)
             if (!c.isValid())
                 return;
             m_areaSeries[r]->setBrush(QBrush(c));
-            // Keep the outline pen in sync with the chosen colour but
+            // Keep the outline pen in sync with the chosen color but
             // fully opaque so the triangle edges stay crisp.
             QColor outline = c;
             outline.setAlpha(255);

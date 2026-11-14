@@ -15,9 +15,9 @@
  *           2. Conduit segments — per-link upstream/downstream invert +
  *              crown lines, with offset1/offset2 honored at each end.
  *              Non-conduit links (pump / weir / orifice / outlet) render
- *              as labelled glyphs spanning the gap.
+ *              as labeled glyphs spanning the gap.
  *           3. Connecting-node glyphs — per-node vertical bar from invert
- *              to rim, with node ID labelled.  Junction/Outfall/Storage/
+ *              to rim, with node ID labeled.  Junction/Outfall/Storage/
  *              Divider get distinct symbols.
  *           4. Max-HGL / Max-EGL envelopes — invert→max fill (always
  *              from the link/node invert up to the peak), one fill per
@@ -78,7 +78,7 @@ public:
      *        Styling is fully resolved before reaching the widget — the
      *        caller (typically ProfilePlotDialog) merges the layer's
      *        per-output pen/brush with any per-series override and hands
-     *        the final QPen / QBrush in. Missing pen colours and HGL brushes have
+     *        the final QPen / QBrush in. Missing pen colors and HGL brushes have
      *        the specific fallbacks documented on the paint helpers.
      */
     struct SeriesBinding {
@@ -243,7 +243,7 @@ public:
 
     /*!
      * \brief Binds a ProfilePlotOptions object — the widget's theming
-     *        (per-type fills/outlines, soil colours, line widths,
+     *        (per-type fills/outlines, soil colors, line widths,
      *        legend position/font/opacity) is read from it.  Pass
      *        nullptr to fall back to the hardcoded defaults.  The
      *        widget connects to `changed()` and repaints automatically.
@@ -367,9 +367,9 @@ public:
      */
     [[nodiscard]] static int chartRightMarginPx();
 
-    /*! Zoom the view rect by \p factor around its centre.  `< 1` zooms in.
+    /*! Zoom the view rect by \p factor around its center.  `< 1` zooms in.
      * @param[in] factor Finite positive multiplier of both spans; below one zooms in. Nonpositive is ignored; NaN is not explicitly rejected.
-     * @note Keeps the view centre, disables fit, repaints and emits changed X range without clamping to data extents.
+     * @note Keeps the view center, disables fit, repaints and emits changed X range without clamping to data extents.
      */
     void zoomBy(double factor);
 
@@ -696,44 +696,44 @@ private:
     void paintSelectionHighlights(QPainter &p) const;
     /**
      * @param[in] k Node/link renderer category.
-     * @return Physical-node colour from options or compiled kind palette; VirtualJunction remains transparent and unknown kinds white. Returns a value copy without state mutation.
+     * @return Physical-node color from options or compiled kind palette; VirtualJunction remains transparent and unknown kinds white. Returns a value copy without state mutation.
      */
     [[nodiscard]] QColor themeNodeFill(ProfileBuilder::NodeKind k) const;
     /**
      * @param[in] k Node/link renderer category.
-     * @return Physical-node outline colour from options/compiled palette; VirtualJunction transparent and unknown kinds black. Returns a value copy without state mutation.
+     * @return Physical-node outline color from options/compiled palette; VirtualJunction transparent and unknown kinds black. Returns a value copy without state mutation.
      */
     [[nodiscard]] QColor themeNodeOutline(ProfileBuilder::NodeKind k) const;
     /*! Pen for the dashed rectangle that marks a virtual junction.  Styled
         independently of the physical node kinds, which carry a fill/outline
-        colour pair instead.
+        color pair instead.
      * @brief Resolve cached plot geometry/style without source access.
-     * @return Bound virtual-junction pen or a one-pixel dark-grey 4/3 dashed FlatCap/MiterJoin fallback.
+     * @return Bound virtual-junction pen or a one-pixel dark-gray 4/3 dashed FlatCap/MiterJoin fallback.
      */
     [[nodiscard]] QPen themeVirtualJunctionPen() const;
     /**
      * @param[in] k Node/link renderer category.
-     * @return Kind fill colour from options or compiled palette, white for unknown kinds. Returns a value copy without state mutation.
+     * @return Kind fill color from options or compiled palette, white for unknown kinds. Returns a value copy without state mutation.
      */
     [[nodiscard]] QColor themeLinkFill(ProfileBuilder::LinkKind k) const;
     /**
      * @param[in] k Node/link renderer category.
-     * @return Kind outline colour from options or compiled palette, black for unknown kinds. Returns a value copy without state mutation.
+     * @return Kind outline color from options or compiled palette, black for unknown kinds. Returns a value copy without state mutation.
      */
     [[nodiscard]] QColor themeLinkOutline(ProfileBuilder::LinkKind k) const;
     /**
      * @brief Resolve cached plot geometry/style without source access.
-     * @return Bound soil colour or compiled translucent earth tone.
+     * @return Bound soil color or compiled translucent earth tone.
      */
     [[nodiscard]] QColor themeSoilFill() const;
     /**
      * @brief Resolve cached plot geometry/style without source access.
-     * @return Bound bedding colour or compiled translucent darker earth tone.
+     * @return Bound bedding color or compiled translucent darker earth tone.
      */
     [[nodiscard]] QColor themeBeddingFill() const;
     /**
      * @brief Resolve cached plot geometry/style without source access.
-     * @return Bound conduit pen or dark-grey 1.5-pixel solid fallback.
+     * @return Bound conduit pen or dark-gray 1.5-pixel solid fallback.
      */
     [[nodiscard]] QPen themeConduitOutlinePen() const;
     /**
@@ -743,7 +743,7 @@ private:
     [[nodiscard]] QPen themeLinkOutlinePen(ProfileBuilder::LinkKind k) const;
     /**
      * @brief Resolve cached plot geometry/style without source access.
-     * @return Bound pavement brush or dark-grey diagonal hatch fallback.
+     * @return Bound pavement brush or dark-gray diagonal hatch fallback.
      */
     [[nodiscard]] QBrush themeStreetInvertBrush() const;
 

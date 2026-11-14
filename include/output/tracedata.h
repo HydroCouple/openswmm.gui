@@ -51,7 +51,7 @@ struct Snapshot {
      * @brief Copy editing-model topology/geometry and classify unresolved exchange/loss flags.
      * @param[in] model Borrowed loaded model on the GUI/engine-owning thread; no running handle crosses to a worker.
      * @param[out] error Optional diagnostic on unavailable/invalid topology, unchanged on success.
-     * @return Owning validated snapshot, or empty on failure. Link lengths are converted to metres; geometry stays in model map coordinates and captured CRS.
+     * @return Owning validated snapshot, or empty on failure. Link lengths are converted to meters; geometry stays in model map coordinates and captured CRS.
      * @details SHA-256 modelFingerprint includes IDs/types/topology/lengths/flags but excludes coordinate geometry and CRS, so geometry-only changes do not invalidate hydraulic averages.
      */
     static Snapshot capture(SWMMModelLayer *model, QString *error);
@@ -124,7 +124,7 @@ QJsonObject optionsJson(const SWMM_TraceOptions &o);
 SWMM_TraceOptions optionsFromJson(const QJsonObject &j);
 /**
  * @brief Encode terminal fractions and SI trace-budget diagnostics.
- * @param[in] s Native summary with cubic-metre budgets, dimensionless accounting/solver residuals, and reach counts.
+ * @param[in] s Native summary with cubic-meter budgets, dimensionless accounting/solver residuals, and reach counts.
  * @return Owning JSON object; nonfinite partial-balance residual is null.
  */
 QJsonObject summaryJson(const SWMM_TraceSummary &s);

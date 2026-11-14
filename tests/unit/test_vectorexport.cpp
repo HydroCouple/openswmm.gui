@@ -70,7 +70,7 @@ QString outDir(const QString &sub)
 
 /**
  *
- * @brief Export the projected-metre source CRS used by vector fixtures.
+ * @brief Export the projected-meter source CRS used by vector fixtures.
  * @return Owned EPSG:32632 WKT after freeing GDAL export bytes. Import/export status
  * is unchecked, requiring functioning GDAL spatial-reference support; no file writes.
  *
@@ -127,10 +127,10 @@ ExportField field(const char *name, const char *label, const char *unit, FieldTy
 /**
  *
  * @brief Build export tables with valid and deliberately invalid geometry rows.
- * @return Owned junctions (two UTM-metre points with real/null/text/choice attributes),
+ * @return Owned junctions (two UTM-meter points with real/null/text/choice attributes),
  * one three-point conduit and two subcatchment rows (one valid square, one invalid
  * 2-point polygon), plus a preexisting skipped-row warning. Elevation/length labels
- * are metres. No database export or engine lookup occurs in this fixture builder.
+ * are meters. No database export or engine lookup occurs in this fixture builder.
  *
  */
 QVector<ExportTable> sampleTables()
@@ -567,7 +567,7 @@ TEST(VectorExport, RasterRoundTripAndWarp)
     EXPECT_STREQ(srs.GetAuthorityCode(nullptr), "4326");
     GDALClose(ds);
 
-    // A cancelled raster export leaves nothing behind.
+    // A canceled raster export leaves nothing behind.
     const QString cancelled = outDir(QStringLiteral("dem_cancelled.tif"));
     EXPECT_FALSE(exportRaster(
         src, cancelled, wgs84Wkt(), [](int, int, const QString &) { return false; }, &rep));

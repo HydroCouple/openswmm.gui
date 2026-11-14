@@ -16,7 +16,7 @@ namespace openswmmvis::plot
 
 UtcTimeAxis::UtcTimeAxis(QObject *parent) : QCategoryAxis(parent)
 {
-    // Labels sit ON their tick value rather than centred in the band between
+    // Labels sit ON their tick value rather than centered in the band between
     // two categories, which is what makes a category axis read as a time axis.
     // Matches the existing use in patterneditordialog.cpp.
     setLabelsPosition(QCategoryAxis::AxisLabelsPositionOnValue);
@@ -121,7 +121,7 @@ void UtcTimeAxis::rebuildLabels()
         return;
     }
 
-    // A category is the interval (previous end, end] and is labelled at its
+    // A category is the interval (previous end, end] and is labeled at its
     // end, so the range minimum can only carry a label if a category ENDS
     // there: start the first category 1 ms before the range (off-screen).
     setStartValue(static_cast<qreal>(m_minMs - 1));
@@ -131,7 +131,7 @@ void UtcTimeAxis::rebuildLabels()
     const qint64 span = m_maxMs - m_minMs;
     const int n = m_tickCount;
     for (int i = 0; i <= n - 1; ++i) {
-        // Tick i sits at min + i/(n-1) of the span: both edges labelled, as
+        // Tick i sits at min + i/(n-1) of the span: both edges labeled, as
         // QDateTimeAxis does.
         const qint64 ms = m_minMs + (span * i) / (n - 1);
         // Qt::UTC is the entire point of this class.

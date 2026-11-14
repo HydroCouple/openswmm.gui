@@ -88,7 +88,7 @@ private:
     QTableWidget *m_table;
 };
 
-// Wrap a QDateTimeEdit inside a QTableWidget cell.  Centralised so every
+// Wrap a QDateTimeEdit inside a QTableWidget cell.  Centralized so every
 // row uses the same display format / calendar policy.  HH:MM precision
 // (legacy SWMM 5 parity, decided 2026-05-21).
 /**
@@ -490,7 +490,7 @@ int DatesPage::write()
     n += writeOption("RULE_STEP", QString::number(m_ruleStepEdit->totalSeconds()));
     {
         // Routing step is a plain text box; preserve the user's typed
-        // decimal precision but normalise to a canonical %g rendering.
+        // decimal precision but normalize to a canonical %g rendering.
         bool ok = false;
         const double v = m_routingStepEdit->text().trimmed().toDouble(&ok);
         if (ok)
@@ -549,7 +549,7 @@ void DatesPage::readEventsFromEngine()
         return;
 
     // Wipe before refilling — read() is also called after a write pass to
-    // surface engine-normalised values.
+    // surface engine-normalized values.
     m_eventsTable->setRowCount(0);
     m_eventsSnapshot.clear();
 
@@ -610,7 +610,7 @@ bool DatesPage::validate(QString *warn)
         endEdit->setAccessibleDescription(tip);
         if (bad) {
             anyInvalid = true;
-            // Not colour and hover alone (review A-19): the reason also goes
+            // Not color and hover alone (review A-19): the reason also goes
             // into the page's warning text.
             if (warn)
                 *warn += tr("Row %1: start must be earlier than end.\n").arg(r + 1);

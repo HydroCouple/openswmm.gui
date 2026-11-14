@@ -244,7 +244,7 @@ SpatialReferenceSystem *CRSManager::webMercator() const
 }
 
 // ---------------------------------------------------------------------------
-// Recent / favourites
+// Recent / favorites
 // ---------------------------------------------------------------------------
 
 QList<QPair<QString, int>> CRSManager::recentCRSes() const

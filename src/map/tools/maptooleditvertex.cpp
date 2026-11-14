@@ -67,7 +67,7 @@ OpenSWMMVisMapToolEditVertex::pickLink(const QPoint &pixel) const
 
     // Tolerance: 12 canvas pixels → map units at current zoom. Slightly
     // smaller than the Select tool's default because a link click has
-    // to be near the stroke, not the general neighbourhood.
+    // to be near the stroke, not the general neighborhood.
     double mx2 = 0.0, my2 = 0.0;
     toMapCoords(pixel.x() + 12, pixel.y() + 12, mx2, my2);
     const double tol = std::max(std::abs(mx2 - mx), std::abs(my2 - my));

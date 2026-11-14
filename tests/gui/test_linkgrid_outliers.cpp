@@ -6,7 +6,7 @@
  * @brief     A handful of corrupt coordinates must not make a model unusable.
  *
  *         West Whiteland's 2024 model has 10 junctions (J45194, J45202,
- *         J45231, J45269 and neighbours) sitting up to 40,000,000 units from
+ *         J45231, J45269 and neighbors) sitting up to 40,000,000 units from
  *         a network that really spans 27,000 x 22,000 — a projection failure
  *         on one imported group. Sizing LinkSpatialGrid from the raw union of
  *         bounding boxes stretched it to 23.8M x 70.3M; cell size then scaled
@@ -20,7 +20,7 @@
  *         links stay reachable rather than becoming invisible.
  *
  *         Driven through the public layer API on a fixture carrying the same
- *         signature, so this pins the behaviour a user sees — both that a
+ *         signature, so this pins the behavior a user sees — both that a
  *         normal link is still selectable when a degenerate extent is
  *         present, and that the corrupt ones did not silently disappear.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.

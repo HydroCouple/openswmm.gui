@@ -28,7 +28,7 @@ struct Channel {
     bool proportional = true; // Link widths only: a shared zero-based linear scale.
     OpenSWMM::Render::ClassificationScheme colors;
     /**
-     * @brief Initialize an independent visual channel with a continuous colour scheme and ratio/linear/automatic defaults.
+     * @brief Initialize an independent visual channel with a continuous color scheme and ratio/linear/automatic defaults.
      * @note Raw public fields are unvalidated; sizes are logical pixels and numeric ranges use the selected field's units.
      */
     Channel();
@@ -92,7 +92,7 @@ public:
      * @note Equality after normalization is a no-op; change calls setDirty(), advancing style revision and notifying attached views.
      */
     void setArrows(bool v);
-    /// Elements carrying less than this fraction of the seed's flow are hidden and unlabelled.
+    /// Elements carrying less than this fraction of the seed's flow are hidden and unlabeled.
     /**
      * @return Absolute minimum positive passage-ratio share, initially0.001; seed and unavailable/nonfinite ratios have special contribution rules.
      */
@@ -154,7 +154,7 @@ public:
      * @brief Create a styled view over shared saved trace results.
      * @param[in] r Required result with nonnull immutable dataset, valid seed/endpoints and parallel node/link estimates matching its snapshot. Retains shared ownership; the result's style JSON can be mutated by style notifications.
      * @param[in] w Optional workspace QObject owner.
-     * @note Builds four owned parts and an owned TraceStyle, derives source extent/CRS, restores saved style and forwards invalidations. Use GUI-thread access; mutable colour caches and style have no internal locking.
+     * @note Builds four owned parts and an owned TraceStyle, derives source extent/CRS, restores saved style and forwards invalidations. Use GUI-thread access; mutable color caches and style have no internal locking.
      */
     explicit TraceAnalysisLayer(std::shared_ptr<Result> r, OpenSWMMVisWorkspace *w = nullptr);
     /**
@@ -171,7 +171,7 @@ public:
     bool contributes(bool node, int index) const;
     /*! Replace the numbers after a recalculation; keeps this view's own style.
      * @param[in] result Optional new valid result. Null or snapshot node/link count mismatch is ignored; count equality does not verify geometry/IDs/dataset equivalence.
-     * @note Copies the Result (sharing its immutable dataset), preserves this view's saved style, clears colour caches/highlight and invalidates parts plus repaint. Does not rebuild scene geometry/extent/CRS; replacement should describe the same ordered network.
+     * @note Copies the Result (sharing its immutable dataset), preserves this view's saved style, clears color caches/highlight and invalidates parts plus repaint. Does not rebuild scene geometry/extent/CRS; replacement should describe the same ordered network.
      */
     void setResult(std::shared_ptr<Result> result);
     /**
@@ -201,7 +201,7 @@ public:
      * @param[in] p Required active painter whose world transform maps supplied scene geometry to logical pixels; state is saved/restored.
      * @param[in] nodes Scene-coordinate node vector parallel to result estimates, with NaNs for absent geometry.
      * @param[in] links Scene-coordinate link polylines parallel to result estimates.
-     * @note Paints screen-size ribbons/circles/arrows then halo labels according to contribution/part settings; supplied geometry and immutable results must remain stable. A containing output layer additionally gates visibility/opacity. Internal colour caches mutate, so serialize paint/range/style access. No engine reads or network IO occur.
+     * @note Paints screen-size ribbons/circles/arrows then halo labels according to contribution/part settings; supplied geometry and immutable results must remain stable. A containing output layer additionally gates visibility/opacity. Internal color caches mutate, so serialize paint/range/style access. No engine reads or network IO occur.
      */
     void paint(QPainter *p, const QVector<QPointF> &nodes,
                const QVector<QVector<QPointF>> &links) const;
@@ -229,9 +229,9 @@ public:
      */
     double normalized(bool node, int index, const Channel &c) const;
     /**
-     * @brief Build colour and size legend rows for one element type.
+     * @brief Build color and size legend rows for one element type.
      * @param[in] node True selects node values/style, false link.
-     * @return Owned heading/classes-or-three-sample rows plus unavailable explanation. Uses effective colour range/proportional width reference; does not suppress rows merely because their scene part is hidden.
+     * @return Owned heading/classes-or-three-sample rows plus unavailable explanation. Uses effective color range/proportional width reference; does not suppress rows merely because their scene part is hidden.
      */
     QList<OpenSWMM::Render::LegendSymbolItem> legend(bool node) const;
     /**
@@ -276,9 +276,9 @@ public:
      */
     QVector<double> samples(bool node, const Channel &c) const;
     /**
-     * @brief Compute one colour per saved estimate using the selected colour channel.
+     * @brief Compute one color per saved estimate using the selected color channel.
      * @param[in] node True selects node values/style, false link.
-     * @return Owned full-length colours, including noncontributing elements; nonfinite grey, below effective range transparent, otherwise classified/ramp colours. Callers separately apply contribution/part visibility.
+     * @return Owned full-length colors, including noncontributing elements; nonfinite gray, below effective range transparent, otherwise classified/ramp colors. Callers separately apply contribution/part visibility.
      */
     QVector<QColor> colors(bool node) const;
     /**
@@ -334,7 +334,7 @@ public:
      * @brief Create an output-owned static tree row with an independently styled trace painter.
      * @param[in] owner Required output QObject owner with stable workspace.
      * @param[in] result Required valid result; copied so style changes do not alter another view's Result, while immutable dataset remains shared.
-     * @param[in] travel Whether this row is the expected-time view. Empty saved style then defaults node/link colour and label fields to time.
+     * @param[in] travel Whether this row is the expected-time view. Empty saved style then defaults node/link color and label fields to time.
      * @note Owns its TraceAnalysisLayer as a QObject child and forwards visibility/opacity/repaint to invalidate(). No engine recomputation or scene insertion occurs here.
      */
     TraceSublayer(SWMMResultsLayer *owner, std::shared_ptr<Result> result, bool travel);

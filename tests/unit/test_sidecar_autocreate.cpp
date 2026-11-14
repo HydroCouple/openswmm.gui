@@ -10,7 +10,7 @@
  *
  *  - ProjectSerializer::sidecarPathFor — guards against the §R.1 regression
  *    where stacked extensions could produce `model.inp.oswp`. After Slice
- *    RA normalises the dialog result, sidecarPathFor only ever receives a
+ *    RA normalizes the dialog result, sidecarPathFor only ever receives a
  *    properly-cleaned `<stem>.inp`; the tests below lock that contract.
  *  - QSettings default for `Preferences/AutoCreateOswpOnOpen` — the new
  *    preference RB.4 introduced. Default must be `true` per the user's
@@ -83,7 +83,7 @@ namespace
 {
 
 // Run the QSettings test inside an isolated scope so the live user settings
-// store is not touched. Sets the organisation + application to a unique
+// store is not touched. Sets the organization + application to a unique
 // per-test combination so the underlying QSettings file is sandboxed.
 class IsolatedSettings
 {

@@ -80,7 +80,7 @@ public:
 
     /*! \brief Elevation interpolation method for the no-DTM fallback. */
     enum class ElevInterpMethod { IDW, NaturalNeighbour };
-    /*! \brief Natural-neighbour weighting variant. */
+    /*! \brief Natural-neighbor weighting variant. */
     enum class NNVariant { Sibson, Laplace };
 
     /*! \brief All inputs needed by the pipeline worker.
@@ -204,7 +204,7 @@ public:
         double terrainAveragingSize = 0; ///< 0 matches minimum.
         double cellSize = 0.0;           ///< Target cell size at features (map units).
         double coarsenFactor = 20.0;     ///< h_max = cellSize × this away from features.
-        double sizeRatio = 1.5;          ///< Allowed size ratio between neighbouring cells.
+        double sizeRatio = 1.5;          ///< Allowed size ratio between neighboring cells.
         double minCellSize = 0.0;        ///< Floor h_min (map units); 0 = cellSize / 4.
         /*! Terrain tolerance (mesh vertical units): > 0 bounds the size field
          *  wherever the DEM deviates from a cell-sized plane by more than
@@ -260,7 +260,7 @@ public:
         // Vertical unit conversion: multiply all DTM-sampled Z values by this
         // factor before writing to the mesh.  Accounts for DTM being in a
         // different vertical unit than the SWMM model.
-        // e.g., DTM in metres + SWMM in feet → factor = 3.28084
+        // e.g., DTM in meters + SWMM in feet → factor = 3.28084
         double zConversionFactor = 1.0;
         double verticalUnitToSI = 1.0;
 
@@ -299,7 +299,7 @@ public:
         double nodeMinSeparation = 0.0;
 
         // Elevation interpolation for the no-DTM fallback.  IDW (configurable
-        // Shepard power) or natural neighbour (Sibson / Laplace); NN falls back
+        // Shepard power) or natural neighbor (Sibson / Laplace); NN falls back
         // to IDW outside the seed convex hull.  Ignored when a DTM is set.
         ElevInterpMethod elevInterpMethod = ElevInterpMethod::IDW;
         NNVariant nnVariant = NNVariant::Sibson;
@@ -324,7 +324,7 @@ public:
         //
         // infilDefaults goes straight to MeshResult::infilDefaults: the '*'
         // row and the per-tag rows, unflattened. The pipeline deliberately
-        // writes NO per-cell infiltration rows, because materialising tag rows
+        // writes NO per-cell infiltration rows, because materializing tag rows
         // per triangle would destroy the inheritance engine decision D-I3 is
         // built on. Empty unless a row names a method, so an untouched dialog
         // emits no [2D_INFILTRATION*] section at all.
@@ -516,8 +516,8 @@ private:
     /**
      * @brief Recompute the editable DTM-Z multiplier from detected raster and requested mesh
      * vertical units under a signal blocker.
-     * Feet use .3048 metres/unit, auto follows project flow units; no DTM/unknown raster unit
-     * assumes metres. A source/unit change replaces any previous manual multiplier.
+     * Feet use .3048 meters/unit, auto follows project flow units; no DTM/unknown raster unit
+     * assumes meters. A source/unit change replaces any previous manual multiplier.
      */
     void updateZFactor(); // recomputes m_zFactorSpin from DTM + mesh vertical unit combos
 
@@ -637,7 +637,7 @@ private:
 
     // ── Elevation interpolation (no-DTM fallback) ───────────────────
     QGroupBox *m_elevInterpGroup = nullptr;   // whole group (disabled when DTM set)
-    QComboBox *m_elevMethodCombo = nullptr;   // IDW | Natural neighbour
+    QComboBox *m_elevMethodCombo = nullptr;   // IDW | Natural neighbor
     QComboBox *m_nnVariantCombo = nullptr;    // Sibson | Laplace
     QDoubleSpinBox *m_idwPowerSpin = nullptr; // Shepard exponent
 
@@ -645,7 +645,7 @@ private:
     // Resolution
     MeshResolutionWidget *m_resolutionWidget = nullptr;
     QDoubleSpinBox *m_cellSizeSpin = nullptr;    ///< cell size at features (map units)
-    QDoubleSpinBox *m_sizeRatioSpin = nullptr;   ///< size ratio between neighbouring cells
+    QDoubleSpinBox *m_sizeRatioSpin = nullptr;   ///< size ratio between neighboring cells
     QDoubleSpinBox *m_minCellSizeSpin = nullptr; ///< floor (map units); (cell size / 4) at 0
     QDoubleSpinBox *m_terrainTolSpin = nullptr;  ///< terrain tolerance (vertical units); (off) at 0
     QComboBox *m_terrainModeCombo = nullptr;

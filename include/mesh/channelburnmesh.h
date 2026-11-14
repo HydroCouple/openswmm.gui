@@ -62,9 +62,9 @@ struct ChannelMeshBurnResult {
  * concurrent mutation.
  * @param[in] inputs Owned by-value worker inputs, locally filtered/replanned; copies/moves
  * profiles, network, node coordinates, existing edge BC state and options. verticalUnitToSI is
- * metres per mesh Z unit, positive finite; horizontalUnitToSI is metres per mesh XY unit and
+ * meters per mesh Z unit, positive finite; horizontalUnitToSI is meters per mesh XY unit and
  * must also be positive finite for connector arithmetic (not independently checked here).
- * geometryTolerance is metres, converted to mesh Z units. Positive channelCellSize chooses
+ * geometryTolerance is meters, converted to mesh Z units. Positive channelCellSize chooses
  * spacing, otherwise derives median local cell size; channelAspectMax>=1 defines spacing floor.
  * clearance is positive dimensionless neighborhood multiplier. maxCells and maxCorridorVertices
  * cap preparation; callbacks/geometry must fit int indexing and memory.
@@ -80,7 +80,7 @@ struct ChannelMeshBurnResult {
  * roles. Invalid corridors/unconnected outfalls remove source profiles and replan monotonically.
  * Failed cavity fills retain original cells and paint elevations with warnings; unmet
  * accuracy/angle targets also warn and can still yield ok true. False/error may retain partial
- * preview/plan data; never adopt or apply surgery unless ok. Cancellation sets cancelled and
+ * preview/plan data; never adopt or apply surgery unless ok. Cancellation sets canceled and
  * clears mesh/BC/remap arrays, but can retain other diagnostic/planning fields. Required
  * interface coupling failure additionally clears surgery. Rebuilds retained attributes and
  * eligible existing/interface coupling, warns for dropped edge assignments/unmatched unrelated

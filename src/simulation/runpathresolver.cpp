@@ -46,7 +46,7 @@ QString resolveRunOutputPath(const QString &inpPath, const QString &override_, R
     }
 
     // Tier 2 — sibling default. Matches today's SWMMVis::runActiveProject
-    // behaviour exactly so callers that haven't set an override see no
+    // behavior exactly so callers that haven't set an override see no
     // change.
     return inpFi.absoluteDir().filePath(inpFi.completeBaseName() + siblingExt);
 }

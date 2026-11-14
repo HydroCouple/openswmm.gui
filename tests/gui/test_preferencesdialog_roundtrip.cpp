@@ -136,7 +136,7 @@ void TestPreferencesDialogRoundtrip::initTestCase()
     QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, dir);
 
     // Start from a known store so a stale artifact from a previous run cannot
-    // make the normalisation pass look like a real edit.
+    // make the normalization pass look like a real edit.
     {
         QSettings s;
         s.clear();
@@ -148,8 +148,8 @@ void TestPreferencesDialogRoundtrip::initTestCase()
 /** @brief Verify a second untouched Apply preserves every stored key after the first Apply materializes defaults. */
 void TestPreferencesDialogRoundtrip::applyWithNoEditsWritesNothing()
 {
-    // Normalisation pass: the first Apply against a store with absent keys
-    // legitimately materialises their defaults.
+    // Normalization pass: the first Apply against a store with absent keys
+    // legitimately materializes their defaults.
     {
         PreferencesDialog warm(nullptr);
         QVERIFY(QMetaObject::invokeMethod(&warm, "onApply", Qt::DirectConnection));

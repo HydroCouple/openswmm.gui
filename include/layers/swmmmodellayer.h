@@ -131,7 +131,7 @@ struct SWMMElementSymbol {
  *          using GDAL's OGRCoordinateTransformation.
  *
  *          The layer also provides:
- *          - Selection tracking (highlighted with a secondary colour).
+ *          - Selection tracking (highlighted with a secondary color).
  *          - Identify-by-point returning element attributes as QVariantMap.
  *          - Label display driven by element names.
  */
@@ -536,7 +536,7 @@ public:
      *
      *  Progressive migration: nodes go QSG first, then links, then
      *  catchments. Default is empty — i.e. everything stays on the
-     *  CPU path, the QSG overlay never runs, and behaviour matches
+     *  CPU path, the QSG overlay never runs, and behavior matches
      *  the legacy renderer.
      *
      *  Slice §QSG-1 (2026-05-26) — replaces the previous bool
@@ -706,7 +706,7 @@ public:
      *        applySubcatchDelete.
      *
      *        Callers that want a row's engine index MUST use this and
-     *        not a locally-written index lookup: this honours the
+     *        not a locally-written index lookup: this honors the
      *        intra-category ordering overrides (`m_objectOrderOverrides`)
      *        exactly as objectNameAt does, and a variant that forgets
      *        that branch returns a different object under a user-sorted
@@ -778,7 +778,7 @@ public:
      * \details Tables (time series + all 12 curve kinds) share one engine
      *          array, partitioned by `swmm_table_get_type`. Pickers need
      *          a filtered list — tidal curves only, time series only, etc.
-     *          Centralised here so the pattern is reused across the new
+     *          Centralized here so the pattern is reused across the new
      *          `DataObjectPickerEditor` and the existing
      *          `NodeCompoundEditDialog:: populateTimeSeriesCombo` (which
      *          may be refactored to delegate here in a follow-up).
@@ -897,7 +897,7 @@ public:
     /**
      * @param[in] c Spatial category; invalid ignored.
      * @param[in] opacity Kind alpha clamped0..1; caller should supply finite value.
-     * @note Fuzzy-equal normalized value no-op; change marks feature-colour/scene rebuild and emits
+     * @note Fuzzy-equal normalized value no-op; change marks feature-color/scene rebuild and emits
      *   repaintRequested. Does not mutate engine values or notify a dedicated property signal.
      */
     void setCategoryOpacity(Category c, qreal opacity);
@@ -1012,7 +1012,7 @@ public:
     [[nodiscard]] SWMMElementSymbol junctionSymbol() const;
     /**
      * @param[in] s Full symbol value copied; caller maintains sensible finite nonnegative pixel
-     *   geometry and valid colours.
+     *   geometry and valid colors.
      * @note Copies all fields without equality/range checks, resynchronizes persistent editor
      *   adapter and requests repaint. Marks scene rebuild, syncs SingleSymbol renderer in place and
      *   marks lazy rule list dirty. Classified renderers retain their own styles. Engine unchanged.
@@ -1027,7 +1027,7 @@ public:
     [[nodiscard]] SWMMElementSymbol outfallSymbol() const;
     /**
      * @param[in] s Full symbol value copied; caller maintains sensible finite nonnegative pixel
-     *   geometry and valid colours.
+     *   geometry and valid colors.
      * @note Copies all fields without equality/range checks, resynchronizes persistent editor
      *   adapter and requests repaint. Marks scene rebuild, syncs SingleSymbol renderer in place and
      *   marks lazy rule list dirty. Classified renderers retain their own styles. Engine unchanged.
@@ -1042,7 +1042,7 @@ public:
     [[nodiscard]] SWMMElementSymbol storageSymbol() const;
     /**
      * @param[in] s Full symbol value copied; caller maintains sensible finite nonnegative pixel
-     *   geometry and valid colours.
+     *   geometry and valid colors.
      * @note Copies all fields without equality/range checks, resynchronizes persistent editor
      *   adapter and requests repaint. Marks scene rebuild, syncs SingleSymbol renderer in place and
      *   marks lazy rule list dirty. Classified renderers retain their own styles. Engine unchanged.
@@ -1057,7 +1057,7 @@ public:
     [[nodiscard]] SWMMElementSymbol dividerSymbol() const;
     /**
      * @param[in] s Full symbol value copied; caller maintains sensible finite nonnegative pixel
-     *   geometry and valid colours.
+     *   geometry and valid colors.
      * @note Copies all fields without equality/range checks, resynchronizes persistent editor
      *   adapter and requests repaint. Marks scene rebuild, syncs SingleSymbol renderer in place and
      *   marks lazy rule list dirty. Classified renderers retain their own styles. Engine unchanged.
@@ -1072,7 +1072,7 @@ public:
     [[nodiscard]] SWMMElementSymbol virtualJunctionSymbol() const;
     /**
      * @param[in] s Full symbol value copied; caller maintains sensible finite nonnegative pixel
-     *   geometry and valid colours.
+     *   geometry and valid colors.
      * @note Copies all fields without equality/range checks, resynchronizes persistent editor
      *   adapter and requests repaint. Marks scene rebuild but does not sync CatJunctions renderer,
      *   preserving regular junction style. Engine unchanged.
@@ -1088,7 +1088,7 @@ public:
     [[nodiscard]] SWMMElementSymbol inletJunctionSymbol() const;
     /**
      * @param[in] s Full symbol value copied; caller maintains sensible finite nonnegative pixel
-     *   geometry and valid colours.
+     *   geometry and valid colors.
      * @note Copies all fields without equality/range checks, resynchronizes persistent editor
      *   adapter and requests repaint. Marks scene rebuild but does not sync CatJunctions renderer,
      *   preserving regular junction style. Engine unchanged.
@@ -1104,7 +1104,7 @@ public:
     [[nodiscard]] SWMMElementSymbol inletConnectorSymbol() const;
     /**
      * @param[in] s Full symbol value copied; caller maintains sensible finite nonnegative pixel
-     *   geometry and valid colours.
+     *   geometry and valid colors.
      * @note Copies all fields without equality/range checks, resynchronizes persistent editor
      *   adapter and requests repaint. No category/per-kind renderer or scene-rebuild flag applies
      *   to this relation-only overlay. Engine unchanged.
@@ -1119,7 +1119,7 @@ public:
     [[nodiscard]] SWMMElementSymbol conduitSymbol() const;
     /**
      * @param[in] s Full symbol value copied; caller maintains sensible finite nonnegative pixel
-     *   geometry and valid colours.
+     *   geometry and valid colors.
      * @note Copies all fields without equality/range checks, resynchronizes persistent editor
      *   adapter and requests repaint. Marks scene rebuild, syncs SingleSymbol renderer in place and
      *   marks lazy rule list dirty. Classified renderers retain their own styles. Engine unchanged.
@@ -1134,7 +1134,7 @@ public:
     [[nodiscard]] SWMMElementSymbol pumpSymbol() const;
     /**
      * @param[in] s Full symbol value copied; caller maintains sensible finite nonnegative pixel
-     *   geometry and valid colours.
+     *   geometry and valid colors.
      * @note Copies all fields without equality/range checks, resynchronizes persistent editor
      *   adapter and requests repaint. Marks scene rebuild, syncs SingleSymbol renderer in place and
      *   marks lazy rule list dirty. Classified renderers retain their own styles. Engine unchanged.
@@ -1149,7 +1149,7 @@ public:
     [[nodiscard]] SWMMElementSymbol orificeSymbol() const;
     /**
      * @param[in] s Full symbol value copied; caller maintains sensible finite nonnegative pixel
-     *   geometry and valid colours.
+     *   geometry and valid colors.
      * @note Copies all fields without equality/range checks, resynchronizes persistent editor
      *   adapter and requests repaint. Marks scene rebuild, syncs SingleSymbol renderer in place and
      *   marks lazy rule list dirty. Classified renderers retain their own styles. Engine unchanged.
@@ -1164,7 +1164,7 @@ public:
     [[nodiscard]] SWMMElementSymbol weirSymbol() const;
     /**
      * @param[in] s Full symbol value copied; caller maintains sensible finite nonnegative pixel
-     *   geometry and valid colours.
+     *   geometry and valid colors.
      * @note Copies all fields without equality/range checks, resynchronizes persistent editor
      *   adapter and requests repaint. Marks scene rebuild, syncs SingleSymbol renderer in place and
      *   marks lazy rule list dirty. Classified renderers retain their own styles. Engine unchanged.
@@ -1183,7 +1183,7 @@ public:
     [[nodiscard]] SWMMElementSymbol outletSymbol() const;
     /**
      * @param[in] s Full symbol value copied; caller maintains sensible finite nonnegative pixel
-     *   geometry and valid colours.
+     *   geometry and valid colors.
      * @note Copies all fields without equality/range checks, resynchronizes persistent editor
      *   adapter and requests repaint. Marks scene rebuild, syncs SingleSymbol renderer in place and
      *   marks lazy rule list dirty. Classified renderers retain their own styles. Engine unchanged.
@@ -1198,7 +1198,7 @@ public:
     [[nodiscard]] SWMMElementSymbol subcatchmentSymbol() const;
     /**
      * @param[in] s Full symbol value copied; caller maintains sensible finite nonnegative pixel
-     *   geometry and valid colours.
+     *   geometry and valid colors.
      * @note Copies all fields without equality/range checks, resynchronizes persistent editor
      *   adapter and requests repaint. Marks scene rebuild, syncs SingleSymbol renderer in place and
      *   marks lazy rule list dirty. Classified renderers retain their own styles. Engine unchanged.
@@ -1213,7 +1213,7 @@ public:
     [[nodiscard]] SWMMElementSymbol rainGageSymbol() const;
     /**
      * @param[in] s Full symbol value copied; caller maintains sensible finite nonnegative pixel
-     *   geometry and valid colours.
+     *   geometry and valid colors.
      * @note Copies all fields without equality/range checks, resynchronizes persistent editor
      *   adapter and requests repaint. Marks scene rebuild, syncs SingleSymbol renderer in place and
      *   marks lazy rule list dirty. Classified renderers retain their own styles. Engine unchanged.
@@ -1315,14 +1315,14 @@ public:
 
     /*! Replaces the per-kind renderer for \p c. Takes ownership; null is
      *  rejected (silent no-op). When the new renderer is a SingleSymbol,
-     *  the layer extracts colour/outline/size back to the legacy
+     *  the layer extracts color/outline/size back to the legacy
      *  `SWMMElementSymbol` field for that kind so the existing paint
      *  loop reflects the change. Emits rendererChanged + repaintRequested.
      * @param[in] c Spatial category; invalid rejects incoming ownership.
      * @param[in] r Fresh exclusive nonnull renderer moved into kind slot; null ignored.
      * @note SingleSymbol supported fields write back through corresponding legacy symbol
      *   setter/adapter. Replaces old renderer, marks rule-list stale, synchronously rebuilds
-     *   per-feature colour/size/shape/offset caches and emits rendererChanged/repaintRequested.
+     *   per-feature color/size/shape/offset caches and emits rendererChanged/repaintRequested.
      *   Symbol writeback can emit additional repaint. No engine data edits; caller must not wrap
      *   already owned raw pointer.
      */
@@ -1352,7 +1352,7 @@ public:
     // the legend dock to drive. These mirror the IFeatureRenderer class-edit
     // contract but aggregate across the 11 per-kind renderers: legend rows
     // carry a kind-qualified classKey ("Junctions<inner>"), and the
-    // colour/size accessors decode the kind and delegate to the matching
+    // color/size accessors decode the kind and delegate to the matching
     // kindRenderer() — i.e. edits land on the very objects the painter reads
     // (single source of truth). Mutating setters rebuild that kind's
     // per-feature override cache and request a repaint.
@@ -1370,13 +1370,13 @@ public:
     [[nodiscard]] bool supportsClassEdit(OpenSWMM::Render::ClassEditKind kind) const;
     /**
      * @param[in] classKey Exact legend-qualified key with U+001F separator and known kind key.
-     * @return Renderer class colour or invalid QColor for malformed/unknown/unsupported key. No
+     * @return Renderer class color or invalid QColor for malformed/unknown/unsupported key. No
      *   cache refresh or ownership transfer.
      */
     [[nodiscard]] QColor colorForClass(const QString &classKey) const;
     /**
      * @param[in] classKey Exact kind-qualified legend class key.
-     * @param[in] color Colour forwarded to cloned renderer; renderer decides
+     * @param[in] color Color forwarded to cloned renderer; renderer decides
      *   validity/unsupported-class behavior.
      * @note Malformed key/missing renderer no-op. Otherwise clone/mutate/reinstall through
      *   setKindRenderer, rebuilding overrides and notifying even if inner edit is unsupported/no
@@ -1435,7 +1435,7 @@ public:
      * @param[in] cat Spatial category selecting static built-in descriptors; unknown/rain-gage has
      *   no built-in fields.
      * @return Owned static field descriptors plus every typed uf: user-flag definition. Built-in
-     *   display/unit text advertises metres/ha/percent; numeric identify values follow engine
+     *   display/unit text advertises meters/ha/percent; numeric identify values follow engine
      *   getter conventions without conversion by this descriptor method. Const call can lazily
      *   create/load UserFlagsModel QObject, so GUI thread only.
      */
@@ -1468,7 +1468,7 @@ public:
      */
     void setLinkArrowsEnabled(Category c, bool enabled);
 
-    // Slice FX.1 — per-kind arrow size / colour / flow-positive filter.
+    // Slice FX.1 — per-kind arrow size / color / flow-positive filter.
     // Mirror the linkArrowsEnabled getter+setter shape; setters emit
     // repaintRequested when the underlying field actually changes.
     /**
@@ -1501,13 +1501,13 @@ public:
     void setLinkArrowWidth(Category c, double pixels);
     /**
      * @param[in] c Link spatial category: conduit, pump, orifice, weir, outlet.
-     * @return Stored arrow colour with alpha, near-black for non-link kind. Does not test current
+     * @return Stored arrow color with alpha, near-black for non-link kind. Does not test current
      *   layer/object visibility or flow.
      */
     [[nodiscard]] QColor linkArrowColor(Category c) const;
     /**
      * @param[in] c Link spatial category; non-link kind ignored.
-     * @param[in] col Valid arrow colour including alpha; invalid ignored.
+     * @param[in] col Valid arrow color including alpha; invalid ignored.
      * @note Equality no-op; changes corresponding symbol field, resyncs persistent adapter and
      *   requests repaint. Does not synchronize renderer/rule list or mark geometry rebuild/model
      *   edited.
@@ -1543,7 +1543,7 @@ public:
      *
      *  True when the kind's renderer is non-SingleSymbol (Graduated /
      *  Categorized / RuleBased) and the layer has pre-computed an
-     *  override colour for every feature in this kind. The painter
+     *  override color for every feature in this kind. The painter
      *  reads this flag to decide whether to use the legacy bucketed
      *  fast path (false, single pen+brush per kind) or the per-
      *  feature override path (true).
@@ -1553,14 +1553,14 @@ public:
      */
     [[nodiscard]] bool kindUsesOverrides(Category c) const;
 
-    /*! Returns the cached per-feature colour for one feature in kind
+    /*! Returns the cached per-feature color for one feature in kind
      *  \p c, or an invalid QColor when no override exists. The painter
      *  uses this for the per-feature paint path. Index is the global SoA/engine
      *  index, not the category display row used by objectNameAt().
      * @param[in] c Spatial category.
      * @param[in] idx Global source/engine index in appropriate node/link/catch/gage array, not
      *   category display row.
-     * @return Cached colour or invalid QColor for absent/invalid slot. Accessor does not
+     * @return Cached color or invalid QColor for absent/invalid slot. Accessor does not
      *   rebuild/validate cache freshness; caller coordinates source/renderer changes.
      */
     [[nodiscard]] QColor featureColor(Category c, int idx) const;
@@ -1615,18 +1615,18 @@ public:
      */
     [[nodiscard]] bool kindHasAnyOffset(Category c) const;
 
-    /*! Recomputes the per-feature colour AND per-feature size override
+    /*! Recomputes the per-feature color AND per-feature size override
      *  caches for one kind, by iterating every feature and calling
      *  `kindRenderer(c)->symbolFor(featureRef, attrs)`. Called
      *  automatically from setKindRenderer when the new renderer is
      *  non-SingleSymbol or has data-defined size enabled.
      * @param[in] c Valid spatial category; invalid ignored.
-     * @note Clears colour/size/shape caches and override flag, derives Graduated classification,
+     * @note Clears color/size/shape caches and override flag, derives Graduated classification,
      *   resolves renderer symbolFor once per feature and stores first-layer props by native SoA
      *   index. Category names use display ordering while index destination uses default type
      *   buckets. Graduated skeleton shapes ignored; size used only explicit size/width axes.
      * @note Non-single renderer activates overrides even with no valid output; SingleSymbol varying
-     *   sizes activates size-only cache and clears colours, otherwise drops colour/size/shape
+     *   sizes activates size-only cache and clears colors, otherwise drops color/size/shape
      *   caches. Offset values retained independently. No source edits/signals; null/empty early
      *   return can retain prior offset cache/flag. GUI-thread synchronously reads identify/user
      *   flags.
@@ -1867,7 +1867,7 @@ public:
      * \brief Names of all nodes (any type) whose layer-CRS coordinates fall
      *        inside the rectangle given in **canvas CRS**.
      *        The inverse CRS transform is applied internally, matching the
-     *        CRS-aware behaviour of identifyAt.  Hidden objects are excluded.
+     *        CRS-aware behavior of identifyAt.  Hidden objects are excluded.
      *        O(log N + k) via the internal KD-tree; rebuilt lazily after any
      *        coordinate-mutating operation (applyNodeMove / applyNodeAdd /
      *        rollbackTailNodeAdd).
@@ -1980,7 +1980,7 @@ public:
     // with the polygon's bounding box (reusing the accelerated *InRect path),
     // then refined with an exact point-in-polygon test performed in layer CRS
     // (nodes/gages at their coordinate; links/subcatchments at their bbox
-    // centre). Hidden objects are excluded. \p canvasPoly needs >= 3 vertices.
+    // center). Hidden objects are excluded. \p canvasPoly needs >= 3 vertices.
 
     /**
      * @param[in] canvasPoly Finite canvas-MAP polygon with at least 3 vertices; shorter returns
@@ -2363,30 +2363,30 @@ public:
      * \brief Returns the conduit length recorded in the engine, or -1 if
      *        the link is not a conduit / is out of range.
      * @param[in] linkIdx Global engine link index; requires conduit subtype.
-     * @return Authored conduit length in model linear units (feet US FLOW_UNITS, metres SI), minus
+     * @return Authored conduit length in model linear units (feet US FLOW_UNITS, meters SI), minus
      *   one for no engine/nonconduit/API failure. No geometric recalculation.
      */
     [[nodiscard]] double engineLinkLength(int linkIdx) const;
 
     /*!
      * \brief Compute polyline length in the SWMM model's expected linear unit
-     *        (feet for US-customary FLOW_UNITS — CFS/GPM/MGD; metres for SI —
+     *        (feet for US-customary FLOW_UNITS — CFS/GPM/MGD; meters for SI —
      *        CMS/LPS/MLD).
      *
      *        Used by the auto-length code path to convert canvas/layer-CRS
      *        coordinates into the unit the engine writes into [CONDUITS]:
      *          - Projected CRS:   raw Euclidean × `linearUnitsToMetres()`
-     *                             → metres, then to feet if not SI.
+     *                             → meters, then to feet if not SI.
      *          - Geographic CRS:  great-circle distance per segment
-     *                             (WGS-84 sphere) → metres, then to feet if not SI.
-     *          - No SRS:          raw Euclidean (preserves legacy behaviour
+     *                             (WGS-84 sphere) → meters, then to feet if not SI.
+     *          - No SRS:          raw Euclidean (preserves legacy behavior
      *                             for projects without a CRS set).
      * @param[in] vertices Ordered full polyline in native layer CRS, including endpoints; finite
      *   coordinates expected.
      * @return Zero for fewer than 2 points; otherwise cumulative length converted to engine
-     *   FLOW_UNITS feet/metres. Geographic CRS uses 6378137m spherical haversine per segment (not
-     *   ellipsoidal geodesic); projected uses CRS metres-per-unit, undeclared/local fallback
-     *   assumes raw metres. Missing flow units defaults CFS/feet. No engine write.
+     *   FLOW_UNITS feet/meters. Geographic CRS uses 6378137m spherical haversine per segment (not
+     *   ellipsoidal geodesic); projected uses CRS meters-per-unit, undeclared/local fallback
+     *   assumes raw meters. Missing flow units defaults CFS/feet. No engine write.
      */
     [[nodiscard]] double polylineLengthInModelUnits(const QVector<QPointF> &vertices) const;
 
@@ -2534,7 +2534,7 @@ public:
      * \brief Write the conduit length for a link. No-op if the link is
      *        not a conduit.
      * @param[in] linkIdx Global cached/engine conduit index.
-     * @param[in] length Authored length in project linear units (ft for US, metres SI), validated
+     * @param[in] length Authored length in project linear units (ft for US, meters SI), validated
      *   by engine.
      * @return False for no engine/nonconduit/rejection; true after write and
      *   attributeChanged(linkName). No geometric coordinate edit, auto-length recursion,
@@ -2555,7 +2555,7 @@ public:
      *        link offsets?" prompt after LINK_OFFSETS has been flipped.
      *
      * The engine stores offsets as depths in BOTH modes (the parser
-     * normalises elevations; the .inp writer re-adds the invert), so:
+     * normalizes elevations; the .inp writer re-adds the invert), so:
      * - convertValues == true  (legacy "Yes": same physics, new numbers) is a
      *   no-op on the store — the option flip alone changes file and display.
      * - convertValues == false (legacy "No": same numbers, new meaning)
@@ -3255,7 +3255,7 @@ public:
      *                 "caller doesn't know" and falls back to a best-effort
      *                 guess (node, then link, then gage, then catchment —
      *                 first match wins), matching this method's pre-existing
-     *                 behaviour for any not-yet-migrated caller.
+     *                 behavior for any not-yet-migrated caller.
      * \returns        true on success; false if oldName is not found (under
      *                 \p kindHint, when given), newName is empty, newName is
      *                 already in use, or the engine rejects the rename.
@@ -3549,7 +3549,7 @@ public:
      * @param[in] name Nonempty source UH group key, case-insensitive row identity.
      * @param[in] month Minus one ALL, or0..11 January..December.
      * @param[in] response 0 short, 1 medium, 2 long.
-     * @param[in] dmax Maximum abstraction in project rainfall-depth units (inches US, millimetres
+     * @param[in] dmax Maximum abstraction in project rainfall-depth units (inches US, millimeters
      *   SI).
      * @param[in] drecov Linear abstraction recovery in project rainfall-depth units per day.
      * @param[in] dinit Initial already-used abstraction in project rainfall-depth units.
@@ -3746,7 +3746,7 @@ public:
 
     /*! \brief Append a new control rule. `body` should already include the
      *  `RULE <name>` header (matching the engine's storage format); the
-     *  apply helper does not synthesise one. Returns false if the engine
+     *  apply helper does not synthesize one. Returns false if the engine
      *  is closed, `name` is empty, or the registry already holds it.
      * @param[in] name Nonempty registry identity used for case-insensitive duplicate check; caller
      *   must keep it identical to body RULE header.
@@ -4679,7 +4679,7 @@ private:
     // VS.10 — m_labelConfig moved to OpenSWMMVisLayer (base owns it now).
     // Per-kind QSG scope (see QsgKind / qsgRenderKinds() above).
     // Default empty means the QSG overlay never runs and every kind is
-    // drawn by the CPU SWMMLayerItem path — matches pre-§QSG-1 behaviour
+    // drawn by the CPU SWMMLayerItem path — matches pre-§QSG-1 behavior
     // and is what the Preferences toggle inverts when the user enables
     // the experimental GPU path.
     QsgKinds m_qsgKinds = QsgNone;
@@ -4744,7 +4744,7 @@ private:
     //
     // Doubles, not floats: SWMM models in projected CRS (state plane
     // feet, UTM meters) routinely have 6-7 digit coordinates, where
-    // float's ~7 significant digits leaves ~0.5-1 m of quantisation
+    // float's ~7 significant digits leaves ~0.5-1 m of quantization
     // error. That shows up at high zoom as a visible gap between a
     // node glyph (drawn from the double m_nodeScenePts) and the link
     // endpoint that should be coincident with it. Y is pre-flipped so
@@ -4776,7 +4776,7 @@ private:
     std::vector<uint8_t> m_gageHiddenFlag;
 
     // Per-category row → SoA-index buckets. Built in buildGeometryCache,
-    // cleared in closeEngine. Used by the virtualised Object Browser tree
+    // cleared in closeEngine. Used by the virtualized Object Browser tree
     // model to resolve QModelIndex (category, row) → backing name in O(1)
     // without scanning the whole SoA on every data() call.
     QVector<int> m_nodesByType[4]; // junction/outfall/storage/divider
@@ -4836,7 +4836,7 @@ private:
     // replace did. SWMM keeps a separate namespace per kind, so such
     // collisions are legal and do occur in real models.
     //
-    // Within a kind, first definition wins — matching the scans' behaviour
+    // Within a kind, first definition wins — matching the scans' behavior
     // of returning the lowest index. Maintained in lockstep with
     // m_nameToSoa: rebuilt in rebuildCategoryIndex(), swapped in
     // renameObject(), extended in appendNodeSceneEntry() /
@@ -4889,7 +4889,7 @@ private:
      *  tested BEFORE the virtual override (an inlet junction is virtual). */
     SWMMElementSymbol m_inletJunctionSym;
     /*! Style of the dashed host → capture-node overlay (§3.2). Only
-     *  fillColor (line colour) and outlineWidth (line width) are read. */
+     *  fillColor (line color) and outlineWidth (line width) are read. */
     SWMMElementSymbol m_inletConnectorSym;
 
     /*! Lazily-rebuilt overlay geometry; invalidated by attributeChanged /
@@ -4982,7 +4982,7 @@ private:
     bool m_derivedStyleCachesPending = false;
     /*! Invalidate style caches derived from model DATA: clears every
      *  graduated kind renderer's independent size value range and rebuilds
-     *  that kind's override cache so sizes re-normalise against the edited
+     *  that kind's override cache so sizes re-normalize against the edited
      *  values.
      * @brief Clear independent Graduated size ranges, rebuild each kind resolved feature caches and
      *   request repaint.
@@ -4992,7 +4992,7 @@ private:
      */
     void invalidateDerivedStyleCaches();
 
-    // Slice BI Phase 8.13.6.5 — renderer plumbing. Eagerly initialised in
+    // Slice BI Phase 8.13.6.5 — renderer plumbing. Eagerly initialized in
     // the ctor (default placeholder: SingleSymbolRenderer) so renderer()
     // never returns null. The existing paint loop still reads the per-kind
     // m_*Sym members; the paint refactor sub-phase swaps in a
@@ -5062,14 +5062,14 @@ private:
     // dirty so the next dialog open reflects the change.
     /**
      * @param[in] c Spatial category; out-of-range renderer slot ignored.
-     * @param[in] s Current copied legacy symbol, with pixel widths/sizes and colours.
+     * @param[in] s Current copied legacy symbol, with pixel widths/sizes and colors.
      * @note Writes converted SymbolStyle only for SingleSymbol slot, preserving classified renderer
      *   state; marks rule list dirty for valid slot even when non-single. Does not recurse through
      *   symbol setter or emit layer signals.
      */
     void syncSingleRendererFromStruct(Category c, const SWMMElementSymbol &s);
 
-    // Slice BI Phase 8.13.6.4 (2026-05-24) — per-feature colour-override
+    // Slice BI Phase 8.13.6.4 (2026-05-24) — per-feature color-override
     // cache populated when a kind's renderer is Graduated / Categorized /
     // RuleBased. Indexed by Category × SoA index. The painter checks
     // m_kindUsesOverrides[c] to switch between the legacy bucketed fast

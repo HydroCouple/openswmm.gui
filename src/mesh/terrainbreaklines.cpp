@@ -52,11 +52,11 @@ inline quint8 withState(quint8 v, quint8 st)
     return quint8((v & ~kStateMask) | st);
 }
 
-// Quantised curvature directions (col, row) for NMS: 0°, 45°, 90°, 135°.
+// Quantized curvature directions (col, row) for NMS: 0°, 45°, 90°, 135°.
 constexpr int kNmsDc[4] = {1, 1, 0, -1};
 constexpr int kNmsDr[4] = {0, 1, 1, 1};
 
-// 8-neighbourhood in angular order (k · 45°, rows grow downward).
+// 8-neighborhood in angular order (k · 45°, rows grow downward).
 constexpr int kDc[8] = {1, 1, 0, -1, -1, -1, 0, 1};
 constexpr int kDr[8] = {0, 1, 1, 1, 0, -1, -1, -1};
 
@@ -304,7 +304,7 @@ void TerrainBreaklineExtractor::computeLambdaRow(int r)
             vx = -vy;
             vy = t;
         }
-        // Quantise the axis (mod 180°) to 0°, 45°, 90°, 135° without atan2.
+        // Quantize the axis (mod 180°) to 0°, 45°, 90°, 135° without atan2.
         if (vx < 0.0f) {
             vx = -vx;
             vy = -vy;
@@ -407,8 +407,8 @@ void TerrainBreaklineExtractor::hysteresis()
 
     // Bridge one-pixel gaps: suppression drops the corner pixel where a wall
     // turns, which would break a building outline into pieces. A line end
-    // (one line neighbour or none) joins the first line pixel two steps away
-    // that is not already reachable through its own neighbour, by filling
+    // (one line neighbor or none) joins the first line pixel two steps away
+    // that is not already reachable through its own neighbor, by filling
     // the pixel between them.
     auto isLine = [&](int c, int r) {
         return r >= 0 && r < m_rows && c >= 0 && c < m_cols &&
@@ -458,7 +458,7 @@ QVector<QVector<QPointF>> TerrainBreaklineExtractor::trace()
         const qint64 i = qint64(r) * m_cols + c;
         m_cls->set(i, withState(m_cls->at(i), kTraced));
     };
-    // Pixel centre moved to the sub-pixel peak across the line.
+    // Pixel center moved to the sub-pixel peak across the line.
     auto pointAt = [&](int c, int r) {
         const quint8 v = m_cls->at(qsizetype(r) * m_cols + c);
         const int k = (v >> 3) & 3;
@@ -536,7 +536,7 @@ QVector<QVector<QPointF>> TerrainBreaklineExtractor::trace()
             for (const QPoint &p : fwd)
                 chain.append(pointAt(p.x(), p.y()));
             // A loop comes back next to where it started (its end pixels are
-            // 8-neighbours): close it.
+            // 8-neighbors): close it.
             const QPoint first = bwd.isEmpty() ? QPoint(c, r) : bwd.last();
             const QPoint last = fwd.isEmpty() ? QPoint(c, r) : fwd.last();
             if (chain.size() >= 8 && std::abs(last.x() - first.x()) <= 1 &&
@@ -617,7 +617,7 @@ rankBreaklinesByStep(const QVector<QVector<QPointF>> &lines,
         for (int k = 0; k < 4 * maxKeep; ++k)
             measure[byLength[k]] = 1;
     }
-    // Measure in Morton order of the line centres, a batch at a time, so a
+    // Measure in Morton order of the line centers, a batch at a time, so a
     // caller's prefetch reads each batch's DEM tiles together instead of the
     // sampler reading them one by one across the whole raster. Scores are
     // per line, so the order changes nothing.

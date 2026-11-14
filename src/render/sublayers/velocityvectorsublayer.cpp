@@ -180,7 +180,7 @@ QColor VelocityVectorStyle::colorForSpeed(double speedMps) const
         return m_color;
     // US.2 — the scheme owns ramp / range / method / invert / per-class
     // overrides. Continuous samples the ramp over the speed range; Classified
-    // resolves the band the speed falls in and returns its class colour.
+    // resolves the band the speed falls in and returns its class color.
     const double lo = m_scheme.rangeMin();
     const double hi = (m_scheme.rangeMax() > lo) ? m_scheme.rangeMax() : lo + 1.0;
     if (m_scheme.mode() == ClassificationScheme::ClassMode::Classified) {
@@ -225,7 +225,7 @@ QJsonObject VelocityVectorStyle::toJson() const
     obj.insert(QStringLiteral("color"), m_color.name(QColor::HexArgb));
     obj.insert(QStringLiteral("dryDepthCutoff"), m_dryDepthCutoff);
     obj.insert(QStringLiteral("colorByMagnitude"), m_colorByMagnitude);
-    // US.2 — the scheme is the source of truth; the legacy colour keys are
+    // US.2 — the scheme is the source of truth; the legacy color keys are
     // written too (via the forwarders) so older readers keep working.
     obj.insert(QStringLiteral("colorRampName"), colorRampName());
     obj.insert(QStringLiteral("speedMinMps"), speedMinMps());
@@ -328,7 +328,7 @@ QList<LegendSymbolItem> VelocityVectorSublayer::legendSymbolItems() const
     if (!m_style->colorByMagnitude())
         return {makeArrowRow(tr("Velocity"), m_style->color())};
 
-    // VS.8 — magnitude-coloured arrows get one legend row per colour band
+    // VS.8 — magnitude-colored arrows get one legend row per color band
     // (discrete classes) or a fixed 5-row gradient preview (continuous),
     // mirroring how the graduated renderers present their ramps.
     const double lo = m_style->speedMinMps();

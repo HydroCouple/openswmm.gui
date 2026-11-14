@@ -56,7 +56,7 @@ struct NodeCompoundEditRef {
     QString summary; ///< Short text shown in the cell
     /*! Owning model layer (borrow). DB.4 — needed by the dialog's
      *  picker buttons so they can call `layer->createDataObject(...)`
-     *  to materialise a new time series / pattern / UH inline. May be
+     *  to materialize a new time series / pattern / UH inline. May be
      *  null when constructed in test contexts; pickers handle null
      *  gracefully by disabling the "..." button. */
     SWMMModelLayer *layer = nullptr;
@@ -80,7 +80,7 @@ Q_DECLARE_METATYPE(NodeCompoundEditRef)
 /*! Install the `NodeCompoundEditRef → QString` metatype converter so
  *  the read-only DisplayRole path on QPropertyModel renders `summary`
  *  in the cell when the user isn't actively editing. Idempotent — safe
- *  to call multiple times from different initialisers.
+ *  to call multiple times from different initializers.
  * @details Installs the Qt value-to-QString converter once using a local registration flag. Call during GUI startup before concurrent use; no engine ownership is acquired.
  */
 void registerNodeCompoundEditRefConverter();

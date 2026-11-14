@@ -588,7 +588,7 @@ LayerStyleDialog::LayerStyleDialog(OpenSWMMVisLayer *layer, QString initialRouti
     // Don't let the layout pin a minimum dialog size — the default
     // SetDefaultConstraint forces the dialog's minimumHeight to the summed
     // child minimums, preventing the user from making it shorter. Allow free
-    // resize (the scroll/clip behaviour of the inner widgets handles small
+    // resize (the scroll/clip behavior of the inner widgets handles small
     // sizes gracefully).
     root->setSizeConstraint(QLayout::SetNoConstraint);
     setMinimumSize(0, 0);
@@ -792,7 +792,7 @@ void LayerStyleDialog::buildSymbologyTab()
     } else if (auto *r2d = qobject_cast<SWMM2DResultsLayer *>(m_layer.data())) {
         // O2-1 — 2D results layer-level display controls (depth range / ramp
         // mode / classes, filled contours, isolines, velocity). Per-sublayer
-        // colour/shape styling stays on the layer-tree sub-rows.
+        // color/shape styling stays on the layer-tree sub-rows.
         auto *panel = new Swmm2DResultsStylePanel(r2d, page);
         root->addWidget(panel, 1);
     } else if (auto *m2d = qobject_cast<SWMM2DMeshLayer *>(m_layer.data())) {
@@ -826,7 +826,7 @@ void LayerStyleDialog::buildSymbologyTab()
         }
     } else if (auto *ras = qobject_cast<GISRasterLayer *>(m_layer.data())) {
         // GIS raster / DEM — renderer chooser (Singleband pseudocolor /
-        // Paletted / Multiband colour) over the shared ClassificationEditor,
+        // Paletted / Multiband color) over the shared ClassificationEditor,
         // the paletted class table, RGB band picks and the hillshade group.
         // Writes live into the layer's IRasterRenderer; Cancel / undo
         // restore through StyleFileIO's raster block.
@@ -931,7 +931,7 @@ void LayerStyleDialog::buildRenderingTab()
 
         // Sliders: brightness/saturation in [-100, +100] ↔ [-1, +1].
         // Contrast slider in [-100, +100] ↔ contrast = 1 + v/100  (so 0
-        // is identity, +100 doubles, -100 collapses to grey).
+        // is identity, +100 doubles, -100 collapses to gray).
         /**
          * @brief Create a horizontal adjustment slider. Argument `parent`: optional Qt widget
          * owner. Returns: new parent-owned slider spanning [-100,100] with unit steps and 50-unit

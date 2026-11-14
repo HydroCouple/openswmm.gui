@@ -12,7 +12,7 @@
  * Registered with `QPropertyItemDelegate::registerCustomTypeEditorCreator`
  * against the `NodeCompoundEditRef` metatype; QPropertyModel instantiates
  * this widget when the user enters the value cell of any compound row.
- * The widget shows a single `Edit…` button labelled with the current
+ * The widget shows a single `Edit…` button labeled with the current
  * `summary`; clicking opens `NodeCompoundEditDialog` and (when the user
  * commits a change) propagates the refreshed summary back to the model
  * via the `value` `Q_PROPERTY` (USER true).

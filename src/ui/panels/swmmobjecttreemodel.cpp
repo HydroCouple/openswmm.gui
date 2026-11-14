@@ -2,7 +2,7 @@
 #include <openswmm/engine/openswmm_nodes.h>
 /**
  * @file      swmmobjecttreemodel.cpp
- * @brief     Virtualised tree model backing the Object Browser dock.
+ * @brief     Virtualized tree model backing the Object Browser dock.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.

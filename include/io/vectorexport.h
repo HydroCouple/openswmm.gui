@@ -18,7 +18,7 @@
  * source by path, as every worker in this codebase does.
  *
  * Contract shared with io/mesh2dresultsexport: progress may cancel at any
- * point, and a cancelled or failed export deletes every file it created.
+ * point, and a canceled or failed export deletes every file it created.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -48,7 +48,7 @@ enum class ExportGeometry { Point, LineString, Polygon };
  * \brief One attribute column of an \ref ExportTable.
  */
 struct ExportField {
-    QString name;  ///< Output name: an import key or a sanitised label (§8.4, Q9).
+    QString name;  ///< Output name: an import key or a sanitized label (§8.4, Q9).
     QString label; ///< Full readable label, e.g. "Max Depth".
     QString unit;  ///< e.g. "ft"; empty when unitless.
     openswmmvis::feature::FieldType type = openswmmvis::feature::FieldType::Text;
@@ -127,7 +127,7 @@ using ExportProgress = std::function<bool(int done, int total, const QString &wh
  * @param[in] options Registered curated format, destination, and optional CRS transform.
  * @param[in] progress Optional progress/cancellation callback.
  * @param[out] report Optional report reset on entry, receiving files/layers, warnings, and an error.
- * @details Callbacks run synchronously on the calling thread and may cancel by returning false. Use independent data/source paths for worker execution. Failed/cancelled output cleanup cannot restore an existing destination that was replaced.
+ * @details Callbacks run synchronously on the calling thread and may cancel by returning false. Use independent data/source paths for worker execution. Failed/canceled output cleanup cannot restore an existing destination that was replaced.
  */
 bool exportVectorTables(const QVector<ExportTable> &tables, const ExportOptions &options,
                         const ExportProgress &progress, ExportReport *report);
@@ -152,7 +152,7 @@ struct VectorLayerSource {
  * @param[in] progress Optional progress/cancellation callback.
  * @param[out] report Optional report reset on entry.
  * @return True after translation; false with a diagnostic on invalid input, unavailable driver/layer, cancellation, or write failure.
- * @details Callbacks run synchronously on the calling thread and may cancel by returning false. Use independent data/source paths for worker execution. Failed/cancelled output cleanup cannot restore an existing destination that was replaced.
+ * @details Callbacks run synchronously on the calling thread and may cancel by returning false. Use independent data/source paths for worker execution. Failed/canceled output cleanup cannot restore an existing destination that was replaced.
  */
 bool exportVectorLayer(const VectorLayerSource &source, const ExportOptions &options,
                        const ExportProgress &progress, ExportReport *report);
@@ -166,7 +166,7 @@ bool exportVectorLayer(const VectorLayerSource &source, const ExportOptions &opt
  * @param[in] progress Optional synchronous progress/cancellation callback.
  * @param[out] report Optional report reset on entry.
  * @return True on completed translation/warp; false on validation, open/write failure, or cancellation.
- * @details Callbacks run synchronously on the calling thread and may cancel by returning false. Use independent data/source paths for worker execution. Failed/cancelled output cleanup cannot restore an existing destination that was replaced.
+ * @details Callbacks run synchronously on the calling thread and may cancel by returning false. Use independent data/source paths for worker execution. Failed/canceled output cleanup cannot restore an existing destination that was replaced.
  */
 bool exportRaster(const QString &sourcePath, const QString &destination,
                   const QString &targetSrsWkt, const ExportProgress &progress,

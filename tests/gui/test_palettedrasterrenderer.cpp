@@ -58,7 +58,7 @@ private slots:
     {
         PalettedRasterRenderer r;
         r.setClasses({{1, QStringLiteral("A"), QColor(10, 20, 30)}});
-        // A value with no explicit class must still get an opaque palette colour.
+        // A value with no explicit class must still get an opaque palette color.
         const QColor c = r.colorForValue(7.0);
         QVERIFY(c.isValid());
         QVERIFY(c.alpha() > 0);
@@ -99,7 +99,7 @@ private slots:
         QCOMPARE(r.classes().at(0).value, 11);
         QCOMPARE(r.classes().at(0).label, QStringLiteral("11"));
         QVERIFY(r.classes().at(0).color.isValid());
-        // Distinct palette colours for distinct classes.
+        // Distinct palette colors for distinct classes.
         QVERIFY(r.classes().at(0).color != r.classes().at(1).color);
     }
 

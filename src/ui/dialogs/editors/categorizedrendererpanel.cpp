@@ -9,7 +9,7 @@
  *
  *         Layout (QGIS-aligned):
  *           - Attribute combo (picks the classifyAttribute on the renderer)
- *           - Categories table   : Value | Label | Colour
+ *           - Categories table   : Value | Label | Color
  *           - Buttons            : Sample unique values / Add / Remove / Clear / Edit symbol
  *
  *         Every edit writes through `setKindRenderer(category, clone)` on
@@ -305,7 +305,7 @@ void writeSymbolKnobs(OpenSWMM::Render::SymbolStyle &s, int shape, double size, 
 
 // ---------------------------------------------------------------------------
 
-/*! Small modal dialog for editing the non-colour knobs on a single
+/*! Small modal dialog for editing the non-color knobs on a single
  *  category's symbol.  Fields are hidden when the host archetype
  *  doesn't paint with them (e.g. line width is hidden for points). */
 class SymbolDetailsDialog : public QDialog
@@ -415,7 +415,7 @@ public:
         outer->setContentsMargins(0, 0, 0, 0);
 
         // Feedback C2 — size / outline / labels stay editable under a
-        // classified renderer (colour still comes from the categories).
+        // classified renderer (color still comes from the categories).
         if (QWidget *base = createBaseSymbolGroup(ctx, this))
             outer->addWidget(base);
 
@@ -515,7 +515,7 @@ public:
 
         // Populate the attribute combo from the host's IAttributeProvider
         // when available (Slice DM.4); fall back to the hardcoded
-        // suggestion list otherwise (preserves the existing behaviour
+        // suggestion list otherwise (preserves the existing behavior
         // for layers that haven't been ported to the provider yet).
         // The combo is editable, so a user can still type a custom
         // field name when neither path lists it.
@@ -529,7 +529,7 @@ public:
                         : nullptr;
                 if (provider) {
                     // Gap A4.3 — string fields first (the natural
-                    // categorisation targets: tag / status / group), then
+                    // categorization targets: tag / status / group), then
                     // numerics (legal but secondary, QGIS-style).
                     const auto fields = provider->availableAttributes(*m_ctx.category);
                     for (const auto &f : fields)
@@ -644,7 +644,7 @@ private:
             auto *labelItem = new QStandardItem(c.label.isEmpty() ? c.value : c.label);
             auto *colorItem = new QStandardItem;
 
-            // Pull colour out of the symbol if it exposes one (gap A1.2 —
+            // Pull color out of the symbol if it exposes one (gap A1.2 —
             // tolerant read over both grammar keys via SymbolProps).
             QColor swatch = OpenSWMM::Render::SymbolProps::firstColor(c.symbol);
             if (!swatch.isValid())
@@ -886,9 +886,9 @@ private:
             c.value = m_model->item(r, 0)->text();
             c.label = m_model->item(r, 1)->text();
             const QColor sw = m_model->item(r, 2)->data(Qt::BackgroundRole).value<QColor>();
-            // Carry forward any non-colour layer props the existing
+            // Carry forward any non-color layer props the existing
             // category had so we don't accidentally strip stroke /
-            // marker shape on a simple colour edit.
+            // marker shape on a simple color edit.
             if (r < existing.size()) {
                 c.symbol = existing.at(r).symbol;
                 if (sw.isValid()) {
@@ -926,7 +926,7 @@ private:
 } // namespace
 
 // Gap A4.2 — Categorized needs at least one attribute (string OR numeric;
-// numeric categorisation stays legal, QGIS-style).
+// numeric categorization stays legal, QGIS-style).
 REGISTER_RENDERER_PANEL_GATED(
     "categorized", "Categorized",
     ([](const RendererPanelContext &ctx, QWidget *parent) -> IRendererPanel * {

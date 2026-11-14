@@ -25,7 +25,7 @@ namespace OpenSWMM::Render
 
 /*!
  * \class ResultVectorStyle
- * \brief Arrow and streak displays of a vector result. Arrow size and the colour of both
+ * \brief Arrow and streak displays of a vector result. Arrow size and the color of both
  *        displays bind to the vector magnitude, a constant, or a scalar variable of the same
  *        domain (a catalog key).
  */
@@ -93,7 +93,7 @@ private:
     Q_CLASSINFO("group:streakSpacingPx", "Streaks")
 
 public:
-    /** @brief Arrows on, streaks off, size and colour by magnitude (continuous viridis).
+    /** @brief Arrows on, streaks off, size and color by magnitude (continuous viridis).
      * @param parent Optional QObject owner. */
     explicit ResultVectorStyle(QObject *parent = nullptr);
 
@@ -121,7 +121,7 @@ public:
     double streakLengthPx() const { return m_streakLengthPx; }
     double streakWidthPx() const { return m_streakWidthPx; }
     double streakSpacingPx() const { return m_streakSpacingPx; }
-    /** @return Colour classification (ramp, classes, custom range) for Magnitude/Scalar colour. */
+    /** @return Color classification (ramp, classes, custom range) for Magnitude/Scalar color. */
     const ClassificationScheme &colorScheme() const { return m_colorScheme; }
 
     void setVectorKey(const QString &key);
@@ -157,7 +157,7 @@ public:
      */
     double lengthPxFor(double value, double lo, double hi) const;
 
-    /** @return Every property, the colour scheme included. */
+    /** @return Every property, the color scheme included. */
     QJsonObject toJson() const override;
     /** @brief Restore from toJson(); missing keys keep current values; one final styleChanged. */
     void fromJson(const QJsonObject &json) override;
@@ -223,16 +223,16 @@ public:
     const openswmmvis::io::Mesh2DResultVector &descriptor() const { return m_descriptor; }
     /** @brief Replace the source metadata and invalidate. */
     void setDescriptor(const openswmmvis::io::Mesh2DResultVector &descriptor);
-    /** @return Legend rows without a frame range (an arrow swatch in the constant colour). */
+    /** @return Legend rows without a frame range (an arrow swatch in the constant color). */
     QList<LegendSymbolItem> legendSymbolItems() const override;
     /**
-     * @param colorMin,colorMax Range of the colour-bound value for this frame (NaN when unknown).
-     * @param colorUnits Units of the colour-bound value.
-     * @return Arrow/streak swatch rows: one for Constant colour, else ramp or class swatches.
+     * @param colorMin,colorMax Range of the color-bound value for this frame (NaN when unknown).
+     * @param colorUnits Units of the color-bound value.
+     * @return Arrow/streak swatch rows: one for Constant color, else ramp or class swatches.
      */
     QList<LegendSymbolItem> legendSymbolItems(double colorMin, double colorMax,
                                               const QString &colorUnits) const;
-    /** @return Colour for a bound value over [lo, hi] with the colour scheme (opacity applied). */
+    /** @return Color for a bound value over [lo, hi] with the color scheme (opacity applied). */
     QColor colorFor(double value, double lo, double hi) const;
     /** @return Report time the scene graph last drew this row at, or -1. Atomic, so the GUI
      *   thread may read what the render thread published. */

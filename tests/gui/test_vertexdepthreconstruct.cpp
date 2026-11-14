@@ -44,7 +44,7 @@ struct StepFixture {
     /**
      *
      * @brief Reconstruct this two-triangle step fixture's vertex depths.
-     * @param d0 First cell mean depth in common elevation units (metres in the step example).
+     * @param d0 First cell mean depth in common elevation units (meters in the step example).
      * @param d1 Second cell mean depth in the same units.
      * @param dryF Positive dry-depth threshold, default .001 in those units.
      * Overwrites member scratch/output vectors through production reconstruction using

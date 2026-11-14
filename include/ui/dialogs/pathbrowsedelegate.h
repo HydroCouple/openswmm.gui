@@ -73,8 +73,8 @@ public:
      */
     void setPlaceholder(const QString &p) { m_placeholder = p; }
 
-    /*! Slice IO-11c — directory the editor normalises picked paths against.
-     *  Empty (the default) preserves legacy behaviour of storing whatever
+    /*! Slice IO-11c — directory the editor normalizes picked paths against.
+     *  Empty (the default) preserves legacy behavior of storing whatever
      *  QFileDialog returned, verbatim. When set, a browse outcome under
      *  a compatible filesystem root is rewritten to its relative form before being committed
      *  to the model, so the engine slot ends up with a portable token
@@ -134,7 +134,7 @@ private:
     QString m_title;
     QString m_filter;
     QString m_placeholder;
-    QString m_anchor; ///< IO-11c: relativise picked paths against this dir.
+    QString m_anchor; ///< IO-11c: relativize picked paths against this dir.
 };
 
 #endif // PATHBROWSEDELEGATE_H

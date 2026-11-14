@@ -16,7 +16,7 @@
  *   - RASTER (GeoTIFF, Float32, NoData -9999) — one file per variable with
  *     one BAND per selected time step (band description = ISO datetime),
  *     plus a separate single-band `_max.tif`. Cell values are interpolated
- *     to the pixel grid by natural neighbour, inverse distance weighting or
+ *     to the pixel grid by natural neighbor, inverse distance weighting or
  *     a per-cell Green–Gauss gradient reconstruction.
  *
  * The `t0001`-style field names exist because a Shapefile's DBF caps field
@@ -31,7 +31,7 @@
  * system. The engine's 2D solver runs in SI, so the caller supplies
  * @ref openswmmvis::io::Mesh2DExportInputs::unitFactor (the layer's `depthToMeshUnits()`) and
  * every x/y/z, depth, head and velocity is multiplied by it. The dry-depth
- * comparison happens in metres, before scaling.
+ * comparison happens in meters, before scaling.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -56,7 +56,7 @@ enum class Mesh2DExportFormat {
     GeoTiff     ///< one `.tif` per variable, one band per step ("GTiff")
 };
 
-/*! \brief How cell-centred values are carried to raster pixels. */
+/*! \brief How cell-centered values are carried to raster pixels. */
 enum class Mesh2DInterp {
     NaturalNeighbour, ///< Sibson weights over the cell-centroid Delaunay
     Idw,              ///< Shepard over the k nearest centroids
@@ -103,7 +103,7 @@ struct Mesh2DExportOptions {
     /*! Square pixel size in MODEL units. <= 0 means \ref Mesh2DGridHint::suggestedCellSize. */
     double cellSize = 0.0;
     Mesh2DInterp interp = Mesh2DInterp::NaturalNeighbour;
-    /*! Neighbour count for \ref Mesh2DInterp::Idw. */
+    /*! Neighbor count for \ref Mesh2DInterp::Idw. */
     int idwNeighbours = 8;
     /*! Shepard exponent for \ref Mesh2DInterp::Idw. */
     double idwPower = 2.0;
@@ -115,7 +115,7 @@ struct Mesh2DExportOptions {
 /*! \brief The run to export plus the unit / CRS context the source cannot state. */
 struct Mesh2DExportInputs {
     IMesh2DSource *source = nullptr; ///< not owned; must outlive the call
-    /*! SI metres → model units, for coordinates AND values (the layer's
+    /*! SI meters → model units, for coordinates AND values (the layer's
      *  `depthToMeshUnits()`; 1.0 for a metric model, 1/0.3048 for a US one). */
     double unitFactor = 1.0;
     /*! Dry threshold in METRES (the layer's `dryDepth()`). */
@@ -128,11 +128,11 @@ struct Mesh2DExportInputs {
 struct Mesh2DExportReport {
     QStringList files;    ///< every path created (in creation order)
     QString error;        ///< empty on success; "Cancelled" when the caller stopped it
-    QStringList warnings; ///< non-fatal, e.g. natural neighbour fell back to IDW
+    QStringList warnings; ///< non-fatal, e.g. natural neighbor fell back to IDW
 };
 
 /*! \brief Progress sink. Return false to cancel — every file written so far is
- *  then deleted, so a cancelled export leaves nothing half-written behind. */
+ *  then deleted, so a canceled export leaves nothing half-written behind. */
 using Mesh2DExportProgress = std::function<bool(int done, int total, const QString &what)>;
 
 /*!

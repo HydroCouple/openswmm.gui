@@ -4,10 +4,10 @@
  * \date   2026
  * \license GPL-3.0-or-later
  *
- * Standalone verification for the snap-and-dedupe quantiser in
+ * Standalone verification for the snap-and-dedupe quantizer in
  * MeshGenerator::generate() (src/mesh/meshgenerator.cpp, pushPoint).
  *
- * NO Qt dependency: the quantiser is 4 lines of arithmetic, reproduced here
+ * NO Qt dependency: the quantizer is 4 lines of arithmetic, reproduced here
  * verbatim in both its pre-fix (absolute) and post-fix (origin-relative)
  * forms. Triangle itself IS linked, so checks [3] and [4] exercise the real
  * vendored solver.
@@ -21,11 +21,11 @@
  *   ./mesh_quantiser_check > tests/verification/mesh_quantiser_check.out.txt
  *
  * Checks:
- *   1. The absolute quantiser qRound64(x * 1e7) stops being injective once
+ *   1. The absolute quantizer qRound64(x * 1e7) stops being injective once
  *      |x| * 1e7 exceeds 2^53: the key step degrades to 2 near 1e9 and
  *      collapses to 0 near 1e12, silently merging distinct input vertices
  *      (and therefore dropping the segments between them as zero-length).
- *   2. The origin-relative quantiser qRound64((x - x0) * 1e7) is injective
+ *   2. The origin-relative quantizer qRound64((x - x0) * 1e7) is injective
  *      for every coordinate magnitude, because the product is bounded by the
  *      domain SPAN rather than the absolute coordinate.
  *   3. Triangle is NOT sensitive to absolute coordinate magnitude at any
@@ -81,10 +81,10 @@ void check(bool cond, const char *what)
 // qRound64() is just llround(); reproduced so this harness needs no Qt.
 inline long long q64(double v) { return std::llround(v); }
 
-// Pre-fix: quantise the absolute coordinate.
+// Pre-fix: quantize the absolute coordinate.
 inline long long keyAbsolute(double x) { return q64(x * 1e7); }
 
-// Post-fix: quantise the offset from the reference (first domain) vertex.
+// Post-fix: quantize the offset from the reference (first domain) vertex.
 inline long long keyRelative(double x, double x0) { return q64((x - x0) * 1e7); }
 
 // ---------------------------------------------------------------------------
@@ -93,7 +93,7 @@ constexpr double kTwo53   = 9007199254740992.0;      // exact-integer limit
 constexpr double kInt64Max = 9223372036854775808.0;  // 2^63
 
 // Smallest separation the double grid can actually express at |x|. Below this
-// the two input coordinates are the SAME double before any quantiser sees
+// the two input coordinates are the SAME double before any quantizer sees
 // them, so no downstream arithmetic can recover the distinction.
 double representableSep(double x)
 {
@@ -115,7 +115,7 @@ void test1_absoluteQuantiserCollapses()
         if (overflows)
         {
             // Do NOT evaluate the conversion: llround() of a value outside
-            // int64 range is undefined behaviour. That it is reachable at all
+            // int64 range is undefined behavior. That it is reachable at all
             // from a coordinate is itself the finding.
             std::printf("    x=%-8.1e  product=%.2e  >= 2^63: the qint64 "
                         "conversion is UNDEFINED\n", x, product);
@@ -204,7 +204,7 @@ Mesh meshAt(double ox, double oy, const char *switches, int holeGrid)
     if (holeGrid > 0)
     {
         const double cell = side / (holeGrid + 1);
-        const double hw   = cell * 0.48;   // 4% of a cell between neighbours
+        const double hw   = cell * 0.48;   // 4% of a cell between neighbors
         for (int i = 1; i <= holeGrid; ++i)
             for (int j = 1; j <= holeGrid; ++j)
             {

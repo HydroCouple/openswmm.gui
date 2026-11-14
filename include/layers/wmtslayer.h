@@ -234,7 +234,7 @@ public:
 
     /**
      * @brief Queue missing tile requests covering a canvas rectangle.
-     * @param[in] extent Finite positive canvas-map bounds; scale selection treats its width as metres, so this path assumes metric canvas coordinates.
+     * @param[in] extent Finite positive canvas-map bounds; scale selection treats its width as meters, so this path assumes metric canvas coordinates.
      * @param[in] viewportSize Only width is used; nonpositive substitutes1024.
      * @param[in] srs Unused optional canvas CRS; existing transforms established by onCanvasCRSChanged() determine conversion.
      * @note Hidden/unnamed/not-ready/missing-set layers return. Four-corner canvas-to-tile bbox selects clamped row/column range; failed conversion uses original bounds. Geographic tile spacing uses111319.49metres/degree. Valid matrices require positive finite scales/pixel sizes/grid dimensions with representable indices. Network calls stay on owning thread, with per-key duplicate suppression but no global pending limit.
@@ -245,7 +245,7 @@ public:
     /**
      * @brief Paint exact or cached-coarser tile imagery using current matrix geometry.
      * @param[in] painter Required active target whenever tiles can be painted; state is saved/restored per tile.
-     * @param[in] extent Finite positive canvas-map rectangle; width is assumed metres by matrix selection.
+     * @param[in] extent Finite positive canvas-map rectangle; width is assumed meters by matrix selection.
      * @param[in] imageSize Positive logical pixel dimensions; nonpositive width substitutes1024 only for selection, not destination scaling.
      * @param[in] srs Unused optional CRS; prebuilt transforms and inherited tile SRS determine conversion.
      * @note Does not request tiles or explicitly apply layer visibility/opacity; caller composes these. Resolves coarser fallback at most64times target width. Direct transformed draw maps four corners with quadToQuad, an approximation within curved projections; same-CRS draw snaps device edges. Basemap adjustments affect copied image pixels.
@@ -372,7 +372,7 @@ public:
                                           const WMTSTileMatrix &matrix, int col, int row) const;
     /**
      * @param[in] tms Borrowed stable matrix set with finite positive scale denominators.
-     * @param[in] canvasExtent Finite positive bounds whose width is interpreted as metres; no CRS/unit conversion occurs.
+     * @param[in] canvasExtent Finite positive bounds whose width is interpreted as meters; no CRS/unit conversion occurs.
      * @param[in] pixelWidth Target pixel width, clamped to at least one as divisor.
      * @return Borrowed matrix inside tms, valid until its list mutates/dies, or null for no matrices. Picks smallest denominator>=canvasScale(width/pixels/0.00028), otherwise largest denominator; input order need not be sorted.
      */
@@ -408,7 +408,7 @@ private:
 
     /**
      * @param[in] tms Borrowed stable matrix set with finite positive scale denominators.
-     * @param[in] canvasExtent Finite positive bounds whose width is interpreted as metres; no CRS/unit conversion occurs.
+     * @param[in] canvasExtent Finite positive bounds whose width is interpreted as meters; no CRS/unit conversion occurs.
      * @param[in] pixelWidth Target pixel width, clamped to at least one as divisor.
      * @return Borrowed matrix inside tms, valid until its list mutates/dies, or null for no matrices. Picks smallest denominator>=canvasScale(width/pixels/0.00028), otherwise largest denominator; input order need not be sorted.
      */

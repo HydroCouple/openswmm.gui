@@ -93,7 +93,7 @@ namespace
 /**
  * @return New caller-owned node owning empty DrawTriangles ColoredPoint2D geometry and
  *   QSGVertexColorMaterial. Parent root assumes ownership when attached; caller supplies
- *   premultiplied colours. Allocate/use/destroy in render-resource context.
+ *   premultiplied colors. Allocate/use/destroy in render-resource context.
  */
 QSGGeometryNode *makeColoredNode()
 {
@@ -113,7 +113,7 @@ class WaterFillMaterial final : public QSGVertexColorMaterial
 public:
     /**
      * @return Borrowed process-static unique material-type identity for water fills; never free.
-     *   Separates this material family from ordinary vertex-colour materials, no mutation.
+     *   Separates this material family from ordinary vertex-color materials, no mutation.
      */
     QSGMaterialType *type() const override
     {
@@ -136,7 +136,7 @@ public:
 };
 
 /**
- * @return New caller-owned coloured triangle node with unique WaterFillMaterial marked NoBatching.
+ * @return New caller-owned colored triangle node with unique WaterFillMaterial marked NoBatching.
  *   Node owns geometry/material, parent assumes node ownership on attachment. Unique comparisons
  *   keep upload staging per chunk; render-resource context only.
  */
@@ -369,9 +369,9 @@ public:
     /**
      * @param[in] chunk Immutable packed-band XY/band-index vertices and valid 16 bit triangle
      *   indices; sizes fit int and chunk limit.
-     * @param[in] colors Nonempty straight-alpha palette; bandIndex upper-clamped to last colour, no
+     * @param[in] colors Nonempty straight-alpha palette; bandIndex upper-clamped to last color, no
      *   empty-palette guard.
-     * @brief Convert palette vertices to premultiplied colours and synchronously upload supplied
+     * @brief Convert palette vertices to premultiplied colors and synchronously upload supplied
      *   connectivity.
      * @note Empty index list no-op. Root/overflow own GPU copies, input retained by caller. Tracks
      *   direct vertex/reference/byte statistics; does not feed pending builder, so do not mix with
@@ -498,10 +498,10 @@ private:
 };
 
 /**
- * @param[in,out] node Required root with ColoredPoint2D geometry and vertex-colour material;
+ * @param[in,out] node Required root with ColoredPoint2D geometry and vertex-color material;
  *   matching overflow children only.
  * @param[in] verts Premultiplied triangle vertices, size fits int and is a multiple of3.
- * @note Chunked helper creates coloured children and prunes extras. Caller retains input, root owns
+ * @note Chunked helper creates colored children and prunes extras. Caller retains input, root owns
  *   resource tree; render-thread only.
  */
 void uploadColoredVerts(QSGGeometryNode *node,
@@ -514,14 +514,14 @@ void uploadColoredVerts(QSGGeometryNode *node,
  * @param[in,out] node Required Point2D root with actual QSGFlatColorMaterial; every child matches
  *   that family.
  * @param[in] verts Immutable triangle stream, size fits int and is a multiple of3.
- * @note Chunked upload clones root current material colour into newly created children; later
+ * @note Chunked upload clones root current material color into newly created children; later
  *   setFlatColor updates reused children. Removes surplus children, marks appropriate dirtiness;
  *   render-resource context only.
  */
 void uploadFlatVerts(QSGGeometryNode *node, const std::vector<QSGGeometry::Point2D> &verts)
 {
-    // Overflow children clone the pass node's current flat colour; a later
-    // colour change reaches them through setFlatColor below.
+    // Overflow children clone the pass node's current flat color; a later
+    // color change reaches them through setFlatColor below.
     auto *mat = static_cast<QSGFlatColorMaterial *>(node->material());
     const QColor c = mat->color();
     uploadVertsChunked(node, verts, [c]() { return makeFlatNode(c); });
@@ -530,7 +530,7 @@ void uploadFlatVerts(QSGGeometryNode *node, const std::vector<QSGGeometry::Point
 /**
  * @param[in,out] node Required root and direct children with QSGFlatColorMaterial, unchecked casts.
  * @param[in] c New flat QColor including alpha.
- * @note Updates root and each direct overflow child only if colour differs, marking DirtyMaterial.
+ * @note Updates root and each direct overflow child only if color differs, marking DirtyMaterial.
  *   Does not traverse grandchildren, upload vertices or transfer ownership; render-resource context
  *   required.
  */
@@ -541,7 +541,7 @@ void setFlatColor(QSGGeometryNode *node, QColor c)
         mat->setColor(c);
         node->markDirty(QSGNode::DirtyMaterial);
     }
-    // Keep overflow chunks (see uploadVertsChunked) in the same colour.
+    // Keep overflow chunks (see uploadVertsChunked) in the same color.
     for (QSGNode *ch = node->firstChild(); ch; ch = ch->nextSibling()) {
         auto *cg = static_cast<QSGGeometryNode *>(ch);
         auto *cm = static_cast<QSGFlatColorMaterial *>(cg->material());
@@ -560,7 +560,7 @@ void setFlatColor(QSGGeometryNode *node, QColor c)
  * @param[in] by Second endpoint Y.
  * @param[in] hw Finite nonnegative HALF-width, in the same anchored scene units as endpoints.
  * @note Finite endpoint precondition. Length<1e-9emits nothing; otherwise appends six vertices for
- *   a butt-cap perpendicular quad. No clipping, joins, colour, GPU upload or validation of
+ *   a butt-cap perpendicular quad. No clipping, joins, color, GPU upload or validation of
  *   negative/nonfinite width; allocation failure can leave a partial append.
  */
 void appendThickSeg(std::vector<QSGGeometry::Point2D> &out, float ax, float ay, float bx, float by,
@@ -620,7 +620,7 @@ QVector<qreal> dashPatternOf(Qt::PenStyle style)
 }
 
 /**
- * @brief Append a constant-colour butt-cap stroke quad without clearing prior triangles.
+ * @brief Append a constant-color butt-cap stroke quad without clearing prior triangles.
  * @param[in,out] out Append-only premultiplied vertex list; six vertices per accepted segment.
  * @param[in] ax First endpoint X in anchored scene units.
  * @param[in] ay First endpoint Y.
@@ -631,7 +631,7 @@ QVector<qreal> dashPatternOf(Qt::PenStyle style)
  * @param[in] g Already-premultiplied green byte.
  * @param[in] b Already-premultiplied blue byte.
  * @param[in] a Alpha byte.
- * @note Finite endpoints expected. Length below 1e-9 emits nothing; otherwise colours copied verbatim. No joins, clipping, GPU upload or input validation; allocation failure may leave partial append.
+ * @note Finite endpoints expected. Length below 1e-9 emits nothing; otherwise colors copied verbatim. No joins, clipping, GPU upload or input validation; allocation failure may leave partial append.
  */
 void appendThickSegColored(std::vector<QSGGeometry::ColoredPoint2D> &out, float ax, float ay,
                            float bx, float by, float hw, quint8 r, quint8 g, quint8 b, quint8 a)
@@ -720,7 +720,7 @@ struct ResultsRootNode : QSGTransformNode {
 };
 
 // ---------------------------------------------------------------------------
-// Isoline label rasterisation — parametrised variant of the mesh renderer's
+// Isoline label rasterization — parametrized variant of the mesh renderer's
 // helper (font size + halo from IsolineStyle).
 // ---------------------------------------------------------------------------
 
@@ -1203,7 +1203,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
     QSGGeometryNode *hiFillNode = nullptr;
     QSGGeometryNode *hiEdgeNode = nullptr;
 
-    // CF.3 highlight colours — match the CPU pass.
+    // CF.3 highlight colors — match the CPU pass.
     const QColor kHiFillColor(0, 200, 255, 110); // translucent cyan
     const QColor kHiEdgeColor(255, 215, 0, 235); // gold
 
@@ -1227,7 +1227,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         isoLabels = root->isoLabels = new QSGOpacityNode();
         edgeNode = root->edgeNode = makeFlatNode(QColor(0, 0, 0, 130));
         edgeWideNode = root->edgeWideNode = makeFlatNode(QColor(0, 0, 0, 210));
-        nodeMarkNode = root->nodeMarkNode = makeColoredNode(); // fill + outline colours
+        nodeMarkNode = root->nodeMarkNode = makeColoredNode(); // fill + outline colors
         velNode = root->velNode = makeColoredNode();
         hiFillNode = root->hiFillNode = makeFlatNode(kHiFillColor);
         hiEdgeNode = root->hiEdgeNode = makeFlatNode(kHiEdgeColor);
@@ -1648,7 +1648,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
     // ---- Content rebuild (per-pass, dirty-domain guarded) --------------------
     if (anyContent) {
 
-        // Anchor — bbox centre; derived purely from geometry, so recompute
+        // Anchor — bbox center; derived purely from geometry, so recompute
         // only on the Geometry domain (all passes rebuild then, keeping
         // every anchor-relative buffer consistent).
         if (bits & D::Geometry) {
@@ -1700,7 +1700,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                 const auto edges = bs->scheme().levelEdges(
                     dryDepth, maxDepth, m_layer->depthClassificationSamples(bs->scheme()));
                 bandLevels.assign(edges.cbegin(), edges.cend());
-                // The scheme's below / above colours: outer bands from the dry depth to the
+                // The scheme's below / above colors: outer bands from the dry depth to the
                 // first level and from the last level to the run's maximum. Every band path
                 // (contour job, GPU bands, flat cells) then draws them as ordinary bands.
                 if (bandLevels.size() >= 2) {
@@ -1728,7 +1728,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         }
         // ---- Chunk index (Phase 4) — rebuilt once per geometry revision ----
         // A Selection-only rebuild touches just the highlight nodes; skip
-        // the chunk query / visible-cell materialisation entirely then.
+        // the chunk query / visible-cell materialization entirely then.
         const bool needChunks = rebuildFills || rebuildVel || rebuildEdges || rebuildMarkers;
         if (needChunks && (m_chunksRev != m_layer->geomRevision() || m_chunks.isEmpty())) {
             QVector<QRectF> triBB(nTri);
@@ -2026,7 +2026,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                 m_contourWatcher.setFuture(QtConcurrent::run(std::move(compute)));
             } else {
                 // Small-mesh bootstrap and non-marching passes stay immediate.
-                // Never substitute cell colours or blank contour lines.
+                // Never substitute cell colors or blank contour lines.
                 m_contourFrame = compute();
                 finishContourOutput(*m_contourFrame->contourPacket);
             }
@@ -2291,7 +2291,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                     const qreal bandOp = std::clamp<qreal>(bandSub->opacity(), 0.0, 1.0);
                     QVector<QColor> bandColors;
                     bandColors.reserve(bandCount);
-                    // Outer bands (below / above colours) wrap the scheme's own classes.
+                    // Outer bands (below / above colors) wrap the scheme's own classes.
                     const bool outerBelow = bs && bandOuterBelow && bandCount >= 2;
                     const bool outerAbove = bs && bandOuterAbove && bandCount >= 2;
                     const int schemeBands = std::max(
@@ -2368,7 +2368,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         // ---- Direct mesh-fill depth passes ------------------------------
         // Fill the triangle mesh directly (no marching-squares) — the
         // seam-free alternative to contour bands. `perVertex=false` flat-fills
-        // each cell from its cell-centre depth; `perVertex=true` colours each
+        // each cell from its cell-center depth; `perVertex=true` colors each
         // mesh vertex from its (interpolated) depth and lets the GPU
         // interpolate across the triangle (Gouraud).
         bool gpuFillDrawn = false; // this frame's smooth fill went to root->gpuFillNode
@@ -2392,7 +2392,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
             const OpenSWMM::Render::ClassificationColorSampler colors(style->scheme(), vMin, vMax,
                                                                       classified ? bandCount : 0);
             const QVector<double> classEdges(levels.cbegin(), levels.cend());
-            // The scheme's log scale and below / above colours apply (the sampler holds them).
+            // The scheme's log scale and below / above colors apply (the sampler holds them).
             auto colorAt = [&](double value) -> QColor {
                 QColor c = classified && levels.size() >= 2
                                ? colors.classifiedColor(double(value), classEdges)
@@ -2401,19 +2401,19 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                 return c;
             };
             // Where the ramp starts (the log floor under a log scale); below it the scheme's
-            // below colour when set, otherwise nothing.
+            // below color when set, otherwise nothing.
             const double lowCut = colors.lowerBound();
             QColor belowColor = colors.belowColor();
             if (belowColor.isValid())
                 belowColor.setAlphaF(belowColor.alphaF() * op);
-            // Fast surface: corners are shared vertex values, so colour each shared vertex
+            // Fast surface: corners are shared vertex values, so color each shared vertex
             // once from a lookup table and draw the wet triangles indexed, without clipping
             // or per-vertex deduplication. A corner at or below the visible minimum is
             // transparent, so the waterline fades across its triangle.
             if (perVertex && frame.sharedCorners && ensureSharedFillChunks(ox, oy)) {
                 // A classified fill is classified per fragment on the GPU, so class edges stay
-                // crisp; colouring vertices would blend neighbouring classes across triangles.
-                // Below / above colours draw as outer bands: from the dry cutoff to the first
+                // crisp; coloring vertices would blend neighboring classes across triangles.
+                // Below / above colors draw as outer bands: from the dry cutoff to the first
                 // level, and past the last (the material saturates its last band).
                 std::vector<double> bandLevels = levels;
                 std::vector<std::array<float, 4>> classColors;
@@ -2459,7 +2459,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                 for (int j = 0; j < kLut; ++j)
                     lut[size_t(j)] = quad(colorAt(colors.valueAt((j + .5) / kLut)));
                 const bool outsideColors = belowColor.isValid() || colors.aboveColor().isValid();
-                // At or below the floor: transparent; a below colour draws down to the dry cutoff.
+                // At or below the floor: transparent; a below color draws down to the dry cutoff.
                 const double floor =
                     belowColor.isValid() ? dryDepth : std::max(dryDepth, std::max(vMin, lowCut));
                 scanSharedChunks();
@@ -2519,7 +2519,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
             };
             for (int i : frameTriangles) {
                 const auto t = frameTri(i);
-                // Flat cells: below the range only with a below colour (colorAt says).
+                // Flat cells: below the range only with a below color (colorAt says).
                 const QColor cellColor =
                     perVertex || !std::isfinite(t.depth) ? QColor() : colorAt(t.depth);
                 if (!perVertex && cellColor.alpha() == 0)
@@ -2542,7 +2542,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                 // Clip the scalar field, not its colors: transparent endpoints
                 // bleed below the minimum and saturated endpoints shift the
                 // maximum crossing when the GPU interpolates the triangle.
-                // The part below the ramp's start: the below colour, flat, when set.
+                // The part below the ramp's start: the below color, flat, when set.
                 if (belowColor.isValid()) {
                     OpenSWMM::Contour::detail::clipHalfplane(points, values, lowCut, false, part,
                                                              partValues);
@@ -2633,7 +2633,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                         const auto geometry = m_layer->resultVectorGeometry(
                             vector, cullRect, double(sx_r), nullptr, nullptr, nullptr,
                             frame.key.time);
-                        // Legends and colour ranges read the time drawn here.
+                        // Legends and color ranges read the time drawn here.
                         vector->publishPresentedTime(frame.key.time);
                         const float streakHalf = float(0.5 * style->streakWidthPx()) * invView;
                         for (const auto &streak : geometry.streaks) {
@@ -2816,7 +2816,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                                 pushColored(vertices, point, colors[cell]);
                         }
                     }
-                    // Smooth fill: per-vertex colours of the nodal reconstruction
+                    // Smooth fill: per-vertex colors of the nodal reconstruction
                     // over valid cells.
                     if (fillOk && !depthPasses && scalarStyle->cellFill() &&
                         scalarStyle->smoothFill()) {
@@ -2847,7 +2847,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                     // Filled contours: marching-triangle bands over the nodal
                     // reconstruction, classes from the fill scheme, for the
                     // triangles in view. Zoomed far out, each cell takes its
-                    // band's colour instead (cells are about a pixel there).
+                    // band's color instead (cells are about a pixel there).
                     if (fillOk && !depthPasses && scalarStyle->filledContours()) {
                         // The cull rect spans more than the screen: compare the
                         // triangles in view with the on-screen threshold (as the
@@ -2919,7 +2919,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         // ---- Pass 3 + 3b: isolines, index contours, labels ---------------
         if (rebuildFills) {
             // Fast-surface isolines without labels: drawn per fragment on the GPU with the
-            // same width, index-contour and colour rules as the marched lines below.
+            // same width, index-contour and color rules as the marched lines below.
             const bool gpuIsoDrawn = isoVisible && maxDepth > dryDepth && frameGpuIsolines &&
                                      !isoLevels.empty();
             if (gpuIsoDrawn) {
@@ -3171,7 +3171,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
 
                 std::vector<QSGGeometry::ColoredPoint2D> glyphVerts;
 
-                // Emit one arrow glyph centred at scene point (cxs,cys) for velocity
+                // Emit one arrow glyph centered at scene point (cxs,cys) for velocity
                 // (gvx,gvy), |v| = gvmag. Shared by the grid-sampled (V2) and the
                 // dense per-cell paths so both render identical glyphs.
                 auto emitGlyphAt = [&](double cxs, double cys, float gvx, float gvy, float gvmag) {
@@ -3296,7 +3296,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                 const QVector<qreal> dash = dashPatternOf(stroke);
                 const float dashUnit = float(std::max(1.0, w)) * invView;
                 // Slope emphasis (as on the mesh layer): edges steeper than the slope break,
-                // as a fraction of the steepest edge, take the wide width and colour.
+                // as a fraction of the steepest edge, take the wide width and color.
                 const float maxSlope = m_layer->m_maxEdgeSlope;
                 const bool slopeOn = es && es->useSlopeDrivenWidth() && maxSlope > 0.f;
                 const float splitSlope = slopeOn ? float(es->slopeBreak()) * maxSlope : 0.f;
@@ -3352,7 +3352,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         }
 
         // ---- Pass 3d: mesh-vertex markers (MeshNodeSublayer) ------------
-        // One centred quad per UNIQUE mesh vertex (m_sceneVerts) — the
+        // One centered quad per UNIQUE mesh vertex (m_sceneVerts) — the
         // historical per-corner emission drew every shared vertex ~6×.
         // LOD-gated to Near; static across time. Falls back to the corner
         // loop when the shared-vertex cache is absent.

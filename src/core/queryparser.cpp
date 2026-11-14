@@ -164,7 +164,7 @@ public:
             return {TokenKind::Ident, s, start};
         }
 
-        // Unrecognised character — let parser surface it.
+        // Unrecognized character — let parser surface it.
         ++m_pos;
         return {TokenKind::Invalid, QStringLiteral("Unexpected character: %1").arg(c), start};
     }

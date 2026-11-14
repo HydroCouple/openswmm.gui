@@ -52,7 +52,7 @@ public:
      * tree's handlers and per-row connections, and detaches the page with its signals blocked and
      * its deletion deferred, silencing callbacks that retain borrowed styles.
      * @param[in] parent Optional Qt widget owner.
-     * Controls hydrate before write connections. Thin-film depth uses metres [0,1000], with -1 sent
+     * Controls hydrate before write connections. Thin-film depth uses meters [0,1000], with -1 sent
      * for model dry depth. Edits follow normal layer/style notifications without a local undo
      * snapshot; changing display policy does not change simulation data.
      */
@@ -111,7 +111,7 @@ private:
      * flow-streak sublayer/style. Density presets are 56/40/28/14 px; trail presets .75/1.5/3 s;
      * motion slider .25..4 times reference, exact motion maps 48 px/s to multiplier one. Advanced
      * property bounds use FlowStreakStyle::maximumNumericValue. Style signals refresh controls;
-     * the speed classification is hidden, disabled and refreshed (draft dropped) while colouring
+     * the speed classification is hidden, disabled and refreshed (draft dropped) while coloring
      * by speed is off.
      */
     [[nodiscard]] QWidget *buildFlowStreakTab(QWidget *parent, bool withShow);
@@ -140,7 +140,7 @@ private:
      * @brief Bring the catalog menu, the tree and the page up to date with the layer.
      * No-op without layer/tree. Rebuilds the Add menu only when the catalog keys changed and the
      * tree only when the listed rows or their groups changed (under the suppress flag, keeping the
-     * selection, else the pending neighbour, else the first row, else Water visibility). Rebuilds
+     * selection, else the pending neighbor, else the first row, else Water visibility). Rebuilds
      * the page only when its signature changed; otherwise refreshes its data.
      */
     void refreshAdditionalResults();
@@ -156,7 +156,7 @@ private:
     bool rebuildPageIfStale();
     /**
      * @brief Postpone page swaps and data refreshes while a modal window other than the dialog
-     * (a colour or ramp picker opened from the page) runs its own event loop.
+     * (a color or ramp picker opened from the page) runs its own event loop.
      * @return True when a modal window is open; a retry of refreshAdditionalResults() is then
      * scheduled.
      */
@@ -212,7 +212,7 @@ private:
                             std::function<void()> refreshEditors);
     /**
      * @brief Fill a vector row's tabs: Arrows, Streaks (the animated streak editor for the velocity
-     * row), Colour and Data, and set the page's refresh closure.
+     * row), Color and Data, and set the page's refresh closure.
      * @param[in] row Selected vector row.
      * @param[in,out] tabs Page tab widget.
      */

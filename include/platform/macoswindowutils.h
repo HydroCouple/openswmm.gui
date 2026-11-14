@@ -36,7 +36,7 @@ namespace openswmmvis::platform
  *
  *  Idempotent (safe to call again on re-show). No-op when \p dialog is not a
  *  window, has no non-dialog top-level ancestor, or the native windows aren't
- *  realised yet. Only defined on macOS — callers must guard with Q_OS_MACOS.
+ *  realized yet. Only defined on macOS — callers must guard with Q_OS_MACOS.
  * @param[in] dialog Borrowed GUI-thread widget; null/nonwindow/non-Cocoa inputs are ignored.
  * @details May realize native windows via winId(), and reparents an existing child-window relation when needed. Qt QObject ownership remains unchanged.
  */
@@ -54,7 +54,7 @@ void attachAsChildWindow(QWidget *dialog);
  *  orderOut:), the window is ordered out again after detaching so it can't
  *  linger on screen glued to the parent.
  *
- *  Idempotent. No-op when \p dialog is not a window, has no realised native
+ *  Idempotent. No-op when \p dialog is not a window, has no realized native
  *  window, or is not currently attached. Only defined on macOS — callers
  *  must guard the call with Q_OS_MACOS.
  * @param[in] dialog Borrowed GUI-thread widget; null/nonwindow/non-Cocoa/unrealized inputs are ignored.

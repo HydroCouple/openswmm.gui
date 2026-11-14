@@ -101,7 +101,7 @@ struct MeshAssignmentSampling {
         // ---- Classified infiltration ----
         mesh::InfilLookupTable table;
 
-        // ---- Natural neighbour ----
+        // ---- Natural neighbor ----
         mesh::NaturalNeighbourInterpolator::Variant nnVariant =
             mesh::NaturalNeighbourInterpolator::Variant::Sibson;
     };
@@ -141,7 +141,7 @@ MeshAssignmentSampling::
      * @param[in] job Value-only job captured from GUI state; source paths are reopened locally and no QObject or engine handle is used. Bands are one-based; cell IDs and geometry arrays must stay index-aligned.
      * @param[in] cancelled Optional synchronous callback; true requests cancellation.
      * @param[in] progress Optional synchronous callback receiving processed and total cell counts; GUI callers must marshal UI updates to the GUI thread.
-     * @return Sampled values in source units after scale/offset and target range checks, classification rows, skip counts and diagnostics. Nonempty error or cancelled prevents applying results.
+     * @return Sampled values in source units after scale/offset and target range checks, classification rows, skip counts and diagnostics. Nonempty error or canceled prevents applying results.
      * @details May run on a worker thread. Each invocation owns its GDAL datasets and coordinate transforms; source files must remain accessible during the call.
      */
     sampleMeshAssignment(const MeshAssignmentSampling::Job &job,

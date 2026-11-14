@@ -163,7 +163,7 @@ public:
  *        live renderer, install a replacement (its existing three-way
  *        Rule/model/results dispatch), and sample the layer's values. The
  *        binding caches a scheme mirror so setScheme can push only the
- *        deltas — preserving today's behaviour where, e.g., changing the
+ *        deltas — preserving today's behavior where, e.g., changing the
  *        class count never resets the ramp.
  */
 class GraduatedRendererBinding final : public IClassificationBinding

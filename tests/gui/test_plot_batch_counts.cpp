@@ -158,10 +158,10 @@ public:
 
     /**
      *
-     * @brief Replace output arrays with a metre unit-square mesh at one-metre bed elevation.
+     * @brief Replace output arrays with a meter unit-square mesh at one-meter bed elevation.
      * @param vx Borrowed output four x coordinates.
      * @param vy Borrowed output four matching y coordinates.
-     * @param vz Borrowed output four elevations, all one metre.
+     * @param vz Borrowed output four elevations, all one meter.
      * @param tris Borrowed output zero-based triangles (0,1,2)/(0,2,3).
      * @return True on completion; sequential allocations may partially update outputs
      * on exception. No pointers retained or read counters changed.
@@ -181,7 +181,7 @@ public:
      *
      * @brief Read two increasing synthetic native-cell depths and count valid reads.
      * @param t Zero-based frame index 0..4.
-     * @param depths Borrowed output replaced by 0.1*(t+1),0.2*(t+1) metres.
+     * @param depths Borrowed output replaced by 0.1*(t+1),0.2*(t+1) meters.
      * @return False for invalid time with output/counter unchanged; true after incrementing
      * depthReads and filling. Allocation failure may leave the counter incremented.
      *
@@ -270,7 +270,7 @@ public:
      *
      * @brief Read cumulative rain volumes or inherited rainfall with dry-cell snapshots zeroed.
      * @param dataset Borrowed nonnull null-terminated ID. Exact Mesh2_face_rain_cum
-     * selects cumulative cubic metres; other names delegate to the base rainfall reader.
+     * selects cumulative cubic meters; other names delegate to the base rainfall reader.
      * @param t Frame 0..4; cumulative frame two is deliberately unavailable.
      * @param values Borrowed output two values on success, unchanged on refused reads.
      * @return False for invalid/unavailable cumulative frame or base refusal; true with
@@ -327,7 +327,7 @@ void compareSeries(const SeriesData &a, const SeriesData &b)
  * @param frames Positive minute-spaced report count; counts/products must fit int,
  * hsize_t and allocation capacity. No argument validation.
  * @return Fixed plot_batch_saved_results.h5 path, or empty only if H5Fcreate fails.
- * Recreates/truncates this file, storing metre coordinates/depth, m/s rainfall, m3
+ * Recreates/truncates this file, storing meter coordinates/depth, m/s rainfall, m3
  * cumulative rain and m3/s edge flux with SWMM-day times. Other HDF5 creation/write/
  * close statuses and directory creation are unchecked, so a returned path can hold
  * partial data. Allocations can throw; no model simulation is run.
@@ -472,7 +472,7 @@ private slots:
     void workerJobMatchesDirectRead();
     /**
      *
-     * @brief Require pre-cancelled extraction to read zero frames and stay cancelled until
+     * @brief Require pre-canceled extraction to read zero frames and stay canceled until
      * explicit retry queues a new job.
      * Recreates the test HDF5 artifact and performs no asynchronous dialog work.
      *
@@ -497,7 +497,7 @@ private slots:
      * @brief Require dialog Cancel to discard loading, Retry to complete and mid-load destruction
      * to finish within five seconds.
      * Recreates the test HDF5 artifact and requires a functioning GUI event loop; checks
-     * Cancelled/Loading display states and worker cleanup, not OS disk-cache eviction.
+     * Canceled/Loading display states and worker cleanup, not OS disk-cache eviction.
      *
      */
     void dialogCancelRetryAndCloseWhileLoading();

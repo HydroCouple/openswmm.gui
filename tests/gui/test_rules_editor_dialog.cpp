@@ -9,7 +9,7 @@
  * construction, signal wiring, and the vocabulary the completer + highlighter
  * pull from.
  *
- * End-to-end editor behaviour (open dialog → type rule → engine round-trip)
+ * End-to-end editor behavior (open dialog → type rule → engine round-trip)
  * is verified by manual smoke of the running app once this slice lands; the
  * engine round-trip itself is pinned by the test_engine_control_rule_validate
  * binary.

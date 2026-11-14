@@ -239,7 +239,7 @@ private slots:
      * @brief Verify unwritable cache setup and explicit cancellation yield empty output with
      * diagnostics.
      * @note Nonexistent-rootcache must fail atbegin;reset to small grid/canceltrue yields
-     * cancelled error, preventing false successful empty-feature interpretation. Does not create
+     * canceled error, preventing false successful empty-feature interpretation. Does not create
      * a real model/raster.
      */
     void cancellationAndCacheFailureAreExplicit()
@@ -308,7 +308,7 @@ private slots:
             if (p.y() < 2.0 || p.y() > g.rows - 2.0)
                 continue; // stencil clipped at the border
             // Sub-pixel placement puts the line ON the step (the pixel
-            // boundary x = 21), not on either pixel centre.
+            // boundary x = 21), not on either pixel center.
             QVERIFY2(std::abs(p.x() - 21.0) <= 0.2, qPrintable(QStringLiteral("x=%1").arg(p.x())));
             ++covered;
         }
@@ -352,8 +352,8 @@ private slots:
                 if (p.x() < 2.0 || p.y() < 2.0 || p.x() > g.cols - 2.0 || p.y() > g.rows - 2.0)
                     continue;
                 ++total;
-                // True step: between pixel centres with c − r = 3 and c − r = 4,
-                // i.e. the line x − y = 3.5 (pixel centres at +0.5 cancel).
+                // True step: between pixel centers with c − r = 3 and c − r = 4,
+                // i.e. the line x − y = 3.5 (pixel centers at +0.5 cancel).
                 const double d = std::abs((p.x() - p.y()) - 3.5) / std::sqrt(2.0);
                 if (d <= 1.0)
                     ++onLine;
@@ -551,7 +551,7 @@ private slots:
      */
     void truncatedWindowFinishesCleanly()
     {
-        // Fewer rows pushed than announced (a cancelled read): no crash,
+        // Fewer rows pushed than announced (a canceled read): no crash,
         // lines only from what arrived.
         Grid g(32, 32);
         for (int r = 0; r < g.rows; ++r)

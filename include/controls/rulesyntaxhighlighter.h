@@ -23,13 +23,13 @@
  *   - Comment       (`;` to EOL)                             — italic, Placeholder
  *
  * The keyword/object/variable vocabularies are aligned with the engine's
- * `Controls.cpp` tokeniser (the `attr ==` / `obj_type ==` ladders at lines
+ * `Controls.cpp` tokenizer (the `attr ==` / `obj_type ==` ladders at lines
  * 650–736 of that file) so the GUI and engine cannot drift. A small
  * exposed `keywordList()` accessor lets `RuleCodeEditor`'s `QCompleter`
  * reuse the same vocabulary without duplication.
  *
- * Theming. Colours come from the application palette via `QPalette`
- * colour roles rather than hard-coded RGB, so dark / light themes Just
+ * Theming. Colors come from the application palette via `QPalette`
+ * color roles rather than hard-coded RGB, so dark / light themes Just
  * Work. The highlighter rebuilds its `QTextCharFormat`s on `setPalette`
  * (called by the editor when the palette changes).
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.

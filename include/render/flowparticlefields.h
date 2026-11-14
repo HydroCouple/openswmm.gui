@@ -33,11 +33,11 @@ struct FlowParticleNativeInput {
     double cutoff = .001;
 };
 // Native RT0 discharge preserves reported normal flux. A quadratic tangential
-// correction blends neighbouring directions without altering face-normal flow.
+// correction blends neighboring directions without altering face-normal flow.
 /** @brief Reconstruct a scene-space velocity field from native per-triangle hydraulics.
  * @param in Borrowed capture with a shared mutable mesh and matching triangle count.
- * Physical coordinates are metres, outward opposite-corner fluxes m3/s, depths
- * metres and fallback velocity m/s. Caller supplies valid mesh topology, finite
+ * Physical coordinates are meters, outward opposite-corner fluxes m3/s, depths
+ * meters and fallback velocity m/s. Caller supplies valid mesh topology, finite
  * cutoff and coherent packets; mesh.prepare() mutates shared adjacency/index state
  * and must not race another preparation. The published field shares that mesh.
  * @param cancelled Atomic cooperative stop flag read during mesh preparation and
@@ -100,7 +100,7 @@ struct FlowParticleSeedDistribution {
  * Unavailable fields, nonpositive weights, invalid coordinates/depths, degenerate
  * or invalid-speed pieces are skipped. No source objects are retained.
  * @param view Valid finite scene-space rectangle clipping wet polygons.
- * @param cutoff Finite depth threshold in metres; only depth strictly above it
+ * @param cutoff Finite depth threshold in meters; only depth strictly above it
  * seeds particles. Negative finite cutoffs are accepted without clamping.
  * @return Independent clipped triangles and cumulative sampling weights; empty for
  * invalid view/cutoff/mesh/counts or no valid wet pieces. wetArea is scene area

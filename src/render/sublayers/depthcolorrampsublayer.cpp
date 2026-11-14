@@ -22,9 +22,9 @@ namespace OpenSWMM::Render
 DepthColorRampStyle::DepthColorRampStyle(QObject *parent) : SublayerStyle(parent)
 {
     // Defaults reproduce the pre-US.2 depth fill: smooth (Continuous) two-
-    // colour blue gradient over [0,1].
+    // color blue gradient over [0,1].
     m_scheme.setMode(ClassificationScheme::ClassMode::Continuous);
-    m_scheme.setRampName(QString());                   // "" = two-colour
+    m_scheme.setRampName(QString());                   // "" = two-color
     m_scheme.setLowColor(QColor(60, 100, 200, 200));   // bluish
     m_scheme.setHighColor(QColor(200, 220, 255, 200)); // pale blue
     m_scheme.setRangeMin(0.0);

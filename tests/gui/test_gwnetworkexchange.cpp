@@ -10,7 +10,7 @@
  *   - the cumulative series is the stored column (+ out of the aquifer);
  *   - the rate is Δcumulative / Δt over each report interval, at the
  *     interval's end, with the sign kept (an inflowing node is negative)
- *     and uneven report intervals honoured; the first report has no rate;
+ *     and uneven report intervals honored; the first report has no rate;
  *   - a node not in `node_names` is missing, never zero;
  *   - a missing value is a gap in both series; absent or malformed datasets
  *     are unavailable.

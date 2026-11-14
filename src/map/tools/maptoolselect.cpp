@@ -69,7 +69,7 @@ namespace
 // identifyAt "elementType" string → SWMMModelLayer kind bit. SWMM names
 // are per-type namespaces, so selection carries the kind of the object
 // that was actually hit. Unknown strings fall back to all kinds (legacy
-// name-wide behaviour) rather than silently selecting nothing.
+// name-wide behavior) rather than silently selecting nothing.
 /**
  * @param[in] t Exact identify elementType string; Node/Link/Subcatchment/RainGage recognized.
  * @return Corresponding typed selection bit, kKindAll unknown/empty for legacy name-wide behavior.
@@ -461,7 +461,7 @@ void OpenSWMMVisMapToolSelect::mousePressEvent(QMouseEvent *event)
         }
     }
 
-    // ── Normal select-tool behaviour ─────────────────────────────────────
+    // ── Normal select-tool behavior ─────────────────────────────────────
     if (event->button() == Qt::LeftButton) {
         m_dragging = false;
         m_startPixel = event->pos();
@@ -892,7 +892,7 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
                 return;
             }
             if (box.clickedButton() != delBtn)
-                return; // cancelled
+                return; // canceled
             // Explicit cascade delete chosen — skip the generic confirm.
             sl->setSelectedElementNames({});
             emit selectionChanged(sl);
@@ -993,7 +993,7 @@ void OpenSWMMVisMapToolSelect::deleteSelectedObjects()
                 return;
             }
             if (box.clickedButton() != delBtn)
-                return; // cancelled
+                return; // canceled
             // Demote the node so the model stays valid, then fall through to
             // the standard confirm + delete path. The inlet role has to go
             // first: swmm_node_set_virtual(0) on an inlet junction would
@@ -1244,7 +1244,7 @@ void OpenSWMMVisMapToolSelect::selectAtPoint(const QPoint &pixel, Qt::KeyboardMo
             // SWMM network click-pick. identifyAt returns the nearest
             // node / link / subcatchment / gage within the tolerance.
             // Note the lower-case keys "elementName" / "elementType"
-            // — identifyByName uses capitalised "Name" / "Type"; the
+            // — identifyByName uses capitalized "Name" / "Type"; the
             // two methods are historically inconsistent, and selection
             // has to key on the layer's SoA name exactly.
             const QVariantMap hit =
@@ -1340,7 +1340,7 @@ void OpenSWMMVisMapToolSelect::selectInRect(const QRect &pixelRect, Qt::Keyboard
     if (!m_canvas)
         return;
 
-    // Small-rubber-band → treat as a point click at the rect centre.
+    // Small-rubber-band → treat as a point click at the rect center.
     // Without this, a tiny drag (jitter that crossed the threshold
     // but stayed < ~2× threshold) would hand the selection off to
     // the rect-select path, which selects EVERY feature in the rect

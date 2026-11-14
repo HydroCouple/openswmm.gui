@@ -88,14 +88,14 @@ public:
     void setPixelTolerance(int pixels);
 
     /**
-     * @return Stored normal-selection fill colour including alpha, initial(0,120,255,80); inline
+     * @return Stored normal-selection fill color including alpha, initial(0,120,255,80); inline
      *   edit box uses separate fixed orange styling.
      */
     [[nodiscard]] QColor rubberBandColor() const;
     /**
      * @param[in] color QColor copied unchanged, invalid accepted; equality no-op.
-     * @brief Store changed normal rubber colour and emit signal without immediate repaint or
-     *   persistence. Outline derives darker130 from this colour.
+     * @brief Store changed normal rubber color and emit signal without immediate repaint or
+     *   persistence. Outline derives darker130 from this color.
      */
     void setRubberBandColor(const QColor &color);
 
@@ -339,7 +339,7 @@ private:
      * @param[in] pixel Widget point; menu positioned in corresponding global coordinates.
      * @note Synchronous PRESS-time menu using raw pixelTolerance and shared results-first network
      *   hit, no marker floor. Normally preserves selection; background offers first editing
-     *   FeatureLayer delete delegation and US-labelled system plot. Object menu offers zoom, gage
+     *   FeatureLayer delete delegation and US-labeled system plot. Object menu offers zoom, gage
      *   rainfall, per-output fixed/species descriptor plot, type conversion, flip, trace analysis
      *   and delete.
      * @note Hit output restricts plotting to that layer; model hit can offer all output layers. All
@@ -361,7 +361,7 @@ private:
      *   complete reference snapshot. Empty/no model no-op.
      * @note Single virtual/inlet node offers fuse vs cascade delete; single pair conduit offers
      *   fuse or direct inlet/virtual DEMOTION then generic confirm. Those direct demotions happen
-     *   BEFORE final generic confirmation and are not wrapped in undo here, so cancelling final
+     *   BEFORE final generic confirmation and are not wrapped in undo here, so canceling final
      *   prompt can leave demotion. Other accepted deletes clear selection then push
      *   BatchDeleteCommand; no stack deletes command without execution after selection already
      *   cleared.
@@ -374,7 +374,7 @@ private:
     // ----- Inline edit sub-mode -------------------------------------------
     // Activated by double-clicking a node or link. Vertex handles appear in
     // the overlay and can be dragged without switching tools. Escape or
-    // double-clicking empty space exits back to normal selection behaviour.
+    // double-clicking empty space exits back to normal selection behavior.
 
     // Gage rides the Node code path (one whole-object handle, drag =
     // move) but previews/commits through the rain-gage move APIs.

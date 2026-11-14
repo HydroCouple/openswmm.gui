@@ -13,7 +13,7 @@
  * feeds it from its own builder, so the drawing code exists once.
  *
  * Follows the StreetSectionPreview / StylePreviewSwatch idiom already in the
- * codebase (plain QWidget + paintEvent, palette-driven colours).
+ * codebase (plain QWidget + paintEvent, palette-driven colors).
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -70,7 +70,7 @@ public:
     void setPlaceholderText(const QString &text);
 
     /*! Render the current model into an image — used by tests (offscreen) and
-     *  by any future "copy diagram" action. Honours the current view.
+     *  by any future "copy diagram" action. Honors the current view.
      * @param[in] size Requested physical image dimensions at default DPR 1; invalid/empty defaults
      *   320×240.
      * @return Owned ARGB32 premultiplied image filled Base and painted with model/current
@@ -122,7 +122,7 @@ public:
      * @param[in] factor Finite positive multiplicative zoom; invalid/nonpositive ignored.
      * @param[in] anchorPx Finite logical widget pixel anchor, outside widget allowed.
      * @note Target clamped [0.05,200]; fuzzy unchanged target leaves pan unchanged. Preserves
-     *   anchor relative to last valid PAINT fit centre, else widget centre, adjusting stored pixel
+     *   anchor relative to last valid PAINT fit center, else widget center, adjusting stored pixel
      *   pan then setViewport. Existing zoom must be finite positive for coherent ratio. No engine
      *   changes, raster resampling or text-size scaling.
      */
@@ -204,7 +204,7 @@ private:
 
     DiagramViewport m_viewport;
     /*! Fit rect reported by the last paint. Zooming about the cursor needs the
-     *  painter's own fit centre — the widget centre is off by the header /
+     *  painter's own fit center — the widget center is off by the header /
      *  footer / adaptive-margin reservations, which would make the anchor
      *  drift a little on every notch. Mutable because paintEvent is const in
      *  spirit and renderToImage() genuinely is. */

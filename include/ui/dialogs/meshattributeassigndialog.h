@@ -16,7 +16,7 @@
  *
  * Four mapping modes (GUI plan §3.4, phase GG0e):
  *
- *  - **Single numeric target** — the original behaviour: one band / one field
+ *  - **Single numeric target** — the original behavior: one band / one field
  *    → one mesh::cellParamSpecs() target, sampled at the cell centroid.
  *  - **Multiple numeric targets** — N bands / N fields → N parameters in one
  *    pass (Horton's f0 / fmin / decay together), still one undo entry.
@@ -24,14 +24,14 @@
  *    code, hydrologic soil group), optionally a second key (Curve Number is
  *    assigned by landuse × HSG), mapped through an editable, CSV-round-tripped
  *    mesh::InfilLookupTable to a whole mesh::InfilRow.
- *  - **Natural-neighbour interpolation** — for scattered point sources rather
+ *  - **Natural-neighbor interpolation** — for scattered point sources rather
  *    than coverages; a *sampling* choice rather than a target choice, so it
  *    composes with the numeric modes. Same mesh::NaturalNeighbourInterpolator
  *    and the same wording the mesh generation dialog uses for elevation.
  *
  * Sampling is orthogonal to the mode: cell centroid (point sample),
  * area-weighted mean, majority (largest covering share), or natural
- * neighbour. Overlay sampling is bound to the source's declared type —
+ * neighbor. Overlay sampling is bound to the source's declared type —
  * majority for categorical, area-weighted mean for continuous — with an
  * explicit user override, because offering the wrong one silently produces
  * plausible nonsense.
@@ -47,7 +47,7 @@
  * no layers, no GDAL handles) and the worker RE-OPENS every raster / vector
  * source by path on its own thread, because GDAL/OGR handles must not cross
  * threads. Nothing is written to the mesh until the worker has finished
- * successfully, so cancelling mid-run leaves the mesh untouched.
+ * successfully, so canceling mid-run leaves the mesh untouched.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -151,7 +151,7 @@ private slots:
     /**
      * @brief Show the selected mapping controls and restrict meaningless classified sampling
      * modes.
-     * @details Seeds one numeric target row when needed, disables natural-neighbour/area-mean
+     * @details Seeds one numeric target row when needed, disables natural-neighbor/area-mean
      * for classified keys and changes an incompatible current method to centroid. Reapplies
      * source/sampling gates and can reset target source editors; all changes are local draft
      * state.
@@ -159,8 +159,8 @@ private slots:
     void onModeChanged();
     /**
      * @brief Toggle interpolation-variant controls and require a vector source for natural
-     * neighbour.
-     * @details Natural neighbour selected with Raster switches the radio to Vector, then
+     * neighbor.
+     * @details Natural neighbor selected with Raster switches the radio to Vector, then
      * refreshes availability. Does not validate vector geometry type or execute interpolation.
      */
     void onSamplingChanged();
@@ -314,11 +314,11 @@ private:
      * @param[in] depthUnitLabel Borrowed depth caption for display labels, copied by created
      * items.
      * @details Omits enumeration targets (classified mode assigns methods), stores exact
-     * registry byte keys/tooltips and relies on a QStandardItemModel to grey unsupported
+     * registry byte keys/tooltips and relies on a QStandardItemModel to gray unsupported
      * entries.
      *
      * @details Fill a numeric-parameter combo with the cellParamSpecs() entries
-     *         (disabled ones greyed, as the original target combo does).
+     *         (disabled ones grayed, as the original target combo does).
      */
     void fillParamCombo(QComboBox *combo, const QString &depthUnitLabel) const;
 
@@ -448,7 +448,7 @@ private:
      * @details Uses infilUsesParam()/infilParamLabel(). Re-enabling an em-dash cell makes it
      * empty; method changes can discard previous unused parameter text, with no engine write.
      *
-     * @details Grey out the parameter cells the row's method does not use, the
+     * @details Gray out the parameter cells the row's method does not use, the
      *         same masking mesh::infilUsesParam() drives elsewhere.
      */
     void maskLookupRow(int row);

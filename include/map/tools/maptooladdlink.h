@@ -31,7 +31,7 @@ class SWMMModelLayer;
  *   - Right-click → removes the last intermediate vertex (or cancels if none).
  *   - Escape → cancels without creating anything.
  *
- * Node snapping activates within the preference tolerance in pixels of a node centre.
+ * Node snapping activates within the preference tolerance in pixels of a node center.
  * The nearest node within that tolerance is highlighted with a snap
  * indicator ring painted on the overlay channel.
  */

@@ -186,7 +186,7 @@ private slots:
     /**
      * @brief Verify mesh dialog defaults mirror shared preferences using current project length
      * units.
-     * @note Converts stored metres to ft when non-SI, checks min-size/transition/max/tolerance
+     * @note Converts stored meters to ft when non-SI, checks min-size/transition/max/tolerance
      * controls, degree trim suffix/min-angle/quad toggle and 3.048 m conduit strip width within
      * displayed precision. Reads singleton preferences/unit system; no preference mutation,
      * suite dialog owns widgets.

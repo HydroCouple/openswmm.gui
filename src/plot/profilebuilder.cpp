@@ -301,7 +301,7 @@ bool appendPeriods(const PathStatic &path, const SourceSeries &src, double gravi
     if (P == Pold)
         return true;
 
-    // Initialise an empty derived snapshot exactly as compute() would.
+    // Initialize an empty derived snapshot exactly as compute() would.
     if (Pold == 0) {
         derived.minHgl.fill(kPosInf, N);
         derived.maxHgl.fill(kNegInf, N);

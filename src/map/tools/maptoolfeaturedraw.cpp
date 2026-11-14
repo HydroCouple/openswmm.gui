@@ -1,6 +1,6 @@
 /**
  * @file      maptoolfeaturedraw.cpp
- * @brief     Digitising tools that draw into a FeatureLayer
+ * @brief     Digitizing tools that draw into a FeatureLayer
  *            (workplans/MESH_DIALOG_TABS_AND_FEATURE_LAYERS_PLAN_2026-09-07.md §3.3).
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
@@ -37,7 +37,7 @@ namespace
  *  every other drawing tool does today. Snapping to another FEATURE layer's
  *  vertices needs SnapEngine's SWMMModelLayer* parameter to become a provider
  *  list (PLAN §3.4); that refactor is deliberately not in this drop, so the
- *  existing snap behaviour is provably unchanged.
+ *  existing snap behavior is provably unchanged.
  * @param[in] canvas Optional borrowed canvas, null returns null.
  * @return Borrowed FIRST model layer in canvas list, no visibility/opacity/editability filter; used
  *   only for SWMM snapping, never feature-to-feature snap or ownership transfer.
@@ -177,11 +177,11 @@ void OpenSWMMVisMapToolFeatureDrawBase::mouseDoubleClickEvent(QMouseEvent *event
     if (event->button() != Qt::LeftButton || !m_canvas)
         return;
 
-    // Same normalisation as maptooladdsubcatchment.cpp: whether or not this
+    // Same normalization as maptooladdsubcatchment.cpp: whether or not this
     // platform sent a MouseButtonPress ahead of the DblClick, the
     // double-clicked point ends up in the vertex list exactly once, snapped
     // the way a press would have snapped it. Stripping the last vertex
-    // unconditionally (the old behaviour) cost DrawLine its endpoint, so a
+    // unconditionally (the old behavior) cost DrawLine its endpoint, so a
     // two-gesture line fell below minimumVertices() and committed nothing.
     double mx = 0.0, my = 0.0;
     toMapCoords(event->pos().x(), event->pos().y(), mx, my);

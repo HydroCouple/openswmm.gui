@@ -27,7 +27,7 @@ namespace
 constexpr const char *kGroupRoot = "SWMMVis/Preferences";
 
 // ── Compiled-in defaults ──────────────────────────────────────────────────
-// Centralised so the constructor seeds sensible values before QSettings
+// Centralized so the constructor seeds sensible values before QSettings
 // provides any, and the Preferences dialog's "Reset to defaults" button
 // can snap back to these.
 
@@ -79,7 +79,7 @@ const LinkPenDefault kOutletPenDefault = {kDefaultOutletColor, 2.0, Qt::RoundCap
 // SWMMModelLayer constructor seeding (swmmmodellayer.cpp:226-233) so the
 // new preferences plumbing reproduces the existing first-open look. The
 // outline pen is darkBlue@1px across the board; users can per-type
-// override colour, width, style, cap, and join in the Preferences dialog.
+// override color, width, style, cap, and join in the Preferences dialog.
 struct NodeStyleDefault {
     QColor fill;
     QColor outlineColor;
@@ -91,7 +91,7 @@ const NodeStyleDefault kOutfallNodeDefault = {QColor(220, 0, 0), Qt::darkBlue, 1
 const NodeStyleDefault kStorageNodeDefault = {QColor(180, 60, 200), Qt::darkBlue, 1.0, 12.0};
 const NodeStyleDefault kDividerNodeDefault = {QColor(0, 255, 0), Qt::darkBlue, 1.0, 8.0};
 // Virtual junction — same blue dot as a junction; the dotted encircling
-// ring painted by the renderers follows the fill colour set here.
+// ring painted by the renderers follows the fill color set here.
 const NodeStyleDefault kVirtualJunctionNodeDefault = {QColor(0, 120, 255), Qt::darkBlue, 1.0, 8.0};
 // Inlet junction — same blue, one pixel larger, drawn as a diamond (D-G7).
 const NodeStyleDefault kInletJunctionNodeDefault = {QColor(0, 120, 255), Qt::darkBlue, 1.0, 9.0};
@@ -159,7 +159,7 @@ PreferencesManager *PreferencesManager::instance()
 {
     // Heap-allocated with QCoreApplication as parent so shutdown order
     // is deterministic. The global QSettings under the hood is
-    // thread-safe for read; writes are serialised to the INI file Qt
+    // thread-safe for read; writes are serialized to the INI file Qt
     // manages for us.
     static PreferencesManager *s_instance = nullptr;
     if (!s_instance) {
@@ -172,7 +172,7 @@ PreferencesManager::PreferencesManager(QObject *parent) : QObject(parent)
 {
     // One-shot migrations from legacy *Color keys into the new *Pen
     // (and, for selection, *Brush) shapes. Each lift preserves the
-    // user-customised colour but layers it onto the type-appropriate
+    // user-customized color but layers it onto the type-appropriate
     // defaults (width/cap/join for pens, alpha for fills). After
     // migration the legacy key is deleted so subsequent launches go
     // straight through the new branch.
@@ -320,8 +320,8 @@ void PreferencesManager::setAutoBuildRasterOverviews(bool enabled)
 
 namespace
 {
-// Normalises whatever the caller hands in to one of the four canonical
-// class keys used inside QSettings. Anything unrecognised falls
+// Normalizes whatever the caller hands in to one of the four canonical
+// class keys used inside QSettings. Anything unrecognized falls
 // through to "Default" so the caller gets a sane color rather than an
 // empty value.
 /**
@@ -1089,7 +1089,7 @@ constexpr const char *kMeshBcNames[7] = {
 //! Must match MeshEdgeStyle's ctor defaults, or toggling a preference back to
 //! its factory value would not restore the factory render.
 const QColor kMeshBcDefaultColors[7] = {
-    QColor(0, 0, 0, 130),          // Wall — plain edge colour
+    QColor(0, 0, 0, 130),          // Wall — plain edge color
     QColor(0x2c, 0xa0, 0x2c, 230), // Normal flow   — green
     QColor(0x1f, 0x77, 0xb4, 235), // Stage (const) — blue
     QColor(0x17, 0xbe, 0xcf, 235), // Stage (series)— cyan

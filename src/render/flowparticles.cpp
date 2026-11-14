@@ -88,9 +88,9 @@ QPointF displayVelocity(const FlowParticleField &field, const std::array<double,
     return v * settings.speed;
 }
 /** @brief Interpolate the current displayed vertex depths linearly.
- * @param field Borrowed cell field with depths in metres.
+ * @param field Borrowed cell field with depths in meters.
  * @param w Barycentric weights; outside-triangle weights extrapolate.
- * @return Interpolated depth in metres without clipping or finite checks. */
+ * @return Interpolated depth in meters without clipping or finite checks. */
 double depth(const FlowParticleField &field, const std::array<double, 3> &w)
 {
     return field.depth[0] * w[0] + field.depth[1] * w[1] + field.depth[2] * w[2];
@@ -109,7 +109,7 @@ enum class SegmentSupport { Wet, Blocked, Unknown };
  * @param field Prepared snapshot with valid mesh, neighbors and aligned field arrays.
  * @param a Segment start, carrying an in-range local cell and finite scene position.
  * @param b Segment end with finite scene position.
- * @param cutoff Finite wet-depth threshold in metres; depth must be strictly above it.
+ * @param cutoff Finite wet-depth threshold in meters; depth must be strictly above it.
  * @param checkFaces Also require availability and a passable face direction when
  * validating a simplification shortcut. False permits known-depth support without flux.
  * @return Wet when the entire walk is known wet, Blocked for known dry/closed support,
@@ -361,7 +361,7 @@ FlowParticleField FlowParticleSystem::fieldAt(int cell, double clock) const
     const double blendedDepth = oldDepth * (1 - alpha) + newDepth * alpha;
     for (int k = 0; k < 3; ++k) {
         // Blend discharge and mean depth together. Blending q/h directly
-        // can give neighbouring cells opposing crossing directions when
+        // can give neighboring cells opposing crossing directions when
         // depths change, despite coherent opposite reported face fluxes.
         f.velocity[k] =
             (old.velocity[k] * (oldDepth * (1 - alpha)) + f.velocity[k] * (newDepth * alpha)) /
@@ -657,7 +657,7 @@ bool FlowParticleSystem::integrate(FlowParticleReference<false> &p, int &budget,
         } else if (edge >= 0) {
             // A crossing shorter than the time resolution must still reach the
             // face: at high scene speeds 1e-12 s spans more than the barycentric
-            // tolerance, and the neighbour would reject the unmoved position.
+            // tolerance, and the neighbor would reject the unmoved position.
             p.position += (next - p.position) * fraction;
         }
         if (p.age >= p.lifetime - 1e-10) {

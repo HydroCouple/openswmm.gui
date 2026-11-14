@@ -5,7 +5,7 @@
  * @date      2026
  * @license   GPL-3.0-or-later
  *
- * Pins the SWMM2DResultsLayer behaviour changed by the 2D visualization
+ * Pins the SWMM2DResultsLayer behavior changed by the 2D visualization
  * refinement (PLAN_2D_VIZ_REFINEMENT.md):
  *   - Issue 3: rebuildSceneGeometry_ deduplicates mesh edges (each undirected
  *     edge stored once → m_sceneEdges.size() = unique-edge count, not 3·nTri).
@@ -18,7 +18,7 @@
  *   - Issue 5: velocityAtScene returns false with no flux data and off-mesh.
  *
  * Issue #155 adds the coordinate-scale cases: a declared /crs factor scales
- * the source's SI metres to model units, a metric declaration is a no-op, an
+ * the source's SI meters to model units, a metric declaration is a no-op, an
  * undeclared source takes the caller's fallback, and no declaration + no
  * fallback leaves the coordinates alone.
  *
@@ -121,7 +121,7 @@ public:
      * @brief Own uniform cell-depth frames for a flat two-triangle unit square.
      * @param[in] live Whether isLive() reports a streaming source; the fixture does not append
      * frames itself.
-     * @param[in] perFrameDepth Owned vector of per-frame depths in metres, moved into the
+     * @param[in] perFrameDepth Owned vector of per-frame depths in meters, moved into the
      * source; each value supplies both cells. The constructor accepts empty or non-monotonic
      * data without validation.
      */
@@ -153,9 +153,9 @@ public:
 
     /**
      * @brief Replace output arrays with the flat unit square and its 0-to-2 diagonal.
-     * @param[out] vx Four x coordinates in stored metres, ordered (0,1,1,0).
-     * @param[out] vy Four y coordinates in stored metres, ordered (0,0,1,1).
-     * @param[out] vz Four zero bed elevations in metres.
+     * @param[out] vx Four x coordinates in stored meters, ordered (0,1,1,0).
+     * @param[out] vy Four y coordinates in stored meters, ordered (0,0,1,1).
+     * @param[out] vz Four zero bed elevations in meters.
      * @param[out] tris Two zero-based triples {0,1,2} and {0,2,3}.
      * @return Always true; existing output contents are replaced.
      */
@@ -172,7 +172,7 @@ public:
     /**
      * @brief Copy a frame's uniform depth to both triangular cells.
      * @param[in] t Zero-based frame index; must be less than timeCount() and nonnegative.
-     * @param[out] depths Replaced by two equal cell-mean depths in metres on success; unchanged
+     * @param[out] depths Replaced by two equal cell-mean depths in meters on success; unchanged
      * for an invalid index.
      * @return True for a valid frame, false otherwise.
      */
@@ -195,12 +195,12 @@ public:
         return m_t0.addSecs(qint64(t) * 60); // 1-minute frames
     }
 
-    // Issue #155 — lets a case declare the metres-per-model-unit factor the
+    // Issue #155 — lets a case declare the meters-per-model-unit factor the
     // engine's /crs variable would carry. Default: undeclared (pre-6.0 file).
     /**
-     * @brief Mark the fixture's stored metre coordinates as belonging to a model CRS.
+     * @brief Mark the fixture's stored meter coordinates as belonging to a model CRS.
      * @param[in] crs CRS identifier copied into the declaration; not validated here.
-     * @param[in] metresPerModelUnit Metres per model coordinate unit copied without validation,
+     * @param[in] metresPerModelUnit Meters per model coordinate unit copied without validation,
      * for example 0.3048 for international feet.
      * @details Sets storedUnits to "m" and declared to true; later layer loading applies the
      * model-unit conversion.
@@ -241,9 +241,9 @@ class FakeMixedSource : public IMesh2DSource
 public:
     /**
      * @brief Store one frame for a quad sharing an edge with a triangle.
-     * @param[in] quadDepth Cell-mean depth in metres for quad cell zero, copied without
+     * @param[in] quadDepth Cell-mean depth in meters for quad cell zero, copied without
      * validation.
-     * @param[in] triDepth Cell-mean depth in metres for triangle cell one, copied without
+     * @param[in] triDepth Cell-mean depth in meters for triangle cell one, copied without
      * validation.
      */
     FakeMixedSource(float quadDepth, float triDepth) : m_quadDepth(quadDepth), m_triDepth(triDepth)
@@ -268,9 +268,9 @@ public:
 
     /**
      * @brief Replace outputs with the flat quad-and-triangle source mesh.
-     * @param[out] vx Five stored x coordinates in metres spanning zero to two.
-     * @param[out] vy Five stored y coordinates in metres spanning zero to one.
-     * @param[out] vz Five zero bed elevations in metres.
+     * @param[out] vx Five stored x coordinates in meters spanning zero to two.
+     * @param[out] vy Five stored y coordinates in meters spanning zero to one.
+     * @param[out] vz Five zero bed elevations in meters.
      * @param[out] cells Zero-based cells {0,1,2,3} and {1,4,2,-1}, where -1 marks the triangle's
      * unused fourth vertex.
      * @return Always true; replaces all output contents.
@@ -289,9 +289,9 @@ public:
     // splits with mesh::cellGeom itself).
     /**
      * @brief Supply a legacy display fan for callers requesting triangles directly.
-     * @param[out] vx Five x coordinates in metres from readCells().
-     * @param[out] vy Five y coordinates in metres from readCells().
-     * @param[out] vz Five zero bed elevations in metres.
+     * @param[out] vx Five x coordinates in meters from readCells().
+     * @param[out] vy Five y coordinates in meters from readCells().
+     * @param[out] vz Five zero bed elevations in meters.
      * @param[out] tris Three zero-based triples splitting the quad and retaining the triangle.
      * @return Always true; replaces outputs. The results layer instead calls readCells() and
      * performs its own triangulation.
@@ -308,7 +308,7 @@ public:
     /**
      * @brief Copy the sole frame's quad and triangle depths.
      * @param[in] t Frame index, which must equal zero.
-     * @param[out] depths Two cell-mean depths in metres in quad/triangle order; unchanged if t
+     * @param[out] depths Two cell-mean depths in meters in quad/triangle order; unchanged if t
      * is not zero.
      * @return True for frame zero, false otherwise.
      */
@@ -357,9 +357,9 @@ public:
     int timeCount() const override { return int(frames.size()); }
     /**
      * @brief Copy editable sloping-square coordinates and the fixed two-cell topology.
-     * @param[out] ox Copy of x coordinates in stored metres.
-     * @param[out] oy Copy of y coordinates in stored metres.
-     * @param[out] oz Copy of bed elevations z in metres, initially zero on the low edge and four
+     * @param[out] ox Copy of x coordinates in stored meters.
+     * @param[out] oy Copy of y coordinates in stored meters.
+     * @param[out] oz Copy of bed elevations z in meters, initially zero on the low edge and four
      * on the high edge.
      * @param[out] tris Replaced by zero-based triples {0,1,2} and {1,3,2}.
      * @return Always true; performs no size or index validation of the editable coordinate
@@ -377,7 +377,7 @@ public:
     /**
      * @brief Copy an editable cell-depth frame for reconstruction tests.
      * @param[in] t Zero-based nonnegative index below timeCount().
-     * @param[out] d Copy of the selected frame in metres; unchanged when the index is invalid.
+     * @param[out] d Copy of the selected frame in meters; unchanged when the index is invalid.
      * Test setup controls frame length and values.
      * @return True for an existing frame, false otherwise; NaNs and negative depths are
      * preserved.
@@ -391,7 +391,7 @@ public:
     }
     /**
      * @brief Supply an intentionally incompatible legacy node-depth field.
-     * @param[out] d Replaced by x.size() entries of 100 metres to prove cell reconstruction
+     * @param[out] d Replaced by x.size() entries of 100 meters to prove cell reconstruction
      * ignores this legacy field.
      * @return Always true. The unnamed time argument is deliberately ignored; no frame bounds
      * are checked.
@@ -500,7 +500,7 @@ public:
     float speed = 1.0f;
     /**
      * @brief Replace edge arrays with outward normals for two stride-four triangle records.
-     * @param[out] lengths Eight edge lengths in stored metres, including zero padding at slots
+     * @param[out] lengths Eight edge lengths in stored meters, including zero padding at slots
      * three and seven.
      * @param[out] nx Eight dimensionless outward x-normal components; padding is zero.
      * @param[out] ny Eight dimensionless outward y-normal components; padding is zero.
@@ -518,7 +518,7 @@ public:
     }
     /**
      * @brief Replace stride-four edge fluxes with a spatially uniform x-directed RT0 field.
-     * @param[out] flux Eight values length*nx*speed in cubic metres per second; padding is zero
+     * @param[out] flux Eight values length*nx*speed in cubic meters per second; padding is zero
      * and reversing speed reverses flow.
      * @return Always true. The unnamed time argument is ignored, so this spatial field is
      * identical at every requested time.
@@ -557,10 +557,10 @@ public:
      */
     int timeCount() const override { return int(frames.size()); }
     /**
-     * @brief Replace geometry with ten triangles on a gently descending 50-by-10 metre strip.
-     * @param[out] x Twelve x coordinates in metres, increasing by ten per cross section.
-     * @param[out] y Twelve y coordinates alternating zero and ten metres.
-     * @param[out] z Twelve bed elevations in metres, decreasing from 27 by 0.7 per cross
+     * @brief Replace geometry with ten triangles on a gently descending 50-by-10 meter strip.
+     * @param[out] x Twelve x coordinates in meters, increasing by ten per cross section.
+     * @param[out] y Twelve y coordinates alternating zero and ten meters.
+     * @param[out] z Twelve bed elevations in meters, decreasing from 27 by 0.7 per cross
      * section.
      * @param[out] tris Ten zero-based triangles, two per strip in deterministic order.
      * @return Always true; clears all outputs before appending the fixture geometry.
@@ -587,7 +587,7 @@ public:
     /**
      * @brief Expand one flowing-sheet depth to all ten cells.
      * @param[in] t Zero-based nonnegative frame index below timeCount().
-     * @param[out] d Ten copies of frames[t] in metres on success, unchanged for an invalid
+     * @param[out] d Ten copies of frames[t] in meters on success, unchanged for an invalid
      * index.
      * @return True for an existing frame, false otherwise.
      */
@@ -602,7 +602,7 @@ public:
      * @brief Supply a fixed through-flow stencil when flux is enabled.
      * @param[in] t Zero-based nonnegative index below timeCount(); validates availability but
      * does not vary the stencil.
-     * @param[out] q Forty stride-four edge-flux entries in cubic metres per second for ten triangles; selected real edges
+     * @param[out] q Forty stride-four edge-flux entries in cubic meters per second for ten triangles; selected real edges
      * contain +/-1 and other entries, including padding, are zero. Unchanged on failure.
      * @return False when fluxEnabled is false or t is out of range; true after replacing q
      * otherwise.
@@ -642,7 +642,7 @@ private slots:
      * clips dry uphill queries, and leaves a dry neighboring cell without surface.
      *
      * @details The
-     * deliberately incompatible 100-metre node field must not determine maximum depth.
+     * deliberately incompatible 100-meter node field must not determine maximum depth.
      * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
      * reported through the test framework.
      */
@@ -776,7 +776,7 @@ private slots:
      * references, and query unchanged stations as either side wets or both dry.
      *
      * @details Wet samples must
-     * preserve the 1.5-metre lake stage and remain within their historical maximum; all-dry
+     * preserve the 1.5-meter lake stage and remain within their historical maximum; all-dry
      * queries return NaN.
      * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
      * reported through the test framework.
@@ -834,7 +834,7 @@ private slots:
     void liveSeekToLastReArmsFollow();
     /**
      * @brief Verify the interpolated animated depth at a wet interior point in the all-cells
-     * peak frame matches the reconstructed per-vertex historical envelope within 1e-4 metres.
+     * peak frame matches the reconstructed per-vertex historical envelope within 1e-4 meters.
      * @details Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
      * reported through the test framework.
      */
@@ -847,7 +847,7 @@ private slots:
      */
     void velocityFalseWithoutFlux();
     /**
-     * @brief Verify declared stored-metre coordinates with a 0.3048 metres-per-model-unit factor
+     * @brief Verify declared stored-meter coordinates with a 0.3048 meters-per-model-unit factor
      * produce an extent of 1/0.3048 model units on each axis.
      * @details Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
      * reported through the test framework.
@@ -861,7 +861,7 @@ private slots:
      */
     void metricModelIsUnscaled();
     /**
-     * @brief Verify an undeclared stored-metre source uses the caller's 0.3048 coordinate
+     * @brief Verify an undeclared stored-meter source uses the caller's 0.3048 coordinate
      * fallback and expands the unit-square width to model feet.
      * @details Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
      * reported through the test framework.
@@ -918,7 +918,7 @@ private slots:
     void thinFilmVisibilityCpuQsgAndPendingFrames();
     /**
      * @brief Compare all saved and streamed cell states at road-culvert frame 70 under a
-     * 0.005-metre film policy, requiring hidden films, retained partial pools and unchanged
+     * 0.005-meter film policy, requiring hidden films, retained partial pools and unchanged
      * source depths.
      *
      * @details Skips without VFR_TEST_ROAD_CULVERT; optional VFR_TEST_ARTIFACTS writes a
@@ -929,7 +929,7 @@ private slots:
     void thinFilmSavedAndLiveParity();
     /**
      * @brief Verify flux-aware reconstruction makes a flowing sheet continuous across profile
-     * stations, contour corners and stored/live replay in metre and foot coordinate systems.
+     * stations, contour corners and stored/live replay in meter and foot coordinate systems.
      *
      * @details Flux removal at the same time must invalidate the moving fit, restored flux
      * restores it,
@@ -1012,7 +1012,7 @@ private slots:
      * and await the latest publication.
      *
      * @details Require at most three additional fits and final corner
-     * depths of 0.09 metres, proving live fitting coalesces ticks without losing the newest
+     * depths of 0.09 meters, proving live fitting coalesces ticks without losing the newest
      * frame.
      * Qt Test invokes this no-argument slot on the GUI thread; assertion failures are
      * reported through the test framework.
@@ -1076,13 +1076,13 @@ private slots:
      * @brief Require the fast-surface passes to share one wet-triangle scan without changing what
      * each draws: classified fill, filled contours and isolines shown together give exactly the
      * geometry each gives alone; the geometry of every pass is identical with one or several pool
-     * threads; and filled contours read from a marched frame's snapshot (labelled isolines at mid
+     * threads; and filled contours read from a marched frame's snapshot (labeled isolines at mid
      * zoom) equal those of an immediate frame.
      */
     void fastSurfacePassesShareOneScan();
     /**
      * @brief Opt-in (VFR_TEST_GPU=1, a real window): GPU contours of the fast surface look like
-     * the marched ones of the same frame. Bands: at most 2% of coloured pixels may differ by more
+     * the marched ones of the same frame. Bands: at most 2% of colored pixels may differ by more
      * than 24 levels in a channel (rasterization along band edges). Isolines: at least 95% of
      * either image's line pixels have a line pixel of the other within one pixel. Saves the
      * images to VFR_TEST_ARTIFACTS or tests/output/gpu_bands_2026-11-12.
@@ -1452,8 +1452,8 @@ bool sameMaximum(const MeshProfileSampler::MeshProfile &a, const MeshProfileSamp
  * @brief Allocate a results layer owning a five-frame flowing-slope source.
  * @param[in] async Whether surface fitting uses the background worker rather than synchronous
  * fitting.
- * @return Unique ownership of the layer with depths {0.04,0.08,0.12,0.06,0.10} metres and dry
- * cutoff 0.001 metres. An asynchronous initial fit may still be pending; callers keep the GUI
+ * @return Unique ownership of the layer with depths {0.04,0.08,0.12,0.06,0.10} meters and dry
+ * cutoff 0.001 meters. An asynchronous initial fit may still be pending; callers keep the GUI
  * event loop and layer alive until their awaited publication completes.
  */
 std::unique_ptr<SWMM2DResultsLayer> flowingLayer(bool async)
@@ -2023,7 +2023,7 @@ void Test2DResultsVizFixes::fastSurfacePassesShareOneScan()
         QSignalSpy ready(&renderer, &SWMM2DResultsQSGRenderer::contentReady);
         std::unique_ptr<QSGNode> root(renderer.sync(nullptr));
         QList<QByteArray> out;
-        if (passes & Labels) { // labelled isolines are marched; bands then read the snapshot
+        if (passes & Labels) { // labeled isolines are marched; bands then read the snapshot
             if (!ready.wait(120000))
                 return out;
             root.reset(renderer.sync(root.release()));
@@ -3853,7 +3853,7 @@ void Test2DResultsVizFixes::latestFrameReplacementCanReduceEnvelope()
 // carrying the QUAD's value and both hit-testing back to the quad's cell
 // index; the wireframe strokes the true quad boundary (no diagonal); and the
 // vertex reconstruction weights the quad's vote by 3/4 of a triangle's
-// (the plan's 1/nv rule, normalised so triangles are unchanged).
+// (the plan's 1/nv rule, normalized so triangles are unchanged).
 void Test2DResultsVizFixes::mixedMeshQuadRendersAsFanOfItsCell()
 {
     SWMM2DResultsLayer layer;
@@ -3896,7 +3896,7 @@ void Test2DResultsVizFixes::mixedMeshQuadRendersAsFanOfItsCell()
     QCOMPARE(picked, (QVector<int>{0, 1}));
 }
 
-// Issue #155 — the source hands over SI metres; a foot-based model CRS needs
+// Issue #155 — the source hands over SI meters; a foot-based model CRS needs
 // them divided by metres_per_model_unit before they mean anything on a canvas
 // in that CRS. The unit square (0..1 m) must land at 0..3.2808 ft, matching
 // where the .2dm-backed SWMM2DMeshLayer draws the same terrain.
@@ -3942,7 +3942,7 @@ void Test2DResultsVizFixes::undeclaredSourceUsesCallerFallback()
 }
 
 // With no declaration and no fallback the layer must leave the coordinates
-// alone — the pre-#155 behaviour, which at least agrees with SWMM2DMeshLayer.
+// alone — the pre-#155 behavior, which at least agrees with SWMM2DMeshLayer.
 // Guessing here (e.g. from the layer CRS's linear unit) would invent a new
 // offset on models whose mesh units and CRS units disagree.
 void Test2DResultsVizFixes::undeclaredSourceDefaultsToNoScaling()

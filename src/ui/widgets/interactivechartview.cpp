@@ -544,7 +544,7 @@ void InteractiveChartView::mouseMoveEvent(QMouseEvent *e)
 
 void InteractiveChartView::mouseReleaseEvent(QMouseEvent *e)
 {
-    // Slice AT.3 — finalise middle-button pan.
+    // Slice AT.3 — finalize middle-button pan.
     if (e->button() == Qt::MiddleButton && m_middlePanning) {
         m_middlePanning = false;
         applyModeCursor();
@@ -566,7 +566,7 @@ void InteractiveChartView::mouseReleaseEvent(QMouseEvent *e)
         return;
     }
 
-    // Slice AT.3 — finalise Shift-drag X-range selection.
+    // Slice AT.3 — finalize Shift-drag X-range selection.
     if (m_xSelecting) {
         m_xSelecting = false;
         if (m_rubberBand)
@@ -705,7 +705,7 @@ void InteractiveChartView::updateHoverTooltip(const QPointF &viewportPx)
     // For each visible line series we:
     //   1. find the closest sample to cursorX (by data X — fast scan),
     //   2. linearly interpolate the y-value at cursorX between that
-    //      sample and its neighbour (so the tooltip y matches where the
+    //      sample and its neighbor (so the tooltip y matches where the
     //      drawn line actually is),
     //   3. convert (cursorX, interpolatedY) to viewport pixels,
     //   4. compare pixel distance to cursor.

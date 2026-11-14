@@ -38,7 +38,7 @@ public:
      * @brief Copy a unit right triangle with zero ground elevations.
      * @param[out] x Borrowed vector replaced with 0/1/0 planar x values.
      * @param[out] y Borrowed vector replaced with 0/0/1 planar y values.
-     * @param[out] z Borrowed vector replaced with three zero metre elevations.
+     * @param[out] z Borrowed vector replaced with three zero meter elevations.
      * @param[out] t Borrowed connectivity vector replaced with zero-based triple 0/1/2.
      * @return Always true after assignment, allocation can throw/partially update outputs; no IO
      * or mutation of source geometry, outputs own copies.
@@ -54,7 +54,7 @@ public:
     }
     /**
      * @brief Supply one unit depth regardless of the unnamed requested frame.
-     * @param[out] v Borrowed vector replaced with one value 1, fixture metre depth.
+     * @param[out] v Borrowed vector replaced with one value 1, fixture meter depth.
      * @return Always true, frame is intentionally ignored/not validated; allocation may throw,
      * no IO.
      */
@@ -64,7 +64,7 @@ public:
         return true;
     }
     /**
-     * @brief Describe one static groundwater-base elevation variable in known metres.
+     * @brief Describe one static groundwater-base elevation variable in known meters.
      * @return Owning one-entry descriptor vector, dataset Mesh2_face_gw_base_el; other fields
      * default. Unnamed optional warnings list ignored/unchanged, no source/catalog mutation or
      * IO.
@@ -81,7 +81,7 @@ public:
     /**
      * @brief Record effective read frame and supply one static scalar/status fixture.
      * @param[in] t Requested effective index, copied to called even when rejected.
-     * @param[out] v Borrowed vector replaced with one value 9, native metres.
+     * @param[out] v Borrowed vector replaced with one value 9, native meters.
      * @param[out] s Borrowed vector replaced with one Valid status.
      * @return True only for t==0, false otherwise despite populated outputs; unnamed descriptor
      * ignored. Mutable called field requires serialized fixture use, allocations may throw, no
@@ -343,7 +343,7 @@ private slots:
     /**
      * @brief Verify cancellation after writer progress starts leaves existing GeoPackage bytes
      * exact and staging removed.
-     * @note Progress<100 sets cancellation, requires cancelled diagnostic and no
+     * @note Progress<100 sets cancellation, requires canceled diagnostic and no
      * .scalar-export-* directories; existing export sentinel remains. Callbacks
      * synchronous/local, no persistent handles retained.
      */
@@ -376,7 +376,7 @@ private slots:
                 .isEmpty());
     }
     /**
-     * @brief Verify geometry scaling to survey feet never rescales native metre scalar values or
+     * @brief Verify geometry scaling to survey feet never rescales native meter scalar values or
      * unit metadata.
      * @note Factor 1/.3048006096012192, EPSG:2263; captured/exported value 9 m, feature extent
      * factor within 1e-12, layer linear unit within 1e-14. Writes

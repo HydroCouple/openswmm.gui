@@ -4,13 +4,13 @@
  * @date      2026
  * @license   GPL-3.0-or-later
  * @brief     Raster renderer driven by the shared ClassificationScheme —
- *         continuous (stretched) or classified single-band colouring.
+ *         continuous (stretched) or classified single-band coloring.
  *
- *         The raster analogue of GraduatedRenderer on the feature side and
+ *         The raster analog of GraduatedRenderer on the feature side and
  *         the model behind the raster Symbology tab's "Singleband
  *         pseudocolor" renderer. Everything the shared ClassificationEditor
  *         edits (Continuous/Classified mode, ramp + invert, method, class
- *         count, manual breaks, custom range, per-class colour / label
+ *         count, manual breaks, custom range, per-class color / label
  *         overrides, label format) lives in the embedded ClassificationScheme;
  *         this class adds what a raster needs on top:
  *           - dataMin / dataMax — the band statistics the scheme classifies
@@ -29,7 +29,7 @@
  *         contract) and one QRgb per class for Classified mode. Every
  *         range/scheme/classification mutator rebakes eagerly, so the clone() handed to a tile worker is
  *         immutable: no lazy caches, no locking, and no ClassificationScheme
- *         call per pixel (the scheme's colour lookups build a RasterColorRamp
+ *         call per pixel (the scheme's color lookups build a RasterColorRamp
  *         on every call).
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
@@ -54,7 +54,7 @@ namespace OpenSWMM::Render
 
 /*!
  * \class GraduatedRasterRenderer
- * \brief ClassificationScheme-driven single-band raster colouring.
+ * \brief ClassificationScheme-driven single-band raster coloring.
  */
 class GraduatedRasterRenderer final : public IRasterRenderer
 {
@@ -160,7 +160,7 @@ public:
 
 private:
     /*! Bake the effective range, the Continuous LUT and the per-class
-     *  colours from the current scheme / range / edges.
+     *  colors from the current scheme / range / edges.
      * Does not validate bounds, recompute edges, emit notifications or lock.
      * Color tables include scheme inversion and active sparse color overrides. */
     void rebake();

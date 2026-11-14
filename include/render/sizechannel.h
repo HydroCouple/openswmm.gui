@@ -7,7 +7,7 @@
  *
  *         Drives a kind's node marker size (by area) or link stroke width
  *         (linearly) from a result variable, independently of whichever
- *         renderer colours the kind. Owned by the kind's sublayer style
+ *         renderer colors the kind. Owned by the kind's sublayer style
  *         (PointFeatureSublayerStyle / LineFeatureSublayerStyle) and sampled
  *         per frame by SWMMResultsLayer::rebuildKindFeatureOverrides.
  *

@@ -10,7 +10,7 @@
  *   - Vertical drag → change the factor at the picked slot (Y-only;
  *     X is categorical so the slot index is fixed during a Y-drag).
  *   - Horizontal drag → reorder slots: dragging a vertex across an
- *     adjacent slot's centre triggers a swap (provider-mediated, atomic,
+ *     adjacent slot's center triggers a swap (provider-mediated, atomic,
  *     undoable). Multi-step horizontal drags chain swaps so the picked
  *     slot can travel several positions in one gesture.
  *
@@ -63,7 +63,7 @@ public:
 
     /*! \brief Construct over a QChart passed to the QChartView ownership path. \p referenceSeries
      *  anchors the value↔pixel mapping (typically the dialog's line series).
-     *  Slot vertices live at X = i + 0.5 (slot centre).
+     *  Slot vertices live at X = i + 0.5 (slot center).
      * @param[in] chart Required chart adopted by the base QChartView; receives a selected-point overlay series.
      * @param[in] referenceSeries Borrowed chart-owned line series anchoring coordinate mapping/axes; must remain alive while editing.
      * @param[in] parent Optional QWidget owner; use on the GUI thread.
@@ -131,7 +131,7 @@ public:
 
     // ── Testing / introspection ─────────────────────────────────────────────
 
-    /*! \brief Convert a viewport pixel to the slot index whose centre is
+    /*! \brief Convert a viewport pixel to the slot index whose center is
      *  closest, or -1 if no slot lies within \p hitRadiusPx.
      * @param[in] viewportPx Pointer point compared to chart-mapped provider coordinates in logical pixels.
      * @param[in] hitRadiusPx Search radius in logical pixels, expected nonnegative.
@@ -190,11 +190,11 @@ private:
     void refreshSelectionOverlay_();
     /**
      * @param[in] px Logical-pixel point passed directly to QChart::mapToValue() with the reference series.
-     * @return Chart value coordinates: X slot centre and dimensionless factor Y.
+     * @return Chart value coordinates: X slot center and dimensionless factor Y.
      */
     QPointF viewportToValue_(const QPoint &px) const;
     /**
-     * @brief Convert a fixed factor slot index to its chart centre.
+     * @brief Convert a fixed factor slot index to its chart center.
      * @param[in] i Zero-based slot index, expected valid.
      * @return Dimensionless X equal to i plus 0.5.
      */
@@ -216,7 +216,7 @@ private:
     int m_dragSlot = -1;      ///< Current slot of the picked vertex.
     int m_dragStartSlot = -1; ///< Slot at press time (anchor for undo).
     double m_dragInitialValue = 0.0;
-    QVector<int> m_swapHistory; ///< Ordered neighbour indices the picked vertex was swapped with.
+    QVector<int> m_swapHistory; ///< Ordered neighbor indices the picked vertex was swapped with.
 
     QVector<int> m_selection;
 };

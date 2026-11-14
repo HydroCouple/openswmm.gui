@@ -68,7 +68,7 @@ inline constexpr const char *kFormat = "swmm-rule-json";
 inline constexpr int kVersion = 1;
 
 /*!
- * \brief Serialise \p list as a top-level JSON envelope and write it to
+ * \brief Serialize \p list as a top-level JSON envelope and write it to
  *        \p path. The file is overwritten if it already exists.
  *
  *        Uses QJsonDocument::Indented formatting so the result is diff-friendly
@@ -80,7 +80,7 @@ inline constexpr int kVersion = 1;
 /** @param list Borrowed list read synchronously; null produces a valid envelope
  * with an empty rules array and empty symbolLevels object. No style validation occurs.
  * @param path Destination path; empty paths fail. QSaveFile writes a temporary
- * file and commits after a complete write; short writes are cancelled. No extension
+ * file and commits after a complete write; short writes are canceled. No extension
  * is enforced.
  * @return ok on successful commit, otherwise an error describing open/write/commit
  * failure. The source list is never modified. */

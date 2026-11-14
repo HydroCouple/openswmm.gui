@@ -98,7 +98,7 @@ protected:
         // Section-title line — bold, accent.  We treat a non-empty line that
         // starts at column 0 (no leading whitespace) and is shorter than
         // 80 chars as a candidate title.  Conservative heuristic that
-        // catches the centred-title pattern in SWMM .rpt output.
+        // catches the centered-title pattern in SWMM .rpt output.
         if (!text.isEmpty() && !text.startsWith(QLatin1Char(' ')) && text.length() < 80 &&
             !text.trimmed().contains(QLatin1Char('='))) {
             // Bias against pure tabular rows: titles rarely contain '...'.
@@ -545,7 +545,7 @@ void StatusReportDialog::populateText(const QVector<openswmmvis::io::RptSection>
         // The block above the first '****' rule — engine banner, project
         // title/notes, then the WARNING/ERROR list — carries no star-delimited
         // title, so the parser hands it back untitled.  On a real report that
-        // is ~15 % of the file, and labelling it "(untitled)" made it look as
+        // is ~15 % of the file, and labeling it "(untitled)" made it look as
         // though the report began at the first summary table.  Name it, and
         // add a second bookmark straight to the first warning.
         if (i != 0) {

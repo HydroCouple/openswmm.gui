@@ -1,11 +1,11 @@
 /**
  * @file      swmm2dresultslayer.h
- * @brief     renders 2D surface-routing depth as a colour-mapped overlay on the canvas.
+ * @brief     renders 2D surface-routing depth as a color-mapped overlay on the canvas.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
  *
- * Slice CF.MVP — renders 2D surface-routing depth as a colour-mapped overlay
+ * Slice CF.MVP — renders 2D surface-routing depth as a color-mapped overlay
  * on the canvas. The layer is data-source agnostic: during a run the source
  * is an `EngineMesh2DSource` driven by SimulationRunner ticks; after the run
  * the source swaps to an `HDF5Mesh2DSource` reading the engine's CF/UGRID
@@ -13,11 +13,11 @@
  *
  * Rendering reuses the `SceneTri` paint pattern from `SWMM2DMeshLayer`
  * (Slice AU). The only differences:
- *   - Per-triangle colour comes from depth, not elevation, via the
- *     inundation colour ramp.
+ *   - Per-triangle color comes from depth, not elevation, via the
+ *     inundation color ramp.
  *   - Dry cells and suppressed thin films leave the terrain visible.
  *     Partially wet cells retain their exact zero-depth shoreline.
- *   - No hillshade pass — the wet "sheen" is intentionally flat colour.
+ *   - No hillshade pass — the wet "sheen" is intentionally flat color.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -155,9 +155,9 @@ public:
      *  engine's VFR sub-triangle split, mesh::cellGeom), in cell order — so
      *  \c tris.size() >= triangleCount(). Consumers that need per-cell values
      *  must use \ref readCells and map fan triangles back to their cell.
-     * @param[out] vx Replaced vertex X coordinates in source SI metres.
-     * @param[out] vy Replaced vertex Y coordinates in source SI metres, matching X count.
-     * @param[out] vz Replaced bed elevations in SI metres, matching X count.
+     * @param[out] vx Replaced vertex X coordinates in source SI meters.
+     * @param[out] vy Replaced vertex Y coordinates in source SI meters, matching X count.
+     * @param[out] vz Replaced bed elevations in SI meters, matching X count.
      * @param[out] tris Replaced zero-based display fan triangles; quad split follows VFR elevation
      *   diagonal.
      * @return True after all reads succeed; failure can leave coordinate/connectivity outputs
@@ -174,9 +174,9 @@ public:
      *  Default: an all-triangle source — \ref readMeshGeometry's triangles
      *  ARE the cells, so they are wrapped with v3 = -1. Mixed-mesh sources
      *  override.
-     * @param[out] vx Replaced vertex X coordinates in source SI metres.
-     * @param[out] vy Replaced vertex Y coordinates in source SI metres, matching X count.
-     * @param[out] vz Replaced bed elevations in SI metres, matching X count.
+     * @param[out] vx Replaced vertex X coordinates in source SI meters.
+     * @param[out] vy Replaced vertex Y coordinates in source SI meters, matching X count.
+     * @param[out] vz Replaced bed elevations in SI meters, matching X count.
      * @param[out] cells Replaced original cyclic cell connectivity; fourth slot minus one denotes a
      *   triangle.
      * @return True after all reads succeed; failure can leave coordinate/connectivity outputs
@@ -198,7 +198,7 @@ public:
      * \brief How the coordinates from \ref readMeshGeometry relate to the
      *        model CRS — see openswmmvis::io::CoordinateReference.
      *
-     * Every source delivers SI metres (the 2D solver's internal unit), which
+     * Every source delivers SI meters (the 2D solver's internal unit), which
      * for a foot-based model CRS is NOT the unit the coordinates must be
      * reprojected from. The default returns an undeclared reference, so a
      * source that cannot state the factor uses the layer's explicitly configured
@@ -211,7 +211,7 @@ public:
 
     /*! \brief Fetch per-triangle depth at \p timeIdx. Resizes \p depths to triangleCount().
      * @param[in] timeIdx Zero-based retained report/tick index.
-     * @param[out] depths Per-original-cell mean water depths in metres; no display fan duplication.
+     * @param[out] depths Per-original-cell mean water depths in meters; no display fan duplication.
      * @return True for a complete readable depth row; false for invalid index/read failure. Callers
      *   must check success and shape before use.
      */
@@ -242,7 +242,7 @@ public:
      *  copy every frame per point.
      * @param[in] timeIdx Zero-based retained report/tick index.
      * @param[in] cell Zero-based original cell index.
-     * @param[out] out Mean cell depth in metres, assigned only on success.
+     * @param[out] out Mean cell depth in meters, assigned only on success.
      * @return True when the requested cell value is available; false leaves out unchanged. Default
      *   implementation copies the full frame before checking cell bounds.
      */
@@ -294,7 +294,7 @@ public:
     virtual int historyGeneration() const { return 0; }
     /*! Bumped when the depths, velocity or flux stored at \p timeIdx are replaced while
      *  the index stays the same (a live tick completed by a later push), so a
-     *  cached reconstruction of that frame is recognised as stale.
+     *  cached reconstruction of that frame is recognized as stale.
      * @param[in] timeIdx Zero-based retained tick/report index.
      * @return Default zero. Engine returns tick revision for valid indices, zero otherwise;
      *   depth/flux same-tick merges increment it, auxiliary rainfall/head/vertex pushes do not.
@@ -375,7 +375,7 @@ public:
      *          reconstruction.
       *
      * @param[in] timeIdx Zero-based retained report/tick index.
-     * @param[out] vdepths Signed vertex render depths in metres; negative dry-side values retain
+     * @param[out] vdepths Signed vertex render depths in meters; negative dry-side values retain
      *   shoreline information.
      * @return False by default with output unchanged.
      */
@@ -474,9 +474,9 @@ public:
      * / `swmm_2d_triangle_get_vertices` against the in-process engine handle.
      * The depth vector starts empty and is appended to with `pushDepths()`.
       *
-     * @param[in] vx Moved source X coordinates in metres.
-     * @param[in] vy Moved source Y coordinates in metres, same count as X.
-     * @param[in] vz Moved source bed elevations in metres, same count as X.
+     * @param[in] vx Moved source X coordinates in meters.
+     * @param[in] vy Moved source Y coordinates in meters, same count as X.
+     * @param[in] vz Moved source bed elevations in meters, same count as X.
      * @param[in] tris Moved zero-based connectivity in original engine order; three vertices per
      *   cell.
      * @note Creates empty live history; no coordinate/connectivity validation or engine-handle
@@ -490,9 +490,9 @@ public:
      * for a triangle (engine cell order, `swmm_2d_cell_get_vertices`).
      * The triangle constructor above is this with every v3 = -1.
       *
-     * @param[in] vx Moved source X coordinates in metres.
-     * @param[in] vy Moved source Y coordinates in metres, same count as X.
-     * @param[in] vz Moved source bed elevations in metres, same count as X.
+     * @param[in] vx Moved source X coordinates in meters.
+     * @param[in] vy Moved source Y coordinates in meters, same count as X.
+     * @param[in] vz Moved source bed elevations in meters, same count as X.
      * @param[in] cells Moved zero-based connectivity in original engine order; cyclic three/four
      *   vertices; fourth minus one for triangles.
      * @note Creates empty live history; no coordinate/connectivity validation or engine-handle
@@ -507,7 +507,7 @@ public:
      * Pushed from `SimulationRunner::twoDDepthsAvailable` via queued connection
      * — always on the GUI thread, so no synchronization is needed.
       *
-     * @param[in] depths Moved cell mean depths in metres; shape/nonfinite values are not checked
+     * @param[in] depths Moved cell mean depths in meters; shape/nonfinite values are not checked
      *   here.
      * @param[in] simTime Timestamp stored for a new tick; a same-time merge also replaces
      *   timestamp.
@@ -558,7 +558,7 @@ public:
      * are stored as floats WITHOUT clamping: negatives carry the sub-cell
      * shoreline intercept.
       *
-     * @param[in] depths Signed vertex depths in metres, narrowed to float without clamping or shape
+     * @param[in] depths Signed vertex depths in meters, narrowed to float without clamping or shape
      *   checks.
      * @param[in] simTime Timestamp stored for a new tick; a same-time merge keeps the existing
      *   timestamp.
@@ -598,7 +598,7 @@ public:
      * rather than the depth + mean-bed approximation. Same tick pairing as
      * \ref pushRainfall.
       *
-     * @param[in] heads Moved cell water-surface elevations in metres; shape unchecked.
+     * @param[in] heads Moved cell water-surface elevations in meters; shape unchecked.
      * @param[in] simTime Timestamp stored for a new tick; a same-time merge keeps the existing
      *   timestamp.
      * @param[in] elapsedSec Seconds since simulation start; compared only with newest tick using
@@ -653,7 +653,7 @@ public:
      * Latest wins: the engine's envelope is monotone, so only the newest
      * payload is kept (nothing per frame).
       *
-     * @param[in] maxDepth Moved original-cell cumulative maxima in metres.
+     * @param[in] maxDepth Moved original-cell cumulative maxima in meters.
      * @param[in] maxVel Moved original-cell maximum speed m/s.
      * @note Replaces previous payloads without size/monotonicity checks, cache generation change or
      *   notification.
@@ -665,12 +665,12 @@ public:
      * zero — the engine's \c dry_depth cutoff in computeFaceVelocity. Set from
      * \c swmm_2d_get_dry_depth at twoDInitialized; default = the layer's.
       *
-     * @param[in] m Raw velocity dry cutoff in metres, initially 1e-4. Copied without finite/range
+     * @param[in] m Raw velocity dry cutoff in meters, initially 1e-4. Copied without finite/range
      *   validation, revision bump or notification.
      */
     void setDryDepth(double m) { dry_depth_ = m; }
     /**
-     * @return Raw configured velocity dry threshold in metres.
+     * @return Raw configured velocity dry threshold in meters.
      */
     double dryDepth() const noexcept { return dry_depth_; }
 
@@ -698,7 +698,7 @@ public:
      * all-triangle engine is re-packed). Optional — when not called, the
      * source advertises no edge geometry (readEdgeGeometry returns false).
       *
-     * @param[in] length Moved padded per-cell edge lengths in metres.
+     * @param[in] length Moved padded per-cell edge lengths in meters.
      * @param[in] nx Moved outward unit-normal X components.
      * @param[in] ny Moved outward unit-normal Y components.
      * @note Triangle-only stride-three arrays expand independently to four; other shapes pass
@@ -733,7 +733,7 @@ public:
     /*! \brief Stop advertising as live once the run has ended. The retained
      *  in-memory history stays fully scrubbable; it just is not growing any
      *  more, so consumers that wait for new frames (the animation controller's
-     *  wait-at-end behaviour, follow-live) must stop waiting. Called on the
+     *  wait-at-end behavior, follow-live) must stop waiting. Called on the
      *  runner's finished signal, including the paths that keep this source
      *  instead of swapping in the .h5-backed one.
      * @note Sets finished flag only, preserving history, retention and revisions; no signals. This
@@ -743,7 +743,7 @@ public:
     /**
      * @param[in] timeIdx Zero-based retained report/tick index.
      * @param[in] cell Zero-based original cell index.
-     * @param[out] out Mean cell depth in metres, assigned only on success.
+     * @param[out] out Mean cell depth in meters, assigned only on success.
      * @return True when the requested cell value is available; false leaves out unchanged. No
      *   smoothing or visibility masking is applied.
      */
@@ -813,9 +813,9 @@ public:
      */
     size_t historyBytes() const;
     /**
-     * @param[out] vx Replaced vertex X coordinates in source SI metres.
-     * @param[out] vy Replaced vertex Y coordinates in source SI metres, matching X count.
-     * @param[out] vz Replaced bed elevations in SI metres, matching X count.
+     * @param[out] vx Replaced vertex X coordinates in source SI meters.
+     * @param[out] vy Replaced vertex Y coordinates in source SI meters, matching X count.
+     * @param[out] vz Replaced bed elevations in SI meters, matching X count.
      * @param[out] tris Replaced zero-based display fan triangles; quad split follows VFR elevation
      *   diagonal.
      * @return Always true; copies owned geometry and derives the display fan without validating
@@ -824,9 +824,9 @@ public:
     bool readMeshGeometry(std::vector<double> &vx, std::vector<double> &vy, std::vector<double> &vz,
                           std::vector<std::array<int, 3>> &tris) override;
     /**
-     * @param[out] vx Replaced vertex X coordinates in source SI metres.
-     * @param[out] vy Replaced vertex Y coordinates in source SI metres, matching X count.
-     * @param[out] vz Replaced bed elevations in SI metres, matching X count.
+     * @param[out] vx Replaced vertex X coordinates in source SI meters.
+     * @param[out] vy Replaced vertex Y coordinates in source SI meters, matching X count.
+     * @param[out] vz Replaced bed elevations in SI meters, matching X count.
      * @param[out] cells Replaced original cyclic cell connectivity; fourth slot minus one denotes a
      *   triangle.
      * @return Always true; copies owned geometry and derives the display fan without validating
@@ -836,7 +836,7 @@ public:
                    std::vector<std::array<int, 4>> &cells) override;
     /**
      * @param[in] timeIdx Zero-based retained report/tick index.
-     * @param[out] depths Per-original-cell mean water depths in metres; no display fan duplication.
+     * @param[out] depths Per-original-cell mean water depths in meters; no display fan duplication.
      * @return True for a valid tick, including an empty row awaiting depth arrival. Invalid index
      *   replaces output with cell-count zeros and returns false.
      */
@@ -865,14 +865,14 @@ public:
 
     /**
      * @param[in] timeIdx Zero-based retained report/tick index.
-     * @param[out] flux Replaced outward-positive edge flux in cubic metres/second, stride four per
+     * @param[out] flux Replaced outward-positive edge flux in cubic meters/second, stride four per
      *   original cell, with triangle padding.
      * @return True for a nonempty tick payload without validating its shape. Invalid index/missing
      *   payload replaces output with padded zeros and returns false.
      */
     bool readEdgeFluxAt(int timeIdx, std::vector<float> &flux) override;
     /**
-     * @param[out] length Padded cell-edge lengths in metres.
+     * @param[out] length Padded cell-edge lengths in meters.
      * @param[out] nx Corresponding outward unit-normal X components, dimensionless.
      * @param[out] ny Corresponding outward unit-normal Y components, dimensionless.
      * @return False with outputs unchanged when no lengths were installed; otherwise copies all
@@ -882,7 +882,7 @@ public:
                           std::vector<float> &ny) override;
     /**
      * @param[in] timeIdx Zero-based retained report/tick index.
-     * @param[out] vdepths Signed vertex render depths in metres; negative dry-side values retain
+     * @param[out] vdepths Signed vertex render depths in meters; negative dry-side values retain
      *   shoreline information.
      * @return True after copying a nonempty tick field; invalid index/missing field returns false
      *   and leaves output unchanged.
@@ -1039,7 +1039,7 @@ public:
     /**
      * @param[in] timeIdx Zero-based retained report/tick index.
      * @param[in] cell Zero-based original cell index.
-     * @param[out] out Mean cell depth in metres; initialized to NaN even when the read fails.
+     * @param[out] out Mean cell depth in meters; initialized to NaN even when the read fails.
      * @return True when the requested cell value is available; false leaves out NaN. No smoothing
      *   or visibility masking is applied.
      */
@@ -1070,9 +1070,9 @@ public:
      */
     int historyGeneration() const override { return open_generation_; }
     /**
-     * @param[out] vx Replaced vertex X coordinates in source SI metres.
-     * @param[out] vy Replaced vertex Y coordinates in source SI metres, matching X count.
-     * @param[out] vz Replaced bed elevations in SI metres, matching X count.
+     * @param[out] vx Replaced vertex X coordinates in source SI meters.
+     * @param[out] vy Replaced vertex Y coordinates in source SI meters, matching X count.
+     * @param[out] vz Replaced bed elevations in SI meters, matching X count.
      * @param[out] tris Replaced zero-based display fan triangles; quad split follows VFR elevation
      *   diagonal.
      * @return True after all reads succeed; failure can leave coordinate/connectivity outputs
@@ -1081,9 +1081,9 @@ public:
     bool readMeshGeometry(std::vector<double> &vx, std::vector<double> &vy, std::vector<double> &vz,
                           std::vector<std::array<int, 3>> &tris) override;
     /**
-     * @param[out] vx Replaced vertex X coordinates in source SI metres.
-     * @param[out] vy Replaced vertex Y coordinates in source SI metres, matching X count.
-     * @param[out] vz Replaced bed elevations in SI metres, matching X count.
+     * @param[out] vx Replaced vertex X coordinates in source SI meters.
+     * @param[out] vy Replaced vertex Y coordinates in source SI meters, matching X count.
+     * @param[out] vz Replaced bed elevations in SI meters, matching X count.
      * @param[out] cells Replaced original cyclic cell connectivity; fourth slot minus one denotes a
      *   triangle.
      * @return True after all reads succeed; failure can leave coordinate/connectivity outputs
@@ -1093,7 +1093,7 @@ public:
                    std::vector<std::array<int, 4>> &cells) override;
     /**
      * @param[in] timeIdx Zero-based retained report/tick index.
-     * @param[out] depths Per-original-cell mean water depths in metres; no display fan duplication.
+     * @param[out] depths Per-original-cell mean water depths in meters; no display fan duplication.
      * @return True for a complete readable depth row; false for invalid index/read failure. Callers
      *   must check success and shape before use.
      */
@@ -1123,14 +1123,14 @@ public:
 
     /**
      * @param[in] timeIdx Zero-based retained report/tick index.
-     * @param[out] flux Replaced outward-positive edge flux in cubic metres/second, stride four per
+     * @param[out] flux Replaced outward-positive edge flux in cubic meters/second, stride four per
      *   original cell, with triangle padding.
      * @return Reader success; optional dataset absence/read failure returns false. Discard unusable
      *   outputs and verify the padded cell count.
      */
     bool readEdgeFluxAt(int timeIdx, std::vector<float> &flux) override;
     /**
-     * @param[out] length Padded cell-edge lengths in metres.
+     * @param[out] length Padded cell-edge lengths in meters.
      * @param[out] nx Corresponding outward unit-normal X components, dimensionless.
      * @param[out] ny Corresponding outward unit-normal Y components, dimensionless.
      * @return Reader success for all edge geometry arrays; false when unavailable. Consumers must
@@ -1140,7 +1140,7 @@ public:
                           std::vector<float> &ny) override;
     /**
      * @param[in] timeIdx Zero-based retained report/tick index.
-     * @param[out] vdepths Signed vertex render depths in metres; negative dry-side values retain
+     * @param[out] vdepths Signed vertex render depths in meters; negative dry-side values retain
      *   shoreline information.
      * @return True after reading Mesh2_node_depth into private scratch and copying it; false leaves
      *   caller output unchanged. Legacy node-head fields are deliberately ignored.
@@ -1181,7 +1181,7 @@ public:
     bool readFaceEnvelope(const char *dataset, std::vector<float> &values) override;
     /**
      * @return Value copy of file CRS/unit-factor metadata; undeclared on old files or failed
-     *   metadata read. Coordinates themselves remain source SI metres.
+     *   metadata read. Coordinates themselves remain source SI meters.
      */
     openswmmvis::io::CoordinateReference coordinateReference() const override;
 
@@ -1221,7 +1221,7 @@ public:
     // argument and always return the mesh-scope field set.
     /**
      * @param[in] cat Ignored SWMM category; 2D fields are mesh-wide.
-     * @return Owned five dynamic double descriptors:depth/head metres,vmag/vx/vy m/s. This legacy
+     * @return Owned five dynamic double descriptors:depth/head meters,vmag/vx/vy m/s. This legacy
      *   catalog is separate from resultVariables() semantic chemistry/GW discovery.
      */
     [[nodiscard]] QVector<OpenSWMM::Render::AttributeField>
@@ -1257,7 +1257,7 @@ public:
      *   null detaches.
      * @note Increments source revision, cancels/waits for old fitting during geometry rebuild,
      *   clears current inputs/fit caches and emits timeRangeChanged(0,max(0,n-1)). Shows first live
-     *   frame or newest completed frame, rather than preserving old cursor. Seeds colour ranges
+     *   frame or newest completed frame, rather than preserving old cursor. Seeds color ranges
      *   from available envelopes/bounded scans and per-cell depth maxima synchronously; can perform
      *   substantial IO. Explicit user range overrides persist across swaps.
      */
@@ -1322,8 +1322,8 @@ public:
      * @param[in] sub Row of this layer.
      * @param[in] view Scene rectangle to cover (cull rectangle).
      * @param[in] pixelsPerScene Positive screen pixels per scene unit.
-     * @param[out] colorMin,colorMax Optional range of the colour-bound value (NaN when unknown).
-     * @param[out] colorUnits Optional units of the colour-bound value.
+     * @param[out] colorMin,colorMax Optional range of the color-bound value (NaN when unknown).
+     * @param[out] colorUnits Optional units of the color-bound value.
      * @param[in] timeIndex Report frame to draw; negative uses currentTimeIndex(). The scene graph
      *   passes the displayed frame's time so vectors never run ahead of the scalars.
      * @return Arrows (screen-grid sampled, one per spacing cell, cell values; the grid coarsens
@@ -1339,7 +1339,7 @@ public:
                          int timeIndex = -1) const;
     /** @param[in] sub Vector row of this layer, nullable.
      *  @return Report time the row is drawn at: the time the scene graph last drew it while
-     *   the scene graph owns rendering, else currentTimeIndex(). Legends and colour ranges read
+     *   the scene graph owns rendering, else currentTimeIndex(). Legends and color ranges read
      *   it so they match the arrows on screen. */
     int displayedVectorTime(const OpenSWMM::Render::ResultVectorSublayer *sub) const;
     /** @return Row bound to surface depth, which drives the optimized depth passes (cell and
@@ -1444,7 +1444,7 @@ public:
      */
     int regionalSurfaceFallbackCount() const { return regional_fallbacks_; }
     /**
-     * @return Largest absolute corner-depth discrepancy in metres from last regional comparison,
+     * @return Largest absolute corner-depth discrepancy in meters from last regional comparison,
      *   including rejected attempts; zero initially.
      */
     double regionalSurfaceError() const { return regional_error_; }
@@ -1473,10 +1473,10 @@ public:
     const IMesh2DSource *source() const noexcept { return source_.get(); }
 
     /*!
-     * \brief Metres per model-CRS linear unit, for sources that declare none.
+     * \brief Meters per model-CRS linear unit, for sources that declare none.
      *
      * The 2D solver runs in SI, so every result source hands this layer
-     * **metres** — which for a foot-based model CRS is not the unit the
+     * **meters** — which for a foot-based model CRS is not the unit the
      * coordinates must be reprojected from (issue #155). Engine 6.0+ states
      * the exact factor in the file's `/crs` variable and that always wins.
      * A pre-6.0 `.2d.h5`, and the live in-process `EngineMesh2DSource`, carry
@@ -1597,19 +1597,19 @@ public:
      */
     void closeSource();
 
-    /*! \brief Model dry depth in metres; also the default thin-film threshold.
-     * @return Configured physical dry cutoff in metres, initially 1e-4.
+    /*! \brief Model dry depth in meters; also the default thin-film threshold.
+     * @return Configured physical dry cutoff in meters, initially 1e-4.
      */
     double dryDepth() const noexcept { return dry_depth_; }
     /**
-     * @param[in] d Finite nonnegative physical cutoff in metres; invalid input ignored.
+     * @param[in] d Finite nonnegative physical cutoff in meters; invalid input ignored.
      * @note Always synchronizes vector-style dry cutoff even when unchanged; changed model cutoff
      *   refits visibility/velocity and invalidates historical surface envelopes. Signals can be
      *   deferred until requested async fit is published.
      */
     void setDryDepth(double d);
     /**
-     * @return Effective visual thin-film threshold in metres; negative stored override inherits
+     * @return Effective visual thin-film threshold in meters; negative stored override inherits
      *   dryDepth().
      */
     double thinFilmDepth() const noexcept
@@ -1622,7 +1622,7 @@ public:
      */
     bool usesModelThinFilmDepth() const noexcept { return thin_film_depth_ < 0; }
     /**
-     * @param[in] metres Finite visual threshold in metres; any negative value canonicalizes to
+     * @param[in] metres Finite visual threshold in meters; any negative value canonicalizes to
      *   minus one/inherit dryDepth(). Nonfinite ignored.
      * @note Changed effective stored policy refits displayed/requested field and invalidates
      *   fitted-envelope identity; may defer waterDisplayPolicyChanged until async publication.
@@ -1687,14 +1687,14 @@ public:
      */
     void setQsgOwnsRendering(bool own);
 
-    /*! \brief Upper end of the colour ramp (metres). Auto-tracks the global max
+    /*! \brief Upper end of the color ramp (meters). Auto-tracks the global max
      *         depth seen so far across all loaded ticks unless explicitly set.
-     * @return Current colour-ramp upper depth bound in metres, initially 0.01 and normally grown by
+     * @return Current color-ramp upper depth bound in meters, initially 0.01 and normally grown by
      *   loaded reconstructed corners.
      */
     double maxDepth() const noexcept { return max_depth_; }
     /**
-     * @param[in] d New ramp upper bound in metres, copied without finite/positive validation.
+     * @param[in] d New ramp upper bound in meters, copied without finite/positive validation.
      * @note Equal value does not pin auto-range. Changed value permanently enables user override,
      *   updates fill item and emits repaintRequested(); no reset-to-auto method here.
      */
@@ -1749,9 +1749,9 @@ public:
      */
     void setVelocityArrowScale(double scale);
 
-    /*! \brief Upper end of the velocity colour ramp (m/s). Auto-tracks the
+    /*! \brief Upper end of the velocity color ramp (m/s). Auto-tracks the
      *  running max unless explicitly set.
-     * @return Velocity colour/range upper bound in m/s, initially 1.0 until envelope/scan seeding
+     * @return Velocity color/range upper bound in m/s, initially 1.0 until envelope/scan seeding
      *   or growth.
      */
     double maxVelocity() const noexcept { return max_velocity_; }
@@ -1799,12 +1799,12 @@ public:
 
     // ----- Color-ramp + contour styling (Slice CF.MVP-fix.3) ----------------
 
-    /*! \brief How depth is mapped to colour in the per-cell heatmap pass.
+    /*! \brief How depth is mapped to color in the per-cell heatmap pass.
      *
-     *  \c Smooth   — continuous Viridis-ish gradient via the CPU inundation-colour helper.
-     *               This is the default and matches behaviour prior to fix.3.a.
-     *  \c Graduated — discretise the depth range into \ref colorClasses bins and
-     *               sample the same gradient at each bin's midpoint. Bin colours
+     *  \c Smooth   — continuous Viridis-ish gradient via the CPU inundation-color helper.
+     *               This is the default and matches behavior prior to fix.3.a.
+     *  \c Graduated — discretize the depth range into \ref colorClasses bins and
+     *               sample the same gradient at each bin's midpoint. Bin colors
      *               match the ones generated for the renderer's legend.
      */
     enum class ColorRampStyle { Smooth, Graduated };
@@ -1895,11 +1895,11 @@ public:
      */
     void setIsolinesLevels(int n);
     /**
-     * @return Authoritative isoline style colour including alpha.
+     * @return Authoritative isoline style color including alpha.
      */
     [[nodiscard]] QColor isolinesColor() const;
     /**
-     * @param[in] c Contour line colour copied with alpha; no validity check here.
+     * @param[in] c Contour line color copied with alpha; no validity check here.
      * @note Stores legacy fallback and forwards to owned sublayer/style, whose change signals
      *   invalidate/repaint. Does not change source values or physical units; ordinary style
      *   equality handling controls notification.
@@ -1926,7 +1926,7 @@ public:
      * \brief The IFeatureRenderer that will drive this layer's paint pass.
      * \details Constructed eagerly as a default GraduatedRenderer because
      *          this layer is fundamentally a continuous-attribute (depth)
-     *          colour-mapped layer.  Owned by the layer; never null.
+     *          color-mapped layer.  Owned by the layer; never null.
       *
      * @return Borrowed nonnull owned placeholder renderer, invalidated by replacement/destruction;
      *   hydraulic paint presently reads sublayer styles.
@@ -1950,7 +1950,7 @@ public:
      * \returns {peakDepth, peakCellIdx} of the currently displayed frame, or
      * {0, -1} if no frame is loaded.
       *
-     * @return Pair of mean depth in metres and original CELL index, or(0,-1) without values.
+     * @return Pair of mean depth in meters and original CELL index, or(0,-1) without values.
      *   Regional mode reads full frame and ignores nonfinite/nonpositive candidates; full mode uses
      *   max_element without extra NaN filtering, preserving first maximum tie. Does not use
      *   smoothed corner maxima.
@@ -2023,17 +2023,17 @@ public:
      */
     [[nodiscard]] int pickCellAt(const QPointF &scenePt) const;
 
-    // Stored cell-mean depth (SI metres), for consumers that need V/A.
+    // Stored cell-mean depth (SI meters), for consumers that need V/A.
     /**
      * @param[in] scenePt Scene-map query point.
-     * @return Stored mean cell depth metres, zero off mesh. Regional publication reads original
+     * @return Stored mean cell depth meters, zero off mesh. Regional publication reads original
      *   full-source cell directly and returns NaN if that read fails; no
      *   thin-film/smoothing/clamping.
      */
     [[nodiscard]] float depthAtSceneNow(const QPointF &scenePt) const;
     // Convert SI result elevations/depths to the mesh's project units.
     /**
-     * @return Multiplicative reciprocal of declared positive metres/model-unit factor, otherwise
+     * @return Multiplicative reciprocal of declared positive meters/model-unit factor, otherwise
      *   configured fallback reciprocal; SI depth times this value is native model linear units. May
      *   log one fallback warning, independent of canvas projection scale.
       *
@@ -2043,7 +2043,7 @@ public:
     // Smooth VFR display depths, continuous across connected wet edges.
     /**
      * @param[in] scenePt Scene-map query point.
-     * @return Nonnegative piecewise-linear fitted signed depth in metres. Outside/invalid
+     * @return Nonnegative piecewise-linear fitted signed depth in meters. Outside/invalid
      *   interpolant collapses to zero via max(0,NaN); full-domain analysis may be synchronously
      *   reconstructed when regional display is active.
      */
@@ -2052,7 +2052,7 @@ public:
      * @param[in] cell Known original cell ID, bounds-checked; stale/invalid gives zero.
      * @param[in] scenePt Scene-map sample assumed within that cell; quad scans its fan and falls
      *   back to first triangle if none contains it.
-     * @return Nonnegative barycentric fitted depth metres; no bilinear interpolation, and
+     * @return Nonnegative barycentric fitted depth meters; no bilinear interpolation, and
      *   out-of-cell point can extrapolate on first triangle. Regional display may trigger
      *   full-domain analysis.
      */
@@ -2072,14 +2072,14 @@ public:
     /**
      * @param[in] tri Display fan-triangle index, not original cell ID.
      * @param[in] p Scene-map interpolation point; containment is not enforced.
-     * @return Barycentric source bed elevation metres, NaN for invalid index/vertex/degenerate
+     * @return Barycentric source bed elevation meters, NaN for invalid index/vertex/degenerate
      *   basis. No vertical datum conversion; may extrapolate outside the triangle.
      */
     [[nodiscard]] double groundAtDisplayTriangle(int tri, const QPointF &p) const;
     /**
      * @param[in] tri Display fan index.
      * @param[in] p Scene-map interpolation point; may extrapolate if outside.
-     * @return Barycentric signed fitted depth metres, including negative dry-side shoreline values;
+     * @return Barycentric signed fitted depth meters, including negative dry-side shoreline values;
      *   NaN for invalid geometry/cell/basis. Uses full-domain analysis when display is regional,
      *   which can perform synchronous IO/fitting.
      */
@@ -2087,9 +2087,9 @@ public:
     /**
      * @param[in] tri Display fan index.
      * @param[in] p Scene-map interpolation point.
-     * @param[in] field Full-domain per-cell four-corner signed depths in metres, matching current
+     * @param[in] field Full-domain per-cell four-corner signed depths in meters, matching current
      *   cell connectivity.
-     * @return Barycentric signed metre depth, NaN for invalid index/missing cell/degenerate
+     * @return Barycentric signed meter depth, NaN for invalid index/missing cell/degenerate
      *   basis/unmapped vertex. Does not clamp or test point containment; nonfinite corners
      *   propagate.
      */
@@ -2097,7 +2097,7 @@ public:
     signedDepthAtDisplayTriangle(int tri, const QPointF &p,
                                  const std::vector<CellWaterGeometry::CornerDepths> &field) const;
     /**
-     * @return Owned per-cell signed corner temporal maxima in metres, computed after reconstructing
+     * @return Owned per-cell signed corner temporal maxima in meters, computed after reconstructing
      *   each real frame, rather than smoothing independent mean maxima. NaN means no fitted corner
      *   observed; empty without source/geometry/times.
      * @note Synchronous mode fits uncached history on calling thread and can be expensive. Async
@@ -2108,14 +2108,14 @@ public:
     [[nodiscard]] std::vector<CellWaterGeometry::CornerDepths> maxSurfaceDepths() const;
     /**
      * @param[in] cell Original cell index; invalid returns default Invalid surface.
-     * @param[in] meanDepth Mean nonnegative cell depth metres; reconstruction handles invalid
+     * @param[in] meanDepth Mean nonnegative cell depth meters; reconstruction handles invalid
      *   inputs.
      * @return Volume-preserving reconstructed cell surface relative to minimum bed, using current
      *   VFR split and SI bed elevations. Does not mutate displayed state.
      */
     [[nodiscard]] CellWaterGeometry::Surface surfaceForDepth(int cell, double meanDepth) const;
     /**
-     * @return Owned cell-wise maximum retained mean depth metres, zero baseline, empty without
+     * @return Owned cell-wise maximum retained mean depth meters, zero baseline, empty without
      *   usable source/geometry/times. Synchronously reads unprocessed frames, freezes completed
      *   rows but recomputes replaceable newest row; history-generation changes invalidate cache.
      *   Stops at first failed/mismatched historical read; does not claim complete engine report
@@ -2261,15 +2261,15 @@ public:
     /**
      * @param[in] includeDry True includes finite zero mean depths; false includes finite strictly
      *   positive depths, independently of model dry threshold.
-     * @return Owned full-domain mean-depth samples metres in cell order; regional mode reads the
+     * @return Owned full-domain mean-depth samples meters in cell order; regional mode reads the
      *   entire published source frame synchronously. Invalid/negative values excluded; read failure
      *   can yield empty list.
      */
     [[nodiscard]] QVector<double> currentDepthSamples(bool includeDry = false) const;
-    /*! Wettest finite depth of the current frame in metres (0 when dry or unread); cached per
+    /*! Wettest finite depth of the current frame in meters (0 when dry or unread); cached per
      *  frame, source and history generation (regional mode reads the frame once). */
     [[nodiscard]] double currentFrameMaxDepth() const;
-    /*! The depth range a depth fill (cell or smooth) is coloured over: its custom range when
+    /*! The depth range a depth fill (cell or smooth) is colored over: its custom range when
      *  set; under "Per-frame auto-stretch", \p dryDepth to the current frame's wettest depth;
      *  otherwise \p dryDepth to the whole run's maximum (maxDepth()). Both renderers use it. */
     [[nodiscard]] std::pair<double, double>
@@ -2277,7 +2277,7 @@ public:
     // Fixed classifications use one temporal peak mean-depth sample per cell.
     /**
      * @param[in] scheme Classification method/range policy to supply statistics for.
-     * @return Finite positive mean depths metres for quantile/natural-break/stddev methods only.
+     * @return Finite positive mean depths meters for quantile/natural-break/stddev methods only.
      *   Per-frame uses current values; other modes use one retained temporal maximum per cell, not
      *   the all-frame distribution. Other bin methods return empty.
      */
@@ -2296,7 +2296,7 @@ public:
     /**
      * @param[in] scenePt Scene-map query point.
      * @param[in] vertMax Ignored legacy vertex-envelope argument; retained for compatibility.
-     * @return Nonnegative interpolation of actual per-cell corner temporal envelope metres, zero
+     * @return Nonnegative interpolation of actual per-cell corner temporal envelope meters, zero
      *   outside/invalid. Recomputes/queries maxSurfaceDepths(), which can synchronously scan
      *   history outside async mode.
      */
@@ -2372,7 +2372,7 @@ public:
     struct SceneTri {
         QPointF a, b, c;
         QPointF centroid;   ///< Scene-space centroid; cached at rebuildSceneGeometry_.
-        float depth = 0.0f; ///< Cell-centre depth (m) — drives the heatmap fill.
+        float depth = 0.0f; ///< Cell-center depth (m) — drives the heatmap fill.
         // Signed smooth VFR depths, shared on connected wet edges. Negative
         // values retain dry-side geometry; NaN means no water/invalid data.
         float dv0 = std::numeric_limits<float>::quiet_NaN();
@@ -2392,9 +2392,9 @@ public:
     /*! Deduplicated mesh edges in scene space (Issue 3). Each undirected edge is
      *  stored exactly once — mirrors SWMM2DMeshLayer's pushEdge — so the
      *  wireframe overlay no longer strokes shared edges twice. Double-stroking
-     *  the translucent edge colour composited it to a dark wash ("dark
+     *  the translucent edge color composited it to a dark wash ("dark
      *  artifact"). `slope` (|Δz|/length of the edge's bed) lets the renderer
-     *  honour MeshEdgeStyle's slope-driven thin/wide width. Built in
+     *  honor MeshEdgeStyle's slope-driven thin/wide width. Built in
      *  rebuildSceneGeometry_. */
     struct SceneEdge {
         QPointF a, b;
@@ -2557,7 +2557,7 @@ private:
      * @param[in] scenePt Scene-map point located against current display geometry.
      * @param[out] outVx SI interpolated velocity X, zero initialized.
      * @param[out] outVy SI interpolated velocity Y with scene sign, zero initialized.
-     * @param[in] depths Full-domain cell mean depths metres, current geometry indexing.
+     * @param[in] depths Full-domain cell mean depths meters, current geometry indexing.
      * @param[in] vx Full-domain per-vertex velocity X m/s; missing vertex slots contribute zero.
      * @param[in] vy Full-domain per-vertex scene-sign velocity Y m/s.
      * @return False for empty field/outside/invalid/dry containing cell; true after barycentric
@@ -2596,14 +2596,14 @@ private:
                            const std::vector<float> *savedVy = nullptr);
 
     /*!
-     * \brief Metres-to-model-CRS-unit divisor for the source coordinates.
+     * \brief Meters-to-model-CRS-unit divisor for the source coordinates.
      *
      * Resolved in rebuildSceneGeometry_() from the source's
      * CoordinateReference, falling back to setFallbackCoordinateScale()'s
      * value for sources that declare nothing. 1.0 for a metric model, and the
      * default when nobody supplied a fallback. Issue #155.
       *
-     * @return Reciprocal of declared finite positive metres-per-model-unit factor, otherwise
+     * @return Reciprocal of declared finite positive meters-per-model-unit factor, otherwise
      *   configured fallback reciprocal. SI coordinates/depth multiplied by it become model linear
      *   units; canvas CRS scaling is separate.
      * @note Undeclared nonunity fallback logs once; const access mutates warning guard, so
@@ -2623,9 +2623,9 @@ private:
      *  geometry rebuild. Reset by setFallbackCoordinateScale(). */
     mutable bool m_warnedUndeclaredCrs = false;
 
-    /*! Metres per model-CRS linear unit for sources that declare no `/crs`
+    /*! Meters per model-CRS linear unit for sources that declare no `/crs`
      *  variable — see setFallbackCoordinateScale(). 1.0 = leave coordinates
-     *  alone, the pre-#155 behaviour and the safe default. */
+     *  alone, the pre-#155 behavior and the safe default. */
     double m_fallbackMetresPerModelUnit = 1.0;
 
     /*! Display triangle containing \p scenePt (index into m_sceneTris /
@@ -2640,7 +2640,7 @@ private:
      *  per-sub-triangle body of \ref depthAtCellInterp).
      * @param[in] triIdx Display fan index, bounds checked by signed-depth helper.
      * @param[in] scenePt Scene-map sample point.
-     * @return max(0,signed fitted depth) metres; NaN/invalid collapses to zero by argument order.
+     * @return max(0,signed fitted depth) meters; NaN/invalid collapses to zero by argument order.
      *   May trigger full-domain analysis in regional mode and extrapolate outside specified
      *   triangle.
      */
@@ -2796,7 +2796,7 @@ private:
     [[nodiscard]] SurfaceKey surfaceKey_(int frame) const;
     /**
      * @param[in] frame Source frame index; source must be nonnull.
-     * @param[out] depths Full cell means metres, replaced with all NaN on failed/wrong-size read
+     * @param[out] depths Full cell means meters, replaced with all NaN on failed/wrong-size read
      *   and individual NaN for negative/nonfinite values.
      * @param[out] flux Outward-positive stride-four edge flux m³/s; cleared on missing read.
      * @note GUI source access refreshes/validates optional edge geometry, clears invalid arrays,
@@ -2805,14 +2805,14 @@ private:
      */
     void readSurfaceInputs_(int frame, std::vector<float> &depths, std::vector<float> &flux);
     /**
-     * @param[in] depths Full-domain mean depths metres, exactly cell count; invalid values handled
+     * @param[in] depths Full-domain mean depths meters, exactly cell count; invalid values handled
      *   by reconstruction.
      * @param[in] flux Optional stride-four outward edge flux m³/s.
      * @param[in] policy Captured display visibility policy.
      * @param[out] surfaces Replaced per-cell VFR storage surfaces.
-     * @param[out] flow Reused/replaced flowing per-cell corner depths metres before shared-corner
+     * @param[out] flow Reused/replaced flowing per-cell corner depths meters before shared-corner
      *   projection.
-     * @param[out] smooth Replaced smoothed per-cell signed corner depths metres.
+     * @param[out] smooth Replaced smoothed per-cell signed corner depths meters.
      * @param[in] workspace Optional exclusively owned reusable fit scratch; null uses helper-local
      *   storage.
      * @note Reads stable geometry/topology only; safe on serial worker while GUI prevents geometry
@@ -3063,12 +3063,12 @@ private:
     // CF.3 — selection / highlight state.
     QSet<int> m_highlighted;
 
-    // Slice BI Phase 8.13.6.6 — renderer plumbing.  Initialised eagerly in
+    // Slice BI Phase 8.13.6.6 — renderer plumbing.  Initialized eagerly in
     // the ctor (default GraduatedRenderer) so renderer() never returns
     // null.  Paint refactor deferred until Slice BB ColorRamp ships.
     std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> m_renderer;
 
-    // Slice CF.MVP-fix.3 — graduated colour + contour styling. All default
+    // Slice CF.MVP-fix.3 — graduated color + contour styling. All default
     // values preserve the pre-fix.3 paint output byte-identically.
     ColorRampStyle color_ramp_style_ = ColorRampStyle::Smooth;
     int color_classes_ = 5;
@@ -3099,7 +3099,7 @@ private:
     double m_velocityFloorSI = 0;
     bool m_edgeFluxAvailable = false;
 
-    // User-customisable paint order (Slice GUI-2026-05-30 §2).  Lazy-seeded
+    // User-customizable paint order (Slice GUI-2026-05-30 §2).  Lazy-seeded
     // from the default order in sublayers(); reordered via moveSublayer();
     // round-tripped through ISublayerHost::save/loadSublayersFromJson.
     mutable quint64 m_resultCatalogRevision = 0;
@@ -3219,7 +3219,7 @@ public:
 
     /*! Graduated ramp swatches for the legend dock. Mirrors
      *  SWMMResultsLayer::sublayerLegendItems for the 2D layer: emits
-     *  one row per colour-ramp bin (depth), one per filled-contour band
+     *  one row per color-ramp bin (depth), one per filled-contour band
      *  when enabled, plus single rows for isolines and velocity arrows.
      *  Each row carries the originating sublayerId so the legend's
      *  right-click → "Edit Sublayer Style…" path still works.
@@ -3466,7 +3466,7 @@ private:
     /**
      * @brief Construct default decoration rules and connect first-SingleSymbol-layer replacement
      *   propagation to supported sublayer style fields.
-     * @note Six seeds: depth colour ramp (the drawn depth fill), bands, lines, edges, nodes and
+     * @note Six seeds: depth color ramp (the drawn depth fill), bands, lines, edges, nodes and
      *   velocity (the velocity row's arrows); no hillshade (the results draw no terrain). Wrong
      *   renderer/kind/empty layer is ignored.
      *   Each rule is bound to the live style it mirrors (render/rulestylesync.h): ruleList()

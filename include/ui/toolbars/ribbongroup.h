@@ -74,7 +74,7 @@ public:
      * @brief Build fixed 100 logical-pixel caption/content/separator group and hidden owned
      *   collapsed menu button.
      * @note GUI-thread only. Action pointers are borrowed, buttons/layout/menu widget children
-     *   owned. Palette roles supply theme colours; no engine/model binding. Full mode initially,
+     *   owned. Palette roles supply theme colors; no engine/model binding. Full mode initially,
      *   fixed horizontal size until positive-stretch widget added.
      */
     explicit RibbonGroup(const QString &caption, QWidget *parent = nullptr);

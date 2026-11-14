@@ -12,7 +12,7 @@
  * interior levels at or below the value, and the last band saturates above its top level.
  *
  * Isolines: a fragment within a level's half line width (in screen pixels, from the value's
- * screen-space gradient) takes the line colour, antialiased over one pixel.
+ * screen-space gradient) takes the line color, antialiased over one pixel.
  *
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -44,7 +44,7 @@ public:
      * @param[in] levels Ascending band breaks (N breaks, N-1 bands, 2 <= N <= kMaxBands + 1).
      * @param[in] cutoff Physical cutoff; values at or below it are not drawn.
      * @param[in] colors Premultiplied RGBA in [0, 1], one per band (N-1 entries).
-     * @return False (material unchanged) for fewer than two breaks, too many bands or a colour
+     * @return False (material unchanged) for fewer than two breaks, too many bands or a color
      *   count that does not match.
      */
     bool setBands(const std::vector<double> &levels, double cutoff,
@@ -66,7 +66,7 @@ public:
     [[nodiscard]] const std::vector<float> &levels() const { return m_levels; }
     /** @return Isolines: half widths in pixels, parallel to levels(); empty for bands. */
     [[nodiscard]] const std::vector<float> &halfWidthsPx() const { return m_halfWidths; }
-    /** @return Bands: one colour per band. Isolines: the line colour. */
+    /** @return Bands: one color per band. Isolines: the line color. */
     [[nodiscard]] const std::vector<std::array<float, 4>> &colors() const { return m_colors; }
 
 private:

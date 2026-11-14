@@ -12,8 +12,8 @@
  *         makeDefaultKindRenderer — and only one of them seeded the new
  *         renderer's base symbol. A default-constructed renderer carries
  *         an EMPTY base symbol; overrideColorInPlace only writes into
- *         colour slots that already exist, so symbolFor() returned a
- *         colour-less style and paint silently fell back to the legacy
+ *         color slots that already exist, so symbolFor() returned a
+ *         color-less style and paint silently fell back to the legacy
  *         ramp. This factory is the single construction path: every
  *         renderer leaves it with an archetype-appropriate, fully-keyed
  *         base/fallback symbol and (when resolvable) a seeded classify
@@ -43,7 +43,7 @@ namespace RendererFactory
 
 /*! Fully-keyed default SymbolStyle for an archetype, built from the typed
  *  spec defaults (MarkerSymbolLayerSpec / LineSymbolLayerSpec /
- *  FillSymbolLayerSpec). Guarantees every grammar colour/size/width slot
+ *  FillSymbolLayerSpec). Guarantees every grammar color/size/width slot
  *  exists so per-class and per-bin overrides always have a slot to write.
  * @param archetype Point, Line or Polygon geometry family.
  * @return Owned one-pass default symbol; unknown enum values produce an empty stack. */

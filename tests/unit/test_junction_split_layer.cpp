@@ -19,7 +19,7 @@
  * junction insertion silently leaves the model split.
  *
  * The fixture is a real .inp (tests/data/inlets/street_inlet.inp — reused
- * rather than duplicated) and every artefact is written to
+ * rather than duplicated) and every artifact is written to
  * tests/output/junction_split/ so it can be reviewed (CLAUDE.md §4.1), never
  * to a temp dir.
  *

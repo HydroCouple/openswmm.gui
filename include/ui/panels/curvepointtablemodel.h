@@ -11,7 +11,7 @@
  *
  * `setData` routes through `CurveProvider::setYAt` (Y-only edit, X locked
  * to preserve monotonicity) or `setPointAt` (X edit — validated against
- * neighbours). The provider's `mutationRejected` signal surfaces UI errors.
+ * neighbors). The provider's `mutationRejected` signal surfaces UI errors.
  *
  * Subscribes to the provider's `pointsChanged` / `pointsInserted` /
  * `pointsRemoved` / `typeChanged` signals so external mutations refresh
@@ -80,7 +80,7 @@ public:
     /**
      * @param[in] index Expected this model root cell; validates provider, index and row/two-column
      *   range.
-     * @param[in] role Display/Edit returns raw double; TextAlignment right/vertical-centre; other
+     * @param[in] role Display/Edit returns raw double; TextAlignment right/vertical-center; other
      *   roles invalid.
      * @return Provider point X/Y in TYPE-specific native units, not converted; header titles supply
      *   units. Invalid QVariant for bad cell/unsupported role, no input mutation.

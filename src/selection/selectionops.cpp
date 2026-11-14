@@ -287,7 +287,7 @@ TraceResult trace(SWMMModelLayer *model, const QSet<SWMMObjectRef> &seeds, bool 
     // the only subcatchments in a downstream trace are the seed's outlet chain,
     // already collected during seeding.
 
-    // ── Materialise refs ───────────────────────────────────────────────────
+    // ── Materialize refs ───────────────────────────────────────────────────
     for (int n : visited) {
         const char *id = swmm_node_id(e, n);
         if (id && *id)

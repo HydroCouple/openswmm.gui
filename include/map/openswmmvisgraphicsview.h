@@ -33,7 +33,7 @@ class OpenSWMMVisScene;
  *          the correct geographic location without any per-item transform.
  *
  *          The MapCanvas is responsible for keeping the view's transform
- *          synchronised with the current extent via applyExtentToOverlay().
+ *          synchronized with the current extent via applyExtentToOverlay().
  */
 class OpenSWMMVisGraphicsView : public QGraphicsView
 {

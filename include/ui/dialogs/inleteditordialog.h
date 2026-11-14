@@ -5,7 +5,7 @@
  * @license   GPL-3.0-or-later
  * @brief     Three-pane editor for SWMM inlet designs ([INLETS]).
  *
- * Modelled on TransectEditorDialog (Inlets plan §2.2). Layout (left → right,
+ * Modeled on TransectEditorDialog (Inlets plan §2.2). Layout (left → right,
  * a 1:3:3 QSplitter named "main" so the app-wide layout persistence picks it
  * up):
  *

@@ -228,7 +228,7 @@ void OpenSWMMVisMapToolSelectProfile::mousePressEvent(QMouseEvent *event)
     if (hitNode < 0) {
         // Click on empty space (no node / link under cursor).  If a
         // profile is currently shown on the map, dismiss it — the user
-        // is signalling they want to start over.  Otherwise nudge them
+        // is signaling they want to start over.  Otherwise nudge them
         // to snap closer.
         if (m_state == State::Idle && !m_acceptedPath.linkIds.isEmpty()) {
             resetState();
@@ -476,7 +476,7 @@ void OpenSWMMVisMapToolSelectProfile::routeAndPick()
     QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
 
     // Tear down any prior watcher (e.g. user clicked again before the
-    // previous routing finished).  Cancelling a QtConcurrent::run future
+    // previous routing finished).  Canceling a QtConcurrent::run future
     // does not actually stop the worker, so we just disconnect from it.
     if (m_routingWatcher) {
         m_routingWatcher->disconnect();

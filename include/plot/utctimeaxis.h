@@ -14,7 +14,7 @@
  *          timezone property to override. (The UTC-defaulting `timeZone`
  *          property is Qt GRAPHS 6.11+, a different module this project does
  *          not use.) Forcing the process timezone is not an option either: Qt
- *          honours $TZ on Unix but uses system APIs on Windows.
+ *          honors $TZ on Unix but uses system APIs on Windows.
  *
  *          So the labels are generated here instead. X values remain true UTC
  *          milliseconds-since-epoch — unchanged, uncorrected, directly

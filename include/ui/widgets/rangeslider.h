@@ -8,7 +8,7 @@
  * Qt ships QSlider (single thumb) but no built-in two-thumb range slider.
  * `RangeSliderWidget` fills the gap with a minimal QWidget that paints a
  * track, a highlighted selected range, and two draggable thumbs. Values
- * are normalised to `[0..1]`; the host (ComparisonPlotDialog) maps that
+ * are normalized to `[0..1]`; the host (ComparisonPlotDialog) maps that
  * to a `QDateTime` time range and applies it to row 0's xAxis (the
  * existing linked-X-axis sync propagates to other rows).
  *
@@ -141,7 +141,7 @@ private:
     /**
      * @brief Choose a drag target from the pointer's horizontal proximity to handles or the selected band.
      * @param[in] p Widget-local pointer coordinate; y is ignored.
-     * @return Lo/Hi for handle hits, Both for the interior band, or None. Nearly coincident handles split at their centre.
+     * @return Lo/Hi for handle hits, Both for the interior band, or None. Nearly coincident handles split at their center.
      */
     DragKind hitTest(const QPoint &p) const noexcept;
 

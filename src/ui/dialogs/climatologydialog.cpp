@@ -125,7 +125,7 @@ double oaDate(const QDateTime &dateTime)
  * @brief Decode finite fractional days since 1899-12-30 into SWMM wall-clock date/time.
  * @param[in] date Finite representable absolute day count; floor handles dates before the epoch
  * and fractional time rounds to milliseconds.
- * @return Owned UTC-labelled QDateTime (SWMM dates have no zone or daylight saving); no
+ * @return Owned UTC-labeled QDateTime (SWMM dates have no zone or daylight saving); no
  * conversion, range/error check or engine access. Built from date and time-of-day directly:
  * adding milliseconds to local midnight was an hour off on daylight-saving days.
  */

@@ -10,7 +10,7 @@
  * accessible closing, native engine mirroring and project-unit titles):
  * - Provider rejects non-monotone setAllPoints.
  * - setYAt validates index; emits pointsChanged.
- * - setPointAt enforces strict-monotone with neighbours.
+ * - setPointAt enforces strict-monotone with neighbors.
  * - insertPoint inserts at sorted X position; rejects equal-X collision.
  * - removePointsAt handles unsorted duplicate indices.
  * - setType emits typeChanged; does NOT clear points.
@@ -286,9 +286,9 @@ private slots:
 
     /**
      *
-     * @brief Require moving the middle x outside either neighbour to fail and an interior point
+     * @brief Require moving the middle x outside either neighbor to fail and an interior point
      * to store x/y.
-     * Checks accepted point 0.5/99 on a tidal curve; does not check equal-neighbour bounds,
+     * Checks accepted point 0.5/99 on a tidal curve; does not check equal-neighbor bounds,
      * rejection signals or hydraulic interpretation of the values.
      *
      */
@@ -297,9 +297,9 @@ private slots:
         CurveProvider p(QStringLiteral("c"), CurveType::Tidal);
         QVERIFY(p.setAllPoints({{0.0, 0.0}, {1.0, 1.0}, {2.0, 2.0}}));
 
-        // Try to move middle point's X below left neighbour.
+        // Try to move middle point's X below left neighbor.
         QVERIFY(!p.setPointAt(1, -0.5, 99.0));
-        // Try to move middle point's X above right neighbour.
+        // Try to move middle point's X above right neighbor.
         QVERIFY(!p.setPointAt(1, 3.0, 99.0));
         // Valid in-between move.
         QVERIFY(p.setPointAt(1, 0.5, 99.0));

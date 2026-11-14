@@ -33,7 +33,7 @@ RuleCodeEditor::RuleCodeEditor(QWidget *parent) : QTextEdit(parent)
     setFont(mono);
     setLineWrapMode(QTextEdit::NoWrap);
     setTabStopDistance(4 * QFontMetricsF(mono).horizontalAdvance(QLatin1Char(' ')));
-    setAcceptRichText(false); // we paint colour via the highlighter; user
+    setAcceptRichText(false); // we paint color via the highlighter; user
                               // typing should stay plain so paste from
                               // word processors doesn't smuggle styles in.
 

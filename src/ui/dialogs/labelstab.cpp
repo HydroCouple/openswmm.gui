@@ -1,8 +1,8 @@
 /**
  * @file      labelstab.cpp
  * @brief     A GIS-aligned label-style editor — Enabled toggle, font family + size + bold/italic,
- *            text colour, halo (colour + radius), placement (auto / above / below / left / right /
- *            centre), field picker and expression builder, and visibility scale window.
+ *            text color, halo (color + radius), placement (auto / above / below / left / right /
+ *            center), field picker and expression builder, and visibility scale window.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @license   GPL-3.0-or-later
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.

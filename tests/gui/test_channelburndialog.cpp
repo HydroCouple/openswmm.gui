@@ -137,7 +137,7 @@ private slots:
         dialog.show();
         dialog.grab().save(directory.filePath("progress-complete.png"));
     }
-    /** @brief Verify burning a channel preserves a downstream junction with its pipes through a two-metre open-section connector and one-link tagged outfall.
+    /** @brief Verify burning a channel preserves a downstream junction with its pipes through a two-meter open-section connector and one-link tagged outfall.
      * Checks the burn is one undo step and undo restores the original channel/network. */
     void aNodeKeepingTwoPipesGetsAConnectorAndAnOutfall()
     {
@@ -222,7 +222,7 @@ private slots:
         dismissMessages.start(10);
     }
     /** @brief Stage a fresh burn fixture, load its project and attach an active SI 800-triangle projected mesh.
-     * Sets EPSG:3857, inherited layer styling and two-metre channel cells/four-metre half-width for each independent test. */
+     * Sets EPSG:3857, inherited layer styling and two-meter channel cells/four-meter half-width for each independent test. */
     void init()
     {
         errors.clear();
@@ -279,7 +279,7 @@ private slots:
         workspace = nullptr;
         QCoreApplication::sendPostedEvents(nullptr, QEvent::DeferredDelete);
     }
-    /** @brief Verify feet entered in the dialog convert once to metre worker inputs while persisted settings stay in model units.
+    /** @brief Verify feet entered in the dialog convert once to meter worker inputs while persisted settings stay in model units.
      * Cancels the worker and checks no undo entry or error and a below-complete Cancelled progress state. */
     void lengthsConvertedOnceAndSettingsStayInModelUnits()
     {

@@ -27,13 +27,13 @@ class SWMMModelLayer;
 namespace ConduitSplitPick
 {
 
-/*! One conduit hit: the layer, the conduit, the normalised split position and
+/*! One conduit hit: the layer, the conduit, the normalized split position and
  *  the closest point on its vertex-aware polyline (layer CRS). */
 struct ConduitHit {
     SWMMModelLayer *layer = nullptr;
     int linkIdx = -1; ///< SoA/engine conduit index
     QString name;
-    double t = 0.5;        ///< normalised polyline position, clamped to [0.02, 0.98]
+    double t = 0.5;        ///< normalized polyline position, clamped to [0.02, 0.98]
     QPointF point;         ///< closest point (layer CRS)
     bool isStreet = false; ///< cross section is SWMM_XSECT_STREET
     /**

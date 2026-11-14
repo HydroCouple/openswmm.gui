@@ -196,7 +196,7 @@ class MeshSetVertexAttributeCommand : public MapCommand
 public:
     /*! \param layer     Mesh layer that owns the vertices.
      *  \param key       Attribute key ("z", "tag", "coupledNode",
-     *                   "couplingCd", "couplingArea") — used for labelling
+     *                   "couplingCd", "couplingArea") — used for labeling
      *                   only; the snapshots carry the values.
      *  \param vertices  Vertex indices to write.
      *  \param newAttrs  Parallel to \p vertices: post-edit attribute snapshot.
@@ -349,7 +349,7 @@ public:
      * @note Flat slots use mesh::kEdgeStride=4, with triangle slot 3 padding. Replay decodes
      *   cell/local edge and delegates validity checks. Conveyance key writes only its fraction to
      *   mirrored interior halves; all other keys replay whole BC including group/conveyance. Stops
-     *   at shorter slots/snapshot vector. Head project vertical units, flow project flow per metre,
+     *   at shorter slots/snapshot vector. Head project vertical units, flow project flow per meter,
      *   slope dimensionless; references remain names.
      */
     MeshSetEdgeAttributeCommand(SWMM2DMeshLayer *layer, QByteArray key, QVector<int> edgeSlots,
@@ -359,7 +359,7 @@ public:
 
     /**
      * @brief Restore old whole BCs or old mirrored conveyance fractions.
-     * @note Null/deleted layer no-op. Mirrored interior neighbour follows conveyance setter; all
+     * @note Null/deleted layer no-op. Mirrored interior neighbor follows conveyance setter; all
      *   statuses ignored. No per-write errors reported or batch rollback.
      */
     void undo() override;
@@ -405,7 +405,7 @@ private:
  *
  *          **The old state records PROVENANCE, not just values.** A cell that
  *          was inheriting from its region tag (or the '*' default) must go
- *          back to inheriting on undo — restoring a materialised override
+ *          back to inheriting on undo — restoring a materialized override
  *          carrying identical numbers looks correct but silently detaches the
  *          cell from its region, so the next region-level edit no longer
  *          reaches it. undo() therefore branches on the stored
@@ -624,7 +624,7 @@ int pushCellParamEdits(SWMM2DMeshLayer *layer, const QVector<int> &triangles,
  *
  * Cells that already carry an override equal to \p row are dropped, so a
  * no-op edit does not clutter the undo stack. A cell that merely *inherits*
- * the same numbers is NOT dropped: materialising the override there is a real
+ * the same numbers is NOT dropped: materializing the override there is a real
  * state change (the cell stops tracking its region), and it is exactly what
  * the user asked for. With no undo stack available the write still happens,
  * just unundoably.
@@ -750,14 +750,14 @@ int pushVertexParamEdit(SWMM2DMeshLayer *layer, const QVector<int> &vertices, co
  * @param[in] edges Candidate cell/local-edge pairs; validates flat slot bounds, layer applies
  *   actual cell arity.
  * @param[in] value Typed value: conveyance fraction 0..1, BC enum range, project
- *   head/flow-per-metre/slope or reference/group string. Head/slope/flow toDouble has no
+ *   head/flow-per-meter/slope or reference/group string. Head/slope/flow toDouble has no
  *   finite/range check here.
  * @note GUI-thread only. Return counts filtered candidate entries queued/attempted, not confirmed
  *   setter successes; duplicate indices remain unless explicitly stated. Commands do not report
  *   individual rejected writes or roll back partial results. No-op/invalid target sets push
  *   nothing. Layer emits actual edit notifications; no immediate file save.
  * @note Non-conveyance keys require boundary edges; conveyance can touch interior and setter
- *   mirrors neighbour. Whole snapshot equality uses exact doubles, including ordinary NaN
+ *   mirrors neighbor. Whole snapshot equality uses exact doubles, including ordinary NaN
  *   inequality. Unknown keys rejected.
  */
 int pushEdgeParamEdit(SWMM2DMeshLayer *layer, const QVector<QPair<int, int>> &edges,
@@ -776,7 +776,7 @@ int pushEdgeParamEdit(SWMM2DMeshLayer *layer, const QVector<QPair<int, int>> &ed
  *   immediately redoes it, otherwise command redoes once then is deleted.
  * @param[in] edges Candidate cell/local-edge pairs; invalid/nonboundary skipped.
  * @param[in] bc Complete target BC copied, except each edge keeps own group and conveyance. Head
- *   project vertical units, slope dimensionless, flow project flow per metre; no local numeric/type
+ *   project vertical units, slope dimensionless, flow project flow per meter; no local numeric/type
  *   validation.
  * @note GUI-thread only. Return counts filtered candidate entries queued/attempted, not confirmed
  *   setter successes; duplicate indices remain unless explicitly stated. Commands do not report

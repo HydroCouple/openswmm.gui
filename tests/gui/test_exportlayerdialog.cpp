@@ -178,7 +178,7 @@ private slots:
         dlg.setDestination(QStringLiteral("/data/project/model.features.gpkg"));
         QVERIFY(dlg.validationError().contains(QStringLiteral("model.features.gpkg")));
         dlg.setDestination(QStringLiteral("/data/project/../project/./model.features.gpkg"));
-        QVERIFY(!dlg.validationError().isEmpty()); // same file, spelt differently
+        QVERIFY(!dlg.validationError().isEmpty()); // same file, spelled differently
 
         // A folder is never taken for a file: GeoPackage would replace it whole.
         const QString folder = QCoreApplication::applicationDirPath();

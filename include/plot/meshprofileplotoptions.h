@@ -123,7 +123,7 @@ public:
     explicit MeshProfilePlotOptions(QObject *parent = nullptr);
     /**
      * @brief Serialize declared display meta-properties into a version-one options object.
-     * @return Owned object with version/values. Pens retain colour/width/style only, brushes colour/style only, fonts use QFont text and points two-number arrays; custom pen dash/cap/join and brush textures/gradients do not round-trip in this schema. No validation occurs.
+     * @return Owned object with version/values. Pens retain color/width/style only, brushes color/style only, fonts use QFont text and points two-number arrays; custom pen dash/cap/join and brush textures/gradients do not round-trip in this schema. No validation occurs.
      */
     QJsonObject toJson() const;
     /**
@@ -131,7 +131,7 @@ public:
      * @param[in] json Empty is a successful no-op; otherwise requires version one and an object-valued values field. Missing recognized properties preserve current values; unknown keys are ignored.
      * @param[out] error Optional first-failure diagnostic, cleared on entry.
      * @return False for a malformed recognized property before any property is applied. True applies staged values with signals blocked, then emits changed() once even when the nonempty payload made no effective changes. Per-property write return statuses are not checked.
-     * @note Validates colour/font tokens and known enum keys, limits pen width [0,100], pen style [0,5] and brush style [0,14], and requires two numeric point components. Other primitive values use QVariant conversion and typed-setter clamps. Deserialization does not restore omitted pen/brush richness or update application preferences.
+     * @note Validates color/font tokens and known enum keys, limits pen width [0,100], pen style [0,5] and brush style [0,14], and requires two numeric point components. Other primitive values use QVariant conversion and typed-setter clamps. Deserialization does not restore omitted pen/brush richness or update application preferences.
      */
     bool fromJson(const QJsonObject &json, QString *error = nullptr);
 
@@ -169,7 +169,7 @@ public:
     bool showCellBoundaries() const { return m_showCellBoundaries; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Crossing-dot colour including alpha; no typed validity check occurs. Returns a value copy; no data-unit conversion occurs.
+     * @return Crossing-dot color including alpha; no typed validity check occurs. Returns a value copy; no data-unit conversion occurs.
      */
     QColor cellBoundaryColor() const { return m_cellBoundaryColor; }
     /**
@@ -299,7 +299,7 @@ public:
     TimeLabelPosition timeLabelPosition() const { return m_timeLabelPosition; }
     /**
      * @brief Read per-plot display state without inspecting live geometry/results.
-     * @return Timestamp foreground colour including alpha; typed edits do not reject invalid colours. Returns a value copy; no data-unit conversion occurs.
+     * @return Timestamp foreground color including alpha; typed edits do not reject invalid colors. Returns a value copy; no data-unit conversion occurs.
      */
     QColor timeLabelColor() const { return m_timeLabelColor; }
     /**
@@ -322,73 +322,73 @@ public slots:
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether to fill the current water band above ground at valid wet stations.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setShowDepthFill(bool v);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether to stroke the current water-surface elevation independently of depth fill.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setShowWseLine(bool v);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether to fill the temporal maximum water band.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setShowMaxEnvelopeFill(bool v);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether to stroke the temporal maximum water-surface outline.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setShowMaxEnvelopeLine(bool v);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether to draw diagnostic dots at sampled cell-edge crossings.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setShowCellBoundaries(bool v);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Crossing-dot colour including alpha; no typed validity check occurs.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Crossing-dot color including alpha; no typed validity check occurs.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setCellBoundaryColor(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] b Ground/soil polygon brush with alpha/pattern retained.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setSoilFill(const QBrush &b);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] p Terrain stroke pen, including logical-pixel width and full dash/cap/join.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setGroundLinePen(const QPen &p);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] b Current wet-band brush with alpha/pattern retained.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setDepthFillBrush(const QBrush &b);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] p Current water-surface stroke pen, in logical-pixel widths.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setWseLinePen(const QPen &p);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] p Temporal maximum water-surface stroke pen, in logical-pixel widths.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setMaxEnvelopePen(const QPen &p);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] b Temporal maximum water-band brush with alpha/pattern retained.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setMaxEnvelopeBrush(const QBrush &b);
     /**
@@ -442,67 +442,67 @@ public slots:
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether the in-plot legend is requested; does not change source/series visibility.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setLegendVisible(bool v);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] p Legend corner anchor; raw enum values are stored without validation by the typed setter.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setLegendPosition(LegendPosition p);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] f Legend text font with Qt point/pixel-size semantics.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setLegendFont(const QFont &f);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] a Legend background opacity, with typed edits clamped to [0,1]; finite input is expected.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setLegendOpacity(double a);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] p Logical-pixel XY displacement from the chosen corner anchor, with positive X right and positive Y down.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setLegendOffset(const QPointF &p);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] v Whether the timestamp overlay is requested; does not affect the animation cursor.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setShowTimeLabel(bool v);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] p Timestamp corner anchor, stored as a raw enum by typed edits.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setTimeLabelPosition(TimeLabelPosition p);
     /**
      * @brief Update this plot's rendering preference.
-     * @param[in] c Timestamp foreground colour including alpha; typed edits do not reject invalid colours.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @param[in] c Timestamp foreground color including alpha; typed edits do not reject invalid colors.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setTimeLabelColor(const QColor &c);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] f Timestamp font with Qt point/pixel-size semantics.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setTimeLabelFont(const QFont &f);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] fmt QDateTime format pattern copied verbatim, independent of numeric axis formatting.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setTimeLabelFormat(const QString &fmt);
     /**
      * @brief Update this plot's rendering preference.
      * @param[in] p Logical-pixel XY timestamp displacement from its anchor, positive right/down.
-     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colours are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
+     * @note Equality after any stated clamp is a no-op; otherwise caches the value and emits changed() once. Pens/brushes/colors are copied without additional validity/range normalization. No source data, chart ownership or global preferences are changed.
      */
     void setTimeLabelOffset(const QPointF &p);
 

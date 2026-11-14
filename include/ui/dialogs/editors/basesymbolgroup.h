@@ -9,7 +9,7 @@
  *         Feedback C2: those controls lived only in the Single Symbol
  *         panel, so switching a kind to Graduated or Categorized hid them
  *         although the painter keeps reading size, outline and labels
- *         from the kind's base symbol (only colour comes from the
+ *         from the kind's base symbol (only color comes from the
  *         classes). The group binds the same editor the Single Symbol
  *         panel uses to the same persistent per-kind style object, so
  *         the dialog's Cancel snapshot covers it and nothing is

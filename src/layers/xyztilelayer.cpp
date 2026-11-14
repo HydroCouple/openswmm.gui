@@ -88,7 +88,7 @@ XYZTileLayer::XYZTileLayer(const QString &urlTemplate, int tileSizePx, QObject *
     auto *srs = SpatialReferenceSystem::fromAuthCode(QStringLiteral("EPSG"), 3857);
     setSRS(srs, /*ownsSRS=*/true);
 
-    // Layer extent = full world in EPSG:3857 (±20 037 508.34 metres).
+    // Layer extent = full world in EPSG:3857 (±20 037 508.34 meters).
     // Stored in the layer's native CRS so the properties dialog can display it
     // and layerExtentInCanvasCRS() can reproject it for on-the-fly reprojection.
     // The XYZ tile service itself has no tighter geographic scope.
@@ -499,7 +499,7 @@ void XYZTileLayer::render(QPainter *painter, const MapExtent &extent, const QSiz
     // destination image is sized in logical pixels and gets upscaled by the
     // OS at blit time on Retina (DPR=2) — every output pixel becomes a 2×2
     // block whose contents are a bilinear interpolation of the anchor-grid
-    // sample, producing the "random / shifting" artefact the user reported.
+    // sample, producing the "random / shifting" artifact the user reported.
     // We rebuild dst at device-pixel size, set its DPR, and walk every
     // device pixel through the reverse-mapping pipeline.
     const qreal dpr = painterDevicePixelRatio(painter);
@@ -540,7 +540,7 @@ void XYZTileLayer::render(QPainter *painter, const MapExtent &extent, const QSiz
     // breaks when the projection curves significantly within a tile —
     // visible distortion at global scale, occasional crashes when corner
     // samples produce non-finite values that flow into Qt's clip path
-    // rasteriser. We replace it with the same approach QGIS's
+    // rasterizer. We replace it with the same approach QGIS's
     // QgsRasterProjector takes:
     //
     //   1. Composite all visible tiles into ONE source-CRS (Web Mercator)
@@ -556,7 +556,7 @@ void XYZTileLayer::render(QPainter *painter, const MapExtent &extent, const QSiz
     // fed to QPainter / clip paths / regions.
     // ─────────────────────────────────────────────────────────────────────
 
-    // Source-CRS bounds (Web Mercator metres, EPSG:3857) covering all
+    // Source-CRS bounds (Web Mercator meters, EPSG:3857) covering all
     // potentially-visible tiles. Web Mercator is metric, axis-aligned,
     // and the y-axis points north (opposite of pixel y).
     constexpr double kMercExtent = 20037508.342789244; // half world width
@@ -621,7 +621,7 @@ void XYZTileLayer::render(QPainter *painter, const MapExtent &extent, const QSiz
         }
     }
 
-    // Helpers: source CRS (Mercator metres) ↔ source buffer pixel.
+    // Helpers: source CRS (Mercator meters) ↔ source buffer pixel.
     const double mercPerPxX = srcBoundsMerc.width() / srcW;
     const double mercPerPxY = srcBoundsMerc.height() / srcH;
     auto mercToSrcPx = [&](double mx, double my) -> QPointF {
@@ -629,7 +629,7 @@ void XYZTileLayer::render(QPainter *painter, const MapExtent &extent, const QSiz
                        (srcBoundsMerc.top() + srcBoundsMerc.height() - my) / mercPerPxY);
     };
 
-    // Helper: lon/lat → Web Mercator metres.
+    // Helper: lon/lat → Web Mercator meters.
     auto wgs84ToMerc = [](double lon, double lat) -> QPointF {
         const double x = lon * (M_PI / 180.0) * 6378137.0;
         const double rad = std::clamp(lat, -85.05112878, 85.05112878) * (M_PI / 180.0);
@@ -696,7 +696,7 @@ void XYZTileLayer::render(QPainter *painter, const MapExtent &extent, const QSiz
         // Bilinear sampler over the source buffer. Returning transparent on
         // out-of-bounds produces a visible 1-px frame at the composited-buffer
         // boundary that "shifts" as the view pans; clamp to the inside-by-epsilon
-        // range so edge samples always return an opaque colour from the last
+        // range so edge samples always return an opaque color from the last
         // valid pixel.
         auto sampleSrc = [&](double sx, double sy) -> QRgb {
             if (!std::isfinite(sx) || !std::isfinite(sy))
@@ -854,7 +854,7 @@ void XYZTileLayer::render(QPainter *painter, const MapExtent &extent, const QSiz
 
     // Slice X.22 — apply basemap visual adjustments (brightness /
     // contrast / saturation) to the composed mosaic before paint.
-    // Resampling is honoured separately via the painter render hint.
+    // Resampling is honored separately via the painter render hint.
     m_renderParams.applyTo(dst);
 
     // P1 — memoize the composed output. epochAtStart (not the live counter)

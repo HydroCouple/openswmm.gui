@@ -97,7 +97,7 @@ QVector<int> trueIntersections(const QVector<QRectF> &bboxes, const QRectF &q)
 } // namespace
 
 // ---------------------------------------------------------------------------
-// 1. Empty-grid behaviour — rebuild() on no bboxes leaves an empty grid;
+// 1. Empty-grid behavior — rebuild() on no bboxes leaves an empty grid;
 //    query() returns an empty vector and does not crash.
 // ---------------------------------------------------------------------------
 TEST(MeshSpatialGrid, EmptyRebuildLeavesGridEmpty)
@@ -367,7 +367,7 @@ TEST(MeshSpatialGrid, ClearResetsGrid)
 // ---------------------------------------------------------------------------
 namespace
 {
-// Materialise the candidate slice into a vector for easy assertions.
+// Materialize the candidate slice into a vector for easy assertions.
 /**
  *
  * @brief Copy the production point-query candidate slice for assertions.

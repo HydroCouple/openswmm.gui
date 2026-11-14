@@ -124,7 +124,7 @@ TEST(ProjectSerializerPaths, ResolveHandlesEmptyInput)
 TEST(ProjectSerializerPaths, ResolveAbsolutePassesThroughCleaned)
 {
     // v1/v2/v3 backward-compat: stored absolute paths must come back
-    // unchanged (after cleanPath canonicalisation).
+    // unchanged (after cleanPath canonicalization).
     const QString stored = QStringLiteral("/abs/path/to/model.inp");
     EXPECT_EQ(ProjectSerializer::resolveStoredPath(stored, QStringLiteral("/x/y.oswp")), stored);
 }

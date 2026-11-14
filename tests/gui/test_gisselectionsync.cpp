@@ -759,7 +759,7 @@ private slots:
 
     /**
      *
-     * @brief Require an EPSG:3857 metre-coordinate lasso to select the same two geographic
+     * @brief Require an EPSG:3857 meter-coordinate lasso to select the same two geographic
      * features with explicit canvas CRS and the no-CRS overload.
      *
      */
@@ -769,7 +769,7 @@ private slots:
         std::unique_ptr<SpatialReferenceSystem> canvasSRS(
             SpatialReferenceSystem::fromWktOrProj(QStringLiteral("EPSG:3857")));
         QVERIFY(canvasSRS);
-        // Metres on a Web Mercator canvas around the (0.5, 0.5) degree point.
+        // Meters on a Web Mercator canvas around the (0.5, 0.5) degree point.
         const QPolygonF polygon{{54000, 54000}, {57000, 54000}, {57000, 57000}, {54000, 57000}};
         const QSet<long long> expected{5'000'000'000LL, 5'000'000'002LL};
         QCOMPARE(layer.featureIdsInPolygon(polygon, canvasSRS.get()), expected);
@@ -1096,7 +1096,7 @@ private slots:
         QCOMPARE(rig.layer->selectedFeatureIds(), (QSet<long long>{f2}));
         QCOMPARE(selectedRows(), (QSet<long long>{f2}));
 
-        // Hidden layers and cancelled/incomplete polygons keep their selection.
+        // Hidden layers and canceled/incomplete polygons keep their selection.
         rig.layer->setVisible(false);
         draw(20, Qt::NoModifier, 0);
         QCOMPARE(rig.layer->selectedFeatureIds(), (QSet<long long>{f2}));

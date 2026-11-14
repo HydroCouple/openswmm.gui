@@ -48,7 +48,7 @@ public:
      * @return Shared owning dataset, or null for unavailable/schema-invalid/incomplete or mismatched row data. Geometry comes from saved snapshot JSON, not feature geometry.
      */
     static std::shared_ptr<Dataset> readDataset(const QString &path, QString *error);
-    /*! True when the package was built from a running or cancelled output. Reads
+    /*! True when the package was built from a running or canceled output. Reads
      *  only the run metadata row.
      * @param[in] path Package read independently on the caller thread.
      * @return Metadata partial flag, or false for any open/read/parse failure; false does not establish package validity.

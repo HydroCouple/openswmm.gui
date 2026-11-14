@@ -47,7 +47,7 @@ public:
      * @details Chooses exactly one active mesh, or the sole mesh when none is active;
      * ambiguous/missing selection disables Burn. Loads previous UI settings but performs no burn
      * at construction. GUI-thread widgets launch copied worker inputs later; model-unit lengths
-     * and SI-metre geometry tolerance are labeled separately.
+     * and SI-meter geometry tolerance are labeled separately.
      */
     explicit ChannelBurnDialog(SWMMVisProjectWindow *project, QWidget *parent = nullptr);
     /**
@@ -126,7 +126,7 @@ private:
      * on the GUI thread without changing their topology. Projects coordinates when allowed; 1D
      * interval replacement requires equal model/mesh CRS. Converts model-length controls/section
      * dimensions to mesh XY and mesh vertical units, records SI scale factors, keeps tolerance
-     * in metres and routing step in seconds. Snapshots external inflows/impacts to preserve
+     * in meters and routing step in seconds. Snapshots external inflows/impacts to preserve
      * referenced nodes and report unsupported replacement links. Destination contents are owned
      * values with no borrowed engine/GUI pointers retained for the worker.
      */

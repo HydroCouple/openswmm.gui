@@ -3,13 +3,13 @@
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
- * @brief     Gap A1.2 — canonical colour prop convention.
+ * @brief     Gap A1.2 — canonical color prop convention.
  *
  *         Verifies that SymbolProps reads tolerate BOTH encodings (QColor
  *         variant and legacy hex string), that writes emit the canonical
  *         QColor variant, that every typed spec reader survives a hex-
  *         encoded prop bag (the historic X1 failure mode), and that the
- *         SymbolLayer JSON boundary rehydrates ALL colour-suffixed keys —
+ *         SymbolLayer JSON boundary rehydrates ALL color-suffixed keys —
  *         including the raster grammar keys (noDataColor / lineColor /
  *         wideColor) the old fixed key list missed.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -240,7 +240,7 @@ void TestSymbolPropsColor::overrideColorInPlace_writesOnlyAdvertisedSlots()
     SymbolProps::writeColor(marker.props, QStringLiteral("fillColor"), kRed);
     SymbolLayer line; // advertises color only
     SymbolProps::writeColor(line.props, QStringLiteral("color"), kRed);
-    SymbolLayer bare; // advertises no colour slot
+    SymbolLayer bare; // advertises no color slot
     s.layers << marker << line << bare;
 
     SymbolProps::overrideColorInPlace(s, kSemiBlue);

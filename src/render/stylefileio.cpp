@@ -382,7 +382,7 @@ QColor parseQgisColor(const QString &s)
     return QColor(r, g, b, a);
 }
 
-/*! Walk a single symbol element's prop children and pull out the colour
+/*! Walk a single symbol element's prop children and pull out the color
  *  + width into a flat key/value dict.  We only need the leaf props
  *  the renderer-v2 spec writes for SimpleMarker / SimpleLine /
  *  SimpleFill symbol layers.
@@ -413,7 +413,7 @@ QHash<QString, QString> readSymbolProps(QXmlStreamReader &x)
     return props;
 }
 
-/*! Make a colour-only SymbolStyle.  QML import populates this and
+/*! Make a color-only SymbolStyle.  QML import populates this and
  *  hands it to the matching renderer slot.
  * @param props Parsed QML properties; only color, line_width and size are consumed.
  * @return Owned default-SimpleMarker pass. Valid color sets both color/fillColor;
@@ -426,7 +426,7 @@ SymbolStyle makeFromQmlProps(const QHash<QString, QString> &props)
     const QString colorStr = props.value(QStringLiteral("color"));
     const QColor col = parseQgisColor(colorStr);
     if (col.isValid()) {
-        // X1 — in-memory colour props are QColor variants (the spec readers
+        // X1 — in-memory color props are QColor variants (the spec readers
         // use value<QColor>()); write both grammar keys so marker/fill
         // ("fillColor") and line ("color") consumers find it.
         layer.props.insert(QStringLiteral("color"), QVariant::fromValue(col));
@@ -476,7 +476,7 @@ StyleFileIO::Result StyleFileIO::importQml(OpenSWMMVisLayer *layer, const QStrin
                 const QString sym = x.attributes().value(QStringLiteral("symbol")).toString();
                 // Stash symbol-ref id; resolved below when we read the
                 // <symbols> section.  For minimal v1 we just create a
-                // colour-only symbol from the category fallback (gray);
+                // color-only symbol from the category fallback (gray);
                 // proper resolution requires keeping the symbol map.
                 c.symbol = makeFromQmlProps(
                     {{QStringLiteral("color"), QStringLiteral("128,128,128,255")}});

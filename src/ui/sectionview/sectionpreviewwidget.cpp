@@ -44,7 +44,7 @@ SectionPreviewWidget::SectionPreviewWidget(QWidget *parent) : QWidget(parent)
     setBackgroundRole(QPalette::Base);
     m_placeholder = tr("No section to display");
     // Accessible name: the drawing carries no focusable children, so screen
-    // readers would otherwise announce an unlabelled pane (dialog_a11y_checks).
+    // readers would otherwise announce an unlabeled pane (dialog_a11y_checks).
     setAccessibleName(tr("Section preview"));
     setToolTip(tr("Scroll to zoom · hold the middle button to pan · "
                   "double-click the middle button to zoom to extents"));
@@ -104,7 +104,7 @@ void SectionPreviewWidget::zoomBy(double factor, const QPointF &anchorPx)
     // Keep the model point under the cursor stationary.
     //
     // The painter maps model→screen as  px = C + s·m  (with C folding in the
-    // fit centre and the pan). Scaling s by k about a fixed screen point A
+    // fit center and the pan). Scaling s by k about a fixed screen point A
     // requires C' such that C' + k·s·m = A + k·(C + s·m − A), i.e. the pan
     // offset moves by (1 − k)·(A − C). Working in screen space like this avoids
     // duplicating the fit maths here — only the delta matters, and the fit

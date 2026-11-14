@@ -10,7 +10,7 @@
  * are inherited unchanged. Adds an orthogonal `EditMode` axis on top of the
  * base `Mode` enum:
  *
- *   - **None**         — base Select/Pan/Zoom behaviour only.
+ *   - **None**         — base Select/Pan/Zoom behavior only.
  *   - **EditPoints**   — hit-test on scatter overlay; drag Y to change value
  *                        (X locked, preserving monotonicity); Shift-drag
  *                        rubber-band to select multiple; drag selection to

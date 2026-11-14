@@ -255,7 +255,7 @@ class TestMeshTerrainPipeline : public QObject
      * owned terrain folder.
      * @return True if directory/model/raster/profile setup succeeds, false may leave partial
      * files/inputs. Writes model.inp and 40 by 40 Float32 source.tif at elevation 10, EPSG:3857,
-     * 32 metre square domain; CREEK bed 8 to 7, no quad corridor by default. Removes only
+     * 32 meter square domain; CREEK bed 8 to 7, no quad corridor by default. Removes only
      * dir/terrain recursively, no external inputs touched.
      */
     static bool prepareBurnFixture(const QDir &dir, Inputs &inputs, bool existing)
@@ -932,7 +932,7 @@ private slots:
     /**
      * @brief Verify breakline selection stays identical when elevation tolerance changes or
      * terrain accuracy is disabled.
-     * @note Rewrites owned step DEM, compares tight 0.05 versus loose 6.096 metre tolerance and
+     * @note Rewrites owned step DEM, compares tight 0.05 versus loose 6.096 meter tolerance and
      * cold terrain-off run with independent breakline tolerance 0.2; positive
      * count/signature/tolerance unchanged. Writes comparison.json and scenario model/cache under
      * review root; no source project mutation.
@@ -996,11 +996,11 @@ private slots:
     }
 
     /**
-     * @brief Verify canonical metre resolution settings respect metre, international-foot and
+     * @brief Verify canonical meter resolution settings respect meter, international-foot and
      * survey-foot horizontal CRSs.
-     * @note Vertical project feet/DEM metres, physical minimum/maximum 1/4 metres, 0.1524 metre
+     * @note Vertical project feet/DEM meters, physical minimum/maximum 1/4 meters, 0.1524 meter
      * tolerance becomes 0.5 vertical project units within 1e-12. Refined mesh has zero
-     * unresolved terrain and vertex z*0.3048 equals 10 metres within 1e-5. Own fixture CRS files
+     * unresolved terrain and vertex z*0.3048 equals 10 meters within 1e-5. Own fixture CRS files
      * updated, burn disabled.
      */
     void resolutionUsesPhysicalHorizontalAndVerticalUnits()
@@ -1308,7 +1308,7 @@ private slots:
      * @brief Verify a geographic-degree DEM does not turn physical channel spacing into
      * excessive mesh subdivisions.
      * @note Reprojects owned source metadata to EPSG:4326 with EPSG:3857 mesh, automatic
-     * chainage step, 2 metre sizing, raster export staged; successful burn with <10000 cells, no
+     * chainage step, 2 meter sizing, raster export staged; successful burn with <10000 cells, no
      * final publication.
      */
     void geographicDemUsesPhysicalChannelSpacing()
@@ -2711,7 +2711,7 @@ NODE C interior
     /**
      * @brief Verify a selected GIS centerline produces requested quads, provenance and source
      * stamps independently of burning.
-     * @note Eight river quads with 6/2 metre edges, area 1024 within 1e-7, source stamps
+     * @note Eight river quads with 6/2 meter edges, area 1024 within 1e-7, source stamps
      * current, digest set; no final mesh file. Missing selected feature 999 refuses with
      * error/empty accepted recipe. Fixture/cache IO only.
      */
@@ -3010,9 +3010,9 @@ NODE C interior
     }
 
     /**
-     * @brief Verify cancelled or unadopted burn results release staging without changing saved
+     * @brief Verify canceled or unadopted burn results release staging without changing saved
      * terrain outputs.
-     * @note Starts ordinary generation, then early-cancelled burn yields Cancelled diagnostic,
+     * @note Starts ordinary generation, then early-canceled burn yields Cancelled diagnostic,
      * completed result owns stage until block exit. Weak owner expires, no generation
      * directories/final listing changes remain. Only scenario-owned fixture/cache/stage files
      * touched.
@@ -3361,7 +3361,7 @@ NODE C interior
     /*! Phase 6b + triangle engine (MESH_TRIANGLE_ENGINE_PLAN_2026-09-30.md
      *  D12.3): a synthetic GeoTIFF street (0.2 m curbs, 20 m carriageway)
      *  through the real worker. With a terrain tolerance the curbs come back
-     *  as mesh edges (vertices exactly on the pixel-centre rows the
+     *  as mesh edges (vertices exactly on the pixel-center rows the
      *  extractor traces); with street quads the carriageway between them is
      *  a strip of aligned quads; disabling alignment removes the lines. */
     void streetCurbsBecomeMeshEdges()

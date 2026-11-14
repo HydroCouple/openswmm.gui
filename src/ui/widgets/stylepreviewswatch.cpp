@@ -1,7 +1,7 @@
 /**
  * @file      stylepreviewswatch.cpp
  * @brief     Renders a representative "point" / "line" / "polygon" sample using the current
- *            colour, size/width, and shape parameters provided via setter calls.
+ *            color, size/width, and shape parameters provided via setter calls.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later

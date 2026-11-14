@@ -1,6 +1,6 @@
 /**
  * @file extensionevents.cpp
- * @brief Canonical value translation for the existing extension event catalogue.
+ * @brief Canonical value translation for the existing extension event catalog.
  * @details This bridge types existing observations only. Model readiness, state revisions,
  * run-attempt identities and transaction ordering require their later lifecycle contracts.
  * @author Caleb Buahin <caleb.buahin@gmail.com>

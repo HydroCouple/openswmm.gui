@@ -227,7 +227,7 @@ public:
      * @param[in] success True marks Success; false with nonzero errCode marks Failed, otherwise Cancelled.
      * @param[in] errCode Terminal engine/runner error code.
      * @param[in] errMsg Failure description, also appended as a child row for Failed with nonempty text.
-     * @details Sets progress to 1 and wall-clock finish to now for all terminal states. Successful rows snap valid current simulation time to end; failed/cancelled cursors remain at their last tick.
+     * @details Sets progress to 1 and wall-clock finish to now for all terminal states. Successful rows snap valid current simulation time to end; failed/canceled cursors remain at their last tick.
      */
     void finishJob(int jobId, bool success, int errCode, const QString &errMsg,
                    double runoffErrFrac, double routingErrFrac, double twoDErrFrac = qQNaN());

@@ -193,18 +193,18 @@ private slots:
         }
     }
 
-    /*! Projected-CRS magnitudes round-trip. The snap-and-dedupe quantiser
+    /*! Projected-CRS magnitudes round-trip. The snap-and-dedupe quantizer
      *  scales coordinates by 1e7 to build its hash key, so it has to work on
      *  the offset from a reference vertex rather than the absolute coordinate
      *  — otherwise the product leaves the exactly-representable integer range
      *  and distinct vertices start sharing a key. Guards the common path:
      *  a small domain sitting at State Plane / UTM coordinates must mesh, and
      *  its output vertices must come back at the coordinates we put in.
-     *  (The quantiser arithmetic itself is covered exhaustively by
+     *  (The quantizer arithmetic itself is covered exhaustively by
      *  tests/verification/mesh_quantiser_check.cpp.) */
     void projectedCrsCoordinates_roundTrip()
     {
-        // Deliberately awkward: a 100 x 100 m domain 3 million metres from
+        // Deliberately awkward: a 100 x 100 m domain 3 million meters from
         // the projection origin.
         const double ox = 740000.0, oy = 2900000.0;
         MeshGenerator g;
@@ -414,7 +414,7 @@ private slots:
         QVERIFY(r.triangles.size() >= 1);
     }
 
-    /*! A polygon whose vertices quantise down to 2 distinct points (thin
+    /*! A polygon whose vertices quantize down to 2 distinct points (thin
      *  dissolve sliver) must fail cleanly. The old vertex-count closure gate
      *  over-counted the first vertex, so such a ring emitted the degenerate
      *  reversed pair (a,b),(b,a) as a "closed ring" into the PSLG. */

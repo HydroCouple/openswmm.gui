@@ -8,7 +8,7 @@
  *         Success criterion (RENDERING_RULE_MODEL_PLAN.md §16, Z.9):
  *           - Continuous color mapping over [minValue, maxValue].
  *           - Below-min is hidden, above-max saturates to the ramp end,
- *             and nonfinite/missing values use the no-data colour.
+ *             and nonfinite/missing values use the no-data color.
  *           - symbolFor overrides the SymbolLayer "color" prop only when
  *             the slot exists (round-trip with GraduatedRenderer's
  *             convention).
@@ -271,8 +271,8 @@ void TestUnclassedColorsRenderer::symbolFor_overridesColorPropWhenPresent()
     QCOMPARE(r.symbolFor({}, {{QStringLiteral("depth"), -1.0}}).opacity, 0.0);
     SymbolStyle s = r.symbolFor({}, attrs);
     QVERIFY(s.layers.first().props.contains(QStringLiteral("color")));
-    // Colour changed from the original black. (X1 — the override writes a
-    // QColor variant; compare colour values.)
+    // Color changed from the original black. (X1 — the override writes a
+    // QColor variant; compare color values.)
     QVERIFY(s.layers.first().props.value(QStringLiteral("color")).value<QColor>() !=
             QColor(QStringLiteral("#FF000000")));
 }

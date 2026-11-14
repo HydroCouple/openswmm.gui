@@ -8,11 +8,11 @@
  *         HANDOFF_FEATURE_LAYERS_VALIDATE_2026-09-07 §4).
  *
  * This is the repository's FIRST OGR write path, so the tests are deliberately
- * behavioural rather than structural: they exercise the driver, not the code
+ * behavioral rather than structural: they exercise the driver, not the code
  * shape. Two of them settle open questions the handoff could not answer without
  * a toolchain:
  *
- *   - W9  — does GeoPackage honour an explicit FID on insert? The stable-id
+ *   - W9  — does GeoPackage honor an explicit FID on insert? The stable-id
  *           contract of AddFeatureCommand (undo then redo restores the SAME id)
  *           depends on it.
  *   - W11 — can a mesh worker open the same .gpkg read-only, by path, and see
@@ -405,7 +405,7 @@ TEST(FeatureStoreCrud, AddReadUpdateDeleteFeature)
 }
 
 /*! HANDOFF W9 — the stable-id contract. AddFeatureCommand's redo must restore
- *  the id its undo removed, which requires GeoPackage to honour an explicit
+ *  the id its undo removed, which requires GeoPackage to honor an explicit
  *  FID on insert. */
 TEST(FeatureStoreCrud, AddFeatureReusesFreeFid)
 {

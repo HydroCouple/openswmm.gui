@@ -154,12 +154,12 @@ bridgedTops(const QVector<MeshProfileSampler::Sample> &s,
  *
  *        The surface is extended from the run's two boundary-most wet samples
  *        (flat for a single-sample run) and intersected with the ground
- *        segment toward the dry neighbour. An intercept exists only when the
+ *        segment toward the dry neighbor. An intercept exists only when the
  *        ground actually rises through the surface within that segment — a dry
- *        neighbour whose ground stays below the surface (a no-data
+ *        neighbor whose ground stays below the surface (a no-data
  *        termination, e.g. the split flank of an unbridged pool over a low
  *        bench) keeps its hard edge, as does an off-mesh (NaN ground)
- *        neighbour and a run ending at the data edge.
+ *        neighbor and a run ending at the data edge.
  *
  * \param s         Ordered profile samples (chainage / ground).
  * \param top       Paint-top series from bridgedTops(), parallel to \p s.
@@ -180,14 +180,14 @@ inline bool shorelineIntercept(const QVector<MeshProfileSampler::Sample> &s,
     if (runFirst < 0 || runLast >= n || runFirst > runLast || top.size() != n)
         return false;
     const int i = trailing ? runLast : runFirst;         // boundary wet sample
-    const int j = trailing ? runLast - 1 : runFirst + 1; // inner wet neighbour
+    const int j = trailing ? runLast - 1 : runFirst + 1; // inner wet neighbor
     const int k = trailing ? runLast + 1 : runFirst - 1; // adjacent dry sample
     if (k < 0 || k >= n)
         return false; // run ends at the data edge
     if (!std::isfinite(s[k].ground))
         return false; // off-mesh — keep the hard edge
     if (!std::isnan(top[k]))
-        return false; // neighbour not dry (defensive)
+        return false; // neighbor not dry (defensive)
     if (std::isnan(top[i]) || !std::isfinite(s[i].ground))
         return false;
 

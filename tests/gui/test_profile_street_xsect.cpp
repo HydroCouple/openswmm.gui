@@ -18,7 +18,7 @@
  *
  * Fixture: tests/data/inlets/street_inlet.inp (C1 is STREET on the only
  * street, i.e. index 0 — the case that produced maxDepth = 0; D1 is CIRCULAR).
- * Artefacts go to tests/output/profile_street/ (CLAUDE.md §4.1).
+ * Artifacts go to tests/output/profile_street/ (CLAUDE.md §4.1).
  *
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.

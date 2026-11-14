@@ -439,7 +439,7 @@ void TraceController::startJob(const QString &id, QVector<Request> requests,
                 require(bool(handle), error);
                 mark(QStringLiteral("createHandle"));
                 if (partial) {
-                    // A running or cancelled output: scan the whole periods
+                    // A running or canceled output: scan the whole periods
                     // written so far. Its content may still grow, so it has no
                     // stable digest; the package is rebuilt on the next request.
                     const qint64 bytes = QFileInfo(scanPath).size();

@@ -68,7 +68,7 @@ mesh::MeshResult makeStrip(int wide)
     return m;
 }
 
-/*! First interior slot found on \p layer, plus its neighbour. */
+/*! First interior slot found on \p layer, plus its neighbor. */
 /**
  * @brief Find the first interior triangle edge with a valid neighbor in deterministic scan
  * order.

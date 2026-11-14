@@ -67,7 +67,7 @@ FeatureStyleEditorBase::FeatureStyleEditorBase(FeatureSublayerStyle *style, QWid
             if (auto *prov = dynamic_cast<OpenSWMM::Render::IAttributeProvider *>(host)) {
                 for (const auto &f : prov->availableAttributes(sub->category())) {
                     if (f.type == QMetaType::QString)
-                        continue; // colour ramp / sizing need numerics
+                        continue; // color ramp / sizing need numerics
                     m_attributeCombo->addItem(f.displayName, f.name);
                 }
             }
@@ -112,7 +112,7 @@ void FeatureStyleEditorBase::buildCommonRows()
     // ── L-1 — per-sublayer Labels group ─────────────────────────────────
     // LAYER_STYLING_LABELING_PLAN_2026-08-16 — full-fidelity LabelConfig
     // editor (font / halo / placement / scale window / background /
-    // priority) instead of the old enabled/expression/colour subset.
+    // priority) instead of the old enabled/expression/color subset.
     auto *labelBox = new QGroupBox(tr("Labels"), this);
     auto *labelLay = new QVBoxLayout(labelBox);
 

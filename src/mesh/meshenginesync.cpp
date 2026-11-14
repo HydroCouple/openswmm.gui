@@ -2,7 +2,7 @@
  * @file      meshenginesync.cpp
  * @brief     Push the GUI mesh layer's edited state (vertex Z, per-edge conveyance, per-edge
  *            boundary conditions) into the live engine's in-memory 2D mesh, so a subsequent
- *            `swmm_model_write*` serialises the edits.
+ *            `swmm_model_write*` serializes the edits.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
@@ -78,16 +78,16 @@ constexpr int kEngSpecifiedFlow = 3;
 constexpr int kEngRatingCurve = 4;
 
 // Display flow unit -> m³/s. The engine's SPECIFIED_FLOW BC is stored in
-// display flow units per metre until initialize() scales it to m³/s/m in
+// display flow units per meter until initialize() scales it to m³/s/m in
 // place; the layer always carries the project's display flow units. Applied
 // only for an initialized (mesh-scaled) engine — see pushMeshEditsToEngine.
 // Index by the swmm_get_flow_units() enum: CFS, GPM, MGD, CMS, LPS, MLD.
 /**
- * @brief Return the project discharge multiplier from display flow units to cubic metres per
+ * @brief Return the project discharge multiplier from display flow units to cubic meters per
  * second.
  * @param[in] flowUnits Engine flow enum: 0 CFS, 1 GPM, 2 MGD, 3 CMS, 4 LPS, 5 MLD; unknown uses
  * fallback 1.
- * @return Positive conversion multiplier, using authored constants; when applied to a per-metre
+ * @return Positive conversion multiplier, using authored constants; when applied to a per-meter
  * boundary flow it changes only discharge units, not edge-length units. No engine query,
  * validation, allocation or state mutation; caller decides whether lifecycle conversion is
  * needed.
@@ -346,7 +346,7 @@ bool pushMeshEditsToEngine(SWMM_Engine engine, const MeshResult &mesh,
     // The engine holds BC constants in DISPLAY units until swmm_engine_initialize
     // scales them into SI alongside the mesh (SurfaceRouter2D::initialize). The
     // GUI's editing engine is only OPENED, so the engine expects — and its
-    // writer emits — display flow units per metre; pushing m³/s/m here made a
+    // writer emits — display flow units per meter; pushing m³/s/m here made a
     // US project's constant SPECIFIED_FLOW shrink by 0.0283 on every
     // save/reopen. Convert only once the engine has been initialized (the
     // flow scaling is FLOW_UNITS-driven and independent of the mesh's

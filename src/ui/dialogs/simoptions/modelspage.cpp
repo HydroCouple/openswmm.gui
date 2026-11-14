@@ -253,7 +253,7 @@ void ModelsPage::buildUi()
     // 1D is the always-on core. 2D Surface Routing is an optional module
     // gated by a project-level toggle here. When enabled, the dedicated
     // "2D Surface Routing" page becomes interactive; when disabled, the
-    // row stays in place but is greyed out so users can still see what
+    // row stays in place but is grayed out so users can still see what
     // the parameters would look like. Toggle persists per-.inp under
     // QSettings so reopening a project remembers the choice.
     auto *modulesGroup = new QGroupBox(tr("Modules"), modTab);
@@ -475,7 +475,7 @@ void ModelsPage::read()
         // default "NO" for a deck that never mentions the key, so a non-empty
         // read proves nothing. Intent therefore comes only from a stored
         // per-project preference, or from the user toggling the box.
-        // Everything else is inference from the .inp — and materialising
+        // Everything else is inference from the .inp — and materializing
         // IGNORE_2D from an inference dirtied the project on an edit-free
         // Apply.
         m_module2DIntentKnown = s.contains(key);
@@ -540,7 +540,7 @@ int ModelsPage::write()
     //
     // Written only once the box carries a real intent (see
     // m_module2DIntentKnown): on a 1D deck that has never been toggled the
-    // unchecked box merely describes the .inp, and materialising IGNORE_2D
+    // unchecked box merely describes the .inp, and materializing IGNORE_2D
     // from it made every no-edit Apply dirty the project.
     if (m_module2DBox && m_module2DIntentKnown) {
         n += writeOption("IGNORE_2D", SOD::engineBoolString(!m_module2DBox->isChecked()));

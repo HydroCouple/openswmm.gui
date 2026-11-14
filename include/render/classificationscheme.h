@@ -10,13 +10,13 @@
  *         visual (1D graduated symbols, 2D depth fill, contour bands,
  *         isolines, mesh elevation fill): "given a data range and an
  *         optional sample of values, what are the class edges and what
- *         colour does each class get?"
+ *         color does each class get?"
  *
  *         It composes the existing primitives rather than replacing them:
  *           - IntervalBinner   — break computation (EqualInterval, Quantile,
  *                                Manual, NaturalBreaks, StdDev, Log, Exp)
- *           - RasterColorRamp  — named built-in / two-colour gradient source
- *           - RangeMode        — animation range behaviour (P2 spine)
+ *           - RasterColorRamp  — named built-in / two-color gradient source
+ *           - RangeMode        — animation range behavior (P2 spine)
  *
  *         `levelEdges()` is the canonical replacement for the
  *         Contour::evenlySpacedLevels* helpers at the QSG renderer call
@@ -125,7 +125,7 @@ public:
      * or a revision change. Equal input is also a no-op; classCount() is retained. */
     void setManualBreaks(QVector<double> breaks);
 
-    // ── Colour source ──────────────────────────────────────────────────
+    // ── Color source ──────────────────────────────────────────────────
     /** @brief Read the ramp's built-in key or custom display label.
      * @return Stored text verbatim; empty selects the two-color fallback when no usable custom ramp exists. */
     [[nodiscard]] QString rampName() const { return m_rampName; }
@@ -160,26 +160,26 @@ public:
     [[nodiscard]] bool logScale() const { return m_logScale; }
     /** @brief Change logarithmic spacing and restamp on change. */
     void setLogScale(bool on);
-    /** @return Colour of values below the range (log: below logFloor()); invalid = not drawn. */
+    /** @return Color of values below the range (log: below logFloor()); invalid = not drawn. */
     [[nodiscard]] QColor belowColor() const { return m_belowColor; }
-    /** @brief Change the below-range colour (invalid = not drawn) and restamp on change. */
+    /** @brief Change the below-range color (invalid = not drawn) and restamp on change. */
     void setBelowColor(const QColor &c);
-    /** @return Colour of values above the range; invalid = the top colour (clamped). */
+    /** @return Color of values above the range; invalid = the top color (clamped). */
     [[nodiscard]] QColor aboveColor() const { return m_aboveColor; }
-    /** @brief Change the above-range colour (invalid = top colour) and restamp on change. */
+    /** @brief Change the above-range color (invalid = top color) and restamp on change. */
     void setAboveColor(const QColor &c);
     /** @brief Where a log scale over [lo, hi] starts: lo when positive, else hi / 1000 (three
      *  decades); NaN when hi is not positive (the scale is then linear).
      * @param lo,hi Effective range bounds. */
     [[nodiscard]] static double logFloor(double lo, double hi);
-    /** @brief Normalised ramp position of \p value over [lo, hi]: linear, or logarithmic from
+    /** @brief Normalized ramp position of \p value over [lo, hi]: linear, or logarithmic from
      *  logFloor() under logScale(). Unclamped: below the range is < 0, above it > 1. */
     [[nodiscard]] double rampPosition(double value, double lo, double hi) const;
-    /** @brief Colour of a value classified by \p edges (from levelEdges()): below the first edge
+    /** @brief Color of a value classified by \p edges (from levelEdges()): below the first edge
      *  belowColor() (or transparent), above the last aboveColor() (or the last class), else its
-     *  class colour. Nonfinite values are transparent. */
+     *  class color. Nonfinite values are transparent. */
     [[nodiscard]] QColor colorForClassified(double value, const QVector<double> &edges) const;
-    /** @brief Add a legend row for each outside-range colour that is set: "< lo" before the
+    /** @brief Add a legend row for each outside-range color that is set: "< lo" before the
      *  first row, "> hi" after the last. The rows have no classKey, so they are not class rows.
      * @param rows Legend rows in ascending order.
      * @param lo,hi Bounds of the drawn range (under logScale() the lower one is logFloor(lo, hi));
@@ -187,7 +187,7 @@ public:
     void addOutsideRangeLegendItems(QList<LegendSymbolItem> &rows, double lo, double hi) const;
 
     /*! User-authored (custom) ramp payload. `builtin(name)` only knows the
-     *  built-in catalogue and silently degrades unknown names to grayscale,
+     *  built-in catalog and silently degrades unknown names to grayscale,
      *  so custom ramps must travel WITH the scheme: the editor stores the
      *  full ramp here (stops + interp) alongside its display label in
      *  rampName(). Serialized into the scheme JSON so `.oswp` projects stay
@@ -384,11 +384,11 @@ public:
      * normalized position zero for visible values. Does not call validationError();
      * callers must supply finite effective bounds. Class overrides and mode() are ignored.
      * Under logScale() the position is logarithmic; belowColor() / aboveColor(), when set,
-     * colour values outside the range. */
+     * color values outside the range. */
     [[nodiscard]] QColor colorForValue(double value, double dataMin, double dataMax) const;
 
     /*!
-     * \brief One legend row per class — value-labelled "lo – hi" (label
+     * \brief One legend row per class — value-labeled "lo – hi" (label
      *        and separate user-label overrides), SimpleFill swatch from
      *        colorForClass, classKey = class index. Callers stamp sublayerId / opacity before
      *        returning rows from ISublayer::legendSymbolItems().
@@ -397,7 +397,7 @@ public:
      * @param samples Optional data values used by levelEdges().
      * @return Owned rows in ascending class order, with the outside-range rows of
      * addOutsideRangeLegendItems() around them. If no edges are available,
-     * including a validation failure, returns classCount() rows labelled Class 1,
+     * including a validation failure, returns classCount() rows labeled Class 1,
      * Class 2, etc. User labels populate userLabel separately from the numeric label.
      */
     [[nodiscard]] QList<LegendSymbolItem> legendItems(double dataMin, double dataMax,
@@ -447,7 +447,7 @@ private:
     bool m_invertRamp = false;
     bool m_logScale = false;
     QColor m_belowColor; // invalid: below-range values are not drawn
-    QColor m_aboveColor; // invalid: above-range values take the top colour
+    QColor m_aboveColor; // invalid: above-range values take the top color
     QColor m_lowColor = QColor(Qt::white);
     QColor m_highColor = QColor(Qt::black);
     bool m_useCustomRange = false;

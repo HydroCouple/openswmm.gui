@@ -1047,7 +1047,7 @@ private slots:
         dialog->findChild<QPushButton *>(QStringLiteral("gpkgChooseBtn"))->click();
         QCOMPARE(listed, 1);
         QVERIFY(first.contains(QStringLiteral("Gauge 00123")));
-        QVERIFY(dialog->editedSeries()->observationBinding().isEmpty()); // cancelled: nothing chosen
+        QVERIFY(dialog->editedSeries()->observationBinding().isEmpty()); // canceled: nothing chosen
         dialog->draftSession()->revert();
         dialog->close();
         delete w;

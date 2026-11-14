@@ -27,13 +27,13 @@ namespace OpenSWMM::Render
 
 /**
  * @brief Append one marker: the fill as a triangle fan, then (when \p outlineHalfWidth > 0 and
- *   the outline is not fully transparent) the outline centred on the shape's edges, on top.
- * @param[in,out] out Per-vertex-colour triangle list (premultiplied colours).
+ *   the outline is not fully transparent) the outline centered on the shape's edges, on top.
+ * @param[in,out] out Per-vertex-color triangle list (premultiplied colors).
  * @param[in] cx,cy Centre in the caller's scene units.
  * @param[in] r Half the marker's bounding-box side, in scene units.
  * @param[in] shape 0 Circle (an octagon), 1 Square, 2 Triangle (pointing right, as
  *   drawMarkerShape), 3 Diamond; any other value draws a square.
- * @param[in] fill,outline Straight-alpha colours (opacity already applied).
+ * @param[in] fill,outline Straight-alpha colors (opacity already applied).
  * @param[in] outlineHalfWidth Half the outline width in scene units.
  */
 inline void appendMarkerGeometry(std::vector<QSGGeometry::ColoredPoint2D> &out, float cx, float cy,

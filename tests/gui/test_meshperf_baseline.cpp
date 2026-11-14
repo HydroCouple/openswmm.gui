@@ -56,7 +56,7 @@ struct Zoom {
 };
 constexpr Zoom kZooms[] = {{"full", 1.0}, {"mid", 1.0 / 8.0}, {"near", 1.0 / 64.0}};
 
-/*! Scene-space source rect for a zoom factor, centred on the mesh bbox. */
+/*! Scene-space source rect for a zoom factor, centered on the mesh bbox. */
 /**
  * @brief Scale a source rectangle around its center for comparable rendering zooms.
  * @param[in] bbox Stable mesh scene bounding box in planar scene units.

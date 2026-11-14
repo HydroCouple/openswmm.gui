@@ -116,7 +116,7 @@ public:
      *   rendering does too.
      * @param[in] extent Unused current canvas extent.
      * @param[in] srs Unused borrowed canvas CRS.
-     * @brief Paint snap ring and projected split-point marker using configured node symbol colour.
+     * @brief Paint snap ring and projected split-point marker using configured node symbol color.
      * @note Split-capable kind draws solid7pixelring/10pixelcross; outfall/LID refusal dotted ring
      *   only. Layer transform status ignored with native fallback; saves/restores state, no
      *   DPR/transform reset or repaint request. Preview closest point may differ from clamped split
@@ -132,7 +132,7 @@ public:
      * \param layer   Raster layer to sample; nullptr disables terrain assistance.
      * \param offset  Signed value added to terrain Z (negative = below ground).
      * \param factor  Conversion factor from raster vertical units to model
-     *                vertical units (e.g., 3.28084 when raster is metres and
+     *                vertical units (e.g., 3.28084 when raster is meters and
      *                model is feet).  Defaults to 1.0 (no conversion).
      * @note Stores borrowed RAW raster pointer, offset and factor without validation, signal,
      *   sampling or repaint. Raster must outlive use; sample band1 at commit in layer CRS. On valid
@@ -214,10 +214,10 @@ private:
      *   outfall/storage/divider label or junction fallback. No engine query/validation.
      */
     [[nodiscard]] QString kindLabel() const;
-    /*! The placed symbol's fill colour, for the hover marker.
+    /*! The placed symbol's fill color, for the hover marker.
      * @param[in] layer Required borrowed model for current legacy symbol-style lookup.
-     * @return Type-specific fill colour (outfall/storage/divider, otherwise junction), no
-     *   per-object renderer rule/class resolution or LID-specific colour.
+     * @return Type-specific fill color (outfall/storage/divider, otherwise junction), no
+     *   per-object renderer rule/class resolution or LID-specific color.
      */
     [[nodiscard]] QColor markerColor(const SWMMModelLayer *layer) const;
 

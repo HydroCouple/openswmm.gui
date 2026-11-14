@@ -116,7 +116,7 @@ void detachFromParentWindow(QWidget *dialog)
         return;
 
     // internalWinId() (unlike winId()) does not force native-window creation —
-    // a dialog that never realised a platform window was never attached.
+    // a dialog that never realized a platform window was never attached.
     if (!dialog->internalWinId())
         return;
 

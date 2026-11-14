@@ -120,7 +120,7 @@ QString ScaleBarSettings::formatLabel(double metres, bool rawUnits) const
 
 double ScaleBarSettings::roundedMetres(double metres) const
 {
-    // Mirrors the rounding in formatLabel() but returns a metres value so the
+    // Mirrors the rounding in formatLabel() but returns a meters value so the
     // bar length stays in sync with what the label actually says.
     auto roundVal = [this](double v) -> double {
         if (m_labelDecimals < 0) {

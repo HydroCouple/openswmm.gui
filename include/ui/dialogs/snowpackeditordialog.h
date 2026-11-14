@@ -186,7 +186,7 @@ private slots:
      * @brief Draft the completed parameter; nothing reaches the model until Apply.
      * @details Hydration/unbound calls do nothing. A UEB site edit on an inheriting pack makes
      * the draft an explicit UEB pack. Depth/rate/temperature use input in-or-mm, hours and
-     * F-or-C; UEB site heat, energy and extinction depth use W/m², kJ/m² and metres. No unit
+     * F-or-C; UEB site heat, energy and extinction depth use W/m², kJ/m² and meters. No unit
      * conversion occurs.
      */
     void onFieldEdited_();

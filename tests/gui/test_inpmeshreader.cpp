@@ -7,7 +7,7 @@
  *
  *         The reader had no test of its own, yet Phase 2 replaces its
  *         tokenizer and its coupling-map tag resolution — both load-bearing
- *         for every `.2dm`. These cases pin the behaviour that must survive:
+ *         for every `.2dm`. These cases pin the behavior that must survive:
  *
  *           - index-form and tag-form [2D_VERTEX_NODE_MAP] resolve identically
  *             (the writer PREFERS tag form, so this is the common path)
@@ -81,7 +81,7 @@ QString writeFixture(const QString &name, const QString &text)
 /**
  *
  * @brief Build the tagged unit-square INP mesh text.
- * @return Owned four-vertex/two-triangle deck with SI-metre/EPSG:32617 headers,
+ * @return Owned four-vertex/two-triangle deck with SI-meter/EPSG:32617 headers,
  * V0..V3 tags, elevations ten..thirteen and Manning values 0.013. No file IO.
  *
  */
@@ -236,8 +236,8 @@ void TestInpMeshReader::unitsAndCrsHeaders()
 // in the wrong place with no error anywhere. Pin the whole set.
 /**
  *
- * @brief Require the accepted metre spellings/case/whitespace to classify SI while feet,
- * millimetres, empty and bare SI do not.
+ * @brief Require the accepted meter spellings/case/whitespace to classify SI while feet,
+ * millimeters, empty and bare SI do not.
  *
  */
 void TestInpMeshReader::unitsHeaderIsSI_matchesEngineKeywords()
@@ -490,7 +490,7 @@ void TestInpMeshReader::tokenizer_crlfLineEndings()
  *  (5,4), edge 2 = (4,1) shared with triangle 0's edge 0, edge 3 = (1,2). */
 /**
  *
- * @brief Build the two-by-one mixed-cell strip deck in SI metres.
+ * @brief Build the two-by-one mixed-cell strip deck in SI meters.
  * @return Owned six-vertex text with two left triangles followed by one right
  * quad, distinct roughness/depth/tags and no boundary rows. Does not parse or write it.
  *
@@ -611,7 +611,7 @@ void TestInpMeshReader::quads_triangleRowAfterQuadIsError()
  *
  * @brief Require quad edge three to retain stage 95.4 and group metadata while triangle edge
  * three remains Wall.
- * Also checks the quad endpoint convention; heights remain authored SI metres.
+ * Also checks the quad endpoint convention; heights remain authored SI meters.
  *
  */
 void TestInpMeshReader::quads_bcRowOnQuadEdge3()

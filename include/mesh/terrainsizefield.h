@@ -29,7 +29,7 @@
  * NoData / NaN pixels are skipped inside a block; a NaN corner fails the
  * block (conservative near the DEM edge; the caller's minimum size clamps).
  *
- * Finally the output grid takes the minimum over each 3×3 neighbourhood: a
+ * Finally the output grid takes the minimum over each 3×3 neighborhood: a
  * step lying exactly on a block boundary is seen only by the blocks whose far
  * corner touches it, which would refine one side of it and not the other.
  * (Phase 6b, MESH_OVERHAUL_PHASE6B_FEATURE_CAPTURE_2026-09-30.md.)
@@ -177,7 +177,7 @@ public:
      * arithmetic, no allocation beyond value storage.
      *
      * @details Raster-CRS coordinate of a fractional WINDOW pixel position (pixel (0, 0) spans
-     * [0, 1)², its centre is (0.5, 0.5)). Only after buildFromFile().
+     * [0, 1)², its center is (0.5, 0.5)). Only after buildFromFile().
      */
     [[nodiscard]] QPointF windowPixelToGeo(double px, double py) const;
 

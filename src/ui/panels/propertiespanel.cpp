@@ -64,8 +64,8 @@
 #include "curve/curveprovider.h"
 #include "inlet/inletprovider.h"
 #include "ui/properties/swmmlinkpropertyadapter.h"
-#include "ui/properties/storageshapegeom.h" // storageGeomApplies (grey out N/A dims)
-#include "ui/properties/xsectshapegeom.h"   // xsectGeomApplies (grey out N/A geoms)
+#include "ui/properties/storageshapegeom.h" // storageGeomApplies (gray out N/A dims)
+#include "ui/properties/xsectshapegeom.h"   // xsectGeomApplies (gray out N/A geoms)
 #include "ui/properties/swmmnodepropertyadapter.h"
 #include "ui/properties/swmmsubcatchpropertyadapter.h"
 // Slice DA.2 — non-spatial Data Object adapters.
@@ -137,7 +137,7 @@
 // Slice DA.4.3 — conditional row editability helpers
 // ---------------------------------------------------------------------------
 //
-// We need to grey out the outfall stage-data rows whose property does NOT
+// We need to gray out the outfall stage-data rows whose property does NOT
 // match the currently-selected outfall type (e.g. when type==TIDAL, hide
 // editability on Stage Elev. and Stage Time Series rows). The framework
 // already exposes per-row Qt::ItemFlags via QPropertyItem::setFlags() —
@@ -217,7 +217,7 @@ void setRowEditable(QPropertyModel *pm, QObject *adapter, const QString &rawProp
         f &= ~(Qt::ItemIsEnabled | Qt::ItemIsEditable);
     item->setFlags(f);
 
-    // Nudge the view to re-query flags + repaint the greyed cell.
+    // Nudge the view to re-query flags + repaint the grayed cell.
     QMetaObject::invokeMethod(pm, "onDataChanged", Qt::DirectConnection, Q_ARG(QModelIndex, idx));
     const QModelIndex valIdx = pm->index(idx.row(), 1, idx.parent());
     QMetaObject::invokeMethod(pm, "onDataChanged", Qt::DirectConnection,
@@ -1011,7 +1011,7 @@ void PropertiesPanel::setupUi()
     // and its subclasses). The combo carries the OutputIdentity's
     // stableId as the per-item user data (QUuid stored as QVariant).
     // The first item is always the "(editing engine)" sentinel mapped
-    // to the null UUID — picking it restores today's behaviour.
+    // to the null UUID — picking it restores today's behavior.
     auto *statsHlay = new QHBoxLayout;
     m_statsSourceLabel = new QLabel(tr("Stats source:"), central);
     m_statsSourceCombo = new QComboBox(central);
@@ -2325,7 +2325,7 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
             //   FUNCTIONAL  → the three A/B/C coefficient rows
             //   CYLINDRICAL / CONICAL / PARABOLIC / PYRAMIDAL
             //               → the raw dimension rows that apply to that shape
-            //                 (a cylinder has no side slope, so Param 3 stays grey)
+            //                 (a cylinder has no side slope, so Param 3 stays gray)
             // Same trigger/contract as the outfall block above. The dimension rows keep
             // generic labels ("Shape Param 1"): QPropertyModel builds its rows from
             // metaObject() at setData() time and setRowEditable finds a row by matching
@@ -2602,10 +2602,10 @@ void PropertiesPanel::onLayerComboIndexChanged(int index)
                             emit objectEdited(newN);
                         }
                     });
-            // Phase 3 — grey the infiltration parameter rows by the live model
+            // Phase 3 — gray the infiltration parameter rows by the live model
             // (Horton/Mod-Horton → Horton rows; Green-Ampt/Mod-GA → GA rows;
             // Curve-Number → CN row). Same trigger/contract as the storage
-            // Functional/Tabular greying.
+            // Functional/Tabular graying.
             {
                 auto *sub = m_subcatchAdapter;
                 auto applyInfilRowFlags = [pm, sub]() {
@@ -2862,7 +2862,7 @@ void PropertiesPanel::showDataObject(SWMMModelLayer *layer, int objectKind, cons
 
     // DA.2 parity — rain gage: drive editability of the source-specific rows
     // from the live dataSource. TIMESERIES enables the Series Name picker and
-    // greys the file rows; FILE does the reverse. Recording interval and snow
+    // grays the file rows; FILE does the reverse. Recording interval and snow
     // catch factor apply to both sources and stay editable. Same trigger /
     // contract as the outfall + storage blocks in the node path above.
     if (auto *gageAdapter = qobject_cast<SWMMRainGagePropertyAdapter *>(m_dataAdapter)) {
@@ -2883,7 +2883,7 @@ void PropertiesPanel::showDataObject(SWMMModelLayer *layer, int objectKind, cons
                 setRowEditable(pm, gageAdapter, QStringLiteral("filePath"), isFile);
                 setRowEditable(pm, gageAdapter, QStringLiteral("fileColumn"), isFile);
                 // The grammar row itself — the only way back out of USER_CSV,
-                // and therefore the only way Station ID below can be un-greyed
+                // and therefore the only way Station ID below can be un-grayed
                 // once a column has been picked.
                 setRowEditable(pm, gageAdapter, QStringLiteral("fileFormat"), isFile);
                 setRowEditable(pm, gageAdapter, QStringLiteral("stationId"),
@@ -3225,7 +3225,7 @@ void PropertiesPanel::refreshStatsSourceCombo()
     m_statsSourceCombo->clear();
 
     // The "(editing engine)" sentinel is always first and maps to the
-    // null UUID — picking it restores today's behaviour.
+    // null UUID — picking it restores today's behavior.
     m_statsSourceCombo->addItem(tr("(editing engine)"), QVariant::fromValue(QUuid()));
 
     int restoreIdx = 0;

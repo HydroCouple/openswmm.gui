@@ -14,12 +14,12 @@
  *           ┌─ Classification ─────────────────────────────┐
  *           │ [○ Continuous  ● Classified]   (optional)    │
  *           │ Attribute: [ depth ▾ ]          (optional)   │
- *           │ Colour ramp: [ ▒▒▒ Viridis ▾ ]  [ ] Invert   │
+ *           │ Color ramp: [ ▒▒▒ Viridis ▾ ]  [ ] Invert   │
  *           │ Method: [ Equal interval ▾ ]   Classes: 5    │
  *           │ Range:  [ Fixed over run ▾ ]    (optional)   │
  *           │ [ ] Custom range  Min ____  Max ____ (opt.)  │
  *           │ ┌─────────────────────────────────────────┐ │
- *           │ │ Lower   Upper   Colour   Label          │ │
+ *           │ │ Lower   Upper   Color   Label          │ │
  *           │ └─────────────────────────────────────────┘ │
  *           │  [Auto-classify from data]                  │
  *           └──────────────────────────────────────────────┘
@@ -131,7 +131,7 @@ private slots:
     void onRampChanged(const RasterColorRamp &ramp);
     /**
      * @brief Submit a ramp-direction change through the scheme validation path.
-     * @param[in] on True reverses colour-ramp sampling.
+     * @param[in] on True reverses color-ramp sampling.
      */
     void onInvertToggled(bool on);
     /**
@@ -175,7 +175,7 @@ private slots:
      */
     void onAutoClassify();
     /**
-     * @brief Submit edited class colour/label or validated strictly increasing interior upper bounds.
+     * @brief Submit edited class color/label or validated strictly increasing interior upper bounds.
      * @param[in] item Changed table item; null/suppressed/unbound updates are ignored.
      * @note Interior breaks must be finite, exceed the previous bound and stay below range maximum; invalid drafts are retained locally. Valid break edits switch to Manual. Untouched formatted bounds reuse stored full-precision values.
      */
@@ -239,7 +239,7 @@ private:
     QTableView *m_table = nullptr;
     QStandardItemModel *m_tableModel = nullptr;
 
-    // Log scale and outside-the-range colours (setOutsideRangeControlsVisible).
+    // Log scale and outside-the-range colors (setOutsideRangeControlsVisible).
     bool m_outsideControls = false;
     QWidget *m_outsideRow = nullptr;
     QCheckBox *m_logCheck = nullptr;

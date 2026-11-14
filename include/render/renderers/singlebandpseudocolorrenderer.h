@@ -3,7 +3,7 @@
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
- * @brief     Raster renderer that maps a single-band value to a colour ramp.
+ * @brief     Raster renderer that maps a single-band value to a color ramp.
  *
  *         SingleBandPseudoColorRenderer is the IRasterRenderer counterpart
  *         to GraduatedRenderer on the feature side.  It carries:
@@ -35,13 +35,13 @@ namespace OpenSWMM::Render
 
 /*!
  * \class SingleBandPseudoColorRenderer
- * \brief Continuous colour ramp for single-band raster data.
+ * \brief Continuous color ramp for single-band raster data.
  */
 class SingleBandPseudoColorRenderer final : public IRasterRenderer
 {
 public:
     /*!
-     * \brief One ramp stop — a normalised position in [0,1] paired with a colour.
+     * \brief One ramp stop — a normalized position in [0,1] paired with a color.
      */
     using Stop = QPair<double, QColor>;
 
@@ -97,7 +97,7 @@ public:
     void setClampMax(bool clamp) { m_clampMax = clamp; }
 
     /*!
-     * \brief Colour-space used between adjacent stops (Rgb / HsvShort /
+     * \brief Color-space used between adjacent stops (Rgb / HsvShort /
      *        HsvLong). Carried so the renderer reproduces the legacy
      *        RasterColorRamp output byte-for-byte after the P5 full switch
      *        — without it, custom HSV ramps would drift to RGB lerp.
@@ -124,7 +124,7 @@ public:
      * Achromatic endpoints use RGB even in HSV modes; legacy clamp flags are ignored. */
     [[nodiscard]] QColor colorForValue(double value, bool isNoData = false) const override;
     /** @brief Build one reference legend row per stored stop.
-     * @return Owned rows in stop order, labelled min+position*(max-min) with Qt's
+     * @return Owned rows in stop order, labeled min+position*(max-min) with Qt's
      * default number format, a SimpleFill swatch, and NaN ranges. No sorting occurs. */
     [[nodiscard]] QList<LegendSymbolItem> legendSymbolItems() const override;
     /** @brief Serialize range, stops, compatibility flags and interpolation mode.

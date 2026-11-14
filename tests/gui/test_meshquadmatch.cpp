@@ -528,7 +528,7 @@ private slots:
 
     /*! (d) A locked diagonal blocks that one template: 99 quads + 2
      *  triangles (the two blocked triangles cannot pair elsewhere either,
-     *  every neighbour is already in a quad). */
+     *  every neighbor is already in a quad). */
     void lattice_lockedDiagonalBlocksTemplate()
     {
         QVector<QuadTemplate> templates;

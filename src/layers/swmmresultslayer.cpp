@@ -467,7 +467,7 @@ SWMMResultsLayer::SWMMResultsLayer(const QString &resultsFilePath, class SWMMMod
 
     m_colorRamp = RasterColorRamp::viridis(0.0, 1.0);
 
-    // Slice BI Phase 8.13.6.3 — initialise the renderer eagerly so renderer()
+    // Slice BI Phase 8.13.6.3 — initialize the renderer eagerly so renderer()
     // never returns nullptr. The default is a GraduatedRenderer; the paint
     // loop (sub-phase 8.13.6.4) will later read from it instead of m_colorRamp.
     m_renderer = std::make_unique<OpenSWMM::Render::GraduatedRenderer>();
@@ -479,8 +479,8 @@ SWMMResultsLayer::SWMMResultsLayer(const QString &resultsFilePath, class SWMMMod
     m_profileLineColor = CategoricalPalette::at(s_counter.fetchAndAddRelaxed(1));
 
     // Derive default per-source profile-plot pens & brushes from the
-    // categorical colour so two simultaneously-open layers render with
-    // visually-distinct HGL/EGL passes without any user customisation.
+    // categorical color so two simultaneously-open layers render with
+    // visually-distinct HGL/EGL passes without any user customization.
     // The dash patterns mirror the plot-level defaults on ProfilePlotOptions
     // (hglLinePen / eglLinePen / maxHglLinePen / maxEglLinePen), which the
     // profile dialog pushes onto every source when the user edits them:
@@ -827,8 +827,8 @@ void SWMMResultsLayer::setProfileLineColor(const QColor &color)
 //
 // The constructor derives sensible defaults from m_profileLineColor.  These
 // setters do NOT auto-update on profileLineColor changes — once the user
-// customises a pen, it stays put.  Callers that want the "follow the
-// categorical colour" behaviour should call setProfileLineColor and then
+// customizes a pen, it stays put.  Callers that want the "follow the
+// categorical color" behavior should call setProfileLineColor and then
 // also reset each pen explicitly.
 // ---------------------------------------------------------------------------
 
@@ -904,8 +904,8 @@ void SWMMResultsLayer::setProfileMaxEglLinePen(const QPen &pen)
 // QSettings persistence helpers
 //
 // Stored as QVariants of QPen / QBrush — Qt's metatype machinery wires
-// the QDataStream operators automatically, so colour, width, dash style,
-// dash pattern and brush colour all round-trip.
+// the QDataStream operators automatically, so color, width, dash style,
+// dash pattern and brush color all round-trip.
 // ---------------------------------------------------------------------------
 
 void SWMMResultsLayer::writeProfileStyle(QSettings &settings) const
@@ -1483,10 +1483,10 @@ void SWMMResultsLayer::clearResults()
 // Each of the four engine aggregators walks the whole .out file for its
 // variable (one seek + one 4-byte read per period), so the four accessors
 // below used to cost four full-file walks EVERY time a node dynamics cell
-// was painted — and a table scroll repaints them constantly. Memoise the
+// was painted — and a table scroll repaints them constantly. Memoize the
 // set exactly the way linkStatsFor / subcatchStatsFor already do.
 //
-// This is a pure memoisation: the same aggregators produce the same
+// This is a pure memoization: the same aggregators produce the same
 // numbers, just once per node instead of once per cell read.
 SWMMResultsLayer::NodeStats SWMMResultsLayer::nodeStatsFor(int outIdx) const
 {
@@ -1635,7 +1635,7 @@ SWMMResultsLayer::LinkStats SWMMResultsLayer::linkStatsFor(int outIdx) const
     }
 
     if (lType == SWMM_LINK_PUMP) {
-        // Pump utilisation. The engine's on/off test is
+        // Pump utilization. The engine's on/off test is
         // `setting > 0 && flow > 0`, and both operands survive into the .out
         // file: flow directly, and `setting` as CAPACITY — for a non-conduit
         // that variable is the pump speed / regulator opening, NOT a fill
@@ -1946,7 +1946,7 @@ void SWMMResultsLayer::fetchResultsForStep(int step)
         if (auto *g = dynamic_cast<OpenSWMM::Render::GraduatedRenderer *>(kr)) {
             attrsNeeded << g->classifyAttribute();
             // Independent size attribute — the size/width axes may read a
-            // different output variable than the colour classification.
+            // different output variable than the color classification.
             if (g->sizeAxisIndependent() && (g->outputSizeEnabled() || g->outputWidthEnabled()))
                 attrsNeeded << g->sizeAttribute();
         } else if (auto *cz = dynamic_cast<OpenSWMM::Render::CategorizedRenderer *>(kr)) {
@@ -2249,8 +2249,8 @@ QPair<double, double> SWMMResultsLayer::ensureSubcatchAttributeRange(int outCode
 // Phase 8 (2026-05-25) — ramp-aware sublayer legend rows. Returns N
 // graduated swatches per visible result-driven sublayer so the legend dock
 // reflects what populateScene actually paints (a ramp), not the sublayer's
-// fallback single colour. Bin count matches the BB legacy 5-interval
-// convention; values labelled at bin centres.
+// fallback single color. Bin count matches the BB legacy 5-interval
+// convention; values labeled at bin centers.
 // ---------------------------------------------------------------------------
 
 QList<OpenSWMM::Render::LegendSymbolItem> SWMMResultsLayer::sublayerLegendItems()
@@ -2271,7 +2271,7 @@ QList<OpenSWMM::Render::LegendSymbolItem> SWMMResultsLayer::sublayerLegendItems(
     auto appendRampRows = [&](const QString &sublayerId, const QString &attribute,
                               QPair<double, double> range, SymbolLayerKind swatchKind,
                               double sizeOrWidthPx) {
-        // Degenerate range → still emit ONE row at the midpoint colour so
+        // Degenerate range → still emit ONE row at the midpoint color so
         // the legend isn't empty when sampling failed.
         if (!(range.second > range.first)) {
             LegendSymbolItem item;
@@ -2299,13 +2299,13 @@ QList<OpenSWMM::Render::LegendSymbolItem> SWMMResultsLayer::sublayerLegendItems(
 
         const double span = range.second - range.first;
         for (int i = 0; i < kBinCount; ++i) {
-            // Bin centre value (uniform spacing).
+            // Bin center value (uniform spacing).
             const double t = (kBinCount == 1) ? 0.5 : (double(i) + 0.5) / double(kBinCount);
             const double value = range.first + t * span;
 
             LegendSymbolItem item;
             // Label format mirrors the BB convention "<low> – <high>" so
-            // users see the bin extents, not just centres.
+            // users see the bin extents, not just centers.
             const double binLo = range.first + double(i) / kBinCount * span;
             const double binHi = range.first + double(i + 1) / kBinCount * span;
             item.label = QStringLiteral("%1 – %2").arg(binLo, 0, 'g', 3).arg(binHi, 0, 'g', 3);
@@ -2330,7 +2330,7 @@ QList<OpenSWMM::Render::LegendSymbolItem> SWMMResultsLayer::sublayerLegendItems(
     // visible sublayer with an attribute and result data emits a header
     // row + N graduated swatches. Static / no-attribute sublayers (e.g.
     // RainGages, or any sublayer with useColorRamp=false) emit a single
-    // swatch row drawn from the sublayer's single-symbol colour.
+    // swatch row drawn from the sublayer's single-symbol color.
     using OpenSWMM::Render::FeatureSublayer;
     using OpenSWMM::Render::PointFeatureSublayerStyle;
     using OpenSWMM::Render::LineFeatureSublayerStyle;
@@ -2395,7 +2395,7 @@ QList<OpenSWMM::Render::LegendSymbolItem> SWMMResultsLayer::sublayerLegendItems(
         }
 
         // Gap A2.3 — legend-from-renderer (§J.5 invariant): when a kind
-        // renderer is installed, paint colours come from its override
+        // renderer is installed, paint colors come from its override
         // cache, so the legend rows MUST come from the same renderer or
         // map and legend disagree (e.g. Jenks-7 breaks on the map vs the
         // synthesized 5-equal-bin block below). The synthesized path
@@ -2438,9 +2438,9 @@ QList<OpenSWMM::Render::LegendSymbolItem> SWMMResultsLayer::sublayerLegendItems(
                 out.append(header);
                 appendRampRows(sublayerId, attribute, range, swatchKind, swatchSize);
             } else {
-                // No graduated colours — ONE row: the kind label carrying
-                // the feature's own colour as its swatch (a separate
-                // colour-named row under a patch-less header read as
+                // No graduated colors — ONE row: the kind label carrying
+                // the feature's own color as its swatch (a separate
+                // color-named row under a patch-less header read as
                 // noise; the patch belongs on the label here).
                 LegendSymbolItem item;
                 item.label = sub->displayName();
@@ -2460,7 +2460,7 @@ QList<OpenSWMM::Render::LegendSymbolItem> SWMMResultsLayer::sublayerLegendItems(
         }
 
         // Size channel — header + a min and a max swatch drawn at the
-        // channel's px limits, labelled with the value range the map was
+        // channel's px limits, labeled with the value range the map was
         // sized against this frame (rebuildKindFeatureOverrides).
         if (const auto *ch = sublayerSizeChannel(sub); ch && ch->enabled) {
             const SizeRange r = m_kindSizeRange[static_cast<int>(sub->category())];
@@ -2491,7 +2491,7 @@ QList<OpenSWMM::Render::LegendSymbolItem> SWMMResultsLayer::sublayerLegendItems(
         }
 
         // Optional: emit a Flow-arrows row when the line sublayer has
-        // arrows enabled. Single swatch (single colour, single size).
+        // arrows enabled. Single swatch (single color, single size).
         if (sub->archetype() == FeatureSublayer::Archetype::Line) {
             auto *st = sub->lineStyle();
             if (st && st->showFlowArrows()) {
@@ -2555,7 +2555,7 @@ int SWMMResultsLayer::reportStepSeconds() const
 }
 
 // 2026-07-19 — reported data origin (slider range fix); see header. Falls
-// back to the simulation start so callers degrade to the old behaviour when
+// back to the simulation start so callers degrade to the old behavior when
 // period 0's time was unavailable at load.
 QDateTime SWMMResultsLayer::reportedStartDateTime() const
 {
@@ -2575,7 +2575,7 @@ void SWMMResultsLayer::setCurrentTimeStep(int step)
     fetchResultsForStep(m_currentStep);
 
     // Slice §Y.2 — timestep-only advance: scene geometry is unchanged,
-    // only per-feature colours and override values need to be re-applied.
+    // only per-feature colors and override values need to be re-applied.
     // restyleScene picks this up via the cached items in m_itemByFeature.
     escalateSceneDirty(SceneDirty::Values);
 
@@ -2637,7 +2637,7 @@ void SWMMResultsLayer::stepBackward(bool loop)
 }
 
 // ---------------------------------------------------------------------------
-// Variable & colour mapping
+// Variable & color mapping
 // ---------------------------------------------------------------------------
 
 SWMMResultVariable SWMMResultsLayer::variable() const
@@ -2687,7 +2687,7 @@ void SWMMResultsLayer::setVariable(SWMMResultVariable var)
 
     // Re-fetch results for the current step with the new variable. The
     // fetch collects the retargeted renderers' attributes and its trailing
-    // rebuildAllActiveKindFeatureOverrides re-classifies + recolours.
+    // rebuildAllActiveKindFeatureOverrides re-classifies + recolors.
     m_nodeResults.clear();
     m_linkResults.clear();
     m_subcatchResults.clear();
@@ -2725,7 +2725,7 @@ void SWMMResultsLayer::setColorRamp(const RasterColorRamp &ramp)
         rebuildKindFeatureOverrides(c);
     }
 
-    // Slice §Y.2 — ramp swap only changes colours, not geometry.
+    // Slice §Y.2 — ramp swap only changes colors, not geometry.
     escalateSceneDirty(SceneDirty::Values);
     emit repaintRequested();
 }
@@ -2759,7 +2759,7 @@ void SWMMResultsLayer::setRenderer(std::unique_ptr<OpenSWMM::Render::IFeatureRen
 // Slice OUT.1 — per-kind renderer slots. Mirrors SWMMModelLayer's
 // kindRenderer / setKindRenderer / resetKindRendererToDefaults API.
 // Slot construction is lazy: slots default to nullptr until the user
-// explicitly customises a kind. Slice OUT.2 will refactor the paint
+// explicitly customizes a kind. Slice OUT.2 will refactor the paint
 // loop to consult these slots (with the layer-level renderer as
 // fallback).
 
@@ -2807,7 +2807,7 @@ makeDefaultKindRenderer(SWMMModelLayer::Category c)
     if (auto *g = dynamic_cast<GraduatedRenderer *>(r.get())) {
         g->setClassifyAttribute(kindDefaultResultVariable(c));
         // Gap A2.1 — results-layer kinds classify a per-frame output
-        // variable; FixedOverRun keeps colours stable across animation.
+        // variable; FixedOverRun keeps colors stable across animation.
         g->setSourceKind(OpenSWMM::Render::AttributeSourceKind::Dynamic);
         g->setRangeMode(OpenSWMM::Render::RangeMode::FixedOverRun);
     }
@@ -2961,7 +2961,7 @@ void SWMMResultsLayer::applyRuleToKind(OpenSWMM::Render::Rule *rule, SWMMModelLa
         return;
 
     // Common: base-style fallback color (used when neither override cache
-    // nor ramp resolves a feature colour). For point/polygon this is
+    // nor ramp resolves a feature color). For point/polygon this is
     // `fillColor`; for line it's the line `color`. Both flow into
     // FeatureSublayerStyle::color.
     switch (sub->archetype()) {
@@ -3554,11 +3554,11 @@ bool catMatchesVariable(SWMMModelLayer::Category c, SWMMResultVariable v)
 // SymbolProps::firstColor, which tolerates both encodings AND checks both
 // grammar keys ("color" then "fillColor"). The old "color"-only read made
 // single-symbol marker base symbols (keyed "fillColor") silently fall back
-// to the legacy ramp colour.
+// to the legacy ramp color.
 /**
  * @param[in] s Symbol style read without modification.
- * @param[in] fallback Colour used by SymbolProps::firstColor() when no usable prop resolves.
- * @return Invalid colour for style.opacity<=zero, otherwise first supported color/fillColor property or fallback. Positive overall opacity is not multiplied into colour alpha here.
+ * @param[in] fallback Color used by SymbolProps::firstColor() when no usable prop resolves.
+ * @return Invalid color for style.opacity<=zero, otherwise first supported color/fillColor property or fallback. Positive overall opacity is not multiplied into color alpha here.
  */
 QColor extractStyleColor(const OpenSWMM::Render::SymbolStyle &s, QColor fallback)
 {
@@ -3712,7 +3712,7 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
     // not from the numeric per-var results cache.  Detect this case so
     // the symbolFor call below can hand the renderer the right value
     // type — without this branch the categorized leg always falls back
-    // to fallbackSymbol() and every feature paints the same colour.
+    // to fallbackSymbol() and every feature paints the same color.
     const bool useStringAttrLookup =
         (dynamic_cast<OpenSWMM::Render::CategorizedRenderer *>(kr) != nullptr) &&
         !classifyAttr.isEmpty() && valuesPtr == nullptr;
@@ -3763,7 +3763,7 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
     // F4 — shared classify gate (same isEmpty + non-empty-samples condition as
     // the model layer) so the two rebuild paths cannot drift.
     //
-    // Gap A2.2 — classification honours the renderer's RangeMode:
+    // Gap A2.2 — classification honors the renderer's RangeMode:
     //   FixedUser          — never auto-classify; the user's range lives in
     //                        the ramp (setRange) and empty breaks fall back
     //                        to the painter's inline equal-interval over it.
@@ -3810,9 +3810,9 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
     }
 
     // Independent size attribute (size/width axes driven by a different
-    // result variable than the colour classification). Resolve its per-var
+    // result variable than the color classification). Resolve its per-var
     // results vector and make sure the renderer has a value range to
-    // normalise against — preferring the full-run attribute-range cache,
+    // normalize against — preferring the full-run attribute-range cache,
     // falling back to this frame's extremes while the async scan runs.
     const QVector<float> *sizeValuesPtr = nullptr;
     QString sizeAttr;
@@ -3913,7 +3913,7 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
         const auto style = kr->symbolFor(ref, attrs);
         // Fallback color when the renderer didn't (or couldn't) classify:
         // sample the layer-level ramp so the canvas still has a sensible
-        // colour instead of an invalid hole.
+        // color instead of an invalid hole.
         const QColor rampCol = std::isfinite(value) ? m_colorRamp.colorForValue(value) : QColor();
         m_kindFeatureColors[idx][row] = extractStyleColor(style, rampCol);
 
@@ -3990,7 +3990,7 @@ void SWMMResultsLayer::migrateGraduatedOutputAxes(SWMMModelLayer::Category c,
 void SWMMResultsLayer::applySizeChannel(SWMMModelLayer::Category c)
 {
     // Size channel — the sublayer style drives marker size / stroke width
-    // from its own result variable, whatever renderer coloured the kind.
+    // from its own result variable, whatever renderer colored the kind.
     // Runs after the renderer pass, so it takes precedence over any size
     // the renderer wrote.
     const int idx = static_cast<int>(c);
@@ -4204,7 +4204,7 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene, const MapExtent &can
     // fill) is replaced by a single loop over m_featureSublayers[]. Each
     // sublayer carries its own archetype-appropriate style bag and the
     // dispatcher below picks paintPoint / paintLine / paintPolygon based
-    // on the sublayer's archetype. Per-feature override colours from
+    // on the sublayer's archetype. Per-feature override colors from
     // m_kindFeatureColors / m_kindUsesOverrides (Slice OUT.2) still win
     // over the ramp lookup so kind-level Categorized / Graduated renderers
     // continue to work.
@@ -4363,7 +4363,7 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene, const MapExtent &can
             scene->addItem(item);
             tag(item);
             // Slice §Y.2 — cache the per-row item handle so restyleScene
-            // can recolour without destroying and recreating the scene.
+            // can recolor without destroying and recreating the scene.
             m_itemByFeature[catIdx][row] = item;
         }
     };
@@ -4661,7 +4661,7 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene, const MapExtent &can
                 auto *item = new QGraphicsPolygonItem(poly);
                 item->setPen(outlinePen);
                 // VS.2b — compose the fill brush through the FillSymbolLayerSpec
-                // primitive so the polygon honours the style's fill pattern
+                // primitive so the polygon honors the style's fill pattern
                 // (solid / hatch / cross-hatch) rather than always solid.
                 OpenSWMM::Render::FillSymbolLayerSpec fillSpec;
                 fillSpec.fillColor = fill;
@@ -4742,7 +4742,7 @@ void SWMMResultsLayer::depopulateScene(QGraphicsScene *scene)
 //                  flow value, which restyle can't update without rebuilding.
 //   • Structural → fall through to base class depopulate + populate.
 //
-// Restyle must stay in lockstep with populateScene's per-archetype colour
+// Restyle must stay in lockstep with populateScene's per-archetype color
 // logic.  The lookup sequence (override → ramp → singleColor, with NaN /
 // invalid skips) is duplicated here intentionally; factoring it out would
 // touch the populate helpers heavily and isn't worth the churn for v1.
@@ -5171,7 +5171,7 @@ void SWMMResultsLayer::setLabelConfig(const OpenSWMM::Render::LabelConfig &cfg)
 void SWMMResultsLayer::refreshLabels(QGraphicsScene *scene)
 {
     // L-1 — per-sublayer labels. Each FeatureSublayer carries its own
-    // LabelConfig (enable / expression / colour / placement), so the user can
+    // LabelConfig (enable / expression / color / placement), so the user can
     // label, say, Junctions with "{name}: {depth} m" and Conduits with
     // "{flow} m³/s" independently. The label text is an expression template:
     // {name} → element name, {field} → that feature's current value for the
@@ -5304,7 +5304,7 @@ void SWMMResultsLayer::refreshLabels(QGraphicsScene *scene)
         const OpenSWMM::Render::LabelConfig &lc = subLc.enabled ? subLc : labelConfig();
         if (!lc.enabled)
             continue; // neither sublayer nor layer labels on
-        // Honour the config's min/max scale visibility window.
+        // Honor the config's min/max scale visibility window.
         if (!OpenSWMM::Render::LabelPainter::scaleVisible(lc, scaleDen))
             continue;
 
@@ -5387,7 +5387,7 @@ void SWMMResultsLayer::refreshLabels(QGraphicsScene *scene)
             lbl->setFont(font);
             lbl->setBrush(textBrush);
             // Halo approximation — stroke the glyph outlines in the halo
-            // colour (QGraphicsSimpleTextItem has no true halo pass).
+            // color (QGraphicsSimpleTextItem has no true halo pass).
             // Cosmetic pen so the stroke width stays constant across zoom.
             if (lc.haloEnabled && lc.haloRadiusPx > 0.0) {
                 QPen haloPen(lc.haloColor, lc.haloRadiusPx * 0.5);
@@ -5404,7 +5404,7 @@ void SWMMResultsLayer::refreshLabels(QGraphicsScene *scene)
         }
     }
 
-    // Drop labels for categories not labelled this pass (sublayer disabled /
+    // Drop labels for categories not labeled this pass (sublayer disabled /
     // hidden / removed).
     for (int k = 0; k < SWMMModelLayer::NumCategories; ++k) {
         if (labelled[k])

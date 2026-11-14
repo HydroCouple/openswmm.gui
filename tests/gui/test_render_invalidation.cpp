@@ -10,7 +10,7 @@
  *      without bumping m_geomRevision. SWMM2DMeshQSGRenderer caches shaded
  *      per-triangle RGB, isobands and isolines behind a geomRevision-keyed
  *      check, so the caches reported a hit and re-uploaded the pre-edit
- *      colours: the frame redrew and the shading did not change.
+ *      colors: the frame redrew and the shading did not change.
  *
  *   2. The QSG renderers marked themselves dirty on a layer signal but had no
  *      way to tell MapCanvas, which caches the grabbed framebuffer. A change

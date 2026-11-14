@@ -2,7 +2,7 @@
  * @file      legendcontent.cpp
  * @brief     Historically three near-copies — LegendOverlay, LegendLayerTreeModel and
  *            legendclasseditcommands — each resolved "which renderer / which rows / which swatch
- *            colour" for a layer and had to stay in lockstep manually.
+ *            color" for a layer and had to stay in lockstep manually.
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later

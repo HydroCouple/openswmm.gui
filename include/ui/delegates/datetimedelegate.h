@@ -60,7 +60,7 @@ public:
      * @param[in] editor Borrowed editor; non-QDateTimeEdit delegates to base.
      * @param[in] index Borrowed source index; Qt::EditRole converted to QDateTime.
      * @note Valid timestamp seeds full editor value including hidden seconds; invalid data leaves
-     *   existing editor unchanged. UTC editor expects UTC-labelled SWMM wall clock; helper does not
+     *   existing editor unchanged. UTC editor expects UTC-labeled SWMM wall clock; helper does not
      *   relabel source itself. No engine/model write.
      */
     void setEditorData(QWidget *editor, const QModelIndex &index) const override;
@@ -79,7 +79,7 @@ public:
 /*! \brief Read-only `yyyy-MM-dd HH:mm:ss` display of a simulation time, for
  *  persistent editors in status views (the Simulation Status panel).
  *
- *  SWMM times are timezone-naive wall clocks labelled UTC. A QDateTimeEdit in
+ *  SWMM times are timezone-naive wall clocks labeled UTC. A QDateTimeEdit in
  *  the default local zone CONVERTS such a value on setDateTime() in Qt 6, so
  *  the panel showed every time shifted by the machine's UTC offset (9 hours
  *  for the tutorial reporter). This editor is pinned to UTC. */
@@ -99,7 +99,7 @@ public:
      *   lifetime if null.
      * @param[in] opt Unused style option.
      * @param[in] index Unused model index, no validity/type check.
-     * @return New parent-owned QDateTimeEdit pinned to UTC. Read-only centred yyyy-MM-dd HH:mm:ss,
+     * @return New parent-owned QDateTimeEdit pinned to UTC. Read-only centered yyyy-MM-dd HH:mm:ss,
      *   no frame/buttons/calendar/focus and transparent to mouse; no initial model data. No model
      *   mutation.
      */
@@ -109,7 +109,7 @@ public:
      * @param[in] editor Borrowed editor; null/non-QDateTimeEdit ignored.
      * @param[in] index Borrowed source index; Qt::DisplayRole must convert to valid QDateTime.
      * @note Valid timestamp seeds full editor value including hidden seconds; invalid data leaves
-     *   existing editor unchanged. UTC editor expects UTC-labelled SWMM wall clock; helper does not
+     *   existing editor unchanged. UTC editor expects UTC-labeled SWMM wall clock; helper does not
      *   relabel source itself. No engine/model write.
      */
     void setEditorData(QWidget *editor, const QModelIndex &index) const override;

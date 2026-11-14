@@ -436,7 +436,7 @@ void RuleSymbologyTab::mountBodyForActive()
         // Only SWMM model / results layers build a kind-indexed rule list —
         // one Rule per Category, in ordinal order. GIS-vector and 2D-mesh
         // lists hold arbitrary user rules, where position carries no kind
-        // meaning, so they keep the category unset (layer-level behaviour).
+        // meaning, so they keep the category unset (layer-level behavior).
         //
         // Layer-type checks use QObject::inherits (string-based) rather than
         // qobject_cast, and the downcast is a plain static_cast, so this TU

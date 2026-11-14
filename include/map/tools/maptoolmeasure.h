@@ -38,11 +38,11 @@ enum class MeasureMode {
  *  - Geographic CRS (lon/lat): coordinates are transformed to WGS-84 then
  *    the Haversine formula (R = 6 378 137 m) is applied.
  *  - Projected CRS: Euclidean distance in CRS linear units × linearUnitsToMetres().
- *  - Local / undefined CRS: raw Euclidean, still converted and labelled using selected units.
+ *  - Local / undefined CRS: raw Euclidean, still converted and labeled using selected units.
  *
  * Distance mode: shows a cumulative label at every committed vertex.
  * Area mode: shows a semi-transparent polygon fill while drawing.
- * Double-click finalises the measurement; subsequent left-click starts a new one.
+ * Double-click finalizes the measurement; subsequent left-click starts a new one.
  * Escape clears all points; Backspace/Delete remove the last pending vertex.
  */
 class OpenSWMMVisMapToolMeasure : public OpenSWMMVisMapTool
@@ -59,7 +59,7 @@ public:
      * @param[in] canvas Optional borrowed raw canvas, must outlive tool; actual mouse conversion
      *   requires live canvas.
      * @param[in] parent Optional QObject owner; otherwise caller owns tool.
-     * @note GUI-thread only. Defaults metres/square metres, no initial WGS84 transform until
+     * @note GUI-thread only. Defaults meters/square meters, no initial WGS84 transform until
      *   activation or CRS-change signal. Decorations/MeasureTool preference changes reload style
      *   and redraw existing geometry. CRS changes rebuild transform/recalculate existing stored
      *   coordinates WITHOUT reprojecting those vertices, so caller normally clears measurement when
@@ -124,8 +124,8 @@ public:
      * @return Cached COMMITTED-vertex distance/area in selected unit; excludes live rubber cursor
      *   even when painted label includes it. Zero after clear; nonfinite input/calculation can
      *   propagate.
-     * @note Projected/geographic helpers produce metres/m²; local/undefined CRS raw units are still
-     *   passed through metre conversion and labelled with selected units, so caller must ensure
+     * @note Projected/geographic helpers produce meters/m²; local/undefined CRS raw units are still
+     *   passed through meter conversion and labeled with selected units, so caller must ensure
      *   scale meaningful.
      */
     [[nodiscard]] double total() const;
@@ -246,7 +246,7 @@ private:
      *   then emit totalChanged unconditionally.
      * @note Distance sum excludes cursor and polygon closure; Area uses closed committed ring.
      *   Computes distance vector even Area mode. No geometric validation, equality suppression or
-     *   repaint here; local/raw values still treated as metre/m² inputs to unit conversion.
+     *   repaint here; local/raw values still treated as meter/m² inputs to unit conversion.
      */
     void recalculate();
     /**
@@ -265,7 +265,7 @@ private:
      */
     void clearTransform();
     /**
-     * @brief Copy measure line/fill colours, font family/size, label decimals and fill opacity from
+     * @brief Copy measure line/fill colors, font family/size, label decimals and fill opacity from
      *   preferences.
      * @note No local validation, recalculation, repaint or unit change;
      *   constructor/preference-change caller handles redraw.
@@ -295,15 +295,15 @@ private:
      */
     double geodesicArea(const QVector<QPointF> &vertices) const;
 
-    // Formats a metre value in the current distance unit: "142.30 m"
+    // Formats a meter value in the current distance unit: "142.30 m"
     /**
      * @param[in] metres Distance-helper numeric result; ordinary projected/geographic result in
-     *   metres, local raw value treated as metres.
+     *   meters, local raw value treated as meters.
      * @return Fixed decimal QString value+selected unit symbol, using preference decimals and
-     *   direct unit factor. No locale grouping or automatic kilometre selection; no mutation.
+     *   direct unit factor. No locale grouping or automatic kilometer selection; no mutation.
      */
     QString formatDist(double metres) const;
-    // Formats a square-metre value in the current area unit: "3 847.20 m²"
+    // Formats a square-meter value in the current area unit: "3 847.20 m²"
     /**
      * @param[in] sqm Area-helper numeric result; ordinary result m², local raw value treated as m².
      * @return Fixed decimal value+selected area symbol, no locale grouping/automatic hectare or km²
@@ -316,7 +316,7 @@ private:
     MeasurementUnitManager::AreaUnit m_areaUnit = MeasurementUnitManager::SquareMetres;
 
     QVector<QPointF> m_vertices;     /*!< In canvas-CRS coordinates. */
-    QVector<double> m_segmentMetres; /*!< Cumulative metres at each vertex. */
+    QVector<double> m_segmentMetres; /*!< Cumulative meters at each vertex. */
     QPointF m_mousePos;              /*!< Current (moving) mouse position. */
     double m_total = 0.0;
     bool m_finalized = false;

@@ -93,7 +93,7 @@ using namespace OpenSWMM::Render;
  * domain center; false assigns v to all corners.
  * @return Shared owned snapshot/mesh, geometry one, revision default zero, two triangles
  * per unit square, prepared adjacency/grid and whole-domain coverage. Other field
- * values retain defaults: wet metre depth one, available/open edges, zero SI color
+ * values retain defaults: wet meter depth one, available/open edges, zero SI color
  * speed/corrections and NaN native flux. Preparation status is not checked. No model
  * or renderer ownership is borrowed; allocation/prepare exceptions propagate.
  *
@@ -150,8 +150,8 @@ static FlowParticleSettings longLife()
 /**
  *
  * @brief Build a stored-velocity (velocity-only) native capture on the unit-square grid.
- * @param columns Positive grid width in metres (scene units equal metres).
- * @param rows Positive grid height in metres.
+ * @param columns Positive grid width in meters (scene units equal meters).
+ * @param rows Positive grid height in meters.
  * @param velocity Cell-mean velocity in m/s as a function of each triangle's centroid.
  * @param flux Native outward face flux written to every edge; NaN means not reported.
  * @return Owned input with depth 1 m everywhere and a copied prepared mesh.
@@ -202,7 +202,7 @@ static double referenceCross(QPointF a, QPointF b)
  * @param field Borrowed consistent prepared mesh and one available field per triangle;
  * valid vertex IDs, finite nonnegative seed weights and coherent field units required.
  * @param view Valid scene-coordinate rectangle; invalid returns empty oracle.
- * @param cutoff Finite depth threshold metres; nonfinite returns empty oracle.
+ * @param cutoff Finite depth threshold meters; nonfinite returns empty oracle.
  * @return Owned distribution. Clips depth>cutoff and strict view bounds, triangulates
  * wet pieces, weights scene area by optional native seed weight, computes separate
  * area-weighted 90th-percentile scene/SI reference speeds and cumulative seed weights
@@ -1452,7 +1452,7 @@ private slots:
      */
     void aGrowingIntegrationBacklogLowersDensityThenRecovers()
     {
-        // A rotation about the domain centre keeps most heads inside the mesh
+        // A rotation about the domain center keeps most heads inside the mesh
         // for the whole test, whatever the speed: a uniform fast flow would
         // sweep every particle out within a tick and leave nothing to integrate.
         const auto makeInput = [](double rate, quint64 revision) {
@@ -1811,7 +1811,7 @@ private slots:
     }
     /**
      *
-     * @brief Check screen motion gain across zooms and metre/foot scene coordinates while
+     * @brief Check screen motion gain across zooms and meter/foot scene coordinates while
      * retaining SI color reference.
      * A fast run envelope must cap near-stagnant-frame amplification.
      *
@@ -1905,7 +1905,7 @@ private slots:
     }
     /**
      *
-     * @brief Build velocity-only native packets with invalid fluxes and verify metre/foot
+     * @brief Build velocity-only native packets with invalid fluxes and verify meter/foot
      * coordinate transforms.
      * Checks physical SI color speed, expected five-second displacement and multiple cell
      * crossings.
@@ -3512,7 +3512,7 @@ private slots:
      *
      * @brief Require very fast curved motion to cross faces without invalid-field stops.
      * A crossing whose duration falls below the 1e-12 s step resolution used to switch cell
-     * without moving onto the face, leaving the head outside the neighbour.
+     * without moving onto the face, leaving the head outside the neighbor.
      *
      */
     void fastCurvedFieldsCrossFacesWithoutInvalidStops()
@@ -3595,7 +3595,7 @@ private slots:
             }
         }
         // Projected feet, Y reversal, and a large origin: displacements alone
-        // must scale; SI colour magnitudes must stay in metres per second.
+        // must scale; SI color magnitudes must stay in meters per second.
         for (auto &p : mesh->vertices)
             p = {1e7 + p.x() / 0.3048, -2e7 - p.y() / 0.3048};
         std::atomic_bool cancelled = false;

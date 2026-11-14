@@ -153,7 +153,7 @@ public:
      */
     [[nodiscard]] SpatialReferenceSystem *webMercator() const;
 
-    // ----- Recent / favourites --------------------------------------------
+    // ----- Recent / favorites --------------------------------------------
 
     /*!
      * \brief Returns authority:code pairs the user has recently used.

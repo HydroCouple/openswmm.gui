@@ -164,7 +164,7 @@ void RangeSliderWidget::mouseMoveEvent(QMouseEvent *e)
         newHi = std::max(cursorN, m_lo); // can't cross lo
         break;
     case DragKind::Both: {
-        // Shift the whole range by the cursor delta in normalised units.
+        // Shift the whole range by the cursor delta in normalized units.
         const qreal originN = pixelToNorm(m_dragOriginPx);
         const qreal delta = cursorN - originN;
         const qreal width = m_dragOriginHi - m_dragOriginLo;

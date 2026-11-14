@@ -12,7 +12,7 @@
  *     inlet type (including COMBINATION and CUSTOM) — create → saveToEngine →
  *     a fresh registry's loadFromEngine → the design compares equal, and
  *     swmm_inlet_get_design agrees field for field. This is the regression
- *     guard for the old "defaults on load" behaviour.
+ *     guard for the old "defaults on load" behavior.
  *  2. Undo / redo of a parameter change through SetInletParamsCommand.
  *  3. InletSceneBuilder's dimension-callout count per type (the table in
  *     inletdrawingview.h).

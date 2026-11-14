@@ -71,7 +71,7 @@ struct RunSpec {
 
 // Handoff step-3 table (revision 3): ratio 1.5, coarsen 20 (the product
 // default), min cell = cell/4, trim 5° / 0.1·cell for every run. Terrain
-// tolerance 3 m: SRTM is quantised to whole metres, so anything under ~3 m
+// tolerance 3 m: SRTM is quantized to whole meters, so anything under ~3 m
 // traces noise (handoff revision 2, 6b plan §7).
 const RunSpec kRuns[] = {
     {"A", 10.0, 0.0, 30.0, false, 0.0, "grading & quality gates"},
@@ -290,7 +290,7 @@ class TestMeshOverhaulBellinge : public QObject
             const double dy0 = *std::min_element(ys, ys + 4);
             const double dy1 = *std::max_element(ys, ys + 4);
 
-            // Local scale at the domain centre, as the worker computes it.
+            // Local scale at the domain center, as the worker computes it.
             auto *demToMesh = OGRCreateCoordinateTransformation(&demSrs, &meshSrs);
             if (demToMesh) {
                 double sx[2] = {(dx0 + dx1) / 2, (dx0 + dx1) / 2 + px};
@@ -454,7 +454,7 @@ void TestMeshOverhaulBellinge::initTestCase()
     // Runs A–D constrain nodes only (coupling identity rides on the
     // JUNCTION nodes, which the gates check); E/F add the conduits. Bellinge
     // has pipes that cross in plan, three alignments stored backwards and
-    // alignments that pass within centimetres of each other: the worker
+    // alignments that pass within centimeters of each other: the worker
     // unfolds the alignments and the generator joins lines closer than its
     // refinement floor and splits crossings (MESH_TRIANGLE_ENGINE_PLAN
     // as-built), so E/F mesh the network as it is.
@@ -466,7 +466,7 @@ void TestMeshOverhaulBellinge::initTestCase()
     // The dialog default ticks "Subcatchments → triangle regions", and the
     // worker then writes a [2D_TRIANGLE_NODE_MAP] row per tagged cell naming
     // the SUBCATCHMENT id, which the engine rejects as an unknown node
-    // (pre-existing behaviour, reported as an open item — not overhaul code).
+    // (pre-existing behavior, reported as an open item — not overhaul code).
     m_base.includeSubcatch = false;
     QVERIFY(!m_base.candidateNodes.isEmpty());
     QVERIFY(!m_base.meshCRSWkt.isEmpty());
@@ -818,7 +818,7 @@ void TestMeshOverhaulBellinge::acceptance()
         };
         QStringList rows;
         // Triangle engine gates (MESH_TRIANGLE_ENGINE_PLAN §6). With every
-        // angle >= theta, neighbours' longest edges differ by <= 1/sin theta
+        // angle >= theta, neighbors' longest edges differ by <= 1/sin theta
         // (2 at 30 deg); triangles at a small INPUT angle (two pipes leaving
         // a manhole 3 deg apart) cannot meet the bound in any mesher, hence
         // the small allowances instead of zero.

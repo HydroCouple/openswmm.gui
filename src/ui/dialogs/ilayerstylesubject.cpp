@@ -24,7 +24,7 @@ namespace openswmmvis::ui
 namespace
 {
 
-// Convert a QVariant into something JSON-serialisable. Colours go through
+// Convert a QVariant into something JSON-serializable. Colors go through
 // .name(HexArgb), Qt::PenStyle/enum values go to int, everything else
 // uses QVariant::toString / toDouble / toBool / toInt.
 /**

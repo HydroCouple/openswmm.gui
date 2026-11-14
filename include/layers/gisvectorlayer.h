@@ -86,12 +86,12 @@ struct GISVectorSymbol {
 
     /**
      * @brief Encode marker, line, polygon and label settings as an owned JSON value.
-     * @return Persistence object with ARGB colours and full labelConfig. Pen cap/join/custom dashes, brush patterns/textures and legacy font styling are not fully serialized; no validation or disk write occurs.
+     * @return Persistence object with ARGB colors and full labelConfig. Pen cap/join/custom dashes, brush patterns/textures and legacy font styling are not fully serialized; no validation or disk write occurs.
      */
     [[nodiscard]] QJsonObject toJson() const;
     /**
      * @brief Apply permissive persisted symbology to this value.
-     * @param[in] j Present traditional fields replace current values; absent fields retain them. Invalid colours retain their previous values, and numeric/enum ranges are not checked. A present labelConfig is decoded separately from legacy label fields.
+     * @param[in] j Present traditional fields replace current values; absent fields retain them. Invalid colors retain their previous values, and numeric/enum ranges are not checked. A present labelConfig is decoded separately from legacy label fields.
      * @note No signals, file access, renderer update or transactional validation occurs.
      */
     void fromJson(const QJsonObject &j);
@@ -264,7 +264,7 @@ public:
     [[nodiscard]] GISVectorSymbol symbol() const;
     /**
      * @brief Replace typed item symbology and request a scene rebuild.
-     * @param[in] symbol Value copied without range/colour validation or equality suppression.
+     * @param[in] symbol Value copied without range/color validation or equality suppression.
      * @note Resynchronizes an existing symbol adapter, marks scene dirty and always emits symbolChanged()/repaintRequested(). Does not rewrite the rule renderer or inherited label configuration.
      */
     void setSymbol(const GISVectorSymbol &symbol);
@@ -280,7 +280,7 @@ public:
     /**
      * @brief Store inherited label policy and mirror changed legacy label fields into typed symbology.
      * @param[in] cfg Complete label settings; equality with inherited state is a no-op.
-     * @note Changes to show/field/font/colour update the symbol bag and emit symbolChanged(); changes only to richer settings can leave symbol().labelConfig unchanged. Label changes mark scene content dirty so labels are rebuilt with current text/style/visibility. Base handling emits labelConfigChanged()/repaintRequested().
+     * @note Changes to show/field/font/color update the symbol bag and emit symbolChanged(); changes only to richer settings can leave symbol().labelConfig unchanged. Label changes mark scene content dirty so labels are rebuilt with current text/style/visibility. Base handling emits labelConfigChanged()/repaintRequested().
      */
     void setLabelConfig(const OpenSWMM::Render::LabelConfig &cfg) override;
 
@@ -376,7 +376,7 @@ public:
                         const SpatialReferenceSystem *canvasSRS = nullptr) const;
 
     /**
-         * @return Scene-bounding-box centres of current selected scene items; multipart geometry can contribute several anchors per FID. Empty before population/without selected painted items. Does not query or reproject the datasource.
+         * @return Scene-bounding-box centers of current selected scene items; multipart geometry can contribute several anchors per FID. Empty before population/without selected painted items. Does not query or reproject the datasource.
          */
     [[nodiscard]] QVector<QPointF> selectedFeatureAnchors() const;
 
@@ -596,7 +596,7 @@ private:
     /*! One-shot latch for the "file declares no CRS" notice (\ref crsAssumed). */
     mutable bool m_warnedNoCRS = false;
 
-    // Slice BI Phase 8.13.6.6 — renderer plumbing.  Initialised eagerly in
+    // Slice BI Phase 8.13.6.6 — renderer plumbing.  Initialized eagerly in
     // the ctor (default SingleSymbolRenderer) so renderer() never returns
     // null.  Paint refactor deferred until Slice BB ColorRamp ships.
     //

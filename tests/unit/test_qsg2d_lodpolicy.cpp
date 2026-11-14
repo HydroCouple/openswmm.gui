@@ -186,7 +186,7 @@ TEST(Qsg2DLodPolicyTest, ZeroThresholdForcesEdgesAndVerticesEvenAtFar)
 TEST(Qsg2DLodPolicyTest, DefaultThresholdsStillSuppressDensePassesAtFar)
 {
     // Regression guard: with a non-zero threshold above the Far ceiling the
-    // dense passes stay suppressed at Far (default performance behaviour).
+    // dense passes stay suppressed at Far (default performance behavior).
     Qsg2DLodInputs in = millionCellFullExtent();
     in.edgeMinCellAreaPx = 32.0;
     in.markerMinCellAreaPx = 200.0;

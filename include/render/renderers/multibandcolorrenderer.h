@@ -9,10 +9,10 @@
  *         hard-wire with a renderer the user can see and switch away from:
  *         it names which bands feed the red / green / blue (/ alpha)
  *         channels, and installing any other IRasterRenderer on a
- *         multi-band raster puts the layer back on the single-band colour
+ *         multi-band raster puts the layer back on the single-band color
  *         path for the chosen render band.
  *
- *         No per-pixel colour mapping happens here — the warp reads the
+ *         No per-pixel color mapping happens here — the warp reads the
  *         bands as bytes and composites them directly — so colorForValue()
  *         is unused (returns transparent). No contrast stretch (deferred).
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
@@ -76,7 +76,7 @@ public:
      * configured source bands directly to obtain actual display colors. */
     [[nodiscard]] QColor colorForValue(double value, bool isNoData = false) const override;
     /** @brief Describe the RGB source selection with a generic swatch.
-     * @return One gray SimpleFill row labelled with RGB band indices; alpha is
+     * @return One gray SimpleFill row labeled with RGB band indices; alpha is
      * omitted from the label and no per-value class keys or numeric ranges are supplied. */
     [[nodiscard]] QList<LegendSymbolItem> legendSymbolItems() const override;
     /** @brief Serialize all four band indices with the renderer discriminator.

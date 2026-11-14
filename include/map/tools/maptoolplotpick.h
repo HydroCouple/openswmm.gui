@@ -123,7 +123,7 @@ signals:
      */
     void plotSystemRequested(openswmmvis::plot::PlotAttribute attribute);
 
-    /*! \brief User pressed Escape or otherwise cancelled the pick tool.
+    /*! \brief User pressed Escape or otherwise canceled the pick tool.
      *  The owner should pop the tool off the canvas and uncheck the
      *  toolbar action.
      * @note Escape emits; tool does not automatically pop itself or restore previous tool. Owner

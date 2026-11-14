@@ -93,7 +93,7 @@
 namespace
 {
 
-// Keys — centralised so the schema is easy to audit in one place
+// Keys — centralized so the schema is easy to audit in one place
 // and the same strings aren't repeated across serialize/parse paths.
 // QString-typed so QJsonObject::operator[] / .value() accept them
 // across Qt versions without overload ambiguity.
@@ -184,7 +184,7 @@ const QString kMeshContFilledAlpha = QStringLiteral("filledOpacity"); // BJ.2-fi
 // the richer sublayer state wins where the two overlap.
 //
 // Without this, style bag settings that have no hand-rolled field — the
-// fill ClassificationScheme, colorByAttribute, and the edge BC colours —
+// fill ClassificationScheme, colorByAttribute, and the edge BC colors —
 // are lost on project reopen.
 const QString kMeshSublayers = QStringLiteral("sublayers");
 
@@ -230,7 +230,7 @@ const QString kLabelConfig = QStringLiteral("labelConfig");
 // that never touched the Temporal tab.
 const QString kTemporalSpec = QStringLiteral("temporal");
 
-// Slice Z.14-attach — per-layer MaskSpec. Same elide-on-default behaviour.
+// Slice Z.14-attach — per-layer MaskSpec. Same elide-on-default behavior.
 const QString kMaskSpec = QStringLiteral("mask");
 
 // Slice Z.15-attach — per-layer AuxiliaryStorageSpec.
@@ -574,7 +574,7 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw, const 
     // only sees the layer-level slot; the 11 per-Category renderers live
     // in m_kindRenderers and otherwise wouldn't round-trip.  Only emit a
     // kind entry when it differs from the default SingleSymbolRenderer (any
-    // graduated / categorized / rule-based / customised single is worth
+    // graduated / categorized / rule-based / customized single is worth
     // saving).  Older readers ignore this key.
     {
         QJsonObject kindObj;

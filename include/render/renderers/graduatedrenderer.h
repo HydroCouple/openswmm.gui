@@ -3,7 +3,7 @@
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
- * @brief     Renderer that classifies a numeric attribute into bins, each with its own colour.
+ * @brief     Renderer that classifies a numeric attribute into bins, each with its own color.
  *
  *         GraduatedRenderer is what drives the per-attribute heatmap on
  *         SWMMResultsLayer (depth / head / flow) and SWMM2DResultsLayer
@@ -13,7 +13,7 @@
  *           - binColors          — N QColors, one per bin
  *           - baseSymbol         — the SymbolStyle template; the renderer
  *                                  overrides "color" in every SymbolLayer
- *                                  with the per-bin colour at paint time.
+ *                                  with the per-bin color at paint time.
  *
  *         The interval binner computes the configured classification method,
  *         while a color ramp and sparse overrides provide bin colors. Owning
@@ -43,21 +43,21 @@ namespace OpenSWMM::Render
 
 /*!
  * \class GraduatedRenderer
- * \brief Classifies a numeric attribute into bins and assigns a colour per bin.
+ * \brief Classifies a numeric attribute into bins and assigns a color per bin.
  *
  *        Slice BB-α (2026-05-24): rewired from the placeholder
  *        `binColors[]` field to `RasterColorRamp m_ramp` + `IntervalBinner
  *        m_binner` + `QVector<double> m_lastBreaks`. The renderer samples
- *        the ramp at each bin's midpoint to obtain its colour; the binner
+ *        the ramp at each bin's midpoint to obtain its color; the binner
  *        does the value-to-bin lookup. `setBinColors` / `binColors` stay
  *        as a legacy compatibility surface — they read/write the same
- *        per-bin colour vector but no longer drive `symbolFor` directly
+ *        per-bin color vector but no longer drive `symbolFor` directly
  *        (the ramp is the source of truth).
  *
  *        Legacy `.oswp` projects authored before BB-α used a `binColors`
- *        JSON array with no ramp + binner. `fromJson` honours that shape
- *        via a migration shim that synthesises a discrete ramp from the
- *        saved colours so existing projects keep their visuals.
+ *        JSON array with no ramp + binner. `fromJson` honors that shape
+ *        via a migration shim that synthesizes a discrete ramp from the
+ *        saved colors so existing projects keep their visuals.
  */
 class GraduatedRenderer final : public IFeatureRenderer
 {
@@ -85,10 +85,10 @@ public:
      *
      * Independent attribute driving the size / width output axes.
      * Empty (the default) = follow classifyAttribute, preserving the
-     * historical bin-mapped behaviour. When set to a different
+     * historical bin-mapped behavior. When set to a different
      * attribute, sizes/widths are interpolated over that attribute's
      * own value range (sizeValueMin/Max — sampled by the owning
-     * layer's rebuild) instead of the colour bin index.
+     * layer's rebuild) instead of the color bin index.
      *
      * @return Owned text; empty follows classifyAttribute().
      */
@@ -120,7 +120,7 @@ public:
      * @return True only for a nonempty size key unequal to the exact classification key.
      *
      * True when the size axes are driven by a different attribute than
-     *  the colour classification.
+     *  the color classification.
      */
     [[nodiscard]] bool sizeAxisIndependent() const
     {
@@ -130,7 +130,7 @@ public:
     /** @brief Read the sampled independent attribute lower bound.
      * @return Stored scalar in the independent attribute units, initially zero.
      *
-     * Value range used to normalise the independent size attribute.
+     * Value range used to normalize the independent size attribute.
      *  Invalid (max <= min) until the owning layer samples it.
      */
     [[nodiscard]] double sizeValueMin() const { return m_sizeValueMin; }
@@ -196,7 +196,7 @@ public:
 
     /** @brief Inspect the ramp used for bin midpoint colors.
      *
-     * The colour ramp used to derive per-bin colours. Sampled at
+     * The color ramp used to derive per-bin colors. Sampled at
      * each bin's midpoint (i + 0.5) / nBins.
      *
      * @return Borrowed ramp valid for this renderer's lifetime; setters/loading can replace it.
@@ -260,7 +260,7 @@ public:
 
     /** @brief Sample every active bin color, including sparse overrides.
      *
-     * Per-bin colours (derived view). Computed from the ramp +
+     * Per-bin colors (derived view). Computed from the ramp +
      * binCount at request time; kept on the legacy surface so
      * callers that haven't migrated to ramp() still work.
      *
@@ -280,7 +280,7 @@ public:
      *
      * The SymbolStyle template. At paint time the renderer overrides
      * the "color" property of every SymbolLayer in this template with
-     * the appropriate per-bin colour.
+     * the appropriate per-bin color.
      *
      * @return Borrowed style valid for this renderer's lifetime; mutations/loading can replace it.
      */
@@ -305,7 +305,7 @@ public:
 
     /** @brief Map a scalar to a bin color using cached breaks or an equal-interval fallback.
      *
-     * Returns the colour for one raw attribute value.
+     * Returns the color for one raw attribute value.
      * Hides nonfinite and below-range values; high values saturate.
      * Cached boundaries determine bins after classification.
      *
@@ -318,7 +318,7 @@ public:
 
     /** @brief Read a bin override or sample the ramp at its normalized midpoint.
      *
-     * Returns the colour for one already-computed bin index.
+     * Returns the color for one already-computed bin index.
      * Sampled from the ramp at midpoint (i + 0.5) / nBins.
      *
      * @param bin Index clamped into the configured bin range.
@@ -333,8 +333,8 @@ public:
      * toggle for size/width. When `outputSizeEnabled = true`,
      * `symbolFor` writes a bin-index-mapped size into the symbol's
      * `props["size"]` in addition to (or instead
-     * of) the colour. Disabled by default — preserves prior
-     * colour-only behaviour.
+     * of) the color. Disabled by default — preserves prior
+     * color-only behavior.
      *
      * @return Stored toggle; sizeForBin()/sizeForValue() themselves ignore this flag.
      */
@@ -477,11 +477,11 @@ public:
     [[nodiscard]] std::unique_ptr<IFeatureRenderer> clone() const override;
 
     // ── Per-class editing (Slice BB Phase 8.6.16) ──────────────────────
-    // classKey is the bin index as a string ("0", "1", …). Only colour
+    // classKey is the bin index as a string ("0", "1", …). Only color
     // is editable for graduated — size/width are global on this renderer.
     // Overrides persist through ramp changes but become "dormant" if the
     // bin count drops below the override index (they re-emerge if the
-    // bin count grows again, modelling undo-friendly user intent).
+    // bin count grows again, modeling undo-friendly user intent).
     /** @brief Advertise sparse per-bin color editing.
      * @param kind Requested capability.
      * @return True only for Color; other and unknown kinds return false. */
@@ -508,7 +508,7 @@ public:
      * @return Borrowed hash valid for this renderer's lifetime; override edits/loading can change
      * its contents.
      *
-     * Inspect currently-stored per-bin colour overrides — primarily
+     * Inspect currently-stored per-bin color overrides — primarily
      *         for unit tests + the property dialog's "Reset" affordance.
      */
     [[nodiscard]] const QHash<int, QColor> &binColorOverrides() const noexcept
@@ -543,7 +543,7 @@ private:
     AttributeSourceKind m_sourceKind = AttributeSourceKind::Static;
     RangeMode m_rangeMode = RangeMode::FixedOverRun;
 
-    // Slice BB Phase 8.6.16 — sparse per-bin colour overrides.
+    // Slice BB Phase 8.6.16 — sparse per-bin color overrides.
     QHash<int, QColor> m_binColorOverrides;
 };
 

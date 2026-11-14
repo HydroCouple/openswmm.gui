@@ -587,7 +587,7 @@ private slots:
         QCOMPARE(panel.visibleToolCount(), 2);
     }
 
-    /** @brief A large metadata catalogue filters without invoking any tool factory. */
+    /** @brief A large metadata catalog filters without invoking any tool factory. */
     void thousandToolsRemainMetadataOnly()
     {
         openswmmvis::ui::ToolboxPanel panel;

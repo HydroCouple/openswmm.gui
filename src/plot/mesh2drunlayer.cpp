@@ -150,7 +150,7 @@ void Mesh2DRunLayer::ensureZBedCache_() const
         m_zBed[i] = static_cast<float>(sum / nv);
         // Planimetric m² exactly as the engine's MeshBuilder: |sub-triangle|
         // areas of the fan from v0, relative to v0 (no cancellation at large
-        // projected coordinates). Sources deliver SI metres.
+        // projected coordinates). Sources deliver SI meters.
         double area = 0.0;
         for (int k = 1; valid && k + 1 < nv; ++k) {
             const double dx1 = vx[c[k]] - vx[c[0]], dy1 = vy[c[k]] - vy[c[0]];
@@ -588,7 +588,7 @@ bool Mesh2DRunLayer::extractCellFrames_(IMesh2DSource &src, const QVector<Series
     QVector<std::pair<QDateTime, double>> prevCum(requests.size());
     for (int t = first; t < nT; ++t) {
         // One frame is the unit of cancellation: the HDF5 lock is held for
-        // one read at a time, so a cancel is honoured within one frame.
+        // one read at a time, so a cancel is honored within one frame.
         if (cancel && cancel->load(std::memory_order_relaxed))
             return false;
         const QDateTime time = src.simTimeAt(t);
@@ -852,7 +852,7 @@ void Mesh2DRunLayer::getSeriesAtUncached(const ObjectRef &ref, PlotAttribute att
             double value = std::nan("");
             if (!inc.empty() && vsrc->readDepthsAt(t, depths)) {
                 // 1/nv weighting per incident cell (the plan's rule, mirroring
-                // the engine's median-dual /nv), normalised by 3 so an
+                // the engine's median-dual /nv), normalized by 3 so an
                 // all-triangle mesh is the plain mean it always was: a
                 // triangle weighs 1, a quad 3/4.
                 double sum = 0.0, wsum = 0.0;

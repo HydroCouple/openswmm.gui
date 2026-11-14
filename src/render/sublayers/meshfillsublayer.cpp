@@ -63,7 +63,7 @@ MeshFillStyle::MeshFillStyle(QObject *parent) : SublayerStyle(parent)
     // the same 5-stop palette the renderer used to hard-code — so the editor's
     // ramp combo and the renderer agree on the default. The renderer still
     // takes the byte-identical legacy path for this ramp; it switches to the
-    // scheme's colour only once the user picks a *different* ramp, inverts it,
+    // scheme's color only once the user picks a *different* ramp, inverts it,
     // or chooses Classified mode (which bins the bed elevation).
     m_scheme.setMode(ClassificationScheme::ClassMode::Continuous);
     m_scheme.setRampName(QStringLiteral("Terrain"));
@@ -283,9 +283,9 @@ void MeshFillSublayer::setCategoryNames(const QStringList &names)
 QList<LegendSymbolItem> MeshFillSublayer::legendSymbolItems() const
 {
     // Categorical fill (the infiltration method): one row per value actually
-    // present in the mesh, labelled with the registry's own enum labels. A
+    // present in the mesh, labeled with the registry's own enum labels. A
     // single ramp swatch would say nothing about which methods are in play,
-    // which is the entire reason to colour by method before a run.
+    // which is the entire reason to color by method before a run.
     if (m_style->useElevationRamp() && m_style->colorsByCategory()) {
         const mesh::CellParamSpec *spec = mesh::cellParamSpec(m_style->colorByAttributeKey());
         QList<LegendSymbolItem> out;

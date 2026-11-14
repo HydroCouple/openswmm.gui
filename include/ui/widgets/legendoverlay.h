@@ -125,7 +125,7 @@ protected:
     void mouseReleaseEvent(QMouseEvent *event) override;
     /**
      * @brief Open a blocking context menu for the painted class/layer band and legend layout actions.
-     * @param[in] event Required Qt context event. Offers undo-stack class colour edits, live layer visibility/order changes, properties, clipboard image, sizing/reset and hide. Missing canvas/style delegates to QWidget.
+     * @param[in] event Required Qt context event. Offers undo-stack class color edits, live layer visibility/order changes, properties, clipboard image, sizing/reset and hide. Missing canvas/style delegates to QWidget.
      */
     void contextMenuEvent(QContextMenuEvent *event) override;
     /**
@@ -153,7 +153,7 @@ private slots:
     void copyLegendImage();
     /**
      * @brief Reset the complete shared style to defaults, clear initial positioning and recompute/repaint.
-     * @note Missing style is a no-op; this resets colours/fonts as well as placement.
+     * @note Missing style is a no-op; this resets colors/fonts as well as placement.
      */
     void resetLayout();
     /**

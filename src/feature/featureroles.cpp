@@ -485,7 +485,7 @@ bool bcFieldApplies(const QString &bcType, const QString &field)
     using T = mesh::MeshBCTypes::Type;
     const T t = mesh::MeshBCTypes::fromInpToken(bcType, &ok);
     if (!ok)
-        return true; // an unknown type greys nothing out
+        return true; // an unknown type grays nothing out
     switch (t) {
     case T::Wall:
         return f == QLatin1String("wall_drag");

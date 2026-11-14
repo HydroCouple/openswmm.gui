@@ -636,7 +636,7 @@ void LinkCompoundEditDialog::onTransectPickerClicked()
     const QString chosen = openswmmvis::ui::TransectEditorDialog::pickTransect(
         reg, m_ref.layer, /*undoStack=*/nullptr, initial, this);
     if (chosen.isEmpty()) {
-        // User cancelled or deleted everything — still refresh the list
+        // User canceled or deleted everything — still refresh the list
         // so newly-created-but-not-chosen entries appear in the combo.
         refreshTransectPickerItems(initial);
         return;

@@ -25,7 +25,7 @@ void LegendColorDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
                                 const QModelIndex &index) const
 {
     // Paint the row background using the default style so selection /
-    // alternating colours look consistent with the rest of the view.
+    // alternating colors look consistent with the rest of the view.
     QStyleOptionViewItem opt = option;
     initStyleOption(&opt, index);
     opt.text.clear(); // we paint the swatch instead.
@@ -39,7 +39,7 @@ void LegendColorDelegate::paint(QPainter *painter, const QStyleOptionViewItem &o
 
     const bool editable = index.data(LegendLayerTreeModel::EditableRole).toBool();
 
-    // Swatch geometry: 16×16 chip with a 1 px outline, vertically centred.
+    // Swatch geometry: 16×16 chip with a 1 px outline, vertically centered.
     constexpr int kSwatch = 16;
     const QRect r = option.rect;
     const int x = r.left() + 6;
@@ -87,7 +87,7 @@ bool LegendColorDelegate::editorEvent(QEvent *event, QAbstractItemModel *model,
         QColorDialog::getColor(current.isValid() ? current : QColor(Qt::white), nullptr,
                                tr("Change legend color"), QColorDialog::ShowAlphaChannel);
     if (!picked.isValid())
-        return true; // user cancelled — event consumed.
+        return true; // user canceled — event consumed.
 
     model->setData(index, picked, Qt::EditRole);
     return true;

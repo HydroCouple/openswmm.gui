@@ -120,7 +120,7 @@ private slots:
     /**
      * @brief Verify concurrent source modification during buffered capture refuses and removes
      * partial snapshot.
-     * @note Rewrites 2 MiB source from a to b on second cancellation probe without cancelling;
+     * @note Rewrites 2 MiB source from a to b on second cancellation probe without canceling;
      * requires changed during import diagnostic and no snapshot/final mesh. Only scenario-owned
      * files mutate.
      */
@@ -159,9 +159,9 @@ private slots:
         QTest::newRow("after-first-buffer") << 3;
     }
     /**
-     * @brief Verify cancelled snapshot capture cleans partial payload and last-owner directory
+     * @brief Verify canceled snapshot capture cleans partial payload and last-owner directory
      * without touching source.
-     * @note 2 MiB source stays exact, cancelled diagnostic, staging directory empty then removed
+     * @note 2 MiB source stays exact, canceled diagnostic, staging directory empty then removed
      * after reset, final mesh never appears. Scenario root/source retained for review.
      */
     void cancellation()

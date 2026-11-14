@@ -37,7 +37,7 @@ public:
      *  e.g. "Open"). Returns a null QIcon when the alias does not
      *  resolve.
      * @param[in] alias Resource name without :/swmmvis/ prefix. Exact spelling identifies a process-cached QIcon.
-     * @return Value icon whose engine resolves colours at rendering, or null when no resource exists. Resource existence alone does not establish valid SVG content.
+     * @return Value icon whose engine resolves colors at rendering, or null when no resource exists. Resource existence alone does not establish valid SVG content.
      * @note QIcon owns the custom engine. Uses unsynchronized static/QPixmapCache state and must run on the GUI thread; no resource bytes are modified.
      */
     static QIcon icon(const QString &alias);

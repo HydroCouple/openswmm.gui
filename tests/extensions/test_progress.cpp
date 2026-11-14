@@ -453,7 +453,7 @@ private slots:
         QCOMPARE(logCount("fixture failed"), 1);
         QCOMPARE(logs.last().first, "error");
     }
-    /** @brief Cooperative cancellation publishes cancelled once; shutdown suppresses terminal logs. */
+    /** @brief Cooperative cancellation publishes canceled once; shutdown suppresses terminal logs. */
     void jobCancellationAndShutdown()
     {
         auto owner = host("jobs", bridge());

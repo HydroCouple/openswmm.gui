@@ -12,7 +12,7 @@
  * panels). Every plot sources its format from here so the choice of
  * `'f'`/`'g'` and `%.Nf`/`%.Ng` lives in exactly one place.
  *
- * Significant figures are realised via printf `g`, which is the only
+ * Significant figures are realized via printf `g`, which is the only
  * sig-fig mechanism Qt's axis label format supports.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
@@ -64,7 +64,7 @@ struct NumberFormat {
 
     /*! \brief True when `custom` is a single, safe floating-point printf
      *  conversion (specifier in eEfFgGaA, no '*' width/precision, no other
-     *  conversions). Only then is `custom` honoured.
+     *  conversions). Only then is `custom` honored.
      * @return False for empty text, multiple conversions, nonfloating conversions, dynamic width/precision or length modifiers; literal text and escaped percent signs are allowed. This validates syntax without limiting numeric widths.
      */
     bool hasValidCustom() const;
@@ -86,7 +86,7 @@ struct NumberFormat {
  * \brief The axis-format choices offered to the user, as one combined list.
  *
  * A mode enum plus a free integer count is two controls that can express
- * nonsense (0 significant figures) and reads as an unlabelled number in a
+ * nonsense (0 significant figures) and reads as an unlabeled number in a
  * property grid. These presets are the meaningful combinations, so every
  * chart offers one dropdown instead.
  *

@@ -24,7 +24,7 @@ namespace OpenSWMM::Sdk
 enum class ProgressOutcome {
     Succeeded, ///< Work completed successfully.
     Failed,    ///< Work stopped with an error; detail may explain the failure.
-    Cancelled  ///< Work was cancelled or its receiver lifetime ended.
+    Cancelled  ///< Work was canceled or its receiver lifetime ended.
 };
 
 /** @brief Optional host-owned progress service; every method requires the GUI thread.
@@ -41,7 +41,7 @@ public:
      * @param[in] context Required GUI-thread lifetime guard, kept on the GUI thread.
      * @return Unique per-host operation UUID, or null for an empty title, invalid context,
      * wrong-thread call, stopping host, or operation released during synchronous publication.
-     * @note Context destruction releases only its outstanding operations as cancelled.
+     * @note Context destruction releases only its outstanding operations as canceled.
      * Native statusbar/log publication is synchronous and may reenter application code. */
     virtual QUuid beginProgress(const QString &title, QObject *context) = 0;
     /** @brief Update progress and its current human-readable stage.
@@ -56,7 +56,7 @@ public:
                                 const QString &stage) = 0;
     /** @brief Remove an operation from shared progress and record its terminal outcome once.
      * @param[in] operationId Active UUID issued by this exact host.
-     * @param[in] outcome Successful, failed or cancelled; invalid enum values are rejected.
+     * @param[in] outcome Successful, failed or canceled; invalid enum values are rejected.
      * @param[in] detail Optional literal terminal explanation, appended to the log entry.
      * @return True when finished, false for invalid, foreign or finished IDs, unavailable/moved
      * contexts, wrong-thread calls, invalid outcomes or a stopping host.

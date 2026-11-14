@@ -283,7 +283,7 @@ private slots:
 
         // Fixture coordinates (see typed_selection_fixture.inp):
         //   gage "S1"          [SYMBOLS]  (-2000, -2000)
-        //   subcatchment "S1"  [Polygons] centred on (-2000, 2000)
+        //   subcatchment "S1"  [Polygons] centered on (-2000, 2000)
         const double gageX = -2000.0, gageY = -2000.0;
         const double catchX = -2000.0, catchY = 2000.0;
         const double tol = 1.0;

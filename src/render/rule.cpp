@@ -50,7 +50,7 @@ std::unique_ptr<IFeatureRenderer> makeRendererFromJson(const QJsonObject &j)
         r = std::make_unique<CategorizedRenderer>();
     else if (id == QLatin1String("rule"))
         r = std::make_unique<RuleBasedRenderer>();
-    // Slice Z.9 — Unclassed continuous-colour renderer.
+    // Slice Z.9 — Unclassed continuous-color renderer.
     else if (id == QLatin1String("unclassed"))
         r = std::make_unique<UnclassedColorsRenderer>();
     if (r)

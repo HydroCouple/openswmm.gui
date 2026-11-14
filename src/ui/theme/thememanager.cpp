@@ -26,8 +26,8 @@ namespace
 /*! Blend \a fg toward \a bg — used to derive the Disabled palette group
  *  from the enabled tokens instead of hand-picking more colors.
  * @brief Blend RGB channel values without retaining input alpha.
- * @param[in] fg Foreground colour.
- * @param[in] bg Background colour.
+ * @param[in] fg Foreground color.
+ * @param[in] bg Background color.
  * @param[in] fgShare Foreground weight, expected in [0,1]; no clamp is applied here.
  * @return Opaque QColor with integer-truncated weighted RGB channels.
  */

@@ -297,7 +297,7 @@ private slots:
     }
 
     // ====================================================================
-    // Rename round-trip — shared base class behaviour
+    // Rename round-trip — shared base class behavior
     // ====================================================================
 
     /**

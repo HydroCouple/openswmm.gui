@@ -12,10 +12,10 @@
  * QPainter path.  All scene-space geometry is pre-computed into the public
  * m_scene* caches by rebuildSceneGeometry(); the renderer reads them directly.
  *
- * Elevation visualisation:
- *  - Filled triangles: terrain colour ramp (deep-blue → near-white) ×
+ * Elevation visualization:
+ *  - Filled triangles: terrain color ramp (deep-blue → near-white) ×
  *    slope-based hillshade.
- *  - Edges: colour-mapped by slope; steep breaks rendered wider.
+ *  - Edges: color-mapped by slope; steep breaks rendered wider.
  *  - Nodes: SWMM-coupled (tagged) vertices; off by default (setShowMeshNodes).
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
@@ -400,7 +400,7 @@ public:
      */
     [[nodiscard]] int contourIntervalCount() const;
     /**
-     * @return Isoline colour copy, fallback dark grey alpha200.
+     * @return Isoline color copy, fallback dark gray alpha200.
      */
     [[nodiscard]] QColor contourColor() const;
     /**
@@ -418,8 +418,8 @@ public:
      */
     void setContourIntervalCount(int n);
     /**
-     * @param[in] c Valid QColor copied to isoline style; invalid colours ignored.
-     * @note Delegated style setter suppresses equal values and forwards repaint on change; filled-band colours remain independent.
+     * @param[in] c Valid QColor copied to isoline style; invalid colors ignored.
+     * @note Delegated style setter suppresses equal values and forwards repaint on change; filled-band colors remain independent.
      */
     void setContourColor(const QColor &c);
     /**
@@ -568,7 +568,7 @@ public:
      * @param[in] sx,sy Finite scene-map coordinates after canvas reprojection and Y inversion.
      * @param[in] tolPx Nonnegative finite screen-distance tolerance in logical pixels.
      * @param[in] pxPerSceneUnit Positive finite isotropic canvas zoom converting scene units to pixels.
-     * @return Nearest original vertex; equal-distance ties favour later vertex. Minus one for empty geometry/nonpositive zoom/no match. Full linear scan; no visibility/selection filter or grid acceleration.
+     * @return Nearest original vertex; equal-distance ties favor later vertex. Minus one for empty geometry/nonpositive zoom/no match. Full linear scan; no visibility/selection filter or grid acceleration.
      */
     [[nodiscard]] int pickVertexAt(double sx, double sy, double tolPx, double pxPerSceneUnit) const;
 
@@ -579,7 +579,7 @@ public:
      * @param[in] tolPx Nonnegative finite screen-distance tolerance in logical pixels.
      * @param[in] pxPerSceneUnit Positive finite isotropic canvas zoom converting scene units to pixels.
      * @param[in] boundaryOnly Whether to restrict to cached boundary flags; incomplete progressive boundary data can return no edges.
-     * @return Nearest stride-four original edge slot; equal-distance ties favour later cell/local slot, so an interior edge can return either half. Minus one for empty geometry/nonpositive zoom/no match. Full linear scan; no visibility/selection filter or grid acceleration.
+     * @return Nearest stride-four original edge slot; equal-distance ties favor later cell/local slot, so an interior edge can return either half. Minus one for empty geometry/nonpositive zoom/no match. Full linear scan; no visibility/selection filter or grid acceleration.
      */
     [[nodiscard]] int pickEdgeAt(double sx, double sy, double tolPx, double pxPerSceneUnit,
                                  bool boundaryOnly) const;
@@ -622,7 +622,7 @@ public:
     [[nodiscard]] double sampleZAt(double sx, double sy) const;
 
     /*! \brief True when this edge slot is a boundary edge in the loaded
-     *  mesh (i.e. the corresponding triangle has no neighbour across it).
+     *  mesh (i.e. the corresponding triangle has no neighbor across it).
      *  Boundary classification is derived from the mesh's MeshEdge list
      *  populated by InpMeshReader; non-boundary edges return false.
      * @param[in] triIdx Original zero-based cell index.
@@ -646,16 +646,16 @@ public:
 
     /*! Engine §11A helper — find the (tri, eLocal) slot on the other side
      *  of an interior edge. Returns `(-1, -1)` when the edge is on the
-     *  mesh boundary (no neighbour) or the indices are out of range.
+     *  mesh boundary (no neighbor) or the indices are out of range.
      *  Uses the vertex→triangles adjacency, so requires
      *  `rebuildVertexAdjacency()` to have run.
      *
-     *  Public because the Attribute Table's Edges view canonicalises each
+     *  Public because the Attribute Table's Edges view canonicalizes each
      *  interior edge pair onto a single row and needs the same pairing the
      *  conveyance mirror uses.
      * @param[in] triIdx Original cell index.
      * @param[in] edgeLocal Valid local edge ordinal.
-     * @return First other incident cell/local edge sharing both endpoints, or(-1,-1) for invalid/unbuilt adjacency/no neighbour. Does not consult explicit boundary-marker flags; a marked interior edge can still have a neighbour. Nonmanifold data chooses first adjacency match.
+     * @return First other incident cell/local edge sharing both endpoints, or(-1,-1) for invalid/unbuilt adjacency/no neighbor. Does not consult explicit boundary-marker flags; a marked interior edge can still have a neighbor. Nonmanifold data chooses first adjacency match.
      */
     [[nodiscard]] QPair<int, int> findEdgeNeighbour(int triIdx, int edgeLocal) const;
 
@@ -673,7 +673,7 @@ public:
      *  Emits attributeChanged. Apply-as-you-go.
      * @param[in] triIdx Original zero-based cell index.
      * @param[in] edgeLocal Triangle0..2 or quad0..3 local edge; not a unique-scene-edge index.
-     * @param[in] bc Whole authored BC copied verbatim, including type/series/group/head/slope/flow/conveyance. Values use MeshEdgeBC section units; no boundary-only/type/range/reference validation or neighbour mirroring occurs here.
+     * @param[in] bc Whole authored BC copied verbatim, including type/series/group/head/slope/flow/conveyance. Values use MeshEdgeBC section units; no boundary-only/type/range/reference validation or neighbor mirroring occurs here.
      * @return False for invalid index/unavailable slot, true unchanged or changed.
      * @note Effective edit bumps BC revision, schedules legend scan and emits edge attributeChanged()/repaintRequested(). Use applyMeshEdgeConveyance() for symmetric interior flux attenuation.
      */
@@ -682,14 +682,14 @@ public:
     /*! \brief Engine §11A — set the per-edge conveyance (flux attenuation
      *  multiplier) in [0, 1]. Rejects out-of-range values (the C API does
      *  the same; the toolbar's QDoubleSpinBox range guards against this at
-     *  the UI). Interior edges are mirrored to the neighbour slot so the
+     *  the UI). Interior edges are mirrored to the neighbor slot so the
      *  two halves always carry the same value (matches the engine's
      *  symmetry invariant). Emits attributeChanged for the edited slot.
      * @param[in] triIdx Original zero-based cell index.
      * @param[in] edgeLocal Triangle0..2 or quad0..3 local edge; not a unique-scene-edge index.
      * @param[in] conveyance Finite dimensionless0..1 flux multiplier; NaN/infinite/outside range rejected.
      * @return False for invalid/unavailable slot/value; true for already-matching or applied value.
-     * @note Mirrors first found neighbour slot when adjacency available, emits attributeChanged() for original edge and repaint only on effective change. Does not increment BC revision, refresh legends or mutate engine directly; progressive missing adjacency can leave no mirrored half.
+     * @note Mirrors first found neighbor slot when adjacency available, emits attributeChanged() for original edge and repaint only on effective change. Does not increment BC revision, refresh legends or mutate engine directly; progressive missing adjacency can leave no mirrored half.
      */
     bool applyMeshEdgeConveyance(int triIdx, int edgeLocal, double conveyance);
 
@@ -776,7 +776,7 @@ public:
      *  INIT_DEPTH column, default 0 = dry). Emits attributeChanged with the
      *  cell ref name.
      * @param[in] triIdx Original zero-based cell index, including quads.
-     * @param[in] depth Nonnegative initial water depth in metres per MeshTriangle storage contract; negative/NaN rejected, positive infinity not independently rejected.
+     * @param[in] depth Nonnegative initial water depth in meters per MeshTriangle storage contract; negative/NaN rejected, positive infinity not independently rejected.
      * @return False invalid/value rejected; true unchanged or applied.
      * @note Effective change bumps attribute revision, queues legend refresh, emits cell attributeChanged()/repaintRequested(). Does not update engine/file or independently set divergence flag.
      */
@@ -860,7 +860,7 @@ public:
      *  through its region tag / the '*' default again.
      *
      *  The inverse of applyMeshTriangleInfil, and NOT the same as writing back
-     *  the inherited numbers: a materialised override with identical values
+     *  the inherited numbers: a materialized override with identical values
      *  looks right but silently stops tracking the region, so the next
      *  region-level edit no longer reaches the cell. This is what
      *  MeshSetTriangleInfilCommand::undo() calls for a cell that was
@@ -877,7 +877,7 @@ public:
      *  \p tag is a [2D_TRIANGLES] TAG value, or "*" for the mesh-wide
      *  fallback. Every cell carrying \p tag that has no per-cell override
      *  starts resolving through the new row, so a region-level edit reaches
-     *  those cells WITHOUT materialising an override on any of them — which is
+     *  those cells WITHOUT materializing an override on any of them — which is
      *  the whole point of engine D-I3, and the difference between an
      *  assignment that stays editable as regions and one frozen into N
      *  per-cell rows.
@@ -886,7 +886,7 @@ public:
      *  preserved); a new tag is appended. Rejects an empty tag.
      *
      *  Bumps the same attribute-cache revision its per-cell siblings do, so
-     *  the fill-colour cache cannot serve stale colours for an inherited
+     *  the fill-color cache cannot serve stale colors for an inherited
      *  value. The edit has no single element ref — every inheriting cell moved
      *  — so it emits meshEditsChanged() for views that repaint wholesale,
      *  alongside a layer-scope attributeChanged() for the ones that only need
@@ -1145,7 +1145,7 @@ public:
      */
     [[nodiscard]] QVector<double> elevationSamples(int maxSamples = 200000) const;
 
-    // ----- Per-cell attribute colouring (MeshFillStyle::colorByAttribute) ---
+    // ----- Per-cell attribute coloring (MeshFillStyle::colorByAttribute) ---
     //
     // Values come from mesh::cellParamValue(), the single registry that also
     // drives the editing toolbar and the attribute table — never read
@@ -1153,8 +1153,8 @@ public:
     // light up for free when the engine grows them.
 
     /*! \brief Monotonic counter bumped on every per-cell attribute write.
-     *  The QSG renderer folds this into its fill-colour cache key so a
-     *  Manning's edit cannot serve a stale cached colour.
+     *  The QSG renderer folds this into its fill-color cache key so a
+     *  Manning's edit cannot serve a stale cached color.
      * @return Current attribute-derived cache revision, including ownership refreshes; not every raw metadata/tag edit increments it.
      */
     [[nodiscard]] quint64 attrRevision() const { return m_attrRevision; }
@@ -1286,7 +1286,7 @@ public:
      *  id emit nothing. */
     struct SceneTri {
         QPointF a, b, c;
-        float zAvg;       ///< Average vertex z — elevation colour.
+        float zAvg;       ///< Average vertex z — elevation color.
         float z0, z1, z2; ///< Per-vertex z — hillshade face normal.
         int cell = -1;    ///< Mesh cell index (MeshResult::triangles).
     };
@@ -1356,7 +1356,7 @@ public:
      *  -1 when no slot could be resolved. Parallel vector rather than a field
      *  on SceneEdge: SceneEdge is 40 bytes and an extra int pads it to 48,
      *  whereas this costs exactly 4 bytes per edge and leaves the hot struct's
-     *  cache behaviour alone.
+     *  cache behavior alone.
      *
      *  m_sceneEdges is deduplicated and buildMeshHeavyGeom is first-writer-
      *  wins, which is exactly right here: a boundary edge belongs to one
@@ -1370,9 +1370,9 @@ public:
     // ── Level-of-detail (LOD) overview for far-zoom rendering ──────────────
     // A coarse, fixed-resolution decimation of m_sceneTris built once by
     // rebuildOverview(): each occupied cell of a low-res aggregation grid
-    // becomes a quad (two SceneTris) coloured by the mean elevation of the
+    // becomes a quad (two SceneTris) colored by the mean elevation of the
     // triangles whose centroid falls in it, with corner heights averaged
-    // from neighbouring cells so hillshade still reads. The painter draws
+    // from neighboring cells so hillshade still reads. The painter draws
     // this instead of the full mesh when the native triangles project below
     // ~2 px (see SWMM2DMeshGraphicsItem::paint), turning a 5M-triangle fill
     // into a few-tens-of-thousands-triangle fill at full extent. Zoomed-in
@@ -1553,7 +1553,7 @@ private:
     SWMM2DMeshGraphicsItem *m_graphicsItem = nullptr;
 
     // Per-cell attribute / BC revisions. Separate from m_geomRevision so an
-    // attribute edit invalidates the renderer's fill-colour cache without
+    // attribute edit invalidates the renderer's fill-color cache without
     // forcing a full geometry rebuild, and so the cached attribute vector
     // below knows when it went stale.
     quint64 m_attrRevision = 0;
@@ -1577,7 +1577,7 @@ private:
     mutable double m_attrCacheMax = 0.0;
     mutable bool m_attrCacheHasData = false;
 
-    // Slice BI Phase 8.13.6.6 — renderer plumbing.  Initialised eagerly in
+    // Slice BI Phase 8.13.6.6 — renderer plumbing.  Initialized eagerly in
     // the ctor (default SingleSymbolRenderer) so renderer() never returns
     // null.  Paint refactor deferred until Slice BB ColorRamp ships.
     std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> m_renderer;
@@ -1634,7 +1634,7 @@ private:
     mutable quint64 m_gwSceneGeomRev = ~quint64(0);
     mutable quint64 m_gwSceneMarkerRev = ~quint64(0);
 
-    // User-customisable paint order (Slice GUI-2026-05-30 §2).
+    // User-customizable paint order (Slice GUI-2026-05-30 §2).
     mutable QList<OpenSWMM::Render::ISublayer *> m_sublayerOrder;
 };
 

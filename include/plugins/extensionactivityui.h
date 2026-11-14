@@ -41,7 +41,7 @@ public:
      * @param[in] pluginId Configured extension identity for document ownership metadata.
      * @param[in] window Borrowed main window.
      * @param[in] mdi Borrowed central document area, possibly null.
-     * @param[in] callbacks Native approved-command catalogue and controller callbacks. */
+     * @param[in] callbacks Native approved-command catalog and controller callbacks. */
     ExtensionActivityUi(GuiExtensionHost *host, ExtensionStateRegistry *registry,
                         const QUuid &ownerId, const QString &pluginId, QMainWindow *window,
                         QMdiArea *mdi, const ExtensionUiBridge &callbacks);

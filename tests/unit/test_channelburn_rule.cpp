@@ -30,7 +30,7 @@ namespace
 
 /**
  *
- * @brief Build metre-based rule-test profile options.
+ * @brief Build meter-based rule-test profile options.
  * @return Owned options: forced half-width 2 m, no bank clipping, maximum half-width
  * 10 m, one interior string and chainage step 1 m. Does not construct a profile.
  *
@@ -50,13 +50,13 @@ BurnOptions options()
  *
  * @brief Build a west-east trapezoidal profile for pure grid rule tests.
  * @param id Copied conduit ID.
- * @param len Intended positive centreline length in metres.
- * @param zUp Upstream bed elevation in metres.
- * @param drop Metre elevation fall, subtracted from zUp at the downstream endpoint;
+ * @param len Intended positive centerline length in meters.
+ * @param zUp Upstream bed elevation in meters.
+ * @param drop Meter elevation fall, subtracted from zUp at the downstream endpoint;
  * negative values deliberately permit adverse-slope fixtures.
  * @param opt Borrowed profile options, default options(), copied by production builder.
- * @return Owned production-built profile with 4-metre base, side slope 2 and
- * 0..2-metre section depths; no local validity check or persistent mutation.
+ * @return Owned production-built profile with 4-meter base, side slope 2 and
+ * 0..2-meter section depths; no local validity check or persistent mutation.
  *
  */
 BurnProfile straightChannel(const QString &id, double len, double zUp, double drop,
@@ -85,7 +85,7 @@ struct Grid {
     /**
      *
      * @brief Resize/reset the fixture grid's elevations.
-     * @param v Uniform elevation in metres or NaN to represent NoData.
+     * @param v Uniform elevation in meters or NaN to represent NoData.
      * Requires nonnegative nx/ny and representable nx*ny capacity; overwrites all prior
      * samples. No dimensional validation or file writes; allocation failure propagates.
      *
@@ -96,7 +96,7 @@ struct Grid {
      * @brief Compute an unchecked grid sample coordinate.
      * @param i Zero-based column, normally in [0,nx).
      * @param j Zero-based row, normally in [0,ny).
-     * @return XY in metres using origin plus index*step, with no half-pixel offset or
+     * @return XY in meters using origin plus index*step, with no half-pixel offset or
      * bounds check. Does not access or mutate z.
      *
      */
@@ -106,7 +106,7 @@ struct Grid {
      * @brief Access one writable row-major grid elevation.
      * @param i Valid zero-based column in [0,nx).
      * @param j Valid zero-based row in [0,ny).
-     * @return Borrowed mutable metre elevation (NaN means NoData), valid until z changes
+     * @return Borrowed mutable meter elevation (NaN means NoData), valid until z changes
      * capacity or this grid dies. Requires prior fill/adequate nx*ny storage; no checks.
      *
      */
@@ -116,7 +116,7 @@ struct Grid {
      * @brief Copy one row-major grid elevation without mutation.
      * @param i Valid zero-based column in [0,nx).
      * @param j Valid zero-based row in [0,ny).
-     * @return Metre elevation or NaN NoData. Requires populated nx*ny storage; no bounds
+     * @return Meter elevation or NaN NoData. Requires populated nx*ny storage; no bounds
      * or index-overflow validation.
      *
      */
@@ -133,8 +133,8 @@ struct Counts {
  * @brief Apply the production corridor and pixel rules to every fixture sample.
  * @param g Borrowed mutable populated grid; replaced/lowered values are written in
  * place, while unchanged/NoData/outside outcomes retain prior values.
- * @param profiles Borrowed valid metre-based burn profiles, indexed locally.
- * @param rule Borrowed rule in the same metre units as grid/profile data.
+ * @param profiles Borrowed valid meter-based burn profiles, indexed locally.
+ * @param rule Borrowed rule in the same meter units as grid/profile data.
  * @return Counts of all pixel outcomes, including samples outside indexed corridors.
  * NaN alone is treated as input NoData. No rollback if an allocation/production call
  * throws after earlier writes; no raster files or engine state are touched.
@@ -280,7 +280,7 @@ TEST(ChannelBurnRule, InsideTheForcedCorridorTheSectionWinsEvenWhenItRaises)
     const Counts c = burnGrid(g, ps, rule);
     EXPECT_GT(c.replaced, 0);
 
-    // On the centreline the pixel now holds the bed, which is ABOVE the old DEM.
+    // On the centerline the pixel now holds the bed, which is ABOVE the old DEM.
     BurnCorridorIndex idx;
     idx.build(ps);
     BurnProjection pr;
@@ -413,7 +413,7 @@ TEST(ChannelBurnRule, OutsideTheCorridorTheDemStands)
 
 TEST(ChannelBurnRule, RasterFrameConvertsBothUnits)
 {
-    // A model in US units (ft) over a DEM whose vertical unit is metres and
+    // A model in US units (ft) over a DEM whose vertical unit is meters and
     // whose horizontal CRS is also metric: the classic 3.28x silent failure.
     const BurnProfile ft = straightChannel(QStringLiteral("C1"), 30.0, 32.808399, 3.2808399);
     ASSERT_TRUE(ft.isValid());

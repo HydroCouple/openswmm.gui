@@ -117,7 +117,7 @@ void StreetSectionPreview::paintEvent(QPaintEvent *)
         ymax = qMax(curb, 0.001);
 
     // Station/elevation points, in engine order (P0..P4 left half; mirrored
-    // P5..P8 for a two-sided street, else P5 closes the crown centreline).
+    // P5..P8 for a two-sided street, else P5 closes the crown centerline).
     QList<QPointF> pts;
     pts.reserve(9);
     pts << QPointF(0.0, ymax)    // P0 top of backing
@@ -126,7 +126,7 @@ void StreetSectionPreview::paintEvent(QPaintEvent *)
         << QPointF(w1 + w2, y3)  // P3 bottom of depressed gutter
         << QPointF(w1 + w3, y4); // P4 crown (high road point)
     if (!twoSide) {
-        pts << QPointF(w1 + w3, ymax); // P5 crown / centreline
+        pts << QPointF(w1 + w3, ymax); // P5 crown / centerline
     } else {
         const double s5 = w1 + w3 + w4;
         pts << QPointF(s5, y3)              // P5

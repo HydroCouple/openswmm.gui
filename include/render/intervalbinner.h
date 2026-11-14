@@ -37,7 +37,7 @@ enum class BinMethod : int {
     // VS.3 — additional standard classification methods. Each still yields
     // exactly (binCount-1) interior breaks so the GraduatedRenderer / legend
     // contract is unchanged.
-    NaturalBreaks = 3, /*!< Fisher–Jenks optimal breaks (minimise in-class variance). */
+    NaturalBreaks = 3, /*!< Fisher–Jenks optimal breaks (minimize in-class variance). */
     StdDev = 4,        /*!< Breaks at mean ± k·σ, symmetric about the mean (1σ width). */
     Logarithmic = 5,   /*!< Log10 spacing for a positive range; otherwise equal intervals. */
     Exponential = 6,   /*!< Geometric (base-2) growth of band widths. */

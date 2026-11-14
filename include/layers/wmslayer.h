@@ -142,7 +142,7 @@ public:
     [[nodiscard]] QString activeLayerName() const;
     /**
      * @param[in] layerName Raw WMS layer name copied without service lookup validation.
-     * @note Equal text is a no-op. Change invalidates cached image metadata, applies matching geographic extent/SRS if capabilities are ready, emits activeLayerNameChanged()/repaintRequested(). Existing in-flight requests are not cancelled here.
+     * @note Equal text is a no-op. Change invalidates cached image metadata, applies matching geographic extent/SRS if capabilities are ready, emits activeLayerNameChanged()/repaintRequested(). Existing in-flight requests are not canceled here.
      */
     void setActiveLayerName(const QString &layerName);
 
@@ -152,7 +152,7 @@ public:
     [[nodiscard]] QString activeStyle() const;
     /**
      * @param[in] style Raw style token; empty requests default.
-     * @note Equality is a no-op; change invalidates cache and emits activeStyleChanged()/repaintRequested(), without cancelling an in-flight request or validating style membership.
+     * @note Equality is a no-op; change invalidates cache and emits activeStyleChanged()/repaintRequested(), without canceling an in-flight request or validating style membership.
      */
     void setActiveStyle(const QString &style);
 

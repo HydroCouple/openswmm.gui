@@ -66,14 +66,14 @@ void SunPositionThumb::paintEvent(QPaintEvent *)
     // Sun position: compass bearing measured clockwise from north.
     constexpr double kPi = 3.14159265358979323846;
     const double azRad = m_azimuth * kPi / 180.0;
-    // Altitude collapses the vector toward centre at high sun angles.
+    // Altitude collapses the vector toward center at high sun angles.
     const double altT = std::clamp(m_altitude / 90.0, 0.0, 1.0);
     const double rr = r * (1.0 - altT); // sun overhead → vector length 0
     const double dx = std::sin(azRad) * rr;
     const double dy = -std::cos(azRad) * rr;
     const QPointF sun = c + QPointF(dx, dy);
 
-    // Arrow from centre to sun, plus a sun glyph.
+    // Arrow from center to sun, plus a sun glyph.
     p.setPen(QPen(QColor(220, 160, 0), 2.0));
     p.setBrush(QColor(255, 200, 60));
     p.drawLine(c, sun);

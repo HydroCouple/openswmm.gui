@@ -216,7 +216,7 @@ public:
 
     /*! Slice US.2 — the embedded classification scheme (level count + method
      *  + custom range). The ramp fields are unused — isolines paint a single
-     *  line colour. */
+     *  line color. */
     /** @return Borrowed owned scheme, replaced by setScheme()/fromJson(); no mutable access. */
     [[nodiscard]] const ClassificationScheme &scheme() const { return m_scheme; }
     /** @brief Copy a complete level-classification scheme and notify on inequality.
