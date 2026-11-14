@@ -20,6 +20,13 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Changed
 
+- **MeshKit is built from its own repository.** The in-tree copy, `libraries/meshkit`, is
+  removed. The build fetches MeshKit `v0.2.0` from
+  [HydroCouple/Meshkit](https://github.com/HydroCouple/Meshkit), or uses `MESHKIT_SOURCE_DIR`
+  or a sibling `../MeshKit` checkout when one is present. Release builds accept only the
+  pinned tag (`MESHKIT_REQUIRE_PINNED=ON`). MeshKit's own CI replaces the `meshkit-native.yml`
+  workflow, and the mesh chapter of the manual links MeshKit's native API and Python
+  documentation at that tag.
 - **Full shallow water is the default 2D momentum equation.** The 2D options page marks
   **Full shallow-water** as the default and selects it for a model without
   `MOMENTUM_EQUATION`, matching the engine. Tutorials 3, 4 and 6 now set local inertial explicitly, because
