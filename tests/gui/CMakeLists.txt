@@ -241,9 +241,9 @@ add_swmmvis_gui_test(test_ifeaturerenderer
     ${CMAKE_SOURCE_DIR}/include/render/renderers/rulebasedrenderer.h
 )
 
-# Gap A1.2 — canonical colour prop convention: SymbolProps tolerant reads /
+# Gap A1.2 — canonical color prop convention: SymbolProps tolerant reads /
 # canonical writes, typed-spec hex tolerance, JSON-boundary rehydration of
-# every colour-suffixed key (incl. raster grammar keys).
+# every color-suffixed key (incl. raster grammar keys).
 add_swmmvis_gui_test(test_symbolprops_color
     test_symbolprops_color.cpp
     ${CMAKE_SOURCE_DIR}/src/render/symbollayer.cpp
@@ -750,7 +750,7 @@ add_swmmvis_gui_test(test_irasterrenderer
 )
 
 # Raster symbology — GraduatedRasterRenderer (ClassificationScheme-driven
-# continuous / classified single-band colouring), MultiBandColorRenderer and
+# continuous / classified single-band coloring), MultiBandColorRenderer and
 # the id→class factory. Self-contained: the same lean scheme + binner + ramp +
 # legend/symbol dependency set as test_2d_sublayers, plus the sibling raster
 # renderers the factory constructs.
@@ -840,7 +840,7 @@ add_swmmvis_gui_test(test_featuresublayer
 add_swmmvis_gui_test(test_2d_sublayers
     test_2d_sublayers.cpp
     # Sublayer styles classify scalar fields through ClassificationScheme,
-    # which serialises its bins via IntervalBinner.
+    # which serializes its bins via IntervalBinner.
     ${CMAKE_SOURCE_DIR}/src/render/classificationscheme.cpp
     ${CMAKE_SOURCE_DIR}/include/render/classificationscheme.h
     ${CMAKE_SOURCE_DIR}/src/render/intervalbinner.cpp
@@ -864,7 +864,7 @@ add_swmmvis_gui_test(test_2d_sublayers
     ${meshkit_SOURCE_DIR}/include/mesh/meshbctype.h
     ${meshkit_SOURCE_DIR}/src/mesh/meshcellparams.cpp
     ${meshkit_SOURCE_DIR}/include/mesh/meshcellparams.h
-    # GG0f — MeshFillSublayer colours cells by infil.* : categorically through
+    # GG0f — MeshFillSublayer colors cells by infil.* : categorically through
     # CategoricalPalette::byName + mesh::infilMethodLabels(), and per-cell
     # through mesh::resolveInfil / infilSlotForKey.
     ${meshkit_SOURCE_DIR}/src/mesh/meshinfil.cpp
@@ -968,7 +968,7 @@ add_swmmvis_gui_test(test_comparisonplot_export
 
 # Plot Time Series toolbar dialog — pins the shared canonical attribute
 # lists (the regression fence for the 4-site enumeration refactor) and the
-# PlotVariablePickerDialog's tree/gating/select-all/filter behaviour with a
+# PlotVariablePickerDialog's tree/gating/select-all/filter behavior with a
 # stub IRunLayer. Engine-free.
 add_swmmvis_gui_test(test_plotvariablepickerdialog
     test_plotvariablepickerdialog.cpp
@@ -1564,7 +1564,7 @@ target_link_libraries(test_comparisonplot_xaxis_link PRIVATE Qt6::Charts)
 
 # Issue #11 — UtcTimeAxis renders tick labels in UTC whatever the process
 # zone. Runs under a non-UTC, DST-observing TZ so the "labels equal the UTC
-# run's" assertion is not vacuous on a UTC machine (Qt honours $TZ on Unix).
+# run's" assertion is not vacuous on a UTC machine (Qt honors $TZ on Unix).
 add_swmmvis_gui_test(test_utctimeaxis
     test_utctimeaxis.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/utctimeaxis.cpp
@@ -1575,7 +1575,7 @@ set_property(TEST test_utctimeaxis APPEND PROPERTY
     ENVIRONMENT_MODIFICATION "TZ=set:America/Denver")
 
 # Tutorial bug report (2026-10-17) / issue #11 — the Simulation Status panel's
-# date editor must not convert UTC-labelled simulation times to local time.
+# date editor must not convert UTC-labeled simulation times to local time.
 # Runs at UTC+9, the reporter's offset.
 add_swmmvis_gui_test(test_simtime_display
     test_simtime_display.cpp
@@ -1642,7 +1642,7 @@ target_link_libraries(test_seriesstyleobject PRIVATE
     Qt6::Charts
     $<$<TARGET_EXISTS:QPropertyModel>:QPropertyModel>)
 
-# Slice AT.3 — pins computeStatistics() pure-function behaviour.
+# Slice AT.3 — pins computeStatistics() pure-function behavior.
 add_swmmvis_gui_test(test_comparisonplot_statstab
     test_comparisonplot_statstab.cpp
     ${CMAKE_SOURCE_DIR}/src/plot/seriesstatistics.cpp
@@ -1999,7 +1999,7 @@ add_swmmvis_gui_test(test_typeconversionflow
 
 # Slice TA, §T.6 — covers the subcatchment-side `tag` Q_PROPERTY round-trip
 #   (mirror of the Slice SA link test) + the metaobject writable contract
-#   + `displayLabelFor` localisation + rename-keeps-tag + multi-subcatch
+#   + `displayLabelFor` localization + rename-keeps-tag + multi-subcatch
 #   isolation.
 # Self-contained: pulls in the subcatch adapter and UnitSystem only.
 add_swmmvis_gui_test(test_subcatchpropertyadapter
@@ -2326,7 +2326,7 @@ add_swmmvis_gui_test(test_meshquadquality
     ${meshkit_SOURCE_DIR}/include/mesh/meshquadquality.h
 )
 
-# Region geometry: normalisation, turning angles, classification,
+# Region geometry: normalization, turning angles, classification,
 # validation against domains / holes, overlap, resampling.
 add_swmmvis_gui_test(test_meshquadregion
     test_meshquadregion.cpp
@@ -2586,7 +2586,7 @@ add_swmmvis_gui_test(test_inpmeshwriter
     # patchAttributeSections coverage round-trips through the reader.
     ${meshkit_SOURCE_DIR}/src/mesh/inpmeshreader.cpp
     # inpmeshwriter.cpp now uses mesh::MeshBCTypes::inpToken for the BC
-    # section serialiser.
+    # section serializer.
     ${meshkit_SOURCE_DIR}/src/mesh/meshbctype.cpp
     ${meshkit_SOURCE_DIR}/include/mesh/inpmeshreader.h
     ${meshkit_SOURCE_DIR}/include/mesh/inpmeshwriter.h
@@ -2618,7 +2618,7 @@ add_swmmvis_gui_test(test_marchingtriangles
 )
 
 # Slice BB-α — RasterColorRamp data type, HSV interpolation, built-in
-# catalogue, JSON round-trip. Self-contained: pulls in colorramp.cpp only.
+# catalog, JSON round-trip. Self-contained: pulls in colorramp.cpp only.
 add_swmmvis_gui_test(test_colorramp
     test_colorramp.cpp
     ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
@@ -3228,7 +3228,7 @@ swmmvis_link_full_app_deps(test_dirtytracking_run)
 
 # Control-rule identity (tutorial bug report, 2026-10-17): a body without its
 # RULE header, or a name with spaces, must be refused with the engine untouched
-# instead of desynchronising the registry from the engine; a retyped header is
+# instead of desynchronizing the registry from the engine; a retyped header is
 # a rename on both sides. Drives the real layer over the typed-selection fixture.
 add_swmmvis_gui_test(test_control_rule_apply
     test_control_rule_apply.cpp
@@ -3575,11 +3575,11 @@ add_swmmvis_gui_test(test_gisrastercrs
 )
 swmmvis_link_full_app_deps(test_gisrastercrs)
 
-# Raster symbology end-to-end: default renderer per dataset (colour table →
+# Raster symbology end-to-end: default renderer per dataset (color table →
 # Paletted, ≥3 Byte bands → RGB, else Graduated), per-band stats / sampling,
 # classified tile rendering + cache invalidation, RGB ↔ single-band switch,
 # StyleFileIO / .oswp style-block round-trips (dialog Cancel), and the
-# Symbology-tab RasterSymbologyPanel. Synthesises its GeoTIFF fixtures with
+# Symbology-tab RasterSymbologyPanel. Synthesizes its GeoTIFF fixtures with
 # GDAL under tests/output/raster_style, hence the full-app link.
 add_swmmvis_gui_test(test_rasterstyle_roundtrip
     test_rasterstyle_roundtrip.cpp
@@ -4136,7 +4136,7 @@ swmmvis_link_full_app_deps(test_link_click_selection)
 
 # Offset mode / link direction round-trip — Open -> Save must keep the
 # authored LINK_OFFSETS convention (elevations stay elevations) and the
-# authored From/To of adverse-slope conduits, which the engine normalises at
+# authored From/To of adverse-slope conduits, which the engine normalizes at
 # open (see workplans/OFFSET_MODE_AND_LINK_DIRECTION_FIX_PLAN_2026-09-02.md).
 add_swmmvis_gui_test(test_offsetmode_roundtrip
     test_offsetmode_roundtrip.cpp
@@ -4316,7 +4316,7 @@ add_swmmvis_gui_test(test_profile_attribute_tracks
 
 # Dialog window management — the MRU register of open modeless dialogs that
 # backs the Window menu's recovery entries and the pure-Qt stacking mode.
-# Bookkeeping only (offscreen QPA); real multi-monitor z-order behaviour is
+# Bookkeeping only (offscreen QPA); real multi-monitor z-order behavior is
 # covered by the manual checklist in
 # workplans/DIALOG_WINDOW_MANAGEMENT_VERIFICATION.md.
 add_swmmvis_gui_test(test_dialog_registry
@@ -4393,7 +4393,7 @@ add_swmmvis_gui_test(test_mesh2dresultsexportdialog
 target_include_directories(test_mesh2dresultsexportdialog PRIVATE ${GDAL_INCLUDE_DIRS})
 target_link_libraries(test_mesh2dresultsexportdialog PRIVATE GDAL::GDAL)
 
-# Shared painted style controls: real accessibility interfaces, keyboard colour
+# Shared painted style controls: real accessibility interfaces, keyboard color
 # picking, dialog/panel names and live theme rendering (phase 05).
 add_swmmvis_gui_test(test_stylecontrols
     test_stylecontrols.cpp
@@ -4431,7 +4431,7 @@ add_swmmvis_gui_test(test_meshpatchplacement
 )
 target_link_libraries(test_meshpatchplacement PRIVATE Qt6::Concurrent predicates_lib)
 
-# Selected GIS centrelines to independent rectangular corridor patches.
+# Selected GIS centerlines to independent rectangular corridor patches.
 add_swmmvis_gui_test(test_corridorsource
     test_corridorsource.cpp
     ${CMAKE_SOURCE_DIR}/src/mesh/corridorsource.cpp
@@ -5043,7 +5043,7 @@ target_compile_definitions(test_unified2dresults PRIVATE
 
 # Style controls of the 2D mesh / results sublayers reach what is drawn (QSG and
 # QPainter), the Layer Styling dock rules write only the edited field, and the
-# vector page greys what a mode ignores (style→render gap audit, 2026-11-13).
+# vector page grays what a mode ignores (style→render gap audit, 2026-11-13).
 add_swmmvis_gui_test(test_2dstyle_render_gaps
     test_2dstyle_render_gaps.cpp
     ${SWMMVIS_TEST_SOURCES}
