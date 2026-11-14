@@ -242,8 +242,10 @@ void CommandPalette::triggerCurrent()
         return;
     if (!action->isEnabled()) {
         updateStatus();
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0) // announcements need Qt 6.8
         QAccessibleAnnouncementEvent announcement(mStatus, mStatus->text());
         QAccessible::updateAccessibility(&announcement);
+#endif
         return;
     }
     hide();

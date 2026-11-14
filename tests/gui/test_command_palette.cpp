@@ -168,6 +168,8 @@ void TestCommandPalette::disabledActionNotTriggerable()
     QVERIFY(!palette.isHidden()); // palette stays up for another pick
 }
 
+// Screen-reader announcements need Qt 6.8; older kits skip those checks.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
 namespace
 {
 QStringList g_announcements;
@@ -179,6 +181,7 @@ void recordAnnouncement(QAccessibleEvent *event)
         g_announcements.append(static_cast<QAccessibleAnnouncementEvent *>(event)->message());
 }
 } // namespace
+#endif
 
 /*! A-15: the palette says why a command is unavailable. The highlighted disabled command's
  *  reason shows under the list, its tooltip carries it, and Enter on it keeps the palette open
@@ -216,15 +219,19 @@ void TestCommandPalette::disabledReasonIsShownAndAnnounced()
     QVERIFY2(status->text().contains(reason), qPrintable(status->text()));
 
     // Enter on it is refused out loud.
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
     g_announcements.clear();
     const auto previous = QAccessible::installUpdateHandler(recordAnnouncement);
+#endif
     QSignalSpy spy(mSaveAs, &QAction::triggered);
     QTest::keyClick(palette.filterEdit(), Qt::Key_Return);
-    QAccessible::installUpdateHandler(previous);
     QCOMPARE(spy.count(), 0);
     QVERIFY(!palette.isHidden());
+#if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
+    QAccessible::installUpdateHandler(previous);
     QCOMPARE(g_announcements.size(), 1);
     QVERIFY2(g_announcements.first().contains(reason), qPrintable(g_announcements.first()));
+#endif
 
     // An available command clears the line.
     palette.filterEdit()->clear();
