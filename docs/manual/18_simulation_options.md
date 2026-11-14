@@ -665,6 +665,9 @@ browse button and, where applicable, a mode combo:
 | **Hot-start file (USE)** | — | `[FILES] USE HOTSTART` |
 
 Leave a row blank to omit it from `[FILES]`.
+**Inspect…** beside **Hot-start file (USE)** opens the hot-start inspector on
+that file: its header, what it carries and its per-object values, which you can
+edit in an OpenSWMM file (see the hot-start section of \ref manual_running).
 
 *Scheduled hot-start saves (.inp [FILES] SAVE HOTSTART)* — an uncapped table,
 one row per save, with **Path**, **Datetime** and **Format** columns and **Add…**,

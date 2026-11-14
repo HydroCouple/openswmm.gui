@@ -31,6 +31,10 @@
 #include "ui/actionregistry.h"
 #include "ui/dialogs/preferencesdialog.h"
 #include "ui/dialogs/componentexecutiondialog.h"
+#include "ui/dialogs/modelcheckdialog.h"
+#include "ui/dialogs/hotstartinspectordialog.h"
+#include "project/modelsnapshot.h"
+#include "selection/selectionmanager.h"
 #include "simulation/componentexecution.h"
 #include "ui/theme/iconfactory.h"
 #include "ui/toolbars/compacttoolbarcontroller.h"
@@ -44,8 +48,11 @@
 #include <QAction>
 #include <QApplication>
 #include <QFrame>
+#include <QFileInfo>
+#include <QFileDialog>
 #include <QHBoxLayout>
 #include <QMenu>
+#include <QPointer>
 #include <QStyle>
 #include <QToolBar>
 #include <QToolButton>
@@ -74,6 +81,94 @@ void SWMMVis::registerActions()
     });
     if (ui->menuAnalysis)
         ui->menuAnalysis->addAction(componentExecution);
+    // G-09 Check Model: open and initialize a copy as a run would; one window per project.
+    auto *checkModel = new QAction(tr("Check Model"), this);
+    checkModel->setObjectName(QStringLiteral("actionCheckModel"));
+    checkModel->setToolTip(tr("Open and initialize a copy of the model as a run would, and list "
+                              "every error and warning"));
+    connect(checkModel, &QAction::triggered, this, [this] {
+        auto *pw = activeProjectWindow();
+        if (!pw || pw->isClosing() || !pw->modelLayer() || !pw->modelLayer()->engine())
+            return;
+        using openswmmvis::ui::ModelCheckDialog;
+        auto *dialog = pw->findChild<ModelCheckDialog *>(QStringLiteral("modelCheckDialog"));
+        if (!dialog) {
+            const QPointer<SWMMVisProjectWindow> owner(pw);
+            dialog = new ModelCheckDialog(
+                [owner](QString *error) -> QString {
+                    if (!owner || owner->isClosing()) {
+                        if (error)
+                            *error = tr("The project was closed.");
+                        return {};
+                    }
+                    return openswmmvis::project::writeModelSnapshot(
+                        owner, QStringLiteral("check"), QStringLiteral("check"), error);
+                },
+                [owner]() -> SWMM_Engine {
+                    return owner && owner->modelLayer() ? owner->modelLayer()->engine() : nullptr;
+                },
+                pw);
+            dialog->setObjectName(QStringLiteral("modelCheckDialog"));
+            connect(dialog, &ModelCheckDialog::objectActivated, this,
+                    [owner](const SWMMObjectRef &ref) {
+                        if (!owner || !owner->selectionManager())
+                            return;
+                        owner->selectionManager()->select({ref}, SelectionManager::Replace);
+                        if (auto *canvas = owner->canvas()) {
+                            canvas->zoomToSelection();
+                            canvas->flashSelection();
+                        }
+                    });
+            connect(dialog, &ModelCheckDialog::checkFinished, this,
+                    [this](const QString &summary, bool starts) {
+                        onLogMessage(tr("Check Model: %1").arg(summary),
+                                     starts ? OpenSWMMVisLogMessage::Information
+                                            : OpenSWMMVisLogMessage::Error);
+                    });
+        }
+        dialog->show();
+        dialog->raise();
+        dialog->activateWindow();
+        dialog->startCheck();
+    });
+    if (ui->menuAnalysis && ui->actionExecute)
+        ui->menuAnalysis->insertAction(ui->actionExecute, checkModel);
+    // G-09 hot-start inspector: any hot-start file; a SWMM 5 file is read against the open model.
+    auto *inspectHotstart = new QAction(tr("Inspect Hot-Start File…"), this);
+    inspectHotstart->setObjectName(QStringLiteral("actionInspectHotstart"));
+    inspectHotstart->setToolTip(tr("Show, and for an OpenSWMM file edit, the state a hot-start "
+                                   "file holds"));
+    connect(inspectHotstart, &QAction::triggered, this, [this] {
+        auto *pw = activeProjectWindow();
+        const QPointer<SWMMVisProjectWindow> owner(pw && !pw->isClosing() ? pw : nullptr);
+        const QString folder = owner && !owner->modelFilePath().isEmpty()
+                                   ? QFileInfo(owner->modelFilePath()).absolutePath()
+                                   : QString();
+        const QString path = QFileDialog::getOpenFileName(
+            this, tr("Inspect Hot-Start File"), folder,
+            tr("Hot-start files (*.hsf *.hs *.hot);;All files (*)"));
+        if (path.isEmpty())
+            return;
+        auto *dialog = new openswmmvis::ui::HotStartInspectorDialog(
+            [owner]() -> SWMM_Engine {
+                return owner && owner->modelLayer() ? owner->modelLayer()->engine() : nullptr;
+            },
+            owner ? static_cast<QWidget *>(owner.data()) : this);
+        connect(dialog, &openswmmvis::ui::HotStartInspectorDialog::objectActivated, this,
+                [owner](const SWMMObjectRef &ref) {
+                    if (!owner || !owner->selectionManager())
+                        return;
+                    owner->selectionManager()->select({ref}, SelectionManager::Replace);
+                    if (auto *canvas = owner->canvas()) {
+                        canvas->zoomToSelection();
+                        canvas->flashSelection();
+                    }
+                });
+        dialog->openFile(path);
+        dialog->show();
+    });
+    if (ui->menuAnalysis && ui->actionExecute)
+        ui->menuAnalysis->insertAction(ui->actionExecute, inspectHotstart);
     // App-level Undo / Redo, routed to the ACTIVE project's map undo stack.
     // Created disabled; onActiveSubWindowChanged() rebinds enabled-state to
     // the focused project's stack (canUndo/canRedoChanged) on every tab

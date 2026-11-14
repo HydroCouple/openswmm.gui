@@ -19,6 +19,8 @@ results, make them the active results layer, offer them to the report viewer).
 | **Execute** | **Analysis → Execute** | **Home → Run** | `Ctrl+R` |
 | **Pause Execution** | **Analysis → Pause Execution** | **Home → Run** | — |
 | **Cancel Execution** | **Analysis → Cancel Execution** | **Home → Run** | `Ctrl+.` |
+| **Check Model** | **Analysis → Check Model** | — | — |
+| **Inspect Hot-Start File…** | **Analysis → Inspect Hot-Start File…** | — | — |
 | **Summarize Results** | **Analysis → Summarize Results** | **Analysis → Report** | — |
 | **Report** | **Analysis → Report** | **Analysis → Report** | — |
 | **Show Mass Balance** | **Analysis → Show Mass Balance** | **Analysis → Network Analysis** | — |
@@ -51,6 +53,44 @@ written out first. The log records *Auto-saved before running.* If the save
 fails the run is abandoned with a **Run failed** message box.
 
 \figtodo{20_run_preconditions_log.png, Message Logs showing the auto-save line and the resolved output paths}
+
+### Check Model
+
+**Analysis → Check Model** (also in the command palette, `Ctrl+Shift+P`) tells you
+whether a run would start, without running it and without saving the project.
+It writes a copy of the model, unsaved edits included, opens and initializes the
+copy exactly as **Execute** does, lists every error and warning the engine reports,
+and then deletes the copy.
+
+The copy is written to a hidden `.swmmvis/check/` folder beside the model, so
+rainfall files, rasters and other files the model names by a relative path are
+found as they are in a run; for a project that has never been saved it goes to
+the application's data folder. The folder is removed when the check ends, even if
+you close the window first. Checking does not open the files a run writes
+(`[FILES] SAVE` interface and hot-start files, the `.out`), and it does not check
+external plugins, which a run loads from the `.inp` on disk.
+
+The **Check Model** window shows:
+
+- a summary: *The model starts with no errors or warnings*, *The model starts,
+  with 3 warnings*, *The model would not start: 1 error, 1 warning* (initialization
+  refused the model) or *The model would not open: …* (the input itself was
+  refused);
+- one row per message with its **Severity**, SWMM **Code**, **Object** and
+  **Message**. Errors are listed first.
+
+The **Object** column names the node, link, subcatchment, rain gage or data object
+a message refers to when the message says so in the usual SWMM form, for example
+*Conduit C2* or *Time Series TS1*, and that object exists in the model. Double-click
+such a row, or select it and press `Enter`, to select the object on the map and
+zoom to it. A message that names no object of the model is listed without one.
+`Ctrl+C` copies the selected rows. **Check Again** repeats the check after you
+have fixed something; a one-line summary of each check also goes to
+**Message Logs**.
+
+A model with a large 2D mesh takes about as long, and as much memory, to check
+as to start a run, because initialization builds the mesh solver. The window
+stays usable while it works.
 
 ### 2D pre-flight
 
@@ -248,6 +288,40 @@ Hot-start handling is configured in **Simulation Options**, not at run time:
   the chosen date and time. Paths are stored relative to the `.inp` directory.
 
 See \ref manual_simulation_options for the full page-by-page reference.
+
+**Inspecting a hot-start file.** **Analysis → Inspect Hot-Start File…** (or
+**Inspect…** beside the **Hot-start file (USE)** row on the Files page) opens a
+window with what a hot-start file holds:
+
+- the format and version, when it was saved, the run's start, the simulation
+  time the state belongs to, the run's end, its CRS, and which state it carries
+  (pollutant and reaction species concentrations, groundwater, snow, LID cells,
+  a full engine checkpoint);
+- **Nodes** (depth, head, volume, water age and one column per species),
+  **Links** (flow, depth, volume, water age, species) and **Subcatchments**
+  (runoff and groundwater state) tables, in the open model's units. **In model**
+  says whether the open model has an object of that name; a restart skips
+  records it does not have, and the window says how many of the model's objects
+  the file has no values for. Double-click a name, or press `Enter` on it, to go
+  to the object on the map.
+
+An OpenSWMM (native) file can be edited: type a new **Depth** for a node, or a
+new **Flow** or **Depth** for a link, then **Save**. Edited values are shown in
+bold, and **Revert** drops them. When a run later uses the file, the engine sets
+the node's head (invert plus depth) and its volume, and the conduit's volume,
+from the model's geometry, so the restart state stays consistent; the tables show
+those cells as *set at restart*. **Save** asks first, then replaces the file in one
+step, so a failure leaves it as it was. Keep a copy if you may need the old values.
+
+Two kinds of file are shown read-only:
+
+- a **SWMM 5 file** (Legacy, and Auto for most models), which stores its values
+  in the model's object order without names. It can only be read against the
+  model that wrote it: open that model first. Head and volume are not stored in
+  it and show as *not stored*.
+- a native file holding a **full engine checkpoint** (written for heat transport
+  and for groundwater on its own clock): a restart restores the checkpoint, not
+  the per-object values, so editing them would change nothing.
 
 ### Engine version, plugins and threads
 

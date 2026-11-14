@@ -68,6 +68,13 @@ function(add_swmmvis_gui_test TEST_NAME)
             ${CMAKE_SOURCE_DIR}/src/plugins/extensionsharedribbon.cpp
             ${CMAKE_SOURCE_DIR}/src/swmmvistimeseries.cpp
             ${CMAKE_SOURCE_DIR}/src/plugins/extensionmodelaccess.cpp
+            ${CMAKE_SOURCE_DIR}/src/project/modelsnapshot.cpp
+            ${CMAKE_SOURCE_DIR}/src/simulation/modelcheck.cpp
+            ${CMAKE_SOURCE_DIR}/src/ui/dialogs/modelcheckdialog.cpp
+            ${CMAKE_SOURCE_DIR}/include/ui/dialogs/modelcheckdialog.h
+            ${CMAKE_SOURCE_DIR}/src/simulation/hotstartdocument.cpp
+            ${CMAKE_SOURCE_DIR}/src/ui/dialogs/hotstartinspectordialog.cpp
+            ${CMAKE_SOURCE_DIR}/include/ui/dialogs/hotstartinspectordialog.h
             ${CMAKE_SOURCE_DIR}/src/plugins/extensiontimeseriesaccess.cpp)
         target_link_libraries(${TEST_NAME} PRIVATE openswmmvis_extensions)
     endif()
@@ -3910,6 +3917,23 @@ swmmvis_link_full_app_deps(test_simulationoptions_roundtrip)
 # untabbed layout so the object names, the option-editor reachability set and
 # the sidebar order are pinned BEFORE any widget moves between pages; the tab
 # gate and no-scroll slots join it as each page is tabbed.
+# Review G-09 — Check Model: message parsing, object links, the engine check and the window.
+add_swmmvis_gui_test(test_modelcheck
+    test_modelcheck.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/modelcheck.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/modelcheckdialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/modelcheckdialog.h
+)
+target_link_libraries(test_modelcheck PRIVATE Qt6::Concurrent)
+
+# Review G-09 — hot-start inspector: native and SWMM 5 files, units, edits written and read back.
+add_swmmvis_gui_test(test_hotstartinspector
+    test_hotstartinspector.cpp
+    ${CMAKE_SOURCE_DIR}/src/simulation/hotstartdocument.cpp
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/hotstartinspectordialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/hotstartinspectordialog.h
+)
+
 add_swmmvis_gui_test(test_simulationoptions_gates
     test_simulationoptions_gates.cpp
     ${SWMMVIS_TEST_SOURCES}

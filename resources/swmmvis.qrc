@@ -152,6 +152,7 @@
         <file alias="Subcatchment">images/subcatchment.svg</file>
         <file alias="Outfall">images/outfall.svg</file>
         <file alias="Report">images/report.svg</file>
+        <file alias="ModelCheck">images/model-check.svg</file>
         <file alias="Summarize">images/summarize.svg</file>
         <file alias="TravelTimeDownstream">images/tavel_time_downstream.svg</file>
         <file alias="TraveTimeUpstream">images/tavel_time_upstream.svg</file>

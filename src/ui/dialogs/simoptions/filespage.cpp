@@ -8,6 +8,7 @@
  */
 
 #include "ui/dialogs/simoptions/filespage.h"
+#include "ui/dialogs/hotstartinspectordialog.h"
 
 #include "ui/dialogs/simulationoptionsdialog.h"
 
@@ -602,6 +603,23 @@ void FilesPage::buildUi()
     makePathRow(tr("Hot-start file (USE):"), &m_hotstartUseEdit, nullptr, false,
                 tr("Choose Hot-Start File"), hsfFilter);
     m_hotstartUseEdit->setObjectName(QStringLiteral("hotstartUsePathEdit"));
+    // G-09: inspect the file a run would start from (and, for an OpenSWMM file, edit it).
+    if (auto *item = secForm->itemAt(secForm->rowCount() - 1, QFormLayout::FieldRole);
+        item && item->layout()) {
+        auto *inspect = new QPushButton(tr("Inspect…"), secondary);
+        inspect->setObjectName(QStringLiteral("hotstartUseInspect"));
+        inspect->setToolTip(tr("Show the state this hot-start file holds"));
+        inspect->setAutoDefault(false);
+        connect(inspect, &QPushButton::clicked, this, [this] {
+            auto *dialog = new openswmmvis::ui::HotStartInspectorDialog(
+                [this] { return ctx_.engine(); }, window());
+            const QString path = m_hotstartUseEdit->absolutePath();
+            if (!path.isEmpty())
+                dialog->openFile(path);
+            dialog->show();
+        });
+        item->layout()->addWidget(inspect);
+    }
 
     vlay->addWidget(secondary);
 
