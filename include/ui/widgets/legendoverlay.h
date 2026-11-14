@@ -99,8 +99,14 @@ protected:
     /**
      * @brief Paint shared-style chrome and visible layer/symbol legend content, recording vertical hit bands.
      * @param[in] event Qt paint event, unused. Content follows reverse canvas order and per-item overrides; no model content changes.
+     * Rows taller than the box are drawn at the scroll offset, with a thin thumb on the right edge.
      */
     void paintEvent(QPaintEvent *event) override;
+    /**
+     * @brief Scroll the rows when they are taller than the box; otherwise pass the wheel to the map.
+     * @param[in] event Required Qt wheel event; accepted only when the rows scroll.
+     */
+    void wheelEvent(QWheelEvent *event) override;
     /**
      * @brief Begin left-button edge/corner resizing or interior dragging.
      * @param[in] event Required Qt mouse event; other buttons delegate to QWidget.
@@ -109,7 +115,7 @@ protected:
     /**
      * @brief Preview interactive geometry or update resize hover cursors.
      * @param[in] event Required Qt mouse event; left drags switch anchor to Free. Resize previews enforce roughly 80-by-48 pixel floors and defer style dimensions until release.
-     * @note Drag clamping assumes the overlay fits the canvas; other layout paths handle oversized content by pinning its origin.
+     * @note Drags stay inside the canvas; recomputeLayout() keeps the box no taller than the canvas.
      */
     void mouseMoveEvent(QMouseEvent *event) override;
     /**
@@ -158,7 +164,7 @@ private slots:
 private:
     /**
      * @brief Measure visible legend content and apply automatic/explicit dimensions and placement.
-     * @note Null canvas/style or no content collapses size to zero. Interactive resize defers recomputation; explicit dimensions override natural dimensions and may clip content.
+     * @note Null canvas/style or no content collapses size to zero. Interactive resize defers recomputation; explicit dimensions override natural dimensions. The box is no taller than the canvas less the anchor margins; content taller than the box scrolls.
      */
     void recomputeLayout();
     /**
@@ -222,6 +228,14 @@ private:
      */
     QPair<OpenSWMMVisLayer *, QString> itemAtY(int y) const;
 
+    /*! \brief Paint the legend into a box of \p size with its rows scrolled up by \p scrollY.
+     * @param[in,out] p Painter on the widget or an image.
+     * @param[in] size Box size; the background and frame fill it.
+     * @param[in] scrollY Pixels of content scrolled above the box top.
+     * @param[out] bands Optional hit bands in content coordinates (unscrolled); null records none.
+     */
+    void paintLegend(QPainter &p, const QSize &size, int scrollY, QVector<LayerBand> *bands) const;
+
     QPointer<MapCanvas> m_canvas;
     OpenSWMM::Render::LegendOverlayStyle *m_style = nullptr;
     bool m_ownsStyle = false;
@@ -229,6 +243,8 @@ private:
     bool m_dragging = false;
     bool m_positioned = false;       ///< first paint anchors per style
     QVector<LayerBand> m_layerBands; ///< populated by paintEvent()
+    int m_contentHeight = 0;         ///< natural content height from recomputeLayout()
+    int m_scrollY = 0;               ///< rows scrolled above the box top, in pixels
 
     // Slice US.B2 — interactive resize state.
     int m_resizeEdges = 0;      ///< active edge mask while resizing; 0 = not resizing

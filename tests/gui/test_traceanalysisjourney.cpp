@@ -31,6 +31,7 @@
 #include "ui/widgets/classificationeditor.h"
 #include "ui/widgets/legendoverlay.h"
 #include <QCheckBox>
+#include <QClipboard>
 #include <QComboBox>
 #include <QCryptographicHash>
 #include <QDialogButtonBox>
@@ -50,6 +51,7 @@
 #include <QStandardItemModel>
 #include <QTabWidget>
 #include <QTableView>
+#include <QWheelEvent>
 #include <QTimer>
 #include <QTreeView>
 #include <QtTest>
@@ -708,6 +710,64 @@ private slots:
         reopened.setStyle(&restored);
         QCOMPARE(reopened.geometry(), reduced);
     }
+    /** @brief A legend taller than the map is capped to it, scrolls its rows with the wheel,
+     *  drags vertically, follows a map resize and copies whole. */
+    void legendTallerThanMapScrollsAndDrags()
+    {
+        MapCanvas canvas;
+        canvas.resize(600, 200);
+        ui::LegendOverlay legend(&canvas);
+        auto *style = legend.style();
+        QFont big = style->titleFont();
+        big.setPixelSize(250);
+        style->setTitleFont(big);
+        style->setTitle("Tall legend");
+        style->setShowTitle(true);
+        style->setAnchor(OpenSWMM::Render::LegendOverlayStyle::Anchor::TopLeft);
+        const int natural = QFontMetrics(big).height() + style->rowSpacing() + 2 * style->padding();
+        QVERIFY(natural > canvas.height());
+        QCOMPARE(legend.height(), canvas.height() - 24); // the map less the anchor margins
+
+        // The rows area, without the scroll thumb on the right edge.
+        const auto rowsArea = [&legend] {
+            const QImage shot = legend.grab().toImage();
+            return shot.copy(0, 0, shot.width() - qRound(10 * shot.devicePixelRatio()),
+                             shot.height());
+        };
+        const QImage before = rowsArea();
+        QWheelEvent wheel(QPointF(20, 20), legend.mapToGlobal(QPointF(20, 20)), QPoint(),
+                          QPoint(0, -240), Qt::NoButton, Qt::NoModifier, Qt::NoScrollPhase, false);
+        QApplication::sendEvent(&legend, &wheel);
+        QVERIFY(wheel.isAccepted());
+        QVERIFY(rowsArea() != before); // the rows moved
+
+        const int top = legend.y();
+        const QPoint start(40, 40), delta(0, 50);
+        const QPoint global = legend.mapToGlobal(start);
+        QMouseEvent press(QEvent::MouseButtonPress, start, global, Qt::LeftButton, Qt::LeftButton,
+                          Qt::NoModifier);
+        QApplication::sendEvent(&legend, &press);
+        QMouseEvent move(QEvent::MouseMove, start + delta, global + delta, Qt::NoButton,
+                         Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(&legend, &move);
+        QMouseEvent release(QEvent::MouseButtonRelease, start + delta, global + delta,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(&legend, &release);
+        QVERIFY(legend.y() > top); // moved down, still inside the map
+        QCOMPARE(legend.geometry().bottom(), canvas.height() - 1);
+
+        canvas.resize(600, 800);
+        QResizeEvent grown(canvas.size(), QSize(600, 200));
+        QApplication::sendEvent(&canvas, &grown);
+        QCOMPARE(legend.height(), natural); // room for every row again
+        canvas.resize(600, 200);
+        QResizeEvent shrunk(canvas.size(), QSize(600, 800));
+        QApplication::sendEvent(&canvas, &shrunk);
+        QCOMPARE(legend.height(), canvas.height() - 24);
+
+        QVERIFY(QMetaObject::invokeMethod(&legend, "copyLegendImage"));
+        QCOMPARE(QApplication::clipboard()->image().height(), natural); // every row
+    }
     /** @brief Verify trace legends share numeric labels and proportional stroke/marker symbols with the layer and overlay.
      * Inspects a retained screenshot for seven/fourteen-pixel strokes and a twenty-four-pixel marker within one pixel and checks travel labels use minutes. */
     void legendValuesAndSymbols()
@@ -741,6 +801,9 @@ private slots:
         for (const auto &row : map::LegendContent::legendItemsFor(output))
             found |= row.sublayerId == flow->id() && row.label == linkRows[1].label;
         QVERIFY(found);
+        // The legend is no taller than the map, and grab() lays out the hidden window, which
+        // sizes the canvas from the window: give the window room for every legend row.
+        w.resize(1600, 1600);
         ui::LegendOverlay legend(w.canvas());
         legend.style()->setShowTitle(false);
         legend.style()->setShowFrame(false);

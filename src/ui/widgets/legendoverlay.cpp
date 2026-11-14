@@ -39,6 +39,8 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QResizeEvent>
+#include <QWheelEvent>
+#include <algorithm>
 #include <cmath>
 
 namespace openswmmvis::ui
@@ -51,6 +53,7 @@ namespace
 
 constexpr int kSwatchPadding = 6;
 constexpr int kLayerSpacing = 6;
+constexpr int kAnchorMargin = 12; // gap between an anchored box and the map edge
 
 /**
  * @brief Estimate space for legend symbol line widths and marker diameters.
@@ -368,6 +371,7 @@ void LegendOverlay::recomputeLayout()
         }
     }
     contentH += padding;
+    m_contentHeight = contentH;
 
     if (first && !(m_style->showTitle() && !m_style->title().isEmpty())) {
         resize(0, 0);
@@ -383,7 +387,11 @@ void LegendOverlay::recomputeLayout()
         boxW = m_style->explicitWidth();
     if (m_style->explicitHeight() > 0)
         boxH = m_style->explicitHeight();
+    // Keep the box on the map so it can be dragged; taller rows scroll inside it.
+    if (m_canvas->height() > 0)
+        boxH = std::min(boxH, std::max(48, m_canvas->height() - 2 * kAnchorMargin));
     resize(boxW, boxH);
+    m_scrollY = std::clamp(m_scrollY, 0, std::max(0, contentH - boxH));
 
     if (!m_positioned) {
         // Restore a persisted free position; otherwise anchor.
@@ -405,7 +413,7 @@ void LegendOverlay::anchorToCanvas()
 {
     if (!m_canvas || !m_style)
         return;
-    const int margin = 12;
+    const int margin = kAnchorMargin;
     const int cw = m_canvas->width();
     const int ch = m_canvas->height();
     const int w = width();
@@ -467,6 +475,24 @@ void LegendOverlay::paintEvent(QPaintEvent * /*event*/)
         return;
 
     QPainter p(this);
+    paintLegend(p, size(), m_scrollY, &m_layerBands);
+    // A thin thumb on the right edge shows the rows scroll (mouse wheel).
+    const int maxScroll = m_contentHeight - height();
+    if (maxScroll > 0) {
+        const int track = height() - 8;
+        const int thumb = std::max(16, track * height() / m_contentHeight);
+        QColor c = m_style->itemColor();
+        c.setAlpha(110);
+        p.setPen(Qt::NoPen);
+        p.setBrush(c);
+        p.drawRoundedRect(QRectF(width() - 6, 4 + (track - thumb) * m_scrollY / maxScroll, 3, thumb),
+                          1.5, 1.5);
+    }
+}
+
+void LegendOverlay::paintLegend(QPainter &p, const QSize &size, int scrollY,
+                                QVector<LayerBand> *bands) const
+{
     p.setRenderHint(QPainter::Antialiasing, true);
 
     const int padding = m_style->padding();
@@ -476,7 +502,7 @@ void LegendOverlay::paintEvent(QPaintEvent * /*event*/)
     // ── Background + frame ────────────────────────────────────────────
     QPainterPath box;
     const qreal inset = m_style->showFrame() ? 0.5 : 0.0;
-    box.addRoundedRect(QRectF(inset, inset, width() - 2 * inset, height() - 2 * inset),
+    box.addRoundedRect(QRectF(inset, inset, size.width() - 2 * inset, size.height() - 2 * inset),
                        m_style->cornerRadius(), m_style->cornerRadius());
 
     switch (m_style->backgroundMode()) {
@@ -488,9 +514,9 @@ void LegendOverlay::paintEvent(QPaintEvent * /*event*/)
     case Style::BackgroundMode::Gradient: {
         QLinearGradient g;
         if (m_style->gradientOrientation() == Qt::Horizontal)
-            g = QLinearGradient(0, 0, width(), 0);
+            g = QLinearGradient(0, 0, size.width(), 0);
         else
-            g = QLinearGradient(0, 0, 0, height());
+            g = QLinearGradient(0, 0, 0, size.height());
         g.setColorAt(0.0, m_style->backgroundColor());
         g.setColorAt(1.0, m_style->gradientEndColor());
         p.fillPath(box, g);
@@ -508,15 +534,20 @@ void LegendOverlay::paintEvent(QPaintEvent * /*event*/)
     const QFontMetrics hfm(m_style->layerHeaderFont());
     const QFontMetrics tfm(m_style->titleFont());
 
+    // Rows scroll inside the box; the background and frame stay put.
+    p.save();
+    p.setClipPath(box);
+    p.translate(0, -scrollY);
     int y = padding;
-    m_layerBands.clear();
+    if (bands)
+        bands->clear();
 
     if (m_style->showTitle() && !m_style->title().isEmpty()) {
         p.setFont(m_style->titleFont());
         p.setPen(m_style->titleColor());
-        p.drawText(QRect(padding, y, width() - 2 * padding, tfm.height()),
+        p.drawText(QRect(padding, y, size.width() - 2 * padding, tfm.height()),
                    Qt::AlignLeft | Qt::AlignVCenter,
-                   tfm.elidedText(m_style->title(), Qt::ElideRight, width() - 2 * padding));
+                   tfm.elidedText(m_style->title(), Qt::ElideRight, size.width() - 2 * padding));
         y += tfm.height() + rowSpacing;
     }
 
@@ -537,9 +568,9 @@ void LegendOverlay::paintEvent(QPaintEvent * /*event*/)
         // Layer header
         p.setFont(m_style->layerHeaderFont());
         p.setPen(m_style->layerHeaderColor());
-        p.drawText(QRect(padding, y, width() - 2 * padding, hfm.height()),
+        p.drawText(QRect(padding, y, size.width() - 2 * padding, hfm.height()),
                    Qt::AlignLeft | Qt::AlignVCenter,
-                   hfm.elidedText(layer->name(), Qt::ElideRight, width() - 2 * padding));
+                   hfm.elidedText(layer->name(), Qt::ElideRight, size.width() - 2 * padding));
         y += hfm.height();
 
         p.setFont(m_style->itemFont());
@@ -563,7 +594,7 @@ void LegendOverlay::paintEvent(QPaintEvent * /*event*/)
             }
 
             const int textX = hasSwatch ? padding + symbolW + kSwatchPadding : padding;
-            const QRect textRect(textX, y, width() - textX - padding, rowH);
+            const QRect textRect(textX, y, size.width() - textX - padding, rowH);
             p.setPen(m_style->itemColor());
             p.drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
                        fm.elidedText(row.effectiveLabel(), Qt::ElideRight, textRect.width()));
@@ -579,12 +610,15 @@ void LegendOverlay::paintEvent(QPaintEvent * /*event*/)
         }
 
         band.yBottom = y;
-        m_layerBands.append(band);
+        if (bands)
+            bands->append(band);
     }
+    p.restore();
 }
 
 OpenSWMMVisLayer *LegendOverlay::layerAtY(int y) const
 {
+    y += m_scrollY; // bands are in content coordinates
     for (const auto &band : m_layerBands) {
         if (y >= band.yTop && y < band.yBottom)
             return band.layer.data();
@@ -594,6 +628,7 @@ OpenSWMMVisLayer *LegendOverlay::layerAtY(int y) const
 
 QPair<OpenSWMMVisLayer *, QString> LegendOverlay::itemAtY(int y) const
 {
+    y += m_scrollY; // bands are in content coordinates
     for (const auto &band : m_layerBands) {
         if (!band.layer)
             continue;
@@ -700,8 +735,8 @@ void LegendOverlay::mouseMoveEvent(QMouseEvent *event)
     if (m_dragging && (event->buttons() & Qt::LeftButton)) {
         QPoint newPos = mapToParent(event->pos()) - m_dragStartOffset;
         if (m_canvas) {
-            newPos.setX(std::clamp(newPos.x(), 0, m_canvas->width() - width()));
-            newPos.setY(std::clamp(newPos.y(), 0, m_canvas->height() - height()));
+            newPos.setX(std::clamp(newPos.x(), 0, std::max(0, m_canvas->width() - width())));
+            newPos.setY(std::clamp(newPos.y(), 0, std::max(0, m_canvas->height() - height())));
         }
         move(newPos);
         // Dragging implies the user wants free placement.
@@ -746,6 +781,21 @@ void LegendOverlay::mouseReleaseEvent(QMouseEvent *event)
         return;
     }
     QWidget::mouseReleaseEvent(event);
+}
+
+void LegendOverlay::wheelEvent(QWheelEvent *event)
+{
+    const int maxScroll = std::max(0, m_contentHeight - height());
+    if (maxScroll == 0) {
+        QWidget::wheelEvent(event); // nothing to scroll: the map gets the wheel
+        return;
+    }
+    // Trackpads report pixels; a mouse notch (120) scrolls 40 px.
+    const int dy = !event->pixelDelta().isNull() ? event->pixelDelta().y()
+                                                  : event->angleDelta().y() * 40 / 120;
+    m_scrollY = std::clamp(m_scrollY - dy, 0, maxScroll);
+    update();
+    event->accept();
 }
 
 void LegendOverlay::contextMenuEvent(QContextMenuEvent *event)
@@ -874,9 +924,13 @@ void LegendOverlay::copyLegendImage()
 {
     if (width() == 0 || height() == 0)
         return;
-    QImage img(size(), QImage::Format_ARGB32_Premultiplied);
+    // The whole legend, also the rows scrolled out of view.
+    const QSize full(width(), std::max(height(), m_contentHeight));
+    QImage img(full, QImage::Format_ARGB32_Premultiplied);
     img.fill(Qt::transparent);
-    render(&img);
+    QPainter p(&img);
+    paintLegend(p, full, 0, nullptr);
+    p.end();
     QApplication::clipboard()->setImage(img);
 }
 
@@ -905,10 +959,9 @@ void LegendOverlay::autoSize()
 bool LegendOverlay::eventFilter(QObject *watched, QEvent *event)
 {
     if (watched == m_canvas && event->type() == QEvent::Resize) {
-        if (m_style && m_style->anchor() != Style::Anchor::Free)
-            anchorToCanvas();
-        else
-            clampInsideCanvas();
+        // Re-measure: the height cap follows the map; placement re-anchors or clamps.
+        recomputeLayout();
+        update();
     }
     return QWidget::eventFilter(watched, event);
 }
