@@ -30,6 +30,7 @@
 #include <QDir>
 #include <QLabel>
 #include <QPushButton>
+#include <QStandardItemModel>
 #include <QTest>
 
 #include <memory>
@@ -154,8 +155,8 @@ private slots:
 
     /**
      *
-     * @brief Require AUTO/NONE defaults to accept without writes, explicit groundwater YES to
-     * lock the aquifer destination and BOTH ET to round-trip.
+     * @brief Require AUTO defaults to accept without writes, explicit groundwater YES to
+     * keep the ordinary destination editable (no AQUIFER_2D) and BOTH ET to round-trip.
      * Checks reopening and unchanged Apply are an identity; authored changes remain in memory.
      *
      */
@@ -173,18 +174,24 @@ private slots:
         // AUTO is the default and must be the seeded state, or an unedited
         // Apply would write an explicit enable over a silent deck.
         QCOMPARE(gw->currentData().toString(), QStringLiteral("AUTO"));
-        QCOMPARE(et->currentData().toString(), QStringLiteral("NONE"));
+        // The engine's GW_ET default is AUTO too (resolved by aquifer mode at run time).
+        QCOMPARE(et->currentData().toString(), QStringLiteral("AUTO"));
         QVERIFY2(et->isEnabled(), "under AUTO the subsurface may still run");
         QVERIFY(dest->isEnabled());
 
         QVERIFY(QMetaObject::invokeMethod(&dlg, "onApply", Qt::DirectConnection));
         QVERIFY(!dlg.wroteAnyChanges());
 
-        // An explicit On locks the destination to the 2D aquifer.
+        // An explicit On does not lock the destination (64b761a5c): aquifer ownership comes from
+        // coverage, the destination stays editable for ordinary cells, and the obsolete
+        // AQUIFER_2D choice is never offered.
         gw->setCurrentIndex(gw->findData(QStringLiteral("YES")));
         QVERIFY(et->isEnabled());
-        QVERIFY(!dest->isEnabled());
-        QCOMPARE(dest->currentData().toString(), QStringLiteral("AQUIFER_2D"));
+        QVERIFY(dest->isEnabled());
+        QVERIFY(dest->currentData().toString() != QStringLiteral("AQUIFER_2D"));
+        auto *destItems = qobject_cast<QStandardItemModel *>(dest->model());
+        QVERIFY(destItems);
+        QVERIFY(!destItems->item(dest->findData(QStringLiteral("AQUIFER_2D")))->isEnabled());
 
         et->setCurrentIndex(et->findData(QStringLiteral("BOTH")));
         QVERIFY(QMetaObject::invokeMethod(&dlg, "onApply", Qt::DirectConnection));
