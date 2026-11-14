@@ -3025,7 +3025,9 @@ bool MapCanvas::renderVisibleComposition()
     m_foregroundTexture->setZ(m_layers.size() + 1);
     m_foregroundTexture->setImage(foreground, foregroundRect);
     m_compositionWidget->show();
-    m_compositionWidget->raise();
+    // Bottom of the canvas's children: still over the canvas's own painting, but under the
+    // floating widgets placed on the map (the legend), which raise() covered every frame.
+    m_compositionWidget->lower();
     return true;
 }
 

@@ -13,6 +13,7 @@
 #include "layers/swmmresultslayer.h"
 #include "animation/animationcontroller.h"
 #include "ui/widgets/cursorwindowslider.h"
+#include "ui/widgets/legendoverlay.h"
 #include <QAction>
 #include "map/swmm2dresultsqsgrenderer.h"
 #include "map/flowparticlenode.h"
@@ -2831,11 +2832,21 @@ private slots:
         canvas.setExtent({-10, -10, 110, 110}, false);
         host.addTab(&canvas, "Map");
         host.addTab(new QWidget, "Other");
+        openswmmvis::ui::LegendOverlay legend(&canvas);
+        legend.show();
+        // The legend stays above the composition surface (which once raised itself every frame).
+        const auto legendOnTop = [&canvas, &legend] {
+            const auto *composition =
+                canvas.findChild<QWidget *>("flowMapComposition", Qt::FindDirectChildrenOnly);
+            const auto kids = canvas.children();
+            return composition && kids.indexOf(&legend) > kids.indexOf(composition);
+        };
         showNativeReview(host);
         QTRY_VERIFY_WITH_TIMEOUT(canvas.compositionStats().active, 10000);
         QVERIFY(!canvas.compositionStats().nativeSurface);
         auto *surface = canvas.findChild<QQuickWidget *>();
         QVERIFY(surface);
+        QVERIFY(legendOnTop());
         for (int step = 0; step < 4; ++step) {
             if (step == 1) {
                 QDialog cover(&host);
@@ -2852,6 +2863,7 @@ private slots:
             if (step == 3)
                 canvas.pan(15, -8);
             QTest::qWait(250);
+            QVERIFY(legendOnTop());
             // Grab the presented widget surface without captureMap's layer
             // refresh, which could conceal a stale on-screen composition.
             const auto frame = surface->grabFramebuffer();
