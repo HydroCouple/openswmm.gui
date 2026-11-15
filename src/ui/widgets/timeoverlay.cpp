@@ -105,13 +105,13 @@ void TimeOverlay::relayout()
     for (QChar &c : sized)
         if (c.isDigit())
             c = widest;
-    const int pad = std::max(0, m_style->padding());
     const int frame =
         m_style->showFrame() ? int(std::ceil(std::max<qreal>(0.0, m_style->frameWidth()))) : 0;
-    const int w =
-        std::max(fm.horizontalAdvance(sized), fm.boundingRect(sized).width()) + 2 * (pad + frame);
-    const int h = fm.height() + 2 * (pad + frame);
-    resize(w, h);
+    const int w = std::max(fm.horizontalAdvance(sized), fm.boundingRect(sized).width()) +
+                  m_style->marginLeft() + m_style->marginRight() + 2 * frame;
+    const int h = fm.height() + m_style->marginTop() + m_style->marginBottom() + 2 * frame;
+    // The widget also holds the box's shadow.
+    resize(OpenSWMM::Render::mapBoxWidgetSize(QSize(w, h), *m_style));
 
     if (!m_canvas)
         return;
@@ -125,12 +125,17 @@ void TimeOverlay::paintEvent(QPaintEvent * /*event*/)
     p.setRenderHint(QPainter::Antialiasing);
     p.setRenderHint(QPainter::TextAntialiasing);
     p.setOpacity(std::clamp<qreal>(m_style->opacity(), 0.0, 1.0));
-    // Same box as the legend: rounded rectangle, filled per the background mode, then framed.
-    OpenSWMM::Render::paintMapBoxChrome(p, QRectF(rect()), *m_style);
+    // Same box as the legend: shadow, rounded rectangle filled per the background mode, frame.
+    const QRectF box = OpenSWMM::Render::mapBoxRect(QSizeF(size()), *m_style);
+    OpenSWMM::Render::paintMapBoxChrome(p, box, *m_style);
 
+    const qreal frame =
+        m_style->showFrame() ? std::ceil(std::max<qreal>(0.0, m_style->frameWidth())) : 0.0;
     p.setFont(m_style->font());
     p.setPen(m_style->textColor());
-    p.drawText(rect(), Qt::AlignCenter, text());
+    p.drawText(box.adjusted(m_style->marginLeft() + frame, m_style->marginTop() + frame,
+                            -(m_style->marginRight() + frame), -(m_style->marginBottom() + frame)),
+               Qt::AlignCenter, text());
 }
 
 void TimeOverlay::mousePressEvent(QMouseEvent *event)

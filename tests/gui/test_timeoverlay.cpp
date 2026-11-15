@@ -165,6 +165,15 @@ private slots:
         a.setBackgroundColor(QColor(10, 20, 30, 40));
         a.setGradientEndColor(QColor(50, 60, 70, 80));
         a.setGradientOrientation(Qt::Horizontal);
+        a.setAnchorMarginX(20);
+        a.setAnchorMarginY(30);
+        a.setMarginRight(9);
+        a.setMarginBottom(11);
+        a.setFrameStyle(TimeOverlayStyle::FrameStyle::Dash);
+        a.setShowShadow(true);
+        a.setShadowColor(QColor(9, 8, 7, 6));
+        a.setShadowOffsetX(-4);
+        a.setShadowOffsetY(5);
 
         // Every saved field differs from the default here, so none can be dropped unnoticed.
         const QJsonObject defaults = TimeOverlayStyle().toJson();
@@ -558,9 +567,9 @@ private slots:
         panel.grab().save(outDir() + QStringLiteral("/panel_font_selected.png"));
 
         // Edits in the panel write the style.
-        const QModelIndex padding = rowNamed(model, QStringLiteral("General — Padding"));
-        QVERIFY(model->setData(padding.siblingAtColumn(1), 20, Qt::EditRole));
-        QCOMPARE(style->padding(), 20);
+        const QModelIndex margin = rowNamed(model, QStringLiteral("Margins — Left"));
+        QVERIFY(model->setData(margin.siblingAtColumn(1), 20, Qt::EditRole));
+        QCOMPARE(style->marginLeft(), 20);
         QVERIFY(model->setData(rowNamed(model, QStringLiteral("Bold"), font).siblingAtColumn(1),
                                true, Qt::EditRole));
         QVERIFY(style->font().bold());

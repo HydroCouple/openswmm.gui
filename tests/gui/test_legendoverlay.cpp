@@ -14,9 +14,11 @@
 #include <QDir>
 #include <QFontMetrics>
 #include <QImage>
+#include <QJsonObject>
 
 #include "layers/gisvectorlayer.h"
 #include "map/legendcontent.h"
+#include "render/legendlayout.h"
 #include "map/mapcanvas.h"
 #include "render/legendoverlaystyle.h"
 #include "render/legendsymbolitem.h"
@@ -311,30 +313,36 @@ private slots:
         checkLegacyGeometry(QStringLiteral("legacy_default"), scene, legend);
     }
 
-    /** @brief A title, larger fonts, more padding and spacing, a larger swatch and a fixed
-     *  width keep the single-column geometry. */
+    /** @brief A legend saved before the new settings (title, larger fonts, more padding and
+     *  spacing, a larger swatch, a fixed width) keeps its single-column geometry: its
+     *  sub-headings keep the item font and its title keeps the row spacing below it. */
     void styledLegendMatchesTheSingleColumnGeometry()
     {
         LegendScene scene(QSize(800, 900));
         LegendOverlay legend(scene.canvas.get());
         LegendOverlayStyle *style = legend.style();
-        style->setShowTitle(true);
-        style->setTitle(QStringLiteral("Legend title"));
         QFont title;
         title.setPointSize(18);
         title.setBold(true);
-        style->setTitleFont(title);
         QFont header;
         header.setPointSize(16);
         header.setItalic(true);
-        style->setLayerHeaderFont(header);
         QFont item;
         item.setPointSize(15);
-        style->setItemFont(item);
-        style->setPadding(10);
-        style->setRowSpacing(4);
-        style->setSwatchSize(18);
-        style->setExplicitWidth(300);
+        QJsonObject saved;
+        saved[QStringLiteral("showTitle")] = true;
+        saved[QStringLiteral("title")] = QStringLiteral("Legend title");
+        saved[QStringLiteral("titleFont")] = OpenSWMM::Render::overlayFontToJson(title);
+        saved[QStringLiteral("layerHeaderFont")] = OpenSWMM::Render::overlayFontToJson(header);
+        saved[QStringLiteral("itemFont")] = OpenSWMM::Render::overlayFontToJson(item);
+        saved[QStringLiteral("padding")] = 10;
+        saved[QStringLiteral("rowSpacing")] = 4;
+        saved[QStringLiteral("swatchSize")] = 18;
+        saved[QStringLiteral("explicitWidth")] = 300;
+        style->fromJson(saved);
+        QCOMPARE(style->subheadingFont().pointSize(), 15);
+        QCOMPARE(style->titleSpacing(), 4);
+        QCOMPARE(style->marginTop(), 10);
         checkLegacyGeometry(QStringLiteral("legacy_styled"), scene, legend);
     }
 
@@ -363,6 +371,107 @@ private slots:
         m_images.append({QStringLiteral("opacity_half"), faded});
         QVERIFY2(std::abs(faded.pixelColor(padding).alpha() - 128) <= 2,
                  qPrintable(describe(faded.pixelColor(padding))));
+    }
+
+    /** @brief Two columns make the legend shorter and wider, with a line between them; a shadow
+     *  grows the widget by its offset and is drawn outside the box. */
+    void columnsSeparatorsAndShadowAreDrawn()
+    {
+        LegendScene scene(QSize(900, 700));
+        LegendOverlay legend(scene.canvas.get());
+        const QSize single = legend.size();
+        LegendOverlayStyle *style = legend.style();
+        style->setColumnCount(2);
+        style->setShowColumnSeparators(true);
+        style->setColumnSeparatorColor(QColor(255, 0, 0));
+        style->setColumnSeparatorWidth(2);
+        QVERIFY2(legend.height() < single.height() && legend.width() > single.width(),
+                 qPrintable(QStringLiteral("%1x%2 vs %3x%4")
+                                .arg(legend.width())
+                                .arg(legend.height())
+                                .arg(single.width())
+                                .arg(single.height())));
+        const QSize box = legend.size();
+        // A label that fits its column is not shortened.
+        {
+            const auto entries =
+                openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style);
+            const auto layout = OpenSWMM::Render::LegendLayout::compute(entries, *style);
+            for (const auto &b : layout.boxes)
+                if (b.entryIndex >= 0)
+                    QCOMPARE(b.lines.value(0), entries[b.entryIndex].label);
+        }
+        QImage image = drawn(&legend);
+        int red = 0;
+        const int midY = image.height() / 2;
+        for (int x = 0; x < image.width(); ++x) {
+            const QColor c = image.pixelColor(x, midY);
+            if (c.red() > 200 && c.green() < 60 && c.blue() < 60)
+                ++red;
+        }
+        QVERIFY2(red >= 1 && red <= 4, qPrintable(QString::number(red)));
+
+        style->setShowShadow(true);
+        style->setShadowColor(QColor(0, 0, 0, 255));
+        style->setShadowOffsetX(5);
+        style->setShadowOffsetY(5);
+        QCOMPARE(legend.size(), box + QSize(5, 5));
+        image = drawn(&legend);
+        m_images.append({QStringLiteral("two_columns_shadow"), image});
+        const QColor shadow = image.pixelColor(image.width() - 2, image.height() / 2);
+        QVERIFY2(shadow.alpha() > 200 && shadow.red() < 40, qPrintable(describe(shadow)));
+        const QColor inside = image.pixelColor(3, image.height() / 2);
+        QVERIFY2(inside.red() > 200 && inside.green() > 200, qPrintable(describe(inside)));
+        // The anchor places the widget, shadow included, 12 px in from the map's corner.
+        QCOMPARE(legend.geometry().bottomRight(), QPoint(900 - 12 - 1, 700 - 12 - 1));
+    }
+
+    /** @brief Many settings at once, drawn for review: a centered wrapped title, wrapped and
+     *  right-aligned labels, symbols on the right, zigzag lines, round fills, indents, a dashed
+     *  frame and a gradient. */
+    void showcaseOfTheNewSettings()
+    {
+        LegendScene scene(QSize(900, 900));
+        LegendOverlay legend(scene.canvas.get());
+        LegendOverlayStyle *style = legend.style();
+        style->setShowTitle(true);
+        style->setTitle(QStringLiteral("Drainage network legend with a long title"));
+        QFont title;
+        title.setPointSize(16);
+        title.setBold(true);
+        style->setTitleFont(title);
+        style->setTitleAlignment(LegendOverlayStyle::TextAlignment::Center);
+        style->setTitleSpacing(10);
+        style->setLabelOverflow(LegendOverlayStyle::LabelOverflow::Wrap);
+        style->setMaxLabelWidth(120);
+        style->setLineSpacing(2);
+        style->setColumnCount(2);
+        style->setShowColumnSeparators(true);
+        style->setSymbolPosition(LegendOverlayStyle::SymbolPosition::Right);
+        style->setItemAlignment(LegendOverlayStyle::TextAlignment::Right);
+        style->setLinePatchShape(LegendOverlayStyle::LinePatchShape::ZigZag);
+        style->setAreaPatchShape(LegendOverlayStyle::AreaPatchShape::Ellipse);
+        style->setSymbolWidth(24);
+        style->setSymbolHeight(16);
+        style->setSubheadingColor(QColor(150, 40, 40));
+        QFont sub;
+        sub.setItalic(true);
+        style->setSubheadingFont(sub);
+        style->setItemIndent(8);
+        style->setGroupSpacing(12);
+        style->setHeaderSpacing(4);
+        style->setMarginLeft(14);
+        style->setMarginRight(14);
+        style->setFrameStyle(LegendOverlayStyle::FrameStyle::Dash);
+        style->setFrameWidth(2);
+        style->setBackgroundMode(LegendOverlayStyle::BackgroundMode::Gradient);
+        style->setBackgroundColor(QColor(255, 255, 255, 240));
+        style->setGradientEndColor(QColor(220, 235, 250, 240));
+        style->setShowShadow(true);
+        const QImage image = drawn(&legend);
+        m_images.append({QStringLiteral("showcase"), image});
+        QVERIFY(!image.isNull());
+        QVERIFY(legend.width() > 200);
     }
 
     /** @brief Hidden layers and hidden rows leave no space. */

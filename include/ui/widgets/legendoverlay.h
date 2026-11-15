@@ -42,6 +42,7 @@
 #include <QPoint>
 #include <QPointer>
 #include <QRect>
+#include <QRectF>
 #include <QSize>
 #include <QVector>
 #include <QWidget>
@@ -215,6 +216,12 @@ private:
      * @param[in] pos Widget coordinates; the current scroll offset is applied.
      * @return Borrowed entry from the current layout, valid until the next relayout. */
     [[nodiscard]] const OpenSWMM::Render::LegendEntry *entryAt(const QPoint &pos) const;
+
+    /*! \brief The legend box inside this widget (the widget also holds the box's shadow).
+     * @return Rectangle in widget coordinates. */
+    [[nodiscard]] QRectF boxRect() const;
+    /*! \brief How far the rows can scroll: content height less the box height, at least 0. */
+    [[nodiscard]] int maxScroll() const;
 
     /*! \brief The layout for a box @p width wide: the cached one when it matches, else a new one.
      * @param[in] width Box width in logical pixels.
