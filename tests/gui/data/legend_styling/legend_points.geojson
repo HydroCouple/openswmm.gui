@@ -1,0 +1,10 @@
+{
+  "type": "FeatureCollection",
+  "name": "legend_points",
+  "features": [
+    { "type": "Feature", "properties": { "kind": "A", "value": 0.1 }, "geometry": { "type": "Point", "coordinates": [0.0, 0.0] } },
+    { "type": "Feature", "properties": { "kind": "A", "value": 0.2 }, "geometry": { "type": "Point", "coordinates": [1.0, 0.0] } },
+    { "type": "Feature", "properties": { "kind": "B", "value": 0.5 }, "geometry": { "type": "Point", "coordinates": [10.0, 10.0] } },
+    { "type": "Feature", "properties": { "kind": "C", "value": 0.9 }, "geometry": { "type": "Point", "coordinates": [20.0, 0.0] } }
+  ]
+}

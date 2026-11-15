@@ -4827,6 +4827,16 @@ swmmvis_link_full_app_deps(test_timeoverlay)
 target_compile_definitions(test_timeoverlay PRIVATE
     TIME_OVERLAY_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/time_overlay_2026-11-14")
 
+# The map legend box: size, row positions, columns, item tree, ramp bars, undo.
+add_swmmvis_gui_test(test_legendoverlay
+    test_legendoverlay.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_legendoverlay)
+target_compile_definitions(test_legendoverlay PRIVATE
+    LEGEND_STYLING_DATA="${CMAKE_SOURCE_DIR}/tests/gui/data/legend_styling"
+    LEGEND_STYLING_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/legend_styling_2026-11-15")
+
 add_swmmvis_gui_test(test_resultssizechannel
     test_resultssizechannel.cpp
     ${SWMMVIS_TEST_SOURCES}
