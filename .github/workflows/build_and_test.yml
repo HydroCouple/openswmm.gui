@@ -726,6 +726,31 @@ jobs:
           ctest --test-dir build/${{ matrix.build_subdir }} -C Release --output-on-failure \
             --timeout 120 -R '^(test_flowparticles|test_contourjob|test_cellwatergeometry|test_flowparticle_rendering|test_typeconversionflow)$'
 
+      # A fast slice of the GUI suite: the tests named in tests/ci_fast_gui_tests.txt.
+      # They are small (three app sources at most) and run in seconds. Windows is
+      # left out until its test hangs are diagnosed. macOS gates the build; the
+      # list was checked on macOS only, so Linux reports without failing the job
+      # until a run there has been seen to pass.
+      - name: Build fast GUI tests
+        if: runner.os != 'Windows'
+        timeout-minutes: 30
+        shell: bash
+        run: |
+          cmake --build build/${{ matrix.build_subdir }} --config Release --parallel 4 \
+            --target $(grep -v '^#' tests/ci_fast_gui_tests.txt | tr '\n' ' ')
+
+      - name: Test fast GUI tests
+        if: runner.os != 'Windows'
+        continue-on-error: ${{ runner.os == 'Linux' }}
+        timeout-minutes: 10
+        shell: bash
+        env:
+          QT_QPA_PLATFORM: offscreen
+        run: |
+          ctest --test-dir build/${{ matrix.build_subdir }} -C Release --output-on-failure \
+            --timeout 120 --parallel 2 \
+            -R "^($(grep -v '^#' tests/ci_fast_gui_tests.txt | paste -sd'|' -))\$"
+
       # ── Test ─────────────────────────────────────────────────────────────────
       # A batch of Windows-only GUI tests hangs (never returns — not slow) for a
       # reason not yet root-caused (chart/widget tests under offscreen QPA; the
@@ -779,74 +804,6 @@ jobs:
           ctest --test-dir build/${{ matrix.build_subdir }} -C Release \
                 --output-on-failure --timeout 60 $EXCLUDE
 
-      # ── Windows hang diagnostic ─────────────────────────────────────────────
-      # 19 of 132 tests time out on Windows and pass in <2 s on Linux/macOS.
-      # They are NOT all GUI tests: test_swmm_datetime, test_timeseries_parse and
-      # test_meshenginesync construct no QApplication at all, so the offscreen QPA
-      # is not the culprit. What the 19 share is that they reference ENGINE symbols,
-      # so openswmm.engine.dll enters their import table and is loaded by the
-      # Windows loader BEFORE main() runs. Prime suspect: a load-time deadlock in
-      # the engine DLL (static init / DllMain touching the Kokkos-OpenMP runtime —
-      # OpenMP under the loader lock is a well-known Windows deadlock).
-      #
-      # ctest BUFFERS each test's stdout and flushes only on completion, so a hung
-      # test emits NOTHING and we cannot see where it blocks. Running the binaries
-      # directly sends stdout straight to the job log.
-      #
-      # THE DECISIVE SIGNAL is test_swmm_datetime (plain gtest, zero Qt):
-      #   * no output at all, not even gtest's "Running N tests" banner
-      #        -> it hangs BEFORE main() => DLL load / static-init deadlock.
-      #   * "[ RUN ]" lines appear, then it stops
-      #        -> it hangs inside a specific call, named by the last line.
-      #
-      # `always()` (not `failure()`): the previous run was CANCELLED, not failed,
-      # and cancellation does not satisfy failure() — so this step never executed.
-      - name: Diagnose Windows test hang
-        if: always() && runner.os == 'Windows'
-        continue-on-error: true
-        shell: bash
-        run: |
-          set +e
-          echo "==========================================================="
-          echo "PART 1 — does each test exe IMPORT openswmm.engine.dll?"
-          echo "==========================================================="
-          echo "The import table is ground truth: a DLL in it is mapped by the"
-          echo "Windows loader BEFORE main() runs. Cross-reference this list with"
-          echo "the ***Timeout list above. If every hung test imports the engine and"
-          echo "no passing test does, the hang is at DLL load, not in test code."
-          printf '%-44s %s\n' "TEST" "IMPORTS-ENGINE"
-          for exe in $(find build/windows -iname 'test_*.exe' -type f | sort); do
-            if dumpbin //DEPENDENTS "$exe" 2>/dev/null | grep -qi 'openswmm.engine.dll'; then
-              printf '%-44s %s\n' "$(basename "$exe" .exe)" "YES"
-            else
-              printf '%-44s %s\n' "$(basename "$exe" .exe)" "no"
-            fi
-          done
-
-          echo
-          echo "==========================================================="
-          echo "PART 2 — run 3 probes directly (unbuffered; ctest hides this)"
-          echo "==========================================================="
-          # The DLL dirs MUST be on PATH. The first version of this probe omitted
-          # them and every probe — including the passing control — printed nothing,
-          # because the binaries could not start. That was the bug, not a null result.
-          ENGINE_BIN=$(dirname "$(find openswmm.engine/install -iname 'openswmm.engine.dll' | head -1)" 2>/dev/null || true)
-          VCPKG_BIN="build/windows/vcpkg_installed/x64-windows/bin"
-          export PATH="$ENGINE_BIN:$VCPKG_BIN:$PATH"
-          echo "engine dll dir : ${ENGINE_BIN:-<NOT FOUND>}"
-          echo "vcpkg dll dir  : $VCPKG_BIN"
-
-          probe() {
-            bin=$(find build/windows -iname "$1.exe" -type f | head -1)
-            echo "─────────────── [$1] $2"
-            [ -z "$bin" ] && { echo "  binary not found"; return 0; }
-            timeout --signal=KILL 45 "$bin" 2>&1 | head -25
-            echo "  ^ exit=$? — if NOTHING printed, it never reached main()"
-          }
-          probe test_swmm_datetime          "was hanging: plain gtest, zero Qt, links the engine"
-          probe test_comparisonplot_toolbar "always passed: negative control"
-
-      # ── Install (staging tree) ────────────────────────────────────────────
       # cmake --install copies the built binary + all install() rules into
       # dist/<subdir>/ — windeployqt / macdeployqt install(CODE) runs here too.
       # timeout-minutes: windeployqt is a prime hang suspect on Windows (it can
