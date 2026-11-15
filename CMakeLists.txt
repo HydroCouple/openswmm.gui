@@ -250,6 +250,8 @@ set(
         include/render/legenditemtree.h
         include/render/legendlayout.h
         include/render/legendpainter.h
+        # Number format of a layer's class labels (shared by its renderers and the legend).
+        include/render/numberlabelformat.h
         # Slice BI Phase 8.13.6.2 — concrete renderer classes.
         # SingleSymbol + Graduated are functional v1; Categorized + RuleBased
         # are stubs (JSON + paint) — UI editors land in Slice BI.3.

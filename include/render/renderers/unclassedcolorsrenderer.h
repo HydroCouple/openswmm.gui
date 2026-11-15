@@ -30,6 +30,7 @@
 
 #include "render/colorramp.h"
 #include "render/ifeaturerenderer.h"
+#include "render/numberlabelformat.h"
 
 #include <QColor>
 #include <QString>
@@ -115,6 +116,30 @@ public:
      * @param n Count clamped to at least two with no upper bound or notification. */
     void setLegendLabelCount(int n) { m_legendLabelCount = (n < 2) ? 2 : n; }
 
+    /** @brief Number format of the legend's value labels; significant figures 4 by default, as
+     *  the labels have always been written. @return Format. */
+    [[nodiscard]] const NumberLabelFormat &numberFormat() const { return m_numbers; }
+    /** @brief Set the number format of the legend's value labels (no repaint notification).
+     * @param f Format. */
+    void setNumberFormat(const NumberLabelFormat &f) { m_numbers = f; }
+    /** @brief The class labels' number format. @param[out] out Format. @return True. */
+    bool legendNumberFormat(NumberLabelFormat *out) const override
+    {
+        *out = m_numbers;
+        return true;
+    }
+    /** @brief Set the class labels' number format. @param f Format. @return True. */
+    bool setLegendNumberFormat(const NumberLabelFormat &f) override
+    {
+        m_numbers = f;
+        return true;
+    }
+    /** @brief The default number format: significant figures 4. @return Format. */
+    static NumberLabelFormat defaultNumberFormat()
+    {
+        return NumberLabelFormat::significantFigures(4);
+    }
+
     /*! Map one raw attribute value to its rendered color. Public for
      *  unit tests, the legend builder, and any caller that needs to
      *  preview the renderer without invoking the full symbolFor path.
@@ -162,6 +187,7 @@ private:
     QColor m_aboveRange; /*!< Legacy metadata; overflow saturates.   */
     QColor m_noData = QColor(0, 0, 0, 0);
     int m_legendLabelCount = 5;
+    NumberLabelFormat m_numbers = defaultNumberFormat();
 };
 
 } // namespace OpenSWMM::Render

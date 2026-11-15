@@ -39,6 +39,7 @@
 
 #include "render/featureref.h"
 #include "render/legendsymbolitem.h"
+#include "render/numberlabelformat.h"
 #include "render/symbolstyle.h"
 
 #include <QColor>
@@ -214,6 +215,18 @@ public:
      *         The renderer falls back to its ramp / categories / base
      *         symbol for all classes. Default implementation: no-op. */
     virtual void clearClassEditOverrides() {}
+
+    /** @brief The number format of this renderer's class labels, when it has one (the map
+     *  legend's editor reads and sets it per layer).
+     * @param[out] out Receives the format. @return False when the renderer has none. */
+    [[nodiscard]] virtual bool legendNumberFormat(NumberLabelFormat * /*out*/) const
+    {
+        return false;
+    }
+    /** @brief Set the number format of this renderer's class labels (labels only; classes and
+     *  colors are unchanged, no notification).
+     * @param f Format. @return False when the renderer has none. */
+    virtual bool setLegendNumberFormat(const NumberLabelFormat & /*f*/) { return false; }
 
 protected:
     /** @brief Construct the stateless base for a concrete renderer. */

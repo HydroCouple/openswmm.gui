@@ -237,6 +237,9 @@ public:
      * @return Borrowed layer-owned live renderer, eagerly nonnull and invalidated by replacement/destruction. Edit on GUI thread then call notifyRasterRendererEdited(); worker warps use independent clones.
      */
     [[nodiscard]] OpenSWMM::Render::IRasterRenderer *rasterRenderer() const;
+    /** @brief The raster renderer's value label format (see OpenSWMMVisLayer). */
+    [[nodiscard]] bool legendNumberFormat(OpenSWMM::Render::NumberLabelFormat *out) const override;
+    bool setLegendNumberFormat(const OpenSWMM::Render::NumberLabelFormat &f) override;
 
     /*!
      * \brief Replaces the current raster renderer.

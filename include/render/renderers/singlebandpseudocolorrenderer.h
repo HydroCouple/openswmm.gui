@@ -25,6 +25,7 @@
 
 #include "render/irasterrenderer.h"
 #include "render/colorramp.h" // RampInterp — match legacy ramp fidelity (P5/R-1)
+#include "render/numberlabelformat.h"
 
 #include <QColor>
 #include <QList>
@@ -139,6 +140,29 @@ public:
     /** @brief Copy all ramp configuration into an independent renderer.
      * @return Sole ownership of the new renderer snapshot. */
     [[nodiscard]] std::unique_ptr<IRasterRenderer> clone() const override;
+    /** @brief Number format of the legend's value labels; significant figures 6 by default, as
+     *  the labels have always been written. @return Format. */
+    [[nodiscard]] const NumberLabelFormat &numberFormat() const { return m_numbers; }
+    /** @brief Set the number format of the legend's value labels (no repaint notification).
+     * @param f Format. */
+    void setNumberFormat(const NumberLabelFormat &f) { m_numbers = f; }
+    /** @brief The class labels' number format. @param[out] out Format. @return True. */
+    bool legendNumberFormat(NumberLabelFormat *out) const override
+    {
+        *out = m_numbers;
+        return true;
+    }
+    /** @brief Set the class labels' number format. @param f Format. @return True. */
+    bool setLegendNumberFormat(const NumberLabelFormat &f) override
+    {
+        m_numbers = f;
+        return true;
+    }
+    /** @brief The default number format: significant figures 6. @return Format. */
+    static NumberLabelFormat defaultNumberFormat()
+    {
+        return NumberLabelFormat::significantFigures(6);
+    }
 
 private:
     double m_minValue = 0.0;
@@ -147,6 +171,7 @@ private:
     bool m_clampMin = false;
     bool m_clampMax = false;
     RampInterp m_interp = RampInterp::Rgb;
+    NumberLabelFormat m_numbers = defaultNumberFormat();
 };
 
 } // namespace OpenSWMM::Render

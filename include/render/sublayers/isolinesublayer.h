@@ -224,6 +224,23 @@ public:
      * ClassificationScheme equality determines whether the replacement is suppressed. */
     void setScheme(const ClassificationScheme &s);
 
+    /** @brief The number format of this style's class labels.
+     * @param[out] out Receives the format. @return True. */
+    bool numberFormat(NumberLabelFormat *out) const override
+    {
+        *out = m_scheme.numberFormat();
+        return true;
+    }
+    /** @brief Set the number format of this style's class labels (notifies on a change).
+     * @param f Format. @return True. */
+    bool setNumberFormat(const NumberLabelFormat &f) override
+    {
+        ClassificationScheme s = m_scheme;
+        s.setNumberFormat(f);
+        setScheme(s);
+        return true;
+    }
+
     /** @brief Serialize isoline classification, geometry and label hints.
      * @return Independent object; dashPattern uses its Qt enum key, color uses ARGB,
      * and the complete classification is included. No configuration validation occurs. */

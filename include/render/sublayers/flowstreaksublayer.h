@@ -151,6 +151,23 @@ public:
      * @param value Source copied without validation; equality is based on toJson(),
      * so serialized differences trigger styleChanged. Other appearance fields remain. */
     void setScheme(const ClassificationScheme &value);
+
+    /** @brief The number format of this style's class labels.
+     * @param[out] out Receives the format. @return True. */
+    bool numberFormat(NumberLabelFormat *out) const override
+    {
+        *out = m_scheme.numberFormat();
+        return true;
+    }
+    /** @brief Set the number format of this style's class labels (notifies on a change).
+     * @param f Format. @return True. */
+    bool setNumberFormat(const NumberLabelFormat &f) override
+    {
+        ClassificationScheme s = m_scheme;
+        s.setNumberFormat(f);
+        setScheme(s);
+        return true;
+    }
     /** @brief Select flat or scheme-driven color for a physical speed.
      * @param speed Speed in m/s; flat mode returns the stored color for any value.
      * @return Classified scheme color when valid edges exist, otherwise continuous

@@ -33,6 +33,8 @@
 #ifndef OPENSWMM_RENDER_SUBLAYERSTYLE_H
 #define OPENSWMM_RENDER_SUBLAYERSTYLE_H
 
+#include "render/numberlabelformat.h"
+
 #include <QJsonObject>
 #include <QObject>
 
@@ -90,6 +92,22 @@ public:
      * field validation, retained defaults, and restoration notifications.
      */
     virtual void fromJson(const QJsonObject &) {}
+
+    /** @brief The number format of this style's class labels, when it has one (a style with a
+     *  color scheme). The map legend's editor reads and sets it per layer.
+     * @param[out] out Receives the format. @return False when the style has none. */
+    [[nodiscard]] virtual bool numberFormat(NumberLabelFormat *out) const
+    {
+        Q_UNUSED(out);
+        return false;
+    }
+    /** @brief Set the number format of this style's class labels; styleChanged() on a change.
+     * @param f Format. @return False when the style has none. */
+    virtual bool setNumberFormat(const NumberLabelFormat &f)
+    {
+        Q_UNUSED(f);
+        return false;
+    }
 
 signals:
     /*!

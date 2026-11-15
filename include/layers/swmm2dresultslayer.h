@@ -1932,6 +1932,10 @@ public:
      *   hydraulic paint presently reads sublayer styles.
      */
     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const;
+    /** @brief The sublayers' class label format, sublayers first (they draw the legend); see
+     *  OpenSWMMVisLayer. */
+    [[nodiscard]] bool legendNumberFormat(OpenSWMM::Render::NumberLabelFormat *out) const override;
+    bool setLegendNumberFormat(const OpenSWMM::Render::NumberLabelFormat &f) override;
 
     /*!
      * \brief Replaces the current renderer.

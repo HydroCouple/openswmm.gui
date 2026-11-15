@@ -1001,6 +1001,9 @@ public:
      * @return Borrowed owned placeholder renderer, eagerly nonnull; invalidated by replacement/destruction. Decoration paint currently reads sublayer/light state rather than this pointer.
      */
     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *renderer() const override;
+    /** @brief The renderer's and sublayers' class label format (see OpenSWMMVisLayer). */
+    [[nodiscard]] bool legendNumberFormat(OpenSWMM::Render::NumberLabelFormat *out) const override;
+    bool setLegendNumberFormat(const OpenSWMM::Render::NumberLabelFormat &f) override;
 
     /*!
      * \brief Replaces the current renderer.

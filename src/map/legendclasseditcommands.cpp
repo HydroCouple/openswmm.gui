@@ -222,4 +222,40 @@ bool SetRendererClassSizeCommand::mergeWith(const QUndoCommand *other)
     return true;
 }
 
+// ── SetLayerNumberFormatCommand ─────────────────────────────────────────
+
+SetLayerNumberFormatCommand::SetLayerNumberFormatCommand(
+    OpenSWMMVisLayer *layer, const OpenSWMM::Render::NumberLabelFormat &format,
+    QUndoCommand *parent)
+    : QUndoCommand(parent), m_layer(layer), m_after(format)
+{
+    if (layer)
+        (void)layer->legendNumberFormat(&m_before);
+    setText(
+        QCoreApplication::translate("SetLayerNumberFormatCommand", "Change legend number format"));
+    m_lastEdit.start();
+}
+
+void SetLayerNumberFormatCommand::redo()
+{
+    if (m_layer)
+        m_layer->setLegendNumberFormat(m_after);
+}
+
+void SetLayerNumberFormatCommand::undo()
+{
+    if (m_layer)
+        m_layer->setLegendNumberFormat(m_before);
+}
+
+bool SetLayerNumberFormatCommand::mergeWith(const QUndoCommand *other)
+{
+    const auto *o = dynamic_cast<const SetLayerNumberFormatCommand *>(other);
+    if (!o || o->m_layer != m_layer || m_lastEdit.elapsed() >= 800)
+        return false;
+    m_after = o->m_after;
+    m_lastEdit.restart();
+    return true;
+}
+
 } // namespace openswmmvis::map

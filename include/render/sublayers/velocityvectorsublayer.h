@@ -216,6 +216,23 @@ public:
      * decides whether to replace it; other style fields are retained. */
     void setScheme(const ClassificationScheme &s);
 
+    /** @brief The number format of this style's class labels.
+     * @param[out] out Receives the format. @return True. */
+    bool numberFormat(NumberLabelFormat *out) const override
+    {
+        *out = m_scheme.numberFormat();
+        return true;
+    }
+    /** @brief Set the number format of this style's class labels (notifies on a change).
+     * @param f Format. @return True. */
+    bool setNumberFormat(const NumberLabelFormat &f) override
+    {
+        ClassificationScheme s = m_scheme;
+        s.setNumberFormat(f);
+        setScheme(s);
+        return true;
+    }
+
     /*! VS.7 — color for a given speed magnitude (m/s). When
      *  colorByMagnitude is off, returns the flat `color()`. Otherwise samples
      *  the named ramp over [speedMinMps, speedMaxMps]; VS.8 — when

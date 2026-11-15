@@ -40,6 +40,7 @@
 #define OPENSWMM_RENDER_IRASTERRENDERER_H
 
 #include "render/legendsymbolitem.h"
+#include "render/numberlabelformat.h"
 
 #include <QColor>
 #include <QJsonObject>
@@ -128,6 +129,18 @@ public:
      * @return Sole ownership of an independently editable renderer configuration.
      */
     [[nodiscard]] virtual std::unique_ptr<IRasterRenderer> clone() const = 0;
+
+    /** @brief The number format of this renderer's class labels, when it has one (the map
+     *  legend's editor reads and sets it per layer).
+     * @param[out] out Receives the format. @return False when the renderer has none. */
+    [[nodiscard]] virtual bool legendNumberFormat(NumberLabelFormat * /*out*/) const
+    {
+        return false;
+    }
+    /** @brief Set the number format of this renderer's class labels (labels only; classes and
+     *  colors are unchanged, no notification).
+     * @param f Format. @return False when the renderer has none. */
+    virtual bool setLegendNumberFormat(const NumberLabelFormat & /*f*/) { return false; }
 
 protected:
     /** @brief Construct the stateless interface base for a concrete raster renderer. */

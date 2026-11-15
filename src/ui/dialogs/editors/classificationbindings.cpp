@@ -117,6 +117,9 @@ ClassificationScheme GraduatedRendererBinding::schemeFromRenderer() const
     for (auto it = overrides.cbegin(); it != overrides.cend(); ++it)
         s.setColorOverride(it.key(), it.value());
 
+    // The class labels' number format lives on the renderer.
+    s.setNumberFormat(g->numberFormat());
+
     return s;
 }
 
@@ -199,6 +202,9 @@ void GraduatedRendererBinding::setScheme(const ClassificationScheme &s)
             if (!nextOv.contains(it.key()))
                 gf->setColorForClass(QString::number(it.key()), QColor()); // clears
     }
+
+    if (!(s.numberFormat() == prev.numberFormat()))
+        gf->setNumberFormat(s.numberFormat());
 
     if (m_install)
         m_install(std::move(fresh));

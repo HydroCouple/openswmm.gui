@@ -75,6 +75,18 @@ public:
      * @param scheme Configuration copied without an equality check. Cached edges
      * are recomputed and lookup tables rebuilt immediately; no notification is emitted. */
     void setScheme(const ClassificationScheme &scheme);
+    /** @brief The class labels' number format. @param[out] out Format. @return True. */
+    bool legendNumberFormat(NumberLabelFormat *out) const override
+    {
+        *out = m_scheme.numberFormat();
+        return true;
+    }
+    /** @brief Set the class labels' number format. @param f Format. @return True. */
+    bool setLegendNumberFormat(const NumberLabelFormat &f) override
+    {
+        m_scheme.setNumberFormat(f);
+        return true;
+    }
 
     // ── Data range ─────────────────────────────────────────────────────
     /** @brief Read the caller-supplied band-statistics minimum.

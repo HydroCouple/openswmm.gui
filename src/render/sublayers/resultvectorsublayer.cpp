@@ -380,20 +380,20 @@ QList<LegendSymbolItem> ResultVectorSublayer::legendSymbolItems(double colorMin,
     if (scheme.mode() == ClassificationScheme::ClassMode::Classified) {
         const auto edges = scheme.levelEdges(colorMin, colorMax);
         for (int i = 0; i + 1 < int(edges.size()); ++i)
-            rows.append(row(QString::number(i),
-                            tr("%1 – %2 [%3]")
-                                .arg(scheme.formatValue(edges[i]), scheme.formatValue(edges[i + 1]),
-                                     units),
-                            scheme.colorForClass(i, int(edges.size()) - 1)));
+            rows.append(row(
+                QString::number(i),
+                tr("%1 [%2]").arg(scheme.numberFormat().formatRange(edges[i], edges[i + 1]), units),
+                scheme.colorForClass(i, int(edges.size()) - 1)));
     } else {
         const auto range = scheme.effectiveRange(colorMin, colorMax);
         const int count = range.first == range.second ? 1 : 5;
         for (int i = 0; i < count; ++i) {
             const double value =
                 range.first + (range.second - range.first) * i / std::max(1, count - 1);
-            rows.append(row(QString::number(i),
-                            tr("%1 [%2]").arg(scheme.formatValue(value), units),
-                            ClassificationColorSampler(scheme, colorMin, colorMax).valueColor(value)));
+            rows.append(
+                row(QString::number(i),
+                    tr("%1 [%2]").arg(scheme.numberFormat().formatLabel(value), units),
+                    ClassificationColorSampler(scheme, colorMin, colorMax).valueColor(value)));
         }
     }
     return rows;

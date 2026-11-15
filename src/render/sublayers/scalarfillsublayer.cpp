@@ -201,7 +201,7 @@ QList<LegendSymbolItem> buildFillLegend(const ScalarFillStyle *style, const QStr
                 const double value =
                     scheme.rangeMin() + (scheme.rangeMax() - scheme.rangeMin()) * fraction;
                 color = scheme.colorForValue(value, scheme.rangeMin(), scheme.rangeMax());
-                item.label = scheme.formatValue(value);
+                item.label = scheme.numberFormat().formatLabel(value);
                 item.range = {value, value};
             } else {
                 // No data bounds are available here: show the ramp without

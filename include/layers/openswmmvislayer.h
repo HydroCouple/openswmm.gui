@@ -29,6 +29,7 @@
 #include "map/mapextent.h"
 // Slice Z.13-attach — per-layer temporal-animation config. Stored by
 // value, so the header is required (forward-decl insufficient).
+#include "render/numberlabelformat.h"
 #include "render/temporalspec.h"
 
 #include "render/labelconfig.h" // VS.10 — base-class label configuration
@@ -359,6 +360,42 @@ public:
         return false;
     }
 
+    /**
+     * @brief The number format of this layer's class labels (decimals or significant figures,
+     *        units and label text), as the map legend's editor shows it.
+     * @param[out] out Receives the format: the renderer's, else the first color scheme's (a
+     *        shown sublayer first).
+     * @return False when the layer has none.
+     * @note The base reads the styles of an ISublayerHost's sublayers; layers with renderers
+     *       read those first.
+     */
+    [[nodiscard]] virtual bool legendNumberFormat(OpenSWMM::Render::NumberLabelFormat *out) const;
+
+    /**
+     * @brief Set the number format of all this layer's class labels: every renderer and color
+     *        scheme that has one. Emits repaintRequested() when any took it, so the legend, the
+     *        Legend dock and the Layer Style dialog follow.
+     * @param[in] f Format.
+     * @return False when the layer has none.
+     */
+    virtual bool setLegendNumberFormat(const OpenSWMM::Render::NumberLabelFormat &f);
+
+protected:
+    /** @brief legendNumberFormat() for a layer with renderers: the first of @p renderers with a
+     *  format, else the sublayers' (base behavior).
+     * @param[in] renderers Renderers in legend order; null entries are skipped.
+     * @param[out] out Receives the format. @return False when none has one. */
+    [[nodiscard]] bool
+    legendNumberFormatOf(const QList<OpenSWMM::Render::IFeatureRenderer *> &renderers,
+                         OpenSWMM::Render::NumberLabelFormat *out) const;
+    /** @brief setLegendNumberFormat() for a layer with renderers: every renderer in
+     *  @p renderers and every sublayer style; one repaint when any took it.
+     * @param[in] renderers Renderers; null and repeated entries are skipped.
+     * @param[in] f Format. @return False when none took it. */
+    bool setLegendNumberFormatOn(const QList<OpenSWMM::Render::IFeatureRenderer *> &renderers,
+                                 const OpenSWMM::Render::NumberLabelFormat &f);
+
+public:
     // ----- Raster layer identification ------------------------------------
 
     /*!

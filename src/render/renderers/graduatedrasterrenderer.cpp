@@ -153,7 +153,7 @@ QList<LegendSymbolItem> GraduatedRasterRenderer::legendSymbolItems() const
             const double f = rows > 1 ? double(i) / double(rows - 1) : 0.0;
             const double v = m_lo + f * (m_hi - m_lo);
             LegendSymbolItem item;
-            item.label = m_scheme.formatValue(v);
+            item.label = m_scheme.numberFormat().formatLabel(v);
             item.symbol = makeSwatch(
                 QColor::fromRgba(m_lut[size_t(std::lround(f * (ScalarRampLut::kSize - 1)))]));
             item.sortIndex = i;
@@ -163,6 +163,7 @@ QList<LegendSymbolItem> GraduatedRasterRenderer::legendSymbolItems() const
         LegendRampSpec spec;
         spec.lo = m_lo;
         spec.hi = m_hi;
+        spec.numbers = m_scheme.numberFormat();
         constexpr int kStops = 33;
         for (int k = 0; k < kStops; ++k) {
             const double f = double(k) / (kStops - 1);
@@ -178,9 +179,7 @@ QList<LegendSymbolItem> GraduatedRasterRenderer::legendSymbolItems() const
     items.reserve(n);
     for (int i = 0; i < n; ++i) {
         LegendSymbolItem item;
-        item.label = QStringLiteral("%1 – %2")
-                         .arg(m_scheme.formatValue(m_edges.at(i)))
-                         .arg(m_scheme.formatValue(m_edges.at(i + 1)));
+        item.label = m_scheme.numberFormat().formatRange(m_edges.at(i), m_edges.at(i + 1));
         item.userLabel = m_scheme.labelOverride(i);
         item.range = {m_edges.at(i), m_edges.at(i + 1)};
         item.classKey = QString::number(i);

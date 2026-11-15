@@ -210,6 +210,21 @@ GISRasterLayer::~GISRasterLayer()
 // Raster renderer (Slice BI Phase 8.13.6.7)
 // ---------------------------------------------------------------------------
 
+bool GISRasterLayer::legendNumberFormat(OpenSWMM::Render::NumberLabelFormat *out) const
+{
+    const auto *r = rasterRenderer();
+    return r && r->legendNumberFormat(out);
+}
+
+bool GISRasterLayer::setLegendNumberFormat(const OpenSWMM::Render::NumberLabelFormat &f)
+{
+    auto *r = rasterRenderer();
+    if (!r || !r->setLegendNumberFormat(f))
+        return false;
+    emit repaintRequested();
+    return true;
+}
+
 OpenSWMM::Render::IRasterRenderer *GISRasterLayer::rasterRenderer() const
 {
     return m_rasterRenderer.get();

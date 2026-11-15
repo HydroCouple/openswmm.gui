@@ -237,7 +237,7 @@ QList<LegendSymbolItem> SingleBandPseudoColorRenderer::legendSymbolItems() const
         // Compute the data-space value represented by this stop's
         // normalized position.
         const double v = m_minValue + s.first * span;
-        item.label = QString::number(v);
+        item.label = m_numbers.formatLabel(v);
         item.symbol = makeSwatch(s.second);
         item.sortIndex = i;
         // Range is intentionally left as the default (NaN, NaN) — stops
@@ -251,6 +251,7 @@ QList<LegendSymbolItem> SingleBandPseudoColorRenderer::legendSymbolItems() const
         LegendRampSpec spec;
         spec.lo = m_minValue;
         spec.hi = m_maxValue;
+        spec.numbers = m_numbers;
         constexpr int kStops = 33;
         for (int k = 0; k < kStops; ++k) {
             const double f = double(k) / (kStops - 1);
@@ -271,6 +272,8 @@ QJsonObject SingleBandPseudoColorRenderer::toJson() const
     obj.insert(QStringLiteral("clampMin"), m_clampMin);
     obj.insert(QStringLiteral("clampMax"), m_clampMax);
     obj.insert(QStringLiteral("interp"), static_cast<int>(m_interp));
+    if (const QJsonObject numbers = m_numbers.toJson(defaultNumberFormat()); !numbers.isEmpty())
+        obj.insert(QStringLiteral("numberFormat"), numbers);
     return obj;
 }
 
@@ -283,6 +286,8 @@ void SingleBandPseudoColorRenderer::fromJson(const QJsonObject &j)
     m_clampMax = j.value(QStringLiteral("clampMax")).toBool(false);
     m_interp = static_cast<RampInterp>(
         j.value(QStringLiteral("interp")).toInt(static_cast<int>(RampInterp::Rgb)));
+    m_numbers = NumberLabelFormat::fromJson(j.value(QStringLiteral("numberFormat")).toObject(),
+                                            defaultNumberFormat());
 }
 
 std::unique_ptr<IRasterRenderer> SingleBandPseudoColorRenderer::clone() const
