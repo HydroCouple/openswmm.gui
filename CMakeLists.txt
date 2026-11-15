@@ -247,6 +247,7 @@ set(
         include/render/mapboxchrome.h
         # Map legend lines, layout and drawing.
         include/render/legendentry.h
+        include/render/legenditemtree.h
         include/render/legendlayout.h
         include/render/legendpainter.h
         # Slice BI Phase 8.13.6.2 — concrete renderer classes.
@@ -1117,6 +1118,7 @@ set(
         src/render/mapboxstyle.cpp
         src/render/mapboxchrome.cpp
         src/render/legendlayout.cpp
+        src/render/legenditemtree.cpp
         src/render/legendpainter.cpp
         # Slice BI Phase 8.13.6.2 — concrete renderer impls.
         src/render/renderers/singlesymbolrenderer.cpp

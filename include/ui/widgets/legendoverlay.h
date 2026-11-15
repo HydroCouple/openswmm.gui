@@ -36,9 +36,11 @@
 #define OPENSWMMVIS_UI_WIDGETS_LEGENDOVERLAY_H
 
 #include "render/legendentry.h"
+#include "render/legenditemtree.h"
 #include "render/legendlayout.h"
 
 #include <QList>
+#include <functional>
 #include <QPoint>
 #include <QPointer>
 #include <QRect>
@@ -216,6 +218,13 @@ private:
      * @param[in] pos Widget coordinates; the current scroll offset is applied.
      * @return Borrowed entry from the current layout, valid until the next relayout. */
     [[nodiscard]] const OpenSWMM::Render::LegendEntry *entryAt(const QPoint &pos) const;
+
+    /*! \brief Change the legend tree node of @p entry (a row, a layer heading, a user group or
+     *         text line), creating it when missing, and store the tree in the style.
+     * @param[in] entry Line whose node is edited.
+     * @param[in] edit Change applied to the node. */
+    void editNode(const OpenSWMM::Render::LegendEntry &entry,
+                  const std::function<void(OpenSWMM::Render::LegendNode &)> &edit);
 
     /*! \brief The legend box inside this widget (the widget also holds the box's shadow).
      * @return Rectangle in widget coordinates. */

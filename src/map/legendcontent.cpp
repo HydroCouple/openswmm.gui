@@ -24,6 +24,8 @@
 #include "render/irasterrenderer.h"
 #include "render/symbolstyle.h"
 
+#include <QHash>
+
 namespace openswmmvis::map::LegendContent
 {
 
@@ -66,56 +68,245 @@ QList<OpenSWMM::Render::LegendSymbolItem> legendItemsFor(OpenSWMMVisLayer *layer
     return {};
 }
 
-QList<OpenSWMM::Render::LegendEntry> buildEntries(const MapCanvas *canvas,
-                                                  const OpenSWMM::Render::LegendOverlayStyle *style)
+QString rowKey(const OpenSWMM::Render::LegendSymbolItem &row)
 {
-    using OpenSWMM::Render::LegendEntry;
-    QList<LegendEntry> entries;
-    if (!canvas)
-        return entries;
-    const auto layers = canvas->layers();
-    int block = 0;
-    // Top of the map first.
-    for (int i = layers.size() - 1; i >= 0; --i) {
-        OpenSWMMVisLayer *layer = layers.at(i);
-        if (!layer || !layer->isVisible())
-            continue;
-        const QString layerKey = OpenSWMM::Render::LegendOverlayStyle::itemKey(layer, {});
-        ++block;
-        LegendEntry heading;
-        heading.kind = LegendEntry::Kind::GroupHeading;
-        heading.label = layer->name();
-        heading.layer = layer;
-        heading.layerKey = layerKey;
-        heading.blockId = block;
-        entries.append(heading);
-        for (const auto &row : legendItemsFor(layer)) {
-            bool visible = row.visible;
-            QString label = row.effectiveLabel();
-            // The legend's own settings hide or rename rows; a row the renderer hides stays
-            // hidden.
+    return row.classKey.isEmpty() ? QStringLiteral("#") + row.label : row.classKey;
+}
+
+namespace
+{
+
+using OpenSWMM::Render::LegendEntry;
+using OpenSWMM::Render::LegendNode;
+using OpenSWMM::Render::LegendOverlayStyle;
+
+/** A layer with its rows, in the stored row order when @p ordered. */
+LegendTreeItem resolveLayer(OpenSWMMVisLayer *layer, const LegendNode *stored,
+                            const LegendOverlayStyle *style, bool ordered)
+{
+    LegendTreeItem item;
+    const QString key = LegendOverlayStyle::itemKey(layer, {});
+    if (stored) {
+        item.node = stored->settingsOnly();
+    } else {
+        item.node.type = LegendNode::Type::Layer;
+        item.node.id = key;
+    }
+    item.layer = layer;
+    item.sourceLabel = layer->name();
+
+    QList<OpenSWMM::Render::LegendSymbolItem> rows = legendItemsFor(layer);
+    if (ordered && stored && !stored->children.isEmpty()) {
+        // Stored rows first, in their order; rows the renderer added since go after them.
+        QList<OpenSWMM::Render::LegendSymbolItem> sorted;
+        for (const LegendNode &child : stored->children)
+            for (int i = 0; i < rows.size(); ++i)
+                if (rowKey(rows[i]) == child.id) {
+                    sorted.append(rows.takeAt(i));
+                    break;
+                }
+        rows = sorted + rows;
+    }
+    for (const auto &row : rows) {
+        LegendTreeItem child;
+        child.layer = layer;
+        child.row = row;
+        child.sourceLabel = row.effectiveLabel();
+        const QString id = rowKey(row);
+        const LegendNode *node = nullptr;
+        if (stored)
+            for (const LegendNode &c : stored->children)
+                if (c.type == LegendNode::Type::Item && c.id == id)
+                    node = &c;
+        if (node) {
+            child.node = node->settingsOnly();
+        } else {
+            child.node.type = LegendNode::Type::Item;
+            child.node.id = id;
+            // A row setting from an older file, keyed by the layer's object name.
             if (style && !row.classKey.isEmpty()) {
-                const auto override = style->itemOverride(layerKey, row.classKey);
-                if (!override.visible)
-                    visible = false;
-                if (!override.userLabel.isEmpty())
-                    label = override.userLabel;
+                const auto old = style->legacyItemOverride(layer->objectName(), row.classKey);
+                child.node.visible = old.visible;
+                child.node.userLabel = old.userLabel;
             }
-            if (!visible)
-                continue;
-            LegendEntry entry;
-            entry.kind = row.symbol.layers.isEmpty() ? LegendEntry::Kind::Subheading
-                                                     : LegendEntry::Kind::Symbol;
-            entry.label = label;
-            entry.symbol = row.symbol;
-            entry.layer = layer;
-            entry.layerKey = layerKey;
-            entry.classKey = row.classKey;
-            entry.sublayerId = row.sublayerId;
-            entry.blockId = block;
-            entries.append(entry);
+        }
+        item.children.append(child);
+    }
+    return item;
+}
+
+QList<LegendTreeItem> resolveNodes(const QList<LegendNode> &nodes,
+                                   const QHash<QString, OpenSWMMVisLayer *> &layers,
+                                   const LegendOverlayStyle *style)
+{
+    QList<LegendTreeItem> out;
+    for (const LegendNode &n : nodes) {
+        switch (n.type) {
+        case LegendNode::Type::Layer:
+            if (OpenSWMMVisLayer *layer = layers.value(n.id))
+                out.append(resolveLayer(layer, &n, style, true));
+            break;
+        case LegendNode::Type::Group: {
+            LegendTreeItem group;
+            group.node = n.settingsOnly();
+            group.children = resolveNodes(n.children, layers, style);
+            out.append(group);
+            break;
+        }
+        case LegendNode::Type::Text: {
+            LegendTreeItem text;
+            text.node = n.settingsOnly();
+            out.append(text);
+            break;
+        }
+        case LegendNode::Type::Item:
+            break;
         }
     }
+    return out;
+}
+
+/** Add the lines of @p items at @p depth. */
+void emitEntries(const QList<LegendTreeItem> &items, int depth, int &block, QList<LegendEntry> &out)
+{
+    for (const LegendTreeItem &item : items) {
+        const LegendNode &n = item.node;
+        if (!n.visible)
+            continue;
+        if (n.type == LegendNode::Type::Text) {
+            LegendEntry e;
+            e.kind = LegendEntry::Kind::Text;
+            e.label = n.userLabel;
+            e.nodeId = n.id;
+            e.blockId = ++block;
+            e.depth = depth;
+            e.columnBreakBefore = n.columnBreakBefore;
+            out.append(e);
+            continue;
+        }
+        if (n.type == LegendNode::Type::Group) {
+            ++block;
+            bool pendingBreak = n.columnBreakBefore;
+            if (n.heading != LegendNode::HeadingStyle::Hidden) {
+                LegendEntry e;
+                e.kind = n.heading == LegendNode::HeadingStyle::Subgroup
+                             ? LegendEntry::Kind::Subheading
+                             : LegendEntry::Kind::GroupHeading;
+                e.label = n.userLabel;
+                e.nodeId = n.id;
+                e.blockId = block;
+                e.depth = depth;
+                e.columnBreakBefore = pendingBreak;
+                pendingBreak = false;
+                out.append(e);
+            }
+            const int before = out.size();
+            emitEntries(item.children, depth + 1, block, out);
+            if (pendingBreak && out.size() > before)
+                out[before].columnBreakBefore = true;
+            continue;
+        }
+        // A layer: shown on the map and in the legend.
+        OpenSWMMVisLayer *layer = item.layer.data();
+        if (!layer || !layer->isVisible())
+            continue;
+        const QString layerKey = n.id;
+        ++block;
+        bool pendingBreak = n.columnBreakBefore;
+        if (n.heading != LegendNode::HeadingStyle::Hidden) {
+            LegendEntry heading;
+            heading.kind = n.heading == LegendNode::HeadingStyle::Subgroup
+                               ? LegendEntry::Kind::Subheading
+                               : LegendEntry::Kind::GroupHeading;
+            heading.label = item.label();
+            heading.layer = layer;
+            heading.layerKey = layerKey;
+            heading.blockId = block;
+            heading.depth = depth;
+            heading.columnBreakBefore = pendingBreak;
+            pendingBreak = false;
+            out.append(heading);
+        }
+        for (const LegendTreeItem &child : item.children) {
+            if (!child.node.visible || !child.row.visible)
+                continue;
+            LegendEntry entry;
+            entry.kind = child.row.symbol.layers.isEmpty() ? LegendEntry::Kind::Subheading
+                                                           : LegendEntry::Kind::Symbol;
+            entry.label = child.label();
+            entry.symbol = child.row.symbol;
+            entry.layer = layer;
+            entry.layerKey = layerKey;
+            entry.classKey = child.row.classKey;
+            entry.sublayerId = child.row.sublayerId;
+            entry.nodeId = child.node.id;
+            entry.blockId = block;
+            entry.depth = depth;
+            entry.itemColumns = n.itemColumns;
+            entry.symbolWidth = child.node.symbolWidth > 0 ? child.node.symbolWidth : n.symbolWidth;
+            entry.symbolHeight =
+                child.node.symbolHeight > 0 ? child.node.symbolHeight : n.symbolHeight;
+            entry.columnBreakBefore = pendingBreak || child.node.columnBreakBefore;
+            pendingBreak = false;
+            out.append(entry);
+        }
+    }
+}
+
+void collectTree(const QList<LegendTreeItem> &items, QList<LegendNode> &out)
+{
+    for (const LegendTreeItem &item : items) {
+        LegendNode n = item.node;
+        n.children.clear();
+        if (n.type == LegendNode::Type::Layer) {
+            for (const LegendTreeItem &child : item.children)
+                n.children.append(child.node);
+        } else if (n.type == LegendNode::Type::Group) {
+            collectTree(item.children, n.children);
+        }
+        out.append(n);
+    }
+}
+
+} // namespace
+
+QList<LegendTreeItem> resolveTree(const MapCanvas *canvas, const LegendOverlayStyle *style)
+{
+    QList<LegendTreeItem> out;
+    if (!canvas)
+        return out;
+    const auto layers = canvas->layers();
+    if (!style || style->autoUpdate()) {
+        // Top of the map first.
+        for (int i = layers.size() - 1; i >= 0; --i)
+            if (OpenSWMMVisLayer *layer = layers.at(i))
+                out.append(resolveLayer(
+                    layer,
+                    style ? style->itemTree().layerNode(LegendOverlayStyle::itemKey(layer, {}))
+                          : nullptr,
+                    style, false));
+        return out;
+    }
+    QHash<QString, OpenSWMMVisLayer *> byKey;
+    for (OpenSWMMVisLayer *layer : layers)
+        if (layer)
+            byKey.insert(LegendOverlayStyle::itemKey(layer, {}), layer);
+    return resolveNodes(style->itemTree().roots(), byKey, style);
+}
+
+OpenSWMM::Render::LegendItemTree currentTree(const MapCanvas *canvas,
+                                             const LegendOverlayStyle *style)
+{
+    OpenSWMM::Render::LegendItemTree tree;
+    collectTree(resolveTree(canvas, style), tree.roots());
+    return tree;
+}
+
+QList<LegendEntry> buildEntries(const MapCanvas *canvas, const LegendOverlayStyle *style)
+{
+    QList<LegendEntry> entries;
+    int block = 0;
+    emitEntries(resolveTree(canvas, style), 0, block, entries);
     return entries;
 }
 

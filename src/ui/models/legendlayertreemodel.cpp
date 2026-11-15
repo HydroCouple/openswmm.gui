@@ -49,16 +49,6 @@ QColor firstSymbolColor(const OpenSWMM::Render::SymbolStyle &style)
     return openswmmvis::map::LegendContent::firstSymbolColor(style);
 }
 
-/**
- * @brief Obtain the same layer legend rows used by the dock, overlay and class-edit routing.
- * @param[in] layer Borrowed source layer accepted by LegendContent::legendItemsFor().
- * @return Value list of current legend symbols, including supported sublayer/per-kind contributions.
- */
-QList<OpenSWMM::Render::LegendSymbolItem> legendItemsFor(OpenSWMMVisLayer *layer)
-{
-    return openswmmvis::map::LegendContent::legendItemsFor(layer);
-}
-
 // Encodes parent/child position in QModelIndex::internalId. Top-level
 // (layer-header) rows carry id == -1; child rows carry the parent layer
 // index. The QAbstractItemView reads this through index().internalId().
@@ -97,6 +87,11 @@ void LegendLayerTreeModel::setOverlayStyle(OpenSWMM::Render::LegendOverlayStyle 
         // rows. Fine-grained signal, but rebuilding the whole cache is
         // simpler and still cheap given typical row counts.
         connect(m_style.data(), &OpenSWMM::Render::LegendOverlayStyle::itemOverrideChanged, this,
+                &LegendLayerTreeModel::onLayerRepaintRequested, Qt::UniqueConnection);
+        // Order, groups and per-layer settings (the legend tree) change the rows too.
+        connect(m_style.data(), &OpenSWMM::Render::LegendOverlayStyle::itemTreeChanged, this,
+                &LegendLayerTreeModel::onLayerRepaintRequested, Qt::UniqueConnection);
+        connect(m_style.data(), &OpenSWMM::Render::LegendOverlayStyle::autoUpdateChanged, this,
                 &LegendLayerTreeModel::onLayerRepaintRequested, Qt::UniqueConnection);
     }
     beginResetModel();
@@ -187,13 +182,23 @@ void LegendLayerTreeModel::rebuildLayerCache()
     if (!m_canvas)
         return;
 
-    // Walk in reverse paint order so the topmost layer appears at the
-    // top of the tree, matching the on-canvas legend's reading order.
-    for (int i = m_canvas->layers().size() - 1; i >= 0; --i) {
-        OpenSWMMVisLayer *layer = m_canvas->layers().at(i);
-        if (!layer)
-            continue;
+    // The legend's own order (map order while it follows the map), groups flattened, every
+    // row kept — hidden ones too, so they can be checked again.
+    using openswmmvis::map::LegendContent::LegendTreeItem;
+    QList<LegendTreeItem> layerItems;
+    const auto collect = [&layerItems](const auto &self,
+                                       const QList<LegendTreeItem> &items) -> void {
+        for (const LegendTreeItem &item : items) {
+            if (item.node.type == OpenSWMM::Render::LegendNode::Type::Layer && item.layer)
+                layerItems.append(item);
+            else if (item.node.type == OpenSWMM::Render::LegendNode::Type::Group)
+                self(self, item.children);
+        }
+    };
+    collect(collect, openswmmvis::map::LegendContent::resolveTree(m_canvas, m_style));
 
+    for (const LegendTreeItem &layerItem : std::as_const(layerItems)) {
+        OpenSWMMVisLayer *layer = layerItem.layer.data();
         LayerNode node;
         node.layer = layer;
         node.name = layer->name();
@@ -205,22 +210,20 @@ void LegendLayerTreeModel::rebuildLayerCache()
         node.editableSize = openswmmvis::map::LegendContent::supportsClassEdit(
             layer, OpenSWMM::Render::ClassEditKind::Size);
 
-        // Apply per-item overrides from the shared style so the tree shows
-        // the same visibility + label state as the on-canvas overlay.
-        const QString layerKey =
-            m_style ? OpenSWMM::Render::LegendOverlayStyle::itemKey(layer, {}) : QString();
         auto *renderer = openswmmvis::map::LegendContent::featureRendererFor(layer);
         auto *modelLayer = qobject_cast<SWMMModelLayer *>(layer);     // X4
         auto *resultsLayer = qobject_cast<SWMMResultsLayer *>(layer); // Gap B1
-        for (const auto &row : legendItemsFor(layer)) {
+        for (const LegendTreeItem &child : layerItem.children) {
+            const auto &row = child.row;
             ItemRow ir;
             ir.classKey = row.classKey;
-            ir.label = row.effectiveLabel();
+            // The legend's label and visibility, as the on-canvas legend shows them.
+            ir.label = child.label();
             // Rows with no symbol are sub-headers (kind / section titles) —
             // leave the color invalid so the delegate paints no chip
             // instead of the gray fallback patch.
             ir.color = row.symbol.layers.isEmpty() ? QColor() : firstSymbolColor(row.symbol);
-            ir.visible = row.visible;
+            ir.visible = row.visible && child.node.visible;
             ir.sublayerId = row.sublayerId; // Slice S4 P5
             if (renderer && !row.classKey.isEmpty()) {
                 const qreal s = renderer->sizeForClass(row.classKey);
@@ -235,20 +238,14 @@ void LegendLayerTreeModel::rebuildLayerCache()
                 if (s > 0.0)
                     ir.size = s;
             }
-            if (m_style && !row.classKey.isEmpty()) {
-                const auto ov = m_style->itemOverride(layerKey, row.classKey);
-                if (!ov.userLabel.isEmpty())
-                    ir.label = ov.userLabel;
-                if (!ov.visible)
-                    ir.visible = false;
-            }
-            // Even hidden rows are kept in the tree so users can re-enable
-            // them via the checkbox; the on-canvas legend filters them out.
             node.items.append(ir);
         }
         m_layers.append(node);
-        connectLayer(layer);
     }
+    // Every map layer is watched, also those the legend does not list.
+    for (OpenSWMMVisLayer *layer : m_canvas->layers())
+        if (layer)
+            connectLayer(layer);
 }
 
 int LegendLayerTreeModel::columnCount(const QModelIndex & /*parent*/) const

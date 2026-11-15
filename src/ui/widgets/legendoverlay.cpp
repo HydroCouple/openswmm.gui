@@ -38,6 +38,8 @@
 #include <QEvent>
 #include <QFontMetrics>
 #include <QImage>
+#include <QInputDialog>
+#include <QLineEdit>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
@@ -481,7 +483,7 @@ void LegendOverlay::mouseReleaseEvent(QMouseEvent *event)
         const QRect resized = geometry();
         if (m_style) {
             // The style keeps the box size; the widget also holds the shadow.
-            const QSize shadow = OpenSWMM::Render::mapBoxWidgetSize(QSize(), *m_style);
+            const QSize shadow = OpenSWMM::Render::mapBoxWidgetSize(QSize(0, 0), *m_style);
             if (m_style->anchor() != Style::Anchor::Free)
                 m_style->setAnchor(Style::Anchor::Free);
             m_style->setExplicitWidth(resized.width() - shadow.width());
@@ -584,6 +586,30 @@ void LegendOverlay::contextMenuEvent(QContextMenuEvent *event)
         menu.addSeparator();
     }
 
+    // ── Legend-only settings of the line under the pointer ─────────────
+    if (hit) {
+        const OpenSWMM::Render::LegendEntry entry = *hit; // copy: the layout may change
+        QAction *hideLine = menu.addAction(tr("Hide in legend"));
+        connect(hideLine, &QAction::triggered, this,
+                [this, entry]() { editNode(entry, [](auto &n) { n.visible = false; }); });
+        QAction *rename = menu.addAction(tr("Rename in legend…"));
+        connect(rename, &QAction::triggered, this, [this, entry]() {
+            bool ok = false;
+            const QString text = QInputDialog::getText(this, tr("Rename in Legend"),
+                                                       tr("Text (empty restores the original):"),
+                                                       QLineEdit::Normal, entry.label, &ok);
+            if (ok)
+                editNode(entry, [text](auto &n) { n.userLabel = text; });
+        });
+        QAction *breakHere = menu.addAction(tr("Start new column here"));
+        breakHere->setCheckable(true);
+        breakHere->setChecked(entry.columnBreakBefore);
+        connect(breakHere, &QAction::toggled, this, [this, entry](bool on) {
+            editNode(entry, [on](auto &n) { n.columnBreakBefore = on; });
+        });
+        menu.addSeparator();
+    }
+
     OpenSWMMVisLayer *hitLayer = itemLayer;
     if (hitLayer) {
         QAction *hideLayer = menu.addAction(tr("Hide layer “%1”").arg(hitLayer->name()));
@@ -676,12 +702,32 @@ void LegendOverlay::openPropertiesDialog()
     dlg->activateWindow();
 }
 
+void LegendOverlay::editNode(const OpenSWMM::Render::LegendEntry &entry,
+                             const std::function<void(OpenSWMM::Render::LegendNode &)> &edit)
+{
+    if (!m_style)
+        return;
+    OpenSWMM::Render::LegendItemTree tree = m_style->itemTree();
+    OpenSWMM::Render::LegendNode *node = nullptr;
+    if (!entry.layerKey.isEmpty() && !entry.nodeId.isEmpty())
+        node = &tree.ensureItemNode(entry.layerKey, entry.nodeId); // a row
+    else if (!entry.layerKey.isEmpty())
+        node = &tree.ensureLayerNode(entry.layerKey); // a layer heading
+    else if (!entry.nodeId.isEmpty())
+        node = tree.nodeById(entry.nodeId); // a user group or text line
+    if (!node)
+        return;
+    edit(*node);
+    m_style->setItemTree(tree);
+}
+
 void LegendOverlay::copyLegendImage()
 {
     if (width() == 0 || height() == 0)
         return;
     // The whole legend, also the rows scrolled out of view.
-    const QSize shadow = m_style ? OpenSWMM::Render::mapBoxWidgetSize(QSize(), *m_style) : QSize();
+    const QSize shadow =
+        m_style ? OpenSWMM::Render::mapBoxWidgetSize(QSize(0, 0), *m_style) : QSize(0, 0);
     const QSize full(width(), std::max(height(), m_contentHeight + shadow.height()));
     QImage img(full, QImage::Format_ARGB32_Premultiplied);
     img.fill(Qt::transparent);

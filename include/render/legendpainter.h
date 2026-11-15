@@ -51,9 +51,11 @@ void paint(QPainter &p, const LegendLayoutResult &layout, const QList<LegendEntr
  *   painter's.
  * @param symbol Symbol passes; a line or marker of zero size is skipped.
  * @param rect Slot.
- * @param style Legend style. */
+ * @param style Legend style.
+ * @param width Fill sample width for this line, or 0 for the style's.
+ * @param height Fill sample height for this line, or 0 for the style's. */
 void paintSymbol(QPainter &p, const SymbolStyle &symbol, const QRectF &rect,
-                 const LegendOverlayStyle &style);
+                 const LegendOverlayStyle &style, int width = 0, int height = 0);
 
 } // namespace LegendPainter
 

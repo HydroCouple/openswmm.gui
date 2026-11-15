@@ -57,26 +57,28 @@ QPainterPath linePath(const QRectF &rect, Style::LinePatchShape shape)
 } // namespace
 
 void paintSymbol(QPainter &p, const SymbolStyle &symbol, const QRectF &rect,
-                 const LegendOverlayStyle &style)
+                 const LegendOverlayStyle &style, int width, int height)
 {
     const bool fit = style.symbolSizeMode() == Style::SymbolSizeMode::Fit;
     const int swatch = style.swatchSize();
-    const qreal patchW = style.symbolWidth() > 0 ? style.symbolWidth() : swatch;
-    const qreal patchH = style.symbolHeight() > 0 ? style.symbolHeight() : swatch;
+    const int setW = width > 0 ? width : style.symbolWidth();
+    const int setH = height > 0 ? height : style.symbolHeight();
+    const qreal patchW = setW > 0 ? setW : swatch;
+    const qreal patchH = setH > 0 ? setH : swatch;
     p.save();
     p.setOpacity(p.opacity() * symbol.opacity);
     for (const auto &pass : symbol.layers) {
         const QColor color = SymbolProps::firstColor(SymbolStyle{{pass}}, Qt::gray);
         if (pass.kind == SymbolLayerKind::SimpleLine) {
-            qreal width =
+            qreal lineWidth =
                 LegendLayout::clampedSymbolSize(pass.props.value("width", 1.).toDouble(), style);
             // A zero-width sample stands for zero flow, not Qt's cosmetic 1 px pen.
-            if (width <= 0)
+            if (lineWidth <= 0)
                 continue;
             if (fit)
-                width = std::min(width, rect.height());
+                lineWidth = std::min(lineWidth, rect.height());
             const auto shape = style.linePatchShape();
-            QPen pen(color, width, Qt::SolidLine,
+            QPen pen(color, lineWidth, Qt::SolidLine,
                      shape == Style::LinePatchShape::Horizontal ? Qt::FlatCap : Qt::RoundCap);
             pen.setJoinStyle(Qt::RoundJoin);
             p.setPen(pen);
@@ -85,7 +87,7 @@ void paintSymbol(QPainter &p, const SymbolStyle &symbol, const QRectF &rect,
                 p.drawLine(QPointF(rect.left(), rect.center().y()),
                            QPointF(rect.right(), rect.center().y()));
             else
-                p.drawPath(linePath(rect.adjusted(width / 2, 0, -width / 2, 0), shape));
+                p.drawPath(linePath(rect.adjusted(lineWidth / 2, 0, -lineWidth / 2, 0), shape));
         } else if (pass.kind == SymbolLayerKind::SimpleMarker) {
             qreal diameter =
                 LegendLayout::clampedSymbolSize(pass.props.value("size", swatch).toDouble(), style);
@@ -144,7 +146,8 @@ void paint(QPainter &p, const LegendLayoutResult &layout, const QList<LegendEntr
                                        ? &entries.at(box.entryIndex)
                                        : nullptr;
         if (entry && !box.symbolRect.isEmpty())
-            paintSymbol(p, entry->symbol, box.symbolRect, style);
+            paintSymbol(p, entry->symbol, box.symbolRect, style, entry->symbolWidth,
+                        entry->symbolHeight);
 
         if (!entry) {
             p.setFont(style.titleFont());

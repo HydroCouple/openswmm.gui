@@ -19,10 +19,12 @@
 #define OPENSWMMVIS_MAP_LEGENDCONTENT_H
 
 #include "render/legendentry.h"
+#include "render/legenditemtree.h"
 #include "render/legendsymbolitem.h"
 
 #include <QColor>
 #include <QList>
+#include <QPointer>
 
 class MapCanvas;
 class OpenSWMMVisLayer;
@@ -62,9 +64,54 @@ namespace openswmmvis::map::LegendContent
  */
 [[nodiscard]] QList<OpenSWMM::Render::LegendSymbolItem> legendItemsFor(OpenSWMMVisLayer *layer);
 
-/*! The map legend's lines, in drawing order: for each visible layer, top of the map first, a
- *  heading with the layer's name and then its visible rows (rows without a symbol become
- *  sub-headings). The legend's row settings (hidden and renamed rows) are applied.
+/*!
+ * \struct LegendTreeItem
+ * \brief One node of the legend as it stands: the node's settings plus what it shows from the
+ *        map (the layer and its name, or the renderer row).
+ */
+struct LegendTreeItem {
+    OpenSWMM::Render::LegendNode node;      ///< Settings (children unused); defaults if not stored.
+    QPointer<OpenSWMMVisLayer> layer;       ///< Layer and Item nodes.
+    QString sourceLabel;                    ///< Layer name or renderer row label.
+    OpenSWMM::Render::LegendSymbolItem row; ///< Item nodes: the renderer row.
+    QList<LegendTreeItem> children;         ///< Display order.
+
+    /** @brief The text shown: the user's label, else the source label. */
+    [[nodiscard]] QString label() const
+    {
+        return node.userLabel.isEmpty() ? sourceLabel : node.userLabel;
+    }
+};
+
+/*! A renderer row's key in the legend tree: its class key, or "#" and its label for rows
+ *  without one (sub-headings).
+ * @param[in] row Renderer row.
+ * @return Key. */
+[[nodiscard]] QString rowKey(const OpenSWMM::Render::LegendSymbolItem &row);
+
+/*! The legend's nodes as they stand. Following the map: every map layer (also those hidden on
+ *  the map), top first, with every renderer row (also hidden ones) in renderer order. Not
+ *  following it: the tree's layers (those still on the map), groups and text lines in the
+ *  user's order, each layer's rows in the stored order with new rows after them. Row settings
+ *  read from an older file apply to rows without a node.
+ * @param[in] canvas Map; null gives nothing.
+ * @param[in] style Legend settings; null applies none and follows the map.
+ * @return Value tree for the legend dialog, the Legend dock and buildEntries(). */
+[[nodiscard]] QList<LegendTreeItem> resolveTree(const MapCanvas *canvas,
+                                                const OpenSWMM::Render::LegendOverlayStyle *style);
+
+/*! The legend tree for the current map with every layer and row, in the order the legend shows
+ *  them, keeping each node's settings: what the legend stores when it stops following the map.
+ * @param[in] canvas Map.
+ * @param[in] style Legend settings.
+ * @return Full tree. */
+[[nodiscard]] OpenSWMM::Render::LegendItemTree
+currentTree(const MapCanvas *canvas, const OpenSWMM::Render::LegendOverlayStyle *style);
+
+/*! The map legend's lines, in drawing order, from resolveTree(): visible layers (shown on the
+ *  map and in the legend) with a heading in their heading style and their visible rows (rows
+ *  without a symbol become sub-headings), user groups with their contents, and text lines.
+ *  Each line carries its node's column break, sub-columns and symbol size.
  * @param[in] canvas Map whose layers are listed; null gives no lines.
  * @param[in] style Legend settings; null applies none.
  * @return Value list. Every view of the map legend (the box on the map, its screen-reader text,

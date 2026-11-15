@@ -359,3 +359,142 @@ TEST_F(QtAppFixture, SettersClampToTheirRanges)
     read.fromJson(style.toJson());
     EXPECT_FALSE(read.patchOutlineColor().isValid());
 }
+
+// ── The legend tree ───────────────────────────────────────────────────────────
+using OpenSWMM::Render::LegendItemTree;
+using OpenSWMM::Render::LegendNode;
+
+namespace
+{
+LegendNode node(LegendNode::Type type, const QString &id)
+{
+    LegendNode n;
+    n.type = type;
+    n.id = id;
+    return n;
+}
+} // namespace
+
+TEST_F(QtAppFixture, TreeSavesAndFindsItsNodes)
+{
+    LegendItemTree tree;
+    LegendNode &layer = tree.ensureLayerNode(QStringLiteral("L1"));
+    layer.heading = LegendNode::HeadingStyle::Subgroup;
+    layer.itemColumns = 3;
+    layer.ramp = LegendNode::RampChoice::Bar;
+    tree.ensureItemNode(QStringLiteral("L1"), QStringLiteral("2")).userLabel =
+        QStringLiteral("Two");
+    LegendNode group = node(LegendNode::Type::Group, LegendItemTree::newNodeId());
+    group.userLabel = QStringLiteral("Inputs");
+    group.columnBreakBefore = true;
+    LegendNode inner = node(LegendNode::Type::Layer, QStringLiteral("L2"));
+    inner.symbolWidth = 30;
+    group.children.append(inner);
+    LegendNode text = node(LegendNode::Type::Text, LegendItemTree::newNodeId());
+    text.userLabel = QStringLiteral("Note");
+    group.children.append(text);
+    tree.roots().append(group);
+
+    EXPECT_EQ(tree.layerNode(QStringLiteral("L2"))->symbolWidth, 30); // inside the group
+    EXPECT_EQ(tree.itemNode(QStringLiteral("L1"), QStringLiteral("2"))->userLabel,
+              QStringLiteral("Two"));
+    EXPECT_EQ(tree.nodeById(text.id)->userLabel, QStringLiteral("Note"));
+    EXPECT_EQ(tree.itemNode(QStringLiteral("L2"), QStringLiteral("2")), nullptr);
+
+    const LegendItemTree read = LegendItemTree::fromJson(tree.toJson());
+    EXPECT_TRUE(read == tree);
+
+    // Following the map again keeps the layers' settings, not the groups or text.
+    LegendItemTree flat = tree;
+    flat.flattenToLayers();
+    ASSERT_EQ(flat.roots().size(), 2);
+    EXPECT_EQ(flat.roots()[0].id, QStringLiteral("L1"));
+    EXPECT_EQ(flat.roots()[1].id, QStringLiteral("L2"));
+    EXPECT_EQ(flat.nodeById(group.id), nullptr);
+}
+
+TEST_F(QtAppFixture, RowSettingsLiveInTheTree)
+{
+    LegendOverlayStyle style;
+    QSignalSpy treeSpy(&style, &LegendOverlayStyle::itemTreeChanged);
+    QSignalSpy rowSpy(&style, &LegendOverlayStyle::itemOverrideChanged);
+    style.setItemVisible(QStringLiteral("L1"), QStringLiteral("0"), false);
+    EXPECT_FALSE(style.itemOverride(QStringLiteral("L1"), QStringLiteral("0")).visible);
+    EXPECT_FALSE(style.itemTree().itemNode(QStringLiteral("L1"), QStringLiteral("0"))->visible);
+    EXPECT_EQ(treeSpy.count(), 1);
+    EXPECT_EQ(rowSpy.count(), 1);
+    // Another layer's row with the same class key is not affected.
+    EXPECT_TRUE(style.itemOverride(QStringLiteral("L2"), QStringLiteral("0")).visible);
+    // Back to the default: while following the map, the node goes away.
+    style.setItemVisible(QStringLiteral("L1"), QStringLiteral("0"), true);
+    EXPECT_TRUE(style.itemTree().roots().isEmpty());
+    EXPECT_EQ(treeSpy.count(), 2);
+    style.setItemVisible(QStringLiteral("L1"), QStringLiteral("0"), true); // no change
+    EXPECT_EQ(treeSpy.count(), 2);
+
+    style.setItemUserLabel(QStringLiteral("L1"), QStringLiteral("1"), QStringLiteral("Renamed"));
+    LegendOverlayStyle read;
+    read.fromJson(style.toJson());
+    EXPECT_EQ(read.itemOverride(QStringLiteral("L1"), QStringLiteral("1")).userLabel,
+              QStringLiteral("Renamed"));
+    read.clearItemOverrides();
+    EXPECT_TRUE(read.itemTree().roots().isEmpty());
+}
+
+TEST_F(QtAppFixture, FollowingTheMapAgainDropsTheOrder)
+{
+    LegendOverlayStyle style;
+    style.setAutoUpdate(false);
+    LegendItemTree tree;
+    LegendNode text = node(LegendNode::Type::Text, LegendItemTree::newNodeId());
+    text.userLabel = QStringLiteral("Note");
+    tree.roots().append(text);
+    LegendNode layer = node(LegendNode::Type::Layer, QStringLiteral("L1"));
+    tree.roots().append(layer); // no settings: kept while the order is the user's
+    LegendNode renamed = node(LegendNode::Type::Layer, QStringLiteral("L2"));
+    renamed.userLabel = QStringLiteral("Second");
+    tree.roots().append(renamed);
+    style.setItemTree(tree);
+    EXPECT_EQ(style.itemTree().roots().size(), 3);
+
+    LegendOverlayStyle read;
+    read.fromJson(style.toJson());
+    EXPECT_FALSE(read.autoUpdate());
+    EXPECT_TRUE(read.itemTree() == style.itemTree());
+
+    style.setAutoUpdate(true);
+    ASSERT_EQ(style.itemTree().roots().size(), 1);
+    EXPECT_EQ(style.itemTree().roots()[0].userLabel, QStringLiteral("Second"));
+}
+
+TEST_F(QtAppFixture, OlderRowSettingsApplyUntilTheRowIsEdited)
+{
+    // An older file keyed rows by the layer's object name, usually empty.
+    QJsonObject old;
+    QJsonObject overrides;
+    overrides[QStringLiteral("|1")] = QJsonObject{{QStringLiteral("visible"), false}};
+    old[QStringLiteral("itemOverrides")] = overrides;
+    LegendOverlayStyle style;
+    style.fromJson(old);
+    EXPECT_FALSE(style.legacyItemOverride(QString(), QStringLiteral("1")).visible);
+    // Kept when saved again.
+    LegendOverlayStyle again;
+    again.fromJson(style.toJson());
+    EXPECT_FALSE(again.legacyItemOverride(QString(), QStringLiteral("1")).visible);
+    // Shown again here: the tree's node wins over the older setting.
+    style.setItemVisible(QStringLiteral("layer-id"), QStringLiteral("1"), true);
+    ASSERT_NE(style.itemTree().itemNode(QStringLiteral("layer-id"), QStringLiteral("1")), nullptr);
+    EXPECT_TRUE(style.itemOverride(QStringLiteral("layer-id"), QStringLiteral("1")).visible);
+    style.clearItemOverrides();
+    EXPECT_TRUE(style.legacyItemOverride(QString(), QStringLiteral("1")).visible);
+}
+
+TEST_F(QtAppFixture, LayersAreKeyedByTheirLayerId)
+{
+    QObject layer;
+    layer.setObjectName(QStringLiteral("name"));
+    EXPECT_EQ(LegendOverlayStyle::itemKey(&layer, {}), QStringLiteral("name"));
+    layer.setProperty("LayerId", QStringLiteral("{id}"));
+    EXPECT_EQ(LegendOverlayStyle::itemKey(&layer, {}), QStringLiteral("{id}"));
+    EXPECT_EQ(LegendOverlayStyle::itemKey(nullptr, {}), QString());
+}

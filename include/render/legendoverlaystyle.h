@@ -17,6 +17,7 @@
 #ifndef OPENSWMM_RENDER_LEGENDOVERLAYSTYLE_H
 #define OPENSWMM_RENDER_LEGENDOVERLAYSTYLE_H
 
+#include "render/legenditemtree.h"
 #include "render/mapboxstyle.h"
 
 #include <QColor>
@@ -152,6 +153,9 @@ public:
                    subheadingIndentChanged)
     Q_PROPERTY(int itemIndent READ itemIndent WRITE setItemIndent NOTIFY itemIndentChanged)
 
+    // ── Content ─────────────────────────────────────────────────────────
+    Q_PROPERTY(bool autoUpdate READ autoUpdate WRITE setAutoUpdate NOTIFY autoUpdateChanged)
+
     /*!
      * \struct ItemOverride
      * \brief Legend-only visibility and label of one row. The renderer stays the source of
@@ -168,22 +172,40 @@ public:
     /** @brief Destroy the style. */
     ~LegendOverlayStyle() override = default;
 
-    /*! \brief The layer half of a row override key: the layer's QObject::objectName (stable
-     *         across renames), so layers need unique object names.
+    /*! \brief A layer's key in the legend tree: its "LayerId" property (the id the project
+     *         file keeps), or its QObject::objectName when it has no id.
      * @param layer Layer, or null.
      * @param classKey Unused; kept for existing callers.
-     * @return The object name, or empty text for null. */
+     * @return The key, or empty text for null. */
     static QString itemKey(const QObject *layer, const QString &classKey);
 
-    /*! \brief The override stored for a row, or a visible, unrenamed default.
-     * @param layerKey Layer identity (see itemKey()).
+    /*! \brief A row's legend visibility and label from the tree (or, when the tree has no
+     *         node, from row settings read from an older file), or a visible, unrenamed
+     *         default.
+     * @param layerKey Layer key (see itemKey()).
      * @param classKey Renderer row key.
-     * @return Stored override or the default. */
+     * @return Stored settings or the default. */
     [[nodiscard]] ItemOverride itemOverride(const QString &layerKey, const QString &classKey) const;
 
-    /*! \brief Replace a row's override; a visible, unrenamed value removes it. Emits
-     *         itemOverrideChanged() and changed() only for an effective change.
-     * @param layerKey Layer identity, used verbatim.
+    /*! \brief A row setting read from an older file, which keyed rows by the layer's object
+     *         name; used when the tree has no node for the row.
+     * @param objectName Layer object name. @param classKey Renderer row key.
+     * @return The setting, or a visible, unrenamed default. */
+    [[nodiscard]] ItemOverride legacyItemOverride(const QString &objectName,
+                                                  const QString &classKey) const;
+
+    /** @brief The legend tree (per-layer and per-row settings, and the order when the legend
+     *  does not follow the map). */
+    [[nodiscard]] const LegendItemTree &itemTree() const { return m_tree; }
+    /** @brief Replace the legend tree; while the legend follows the map, nodes without a
+     *  setting are dropped. Emits itemTreeChanged() and changed() for an effective change.
+     * @param tree New tree. */
+    void setItemTree(const LegendItemTree &tree);
+
+    /*! \brief Replace a row's visibility and label; a visible, unrenamed value clears them.
+     *         Emits itemOverrideChanged(), itemTreeChanged() and changed() only for an
+     *         effective change.
+     * @param layerKey Layer key, used verbatim.
      * @param classKey Renderer row key, used verbatim.
      * @param override New value; labels are not trimmed. */
     void setItemOverride(const QString &layerKey, const QString &classKey,
@@ -197,7 +219,8 @@ public:
      * @param layerKey Layer identity. @param classKey Row key. @param label New label. */
     void setItemUserLabel(const QString &layerKey, const QString &classKey, const QString &label);
 
-    /** @brief Remove every row override; one changed() when any existed. */
+    /** @brief Show every row and restore every row's label (other settings stay); one
+     *  changed() when anything was set. */
     void clearItemOverrides();
 
     /*! \brief Group-prefixed row labels for the Properties tree, e.g. "Title — Font".
@@ -341,6 +364,11 @@ public:
     /** @brief Left indent of symbol rows. Initially 0. */
     [[nodiscard]] int itemIndent() const noexcept { return m_itemIndent; }
 
+    // ── Content ─────────────────────────────────────────────────────────
+    /** @brief Whether the legend follows the map: its layers in map order, new layers added.
+     *  Off, the legend tree's order, groups and text are used. Initially true. */
+    [[nodiscard]] bool autoUpdate() const noexcept { return m_autoUpdate; }
+
 public slots:
     /** @brief Show or hide the title. @param on New value. */
     void setShowTitle(bool on);
@@ -441,6 +469,9 @@ public slots:
     void setSubheadingIndent(int v);
     /** @brief Set the symbol row indent. @param v Logical pixels, 0..200. */
     void setItemIndent(int v);
+    /** @brief Follow the map or not. Turning it on keeps the per-layer and per-row settings but
+     *  drops the tree's order, groups and text lines. @param on New value. */
+    void setAutoUpdate(bool on);
 
 signals:
     /*! \brief One row's override changed (emitted before changed()); not emitted by
@@ -496,6 +527,9 @@ signals:
     void groupIndentChanged(int value);                 ///< @param value New value.
     void subheadingIndentChanged(int value);            ///< @param value New value.
     void itemIndentChanged(int value);                  ///< @param value New value.
+    void autoUpdateChanged(bool value);                 ///< @param value New value.
+    /** @brief The legend tree changed (emitted before changed()). */
+    void itemTreeChanged();
 
 private:
     bool m_showTitle = false;
@@ -552,8 +586,10 @@ private:
     int m_subheadingIndent = 0;
     int m_itemIndent = 0;
 
-    // Per-(layer, class) visibility and label, keyed "<layerKey>|<classKey>".
-    QHash<QString, ItemOverride> m_itemOverrides;
+    bool m_autoUpdate = true;
+    LegendItemTree m_tree;
+    // Row settings from an older file, keyed "<objectName>|<classKey>"; read-only.
+    QHash<QString, ItemOverride> m_legacyOverrides;
 };
 
 } // namespace OpenSWMM::Render

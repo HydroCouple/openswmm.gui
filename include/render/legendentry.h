@@ -47,7 +47,14 @@ struct LegendEntry {
     QString layerKey;        ///< Layer identity used by the legend's row settings.
     QString classKey;        ///< Renderer row key; empty when the row has none.
     QString sublayerId;      ///< Sublayer that produced the row, if any.
+    QString nodeId; ///< Tree node id: the row's key (see LegendContent::rowKey()), or the id
+                    ///< of a user group or text line; empty for a layer heading.
     int blockId = 0;         ///< Lines of one layer share a block id.
+    int depth = 0;           ///< Nesting in user groups; each level indents by the group indent.
+    bool columnBreakBefore = false; ///< Start a new column at this line.
+    int itemColumns = 0;  ///< The block's rows go in this many sub-columns (0 or 1 = one).
+    int symbolWidth = 0;  ///< Symbol slot width for this line; 0 = the style's.
+    int symbolHeight = 0; ///< Symbol slot height for this line; 0 = the style's.
 };
 
 } // namespace OpenSWMM::Render

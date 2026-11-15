@@ -439,6 +439,7 @@ add_swmmvis_unit_test(test_legendoverlaystyle
     ${PROJECT_SOURCE_DIR}/src/render/mapboxstyle.cpp
     ${PROJECT_SOURCE_DIR}/include/render/legendoverlaystyle.h
     ${PROJECT_SOURCE_DIR}/src/render/legendoverlaystyle.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/legenditemtree.cpp
 )
 target_link_libraries(test_legendoverlaystyle PRIVATE Qt6::Gui)
 
@@ -450,6 +451,7 @@ add_swmmvis_unit_test(test_legendlayout
     ${PROJECT_SOURCE_DIR}/src/render/mapboxstyle.cpp
     ${PROJECT_SOURCE_DIR}/include/render/legendoverlaystyle.h
     ${PROJECT_SOURCE_DIR}/src/render/legendoverlaystyle.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/legenditemtree.cpp
     ${PROJECT_SOURCE_DIR}/src/render/legendlayout.cpp
 )
 target_link_libraries(test_legendlayout PRIVATE Qt6::Gui)
