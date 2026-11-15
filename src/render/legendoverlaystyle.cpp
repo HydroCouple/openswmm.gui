@@ -107,33 +107,61 @@ LegendOverlayStyle::LegendOverlayStyle(QObject *parent) : MapBoxStyle(Anchor::Bo
 
 QString LegendOverlayStyle::itemKey(const QObject *layer, const QString &)
 {
-    // Only the layer half; itemOverride() joins it with the class key. Taking a QObject keeps
-    // this file free of layer classes (the unit test links only Qt).
-    return layer ? layer->objectName() : QString{};
+    // Only the layer half. A property read keeps this file free of layer classes (the unit
+    // test links only Qt); map layers have a LayerId the project file keeps.
+    if (!layer)
+        return {};
+    const QString id = layer->property("LayerId").toString();
+    return id.isEmpty() ? layer->objectName() : id;
 }
 
 LegendOverlayStyle::ItemOverride LegendOverlayStyle::itemOverride(const QString &layerKey,
                                                                   const QString &classKey) const
 {
-    return m_itemOverrides.value(combinedKey(layerKey, classKey), ItemOverride{});
+    if (const LegendNode *node = m_tree.itemNode(layerKey, classKey))
+        return ItemOverride{node->visible, node->userLabel};
+    return legacyItemOverride(layerKey, classKey);
+}
+
+LegendOverlayStyle::ItemOverride
+LegendOverlayStyle::legacyItemOverride(const QString &objectName, const QString &classKey) const
+{
+    return m_legacyOverrides.value(combinedKey(objectName, classKey), ItemOverride{});
+}
+
+void LegendOverlayStyle::setItemTree(const LegendItemTree &tree)
+{
+    LegendItemTree next = tree;
+    // A default node still shadows an older file's row setting, so keep it while any exist.
+    if (m_autoUpdate && m_legacyOverrides.isEmpty())
+        next.prune();
+    if (next == m_tree)
+        return;
+    m_tree = next;
+    emit itemTreeChanged();
+    emit changed();
 }
 
 void LegendOverlayStyle::setItemOverride(const QString &layerKey, const QString &classKey,
                                          const ItemOverride &override)
 {
-    const QString k = combinedKey(layerKey, classKey);
-    // A default-shaped override (visible, no label) is no override at all.
-    if (override.visible && override.userLabel.isEmpty()) {
-        if (m_itemOverrides.remove(k) == 0)
-            return;
-    } else {
-        const auto it = m_itemOverrides.constFind(k);
-        if (it != m_itemOverrides.constEnd() && it.value().visible == override.visible &&
-            it.value().userLabel == override.userLabel)
-            return;
-        m_itemOverrides.insert(k, override);
-    }
+    const ItemOverride current = itemOverride(layerKey, classKey);
+    const bool hasNode = m_tree.itemNode(layerKey, classKey) != nullptr;
+    // While an older file's row settings exist (keyed by object name, which this key cannot
+    // match), an edit always records a node so it wins over them.
+    if (current.visible == override.visible && current.userLabel == override.userLabel &&
+        (hasNode ||
+         (override.visible && override.userLabel.isEmpty() && m_legacyOverrides.isEmpty())))
+        return;
+    LegendItemTree next = m_tree;
+    LegendNode &node = next.ensureItemNode(layerKey, classKey);
+    node.visible = override.visible;
+    node.userLabel = override.userLabel;
+    if (m_autoUpdate && m_legacyOverrides.isEmpty())
+        next.prune();
+    m_tree = next;
     emit itemOverrideChanged(layerKey, classKey);
+    emit itemTreeChanged();
     emit changed();
 }
 
@@ -155,9 +183,24 @@ void LegendOverlayStyle::setItemUserLabel(const QString &layerKey, const QString
 
 void LegendOverlayStyle::clearItemOverrides()
 {
-    if (m_itemOverrides.isEmpty())
+    LegendItemTree next = m_tree;
+    const auto clear = [](auto &self, QList<LegendNode> &nodes) -> void {
+        for (LegendNode &n : nodes) {
+            if (n.type == LegendNode::Type::Item) {
+                n.visible = true;
+                n.userLabel.clear();
+            }
+            self(self, n.children);
+        }
+    };
+    clear(clear, next.roots());
+    if (m_autoUpdate)
+        next.prune();
+    if (next == m_tree && m_legacyOverrides.isEmpty())
         return;
-    m_itemOverrides.clear();
+    m_tree = next;
+    m_legacyOverrides.clear();
+    emit itemTreeChanged();
     emit changed();
 }
 
@@ -230,6 +273,8 @@ QString LegendOverlayStyle::displayLabelFor(const QString &propertyName) const
         {QStringLiteral("groupIndent"), QStringLiteral("Spacing — Group indent")},
         {QStringLiteral("subheadingIndent"), QStringLiteral("Spacing — Sub-heading indent")},
         {QStringLiteral("itemIndent"), QStringLiteral("Spacing — Item indent")},
+        // Content
+        {QStringLiteral("autoUpdate"), QStringLiteral("Content — Follow the map")},
     };
     const auto it = labels.constFind(propertyName);
     return it != labels.constEnd() ? it.value() : MapBoxStyle::displayLabelFor(propertyName);
@@ -286,6 +331,7 @@ QString LegendOverlayStyle::propertyGroupFor(const QString &propertyName) const
         {QStringLiteral("groupIndent"), QStringLiteral("Spacing")},
         {QStringLiteral("subheadingIndent"), QStringLiteral("Spacing")},
         {QStringLiteral("itemIndent"), QStringLiteral("Spacing")},
+        {QStringLiteral("autoUpdate"), QStringLiteral("Content")},
     };
     const auto it = groups.constFind(propertyName);
     return it != groups.constEnd() ? it.value() : MapBoxStyle::propertyGroupFor(propertyName);
@@ -302,20 +348,20 @@ QJsonObject LegendOverlayStyle::toJson() const
         j[QString::fromLatin1(property.name())] = propertyToJson(property, property.read(this));
     }
 
-    // Per-row overrides: { "layerKey|classKey": {visible?, userLabel?}, … }.
-    if (!m_itemOverrides.isEmpty()) {
+    // The legend tree, and row settings read from an older file (kept for it).
+    if (!m_tree.roots().isEmpty())
+        j[QStringLiteral("items")] = m_tree.toJson();
+    if (!m_legacyOverrides.isEmpty()) {
         QJsonObject overrides;
-        for (auto it = m_itemOverrides.constBegin(); it != m_itemOverrides.constEnd(); ++it) {
+        for (auto it = m_legacyOverrides.constBegin(); it != m_legacyOverrides.constEnd(); ++it) {
             QJsonObject entry;
             if (!it.value().visible)
                 entry[QStringLiteral("visible")] = false;
             if (!it.value().userLabel.isEmpty())
                 entry[QStringLiteral("userLabel")] = it.value().userLabel;
-            if (!entry.isEmpty())
-                overrides[it.key()] = entry;
+            overrides[it.key()] = entry;
         }
-        if (!overrides.isEmpty())
-            j[QStringLiteral("itemOverrides")] = overrides;
+        j[QStringLiteral("itemOverrides")] = overrides;
     }
     return j;
 }
@@ -340,21 +386,25 @@ void LegendOverlayStyle::fromJson(const QJsonObject &j)
     if (!has("titleSpacing") && has("rowSpacing"))
         setTitleSpacing(m_rowSpacing);
 
-    // Row overrides are replaced as a whole.
-    m_itemOverrides.clear();
-    if (has("itemOverrides")) {
-        const QJsonObject obj = j.value(QStringLiteral("itemOverrides")).toObject();
-        for (auto it = obj.constBegin(); it != obj.constEnd(); ++it) {
-            const QJsonObject entry = it.value().toObject();
-            ItemOverride o;
-            o.visible = entry.value(QStringLiteral("visible")).toBool(true);
-            o.userLabel = entry.value(QStringLiteral("userLabel")).toString();
-            if (!o.visible || !o.userLabel.isEmpty())
-                m_itemOverrides.insert(it.key(), o);
-        }
-        // A bulk load: one changed() covers it, no per-row signal.
-        emit changed();
+    // The tree and the older row settings are replaced as a whole. An older file keyed rows by
+    // the layer's object name ("name|classKey"); those apply until the row is edited here.
+    m_tree = has("items") ? LegendItemTree::fromJson(j.value(QStringLiteral("items")).toArray())
+                          : LegendItemTree{};
+    if (m_autoUpdate)
+        m_tree.prune();
+    m_legacyOverrides.clear();
+    const QJsonObject obj = j.value(QStringLiteral("itemOverrides")).toObject();
+    for (auto it = obj.constBegin(); it != obj.constEnd(); ++it) {
+        const QJsonObject entry = it.value().toObject();
+        ItemOverride o;
+        o.visible = entry.value(QStringLiteral("visible")).toBool(true);
+        o.userLabel = entry.value(QStringLiteral("userLabel")).toString();
+        if (!o.visible || !o.userLabel.isEmpty())
+            m_legacyOverrides.insert(it.key(), o);
     }
+    // A bulk load: one notification covers it, no per-row signal.
+    emit itemTreeChanged();
+    emit changed();
 }
 
 // Each setter: clamp, ignore an equal value, store, emit its own signal, then changed().
@@ -438,6 +488,24 @@ LEGEND_SETTER(int, GroupIndent, m_groupIndent, groupIndentChanged, std::clamp(v,
 LEGEND_SETTER(int, SubheadingIndent, m_subheadingIndent, subheadingIndentChanged,
               std::clamp(v, 0, 200))
 LEGEND_SETTER(int, ItemIndent, m_itemIndent, itemIndentChanged, std::clamp(v, 0, 200))
+
+void LegendOverlayStyle::setAutoUpdate(bool on)
+{
+    if (m_autoUpdate == on)
+        return;
+    m_autoUpdate = on;
+    emit autoUpdateChanged(on);
+    if (on) {
+        // Following the map again: the order, groups and text lines go; settings stay.
+        LegendItemTree next = m_tree;
+        next.flattenToLayers();
+        if (!(next == m_tree)) {
+            m_tree = next;
+            emit itemTreeChanged();
+        }
+    }
+    emit changed();
+}
 
 #undef LEGEND_SETTER
 

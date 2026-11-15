@@ -74,9 +74,11 @@ namespace LegendLayout
 /** @brief Place the title and @p entries.
  *
  * Lines are grouped into blocks that stay in one column (a layer's heading and rows; with
- * "split layers", each row, a heading staying with the row after it). Blocks fill the columns
- * in order; a column ends when adding the next block would pass an even share of the remaining
- * height by more than half that block. The title spans the columns.
+ * "split layers", each row). A heading stays with the line after it, and a line with a column
+ * break starts a new block. Blocks fill the columns in order; a column ends at a column break,
+ * or when adding the next block would pass an even share of the remaining height by more than
+ * half that block. A layer with sub-columns lays its rows side by side, row by row. User group
+ * nesting indents by the group indent per level. The title spans the columns.
  *
  * @param entries Lines in drawing order (see LegendContent::buildEntries()).
  * @param style Fonts, spacing, margins, columns, text and symbol settings, title, fixed size.
@@ -87,13 +89,17 @@ namespace LegendLayout
 
 /** @brief Space a symbol needs in the legend.
  *
- * The slot is at least the style's symbol width and height (the swatch size when 0); a line
- * symbol is at least twice the swatch wide when no symbol width is set. In map-size mode the
- * slot grows to the (clamped) line width and marker diameter; in fit mode it does not.
+ * The slot is at least the symbol width and height (the line's own, else the style's, else the
+ * swatch size); a line symbol is at least twice the swatch wide when no symbol width is set. In
+ * map-size mode the slot grows to the (clamped) line width and marker diameter; in fit mode it
+ * does not.
  * @param symbol Symbol passes.
  * @param style Legend style.
+ * @param width Slot width for this line, or 0 for the style's.
+ * @param height Slot height for this line, or 0 for the style's.
  * @return Slot size. */
-[[nodiscard]] QSize symbolExtent(const SymbolStyle &symbol, const LegendOverlayStyle &style);
+[[nodiscard]] QSize symbolExtent(const SymbolStyle &symbol, const LegendOverlayStyle &style,
+                                 int width = 0, int height = 0);
 
 /** @brief A marker diameter or line width limited by the style's minimum and maximum symbol
  *  size (0 = no limit).

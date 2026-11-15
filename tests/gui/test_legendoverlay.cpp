@@ -27,6 +27,7 @@
 #include "render/renderers/singlesymbolrenderer.h"
 #include "render/symbollayer.h"
 #include "render/symbolstyle.h"
+#include "ui/models/legendlayertreemodel.h"
 #include "ui/widgets/legendoverlay.h"
 
 #include <memory>
@@ -34,6 +35,9 @@
 using OpenSWMM::Render::CategorizedRenderer;
 using OpenSWMM::Render::GraduatedRenderer;
 using OpenSWMM::Render::LegendOverlayStyle;
+using OpenSWMM::Render::LegendEntry;
+using OpenSWMM::Render::LegendItemTree;
+using OpenSWMM::Render::LegendNode;
 using OpenSWMM::Render::LegendSymbolItem;
 using OpenSWMM::Render::SingleSymbolRenderer;
 using OpenSWMM::Render::SymbolLayer;
@@ -261,6 +265,25 @@ QString describe(const QColor &c)
         .arg(c.alpha());
 }
 
+/** Labels of the legend's lines in drawing order, headings marked "#". */
+QStringList lineLabels(const QList<LegendEntry> &entries)
+{
+    QStringList out;
+    for (const auto &e : entries)
+        out.append(e.kind == LegendEntry::Kind::GroupHeading ? QStringLiteral("#") + e.label
+                                                             : e.label);
+    return out;
+}
+
+QStringList headingLabels(const QList<LegendEntry> &entries)
+{
+    QStringList out;
+    for (const auto &e : entries)
+        if (e.kind == LegendEntry::Kind::GroupHeading)
+            out.append(e.label);
+    return out;
+}
+
 } // namespace
 
 class TestLegendOverlay : public QObject
@@ -474,13 +497,255 @@ private slots:
         QVERIFY(legend.width() > 200);
     }
 
+    /** @brief A layer's heading can be renamed, drawn as a sub-heading or hidden, and the
+     *  whole layer left out of the legend; a row can be renamed and hidden. */
+    void layerAndRowSettingsChangeTheLegend()
+    {
+        LegendScene scene(QSize(800, 700));
+        LegendOverlay legend(scene.canvas.get());
+        LegendOverlayStyle *style = legend.style();
+        const QString kinds = LegendOverlayStyle::itemKey(scene.kinds.get(), {});
+        const QString values = LegendOverlayStyle::itemKey(scene.values.get(), {});
+        const QString single = LegendOverlayStyle::itemKey(scene.single.get(), {});
+        QVERIFY(!kinds.isEmpty() && kinds != values); // layers have their own ids
+
+        LegendItemTree tree = style->itemTree();
+        tree.ensureLayerNode(kinds).userLabel = QStringLiteral("Kinds (renamed)");
+        tree.ensureLayerNode(values).heading = LegendNode::HeadingStyle::Hidden;
+        tree.ensureLayerNode(single).visible = false;
+        tree.ensureItemNode(kinds, QStringLiteral("0")).userLabel = QStringLiteral("A renamed");
+        tree.ensureItemNode(kinds, QStringLiteral("2")).visible = false;
+        style->setItemTree(tree);
+
+        const auto entries =
+            openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style);
+        QCOMPARE(headingLabels(entries),
+                 (QStringList{QStringLiteral("Kinds (renamed)"), QStringLiteral("Sectioned")}));
+        const QStringList labels = lineLabels(entries);
+        QVERIFY(labels.contains(QStringLiteral("A renamed")));
+        QVERIFY(!labels.contains(QStringLiteral("Kind C (wide line)")));
+        QVERIFY(!labels.contains(QStringLiteral("All points")));
+        QVERIFY(labels.contains(QStringLiteral("0 – 0.2"))); // rows of the headless layer stay
+
+        tree = style->itemTree();
+        tree.ensureLayerNode(kinds).heading = LegendNode::HeadingStyle::Subgroup;
+        style->setItemTree(tree);
+        const auto sub = openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style);
+        QCOMPARE(sub.first().kind, LegendEntry::Kind::Subheading);
+        QCOMPARE(sub.first().label, QStringLiteral("Kinds (renamed)"));
+        m_images.append({QStringLiteral("layer_settings"), drawn(&legend)});
+
+        // Saved with the project and read back.
+        LegendOverlayStyle read;
+        read.fromJson(style->toJson());
+        QVERIFY(read.itemTree() == style->itemTree());
+    }
+
+    /** @brief Taking over the order: the user's order, groups and text lines are shown; layers
+     *  added to the map later are not; renderer rows that go away are dropped and new ones go
+     *  after the stored ones. Following the map again restores map order and keeps renames. */
+    void theUsersOrderGroupsAndText()
+    {
+        LegendScene scene(QSize(800, 700));
+        LegendOverlay legend(scene.canvas.get());
+        LegendOverlayStyle *style = legend.style();
+        const auto before =
+            openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style);
+
+        // Turning auto update off keeps what the legend shows.
+        LegendItemTree tree =
+            openswmmvis::map::LegendContent::currentTree(scene.canvas.get(), style);
+        style->setAutoUpdate(false);
+        style->setItemTree(tree);
+        QCOMPARE(
+            lineLabels(openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style)),
+            lineLabels(before));
+
+        // Reorder: the last layer first; a group around two layers; a text line at the end.
+        tree = style->itemTree();
+        QCOMPARE(tree.roots().size(), 4);
+        tree.roots().move(3, 0); // Sectioned first
+        LegendNode group;
+        group.type = LegendNode::Type::Group;
+        group.id = LegendItemTree::newNodeId();
+        group.userLabel = QStringLiteral("Points");
+        group.children = {tree.roots()[1], tree.roots()[2]}; // Single, Kinds
+        tree.roots().remove(1, 2);
+        tree.roots().insert(1, group);
+        LegendNode text;
+        text.type = LegendNode::Type::Text;
+        text.id = LegendItemTree::newNodeId();
+        text.userLabel = QStringLiteral("Source: test data");
+        tree.roots().append(text);
+        // Stored row order: Kind C before Kind A.
+        LegendNode *kindsNode = tree.layerNode(LegendOverlayStyle::itemKey(scene.kinds.get(), {}));
+        kindsNode->children.move(2, 0);
+        style->setItemTree(tree);
+
+        auto entries = openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style);
+        QCOMPARE(headingLabels(entries),
+                 (QStringList{QStringLiteral("Sectioned"), QStringLiteral("Points"),
+                              QStringLiteral("Single layer"), QStringLiteral("Point kinds"),
+                              QStringLiteral("Graduated values")}));
+        QCOMPARE(entries.last().kind, LegendEntry::Kind::Text);
+        QCOMPARE(entries.last().label, QStringLiteral("Source: test data"));
+        int kindsAt = -1;
+        for (int i = 0; i < entries.size(); ++i)
+            if (entries[i].label == QStringLiteral("Point kinds"))
+                kindsAt = i;
+        QCOMPARE(entries[kindsAt].depth, 1); // inside the group
+        QCOMPARE(entries[kindsAt + 1].label, QStringLiteral("Kind C (wide line)"));
+        m_images.append({QStringLiteral("users_order"), drawn(&legend)});
+
+        // The renderer gains Kind D: it goes after the stored rows. A stored row the renderer
+        // no longer has is skipped.
+        auto *categorized = static_cast<CategorizedRenderer *>(scene.kinds->renderer());
+        auto categories = categorized->categories();
+        categories.append(
+            {QStringLiteral("D"), QStringLiteral("Kind D"), fill(QColor(90, 90, 90))});
+        categorized->setCategories(categories);
+        LegendItemTree t2 = style->itemTree();
+        t2.ensureItemNode(LegendOverlayStyle::itemKey(scene.kinds.get(), {}), QStringLiteral("99"))
+            .userLabel = QStringLiteral("Gone");
+        style->setItemTree(t2);
+        entries = openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style);
+        QStringList kindRows;
+        for (const auto &e : entries)
+            if (e.layer == scene.kinds.get() && e.kind == LegendEntry::Kind::Symbol)
+                kindRows.append(e.label);
+        QCOMPARE(kindRows,
+                 (QStringList{QStringLiteral("Kind C (wide line)"), QStringLiteral("Kind A (fill)"),
+                              QStringLiteral("Kind B (large marker)"), QStringLiteral("Kind D")}));
+
+        // A layer added to the map later is not in the user's legend.
+        GISVectorLayer extra(dataFile(QStringLiteral("legend_points.geojson")));
+        extra.setName(QStringLiteral("Added later"));
+        scene.canvas->addLayer(&extra, false);
+        entries = openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style);
+        QVERIFY(!headingLabels(entries).contains(QStringLiteral("Added later")));
+
+        // Following the map again: map order, the new layer listed, no group or text.
+        style->setAutoUpdate(true);
+        entries = openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style);
+        QCOMPARE(headingLabels(entries).first(), QStringLiteral("Added later"));
+        QVERIFY(!headingLabels(entries).contains(QStringLiteral("Points")));
+        QCOMPARE(entries.last().kind, LegendEntry::Kind::Symbol);
+        scene.canvas->takeLayer(scene.canvas->layers().indexOf(&extra), false);
+    }
+
+    /** @brief A column break starts a new column at its layer; a layer with sub-columns lays its
+     *  rows side by side. */
+    void columnBreaksAndSubColumns()
+    {
+        LegendScene scene(QSize(900, 700));
+        LegendOverlay legend(scene.canvas.get());
+        LegendOverlayStyle *style = legend.style();
+        style->setColumnCount(3);
+        LegendItemTree tree;
+        tree.ensureLayerNode(LegendOverlayStyle::itemKey(scene.kinds.get(), {})).columnBreakBefore =
+            true;
+        LegendNode &values =
+            tree.ensureLayerNode(LegendOverlayStyle::itemKey(scene.values.get(), {}));
+        values.columnBreakBefore = true;
+        values.itemColumns = 2;
+        style->setItemTree(tree);
+        const auto entries =
+            openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style);
+        const auto layout = OpenSWMM::Render::LegendLayout::compute(entries, *style);
+        QHash<QString, int> column;
+        QHash<QString, QRectF> rect;
+        for (const auto &box : layout.boxes)
+            if (box.entryIndex >= 0) {
+                column.insert(entries[box.entryIndex].label, box.column);
+                rect.insert(entries[box.entryIndex].label, box.rect);
+            }
+        QCOMPARE(column.value(QStringLiteral("Single layer")), 0);
+        QCOMPARE(column.value(QStringLiteral("Point kinds")), 1);
+        QCOMPARE(column.value(QStringLiteral("Graduated values")), 2);
+        // 0–0.2 and 0.2–0.4 side by side, 0.4–0.6 below the first.
+        const QRectF a = rect.value(QStringLiteral("0 – 0.2"));
+        const QRectF b = rect.value(QStringLiteral("0.2 – 0.4"));
+        const QRectF c = rect.value(QStringLiteral("0.4 – 0.6"));
+        QCOMPARE(a.top(), b.top());
+        QVERIFY(b.left() > a.right());
+        QCOMPARE(c.left(), a.left());
+        QVERIFY(c.top() > a.bottom());
+        m_images.append({QStringLiteral("breaks_and_subcolumns"), drawn(&legend)});
+    }
+
+    /** @brief The Legend dock lists the layers and rows in the legend's order, with the
+     *  legend's labels and hidden rows unchecked. */
+    void legendDockMatchesTheLegend()
+    {
+        LegendScene scene(QSize(800, 700));
+        LegendOverlay legend(scene.canvas.get());
+        LegendOverlayStyle *style = legend.style();
+        openswmmvis::ui::LegendLayerTreeModel dock(scene.canvas.get());
+        dock.setOverlayStyle(style);
+        const auto dockLayers = [&dock]() {
+            QStringList names;
+            for (int r = 0; r < dock.rowCount(); ++r)
+                names.append(dock.index(r, 0).data().toString());
+            return names;
+        };
+        QCOMPARE(dockLayers(), headingLabels(openswmmvis::map::LegendContent::buildEntries(
+                                   scene.canvas.get(), style)));
+
+        LegendItemTree tree =
+            openswmmvis::map::LegendContent::currentTree(scene.canvas.get(), style);
+        tree.roots().move(0, 3);
+        style->setAutoUpdate(false);
+        style->setItemTree(tree);
+        const auto entries =
+            openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style);
+        QCOMPARE(dockLayers(), headingLabels(entries));
+        QCOMPARE(dockLayers().last(), QStringLiteral("Single layer"));
+
+        const QString kinds = LegendOverlayStyle::itemKey(scene.kinds.get(), {});
+        style->setItemUserLabel(kinds, QStringLiteral("0"), QStringLiteral("Renamed A"));
+        style->setItemVisible(kinds, QStringLiteral("1"), false);
+        const int kindsRow = int(dockLayers().indexOf(QStringLiteral("Point kinds")));
+        const QModelIndex kindsIndex = dock.index(kindsRow, 0);
+        QCOMPARE(dock.index(0, 0, kindsIndex).data().toString(), QStringLiteral("Renamed A"));
+        QCOMPARE(dock.index(1, 0, kindsIndex).data(Qt::CheckStateRole).toInt(), int(Qt::Unchecked));
+        // Checking it in the dock shows it in the legend again.
+        QVERIFY(dock.setData(dock.index(1, 0, kindsIndex), Qt::Checked, Qt::CheckStateRole));
+        QVERIFY(lineLabels(openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style))
+                    .contains(QStringLiteral("Kind B (large marker)")));
+    }
+
+    /** @brief Row settings from an older file (keyed by the layer's object name) still apply,
+     *  until the row is changed here. */
+    void olderFileRowSettingsStillApply()
+    {
+        LegendScene scene(QSize(800, 700));
+        LegendOverlay legend(scene.canvas.get());
+        LegendOverlayStyle *style = legend.style();
+        QJsonObject old;
+        old[QStringLiteral("itemOverrides")] = QJsonObject{
+            {QStringLiteral("kinds|1"), QJsonObject{{QStringLiteral("visible"), false}}},
+            {QStringLiteral("kinds|0"),
+             QJsonObject{{QStringLiteral("userLabel"), QStringLiteral("Old name")}}}};
+        style->fromJson(old);
+        QStringList labels =
+            lineLabels(openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style));
+        QVERIFY(!labels.contains(QStringLiteral("Kind B (large marker)")));
+        QVERIFY(labels.contains(QStringLiteral("Old name")));
+        style->setItemVisible(LegendOverlayStyle::itemKey(scene.kinds.get(), {}),
+                              QStringLiteral("1"), true);
+        labels =
+            lineLabels(openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style));
+        QVERIFY(labels.contains(QStringLiteral("Kind B (large marker)")));
+    }
+
     /** @brief Hidden layers and hidden rows leave no space. */
     void hiddenLayersAndRowsLeaveNoSpace()
     {
         LegendScene scene(QSize(800, 700));
         LegendOverlay legend(scene.canvas.get());
         scene.values->setVisible(false);
-        legend.style()->setItemVisible(QStringLiteral("kinds"), QStringLiteral("1"), false);
+        legend.style()->setItemVisible(LegendOverlayStyle::itemKey(scene.kinds.get(), {}),
+                                       QStringLiteral("1"), false);
         // The measure above does not apply row overrides; take the hidden 22 px marker row
         // out of its height.
         const Legacy expected = legacyLayout(*scene.canvas, *legend.style());
