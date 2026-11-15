@@ -187,7 +187,8 @@ The file-type list offers PNG, SVG, AutoCAD DXF, Enhanced Metafile and EPA SWMM
 Map (`.map`), but **only PNG is implemented today** — choosing any of the others
 produces a message saying so and writes nothing. The PNG is captured at the
 canvas's on-screen size and resolution; there are no size or DPI options in this
-release. Successful exports are logged to the **Message Logs** panel.
+release. The legend and the animation date/time box are in the image when they are
+shown on the map. Successful exports are logged to the **Message Logs** panel.
 
 ### Print
 

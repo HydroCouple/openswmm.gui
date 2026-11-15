@@ -2362,6 +2362,15 @@ QPixmap MapCanvas::captureMap(QString *error)
             frame.setDevicePixelRatio(devicePixelRatioF());
             image = QPixmap::fromImage(frame);
             ++m_compositionStats.captureReadbacks;
+            // The GPU frame holds only the map. Draw the boxes floating on it (legend,
+            // date/time) as grab() does below, without their widget backgrounds.
+            QPainter painter(&image);
+            for (QObject *child : children()) {
+                auto *box = qobject_cast<QWidget *>(child);
+                if (box && box != m_compositionWidget && !box->isWindow() && box->isVisibleTo(this))
+                    box->render(&painter, box->pos(), QRegion(),
+                                QWidget::RenderFlags(QWidget::DrawChildren));
+            }
         } else {
             image = grab();
         }

@@ -49,6 +49,10 @@
 #include <QSignalSpy>
 #include <QSGTextureProvider>
 #include <QScopeGuard>
+#include <QTimeZone>
+#include <QVBoxLayout>
+#include "render/timeoverlaystyle.h"
+#include "ui/widgets/timeoverlay.h"
 #include <QGraphicsScene>
 #include <QDoubleSpinBox>
 #include <QCheckBox>
@@ -2947,6 +2951,83 @@ private slots:
         while (canvas.layerCount())
             canvas.takeLayer(0, false);
     }
+    /**
+     * @brief Export Map over the GPU map holds the legend and the date/time box, each once.
+     * Skips without FLOW_PARTICLE_NATIVE_REVIEW. Saves export_map_gpu.png under
+     * tests/output/time_overlay_2026-11-14.
+     */
+    void exportMapOverTheGpuMapHoldsTheLegendAndTimeBox()
+    {
+        if (!qEnvironmentVariableIsSet("FLOW_PARTICLE_NATIVE_REVIEW"))
+            QSKIP("Requires GPU widget composition");
+        const auto original = qgetenv("OPENSWMM_FLOW_NATIVE_SURFACE");
+        const auto restore = qScopeGuard([&] {
+            if (original.isNull())
+                qunsetenv("OPENSWMM_FLOW_NATIVE_SURFACE");
+            else
+                qputenv("OPENSWMM_FLOW_NATIVE_SURFACE", original);
+        });
+        qunsetenv("OPENSWMM_FLOW_NATIVE_SURFACE");
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<FlowSource>());
+        for (auto *sub : layer.sublayers())
+            sub->setVisible(false);
+        layer.flowStreakSublayer()->setVisible(true);
+        layer.flowStreakSublayer()->streakStyle()->setColor(Qt::transparent);
+        CompositionBackdrop raster(true);
+        QWidget host;
+        host.resize(640, 480);
+        auto *hostLayout = new QVBoxLayout(&host);
+        hostLayout->setContentsMargins(0, 0, 0, 0);
+        MapCanvas canvas;
+        canvas.setShowScaleBar(false);
+        canvas.addLayer(&raster, false);
+        canvas.addLayer(&layer, false);
+        canvas.setExtent({-10, -10, 110, 110}, false);
+        hostLayout->addWidget(&canvas);
+        openswmmvis::ui::LegendOverlay legend(&canvas);
+        legend.show();
+        auto *box = openswmmvis::ui::TimeOverlay::forCanvas(&canvas);
+        box->setDateTime(QDateTime(QDate(2026, 3, 14), QTime(6, 30), QTimeZone::UTC));
+        box->style()->setShowFrame(false);
+        box->style()->setBackgroundColor(QColor(255, 0, 255, 128));
+        box->style()->setShown(true);
+        showNativeReview(host);
+        QTRY_VERIFY_WITH_TIMEOUT(canvas.compositionStats().active, 10000);
+        QTest::qWait(250);
+
+        const auto readbacks = canvas.compositionStats().captureReadbacks;
+        QString error;
+        const QPixmap pixmap = canvas.captureMap(&error);
+        QVERIFY2(!pixmap.isNull(), qPrintable(error));
+        QVERIFY(canvas.compositionStats().captureReadbacks > readbacks); // the GPU frame
+        const QString folder = QStringLiteral("tests/output/time_overlay_2026-11-14");
+        QDir().mkpath(folder);
+        pixmap.save(folder + QStringLiteral("/export_map_gpu.png"));
+
+        const QImage image = pixmap.toImage();
+        const qreal dpr = pixmap.devicePixelRatio();
+        const auto blendOnce = [](const QColor &over, const QColor &under) {
+            const double a = over.alphaF();
+            return QColor(int(std::lround(over.red() * a + under.red() * (1 - a))),
+                          int(std::lround(over.green() * a + under.green() * (1 - a))),
+                          int(std::lround(over.blue() * a + under.blue() * (1 - a))));
+        };
+        const auto close = [](const QColor &a, const QColor &b) {
+            return std::abs(a.red() - b.red()) <= 5 && std::abs(a.green() - b.green()) <= 5 &&
+                   std::abs(a.blue() - b.blue()) <= 5;
+        };
+        const QColor map(20, 60, 100);
+        // Left padding of each box, halfway down: background only.
+        const QColor boxPixel = image.pixelColor((box->pos() + QPoint(4, box->height() / 2)) * dpr);
+        QVERIFY2(close(boxPixel, blendOnce(QColor(255, 0, 255, 128), map)),
+                 qPrintable(boxPixel.name()));
+        const QColor legendPixel =
+            image.pixelColor((legend.pos() + QPoint(4, legend.height() / 2)) * dpr);
+        QVERIFY2(close(legendPixel, blendOnce(legend.style()->backgroundColor(), map)),
+                 qPrintable(legendPixel.name()));
+    }
+
     /**
      *
      * @brief Exercise GPU composition input, caching, capture, masking, ordering and CPU
