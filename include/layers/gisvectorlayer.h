@@ -213,6 +213,15 @@ public:
      * @return Owned display metadata for the open source: feature count, field count and names. Counts reflect current OGR filters; no schema ownership escapes.
      */
     [[nodiscard]] QVector<QPair<QString, QString>> extendedMetadata() const override;
+    /**
+     * @brief Count features per legend row with the renderer's class keys (features the layer's
+     *        filter hides are not counted).
+     * @param[in] extent Count only features in this rectangle (canvas CRS); null counts all.
+     * @param[out] counts Feature count per class key.
+     * @return False without a data source or a renderer that classifies features.
+     */
+    [[nodiscard]] bool legendClassCounts(const MapExtent *extent,
+                                         QHash<QString, qint64> *counts) const override;
 
     // ----- IAttributeProvider (Slice DM.3) --------------------------------
     //

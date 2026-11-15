@@ -34,6 +34,7 @@
 #include "map/mapundostack.h"
 #include "render/legendlayout.h"
 #include "map/mapcanvas.h"
+#include "map/mapextent.h"
 #include "render/legendoverlaystyle.h"
 #include "render/legendsymbolitem.h"
 #include "render/classificationscheme.h"
@@ -1315,6 +1316,90 @@ private slots:
         QVERIFY(model->setData(columns.siblingAtColumn(1), 3, Qt::EditRole));
         QCOMPARE(style.columnCount(), 3);
         m_images.append({QStringLiteral("properties_panel"), panel.grab().toImage()});
+    }
+
+    /** @brief Feature counts follow each label; "only items in the map view" lists the rows with
+     *  features in the view (a layer with none is left out, a layer that cannot count stays);
+     *  drawing the legend never counts. */
+    void onlyItemsInTheMapViewAndFeatureCounts()
+    {
+        LegendScene scene(QSize(800, 700));
+        GISVectorLayer depth(dataFile(QStringLiteral("legend_points.geojson")));
+        depth.setName(QStringLiteral("Depth"));
+        depth.setRenderer(std::make_unique<RampRenderer>()); // cannot count
+        scene.canvas->addLayer(&depth, false);
+        const auto release = qScopeGuard(
+            [&] { scene.canvas->takeLayer(scene.canvas->layers().indexOf(&depth), false); });
+        // Views in map coordinates, from the points' extent: A (0,0) and (1,0), B (10,10) and
+        // C (20,0) in degrees; the map may be in another CRS.
+        const MapExtent all = scene.canvas->layerExtentInCanvasCRS(scene.kinds.get());
+        const double w = all.xMax() - all.xMin();
+        const double h = all.yMax() - all.yMin();
+        QVERIFY(w > 0 && h > 0);
+        const auto view = [&](double fx0, double fy0, double fx1, double fy1) {
+            return MapExtent(all.xMin() + fx0 * w, all.yMin() + fy0 * h, all.xMin() + fx1 * w,
+                             all.yMin() + fy1 * h);
+        };
+        scene.canvas->setExtent(view(-0.2, -0.2, 1.2, 1.2), false); // every point
+        LegendOverlay legend(scene.canvas.get());
+        LegendOverlayStyle *style = legend.style();
+        const auto lines = [&] {
+            return lineLabels(
+                openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style));
+        };
+        Q_UNUSED(lines);
+
+        int refreshes = legend.countRefreshes();
+        style->setShowFeatureCounts(true);
+        QTRY_VERIFY(legend.countRefreshes() > refreshes);
+        QString text = legend.summaryText();
+        QVERIFY2(text.contains(QStringLiteral("All points [4]")), qPrintable(text));
+        QVERIFY2(text.contains(QStringLiteral("Kind A (fill) [2]")), qPrintable(text));
+        QVERIFY2(text.contains(QStringLiteral("Kind B (large marker) [1]")), qPrintable(text));
+        // Binned as the map draws them: 0.1 | 0.2 | 0.5 | 0.9.
+        QVERIFY2(text.contains(QStringLiteral("0 – 0.2 [1]")), qPrintable(text));
+        QVERIFY2(text.contains(QStringLiteral("0.2 – 0.4 [1]")), qPrintable(text));
+        QVERIFY2(text.contains(QStringLiteral("0.6 – 0.8 [0]")), qPrintable(text));
+        m_images.append({QStringLiteral("feature_counts"), drawn(&legend)});
+
+        // Only the rows seen in the view: near the two A points.
+        style->setShowFeatureCounts(false);
+        style->setFilterByMapExtent(true);
+        scene.canvas->setExtent(view(-0.05, -0.1, 0.1, 0.1), false);
+        refreshes = legend.countRefreshes();
+        QTRY_VERIFY(legend.countRefreshes() > refreshes);
+        text = legend.summaryText();
+        QVERIFY2(text.contains(QStringLiteral("Kind A (fill)")), qPrintable(text));
+        QVERIFY2(!text.contains(QStringLiteral("Kind B")), qPrintable(text));
+        QVERIFY2(!text.contains(QStringLiteral("Kind C")), qPrintable(text));
+        QVERIFY2(text.contains(QStringLiteral("0 – 0.2")), qPrintable(text));
+        QVERIFY2(!text.contains(QStringLiteral("0.8 – 1")), qPrintable(text));
+        QVERIFY2(text.contains(QStringLiteral("Depth")), qPrintable(text)); // cannot count: listed
+        m_images.append({QStringLiteral("only_in_view"), drawn(&legend)});
+
+        // Near the B point.
+        scene.canvas->setExtent(view(0.45, 0.9, 0.55, 1.1), false);
+        refreshes = legend.countRefreshes();
+        QTRY_VERIFY(legend.countRefreshes() > refreshes);
+        text = legend.summaryText();
+        QVERIFY2(text.contains(QStringLiteral("Kind B")), qPrintable(text));
+        QVERIFY2(!text.contains(QStringLiteral("Kind A")), qPrintable(text));
+
+        // Nowhere near a point: the counting layers are left out, the other stays.
+        scene.canvas->setExtent(view(3.0, 3.0, 3.1, 3.1), false);
+        refreshes = legend.countRefreshes();
+        QTRY_VERIFY(legend.countRefreshes() > refreshes);
+        text = legend.summaryText();
+        QVERIFY2(!text.contains(QStringLiteral("Point kinds")), qPrintable(text));
+        QVERIFY2(!text.contains(QStringLiteral("Single layer")), qPrintable(text));
+        QVERIFY2(text.contains(QStringLiteral("Depth")), qPrintable(text));
+
+        // Drawing does not count.
+        QTest::qWait(400);
+        refreshes = legend.countRefreshes();
+        for (int i = 0; i < 5; ++i)
+            drawn(&legend);
+        QCOMPARE(legend.countRefreshes(), refreshes);
     }
 
     /** @brief Hidden layers and hidden rows leave no space. */

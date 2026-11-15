@@ -1081,6 +1081,55 @@ QList<QVariantMap> GISVectorLayer::identifyAt(double mapX, double mapY,
     return results;
 }
 
+bool GISVectorLayer::legendClassCounts(const MapExtent *extent,
+                                       QHash<QString, qint64> *counts) const
+{
+    const OpenSWMM::Render::IFeatureRenderer *r = renderer();
+    if (!m_ogrLayer || !r || !r->classifiesFeatures() || !counts)
+        return false;
+    const QSet<long long> inExtent = extent ? featureIdsInRect(*extent) : QSet<long long>{};
+    // Read without the spatial filter; the attribute filter stays, as on the map.
+    std::unique_ptr<OGRGeometry> savedFilter(
+        m_ogrLayer->GetSpatialFilter() ? m_ogrLayer->GetSpatialFilter()->clone() : nullptr);
+    const auto restoreFilter = qScopeGuard([&]() {
+        m_ogrLayer->SetSpatialFilter(savedFilter.get());
+        m_ogrLayer->ResetReading();
+    });
+    m_ogrLayer->SetSpatialFilter(nullptr);
+    m_ogrLayer->ResetReading();
+    const OpenSWMM::Render::FeatureRef ref{layerId(), -1, {}};
+    OGRFeature *feat = nullptr;
+    while ((feat = m_ogrLayer->GetNextFeature()) != nullptr) {
+        const long long fid = feat->GetFID();
+        if (extent && !inExtent.contains(fid)) {
+            OGRFeature::DestroyFeature(feat);
+            continue;
+        }
+        QVariantMap attrs;
+        attrs[QStringLiteral("fid")] = fid;
+        const OGRFeatureDefn *defn = feat->GetDefnRef();
+        for (int i = 0; i < defn->GetFieldCount(); ++i) {
+            const QString name = QString::fromUtf8(defn->GetFieldDefn(i)->GetNameRef());
+            const OGRFieldType type = defn->GetFieldDefn(i)->GetType();
+            if (!feat->IsFieldSet(i) || feat->IsFieldNull(i))
+                attrs[name] = QVariant{};
+            else if (type == OFTInteger)
+                attrs[name] = feat->GetFieldAsInteger(i);
+            else if (type == OFTInteger64)
+                attrs[name] = static_cast<long long>(feat->GetFieldAsInteger64(i));
+            else if (type == OFTReal)
+                attrs[name] = feat->GetFieldAsDouble(i);
+            else
+                attrs[name] = QString::fromUtf8(feat->GetFieldAsString(i));
+        }
+        OGRFeature::DestroyFeature(feat);
+        const QString key = r->classKeyFor(ref, attrs);
+        if (!key.isEmpty())
+            ++(*counts)[key];
+    }
+    return true;
+}
+
 QSet<long long> GISVectorLayer::featureIdsInRect(const MapExtent &rectCanvasCrs) const
 {
     QSet<long long> out;

@@ -100,6 +100,11 @@ public:
      * case-sensitive and does not trim or normalize either side. */
     [[nodiscard]] SymbolStyle symbolFor(const FeatureRef &f,
                                         const QVariantMap &attrs) const override;
+    /** @brief Features are matched to categories. @return True. */
+    [[nodiscard]] bool classifiesFeatures() const override { return true; }
+    /** @brief The index of the first category matching the feature, as symbolFor() matches.
+     * @return Index text, or empty text for a feature drawn with the fallback symbol. */
+    [[nodiscard]] QString classKeyFor(const FeatureRef &f, const QVariantMap &attrs) const override;
     /** @brief Build one legend row per stored category, including shadowed duplicates.
      * @return Owned rows in list order, using nonempty label or category value,
      * numeric index keys, and stored symbols. No fallback row is added. */

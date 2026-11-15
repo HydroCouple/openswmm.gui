@@ -11,6 +11,7 @@
 #define SWMMLAYER_H
 
 #include <QByteArray>
+#include <QHash>
 #include <QMap>
 #include <QObject>
 #include <QPaintDevice>
@@ -341,6 +342,22 @@ public:
      * @return Owned ordered display metadata, empty in the base. Should not be treated as authoritative persisted configuration.
      */
     [[nodiscard]] virtual QVector<QPair<QString, QString>> extendedMetadata() const { return {}; }
+
+    /**
+     * @brief Count this layer's features per legend row, for the map legend's feature counts and
+     *        its "only items in the map extent" option.
+     * @param[in] extent Count only features in this rectangle (canvas CRS); null counts all.
+     * @param[out] counts Feature count per legend row class key (rows with none are absent).
+     * @return False when the layer cannot count (then the legend lists all its rows).
+     * @note Reads every feature; the legend calls it outside painting, after a short delay.
+     */
+    [[nodiscard]] virtual bool legendClassCounts(const MapExtent *extent,
+                                                 QHash<QString, qint64> *counts) const
+    {
+        Q_UNUSED(extent);
+        Q_UNUSED(counts);
+        return false;
+    }
 
     // ----- Raster layer identification ------------------------------------
 

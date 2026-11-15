@@ -335,6 +335,9 @@ QString LegendOverlayStyle::displayLabelFor(const QString &propertyName) const
         {QStringLiteral("itemIndent"), QStringLiteral("Spacing — Item indent")},
         // Content
         {QStringLiteral("autoUpdate"), QStringLiteral("Content — Follow the map")},
+        {QStringLiteral("filterByMapExtent"),
+         QStringLiteral("Content — Only items in the map view")},
+        {QStringLiteral("showFeatureCounts"), QStringLiteral("Content — Feature counts")},
         // Color ramps
         {QStringLiteral("rampDisplay"), QStringLiteral("Color ramps — Show as")},
         {QStringLiteral("rampOrientation"), QStringLiteral("Color ramps — Direction")},
@@ -535,6 +538,9 @@ QString LegendOverlayStyle::formatRampValue(double value) const
     }
     return QString::number(value, 'g', 4);
 }
+
+LEGEND_SETTER(bool, FilterByMapExtent, m_filterByMapExtent, filterByMapExtentChanged, v)
+LEGEND_SETTER(bool, ShowFeatureCounts, m_showFeatureCounts, showFeatureCountsChanged, v)
 
 void LegendOverlayStyle::setAutoUpdate(bool on)
 {

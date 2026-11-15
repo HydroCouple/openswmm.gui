@@ -23,6 +23,7 @@
 #include "render/legendsymbolitem.h"
 
 #include <QColor>
+#include <QHash>
 #include <QList>
 #include <QPointer>
 
@@ -108,17 +109,31 @@ struct LegendTreeItem {
 [[nodiscard]] OpenSWMM::Render::LegendItemTree
 currentTree(const MapCanvas *canvas, const OpenSWMM::Render::LegendOverlayStyle *style);
 
+/*!
+ * \struct LegendCounts
+ * \brief Feature counts per legend row for the layers that can count, keyed by layer key and
+ *        class key (see OpenSWMMVisLayer::legendClassCounts()).
+ */
+struct LegendCounts {
+    QHash<QString, QHash<QString, qint64>> total;    ///< all features
+    QHash<QString, QHash<QString, qint64>> inExtent; ///< features in the map view
+};
+
 /*! The map legend's lines, in drawing order, from resolveTree(): visible layers (shown on the
  *  map and in the legend) with a heading in their heading style and their visible rows (rows
  *  without a symbol become sub-headings), user groups with their contents, and text lines.
  *  Each line carries its node's column break, sub-columns and symbol size.
  * @param[in] canvas Map whose layers are listed; null gives no lines.
  * @param[in] style Legend settings; null applies none.
+ * @param[in] counts Feature counts. With the style's "only items in the map view", a counting
+ *   layer lists only rows with features in the view (and none of its lines when no row is
+ *   left); with "feature counts", rows get " [n]". Null applies neither.
  * @return Value list. Every view of the map legend (the box on the map, its screen-reader text,
  *   the copied image) uses this one list.
  */
 [[nodiscard]] QList<OpenSWMM::Render::LegendEntry>
-buildEntries(const MapCanvas *canvas, const OpenSWMM::Render::LegendOverlayStyle *style);
+buildEntries(const MapCanvas *canvas, const OpenSWMM::Render::LegendOverlayStyle *style,
+             const LegendCounts *counts = nullptr);
 
 /*! First resolvable swatch color of a symbol (tolerant of both color
  *  encodings; checks fillColor → color → outlineColor). Gray fallback

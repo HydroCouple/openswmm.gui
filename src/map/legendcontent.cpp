@@ -169,7 +169,7 @@ QList<LegendTreeItem> resolveNodes(const QList<LegendNode> &nodes,
 
 /** Add the lines of @p items at @p depth. */
 void emitEntries(const QList<LegendTreeItem> &items, int depth, int &block, QList<LegendEntry> &out,
-                 const LegendOverlayStyle *style)
+                 const LegendOverlayStyle *style, const LegendCounts *counts)
 {
     for (const LegendTreeItem &item : items) {
         const LegendNode &n = item.node;
@@ -203,7 +203,7 @@ void emitEntries(const QList<LegendTreeItem> &items, int depth, int &block, QLis
                 out.append(e);
             }
             const int before = out.size();
-            emitEntries(item.children, depth + 1, block, out, style);
+            emitEntries(item.children, depth + 1, block, out, style, counts);
             if (pendingBreak && out.size() > before)
                 out[before].columnBreakBefore = true;
             continue;
@@ -214,6 +214,21 @@ void emitEntries(const QList<LegendTreeItem> &items, int depth, int &block, QLis
             continue;
         const QString layerKey = n.id;
         ++block;
+        // Feature counts, for a layer that can count: only rows seen in the map view, and the
+        // count after each label.
+        const auto countsOf = [&](const QHash<QString, QHash<QString, qint64>> &all,
+                                  bool wanted) -> const QHash<QString, qint64> * {
+            if (!wanted)
+                return nullptr;
+            const auto it = all.constFind(layerKey);
+            return it != all.constEnd() ? &it.value() : nullptr;
+        };
+        const QHash<QString, qint64> *inView =
+            counts && style ? countsOf(counts->inExtent, style->filterByMapExtent()) : nullptr;
+        const QHash<QString, qint64> *totals =
+            counts && style ? countsOf(counts->total, style->showFeatureCounts()) : nullptr;
+        const qsizetype layerStart = out.size();
+        bool anyRowInView = false;
         bool pendingBreak = n.columnBreakBefore;
         if (n.heading != LegendNode::HeadingStyle::Hidden) {
             LegendEntry heading;
@@ -273,10 +288,18 @@ void emitEntries(const QList<LegendTreeItem> &items, int depth, int &block, QLis
             }
             if (!child.node.visible || !child.row.visible)
                 continue;
+            const QString &classKey = child.row.classKey;
+            if (inView && !classKey.isEmpty()) {
+                if (inView->value(classKey, 0) == 0)
+                    continue;
+                anyRowInView = true;
+            }
             LegendEntry entry;
             entry.kind = child.row.symbol.layers.isEmpty() ? LegendEntry::Kind::Subheading
                                                            : LegendEntry::Kind::Symbol;
             entry.label = child.label();
+            if (totals && !classKey.isEmpty())
+                entry.label += QStringLiteral(" [%1]").arg(totals->value(classKey, 0));
             entry.symbol = child.row.symbol;
             entry.layer = layer;
             entry.layerKey = layerKey;
@@ -293,6 +316,9 @@ void emitEntries(const QList<LegendTreeItem> &items, int depth, int &block, QLis
             pendingBreak = false;
             out.append(entry);
         }
+        // No row of this layer in the map view: leave the layer out.
+        if (inView && !anyRowInView)
+            out.resize(layerStart);
     }
 }
 
@@ -345,11 +371,12 @@ OpenSWMM::Render::LegendItemTree currentTree(const MapCanvas *canvas,
     return tree;
 }
 
-QList<LegendEntry> buildEntries(const MapCanvas *canvas, const LegendOverlayStyle *style)
+QList<LegendEntry> buildEntries(const MapCanvas *canvas, const LegendOverlayStyle *style,
+                                const LegendCounts *counts)
 {
     QList<LegendEntry> entries;
     int block = 0;
-    emitEntries(resolveTree(canvas, style), 0, block, entries, style);
+    emitEntries(resolveTree(canvas, style), 0, block, entries, style, counts);
     return entries;
 }
 

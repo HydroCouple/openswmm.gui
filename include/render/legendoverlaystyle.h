@@ -164,6 +164,10 @@ public:
 
     // ── Content ─────────────────────────────────────────────────────────
     Q_PROPERTY(bool autoUpdate READ autoUpdate WRITE setAutoUpdate NOTIFY autoUpdateChanged)
+    Q_PROPERTY(bool filterByMapExtent READ filterByMapExtent WRITE setFilterByMapExtent NOTIFY
+                   filterByMapExtentChanged)
+    Q_PROPERTY(bool showFeatureCounts READ showFeatureCounts WRITE setShowFeatureCounts NOTIFY
+                   showFeatureCountsChanged)
 
     // ── Color ramps ─────────────────────────────────────────────────────
     Q_PROPERTY(
@@ -416,6 +420,12 @@ public:
     /** @brief Whether the legend follows the map: its layers in map order, new layers added.
      *  Off, the legend tree's order, groups and text are used. Initially true. */
     [[nodiscard]] bool autoUpdate() const noexcept { return m_autoUpdate; }
+    /** @brief List only the rows with features in the map view (layers that can count; a layer
+     *  with no row left is left out). Initially false. */
+    [[nodiscard]] bool filterByMapExtent() const noexcept { return m_filterByMapExtent; }
+    /** @brief Write each row's feature count after its label, " [n]" (layers that can count).
+     *  Initially false. */
+    [[nodiscard]] bool showFeatureCounts() const noexcept { return m_showFeatureCounts; }
 
     // ── Color ramps ─────────────────────────────────────────────────────
     /** @brief Continuous ramps as one bar or as sampled swatches. Initially Bar. */
@@ -553,6 +563,10 @@ public slots:
     /** @brief Follow the map or not. Turning it on keeps the per-layer and per-row settings but
      *  drops the tree's order, groups and text lines. @param on New value. */
     void setAutoUpdate(bool on);
+    /** @brief List only rows with features in the map view or not. @param on New value. */
+    void setFilterByMapExtent(bool on);
+    /** @brief Write feature counts after labels or not. @param on New value. */
+    void setShowFeatureCounts(bool on);
     /** @brief Show ramps as a bar or as swatches. @param d New value. */
     void setRampDisplay(OpenSWMM::Render::LegendOverlayStyle::RampDisplay d);
     /** @brief Set the bar direction. @param o New value. */
@@ -635,6 +649,8 @@ signals:
     void subheadingIndentChanged(int value);            ///< @param value New value.
     void itemIndentChanged(int value);                  ///< @param value New value.
     void autoUpdateChanged(bool value);                 ///< @param value New value.
+    void filterByMapExtentChanged(bool value);          ///< @param value New value.
+    void showFeatureCountsChanged(bool value);          ///< @param value New value.
     /** @brief The legend tree changed (emitted before changed()). */
     void itemTreeChanged();
     void rampDisplayChanged(OpenSWMM::Render::LegendOverlayStyle::RampDisplay value);
@@ -707,6 +723,8 @@ private:
     int m_itemIndent = 0;
 
     bool m_autoUpdate = true;
+    bool m_filterByMapExtent = false;
+    bool m_showFeatureCounts = false;
 
     RampDisplay m_rampDisplay = RampDisplay::Bar;
     RampOrientation m_rampOrientation = RampOrientation::Vertical;
