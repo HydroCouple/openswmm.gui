@@ -349,6 +349,22 @@ private slots:
         checkLegacyGeometry(QStringLiteral("legacy_capped"), scene, legend);
     }
 
+    /** @brief Opacity fades the whole box (it used to have no effect on the legend). */
+    void opacityFadesTheWholeBox()
+    {
+        LegendScene scene(QSize(800, 700));
+        LegendOverlay legend(scene.canvas.get());
+        legend.style()->setShowFrame(false);
+        legend.style()->setBackgroundColor(QColor(255, 255, 255, 255));
+        const QPoint padding(3, legend.height() / 2);
+        QCOMPARE(drawn(&legend).pixelColor(padding).alpha(), 255);
+        legend.style()->setOpacity(0.5);
+        const QImage faded = drawn(&legend);
+        m_images.append({QStringLiteral("opacity_half"), faded});
+        QVERIFY2(std::abs(faded.pixelColor(padding).alpha() - 128) <= 2,
+                 qPrintable(describe(faded.pixelColor(padding))));
+    }
+
     /** @brief Hidden layers and hidden rows leave no space. */
     void hiddenLayersAndRowsLeaveNoSpace()
     {

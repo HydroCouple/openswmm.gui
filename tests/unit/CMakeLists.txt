@@ -435,10 +435,24 @@ endif()
 # Header listed in sources so AUTOMOC picks up the Q_OBJECT macro.
 add_swmmvis_unit_test(test_legendoverlaystyle
     test_legendoverlaystyle.cpp
+    ${PROJECT_SOURCE_DIR}/include/render/mapboxstyle.h
+    ${PROJECT_SOURCE_DIR}/src/render/mapboxstyle.cpp
     ${PROJECT_SOURCE_DIR}/include/render/legendoverlaystyle.h
     ${PROJECT_SOURCE_DIR}/src/render/legendoverlaystyle.cpp
 )
 target_link_libraries(test_legendoverlaystyle PRIVATE Qt6::Gui)
+
+# Map legend geometry: where the title, headings, symbols and labels go. Fonts need a
+# QGuiApplication (offscreen), so this links Qt6::Gui.
+add_swmmvis_unit_test(test_legendlayout
+    test_legendlayout.cpp
+    ${PROJECT_SOURCE_DIR}/include/render/mapboxstyle.h
+    ${PROJECT_SOURCE_DIR}/src/render/mapboxstyle.cpp
+    ${PROJECT_SOURCE_DIR}/include/render/legendoverlaystyle.h
+    ${PROJECT_SOURCE_DIR}/src/render/legendoverlaystyle.cpp
+    ${PROJECT_SOURCE_DIR}/src/render/legendlayout.cpp
+)
+target_link_libraries(test_legendlayout PRIVATE Qt6::Gui)
 
 # Slice US.1 — shared classification scheme (UNIFIED_STYLING plan S1).
 # Needs Qt6::Gui for QColor; symbolstyle/symbollayer link in for the

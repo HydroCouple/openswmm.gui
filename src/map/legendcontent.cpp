@@ -18,6 +18,8 @@
 #include "layers/swmm2dresultslayer.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmmresultslayer.h"
+#include "map/mapcanvas.h"
+#include "render/legendoverlaystyle.h"
 #include "render/ifeaturerenderer.h"
 #include "render/irasterrenderer.h"
 #include "render/symbolstyle.h"
@@ -62,6 +64,59 @@ QList<OpenSWMM::Render::LegendSymbolItem> legendItemsFor(OpenSWMMVisLayer *layer
     if (auto *l = qobject_cast<GISRasterLayer *>(layer); l && l->rasterRenderer())
         return l->rasterRenderer()->legendSymbolItems();
     return {};
+}
+
+QList<OpenSWMM::Render::LegendEntry> buildEntries(const MapCanvas *canvas,
+                                                  const OpenSWMM::Render::LegendOverlayStyle *style)
+{
+    using OpenSWMM::Render::LegendEntry;
+    QList<LegendEntry> entries;
+    if (!canvas)
+        return entries;
+    const auto layers = canvas->layers();
+    int block = 0;
+    // Top of the map first.
+    for (int i = layers.size() - 1; i >= 0; --i) {
+        OpenSWMMVisLayer *layer = layers.at(i);
+        if (!layer || !layer->isVisible())
+            continue;
+        const QString layerKey = OpenSWMM::Render::LegendOverlayStyle::itemKey(layer, {});
+        ++block;
+        LegendEntry heading;
+        heading.kind = LegendEntry::Kind::GroupHeading;
+        heading.label = layer->name();
+        heading.layer = layer;
+        heading.layerKey = layerKey;
+        heading.blockId = block;
+        entries.append(heading);
+        for (const auto &row : legendItemsFor(layer)) {
+            bool visible = row.visible;
+            QString label = row.effectiveLabel();
+            // The legend's own settings hide or rename rows; a row the renderer hides stays
+            // hidden.
+            if (style && !row.classKey.isEmpty()) {
+                const auto override = style->itemOverride(layerKey, row.classKey);
+                if (!override.visible)
+                    visible = false;
+                if (!override.userLabel.isEmpty())
+                    label = override.userLabel;
+            }
+            if (!visible)
+                continue;
+            LegendEntry entry;
+            entry.kind = row.symbol.layers.isEmpty() ? LegendEntry::Kind::Subheading
+                                                     : LegendEntry::Kind::Symbol;
+            entry.label = label;
+            entry.symbol = row.symbol;
+            entry.layer = layer;
+            entry.layerKey = layerKey;
+            entry.classKey = row.classKey;
+            entry.sublayerId = row.sublayerId;
+            entry.blockId = block;
+            entries.append(entry);
+        }
+    }
+    return entries;
 }
 
 QColor firstSymbolColor(const OpenSWMM::Render::SymbolStyle &style)

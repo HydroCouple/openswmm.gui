@@ -10,6 +10,7 @@
 #include "ui/widgets/timeoverlay.h"
 
 #include "map/mapcanvas.h"
+#include "render/mapboxchrome.h"
 #include "render/timeoverlaystyle.h"
 #include "ui/properties/propertyrows.h"
 
@@ -21,11 +22,9 @@
 #include <QEvent>
 #include <QFontMetrics>
 #include <QHeaderView>
-#include <QLinearGradient>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
-#include <QPainterPath>
 #include <QPushButton>
 #include <QTreeView>
 #include <QVBoxLayout>
@@ -37,12 +36,6 @@ namespace openswmmvis::ui
 {
 
 using OpenSWMM::Render::TimeOverlayStyle;
-
-namespace
-{
-/// Gap between an anchored box and the map edge, as for the legend.
-constexpr int kAnchorMargin = 12;
-} // namespace
 
 TimeOverlay::TimeOverlay(MapCanvas *canvas)
     : QWidget(canvas), m_canvas(canvas), m_style(new TimeOverlayStyle(this))
@@ -122,45 +115,8 @@ void TimeOverlay::relayout()
 
     if (!m_canvas)
         return;
-    const int cw = m_canvas->width();
-    const int ch = m_canvas->height();
-    int x = kAnchorMargin;
-    int y = kAnchorMargin;
-    using Anchor = TimeOverlayStyle::Anchor;
-    switch (m_style->anchor()) {
-    case Anchor::TopLeft:
-        break;
-    case Anchor::Top:
-        x = (cw - w) / 2;
-        break;
-    case Anchor::TopRight:
-        x = cw - w - kAnchorMargin;
-        break;
-    case Anchor::Right:
-        x = cw - w - kAnchorMargin;
-        y = (ch - h) / 2;
-        break;
-    case Anchor::BottomRight:
-        x = cw - w - kAnchorMargin;
-        y = ch - h - kAnchorMargin;
-        break;
-    case Anchor::Bottom:
-        x = (cw - w) / 2;
-        y = ch - h - kAnchorMargin;
-        break;
-    case Anchor::BottomLeft:
-        y = ch - h - kAnchorMargin;
-        break;
-    case Anchor::Left:
-        y = (ch - h) / 2;
-        break;
-    case Anchor::Free:
-        x = m_style->freePosition().x();
-        y = m_style->freePosition().y();
-        break;
-    }
     // Always on the map, so it can be dragged back.
-    move(std::clamp(x, 0, std::max(0, cw - w)), std::clamp(y, 0, std::max(0, ch - h)));
+    move(OpenSWMM::Render::anchoredMapBoxPosition(size(), m_canvas->size(), *m_style));
 }
 
 void TimeOverlay::paintEvent(QPaintEvent * /*event*/)
@@ -169,34 +125,8 @@ void TimeOverlay::paintEvent(QPaintEvent * /*event*/)
     p.setRenderHint(QPainter::Antialiasing);
     p.setRenderHint(QPainter::TextAntialiasing);
     p.setOpacity(std::clamp<qreal>(m_style->opacity(), 0.0, 1.0));
-
     // Same box as the legend: rounded rectangle, filled per the background mode, then framed.
-    const qreal inset =
-        m_style->showFrame() ? std::max<qreal>(0.5, m_style->frameWidth() / 2.0) : 0.0;
-    QPainterPath box;
-    box.addRoundedRect(QRectF(rect()).adjusted(inset, inset, -inset, -inset),
-                       m_style->cornerRadius(), m_style->cornerRadius());
-    using Mode = TimeOverlayStyle::BackgroundMode;
-    switch (m_style->backgroundMode()) {
-    case Mode::None:
-        break;
-    case Mode::Solid:
-        p.fillPath(box, m_style->backgroundColor());
-        break;
-    case Mode::Gradient: {
-        QLinearGradient g = m_style->gradientOrientation() == Qt::Horizontal
-                                ? QLinearGradient(0, 0, width(), 0)
-                                : QLinearGradient(0, 0, 0, height());
-        g.setColorAt(0.0, m_style->backgroundColor());
-        g.setColorAt(1.0, m_style->gradientEndColor());
-        p.fillPath(box, g);
-        break;
-    }
-    }
-    if (m_style->showFrame()) {
-        p.setPen(QPen(m_style->frameColor(), m_style->frameWidth()));
-        p.drawPath(box);
-    }
+    OpenSWMM::Render::paintMapBoxChrome(p, QRectF(rect()), *m_style);
 
     p.setFont(m_style->font());
     p.setPen(m_style->textColor());

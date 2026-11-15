@@ -18,16 +18,19 @@
 #ifndef OPENSWMMVIS_MAP_LEGENDCONTENT_H
 #define OPENSWMMVIS_MAP_LEGENDCONTENT_H
 
+#include "render/legendentry.h"
 #include "render/legendsymbolitem.h"
 
 #include <QColor>
 #include <QList>
 
+class MapCanvas;
 class OpenSWMMVisLayer;
 
 namespace OpenSWMM::Render
 {
 class IFeatureRenderer;
+class LegendOverlayStyle;
 struct SymbolStyle;
 enum class ClassEditKind;
 }
@@ -58,6 +61,17 @@ namespace openswmmvis::map::LegendContent
  *   visibility or change styles.
  */
 [[nodiscard]] QList<OpenSWMM::Render::LegendSymbolItem> legendItemsFor(OpenSWMMVisLayer *layer);
+
+/*! The map legend's lines, in drawing order: for each visible layer, top of the map first, a
+ *  heading with the layer's name and then its visible rows (rows without a symbol become
+ *  sub-headings). The legend's row settings (hidden and renamed rows) are applied.
+ * @param[in] canvas Map whose layers are listed; null gives no lines.
+ * @param[in] style Legend settings; null applies none.
+ * @return Value list. Every view of the map legend (the box on the map, its screen-reader text,
+ *   the copied image) uses this one list.
+ */
+[[nodiscard]] QList<OpenSWMM::Render::LegendEntry>
+buildEntries(const MapCanvas *canvas, const OpenSWMM::Render::LegendOverlayStyle *style);
 
 /*! First resolvable swatch color of a symbol (tolerant of both color
  *  encodings; checks fillColor → color → outlineColor). Gray fallback
