@@ -77,7 +77,6 @@ test_reactionsystemeditor
 test_relativepathpicker
 test_resultscalargeometry
 test_rule_rain_syntax
-test_selectionbeacon
 test_selectionmanager
 test_simoptions_persistence_contract
 test_simtime_display
@@ -91,7 +90,6 @@ test_tableclipboard
 test_temporalspec
 test_terrainbreaklines
 test_theme_contrast
-test_theme_manager
 test_timeseries_datetime_roundtrip
 test_timeseries_registry_engine
 test_treatment_expression_editor
