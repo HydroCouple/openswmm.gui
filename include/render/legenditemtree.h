@@ -18,10 +18,14 @@
 #ifndef OPENSWMM_RENDER_LEGENDITEMTREE_H
 #define OPENSWMM_RENDER_LEGENDITEMTREE_H
 
+#include <QColor>
+#include <QFont>
 #include <QJsonArray>
 #include <QJsonObject>
 #include <QList>
 #include <QString>
+
+#include <optional>
 
 namespace OpenSWMM::Render
 {
@@ -30,6 +34,23 @@ namespace OpenSWMM::Render
  * \struct LegendNode
  * \brief One node of the legend tree with its legend-only settings.
  */
+/*!
+ * \struct LegendRampOverrides
+ * \brief A layer's own color bar settings; each unset value follows the legend.
+ */
+struct LegendRampOverrides {
+    int orientation = -1; ///< -1 = the legend's; 0 = vertical; 1 = horizontal.
+    int length = 0;       ///< Bar length in pixels; 0 = the legend's.
+    int thickness = 0;    ///< Bar thickness in pixels; 0 = the legend's.
+    int tickCount = 0;    ///< Values along the bar, ends included; 0 = the legend's.
+    int highAtTop = -1;   ///< Vertical bars: -1 = the legend's; 0 = low at the top; 1 = high.
+    int endCaps = -1;     ///< -1 = the legend's; 0 = no below/above caps; 1 = caps.
+
+    /** @brief Whether every value follows the legend. */
+    [[nodiscard]] bool isDefault() const { return *this == LegendRampOverrides{}; }
+    bool operator==(const LegendRampOverrides &other) const = default;
+};
+
 struct LegendNode {
     /** @brief What the node is. Group and Text nodes are made by the user. */
     enum class Type { Layer, Item, Group, Text };
@@ -48,6 +69,13 @@ struct LegendNode {
     RampChoice ramp = RampChoice::Inherit; ///< Layer: color ramp as a bar or as swatches.
     int symbolWidth = 0;                   ///< Symbol slot width; 0 = the style's.
     int symbolHeight = 0;                  ///< Symbol slot height; 0 = the style's.
+    LegendRampOverrides rampSettings;      ///< Layer: its color bars' own settings.
+    std::optional<QFont> headingFont;      ///< Layer, Group: heading font; unset = the legend's.
+    QColor headingColor;                   ///< Layer, Group: heading color; invalid = the legend's.
+    std::optional<QFont> itemFont; ///< Layer: rows and color bar text; unset = the legend's.
+    QColor itemColor;              ///< Layer: rows and color bar text; invalid = the legend's.
+    int featureCounts = -1;        ///< Layer: " [n]" after rows; -1 = the legend's; 0 off; 1 on.
+    int mapExtentFilter = -1;      ///< Layer: only rows seen in the map view; -1/0/1 as above.
     QList<LegendNode> children; ///< Display order. Layer: Items. Group: Layers, Groups, Text.
 
     /** @brief Whether every setting is at its default (children not considered). */
@@ -56,7 +84,8 @@ struct LegendNode {
     [[nodiscard]] LegendNode settingsOnly() const;
     /** @brief Save the node; default settings are left out.
      * @return {type, id, label?, visible?, heading?, columnBreak?, itemColumns?, ramp?, symbolW?,
-     *   symbolH?, children?}. */
+     *   symbolH?, rampBar?, headingFont?, headingColor?, itemFont?, itemColor?, counts?,
+     *   extentFilter?, children?}. */
     [[nodiscard]] QJsonObject toJson() const;
     /** @brief Read a node saved by toJson(); unknown names keep defaults.
      * @param j Saved node.

@@ -21,6 +21,8 @@
 #include "map/mapcanvas.h"
 #include "render/legendoverlaystyle.h"
 #include "render/ifeaturerenderer.h"
+#include "render/isublayer.h"
+#include "render/isublayerhost.h"
 #include "render/irasterrenderer.h"
 #include "render/symbolstyle.h"
 
@@ -167,6 +169,14 @@ QList<LegendTreeItem> resolveNodes(const QList<LegendNode> &nodes,
     return out;
 }
 
+/** Whether the layer node @p n shows its continuous ramps as color bars. */
+bool showsRampBars(const LegendNode &n, const LegendOverlayStyle *style)
+{
+    return n.ramp == LegendNode::RampChoice::Inherit
+               ? !style || style->rampDisplay() == LegendOverlayStyle::RampDisplay::Bar
+               : n.ramp == LegendNode::RampChoice::Bar;
+}
+
 /** Add the lines of @p items at @p depth. */
 void emitEntries(const QList<LegendTreeItem> &items, int depth, int &block, QList<LegendEntry> &out,
                  const LegendOverlayStyle *style, const LegendCounts *counts)
@@ -199,6 +209,8 @@ void emitEntries(const QList<LegendTreeItem> &items, int depth, int &block, QLis
                 e.blockId = block;
                 e.depth = depth;
                 e.columnBreakBefore = pendingBreak;
+                e.font = n.headingFont;
+                e.color = n.headingColor;
                 pendingBreak = false;
                 out.append(e);
             }
@@ -223,10 +235,15 @@ void emitEntries(const QList<LegendTreeItem> &items, int depth, int &block, QLis
             const auto it = all.constFind(layerKey);
             return it != all.constEnd() ? &it.value() : nullptr;
         };
+        // The layer's own choice, else the legend's.
+        const bool filter =
+            n.mapExtentFilter >= 0 ? n.mapExtentFilter == 1 : style && style->filterByMapExtent();
+        const bool showCounts =
+            n.featureCounts >= 0 ? n.featureCounts == 1 : style && style->showFeatureCounts();
         const QHash<QString, qint64> *inView =
-            counts && style ? countsOf(counts->inExtent, style->filterByMapExtent()) : nullptr;
+            counts ? countsOf(counts->inExtent, filter) : nullptr;
         const QHash<QString, qint64> *totals =
-            counts && style ? countsOf(counts->total, style->showFeatureCounts()) : nullptr;
+            counts ? countsOf(counts->total, showCounts) : nullptr;
         const qsizetype layerStart = out.size();
         bool anyRowInView = false;
         bool pendingBreak = n.columnBreakBefore;
@@ -240,34 +257,37 @@ void emitEntries(const QList<LegendTreeItem> &items, int depth, int &block, QLis
             heading.layerKey = layerKey;
             heading.blockId = block;
             heading.depth = depth;
+            heading.font = n.headingFont;
+            heading.color = n.headingColor;
             heading.columnBreakBefore = pendingBreak;
             pendingBreak = false;
             out.append(heading);
         }
         // Continuous ramps as one color bar, unless the layer or the legend shows swatches.
-        const bool rampBars =
-            n.ramp == LegendNode::RampChoice::Inherit
-                ? !style || style->rampDisplay() == LegendOverlayStyle::RampDisplay::Bar
-                : n.ramp == LegendNode::RampChoice::Bar;
+        const bool rampBars = showsRampBars(n, style);
+        // Rows turned off with their heading or with their color bar.
+        const QList<bool> hiddenWith = rowsHiddenWithOthers(item, style);
         QSet<int> rampsDone;
-        for (const LegendTreeItem &child : item.children) {
+        for (qsizetype i = 0; i < item.children.size(); ++i) {
+            const LegendTreeItem &child = item.children[i];
             const int rampId = child.row.rampId;
             if (rampBars && rampId != 0) {
                 if (rampsDone.contains(rampId))
                     continue;
                 rampsDone.insert(rampId);
-                // The ramp's rows: the bar shows when any is shown; the first row carries the
-                // spec, and its legend name (if renamed) titles the bar.
+                // The ramp's rows: the bar shows when none is turned off in the legend and the
+                // layer's style shows any; the first row carries the spec, and its legend name
+                // (if renamed) titles the bar.
+                if (hiddenWith[i] || !child.node.visible)
+                    continue;
                 std::shared_ptr<const OpenSWMM::Render::LegendRampSpec> spec;
                 bool anyShown = false;
-                const LegendTreeItem *first = nullptr;
+                const LegendTreeItem *first = &child;
                 for (const LegendTreeItem &c : item.children)
                     if (c.row.rampId == rampId) {
-                        if (!first)
-                            first = &c;
                         if (c.row.ramp)
                             spec = c.row.ramp;
-                        anyShown = anyShown || (c.node.visible && c.row.visible);
+                        anyShown = anyShown || c.row.visible;
                     }
                 if (!spec || !anyShown)
                     continue;
@@ -281,12 +301,15 @@ void emitEntries(const QList<LegendTreeItem> &items, int depth, int &block, QLis
                 bar.nodeId = first->node.id;
                 bar.blockId = block;
                 bar.depth = depth;
+                bar.font = n.itemFont;
+                bar.color = n.itemColor;
+                bar.rampSettings = n.rampSettings;
                 bar.columnBreakBefore = pendingBreak || first->node.columnBreakBefore;
                 pendingBreak = false;
                 out.append(bar);
                 continue;
             }
-            if (!child.node.visible || !child.row.visible)
+            if (hiddenWith[i] || !child.node.visible || !child.row.visible)
                 continue;
             const QString &classKey = child.row.classKey;
             if (inView && !classKey.isEmpty()) {
@@ -309,6 +332,11 @@ void emitEntries(const QList<LegendTreeItem> &items, int depth, int &block, QLis
             entry.blockId = block;
             entry.depth = depth;
             entry.itemColumns = n.itemColumns;
+            // Rows take the layer's item font and color; section headings keep the legend's.
+            if (entry.kind == LegendEntry::Kind::Symbol) {
+                entry.font = n.itemFont;
+                entry.color = n.itemColor;
+            }
             entry.symbolWidth = child.node.symbolWidth > 0 ? child.node.symbolWidth : n.symbolWidth;
             entry.symbolHeight =
                 child.node.symbolHeight > 0 ? child.node.symbolHeight : n.symbolHeight;
@@ -338,6 +366,88 @@ void collectTree(const QList<LegendTreeItem> &items, QList<LegendNode> &out)
 }
 
 } // namespace
+
+QList<LegendRowGroup> rowGroups(const LegendTreeItem &layer)
+{
+    const QList<LegendTreeItem> &rows = layer.children;
+    const auto isHeading = [&rows](qsizetype i) { return rows[i].row.symbol.layers.isEmpty(); };
+    // The sublayer a row comes from, else its SWMM element type (the class key's prefix).
+    const auto groupKey = [&rows](qsizetype i) {
+        const auto &row = rows[i].row;
+        if (!row.sublayerId.isEmpty())
+            return row.sublayerId;
+        const qsizetype sep = row.classKey.indexOf(QChar(0x1F));
+        return sep > 0 ? row.classKey.left(sep) : QString();
+    };
+    const auto groupLabel = [&layer](const QString &key) {
+        if (const auto *host = dynamic_cast<const OpenSWMM::Render::ISublayerHost *>(
+                static_cast<const OpenSWMMVisLayer *>(layer.layer.data())))
+            for (const OpenSWMM::Render::ISublayer *sub : host->sublayers())
+                if (sub && sub->id() == key)
+                    return sub->displayName();
+        return key;
+    };
+    QList<LegendRowGroup> out;
+    qsizetype i = 0;
+    while (i < rows.size()) {
+        if (isHeading(i)) {
+            // A section: up to the next heading, and while the rows are the heading's sublayer's.
+            LegendRowGroup g;
+            g.row = int(i);
+            const QString section = rows[i].row.sublayerId;
+            qsizetype j = i + 1;
+            for (; j < rows.size() && !isHeading(j); ++j) {
+                const QString &sub = rows[j].row.sublayerId;
+                if (!section.isEmpty() && !sub.isEmpty() && sub != section)
+                    break;
+                g.children.append(int(j));
+            }
+            out.append(g);
+            i = j;
+            continue;
+        }
+        const QString key = groupKey(i);
+        qsizetype j = i + 1;
+        if (!key.isEmpty())
+            while (j < rows.size() && !isHeading(j) && groupKey(j) == key)
+                ++j;
+        LegendRowGroup g;
+        if (j - i >= 2) {
+            g.key = key;
+            g.label = groupLabel(key);
+            for (qsizetype k = i; k < j; ++k)
+                g.children.append(int(k));
+        } else {
+            g.row = int(i);
+            j = i + 1;
+        }
+        out.append(g);
+        i = j;
+    }
+    return out;
+}
+
+QList<bool> rowsHiddenWithOthers(const LegendTreeItem &layer, const LegendOverlayStyle *style)
+{
+    const QList<LegendTreeItem> &rows = layer.children;
+    QList<bool> hidden(rows.size(), false);
+    // Sections: a heading turned off takes its rows with it.
+    for (const LegendRowGroup &g : rowGroups(layer))
+        if (g.row >= 0 && !rows[g.row].node.visible)
+            for (const int c : g.children)
+                hidden[c] = true;
+    // Color bars: any row of a ramp turned off takes the bar off.
+    if (showsRampBars(layer.node, style)) {
+        QSet<int> barsOff;
+        for (qsizetype i = 0; i < rows.size(); ++i)
+            if (rows[i].row.rampId != 0 && (!rows[i].node.visible || hidden[i]))
+                barsOff.insert(rows[i].row.rampId);
+        for (qsizetype i = 0; i < rows.size(); ++i)
+            if (barsOff.contains(rows[i].row.rampId) && rows[i].node.visible)
+                hidden[i] = true;
+    }
+    return hidden;
+}
 
 QList<LegendTreeItem> resolveTree(const MapCanvas *canvas, const LegendOverlayStyle *style)
 {

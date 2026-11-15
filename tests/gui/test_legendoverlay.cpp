@@ -21,8 +21,13 @@
 #include <QLineEdit>
 #include <QMetaProperty>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QSettings>
+#include <QSignalSpy>
 #include <QSpinBox>
+#include <QStyle>
+#include <QStyleOptionViewItem>
+#include <QTimer>
 #include <QTabWidget>
 #include <QTreeView>
 #include <QMouseEvent>
@@ -48,6 +53,8 @@
 #include "render/renderers/singlesymbolrenderer.h"
 #include "render/symbollayer.h"
 #include "render/symbolstyle.h"
+#include "render/renderers/unclassedcolorsrenderer.h"
+#include "ui/dialogs/editors/classificationbindings.h"
 #include "ui/dialogs/legendpropertiesdialog.h"
 #include "ui/models/legenditemtreemodel.h"
 #include "ui/models/legendlayertreemodel.h"
@@ -340,6 +347,45 @@ public:
     std::unique_ptr<IFeatureRenderer> clone() const override
     {
         return std::make_unique<RampRenderer>();
+    }
+};
+
+/** A renderer whose rows come from two sublayers (no heading rows) and one SWMM element type,
+ *  with a plain row last: "a1", "a2" (sublayer "fill"), "lone" (sublayer "lines"), two
+ *  Conduits classes, "plain". */
+class SublayerRenderer : public OpenSWMM::Render::IFeatureRenderer
+{
+public:
+    QString rendererId() const override { return QStringLiteral("testSublayers"); }
+    SymbolStyle symbolFor(const OpenSWMM::Render::FeatureRef &, const QVariantMap &) const override
+    {
+        return fill(Qt::gray);
+    }
+    QList<LegendSymbolItem> legendSymbolItems() const override
+    {
+        const auto row = [](const QString &label, const QString &classKey,
+                            const QString &sublayer) {
+            LegendSymbolItem r;
+            r.label = label;
+            r.classKey = classKey;
+            r.sublayerId = sublayer;
+            r.symbol = fill(QColor(90, 120, 200));
+            return r;
+        };
+        const QChar sep(0x1F);
+        return {row(QStringLiteral("a1"), QStringLiteral("a1"), QStringLiteral("fill")),
+                row(QStringLiteral("a2"), QStringLiteral("a2"), QStringLiteral("fill")),
+                row(QStringLiteral("lone"), QStringLiteral("lone"), QStringLiteral("lines")),
+                row(QStringLiteral("Conduits / 0 – 5"), QStringLiteral("Conduits") + sep + '0', {}),
+                row(QStringLiteral("Conduits / 5 – 10"), QStringLiteral("Conduits") + sep + '1',
+                    {}),
+                row(QStringLiteral("plain"), QStringLiteral("plain"), {})};
+    }
+    QJsonObject toJson() const override { return {}; }
+    void fromJson(const QJsonObject &) override {}
+    std::unique_ptr<IFeatureRenderer> clone() const override
+    {
+        return std::make_unique<SublayerRenderer>();
     }
 };
 
@@ -1233,6 +1279,246 @@ private slots:
                  2);
     }
 
+    /** @brief The GIS graduated, single-band raster and unclassed renderers keep their labels by
+     *  default, follow their number format when it is set, save it, and the Layer Style binding
+     *  carries it both ways. */
+    void renderersOwnTheirNumberFormat()
+    {
+        using OpenSWMM::Render::NumberLabelFormat;
+        using OpenSWMM::Render::SingleBandPseudoColorRenderer;
+        using OpenSWMM::Render::UnclassedColorsRenderer;
+        NumberLabelFormat twoDecimals;
+        twoDecimals.mode = NumberLabelFormat::Mode::Decimals;
+        twoDecimals.precision = 2;
+        twoDecimals.suffix = QStringLiteral(" cms");
+
+        // Graduated: "lo – hi" as QString::arg wrote it, until a format is set.
+        GraduatedRenderer graduated;
+        graduated.setRange(0.1234567, 98765.4321);
+        for (const auto &row : graduated.legendSymbolItems())
+            QCOMPARE(row.label,
+                     QStringLiteral("%1 – %2").arg(row.range.first).arg(row.range.second));
+        graduated.setNumberFormat(twoDecimals);
+        QCOMPARE(graduated.legendSymbolItems().first().label,
+                 QStringLiteral("0.12 – 19753.19 cms"));
+        GraduatedRenderer reread;
+        reread.fromJson(graduated.toJson());
+        QCOMPARE(reread.numberFormat(), twoDecimals);
+        QVERIFY(!GraduatedRenderer().toJson().contains(QStringLiteral("numberFormat")));
+
+        // Single-band raster: QString::number(v) until a format is set; the bar carries it.
+        SingleBandPseudoColorRenderer raster;
+        raster.setRange(1.23456789, 45.6789012);
+        raster.setStops({{0.0, Qt::blue}, {0.5, Qt::green}, {1.0, Qt::red}});
+        auto rows = raster.legendSymbolItems();
+        QCOMPARE(rows.first().label, QString::number(1.23456789));
+        QCOMPARE(rows.last().label, QString::number(45.6789012));
+        raster.setNumberFormat(twoDecimals);
+        rows = raster.legendSymbolItems();
+        QCOMPARE(rows.first().label, QStringLiteral("1.23 cms"));
+        QVERIFY(rows.first().ramp && rows.first().ramp->numbers);
+        QCOMPARE(*rows.first().ramp->numbers, twoDecimals);
+        SingleBandPseudoColorRenderer rasterBack;
+        rasterBack.fromJson(raster.toJson());
+        QCOMPARE(rasterBack.numberFormat(), twoDecimals);
+
+        // Unclassed: four significant figures until a format is set.
+        UnclassedColorsRenderer unclassed;
+        unclassed.setRamp(RasterColorRamp::viridis(0.0, 123.456789));
+        for (const auto &row : unclassed.legendSymbolItems())
+            QCOMPARE(row.label, QString::number(row.range.first, 'g', 4));
+        unclassed.setNumberFormat(twoDecimals);
+        QCOMPARE(unclassed.legendSymbolItems().last().label, QStringLiteral("123.46 cms"));
+        QCOMPARE(dynamic_cast<UnclassedColorsRenderer *>(unclassed.clone().get())->numberFormat(),
+                 twoDecimals);
+
+        // Layer Style: the editor's scheme shows the renderer's format, and an edit reaches it.
+        GraduatedRenderer live;
+        std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> installed;
+        openswmmvis::ui::GraduatedRendererBinding binding(
+            [&] { return &live; },
+            [&](std::unique_ptr<OpenSWMM::Render::IFeatureRenderer> r) {
+                installed = std::move(r);
+            },
+            {}, {});
+        QCOMPARE(binding.scheme().numberFormat(), GraduatedRenderer::defaultNumberFormat());
+        auto scheme = binding.scheme();
+        scheme.setNumberFormat(twoDecimals);
+        binding.setScheme(scheme);
+        auto *got = dynamic_cast<GraduatedRenderer *>(installed.get());
+        QVERIFY(got);
+        QCOMPARE(got->numberFormat(), twoDecimals);
+    }
+
+    /** @brief The Numbers tab edits the selected layer's own number format: the renderer, the
+     *  legend rows and the controls agree; a burst of edits is one undo step; a layer without
+     *  numbers disables the tab. */
+    void numbersTabEditsTheLayersOwnFormat()
+    {
+        using OpenSWMM::Render::NumberLabelFormat;
+        LegendScene scene(QSize(800, 700));
+        LegendOverlay legend(scene.canvas.get());
+        LegendOverlayStyle *style = legend.style();
+        QUndoStack *stack = scene.canvas->undoStack();
+        QVERIFY(stack);
+        openswmmvis::ui::LegendPropertiesDialog dialog(style, nullptr, scene.canvas.get());
+        dialog.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&dialog));
+        auto *model = dialog.itemsModel();
+        auto *view = dialog.findChild<QTreeView *>(QStringLiteral("legendItemsTree"));
+        const auto select = [&](const QString &label) {
+            for (int r = 0; r < model->rowCount(); ++r)
+                if (model->index(r, 0).data().toString() == label) {
+                    view->setCurrentIndex(model->index(r, 0));
+                    return true;
+                }
+            return false;
+        };
+        auto *mode = dialog.findChild<QComboBox *>(QStringLiteral("numberMode"));
+        auto *digits = dialog.findChild<QSpinBox *>(QStringLiteral("numberDigits"));
+        auto *suffix = dialog.findChild<QLineEdit *>(QStringLiteral("numberSuffix"));
+        QVERIFY(mode && digits && suffix);
+        const auto valueLabels = [&] {
+            QStringList out;
+            for (const auto &e :
+                 openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style))
+                if (e.layer == scene.values.get() && e.kind == LegendEntry::Kind::Symbol)
+                    out.append(e.label);
+            return out;
+        };
+
+        QVERIFY(select(QStringLiteral("Point kinds"))); // categories: no numbers
+        QVERIFY(!digits->isEnabled());
+        QVERIFY(select(QStringLiteral("Graduated values")));
+        QVERIFY(digits->isEnabled());
+        QCOMPARE(digits->value(), 6);
+        auto *graduated = dynamic_cast<GraduatedRenderer *>(scene.values->renderer());
+        QVERIFY(graduated);
+
+        const int base = stack->index();
+        mode->setCurrentIndex(mode->findData(int(NumberLabelFormat::Mode::Decimals)));
+        digits->setValue(1);
+        suffix->setText(QStringLiteral(" m"));
+        emit suffix->editingFinished();
+        QCOMPARE(graduated->numberFormat().mode, NumberLabelFormat::Mode::Decimals);
+        QCOMPARE(graduated->numberFormat().precision, 1);
+        QCOMPARE(graduated->numberFormat().suffix, QStringLiteral(" m"));
+        const QRegularExpression oneDecimal(QStringLiteral("^\\d+\\.\\d – \\d+\\.\\d m$"));
+        const QStringList labels = valueLabels();
+        QVERIFY(!labels.isEmpty());
+        for (const QString &label : labels)
+            QVERIFY2(oneDecimal.match(label).hasMatch(), qPrintable(label));
+        QCOMPARE(stack->index(), base + 1); // one step for the burst
+        dialog.findChild<QTabWidget *>(QStringLiteral("nodeTabs"))->setCurrentIndex(1);
+        m_images.append({QStringLiteral("dialog_items_numbers"), dialog.grab().toImage()});
+
+        stack->undo();
+        QCOMPARE(graduated->numberFormat(), GraduatedRenderer::defaultNumberFormat());
+        QTRY_COMPARE(digits->value(), 6); // the controls follow
+        QCOMPARE(suffix->text(), QString());
+        stack->redo();
+        QCOMPARE(graduated->numberFormat().precision, 1);
+    }
+
+    /** @brief Turning a heading off in the legend takes its rows with it (the layer stays), and
+     *  turning any row of a color bar off takes the bar off; the Items tab grays those rows. A
+     *  heading's rows end at a row of another sublayer. */
+    void headingsAndColorBarsTurnOffTheirRows()
+    {
+        using openswmmvis::map::LegendContent::buildEntries;
+        using openswmmvis::map::LegendContent::LegendTreeItem;
+        LegendScene scene(QSize(800, 1000));
+        GISVectorLayer depth(dataFile(QStringLiteral("legend_points.geojson")));
+        depth.setName(QStringLiteral("Depth"));
+        depth.setRenderer(std::make_unique<RampRenderer>());
+        scene.canvas->addLayer(&depth, false);
+        const auto release = qScopeGuard(
+            [&] { scene.canvas->takeLayer(scene.canvas->layers().indexOf(&depth), false); });
+        LegendOverlay legend(scene.canvas.get());
+        LegendOverlayStyle *style = legend.style();
+        openswmmvis::ui::LegendItemTreeModel model(scene.canvas.get(), style);
+        const auto layerIndex = [&](const QString &name) {
+            for (int r = 0; r < model.rowCount(); ++r)
+                if (model.index(r, 0).data().toString() == name)
+                    return model.index(r, 0);
+            return QModelIndex();
+        };
+        const auto rowIndex = [&](const QString &layer, int row) {
+            return model.index(row, 0, layerIndex(layer));
+        };
+        const auto grayed = [](const QModelIndex &i) {
+            return i.data(Qt::ForegroundRole).isValid();
+        };
+        const auto lines = [&] { return lineLabels(buildEntries(scene.canvas.get(), style)); };
+        const auto hasBar = [&] {
+            for (const auto &e : buildEntries(scene.canvas.get(), style))
+                if (e.kind == LegendEntry::Kind::RampBar)
+                    return true;
+            return false;
+        };
+        const QString sectioned = QStringLiteral("Sectioned");
+        const QString heading = QStringLiteral("A section heading with a long name");
+
+        // The sub-heading of "Sectioned" holds its two rows; off, they go too, the layer stays.
+        QCOMPARE(model.rowCount(layerIndex(sectioned)), 1);
+        QCOMPARE(model.rowCount(rowIndex(sectioned, 0)), 2);
+        const auto sectionRow = [&](int row) { return model.index(row, 0, rowIndex(sectioned, 0)); };
+        QVERIFY(lines().contains(QStringLiteral("First")));
+        QVERIFY(model.setData(rowIndex(sectioned, 0), Qt::Unchecked, Qt::CheckStateRole));
+        QStringList now = lines();
+        QVERIFY(now.contains(QStringLiteral("#Sectioned")));
+        QVERIFY(!now.contains(heading));
+        QVERIFY(!now.contains(QStringLiteral("First")));
+        QVERIFY(!now.contains(QStringLiteral("Second")));
+        QTRY_VERIFY(grayed(sectionRow(0)));
+        QVERIFY(grayed(sectionRow(1)));
+        m_images.append({QStringLiteral("heading_off_legend"), drawn(&legend)});
+        // On again: all back.
+        QVERIFY(model.setData(rowIndex(sectioned, 0), Qt::Checked, Qt::CheckStateRole));
+        QTRY_VERIFY(!grayed(sectionRow(0)));
+        QVERIFY(lines().contains(QStringLiteral("Second")));
+
+        // One row of the color bar off: no bar; the bar's other rows gray out.
+        QVERIFY(hasBar());
+        QCOMPARE(model.rowCount(layerIndex(QStringLiteral("Depth"))), 8);
+        QVERIFY(
+            model.setData(rowIndex(QStringLiteral("Depth"), 3), Qt::Unchecked, Qt::CheckStateRole));
+        QVERIFY(!hasBar());
+        QVERIFY(lines().contains(QStringLiteral("#Depth")));
+        QTRY_VERIFY(grayed(rowIndex(QStringLiteral("Depth"), 0)));
+        QVERIFY(grayed(rowIndex(QStringLiteral("Depth"), 7)));
+        QVERIFY(!grayed(rowIndex(QStringLiteral("Depth"), 3))); // its own check box shows it
+        // As swatches, only that row is left out.
+        style->setRampDisplay(LegendOverlayStyle::RampDisplay::Swatches);
+        now = lines();
+        QVERIFY(now.contains(QStringLiteral("< 0 m")));
+        QVERIFY(now.contains(QStringLiteral("0.4 m")));
+        QVERIFY(!now.contains(QStringLiteral("0.8 m")));
+        QTRY_VERIFY(!grayed(rowIndex(QStringLiteral("Depth"), 0)));
+
+        // A heading's rows end at the next heading or at a row of another sublayer.
+        const auto row = [](const QString &sublayer, bool symbol, bool visible) {
+            LegendTreeItem r;
+            r.node.type = LegendNode::Type::Item;
+            r.node.visible = visible;
+            r.row.sublayerId = sublayer;
+            if (symbol)
+                r.row.symbol = fill(Qt::red);
+            return r;
+        };
+        LegendTreeItem layer;
+        layer.node.type = LegendNode::Type::Layer;
+        layer.children = {row(QStringLiteral("depth"), false, false),
+                          row(QStringLiteral("depth"), true, true),
+                          row(QString(), true, true),
+                          row(QStringLiteral("isolines"), true, true),
+                          row(QStringLiteral("depth"), true, true),
+                          row(QStringLiteral("velocity"), false, true),
+                          row(QStringLiteral("velocity"), true, true)};
+        QCOMPARE(openswmmvis::map::LegendContent::rowsHiddenWithOthers(layer, style),
+                 (QList<bool>{false, true, true, false, false, false, false}));
+    }
+
     /** @brief A saved look (style file) restores the look but not the title text, items,
      *  position or size; a file that is not a legend style is refused; the default look applies
      *  to new legends until the built-in one is restored. */
@@ -1400,6 +1686,381 @@ private slots:
         for (int i = 0; i < 5; ++i)
             drawn(&legend);
         QCOMPARE(legend.countRefreshes(), refreshes);
+    }
+
+    /** @brief A layer's own color bar, text and count settings apply to that layer alone; the
+     *  others follow the legend. */
+    void layersHaveTheirOwnBarTextAndCounts()
+    {
+        using openswmmvis::map::LegendContent::buildEntries;
+        LegendScene scene(QSize(900, 1300));
+        GISVectorLayer depth(dataFile(QStringLiteral("legend_points.geojson")));
+        depth.setName(QStringLiteral("Depth"));
+        depth.setRenderer(std::make_unique<RampRenderer>());
+        GISVectorLayer depth2(dataFile(QStringLiteral("legend_points.geojson")));
+        depth2.setName(QStringLiteral("Depth 2"));
+        depth2.setRenderer(std::make_unique<RampRenderer>());
+        scene.canvas->addLayer(&depth, false);
+        scene.canvas->addLayer(&depth2, false);
+        const auto release = qScopeGuard([&] {
+            scene.canvas->takeLayer(scene.canvas->layers().indexOf(&depth2), false);
+            scene.canvas->takeLayer(scene.canvas->layers().indexOf(&depth), false);
+        });
+        const MapExtent all = scene.canvas->layerExtentInCanvasCRS(scene.kinds.get());
+        const double w = all.xMax() - all.xMin();
+        const double h = all.yMax() - all.yMin();
+        const auto view = [&](double fx0, double fy0, double fx1, double fy1) {
+            return MapExtent(all.xMin() + fx0 * w, all.yMin() + fy0 * h, all.xMin() + fx1 * w,
+                             all.yMin() + fy1 * h);
+        };
+        scene.canvas->setExtent(view(-0.2, -0.2, 1.2, 1.2), false);
+        LegendOverlay legend(scene.canvas.get());
+        LegendOverlayStyle *style = legend.style();
+        const auto pixels = [](const QImage &image, const std::function<bool(QColor)> &match) {
+            int n = 0;
+            for (int y = 0; y < image.height(); ++y)
+                for (int x = 0; x < image.width(); ++x)
+                    n += match(image.pixelColor(x, y)) ? 1 : 0;
+            return n;
+        };
+        const auto green = [](QColor c) {
+            return c.green() > 230 && c.red() < 40 && c.blue() < 40;
+        };
+        const auto blue = [](QColor c) { return c.blue() > 240 && c.red() < 15 && c.green() < 15; };
+        const QImage before = drawn(&legend);
+        QCOMPARE(pixels(before, green), 0);
+        QCOMPARE(pixels(before, blue), 0);
+
+        LegendItemTree tree = style->itemTree();
+        {
+            LegendNode &d = tree.ensureLayerNode(LegendOverlayStyle::itemKey(&depth, {}));
+            d.rampSettings.orientation = 1;
+            d.rampSettings.length = 200;
+            d.rampSettings.tickCount = 3;
+        }
+        QFont big = style->itemFont();
+        big.setPointSizeF(24);
+        {
+            LegendNode &k =
+                tree.ensureLayerNode(LegendOverlayStyle::itemKey(scene.kinds.get(), {}));
+            k.itemFont = big;
+            k.itemColor = QColor(0, 255, 0);
+            k.headingColor = QColor(0, 0, 255);
+        }
+        tree.ensureLayerNode(LegendOverlayStyle::itemKey(scene.single.get(), {})).featureCounts = 1;
+        int refreshes = legend.countRefreshes();
+        style->setItemTree(tree);
+
+        // Color bars: Depth's own; Depth 2 the legend's.
+        const auto entries = buildEntries(scene.canvas.get(), style);
+        const auto layout = OpenSWMM::Render::LegendLayout::compute(entries, *style);
+        const OpenSWMM::Render::LegendLayoutResult::Box *own = nullptr;
+        const OpenSWMM::Render::LegendLayoutResult::Box *shared = nullptr;
+        for (const auto &box : layout.boxes)
+            if (box.entryIndex >= 0 && entries[box.entryIndex].kind == LegendEntry::Kind::RampBar)
+                (entries[box.entryIndex].layer == &depth ? own : shared) = &box;
+        QVERIFY(own && shared);
+        QVERIFY(!own->barVertical);
+        QCOMPARE(own->barRect.width(), 200.0);
+        QCOMPARE(own->tickLabels.size(), 3);
+        QVERIFY(shared->barVertical);
+        QCOMPARE(shared->barRect.height(), qreal(style->rampLength()));
+        QCOMPARE(int(shared->tickLabels.size()), style->rampTickCount());
+
+        // Text: the kinds layer's rows are tall and green, its heading blue; others unchanged.
+        const QFontMetrics bigFm(big);
+        int kindsRows = 0;
+        for (const auto &box : layout.boxes) {
+            if (box.entryIndex < 0 || entries[box.entryIndex].kind != LegendEntry::Kind::Symbol)
+                continue;
+            const LegendEntry &e = entries[box.entryIndex];
+            if (e.layer == scene.kinds.get()) {
+                ++kindsRows;
+                QVERIFY(box.rect.height() >= bigFm.height());
+            } else if (e.layer == scene.single.get()) {
+                QVERIFY(box.rect.height() < bigFm.height());
+            }
+        }
+        QCOMPARE(kindsRows, 3);
+        const QImage after = drawn(&legend);
+        QVERIFY2(pixels(after, green) > 20, "the kinds rows are drawn in their own color");
+        QVERIFY2(pixels(after, blue) > 5, "the kinds heading is drawn in its own color");
+        m_images.append({QStringLiteral("layer_own_settings"), after});
+
+        // Counts: only the single layer shows them.
+        QTRY_VERIFY(legend.countRefreshes() > refreshes);
+        QString text = legend.summaryText();
+        QVERIFY2(text.contains(QStringLiteral("All points [4]")), qPrintable(text));
+        QVERIFY2(!text.contains(QStringLiteral("Kind A (fill) [")), qPrintable(text));
+        // Only the kinds layer lists just the rows in the map view.
+        tree = style->itemTree();
+        tree.ensureLayerNode(LegendOverlayStyle::itemKey(scene.kinds.get(), {})).mapExtentFilter =
+            1;
+        style->setItemTree(tree);
+        scene.canvas->setExtent(view(-0.05, -0.1, 0.1, 0.1), false); // near the A points
+        refreshes = legend.countRefreshes();
+        QTRY_VERIFY(legend.countRefreshes() > refreshes);
+        text = legend.summaryText();
+        QVERIFY2(text.contains(QStringLiteral("Kind A (fill)")), qPrintable(text));
+        QVERIFY2(!text.contains(QStringLiteral("Kind B")), qPrintable(text));
+        QVERIFY2(text.contains(QStringLiteral("0.8 – 1")), qPrintable(text)); // follows the legend
+    }
+
+    /** @brief The Color bar, Text and Counts tabs edit the selected layer's node. */
+    void layerTabsEditTheNode()
+    {
+        LegendScene scene(QSize(800, 700));
+        LegendOverlay legend(scene.canvas.get());
+        LegendOverlayStyle *style = legend.style();
+        openswmmvis::ui::LegendPropertiesDialog dialog(style, nullptr, scene.canvas.get());
+        dialog.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&dialog));
+        auto *model = dialog.itemsModel();
+        auto *view = dialog.findChild<QTreeView *>(QStringLiteral("legendItemsTree"));
+        for (int r = 0; r < model->rowCount(); ++r)
+            if (model->index(r, 0).data().toString() == QStringLiteral("Point kinds"))
+                view->setCurrentIndex(model->index(r, 0));
+        const QString key = LegendOverlayStyle::itemKey(scene.kinds.get(), {});
+        const auto node = [&] { return style->itemTree().layerNode(key); };
+        const auto pick = [&](const char *name, int value) {
+            auto *box = dialog.findChild<QComboBox *>(QString::fromLatin1(name));
+            QVERIFY2(box, name);
+            box->setCurrentIndex(box->findData(value));
+        };
+
+        pick("nodeRampOrientation", 1);
+        dialog.findChild<QSpinBox *>(QStringLiteral("nodeRampLength"))->setValue(180);
+        pick("nodeRampEndCaps", 0);
+        QVERIFY(node());
+        QCOMPARE(node()->rampSettings.orientation, 1);
+        QCOMPARE(node()->rampSettings.length, 180);
+        QCOMPARE(node()->rampSettings.endCaps, 0);
+
+        auto *own = dialog.findChild<QCheckBox *>(QStringLiteral("nodeItem.own"));
+        auto *size = dialog.findChild<QDoubleSpinBox *>(QStringLiteral("nodeItem.size"));
+        QVERIFY(own && size);
+        QVERIFY(!size->isEnabled());
+        own->setChecked(true);
+        QVERIFY(node()->itemFont.has_value());
+        QTRY_VERIFY(size->isEnabled());
+        size->setValue(18);
+        QCOMPARE(node()->itemFont->pointSizeF(), 18.0);
+        QVERIFY(node()->itemColor.isValid());
+
+        pick("nodeCounts", 1);
+        pick("nodeExtentFilter", 0);
+        QCOMPARE(node()->featureCounts, 1);
+        QCOMPARE(node()->mapExtentFilter, 0);
+        auto *tabs = dialog.findChild<QTabWidget *>(QStringLiteral("nodeTabs"));
+        for (int t = 2; t < tabs->count(); ++t) {
+            tabs->setCurrentIndex(t);
+            m_images.append({QStringLiteral("dialog_items_%1").arg(t), dialog.grab().toImage()});
+        }
+        // Back to the legend's: unchecking "Own" drops the font and color.
+        own->setChecked(false);
+        QVERIFY(!node()->itemFont.has_value());
+        QVERIFY(!node()->itemColor.isValid());
+    }
+
+    /** @brief Clicking a layer's check box in the Items tab takes the whole layer (heading and
+     *  rows) out of the legend while the map still draws it, also while the layer keeps
+     *  repainting (an animated layer). */
+    void clickingALayerCheckBoxHidesTheWholeLayer()
+    {
+        LegendScene scene(QSize(800, 700));
+        LegendOverlay legend(scene.canvas.get());
+        LegendOverlayStyle *style = legend.style();
+        openswmmvis::ui::LegendPropertiesDialog dialog(style, nullptr, scene.canvas.get());
+        dialog.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&dialog));
+        auto *model = dialog.itemsModel();
+        auto *view = dialog.findChild<QTreeView *>(QStringLiteral("legendItemsTree"));
+        const auto rowOf = [&](const QString &label) {
+            for (int r = 0; r < model->rowCount(); ++r)
+                if (model->index(r, 0).data().toString() == label)
+                    return model->index(r, 0);
+            return QModelIndex();
+        };
+        // The check box of a row, as the view's style places it.
+        const auto checkBoxAt = [&](const QModelIndex &index) {
+            QStyleOptionViewItem option;
+            option.initFrom(view);
+            option.rect = view->visualRect(index);
+            option.features |= QStyleOptionViewItem::HasCheckIndicator;
+            return view->style()
+                ->subElementRect(QStyle::SE_ItemViewItemCheckIndicator, &option, view)
+                .center();
+        };
+        const auto lines = [&] {
+            return lineLabels(
+                openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style));
+        };
+        const auto click = [&](const QString &label) {
+            const QModelIndex index = rowOf(label);
+            QVERIFY(index.isValid());
+            QTest::mouseClick(view->viewport(), Qt::LeftButton, {}, checkBoxAt(index));
+        };
+
+        QVERIFY(lines().contains(QStringLiteral("#Point kinds")));
+        click(QStringLiteral("Point kinds"));
+        QTRY_COMPARE(rowOf(QStringLiteral("Point kinds")).data(Qt::CheckStateRole).toInt(),
+                     int(Qt::Unchecked));
+        QStringList now = lines();
+        QVERIFY2(!now.contains(QStringLiteral("#Point kinds")), qPrintable(now.join('|')));
+        QVERIFY(!now.contains(QStringLiteral("Kind A (fill)")));
+        QVERIFY(scene.kinds->isVisible()); // still on the map
+        click(QStringLiteral("Point kinds"));
+        QTRY_VERIFY(lines().contains(QStringLiteral("#Point kinds")));
+
+        // An animated layer repaints all the time; the click still lands.
+        QTimer repaint;
+        connect(&repaint, &QTimer::timeout, scene.values.get(),
+                [&] { emit scene.values->repaintRequested(); });
+        repaint.start(5);
+        QTest::qWait(50);
+        QTest::mousePress(view->viewport(), Qt::LeftButton, {},
+                          checkBoxAt(rowOf(QStringLiteral("Graduated values"))));
+        QTest::qWait(30); // a repaint lands between press and release
+        QTest::mouseRelease(view->viewport(), Qt::LeftButton, {},
+                            checkBoxAt(rowOf(QStringLiteral("Graduated values"))));
+        QTRY_VERIFY(!lines().contains(QStringLiteral("#Graduated values")));
+        repaint.stop();
+    }
+
+    /** @brief The Legend dock's layer rows have a check box that takes the whole layer out of
+     *  the legend (the map still draws it), and its sub-heading rows one that takes their section
+     *  out; a layer that only repaints does not reset the dock. */
+    void legendDockTurnsWholeLayersAndHeadingsOff()
+    {
+        LegendScene scene(QSize(800, 700));
+        LegendOverlay legend(scene.canvas.get());
+        LegendOverlayStyle *style = legend.style();
+        openswmmvis::ui::LegendLayerTreeModel dock(scene.canvas.get());
+        dock.setOverlayStyle(style);
+        const auto layerRow = [&](const QString &name) {
+            for (int r = 0; r < dock.rowCount(); ++r)
+                if (dock.index(r, 0).data().toString() == name)
+                    return dock.index(r, 0);
+            return QModelIndex();
+        };
+        const auto lines = [&] {
+            return lineLabels(
+                openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style));
+        };
+
+        // A whole layer.
+        QModelIndex kinds = layerRow(QStringLiteral("Point kinds"));
+        QVERIFY(dock.flags(kinds) & Qt::ItemIsUserCheckable);
+        QCOMPARE(kinds.data(Qt::CheckStateRole).toInt(), int(Qt::Checked));
+        QVERIFY(dock.setData(kinds, Qt::Unchecked, Qt::CheckStateRole));
+        QStringList now = lines();
+        QVERIFY(!now.contains(QStringLiteral("#Point kinds")));
+        QVERIFY(!now.contains(QStringLiteral("Kind A (fill)")));
+        QVERIFY(now.contains(QStringLiteral("#Single layer")));
+        QVERIFY(scene.kinds->isVisible()); // still on the map
+        kinds = layerRow(QStringLiteral("Point kinds"));
+        QCOMPARE(kinds.data(Qt::CheckStateRole).toInt(), int(Qt::Unchecked));
+        QVERIFY(dock.setData(kinds, Qt::Checked, Qt::CheckStateRole));
+        QVERIFY(lines().contains(QStringLiteral("#Point kinds")));
+
+        // A sub-heading: its section goes with it, and its rows gray out in the dock.
+        const QModelIndex sections = layerRow(QStringLiteral("Sectioned"));
+        const QModelIndex heading = dock.index(0, 0, sections);
+        QVERIFY(dock.flags(heading) & Qt::ItemIsUserCheckable);
+        QVERIFY(dock.setData(heading, Qt::Unchecked, Qt::CheckStateRole));
+        now = lines();
+        QVERIFY(!now.contains(QStringLiteral("First")));
+        QVERIFY(!now.contains(QStringLiteral("Second")));
+        const QModelIndex headingNow = dock.index(0, 0, layerRow(QStringLiteral("Sectioned")));
+        QCOMPARE(dock.rowCount(headingNow), 2); // the section's rows are under the heading
+        QVERIFY(dock.index(0, 0, headingNow).data(Qt::ForegroundRole).isValid());
+
+        // Repaints that change nothing leave the dock alone.
+        QSignalSpy resets(&dock, &QAbstractItemModel::modelAboutToBeReset);
+        for (int i = 0; i < 5; ++i)
+            emit scene.values->repaintRequested();
+        QCoreApplication::processEvents();
+        QCOMPARE(resets.count(), 0);
+    }
+
+    /** @brief Both legend tree views list a layer's sublayers (and SWMM element types) under it,
+     *  each over its rows, with a check box that shows or hides all of them (partly checked
+     *  when some are hidden); single rows stay under the layer. */
+    void sublayersAreTreeNodesWithCheckBoxes()
+    {
+        LegendScene scene(QSize(800, 900));
+        GISVectorLayer parts(dataFile(QStringLiteral("legend_points.geojson")));
+        parts.setName(QStringLiteral("Parts"));
+        parts.setRenderer(std::make_unique<SublayerRenderer>());
+        scene.canvas->addLayer(&parts, false);
+        const auto release = qScopeGuard(
+            [&] { scene.canvas->takeLayer(scene.canvas->layers().indexOf(&parts), false); });
+        LegendOverlay legend(scene.canvas.get());
+        LegendOverlayStyle *style = legend.style();
+        const auto lines = [&] {
+            return lineLabels(
+                openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style));
+        };
+        openswmmvis::ui::LegendItemTreeModel items(scene.canvas.get(), style);
+        openswmmvis::ui::LegendLayerTreeModel dock(scene.canvas.get());
+        dock.setOverlayStyle(style);
+        const auto layerIn = [](const QAbstractItemModel &m) {
+            for (int r = 0; r < m.rowCount(); ++r)
+                if (m.index(r, 0).data().toString() == QStringLiteral("Parts"))
+                    return m.index(r, 0);
+            return QModelIndex();
+        };
+        const auto shape = [](const QAbstractItemModel &m, const QModelIndex &layer) {
+            QStringList out;
+            for (int r = 0; r < m.rowCount(layer); ++r) {
+                const QModelIndex e = m.index(r, 0, layer);
+                QString text = e.data().toString();
+                if (m.rowCount(e) > 0) {
+                    QStringList kids;
+                    for (int k = 0; k < m.rowCount(e); ++k)
+                        kids.append(m.index(k, 0, e).data().toString());
+                    text += QStringLiteral(" {") + kids.join(QStringLiteral(", ")) + '}';
+                }
+                out.append(text);
+            }
+            return out;
+        };
+        const QStringList expected{QStringLiteral("fill {a1, a2}"), QStringLiteral("lone"),
+                                   QStringLiteral("Conduits {Conduits / 0 – 5, Conduits / 5 – 10}"),
+                                   QStringLiteral("plain")};
+        QCOMPARE(shape(items, layerIn(items)), expected);
+        QCOMPARE(shape(dock, layerIn(dock)), expected);
+        QVERIFY(items.isSublayer(items.index(0, 0, layerIn(items))));
+
+        // The sublayer's check box: all its rows out, then back in.
+        QVERIFY(items.setData(items.index(0, 0, layerIn(items)), Qt::Unchecked, Qt::CheckStateRole));
+        QStringList now = lines();
+        QVERIFY(!now.contains(QStringLiteral("a1")) && !now.contains(QStringLiteral("a2")));
+        QVERIFY(now.contains(QStringLiteral("lone")));
+        QTRY_COMPARE(items.index(0, 0, layerIn(items)).data(Qt::CheckStateRole).toInt(),
+                     int(Qt::Unchecked));
+        QTRY_COMPARE(dock.index(0, 0, layerIn(dock)).data(Qt::CheckStateRole).toInt(),
+                     int(Qt::Unchecked));
+        QVERIFY(dock.setData(dock.index(0, 0, layerIn(dock)), Qt::Checked, Qt::CheckStateRole));
+        QVERIFY(lines().contains(QStringLiteral("a1")));
+        // One element-type row hidden: the element type is partly checked.
+        const QModelIndex conduits = dock.index(2, 0, layerIn(dock));
+        QVERIFY(dock.setData(dock.index(1, 0, conduits), Qt::Unchecked, Qt::CheckStateRole));
+        QCOMPARE(dock.index(2, 0, layerIn(dock)).data(Qt::CheckStateRole).toInt(),
+                 int(Qt::PartiallyChecked));
+        QTRY_COMPARE(items.index(2, 0, layerIn(items)).data(Qt::CheckStateRole).toInt(),
+                     int(Qt::PartiallyChecked));
+        QVERIFY(!lines().contains(QStringLiteral("Conduits / 5 – 10")));
+        // Its rows can be reordered among themselves once the order is the user's.
+        style->setAutoUpdate(false);
+        style->setItemTree(openswmmvis::map::LegendContent::currentTree(scene.canvas.get(), style));
+        QTRY_VERIFY(items.isManual());
+        const QModelIndex fill = items.index(0, 0, layerIn(items));
+        QVERIFY(items.moveBy(items.index(1, 0, fill), -1));
+        QTRY_COMPARE(shape(items, layerIn(items)).first(), QStringLiteral("fill {a2, a1}"));
+        QVERIFY(items.moveBy(items.index(3, 0, layerIn(items)), -2)); // "plain" up two places
+        QTRY_COMPARE(shape(items, layerIn(items)).at(1), QStringLiteral("plain"));
+        QCOMPARE(shape(items, layerIn(items)).first(), QStringLiteral("fill {a2, a1}"));
     }
 
     /** @brief Hidden layers and hidden rows leave no space. */

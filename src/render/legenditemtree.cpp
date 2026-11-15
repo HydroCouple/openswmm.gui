@@ -9,6 +9,8 @@
 
 #include "render/legenditemtree.h"
 
+#include "render/mapboxstyle.h"
+
 #include <QJsonValue>
 #include <QUuid>
 
@@ -142,7 +144,9 @@ bool LegendNode::hasDefaultSettings() const
     return userLabel.isEmpty() && visible == defaults.visible && heading == defaults.heading &&
            columnBreakBefore == defaults.columnBreakBefore && itemColumns == defaults.itemColumns &&
            ramp == defaults.ramp && symbolWidth == defaults.symbolWidth &&
-           symbolHeight == defaults.symbolHeight;
+           symbolHeight == defaults.symbolHeight && rampSettings.isDefault() && !headingFont &&
+           !headingColor.isValid() && !itemFont && !itemColor.isValid() &&
+           featureCounts == defaults.featureCounts && mapExtentFilter == defaults.mapExtentFilter;
 }
 
 LegendNode LegendNode::settingsOnly() const
@@ -173,6 +177,36 @@ QJsonObject LegendNode::toJson() const
         j[QStringLiteral("symbolW")] = symbolWidth;
     if (symbolHeight > 0)
         j[QStringLiteral("symbolH")] = symbolHeight;
+    if (!rampSettings.isDefault()) {
+        QJsonObject r;
+        if (rampSettings.orientation >= 0)
+            r[QStringLiteral("orientation")] = rampSettings.orientation == 1
+                                                   ? QStringLiteral("horizontal")
+                                                   : QStringLiteral("vertical");
+        if (rampSettings.length > 0)
+            r[QStringLiteral("length")] = rampSettings.length;
+        if (rampSettings.thickness > 0)
+            r[QStringLiteral("thickness")] = rampSettings.thickness;
+        if (rampSettings.tickCount > 0)
+            r[QStringLiteral("ticks")] = rampSettings.tickCount;
+        if (rampSettings.highAtTop >= 0)
+            r[QStringLiteral("highAtTop")] = rampSettings.highAtTop == 1;
+        if (rampSettings.endCaps >= 0)
+            r[QStringLiteral("endCaps")] = rampSettings.endCaps == 1;
+        j[QStringLiteral("rampBar")] = r;
+    }
+    if (headingFont)
+        j[QStringLiteral("headingFont")] = overlayFontToJson(*headingFont);
+    if (headingColor.isValid())
+        j[QStringLiteral("headingColor")] = headingColor.name(QColor::HexArgb);
+    if (itemFont)
+        j[QStringLiteral("itemFont")] = overlayFontToJson(*itemFont);
+    if (itemColor.isValid())
+        j[QStringLiteral("itemColor")] = itemColor.name(QColor::HexArgb);
+    if (featureCounts >= 0)
+        j[QStringLiteral("counts")] = featureCounts == 1;
+    if (mapExtentFilter >= 0)
+        j[QStringLiteral("extentFilter")] = mapExtentFilter == 1;
     if (!children.isEmpty()) {
         QJsonArray a;
         for (const LegendNode &c : children)
@@ -195,6 +229,30 @@ LegendNode LegendNode::fromJson(const QJsonObject &j)
     n.ramp = rampFromName(j.value(QStringLiteral("ramp")).toString());
     n.symbolWidth = std::max(0, j.value(QStringLiteral("symbolW")).toInt(0));
     n.symbolHeight = std::max(0, j.value(QStringLiteral("symbolH")).toInt(0));
+    const QJsonObject r = j.value(QStringLiteral("rampBar")).toObject();
+    const auto triState = [](const QJsonValue &v) {
+        return v.isBool() ? (v.toBool() ? 1 : 0) : -1;
+    };
+    if (r.contains(QStringLiteral("orientation")))
+        n.rampSettings.orientation =
+            r.value(QStringLiteral("orientation")).toString() == QStringLiteral("horizontal") ? 1
+                                                                                              : 0;
+    n.rampSettings.length = std::max(0, r.value(QStringLiteral("length")).toInt(0));
+    n.rampSettings.thickness = std::max(0, r.value(QStringLiteral("thickness")).toInt(0));
+    n.rampSettings.tickCount = std::max(0, r.value(QStringLiteral("ticks")).toInt(0));
+    n.rampSettings.highAtTop = triState(r.value(QStringLiteral("highAtTop")));
+    n.rampSettings.endCaps = triState(r.value(QStringLiteral("endCaps")));
+    if (j.value(QStringLiteral("headingFont")).isObject())
+        n.headingFont =
+            overlayFontFromJson(j.value(QStringLiteral("headingFont")).toObject(), QFont());
+    if (const QColor c(j.value(QStringLiteral("headingColor")).toString()); c.isValid())
+        n.headingColor = c;
+    if (j.value(QStringLiteral("itemFont")).isObject())
+        n.itemFont = overlayFontFromJson(j.value(QStringLiteral("itemFont")).toObject(), QFont());
+    if (const QColor c(j.value(QStringLiteral("itemColor")).toString()); c.isValid())
+        n.itemColor = c;
+    n.featureCounts = triState(j.value(QStringLiteral("counts")));
+    n.mapExtentFilter = triState(j.value(QStringLiteral("extentFilter")));
     for (const QJsonValue &c : j.value(QStringLiteral("children")).toArray())
         n.children.append(fromJson(c.toObject()));
     return n;

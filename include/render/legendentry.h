@@ -16,6 +16,7 @@
 #ifndef OPENSWMM_RENDER_LEGENDENTRY_H
 #define OPENSWMM_RENDER_LEGENDENTRY_H
 
+#include "render/legenditemtree.h"
 #include "render/legendrampspec.h"
 #include "render/symbolstyle.h"
 
@@ -59,6 +60,9 @@ struct LegendEntry {
     int symbolWidth = 0;  ///< Symbol slot width for this line; 0 = the style's.
     int symbolHeight = 0; ///< Symbol slot height for this line; 0 = the style's.
     std::shared_ptr<const LegendRampSpec> ramp; ///< The color ramp, for Kind::RampBar.
+    std::optional<QFont> font; ///< This line's font (its layer's); unset = the legend's.
+    QColor color;              ///< This line's text color (its layer's); invalid = the legend's.
+    LegendRampOverrides rampSettings; ///< Kind::RampBar: its layer's own color bar settings.
 };
 
 } // namespace OpenSWMM::Render

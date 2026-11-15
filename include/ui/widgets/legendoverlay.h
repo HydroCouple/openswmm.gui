@@ -273,7 +273,11 @@ private:
     openswmmvis::map::LegendContent::LegendCounts m_counts; ///< from refreshCounts()
     QTimer *m_countTimer = nullptr;
     int m_countRefreshes = 0;
-    QPair<bool, bool> m_countFlags{false, false}; ///< (in view, counts) the counts were made for
+    /// Per layer key: (only rows in the map view, feature counts) the counts were made for.
+    QHash<QString, QPair<bool, bool>> m_countWishes;
+    /** What each shown layer wants counted: its own choice, else the legend's; layers that want
+     *  neither are left out. */
+    [[nodiscard]] QHash<QString, QPair<bool, bool>> countWishes() const;
 
     // Slice US.B2 — interactive resize state.
     int m_resizeEdges = 0;      ///< active edge mask while resizing; 0 = not resizing

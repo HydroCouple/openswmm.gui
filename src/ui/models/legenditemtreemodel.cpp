@@ -15,8 +15,11 @@
 #include "render/legendoverlaystyle.h"
 
 #include <QBrush>
+#include <QHash>
 #include <QPalette>
 #include <QTimer>
+
+#include <utility>
 
 namespace openswmmvis::ui
 {
@@ -31,6 +34,11 @@ struct LegendItemTreeModel::Node {
     LegendTreeItem item; ///< children unused; see Node::children
     QString key;
     QString layerKey;
+    bool hiddenWithOthers = false; ///< a row left out with its heading or color bar
+    bool layerShown = true;        ///< the item's layer is shown on the map
+    bool isSublayer = false;       ///< a sublayer without a heading row, over its rows
+    bool hasNumbers = false;       ///< Layer: the layer has a number format
+    OpenSWMM::Render::NumberLabelFormat numbers; ///< Layer: its number format
     Node *parent = nullptr;
     std::vector<std::unique_ptr<Node>> children;
 
@@ -67,13 +75,16 @@ Spot locate(QList<LegendNode> &list, Type type, const QString &id)
     return {};
 }
 
-void build(LegendItemTreeModel *, const QList<LegendTreeItem> &items, auto *parent,
+void build(const LegendOverlayStyle *style, const QList<LegendTreeItem> &items, auto *parent,
            const QString &layerKey)
 {
     for (const LegendTreeItem &item : items) {
         auto node = std::make_unique<std::remove_pointer_t<decltype(parent)>>();
         node->item = item;
         node->item.children.clear();
+        node->layerShown = !item.layer || item.layer->isVisible();
+        if (item.node.type == Type::Layer && item.layer)
+            node->hasNumbers = item.layer->legendNumberFormat(&node->numbers);
         node->parent = parent;
         switch (item.node.type) {
         case Type::Layer:
@@ -91,8 +102,69 @@ void build(LegendItemTreeModel *, const QList<LegendTreeItem> &items, auto *pare
         }
         auto *raw = node.get();
         parent->children.push_back(std::move(node));
-        build(nullptr, item.children, raw, raw->layerKey);
+        if (item.node.type != Type::Layer) {
+            build(style, item.children, raw, raw->layerKey);
+            continue;
+        }
+        // A layer's rows as a tree: sub-headings over their sections, sublayers (and SWMM
+        // element types) over their rows, other rows on their own.
+        using NodeT = std::remove_pointer_t<decltype(parent)>;
+        const QList<bool> hidden = openswmmvis::map::LegendContent::rowsHiddenWithOthers(item, style);
+        const auto rowNode = [&](int r, NodeT *under) {
+            const LegendTreeItem &child = item.children[r];
+            auto n = std::make_unique<NodeT>();
+            n->item = child;
+            n->item.children.clear();
+            n->layerShown = !child.layer || child.layer->isVisible();
+            n->parent = under;
+            n->layerKey = raw->layerKey;
+            n->key = QStringLiteral("I:") + raw->layerKey + QLatin1Char('\n') + child.node.id;
+            n->hiddenWithOthers = hidden[r];
+            NodeT *at = n.get();
+            under->children.push_back(std::move(n));
+            return at;
+        };
+        QHash<QString, int> seen; // a sublayer split in two places keeps distinct keys
+        for (const auto &g : openswmmvis::map::LegendContent::rowGroups(item)) {
+            NodeT *owner = nullptr;
+            if (g.row >= 0) {
+                owner = rowNode(g.row, raw);
+            } else {
+                auto n = std::make_unique<NodeT>();
+                n->isSublayer = true;
+                n->item.layer = item.layer;
+                n->item.sourceLabel = g.label;
+                n->layerShown = raw->layerShown;
+                n->parent = raw;
+                n->layerKey = raw->layerKey;
+                n->key = QStringLiteral("S:") + raw->layerKey + QLatin1Char('\n') + g.key +
+                         QLatin1Char('\n') + QString::number(seen[g.key]++);
+                owner = n.get();
+                raw->children.push_back(std::move(n));
+            }
+            for (const int c : g.children)
+                rowNode(c, owner);
+        }
     }
+}
+
+/** Whether two built trees list the same items in the same places. */
+bool sameShape(const auto &a, const auto &b)
+{
+    if (a.key != b.key || a.children.size() != b.children.size())
+        return false;
+    for (size_t i = 0; i < a.children.size(); ++i)
+        if (!sameShape(*a.children[i], *b.children[i]))
+            return false;
+    return true;
+}
+
+/** Whether two items at the same place show the same (text, check state, gray). */
+bool sameContent(const auto &a, const auto &b)
+{
+    return a.item.node == b.item.node && a.item.sourceLabel == b.item.sourceLabel &&
+           a.item.row.visible == b.item.row.visible && a.hiddenWithOthers == b.hiddenWithOthers &&
+           a.layerShown == b.layerShown && a.hasNumbers == b.hasNumbers && a.numbers == b.numbers;
 }
 
 } // namespace
@@ -124,6 +196,12 @@ LegendItemTreeModel::~LegendItemTreeModel() = default;
 
 void LegendItemTreeModel::scheduleRebuild()
 {
+    m_forceRefresh = true;
+    scheduleLayerRefresh();
+}
+
+void LegendItemTreeModel::scheduleLayerRefresh()
+{
     if (m_rebuildPending)
         return;
     m_rebuildPending = true;
@@ -133,26 +211,64 @@ void LegendItemTreeModel::scheduleRebuild()
 void LegendItemTreeModel::rebuild()
 {
     m_rebuildPending = false;
-    beginResetModel();
-    m_root = std::make_unique<Node>();
+    const bool force = std::exchange(m_forceRefresh, false);
+    auto fresh = std::make_unique<Node>();
     if (m_canvas) {
-        build(this, openswmmvis::map::LegendContent::resolveTree(m_canvas, m_style), m_root.get(),
-              QString());
+        build(m_style.data(), openswmmvis::map::LegendContent::resolveTree(m_canvas, m_style),
+              fresh.get(), QString());
         // A renamed layer or changed renderer shows at once.
         for (OpenSWMMVisLayer *layer : m_canvas->layers()) {
             if (!layer)
                 continue;
             disconnect(layer, nullptr, this, nullptr);
             connect(layer, &OpenSWMMVisLayer::nameChanged, this,
-                    &LegendItemTreeModel::scheduleRebuild);
+                    &LegendItemTreeModel::scheduleLayerRefresh);
             connect(layer, &OpenSWMMVisLayer::visibilityChanged, this,
-                    &LegendItemTreeModel::scheduleRebuild);
+                    &LegendItemTreeModel::scheduleLayerRefresh);
             connect(layer, &OpenSWMMVisLayer::repaintRequested, this,
-                    &LegendItemTreeModel::scheduleRebuild);
+                    &LegendItemTreeModel::scheduleLayerRefresh);
         }
     }
+    // A layer that only repainted (an animated one does all the time) changes nothing here: the
+    // model is left alone, so a click or an edit in progress is not lost to a reset. Changed
+    // items are updated in place; only a different set of items resets the model.
+    if (sameShape(*m_root, *fresh)) {
+        if (adopt(m_root.get(), fresh.get()) || force)
+            emit rebuilt();
+        return;
+    }
+    beginResetModel();
+    m_root = std::move(fresh);
     endResetModel();
     emit rebuilt();
+}
+
+bool LegendItemTreeModel::adopt(Node *current, const Node *fresh)
+{
+    bool changed = false;
+    for (size_t i = 0; i < current->children.size(); ++i) {
+        Node *c = current->children[i].get();
+        const Node *f = fresh->children[i].get();
+        if (!sameContent(*c, *f)) {
+            c->item = f->item;
+            c->hiddenWithOthers = f->hiddenWithOthers;
+            c->layerShown = f->layerShown;
+            c->hasNumbers = f->hasNumbers;
+            c->numbers = f->numbers;
+            const QModelIndex at = indexOfNode(c);
+            emit dataChanged(at, at);
+            changed = true;
+        }
+        // A sublayer's check box sums up its rows.
+        if (adopt(c, f)) {
+            changed = true;
+            if (c->isSublayer) {
+                const QModelIndex at = indexOfNode(c);
+                emit dataChanged(at, at);
+            }
+        }
+    }
+    return changed;
 }
 
 LegendItemTreeModel::Node *LegendItemTreeModel::nodeAt(const QModelIndex &index) const
@@ -198,6 +314,11 @@ QString LegendItemTreeModel::layerKeyOf(const QModelIndex &index) const
     return index.isValid() ? nodeAt(index)->layerKey : QString();
 }
 
+bool LegendItemTreeModel::isSublayer(const QModelIndex &index) const
+{
+    return index.isValid() && nodeAt(index)->isSublayer;
+}
+
 bool LegendItemTreeModel::isManual() const
 {
     return m_style && !m_style->autoUpdate();
@@ -206,7 +327,7 @@ bool LegendItemTreeModel::isManual() const
 bool LegendItemTreeModel::editSettings(const QModelIndex &index,
                                        const std::function<void(LegendNode &)> &edit)
 {
-    if (!m_style || !index.isValid())
+    if (!m_style || !index.isValid() || nodeAt(index)->isSublayer)
         return false;
     const Node *node = nodeAt(index);
     LegendItemTree tree = m_style->itemTree();
@@ -245,19 +366,51 @@ bool LegendItemTreeModel::moveBy(const QModelIndex &index, int delta)
     Spot spot;
     if (node->item.node.type == Type::Item) {
         LegendNode *layer = tree.layerNode(node->layerKey);
-        if (!layer)
+        const Node *layerNode = node->parent;
+        while (layerNode && layerNode->item.node.type != Type::Layer)
+            layerNode = layerNode->parent;
+        if (!layer || !layerNode)
             return false;
-        // The stored rows in the order shown (rows the renderer added since included).
-        QList<LegendNode> rows;
-        for (const auto &sibling : node->parent->children) {
-            LegendNode row = sibling->item.node;
-            for (const LegendNode &c : layer->children)
-                if (c.id == row.id)
-                    row = c;
-            rows.append(row);
+        // The layer's rows in blocks, as shown: each entry under the layer with the rows under
+        // it. An entry under the layer moves with its rows; a row under a heading or a
+        // sublayer moves among that entry's rows.
+        QList<QList<const Node *>> blocks;
+        for (const auto &top : layerNode->children) {
+            QList<const Node *> block;
+            if (!top->isSublayer)
+                block.append(top.get());
+            for (const auto &c : top->children)
+                block.append(c.get());
+            blocks.append(block);
         }
+        if (node->parent == layerNode) {
+            const int to = node->row() + delta;
+            if (to < 0 || to >= blocks.size())
+                return false;
+            blocks.move(node->row(), to);
+        } else {
+            const Node *owner = node->parent;
+            QList<const Node *> &block = blocks[owner->row()];
+            const int first = owner->isSublayer ? 0 : 1; // a heading leads its block
+            const int at = first + node->row();
+            const int to = at + delta;
+            if (to < first || to >= block.size())
+                return false;
+            block.move(at, to);
+        }
+        // The stored rows in the new order (rows the renderer added since included).
+        QList<LegendNode> rows;
+        for (const auto &block : std::as_const(blocks))
+            for (const Node *n : block) {
+                LegendNode row = n->item.node;
+                for (const LegendNode &c : layer->children)
+                    if (c.id == row.id)
+                        row = c;
+                rows.append(row);
+            }
         layer->children = rows;
-        spot = {&layer->children, node->row()};
+        m_style->setItemTree(tree);
+        return true;
     } else {
         spot = locate(tree.roots(), node->item.node.type, node->item.node.id);
     }
@@ -452,15 +605,29 @@ QVariant LegendItemTreeModel::data(const QModelIndex &index, int role) const
         return item.node.type == Type::Group ? tr("(group)") : tr("(empty)");
     }
     case Qt::CheckStateRole:
+        if (node->isSublayer) { // all, some or none of its rows shown
+            int shown = 0;
+            for (const auto &c : node->children)
+                shown += c->item.node.visible ? 1 : 0;
+            return shown == 0                             ? Qt::Unchecked
+                   : shown == int(node->children.size()) ? Qt::Checked
+                                                          : Qt::PartiallyChecked;
+        }
         return item.node.visible ? Qt::Checked : Qt::Unchecked;
     case Qt::ToolTipRole:
+        if (node->isSublayer)
+            return tr("Sublayer: its check box shows or hides all its rows");
         switch (item.node.type) {
         case Type::Layer:
             return item.layer && !item.layer->isVisible()
                        ? tr("Layer (hidden on the map, so not in the legend)")
                        : tr("Layer");
         case Type::Item:
-            return item.row.visible ? tr("Row") : tr("Row (hidden by the layer's style)");
+            if (!item.row.visible)
+                return tr("Row (hidden by the layer's style)");
+            return node->hiddenWithOthers
+                       ? tr("Row (left out of the legend with its heading or color bar)")
+                       : tr("Row");
         case Type::Group:
             return tr("Group");
         case Type::Text:
@@ -468,9 +635,10 @@ QVariant LegendItemTreeModel::data(const QModelIndex &index, int role) const
         }
         return {};
     case Qt::ForegroundRole:
-        // Layers hidden on the map, and rows their style hides, do not draw.
+        // Layers hidden on the map, rows their style hides, and rows left out with their
+        // heading or color bar do not draw.
         if ((item.node.type == Type::Layer && item.layer && !item.layer->isVisible()) ||
-            (item.node.type == Type::Item && !item.row.visible))
+            (item.node.type == Type::Item && (!item.row.visible || node->hiddenWithOthers)))
             return QBrush(QPalette().color(QPalette::Disabled, QPalette::Text));
         return {};
     default:
@@ -484,6 +652,21 @@ bool LegendItemTreeModel::setData(const QModelIndex &index, const QVariant &valu
         return false;
     if (role == Qt::CheckStateRole) {
         const bool on = value.toInt() == Qt::Checked;
+        const Node *node = nodeAt(index);
+        if (node->isSublayer) {
+            // All its rows, as one edit.
+            if (!m_style)
+                return false;
+            LegendItemTree tree = m_style->itemTree();
+            for (const auto &c : node->children) {
+                LegendNode &stored = tree.ensureItemNode(c->layerKey, c->item.node.id);
+                if (stored.hasDefaultSettings()) // a row setting from an older file
+                    stored.userLabel = c->item.node.userLabel;
+                stored.visible = on;
+            }
+            m_style->setItemTree(tree);
+            return true;
+        }
         return editSettings(index, [on](LegendNode &n) { n.visible = on; });
     }
     if (role == Qt::EditRole) {
@@ -500,6 +683,8 @@ Qt::ItemFlags LegendItemTreeModel::flags(const QModelIndex &index) const
 {
     if (!index.isValid())
         return Qt::NoItemFlags;
+    if (nodeAt(index)->isSublayer) // a check box, no name of its own
+        return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsUserCheckable;
     return Qt::ItemIsEnabled | Qt::ItemIsSelectable | Qt::ItemIsEditable | Qt::ItemIsUserCheckable;
 }
 

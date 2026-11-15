@@ -375,7 +375,14 @@ There are two legend surfaces, driven by the same data.
 rows, grouped Layer → Item, with three columns — **Item**, **Color** and
 **Size**. The Color column is click-to-edit, and each edit is pushed onto the
 canvas undo stack, so `Ctrl+Z` reverses it uniformly across the dock, the
-on-canvas legend and the map. Right-clicking a sublayer row offers **Edit
+on-canvas legend and the map. The check box beside a layer takes the whole layer
+out of the on-canvas legend while the map still draws it (the Layers panel hides
+a layer on the map). Under each layer, its sublayers (and a SWMM model's element
+types) are branches of the tree with their rows under them: a sub-heading holds
+the rows of its section, and rows of one sublayer or element type without a
+heading are gathered under its name. Each branch and row has a check box; a
+branch's box shows or hides all its rows and is partly checked when only some
+are shown. Right-clicking a sublayer row offers **Edit
 Style…**, which opens the Layer Properties dialog focused on that sublayer's tab.
 
 **The on-canvas legend** is a translucent, draggable box painted over the map.
@@ -386,7 +393,7 @@ map. Right-clicking it opens:
 | Item | What it does |
 |------|--------------|
 | **Change color…** | On a legend class row — recolors that class. |
-| **Hide in legend** | Leaves the clicked row, layer heading, group or text line out of the legend (the map is unchanged). |
+| **Hide in legend** | Leaves the clicked row, layer heading, group or text line out of the legend (the map is unchanged). Hiding a sub-heading hides the rows under it; hiding a color bar hides the bar. |
 | **Rename in legend…** | Changes the clicked line's text in the legend only; an empty name restores the original. |
 | **Start new column here** | Starts a new legend column at the clicked line. |
 | **Hide layer "…"** | Hides the layer the clicked row belongs to. |
@@ -410,7 +417,7 @@ every built-in default. The tabs:
 
 | Tab | Settings |
 |-----|----------|
-| **Items** | **Follow the map** (layers in map order, new layers added). Clear it to choose the order, add groups and text lines, and keep new map layers out until **Add layers…** lists them. The tree shows every layer, its rows, groups and text lines; a check box shows or hides the item in the legend and double-clicking renames it. **Up**/**Down** reorder, **Into group**/**Out of group** move a layer, group or text line into the group above it or out of its group, **Add group** and **Add text** add after the selection, and **Remove** takes an item out (a group's contents stay). For the selected item: its name in the legend, its heading (group heading, sub-heading or hidden), **Start a new column here**, **Rows side by side** (a layer's rows in several sub-columns), how its color ramps are shown, and its symbol width and height. Turning **Follow the map** back on keeps each item's settings but drops the order, groups and text lines. |
+| **Items** | **Follow the map** (layers in map order, new layers added). Clear it to choose the order, add groups and text lines, and keep new map layers out until **Add layers…** lists them. The tree shows every layer, its sublayers and their rows (arranged as in the Legend dock), groups and text lines; a check box shows or hides the item in the legend (the map still draws it) and double-clicking renames it. Clearing a sub-heading (such as **Depth (m)** or **Conduits — Flow**) also leaves out the rows under it, and clearing any row of a color bar leaves out the bar; those rows show grayed out. **Up**/**Down** reorder, **Into group**/**Out of group** move a layer, group or text line into the group above it or out of its group, **Add group** and **Add text** add after the selection, and **Remove** takes an item out (a group's contents stay). The selected item's settings are on tabs. **General**: its name in the legend, its heading (group heading, sub-heading or hidden), **Start a new column here**, **Rows side by side** (a layer's rows in several sub-columns), how its color ramps are shown, and its symbol width and height. **Numbers**: the layer's own number format — decimal places or significant figures and how many, dropping trailing zeros, a thousands separator, text before the values, units after them and the text between a range's two ends. It is the layer's style setting, so the Layer Style dialog and the Legend dock show the same numbers, and it applies to every color scheme of the layer (each element type of a SWMM model, every 2D result). **Color bar**: the layer's own bar direction, length, thickness, number of values, high or low value at the top, and out-of-range caps. **Text**: the layer's (or group's) own heading font and color, and the layer's own font and color for its rows and color bar values. **Counts**: the layer's own choice of feature counts and of only the rows seen in the map view. Each layer setting left at **As the legend** follows the legend's tabs. Turning **Follow the map** back on keeps each item's settings but drops the order, groups and text lines. |
 | **Layout** | The title and its text; the number of columns, equal column widths, whether a layer's rows may continue in the next column, the space between columns and lines between them; long labels shortened with "…" or wrapped onto more lines (at the widest label, and optionally at a chosen text such as `\|`); a fixed width and height or **Fit to content**; **Only items with features in the map view** and **Feature counts after the labels** (vector layers; other layers list all their rows). |
 | **Fonts** | Font, size, bold, italic, color and alignment of the title, group headings, sub-headings and items. |
 | **Symbols** | The swatch size and symbol width and height; symbols as on the map (the space grows) or fitted to the width and height; the smallest and largest symbol drawn; symbols left or right of their labels and the space between; line samples straight, zigzag or S-curve; fill samples as rectangles, rounded rectangles or ellipses, outlined in a darker shade of the fill or a chosen color. **Color ramps**: continuous fields as a color bar or as swatches, the bar's direction, length and thickness, how many values it shows, high values at the top or bottom, the number format and decimals, its outline and tick marks, end caps in the below- and above-range colors, and the space to its values. |
@@ -422,9 +429,10 @@ look only: the title text, the items, the position and a fixed size stay as they
 are. **Use as default for new legends** makes the current look the starting point
 of every new legend; **Restore built-in default for new legends** undoes that.
 
-Continuous color fields (a pseudo-color or graduated raster, the 2D depth fills)
-are drawn as a color bar with value ticks by default. The unified 2D results
-fill still shows sampled swatches.
+Continuous color fields (a pseudo-color or graduated raster, the 2D depth and
+result fills) are drawn as a color bar with value ticks by default. While the
+**Symbols** tab's number format is **Auto**, a bar writes its values in its
+layer's number format.
 
 Clicking the legend on the map shows the same settings in the Properties panel,
 grouped as on the tabs, and edits made in either place, or by dragging the
