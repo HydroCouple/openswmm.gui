@@ -4818,6 +4818,15 @@ target_compile_definitions(test_traceanalysisjourney PRIVATE
 # Keep the full-app acceptance harness quick to compile; production retains its configured optimization.
 target_compile_options(test_traceanalysisjourney PRIVATE $<$<CXX_COMPILER_ID:Clang,AppleClang,GNU>:-O0>)
 
+# The map's animation date/time box: style, toolbar checkbox, project save, Export Map.
+add_swmmvis_gui_test(test_timeoverlay
+    test_timeoverlay.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_timeoverlay)
+target_compile_definitions(test_timeoverlay PRIVATE
+    TIME_OVERLAY_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/time_overlay_2026-11-14")
+
 add_swmmvis_gui_test(test_resultssizechannel
     test_resultssizechannel.cpp
     ${SWMMVIS_TEST_SOURCES}

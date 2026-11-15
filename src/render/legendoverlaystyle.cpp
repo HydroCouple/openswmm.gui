@@ -93,6 +93,16 @@ QFont fontFromJson(const QJsonObject &j, const QFont &fallback)
 
 } // namespace
 
+QJsonObject overlayFontToJson(const QFont &f)
+{
+    return fontToJson(f);
+}
+
+QFont overlayFontFromJson(const QJsonObject &j, const QFont &fallback)
+{
+    return fontFromJson(j, fallback);
+}
+
 LegendOverlayStyle::LegendOverlayStyle(QObject *parent) : QObject(parent)
 {
     // The default-constructed QFont resolves to the application font, which

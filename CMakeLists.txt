@@ -240,6 +240,8 @@ set(
         include/render/ifeaturerenderer.h
         # Slice BB Phase 8.6.16 — shared model for on-canvas legend chrome.
         include/render/legendoverlaystyle.h
+        # Model for the map's animation date/time box.
+        include/render/timeoverlaystyle.h
         # Slice BI Phase 8.13.6.2 — concrete renderer classes.
         # SingleSymbol + Graduated are functional v1; Categorized + RuleBased
         # are stubs (JSON + paint) — UI editors land in Slice BI.3.
@@ -859,6 +861,7 @@ set(
         include/ui/widgets/seriesstyleeditor.h
         include/ui/widgets/perattributethemingwidget.h
         include/ui/widgets/legendoverlay.h
+        include/ui/widgets/timeoverlay.h
         include/ui/widgets/interactivechartview.h
         include/ui/widgets/cursorwindowslider.h
         include/ui/widgets/chartaxisformatcontroller.h
@@ -1102,6 +1105,7 @@ set(
         src/render/legendsymbolitem.cpp
         # Slice BB Phase 8.6.16 — shared model for on-canvas legend chrome.
         src/render/legendoverlaystyle.cpp
+        src/render/timeoverlaystyle.cpp
         # Slice BI Phase 8.13.6.2 — concrete renderer impls.
         src/render/renderers/singlesymbolrenderer.cpp
         src/render/renderers/graduatedrenderer.cpp
@@ -1851,6 +1855,7 @@ set(
         src/ui/widgets/seriesstyleeditor.cpp
         src/ui/widgets/perattributethemingwidget.cpp
         src/ui/widgets/legendoverlay.cpp
+        src/ui/widgets/timeoverlay.cpp
         src/ui/widgets/interactivechartview.cpp
         src/ui/accessibility/chartaccessible.cpp
         src/ui/widgets/cursorwindowslider.cpp

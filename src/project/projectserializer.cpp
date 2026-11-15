@@ -75,6 +75,8 @@
 #include "render/rule.h"
 #include "render/rulelist.h"
 #include "ui/widgets/legendoverlay.h"
+#include "ui/widgets/timeoverlay.h"
+#include "render/timeoverlaystyle.h"
 
 #include <QColor>
 #include <QDir>
@@ -247,6 +249,10 @@ const QString kDiagramSpec = QStringLiteral("diagram");
 // Slice BB Phase 8.6.16 — on-canvas legend overlay chrome (font / frame /
 // background / anchor / opacity). Per-session; missing key ⇒ defaults.
 const QString kLegendOverlay = QStringLiteral("legendOverlay");
+
+// The map's animation date/time box: its style and whether it is shown. Missing key ⇒ hidden
+// with the default style.
+const QString kTimeOverlay = QStringLiteral("timeOverlay");
 
 // Text annotation layer — array of styled text items placed on the map.
 // Schema additive; missing key ⇒ no annotations were saved.
@@ -877,6 +883,13 @@ QJsonObject ProjectSerializer::serializeSession(SWMMVisProjectWindow *pw, const 
             if (auto *style = overlay->style())
                 obj[kLegendOverlay] = style->toJson();
         }
+        // Saved only when it differs from a hidden default box.
+        if (auto *box = canvas->findChild<openswmmvis::ui::TimeOverlay *>(
+                QString(), Qt::FindDirectChildrenOnly)) {
+            const QJsonObject j = box->style()->toJson();
+            if (j != OpenSWMM::Render::TimeOverlayStyle().toJson())
+                obj[kTimeOverlay] = j;
+        }
     }
 
     if (auto *canvas = pw->canvas()) {
@@ -1378,6 +1391,10 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj, SWMMVisProje
             if (auto *style = overlay->style())
                 style->fromJson(sessionObj.value(kLegendOverlay).toObject());
         }
+    }
+    if (sessionObj.contains(kTimeOverlay)) {
+        if (auto *box = openswmmvis::ui::TimeOverlay::forCanvas(pw->canvas()))
+            box->style()->fromJson(sessionObj.value(kTimeOverlay).toObject());
     }
 
     if (pw->modelLayer())
