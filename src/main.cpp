@@ -26,6 +26,10 @@
 #include <string>
 
 #include <cstdio>
+#ifndef Q_OS_WIN
+#include <fcntl.h>
+#include <sys/stat.h>
+#endif
 
 #include "swmmvisapplication.h"
 #include "swmmvis.h"
@@ -109,7 +113,14 @@ void installFileTeeIfRequested()
                QStringLiteral(".log");
     }
 
+#ifdef Q_OS_WIN
     g_logFileHandle = std::fopen(QFile::encodeName(path).constData(), "a");
+#else
+    // Created readable and writable by the owner only (fopen would use 0666).
+    const int fd = ::open(QFile::encodeName(path).constData(), O_WRONLY | O_APPEND | O_CREAT,
+                          S_IRUSR | S_IWUSR);
+    g_logFileHandle = fd >= 0 ? ::fdopen(fd, "a") : nullptr;
+#endif
     if (!g_logFileHandle) {
         std::fprintf(stderr, "SWMM_LOG_FILE: cannot open '%s' for append\n", qPrintable(path));
         return;

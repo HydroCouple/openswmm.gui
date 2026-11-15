@@ -1593,13 +1593,15 @@ QImage GISRasterLayer::warpToCanvas(GDALDataset *src, const MapExtent &canvasExt
     // Convert to QImage
     QImage result(pixelWidth, pixelHeight, QImage::Format_ARGB32);
     result.fill(Qt::transparent);
+    // Multiplied as size_t: the int product overflows for a very large viewport.
+    const std::size_t pixelCount = static_cast<std::size_t>(pixelWidth) * pixelHeight;
 
     if (isRGB && outBands >= 3) {
         // Read R, G, B (and optionally A) bands
-        std::vector<GByte> r(pixelWidth * pixelHeight);
-        std::vector<GByte> g(pixelWidth * pixelHeight);
-        std::vector<GByte> b(pixelWidth * pixelHeight);
-        std::vector<GByte> a(pixelWidth * pixelHeight, 255);
+        std::vector<GByte> r(pixelCount);
+        std::vector<GByte> g(pixelCount);
+        std::vector<GByte> b(pixelCount);
+        std::vector<GByte> a(pixelCount, 255);
 
         dstDS->GetRasterBand(1)->RasterIO(GF_Read, 0, 0, pixelWidth, pixelHeight, r.data(),
                                           pixelWidth, pixelHeight, GDT_Byte, 0, 0);
@@ -1623,7 +1625,7 @@ QImage GISRasterLayer::warpToCanvas(GDALDataset *src, const MapExtent &canvasExt
         // ramp. NaN pixels (warped destination NoData sentinel above) are
         // rendered fully transparent so the layer underneath shows through
         // — the user explicitly asked NoData not to render.
-        std::vector<double> raw(pixelWidth * pixelHeight);
+        std::vector<double> raw(pixelCount);
         dstDS->GetRasterBand(1)->RasterIO(GF_Read, 0, 0, pixelWidth, pixelHeight, raw.data(),
                                           pixelWidth, pixelHeight, GDT_Float64, 0, 0);
 
