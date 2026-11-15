@@ -283,6 +283,43 @@ private slots:
      * rows.
      *
      */
+    void continuousFillIsOneColorRampForTheLegend()
+    {
+        // Continuous: the samples (and any outside rows) share one ramp the legend can draw as a
+        // color bar, with the scheme's number format and the units.
+        auto f = frame();
+        ResultScalarSublayer s({});
+        bind(s, f);
+        s.fillStyle()->setClassified(false);
+        auto legend = s.legendSymbolItems(f);
+        QList<LegendSymbolItem> tagged;
+        for (const auto &row : legend)
+            if (row.rampId != 0)
+                tagged.append(row);
+        QVERIFY2(tagged.size() >= 6, "the six samples are one ramp");
+        for (const auto &row : tagged)
+            QCOMPARE(row.rampId, tagged.front().rampId);
+        // The status rows (missing data, waterless, not applicable) stay swatches.
+        int status = 0;
+        for (const auto &row : legend)
+            if (row.classKey == QStringLiteral("missing") ||
+                row.classKey == QStringLiteral("waterless") ||
+                row.classKey == QStringLiteral("notApplicable")) {
+                QCOMPARE(row.rampId, 0);
+                ++status;
+            }
+        QCOMPARE(status, 3);
+        QVERIFY(tagged.front().ramp);
+        QCOMPARE(tagged.front().ramp->lo, 0.0);
+        QCOMPARE(tagged.front().ramp->hi, 10.0);
+        QCOMPARE(tagged.front().ramp->unitsSuffix, QStringLiteral(" [mg/L]"));
+        QVERIFY(tagged.front().ramp->numbers.has_value());
+        // Classified: class rows, no ramp.
+        s.fillStyle()->setClassified(true);
+        legend = s.legendSymbolItems(f);
+        for (const auto &row : legend)
+            QCOMPARE(row.rampId, 0);
+    }
     void constantRangeHasSingleMatchingPhysicalValue()
     {
         auto f = frame();

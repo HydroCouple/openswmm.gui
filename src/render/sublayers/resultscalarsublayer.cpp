@@ -482,7 +482,8 @@ ResultScalarSublayer::legendSymbolItems(const Mesh2DScalarFrame &frame, bool lab
         }
         if (classified) {
             if (effective.first == effective.second) {
-                auto item = swatch(m_id, QStringLiteral("0"), scheme.formatValue(effective.first),
+                auto item = swatch(m_id, QStringLiteral("0"),
+                                   scheme.numberFormat().formatLabel(effective.first),
                                    scheme.colorForClass(0, 1), m_opacity);
                 item.range = {effective.first, effective.second};
                 item.userLabel = scheme.labelOverride(0);
@@ -500,10 +501,10 @@ ResultScalarSublayer::legendSymbolItems(const Mesh2DScalarFrame &frame, bool lab
             for (int i = 0; i < count; ++i) {
                 const double value = effective.first + (effective.second - effective.first) * i /
                                                            std::max(1, count - 1);
-                auto item = swatch(m_id, QString::number(i),
-                                   tr("%1%2 [%3]").arg(prefix, scheme.formatValue(value), units),
-                                   scheme.colorForValue(value, range.minimum, range.maximum),
-                                   m_opacity);
+                auto item = swatch(
+                    m_id, QString::number(i),
+                    tr("%1%2 [%3]").arg(prefix, scheme.numberFormat().formatLabel(value), units),
+                    scheme.colorForValue(value, range.minimum, range.maximum), m_opacity);
                 item.range = {value, value};
                 block.append(item);
             }
@@ -514,6 +515,13 @@ ResultScalarSublayer::legendSymbolItems(const Mesh2DScalarFrame &frame, bool lab
                     item.symbol.opacity = m_opacity;
                     item.label = prefix + item.label + QStringLiteral(" [%1]").arg(units);
                 }
+            // The samples and the outside rows are one continuous ramp: the map legend can draw
+            // them as a color bar.
+            if (effective.second > effective.first) {
+                LegendRampSpec spec = scheme.rampSpec(effective.first, effective.second);
+                spec.unitsSuffix = QStringLiteral(" [%1]").arg(units);
+                tagLegendRamp(block, 0, int(block.size()), spec);
+            }
         }
         return keyed(block);
     };

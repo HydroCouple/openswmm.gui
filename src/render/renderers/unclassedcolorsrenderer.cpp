@@ -123,7 +123,7 @@ QList<LegendSymbolItem> UnclassedColorsRenderer::legendSymbolItems() const
         const double v = mn + t * (mx - mn);
 
         LegendSymbolItem item;
-        item.label = QString::number(v, 'g', 4);
+        item.label = m_numbers.formatLabel(v);
         item.symbol = m_baseSymbol;
         overrideColorInPlace(item.symbol, m_ramp.colorAt(t));
         item.range = {v, v};
@@ -150,6 +150,8 @@ QJsonObject UnclassedColorsRenderer::toJson() const
         j[QStringLiteral("noDataColor")] = m_noData.name(QColor::HexArgb);
     if (m_legendLabelCount != 5)
         j[QStringLiteral("legendLabelCount")] = m_legendLabelCount;
+    if (const QJsonObject numbers = m_numbers.toJson(defaultNumberFormat()); !numbers.isEmpty())
+        j[QStringLiteral("numberFormat")] = numbers;
     return j;
 }
 
@@ -172,6 +174,8 @@ void UnclassedColorsRenderer::fromJson(const QJsonObject &j)
     m_legendLabelCount = j.value(QStringLiteral("legendLabelCount")).toInt(5);
     if (m_legendLabelCount < 2)
         m_legendLabelCount = 2;
+    m_numbers = NumberLabelFormat::fromJson(j.value(QStringLiteral("numberFormat")).toObject(),
+                                            defaultNumberFormat());
 }
 
 std::unique_ptr<IFeatureRenderer> UnclassedColorsRenderer::clone() const
@@ -184,6 +188,7 @@ std::unique_ptr<IFeatureRenderer> UnclassedColorsRenderer::clone() const
     c->m_aboveRange = m_aboveRange;
     c->m_noData = m_noData;
     c->m_legendLabelCount = m_legendLabelCount;
+    c->m_numbers = m_numbers;
     return c;
 }
 

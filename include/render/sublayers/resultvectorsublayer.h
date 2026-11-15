@@ -140,6 +140,23 @@ public:
     void setColor(const QColor &color);
     void setColorScheme(const ClassificationScheme &scheme);
 
+    /** @brief The number format of this style's class labels.
+     * @param[out] out Receives the format. @return True. */
+    bool numberFormat(NumberLabelFormat *out) const override
+    {
+        *out = m_colorScheme.numberFormat();
+        return true;
+    }
+    /** @brief Set the number format of this style's class labels (notifies on a change).
+     * @param f Format. @return True. */
+    bool setNumberFormat(const NumberLabelFormat &f) override
+    {
+        ClassificationScheme s = m_colorScheme;
+        s.setNumberFormat(f);
+        setColorScheme(s);
+        return true;
+    }
+
     /**
      * @param value Bound size value (|v| for Magnitude and FixedScale).
      * @param lo,hi Size range in the bound value's units (unused by Constant and FixedScale).

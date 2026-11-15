@@ -1182,6 +1182,16 @@ QVector<QPair<QString, QString>> SWMM2DMeshLayer::extendedMetadata() const
 // Renderer (Slice BI Phase 8.13.6.6)
 // ---------------------------------------------------------------------------
 
+bool SWMM2DMeshLayer::legendNumberFormat(OpenSWMM::Render::NumberLabelFormat *out) const
+{
+    return legendNumberFormatOf({renderer()}, out);
+}
+
+bool SWMM2DMeshLayer::setLegendNumberFormat(const OpenSWMM::Render::NumberLabelFormat &f)
+{
+    return setLegendNumberFormatOn({renderer()}, f);
+}
+
 OpenSWMM::Render::IFeatureRenderer *SWMM2DMeshLayer::renderer() const
 {
     return m_renderer.get();

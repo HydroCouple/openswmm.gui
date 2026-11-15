@@ -381,3 +381,104 @@ TEST(ClassificationColors, MinimumIsInclusiveAndMaximumSaturates)
                   QColor(11, 22, 33, 128));
     }
 }
+
+// ── Number format of class labels ────────────────────────────────────────
+
+TEST(NumberLabelFormat, EachOptionChangesTheText)
+{
+    using OpenSWMM::Render::NumberLabelFormat;
+    NumberLabelFormat f; // significant figures 3
+    EXPECT_EQ(f.formatNumber(1234.5678), QStringLiteral("1.23e+03"));
+    EXPECT_EQ(f.formatNumber(0.125), QStringLiteral("0.125"));
+    f.mode = NumberLabelFormat::Mode::Decimals;
+    f.precision = 2;
+    EXPECT_EQ(f.formatNumber(1234.5), QStringLiteral("1234.50"));
+    EXPECT_EQ(f.formatNumber(-0.5), QStringLiteral("-0.50"));
+    f.trimTrailingZeros = true;
+    EXPECT_EQ(f.formatNumber(1234.5), QStringLiteral("1234.5"));
+    EXPECT_EQ(f.formatNumber(3.0), QStringLiteral("3"));
+    f.thousandsSeparator = true;
+    EXPECT_EQ(f.formatNumber(1234567.25), QStringLiteral("1,234,567.25"));
+    EXPECT_EQ(f.formatNumber(-1234.5), QStringLiteral("-1,234.5"));
+    EXPECT_EQ(f.formatNumber(123.0), QStringLiteral("123"));
+    f.precision = 0;
+    EXPECT_EQ(f.formatNumber(999.6), QStringLiteral("1,000"));
+    f.prefix = QStringLiteral("~");
+    f.suffix = QStringLiteral(" m");
+    f.rangeSeparator = QStringLiteral(" to ");
+    EXPECT_EQ(f.formatRange(0, 1500), QStringLiteral("~0 to 1,500 m"));
+    EXPECT_EQ(f.formatBelow(2), QStringLiteral("< ~2 m"));
+    EXPECT_EQ(f.formatAbove(2), QStringLiteral("> ~2 m"));
+    // Exponents keep their digits; only the mantissa is trimmed.
+    NumberLabelFormat e = NumberLabelFormat::significantFigures(4);
+    e.thousandsSeparator = true;
+    EXPECT_EQ(e.formatNumber(1.5e9), QStringLiteral("1.5e+09"));
+}
+
+TEST(NumberLabelFormat, DefaultsWriteNothingAndJsonRoundTrips)
+{
+    using OpenSWMM::Render::NumberLabelFormat;
+    const NumberLabelFormat defaults = NumberLabelFormat::significantFigures(6);
+    EXPECT_TRUE(defaults.toJson(defaults).isEmpty());
+    NumberLabelFormat f = defaults;
+    f.mode = NumberLabelFormat::Mode::Decimals;
+    f.precision = 1;
+    f.trimTrailingZeros = true;
+    f.thousandsSeparator = true;
+    f.prefix = QStringLiteral("≈");
+    f.suffix = QStringLiteral(" cms");
+    f.rangeSeparator = QStringLiteral("—");
+    EXPECT_EQ(NumberLabelFormat::fromJson(f.toJson(defaults), defaults), f);
+}
+
+TEST(ClassificationScheme, NumberFormatDefaultsKeepTheOldLabels)
+{
+    ClassificationScheme s;
+    const auto &f = s.numberFormat();
+    for (double v : {0.0, 0.1234567, 12.5, -3.25, 1234567.0, 1e-7}) {
+        EXPECT_EQ(f.formatNumber(v), s.formatValue(v));
+        s.setLabelFormat(ClassificationScheme::LabelFormat::Decimals);
+        s.setLabelPrecision(4);
+        EXPECT_EQ(s.numberFormat().formatNumber(v), s.formatValue(v));
+        s.setLabelFormat(ClassificationScheme::LabelFormat::SignificantFigures);
+        s.setLabelPrecision(3);
+    }
+    s.setBelowColor(Qt::black);
+    s.setAboveColor(Qt::red);
+    const auto rows = s.legendItems(0.0, 10.0, {});
+    ASSERT_GE(rows.size(), 3);
+    EXPECT_EQ(rows.first().label, QStringLiteral("< 0"));
+    EXPECT_EQ(rows[1].label, QStringLiteral("0 – 2"));
+    EXPECT_EQ(rows.last().label, QStringLiteral("> 10"));
+    // No text options set: the JSON is what older builds wrote.
+    EXPECT_FALSE(s.toJson().contains(QStringLiteral("labelText")));
+}
+
+TEST(ClassificationScheme, NumberFormatShapesLabelsRampAndJson)
+{
+    ClassificationScheme s;
+    auto f = s.numberFormat();
+    f.mode = OpenSWMM::Render::NumberLabelFormat::Mode::Decimals;
+    f.precision = 1;
+    f.suffix = QStringLiteral(" m");
+    f.rangeSeparator = QStringLiteral(" to ");
+    s.setNumberFormat(f);
+    EXPECT_EQ(s.labelFormat(), ClassificationScheme::LabelFormat::Decimals);
+    EXPECT_EQ(s.labelPrecision(), 1);
+    const auto rows = s.legendItems(0.0, 10.0, {});
+    ASSERT_FALSE(rows.isEmpty());
+    EXPECT_EQ(rows.first().label, QStringLiteral("0.0 to 2.0 m"));
+    const auto spec = s.rampSpec(0.0, 10.0);
+    ASSERT_TRUE(spec.numbers.has_value());
+    EXPECT_EQ(*spec.numbers, s.numberFormat());
+    // JSON keeps the old keys and adds the text options.
+    const QJsonObject j = s.toJson();
+    EXPECT_EQ(j.value(QStringLiteral("labelFormat")).toInt(), 0);
+    EXPECT_EQ(j.value(QStringLiteral("labelPrecision")).toInt(), 1);
+    EXPECT_TRUE(j.contains(QStringLiteral("labelText")));
+    EXPECT_TRUE(ClassificationScheme::fromJson(j) == s);
+    // A precision out of range is clamped.
+    f.precision = 40;
+    s.setNumberFormat(f);
+    EXPECT_EQ(s.labelPrecision(), 12);
+}

@@ -16,10 +16,14 @@
 #ifndef OPENSWMM_RENDER_LEGENDRAMPSPEC_H
 #define OPENSWMM_RENDER_LEGENDRAMPSPEC_H
 
+#include "render/numberlabelformat.h"
+
 #include <QBrush>
 #include <QColor>
 #include <QString>
 #include <QtNumeric>
+
+#include <optional>
 
 namespace OpenSWMM::Render
 {
@@ -36,6 +40,9 @@ struct LegendRampSpec {
     QString title;        ///< Text above the bar, e.g. the field name; may be empty.
     QColor belowColor;    ///< Color below @c lo; invalid = none.
     QColor aboveColor;    ///< Color above @c hi; invalid = none.
+    /// The layer's number format, when it has one: the bar's tick labels follow it while the
+    /// legend's number format is Auto (its suffix, when set, replaces @c unitsSuffix).
+    std::optional<NumberLabelFormat> numbers;
 
     /** @brief Whether the ramp can be drawn: two or more stops and a finite range. */
     [[nodiscard]] bool isValid() const

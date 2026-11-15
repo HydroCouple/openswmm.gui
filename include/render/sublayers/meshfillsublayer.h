@@ -232,6 +232,23 @@ public:
      * determines whether it replaces the current scheme. Other style fields are retained. */
     void setScheme(const ClassificationScheme &s);
 
+    /** @brief The number format of this style's class labels.
+     * @param[out] out Receives the format. @return True. */
+    bool numberFormat(NumberLabelFormat *out) const override
+    {
+        *out = m_scheme.numberFormat();
+        return true;
+    }
+    /** @brief Set the number format of this style's class labels (notifies on a change).
+     * @param f Format. @return True. */
+    bool setNumberFormat(const NumberLabelFormat &f) override
+    {
+        ClassificationScheme s = m_scheme;
+        s.setNumberFormat(f);
+        setScheme(s);
+        return true;
+    }
+
     /** @brief Serialize terrain colors, shading, ramp gate, palette and classification.
      * @return Independent object; source is persisted by stable key, colors as ARGB.
      * Invalid source enum values serialize as elevation through attributeKey(). */

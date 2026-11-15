@@ -3562,6 +3562,30 @@ QString SWMMModelLayer::kindKey(Category c)
     return {};
 }
 
+namespace
+{
+/** The element types' renderers, types with elements first (they are the legend's rows). */
+QList<OpenSWMM::Render::IFeatureRenderer *> kindRenderersOf(const SWMMModelLayer *layer)
+{
+    QList<OpenSWMM::Render::IFeatureRenderer *> withElements, others;
+    for (int i = 0; i < static_cast<int>(SWMMModelLayer::NumCategories); ++i) {
+        const auto c = static_cast<SWMMModelLayer::Category>(i);
+        (layer->categoryCount(c) > 0 ? withElements : others).append(layer->kindRenderer(c));
+    }
+    return withElements + others;
+}
+} // namespace
+
+bool SWMMModelLayer::legendNumberFormat(OpenSWMM::Render::NumberLabelFormat *out) const
+{
+    return legendNumberFormatOf(kindRenderersOf(this), out);
+}
+
+bool SWMMModelLayer::setLegendNumberFormat(const OpenSWMM::Render::NumberLabelFormat &f)
+{
+    return setLegendNumberFormatOn(kindRenderersOf(this), f);
+}
+
 OpenSWMM::Render::IFeatureRenderer *SWMMModelLayer::kindRenderer(Category c) const
 {
     const size_t idx = static_cast<size_t>(c);

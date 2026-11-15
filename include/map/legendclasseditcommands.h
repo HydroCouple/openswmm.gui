@@ -27,7 +27,10 @@
 #ifndef OPENSWMMVIS_MAP_LEGEND_CLASS_EDIT_COMMANDS_H
 #define OPENSWMMVIS_MAP_LEGEND_CLASS_EDIT_COMMANDS_H
 
+#include "render/numberlabelformat.h"
+
 #include <QColor>
+#include <QElapsedTimer>
 #include <QPointer>
 #include <QString>
 #include <QUndoCommand>
@@ -192,6 +195,50 @@ private:
     QString m_classKey;
     qreal m_oldSize = -1.0;
     qreal m_newSize = -1.0;
+};
+
+/*!
+ * \class SetLayerNumberFormatCommand
+ * \brief Records a change of a layer's class label number format (see
+ *        OpenSWMMVisLayer::setLegendNumberFormat()), made from the map legend's editor.
+ *
+ *        The format before is read at construction; redo() applies the new one, also on the
+ *        first push. Edits of the same layer within 800 ms merge into one step (spin box bursts).
+ *        Undo restores one format to all the layer's renderers and color schemes: the one the
+ *        layer reported before the edit.
+ */
+class SetLayerNumberFormatCommand : public QUndoCommand
+{
+public:
+    /**
+     * @brief Snapshot the layer's current format and store the new one.
+     * @param[in] layer Borrowed layer guarded by QPointer; a deleted layer makes the command a
+     *   no-op.
+     * @param[in] format New format.
+     * @param[in] parent Optional owner.
+     */
+    SetLayerNumberFormatCommand(OpenSWMMVisLayer *layer,
+                                const OpenSWMM::Render::NumberLabelFormat &format,
+                                QUndoCommand *parent = nullptr);
+
+    /** @brief Apply the format the layer had before. */
+    void undo() override;
+    /** @brief Apply the new format (also on the first push). */
+    void redo() override;
+    /** @return Command family id 0x4C4E4652 ("LNFR"). */
+    int id() const override { return 0x4C4E4652; }
+    /**
+     * @param[in] other Incoming command.
+     * @return True when it edits the same layer less than 800 ms after this one; this command
+     *   then takes its new format and keeps the old one.
+     */
+    bool mergeWith(const QUndoCommand *other) override;
+
+private:
+    QPointer<OpenSWMMVisLayer> m_layer;
+    OpenSWMM::Render::NumberLabelFormat m_before;
+    OpenSWMM::Render::NumberLabelFormat m_after;
+    QElapsedTimer m_lastEdit;
 };
 
 } // namespace openswmmvis::map

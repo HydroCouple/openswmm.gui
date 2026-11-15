@@ -31,6 +31,7 @@
 #include "render/colorramp.h"
 #include "render/ifeaturerenderer.h"
 #include "render/intervalbinner.h"
+#include "render/numberlabelformat.h"
 
 #include <QColor>
 #include <QHash>
@@ -202,6 +203,29 @@ public:
      * @return Borrowed ramp valid for this renderer's lifetime; setters/loading can replace it.
      */
     [[nodiscard]] const RasterColorRamp &ramp() const { return m_ramp; }
+    /** @brief Number format of the class labels ("lo – hi"); significant figures 6 by default,
+     *  as the labels have always been written. @return Format. */
+    [[nodiscard]] const NumberLabelFormat &numberFormat() const { return m_numbers; }
+    /** @brief Set the number format of the class labels (no repaint notification).
+     * @param f Format. */
+    void setNumberFormat(const NumberLabelFormat &f) { m_numbers = f; }
+    /** @brief The class labels' number format. @param[out] out Format. @return True. */
+    bool legendNumberFormat(NumberLabelFormat *out) const override
+    {
+        *out = m_numbers;
+        return true;
+    }
+    /** @brief Set the class labels' number format. @param f Format. @return True. */
+    bool setLegendNumberFormat(const NumberLabelFormat &f) override
+    {
+        m_numbers = f;
+        return true;
+    }
+    /** @brief The default number format: significant figures 6. @return Format. */
+    static NumberLabelFormat defaultNumberFormat()
+    {
+        return NumberLabelFormat::significantFigures(6);
+    }
     /** @brief Replace the ramp, including its bounds, while retaining breaks and overrides.
      * @param ramp Payload moved without stop/range validation or repaint notification. */
     void setRamp(RasterColorRamp ramp);
@@ -538,6 +562,7 @@ private:
     double m_sizeValueMax = 0.0;
     RasterColorRamp m_ramp = RasterColorRamp::viridis(0.0, 1.0);
     IntervalBinner m_binner; // EqualInterval, 5 bins by default
+    NumberLabelFormat m_numbers = defaultNumberFormat();
     QVector<double> m_lastBreaks;
     SymbolStyle m_baseSymbol;
 

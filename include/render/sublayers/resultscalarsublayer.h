@@ -76,6 +76,18 @@ public:
     /** @brief Replace the filled-contour classes (forced classified) and notify on change.
      * @param s Scheme copied into storage; equal input is ignored. */
     void setBandScheme(const ClassificationScheme &s);
+    /** @brief Set the number format of the cell fill, the filled contours and the contours.
+     * @param f Format. @return True. */
+    bool setNumberFormat(const NumberLabelFormat &f) override
+    {
+        ScalarFillStyle::setNumberFormat(f);
+        ClassificationScheme bands = m_bandScheme;
+        bands.setNumberFormat(f);
+        setBandScheme(bands);
+        if (m_contourStyle)
+            m_contourStyle->setNumberFormat(f);
+        return true;
+    }
     /** @return Isolines (contourStyle()) shown; initially false. */
     bool isolines() const { return m_isolines; }
     /** @return Cell value labels shown; initially false. */

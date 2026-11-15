@@ -2816,6 +2816,22 @@ makeDefaultKindRenderer(SWMMModelLayer::Category c)
 
 } // namespace
 
+bool SWMMResultsLayer::legendNumberFormat(OpenSWMM::Render::NumberLabelFormat *out) const
+{
+    QList<OpenSWMM::Render::IFeatureRenderer *> renderers;
+    for (int i = 0; i < static_cast<int>(SWMMModelLayer::NumCategories); ++i)
+        renderers.append(kindRenderer(static_cast<SWMMModelLayer::Category>(i)));
+    return legendNumberFormatOf(renderers, out);
+}
+
+bool SWMMResultsLayer::setLegendNumberFormat(const OpenSWMM::Render::NumberLabelFormat &f)
+{
+    QList<OpenSWMM::Render::IFeatureRenderer *> renderers;
+    for (int i = 0; i < static_cast<int>(SWMMModelLayer::NumCategories); ++i)
+        renderers.append(kindRenderer(static_cast<SWMMModelLayer::Category>(i)));
+    return setLegendNumberFormatOn(renderers, f);
+}
+
 OpenSWMM::Render::IFeatureRenderer *SWMMResultsLayer::kindRenderer(SWMMModelLayer::Category c) const
 {
     const int i = static_cast<int>(c);

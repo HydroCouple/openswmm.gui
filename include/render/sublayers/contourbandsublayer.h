@@ -182,6 +182,23 @@ public:
      * decides whether to replace it; other style fields are retained. */
     void setScheme(const ClassificationScheme &s);
 
+    /** @brief The number format of this style's class labels.
+     * @param[out] out Receives the format. @return True. */
+    bool numberFormat(NumberLabelFormat *out) const override
+    {
+        *out = m_scheme.numberFormat();
+        return true;
+    }
+    /** @brief Set the number format of this style's class labels (notifies on a change).
+     * @param f Format. @return True. */
+    bool setNumberFormat(const NumberLabelFormat &f) override
+    {
+        ClassificationScheme s = m_scheme;
+        s.setNumberFormat(f);
+        setScheme(s);
+        return true;
+    }
+
     /*! VS.8 — band color at the midpoint of band \p bandIndex out of
      *  \p bandCount. Forwards to scheme().colorForClass — samples the named
      *  ramp (inverted when requested) or lerps lowColor→highColor when the

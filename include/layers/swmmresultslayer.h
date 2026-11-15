@@ -739,6 +739,10 @@ public:
      */
     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *
     kindRenderer(SWMMModelLayer::Category c) const;
+    /** @brief The element types' renderers' and sublayers' class label format (see
+     *  OpenSWMMVisLayer). */
+    [[nodiscard]] bool legendNumberFormat(OpenSWMM::Render::NumberLabelFormat *out) const override;
+    bool setLegendNumberFormat(const OpenSWMM::Render::NumberLabelFormat &f) override;
 
     /*!
      * \brief Installs (or replaces) the per-kind renderer for category

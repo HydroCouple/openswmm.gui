@@ -2568,6 +2568,20 @@ void SWMM2DResultsLayer::dispatchAnimationTick(int period)
 // Renderer (Slice BI Phase 8.13.6.6)
 // ---------------------------------------------------------------------------
 
+bool SWMM2DResultsLayer::legendNumberFormat(OpenSWMM::Render::NumberLabelFormat *out) const
+{
+    // The sublayers draw this layer's legend; the layer-level renderer comes last.
+    if (OpenSWMMVisLayer::legendNumberFormat(out))
+        return true;
+    const auto *r = renderer();
+    return r && r->legendNumberFormat(out);
+}
+
+bool SWMM2DResultsLayer::setLegendNumberFormat(const OpenSWMM::Render::NumberLabelFormat &f)
+{
+    return setLegendNumberFormatOn({renderer()}, f);
+}
+
 OpenSWMM::Render::IFeatureRenderer *SWMM2DResultsLayer::renderer() const
 {
     return m_renderer.get();

@@ -905,6 +905,16 @@ std::vector<std::unique_ptr<openswmmvis::ui::ILayerStyleSubject>> GISVectorLayer
 // Renderer (Slice BI Phase 8.13.6.6)
 // ---------------------------------------------------------------------------
 
+bool GISVectorLayer::legendNumberFormat(OpenSWMM::Render::NumberLabelFormat *out) const
+{
+    return legendNumberFormatOf({renderer()}, out);
+}
+
+bool GISVectorLayer::setLegendNumberFormat(const OpenSWMM::Render::NumberLabelFormat &f)
+{
+    return setLegendNumberFormatOn({renderer()}, f);
+}
+
 OpenSWMM::Render::IFeatureRenderer *GISVectorLayer::renderer() const
 {
     // Slice B.3 — delegate to the active Rule's owned renderer.

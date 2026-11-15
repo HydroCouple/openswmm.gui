@@ -222,6 +222,9 @@ public:
      */
     [[nodiscard]] bool legendClassCounts(const MapExtent *extent,
                                          QHash<QString, qint64> *counts) const override;
+    /** @brief The renderer's class label format (see OpenSWMMVisLayer). */
+    [[nodiscard]] bool legendNumberFormat(OpenSWMM::Render::NumberLabelFormat *out) const override;
+    bool setLegendNumberFormat(const OpenSWMM::Render::NumberLabelFormat &f) override;
 
     // ----- IAttributeProvider (Slice DM.3) --------------------------------
     //

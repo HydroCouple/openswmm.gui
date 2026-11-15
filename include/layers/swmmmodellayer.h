@@ -1312,6 +1312,9 @@ public:
      *   valid categories; replacement/reset/destruction invalidates pointers.
      */
     [[nodiscard]] OpenSWMM::Render::IFeatureRenderer *kindRenderer(Category c) const;
+    /** @brief The element types' renderers' class label format (see OpenSWMMVisLayer). */
+    [[nodiscard]] bool legendNumberFormat(OpenSWMM::Render::NumberLabelFormat *out) const override;
+    bool setLegendNumberFormat(const OpenSWMM::Render::NumberLabelFormat &f) override;
 
     /*! Replaces the per-kind renderer for \p c. Takes ownership; null is
      *  rejected (silent no-op). When the new renderer is a SingleSymbol,

@@ -385,7 +385,7 @@ QList<LegendSymbolItem> GraduatedRenderer::legendSymbolItems() const
                                    : (useBreaks ? m_lastBreaks.at(i)
                                                 : mn + (mx - mn) * static_cast<double>(i + 1) / n);
         item.range = {low, high};
-        item.label = QStringLiteral("%1 – %2").arg(low).arg(high);
+        item.label = m_numbers.formatRange(low, high);
         item.symbol = m_baseSymbol;
         overrideColorInPlace(item.symbol, colorForBin(i));
         item.sortIndex = i;
@@ -413,6 +413,8 @@ QJsonObject GraduatedRenderer::toJson() const
         jb.append(b);
     obj.insert(QStringLiteral("lastBreaks"), jb);
     obj.insert(QStringLiteral("baseSymbol"), m_baseSymbol.toJson());
+    if (const QJsonObject numbers = m_numbers.toJson(defaultNumberFormat()); !numbers.isEmpty())
+        obj.insert(QStringLiteral("numberFormat"), numbers);
     // Slice BI Phase 8.13.43-α — output-axis toggles.
     obj.insert(QStringLiteral("outputColorEnabled"), m_outputColorEnabled);
     obj.insert(QStringLiteral("outputSizeEnabled"), m_outputSizeEnabled);
@@ -483,6 +485,8 @@ void GraduatedRenderer::fromJson(const QJsonObject &j)
 
     m_baseSymbol = SymbolStyle{};
     m_baseSymbol.fromJson(j.value(QStringLiteral("baseSymbol")).toObject());
+    m_numbers = NumberLabelFormat::fromJson(j.value(QStringLiteral("numberFormat")).toObject(),
+                                            defaultNumberFormat());
 
     // Slice BI Phase 8.13.43-α — output-axis toggles. Default-on for color
     // (preserves prior behavior), default-off for size.

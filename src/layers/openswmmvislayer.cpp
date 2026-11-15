@@ -12,6 +12,9 @@
 #include "layers/openswmmvislayer.h"
 #include "map/spatialreferencesystem.h"
 #include "render/ifeaturerenderer.h" // complete type for the setRenderer() default
+#include "render/isublayer.h"
+#include "render/isublayerhost.h"
+#include "render/sublayerstyle.h"
 #include "ui/dialogs/ilayerstylesubject.h"
 
 #include <QGraphicsScene>
@@ -274,6 +277,61 @@ void OpenSWMMVisLayer::setExtent(const MapExtent &extent)
 QVector<OpenSWMMVisLayer *> OpenSWMMVisLayer::children() const
 {
     return mChildren;
+}
+
+bool OpenSWMMVisLayer::legendNumberFormat(OpenSWMM::Render::NumberLabelFormat *out) const
+{
+    const auto *host = dynamic_cast<const OpenSWMM::Render::ISublayerHost *>(this);
+    if (!host || !out)
+        return false;
+    // A shown sublayer first: its rows are the ones in the legend.
+    for (const bool shownOnly : {true, false})
+        for (OpenSWMM::Render::ISublayer *sub : host->sublayers())
+            if (sub && (!shownOnly || sub->isVisible()) && sub->style() &&
+                sub->style()->numberFormat(out))
+                return true;
+    return false;
+}
+
+bool OpenSWMMVisLayer::setLegendNumberFormat(const OpenSWMM::Render::NumberLabelFormat &f)
+{
+    bool any = false;
+    if (auto *host = dynamic_cast<OpenSWMM::Render::ISublayerHost *>(this))
+        for (OpenSWMM::Render::ISublayer *sub : host->sublayers())
+            if (sub && sub->style())
+                any = sub->style()->setNumberFormat(f) || any;
+    if (any)
+        emit repaintRequested();
+    return any;
+}
+
+bool OpenSWMMVisLayer::legendNumberFormatOf(
+    const QList<OpenSWMM::Render::IFeatureRenderer *> &renderers,
+    OpenSWMM::Render::NumberLabelFormat *out) const
+{
+    for (const auto *r : renderers)
+        if (r && r->legendNumberFormat(out))
+            return true;
+    return OpenSWMMVisLayer::legendNumberFormat(out);
+}
+
+bool OpenSWMMVisLayer::setLegendNumberFormatOn(
+    const QList<OpenSWMM::Render::IFeatureRenderer *> &renderers,
+    const OpenSWMM::Render::NumberLabelFormat &f)
+{
+    bool any = false;
+    QList<OpenSWMM::Render::IFeatureRenderer *> done;
+    for (auto *r : renderers)
+        if (r && !done.contains(r)) {
+            done.append(r);
+            any = r->setLegendNumberFormat(f) || any;
+        }
+    // The sublayers' setter repaints when any of them took the format.
+    if (OpenSWMMVisLayer::setLegendNumberFormat(f))
+        return true;
+    if (any)
+        emit repaintRequested();
+    return any;
 }
 
 bool OpenSWMMVisLayer::addChild(OpenSWMMVisLayer *child)

@@ -42,6 +42,7 @@
 #include "render/intervalbinner.h"
 #include "render/legendrampspec.h"
 #include "render/legendsymbolitem.h"
+#include "render/numberlabelformat.h"
 
 #include <QColor>
 #include <QHash>
@@ -255,13 +256,13 @@ public:
     // ── Label number format (Decimals vs significant figures) ──────────
     /** @brief Read the numeric label format.
      * @return Fixed-decimal or significant-figure selection. */
-    [[nodiscard]] LabelFormat labelFormat() const { return m_labelFormat; }
+    [[nodiscard]] LabelFormat labelFormat() const { return LabelFormat(int(m_numbers.mode)); }
     /** @brief Store a label format and restamp on change.
      * @param f Format to store; any value other than Decimals uses significant figures in formatValue(). */
     void setLabelFormat(LabelFormat f);
     /** @brief Read the stored numeric precision.
      * @return Precision in [0,12]; significant-figure formatting uses at least one. */
-    [[nodiscard]] int labelPrecision() const { return m_labelPrecision; }
+    [[nodiscard]] int labelPrecision() const { return m_numbers.precision; }
     /** @brief Set numeric precision, clamping it before comparing and restamping.
      * @param digits Decimal places or significant figures, clamped to [0,12]. */
     void setLabelPrecision(int digits);
@@ -273,6 +274,15 @@ public:
      * @return QString::number output using a decimal point, with precision clamped
      * to at least one for significant figures. Nonfinite values are passed through. */
     [[nodiscard]] QString formatValue(double v) const;
+
+    /** @brief The full label format: labelFormat()/labelPrecision() plus trailing zeros,
+     *  thousands separator, prefix, units suffix and range separator. Class labels and the
+     *  legend's color bar ticks use it; formatValue() uses only the number part.
+     * @return Format. */
+    [[nodiscard]] const NumberLabelFormat &numberFormat() const { return m_numbers; }
+    /** @brief Store the full label format (precision clamped to [0,12]); restamp on change.
+     * @param f Format. */
+    void setNumberFormat(const NumberLabelFormat &f);
 
     /** @brief Validate completed bounds and the applicable break configuration.
      * @param dataMin Automatic lower bound in data units; ignored for custom ranges.
@@ -464,8 +474,7 @@ private:
     double m_rangeMax = 1.0;
     RangeMode m_rangeMode = RangeMode::FixedOverRun;
     // Default reproduces the historic legend formatting (`'g', 3`).
-    LabelFormat m_labelFormat = LabelFormat::SignificantFigures;
-    int m_labelPrecision = 3;
+    NumberLabelFormat m_numbers;
     QHash<int, QColor> m_colorOverrides;
     QHash<int, QString> m_labelOverrides;
     quint64 m_revision = 0;
