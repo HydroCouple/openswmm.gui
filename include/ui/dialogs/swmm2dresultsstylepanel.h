@@ -23,7 +23,7 @@
 #include <functional>
 
 class SWMM2DResultsLayer;
-class QMenu;
+class QLineEdit;
 class QPushButton;
 class QStandardItemModel;
 class QTabWidget;
@@ -69,52 +69,22 @@ public:
     bool focusResult(const QString &id);
 
 private:
-    /*! Shared builder for the depth row's cell and smooth fill passes —
-     *  both sublayers carry the same ScalarFillStyle. */
     /**
-     * @brief Create a cell/smooth depth-fill pass page: the pass opacity and its classification.
-     * @param[in,out] sub Nullable borrowed sublayer for the opacity header.
-     * @param[in,out] st Nullable borrowed fill style; absent style omits attribute/classification
-     * controls. Raw style/layer captures must outlive active page callbacks.
-     * @param[in] parent Optional Qt owner.
-     * @return New parent-owned page. Only depth can be chosen; preserves an unsupported current
-     * attribute as a disabled item. Classification samples are empty and range comes from
-     * [0,maxDepth], with continuous and range modes enabled; the editor follows outside edits.
-     */
-    [[nodiscard]] QWidget *buildScalarFillTab(OpenSWMM::Render::ISublayer *sub,
-                                              OpenSWMM::Render::ScalarFillStyle *st,
-                                              QWidget *parent);
-    /**
-     * @brief Create the depth contour-band pass content for the surviving non-null layer.
-     * @param[in] parent Optional Qt owner.
-     * @return New parent-owned page; missing sublayer/style leaves just the opacity. Uses empty
-     * preview samples and [0,maxDepth], classified-only mode without range modes, and a live
-     * smooth-boundary switch. Raw style/layer captures require page-lifetime validity.
-     */
-    [[nodiscard]] QWidget *buildContourBandTab(QWidget *parent);
-    /**
-     * @brief Create live depth-isoline pass levels, stroke and label controls for a non-null layer.
-     * @param[in] parent Optional Qt owner.
-     * @return New parent-owned page, opacity-only if style absent. Count [1,256]; interval
-     * [1e-6,1e6] m and base +/-1e6 m (three displayed decimals); line/index widths [.25,20] px,
-     * index frequency [0,50], label decimals [0,9], font [4,72] pt. Mode gates count/method versus
-     * interval/base; label settings follow "label contours". Controls follow the style.
-     */
-    [[nodiscard]] QWidget *buildIsolineTab(QWidget *parent);
-    /**
-     * @brief Create live streak presets, classification, advanced numeric controls and availability
+     * @brief Create the flow-streak controls every vector shares: color, density, motion and
+     * trail sliders, the speed classification, advanced numeric controls and availability
      * diagnostics.
      * @param[in] parent Optional Qt owner.
-     * @param[in] withShow True for the listed Flow streaks item (its own Show box); false on the
-     * velocity row's Streaks tab, whose Show box is the row's streak toggle.
-     * @return New parent-owned page named "flowStreakTab". Requires a non-null layer and existing
-     * flow-streak sublayer/style. Density presets are 56/40/28/14 px; trail presets .75/1.5/3 s;
-     * motion slider .25..4 times reference, exact motion maps 48 px/s to multiplier one. Advanced
+     * @param[in] row Vector row whose own streak settings are edited (its tab's Show box is the
+     * row's streak toggle); null for the listed native Flow streaks item, with its own Show box.
+     * @return New parent-owned page named "flowStreakTab". Density slider 80..8 px spacing; trail
+     * slider .25..5 s; motion slider .25..4 times reference, exact motion maps 48 px/s to
+     * multiplier one. Advanced
      * property bounds use FlowStreakStyle::maximumNumericValue. Style signals refresh controls;
      * the speed classification is hidden, disabled and refreshed (draft dropped) while coloring
      * by speed is off.
      */
-    [[nodiscard]] QWidget *buildFlowStreakTab(QWidget *parent, bool withShow);
+    [[nodiscard]] QWidget *buildFlowStreakTab(QWidget *parent,
+                                              OpenSWMM::Render::ResultVectorSublayer *row);
     /**
      * @brief Create live uniform edge visibility, opacity, color, width and dash controls.
      * @param[in] parent Optional Qt owner.
@@ -137,17 +107,26 @@ private:
     [[nodiscard]] QWidget *buildWaterPage(QWidget *parent);
 
     /**
-     * @brief Bring the catalog menu, the tree and the page up to date with the layer.
-     * No-op without layer/tree. Rebuilds the Add menu only when the catalog keys changed and the
-     * tree only when the listed rows or their groups changed (under the suppress flag, keeping the
-     * selection, else the pending neighbor, else the first row, else Water visibility). Rebuilds
-     * the page only when its signature changed; otherwise refreshes its data.
+     * @brief Bring the field list and the page up to date with the layer.
+     * No-op without layer/tree. Rebuilds the list only when the catalog or the listed rows, their
+     * groups or keys changed (under the suppress flag, keeping the selection, else the pending
+     * neighbor, else the first drawn row, else Water visibility). Rebuilds the page only when its
+     * signature changed; otherwise refreshes its data.
      */
     void refreshAdditionalResults();
-    /** @brief Recreate the tree model from the layer's listed rows and the Layer group. */
+    /** @brief Recreate the field list: per domain, vector, scalar and saved run-statistic
+     *   headings with the layer's rows (checked when shown) and, unchecked, every catalog field
+     *   without a row; then the Layer group. Reapplies the filter. */
     void rebuildTree();
-    /** @brief Recreate the Add field menu: the scalar catalog, then the vector catalog. */
-    void rebuildCatalogMenu();
+    /**
+     * @brief Add the row of a listed field (a checked offer) and select it. Other rows are
+     *   untouched: fields are drawn together.
+     * @param[in] key Catalog scalar key, or a "vector:" key.
+     */
+    void addField(const QString &key);
+    /** @brief Hide list items whose label or key does not contain the filter text, and field
+     *   headings left without a visible item. */
+    void applyFieldFilter();
     /**
      * @brief Rebuild the page when what it is built from changed: the selected item, its variable
      * key, whether it presents the depth/velocity passes, its availability, or the catalog.
@@ -221,8 +200,7 @@ private:
     std::function<void()> m_refreshResultData;
     QTreeView *m_resultTree = nullptr;
     QStandardItemModel *m_resultModel = nullptr;
-    QMenu *m_resultCatalog = nullptr;
-    QPushButton *m_addResult = nullptr;
+    QLineEdit *m_fieldFilter = nullptr;
     QPushButton *m_removeResult = nullptr;
     QWidget *m_resultDetailHost = nullptr;
     QObject *m_rowBindings = nullptr; ///< context of the tree's per-row connections

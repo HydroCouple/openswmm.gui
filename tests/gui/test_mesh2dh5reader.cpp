@@ -576,6 +576,57 @@ class TestMesh2DH5Reader : public QObject
 
 private slots:
     /**
+     * @brief The engine's saved run statistics (2D result statistics plan 2026-11-14): a rank-one
+     * face dataset naming a method over time is a time-independent Envelope variable, and any
+     * report time reads it. A rank-one field without a time method stays Static.
+     */
+    void savedRunStatisticsAreEnvelopesAndPairIntoVectors()
+    {
+        using V = openswmmvis::io::Mesh2DResultVariable;
+        const QString path = catalogCopy(writeFixture(), "run_statistics");
+        QVERIFY(!path.isEmpty());
+        const struct {
+            const char *name, *units, *methods;
+            std::vector<double> values;
+        } fields[] = {
+            {"Mesh2_face_max_head", "m", "time: maximum", {10.5, 11.5}},
+            {"Mesh2_face_min_head", "m", "time: minimum", {10.0, 11.0}},
+            {"Mesh2_face_mean_depth", "m", "time: mean", {0.25, 0.5}},
+            {"Mesh2_face_mean_vx", "m s-1", "time: mean", {0.5, -0.5}},
+            {"Mesh2_face_mean_vy", "m s-1", "time: mean", {0.25, 0.75}},
+            {"Mesh2_face_peak_vx", "m s-1", "time: maximum", {1.5, 2.0}},
+            {"Mesh2_face_peak_vy", "m s-1", "time: maximum", {-1.0, 0.0}},
+            {"Mesh2_face_time_max_depth", "h", "time: maximum", {2.5, 3.0}},
+        };
+        for (const auto &f : fields) {
+            appendCatalogField(path, f.name, {2}, f.values, f.units);
+            const hid_t file = H5Fopen(path.toUtf8().constData(), H5F_ACC_RDWR, H5P_DEFAULT);
+            const hid_t data = H5Dopen2(file, f.name, H5P_DEFAULT);
+            QVERIFY(file >= 0 && data >= 0);
+            writeStringAttr(data, "cell_methods", f.methods);
+            H5Dclose(data);
+            H5Fclose(file);
+        }
+        appendCatalogField(path, "Mesh2_face_gw_bed_elev", {2}, {10, 11}, "m"); // no time method
+        Mesh2DH5Reader reader;
+        QVERIFY(reader.open(path));
+        for (const auto &f : fields) {
+            const auto v = catalogVariable(reader, QString::fromLatin1(f.name));
+            QCOMPARE(v.dataset, QString::fromLatin1(f.name));
+            QCOMPARE(v.temporal, V::Temporal::Envelope);
+            QCOMPARE(v.frameCount, 0);
+            QCOMPARE(v.units, QString::fromLatin1(f.units));
+            std::vector<float> values;
+            std::vector<openswmmvis::io::Mesh2DValueStatus> status;
+            // Any report time, even one past the run, reads the one saved field.
+            QVERIFY(reader.readFaceVariableAt(v, 99, values, status));
+            QCOMPARE(values.size(), size_t(2));
+            QCOMPARE(double(values[1]), f.values[1]);
+        }
+        QCOMPARE(catalogVariable(reader, "Mesh2_face_gw_bed_elev").temporal, V::Temporal::Static);
+    }
+
+    /**
      * @brief Verify rank-four groundwater slices distinguish every species/layer key and closure
      * applicability.
      * @note Writes 3 x 2 x 2 x 2 dataset with encoded t/species/layer/cell values, four unique

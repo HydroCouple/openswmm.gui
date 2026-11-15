@@ -23,7 +23,7 @@
 #include "ui/dialogs/resultvariableexportdialog.h"
 #include "map/spatialreferencesystem.h"
 #include <QApplication>
-#include <QMenu>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QHBoxLayout>
 #include <QHeaderView>
@@ -50,7 +50,6 @@
 #include "ui/util/tableclipboard.h"
 
 #include <QCheckBox>
-#include <QButtonGroup>
 #include <QSlider>
 #include <QToolButton>
 #include <QComboBox>
@@ -71,7 +70,6 @@ namespace openswmmvis::ui
 namespace
 {
 
-using OpenSWMM::Render::ContourBandStyle;
 using OpenSWMM::Render::ISublayer;
 using OpenSWMM::Render::ISublayerHost;
 using OpenSWMM::Render::IsolineStyle;
@@ -85,7 +83,9 @@ using OpenSWMM::Render::SublayerStyle;
 constexpr int kIdRole = Qt::UserRole;       ///< item id: a sublayer id, or kWaterId
 constexpr int kKindRole = Qt::UserRole + 1; ///< ItemKind
 /** What a field-tree item edits. */
-enum class ItemKind { Heading, Row, Water, Pass };
+// Offer: a field of the run without a row yet; checking it adds the row.
+enum class ItemKind { Heading, Row, Water, Pass, Offer };
+const QString kOfferPrefix = QStringLiteral("offer:");
 const QString kWaterId = QStringLiteral("results2d.waterVisibility");
 
 /**
@@ -283,28 +283,6 @@ QDoubleSpinBox *bindOpacity(QDoubleSpinBox *spin, ISublayer *sub, double scale)
     return spin;
 }
 /**
- * @brief Refresh @p editor when its style's scheme changes outside it (Cancel, undo, another
- * panel), keeping a draft the user is still correcting. Queued, so the editor's own write
- * completes first.
- */
-template <class S>
-void followScheme(ClassificationEditor *editor, S *style)
-{
-    QObject::connect(
-        style, &SublayerStyle::styleChanged, editor,
-        [editor, p = QPointer<S>(style), last = style->scheme().toJson()]() mutable {
-            if (!p)
-                return;
-            const auto now = p->scheme().toJson();
-            if (now == last)
-                return;
-            last = now;
-            if (editor->hasValidDraft())
-                editor->refresh();
-        },
-        Qt::QueuedConnection);
-}
-/**
  * @brief Opacity of a pass or built-in sublayer and, with a caption, its visibility; both follow
  * the sublayer.
  * @param showLabel Show box caption, or empty for the opacity alone.
@@ -389,99 +367,46 @@ QCheckBox *addDisplayTab(QTabWidget *tabs, QWidget *page, const char *pageName,
     return box;
 }
 
-/** Where a set of isoline controls is shown: the depth isoline pass, or a result row's contour
- *  style (whose count and method sit on the row's classification editor, and whose label settings
- *  also style the row's cell labels). */
-enum class IsolineTarget { Pass, Row };
-
 /**
- * @brief Add the level controls of an isoline style: mode, then (pass only) count and method, then
- * interval and base. Count and method are enabled in count mode, interval and base in fixed
- * interval mode; all follow the style.
+ * @brief Add the level controls of an isoline style: mode, then interval and base
+ * (enabled in fixed interval mode). The level count and method sit on the row's classification
+ * editor. All follow the style.
  */
-void addIsolineLevelRows(QFormLayout *form, QWidget *owner, IsolineStyle *st, IsolineTarget target)
+void addIsolineLevelRows(QFormLayout *form, QWidget *owner, IsolineStyle *st)
 {
     using LM = IsolineStyle::LevelMode;
-    using BM = OpenSWMM::Render::BinMethod;
-    const bool pass = target == IsolineTarget::Pass;
     auto *mode = new QComboBox(owner);
-    mode->addItem(pass ? QObject::tr("Fixed count") : QObject::tr("Level count"), int(LM::Count));
+    mode->addItem(QObject::tr("Level count"), int(LM::Count));
     mode->addItem(QObject::tr("Fixed interval + base"), int(LM::FixedInterval));
     mode->setMinimumWidth(kComboMinWidthPx);
     mode->setAccessibleName(QObject::tr("Contour levels"));
     bindCombo(mode, st, &IsolineStyle::levelMode, &IsolineStyle::setLevelMode);
     form->addRow(QObject::tr("M&ode:"), mode);
-    QSpinBox *count = nullptr;
-    QComboBox *method = nullptr;
-    if (pass) {
-        count = bindInt(makeSpin(owner, 1, 256, st->isoValueCount()), st,
-                        &IsolineStyle::isoValueCount, &IsolineStyle::setIsoValueCount);
-        form->addRow(QObject::tr("Co&unt:"), count);
-        // Slice US.2 — classification method for the Count idiom (equal
-        // interval reproduces the legacy even spacing; quantile / Jenks /
-        // std-dev bin the wet-cell depths). FixedInterval ignores it.
-        method = new QComboBox(owner);
-        method->addItem(QObject::tr("Equal interval"), int(BM::EqualInterval));
-        method->addItem(QObject::tr("Quantile"), int(BM::Quantile));
-        method->addItem(QObject::tr("Natural breaks (Jenks)"), int(BM::NaturalBreaks));
-        method->addItem(QObject::tr("Standard deviation"), int(BM::StdDev));
-        method->addItem(QObject::tr("Logarithmic"), int(BM::Logarithmic));
-        method->addItem(QObject::tr("Exponential"), int(BM::Exponential));
-        method->setMinimumWidth(kComboMinWidthPx);
-        bindCombo(
-            method, st, [](IsolineStyle *s) { return s->scheme().method(); },
-            [](IsolineStyle *s, BM m) {
-                auto scheme = s->scheme();
-                scheme.setMethod(m);
-                s->setScheme(scheme);
-            });
-        form->addRow(QObject::tr("Me&thod:"), method);
-    }
-    const QString units = pass ? QObject::tr(" m") : QString();
-    auto *interval =
-        bindDouble(makeDSpin(owner, 1e-6, pass ? 1e6 : 1e12, 0.1, pass ? 3 : 6, st->levelInterval(),
-                             units),
-                   st, &IsolineStyle::levelInterval, &IsolineStyle::setLevelInterval);
+    auto *interval = bindDouble(makeDSpin(owner, 1e-6, 1e12, 0.1, 6, st->levelInterval(), QString()),
+                                st, &IsolineStyle::levelInterval, &IsolineStyle::setLevelInterval);
     interval->setAccessibleName(QObject::tr("Contour interval"));
-    form->addRow(pass ? QObject::tr("&Interval:") : QObject::tr("Interval (native units):"),
-                 interval);
-    auto *base = bindDouble(makeDSpin(owner, pass ? -1e6 : -1e12, pass ? 1e6 : 1e12, 0.1,
-                                      pass ? 3 : 6, st->baseLevel(), units),
-                            st, &IsolineStyle::baseLevel, &IsolineStyle::setBaseLevel);
+    form->addRow(QObject::tr("Interval (native units):"), interval);
+    auto *base = bindDouble(makeDSpin(owner, -1e12, 1e12, 0.1, 6, st->baseLevel(), QString()), st,
+                            &IsolineStyle::baseLevel, &IsolineStyle::setBaseLevel);
     base->setAccessibleName(QObject::tr("Contour base level"));
     base->setToolTip(QObject::tr("Contours fall at base + k × interval"));
-    form->addRow(pass ? QObject::tr("B&ase level:") : QObject::tr("Base level (native units):"),
-                 base);
-    const auto apply = [st, count, method, interval, base] {
+    form->addRow(QObject::tr("Base level (native units):"), base);
+    const auto apply = [st, interval, base] {
         const bool fixed = st->levelMode() == LM::FixedInterval;
-        if (count)
-            count->setEnabled(!fixed);
-        if (method)
-            method->setEnabled(!fixed);
         interval->setEnabled(fixed);
         base->setEnabled(fixed);
     };
     apply();
     QObject::connect(st, &SublayerStyle::styleChanged, mode, apply);
 }
-/**
- * @brief Add the stroke controls of an isoline style: color (for a row, shared with its labels),
- * width, stroke style and index contours. Index width is enabled from every 2nd contour on the
- * pass and from every contour on a row, as the renderers draw them.
- */
-void addIsolineLineRows(QFormLayout *form, QWidget *owner, IsolineStyle *st, IsolineTarget target)
+void addIsolineLineRows(QFormLayout *form, QWidget *owner, IsolineStyle *st)
 {
-    const bool pass = target == IsolineTarget::Pass;
     auto *color =
         bindColor(new ColorButton(owner), st, &IsolineStyle::color, &IsolineStyle::setColor);
-    color->setAccessibleName(pass ? QObject::tr("Isoline color")
-                                  : QObject::tr("Contour and label color"));
-    form->addRow(pass ? QObject::tr("Co&lor:") : QObject::tr("Line and label color (shared):"),
-                 color);
-    auto *width = bindDouble(
-        // The pass renderers draw at least 0.5 px; rows draw the width as set.
-        makeDSpin(owner, pass ? 0.5 : 0.1, 20.0, 0.25, 2, st->lineWidthPx(), QObject::tr(" px")),
-        st, &IsolineStyle::lineWidthPx, &IsolineStyle::setLineWidthPx);
+    color->setAccessibleName(QObject::tr("Contour and label color"));
+    form->addRow(QObject::tr("Line and label color (shared):"), color);
+    auto *width = bindDouble(makeDSpin(owner, 0.1, 20.0, 0.25, 2, st->lineWidthPx(), QObject::tr(" px")),
+                             st, &IsolineStyle::lineWidthPx, &IsolineStyle::setLineWidthPx);
     width->setAccessibleName(QObject::tr("Line width"));
     form->addRow(QObject::tr("&Width:"), width);
     auto *dash = bindDash(new DashStyleCombo(owner), st, &IsolineStyle::dashPattern,
@@ -489,29 +414,21 @@ void addIsolineLineRows(QFormLayout *form, QWidget *owner, IsolineStyle *st, Iso
     dash->setMinimumWidth(kComboMinWidthPx);
     dash->setAccessibleName(QObject::tr("Contour stroke style"));
     form->addRow(QObject::tr("St&roke style:"), dash);
-    auto *every = bindInt(makeSpin(owner, 0, pass ? 50 : 256, st->indexEvery()), st,
-                          &IsolineStyle::indexEvery, &IsolineStyle::setIndexEvery);
+    auto *every = bindInt(makeSpin(owner, 0, 256, st->indexEvery()), st, &IsolineStyle::indexEvery,
+                          &IsolineStyle::setIndexEvery);
     every->setSpecialValueText(QObject::tr("Off"));
     every->setToolTip(QObject::tr("Emphasize every Nth contour (topographic "
                                   "index contours); 0 disables"));
     form->addRow(QObject::tr("I&ndex contour every:"), every);
-    auto *indexWidth = bindDouble(makeDSpin(owner, pass ? 0.5 : 0.1, 20.0, 0.25, 2,
-                                            st->indexWidthPx(), QObject::tr(" px")),
+    auto *indexWidth = bindDouble(makeDSpin(owner, 0.1, 20.0, 0.25, 2, st->indexWidthPx(),
+                                            QObject::tr(" px")),
                                   st, &IsolineStyle::indexWidthPx, &IsolineStyle::setIndexWidthPx);
     form->addRow(QObject::tr("Inde&x width:"), indexWidth);
-    const int from = pass ? 2 : 1;
-    const auto apply = [st, indexWidth, from] { indexWidth->setEnabled(st->indexEvery() >= from); };
+    const auto apply = [st, indexWidth] { indexWidth->setEnabled(st->indexEvery() >= 1); };
     apply();
     QObject::connect(st, &SublayerStyle::styleChanged, indexWidth, apply);
 }
-/**
- * @brief Add the label controls of an isoline style.
- * @param toggle Caption of the "label contours" box, or empty for none.
- * @param colorCaption Caption of a color row, or empty for none.
- * The pass's label settings are grayed while its contour labels are off; a row's never are,
- * because its cell labels use them regardless.
- */
-void addIsolineLabelRows(QFormLayout *form, QWidget *owner, IsolineStyle *st, IsolineTarget target,
+void addIsolineLabelRows(QFormLayout *form, QWidget *owner, IsolineStyle *st,
                          const QString &toggle, const QString &colorCaption)
 {
     if (!toggle.isEmpty()) {
@@ -534,21 +451,9 @@ void addIsolineLabelRows(QFormLayout *form, QWidget *owner, IsolineStyle *st, Is
                             st, &IsolineStyle::labelFontPt, &IsolineStyle::setLabelFontPt);
     font->setAccessibleName(QObject::tr("Label font size"));
     form->addRow(QObject::tr("Font si&ze:"), font);
-    auto *halo = bindCheck(new QCheckBox(target == IsolineTarget::Pass ? QObject::tr("White halo")
-                                                                       : QObject::tr("Label halo"),
-                                         owner),
-                           st, &IsolineStyle::labelHalo, &IsolineStyle::setLabelHalo);
+    auto *halo = bindCheck(new QCheckBox(QObject::tr("Label halo"), owner), st,
+                           &IsolineStyle::labelHalo, &IsolineStyle::setLabelHalo);
     form->addRow(QString(), halo);
-    if (target == IsolineTarget::Pass) {
-        const auto apply = [st, decimals, font, halo] {
-            const bool on = st->labels();
-            decimals->setEnabled(on);
-            font->setEnabled(on);
-            halo->setEnabled(on);
-        };
-        apply();
-        QObject::connect(st, &SublayerStyle::styleChanged, decimals, apply);
-    }
 }
 
 /**
@@ -625,18 +530,21 @@ Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWid
     m_resultTree->setSelectionMode(QAbstractItemView::SingleSelection);
     m_resultTree->setModel(m_resultModel);
     m_resultTree->setMinimumWidth(180);
+    // Every field of the run is listed with a check box: checking one draws it beside the
+    // others (its row is created then); unchecking hides it and keeps its style.
+    m_fieldFilter = new QLineEdit(left);
+    m_fieldFilter->setObjectName("additionalResultFilter");
+    m_fieldFilter->setPlaceholderText(tr("Filter fields"));
+    m_fieldFilter->setAccessibleName(tr("Filter result fields"));
+    m_fieldFilter->setClearButtonEnabled(true);
+    leftLayout->addWidget(m_fieldFilter);
     leftLayout->addWidget(m_resultTree, 1);
+    connect(m_fieldFilter, &QLineEdit::textChanged, this, [this] { applyFieldFilter(); });
     auto *buttons = new QHBoxLayout;
-    m_addResult = new QPushButton(tr("&Add field"), left);
-    m_addResult->setObjectName("additionalResultAdd");
-    m_resultCatalog = new QMenu(m_addResult);
-    m_resultCatalog->setObjectName("additionalResultCatalog");
-    m_resultCatalog->setAccessibleName(tr("Result variable to add"));
-    m_addResult->setMenu(m_resultCatalog);
-    m_addResult->setEnabled(false); // until the run offers a field
     m_removeResult = new QPushButton(tr("&Remove"), left);
     m_removeResult->setObjectName("additionalResultRemove");
-    buttons->addWidget(m_addResult);
+    m_removeResult->setToolTip(tr("Delete this field's row and its style; the field stays listed "
+                                  "unchecked."));
     buttons->addWidget(m_removeResult);
     buttons->addStretch();
     leftLayout->addLayout(buttons);
@@ -656,9 +564,15 @@ Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWid
                 // first field). Queued, so the view finishes its click or key first.
                 if (current.data(kKindRole).toInt() == int(ItemKind::Heading)) {
                     const bool up = previous.isValid() && m_resultTree->indexBelow(current) == previous;
-                    QModelIndex target =
-                        up ? m_resultTree->indexAbove(current) : m_resultTree->indexBelow(current);
-                    if (!target.isValid() || target.data(kKindRole).toInt() == int(ItemKind::Heading))
+                    // Step past the nested headings (kind, then how the fields vary).
+                    const auto step = [this, up](const QModelIndex &from) {
+                        return up ? m_resultTree->indexAbove(from) : m_resultTree->indexBelow(from);
+                    };
+                    QModelIndex target = step(current);
+                    while (target.isValid() &&
+                           target.data(kKindRole).toInt() == int(ItemKind::Heading))
+                        target = step(target);
+                    if (!target.isValid())
                         target = previous;
                     QMetaObject::invokeMethod(
                         this,
@@ -674,24 +588,18 @@ Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWid
     connect(m_resultModel, &QStandardItemModel::itemChanged, this, [this](QStandardItem *item) {
         if (m_suppressEdits || !m_layer || !item->isCheckable())
             return;
+        if (item->data(kKindRole).toInt() == int(ItemKind::Offer)) {
+            if (item->checkState() != Qt::Checked)
+                return;
+            // Adding the row rebuilds this model: not from inside its own signal.
+            const QString key = item->data(kIdRole).toString().mid(kOfferPrefix.size());
+            QMetaObject::invokeMethod(this, [this, key] { addField(key); }, Qt::QueuedConnection);
+            return;
+        }
         auto *sub = ISublayerHost::findSublayer(*m_layer, item->data(kIdRole).toString());
         const bool on = item->checkState() == Qt::Checked;
         if (sub && sub->isVisible() != on)
             sub->setVisible(on);
-    });
-    connect(m_resultCatalog, &QMenu::triggered, this, [this](QAction *action) {
-        // Copied first: adding a row can rebuild the menu (its actions are deleted later).
-        const QString key = action->data().toString();
-        if (!m_layer || key.isEmpty())
-            return;
-        OpenSWMM::Render::ISublayer *sub =
-            key.startsWith(QLatin1String("vector:"))
-                ? static_cast<OpenSWMM::Render::ISublayer *>(m_layer->addResultVectorSublayer(key))
-                : m_layer->addResultSublayer(key);
-        if (!sub)
-            return;
-        m_lastTab.clear(); // a new field opens on its first tab
-        selectItem(sub->id());
     });
     connect(m_removeResult, &QPushButton::clicked, this, [this] {
         const QModelIndex current = m_resultTree->currentIndex();
@@ -723,7 +631,6 @@ Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWid
         setEnabled(false);
         disconnect(m_resultTree->selectionModel(), nullptr, this, nullptr);
         disconnect(m_resultModel, nullptr, this, nullptr);
-        disconnect(m_resultCatalog, nullptr, this, nullptr);
         delete m_rowBindings;
         m_rowBindings = nullptr;
         // Silence pending editor callbacks without disconnecting Qt's
@@ -731,7 +638,7 @@ Swmm2DResultsStylePanel::Swmm2DResultsStylePanel(SWMM2DResultsLayer *layer, QWid
         // even while signals are blocked, so deferred deletion stays safe.
         detachPage(true);
         m_resultTree->setEnabled(false);
-        m_addResult->setEnabled(false);
+        m_fieldFilter->setEnabled(false);
         m_removeResult->setEnabled(false);
     });
 }
@@ -785,15 +692,19 @@ void Swmm2DResultsStylePanel::refreshAdditionalResults()
         catalog << v.key() + QLatin1Char('=') + resultVariableLabel(v);
     for (const auto &v : m_layer->resultVectors())
         catalog << v.key() + QLatin1Char('=') + resultVectorLabel(v);
-    if (const QString signature = catalog.join(QLatin1Char('\n'));
-        signature != m_catalogSignature) {
-        m_catalogSignature = signature;
-        rebuildCatalogMenu();
-    }
-    QStringList listed;
+    m_catalogSignature = catalog.join(QLatin1Char('\n'));
+    // The tree lists the rows and every field without one: rebuilt when either changes.
+    QStringList listed{m_catalogSignature};
     for (auto *sub : m_layer->sublayers())
-        if (sub && m_layer->sublayerListed(sub))
-            listed << sub->id() + QLatin1Char('@') + QString::number(m_layer->sublayerGroup(sub));
+        if (sub && m_layer->sublayerListed(sub)) {
+            QString key;
+            if (auto *scalar = qobject_cast<OpenSWMM::Render::ResultScalarSublayer *>(sub))
+                key = scalar->variableKey();
+            else if (auto *vector = qobject_cast<OpenSWMM::Render::ResultVectorSublayer *>(sub))
+                key = vector->vectorKey();
+            listed << sub->id() + QLatin1Char('@') + QString::number(m_layer->sublayerGroup(sub)) +
+                          QLatin1Char('=') + key;
+        }
     if (const QString signature = listed.join(QLatin1Char('\n')); signature != m_treeSignature) {
         m_treeSignature = signature;
         rebuildTree();
@@ -828,24 +739,44 @@ void Swmm2DResultsStylePanel::refreshPageData()
         m_refreshResultData();
 }
 
-void Swmm2DResultsStylePanel::rebuildCatalogMenu()
+void Swmm2DResultsStylePanel::addField(const QString &key)
 {
-    // An action may be the one emitting triggered: delete later.
-    for (auto *action : m_resultCatalog->actions()) {
-        m_resultCatalog->removeAction(action);
-        action->deleteLater();
-    }
-    const auto variables = m_layer->resultVariables();
-    const auto vectors = m_layer->resultVectors();
-    if (!variables.isEmpty())
-        m_resultCatalog->addSection(tr("Scalar"));
-    for (const auto &v : variables)
-        m_resultCatalog->addAction(resultVariableLabel(v))->setData(v.key());
-    if (!vectors.isEmpty())
-        m_resultCatalog->addSection(tr("Vector"));
-    for (const auto &v : vectors)
-        m_resultCatalog->addAction(resultVectorLabel(v))->setData(v.key());
-    m_addResult->setEnabled(!variables.isEmpty() || !vectors.isEmpty());
+    if (!m_layer || key.isEmpty())
+        return;
+    OpenSWMM::Render::ISublayer *sub =
+        key.startsWith(QLatin1String("vector:"))
+            ? static_cast<OpenSWMM::Render::ISublayer *>(m_layer->addResultVectorSublayer(key))
+            : m_layer->addResultSublayer(key);
+    if (!sub)
+        return;
+    m_lastTab.clear(); // a new field opens on its first tab
+    refreshAdditionalResults();
+    selectItem(sub->id());
+}
+
+void Swmm2DResultsStylePanel::applyFieldFilter()
+{
+    if (!m_resultTree || !m_fieldFilter)
+        return;
+    const QString text = m_fieldFilter->text().trimmed();
+    // Hide fields that do not match and headings left without a visible field. The layer-wide
+    // items are not fields: never filtered away.
+    const std::function<bool(QStandardItem *)> apply = [&](QStandardItem *parent) {
+        bool any = false;
+        for (int r = 0; r < parent->rowCount(); ++r) {
+            auto *child = parent->child(r);
+            bool show;
+            if (child->data(kKindRole).toInt() == int(ItemKind::Heading))
+                show = child->data(kIdRole).toString() == QLatin1String("layer") || apply(child);
+            else
+                show = text.isEmpty() || child->text().contains(text, Qt::CaseInsensitive) ||
+                       child->toolTip().contains(text, Qt::CaseInsensitive);
+            m_resultTree->setRowHidden(r, parent->index(), !show);
+            any |= show;
+        }
+        return any;
+    };
+    apply(m_resultModel->invisibleRootItem());
 }
 
 void Swmm2DResultsStylePanel::rebuildTree()
@@ -900,22 +831,85 @@ void Swmm2DResultsStylePanel::rebuildTree()
             rebuildPageIfStale();
         });
     };
-    // Field groups as the layer tree shows them: top of the paint stack first.
+    // Fields are either vectors or scalars, per domain; under each, grouped by how they vary:
+    // with time, statistical summaries of the run (saved by the engine), or fixed. Each group
+    // lists its rows (top of the paint stack first), then, unchecked, every field of the run
+    // without a row in catalog order: checking one adds it to what is drawn.
+    using V = openswmmvis::io::Mesh2DResultVariable;
+    enum Varies { TimeVarying, Statistical, Fixed, VariesCount };
+    const auto varies = [](V::Temporal temporal) {
+        return temporal == V::Temporal::Envelope ? Statistical
+               : temporal == V::Temporal::Static ? Fixed
+                                                 : TimeVarying;
+    };
+    const QStringList kinds = m_layer->sublayerGroups(); // 2 * domain + (scalar ? 1 : 0)
+    const QStringList variesTitles{tr("Time varying"), tr("Statistical summaries"), tr("Static")};
+    struct Offer {
+        QString key, label;
+    };
+    QVector<QVector<QVector<ISublayer *>>> rows(kinds.size(),
+                                                QVector<QVector<ISublayer *>>(VariesCount));
+    QVector<QVector<QVector<Offer>>> offers(kinds.size(), QVector<QVector<Offer>>(VariesCount));
+    QSet<QString> shown;
     const auto subs = m_layer->sublayers();
-    const QStringList groups = m_layer->sublayerGroups();
-    for (int g = 0; g < groups.size(); ++g) {
-        QStandardItem *group = nullptr;
-        for (int i = int(subs.size()) - 1; i >= 0; --i) {
-            if (!subs[i] || !m_layer->sublayerListed(subs[i]) ||
-                m_layer->sublayerGroup(subs[i]) != g)
+    for (int i = int(subs.size()) - 1; i >= 0; --i) {
+        auto *sub = subs[i];
+        const int kind = sub && m_layer->sublayerListed(sub) ? m_layer->sublayerGroup(sub) : -1;
+        if (kind < 0 || kind >= kinds.size())
+            continue;
+        int group = TimeVarying; // an unavailable field keeps its place among the time series
+        if (auto *scalar = qobject_cast<ResultScalarSublayer *>(sub)) {
+            shown.insert(scalar->variableKey());
+            if (scalar->descriptor().key() == scalar->variableKey())
+                group = varies(scalar->descriptor().temporal);
+        } else if (auto *vector = qobject_cast<ResultVectorSublayer *>(sub)) {
+            shown.insert(vector->vectorKey());
+            if (vector->descriptor().key() == vector->vectorKey())
+                group = varies(vector->descriptor().x.temporal);
+        }
+        rows[kind][group].append(sub);
+    }
+    const auto vectors = m_layer->resultVectors();
+    for (const auto &v : vectors)
+        if (!shown.contains(v.key()))
+            offers[2 * int(v.domain())][varies(v.x.temporal)].append(
+                {v.key(), resultVectorLabel(v)});
+    for (const auto &v : m_layer->resultVariables())
+        if (!shown.contains(v.key()) && !openswmmvis::io::isVectorComponentKey(vectors, v.key()))
+            offers[2 * int(v.domain) + 1][varies(v.temporal)].append(
+                {v.key(), resultVariableLabel(v)});
+    for (int kind = 0; kind < kinds.size(); ++kind) {
+        QStandardItem *kindItem = nullptr;
+        for (int group = 0; group < VariesCount; ++group) {
+            if (rows[kind][group].isEmpty() && offers[kind][group].isEmpty())
                 continue;
-            if (!group)
-                group = heading(groups[g]);
-            addItem(group, subs[i], ItemKind::Row);
+            if (!kindItem)
+                kindItem = heading(kinds[kind]);
+            auto *groupItem = new QStandardItem(variesTitles[group]);
+            groupItem->setData(int(ItemKind::Heading), kKindRole);
+            groupItem->setFlags(Qt::ItemIsEnabled);
+            QFont font = groupItem->font();
+            font.setItalic(true);
+            groupItem->setFont(font);
+            kindItem->appendRow(groupItem);
+            for (auto *sub : rows[kind][group])
+                addItem(groupItem, sub, ItemKind::Row);
+            for (const auto &offer : offers[kind][group]) {
+                auto *item = new QStandardItem(offer.label);
+                item->setData(kOfferPrefix + offer.key, kIdRole);
+                item->setData(int(ItemKind::Offer), kKindRole);
+                item->setToolTip(tr("%1 — check to draw this field").arg(offer.key));
+                item->setCheckable(true);
+                item->setCheckState(Qt::Unchecked);
+                item->setForeground(
+                    m_resultTree->palette().brush(QPalette::Disabled, QPalette::Text));
+                groupItem->appendRow(item);
+            }
         }
     }
     // Layer-wide items. The mesh fill (results2d.mesh) has no editor.
     auto *layerGroup = heading(tr("Layer"));
+    layerGroup->setData(QStringLiteral("layer"), kIdRole); // not a field: never filtered
     auto *water = new QStandardItem(tr("Water visibility"));
     water->setData(kWaterId, kIdRole);
     water->setData(int(ItemKind::Water), kKindRole);
@@ -930,11 +924,23 @@ void Swmm2DResultsStylePanel::rebuildTree()
     QModelIndex index = findItem(m_resultModel, selected);
     if (!index.isValid())
         index = findItem(m_resultModel, m_pendingId);
-    if (!index.isValid() && m_resultModel->rowCount() > 1) // a field group precedes Layer
-        index = m_resultModel->index(0, 0, m_resultModel->index(0, 0));
+    if (!index.isValid() && m_resultModel->rowCount() > 1) { // a field group precedes Layer
+        // The first drawn field, else the first listed one.
+        const auto drawn = m_resultModel->match(m_resultModel->index(0, 0), kKindRole,
+                                                int(ItemKind::Row), 1,
+                                                Qt::MatchExactly | Qt::MatchRecursive);
+        if (!drawn.isEmpty())
+            index = drawn.first();
+        else if (const auto offered = m_resultModel->match(
+                     m_resultModel->index(0, 0), kKindRole, int(ItemKind::Offer), 1,
+                     Qt::MatchExactly | Qt::MatchRecursive);
+                 !offered.isEmpty())
+            index = offered.first();
+    }
     if (!index.isValid())
         index = water->index();
     m_resultTree->setCurrentIndex(index);
+    applyFieldFilter();
 }
 
 QString Swmm2DResultsStylePanel::pageSignature() const
@@ -1041,9 +1047,30 @@ void Swmm2DResultsStylePanel::rebuildDetails()
         else if (m_layer->meshNodeSublayer() && id == m_layer->meshNodeSublayer()->id())
             page = buildMeshNodeTab(m_resultDetailHost);
         else if (m_layer->flowStreakSublayer() && id == m_layer->flowStreakSublayer()->id())
-            page = buildFlowStreakTab(m_resultDetailHost, true);
+            page = buildFlowStreakTab(m_resultDetailHost, nullptr);
         if (page)
             host->addWidget(wrapScroll(page, m_resultDetailHost));
+        return;
+    }
+    if (kind == ItemKind::Offer) {
+        // A field not drawn yet: its name and how to add it; editors come with its row.
+        auto *page = new QWidget(m_resultDetailHost);
+        auto *form = new QVBoxLayout(page);
+        auto *name = new QLabel(current.data(Qt::DisplayRole).toString(), page);
+        name->setObjectName("additionalResultOfferName");
+        name->setWordWrap(true);
+        QFont font = name->font();
+        font.setBold(true);
+        name->setFont(font);
+        form->addWidget(name);
+        auto *hint = new QLabel(tr("Check the box to draw this field. It is drawn beside the "
+                                   "fields already shown and gets its own style."),
+                                page);
+        hint->setObjectName("additionalResultOfferHint");
+        hint->setWordWrap(true);
+        form->addWidget(hint);
+        form->addStretch();
+        host->addWidget(page);
         return;
     }
     auto *row = ISublayerHost::findSublayer(*m_layer, id);
@@ -1078,49 +1105,37 @@ QWidget *Swmm2DResultsStylePanel::buildRowHeader(OpenSWMM::Render::ISublayer *ro
     using namespace OpenSWMM::Render;
     auto *header = new QWidget(parent);
     auto *form = new QFormLayout(header);
-    auto *variable = new QComboBox(header);
-    variable->setObjectName("additionalResultVariable");
-    variable->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
-    variable->setMinimumContentsLength(24);
+    // The field this row draws. A row never changes field: other fields are checked in the list.
     auto *scalar = qobject_cast<ResultScalarSublayer *>(row);
     auto *vector = qobject_cast<ResultVectorSublayer *>(row);
     auto domain = openswmmvis::io::Mesh2DResultVariable::Domain::Surface;
-    QString key;
+    QString name;
     if (scalar) {
-        variable->setAccessibleName(tr("Configured result variable"));
+        const QString key = scalar->variableKey();
+        name = tr("Unavailable — %1").arg(key);
         for (const auto &v : m_layer->resultVariables())
-            variable->addItem(resultVariableLabel(v), v.key());
-        key = scalar->variableKey();
+            if (v.key() == key) {
+                name = resultVariableLabel(v);
+                break;
+            }
     } else {
-        variable->setAccessibleName(tr("Configured vector result"));
-        key = vector->vectorKey();
-        for (const auto &v : m_layer->resultVectors()) {
-            variable->addItem(resultVectorLabel(v), v.key());
-            if (v.key() == key)
+        const QString key = vector->vectorKey();
+        name = tr("Unavailable — %1").arg(key);
+        for (const auto &v : m_layer->resultVectors())
+            if (v.key() == key) {
+                name = resultVectorLabel(v);
                 domain = v.domain();
-        }
+                break;
+            }
     }
-    int current = variable->findData(key);
-    if (current < 0) {
-        current = variable->count();
-        variable->addItem(tr("Unavailable — %1").arg(key), key);
-        if (auto *model = qobject_cast<QStandardItemModel *>(variable->model()))
-            model->item(current)->setEnabled(false);
-    }
-    variable->setCurrentIndex(current);
-    form->addRow(tr("&Variable:"), variable);
-    QPointer<ISublayer> sub = row;
-    connect(variable, qOverload<int>(&QComboBox::currentIndexChanged), header,
-            [this, sub, variable](int index) {
-                if (!sub || index < 0)
-                    return;
-                const QString chosen = variable->itemData(index).toString();
-                if (auto *s = qobject_cast<ResultScalarSublayer *>(sub.data()))
-                    s->setVariableKey(chosen);
-                else if (auto *v = qobject_cast<ResultVectorSublayer *>(sub.data()))
-                    v->vectorStyle()->setVectorKey(chosen);
-                refreshAdditionalResults();
-            });
+    auto *field = new QLabel(name, header);
+    field->setObjectName("additionalResultField");
+    field->setWordWrap(true);
+    field->setTextInteractionFlags(Qt::TextSelectableByMouse);
+    QFont bold = field->font();
+    bold.setBold(true);
+    field->setFont(bold);
+    form->addRow(field);
     auto *line = new QHBoxLayout;
     auto *show = bindVisible(new QCheckBox(tr("Show"), header), row);
     show->setObjectName("additionalResultVisible");
@@ -1131,9 +1146,6 @@ QWidget *Swmm2DResultsStylePanel::buildRowHeader(OpenSWMM::Render::ISublayer *ro
     opacity->setRange(0, 100);
     opacity->setSuffix(tr(" %"));
     bindOpacity(opacity, row, 100);
-    if (row == m_layer->depthResultSublayer() || row == m_layer->velocityResultSublayer())
-        opacity->setToolTip(tr("Sets every display of this field; each display tab can then "
-                               "fine-tune its own."));
     auto *opacityLabel = new QLabel(tr("&Opacity:"), header);
     opacityLabel->setBuddy(opacity);
     line->addSpacing(12);
@@ -1197,9 +1209,17 @@ void Swmm2DResultsStylePanel::buildScalarTabs(OpenSWMM::Render::ResultScalarSubl
      * @brief Create a binding that edits one scheme of this row, previewing its own frame.
      * Arguments `get`, `set`: scheme getter/setter. `continuous`: offer continuous mode.
      */
-    const auto binding = [frameFor](std::function<ClassificationScheme()> get,
-                                    std::function<void(const ClassificationScheme &)> set,
-                                    bool continuous) {
+    const auto binding = [frameFor, layer, depthRow](
+                             std::function<ClassificationScheme()> get,
+                             std::function<void(const ClassificationScheme &)> set,
+                             bool continuous) {
+        // Depth is drawn by passes that classify from dry to the run's maximum depth: its
+        // editors preview that range, so the classes shown are the classes drawn.
+        if (depthRow)
+            return new SublayerSchemeBinding(
+                get, set, [] { return QVector<double>{}; },
+                [layer] { return qMakePair(0.0, layer ? layer->maxDepth() : 0.0); }, continuous,
+                true);
         return new SublayerSchemeBinding(
             get, set,
             [frameFor, get] {
@@ -1224,54 +1244,24 @@ void Swmm2DResultsStylePanel::buildScalarTabs(OpenSWMM::Render::ResultScalarSubl
     smooth->setObjectName("additionalResultSmoothFill");
     smooth->setAccessibleName(smooth->text());
     fillForm->addRow(smooth);
-    if (!depthRow) { // the depth row's Smooth also picks the pass page below
+    {
         const auto smoothEnabled = [style, smooth] { smooth->setEnabled(style->cellFill()); };
         smoothEnabled();
         connect(style, &SublayerStyle::styleChanged, smooth, smoothEnabled);
     }
-    ClassificationEditor *fillEditor = nullptr;
-    ClassificationEditor *contourEditor = nullptr;
-    if (depthRow) {
-        // One fill per row, flat or smooth, each drawn by its own pass with its
-        // own classes. The stack shows the pass being drawn; the other page is
-        // disabled, so its editor never blocks OK, and its draft is dropped
-        // when it is left.
-        auto *passes = new QStackedWidget(fill);
-        passes->setObjectName("depthFillPasses");
-        auto *cell = m_layer->cellDepthFillSublayer();
-        auto *smoothPass = m_layer->smoothDepthFillSublayer();
-        passes->addWidget(buildScalarFillTab(cell, cell ? cell->fillStyle() : nullptr, passes));
-        passes->addWidget(
-            buildScalarFillTab(smoothPass, smoothPass ? smoothPass->fillStyle() : nullptr, passes));
-        passes->setCurrentIndex(style->smoothFill() ? 1 : 0);
-        fillLayout->addWidget(passes);
-        const auto showPass = [style, passes] {
-            const int index = style->smoothFill() ? 1 : 0;
-            if (passes->currentIndex() != index) {
-                auto *leaving = passes->currentWidget();
-                leaving->setEnabled(false);
-                for (auto *editor : leaving->findChildren<ClassificationEditor *>())
-                    editor->refresh();
-                passes->setCurrentIndex(index);
-            }
-            for (int i = 0; i < passes->count(); ++i)
-                passes->widget(i)->setEnabled(i == index);
-        };
-        showPass();
-        connect(style, &SublayerStyle::styleChanged, passes, showPass);
-    } else {
-        // The only editor of the fill scheme; filled contours use its classes.
-        fillEditor = new ClassificationEditor(
-            binding([guarded] { return guarded ? guarded->scheme() : ClassificationScheme(); },
-                    [guarded](const ClassificationScheme &s) {
-                        if (guarded)
-                            guarded->setScheme(s);
-                    },
-                    true),
-            true, fill);
-        fillEditor->setObjectName("additionalResultClassification");
-        fillEditor->setOutsideRangeControlsVisible(true); // fills and filled contours draw them
-        fillLayout->addWidget(fillEditor);
+    // The editor of the cell fill's classes (filled contours have their own tab).
+    auto *fillEditor = new ClassificationEditor(
+        binding([guarded] { return guarded ? guarded->scheme() : ClassificationScheme(); },
+                [guarded](const ClassificationScheme &s) {
+                    if (guarded)
+                        guarded->setScheme(s);
+                },
+                true),
+        true, fill);
+    fillEditor->setObjectName("additionalResultClassification");
+    fillEditor->setOutsideRangeControlsVisible(true); // the fill draws them
+    fillLayout->addWidget(fillEditor);
+    {
         auto *colors = new QGroupBox(tr("Cells without a value"), fill);
         colors->setToolTip(tr("Used by the flat fill, by every cell of an invalid classification, "
                               "and by the legend while the fill or filled contours show."));
@@ -1301,90 +1291,24 @@ void Swmm2DResultsStylePanel::buildScalarTabs(OpenSWMM::Render::ResultScalarSubl
     // ── Filled contours ──────────────────────────────────────────────────────
     auto *bands = new QWidget(tabs);
     auto *bandsLayout = new QVBoxLayout(bands);
-    if (depthRow) {
-        bandsLayout->addWidget(buildContourBandTab(bands));
-    } else {
-        // Bands take the fill classification's class count and method even
-        // while the fill is continuous, where its editor hides them.
-        auto *form = new QFormLayout;
-        bandsLayout->addLayout(form);
-        auto *count = makeSpin(bands, 1, 64, style->scheme().classCount());
-        count->setObjectName("additionalResultBandCount");
-        count->setAccessibleName(tr("Band count"));
-        form->addRow(tr("&Bands:"), count);
-        auto *method = new QComboBox(bands);
-        method->setObjectName("additionalResultBandMethod");
-        method->addItem(tr("Equal interval"), int(BM::EqualInterval));
-        method->addItem(tr("Quantile"), int(BM::Quantile));
-        method->addItem(tr("Natural breaks (Jenks)"), int(BM::NaturalBreaks));
-        method->addItem(tr("Standard deviation"), int(BM::StdDev));
-        method->addItem(tr("Logarithmic"), int(BM::Logarithmic));
-        method->addItem(tr("Exponential"), int(BM::Exponential));
-        // Shown when the Fill tab set manual breaks; they are entered there.
-        method->addItem(tr("Manual breaks (Fill tab)"), int(BM::Manual));
-        if (auto *model = qobject_cast<QStandardItemModel *>(method->model()))
-            model->item(method->count() - 1)->setEnabled(false);
-        method->setMinimumWidth(kComboMinWidthPx);
-        form->addRow(tr("Me&thod:"), method);
-        auto *refused = new QLabel(bands);
-        refused->setObjectName("additionalResultBandError");
-        refused->setWordWrap(true);
-        refused->setVisible(false);
-        form->addRow(refused);
-        const auto showBands = [style, count, method] {
-            followValue(count, style->scheme().classCount());
-            const int at = method->findData(int(style->scheme().method()));
-            if (at >= 0 && at != method->currentIndex()) {
-                const QSignalBlocker block(method);
-                method->setCurrentIndex(at);
-            }
-        };
-        showBands();
-        connect(style, &SublayerStyle::styleChanged, count, showBands);
-        /**
-         * @brief Apply a band count or method to the fill classification as its editor would:
-         * refused, with the reason shown and the controls reset, when the classification would be
-         * invalid for the data. Argument `change`: edits a copy of the fill scheme.
-         */
-        const auto apply = [guarded, frameFor, refused,
-                            showBands](const std::function<void(ClassificationScheme &)> &change) {
-            if (!guarded)
-                return;
-            auto candidate = guarded->scheme();
-            change(candidate);
-            const auto f = frameFor(candidate);
-            const double nan = std::numeric_limits<double>::quiet_NaN();
-            const QString error =
-                candidate.validationError(f ? f->minimum : nan, f ? f->maximum : nan);
-            refused->setText(error);
-            refused->setVisible(!error.isEmpty());
-            if (!error.isEmpty()) {
-                showBands();
-                return;
-            }
-            guarded->setScheme(candidate);
-        };
-        connect(count, qOverload<int>(&QSpinBox::valueChanged), count,
-                [apply](int n) { apply([n](ClassificationScheme &s) { s.setClassCount(n); }); });
-        connect(method, qOverload<int>(&QComboBox::currentIndexChanged), method,
-                [apply, method](int i) {
-                    if (i < 0)
-                        return;
-                    const auto m = BM(method->itemData(i).toInt());
-                    apply([m](ClassificationScheme &s) { s.setMethod(m); });
-                });
-        auto *note = new QLabel(tr("Colors and range come from the Fill classification."), bands);
-        note->setWordWrap(true);
-        form->addRow(note);
-        auto *goFill = new QPushButton(tr("Go to Fill"), bands);
-        goFill->setObjectName("additionalResultGoToFill");
-        connect(goFill, &QPushButton::clicked, tabs, [tabs] {
-            for (int i = 0; i < tabs->count(); ++i)
-                if (tabs->widget(i)->objectName() == QLatin1String("resultFillTab"))
-                    tabs->setCurrentIndex(i);
-        });
-        form->addRow(QString(), goFill);
-    }
+    // Filled contours classify the interpolated field into bands of their own; the Fill tab's
+    // classes color each cell by its value. Bands are always classes.
+    auto *bandEditor = new ClassificationEditor(
+        binding(
+            [guarded] {
+                auto scheme = guarded ? guarded->bandScheme() : ClassificationScheme();
+                scheme.setMode(ClassificationScheme::ClassMode::Classified);
+                return scheme;
+            },
+            [guarded](const ClassificationScheme &s) {
+                if (guarded)
+                    guarded->setBandScheme(s);
+            },
+            false),
+        true, bands);
+    bandEditor->setObjectName("additionalResultBandClassification");
+    bandEditor->setOutsideRangeControlsVisible(true); // bands draw the outside colors
+    bandsLayout->addWidget(bandEditor);
     bandsLayout->addStretch();
     addDisplayTab(tabs, bands, "resultFilledContoursTab", tr("Filled contours"),
                   tr("Show filled contours"), "additionalResultFilledContours", style,
@@ -1393,46 +1317,41 @@ void Swmm2DResultsStylePanel::buildScalarTabs(OpenSWMM::Render::ResultScalarSubl
     // ── Contour lines ────────────────────────────────────────────────────────
     auto *lines = new QWidget(tabs);
     auto *linesLayout = new QVBoxLayout(lines);
-    if (depthRow) {
-        linesLayout->addWidget(buildIsolineTab(lines));
-    } else {
-        auto *levels = new QFormLayout;
-        linesLayout->addLayout(levels);
-        addIsolineLevelRows(levels, lines, line, IsolineTarget::Row);
-        auto *hint = new QLabel(tr("Level count: the classes below set the lines (lines = classes "
-                                   "− 1). Fixed interval: lines at base + k × interval. The range "
-                                   "applies to both; the line color is set below."),
-                                lines);
-        hint->setWordWrap(true);
-        linesLayout->addWidget(hint);
-        // The only editor of the contour scheme: method, classes, range and breaks.
-        contourEditor = new ClassificationEditor(
-            // Lines use the classes, not a continuous ramp: always classified, so a
-            // scheme saved continuous keeps its count, method and breaks editable.
-            binding(
-                [guardedLine] {
-                    auto scheme = guardedLine ? guardedLine->scheme() : ClassificationScheme();
-                    scheme.setMode(ClassificationScheme::ClassMode::Classified);
-                    return scheme;
-                },
-                [guardedLine](const ClassificationScheme &s) {
-                    if (!guardedLine)
-                        return;
-                    auto scheme = s;
-                    scheme.setMode(ClassificationScheme::ClassMode::Classified);
-                    guardedLine->setScheme(scheme);
-                },
-                false),
-            true, lines);
-        contourEditor->setMaximumClassCount(256);
-        contourEditor->setObjectName("additionalResultContourClassification");
-        linesLayout->addWidget(contourEditor);
-        auto *stroke = new QFormLayout;
-        linesLayout->addLayout(stroke);
-        addIsolineLineRows(stroke, lines, line, IsolineTarget::Row);
-        addIsolineLabelRows(stroke, lines, line, IsolineTarget::Row, tr("Label contours"),
-                            QString());
-    }
+    auto *levels = new QFormLayout;
+    linesLayout->addLayout(levels);
+    addIsolineLevelRows(levels, lines, line);
+    auto *hint = new QLabel(tr("Level count: the classes below set the lines (lines = classes "
+                               "− 1). Fixed interval: lines at base + k × interval. The range "
+                               "applies to both; the line color is set below."),
+                            lines);
+    hint->setWordWrap(true);
+    linesLayout->addWidget(hint);
+    // The only editor of the contour scheme: method, classes, range and breaks. Lines use the
+    // classes, not a continuous ramp: always classified, so a scheme saved continuous keeps
+    // its count, method and breaks editable.
+    auto *contourEditor = new ClassificationEditor(
+        binding(
+            [guardedLine] {
+                auto scheme = guardedLine ? guardedLine->scheme() : ClassificationScheme();
+                scheme.setMode(ClassificationScheme::ClassMode::Classified);
+                return scheme;
+            },
+            [guardedLine](const ClassificationScheme &s) {
+                if (!guardedLine)
+                    return;
+                auto scheme = s;
+                scheme.setMode(ClassificationScheme::ClassMode::Classified);
+                guardedLine->setScheme(scheme);
+            },
+            false),
+        true, lines);
+    contourEditor->setMaximumClassCount(256);
+    contourEditor->setObjectName("additionalResultContourClassification");
+    linesLayout->addWidget(contourEditor);
+    auto *stroke = new QFormLayout;
+    linesLayout->addLayout(stroke);
+    addIsolineLineRows(stroke, lines, line);
+    addIsolineLabelRows(stroke, lines, line, tr("Label contours"), QString());
     linesLayout->addStretch();
     addDisplayTab(tabs, lines, "resultContourLinesTab", tr("Contour lines"),
                   tr("Show contour lines"), "additionalResultIsolines", style, &RS::isolines,
@@ -1443,17 +1362,12 @@ void Swmm2DResultsStylePanel::buildScalarTabs(OpenSWMM::Render::ResultScalarSubl
     auto *labelsLayout = new QVBoxLayout(labels);
     auto *labelForm = new QFormLayout;
     labelsLayout->addLayout(labelForm);
-    // The depth row's contour labels belong to its isoline pass; a generic
-    // row's share these settings.
-    addIsolineLabelRows(labelForm, labels, line, IsolineTarget::Row, QString(),
-                        depthRow ? tr("Label color:") : tr("Line and label color (shared):"));
-    if (!depthRow) {
-        auto *shared = new QLabel(tr("Decimals, font and halo are shared with the contour-line "
-                                     "labels."),
-                                  labels);
-        shared->setWordWrap(true);
-        labelsLayout->addWidget(shared);
-    }
+    addIsolineLabelRows(labelForm, labels, line, QString(), tr("Line and label color (shared):"));
+    auto *shared = new QLabel(tr("Decimals, font and halo are shared with the contour-line "
+                                 "labels."),
+                              labels);
+    shared->setWordWrap(true);
+    labelsLayout->addWidget(shared);
     labelsLayout->addStretch();
     addDisplayTab(tabs, labels, "resultLabelsTab", tr("Labels"), tr("Show cell value labels"),
                   "additionalResultCellLabels", style, &RS::cellLabels, &RS::setCellLabels, row);
@@ -1463,8 +1377,10 @@ void Swmm2DResultsStylePanel::buildScalarTabs(OpenSWMM::Render::ResultScalarSubl
      * while its own previewed range is finite, so an editor without one never blocks OK/Apply.
      * An editor being disabled drops its draft, so it shows no stale bounds.
      */
-    QPointer<ClassificationEditor> fillGuard = fillEditor, contourGuard = contourEditor;
-    const auto refreshEditors = [frameFor, guarded, guardedLine, fillGuard, contourGuard] {
+    QPointer<ClassificationEditor> fillGuard = fillEditor, contourGuard = contourEditor,
+                                   bandGuard = bandEditor;
+    const auto refreshEditors = [frameFor, guarded, guardedLine, fillGuard, contourGuard,
+                                 bandGuard] {
         const auto ranged = [&frameFor](const ClassificationScheme &scheme) {
             const auto f = frameFor(scheme);
             return f && f->error.isEmpty() && std::isfinite(f->minimum) &&
@@ -1481,6 +1397,12 @@ void Swmm2DResultsStylePanel::buildScalarTabs(OpenSWMM::Render::ResultScalarSubl
             if (!on || contourGuard->hasValidDraft())
                 contourGuard->refresh();
             contourGuard->setEnabled(on);
+        }
+        if (bandGuard && guarded) {
+            const bool on = ranged(guarded->bandScheme());
+            if (!on || bandGuard->hasValidDraft())
+                bandGuard->refresh();
+            bandGuard->setEnabled(on);
         }
     };
     buildScalarDataTab(row, tabs, refreshEditors);
@@ -1579,7 +1501,9 @@ void Swmm2DResultsStylePanel::buildScalarDataTab(OpenSWMM::Render::ResultScalarS
                 messages << tr("Static result; independent of report time.");
                 break;
             case Mesh2DResultVariable::Temporal::Envelope:
-                messages << tr("Run envelope; values need not occur simultaneously.");
+                messages << tr("Run statistic saved by the engine over its time steps; values "
+                               "need not occur simultaneously. Cells the run never wetted are "
+                               "waterless.");
                 break;
             default:
                 messages << tr("Result at the current report frame.");
@@ -1687,7 +1611,6 @@ void Swmm2DResultsStylePanel::buildVectorTabs(OpenSWMM::Render::ResultVectorSubl
     QPointer<SWMM2DResultsLayer> layer = m_layer;
     auto *style = row->vectorStyle();
     QPointer<Style> guarded = style;
-    const bool velocityRow = row == m_layer->velocityResultSublayer();
     auto domain = openswmmvis::io::Mesh2DResultVariable::Domain::Surface;
     for (const auto &v : m_layer->resultVectors())
         if (v.key() == style->vectorKey())
@@ -1838,32 +1761,18 @@ void Swmm2DResultsStylePanel::buildVectorTabs(OpenSWMM::Render::ResultVectorSubl
     addDisplayTab(tabs, arrows, "resultArrowsTab", tr("Arrows"), tr("Show arrows"),
                   "additionalResultArrows", style, &Style::arrows, &Style::setArrows, row);
 
-    // ── Streaks: animated for the velocity row, static otherwise ────────────
+    // ── Streaks: the same animated flow streaks and settings for every vector ─────────────
     auto *streaks = new QWidget(tabs);
     auto *streaksLayout = new QVBoxLayout(streaks);
-    if (velocityRow) {
-        streaksLayout->addWidget(buildFlowStreakTab(streaks, false));
-    } else {
-        auto *streakForm = new QFormLayout;
-        streaksLayout->addLayout(streakForm);
-        number(streaks, streakForm, tr("Length (px)"), 4, 1000, 0, &Style::streakLengthPx,
-               &Style::setStreakLengthPx);
-        number(streaks, streakForm, tr("Width (px)"), .1, 50, 1, &Style::streakWidthPx,
-               &Style::setStreakWidthPx);
-        number(streaks, streakForm, tr("Spacing (px)"), 4, 1000, 0, &Style::streakSpacingPx,
-               &Style::setStreakSpacingPx);
-        streaksLayout->addStretch();
-    }
+    streaksLayout->addWidget(buildFlowStreakTab(streaks, row));
     addDisplayTab(tabs, streaks, "resultStreaksTab", tr("Streaks"), tr("Show streaks"),
                   "additionalResultStreaks", style, &Style::streaks, &Style::setStreaks, row);
 
-    // ── Color (arrows and static streaks) ───────────────────────────────────
+    // ── Color of the arrows (streaks are colored on their own tab) ─────────────────────────
     auto *colour = new QWidget(tabs);
     auto *colourLayout = new QVBoxLayout(colour);
-    if (velocityRow) {
-        auto *note =
-            new QLabel(tr("Arrows only; the animated streaks are colored on the Streaks tab."),
-                       colour);
+    {
+        auto *note = new QLabel(tr("Arrows only; streaks are colored on the Streaks tab."), colour);
         note->setWordWrap(true);
         colourLayout->addWidget(note);
     }
@@ -1960,7 +1869,7 @@ void Swmm2DResultsStylePanel::buildVectorTabs(OpenSWMM::Render::ResultVectorSubl
                                                           layer->displayedVectorTime(sub));
         status->setText(geometry.error.isEmpty()
                             ? tr("Arrows sample cell values on a screen grid; streaks follow the "
-                                 "interpolated field from evenly spaced seeds.")
+                                 "field as moving particles.")
                             : geometry.error);
         // As on the scalar page: without a color range (constant color,
         // nothing moving) an enabled editor would hold an invalid draft and
@@ -2037,141 +1946,23 @@ QWidget *Swmm2DResultsStylePanel::buildWaterPage(QWidget *parent)
 
 // ─── Scalar depth fills (cell / smooth) ─────────────────────────────────────
 
-QWidget *Swmm2DResultsStylePanel::buildScalarFillTab(OpenSWMM::Render::ISublayer *sub,
-                                                     OpenSWMM::Render::ScalarFillStyle *st,
-                                                     QWidget *parent)
-{
-    auto *page = new QWidget(parent);
-    auto *lay = new QVBoxLayout(page);
-    lay->setContentsMargins(0, 0, 0, 0);
-
-    lay->addWidget(passHeader(page, sub, QString()));
-
-    if (st) {
-        auto *attrBox = new QGroupBox(tr("Attribute"), page);
-        auto *attrForm = new QFormLayout(attrBox);
-        auto *attr = new QComboBox(attrBox);
-        attr->addItem(tr("Depth"), QStringLiteral("depth"));
-        const int cur = attr->findData(st->attribute());
-        if (cur < 0) {
-            attr->addItem(tr("Unsupported — %1").arg(st->attribute()), st->attribute());
-            if (auto *model = qobject_cast<QStandardItemModel *>(attr->model()))
-                model->item(attr->count() - 1)->setEnabled(false);
-        }
-        attr->setCurrentIndex(cur >= 0 ? cur : attr->count() - 1);
-        attr->setMinimumWidth(kComboMinWidthPx);
-        attrForm->addRow(tr("&Attribute:"), attr);
-        lay->addWidget(attrBox);
-        connect(attr, qOverload<int>(&QComboBox::currentIndexChanged), page,
-                [st, attr](int idx) { st->setAttribute(attr->itemData(idx).toString()); });
-
-        // Continuous mode samples the ramp per value (seam-free gradient);
-        // Classified bins into discrete classes — the scheme's ClassMode is
-        // the toggle, surfaced by the shared editor.
-        auto *L = m_layer.data();
-        auto *binding = new SublayerSchemeBinding(
-            [st] { return st->scheme(); },
-            [st](const OpenSWMM::Render::ClassificationScheme &s) { st->setScheme(s); },
-            [] { return QVector<double>{}; }, [L] { return qMakePair(0.0, L->maxDepth()); },
-            /*supportsContinuousMode=*/true,
-            /*supportsRangeModes=*/true);
-        auto *editor = new ClassificationEditor(binding, /*ownBinding=*/true, page);
-        editor->setOutsideRangeControlsVisible(true); // the depth fills draw them
-        followScheme(editor, st);
-        lay->addWidget(editor);
-    }
-    lay->addStretch();
-    return page;
-}
-
-// ─── Contour bands ──────────────────────────────────────────────────────────
-
-QWidget *Swmm2DResultsStylePanel::buildContourBandTab(QWidget *parent)
-{
-    auto *page = new QWidget(parent);
-    auto *lay = new QVBoxLayout(page);
-    lay->setContentsMargins(0, 0, 0, 0);
-
-    auto *sub = m_layer->contourBandSublayer();
-    ContourBandStyle *st = sub ? sub->bandStyle() : nullptr;
-
-    lay->addWidget(passHeader(page, sub, QString()));
-
-    if (st) {
-        // Slice US.2 — the shared classification editor: method (equal
-        // interval / quantile / Jenks / …), class count, color ramp + invert,
-        // custom range, and a per-class color/label table. The renderer reads
-        // st->scheme() to march the bands.
-        auto *L = m_layer.data();
-        auto *binding = new SublayerSchemeBinding(
-            [st] { return st->scheme(); },
-            [st](const OpenSWMM::Render::ClassificationScheme &s) { st->setScheme(s); },
-            [] { return QVector<double>{}; }, // table preview only; map samples per frame
-            [L] { return qMakePair(0.0, L->maxDepth()); },
-            /*supportsContinuousMode=*/false,
-            /*supportsRangeModes=*/false);
-        auto *editor = new ClassificationEditor(binding, /*ownBinding=*/true, page);
-        editor->setOutsideRangeControlsVisible(true); // both band renderers draw them
-        followScheme(editor, st);
-        lay->addWidget(editor);
-
-        auto *renderBox = new QGroupBox(tr("Rendering"), page);
-        auto *renderForm = new QFormLayout(renderBox);
-        auto *smooth = bindCheck(
-            new QCheckBox(tr("Interpolate band boundaries (marching triangles)"), renderBox), st,
-            &ContourBandStyle::smoothBands, &ContourBandStyle::setSmoothBands);
-        smooth->setToolTip(tr("On: class boundaries are interpolated through "
-                              "cells (marching triangles). Off: each cell is "
-                              "filled flat with its band color. For a "
-                              "seam-free continuous gradient use the smooth "
-                              "fill on the Fill tab instead."));
-        renderForm->addRow(QString(), smooth);
-        lay->addWidget(renderBox);
-    }
-    return page;
-}
-
-// ─── Isolines ───────────────────────────────────────────────────────────────
-
-QWidget *Swmm2DResultsStylePanel::buildIsolineTab(QWidget *parent)
-{
-    auto *page = new QWidget(parent);
-    auto *lay = new QVBoxLayout(page);
-    lay->setContentsMargins(0, 0, 0, 0);
-
-    auto *sub = m_layer->isolineSublayer();
-    IsolineStyle *st = sub ? sub->isolineStyle() : nullptr;
-
-    lay->addWidget(passHeader(page, sub, QString()));
-
-    if (st) {
-        auto *levelBox = new QGroupBox(tr("Levels"), page);
-        addIsolineLevelRows(new QFormLayout(levelBox), levelBox, st, IsolineTarget::Pass);
-        lay->addWidget(levelBox);
-        auto *symBox = new QGroupBox(tr("Symbology"), page);
-        addIsolineLineRows(new QFormLayout(symBox), symBox, st, IsolineTarget::Pass);
-        lay->addWidget(symBox);
-        auto *labelBox = new QGroupBox(tr("Labels"), page);
-        addIsolineLabelRows(new QFormLayout(labelBox), labelBox, st, IsolineTarget::Pass,
-                            tr("Label contour values along lines"), QString());
-        lay->addWidget(labelBox);
-    }
-    return page;
-}
-
-// ─── Flow streaks ───────────────────────────────────────────────────────────
-
-QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent, bool withShow)
+QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent,
+                                                     OpenSWMM::Render::ResultVectorSublayer *row)
 {
     auto *page = new QWidget(parent);
     page->setObjectName("flowStreakTab");
     auto *lay = new QVBoxLayout(page);
     lay->setContentsMargins(0, 0, 0, 0);
-    auto *sub = m_layer->flowStreakSublayer();
-    auto *st = sub->streakStyle();
-    lay->addWidget(passHeader(page, sub, withShow ? tr("Show flow streaks") : QString()));
-    auto *help = new QLabel(tr("Shows flow direction, with slower movement boosted for visibility. "
-                               "Colors by speed use the recorded velocities."),
+    // A vector row's own streak settings (the same controls for every vector); without a row,
+    // the native streak pass listed on its own (a run with edge fluxes but no cell velocity).
+    OpenSWMM::Render::ISublayer *sub =
+        row ? static_cast<OpenSWMM::Render::ISublayer *>(row) : m_layer->flowStreakSublayer();
+    auto *st = row ? row->vectorStyle()->streakStyle() : m_layer->flowStreakSublayer()->streakStyle();
+    if (!row)
+        lay->addWidget(passHeader(page, sub, tr("Show flow streaks")));
+    auto *help = new QLabel(tr("Moving streaks follow the field's direction, with slower "
+                               "movement boosted for visibility. Colors by speed use the "
+                               "field's magnitude."),
                             page);
     help->setWordWrap(true);
     lay->addWidget(help);
@@ -2204,62 +1995,44 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent, bool withS
     });
     colour->setEnabled(!st->colorByMagnitude());
     /**
-     * @brief Create an exclusive preset row backed by a style numeric property. Argument `name`:
-     * required Latin-1 object-name prefix. Argument `label`: row caption. Arguments `labels`,
-     * `values`: same-length button captions/numbers; clicked IDs index values without checking.
-     * Argument `property`: required stable property-name pointer captured for the row lifetime.
-     * Returns: no value; page owns controls, style writes notify normally.
+     * @brief Add a slider row for a streak setting, with its value beside it; the exact value is
+     * also under Advanced. Argument `name`: object name of the slider (its value label is
+     * name + "Value"). Arguments `lo`, `hi`: slider range in steps. Arguments `toValue`,
+     * `toSteps`: map slider steps to the style property and back. Argument `text`: value caption.
      */
-    auto presets = [&](const char *name, const QString &label, const QStringList &labels,
-                       const QList<double> &values, const char *property) {
-        auto *row = new QWidget(page);
-        row->setObjectName(name);
-        auto *layout = new QHBoxLayout(row);
-        layout->setContentsMargins(0, 0, 0, 0);
-        layout->setSpacing(0);
-        auto *group = new QButtonGroup(row);
-        auto *custom = new QLabel(row);
-        custom->setObjectName(QString::fromLatin1(name) + "Custom");
-        for (int i = 0; i < labels.size(); ++i) {
-            auto *button = new QPushButton(labels[i], row);
-            button->setCheckable(true);
-            button->setObjectName(QString::fromLatin1(name) + QString::number(i));
-            button->setStyleSheet(QStringLiteral(
-                "QPushButton { padding: 4px 10px; border: 1px solid palette(mid); border-radius: 4px; } "
-                "QPushButton:checked { background-color: palette(highlight); color: palette(highlighted-text); border-color: palette(highlight); }"));
-            group->addButton(button, i);
-            layout->addWidget(button);
-        }
-        layout->addWidget(custom);
-        layout->addStretch();
-        form->addRow(label, row);
-        connect(group, &QButtonGroup::idClicked, st,
-                [st, property, values](int id) { st->setProperty(property, values[id]); });
-        /**
-         * @brief Synchronize a preset row from its borrowed style property. Takes no arguments and
-         * returns no value; selects the last preset within 1e-6 or shows a custom value,
-         * temporarily disabling group exclusivity so all buttons can be cleared. Captures must
-         * survive the row.
-         */
-        auto refresh = [st, property, values, group, custom] {
-            const double value = st->property(property).toDouble();
-            int selected = -1;
-            for (int i = 0; i < values.size(); ++i)
-                if (std::abs(value - values[i]) < 1e-6)
-                    selected = i;
-            group->setExclusive(false);
-            for (auto *button : group->buttons())
-                button->setChecked(group->id(button) == selected);
-            group->setExclusive(true);
-            custom->setText(tr("Custom (%1)").arg(value, 0, 'g', 4));
-            custom->setVisible(selected < 0);
+    const auto slider = [&](const char *name, const QString &label, int lo, int hi,
+                            const char *property, std::function<double(int)> toValue,
+                            std::function<int(double)> toSteps,
+                            std::function<QString(double)> text) {
+        auto *rowWidget = new QWidget(page);
+        auto *rowLayout = new QHBoxLayout(rowWidget);
+        rowLayout->setContentsMargins(0, 0, 0, 0);
+        auto *control = new QSlider(Qt::Horizontal, rowWidget);
+        control->setObjectName(name);
+        control->setAccessibleName(QString(label).remove(QLatin1Char(':')));
+        control->setRange(lo, hi);
+        auto *value = new QLabel(rowWidget);
+        value->setObjectName(QString::fromLatin1(name) + QStringLiteral("Value"));
+        value->setMinimumWidth(value->fontMetrics().horizontalAdvance(QStringLiteral("Very dense ")));
+        rowLayout->addWidget(control, 1);
+        rowLayout->addWidget(value);
+        form->addRow(label, rowWidget);
+        connect(control, &QSlider::valueChanged, st,
+                [st, property, toValue](int steps) { st->setProperty(property, toValue(steps)); });
+        const auto refresh = [st, property, control, value, toSteps, text, lo, hi] {
+            const double current = st->property(property).toDouble();
+            QSignalBlocker block(control);
+            control->setValue(std::clamp(toSteps(current), lo, hi));
+            value->setText(text(current));
         };
-        connect(st, &OpenSWMM::Render::SublayerStyle::styleChanged, row, refresh);
+        connect(st, &OpenSWMM::Render::SublayerStyle::styleChanged, control, refresh);
         refresh();
     };
-    presets("flowDensity", tr("Density:"),
-            {tr("Sparse"), tr("Normal"), tr("Dense"), tr("Very dense")}, {56, 40, 28, 14},
-            "spacingPx");
+    // Density: streaks are seeded one per spacing; the slider runs sparse (80 px) to dense (8 px).
+    slider(
+        "flowDensity", tr("Density:"), 0, 72, "spacingPx", [](int steps) { return 80.0 - steps; },
+        [](double spacing) { return int(std::lround(80.0 - spacing)); },
+        [](double spacing) { return tr("%1 px apart").arg(spacing, 0, 'g', 3); });
     auto *motionRow = new QWidget(page);
     auto *motionLayout = new QHBoxLayout(motionRow);
     motionLayout->setContentsMargins(0, 0, 0, 0);
@@ -2288,8 +2061,12 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent, bool withS
     };
     connect(st, &OpenSWMM::Render::SublayerStyle::styleChanged, motion, refreshMotion);
     refreshMotion();
-    presets("flowTrail", tr("Trail:"), {tr("Short"), tr("Normal"), tr("Long")}, {.75, 1.5, 3},
-            "trailDurationSeconds");
+    // Trail: how long a streak's tail lasts, 0.25 s to 5 s.
+    slider(
+        "flowTrail", tr("Trail:"), 1, 20, "trailDurationSeconds",
+        [](int steps) { return steps * 0.25; },
+        [](double seconds) { return int(std::lround(seconds / 0.25)); },
+        [](double seconds) { return tr("%1 s").arg(seconds, 0, 'g', 3); });
     auto *mapping = new QLabel(page);
     mapping->setObjectName("flowMotionMapping");
     mapping->setWordWrap(true);
@@ -2394,11 +2171,13 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent, bool withS
      * wording. Uses captured QPointer for the layer and page-owned labels; requires its existing
      * streak style while alive.
      */
-    auto updateStatus = [layer = m_layer, mapping, status] {
-        if (!layer)
+    auto updateStatus = [layer = m_layer, mapping, status,
+                         vector = QPointer<OpenSWMM::Render::ResultVectorSublayer>(row),
+                         bound = row != nullptr] {
+        if (!layer || (bound && !vector))
             return;
-        const auto d = layer->flowParticleDiagnostics();
-        const auto *style = layer->flowStreakSublayer()->streakStyle();
+        const auto d = layer->flowStreakController(vector)->diagnostics();
+        const auto *style = layer->flowStreakStyle(vector);
         QString text =
             style->motionWasMigrated() ? tr("Old motion setting reset to Normal. ") : QString();
         text += d.referenceSpeedSI > 0
@@ -2406,11 +2185,11 @@ QWidget *Swmm2DResultsStylePanel::buildFlowStreakTab(QWidget *parent, bool withS
                           .arg(d.referencePixelsPerSecond, 0, 'f', 0)
                           .arg(d.referenceSpeedSI, 0, 'g', 3)
                     : tr("Normal motion uses a 48 px/s reference. Slower flow is boosted.");
-        const auto availability = layer->flowStreakAvailability();
+        const auto availability = layer->flowStreakAvailability(vector);
         if (!availability.isEmpty())
             text = availability;
         mapping->setText(text);
-        status->setText(layer->flowStreakStatus());
+        status->setText(layer->flowStreakStatus(vector));
     };
     connect(m_layer, &SWMM2DResultsLayer::flowStreaksChanged, status, updateStatus);
     connect(sub, &OpenSWMM::Render::ISublayer::invalidated, status, updateStatus);

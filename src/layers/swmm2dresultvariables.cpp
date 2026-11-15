@@ -107,6 +107,92 @@ void accumulate(Mesh2DScalarFrame &range, const std::vector<float> &values,
 }
 }
 
+namespace
+{
+const QString kMaxDepthKey = QStringLiteral("surface:Mesh2_face_max_depth");
+
+/**
+ * @param[in] key Result variable key.
+ * @return True for the engine's saved whole-run statistics of surface water (ENVELOPES group:
+ *   maxima, minimum and maximum water surface elevation, means, peak velocity, times of maximum),
+ *   which describe no water where the run never wetted a cell. The continuity-error maximum is a
+ *   solver diagnostic, not one of them.
+ */
+bool isSurfaceRunStatisticKey(const QString &key)
+{
+    static const QSet<QString> keys{
+        kMaxDepthKey,
+        QStringLiteral("surface:Mesh2_face_max_velocity"),
+        QStringLiteral("surface:Mesh2_face_max_head"),
+        QStringLiteral("surface:Mesh2_face_min_head"),
+        QStringLiteral("surface:Mesh2_face_mean_depth"),
+        QStringLiteral("surface:Mesh2_face_mean_vx"),
+        QStringLiteral("surface:Mesh2_face_mean_vy"),
+        QStringLiteral("surface:Mesh2_face_peak_vx"),
+        QStringLiteral("surface:Mesh2_face_peak_vy"),
+        QStringLiteral("surface:Mesh2_face_time_max_depth"),
+        QStringLiteral("surface:Mesh2_face_time_max_velocity")};
+    return keys.contains(key);
+}
+
+/**
+ * @param[in] vector Surface vector result.
+ * @return Key of the depth a surface vector's dry cutoff compares against: the saved mean depth
+ *   for the saved mean velocity, the saved maximum depth for any other saved statistic, else the
+ *   current depth.
+ */
+QString statisticDepthKey(const Mesh2DResultVector &vector)
+{
+    if (vector.x.temporal != Mesh2DResultVariable::Temporal::Envelope)
+        return QStringLiteral("surface:Mesh2_face_depth");
+    return vector.x.dataset == QLatin1String("Mesh2_face_mean_vx")
+               ? QStringLiteral("surface:Mesh2_face_mean_depth")
+               : kMaxDepthKey;
+}
+
+/**
+ * @brief Start a row added for a saved surface run statistic from its source's look: depth
+ *   statistics take the depth row's displays and the depth bands' classes (as their filled
+ *   contour classes), statistic vectors the
+ *   velocity row's arrows and streaks; never-wet cells are not drawn, as dry cells under the
+ *   depth row. The copy is made once; the rows are not linked afterwards.
+ * @param[in] layer Results layer that owns the depth, band and velocity sources of the style.
+ * @param[in,out] row New scalar or vector row with its descriptor set; other rows are untouched.
+ */
+void seedStatisticStyle(const SWMM2DResultsLayer &layer, OpenSWMM::Render::ISublayer *row)
+{
+    using T = Mesh2DResultVariable::Temporal;
+    if (auto *scalar = qobject_cast<ResultScalarSublayer *>(row)) {
+        const QString key = scalar->variableKey();
+        if (scalar->descriptor().temporal != T::Envelope || !isSurfaceRunStatisticKey(key))
+            return;
+        auto *st = scalar->fillStyle();
+        if (key == kMaxDepthKey || key == QLatin1String("surface:Mesh2_face_mean_depth")) {
+            if (auto *depth = layer.depthResultSublayer(); depth && depth != scalar) {
+                st->fromJson(depth->fillStyle()->toJson());
+                st->setAttribute(key);
+            } else {
+                st->setCellFill(false);
+                st->setFilledContours(true);
+            }
+            if (auto *bands = layer.contourBandSublayer(); bands && bands->bandStyle())
+                st->setBandScheme(bands->bandStyle()->scheme());
+        }
+        st->setWaterlessColor(QColor(Qt::transparent));
+        return;
+    }
+    auto *vector = qobject_cast<ResultVectorSublayer *>(row);
+    if (!vector || vector->descriptor().x.temporal != T::Envelope ||
+        vector->descriptor().domain() != Mesh2DResultVariable::Domain::Surface)
+        return;
+    if (auto *velocity = layer.velocityResultSublayer(); velocity && velocity != vector) {
+        const QString key = vector->vectorKey();
+        vector->vectorStyle()->fromJson(velocity->vectorStyle()->toJson());
+        vector->vectorStyle()->setVectorKey(key);
+    }
+}
+} // namespace
+
 std::shared_ptr<const Mesh2DScalarFrame>
 SWMM2DResultsLayer::resultFrame(const QString &key, int time, bool wholeRun) const
 {
@@ -126,10 +212,6 @@ SWMM2DResultsLayer::resultFrame(const QString &key, int time, bool wholeRun) con
         m_resultCacheGeneration = generation;
         m_resultCacheTimes = times;
     }
-    const QString cacheKey =
-        key + QChar(0x1f) + QString::number(time) + (wholeRun ? ":run" : ":frame");
-    if (auto it = m_resultFrames.constFind(cacheKey); it != m_resultFrames.cend())
-        return it.value();
     bool found = false;
     for (const auto &v : resultVariables())
         if (v.key() == key) {
@@ -138,9 +220,24 @@ SWMM2DResultsLayer::resultFrame(const QString &key, int time, bool wholeRun) con
             break;
         }
     if (!found) {
-        frame->error = tr("Saved result variable is unavailable: %1").arg(key);
+        // The engine's whole-run statistics are read from the saved file only.
+        frame->error = source_->isLive() && isSurfaceRunStatisticKey(key)
+                           ? tr("Run statistics are read from the saved results file; they "
+                                "appear when the run finishes.")
+                           : tr("Saved result variable is unavailable: %1").arg(key);
         return frame;
     }
+    // A static field or saved run statistic is the same at every report time: one entry.
+    const bool independent = frame->descriptor.temporal == Mesh2DResultVariable::Temporal::Static ||
+                             frame->descriptor.temporal == Mesh2DResultVariable::Temporal::Envelope;
+    // Surface statistics are masked by the dry depth (below), so it is part of the entry.
+    const QString cacheKey =
+        key + QChar(0x1f) + QString::number(independent ? -1 : time) +
+        (wholeRun && !independent ? ":run" : ":frame") +
+        (independent && isSurfaceRunStatisticKey(key) ? QString::number(dryDepth(), 'g', 17)
+                                                      : QString());
+    if (auto it = m_resultFrames.constFind(cacheKey); it != m_resultFrames.cend())
+        return it.value();
     auto read = [&](int t, std::vector<float> &v, std::vector<Mesh2DValueStatus> &s) {
         return source_->readFaceVariableAt(frame->descriptor, t, v, s) &&
                v.size() == size_t(source_->triangleCount()) && s.size() == v.size();
@@ -150,6 +247,22 @@ SWMM2DResultsLayer::resultFrame(const QString &key, int time, bool wholeRun) con
         frame->status.clear();
         frame->error = tr("The selected variable has no valid frame at this time.");
         return frame;
+    }
+    // Where the run never wetted a cell (saved maximum depth at or below the dry depth), its
+    // surface statistics describe no water: waterless, like dry cells under the depth row.
+    if (independent && isSurfaceRunStatisticKey(key)) {
+        std::shared_ptr<const Mesh2DScalarFrame> wet;
+        if (key != kMaxDepthKey)
+            wet = resultFrame(kMaxDepthKey, time);
+        const auto &depth = wet ? wet->values : frame->values;
+        const auto &depthStatus = wet ? wet->status : frame->status;
+        if ((!wet || wet->error.isEmpty()) && depth.size() == frame->values.size() &&
+            depthStatus.size() == depth.size())
+            for (size_t c = 0; c < depth.size(); ++c)
+                if (depthStatus[c] != Mesh2DValueStatus::NotApplicable &&
+                    frame->status[c] != Mesh2DValueStatus::NotApplicable &&
+                    !(depth[c] > dryDepth()))
+                    frame->status[c] = Mesh2DValueStatus::Waterless;
     }
     const bool scan = wholeRun && frame->descriptor.frameCount > 0;
     if (scan && !source_->supportsWholeRunRange()) {
@@ -266,6 +379,9 @@ const QString kOfferedKeys = QStringLiteral("resultCatalogKeys");
 // Present in snapshots saved since the depth and velocity rows drive the
 // rendering engines; absent snapshots are migrated (migrateEngineStateToRows_).
 const QString kUnifiedMarker = QStringLiteral("unifiedResults");
+// Snapshots from this version on save the depth row's style as the depth passes' style;
+// earlier ones hold it in the passes only.
+constexpr int kDepthRowStyleVersion = 3;
 const QString kDepthKey = QStringLiteral("surface:Mesh2_face_depth");
 const QString kVelocityKey =
     QStringLiteral("vector:surface:Mesh2_face_vx|surface:Mesh2_face_vy");
@@ -481,11 +597,15 @@ void SWMM2DResultsLayer::syncEngineVisibility_()
             m_contourBandSublayer->setVisible(on && st->filledContours());
         if (m_isolineSublayer)
             m_isolineSublayer->setVisible(on && st->isolines());
+        // Whichever row presents the passes styles them.
+        pushDepthRowStyle_();
     }
     if (auto *velocity = velocityResultSublayer()) {
         if (m_flowStreakSublayer)
             m_flowStreakSublayer->setVisible(velocity->isVisible() &&
                                              velocity->vectorStyle()->streaks());
+        // The row that presents the native streaks styles them.
+        pushVelocityRowStyle_();
         // Vector rows draw their own arrows.
         if (m_velocityVectorSublayer)
             m_velocityVectorSublayer->setVisible(false);
@@ -524,6 +644,103 @@ void SWMM2DResultsLayer::adoptPassOpacity_()
         if (velocity && velocity->vectorStyle()->streaks())
             adopt(velocity, {m_flowStreakSublayer});
     }
+}
+
+void SWMM2DResultsLayer::pushDepthRowStyle_()
+{
+    auto *row = depthResultSublayer();
+    if (!row || m_syncingDepthStyle || m_engineMigrationPending)
+        return;
+    const QScopedValueRollback guard(m_syncingDepthStyle, true);
+    const auto *st = row->fillStyle();
+    if (m_cellDepthFillSublayer && m_cellDepthFillSublayer->fillStyle())
+        m_cellDepthFillSublayer->fillStyle()->setScheme(st->scheme());
+    if (m_smoothDepthFillSublayer && m_smoothDepthFillSublayer->fillStyle())
+        m_smoothDepthFillSublayer->fillStyle()->setScheme(st->scheme());
+    if (m_contourBandSublayer && m_contourBandSublayer->bandStyle())
+        m_contourBandSublayer->bandStyle()->setScheme(st->bandScheme());
+    if (m_isolineSublayer && m_isolineSublayer->isolineStyle())
+        if (const auto lines = st->contourStyle()->toJson();
+            lines != m_isolineSublayer->isolineStyle()->toJson())
+            m_isolineSublayer->isolineStyle()->fromJson(lines);
+}
+
+void SWMM2DResultsLayer::adoptPassStyles_(ResultScalarSublayer *row)
+{
+    if (!row || m_syncingDepthStyle)
+        return;
+    {
+        const QScopedValueRollback guard(m_syncingDepthStyle, true);
+        auto *st = row->fillStyle();
+        const OpenSWMM::Render::ScalarFillStyle *fill =
+            st->smoothFill() && m_smoothDepthFillSublayer ? m_smoothDepthFillSublayer->fillStyle()
+            : m_cellDepthFillSublayer                     ? m_cellDepthFillSublayer->fillStyle()
+                                                          : nullptr;
+        if (fill)
+            st->setScheme(fill->scheme());
+        if (m_contourBandSublayer && m_contourBandSublayer->bandStyle())
+            st->setBandScheme(m_contourBandSublayer->bandStyle()->scheme());
+        if (m_isolineSublayer && m_isolineSublayer->isolineStyle())
+            if (const auto lines = m_isolineSublayer->isolineStyle()->toJson();
+                lines != st->contourStyle()->toJson())
+                st->contourStyle()->fromJson(lines);
+    }
+    // One set of fill classes for the flat and the smooth fill, and classified bands.
+    pushDepthRowStyle_();
+}
+
+bool SWMM2DResultsLayer::flowRowField(const ResultVectorSublayer *row,
+                                      std::shared_ptr<const Mesh2DScalarFrame> &x,
+                                      std::shared_ptr<const Mesh2DScalarFrame> &y,
+                                      std::shared_ptr<const Mesh2DScalarFrame> &depth,
+                                      double &cutoff) const
+{
+    x.reset();
+    y.reset();
+    depth.reset();
+    cutoff = 0;
+    if (!row || row->vectorKey().isEmpty() || row->descriptor().key() != row->vectorKey())
+        return false;
+    const auto &vector = row->descriptor();
+    const int time = currentTimeIndex();
+    const size_t cells = cells_.size();
+    const auto usable = [cells](const std::shared_ptr<const Mesh2DScalarFrame> &frame) {
+        return frame && frame->error.isEmpty() && frame->values.size() == cells &&
+               frame->status.size() == cells;
+    };
+    x = resultFrame(vector.x.key(), time);
+    y = resultFrame(vector.y.key(), time);
+    if (!usable(x) || !usable(y))
+        return false;
+    // A surface vector is measured against its own depth: the current depth, or the saved mean
+    // or maximum depth for a saved statistic. Groundwater has none.
+    if (vector.domain() == Mesh2DResultVariable::Domain::Surface)
+        if (auto frame = resultFrame(statisticDepthKey(vector), time); usable(frame)) {
+            depth = std::move(frame);
+            cutoff = std::max(0.0, row->vectorStyle()->dryDepthCutoff());
+        }
+    return true;
+}
+
+void SWMM2DResultsLayer::pushVelocityRowStyle_()
+{
+    auto *row = velocityResultSublayer();
+    if (!row || !m_flowStreakSublayer || m_syncingStreakStyle || m_engineMigrationPending)
+        return;
+    const QScopedValueRollback guard(m_syncingStreakStyle, true);
+    if (const auto json = row->vectorStyle()->streakStyle()->toJson();
+        json != m_flowStreakSublayer->streakStyle()->toJson())
+        m_flowStreakSublayer->streakStyle()->fromJson(json);
+}
+
+void SWMM2DResultsLayer::adoptStreakPassStyle_(ResultVectorSublayer *row)
+{
+    if (!row || !m_flowStreakSublayer || m_syncingStreakStyle)
+        return;
+    const QScopedValueRollback guard(m_syncingStreakStyle, true);
+    if (const auto json = m_flowStreakSublayer->streakStyle()->toJson();
+        json != row->vectorStyle()->streakStyle()->toJson())
+        row->vectorStyle()->streakStyle()->fromJson(json);
 }
 
 bool SWMM2DResultsLayer::applyResultRowDefaults_(OpenSWMM::Render::ISublayer *base) const
@@ -693,6 +910,10 @@ void SWMM2DResultsLayer::migrateEngineStateToRows_()
     // The migrated rows take the opacity of the passes they now present.
     m_opacityDepthRow = nullptr;
     m_opacityVelocityRow = nullptr;
+    // ... and the depth row the classes and line style its passes were saved with; the
+    // velocity row the streak settings.
+    adoptPassStyles_(depth);
+    adoptStreakPassStyle_(velocity);
     syncEngineVisibility_();
     // The velocity row draws the former arrows itself, at its own opacity.
     if (arrowOpacity >= 0 && velocity == velocityResultSublayer()) {
@@ -764,6 +985,9 @@ ResultScalarSublayer *SWMM2DResultsLayer::createResultSublayer_(const QString &k
                       static_cast<OpenSWMM::Render::ISublayer *>(m_isolineSublayer)})
                     if (engine)
                         engine->setOpacity(sub->opacity());
+            // The row's classes and line style are the passes' (depth is styled like any
+            // scalar). A row that has just become the depth row hands its style over.
+            pushDepthRowStyle_();
         } else if (!m_engineMigrationPending && wasDepth && sub->variableKey() != kDepthKey) {
             // Re-keyed away from depth: the passes follow the next depth row, or hide.
             if (!depthResultSublayer())
@@ -830,6 +1054,7 @@ ResultVectorSublayer *SWMM2DResultsLayer::createResultVectorSublayer_(const QStr
                 syncEngineVisibility_();
             if (sub->opacity() != state->opacity && !m_adoptingPassOpacity && m_flowStreakSublayer)
                 m_flowStreakSublayer->setOpacity(sub->opacity());
+            pushVelocityRowStyle_();
         } else if (!m_engineMigrationPending && wasVelocity && sub->vectorKey() != kVelocityKey) {
             // Re-keyed away from velocity: the streaks follow the next velocity row, or hide.
             if (!velocityResultSublayer())
@@ -854,13 +1079,19 @@ ResultScalarSublayer *SWMM2DResultsLayer::addResultSublayer(const QString &key,
     auto *sub = createResultSublayer_(key, id, true);
     if (!sub)
         return nullptr;
+    // A row the user adds (not one a loading snapshot restores with its saved style).
+    if (!m_engineMigrationPending)
+        seedStatisticStyle(*this, sub);
     // On top of its tree group: below the mesh wireframe (see rowInsertIndex()).
     m_sublayerOrder.insert(rowInsertIndex(m_sublayerOrder, m_meshEdgeSublayer, sublayerGroup(sub),
                                           [this](const OpenSWMM::Render::ISublayer *s) { return sublayerGroup(s); }),
                            sub);
-    // A new depth row drives the depth passes (not while a snapshot loads).
-    if (!m_engineMigrationPending && sub == depthResultSublayer())
+    // A new depth row drives the depth passes (not while a snapshot loads), and starts with
+    // the style they hold.
+    if (!m_engineMigrationPending && sub == depthResultSublayer()) {
+        adoptPassStyles_(sub);
         syncEngineVisibility_();
+    }
     emit resultSublayersChanged();
     emit childrenChanged();
     emit repaintRequested();
@@ -877,13 +1108,18 @@ ResultVectorSublayer *SWMM2DResultsLayer::addResultVectorSublayer(const QString 
     auto *sub = createResultVectorSublayer_(key, id, true);
     if (!sub)
         return nullptr;
+    if (!m_engineMigrationPending)
+        seedStatisticStyle(*this, sub);
     // On top of its tree group: surface vectors above every pass (see rowInsertIndex()).
     m_sublayerOrder.insert(rowInsertIndex(m_sublayerOrder, m_meshEdgeSublayer, sublayerGroup(sub),
                                           [this](const OpenSWMM::Render::ISublayer *s) { return sublayerGroup(s); }),
                            sub);
-    // A new velocity row drives the streaks (not while a snapshot loads).
-    if (!m_engineMigrationPending && sub == velocityResultSublayer())
+    // A new velocity row drives the native streaks (not while a snapshot loads), and starts
+    // with the settings they hold.
+    if (!m_engineMigrationPending && sub == velocityResultSublayer()) {
+        adoptStreakPassStyle_(sub);
         syncEngineVisibility_();
+    }
     emit resultSublayersChanged();
     emit childrenChanged();
     emit repaintRequested();
@@ -969,6 +1205,8 @@ void SWMM2DResultsLayer::syncResultSublayers_()
                                     : applyResultRowDefaults_(sub));
                 insertRow(sub, group);
                 shown.insert(key);
+                if (key == kVelocityKey && !m_engineMigrationPending)
+                    adoptStreakPassStyle_(sub);
             }
             continue;
         }
@@ -988,6 +1226,9 @@ void SWMM2DResultsLayer::syncResultSublayers_()
                                 : applyResultRowDefaults_(sub));
             insertRow(sub, group);
             shown.insert(key);
+            // The depth row starts with the style its passes hold (their defaults).
+            if (key == kDepthKey && !m_engineMigrationPending)
+                adoptPassStyles_(sub);
         }
     }
     if (m_engineMigrationPending)
@@ -1034,7 +1275,7 @@ void SWMM2DResultsLayer::saveSublayersJsonState(QJsonObject &j) const
     QStringList keys(m_offeredResultKeys.cbegin(), m_offeredResultKeys.cend());
     keys.sort();
     j.insert(kOfferedKeys, QJsonArray::fromStringList(keys));
-    j.insert(kUnifiedMarker, kDefaultRowsVersion);
+    j.insert(kUnifiedMarker, kDepthRowStyleVersion);
 }
 
 void SWMM2DResultsLayer::onSublayersJsonLoaded(const QJsonObject &j)
@@ -1073,8 +1314,18 @@ void SWMM2DResultsLayer::onSublayersJsonLoaded(const QJsonObject &j)
     syncResultSublayers_();
     if (m_engineMigrationPending)
         migrateEngineStateToRows_();
-    else
+    else {
+        // An older snapshot styled depth in its passes: the row takes that style. A current
+        // one saved the row's style, which the passes follow.
+        if (j.value(kUnifiedMarker).toInt() < kDepthRowStyleVersion) {
+            adoptPassStyles_(depthResultSublayer());
+            adoptStreakPassStyle_(velocityResultSublayer());
+        } else {
+            pushDepthRowStyle_();
+            pushVelocityRowStyle_();
+        }
         syncEngineVisibility_();
+    }
     // Older snapshots painted every row above the mesh wireframe; a current
     // one keeps the order the user arranged.
     if (legacy) {
@@ -1195,15 +1446,11 @@ SWMM2DResultsLayer::resultVectorGeometry(const ResultVectorSublayer *sub, const 
     if (!sub)
         return out;
     const auto *style = sub->vectorStyle();
-    // The presenting surface velocity row animates its streaks on the
-    // flow-streak engine; every other row traces static streaks here.
-    const bool animatedStreaks = sub == velocityResultSublayer();
-    // Nothing drawn here: hidden, or no arrows and streaks off or animated by
-    // the flow-streak engine. The color range is still reported when asked
-    // (the style editor shows it), otherwise the frame reads are skipped.
+    // Arrows are drawn here; every row's streaks are animated by its flow-streak engine. The
+    // color range is still reported when asked (the style editor shows it), otherwise the frame
+    // reads are skipped for a row without arrows.
     const bool drawn = sub->isVisible() && sub->opacity() > 0 && pixelsPerScene > 0 &&
-                       std::isfinite(pixelsPerScene) &&
-                       (style->arrows() || (style->streaks() && !animatedStreaks));
+                       std::isfinite(pixelsPerScene) && style->arrows();
     if (!drawn && !colorMin && !colorMax && !colorUnits)
         return out;
     const auto &vector = sub->descriptor();
@@ -1219,11 +1466,13 @@ SWMM2DResultsLayer::resultVectorGeometry(const ResultVectorSublayer *sub, const 
         return out;
     }
     const size_t cells = fx->values.size();
-    // Surface vectors skip cells shallower than the dry-depth cutoff.
+    // Surface vectors skip cells shallower than the dry-depth cutoff. A saved run statistic is
+    // measured against its own depth statistic: the mean velocity against the mean depth, the
+    // peak velocity against the maximum depth.
     std::shared_ptr<const Mesh2DScalarFrame> depth;
     const double cutoff = style->dryDepthCutoff();
     if (vector.domain() == Mesh2DResultVariable::Domain::Surface && cutoff > 0)
-        if (auto d = resultFrame(kDepthKey, time);
+        if (auto d = resultFrame(statisticDepthKey(vector), time);
             d->error.isEmpty() && d->values.size() == cells && d->status.size() == cells)
             depth = std::move(d);
     const auto cellVector = [&](int c, double &vx, double &vy) {
@@ -1359,83 +1608,5 @@ SWMM2DResultsLayer::resultVectorGeometry(const ResultVectorSublayer *sub, const 
             out.arrows.push_back({p - half, p + half, color});
         });
 
-    // Static streaks traced through the vertex-interpolated field. The surface
-    // velocity row animates its streaks on the flow-streak engine instead.
-    if (!style->streaks() || animatedStreaks)
-        return out;
-    const auto gx = resultScalarGeometry(fx, {}, false, {}, true);
-    const auto gy = resultScalarGeometry(fy, {}, false, {}, true);
-    const bool nodal = gx->vertexValues.size() == size_t(m_sceneVerts.size()) &&
-                       gy->vertexValues.size() == gx->vertexValues.size();
-    const auto &triVerts = triVertexIndices();
-    const auto fieldAt = [&](const QPointF &p, double &vx, double &vy, int &cell) {
-        const int tri = pickDisplayTriAt_(p);
-        if (tri < 0 || size_t(tri) >= triCell_.size() || tri >= m_sceneTris.size())
-            return false;
-        cell = triCell_[size_t(tri)];
-        double cx, cy;
-        if (!cellVector(cell, cx, cy) || std::hypot(cx, cy) <= tiny)
-            return false; // stops in waterless/invalid or still cells
-        vx = cx;
-        vy = cy;
-        std::array<double, 3> w;
-        const auto &st = m_sceneTris[tri];
-        if (nodal && size_t(tri) < triVerts.size() &&
-            CellWaterGeometry::barycentric(p, st.a, st.b, st.c, w)) {
-            double ix = 0, iy = 0;
-            bool ok = true;
-            for (int k = 0; k < 3 && ok; ++k) {
-                const int v = triVerts[size_t(tri)][size_t(k)];
-                ok = v >= 0 && size_t(v) < gx->vertexValues.size() &&
-                     std::isfinite(gx->vertexValues[size_t(v)]) &&
-                     std::isfinite(gy->vertexValues[size_t(v)]);
-                if (ok) {
-                    ix += w[size_t(k)] * gx->vertexValues[size_t(v)];
-                    iy += w[size_t(k)] * gy->vertexValues[size_t(v)];
-                }
-            }
-            if (ok && std::hypot(ix, iy) > tiny) {
-                vx = ix;
-                vy = iy;
-            }
-        }
-        return true;
-    };
-    constexpr int kSteps = 12;
-    const double stepLength = style->streakLengthPx() / pixelsPerScene / kSteps;
-    forGrid(style->streakSpacingPx() / pixelsPerScene, 0.25, 30000, [&](const QPointF &seed) {
-        double vx, vy;
-        int cell = -1;
-        if (!fieldAt(seed, vx, vy, cell))
-            return;
-        const QColor color = colorAt(cell, std::hypot(vx, vy));
-        if (color.alpha() == 0)
-            return;
-        OpenSWMM::Render::ResultVectorStreak streak;
-        streak.color = color;
-        streak.points.reserve(kSteps + 1);
-        streak.points.push_back(seed);
-        QPointF q = seed;
-        for (int i = 0; i < kSteps; ++i) {
-            double ux, uy;
-            int c;
-            if (!fieldAt(q, ux, uy, c))
-                break;
-            // Midpoint step with unit speed: streaks show direction and
-            // pattern; their color carries the magnitude.
-            double m = std::hypot(ux, uy);
-            const QPointF mid = q + QPointF(ux / m, -uy / m) * (0.5 * stepLength);
-            double mx, my;
-            if (fieldAt(mid, mx, my, c)) {
-                ux = mx;
-                uy = my;
-                m = std::hypot(ux, uy);
-            }
-            q += QPointF(ux / m, -uy / m) * stepLength; // scene Y runs opposite to model Y
-            streak.points.push_back(q);
-        }
-        if (streak.points.size() >= 2)
-            out.streaks.push_back(std::move(streak));
-    });
     return out;
 }

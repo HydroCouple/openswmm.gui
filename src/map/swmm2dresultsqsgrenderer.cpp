@@ -2635,24 +2635,6 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                             frame.key.time);
                         // Legends and color ranges read the time drawn here.
                         vector->publishPresentedTime(frame.key.time);
-                        const float streakHalf = float(0.5 * style->streakWidthPx()) * invView;
-                        for (const auto &streak : geometry.streaks) {
-                            const size_t n = streak.points.size();
-                            for (size_t i = 1; i < n; ++i) {
-                                // Fade from the oldest point to the head.
-                                QColor color = streak.color;
-                                color.setAlphaF(color.alphaF() *
-                                                (0.25 + 0.75 * double(i) / double(n - 1)));
-                                const quint8 a = quint8(color.alpha());
-                                const auto &p0 = streak.points[i - 1], &p1 = streak.points[i];
-                                appendThickSegColored(
-                                    streakVerts, float(p0.x() - ox), float(p0.y() - oy),
-                                    float(p1.x() - ox), float(p1.y() - oy), streakHalf,
-                                    premul(quint8(color.red()), a),
-                                    premul(quint8(color.green()), a),
-                                    premul(quint8(color.blue()), a), a);
-                            }
-                        }
                         const float shaftHalf = float(0.5 * style->shaftWidthPx()) * invView;
                         const double headScene = style->headSizePx() * double(invView);
                         for (const auto &arrow : geometry.arrows) {
@@ -2845,7 +2827,7 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                         }
                     }
                     // Filled contours: marching-triangle bands over the nodal
-                    // reconstruction, classes from the fill scheme, for the
+                    // reconstruction, classes from the band scheme, for the
                     // triangles in view. Zoomed far out, each cell takes its
                     // band's color instead (cells are about a pixel there).
                     if (fillOk && !depthPasses && scalarStyle->filledContours()) {

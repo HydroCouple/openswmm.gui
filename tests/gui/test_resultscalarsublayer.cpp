@@ -484,6 +484,8 @@ private slots:
             QCOMPARE(cells[0], green);
             QCOMPARE(cells[2], red);
             QCOMPARE(s.valueColors(f, {0.5, 7.0}), (QVector<QColor>{green, red}));
+            // Filled contours classify with their own scheme: give it the same range and colors.
+            s.fillStyle()->setBandScheme(sc);
             std::vector<double> levels;
             QVector<QColor> colors;
             QVERIFY(s.bandStyling(f, levels, colors));

@@ -34,11 +34,13 @@ QString partnerDataset(const QString &dataset)
     return {};
 }
 
-/** @return True for a variable that may be a vector component. */
+/** @return True for a variable that may be a vector component: a time series, or a whole-run
+ *   statistic (the saved mean and peak velocity components). */
 bool plain(const V &v)
 {
     return !v.derived && v.species.isEmpty() && v.layer < 0 && v.zone == V::Zone::None &&
-           (v.temporal == V::Temporal::Reported || v.temporal == V::Temporal::Held);
+           (v.temporal == V::Temporal::Reported || v.temporal == V::Temporal::Held ||
+            v.temporal == V::Temporal::Envelope);
 }
 
 /** @return Readable vector label from the components. */
@@ -52,6 +54,8 @@ QString vectorLabel(const V &x, const V &y)
         {"Mesh2_face_gw_qx", "Groundwater — Darcy velocity"},
         {"Mesh2_face_grad_hx", "Surface — head gradient (unlimited)"},
         {"Mesh2_face_grad_hx_lim", "Surface — head gradient (slope limited)"},
+        {"Mesh2_face_mean_vx", "Surface — mean velocity"},
+        {"Mesh2_face_peak_vx", "Surface — velocity at maximum speed"},
     };
     for (const auto &k : known)
         if (x.dataset == QLatin1String(k.dataset))

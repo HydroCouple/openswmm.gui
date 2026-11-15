@@ -41,7 +41,10 @@
 #include <QDialog>
 #include <QDoubleSpinBox>
 #include <QLabel>
+#include <QLineEdit>
 #include <QMenu>
+#include <QPushButton>
+#include <QSlider>
 #include <QStackedWidget>
 #include <QTabWidget>
 #include <QTableView>
@@ -56,6 +59,8 @@
 #include <QPainter>
 #include <QSGGeometryNode>
 #include <QSGOpacityNode>
+
+#include <limits>
 
 using namespace openswmmvis::io;
 using namespace OpenSWMM::Render;
@@ -218,6 +223,46 @@ public:
     }
 };
 
+// FieldSource plus the engine's saved run statistics (2D result statistics plan 2026-11-14):
+// rank-one Envelope fields that every report time reads the same. Cell 0 never wets (its
+// maximum depth is zero), cell 1 does.
+class StatisticSource : public FieldSource
+{
+public:
+    StatisticSource()
+    {
+        const auto stat = [this](const char *dataset, const char *label, const char *units,
+                                 std::vector<float> data) {
+            auto v = variable(dataset, false, label, units, V::Temporal::Envelope);
+            v.frameCount = 0;
+            catalog.append(v);
+            values.insert(dataset, std::move(data));
+        };
+        stat("Mesh2_face_max_depth", "Surface — maximum overland flow depth", "m", {0, .5f});
+        stat("Mesh2_face_mean_depth", "Surface — time-weighted mean overland flow depth", "m",
+             {0, .2f});
+        stat("Mesh2_face_max_head", "Surface — maximum water surface elevation", "m",
+             {10, 10.5f});
+        stat("Mesh2_face_time_max_depth", "Surface — time of maximum overland flow depth", "h",
+             {std::numeric_limits<float>::quiet_NaN(), 2.5f});
+        stat("Mesh2_face_peak_vx", "Surface — cell velocity X at maximum speed", "m s-1", {1, 1});
+        stat("Mesh2_face_peak_vy", "Surface — cell velocity Y at maximum speed", "m s-1", {0, 0});
+        stat("Mesh2_face_mean_vx", "Surface — time-weighted mean cell velocity X", "m s-1",
+             {.5f, .5f});
+        stat("Mesh2_face_mean_vy", "Surface — time-weighted mean cell velocity Y", "m s-1",
+             {0, 0});
+    }
+    bool live = false; // true: like a running simulation, whose catalog has no run statistics
+    bool isLive() const override { return live; }
+    QVector<V> faceVariables(QStringList *warnings = nullptr) const override
+    {
+        auto all = FieldSource::faceVariables(warnings);
+        if (live)
+            all.removeIf([](const V &v) { return v.temporal == V::Temporal::Envelope; });
+        return all;
+    }
+};
+
 class Renderer : public SWMM2DResultsQSGRenderer
 {
 public:
@@ -310,6 +355,15 @@ const QString kGradient =
 const QString kDarcy =
     QStringLiteral("vector:groundwater:Mesh2_face_gw_qx|groundwater:Mesh2_face_gw_qy");
 
+const QString kMaxDepth = QStringLiteral("surface:Mesh2_face_max_depth");
+const QString kMeanDepth = QStringLiteral("surface:Mesh2_face_mean_depth");
+const QString kMaxHead = QStringLiteral("surface:Mesh2_face_max_head");
+const QString kTimeMaxDepth = QStringLiteral("surface:Mesh2_face_time_max_depth");
+const QString kPeakVelocity =
+    QStringLiteral("vector:surface:Mesh2_face_peak_vx|surface:Mesh2_face_peak_vy");
+const QString kMeanVelocity =
+    QStringLiteral("vector:surface:Mesh2_face_mean_vx|surface:Mesh2_face_mean_vy");
+
 using Panel = openswmmvis::ui::Swmm2DResultsStylePanel;
 /** @return Page names of the panel's display tabs, in order. */
 QStringList tabPages(const Panel &panel)
@@ -330,6 +384,28 @@ QString currentTab(const Panel &panel)
 QAbstractItemModel *fieldModel(const Panel &panel)
 {
     return panel.findChild<QTreeView *>("additionalResultList")->model();
+}
+/** @return Every leaf item of the field tree (rows, unchecked fields, layer items), in order;
+ *   the headings (kind, then how the fields vary) are walked through. */
+QList<QModelIndex> fieldLeaves(const QAbstractItemModel *model, const QModelIndex &parent = {})
+{
+    QList<QModelIndex> leaves;
+    for (int r = 0; r < model->rowCount(parent); ++r) {
+        const auto index = model->index(r, 0, parent);
+        if (model->rowCount(index) > 0)
+            leaves += fieldLeaves(model, index);
+        else
+            leaves << index;
+    }
+    return leaves;
+}
+/** @return "Kind / group" headings above a leaf, e.g. "Surface water — Scalar / Time varying". */
+QString headingPath(const QModelIndex &leaf)
+{
+    QStringList path;
+    for (auto p = leaf.parent(); p.isValid(); p = p.parent())
+        path.prepend(p.data().toString());
+    return path.join(QStringLiteral(" / "));
 }
 /** @return Id of the selected field-tree item. */
 QString currentId(const Panel &panel)
@@ -724,15 +800,11 @@ private slots:
             colors.insert(arrow.color.rgba());
         }
         QCOMPARE(colors.size(), 2); // one color per cell's water table
-        QVERIFY(!geometry.streaks.empty());
-        for (const auto &streak : geometry.streaks)
-            QVERIFY(streak.points.back().x() > streak.points.front().x());
 
         auto *velocity = layer.velocityResultSublayer();
         velocity->vectorStyle()->setArrows(true);
         const auto surface = layer.resultVectorGeometry(velocity, everywhere, 100);
         QVERIFY(!surface.arrows.empty());
-        QVERIFY(surface.streaks.empty()); // animated by the flow-streak pass
     }
 
     /** @brief One scalar row draws its cell fill, filled contours and isolines together. */
@@ -825,13 +897,20 @@ private slots:
         Panel panel(&layer);
         auto *model = fieldModel(panel);
         QStringList fields, layerItems;
+        // The rows mirror the layer tree, kind by kind (the panel also groups them by how they
+        // vary); fields without a row (unchecked offers) follow them.
         for (int r = 0; r < model->rowCount(); ++r) {
             const QModelIndex heading = model->index(r, 0);
             const bool last = r + 1 == model->rowCount();
-            if (!last)
-                fields << heading.data().toString();
-            for (int c = 0; c < model->rowCount(heading); ++c)
-                (last ? layerItems : fields) << model->index(c, 0, heading).data(Qt::UserRole).toString();
+            QStringList rows;
+            for (const auto &leaf : fieldLeaves(model, heading))
+                if (const QString id = leaf.data(Qt::UserRole).toString();
+                    !id.startsWith(QLatin1String("offer:")))
+                    rows << id;
+            if (last)
+                layerItems = rows;
+            else if (!rows.isEmpty())
+                fields << heading.data().toString() << rows;
         }
         QCOMPARE(fields, expected);
         QCOMPARE(model->index(model->rowCount() - 1, 0).data().toString(), QStringLiteral("Layer"));
@@ -840,17 +919,17 @@ private slots:
         // A heading edits nothing: arrow keys step over it, and a click on it selects the
         // group's first field.
         auto *view = panel.findChild<QTreeView *>("additionalResultList");
+        // (The headings nest: kind, then how the fields vary.)
         const QModelIndex first = model->index(0, 0), second = model->index(1, 0);
-        const QString lastOfFirst =
-            model->index(model->rowCount(first) - 1, 0, first).data(Qt::UserRole).toString();
-        const QString firstOfSecond = model->index(0, 0, second).data(Qt::UserRole).toString();
-        QVERIFY(panel.focusResult(lastOfFirst));
+        const QModelIndex lastOfFirst = fieldLeaves(model, first).last();
+        const QModelIndex firstOfSecond = fieldLeaves(model, second).first();
+        view->setCurrentIndex(lastOfFirst);
         QTest::keyClick(view, Qt::Key_Down);
-        QTRY_COMPARE(currentId(panel), firstOfSecond);
+        QTRY_COMPARE(view->currentIndex(), firstOfSecond);
         QTest::keyClick(view, Qt::Key_Up);
-        QTRY_COMPARE(currentId(panel), lastOfFirst);
+        QTRY_COMPARE(view->currentIndex(), lastOfFirst);
         view->setCurrentIndex(second);
-        QTRY_COMPARE(currentId(panel), firstOfSecond);
+        QTRY_COMPARE(view->currentIndex(), firstOfSecond);
     }
 
     /** @brief Tree checks follow visibility both ways without flipping a row back, and a row
@@ -877,8 +956,8 @@ private slots:
         edges->setVisible(!edges->isVisible());
         QCOMPARE(checked(edges->id()), edges->isVisible());
         bed->setVariableKey(kTable);
-        QCOMPARE(fieldItem(panel, bed->id()).parent().data().toString(),
-                 QStringLiteral("Groundwater — Scalar"));
+        QCOMPARE(headingPath(fieldItem(panel, bed->id())),
+                 QStringLiteral("Groundwater — Scalar / Time varying"));
         QCOMPARE(currentId(panel), bed->id());
     }
 
@@ -900,35 +979,55 @@ private slots:
         const QStringList vector{"resultArrowsTab", "resultStreaksTab", "resultColourTab",
                                  "resultDataTab"};
         using openswmmvis::ui::ClassificationEditor;
-        QVERIFY(panel.focusResult(depth->id()));
-        QCOMPARE(tabPages(panel), scalar);
-        QVERIFY(panel.findChild<QStackedWidget *>("depthFillPasses"));
-        QVERIFY(!panel.findChild<ClassificationEditor *>("additionalResultClassification"));
-        QVERIFY(panel.focusResult(depth2->id()));
-        QCOMPARE(tabPages(panel), scalar);
-        QVERIFY(!panel.findChild<QStackedWidget *>("depthFillPasses"));
-        QVERIFY(panel.findChild<ClassificationEditor *>("additionalResultClassification"));
-        QVERIFY(panel.focusResult(velocity->id()));
-        QCOMPARE(tabPages(panel), vector);
-        QVERIFY(panel.findChild<QWidget *>("flowStreakTab"));
+        // Every scalar, the depth row included, has the same page and editors.
+        for (auto *row : {depth, depth2}) {
+            QVERIFY(panel.focusResult(row->id()));
+            QCOMPARE(tabPages(panel), scalar);
+            QVERIFY(!panel.findChild<QStackedWidget *>("depthFillPasses"));
+            for (const char *editor :
+                 {"additionalResultClassification", "additionalResultBandClassification",
+                  "additionalResultContourClassification"})
+                QVERIFY2(panel.findChild<ClassificationEditor *>(editor), editor);
+        }
+        // Every vector has the same page, with the same streak controls.
+        for (auto *row : {velocity, velocity2, vectorRow(layer, kDarcy)}) {
+            QVERIFY(panel.focusResult(row->id()));
+            QCOMPARE(tabPages(panel), vector);
+            QVERIFY(panel.findChild<QWidget *>("flowStreakTab"));
+            for (const char *control : {"flowDensity", "flowMotion", "flowTrail"})
+                QVERIFY2(panel.findChild<QSlider *>(control), control);
+        }
+        // A row's Streaks tab edits that row's settings.
         QVERIFY(panel.focusResult(velocity2->id()));
-        QCOMPARE(tabPages(panel), vector);
-        QVERIFY(!panel.findChild<QWidget *>("flowStreakTab"));
+        panel.findChild<QSlider *>("flowDensity")->setValue(60);
+        QCOMPARE(velocity2->vectorStyle()->streakStyle()->spacingPx(), 20.);
+        QVERIFY(velocity->vectorStyle()->streakStyle()->spacingPx() != 20.);
         // The shown second depth row presents the passes once the first goes.
         QVERIFY(panel.focusResult(depth2->id()));
         QVERIFY(layer.removeResultSublayer(depth->id()));
         QCOMPARE(layer.depthResultSublayer(), depth2);
         QCOMPARE(currentId(panel), depth2->id());
-        QVERIFY(panel.findChild<QStackedWidget *>("depthFillPasses"));
+        QCOMPARE(tabPages(panel), scalar);
     }
 
-    /** @brief The depth Fill tab edits the pass being drawn; the other pass's page is disabled,
-     * and a draft left on it is dropped. */
-    void depthFillTabFollowsSmoothChoice()
+    /** @brief Depth is styled like every scalar: the depth row's style is the model of the
+     * passes that draw it. A new row starts with the passes' style; its fill classes go to the
+     * flat and smooth fills, its band classes to the bands, its line style to the isolines; a
+     * pass edited outside the row comes back into it. */
+    void depthRowStyleDrivesItsPasses()
     {
         SWMM2DResultsLayer layer;
         layer.setSource(std::make_unique<FieldSource>());
         auto *depth = layer.depthResultSublayer();
+        auto *st = depth->fillStyle();
+        auto *cell = layer.cellDepthFillSublayer()->fillStyle();
+        auto *smooth = layer.smoothDepthFillSublayer()->fillStyle();
+        auto *bands = layer.contourBandSublayer()->bandStyle();
+        auto *lines = layer.isolineSublayer()->isolineStyle();
+        // The new row took the passes' defaults (the depth bands' Water Depth ramp).
+        QVERIFY(st->bandScheme() == bands->scheme());
+        QVERIFY(st->scheme() == cell->scheme());
+        QCOMPARE(st->contourStyle()->toJson(), lines->toJson());
         ClassificationScheme manual;
         manual.setMode(ClassificationScheme::ClassMode::Classified);
         manual.setUseCustomRange(true);
@@ -936,60 +1035,46 @@ private slots:
         manual.setRangeMax(10);
         manual.setMethod(BinMethod::Manual);
         manual.setManualBreaks({2, 5});
-        layer.cellDepthFillSublayer()->fillStyle()->setScheme(manual);
-        depth->fillStyle()->setSmoothFill(false);
+        st->setScheme(manual);
+        QVERIFY(cell->scheme() == manual);
+        QVERIFY(smooth->scheme() == manual);
+        auto five = st->bandScheme();
+        five.setClassCount(five.classCount() == 5 ? 6 : 5);
+        st->setBandScheme(five);
+        QVERIFY(bands->scheme() == five);
+        QVERIFY(cell->scheme() == manual); // the fill's classes did not move
+        st->contourStyle()->setLineWidthPx(3.5);
+        QCOMPARE(lines->lineWidthPx(), 3.5);
+        // A pass edited outside the row (legacy setter, legend) is the row's style again.
+        auto seven = bands->scheme();
+        seven.setClassCount(7);
+        bands->setScheme(seven);
+        QCOMPARE(st->bandScheme().classCount(), 7);
+        // A pass id opens the row's tab, with the same editor every scalar has.
         Panel panel(&layer);
         QVERIFY(panel.focusResult(QStringLiteral("results2d.cellDepthFill")));
         QCOMPARE(currentTab(panel), QStringLiteral("resultFillTab"));
-        auto *passes = panel.findChild<QStackedWidget *>("depthFillPasses");
-        QVERIFY(passes);
-        QCOMPARE(passes->currentIndex(), 0);
-        QVERIFY(!passes->widget(1)->isEnabled());
-        // The fill is off by default, yet Smooth still picks the pass to edit.
-        QVERIFY(!depth->fillStyle()->cellFill());
-        QVERIFY(panel.findChild<QCheckBox *>("additionalResultSmoothFill")->isEnabled());
-        auto *cell = passes->widget(0)->findChild<openswmmvis::ui::ClassificationEditor *>();
-        auto *table = cell ? cell->findChild<QTableView *>() : nullptr;
-        QVERIFY(table && table->model()->rowCount() > 1);
-        const QString original = table->model()->index(0, 1).data().toString();
-        QVERIFY(table->model()->setData(table->model()->index(0, 1), QStringLiteral("oops")));
-        QVERIFY(!cell->hasValidDraft());
-        depth->fillStyle()->setCellFill(true);
-        depth->fillStyle()->setSmoothFill(true);
-        QCOMPARE(passes->currentIndex(), 1);
-        QVERIFY(!passes->widget(0)->isEnabled() && cell->hasValidDraft());
-        depth->fillStyle()->setSmoothFill(false);
-        QCOMPARE(passes->currentIndex(), 0);
-        QVERIFY(cell->isEnabled() && cell->hasValidDraft()); // the left draft was dropped
-        QCOMPARE(table->model()->index(0, 1).data().toString(), original);
+        QVERIFY(panel.findChild<openswmmvis::ui::ClassificationEditor *>(
+            "additionalResultClassification"));
+        // A row removed and checked again keeps the look its passes hold.
+        const QString id = depth->id();
+        QVERIFY(layer.removeResultSublayer(id));
+        auto *again = layer.addResultSublayer(kDepth);
+        QCOMPARE(again->fillStyle()->bandScheme().classCount(), 7);
+        QVERIFY(again->fillStyle()->scheme() == manual);
     }
 
-    /** @brief A pass's own opacity survives hiding and showing its row; the row's opacity, set in
-     * the header, then resets it, and the pass's control follows. */
+    /** @brief The row's opacity, set in the header, is the opacity of every pass it presents. */
     void depthPassOpacityFollowsRowOpacity()
     {
         SWMM2DResultsLayer layer;
         layer.setSource(std::make_unique<FieldSource>());
-        auto *depth = layer.depthResultSublayer();
         Panel panel(&layer);
         QVERIFY(panel.focusResult(QStringLiteral("results2d.bands")));
-        auto *page = panel.findChild<QTabWidget *>("resultDisplayTabs")->currentWidget();
-        QDoubleSpinBox *pass = nullptr;
-        for (auto *spin : page->findChildren<QDoubleSpinBox *>())
-            if (spin->maximum() == 1.0) {
-                pass = spin;
-                break;
-            }
-        QVERIFY(pass);
-        pass->setValue(.5);
-        QCOMPARE(layer.contourBandSublayer()->opacity(), .5);
-        depth->setVisible(false);
-        depth->setVisible(true);
-        QCOMPARE(layer.contourBandSublayer()->opacity(), .5);
-        QCOMPARE(pass->value(), .5);
         panel.findChild<QDoubleSpinBox *>("additionalResultOpacity")->setValue(80);
         QCOMPARE(layer.contourBandSublayer()->opacity(), .8);
-        QCOMPARE(pass->value(), .8);
+        QCOMPARE(layer.isolineSublayer()->opacity(), .8);
+        QCOMPARE(layer.cellDepthFillSublayer()->opacity(), .8);
     }
 
     /** @brief Pass ids open the presenting row on the tab that edits the pass; rows and layer
@@ -1029,37 +1114,181 @@ private slots:
         QCOMPARE(currentTab(*opened), QStringLiteral("resultFilledContoursTab"));
     }
 
-    /** @brief Add field offers every scalar and vector field of the run, adds a new row each time
-     * (two rows of one field allowed) and opens it. */
-    void addFieldMenuOffersEveryCatalogField()
+    /** @brief The field list is a checklist: every field of the run is listed once, as a row or
+     * unchecked; checking one adds its row and opens it, leaving the other rows drawn as they
+     * were; removing a row lists the field unchecked again. No field is re-pointed. */
+    void fieldListIsAChecklistOfEveryField()
     {
         SWMM2DResultsLayer layer;
         layer.setSource(std::make_unique<FieldSource>());
         Panel panel(&layer);
-        auto *menu = panel.findChild<QMenu *>("additionalResultCatalog");
-        QVERIFY(menu);
-        QStringList offered, expected;
-        QAction *gradient = nullptr;
-        for (auto *action : menu->actions())
-            if (const QString key = action->data().toString(); !key.isEmpty()) {
-                offered << key;
-                if (key == kGradient)
-                    gradient = action;
+        QVERIFY(!panel.findChild<QMenu *>("additionalResultCatalog"));
+        QVERIFY(!panel.findChild<QPushButton *>("additionalResultAdd"));
+        const auto listed = [&] {
+            QHash<QString, QModelIndex> byKey;
+            {
+                for (const auto &item : fieldLeaves(fieldModel(panel))) {
+                    const QString id = item.data(Qt::UserRole).toString();
+                    QString key;
+                    if (id.startsWith(QLatin1String("offer:")))
+                        key = id.mid(6);
+                    else if (auto *s = qobject_cast<ResultScalarSublayer *>(
+                                 ISublayerHost::findSublayer(layer, id)))
+                        key = s->variableKey();
+                    else if (auto *v = qobject_cast<ResultVectorSublayer *>(
+                                 ISublayerHost::findSublayer(layer, id)))
+                        key = v->vectorKey();
+                    if (!key.isEmpty()) {
+                        if (byKey.contains(key))
+                            return QHash<QString, QModelIndex>(); // listed twice
+                        byKey.insert(key, item);
+                    }
+                }
             }
+            return byKey;
+        };
+        auto byKey = listed();
+        const auto vectors = layer.resultVectors();
+        for (const auto &v : vectors)
+            QVERIFY2(byKey.contains(v.key()), qPrintable(v.key()));
         for (const auto &v : layer.resultVariables())
-            expected << v.key();
-        for (const auto &v : layer.resultVectors())
-            expected << v.key();
-        QCOMPARE(offered, expected);
-        QVERIFY(gradient);
+            if (!isVectorComponentKey(vectors, v.key()))
+                QVERIFY2(byKey.contains(v.key()), qPrintable(v.key()));
+        QVERIFY(!byKey.contains("surface:Mesh2_face_vx")); // a component of the velocity
+        QVERIFY(byKey.contains(kGradient));
+        QCOMPARE(byKey.value(kGradient).data(Qt::CheckStateRole).toInt(), int(Qt::Unchecked));
+        // Checking the gradient adds its row: depth and velocity stay as they were.
+        auto *depth = layer.depthResultSublayer();
+        auto *velocity = layer.velocityResultSublayer();
+        const bool depthShown = depth->isVisible(), velocityShown = velocity->isVisible();
         const auto before = layer.sublayers().size();
-        gradient->trigger();
-        gradient->trigger();
-        QCOMPARE(layer.sublayers().size(), before + 2);
-        auto *added =
-            qobject_cast<ResultVectorSublayer *>(ISublayerHost::findSublayer(layer, currentId(panel)));
-        QVERIFY(added && added->vectorKey() == kGradient);
+        fieldModel(panel)->setData(byKey.value(kGradient), Qt::Checked, Qt::CheckStateRole);
+        QTRY_COMPARE(layer.sublayers().size(), before + 1);
+        auto *added = vectorRow(layer, kGradient);
+        QVERIFY(added && added->isVisible());
+        QCOMPARE(depth->variableKey(), kDepth);
+        QCOMPARE(depth->isVisible(), depthShown);
+        QCOMPARE(velocity->vectorKey(), kVelocity);
+        QCOMPARE(velocity->isVisible(), velocityShown);
+        QTRY_COMPARE(currentId(panel), added->id());
         QCOMPARE(currentTab(panel), QStringLiteral("resultArrowsTab"));
+        QVERIFY(!panel.findChild<QComboBox *>("additionalResultVariable"));
+        QVERIFY(panel.findChild<QLabel *>("additionalResultField"));
+        byKey = listed();
+        QCOMPARE(byKey.value(kGradient).data(Qt::UserRole).toString(), added->id());
+        // Removing the row lists the field unchecked again.
+        panel.findChild<QPushButton *>("additionalResultRemove")->click();
+        QTRY_VERIFY(!vectorRow(layer, kGradient));
+        QTRY_VERIFY(listed().value(kGradient).data(Qt::UserRole).toString().startsWith("offer:"));
+    }
+
+    /** @brief The filter hides fields that do not match, and headings left empty. */
+    void fieldFilterHidesNonMatchingFields()
+    {
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<FieldSource>());
+        Panel panel(&layer);
+        auto *filter = panel.findChild<QLineEdit *>("additionalResultFilter");
+        QVERIFY(filter);
+        auto *tree = panel.findChild<QTreeView *>("additionalResultList");
+        auto *model = fieldModel(panel);
+        filter->setText(QStringLiteral("gradient"));
+        const auto hidden = [&](QModelIndex index) {
+            for (; index.isValid(); index = index.parent())
+                if (tree->isRowHidden(index.row(), index.parent()))
+                    return true;
+            return false;
+        };
+        int shown = 0;
+        for (const auto &leaf : fieldLeaves(model)) {
+            if (headingPath(leaf) == QLatin1String("Layer"))
+                continue; // layer-wide items are never filtered
+            const bool matches =
+                leaf.data().toString().contains(QStringLiteral("gradient"), Qt::CaseInsensitive);
+            QCOMPARE(!hidden(leaf), matches);
+            shown += matches;
+        }
+        QVERIFY(shown > 0);
+        // A kind with no matching field is hidden with its groups.
+        for (int h = 0; h < model->rowCount(); ++h) {
+            const auto kind = model->index(h, 0);
+            if (kind.data().toString().startsWith(QLatin1String("Groundwater")))
+                QVERIFY(tree->isRowHidden(h, QModelIndex()));
+        }
+        filter->clear();
+        for (const auto &leaf : fieldLeaves(model))
+            QVERIFY(!hidden(leaf));
+    }
+
+    /** @brief Cell fill and filled contours classify separately: the bands have their own
+     * classes (and tab editor), changing one leaves the other's colors and legend block alone,
+     * and a style saved before the bands had classes loads with the fill's. */
+    void fillAndFilledContoursClassifySeparately()
+    {
+        ResultScalarSublayer row(QStringLiteral("results2d.variable.test"));
+        row.setVariableKey(kTable);
+        auto descriptor = variable("Mesh2_face_gw_table_elev", true, "table", "m");
+        row.setDescriptor(descriptor);
+        auto *st = row.fillStyle();
+        st->setCellFill(true);
+        st->setFilledContours(true);
+        auto fill = st->scheme();
+        fill.setMode(ClassificationScheme::ClassMode::Classified);
+        fill.setClassCount(3);
+        st->setScheme(fill);
+        auto bands = st->bandScheme();
+        bands.setClassCount(6);
+        st->setBandScheme(bands);
+        Mesh2DScalarFrame frame;
+        frame.descriptor = descriptor;
+        frame.values = {0, 10};
+        frame.status = {S::Valid, S::Valid};
+        frame.minimum = 0;
+        frame.maximum = 10;
+        std::vector<double> levels;
+        QVector<QColor> colors;
+        QVERIFY(row.bandStyling(frame, levels, colors));
+        QCOMPARE(colors.size(), 6); // the band classes, not the fill's three
+        const auto cells = row.cellColors(frame);
+        int bandRows = 0, fillRows = 0;
+        for (const auto &item : row.legendSymbolItems(frame)) {
+            if (item.classKey.startsWith(QLatin1String("bands.")))
+                ++bandRows;
+            else if (!item.classKey.isEmpty() && item.range.first == item.range.first &&
+                     item.label.contains(QLatin1Char('[')) &&
+                     !item.label.startsWith(QLatin1String("Filled contours")) &&
+                     item.classKey != QLatin1String("missing") &&
+                     item.classKey != QLatin1String("waterless") &&
+                     item.classKey != QLatin1String("notApplicable"))
+                ++fillRows;
+        }
+        QCOMPARE(bandRows, 6);
+        QCOMPARE(fillRows, 3);
+        // Changing the bands changes neither the fill's colors nor its scheme.
+        bands.setClassCount(4);
+        st->setBandScheme(bands);
+        QCOMPARE(row.cellColors(frame), cells);
+        QCOMPARE(st->scheme().classCount(), 3);
+        QVERIFY(row.bandStyling(frame, levels, colors));
+        QCOMPARE(colors.size(), 4);
+        // JSON round trip keeps both; an older style without band classes takes the fill's.
+        ResultScalarStyle restored;
+        restored.fromJson(st->toJson());
+        QCOMPARE(restored.bandScheme().classCount(), 4);
+        QCOMPARE(restored.scheme().classCount(), 3);
+        auto legacy = st->toJson();
+        legacy.remove(QStringLiteral("bandClassification"));
+        restored.fromJson(legacy);
+        QCOMPARE(restored.bandScheme().classCount(), 3);
+        // The Filled contours tab edits the band classes, with no "Go to Fill".
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<FieldSource>());
+        auto *table = layer.addResultSublayer(kTable);
+        Panel panel(&layer);
+        QVERIFY(panel.focusResult(table->id()));
+        QVERIFY(!panel.findChild<QPushButton *>("additionalResultGoToFill"));
+        QVERIFY(panel.findChild<openswmmvis::ui::ClassificationEditor *>(
+            "additionalResultBandClassification"));
     }
 
     /** @brief The streak color classes, hidden while coloring by speed is off, are disabled and
@@ -1538,22 +1767,80 @@ private slots:
         QVERIFY(old.cellDepthFillSublayer()->isVisible());
     }
 
-    /** @brief A second surface velocity row draws static streaks; only the presenting row
-     * leaves them to the animated pass. */
-    void secondVelocityRowDrawsStaticStreaks()
+    /** @brief Every vector row animates its streaks with the same settings: a row other than the
+     * surface velocity gets a controller of its own fed with its cell vectors, its particles move
+     * with the field, and they stop where its depth is below the dry cutoff. */
+    void everyVectorRowAnimatesItsStreaks()
     {
-        auto owned = std::make_unique<FieldSource>();
+        auto owned = std::make_unique<StatisticSource>();
         owned->values["Mesh2_face_depth"] = {1, 1};
         SWMM2DResultsLayer layer;
         layer.setSource(std::move(owned));
-        auto *second = layer.addResultVectorSublayer(kVelocity);
-        second->vectorStyle()->setArrows(false);
-        second->vectorStyle()->setStreaks(true);
-        QVERIFY(layer.velocityResultSublayer() != second);
-        const QRectF everywhere(-10, -10, 20, 20);
-        QVERIFY(!layer.resultVectorGeometry(second, everywhere, 100).streaks.empty());
-        QVERIFY(
-            layer.resultVectorGeometry(layer.velocityResultSublayer(), everywhere, 100).streaks.empty());
+        layer.setCurrentTimeIndex(0);
+        auto *darcy = vectorRow(layer, kDarcy);
+        auto *peak = layer.addResultVectorSublayer(kPeakVelocity);
+        QVERIFY(darcy && peak);
+        for (auto *row : {darcy, peak}) {
+            row->setVisible(true);
+            row->vectorStyle()->setStreaks(true);
+        }
+        QCOMPARE(layer.animatedStreakRows(), (QList<ResultVectorSublayer *>{darcy, peak}) );
+        QVERIFY(layer.flowStreaksEnabled(darcy) && layer.flowStreaksEnabled(peak));
+        // Each row has its own controller and its own settings; the native engine is the
+        // surface velocity row's.
+        auto *darcyFlow = layer.flowStreakController(darcy);
+        auto *peakFlow = layer.flowStreakController(peak);
+        QVERIFY(darcyFlow && peakFlow && darcyFlow != peakFlow);
+        QVERIFY(layer.flowStreakController(layer.velocityResultSublayer()) != peakFlow);
+        QVERIFY(layer.flowStreakController(nullptr) ==
+                layer.flowStreakController(layer.velocityResultSublayer()));
+        peak->vectorStyle()->streakStyle()->setSpacingPx(11);
+        QCOMPARE(layer.flowStreakStyle(peak)->spacingPx(), 11.);
+        QVERIFY(layer.flowStreakStyle(darcy)->spacingPx() != 11.);
+        QVERIFY(layer.flowStreakSublayer()->streakStyle()->spacingPx() != 11.);
+        // The field a row follows: groundwater has no depth; the saved peak velocity is
+        // measured against the saved maximum depth (cell 0 never wet).
+        std::shared_ptr<const Mesh2DScalarFrame> x, y, depth;
+        double cutoff = -1;
+        QVERIFY(layer.flowRowField(darcy, x, y, depth, cutoff));
+        QVERIFY(x && y && !depth);
+        QCOMPARE(cutoff, 0.);
+        peak->vectorStyle()->setDryDepthCutoff(.3);
+        QVERIFY(layer.flowRowField(peak, x, y, depth, cutoff));
+        QVERIFY(depth);
+        QCOMPARE(depth->descriptor.key(), kMaxDepth);
+        QCOMPARE(cutoff, .3);
+        // The captured field carries the row's vectors where the depth allows.
+        const QRectF view(-0.5, -1.5, 2, 2);
+        const auto input = peakFlow->capture(view, 200);
+        QVERIFY(input);
+        QVERIFY(!input->triangles.empty());
+        int moving = 0, dry = 0;
+        for (const auto &t : input->triangles) {
+            QVERIFY(t.velocityOnly);
+            if (t.available && t.meanDepth > .3) {
+                ++moving;
+                QCOMPARE(t.velocitySI, QPointF(1, 0));
+            } else
+                ++dry;
+        }
+        QCOMPARE(moving, 1); // the wet cell
+        QCOMPARE(dry, 1);    // the never-wet cell
+        // Particles are produced for the row and drift along +x.
+        std::shared_ptr<const FlowParticleFrame> frame;
+        for (int i = 0; i < 200 && !(frame && !frame->particles.empty()); ++i) {
+            frame = layer.flowParticles(peak, view, 200, layer.frameRevision());
+            peakFlow->waitForDone();
+            layer.advanceFlowStreaks(.05);
+            QCoreApplication::processEvents();
+        }
+        QVERIFY(frame);
+        QVERIFY(!frame->particles.empty());
+        // Hidden streaks stop the row's engine.
+        peak->vectorStyle()->setStreaks(false);
+        QVERIFY(!layer.flowStreaksEnabled(peak));
+        QVERIFY(!layer.flowParticles(peak, view, 200, layer.frameRevision()));
+        QCOMPARE(layer.animatedStreakRows(), (QList<ResultVectorSublayer *>{darcy}));
     }
 
     /** @brief Edge fluxes without cell velocities: no velocity row, so the animated streak
@@ -1631,7 +1918,7 @@ private slots:
             ISublayerHost::findSublayer(source, id)->setVisible(false);
         scalarRow(source, kTable)->setVisible(false); // a hidden default
         const auto current = ISublayerHost::saveSublayersToJson(source);
-        QCOMPARE(current.value("unifiedResults").toInt(), 2);
+        QCOMPARE(current.value("unifiedResults").toInt(), 3);
         {
             QFile out(QDir(outputDir()).filePath("default_rows_snapshot.json"));
             QVERIFY(out.open(QIODevice::WriteOnly | QIODevice::Truncate));
@@ -1886,10 +2173,14 @@ private slots:
         auto *second = layer.addResultSublayer(kDepth);
         Panel panel(&layer);
         QVERIFY(panel.focusResult(second->id()));
-        QVERIFY(!panel.findChild<QStackedWidget *>("depthFillPasses"));
+        auto own = second->fillStyle()->bandScheme();
+        own.setClassCount(own.classCount() == 4 ? 5 : 4);
+        second->fillStyle()->setBandScheme(own);
+        QVERIFY(!(layer.contourBandSublayer()->bandStyle()->scheme() == own));
         depth->setVariableKey(QStringLiteral("surface:Mesh2_face_z")); // same group
         QCOMPARE(layer.depthResultSublayer(), second);
-        QVERIFY(panel.findChild<QStackedWidget *>("depthFillPasses"));
+        // The row that now presents the passes styles them.
+        QVERIFY(layer.contourBandSublayer()->bandStyle()->scheme() == own);
     }
 
     /** @brief While a picker opened from the page (a modal color or ramp dialog) is open, the
@@ -1911,8 +2202,9 @@ private slots:
         QCOMPARE(panel.findChild<QTabWidget *>("resultDisplayTabs"), page);
         picker.hide();
         QTRY_VERIFY(panel.findChild<QTabWidget *>("resultDisplayTabs") != page);
-        QCOMPARE(panel.findChild<QComboBox *>("additionalResultVariable")->currentData().toString(),
-                 QStringLiteral("surface:Mesh2_face_vy"));
+        QVERIFY(panel.findChild<QLabel *>("additionalResultField")
+                    ->text()
+                    .contains(QStringLiteral("velocity Y")));
     }
 
     /** @brief Without the catalog depth row, the first depth row in paint order drives the
@@ -1931,7 +2223,6 @@ private slots:
         QVERIFY(!layer.contourBandSublayer()->isVisible());
         Panel panel(&layer);
         QVERIFY(panel.focusResult(second->id()));
-        QVERIFY(!panel.findChild<QStackedWidget *>("depthFillPasses"));
         QSignalSpy changed(&layer, &SWMM2DResultsLayer::resultSublayersChanged);
         const auto subs = layer.sublayers();
         QVERIFY(layer.moveSublayer(subs.indexOf(second), subs.indexOf(first)));
@@ -1940,7 +2231,6 @@ private slots:
         QVERIFY(!layer.cellDepthFillSublayer()->isVisible());
         QVERIFY(layer.contourBandSublayer()->isVisible());
         QCOMPARE(currentId(panel), second->id());
-        QVERIFY(panel.findChild<QStackedWidget *>("depthFillPasses"));
     }
 
     /** @brief A row that becomes the depth or velocity row shows the opacity of the passes it
@@ -2310,6 +2600,210 @@ private slots:
                 }
             }
         }
+    }
+
+    // ── Saved run statistics (2D result statistics plan 2026-11-14) ─────────────────────────
+
+    /** @brief The saved mean and peak velocity pair into vectors with readable labels; their
+     * components get no rows of their own; no statistic gets an automatic row. */
+    void savedRunStatisticsPairIntoVectors()
+    {
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<StatisticSource>());
+        QStringList statistics;
+        for (const auto &vector : layer.resultVectors())
+            if (vector.x.temporal == V::Temporal::Envelope)
+                statistics << vector.key() + QLatin1Char('=') + vector.label;
+        QCOMPARE(statistics, (QStringList{kPeakVelocity + "=Surface — velocity at maximum speed",
+                                          kMeanVelocity + "=Surface — mean velocity"}));
+        for (const QString &key : {kMaxDepth, kMeanDepth, kMaxHead, kTimeMaxDepth})
+            QVERIFY2(!scalarRow(layer, key), qPrintable(key));
+        QVERIFY(!vectorRow(layer, kPeakVelocity) && !vectorRow(layer, kMeanVelocity));
+    }
+
+    /** @brief A saved statistic is one frame for every report time (read once), and cells the
+     * run never wetted are waterless, following the dry depth. */
+    void savedRunStatisticsAreOneFrameMaskedWhereNeverWet()
+    {
+        auto owned = std::make_unique<StatisticSource>();
+        auto *source = owned.get();
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::move(owned));
+        source->reads.clear();
+        const auto first = layer.resultFrame(kMaxHead, 0);
+        QVERIFY2(first->error.isEmpty(), qPrintable(first->error));
+        QCOMPARE(layer.resultFrame(kMaxHead, 1).get(), first.get());
+        QCOMPARE(layer.resultFrame(kMaxHead, 1, true).get(), first.get());
+        QCOMPARE(source->reads.value("Mesh2_face_max_head"), 1);
+        QCOMPARE(first->status[0], S::Waterless); // never wet
+        QCOMPARE(first->status[1], S::Valid);
+        QCOMPARE(first->minimum, 10.5); // the range covers the wet cell only
+        QCOMPARE(first->maximum, 10.5);
+        const auto depth = layer.resultFrame(kMaxDepth, 0);
+        QCOMPARE(depth->status[0], S::Waterless);
+        QCOMPARE(depth->status[1], S::Valid);
+        // NaN (no time of maximum) in a never-wet cell is waterless too, not missing.
+        QCOMPARE(layer.resultFrame(kTimeMaxDepth, 0)->status[0], S::Waterless);
+        // A dry depth above the wet cell's maximum masks it as well.
+        layer.setDryDepth(.6);
+        QCOMPARE(layer.resultFrame(kMaxHead, 0)->status[1], S::Waterless);
+        // The current depth is a time series, masked by nothing here.
+        QCOMPARE(layer.resultFrame(kDepth, 0)->status[0], S::Valid);
+    }
+
+    /** @brief Statistic rows do not change with the report time: they are not animated, the
+     * animation tick leaves them alone, while the depth row still follows it. */
+    void savedRunStatisticRowsAreNotAnimated()
+    {
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<StatisticSource>());
+        auto *head = layer.addResultSublayer(kMaxHead);
+        auto *peak = layer.addResultVectorSublayer(kPeakVelocity);
+        QVERIFY(head && peak);
+        QVERIFY(!head->isDynamic());
+        QVERIFY(!peak->isDynamic());
+        QVERIFY(layer.depthResultSublayer()->isDynamic());
+        // Coloring the peak arrows by a time series makes them follow the clock again.
+        peak->vectorStyle()->setColorMode(ResultVectorStyle::ColorMode::Scalar);
+        peak->vectorStyle()->setColorKey(kDepth);
+        QVERIFY(peak->isDynamic());
+        peak->vectorStyle()->setColorMode(ResultVectorStyle::ColorMode::Magnitude);
+        QSignalSpy headTicks(head, &ISublayer::invalidated);
+        QSignalSpy depthTicks(layer.depthResultSublayer(), &ISublayer::invalidated);
+        layer.dispatchAnimationTick(1);
+        QCOMPARE(headTicks.count(), 0);
+        QVERIFY(depthTicks.count() > 0);
+    }
+
+    /** @brief A statistic row the user adds starts from its source's look: depth statistics
+     * take the depth row's displays and the depth bands' classes, the statistic vectors the
+     * velocity row's arrows and streaks; never-wet cells are not drawn. */
+    void addedStatisticRowsStartFromTheirSource()
+    {
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<StatisticSource>());
+        auto *depth = layer.depthResultSublayer();
+        QVERIFY(depth && layer.contourBandSublayer());
+        auto *maximum = layer.addResultSublayer(kMaxDepth);
+        QVERIFY(maximum);
+        const auto *st = maximum->fillStyle();
+        QCOMPARE(st->attribute(), kMaxDepth);
+        QCOMPARE(st->cellFill(), depth->fillStyle()->cellFill());
+        QCOMPARE(st->filledContours(), depth->fillStyle()->filledContours());
+        QVERIFY(st->filledContours());
+        auto expected = layer.contourBandSublayer()->bandStyle()->scheme();
+        expected.setMode(ClassificationScheme::ClassMode::Classified);
+        QVERIFY(st->bandScheme() == expected);
+        QCOMPARE(st->waterlessColor().alpha(), 0);
+        // A non-depth statistic keeps the generic defaults, only hiding never-wet cells.
+        auto *head = layer.addResultSublayer(kMaxHead);
+        QVERIFY(head->fillStyle()->cellFill());
+        QCOMPARE(head->fillStyle()->waterlessColor().alpha(), 0);
+        // A time series added by hand is untouched.
+        auto *plain = layer.addResultSublayer(kTable);
+        QVERIFY(plain->fillStyle()->waterlessColor().alpha() > 0);
+        auto *velocity = layer.velocityResultSublayer();
+        velocity->vectorStyle()->setArrows(true);
+        velocity->vectorStyle()->setSpacingPx(37);
+        auto *peak = layer.addResultVectorSublayer(kPeakVelocity);
+        QVERIFY(peak);
+        QCOMPARE(peak->vectorKey(), kPeakVelocity);
+        QVERIFY(peak->vectorStyle()->arrows());
+        QCOMPARE(peak->vectorStyle()->streaks(), velocity->vectorStyle()->streaks());
+        QCOMPARE(peak->vectorStyle()->spacingPx(), 37.);
+    }
+
+    /** @brief A saved statistic vector is cut off by its own depth statistic: the peak velocity
+     * draws where the maximum depth is wet even while the current frame is dry, and the mean
+     * velocity draws nowhere when the mean depth is below the cutoff. */
+    void statisticVectorsUseTheirOwnDepthStatistic()
+    {
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<StatisticSource>()); // current depth is zero everywhere
+        auto *peak = layer.addResultVectorSublayer(kPeakVelocity);
+        auto *mean = layer.addResultVectorSublayer(kMeanVelocity);
+        QVERIFY(peak && mean);
+        for (auto *row : {peak, mean}) {
+            row->vectorStyle()->setArrows(true);
+            row->vectorStyle()->setStreaks(true);
+            row->vectorStyle()->setDryDepthCutoff(.3);
+        }
+        const QRectF everywhere(-10, -10, 20, 20);
+        const auto geometry = layer.resultVectorGeometry(peak, everywhere, 100);
+        QVERIFY2(geometry.error.isEmpty(), qPrintable(geometry.error));
+        QVERIFY(!geometry.arrows.empty());
+        for (const auto &arrow : geometry.arrows) {
+            const QPointF mid = (arrow.tail + arrow.tip) / 2;
+            // Cell 1 is the upper-left triangle of the unit square: model x < model y, and
+            // scene y is minus model y.
+            QVERIFY2(mid.x() < -mid.y(), "an arrow drawn in the never-wet cell");
+            QVERIFY(arrow.tip.x() > arrow.tail.x()); // +x
+        }
+        // Mean depth 0.2 m < 0.3 m: no mean-velocity arrows, though the cell is wet at its peak.
+        QVERIFY(layer.resultVectorGeometry(mean, everywhere, 100).arrows.empty());
+        mean->vectorStyle()->setDryDepthCutoff(.1);
+        QVERIFY(!layer.resultVectorGeometry(mean, everywhere, 100).arrows.empty());
+    }
+
+    /** @brief The field list shows the saved statistics under their own heading, apart from the
+     * fields that change with time; checking one draws it beside the depth. */
+    void fieldListShowsSavedStatisticsApart()
+    {
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<StatisticSource>());
+        Panel panel(&layer);
+        auto *model = fieldModel(panel);
+        QHash<QString, QString> headingOf;
+        QHash<QString, QModelIndex> itemOf;
+        {
+            for (const auto &item : fieldLeaves(model)) {
+                QString key = item.data(Qt::UserRole).toString();
+                if (key.startsWith(QLatin1String("offer:")))
+                    key = key.mid(6);
+                else if (auto *s = qobject_cast<ResultScalarSublayer *>(
+                             ISublayerHost::findSublayer(layer, key)))
+                    key = s->variableKey();
+                else if (auto *v = qobject_cast<ResultVectorSublayer *>(
+                             ISublayerHost::findSublayer(layer, key)))
+                    key = v->vectorKey();
+                headingOf.insert(key, headingPath(item));
+                itemOf.insert(key, item);
+            }
+        }
+        // Vectors and scalars, each grouped by how the field varies.
+        for (const QString &key : {kMaxDepth, kMeanDepth, kMaxHead, kTimeMaxDepth})
+            QCOMPARE(headingOf.value(key),
+                     QStringLiteral("Surface water — Scalar / Statistical summaries"));
+        for (const QString &key : {kPeakVelocity, kMeanVelocity})
+            QCOMPARE(headingOf.value(key),
+                     QStringLiteral("Surface water — Vector / Statistical summaries"));
+        QCOMPARE(headingOf.value(kDepth), QStringLiteral("Surface water — Scalar / Time varying"));
+        QCOMPARE(headingOf.value(kVelocity),
+                 QStringLiteral("Surface water — Vector / Time varying"));
+        QCOMPARE(headingOf.value(QStringLiteral("surface:Mesh2_face_z")),
+                 QStringLiteral("Surface water — Scalar / Static"));
+        // Time of maximum depth and the depth draw together.
+        auto *depth = layer.depthResultSublayer();
+        QVERIFY(depth->isVisible());
+        model->setData(itemOf.value(kTimeMaxDepth), Qt::Checked, Qt::CheckStateRole);
+        QTRY_VERIFY(scalarRow(layer, kTimeMaxDepth));
+        QVERIFY(scalarRow(layer, kTimeMaxDepth)->isVisible());
+        QVERIFY(depth->isVisible());
+        QCOMPARE(depth->variableKey(), kDepth);
+    }
+
+    /** @brief During a live run the statistics are not in the catalog; a row kept for one says
+     * when it appears instead of reporting it missing. */
+    void liveRunSaysWhenSavedStatisticsAppear()
+    {
+        auto owned = std::make_unique<StatisticSource>();
+        owned->live = true;
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::move(owned));
+        const auto frame = layer.resultFrame(kMaxDepth, 0);
+        QVERIFY(frame->error.contains(QStringLiteral("appear when the run finishes")));
+        QVERIFY(layer.resultFrame(QStringLiteral("surface:Mesh2_face_gone"), 0)
+                    ->error.contains(QStringLiteral("unavailable")));
     }
 };
 

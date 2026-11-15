@@ -40,6 +40,8 @@ ResultVectorStyle::ResultVectorStyle(QObject *parent) : SublayerStyle(parent)
 {
     m_colorScheme.setRampName(QStringLiteral("Viridis"));
     m_colorScheme.setMode(ClassificationScheme::ClassMode::Continuous);
+    m_streakStyle = new FlowStreakStyle(this);
+    connect(m_streakStyle, &SublayerStyle::styleChanged, this, [this] { setDirty(); });
 }
 
 void ResultVectorStyle::setVectorKey(const QString &key)
@@ -146,21 +148,6 @@ void ResultVectorStyle::setColor(const QColor &color)
     if (color.isValid() && assign(m_color, color))
         setDirty();
 }
-void ResultVectorStyle::setStreakLengthPx(double px)
-{
-    if (assign(m_streakLengthPx, clampFinite(px, 4, 1000, m_streakLengthPx)))
-        setDirty();
-}
-void ResultVectorStyle::setStreakWidthPx(double px)
-{
-    if (assign(m_streakWidthPx, clampFinite(px, 0.1, 50, m_streakWidthPx)))
-        setDirty();
-}
-void ResultVectorStyle::setStreakSpacingPx(double px)
-{
-    if (assign(m_streakSpacingPx, clampFinite(px, 4, 1000, m_streakSpacingPx)))
-        setDirty();
-}
 void ResultVectorStyle::setColorScheme(const ClassificationScheme &scheme)
 {
     if (m_colorScheme.toJson() == scheme.toJson())
@@ -221,9 +208,7 @@ QJsonObject ResultVectorStyle::toJson() const
     json.insert(QStringLiteral("colorMode"), int(m_colorMode));
     json.insert(QStringLiteral("colorKey"), m_colorKey);
     json.insert(QStringLiteral("color"), m_color.name(QColor::HexArgb));
-    json.insert(QStringLiteral("streakLengthPx"), m_streakLengthPx);
-    json.insert(QStringLiteral("streakWidthPx"), m_streakWidthPx);
-    json.insert(QStringLiteral("streakSpacingPx"), m_streakSpacingPx);
+    json.insert(QStringLiteral("streakStyle"), m_streakStyle->toJson());
     json.insert(QStringLiteral("colorScheme"), m_colorScheme.toJson());
     return json;
 }
@@ -259,9 +244,15 @@ void ResultVectorStyle::fromJson(const QJsonObject &json)
         if (json.contains(QStringLiteral("colorKey")))
             setColorKey(json.value(QStringLiteral("colorKey")).toString());
         setColor(QColor(json.value(QStringLiteral("color")).toString()));
-        setStreakLengthPx(number("streakLengthPx", m_streakLengthPx));
-        setStreakWidthPx(number("streakWidthPx", m_streakWidthPx));
-        setStreakSpacingPx(number("streakSpacingPx", m_streakSpacingPx));
+        if (json.value(QStringLiteral("streakStyle")).isObject())
+            m_streakStyle->fromJson(json.value(QStringLiteral("streakStyle")).toObject());
+        else {
+            // Saved with the former static streaks: keep their spacing and width.
+            if (json.contains(QStringLiteral("streakSpacingPx")))
+                m_streakStyle->setSpacingPx(number("streakSpacingPx", m_streakStyle->spacingPx()));
+            if (json.contains(QStringLiteral("streakWidthPx")))
+                m_streakStyle->setWidthPx(number("streakWidthPx", m_streakStyle->widthPx()));
+        }
         if (json.value(QStringLiteral("colorScheme")).isObject())
             setColorScheme(
                 ClassificationScheme::fromJson(json.value(QStringLiteral("colorScheme")).toObject()));
@@ -317,6 +308,16 @@ void ResultVectorSublayer::setDescriptor(const openswmmvis::io::Mesh2DResultVect
 {
     m_descriptor = descriptor;
     emit invalidated();
+}
+
+bool ResultVectorSublayer::isDynamic() const
+{
+    using T = openswmmvis::io::Mesh2DResultVariable::Temporal;
+    const auto temporal = m_descriptor.x.temporal;
+    return m_descriptor.key() != vectorKey() ||
+           (temporal != T::Static && temporal != T::Envelope) ||
+           m_style->sizeMode() == ResultVectorStyle::SizeMode::Scalar ||
+           m_style->colorMode() == ResultVectorStyle::ColorMode::Scalar;
 }
 
 QColor ResultVectorSublayer::colorFor(double value, double lo, double hi) const
