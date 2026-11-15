@@ -28,6 +28,8 @@
 #include "io/mesh2dh5reader.h"
 #include "mesh/meshcellgeom.h"
 
+#include <openswmm/engine/openswmm_engine.h>
+
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -96,6 +98,27 @@ void writeStringAttr(hid_t obj, const char *name, const char *value)
     H5Aclose(attr);
     H5Sclose(space);
     H5Tclose(type);
+}
+
+/**
+ * @brief A one-cell 2D deck with climate evaporation over a SIGMA aquifer.
+ * @param output Absolute path of the mesh results file the run writes.
+ * @param depth Initial water depth on the cell, in meters ("0" for a dry cell).
+ */
+QByteArray etDeck(const QString &output, const char *depth)
+{
+    return QByteArray("[OPTIONS]\nFLOW_UNITS CMS\nFLOW_ROUTING DYNWAVE\n"
+                      "START_DATE 10/05/2026\nEND_DATE 10/05/2026\nEND_TIME 00:05:00\n"
+                      "WET_STEP 00:01:00\nROUTING_STEP 1\nREPORT_STEP 00:01:00\n"
+                      "[JUNCTIONS]\nJ1 0 3\n[OUTFALLS]\nO1 -1 FREE NO\n"
+                      "[CONDUITS]\nC1 J1 O1 30 .013 0 0\n[XSECTIONS]\nC1 CIRCULAR .5 0 0 0 1\n"
+                      "[EVAPORATION]\nCONSTANT 10\n"
+                      "[2D_OPTIONS]\nEVAPORATION CLIMATE\nINFILTRATION NO\nMAX_TIMESTEP 1\n"
+                      "LTS_TIERS 3\nREPORT_2D YES\nREPORT_2D_VARIABLES ALL\nOUTPUT_FILE \"") +
+           output.toUtf8() +
+           "\"\n[2D_VERTICES]\n0 0 0\n10 0 0\n0 10 0\n[2D_TRIANGLES]\n0 1 2 .03 " + depth +
+           "\n[2D_AQUIFER_OPTIONS]\nCLOSURE SIGMA\nFORCE_CLOSED_FORM YES\n"
+           "NODE_ENROLMENT ROWS\n[2D_AQUIFER]\n* 1e-12 2 .45 .1 2 HG0 1\n";
 }
 
 /**
@@ -1121,23 +1144,29 @@ private slots:
     }
 
     /**
-     * @brief Verify shipped dry/ponded ET results expose diagnostics and close the shared
-     * evaporation budget.
-     * @note Reads R3_ENGINE_OUTPUT or bundled surface_r3_out/results, potential/stress held with
-     * m/s/dimensionless units; final potential=surface+soil+unused+pending within 1e-8 and
-     * used<=potential. Ponded uses surface only, dry uses soil only. Read-only existing HDF5
-     * files, no generated engine run/output.
+     * @brief Verify dry and ponded ET runs expose diagnostics and close the shared evaporation
+     * budget.
+     * @note Runs the engine on a one-cell SIGMA deck (the engine's surface R3 et_SIGMA models)
+     * for a dry and a ponded cell; potential/stress held with m/s/dimensionless units; final
+     * potential=surface+soil+unused+pending within 1e-8 and used<=potential. Ponded uses surface
+     * only, dry uses soil only. Decks and results are kept in the reader review folder.
      */
     void actualEtResultsExposeTheSharedBudget()
     {
-        const QString base = qEnvironmentVariable(
-            "SWMMVIS_R3_ENGINE_OUTPUT", QFileInfo(QString::fromUtf8(__FILE__))
-                                            .absoluteDir()
-                                            .absoluteFilePath("data/surface_r3_out/results"));
+        const QDir base = QFileInfo(fixturePath_).absoluteDir();
         using V = openswmmvis::io::Mesh2DResultVariable;
         for (const char *suffix : {"dry", "ponded"}) {
+            const QString stem = base.filePath(QString("et_SIGMA_%1").arg(suffix));
+            QFile deck(stem + ".inp");
+            QVERIFY(deck.open(QIODevice::WriteOnly | QIODevice::Truncate));
+            deck.write(etDeck(stem + ".2d.h5", QString(suffix) == "ponded" ? "0.1" : "0"));
+            deck.close();
+            QCOMPARE(swmm_engine_run((stem + ".inp").toUtf8().constData(),
+                                     (stem + ".rpt").toUtf8().constData(),
+                                     (stem + ".out").toUtf8().constData(), nullptr),
+                     0);
             Mesh2DH5Reader reader;
-            QVERIFY(reader.open(QDir(base).filePath(QString("et_SIGMA_%1.2d.h5").arg(suffix))));
+            QVERIFY(reader.open(stem + ".2d.h5"));
             for (const char *name : {"Mesh2_face_et_pending", "Mesh2_face_et_potential_cum",
                                      "Mesh2_face_et_surface_cum", "Mesh2_face_et_soil_cum",
                                      "Mesh2_face_et_unused_cum", "Mesh2_face_et_refresh"})
