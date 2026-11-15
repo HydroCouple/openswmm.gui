@@ -508,6 +508,7 @@ set(
         include/map/legendclasseditcommands.h
         # Gap B1 — canonical legend-content helpers shared by both legend views.
         include/map/legendcontent.h
+        include/map/legendstyleundorecorder.h
         include/map/openswmmvisgraphicsview.h
         include/map/openswmmvisscene.h
         include/map/graphicsitems.h
@@ -1341,6 +1342,7 @@ set(
         src/map/legendclasseditcommands.cpp
         # Gap B1 — canonical legend-content helpers shared by both legend views.
         src/map/legendcontent.cpp
+        src/map/legendstyleundorecorder.cpp
         src/map/openswmmvisgraphicsview.cpp
         src/map/openswmmvisscene.cpp
         src/map/graphicsitems.cpp

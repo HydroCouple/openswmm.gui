@@ -219,6 +219,9 @@ private:
      * @return Borrowed entry from the current layout, valid until the next relayout. */
     [[nodiscard]] const OpenSWMM::Render::LegendEntry *entryAt(const QPoint &pos) const;
 
+    /*! \brief Record the style's changes on the canvas's undo stack (once per style). */
+    void ensureUndoRecorder();
+
     /*! \brief Change the legend tree node of @p entry (a row, a layer heading, a user group or
      *         text line), creating it when missing, and store the tree in the style.
      * @param[in] entry Line whose node is edited.

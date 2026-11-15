@@ -15,9 +15,13 @@
 #include <QFontMetrics>
 #include <QImage>
 #include <QJsonObject>
+#include <QMouseEvent>
+#include <QUndoStack>
 
 #include "layers/gisvectorlayer.h"
 #include "map/legendcontent.h"
+#include "map/legendstyleundorecorder.h"
+#include "map/mapundostack.h"
 #include "render/legendlayout.h"
 #include "map/mapcanvas.h"
 #include "render/legendoverlaystyle.h"
@@ -910,6 +914,113 @@ private slots:
         fillStyle->setClassified(true);
         for (const auto &row : fillLayer.legendSymbolItems())
             QCOMPARE(row.rampId, 0);
+    }
+
+    /** @brief Legend edits are undo steps on the map's stack: separate edits undo one by one,
+     *  a quick burst of one setting and a reset are one step each, a Legend dock edit and a drag
+     *  are undoable, and settings loaded with a project are not an undo step. */
+    void legendEditsAreUndoable()
+    {
+        LegendScene scene(QSize(800, 700));
+        scene.canvas->show();
+        QVERIFY(QTest::qWaitForWindowExposed(scene.canvas.get()));
+        LegendOverlay legend(scene.canvas.get());
+        legend.show();
+        LegendOverlayStyle *style = legend.style();
+        QUndoStack *stack = scene.canvas->undoStack();
+        QVERIFY(stack);
+        QVERIFY(openswmmvis::map::LegendStyleUndoRecorder::forStyle(style));
+        const auto settle = [] { QCoreApplication::processEvents(); };
+        const QJsonObject start = style->toJson();
+        const int base = stack->index();
+
+        style->setColumnCount(2);
+        settle();
+        style->setTitle(QStringLiteral("Undo me"));
+        settle();
+        style->setFrameStyle(LegendOverlayStyle::FrameStyle::Dash);
+        settle();
+        QCOMPARE(stack->index(), base + 3);
+        stack->undo();
+        QCOMPARE(style->frameStyle(), LegendOverlayStyle::FrameStyle::Solid);
+        stack->undo();
+        stack->undo();
+        QCOMPARE(style->toJson(), start);
+        stack->redo();
+        stack->redo();
+        stack->redo();
+        QCOMPARE(style->columnCount(), 2);
+        QCOMPARE(style->title(), QStringLiteral("Undo me"));
+        settle();
+        QCOMPARE(stack->index(), base + 3); // applying undo/redo records nothing
+
+        // A spin box held down: one step.
+        int count = stack->index();
+        for (int i = 1; i <= 10; ++i) {
+            style->setRowSpacing(2 + i);
+            settle();
+        }
+        QCOMPARE(stack->index(), count + 1);
+        stack->undo();
+        QCOMPARE(style->rowSpacing(), 2);
+        stack->redo();
+
+        // A reset changes many settings: one step.
+        count = stack->index();
+        const QJsonObject beforeReset = style->toJson();
+        style->resetToDefaults();
+        settle();
+        QCOMPARE(stack->index(), count + 1);
+        stack->undo();
+        QCOMPARE(style->toJson(), beforeReset);
+
+        // A Legend dock edit.
+        openswmmvis::ui::LegendLayerTreeModel dock(scene.canvas.get());
+        dock.setOverlayStyle(style);
+        const QString kinds = LegendOverlayStyle::itemKey(scene.kinds.get(), {});
+        int kindsRow = -1;
+        for (int r = 0; r < dock.rowCount(); ++r)
+            if (dock.index(r, 0).data().toString() == QStringLiteral("Point kinds"))
+                kindsRow = r;
+        QVERIFY(kindsRow >= 0);
+        QVERIFY(dock.setData(dock.index(0, 0, dock.index(kindsRow, 0)), Qt::Unchecked,
+                             Qt::CheckStateRole));
+        settle();
+        QVERIFY(!style->itemOverride(kinds, QStringLiteral("0")).visible);
+        stack->undo();
+        QVERIFY(style->itemOverride(kinds, QStringLiteral("0")).visible);
+
+        // A drag: one step that restores the anchor and the position together.
+        count = stack->index();
+        const QPoint startPos = legend.pos();
+        const QPointF grab(legend.width() / 2.0, legend.height() / 2.0);
+        QMouseEvent press(QEvent::MouseButtonPress, grab, legend.mapToGlobal(grab), Qt::LeftButton,
+                          Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(&legend, &press);
+        const QPointF to = grab + QPointF(-120, -90);
+        QMouseEvent move(QEvent::MouseMove, to, legend.mapToGlobal(to), Qt::NoButton,
+                         Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(&legend, &move);
+        QMouseEvent release(QEvent::MouseButtonRelease, to, legend.mapToGlobal(to), Qt::LeftButton,
+                            Qt::NoButton, Qt::NoModifier);
+        QApplication::sendEvent(&legend, &release);
+        settle();
+        QCOMPARE(style->anchor(), LegendOverlayStyle::Anchor::Free);
+        QCOMPARE(legend.pos(), startPos + QPoint(-120, -90));
+        QCOMPARE(stack->index(), count + 1);
+        stack->undo();
+        QCOMPARE(style->anchor(), LegendOverlayStyle::Anchor::BottomRight);
+        QCOMPARE(legend.pos(), startPos);
+
+        // Loading a project's legend is not an undo step.
+        count = stack->index();
+        LegendOverlayStyle saved;
+        saved.setColumnCount(4);
+        style->fromJson(saved.toJson());
+        openswmmvis::map::LegendStyleUndoRecorder::forStyle(style)->resync();
+        settle();
+        QCOMPARE(stack->index(), count);
+        QCOMPARE(style->columnCount(), 4);
     }
 
     /** @brief Hidden layers and hidden rows leave no space. */
