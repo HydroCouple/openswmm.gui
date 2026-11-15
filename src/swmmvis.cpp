@@ -7995,6 +7995,15 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
     }
     // After the controller follows this tab, so the box starts at this tab's time.
     bindTimeOverlay(pw->canvas());
+    // Clicking the legend or the date/time box shows its style in the Properties panel.
+    if (auto *canvas = pw->canvas()) {
+        QObject::disconnect(canvas, &MapCanvas::overlayStyleSelected, this, nullptr);
+        connect(canvas, &MapCanvas::overlayStyleSelected, this,
+                [this](QObject *style, const QString &title) {
+                    if (mPropertiesPanel)
+                        mPropertiesPanel->showStyleObject(style, title);
+                });
+    }
 
     // Keep the transport, the Analysis-toolbar combos, and the layer-tree
     // check-state in sync when this tab's active results layer changes. Lambdas

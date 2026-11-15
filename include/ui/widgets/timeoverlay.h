@@ -60,10 +60,14 @@ public:
     /** @brief The text the box shows: the formatted time, or "No animation time". */
     [[nodiscard]] QString text() const;
 
+    /** @brief Open the non-modal "Date and Time Properties" dialog on the style (its right-click
+     *  Properties…). The dialog is a child of the box named TimeOverlayPropertiesDialog. */
+    void openPropertiesDialog();
+
 protected:
     /** @brief Draw the background, frame and text. */
     void paintEvent(QPaintEvent *event) override;
-    /** @brief Start a drag with the left button. */
+    /** @brief Select the box (its style goes to the Properties panel) and start a drag. */
     void mousePressEvent(QMouseEvent *event) override;
     /** @brief Move the box; the style's anchor becomes Free at the new position. */
     void mouseMoveEvent(QMouseEvent *event) override;
@@ -77,8 +81,6 @@ protected:
 private:
     /** @brief Fit the box to the text and place it per the style. */
     void relayout();
-    /** @brief Open the non-modal Properties dialog on the style. */
-    void openPropertiesDialog();
 
     QPointer<MapCanvas> m_canvas;
     OpenSWMM::Render::TimeOverlayStyle *m_style = nullptr;

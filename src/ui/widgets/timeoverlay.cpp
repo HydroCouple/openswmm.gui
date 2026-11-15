@@ -11,6 +11,7 @@
 
 #include "map/mapcanvas.h"
 #include "render/timeoverlaystyle.h"
+#include "ui/properties/propertyrows.h"
 
 #include <qpropertymodel.h>
 
@@ -208,6 +209,9 @@ void TimeOverlay::mousePressEvent(QMouseEvent *event)
         QWidget::mousePressEvent(event);
         return;
     }
+    // Selecting the box shows its style in the Properties panel.
+    if (m_canvas)
+        m_canvas->selectOverlayStyle(m_style, tr("Date and Time"));
     m_dragging = true;
     m_dragStartOffset = event->pos();
     setCursor(Qt::ClosedHandCursor);
@@ -278,12 +282,19 @@ void TimeOverlay::openPropertiesDialog()
     tree->setEditTriggers(QAbstractItemView::AllEditTriggers);
     tree->setSelectionMode(QAbstractItemView::SingleSelection);
     tree->setRootIsDecorated(false);
-    tree->setItemsExpandable(false);
     auto *model = new QPropertyModel(m_style, dlg);
     tree->setModel(model);
     tree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
     tree->header()->setStretchLastSection(false);
     tree->expandAll();
+    // The font row shows its parts (family, size, bold, …) when selected.
+    openswmmvis::showFontPartsOnSelection(tree);
+    openswmmvis::collapseFontRows(tree);
+    tree->resizeColumnToContents(0);
+    // Edits made elsewhere (the Properties panel, dragging the box) show here too.
+    connect(
+        m_style, &TimeOverlayStyle::changed, tree,
+        [model]() { openswmmvis::refreshPropertyRows(model); }, Qt::QueuedConnection);
     tree->setToolTip(tr("The format uses Qt date/time codes, e.g. MM/dd/yyyy hh:mm:ss; text in "
                         "single quotes is shown as written."));
     layout->addWidget(tree, 1);

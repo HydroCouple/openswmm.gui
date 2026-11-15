@@ -154,7 +154,9 @@ never end up with two views onto the same object. They are covered in
 ### The Properties panel
 
 Selecting an object anywhere populates the Properties panel with a property
-tree. The rows are fixed per object kind, and each property's type decides its
+tree. Clicking the legend or the animation date/time box on the map shows its
+style here (font, colors, frame and background); edits here, in its Properties
+dialog and by dragging it stay in step. The rows are fixed per object kind, and each property's type decides its
 editor — a numeric row gets a spin box, a boolean a checkbox, an enumeration a
 combo, a color a color picker.
 
@@ -178,7 +180,7 @@ The panel header carries:
 | Boolean | Checkbox | e.g. flap gate |
 | Enumeration | Combo | e.g. outfall type; divider type; storage shape; inlet placement |
 | Text | Line edit | Name and tag |
-| Color / font | Color and font pickers | Annotation and layer styling rows |
+| Color / font | Color and font pickers | Annotation and layer styling rows. A font row opens when selected to show its parts — family, point size, bold, italic, underline, strikeout — each editable; the arrow opens and closes it |
 | Date-time | Calendar popup formatted `MM/dd/yyyy HH:mm` | Seconds are preserved even though the format omits them |
 | **Data-object reference** | Combo of what is actually defined plus a **…** button | e.g. rain gage; subcatchment outlet; pump curve; outfall tidal curve; inlet design; aquifer. The **…** opens that family's editor and the combo repopulates when it closes |
 | **Compound** | Cell shows a summary and a button opening a dialog | Inflows; DWF; RDII; treatment; cross-section; inlet usage; land use; LID usage; loadings; groundwater; initial quality; user flags |

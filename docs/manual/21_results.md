@@ -184,6 +184,10 @@ date/time display. Drag the box to place it. Right-click it for:
 | **Properties…** | Opens **Date and Time Properties**: the date/time format, font, text color, padding, anchor and opacity, and the same frame and background settings as the legend (none, solid or gradient). Edits show at once; **Reset** restores the defaults; **Esc** undoes the edits made since the dialog opened |
 | **Hide date and time** | Same as clearing **Show date/time** |
 
+Clicking the box also shows its settings in the Properties panel; edits there,
+in the dialog and by dragging stay in step. In both places the font row opens when
+selected to show its family, point size, bold, italic, underline and strikeout.
+
 The format uses Qt date/time codes; the default `MM/dd/yyyy hh:mm:ss` reads
 *03/14/2026 06:30:00*. Text in single quotes is shown as written, so
 `'Time: 'yyyy-MM-dd HH:mm` reads *Time: 2026-03-14 06:30*. Before any results are

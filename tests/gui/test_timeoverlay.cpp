@@ -26,6 +26,14 @@
 #include "swmmvis.h"
 #include "swmmvisprojectwindow.h"
 #include "ui/widgets/timeoverlay.h"
+#include "render/legendoverlaystyle.h"
+#include "ui/dialogs/legendpropertiesdialog.h"
+#include "ui/panels/propertiespanel.h"
+#include "ui/widgets/legendoverlay.h"
+
+#include <QAction>
+#include <QDialog>
+#include <QTreeView>
 
 using OpenSWMM::Render::TimeOverlayStyle;
 using openswmmvis::ui::TimeOverlay;
@@ -81,6 +89,50 @@ TimeOverlay *boxOf(SWMMVisProjectWindow *window)
 {
     return window->canvas()->findChild<TimeOverlay *>(QString(), Qt::FindDirectChildrenOnly);
 }
+
+/** The first row of @p tree's model, at any depth, whose name is @p name. */
+QModelIndex rowNamed(const QAbstractItemModel *model, const QString &name,
+                     const QModelIndex &parent = {})
+{
+    for (int r = 0; r < model->rowCount(parent); ++r) {
+        const QModelIndex row = model->index(r, 0, parent);
+        if (row.data().toString() == name)
+            return row;
+        const QModelIndex inner = rowNamed(model, name, row);
+        if (inner.isValid())
+            return inner;
+    }
+    return {};
+}
+
+/** The value of part @p part of the font row @p font. */
+QVariant partValue(const QModelIndex &font, const QString &part)
+{
+    const QAbstractItemModel *model = font.model();
+    for (int r = 0; r < model->rowCount(font); ++r) {
+        const QModelIndex row = model->index(r, 0, font);
+        if (row.data().toString() != part)
+            continue;
+        // Check-box parts (Bold, Italic, …) report a check state.
+        const QModelIndex value = row.siblingAtColumn(1);
+        const QVariant check = value.data(Qt::CheckStateRole);
+        return check.isValid() ? QVariant(check.toInt() == Qt::Checked) : value.data(Qt::EditRole);
+    }
+    return {};
+}
+
+QStringList partNames(const QModelIndex &font)
+{
+    QStringList names;
+    for (int r = 0; r < font.model()->rowCount(font); ++r)
+        names << font.model()->index(r, 0, font).data().toString();
+    return names;
+}
+
+const QStringList kFontParts = {QStringLiteral("Family"),    QStringLiteral("Point Size"),
+                                QStringLiteral("Bold"),      QStringLiteral("Italic"),
+                                QStringLiteral("Underline"), QStringLiteral("Strikeout"),
+                                QStringLiteral("Kerning"),   QStringLiteral("Style Strategy")};
 
 } // namespace
 
@@ -424,6 +476,160 @@ private slots:
         QVERIFY(!check->isChecked());
         mdi->setActiveSubWindow(plain);
         QTRY_VERIFY(check->isChecked());
+    }
+
+    /** @brief The legend and date/time Properties dialogs: a font row shows its parts when
+     *  selected (others stay closed), names are not cut off, and edits made elsewhere show. */
+    void dialogsShowFontPartsWhenSelectedAndFollowEdits()
+    {
+        OpenSWMM::Render::LegendOverlayStyle legendStyle;
+        openswmmvis::ui::LegendPropertiesDialog legendDialog(&legendStyle);
+        legendDialog.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&legendDialog));
+        auto *tree = legendDialog.findChild<QTreeView *>();
+        QVERIFY(tree && tree->itemsExpandable());
+        const QAbstractItemModel *model = tree->model();
+        const QStringList fonts = {QStringLiteral("General — Title font"),
+                                   QStringLiteral("General — Item font"),
+                                   QStringLiteral("General — Layer header font")};
+        for (const QString &name : fonts) {
+            const QModelIndex font = rowNamed(model, name);
+            QVERIFY2(font.isValid(), qPrintable(name));
+            QCOMPARE(partNames(font), kFontParts);
+            QVERIFY2(!tree->isExpanded(font), qPrintable(name));
+        }
+        const QModelIndex itemFont = rowNamed(model, fonts[1]);
+        tree->setCurrentIndex(itemFont);
+        QVERIFY(tree->isExpanded(itemFont));
+        QVERIFY(!tree->isExpanded(rowNamed(model, fonts[0])));
+        QVERIFY(tree->columnWidth(0) >= tree->fontMetrics().horizontalAdvance(fonts[2]));
+        legendDialog.grab().save(outDir() + QStringLiteral("/legend_dialog_font_selected.png"));
+
+        QFont bold = legendStyle.itemFont();
+        bold.setBold(true);
+        bold.setPointSize(15);
+        legendStyle.setItemFont(bold); // e.g. from the Properties panel
+        QTRY_COMPARE(partValue(itemFont, QStringLiteral("Bold")).toBool(), true);
+        QCOMPARE(partValue(itemFont, QStringLiteral("Point Size")).toInt(), 15);
+        legendStyle.setAnchor(OpenSWMM::Render::LegendOverlayStyle::Anchor::Free); // a drag
+        QTRY_COMPARE(rowNamed(model, QStringLiteral("General — Anchor"))
+                         .siblingAtColumn(1)
+                         .data()
+                         .toString(),
+                     QStringLiteral("Free"));
+
+        MapCanvas canvas;
+        canvas.resize(600, 400);
+        TimeOverlay *box = TimeOverlay::forCanvas(&canvas);
+        box->openPropertiesDialog();
+        auto *dialog = box->findChild<QDialog *>(QStringLiteral("TimeOverlayPropertiesDialog"));
+        QVERIFY(dialog);
+        auto *boxTree = dialog->findChild<QTreeView *>();
+        const QModelIndex font = rowNamed(boxTree->model(), QStringLiteral("General — Font"));
+        QCOMPARE(partNames(font), kFontParts);
+        QVERIFY(!boxTree->isExpanded(font));
+        boxTree->setCurrentIndex(font.siblingAtColumn(1));
+        QVERIFY(boxTree->isExpanded(font));
+        QFont italic = box->style()->font();
+        italic.setItalic(true);
+        box->style()->setFont(italic);
+        QTRY_COMPARE(partValue(font, QStringLiteral("Italic")).toBool(), true);
+        dialog->close();
+    }
+
+    /** @brief The Properties panel shows a style's font parts (closed until selected), edits
+     *  write through, edits made elsewhere show, and it lets go of a deleted style. */
+    void panelShowsFontPartsAndFollowsTheStyle()
+    {
+        PropertiesPanel panel;
+        panel.resize(420, 700);
+        panel.show();
+        auto *style = new TimeOverlayStyle;
+        panel.showStyleObject(style, QStringLiteral("Date and Time"));
+        QCOMPARE(panel.windowTitle(), QStringLiteral("Date and Time"));
+        auto *tree = panel.findChild<QTreeView *>();
+        QAbstractItemModel *model = tree->model();
+        const QModelIndex font = rowNamed(model, QStringLiteral("General — Font"));
+        QVERIFY(font.isValid());
+        QCOMPARE(partNames(font), kFontParts);
+        QVERIFY(!tree->isExpanded(font));
+        tree->setCurrentIndex(font);
+        QVERIFY(tree->isExpanded(font));
+        panel.grab().save(outDir() + QStringLiteral("/panel_font_selected.png"));
+
+        // Edits in the panel write the style.
+        const QModelIndex padding = rowNamed(model, QStringLiteral("General — Padding"));
+        QVERIFY(model->setData(padding.siblingAtColumn(1), 20, Qt::EditRole));
+        QCOMPARE(style->padding(), 20);
+        QVERIFY(model->setData(rowNamed(model, QStringLiteral("Bold"), font).siblingAtColumn(1),
+                               true, Qt::EditRole));
+        QVERIFY(style->font().bold());
+
+        // Edits made elsewhere (the dialog, a drag) show in the panel, font parts included.
+        QFont larger = style->font();
+        larger.setPointSize(17);
+        style->setFont(larger);
+        QTRY_COMPARE(partValue(font, QStringLiteral("Point Size")).toInt(), 17);
+        style->setFormat(QStringLiteral("HH:mm"));
+        QTRY_COMPARE(rowNamed(model, QStringLiteral("General — Date/time format"))
+                         .siblingAtColumn(1)
+                         .data()
+                         .toString(),
+                     QStringLiteral("HH:mm"));
+
+        // Showing something else stops following; a deleted style clears the panel.
+        panel.clear();
+        style->setPadding(3);
+        QCoreApplication::processEvents();
+        panel.showStyleObject(style, QStringLiteral("Date and Time"));
+        QVERIFY(model->rowCount() > 0);
+        delete style;
+        QCOMPARE(model->rowCount(), 0);
+        QCoreApplication::processEvents();
+    }
+
+    /** @brief In the app, clicking the date/time box or the legend on the map shows its style in
+     *  the Properties panel. */
+    void clickingABoxShowsItsStyleInThePropertiesPanel()
+    {
+        SWMMVis app;
+        app.resize(1600, 900);
+        app.show();
+        auto *mdi = app.findChild<QMdiArea *>();
+        QVERIFY(QMetaObject::invokeMethod(&app, "onNewProject", Qt::DirectConnection));
+        QTRY_COMPARE(app.findChildren<SWMMVisProjectWindow *>().size(), 1);
+        SWMMVisProjectWindow *project = app.findChildren<SWMMVisProjectWindow *>().first();
+        QTRY_COMPARE(mdi->activeSubWindow(), static_cast<QMdiSubWindow *>(project));
+        QTRY_VERIFY(boxOf(project));
+        auto *panel = app.findChild<PropertiesPanel *>();
+        QVERIFY(panel);
+        auto *tree = panel->findChild<QTreeView *>();
+
+        const auto click = [](QWidget *widget) {
+            const QPointF at(6, 6);
+            QMouseEvent press(QEvent::MouseButtonPress, at, widget->mapToGlobal(at), Qt::LeftButton,
+                              Qt::LeftButton, Qt::NoModifier);
+            QApplication::sendEvent(widget, &press);
+            QMouseEvent release(QEvent::MouseButtonRelease, at, widget->mapToGlobal(at),
+                                Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+            QApplication::sendEvent(widget, &release);
+        };
+
+        TimeOverlay *box = boxOf(project);
+        box->style()->setShown(true);
+        click(box);
+        QCOMPARE(panel->windowTitle(), QStringLiteral("Date and Time"));
+        QVERIFY(rowNamed(tree->model(), QStringLiteral("General — Date/time format")).isValid());
+
+        auto *showLegend = app.findChild<QAction *>(QStringLiteral("actionShowLegend"));
+        QVERIFY(showLegend);
+        showLegend->trigger();
+        auto *legend = project->canvas()->findChild<openswmmvis::ui::LegendOverlay *>(
+            QString(), Qt::FindDirectChildrenOnly);
+        QVERIFY(legend && legend->isVisibleTo(project->canvas()));
+        click(legend);
+        QCOMPARE(panel->windowTitle(), QStringLiteral("Legend"));
+        QVERIFY(rowNamed(tree->model(), QStringLiteral("General — Item font")).isValid());
     }
 
     /** @brief Export Map (no GPU map here, so the canvas is grabbed) holds the box exactly once:

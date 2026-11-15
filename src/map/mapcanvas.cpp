@@ -2410,6 +2410,11 @@ QPixmap MapCanvas::captureMap(QString *error)
     return {};
 }
 
+void MapCanvas::selectOverlayStyle(QObject *style, const QString &title)
+{
+    emit overlayStyleSelected(style, title);
+}
+
 void MapCanvas::refresh()
 {
     if (!m_refreshTimer->isActive())
