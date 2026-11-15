@@ -18,6 +18,9 @@
  *
  * NB: the cursor accessor/mutator are named cursorNorm()/setCursorNorm() — NOT
  * cursor()/setCursor() — to avoid hiding QWidget::setCursor(const QCursor&).
+ *
+ * Screen readers (review A-01) hear the cursor as text from the host's formatter
+ * (the animation time); they are told about user moves only, never playback.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -25,6 +28,8 @@
 #define OPENSWMMVIS_UI_WIDGETS_CURSORWINDOWSLIDER_H
 
 #include <QWidget>
+
+#include <functional>
 
 namespace openswmmvis::ui
 {
@@ -54,6 +59,14 @@ public:
     qreal windowNorm() const noexcept { return m_windowNorm; }
 
     /**
+     * @brief Set how the cursor is spoken, e.g. as the animation date and time.
+     * @param[in] formatter Maps a fraction in [0,1] to text; empty restores the percentage.
+     */
+    void setValueFormatter(std::function<QString(qreal)> formatter);
+    /** @return The cursor as text, for screen readers. */
+    QString valueText() const;
+
+    /**
      * @brief Preferred size is 300 by 20 logical pixels.
      * @return Logical-pixel size hint.
      */
@@ -72,6 +85,13 @@ public slots:
      * @param[in] v Finite dimensionless fraction clamped to [0,1]; NaN is not explicitly rejected. qFuzzyCompare suppresses unchanged notifications.
      */
     void setCursorNorm(qreal v);
+
+    /*! \brief Move the cursor as one complete user gesture (a key press or a
+     *  screen-reader increment): emits cursorChanged() when it moves, then
+     *  cursorReleased(), and tells screen readers the new value.
+     * @param[in] v Dimensionless fraction, clamped to [0,1].
+     */
+    void setCursorByUser(qreal v);
 
     /*! \brief Set the look-back window width as a fraction of the full timeline
      *  (clamped to [0..1]). Repaints the band, drawn from
@@ -102,7 +122,8 @@ signals:
 
 protected:
     /**
-     * @brief Paint the inactive track, clipped look-back band and fixed-height cursor handle.
+     * @brief Paint the inactive track, clipped look-back band and fixed-height cursor handle,
+     *        outlined while the slider has focus.
      * @param[in] e Required Qt paint event, unused by the custom painter.
      */
     void paintEvent(QPaintEvent *e) override;
@@ -165,6 +186,7 @@ private:
     qreal m_cursor = 0.0;
     qreal m_windowNorm = 0.0;
     bool m_dragging = false;
+    std::function<QString(qreal)> m_formatter;
 };
 
 } // namespace openswmmvis::ui

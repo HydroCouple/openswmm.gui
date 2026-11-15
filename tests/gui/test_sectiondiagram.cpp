@@ -15,6 +15,8 @@
 
 #include <QtTest>
 
+#include <QAccessible>
+
 #include <QFontMetricsF>
 #include <QImage>
 #include <QPainter>
@@ -349,6 +351,11 @@ private slots:
      *
      */
     void planInsetTitleIsNotCutToTheDialWidth();
+    /**
+     * @brief A-01: screen readers hear the preview as a named picture described by the model's
+     * title, subtitle and footer, or by its empty text when there is nothing to draw.
+     */
+    void previewIsDescribedForScreenReaders();
 };
 
 // ---------------------------------------------------------------------------
@@ -1329,6 +1336,28 @@ void TestSectionDiagram::planInsetTitleIsNotCutToTheDialWidth()
                                        "is still being cut to the dial")
                             .arg(longReach - shortReach)
                             .arg(needed)));
+}
+
+void TestSectionDiagram::previewIsDescribedForScreenReaders()
+{
+    SectionPreviewWidget preview;
+    QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(&preview);
+    QVERIFY(iface);
+    QCOMPARE(iface->role(), QAccessible::Graphic);
+    QCOMPARE(iface->text(QAccessible::Name), QStringLiteral("Section preview"));
+    QCOMPARE(iface->text(QAccessible::Description), QStringLiteral("No section to display"));
+
+    SectionDiagramModel m;
+    m.emptyText = QStringLiteral("DUMMY section");
+    preview.setModel(m);
+    QCOMPARE(iface->text(QAccessible::Description), QStringLiteral("DUMMY section"));
+
+    m.title = QStringLiteral("C-12 — Cross-Section");
+    m.subtitle = QStringLiteral("CIRCULAR");
+    m.footer = QStringLiteral("Depth 1.5 ft");
+    preview.setModel(m);
+    QCOMPARE(iface->text(QAccessible::Description),
+             QStringLiteral("C-12 — Cross-Section. CIRCULAR. Depth 1.5 ft"));
 }
 
 #include "test_sectiondiagram.moc"

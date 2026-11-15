@@ -25,6 +25,8 @@
 
 #include <QtTest/QtTest>
 
+#include <QAccessible>
+#include <QLocale>
 #include <QPen>
 #include <QSettings>
 #include <QSignalSpy>
@@ -152,6 +154,12 @@ private slots:
      * configuration is intentionally test-owned.
      */
     void followRangeDoesNotEcho();
+    /**
+     * @brief A-01: the values at a node for the current period, per track and source, as the
+     * profile's node cursor reads them; link tracks use the link leaving the node (entering the
+     * last one); the pane is a named chart described by its track titles.
+     */
+    void valuesAtNodeForScreenReaders();
 
 private:
     QTemporaryDir mSettingsDir;
@@ -438,6 +446,48 @@ void TestProfileAttributeTracks::followRangeDoesNotEcho()
     w.setVisibleXRange(10.0, 90.0);
     w.setVisibleXRange(20.0, 80.0);
     QCOMPARE(spy.count(), 0);
+}
+
+void TestProfileAttributeTracks::valuesAtNodeForScreenReaders()
+{
+    QLocale::setDefault(QLocale::c());
+    using Profile = ProfileAttributeSampler::AttributeProfile;
+    auto depthA = std::make_shared<Profile>();
+    depthA->byPath = {{1.0f, 1.5f}, {2.0f, 2.5f}, {std::nanf(""), 3.5f}}; // [node][period]
+    auto depthB = std::make_shared<Profile>();
+    depthB->byPath = {{4.0f, 4.5f}, {5.0f, 5.5f}, {6.0f, 6.5f}};
+    auto flow = std::make_shared<Profile>();
+    flow->isNodeAttribute = false;
+    flow->byPath = {{10.0f, 11.0f}, {20.0f, 21.0f}}; // [link][period]
+
+    ProfileAttributeTracksWidget::Track depth;
+    depth.attribute = PlotAttribute::NodeDepth;
+    depth.title = QStringLiteral("Depth (ft)");
+    depth.sources = {{QStringLiteral("base"), Qt::blue, true, depthA},
+                     {QStringLiteral("alt"), Qt::red, false, depthB}};
+    ProfileAttributeTracksWidget::Track linkFlow;
+    linkFlow.attribute = PlotAttribute::LinkFlow;
+    linkFlow.isNodeAttribute = false;
+    linkFlow.title = QStringLiteral("Flow (cfs)");
+    linkFlow.sources = {{QStringLiteral("base"), Qt::blue, true, flow}};
+
+    ProfileAttributeTracksWidget w;
+    w.setTracks({depth, linkFlow});
+    QCOMPARE(w.valuesTextAtNode(0), QString()); // no period yet
+    w.setCurrentPeriod(0);
+    QCOMPARE(w.valuesTextAtNode(0), QStringLiteral("Depth (ft) base 1, alt 4; Flow (cfs) 10"));
+    QCOMPARE(w.valuesTextAtNode(2), QStringLiteral("Depth (ft) alt 6; Flow (cfs) 20"));
+    w.setCurrentPeriod(1);
+    QCOMPARE(w.valuesTextAtNode(1), QStringLiteral("Depth (ft) base 2.5, alt 5.5; Flow (cfs) 21"));
+
+    QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(&w);
+    QVERIFY(iface);
+    QCOMPARE(iface->role(), QAccessible::Chart);
+    QCOMPARE(iface->text(QAccessible::Name), QStringLiteral("Attribute tracks"));
+    QVERIFY(iface->text(QAccessible::Description)
+                .startsWith(QStringLiteral("Tracks: Depth (ft), Flow (cfs).")));
+    w.setTracks({});
+    QCOMPARE(iface->text(QAccessible::Description), QStringLiteral("No tracks"));
 }
 
 QTEST_MAIN(TestProfileAttributeTracks)

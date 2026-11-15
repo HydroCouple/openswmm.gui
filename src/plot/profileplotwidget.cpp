@@ -14,9 +14,13 @@
 
 #include "plot/profileplotoptions.h"
 #include "layers/cellwatergeometry.h"
+#include "ui/accessibility/customaccessible.h"
 
+#include <QCoreApplication>
+#include <QFocusEvent>
 #include <QFontMetricsF>
 #include <QInputDialog>
+#include <QKeyEvent>
 #include <QLineEdit>
 #include <QLocale>
 #include <QMessageBox>
@@ -502,6 +506,10 @@ ProfilePlotWidget::ProfilePlotWidget(QWidget *parent) : QWidget(parent)
             this, applyPlotBackground);
     setMinimumSize(360, 240);
     setMouseTracking(true);
+    // Review A-01 — focusable for the keyboard node cursor; screen readers get
+    // the interface registered at the end of this file.
+    setFocusPolicy(Qt::StrongFocus);
+    setAccessibleName(tr("1D profile"));
 }
 
 // ---------------------------------------------------------------------------
@@ -511,6 +519,8 @@ ProfilePlotWidget::ProfilePlotWidget(QWidget *parent) : QWidget(parent)
 void ProfilePlotWidget::setPath(const ProfileBuilder::PathStatic &path)
 {
     m_path = path;
+    if (m_cursorNode >= m_path.nodes.size())
+        m_cursorNode = int(m_path.nodes.size()) - 1;
     m_surface2DMaxWse = std::numeric_limits<double>::quiet_NaN();
     recomputeBounds();
     update();
@@ -1682,8 +1692,196 @@ void ProfilePlotWidget::paintEvent(QPaintEvent *)
     paintNodeRoses(p);
 
     paintSelectionHighlights(p);
+    paintNodeCursor(p);
     paintLegend(p);
     paintTimeLabel(p);
+}
+
+// ---------------------------------------------------------------------------
+// Keyboard node cursor (review A-01)
+// ---------------------------------------------------------------------------
+
+void ProfilePlotWidget::setCursorNode(int pathNodeIdx)
+{
+    const int n = int(m_path.nodes.size());
+    const int idx = (n == 0 || pathNodeIdx < 0) ? -1 : std::min(pathNodeIdx, n - 1);
+    if (idx == m_cursorNode)
+        return;
+    m_cursorNode = idx;
+    if (idx >= 0) {
+        // Keep the node in view by shifting the visible range; never zoom.
+        const double vx = virtualX(idx);
+        if (vx < m_dataXMin || vx > m_dataXMax) {
+            const double half = (m_dataXMax - m_dataXMin) / 2.0;
+            setVisibleXRange(vx - half, vx + half);
+        }
+    }
+    update();
+}
+
+void ProfilePlotWidget::moveCursorByUser(int pathNodeIdx)
+{
+    const int before = m_cursorNode;
+    setCursorNode(pathNodeIdx);
+    if (m_cursorNode != before)
+        openswmmvis::ui::accessibility::announceValue(this);
+}
+
+void ProfilePlotWidget::setNodeDetailsProvider(std::function<QString(int)> provider)
+{
+    m_nodeDetails = std::move(provider);
+}
+
+QString ProfilePlotWidget::cursorSummary() const
+{
+    if (m_cursorNode < 0 || m_cursorNode >= m_path.nodes.size())
+        return {};
+    const int i = m_cursorNode;
+    const auto &node = m_path.nodes[i];
+    const QLocale locale;
+    const auto number = [&locale](double v) { return locale.toString(v, 'f', 2); };
+
+    QStringList parts;
+    parts.append(tr("%1, node %2 of %3").arg(node.name).arg(i + 1).arg(m_path.nodes.size()));
+    using NK = ProfileBuilder::NodeKind;
+    switch (node.kind) {
+    case NK::Outfall:
+        parts.append(tr("outfall"));
+        break;
+    case NK::Storage:
+        parts.append(tr("storage"));
+        break;
+    case NK::Divider:
+        parts.append(tr("divider"));
+        break;
+    case NK::VirtualJunction:
+        parts.append(node.isInlet ? tr("inlet") : tr("virtual junction"));
+        break;
+    case NK::Junction:
+        break;
+    }
+    parts.append(tr("invert %1").arg(number(node.invertElev)));
+    parts.append(tr("rim %1").arg(number(ProfileBuilder::groundElev(node))));
+    for (const auto &s : m_series) {
+        if (!s.visible || !s.derived)
+            continue;
+        double v = std::numeric_limits<double>::quiet_NaN();
+        if (isCurrentTimeKind(s.kind)) {
+            const auto &rows = currentTimeArray(*s.derived, s.kind);
+            if (m_currentPeriod >= 0 && m_currentPeriod < rows.size() &&
+                i < rows[m_currentPeriod].size())
+                v = rows[m_currentPeriod][i];
+        } else {
+            const auto &values = envelopeArray(*s.derived, s.kind);
+            if (i < values.size())
+                v = values[i];
+        }
+        if (std::isfinite(v))
+            parts.append(tr("%1 %2").arg(s.label, number(v)));
+    }
+    if (m_nodeDetails) {
+        const QString details = m_nodeDetails(i);
+        if (!details.isEmpty())
+            parts.append(details);
+    }
+    return parts.join(QStringLiteral("; "));
+}
+
+QString ProfilePlotWidget::accessibleSummary() const
+{
+    if (m_path.nodes.isEmpty())
+        return tr("No path to display.");
+    QStringList parts;
+    parts.append(tr("Path from %1 to %2, %3 nodes")
+                     .arg(m_path.nodes.first().name, m_path.nodes.last().name)
+                     .arg(m_path.nodes.size()));
+    QStringList shown;
+    for (const auto &s : m_series)
+        if (s.visible && s.derived)
+            shown.append(s.label);
+    if (!shown.isEmpty())
+        parts.append(tr("Shown: %1").arg(shown.join(QStringLiteral(", "))));
+    parts.append(tr("Vertical axis: %1").arg(m_yLabel));
+    if (m_currentDateTime.isValid())
+        parts.append(
+            tr("Time %1").arg(m_currentDateTime.toString(QStringLiteral("yyyy-MM-dd hh:mm"))));
+    parts.append(tr("Left and Right move between nodes, 10 at a time with Shift; Ctrl+Home and "
+                    "Ctrl+End go to the first and last node; Enter selects the node; the Menu "
+                    "key opens its menu"));
+    return parts.join(QStringLiteral(". ")) + QLatin1Char('.');
+}
+
+void ProfilePlotWidget::keyPressEvent(QKeyEvent *event)
+{
+    const int n = int(m_path.nodes.size());
+    if (n == 0) {
+        QWidget::keyPressEvent(event);
+        return;
+    }
+    const bool shift = event->modifiers() & Qt::ShiftModifier;
+    const bool ctrl = event->modifiers() & Qt::ControlModifier;
+    const int step = shift ? 10 : 1;
+    switch (event->key()) {
+    case Qt::Key_Left:
+        moveCursorByUser(m_cursorNode < 0 ? 0 : std::max(0, m_cursorNode - step));
+        break;
+    case Qt::Key_Right:
+        moveCursorByUser(m_cursorNode < 0 ? 0 : std::min(n - 1, m_cursorNode + step));
+        break;
+    case Qt::Key_Home:
+    case Qt::Key_End:
+        if (!ctrl) { // plain Home is the dialog's Fit
+            QWidget::keyPressEvent(event);
+            return;
+        }
+        moveCursorByUser(event->key() == Qt::Key_Home ? 0 : n - 1);
+        break;
+    case Qt::Key_Return:
+    case Qt::Key_Enter:
+        if (m_cursorNode >= 0)
+            emit nodeClicked(m_cursorNode);
+        break;
+    case Qt::Key_Menu:
+    case Qt::Key_F10:
+        if (event->key() == Qt::Key_F10 && !shift) {
+            QWidget::keyPressEvent(event);
+            return;
+        }
+        if (m_cursorNode >= 0) {
+            const auto &node = m_path.nodes[m_cursorNode];
+            const QPointF rim =
+                dataToPixel(virtualX(m_cursorNode), ProfileBuilder::groundElev(node));
+            emit nodeRightClicked(m_cursorNode, mapToGlobal(rim.toPoint()));
+        }
+        break;
+    default:
+        QWidget::keyPressEvent(event);
+        return;
+    }
+    event->accept();
+}
+
+void ProfilePlotWidget::focusInEvent(QFocusEvent *event)
+{
+    // Keyboard arrival shows the cursor on the first node; a click does not
+    // (the click itself places it when it hits a node).
+    if (event->reason() != Qt::MouseFocusReason && m_cursorNode < 0)
+        setCursorNode(0);
+    QWidget::focusInEvent(event);
+}
+
+void ProfilePlotWidget::paintNodeCursor(QPainter &p) const
+{
+    if (!hasFocus() || m_cursorNode < 0 || m_cursorNode >= m_path.nodes.size())
+        return;
+    const QRectF r = plotRect();
+    const double x = dataToPixel(virtualX(m_cursorNode), 0.0).x();
+    if (x < r.left() || x > r.right())
+        return;
+    p.save();
+    p.setPen(QPen(plotTheme().focusRing, 2.0, Qt::DashLine));
+    p.drawLine(QPointF(x, r.top()), QPointF(x, r.bottom()));
+    p.restore();
 }
 
 void ProfilePlotWidget::resizeEvent(QResizeEvent *)
@@ -1764,6 +1962,7 @@ void ProfilePlotWidget::mousePressEvent(QMouseEvent *event)
         // Identify mode — click selects, blank-area click deselects.
         const int nodeIdx = nodeIndexAt(event->pos());
         if (nodeIdx >= 0) {
+            m_cursorNode = nodeIdx; // the keyboard cursor continues from here
             emit nodeClicked(nodeIdx);
             return;
         }
@@ -4461,3 +4660,34 @@ void ProfilePlotWidget::paintTimeLabel(QPainter &p) const
     p.drawText(box, Qt::AlignCenter, text);
     p.restore();
 }
+
+namespace
+{
+
+/** The profile to screen readers: the node under the cursor as the value (review A-01). */
+class ProfilePlotAccessible : public openswmmvis::ui::accessibility::LiveWidgetAccessible
+{
+public:
+    explicit ProfilePlotAccessible(ProfilePlotWidget *plot)
+        : LiveWidgetAccessible(plot, QAccessible::Chart)
+    {
+    }
+
+protected:
+    QString valueText() const override { return plot()->cursorSummary(); }
+    QString descriptionText() const override { return plot()->accessibleSummary(); }
+
+private:
+    ProfilePlotWidget *plot() const { return static_cast<ProfilePlotWidget *>(widget()); }
+};
+
+void registerProfilePlotAccessible()
+{
+    QAccessible::installFactory(
+        &openswmmvis::ui::accessibility::createAccessible<ProfilePlotWidget,
+                                                          ProfilePlotAccessible>);
+}
+
+} // namespace
+
+Q_COREAPP_STARTUP_FUNCTION(registerProfilePlotAccessible)

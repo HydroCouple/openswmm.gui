@@ -22,9 +22,15 @@
 
 #include "ui/widgets/cursorwindowslider.h"
 
+#include "accessible_checks.h"
+
+#include <QAccessible>
+#include <QImage>
+#include <QLineEdit>
 #include <QObject>
 #include <QSignalSpy>
 #include <QTest>
+#include <QVBoxLayout>
 
 using openswmmvis::ui::CursorWindowSlider;
 
@@ -86,6 +92,23 @@ private slots:
      *
      */
     void cursorAndWindowAreIndependent();
+    /**
+     * @brief A-01: a named Slider whose spoken value is the host's text for the cursor.
+     */
+    void screenReaderReadsTheTime();
+    /**
+     * @brief A-01: key moves and the end of a drag are announced; playback updates
+     *        (setCursorNorm) are not.
+     */
+    void userMovesAreAnnouncedPlaybackIsNot();
+    /**
+     * @brief A-01: a screen-reader value change is a complete gesture, like a key press.
+     */
+    void screenReaderSetValueSeeks();
+    /**
+     * @brief A-01: the thumb is outlined while the slider has focus.
+     */
+    void focusIsDrawn();
 };
 
 void TestCursorWindowSlider::defaults()
@@ -198,6 +221,83 @@ void TestCursorWindowSlider::cursorAndWindowAreIndependent()
     s.setWindowNorm(0.5);
     QCOMPARE(s.cursorNorm(), 0.9); // cursor untouched by a window change
     QCOMPARE(curSpy.count(), 0);
+}
+
+void TestCursorWindowSlider::screenReaderReadsTheTime()
+{
+    CursorWindowSlider s;
+    s.setAccessibleName(QStringLiteral("Animation timeline"));
+    s.setCursorNorm(0.25);
+
+    QAccessibleInterface *iface = a11ytest::accessibleFor(&s);
+    QVERIFY(iface);
+    QCOMPARE(iface->role(), QAccessible::Slider);
+    QCOMPARE(iface->text(QAccessible::Name), QStringLiteral("Animation timeline"));
+    QCOMPARE(iface->text(QAccessible::Value), QStringLiteral("25%"));
+    QVERIFY(iface->text(QAccessible::Description).contains(QStringLiteral("Home")));
+
+    s.setValueFormatter([](qreal v) { return QStringLiteral("hour %1").arg(qRound(v * 24)); });
+    QCOMPARE(iface->text(QAccessible::Value), QStringLiteral("hour 6"));
+    QVERIFY(iface->valueInterface());
+    QCOMPARE(iface->valueInterface()->currentValue().toDouble(), 0.25);
+}
+
+void TestCursorWindowSlider::userMovesAreAnnouncedPlaybackIsNot()
+{
+    CursorWindowSlider s;
+    s.resize(300, 24);
+    s.setValueFormatter([](qreal v) { return QString::number(v, 'f', 2); });
+    s.setCursorNorm(0.5);
+    s.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&s));
+    a11ytest::AccessibleEventRecorder events;
+
+    for (int i = 0; i < 5; ++i) // playback moves the thumb every frame
+        s.setCursorNorm(0.5 + 0.01 * (i + 1));
+    QCOMPARE(events.valuesFor(&s), QStringList());
+
+    QTest::keyClick(&s, Qt::Key_Right);
+    QTest::keyClick(&s, Qt::Key_End);
+    QTest::keyClick(&s, Qt::Key_End); // already at the end: nothing new to say
+    QCOMPARE(events.valuesFor(&s), (QStringList{QStringLiteral("0.56"), QStringLiteral("1.00")}));
+
+    events.clear();
+    QTest::mousePress(&s, Qt::LeftButton, {}, QPoint(150, 12));
+    QTest::mouseMove(&s, QPoint(100, 12));
+    QCOMPARE(events.valuesFor(&s), QStringList()); // not every pixel of a drag
+    QTest::mouseRelease(&s, Qt::LeftButton, {}, QPoint(100, 12));
+    QCOMPARE(events.valuesFor(&s).size(), 1);
+}
+
+void TestCursorWindowSlider::screenReaderSetValueSeeks()
+{
+    CursorWindowSlider s;
+    QSignalSpy released(&s, &CursorWindowSlider::cursorReleased);
+    a11ytest::accessibleFor(&s)->valueInterface()->setCurrentValue(0.4);
+    QCOMPARE(s.cursorNorm(), 0.4);
+    QCOMPARE(released.count(), 1);
+    QCOMPARE(released.first().first().toDouble(), 0.4);
+}
+
+void TestCursorWindowSlider::focusIsDrawn()
+{
+    QWidget host;
+    auto *other = new QLineEdit(&host);
+    auto *slider = new CursorWindowSlider(&host);
+    auto *layout = new QVBoxLayout(&host);
+    layout->addWidget(other);
+    layout->addWidget(slider);
+    slider->setCursorNorm(0.5);
+    host.resize(300, 80);
+    host.show();
+    QVERIFY(QTest::qWaitForWindowActive(&host));
+
+    other->setFocus();
+    const QImage unfocused = slider->grab().toImage();
+    slider->setFocus();
+    QVERIFY(slider->grab().toImage() != unfocused);
+    other->setFocus();
+    QCOMPARE(slider->grab().toImage(), unfocused);
 }
 
 QTEST_MAIN(TestCursorWindowSlider)

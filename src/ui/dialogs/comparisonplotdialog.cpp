@@ -300,6 +300,14 @@ void ComparisonPlotDialog::buildUi()
     sliderRow->setSpacing(8);
     m_rangeSlider = new RangeSliderWidget(m_sliderHost);
     m_rangeSlider->setMinimumHeight(20);
+    m_rangeSlider->setAccessibleName(tr("Time range"));
+    // Screen readers hear the slider's parts as dates, like the label beside it (review A-08).
+    m_rangeSlider->setValueFormatter([this](qreal v) {
+        if (!m_xFullMin.isValid() || !m_xFullMax.isValid())
+            return QString();
+        const qint64 fullMs = m_xFullMin.msecsTo(m_xFullMax);
+        return m_xFullMin.addMSecs(qint64(v * fullMs)).toString(QStringLiteral("yyyy-MM-dd hh:mm"));
+    });
     m_rangeLabel = new QLabel(m_sliderHost);
     m_rangeLabel->setMinimumWidth(220);
     m_rangeLabel->setStyleSheet(openswmmvis::ui::theme::hintStyle());

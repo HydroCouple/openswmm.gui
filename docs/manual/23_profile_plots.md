@@ -137,6 +137,14 @@ element under the cursor, **Zoom In** / **Zoom Out** accept a click or a
 drag-rectangle, **Pan** drags the view, and **Fit to Path** returns to the full
 extent.
 
+**Keyboard.** Click the profile or **Tab** to it, then **Left** and **Right** move a
+dashed cursor from node to node (**Shift** moves 10 nodes; **Ctrl+Home** and
+**Ctrl+End** go to the first and last node — **Home** alone stays **Fit to Path**).
+**Enter** selects the node on the map, and the **Menu** key or **Shift+F10** opens
+the node's right-click menu. Screen readers read the node's name, invert and rim,
+each shown series at the current time, and the attribute-track values at that node;
+playback updates these without announcing every frame.
+
 Right-clicking a node or a link in the profile gives **Zoom to on map**, a
 **Plot Time Series…** submenu of that kind's attributes, and **Properties…**. The
 time-series pick opens a dedicated tab in the **Time Series** panel —

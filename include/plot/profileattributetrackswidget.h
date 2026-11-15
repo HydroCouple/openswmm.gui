@@ -105,6 +105,20 @@ public:
      */
     [[nodiscard]] int trackCount() const { return m_tracks.size(); }
 
+    /**
+     * @brief The tracks' values at one path node and the current period, for screen readers
+     *        (review A-01; the profile plot's node cursor reads them).
+     * @param[in] pathNodeIdx Path node index. Link tracks report the link leaving the node, or
+     *   the link entering the last node.
+     * @return One phrase per track with data, joined by "; "; empty when there is none.
+     */
+    [[nodiscard]] QString valuesTextAtNode(int pathNodeIdx) const;
+    /**
+     * @brief What the pane shows, for screen readers.
+     * @return The track titles, or a note that there are none.
+     */
+    [[nodiscard]] QString summaryText() const;
+
     /*! Chrome + styling source; the widget connects to changed() and
      *  repaints. May be null (defaults used).
      * @param[in] options Optional borrowed QObject cache, guarded by QPointer. No ownership transfer/reparenting occurs.

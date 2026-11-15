@@ -9,6 +9,9 @@
 
 #include "ui/widgets/cursorwindowslider.h"
 
+#include "ui/accessibility/customaccessible.h"
+
+#include <QCoreApplication>
 #include <QKeyEvent>
 #include <QMouseEvent>
 #include <QPainter>
@@ -52,6 +55,28 @@ void CursorWindowSlider::setWindowNorm(qreal w)
     m_windowNorm = w;
     update();
     emit windowNormChanged(m_windowNorm);
+}
+
+void CursorWindowSlider::setCursorByUser(qreal v)
+{
+    const qreal before = m_cursor;
+    setCursorNorm(v);
+    // 2026-07-19 — a keyboard nudge is a complete gesture: mark it ended so
+    // the host's coalescing seek fires immediately instead of after the
+    // trailing-edge timer.
+    emit cursorReleased(m_cursor);
+    if (m_cursor != before)
+        accessibility::announceValue(this);
+}
+
+void CursorWindowSlider::setValueFormatter(std::function<QString(qreal)> formatter)
+{
+    m_formatter = std::move(formatter);
+}
+
+QString CursorWindowSlider::valueText() const
+{
+    return m_formatter ? m_formatter(m_cursor) : tr("%1%").arg(qRound(m_cursor * 100.0));
 }
 
 int CursorWindowSlider::trackLeft() const noexcept
@@ -116,6 +141,13 @@ void CursorWindowSlider::paintEvent(QPaintEvent * /*e*/)
     p.setBrush(pal.color(QPalette::Button));
     p.setPen(QPen(pal.color(QPalette::Dark), 1));
     p.drawRoundedRect(t, 3, 3);
+
+    // Focus: outline the thumb in the text color so it reads on any theme.
+    if (hasFocus()) {
+        p.setBrush(Qt::NoBrush);
+        p.setPen(QPen(pal.color(QPalette::Text), 2));
+        p.drawRoundedRect(QRectF(t).adjusted(-1.5, -0.5, 1.5, 0.5), 3, 3);
+    }
 }
 
 void CursorWindowSlider::mousePressEvent(QMouseEvent *e)
@@ -152,6 +184,7 @@ void CursorWindowSlider::mouseReleaseEvent(QMouseEvent *e)
         // per-pixel cursorChanged stream but still seek exactly to where
         // the thumb was dropped.
         emit cursorReleased(m_cursor);
+        accessibility::announceValue(this);
         e->accept();
         return;
     }
@@ -165,26 +198,59 @@ void CursorWindowSlider::keyPressEvent(QKeyEvent *e)
     const qreal step = (e->modifiers() & Qt::ShiftModifier) ? 0.05 : 0.01;
     switch (e->key()) {
     case Qt::Key_Left:
-        setCursorNorm(m_cursor - step);
+        setCursorByUser(m_cursor - step);
         break;
     case Qt::Key_Right:
-        setCursorNorm(m_cursor + step);
+        setCursorByUser(m_cursor + step);
         break;
     case Qt::Key_Home:
-        setCursorNorm(0.0);
+        setCursorByUser(0.0);
         break;
     case Qt::Key_End:
-        setCursorNorm(1.0);
+        setCursorByUser(1.0);
         break;
     default:
         QWidget::keyPressEvent(e);
         return;
     }
-    // 2026-07-19 — a keyboard nudge is a complete gesture: mark it ended so
-    // the host's coalescing seek fires immediately instead of after the
-    // trailing-edge timer.
-    emit cursorReleased(m_cursor);
     e->accept();
 }
+
+namespace
+{
+
+/** Screen-reader view of the animation slider: the cursor as the host's text. */
+class CursorWindowSliderAccessible : public accessibility::SliderAccessible
+{
+public:
+    explicit CursorWindowSliderAccessible(CursorWindowSlider *slider) : SliderAccessible(slider) {}
+
+    QVariant currentValue() const override { return slider()->cursorNorm(); }
+    void setCurrentValue(const QVariant &value) override
+    {
+        slider()->setCursorByUser(value.toDouble());
+    }
+
+protected:
+    QString valueText() const override { return slider()->valueText(); }
+    QString descriptionText() const override
+    {
+        return CursorWindowSlider::tr("Left and Right move the time (hold Shift for larger "
+                                      "steps); Home and End go to the start and the end.");
+    }
+
+private:
+    CursorWindowSlider *slider() const { return static_cast<CursorWindowSlider *>(widget()); }
+};
+
+void registerCursorWindowSliderAccessible()
+{
+    QAccessible::installFactory(
+        &accessibility::createAccessible<CursorWindowSlider, CursorWindowSliderAccessible>);
+}
+
+} // namespace
+
+Q_COREAPP_STARTUP_FUNCTION(registerCursorWindowSliderAccessible)
 
 } // namespace openswmmvis::ui

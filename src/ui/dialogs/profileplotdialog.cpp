@@ -440,6 +440,11 @@ void ProfilePlotDialog::buildLayout()
     m_profileSplit->addWidget(m_plotHolder);
     m_tracks = new ProfileAttributeTracksWidget;
     m_tracks->setOptions(m_trackOptions);
+    // Review A-01 — the profile's node cursor also reads the visible tracks' values.
+    m_plot->setNodeDetailsProvider([tracks = QPointer<ProfileAttributeTracksWidget>(m_tracks)](
+                                       int pathNodeIdx) {
+        return tracks && tracks->isVisible() ? tracks->valuesTextAtNode(pathNodeIdx) : QString();
+    });
     // Scroll container: each track demands a fixed minimum height, and all
     // 11 attributes at once would otherwise force the DIALOG taller than
     // the screen. Inside a scroll area the pane scrolls instead.
