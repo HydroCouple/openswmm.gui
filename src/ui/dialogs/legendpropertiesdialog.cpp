@@ -10,6 +10,7 @@
 #include "ui/dialogs/legendpropertiesdialog.h"
 
 #include "render/legendoverlaystyle.h"
+#include "ui/properties/propertyrows.h"
 
 #include <qpropertymodel.h>
 
@@ -52,6 +53,11 @@ LegendPropertiesDialog::LegendPropertiesDialog(LegendOverlayStyle *style, QWidge
     m_tree->header()->setSectionResizeMode(0, QHeaderView::Interactive);
     m_tree->header()->setStretchLastSection(false);
     m_tree->expandAll();
+    // A font row shows its parts (family, size, bold, …) when selected; the arrows open and
+    // close them too.
+    openswmmvis::showFontPartsOnSelection(m_tree);
+    openswmmvis::collapseFontRows(m_tree);
+    m_tree->resizeColumnToContents(0);
 
     root->addWidget(m_tree, 1);
 
@@ -72,6 +78,10 @@ LegendPropertiesDialog::LegendPropertiesDialog(LegendOverlayStyle *style, QWidge
     // Close the dialog automatically if the style disappears.
     if (m_style) {
         connect(m_style.data(), &QObject::destroyed, this, &QDialog::close);
+        // Edits made elsewhere (the Properties panel, dragging the legend) show here too.
+        connect(
+            m_style.data(), &LegendOverlayStyle::changed, m_tree,
+            [pm]() { openswmmvis::refreshPropertyRows(pm); }, Qt::QueuedConnection);
     }
 }
 

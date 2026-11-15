@@ -711,6 +711,9 @@ void LegendOverlay::updateCursor(int edges)
 void LegendOverlay::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
+        // Selecting the legend shows its style in the Properties panel.
+        if (m_canvas && m_style)
+            m_canvas->selectOverlayStyle(m_style, tr("Legend"));
         const int edges = edgesAt(event->pos());
         if (edges != 0) {
             // Slice US.B2 — begin an interactive resize from this edge/corner.

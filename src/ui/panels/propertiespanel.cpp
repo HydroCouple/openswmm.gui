@@ -94,6 +94,7 @@
 #ifdef HAVE_QPROPERTYMODEL
 #include <qpropertymodel.h>
 #include "ui/properties/groupedpropertymodel.h"
+#include "ui/properties/propertyrows.h"
 #include <qpropertyitem.h>
 #include <qpropertyitemdelegate.h>
 #include <qvariantpropertyItem.h>
@@ -1190,6 +1191,9 @@ void PropertiesPanel::setupUi()
 
     connect(m_layerCombo, QOverload<int>::of(&QComboBox::currentIndexChanged), this,
             &PropertiesPanel::onLayerComboIndexChanged);
+
+    // A font row shows its parts (family, size, bold, …) when selected.
+    openswmmvis::showFontPartsOnSelection(m_treeView);
 }
 
 // ---------------------------------------------------------------------------
@@ -1224,10 +1228,39 @@ void PropertiesPanel::showObject(QObject *object, const QString &title)
     Q_UNUSED(object);
 #endif
     m_treeView->expandAll();
+    openswmmvis::collapseFontRows(m_treeView);
+}
+
+void PropertiesPanel::showStyleObject(QObject *style, const QString &title)
+{
+    showObject(style, title);
+    if (!style)
+        return;
+    m_followedStyle = style;
+    // Queued: the change may come from an edit this panel is still committing.
+    connect(style, SIGNAL(changed()), this, SLOT(refreshFollowedStyle()), Qt::QueuedConnection);
+    connect(style, &QObject::destroyed, this, [this](QObject *gone) {
+        if (gone != m_followedStyle)
+            return;
+        m_followedStyle = nullptr;
+        clear();
+    });
+}
+
+void PropertiesPanel::refreshFollowedStyle()
+{
+#ifdef HAVE_QPROPERTYMODEL
+    if (m_followedStyle)
+        openswmmvis::refreshPropertyRows(qobject_cast<QPropertyModel *>(m_model));
+#endif
 }
 
 void PropertiesPanel::releaseMeshProperties()
 {
+    if (m_followedStyle) {
+        disconnect(m_followedStyle, nullptr, this, nullptr);
+        m_followedStyle = nullptr;
+    }
     if(m_sourceRelationships){m_sourceRelationships->deleteLater();m_sourceRelationships=nullptr;}
     if(m_featureAggregate){m_featureAggregate->source()->valid=false;m_featureAggregate->deleteLater();m_featureAggregate=nullptr;}
     if (m_dataAggregate) { m_dataAggregate->invalidate(); m_dataAggregate->disconnect(this); m_dataAggregate->deleteLater(); m_dataAggregate = nullptr; }

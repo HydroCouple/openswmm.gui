@@ -100,6 +100,10 @@ class GroupedPropertyModel : public QAbstractProxyModel
         auto *result = item.get();
         m_rows.insert(item->pointer(), result);
         parent->children.push_back(std::move(item));
+        // A compound property (a font's family, size, bold, …) creates its parts when first
+        // asked whether it has any; rowCount() alone reports none.
+        if (!sourceModel()->hasChildren(source))
+            return;
         for (int i = 0; i < sourceModel()->rowCount(source); ++i)
             append(sourceModel()->index(i, 0, source), result);
     }

@@ -101,6 +101,16 @@ public:
      */
     void showObject(QObject *object, const QString &title = {});
 
+    /*!
+     * \brief Show a map box's style (the legend's or the date/time box's) and keep the rows in
+     *        step with it: edits made in its Properties dialog or by dragging the box show here,
+     *        and the panel clears if the style is deleted (its project closed).
+     * \param style Style object with a changed() signal; null clears the panel.
+     * \param title Panel title, e.g. "Date and Time".
+     * @note Stops following when the panel shows anything else.
+     */
+    void showStyleObject(QObject *style, const QString &title);
+
     /*! Resolve a mesh cell, vertex or edge selection without requiring a 1D model.
      * @param[in] canvas Optional borrowed canvas used to find mesh layer by encoded source-path
      *   key; not retained by panel.
@@ -332,6 +342,8 @@ signals:
     void rainfallPlotRequested(const QString &gageId);
 
 private slots:
+    /** @brief Re-read the rows of the style shown by showStyleObject() after it changed. */
+    void refreshFollowedStyle();
     /**
      * @param[in] index Zero-based copied identify result; outside range no-op, empty feature list
      *   clears visible property model only.
@@ -386,6 +398,8 @@ private:
      * @brief Release the field binding for the previously displayed mesh element.
      */
     void releaseMeshProperties();
+    /** Style shown by showStyleObject(), followed until the panel shows something else. */
+    QObject *m_followedStyle = nullptr;
     /** @brief Refresh the aggregate selection summary. */
     void bindDataAggregate(SWMMModelLayer *layer, int category, const QStringList &names, QUndoStack *undo);
     void updateAggregateBar();

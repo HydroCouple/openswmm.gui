@@ -653,6 +653,7 @@ set(
         # AQUIFER_GROUNDWATER_EXCHANGE G4/G5 — groundwater exchange editor
         include/ui/dialogs/groundwaterexchangedialog.h
         include/ui/properties/groundwatersummary.h
+        include/ui/properties/propertyrows.h
         include/layers/gwsourcesummary.h
 
         # ── User flags ([USER_FLAGS] / [USER_FLAG_VALUES]) ───────────────────
@@ -1496,6 +1497,7 @@ set(
         # AQUIFER_GROUNDWATER_EXCHANGE G4 — groundwater exchange editor
         src/ui/dialogs/groundwaterexchangedialog.cpp
         src/ui/properties/groundwatersummary.cpp
+        src/ui/properties/propertyrows.cpp
 
         # ── User flags ([USER_FLAGS] / [USER_FLAG_VALUES]) ───────────────────
         src/ui/models/userflagsmodel.cpp

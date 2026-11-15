@@ -768,6 +768,14 @@ public:
      */
     QPixmap captureMap(QString *error = nullptr);
 
+    /**
+     * @brief Report that a box floating on the map (the legend, the date/time box) was clicked,
+     *   so the Properties panel can show its style; emits overlayStyleSelected().
+     * @param style The box's style object.
+     * @param title Name to show, e.g. "Legend".
+     */
+    void selectOverlayStyle(QObject *style, const QString &title);
+
     // ----- Pan state (suppresses tile reloads during drag) ----------------
 
     /**
@@ -803,6 +811,12 @@ public:
     void applyCRSInternal(SpatialReferenceSystem *srs, bool ownsSRS);
 
 signals:
+    /**
+     * @brief A box floating on the map was clicked (see selectOverlayStyle()).
+     * @param style The box's style object, owned by the box.
+     * @param title Name to show, e.g. "Date and Time".
+     */
+    void overlayStyleSelected(QObject *style, const QString &title);
     /**
      * @param[in] extent Current canvas-map bounds by const reference; consume/copy synchronously.
      * @note Emitted by extent commits, live translation, zoom, endPan and explicit Extent

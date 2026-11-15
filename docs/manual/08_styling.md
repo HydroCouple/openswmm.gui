@@ -402,7 +402,11 @@ style. Edits are live; **Reset** restores the built-in defaults and closing with
 *General*, *Frame* and *Background* and cover the title (shown/hidden, text,
 font, color), item and layer-header colors, row spacing, swatch size, padding,
 anchor corner, explicit width and height, maximum label width, frame visibility
-and color, corner radius, and background color and gradient end color.
+and color, corner radius, and background color and gradient end color. A font row
+opens when selected to show its parts (family, point size, bold, italic,
+underline, strikeout); the arrow opens and closes it. Clicking the legend on the
+map shows the same settings in the Properties panel, and edits made in either
+place, or by dragging the legend, show in both.
 
 \figtodo{08_legend_dock_and_overlay.png, The Legend dock beside the draggable on-canvas legend}
 
