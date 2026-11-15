@@ -108,10 +108,10 @@ public:
      *   Derived classes add their own names and call this for the rest. */
     Q_INVOKABLE virtual QString displayLabelFor(const QString &propertyName) const;
 
-    /** @brief Properties panel group of a box property, e.g. "Frame".
+    /** @brief Properties panel group of a property: the part of its display label before
+     *  " — ", e.g. "Frame" for "Frame — Color".
      * @param propertyName Property name.
-     * @return Group name, or empty text when it is not a box property. Derived classes add
-     *   their own names and call this for the rest. */
+     * @return Group name, or empty text when the label has no group. */
     Q_INVOKABLE virtual QString propertyGroupFor(const QString &propertyName) const;
 
     /** @brief Placement on the map. Free uses freePosition(). */

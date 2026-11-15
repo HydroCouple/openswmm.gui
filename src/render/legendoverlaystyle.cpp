@@ -10,9 +10,11 @@
 #include "render/legendoverlaystyle.h"
 
 #include <QHash>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
 #include <QMetaProperty>
+#include <QSettings>
 
 #include <algorithm>
 
@@ -216,14 +218,72 @@ void LegendOverlayStyle::resetToDefaults()
     resetBoxToDefaults();
 }
 
+namespace
+{
+/** Keys a reusable look leaves out: content, title text, position and size. */
+const QStringList &presetExcludedKeys()
+{
+    static const QStringList keys = {
+        QStringLiteral("items"),         QStringLiteral("itemOverrides"),
+        QStringLiteral("autoUpdate"),    QStringLiteral("title"),
+        QStringLiteral("freeX"),         QStringLiteral("freeY"),
+        QStringLiteral("explicitWidth"), QStringLiteral("explicitHeight")};
+    return keys;
+}
+} // namespace
+
+QJsonObject LegendOverlayStyle::presetJson() const
+{
+    QJsonObject j = toJson();
+    for (const QString &key : presetExcludedKeys())
+        j.remove(key);
+    return j;
+}
+
+void LegendOverlayStyle::applyPreset(const QJsonObject &preset)
+{
+    QJsonObject merged = toJson();
+    for (auto it = preset.constBegin(); it != preset.constEnd(); ++it) {
+        if (presetExcludedKeys().contains(it.key()))
+            continue;
+        if (it.key() == QLatin1String("anchor") && it.value().toString() == QLatin1String("Free"))
+            continue; // a free position belongs to one map
+        merged[it.key()] = it.value();
+    }
+    // An older preset's "padding" must not undo its own four margins.
+    if (preset.contains(QStringLiteral("padding")) &&
+        !preset.contains(QStringLiteral("marginLeft"))) {
+        for (const char *key : {"marginLeft", "marginTop", "marginRight", "marginBottom"})
+            merged.remove(QLatin1String(key));
+    }
+    fromJson(merged);
+}
+
+QJsonObject LegendOverlayStyle::defaultPreset()
+{
+    const QByteArray text =
+        QSettings().value(QStringLiteral("legend/defaultStyle")).toString().toUtf8();
+    return text.isEmpty() ? QJsonObject() : QJsonDocument::fromJson(text).object();
+}
+
+void LegendOverlayStyle::setDefaultPreset(const QJsonObject &preset)
+{
+    QSettings settings;
+    if (preset.isEmpty())
+        settings.remove(QStringLiteral("legend/defaultStyle"));
+    else
+        settings.setValue(QStringLiteral("legend/defaultStyle"),
+                          QString::fromUtf8(QJsonDocument(preset).toJson(QJsonDocument::Compact)));
+}
+
 QString LegendOverlayStyle::displayLabelFor(const QString &propertyName) const
 {
     static const QHash<QString, QString> labels = {
         // Title
-        {QStringLiteral("showTitle"), QStringLiteral("General — Show title")},
-        {QStringLiteral("title"), QStringLiteral("General — Title")},
-        {QStringLiteral("titleFont"), QStringLiteral("General — Title font")},
-        {QStringLiteral("titleColor"), QStringLiteral("General — Title color")},
+        {QStringLiteral("showTitle"), QStringLiteral("Title — Show title")},
+        {QStringLiteral("title"), QStringLiteral("Title — Text")},
+        {QStringLiteral("titleFont"), QStringLiteral("Title — Font")},
+        {QStringLiteral("titleColor"), QStringLiteral("Title — Color")},
         {QStringLiteral("titleAlignment"), QStringLiteral("Title — Alignment")},
         {QStringLiteral("titleSpacing"), QStringLiteral("Title — Space below")},
         // Columns
@@ -237,22 +297,22 @@ QString LegendOverlayStyle::displayLabelFor(const QString &propertyName) const
         // Size
         {QStringLiteral("explicitWidth"), QStringLiteral("Size — Width (0 = auto)")},
         {QStringLiteral("explicitHeight"), QStringLiteral("Size — Height (0 = auto)")},
-        {QStringLiteral("maxLabelWidth"), QStringLiteral("Size — Max label width")},
+        {QStringLiteral("maxLabelWidth"), QStringLiteral("Text — Max label width")},
         // Text
-        {QStringLiteral("layerHeaderFont"), QStringLiteral("General — Layer header font")},
-        {QStringLiteral("layerHeaderColor"), QStringLiteral("General — Layer header color")},
+        {QStringLiteral("layerHeaderFont"), QStringLiteral("Text — Group heading font")},
+        {QStringLiteral("layerHeaderColor"), QStringLiteral("Text — Group heading color")},
         {QStringLiteral("layerHeaderAlignment"), QStringLiteral("Text — Group heading alignment")},
         {QStringLiteral("subheadingFont"), QStringLiteral("Text — Sub-heading font")},
         {QStringLiteral("subheadingColor"), QStringLiteral("Text — Sub-heading color")},
         {QStringLiteral("subheadingAlignment"), QStringLiteral("Text — Sub-heading alignment")},
-        {QStringLiteral("itemFont"), QStringLiteral("General — Item font")},
-        {QStringLiteral("itemColor"), QStringLiteral("General — Item color")},
+        {QStringLiteral("itemFont"), QStringLiteral("Text — Item font")},
+        {QStringLiteral("itemColor"), QStringLiteral("Text — Item color")},
         {QStringLiteral("itemAlignment"), QStringLiteral("Text — Item alignment")},
         {QStringLiteral("labelOverflow"), QStringLiteral("Text — Long labels")},
         {QStringLiteral("wrapString"), QStringLiteral("Text — Wrap on")},
         {QStringLiteral("lineSpacing"), QStringLiteral("Text — Line spacing")},
         // Symbols
-        {QStringLiteral("swatchSize"), QStringLiteral("General — Swatch size")},
+        {QStringLiteral("swatchSize"), QStringLiteral("Symbols — Swatch size")},
         {QStringLiteral("symbolWidth"), QStringLiteral("Symbols — Width (0 = swatch)")},
         {QStringLiteral("symbolHeight"), QStringLiteral("Symbols — Height (0 = swatch)")},
         {QStringLiteral("symbolSizeMode"), QStringLiteral("Symbols — Size")},
@@ -266,7 +326,7 @@ QString LegendOverlayStyle::displayLabelFor(const QString &propertyName) const
         {QStringLiteral("patchOutlineColor"), QStringLiteral("Symbols — Outline color")},
         {QStringLiteral("patchOutlineWidth"), QStringLiteral("Symbols — Outline width")},
         // Spacing
-        {QStringLiteral("rowSpacing"), QStringLiteral("General — Row spacing")},
+        {QStringLiteral("rowSpacing"), QStringLiteral("Spacing — Below rows")},
         {QStringLiteral("groupSpacing"), QStringLiteral("Spacing — Above groups")},
         {QStringLiteral("headerSpacing"), QStringLiteral("Spacing — Below group headings")},
         {QStringLiteral("subheadingSpacing"), QStringLiteral("Spacing — Above sub-headings")},
@@ -292,76 +352,6 @@ QString LegendOverlayStyle::displayLabelFor(const QString &propertyName) const
     };
     const auto it = labels.constFind(propertyName);
     return it != labels.constEnd() ? it.value() : MapBoxStyle::displayLabelFor(propertyName);
-}
-
-QString LegendOverlayStyle::propertyGroupFor(const QString &propertyName) const
-{
-    static const QHash<QString, QString> groups = {
-        {QStringLiteral("showTitle"), QStringLiteral("Title")},
-        {QStringLiteral("title"), QStringLiteral("Title")},
-        {QStringLiteral("titleFont"), QStringLiteral("Title")},
-        {QStringLiteral("titleColor"), QStringLiteral("Title")},
-        {QStringLiteral("titleAlignment"), QStringLiteral("Title")},
-        {QStringLiteral("titleSpacing"), QStringLiteral("Title")},
-        {QStringLiteral("columnCount"), QStringLiteral("Columns")},
-        {QStringLiteral("equalColumnWidths"), QStringLiteral("Columns")},
-        {QStringLiteral("splitLayers"), QStringLiteral("Columns")},
-        {QStringLiteral("columnSpacing"), QStringLiteral("Columns")},
-        {QStringLiteral("showColumnSeparators"), QStringLiteral("Columns")},
-        {QStringLiteral("columnSeparatorColor"), QStringLiteral("Columns")},
-        {QStringLiteral("columnSeparatorWidth"), QStringLiteral("Columns")},
-        {QStringLiteral("explicitWidth"), QStringLiteral("Size")},
-        {QStringLiteral("explicitHeight"), QStringLiteral("Size")},
-        {QStringLiteral("maxLabelWidth"), QStringLiteral("Text")},
-        {QStringLiteral("layerHeaderFont"), QStringLiteral("Text")},
-        {QStringLiteral("layerHeaderColor"), QStringLiteral("Text")},
-        {QStringLiteral("layerHeaderAlignment"), QStringLiteral("Text")},
-        {QStringLiteral("subheadingFont"), QStringLiteral("Text")},
-        {QStringLiteral("subheadingColor"), QStringLiteral("Text")},
-        {QStringLiteral("subheadingAlignment"), QStringLiteral("Text")},
-        {QStringLiteral("itemFont"), QStringLiteral("Text")},
-        {QStringLiteral("itemColor"), QStringLiteral("Text")},
-        {QStringLiteral("itemAlignment"), QStringLiteral("Text")},
-        {QStringLiteral("labelOverflow"), QStringLiteral("Text")},
-        {QStringLiteral("wrapString"), QStringLiteral("Text")},
-        {QStringLiteral("lineSpacing"), QStringLiteral("Text")},
-        {QStringLiteral("swatchSize"), QStringLiteral("Symbols")},
-        {QStringLiteral("symbolWidth"), QStringLiteral("Symbols")},
-        {QStringLiteral("symbolHeight"), QStringLiteral("Symbols")},
-        {QStringLiteral("symbolSizeMode"), QStringLiteral("Symbols")},
-        {QStringLiteral("minSymbolSize"), QStringLiteral("Symbols")},
-        {QStringLiteral("maxSymbolSize"), QStringLiteral("Symbols")},
-        {QStringLiteral("symbolPosition"), QStringLiteral("Symbols")},
-        {QStringLiteral("symbolLabelSpacing"), QStringLiteral("Symbols")},
-        {QStringLiteral("linePatchShape"), QStringLiteral("Symbols")},
-        {QStringLiteral("areaPatchShape"), QStringLiteral("Symbols")},
-        {QStringLiteral("showPatchOutline"), QStringLiteral("Symbols")},
-        {QStringLiteral("patchOutlineColor"), QStringLiteral("Symbols")},
-        {QStringLiteral("patchOutlineWidth"), QStringLiteral("Symbols")},
-        {QStringLiteral("rowSpacing"), QStringLiteral("Spacing")},
-        {QStringLiteral("groupSpacing"), QStringLiteral("Spacing")},
-        {QStringLiteral("headerSpacing"), QStringLiteral("Spacing")},
-        {QStringLiteral("subheadingSpacing"), QStringLiteral("Spacing")},
-        {QStringLiteral("groupIndent"), QStringLiteral("Spacing")},
-        {QStringLiteral("subheadingIndent"), QStringLiteral("Spacing")},
-        {QStringLiteral("itemIndent"), QStringLiteral("Spacing")},
-        {QStringLiteral("autoUpdate"), QStringLiteral("Content")},
-        {QStringLiteral("rampDisplay"), QStringLiteral("Color ramps")},
-        {QStringLiteral("rampOrientation"), QStringLiteral("Color ramps")},
-        {QStringLiteral("rampLength"), QStringLiteral("Color ramps")},
-        {QStringLiteral("rampThickness"), QStringLiteral("Color ramps")},
-        {QStringLiteral("rampTickCount"), QStringLiteral("Color ramps")},
-        {QStringLiteral("rampHighAtTop"), QStringLiteral("Color ramps")},
-        {QStringLiteral("rampNumberFormat"), QStringLiteral("Color ramps")},
-        {QStringLiteral("rampDecimals"), QStringLiteral("Color ramps")},
-        {QStringLiteral("rampShowOutline"), QStringLiteral("Color ramps")},
-        {QStringLiteral("rampOutlineColor"), QStringLiteral("Color ramps")},
-        {QStringLiteral("rampShowTickMarks"), QStringLiteral("Color ramps")},
-        {QStringLiteral("rampShowEndCaps"), QStringLiteral("Color ramps")},
-        {QStringLiteral("rampLabelSpacing"), QStringLiteral("Color ramps")},
-    };
-    const auto it = groups.constFind(propertyName);
-    return it != groups.constEnd() ? it.value() : MapBoxStyle::propertyGroupFor(propertyName);
 }
 
 QJsonObject LegendOverlayStyle::toJson() const

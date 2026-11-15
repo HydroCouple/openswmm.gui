@@ -768,6 +768,7 @@ set(
 
         # ── UI models (Slice BB Phase 8.6.16) ────────────────────────────────
         include/ui/models/legendlayertreemodel.h
+        include/ui/models/legenditemtreemodel.h
 
         # ── UI delegates (Slice BB Phase 8.6.16) ─────────────────────────────
         include/ui/delegates/datetimedelegate.h
@@ -1648,6 +1649,7 @@ set(
 
         # UI models (Slice BB Phase 8.6.16 — legend layer tree).
         src/ui/models/legendlayertreemodel.cpp
+        src/ui/models/legenditemtreemodel.cpp
 
         # UI delegates (Slice BB Phase 8.6.16 — legend swatch click-to-edit).
         src/ui/delegates/datetimedelegate.cpp

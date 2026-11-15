@@ -89,7 +89,7 @@ QString MapBoxStyle::displayLabelFor(const QString &propertyName) const
 QString MapBoxStyle::propertyGroupFor(const QString &propertyName) const
 {
     // The group is the part of the display label before " — ".
-    const QString label = MapBoxStyle::displayLabelFor(propertyName);
+    const QString label = displayLabelFor(propertyName);
     const int dash = label.indexOf(QStringLiteral(" — "));
     return dash > 0 ? label.left(dash) : QString();
 }

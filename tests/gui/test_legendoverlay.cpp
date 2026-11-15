@@ -14,7 +14,17 @@
 #include <QDir>
 #include <QFontMetrics>
 #include <QImage>
+#include <QCheckBox>
+#include <QComboBox>
+#include <QDoubleSpinBox>
 #include <QJsonObject>
+#include <QLineEdit>
+#include <QMetaProperty>
+#include <QPushButton>
+#include <QSettings>
+#include <QSpinBox>
+#include <QTabWidget>
+#include <QTreeView>
 #include <QMouseEvent>
 #include <QUndoStack>
 
@@ -37,7 +47,11 @@
 #include "render/renderers/singlesymbolrenderer.h"
 #include "render/symbollayer.h"
 #include "render/symbolstyle.h"
+#include "ui/dialogs/legendpropertiesdialog.h"
+#include "ui/models/legenditemtreemodel.h"
 #include "ui/models/legendlayertreemodel.h"
+#include "ui/panels/propertiespanel.h"
+#include "ui/widgets/colorbutton.h"
 #include "ui/widgets/legendoverlay.h"
 
 #include <memory>
@@ -383,8 +397,17 @@ class TestLegendOverlay : public QObject
     }
 
 private slots:
+    void initTestCase()
+    {
+        // Own settings, so a default legend style saved by a developer cannot change results.
+        QCoreApplication::setOrganizationName(QStringLiteral("OpenSWMM-test"));
+        QCoreApplication::setApplicationName(QStringLiteral("test_legendoverlay"));
+        LegendOverlayStyle::setDefaultPreset({});
+    }
+
     void cleanupTestCase()
     {
+        LegendOverlayStyle::setDefaultPreset({});
         for (const auto &[name, image] : std::as_const(m_images))
             image.save(outDir() + QLatin1Char('/') + name + QStringLiteral(".png"));
     }
@@ -1021,6 +1044,277 @@ private slots:
         settle();
         QCOMPARE(stack->index(), count);
         QCOMPARE(style->columnCount(), 4);
+    }
+
+    /** @brief Every legend setting has a control in the Legend Properties dialog (named after
+     *  the setting) that writes it, and each control follows changes made elsewhere. */
+    void dialogControlsEditTheStyleAndFollowIt()
+    {
+        LegendOverlayStyle style;
+        openswmmvis::ui::LegendPropertiesDialog dialog(&style);
+        dialog.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&dialog));
+        const QMetaObject &meta = LegendOverlayStyle::staticMetaObject;
+        int checked = 0;
+        for (int i = QObject::staticMetaObject.propertyCount(); i < meta.propertyCount(); ++i) {
+            const QMetaProperty property = meta.property(i);
+            const QString name = QString::fromLatin1(property.name());
+            if (name == QLatin1String("autoUpdate"))
+                continue; // the Items tab, which needs a map (itemsTabEditsTheTree)
+            const QVariant before = property.read(&style);
+            if (before.typeId() == QMetaType::QFont) {
+                auto *size = dialog.findChild<QDoubleSpinBox *>(name + QStringLiteral(".size"));
+                auto *bold = dialog.findChild<QCheckBox *>(name + QStringLiteral(".bold"));
+                QVERIFY2(size && bold, qPrintable(name));
+                size->setValue(19);
+                bold->setChecked(!bold->isChecked());
+                const QFont f = property.read(&style).value<QFont>();
+                QCOMPARE(f.pointSizeF(), 19.0);
+                QFont outside = f;
+                outside.setPointSize(11);
+                property.write(&style, outside);
+                QTRY_COMPARE(size->value(), 11.0);
+                ++checked;
+                continue;
+            }
+            QWidget *control = dialog.findChild<QWidget *>(name);
+            QVERIFY2(control, qPrintable(QStringLiteral("no control for ") + name));
+            if (auto *box = qobject_cast<QCheckBox *>(control)) {
+                box->setChecked(!box->isChecked());
+                QCOMPARE(property.read(&style).toBool(), box->isChecked());
+                property.write(&style, !box->isChecked());
+                QTRY_COMPARE(box->isChecked(), property.read(&style).toBool());
+            } else if (auto *spinBox = qobject_cast<QSpinBox *>(control)) {
+                const int to = spinBox->value() == spinBox->maximum() ? spinBox->value() - 1
+                                                                      : spinBox->value() + 1;
+                spinBox->setValue(to);
+                QCOMPARE(property.read(&style).toInt(), style.property(property.name()).toInt());
+                QVERIFY2(property.read(&style) != before, qPrintable(name));
+                property.write(&style, before);
+                QTRY_COMPARE(spinBox->value(), before.toInt());
+            } else if (auto *dbl = qobject_cast<QDoubleSpinBox *>(control)) {
+                const double to = dbl->value() + dbl->singleStep() <= dbl->maximum()
+                                      ? dbl->value() + dbl->singleStep()
+                                      : dbl->value() - dbl->singleStep();
+                dbl->setValue(to);
+                QVERIFY2(std::abs(property.read(&style).toDouble() - to) < 1e-9, qPrintable(name));
+                property.write(&style, before);
+                QTRY_VERIFY(std::abs(dbl->value() - before.toDouble()) < 1e-9);
+            } else if (auto *comboBox = qobject_cast<QComboBox *>(control)) {
+                QVERIFY2(comboBox->count() >= 2, qPrintable(name));
+                comboBox->setCurrentIndex((comboBox->currentIndex() + 1) % comboBox->count());
+                QCOMPARE(property.read(&style).toInt(), comboBox->currentData().toInt());
+                property.write(&style, before);
+                QTRY_COMPARE(comboBox->currentData().toInt(), before.toInt());
+            } else if (auto *colorButton = qobject_cast<openswmmvis::ui::ColorButton *>(control)) {
+                colorButton->setColor(QColor(1, 2, 3, 4));
+                QCOMPARE(property.read(&style).value<QColor>(), QColor(1, 2, 3, 4));
+                property.write(&style, QColor(9, 8, 7));
+                QTRY_COMPARE(colorButton->color(), QColor(9, 8, 7));
+            } else if (auto *edit = qobject_cast<QLineEdit *>(control)) {
+                edit->clear();
+                QTest::keyClicks(edit, QStringLiteral("abc"));
+                QCOMPARE(property.read(&style).toString(), QStringLiteral("abc"));
+                property.write(&style, QStringLiteral("outside"));
+                QTRY_COMPARE(edit->text(), QStringLiteral("outside"));
+            } else {
+                QFAIL(qPrintable(QStringLiteral("unknown control for ") + name));
+            }
+            ++checked;
+        }
+        QVERIFY(checked > 70);
+
+        // Each tab, for review.
+        auto *tabs = dialog.findChild<QTabWidget *>(QStringLiteral("legendTabs"));
+        QVERIFY(tabs);
+        for (int t = 0; t < tabs->count(); ++t) {
+            tabs->setCurrentIndex(t);
+            QCoreApplication::processEvents();
+            m_images.append({QStringLiteral("dialog_tab_%1_%2").arg(t).arg(tabs->tabText(t)),
+                             dialog.grab().toImage()});
+        }
+    }
+
+    /** @brief The Items tab: taking over the order keeps what the legend shows; reorder, group,
+     *  text lines and the selected item's settings write the legend tree; following the map
+     *  again keeps the settings. */
+    void itemsTabEditsTheTree()
+    {
+        LegendScene scene(QSize(800, 700));
+        LegendOverlay legend(scene.canvas.get());
+        LegendOverlayStyle *style = legend.style();
+        openswmmvis::ui::LegendPropertiesDialog dialog(style, nullptr, scene.canvas.get());
+        dialog.show();
+        QVERIFY(QTest::qWaitForWindowExposed(&dialog));
+        auto *model = dialog.itemsModel();
+        auto *view = dialog.findChild<QTreeView *>(QStringLiteral("legendItemsTree"));
+        QVERIFY(model && view);
+        QCOMPARE(model->rowCount(), 4);
+        QCOMPARE(model->index(0, 0).data().toString(), QStringLiteral("Single layer"));
+        // Structure buttons wait for the user's order.
+        QVERIFY(!dialog.findChild<QPushButton *>(QStringLiteral("addGroup"))->isEnabled());
+
+        const auto before =
+            openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style);
+        dialog.findChild<QCheckBox *>(QStringLiteral("autoUpdate"))->setChecked(false);
+        QVERIFY(!style->autoUpdate());
+        QCOMPARE(
+            lineLabels(openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style)),
+            lineLabels(before));
+        QTRY_VERIFY(dialog.findChild<QPushButton *>(QStringLiteral("addGroup"))->isEnabled());
+
+        // Select "Point kinds" and move it up.
+        const auto select = [&](const QString &label) {
+            for (int r = 0; r < model->rowCount(); ++r)
+                if (model->index(r, 0).data().toString() == label) {
+                    view->setCurrentIndex(model->index(r, 0));
+                    return true;
+                }
+            return false;
+        };
+        QVERIFY(select(QStringLiteral("Point kinds")));
+        dialog.findChild<QPushButton *>(QStringLiteral("itemUp"))->click();
+        QTRY_COMPARE(model->index(0, 0).data().toString(), QStringLiteral("Point kinds"));
+        QCOMPARE(view->currentIndex().data().toString(), QStringLiteral("Point kinds"));
+
+        // A group after it, then "Single layer" into the group.
+        dialog.findChild<QPushButton *>(QStringLiteral("addGroup"))->click();
+        QTRY_COMPARE(model->rowCount(), 5);
+        QCOMPARE(model->index(1, 0).data().toString(), QStringLiteral("Group"));
+        QVERIFY(model->setData(model->index(1, 0), QStringLiteral("Points"), Qt::EditRole));
+        QTRY_COMPARE(model->index(1, 0).data().toString(), QStringLiteral("Points"));
+        QVERIFY(select(QStringLiteral("Single layer")));
+        dialog.findChild<QPushButton *>(QStringLiteral("itemIntoGroup"))->click();
+        QTRY_COMPARE(model->rowCount(), 4);
+        QCOMPARE(model->rowCount(model->index(1, 0)), 1);
+        // A text line at the end.
+        QVERIFY(select(QStringLiteral("Sectioned")));
+        dialog.findChild<QPushButton *>(QStringLiteral("addText"))->click();
+        QTRY_COMPARE(model->rowCount(), 5);
+        QVERIFY(model->setData(model->index(4, 0), QStringLiteral("Data: test"), Qt::EditRole));
+        auto entries = openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style);
+        QCOMPARE(headingLabels(entries),
+                 (QStringList{QStringLiteral("Point kinds"), QStringLiteral("Points"),
+                              QStringLiteral("Single layer"), QStringLiteral("Graduated values"),
+                              QStringLiteral("Sectioned")}));
+        QTRY_COMPARE(
+            openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style).last().label,
+            QStringLiteral("Data: test"));
+
+        // The selected item's settings.
+        QVERIFY(select(QStringLiteral("Graduated values")));
+        auto *heading = dialog.findChild<QComboBox *>(QStringLiteral("nodeHeading"));
+        heading->setCurrentIndex(heading->findData(int(LegendNode::HeadingStyle::Hidden)));
+        dialog.findChild<QSpinBox *>(QStringLiteral("nodeItemColumns"))->setValue(2);
+        dialog.findChild<QCheckBox *>(QStringLiteral("nodeColumnBreak"))->setChecked(true);
+        const LegendNode *values =
+            style->itemTree().layerNode(LegendOverlayStyle::itemKey(scene.values.get(), {}));
+        QVERIFY(values);
+        QCOMPARE(values->heading, LegendNode::HeadingStyle::Hidden);
+        QCOMPARE(values->itemColumns, 2);
+        QVERIFY(values->columnBreakBefore);
+        // Uncheck a row: hidden in the legend.
+        const QModelIndex kinds = model->index(0, 0);
+        QVERIFY(model->setData(model->index(1, 0, kinds), Qt::Unchecked, Qt::CheckStateRole));
+        QVERIFY(
+            !lineLabels(openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style))
+                 .contains(QStringLiteral("Kind B (large marker)")));
+        m_images.append({QStringLiteral("dialog_items"), dialog.grab().toImage()});
+        m_images.append({QStringLiteral("dialog_items_legend"), drawn(&legend)});
+
+        // Following the map again: no group or text; the layer settings stay.
+        dialog.findChild<QCheckBox *>(QStringLiteral("autoUpdate"))->setChecked(true);
+        entries = openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style);
+        QVERIFY(!headingLabels(entries).contains(QStringLiteral("Points")));
+        QCOMPARE(style->itemTree()
+                     .layerNode(LegendOverlayStyle::itemKey(scene.values.get(), {}))
+                     ->itemColumns,
+                 2);
+    }
+
+    /** @brief A saved look (style file) restores the look but not the title text, items,
+     *  position or size; a file that is not a legend style is refused; the default look applies
+     *  to new legends until the built-in one is restored. */
+    void presetsAndTheDefaultLook()
+    {
+        LegendOverlayStyle style;
+        openswmmvis::ui::LegendPropertiesDialog dialog(&style);
+        style.setColumnCount(3);
+        style.setShowShadow(true);
+        style.setTitle(QStringLiteral("Mine"));
+        style.setFreePosition(QPoint(40, 50));
+        style.setItemVisible(QStringLiteral("L1"), QStringLiteral("0"), false);
+        const QString file = outDir() + QStringLiteral("/look.oswlegend");
+        QString error;
+        QVERIFY2(dialog.savePreset(file, &error), qPrintable(error));
+
+        LegendOverlayStyle other;
+        openswmmvis::ui::LegendPropertiesDialog otherDialog(&other);
+        other.setTitle(QStringLiteral("Theirs"));
+        other.setFreePosition(QPoint(7, 8));
+        QVERIFY2(otherDialog.loadPreset(file, &error), qPrintable(error));
+        QCOMPARE(other.columnCount(), 3);
+        QVERIFY(other.showShadow());
+        QCOMPARE(other.title(), QStringLiteral("Theirs"));
+        QCOMPARE(other.freePosition(), QPoint(7, 8));
+        QVERIFY(other.itemOverride(QStringLiteral("L1"), QStringLiteral("0")).visible);
+
+        const QString notStyle = outDir() + QStringLiteral("/not_a_style.oswlegend");
+        QFile bad(notStyle);
+        QVERIFY(bad.open(QIODevice::WriteOnly));
+        bad.write(R"({"type": "something-else", "style": {"columnCount": 9}})");
+        bad.close();
+        QVERIFY(!otherDialog.loadPreset(notStyle, &error));
+        QVERIFY(error.contains(QStringLiteral("not a legend style")));
+        QCOMPARE(other.columnCount(), 3);
+
+        LegendOverlayStyle::setDefaultPreset(style.presetJson());
+        {
+            LegendScene scene(QSize(800, 700));
+            LegendOverlay fresh(scene.canvas.get());
+            QCOMPARE(fresh.style()->columnCount(), 3);
+            QVERIFY(fresh.style()->showShadow());
+            QVERIFY(fresh.style()->title().isEmpty());
+        }
+        LegendOverlayStyle::setDefaultPreset({});
+        {
+            LegendScene scene(QSize(800, 700));
+            LegendOverlay fresh(scene.canvas.get());
+            QCOMPARE(fresh.style()->columnCount(), 1);
+        }
+    }
+
+    /** @brief The Properties panel shows the legend's settings in groups, and edits there write
+     *  the legend. */
+    void propertiesPanelGroupsTheLegend()
+    {
+        PropertiesPanel panel;
+        panel.resize(420, 800);
+        panel.show();
+        LegendOverlayStyle style;
+        panel.showStyleObject(&style, QStringLiteral("Legend"));
+        auto *tree = panel.findChild<QTreeView *>();
+        QAbstractItemModel *model = tree->model();
+        QStringList groups;
+        for (int r = 0; r < model->rowCount(); ++r)
+            groups.append(model->index(r, 0).data().toString());
+        for (const char *g : {"Title", "Columns", "Size", "Text", "Symbols", "Spacing", "Content",
+                              "Color ramps", "General", "Margins", "Frame", "Background", "Shadow"})
+            QVERIFY2(groups.contains(QString::fromLatin1(g)),
+                     qPrintable(QString::fromLatin1(g) + QStringLiteral(" in ") +
+                                groups.join(QStringLiteral(", "))));
+        QModelIndex columns;
+        for (int r = 0; r < model->rowCount() && !columns.isValid(); ++r) {
+            const QModelIndex group = model->index(r, 0);
+            for (int c = 0; c < model->rowCount(group); ++c)
+                if (model->index(c, 0, group).data().toString() ==
+                    QStringLiteral("Columns — Count"))
+                    columns = model->index(c, 0, group);
+        }
+        QVERIFY(columns.isValid());
+        QVERIFY(model->setData(columns.siblingAtColumn(1), 3, Qt::EditRole));
+        QCOMPARE(style.columnCount(), 3);
+        m_images.append({QStringLiteral("properties_panel"), panel.grab().toImage()});
     }
 
     /** @brief Hidden layers and hidden rows leave no space. */
