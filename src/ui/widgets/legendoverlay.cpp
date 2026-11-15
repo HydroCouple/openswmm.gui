@@ -242,15 +242,17 @@ void LegendOverlay::recomputeLayout()
     const int contentH = int(std::ceil(m_layout.contentSize.height()));
     m_contentHeight = contentH;
 
-    // An explicit size overrides the fitted size on each axis (0 = fit).
-    const int boxW = m_layout.width;
-    int boxH = m_style->explicitHeight() > 0 ? m_style->explicitHeight() : contentH;
+    // An explicit size overrides the fitted size on each axis (0 = fit). The widget also
+    // holds the box's shadow.
+    const QSize box(m_layout.width,
+                    m_style->explicitHeight() > 0 ? m_style->explicitHeight() : contentH);
+    QSize widget = OpenSWMM::Render::mapBoxWidgetSize(box, *m_style);
     // Keep the box on the map so it can be dragged; taller rows scroll inside it.
-    const int margin = OpenSWMM::Render::kMapBoxAnchorMargin;
     if (m_canvas->height() > 0)
-        boxH = std::min(boxH, std::max(48, m_canvas->height() - 2 * margin));
-    resize(boxW, boxH);
-    m_scrollY = std::clamp(m_scrollY, 0, std::max(0, contentH - boxH));
+        widget.setHeight(std::min(widget.height(),
+                                  std::max(48, m_canvas->height() - 2 * m_style->anchorMarginY())));
+    resize(widget);
+    m_scrollY = std::clamp(m_scrollY, 0, maxScroll());
 
     if (!m_positioned) {
         // Restore a saved free position; otherwise anchor.
@@ -295,18 +297,32 @@ void LegendOverlay::paintEvent(QPaintEvent * /*event*/)
 
     QPainter p(this);
     paintLegend(p, size(), m_scrollY);
-    // A thin thumb on the right edge shows the rows scroll (mouse wheel).
-    const int maxScroll = m_contentHeight - height();
-    if (maxScroll > 0) {
-        const int track = height() - 8;
-        const int thumb = std::max(16, track * height() / m_contentHeight);
+    // A thin thumb on the box's right edge shows the rows scroll (mouse wheel).
+    const int scrollRange = maxScroll();
+    if (scrollRange > 0) {
+        const QRectF box = boxRect();
+        const int boxH = int(box.height());
+        const int track = boxH - 8;
+        const int thumb = std::max(16, track * boxH / m_contentHeight);
         QColor c = m_style->itemColor();
         c.setAlpha(110);
         p.setPen(Qt::NoPen);
         p.setBrush(c);
-        p.drawRoundedRect(QRectF(width() - 6, 4 + (track - thumb) * m_scrollY / maxScroll, 3, thumb),
+        p.drawRoundedRect(QRectF(box.right() - 6,
+                                 box.top() + 4 + (track - thumb) * m_scrollY / scrollRange, 3,
+                                 thumb),
                           1.5, 1.5);
     }
+}
+
+QRectF LegendOverlay::boxRect() const
+{
+    return m_style ? OpenSWMM::Render::mapBoxRect(QSizeF(size()), *m_style) : QRectF(rect());
+}
+
+int LegendOverlay::maxScroll() const
+{
+    return std::max(0, m_contentHeight - int(boxRect().height()));
 }
 
 OpenSWMM::Render::LegendLayoutResult LegendOverlay::layoutForWidth(int width) const
@@ -322,19 +338,22 @@ void LegendOverlay::paintLegend(QPainter &p, const QSize &size, int scrollY) con
     p.save();
     p.setRenderHint(QPainter::Antialiasing, true);
     p.setOpacity(std::clamp<qreal>(m_style->opacity(), 0.0, 1.0));
-    const QRectF box(QPointF(0, 0), QSizeF(size));
+    const QRectF box = OpenSWMM::Render::mapBoxRect(QSizeF(size), *m_style);
     OpenSWMM::Render::paintMapBoxChrome(p, box, *m_style);
 
     // Rows scroll inside the box; the background and frame stay put.
     p.setClipPath(OpenSWMM::Render::mapBoxPath(box, *m_style));
-    p.translate(0, -scrollY);
-    OpenSWMM::Render::LegendPainter::paint(p, layoutForWidth(size.width()), m_entries, *m_style);
+    p.translate(box.left(), box.top() - scrollY);
+    OpenSWMM::Render::LegendPainter::paint(p, layoutForWidth(int(box.width())), m_entries,
+                                           *m_style);
     p.restore();
 }
 
 const OpenSWMM::Render::LegendEntry *LegendOverlay::entryAt(const QPoint &pos) const
 {
-    const auto *box = m_layout.boxAt(QPointF(pos.x(), pos.y() + m_scrollY));
+    const QPointF origin = boxRect().topLeft();
+    const auto *box =
+        m_layout.boxAt(QPointF(pos.x() - origin.x(), pos.y() - origin.y() + m_scrollY));
     if (!box || box->entryIndex < 0 || box->entryIndex >= m_entries.size())
         return nullptr;
     return &m_entries.at(box->entryIndex);
@@ -461,10 +480,12 @@ void LegendOverlay::mouseReleaseEvent(QMouseEvent *event)
         // each emits changed(), which otherwise restores the old geometry.
         const QRect resized = geometry();
         if (m_style) {
+            // The style keeps the box size; the widget also holds the shadow.
+            const QSize shadow = OpenSWMM::Render::mapBoxWidgetSize(QSize(), *m_style);
             if (m_style->anchor() != Style::Anchor::Free)
                 m_style->setAnchor(Style::Anchor::Free);
-            m_style->setExplicitWidth(resized.width());
-            m_style->setExplicitHeight(resized.height());
+            m_style->setExplicitWidth(resized.width() - shadow.width());
+            m_style->setExplicitHeight(resized.height() - shadow.height());
             m_style->setFreePosition(resized.topLeft());
         }
         m_resizing = false;
@@ -488,15 +509,15 @@ void LegendOverlay::mouseReleaseEvent(QMouseEvent *event)
 
 void LegendOverlay::wheelEvent(QWheelEvent *event)
 {
-    const int maxScroll = std::max(0, m_contentHeight - height());
-    if (maxScroll == 0) {
+    const int scrollRange = maxScroll();
+    if (scrollRange == 0) {
         QWidget::wheelEvent(event); // nothing to scroll: the map gets the wheel
         return;
     }
     // Trackpads report pixels; a mouse notch (120) scrolls 40 px.
     const int dy = !event->pixelDelta().isNull() ? event->pixelDelta().y()
                                                   : event->angleDelta().y() * 40 / 120;
-    m_scrollY = std::clamp(m_scrollY - dy, 0, maxScroll);
+    m_scrollY = std::clamp(m_scrollY - dy, 0, scrollRange);
     update();
     event->accept();
 }
@@ -660,7 +681,8 @@ void LegendOverlay::copyLegendImage()
     if (width() == 0 || height() == 0)
         return;
     // The whole legend, also the rows scrolled out of view.
-    const QSize full(width(), std::max(height(), m_contentHeight));
+    const QSize shadow = m_style ? OpenSWMM::Render::mapBoxWidgetSize(QSize(), *m_style) : QSize();
+    const QSize full(width(), std::max(height(), m_contentHeight + shadow.height()));
     QImage img(full, QImage::Format_ARGB32_Premultiplied);
     img.fill(Qt::transparent);
     QPainter p(&img);

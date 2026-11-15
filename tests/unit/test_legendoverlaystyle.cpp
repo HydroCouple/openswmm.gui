@@ -13,8 +13,10 @@
 
 #include "render/legendoverlaystyle.h"
 
-#include <QCoreApplication>
+#include <QGuiApplication>
 #include <QJsonObject>
+#include <QMetaEnum>
+#include <QMetaProperty>
 #include <QSignalSpy>
 
 using OpenSWMM::Render::LegendOverlayStyle;
@@ -38,7 +40,10 @@ struct QtAppFixture : public ::testing::Test {
             static int argc = 1;
             static char arg0[] = "test_legendoverlaystyle";
             static char *argv[] = {arg0, nullptr};
-            new QCoreApplication(argc, argv);
+            // Fonts need a QGuiApplication; the offscreen platform needs no display.
+            if (qEnvironmentVariableIsEmpty("QT_QPA_PLATFORM"))
+                qputenv("QT_QPA_PLATFORM", "offscreen");
+            new QGuiApplication(argc, argv);
         }
     }
 };
@@ -211,4 +216,146 @@ TEST_F(QtAppFixture, ExplicitSize_ClampsToUsableMinimumOrAuto)
     EXPECT_EQ(style.maxLabelWidth(), 60);
     style.setMaxLabelWidth(5000); // clamps down to 1200
     EXPECT_EQ(style.maxLabelWidth(), 1200);
+}
+
+// ── Every property is saved and read back, and the saved object has every key ─────
+namespace
+{
+/** A value different from @p current for a property of the type of @p current. */
+QVariant otherValue(const QMetaProperty &property, const QVariant &current)
+{
+    if (property.isEnumType()) {
+        const QMetaEnum e = property.enumerator();
+        for (int k = 0; k < e.keyCount(); ++k)
+            if (e.value(k) == current.toInt())
+                return e.value((k + 1) % e.keyCount());
+        return e.value(0);
+    }
+    switch (current.typeId()) {
+    case QMetaType::Bool:
+        return !current.toBool();
+    case QMetaType::Int:
+        return current.toInt() + 3;
+    case QMetaType::Double:
+        return current.toDouble() > 0.5 ? current.toDouble() - 0.25 : current.toDouble() + 0.25;
+    case QMetaType::QString:
+        return QStringLiteral("changed");
+    case QMetaType::QColor:
+        return QColor(1, 2, 3, 4);
+    case QMetaType::QFont: {
+        QFont f = current.value<QFont>();
+        f.setPointSize(21);
+        f.setBold(!f.bold());
+        return f;
+    }
+    default:
+        return current;
+    }
+}
+} // namespace
+
+TEST_F(QtAppFixture, EveryPropertyRoundTripsThroughJson)
+{
+    LegendOverlayStyle src;
+    const LegendOverlayStyle defaults;
+    const QMetaObject &meta = LegendOverlayStyle::staticMetaObject;
+    int changed = 0;
+    for (int i = QObject::staticMetaObject.propertyCount(); i < meta.propertyCount(); ++i) {
+        const QMetaProperty property = meta.property(i);
+        ASSERT_TRUE(property.write(&src, otherValue(property, property.read(&src))))
+            << property.name();
+        EXPECT_NE(property.read(&src), property.read(&defaults))
+            << property.name() << " did not take a non-default value";
+        ++changed;
+    }
+    EXPECT_GT(changed, 60);
+
+    const QJsonObject saved = src.toJson();
+    LegendOverlayStyle dst;
+    dst.fromJson(saved);
+    for (int i = QObject::staticMetaObject.propertyCount(); i < meta.propertyCount(); ++i) {
+        const QMetaProperty property = meta.property(i);
+        const QVariant a = property.read(&src);
+        const QVariant b = property.read(&dst);
+        if (a.typeId() == QMetaType::QFont) {
+            EXPECT_EQ(a.value<QFont>().pointSize(), b.value<QFont>().pointSize())
+                << property.name();
+            EXPECT_EQ(a.value<QFont>().bold(), b.value<QFont>().bold()) << property.name();
+        } else {
+            EXPECT_EQ(a, b) << property.name();
+        }
+    }
+    EXPECT_EQ(dst.toJson(), saved);
+}
+
+TEST_F(QtAppFixture, SavedObjectHasEveryKey)
+{
+    // Undo restores a style from a saved object, so every setting must be in it.
+    const QJsonObject saved = LegendOverlayStyle().toJson();
+    const QMetaObject &meta = LegendOverlayStyle::staticMetaObject;
+    for (int i = QObject::staticMetaObject.propertyCount(); i < meta.propertyCount(); ++i)
+        EXPECT_TRUE(saved.contains(QString::fromLatin1(meta.property(i).name())))
+            << meta.property(i).name();
+    EXPECT_TRUE(saved.contains(QStringLiteral("freeX")));
+    EXPECT_TRUE(saved.contains(QStringLiteral("padding")));
+}
+
+TEST_F(QtAppFixture, OlderFilesKeepTheirLook)
+{
+    // A legend saved before the four margins, the sub-heading font and the title spacing.
+    QFont item;
+    item.setPointSize(15);
+    QJsonObject old;
+    old[QStringLiteral("padding")] = 12;
+    old[QStringLiteral("itemFont")] = OpenSWMM::Render::overlayFontToJson(item);
+    old[QStringLiteral("itemColor")] = QStringLiteral("#ff102030");
+    old[QStringLiteral("rowSpacing")] = 5;
+    LegendOverlayStyle style;
+    style.fromJson(old);
+    EXPECT_EQ(style.marginLeft(), 12);
+    EXPECT_EQ(style.marginTop(), 12);
+    EXPECT_EQ(style.marginRight(), 12);
+    EXPECT_EQ(style.marginBottom(), 12);
+    EXPECT_EQ(style.subheadingFont().pointSize(), 15);
+    EXPECT_EQ(style.subheadingColor(), QColor(0x10, 0x20, 0x30));
+    EXPECT_EQ(style.titleSpacing(), 5);
+
+    // A newer file has both; its four margins win over "padding".
+    LegendOverlayStyle newer;
+    newer.setPadding(4);
+    newer.setMarginRight(30);
+    LegendOverlayStyle read;
+    read.fromJson(newer.toJson());
+    EXPECT_EQ(read.marginLeft(), 4);
+    EXPECT_EQ(read.marginRight(), 30);
+    // A newer file's own sub-heading font is kept.
+    QFont sub;
+    sub.setPointSize(9);
+    newer.setSubheadingFont(sub);
+    newer.setItemFont(item);
+    read.fromJson(newer.toJson());
+    EXPECT_EQ(read.subheadingFont().pointSize(), 9);
+}
+
+TEST_F(QtAppFixture, SettersClampToTheirRanges)
+{
+    LegendOverlayStyle style;
+    style.setColumnCount(0);
+    EXPECT_EQ(style.columnCount(), 1);
+    style.setColumnCount(40);
+    EXPECT_EQ(style.columnCount(), 12);
+    style.setOpacity(2.0);
+    EXPECT_DOUBLE_EQ(style.opacity(), 1.0);
+    style.setShadowOffsetX(-50);
+    EXPECT_EQ(style.shadowOffsetX(), -20);
+    style.setMarginTop(-3);
+    EXPECT_EQ(style.marginTop(), 0);
+    style.setSwatchSize(0);
+    EXPECT_EQ(style.swatchSize(), 1);
+    // An automatic outline color stays automatic through a save.
+    EXPECT_FALSE(style.patchOutlineColor().isValid());
+    LegendOverlayStyle read;
+    read.setPatchOutlineColor(Qt::red);
+    read.fromJson(style.toJson());
+    EXPECT_FALSE(read.patchOutlineColor().isValid());
 }
