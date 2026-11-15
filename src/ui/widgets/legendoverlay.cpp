@@ -24,12 +24,14 @@
 #include "render/irasterrenderer.h"
 #include "render/legendoverlaystyle.h"
 #include "render/legendsymbolitem.h"
+#include "ui/accessibility/customaccessible.h"
 #include "ui/dialogs/legendpropertiesdialog.h"
 
 #include <QApplication>
 #include <QClipboard>
 #include <QColorDialog>
 #include <QContextMenuEvent>
+#include <QCoreApplication>
 #include <QEvent>
 #include <QFontMetrics>
 #include <QImage>
@@ -208,7 +210,33 @@ LegendOverlay::LegendOverlay(MapCanvas *canvas) : QWidget(canvas)
     connect(m_style, &Style::changed, this, &LegendOverlay::onStyleChanged);
 
     setCanvas(canvas);
+    setAccessibleName(tr("Map legend"));
     hide(); // user toggles via actionShowLegend
+}
+
+QString LegendOverlay::summaryText() const
+{
+    if (!m_canvas || !m_style)
+        return {};
+    QStringList parts;
+    if (m_style->showTitle() && !m_style->title().isEmpty())
+        parts.append(m_style->title());
+    // Same order and filtering as paintLegend(): top layer first, visible rows only.
+    for (int i = m_canvas->layers().size() - 1; i >= 0; --i) {
+        OpenSWMMVisLayer *layer = m_canvas->layers().at(i);
+        if (!layer || !layer->isVisible())
+            continue;
+        auto rows = legendItemsFor(layer);
+        applyItemOverrides(rows, layer, m_style);
+        QStringList labels;
+        for (const auto &row : rows)
+            if (row.visible && !row.effectiveLabel().isEmpty())
+                labels.append(row.effectiveLabel());
+        parts.append(labels.isEmpty()
+                         ? layer->name()
+                         : tr("%1: %2").arg(layer->name(), labels.join(QStringLiteral(", "))));
+    }
+    return parts.join(QStringLiteral("; "));
 }
 
 LegendOverlay::~LegendOverlay()
@@ -911,6 +939,35 @@ void LegendOverlay::contextMenuEvent(QContextMenuEvent *event)
     menu.exec(event->globalPos());
     event->accept();
 }
+
+namespace
+{
+
+/** The painted legend to screen readers: its rows as text (plan B2). */
+class LegendOverlayAccessible : public accessibility::LiveWidgetAccessible
+{
+public:
+    explicit LegendOverlayAccessible(LegendOverlay *legend)
+        : LiveWidgetAccessible(legend, QAccessible::Graphic)
+    {
+    }
+
+protected:
+    QString descriptionText() const override
+    {
+        return static_cast<LegendOverlay *>(widget())->summaryText();
+    }
+};
+
+void registerLegendOverlayAccessible()
+{
+    QAccessible::installFactory(
+        &accessibility::createAccessible<LegendOverlay, LegendOverlayAccessible>);
+}
+
+} // namespace
+
+Q_COREAPP_STARTUP_FUNCTION(registerLegendOverlayAccessible)
 
 void LegendOverlay::openPropertiesDialog()
 {

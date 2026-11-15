@@ -2080,6 +2080,7 @@ void SWMMVis::initializeAnimationToolBar()
            "set its width with the Window box. Drag the thumb or click the "
            "track to scrub."));
     mAnimationSlider->setStatusTip(tr("Animation Time"));
+    mAnimationSlider->setAccessibleName(tr("Animation timeline"));
 
     mLabelAnimationWindow = new QLabel(tr("Window:"), this);
     mLabelAnimationWindow->setContentsMargins(6, 0, 4, 0);
@@ -2291,6 +2292,11 @@ void SWMMVis::initializeAnimationToolBar()
             return s;
         return s.addMSecs(static_cast<qint64>(std::clamp(v, 0.0, 1.0) * double(span)));
     };
+    // Screen readers hear the slider as the time it points at (review A-01).
+    mAnimationSlider->setValueFormatter([denormTime](qreal v) {
+        const QDateTime t = denormTime(v);
+        return t.isValid() ? t.toString(QStringLiteral("MM/dd/yyyy hh:mm:ss")) : QString();
+    });
     // Push the controller's cursor + window into the single slider (no echo):
     // the thumb goes to the cursor, the band width = window / span. The band is
     // a decoration; only the thumb is interactive.

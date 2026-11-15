@@ -117,6 +117,9 @@ the colors stay comparable frame to frame.
 
 - **Animation → Show Legend** toggles a legend **overlay** drawn on the map canvas
   itself. Its right-click menu includes *Hide legend*, which unchecks the action.
+  Screen readers read the overlay as its title followed by each visible layer and
+  its classes; the **Legend** panel below shows the same rows as a tree you can move
+  through with the keyboard.
 - **View → Panels → Legend** (`Ctrl+5`) opens the dockable **Legend** panel,
   which lists each visible layer's classes and lets you edit a class's style in
   place (**Edit Style…** on the class row).
@@ -147,7 +150,7 @@ the clock.
 
 | Control | What it does |
 |---------|--------------|
-| Time slider | A single thumb — the current time cursor. Drag it or click the track to scrub. The shaded band behind it is the look-back window, drawn ending at the cursor |
+| Time slider | A single thumb — the current time cursor. Drag it or click the track to scrub. The shaded band behind it is the look-back window, drawn ending at the cursor. With the slider focused, **Left** and **Right** move the cursor by 1 % of the run (5 % with **Shift**) and **Home** and **End** jump to the start and end; screen readers read the time the slider points at |
 | **Window:** | Width of the look-back window, in minutes. Each non-driving output shows its latest frame at or before the cursor; the window is what classifies an output as fresh or stale. `0` = latest-at-or-before with no band |
 | Date/time display | The cursor's calendar date and time (`MM/dd/yyyy hh:mm:ss.zzz`), driven by the controller — read-only during playback |
 | **Speed:** | Playback multiplier: 0.25×, 0.5×, 1×, 2×, 4×, 8×. The tick interval is the report step divided by the multiplier, floored at ~20 Hz — beyond that, higher speeds advance several frames per tick. Persisted across sessions |

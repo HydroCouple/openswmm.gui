@@ -19,6 +19,12 @@
 
 #include "ui/widgets/interactivechartview.h"
 
+#include "accessible_checks.h"
+
+#include <QAccessible>
+#include <QLocale>
+#include <QScatterSeries>
+
 #include <QChart>
 #include <QChartView>
 #include <QContextMenuEvent>
@@ -44,6 +50,12 @@ private slots:
     void cursorReflectsMode();
     void axisEndpointHitTestAndSetValueAxisEdges();
     void dateTimeAxisEdgesAcceptDateTimes();
+    /** @brief A-01: a chart is named and described from its live series and axes. */
+    void screenReaderDescribesTheChart();
+    /** @brief A-01: time axes are read as UTC dates; plain QChartViews get the interface too. */
+    void timeAxesAndPlainChartViews();
+    /** @brief A-01: plus/minus zoom, arrows pan, 0 resets; each tells screen readers. */
+    void keysZoomPanAndReset();
 
 private:
     QChart *makeChart();
@@ -275,6 +287,91 @@ void TestComparisonPlotToolbar::dateTimeAxisEdgesAcceptDateTimes()
     QCOMPARE(xAxis->max(), nextEnd);
 
     QVERIFY(!view.setAxisEdgeValue(InteractiveChartView::AxisEdge::XMaximum, start));
+}
+
+void TestComparisonPlotToolbar::screenReaderDescribesTheChart()
+{
+    QLocale::setDefault(QLocale::c());
+    QChart *chart = makeChart();
+    chart->series().first()->setName(QStringLiteral("Flow"));
+    chart->axes(Qt::Horizontal).first()->setTitleText(QStringLiteral("Time (h)"));
+    chart->axes(Qt::Vertical).first()->setTitleText(QStringLiteral("Flow (cfs)"));
+    auto *hidden = new QLineSeries;
+    hidden->setName(QStringLiteral("Hidden"));
+    hidden->append(0.0, 5.0);
+    chart->addSeries(hidden);
+    hidden->setVisible(false);
+    auto *overlay = new QScatterSeries; // empty selection overlay: nothing to read
+    overlay->setName(QStringLiteral("Selection"));
+    chart->addSeries(overlay);
+    InteractiveChartView view(chart);
+
+    QAccessibleInterface *iface = a11ytest::accessibleFor(&view);
+    QVERIFY(iface);
+    QCOMPARE(iface->role(), QAccessible::Chart);
+    QCOMPARE(iface->text(QAccessible::Name), QStringLiteral("Chart"));
+    chart->setTitle(QStringLiteral("Inflow"));
+    QCOMPARE(iface->text(QAccessible::Name), QStringLiteral("Inflow"));
+    view.setAccessibleName(QStringLiteral("Hydrograph"));
+    QCOMPARE(iface->text(QAccessible::Name), QStringLiteral("Hydrograph"));
+
+    QCOMPARE(iface->text(QAccessible::Description),
+             QStringLiteral("Flow: 3 points, values 10 to 30; Time (h) from 0 to 2; "
+                            "Flow (cfs) from 0 to 30; Plus and minus zoom, the arrow keys pan, "
+                            "0 resets the zoom."));
+    chart->series().first()->setVisible(false);
+    QVERIFY(iface->text(QAccessible::Description).startsWith(QStringLiteral("No data; ")));
+}
+
+void TestComparisonPlotToolbar::timeAxesAndPlainChartViews()
+{
+    QDateTime start;
+    QDateTime end;
+    QChartView plain(makeDateChart(start, end));
+    QAccessibleInterface *iface = a11ytest::accessibleFor(&plain);
+    QVERIFY(iface);
+    QCOMPARE(iface->role(), QAccessible::Chart);
+    QCOMPARE(iface->text(QAccessible::Description),
+             QStringLiteral("Series 1: 2 points, values 10 to 20; "
+                            "Horizontal axis from 2026-01-01 00:00 to 2026-01-01 06:00; "
+                            "Vertical axis from 0 to 30"));
+}
+
+void TestComparisonPlotToolbar::keysZoomPanAndReset()
+{
+    QChart *chart = makeChart();
+    InteractiveChartView view(chart);
+    view.resize(400, 300);
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+    auto *x = qobject_cast<QValueAxis *>(chart->axes(Qt::Horizontal).first());
+    auto *y = qobject_cast<QValueAxis *>(chart->axes(Qt::Vertical).first());
+    a11ytest::AccessibleEventRecorder events;
+
+    QTest::keyClick(&view, Qt::Key_Plus);
+    QVERIFY(x->max() - x->min() < 2.0 - 1e-6);
+    const double zoomedWidth = x->max() - x->min();
+    QTest::keyClick(&view, Qt::Key_Minus);
+    QVERIFY(x->max() - x->min() > zoomedWidth + 1e-6);
+
+    QTest::keyClick(&view, Qt::Key_Plus);
+    const double minBefore = x->min();
+    QTest::keyClick(&view, Qt::Key_Right);
+    QVERIFY(x->min() > minBefore + 1e-6);
+    QTest::keyClick(&view, Qt::Key_Left);
+    QVERIFY(qAbs(x->min() - minBefore) < 1e-6);
+    const double yBefore = y->min();
+    QTest::keyClick(&view, Qt::Key_Up);
+    QVERIFY(y->min() > yBefore + 1e-6);
+    QTest::keyClick(&view, Qt::Key_Down);
+
+    QTest::keyClick(&view, Qt::Key_0);
+    QCOMPARE(x->min(), 0.0);
+    QCOMPARE(x->max(), 2.0);
+    QCOMPARE(events.count(QAccessible::DescriptionChanged, &view), 8);
+
+    QTest::keyClick(&view, Qt::Key_Plus, Qt::ControlModifier); // not ours
+    QCOMPARE(x->max(), 2.0);
 }
 
 QTEST_MAIN(TestComparisonPlotToolbar)

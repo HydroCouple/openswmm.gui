@@ -14,6 +14,10 @@
 #include "animation/animationcontroller.h"
 #include "ui/widgets/cursorwindowslider.h"
 #include "ui/widgets/legendoverlay.h"
+#include "map/legendcontent.h"
+#include "render/legendoverlaystyle.h"
+
+#include <QAccessible>
 #include <QAction>
 #include "map/swmm2dresultsqsgrenderer.h"
 #include "map/flowparticlenode.h"
@@ -1962,6 +1966,42 @@ private slots:
         FlowStreakStyle reopened;
         reopened.fromJson(style->toJson());
         QCOMPARE(reopened.toJson(), style->toJson());
+    }
+    /**
+     * @brief A-01: the map legend is a named picture whose description lists the title, then
+     * the visible layers top first with their visible legend rows.
+     */
+    void legendOverlayIsDescribedForScreenReaders()
+    {
+        CompositionBackdrop backdrop(true);
+        backdrop.setName(QStringLiteral("Backdrop"));
+        SWMM2DResultsLayer results;
+        results.setSource(std::make_unique<FlowSource>());
+        results.setName(QStringLiteral("Results"));
+        MapCanvas canvas;
+        canvas.addLayer(&backdrop, false);
+        canvas.addLayer(&results, false);
+        openswmmvis::ui::LegendOverlay legend(&canvas);
+        legend.style()->setTitle(QStringLiteral("Flow legend"));
+        legend.style()->setShowTitle(true);
+
+        QStringList rows;
+        for (const auto &row : openswmmvis::map::LegendContent::legendItemsFor(&results))
+            if (row.visible && !row.effectiveLabel().isEmpty())
+                rows.append(row.effectiveLabel());
+        const QString resultsText =
+            rows.isEmpty() ? QStringLiteral("Results")
+                           : QStringLiteral("Results: ") + rows.join(QStringLiteral(", "));
+
+        QAccessibleInterface *iface = QAccessible::queryAccessibleInterface(&legend);
+        QVERIFY(iface);
+        QCOMPARE(iface->role(), QAccessible::Graphic);
+        QCOMPARE(iface->text(QAccessible::Name), QStringLiteral("Map legend"));
+        QCOMPARE(iface->text(QAccessible::Description),
+                 QStringLiteral("Flow legend; ") + resultsText + QStringLiteral("; Backdrop"));
+        results.setVisible(false);
+        legend.style()->setShowTitle(false);
+        QCOMPARE(iface->text(QAccessible::Description), QStringLiteral("Backdrop"));
     }
     /**
      *

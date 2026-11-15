@@ -9,6 +9,9 @@
 
 #include "ui/sectionview/sectionpreviewwidget.h"
 
+#include "ui/accessibility/customaccessible.h"
+
+#include <QCoreApplication>
 #include <QImage>
 #include <QMouseEvent>
 #include <QPainter>
@@ -60,6 +63,17 @@ void SectionPreviewWidget::setModel(SectionDiagramModel model)
     // zoomToExtents() themselves when the subject changes (a new selection, a
     // new shape), which is the only time a stale zoom is meaningless.
     update();
+}
+
+QString SectionPreviewWidget::summaryText() const
+{
+    QStringList parts;
+    for (const QString &part : {m_model.title, m_model.subtitle, m_model.footer})
+        if (!part.isEmpty())
+            parts.append(part);
+    if (parts.isEmpty())
+        return m_model.emptyText.isEmpty() ? m_placeholder : m_model.emptyText;
+    return parts.join(QStringLiteral(". "));
 }
 
 void SectionPreviewWidget::setPlaceholderText(const QString &text)
@@ -225,5 +239,34 @@ void SectionPreviewWidget::paintEvent(QPaintEvent *)
         m.emptyText = m_placeholder;
     paintSectionDiagram(p, QRectF(rect()), m, palette(), m_viewport, &m_lastFitRect, &m_achievedVE);
 }
+
+namespace
+{
+
+/** A static picture to screen readers, described by the model's own text (plan B2). */
+class SectionPreviewAccessible : public ui::accessibility::LiveWidgetAccessible
+{
+public:
+    explicit SectionPreviewAccessible(SectionPreviewWidget *preview)
+        : LiveWidgetAccessible(preview, QAccessible::Graphic)
+    {
+    }
+
+protected:
+    QString descriptionText() const override
+    {
+        return static_cast<SectionPreviewWidget *>(widget())->summaryText();
+    }
+};
+
+void registerSectionPreviewAccessible()
+{
+    QAccessible::installFactory(
+        &ui::accessibility::createAccessible<SectionPreviewWidget, SectionPreviewAccessible>);
+}
+
+} // namespace
+
+Q_COREAPP_STARTUP_FUNCTION(registerSectionPreviewAccessible)
 
 } // namespace openswmmvis::sectionview

@@ -100,7 +100,7 @@ series per attribute for that object in a single click.
 | Toolbar (top) | Interaction modes, Fit, exports, view toggles, the 1v1 controls |
 | **Series** panel (left) | A tree grouped by run, with **Add Series…**, **Load Observed…** and **Remove** underneath |
 | Charts (center) | A vertical stack of chart **rows** — one row per distinct plot attribute; scrolls when there are many |
-| Range slider | An X-range slider under the charts with a date/time read-out |
+| Range slider | An X-range slider under the charts with a date/time read-out. **Tab** and **Shift+Tab** move between the range, its start and its end; the arrow keys move the selected part (**Shift** for larger steps) and **Home** / **End** move it as far as it goes. Screen readers read the selected part's date |
 | **Statistics** panel (bottom) | One tab per chart row |
 
 Rows are separated by splitters you can drag. Dock placement and visibility are
@@ -210,6 +210,10 @@ The toolbar's four mode buttons are mutually exclusive and apply to every row:
 Independent of the mode:
 
 - the **wheel** always zooms about the cursor;
+- with a chart focused, **+** and **−** zoom, the arrow keys pan and **0** resets
+  the zoom (the same keys work in the curve, pattern, time series and unit
+  hydrograph editors' charts). Screen readers describe each chart by its series,
+  their value ranges and the axes' visible ranges;
 - **middle-button drag** pans;
 - **Shift-drag** across a chart selects an X range — the statistics panel narrows
   to that window, and **Fit** re-fits Y to it. Shift-drag again outside to clear;

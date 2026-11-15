@@ -53,6 +53,7 @@
 #include <QVector>
 #include <QWidget>
 
+#include <functional>
 #include <limits>
 #include <memory>
 #include <optional>
@@ -394,6 +395,38 @@ public:
      */
     void setSelectedElementNames(const QStringList &names);
 
+    // ── Keyboard node cursor (review A-01) ──────────────────────────────
+    //
+    // With focus, Left/Right walk the path node by node (Shift: 10 nodes),
+    // Ctrl+Home/Ctrl+End go to the ends (Home stays the dialog's Fit),
+    // Enter acts as a click on the node and the Menu key (or Shift+F10) as a
+    // right-click. Screen readers hear cursorSummary() after each move; a
+    // period change during playback updates it without an announcement.
+
+    /** @return Path index of the node cursor, or -1 when there is none. */
+    [[nodiscard]] int cursorNode() const { return m_cursorNode; }
+    /**
+     * @brief Place the node cursor without announcing it; scrolls the node into view.
+     * @param[in] pathNodeIdx Path index, clamped to the path; -1 or an empty path clears it.
+     */
+    void setCursorNode(int pathNodeIdx);
+    /**
+     * @brief The cursor node and its values at the current time, for screen readers.
+     * @return Name, position on the path, kind, invert, rim, each visible series and the node
+     *   details provider's text; empty without a cursor.
+     */
+    [[nodiscard]] QString cursorSummary() const;
+    /**
+     * @brief The path, visible series and keys, for screen readers.
+     * @return Text; mentions that there is no path when the path is empty.
+     */
+    [[nodiscard]] QString accessibleSummary() const;
+    /**
+     * @brief Add text to cursorSummary(), e.g. the attribute-track values at the node.
+     * @param[in] provider Called with the cursor's path index; empty removes it.
+     */
+    void setNodeDetailsProvider(std::function<QString(int pathNodeIdx)> provider);
+
 signals:
     /*!
      * \brief Emitted whenever the visible x-range (virtual chainage)
@@ -502,8 +535,22 @@ protected:
      * @param[in,out] event Borrowed Qt dispatch event, never retained/deleted; paint/resize event contents are unused.
      */
     void wheelEvent(QWheelEvent *event) override;
+    /**
+     * @brief Node cursor keys (see cursorNode()); other keys go to QWidget.
+     * @param[in] event Borrowed key event; handled keys are accepted.
+     */
+    void keyPressEvent(QKeyEvent *event) override;
+    /**
+     * @brief Put the cursor on the first node when focus arrives without one.
+     * @param[in] event Borrowed focus event.
+     */
+    void focusInEvent(QFocusEvent *event) override;
 
 private:
+    /** @brief Move the node cursor as a user action and tell screen readers. */
+    void moveCursorByUser(int pathNodeIdx);
+    /** @brief Draw the node cursor while the plot has focus. */
+    void paintNodeCursor(QPainter &p) const;
     // Plot-rect (data area, excluding axis label gutters) in widget pixels.
     /**
      * @brief Resolve cached plot geometry/style without source access.
@@ -937,6 +984,9 @@ private:
     QPoint m_lastMousePos;
     QPoint m_zoomAnchor; // start of rubberband
     class QRubberBand *m_rubberBand = nullptr;
+
+    int m_cursorNode = -1; ///< keyboard node cursor (review A-01)
+    std::function<QString(int)> m_nodeDetails;
 };
 
 #endif // PROFILE_PLOT_WIDGET_H

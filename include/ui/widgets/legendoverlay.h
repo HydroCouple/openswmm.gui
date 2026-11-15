@@ -89,6 +89,13 @@ public:
      */
     void setStyle(OpenSWMM::Render::LegendOverlayStyle *style, bool takeOwnership = false);
 
+    /**
+     * @brief What the legend shows, as text for screen readers (review A-01).
+     * @return The title, then each visible layer in drawing order with its visible row labels;
+     *   empty without a canvas or style. The Legend panel offers the same rows as a tree.
+     */
+    [[nodiscard]] QString summaryText() const;
+
 signals:
     /*! \brief Emitted when the user selects "Hide Legend" from the
      *         context menu. The toolbar should toggle actionShowLegend

@@ -20,6 +20,11 @@
  *
  * Constraint: lo ≤ hi is always preserved; thumbs can touch but cannot
  * cross.
+ *
+ * Keyboard (review A-08): Tab and Shift+Tab move focus between three parts,
+ * the window, its start and its end, before leaving the slider; the arrows,
+ * Home and End move the focused part. Screen readers hear the focused part
+ * and its value, formatted by the host (dates in the comparison plot).
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -27,6 +32,8 @@
 #define OPENSWMMVIS_UI_WIDGETS_RANGESLIDER_H
 
 #include <QWidget>
+
+#include <functional>
 
 namespace openswmmvis::ui
 {
@@ -37,6 +44,9 @@ class RangeSliderWidget : public QWidget
     Q_PROPERTY(qreal lo READ lo NOTIFY rangeChanged)
     Q_PROPERTY(qreal hi READ hi NOTIFY rangeChanged)
 public:
+    /** @brief The part of the slider the keys move. */
+    enum class Part { Window, Start, End };
+
     /**
      * @brief Create a focusable normalized horizontal slider with mouse tracking.
      * @param[in] parent Optional QWidget owner; use on the GUI thread. The effective minimum height is 24 pixels.
@@ -62,6 +72,26 @@ public:
      */
     void setRange(qreal lo, qreal hi);
 
+    /** @return The part the arrow keys move; the window until the user picks another. */
+    Part focusedPart() const noexcept { return m_part; }
+
+    /**
+     * @brief Set how a fraction of the track is spoken and shown, e.g. as a date.
+     * @param[in] formatter Maps a fraction in [0,1] to text; empty restores the percentage.
+     */
+    void setValueFormatter(std::function<QString(qreal)> formatter);
+    /**
+     * @brief The focused part and its value, for screen readers.
+     * @return For example "Start 2024-01-01 00:00" or "2024-01-01 00:00 to 2024-01-05 00:00".
+     */
+    QString valueText() const;
+    /**
+     * @brief Move the focused part as a user action: the window keeps its width, the start
+     *        stays at or before the end. Emits rangeChanged() and notifies screen readers.
+     * @param[in] value Fraction for the window's start, the start or the end.
+     */
+    void setFocusedValue(qreal value);
+
     /**
      * @brief Preferred size is 300 by 20 logical pixels.
      * @return Logical-pixel size hint.
@@ -83,7 +113,8 @@ signals:
 
 protected:
     /**
-     * @brief Paint the inactive track, selected band and two rounded handles.
+     * @brief Paint the inactive track, selected band and two rounded handles, and outline the
+     *        focused part while the slider has focus.
      * @param[in] e Required Qt paint event, unused by the custom painter.
      */
     void paintEvent(QPaintEvent *e) override;
@@ -103,10 +134,21 @@ protected:
      */
     void mouseReleaseEvent(QMouseEvent *e) override;
     /**
-     * @brief Handle Left/Right shifts (1%, or 5% with Shift) and Home/End placement.
-     * @param[in] e Required Qt key event. Endpoint clamping can shrink a shifted band at timeline boundaries; handled keys are accepted.
+     * @brief Move the focused part: Left/Right by 1% (5% with Shift), Home/End to the ends.
+     * @param[in] e Required Qt key event. Endpoint clamping can shrink a shifted window at timeline boundaries; handled keys are accepted.
      */
     void keyPressEvent(QKeyEvent *e) override;
+    /**
+     * @brief Tab and Shift+Tab step through the window, start and end before leaving.
+     * @param[in] next True for Tab.
+     * @return True while focus stays inside the slider.
+     */
+    bool focusNextPrevChild(bool next) override;
+    /**
+     * @brief Tab entry focuses the window, Shift+Tab entry the end.
+     * @param[in] e Focus event carrying the reason.
+     */
+    void focusInEvent(QFocusEvent *e) override;
 
 private:
     enum class DragKind { None, Lo, Hi, Both };
@@ -144,6 +186,8 @@ private:
      * @return Lo/Hi for handle hits, Both for the interior band, or None. Nearly coincident handles split at their center.
      */
     DragKind hitTest(const QPoint &p) const noexcept;
+    /** @brief Select the part the keys move, repaint and notify screen readers. */
+    void setFocusedPart(Part part);
 
     qreal m_lo = 0.0;
     qreal m_hi = 1.0;
@@ -152,6 +196,9 @@ private:
     int m_dragOriginPx = 0;
     qreal m_dragOriginLo = 0.0;
     qreal m_dragOriginHi = 1.0;
+
+    Part m_part = Part::Window;
+    std::function<QString(qreal)> m_formatter;
 };
 
 } // namespace openswmmvis::ui

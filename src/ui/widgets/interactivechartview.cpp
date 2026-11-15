@@ -11,6 +11,7 @@
 
 #include "core/preferencesmanager.h"
 #include "plot/utctimeaxis.h"
+#include "ui/accessibility/customaccessible.h"
 
 #include <QAbstractAxis>
 #include <QChart>
@@ -130,6 +131,8 @@ InteractiveChartView::InteractiveChartView(QChart *chart, QWidget *parent)
     setMouseTracking(true);
     setFocusPolicy(Qt::StrongFocus);
     applyModeCursor();
+    // Appended to the chart summary that screen readers hear (src/ui/accessibility).
+    setAccessibleDescription(tr("Plus and minus zoom, the arrow keys pan, 0 resets the zoom."));
 
     // Slice AT.3 — hover tooltip throttle.
     m_hoverTimer.setSingleShot(true);
@@ -681,6 +684,44 @@ void InteractiveChartView::keyPressEvent(QKeyEvent *e)
         emit xRangeSelectionChanged(QDateTime(), QDateTime());
         e->accept();
         return;
+    }
+    // Review A-01 — keyboard zoom and pan, one wheel notch or a tenth of the plot per press.
+    QChart *c = chart();
+    if (c && !(e->modifiers() & (Qt::ControlModifier | Qt::AltModifier | Qt::MetaModifier))) {
+        const QRectF plot = c->plotArea();
+        bool handled = true;
+        switch (e->key()) {
+        case Qt::Key_Plus:
+        case Qt::Key_Equal:
+            c->zoom(1.0 / kWheelZoomBase);
+            break;
+        case Qt::Key_Minus:
+            c->zoom(kWheelZoomBase);
+            break;
+        case Qt::Key_Left:
+            c->scroll(-plot.width() / 10.0, 0.0);
+            break;
+        case Qt::Key_Right:
+            c->scroll(plot.width() / 10.0, 0.0);
+            break;
+        case Qt::Key_Up:
+            c->scroll(0.0, plot.height() / 10.0);
+            break;
+        case Qt::Key_Down:
+            c->scroll(0.0, -plot.height() / 10.0);
+            break;
+        case Qt::Key_0:
+            resetZoom();
+            break;
+        default:
+            handled = false;
+            break;
+        }
+        if (handled) {
+            accessibility::announceDescription(this);
+            e->accept();
+            return;
+        }
     }
     QChartView::keyPressEvent(e);
 }

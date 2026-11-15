@@ -557,6 +557,27 @@ add_swmmvis_gui_test(test_profileplot_axis_edges
     ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
 )
 
+# Review A-01 — the 1D profile's keyboard node cursor and screen-reader interface.
+add_swmmvis_gui_test(test_profileplot_keyboard
+    test_profileplot_keyboard.cpp
+    accessible_checks.h
+    ${CMAKE_SOURCE_DIR}/src/plot/profileplotwidget.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/profileplotwidget.h
+    ${CMAKE_SOURCE_DIR}/src/plot/profilebuilder.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/profilebuilder.h
+    ${CMAKE_SOURCE_DIR}/src/plot/profileplotoptions.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/profileplotoptions.h
+    ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h
+    ${CMAKE_SOURCE_DIR}/src/render/colorramp.cpp
+    ${CMAKE_SOURCE_DIR}/include/render/colorramp.h
+    ${CMAKE_SOURCE_DIR}/src/plot/numberformat.cpp
+    ${CMAKE_SOURCE_DIR}/include/plot/numberformat.h
+    ${CMAKE_SOURCE_DIR}/include/ui/theme/thememanager.h
+    ${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/accessibility/customaccessible.h
+)
+
 # Profile plots — crown line must stay visible when it coincides with (or
 # rises above) the ground rim: conduit crowns bound the y-extent and the
 # vertical padding keeps top-edge features off the clip edge / axis frame.
@@ -1068,6 +1089,9 @@ add_swmmvis_gui_test(test_comparisonplot_toolbar
     test_comparisonplot_toolbar.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/widgets/interactivechartview.cpp
     ${CMAKE_SOURCE_DIR}/include/ui/widgets/interactivechartview.h
+    # A-01: the screen-reader interface every QChartView gets.
+    ${CMAKE_SOURCE_DIR}/src/ui/accessibility/chartaccessible.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/accessibility/customaccessible.h
     # InteractiveChartView formats axis labels via PreferencesManager + NumberFormat.
     ${CMAKE_SOURCE_DIR}/src/core/preferencesmanager.cpp
     ${CMAKE_SOURCE_DIR}/include/core/preferencesmanager.h

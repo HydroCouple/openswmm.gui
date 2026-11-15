@@ -12,10 +12,13 @@
 #include "plot/profileattributetrackswidget.h"
 
 #include "plot/profileattributetrackoptions.h"
+#include "ui/accessibility/customaccessible.h"
 #include "ui/theme/thememanager.h"
 #include "ui/theme/themetokens.h" // ThemeColors is only fwd-declared above
 
+#include <QCoreApplication>
 #include <QFontMetrics>
+#include <QLocale>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -59,6 +62,49 @@ ProfileAttributeTracksWidget::ProfileAttributeTracksWidget(QWidget *parent) : QW
 {
     setMouseTracking(false);
     setMinimumHeight(0);
+    setAccessibleName(tr("Attribute tracks"));
+}
+
+QString ProfileAttributeTracksWidget::valuesTextAtNode(int pathNodeIdx) const
+{
+    if (pathNodeIdx < 0 || m_currentPeriod < 0)
+        return {};
+    const QLocale locale;
+    QStringList phrases;
+    for (const Track &t : m_tracks) {
+        QStringList values;
+        for (const SourceProfile &s : t.sources) {
+            if (!s.data)
+                continue;
+            const auto &rows = s.data->byPath;
+            int row = pathNodeIdx;
+            if (!t.isNodeAttribute && row >= rows.size())
+                row = int(rows.size()) - 1; // last node: the link that enters it
+            if (row < 0 || row >= rows.size() || m_currentPeriod >= rows[row].size())
+                continue;
+            const float v = rows[row][m_currentPeriod];
+            if (!std::isfinite(v))
+                continue;
+            const QString number = locale.toString(double(v), 'g', 4);
+            values.append(t.sources.size() > 1 && !s.label.isEmpty()
+                              ? tr("%1 %2").arg(s.label, number)
+                              : number);
+        }
+        if (!values.isEmpty())
+            phrases.append(tr("%1 %2").arg(t.title, values.join(QStringLiteral(", "))));
+    }
+    return phrases.join(QStringLiteral("; "));
+}
+
+QString ProfileAttributeTracksWidget::summaryText() const
+{
+    if (m_tracks.isEmpty())
+        return tr("No tracks");
+    QStringList titles;
+    for (const Track &t : m_tracks)
+        titles.append(t.title);
+    return tr("Tracks: %1. The profile's node cursor reads their values.")
+        .arg(titles.join(QStringLiteral(", ")));
 }
 
 void ProfileAttributeTracksWidget::setVirtualChainage(const QVector<double> &table)
@@ -483,3 +529,33 @@ void ProfileAttributeTracksWidget::mouseReleaseEvent(QMouseEvent *event)
     }
     QWidget::mouseReleaseEvent(event);
 }
+
+namespace
+{
+
+/** The tracks pane to screen readers: a chart described by its track titles (review A-01). */
+class AttributeTracksAccessible : public openswmmvis::ui::accessibility::LiveWidgetAccessible
+{
+public:
+    explicit AttributeTracksAccessible(ProfileAttributeTracksWidget *tracks)
+        : LiveWidgetAccessible(tracks, QAccessible::Chart)
+    {
+    }
+
+protected:
+    QString descriptionText() const override
+    {
+        return static_cast<ProfileAttributeTracksWidget *>(widget())->summaryText();
+    }
+};
+
+void registerAttributeTracksAccessible()
+{
+    QAccessible::installFactory(
+        &openswmmvis::ui::accessibility::createAccessible<ProfileAttributeTracksWidget,
+                                                          AttributeTracksAccessible>);
+}
+
+} // namespace
+
+Q_COREAPP_STARTUP_FUNCTION(registerAttributeTracksAccessible)

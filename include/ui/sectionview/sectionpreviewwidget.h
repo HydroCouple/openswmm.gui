@@ -61,6 +61,12 @@ public:
      *   transfer ownership or promise engine synchronization.
      */
     [[nodiscard]] const SectionDiagramModel &model() const noexcept { return m_model; }
+    /**
+     * @brief What the preview shows, as text for screen readers (review A-01).
+     * @return Title, subtitle and footer joined; the empty text or placeholder when the model
+     *   has none of them.
+     */
+    [[nodiscard]] QString summaryText() const;
 
     /*! Message shown when the model has nothing to draw and carries no
      *  `emptyText` of its own.

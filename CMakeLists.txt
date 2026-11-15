@@ -836,6 +836,8 @@ set(
         include/ui/theme/reducedmotion.h
         include/platform/systemaccessibility.h
         include/ui/theme/themehelpers.h
+        # Review A-01: accessibility interfaces for custom-drawn widgets.
+        include/ui/accessibility/customaccessible.h
         include/ui/theme/iconfactory.h
 
         # ── UI toolbars ──────────────────────────────────────────────────────
@@ -1850,6 +1852,7 @@ set(
         src/ui/widgets/perattributethemingwidget.cpp
         src/ui/widgets/legendoverlay.cpp
         src/ui/widgets/interactivechartview.cpp
+        src/ui/accessibility/chartaccessible.cpp
         src/ui/widgets/cursorwindowslider.cpp
         src/ui/widgets/chartaxisformatcontroller.cpp
         src/ui/widgets/timeserieseditchartview.cpp
