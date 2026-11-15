@@ -19,6 +19,8 @@
 
 #include <QLineF>
 #include <QList>
+#include <QPair>
+#include <QPolygonF>
 #include <QRectF>
 #include <QSize>
 #include <QSizeF>
@@ -48,6 +50,14 @@ struct LegendLayoutResult {
         QRectF textRect;     ///< Text area.
         QStringList lines;   ///< Text to draw, already wrapped or shortened to fit.
         Qt::Alignment alignment = Qt::AlignLeft; ///< Horizontal text alignment.
+        // Color bar (LegendEntry::Kind::RampBar); the text above it is in textRect/lines.
+        QRectF barRect;            ///< The bar; empty when the line is not a color bar.
+        bool barVertical = true;   ///< Values run up/down (true) or left to right.
+        bool barHighAtTop = true;  ///< Vertical bars: the high end is at the top.
+        QVector<QLineF> tickMarks; ///< Tick marks at the values.
+        QVector<QPair<QRectF, QString>> tickLabels; ///< Values and where they are written.
+        QPolygonF capBelow; ///< Triangle at the low end in the below-range color; may be empty.
+        QPolygonF capAbove; ///< Triangle at the high end in the above-range color; may be empty.
     };
 
     QVector<Box> boxes;

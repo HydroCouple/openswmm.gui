@@ -227,6 +227,10 @@ QList<LegendSymbolItem> buildFillLegend(const ScalarFillStyle *style, const QStr
         item.sublayerId = subId;
         item.symbol.opacity = opacity;
     }
+    // Continuous samples over a known range: the legend can draw them as one color bar.
+    if (!style->classified() && haveRange)
+        tagLegendRamp(out, 0, int(out.size()),
+                      scheme.rampSpec(scheme.rangeMin(), scheme.rangeMax()));
     return out;
 }
 } // namespace

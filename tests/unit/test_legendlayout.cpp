@@ -15,6 +15,8 @@
 #include "render/legendoverlaystyle.h"
 #include "render/symbollayer.h"
 
+#include <memory>
+
 #include <QFontMetrics>
 #include <QGuiApplication>
 
@@ -377,4 +379,103 @@ TEST_F(LayoutFixture, MarginsIndentsAndSpacing)
                                  hfm.horizontalAdvance(QStringLiteral("B"))});
     EXPECT_EQ(layout.contentSize.width(), 20 + widest + 5);
     EXPECT_EQ(layout.contentSize.height(), layout.boxes[3].rect.bottom() + 2 + 9);
+}
+
+// ── Color bars ────────────────────────────────────────────────────────────────
+
+namespace
+{
+LegendEntry rampEntry(const QString &label, bool caps)
+{
+    auto spec = std::make_shared<OpenSWMM::Render::LegendRampSpec>();
+    spec->lo = 0;
+    spec->hi = 10;
+    spec->unitsSuffix = QStringLiteral(" m");
+    spec->stops = {{0.0, Qt::black}, {1.0, Qt::white}};
+    if (caps) {
+        spec->belowColor = Qt::blue;
+        spec->aboveColor = Qt::red;
+    }
+    LegendEntry e;
+    e.kind = LegendEntry::Kind::RampBar;
+    e.label = label;
+    e.ramp = spec;
+    e.blockId = 1;
+    return e;
+}
+
+QStringList tickTexts(const LegendLayoutResult::Box &box)
+{
+    QStringList out;
+    for (const auto &[rect, text] : box.tickLabels)
+        out.append(text);
+    return out;
+}
+} // namespace
+
+TEST_F(LayoutFixture, VerticalColorBarHasItsValuesAndEndCaps)
+{
+    LegendOverlayStyle style;
+    const QFontMetrics fm(style.itemFont());
+    auto layout = LegendLayout::compute(
+        {heading(QStringLiteral("Depth"), 1), rampEntry(QString(), true)}, style);
+    const auto &box = layout.boxes[1];
+    EXPECT_EQ(box.barRect.size(), QSizeF(14, 120));
+    EXPECT_EQ(tickTexts(box),
+              (QStringList{QStringLiteral("0 m"), QStringLiteral("2.5 m"), QStringLiteral("5 m"),
+                           QStringLiteral("7.5 m"), QStringLiteral("10 m")}));
+    // High values at the top: 0 at the bottom of the bar, 10 at the top.
+    EXPECT_DOUBLE_EQ(box.tickLabels.first().first.center().y(), box.barRect.bottom());
+    EXPECT_DOUBLE_EQ(box.tickLabels.last().first.center().y(), box.barRect.top());
+    EXPECT_GT(box.tickLabels.first().first.left(), box.barRect.right());
+    // The caps point away from the bar: above-range at the top, below-range at the bottom.
+    ASSERT_FALSE(box.capAbove.isEmpty());
+    ASSERT_FALSE(box.capBelow.isEmpty());
+    EXPECT_LT(box.capAbove.boundingRect().top(), box.barRect.top());
+    EXPECT_GT(box.capBelow.boundingRect().bottom(), box.barRect.bottom());
+    const int cap = qRound(14 * 0.8);
+    EXPECT_EQ(box.rect.height(),
+              std::max(cap, fm.height() / 2) + 120 + std::max(cap, fm.height() - fm.height() / 2));
+
+    // Low at the top, no caps without below/above colors, fewer values.
+    style.setRampHighAtTop(false);
+    style.setRampTickCount(3);
+    layout = LegendLayout::compute(
+        {heading(QStringLiteral("Depth"), 1), rampEntry(QString(), false)}, style);
+    const auto &low = layout.boxes[1];
+    EXPECT_EQ(tickTexts(low).size(), 3);
+    EXPECT_DOUBLE_EQ(low.tickLabels.first().first.center().y(), low.barRect.top());
+    EXPECT_TRUE(low.capAbove.isEmpty());
+    EXPECT_TRUE(low.capBelow.isEmpty());
+}
+
+TEST_F(LayoutFixture, HorizontalColorBarNumberFormatsAndTitle)
+{
+    LegendOverlayStyle style;
+    style.setRampOrientation(LegendOverlayStyle::RampOrientation::Horizontal);
+    style.setRampLength(200);
+    style.setRampNumberFormat(LegendOverlayStyle::NumberFormat::Fixed);
+    style.setRampDecimals(1);
+    const QFontMetrics fm(style.itemFont());
+    auto layout = LegendLayout::compute(
+        {heading(QStringLiteral("Depth"), 1), rampEntry(QStringLiteral("Water depth"), true)},
+        style);
+    const auto &box = layout.boxes[1];
+    EXPECT_EQ(box.barRect.size(), QSizeF(200, 14));
+    EXPECT_EQ(tickTexts(box).first(), QStringLiteral("0.0 m"));
+    EXPECT_EQ(tickTexts(box).last(), QStringLiteral("10.0 m"));
+    // Values are centered under their ticks (their boxes have 1 px of slack).
+    EXPECT_NEAR(box.tickLabels.first().first.center().x(), box.barRect.left(), 1.0);
+    EXPECT_NEAR(box.tickLabels.last().first.center().x(), box.barRect.right(), 1.0);
+    EXPECT_GT(box.tickLabels.first().first.top(), box.barRect.bottom());
+    // The title is above the bar.
+    EXPECT_EQ(box.lines, QStringList{QStringLiteral("Water depth")});
+    EXPECT_LE(box.textRect.bottom(), box.barRect.top());
+    EXPECT_EQ(box.barRect.top(), box.rect.top() + fm.height() + 2);
+
+    style.setRampNumberFormat(LegendOverlayStyle::NumberFormat::Scientific);
+    EXPECT_EQ(style.formatRampValue(1500), QStringLiteral("1.5e+03"));
+    style.setRampNumberFormat(LegendOverlayStyle::NumberFormat::Auto);
+    EXPECT_EQ(style.formatRampValue(2.5), QStringLiteral("2.5"));
+    EXPECT_EQ(style.formatRampValue(123456), QStringLiteral("1.235e+05"));
 }

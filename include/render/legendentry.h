@@ -16,12 +16,15 @@
 #ifndef OPENSWMM_RENDER_LEGENDENTRY_H
 #define OPENSWMM_RENDER_LEGENDENTRY_H
 
+#include "render/legendrampspec.h"
 #include "render/symbolstyle.h"
 
 #include <QList>
 #include <QObject>
 #include <QPointer>
 #include <QString>
+
+#include <memory>
 
 namespace OpenSWMM::Render
 {
@@ -55,6 +58,7 @@ struct LegendEntry {
     int itemColumns = 0;  ///< The block's rows go in this many sub-columns (0 or 1 = one).
     int symbolWidth = 0;  ///< Symbol slot width for this line; 0 = the style's.
     int symbolHeight = 0; ///< Symbol slot height for this line; 0 = the style's.
+    std::shared_ptr<const LegendRampSpec> ramp; ///< The color ramp, for Kind::RampBar.
 };
 
 } // namespace OpenSWMM::Render

@@ -13,6 +13,7 @@
 #include "render/symbollayer.h"
 
 #include <QFontMetrics>
+#include <QLinearGradient>
 #include <QPainter>
 #include <QPainterPath>
 #include <QPen>
@@ -131,6 +132,56 @@ void paintSymbol(QPainter &p, const SymbolStyle &symbol, const QRectF &rect,
     p.restore();
 }
 
+namespace
+{
+
+/** @brief Draw a color bar line's bar, end caps, tick marks and values. */
+void paintRampBar(QPainter &p, const LegendLayoutResult::Box &box, const LegendRampSpec &spec,
+                  const LegendOverlayStyle &style)
+{
+    p.save();
+    const QRectF bar = box.barRect;
+    // From the low end to the high end.
+    QLinearGradient g;
+    if (box.barVertical)
+        g = box.barHighAtTop ? QLinearGradient(0, bar.bottom(), 0, bar.top())
+                             : QLinearGradient(0, bar.top(), 0, bar.bottom());
+    else
+        g = QLinearGradient(bar.left(), 0, bar.right(), 0);
+    g.setStops(spec.stops);
+    const QPen outline =
+        style.rampShowOutline() ? QPen(style.rampOutlineColor(), 1.0) : QPen(Qt::NoPen);
+    p.setPen(Qt::NoPen);
+    p.fillRect(bar, g);
+    if (!box.capBelow.isEmpty()) {
+        p.setBrush(spec.belowColor);
+        p.setPen(outline);
+        p.drawPolygon(box.capBelow);
+    }
+    if (!box.capAbove.isEmpty()) {
+        p.setBrush(spec.aboveColor);
+        p.setPen(outline);
+        p.drawPolygon(box.capAbove);
+    }
+    if (style.rampShowOutline()) {
+        p.setPen(outline);
+        p.setBrush(Qt::NoBrush);
+        p.drawRect(bar);
+    }
+    if (!box.tickMarks.isEmpty()) {
+        p.setPen(QPen(style.rampOutlineColor(), 1.0));
+        p.drawLines(box.tickMarks);
+    }
+    p.setFont(style.itemFont());
+    p.setPen(style.itemColor());
+    for (const auto &[rect, text] : box.tickLabels)
+        p.drawText(rect, (box.barVertical ? Qt::AlignLeft : Qt::AlignHCenter) | Qt::AlignVCenter,
+                   text);
+    p.restore();
+}
+
+} // namespace
+
 void paint(QPainter &p, const LegendLayoutResult &layout, const QList<LegendEntry> &entries,
            const LegendOverlayStyle &style)
 {
@@ -145,6 +196,8 @@ void paint(QPainter &p, const LegendLayoutResult &layout, const QList<LegendEntr
         const LegendEntry *entry = box.entryIndex >= 0 && box.entryIndex < entries.size()
                                        ? &entries.at(box.entryIndex)
                                        : nullptr;
+        if (entry && entry->ramp && !box.barRect.isEmpty())
+            paintRampBar(p, box, *entry->ramp, style);
         if (entry && !box.symbolRect.isEmpty())
             paintSymbol(p, entry->symbol, box.symbolRect, style, entry->symbolWidth,
                         entry->symbolHeight);

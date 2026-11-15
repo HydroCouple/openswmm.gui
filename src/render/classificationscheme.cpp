@@ -572,6 +572,25 @@ QList<LegendSymbolItem> ClassificationScheme::legendItems(double dataMin, double
     return out;
 }
 
+LegendRampSpec ClassificationScheme::rampSpec(double lo, double hi) const
+{
+    LegendRampSpec spec;
+    if (!std::isfinite(lo) || !std::isfinite(hi) || !(hi > lo))
+        return spec;
+    spec.lo = lo;
+    spec.hi = hi;
+    constexpr int kStops = 33;
+    for (int k = 0; k < kStops; ++k) {
+        const double f = double(k) / (kStops - 1);
+        // Inside the range, so the below/above colors never apply here.
+        const double v = std::clamp(lo + (hi - lo) * f, lo, hi);
+        spec.stops.append({f, colorForValue(v, lo, hi)});
+    }
+    spec.belowColor = m_belowColor;
+    spec.aboveColor = m_aboveColor;
+    return spec;
+}
+
 void ClassificationScheme::addOutsideRangeLegendItems(QList<LegendSymbolItem> &rows, double lo,
                                                       double hi) const
 {
