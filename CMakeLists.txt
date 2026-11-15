@@ -242,6 +242,13 @@ set(
         include/render/legendoverlaystyle.h
         # Model for the map's animation date/time box.
         include/render/timeoverlaystyle.h
+        # Box settings shared by the legend and the date/time box, and their drawing.
+        include/render/mapboxstyle.h
+        include/render/mapboxchrome.h
+        # Map legend lines, layout and drawing.
+        include/render/legendentry.h
+        include/render/legendlayout.h
+        include/render/legendpainter.h
         # Slice BI Phase 8.13.6.2 — concrete renderer classes.
         # SingleSymbol + Graduated are functional v1; Categorized + RuleBased
         # are stubs (JSON + paint) — UI editors land in Slice BI.3.
@@ -1107,6 +1114,10 @@ set(
         # Slice BB Phase 8.6.16 — shared model for on-canvas legend chrome.
         src/render/legendoverlaystyle.cpp
         src/render/timeoverlaystyle.cpp
+        src/render/mapboxstyle.cpp
+        src/render/mapboxchrome.cpp
+        src/render/legendlayout.cpp
+        src/render/legendpainter.cpp
         # Slice BI Phase 8.13.6.2 — concrete renderer impls.
         src/render/renderers/singlesymbolrenderer.cpp
         src/render/renderers/graduatedrenderer.cpp

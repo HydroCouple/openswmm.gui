@@ -35,6 +35,10 @@
 #ifndef OPENSWMMVIS_UI_WIDGETS_LEGENDOVERLAY_H
 #define OPENSWMMVIS_UI_WIDGETS_LEGENDOVERLAY_H
 
+#include "render/legendentry.h"
+#include "render/legendlayout.h"
+
+#include <QList>
 #include <QPoint>
 #include <QPointer>
 #include <QRect>
@@ -145,7 +149,7 @@ protected:
 
 private slots:
     /**
-     * @brief Apply style window opacity (one when absent), recompute layout and schedule repaint.
+     * @brief Recompute layout and schedule a repaint.
      */
     void onStyleChanged();
     /**
@@ -180,7 +184,7 @@ private:
      */
     void clampInsideCanvas();
     /**
-     * @brief Place the overlay at the style anchor with a 12-pixel margin, or clamp its current Free position.
+     * @brief Place the overlay at the style anchor (anchoredMapBoxPosition()), or clamp its current Free position.
      * @note Bounds are clipped to the canvas; missing canvas/style is a no-op.
      */
     void anchorToCanvas(); // re-place per style().anchor() if not Free.
@@ -207,41 +211,22 @@ private:
      */
     void disconnectLayer(OpenSWMMVisLayer *layer);
 
-    /*! \brief Hit-test record from the most-recent paintEvent(). */
-    struct ItemBand {
-        QString classKey; // renderer's per-class identifier; empty = no per-class edit
-        int yTop = 0;
-        int yBottom = 0;
-    };
-    struct LayerBand {
-        QPointer<OpenSWMMVisLayer> layer;
-        int yTop = 0;            // header top in widget coords
-        int yBottom = 0;         // bottom of the last row of this layer
-        QVector<ItemBand> items; // per-row bands inside this layer's section
-    };
+    /*! \brief The legend line under @p pos, or null.
+     * @param[in] pos Widget coordinates; the current scroll offset is applied.
+     * @return Borrowed entry from the current layout, valid until the next relayout. */
+    [[nodiscard]] const OpenSWMM::Render::LegendEntry *entryAt(const QPoint &pos) const;
 
-    /*! \brief Returns the layer whose vertical band contains \p y, or
-     *         nullptr if \p y falls outside any layer's band.
-     * @param[in] y Widget-local vertical coordinate tested against the most recently painted half-open layer bands.
-     * @return Borrowed live layer pointer, or null outside a band/after its layer is destroyed.
-     */
-    OpenSWMMVisLayer *layerAtY(int y) const;
-
-    /*! \brief Returns the (layer, classKey) pair under \p y, or { nullptr,
-     *         "" } if \p y is outside any item band. A matching row without per-class
-     *         editing retains its layer pointer with an empty key.
-     * @param[in] y Widget-local vertical coordinate tested against the most recently painted item bands.
-     * @return Borrowed layer pointer plus classKey for a matching row, including an empty key for noneditable rows; {null,empty} only when no band matches.
-     */
-    QPair<OpenSWMMVisLayer *, QString> itemAtY(int y) const;
+    /*! \brief The layout for a box @p width wide: the cached one when it matches, else a new one.
+     * @param[in] width Box width in logical pixels.
+     * @return Placed lines for the current entries. */
+    [[nodiscard]] OpenSWMM::Render::LegendLayoutResult layoutForWidth(int width) const;
 
     /*! \brief Paint the legend into a box of \p size with its rows scrolled up by \p scrollY.
      * @param[in,out] p Painter on the widget or an image.
      * @param[in] size Box size; the background and frame fill it.
      * @param[in] scrollY Pixels of content scrolled above the box top.
-     * @param[out] bands Optional hit bands in content coordinates (unscrolled); null records none.
      */
-    void paintLegend(QPainter &p, const QSize &size, int scrollY, QVector<LayerBand> *bands) const;
+    void paintLegend(QPainter &p, const QSize &size, int scrollY) const;
 
     QPointer<MapCanvas> m_canvas;
     OpenSWMM::Render::LegendOverlayStyle *m_style = nullptr;
@@ -249,7 +234,8 @@ private:
     QPoint m_dragStartOffset;
     bool m_dragging = false;
     bool m_positioned = false;       ///< first paint anchors per style
-    QVector<LayerBand> m_layerBands; ///< populated by paintEvent()
+    QList<OpenSWMM::Render::LegendEntry> m_entries; ///< lines, from recomputeLayout()
+    OpenSWMM::Render::LegendLayoutResult m_layout;  ///< placed lines at the box width
     int m_contentHeight = 0;         ///< natural content height from recomputeLayout()
     int m_scrollY = 0;               ///< rows scrolled above the box top, in pixels
 
