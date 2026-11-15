@@ -159,6 +159,18 @@ QList<LegendSymbolItem> GraduatedRasterRenderer::legendSymbolItems() const
             item.sortIndex = i;
             items.append(item);
         }
+        // The legend can draw the samples as one color bar, from the full lookup table.
+        LegendRampSpec spec;
+        spec.lo = m_lo;
+        spec.hi = m_hi;
+        constexpr int kStops = 33;
+        for (int k = 0; k < kStops; ++k) {
+            const double f = double(k) / (kStops - 1);
+            spec.stops.append(
+                {f, QColor::fromRgba(m_lut[size_t(std::lround(f * (ScalarRampLut::kSize - 1)))])});
+        }
+        if (m_hi > m_lo)
+            tagLegendRamp(items, 0, int(items.size()), spec);
         return items;
     }
 

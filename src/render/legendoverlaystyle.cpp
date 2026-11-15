@@ -275,6 +275,20 @@ QString LegendOverlayStyle::displayLabelFor(const QString &propertyName) const
         {QStringLiteral("itemIndent"), QStringLiteral("Spacing — Item indent")},
         // Content
         {QStringLiteral("autoUpdate"), QStringLiteral("Content — Follow the map")},
+        // Color ramps
+        {QStringLiteral("rampDisplay"), QStringLiteral("Color ramps — Show as")},
+        {QStringLiteral("rampOrientation"), QStringLiteral("Color ramps — Direction")},
+        {QStringLiteral("rampLength"), QStringLiteral("Color ramps — Length")},
+        {QStringLiteral("rampThickness"), QStringLiteral("Color ramps — Thickness")},
+        {QStringLiteral("rampTickCount"), QStringLiteral("Color ramps — Values")},
+        {QStringLiteral("rampHighAtTop"), QStringLiteral("Color ramps — High at top")},
+        {QStringLiteral("rampNumberFormat"), QStringLiteral("Color ramps — Number format")},
+        {QStringLiteral("rampDecimals"), QStringLiteral("Color ramps — Decimals")},
+        {QStringLiteral("rampShowOutline"), QStringLiteral("Color ramps — Outline")},
+        {QStringLiteral("rampOutlineColor"), QStringLiteral("Color ramps — Outline color")},
+        {QStringLiteral("rampShowTickMarks"), QStringLiteral("Color ramps — Tick marks")},
+        {QStringLiteral("rampShowEndCaps"), QStringLiteral("Color ramps — End caps")},
+        {QStringLiteral("rampLabelSpacing"), QStringLiteral("Color ramps — Space to values")},
     };
     const auto it = labels.constFind(propertyName);
     return it != labels.constEnd() ? it.value() : MapBoxStyle::displayLabelFor(propertyName);
@@ -332,6 +346,19 @@ QString LegendOverlayStyle::propertyGroupFor(const QString &propertyName) const
         {QStringLiteral("subheadingIndent"), QStringLiteral("Spacing")},
         {QStringLiteral("itemIndent"), QStringLiteral("Spacing")},
         {QStringLiteral("autoUpdate"), QStringLiteral("Content")},
+        {QStringLiteral("rampDisplay"), QStringLiteral("Color ramps")},
+        {QStringLiteral("rampOrientation"), QStringLiteral("Color ramps")},
+        {QStringLiteral("rampLength"), QStringLiteral("Color ramps")},
+        {QStringLiteral("rampThickness"), QStringLiteral("Color ramps")},
+        {QStringLiteral("rampTickCount"), QStringLiteral("Color ramps")},
+        {QStringLiteral("rampHighAtTop"), QStringLiteral("Color ramps")},
+        {QStringLiteral("rampNumberFormat"), QStringLiteral("Color ramps")},
+        {QStringLiteral("rampDecimals"), QStringLiteral("Color ramps")},
+        {QStringLiteral("rampShowOutline"), QStringLiteral("Color ramps")},
+        {QStringLiteral("rampOutlineColor"), QStringLiteral("Color ramps")},
+        {QStringLiteral("rampShowTickMarks"), QStringLiteral("Color ramps")},
+        {QStringLiteral("rampShowEndCaps"), QStringLiteral("Color ramps")},
+        {QStringLiteral("rampLabelSpacing"), QStringLiteral("Color ramps")},
     };
     const auto it = groups.constFind(propertyName);
     return it != groups.constEnd() ? it.value() : MapBoxStyle::propertyGroupFor(propertyName);
@@ -488,6 +515,36 @@ LEGEND_SETTER(int, GroupIndent, m_groupIndent, groupIndentChanged, std::clamp(v,
 LEGEND_SETTER(int, SubheadingIndent, m_subheadingIndent, subheadingIndentChanged,
               std::clamp(v, 0, 200))
 LEGEND_SETTER(int, ItemIndent, m_itemIndent, itemIndentChanged, std::clamp(v, 0, 200))
+
+LEGEND_SETTER(LegendOverlayStyle::RampDisplay, RampDisplay, m_rampDisplay, rampDisplayChanged, v)
+LEGEND_SETTER(LegendOverlayStyle::RampOrientation, RampOrientation, m_rampOrientation,
+              rampOrientationChanged, v)
+LEGEND_SETTER(int, RampLength, m_rampLength, rampLengthChanged, std::clamp(v, 40, 600))
+LEGEND_SETTER(int, RampThickness, m_rampThickness, rampThicknessChanged, std::clamp(v, 4, 80))
+LEGEND_SETTER(int, RampTickCount, m_rampTickCount, rampTickCountChanged, std::clamp(v, 2, 15))
+LEGEND_SETTER(bool, RampHighAtTop, m_rampHighAtTop, rampHighAtTopChanged, v)
+LEGEND_SETTER(LegendOverlayStyle::NumberFormat, RampNumberFormat, m_rampNumberFormat,
+              rampNumberFormatChanged, v)
+LEGEND_SETTER(int, RampDecimals, m_rampDecimals, rampDecimalsChanged, std::clamp(v, 0, 10))
+LEGEND_SETTER(bool, RampShowOutline, m_rampShowOutline, rampShowOutlineChanged, v)
+LEGEND_SETTER(const QColor &, RampOutlineColor, m_rampOutlineColor, rampOutlineColorChanged, v)
+LEGEND_SETTER(bool, RampShowTickMarks, m_rampShowTickMarks, rampShowTickMarksChanged, v)
+LEGEND_SETTER(bool, RampShowEndCaps, m_rampShowEndCaps, rampShowEndCapsChanged, v)
+LEGEND_SETTER(int, RampLabelSpacing, m_rampLabelSpacing, rampLabelSpacingChanged,
+              std::clamp(v, 0, 50))
+
+QString LegendOverlayStyle::formatRampValue(double value) const
+{
+    switch (m_rampNumberFormat) {
+    case NumberFormat::Fixed:
+        return QString::number(value, 'f', m_rampDecimals);
+    case NumberFormat::Scientific:
+        return QString::number(value, 'e', m_rampDecimals);
+    case NumberFormat::Auto:
+        break;
+    }
+    return QString::number(value, 'g', 4);
+}
 
 void LegendOverlayStyle::setAutoUpdate(bool on)
 {

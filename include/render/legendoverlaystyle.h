@@ -62,6 +62,15 @@ public:
     /** @brief Shape of a fill symbol's sample. */
     enum class AreaPatchShape { Rectangle, RoundedRectangle, Ellipse };
     Q_ENUM(AreaPatchShape)
+    /** @brief How a continuous color ramp is shown: one bar, or sampled swatch rows. */
+    enum class RampDisplay { Bar, Swatches };
+    Q_ENUM(RampDisplay)
+    /** @brief Direction of the color bar. */
+    enum class RampOrientation { Vertical, Horizontal };
+    Q_ENUM(RampOrientation)
+    /** @brief How the color bar's values are written. */
+    enum class NumberFormat { Auto, Fixed, Scientific };
+    Q_ENUM(NumberFormat)
 
     // ── Title ───────────────────────────────────────────────────────────
     Q_PROPERTY(bool showTitle READ showTitle WRITE setShowTitle NOTIFY showTitleChanged)
@@ -155,6 +164,32 @@ public:
 
     // ── Content ─────────────────────────────────────────────────────────
     Q_PROPERTY(bool autoUpdate READ autoUpdate WRITE setAutoUpdate NOTIFY autoUpdateChanged)
+
+    // ── Color ramps ─────────────────────────────────────────────────────
+    Q_PROPERTY(
+        RampDisplay rampDisplay READ rampDisplay WRITE setRampDisplay NOTIFY rampDisplayChanged)
+    Q_PROPERTY(RampOrientation rampOrientation READ rampOrientation WRITE setRampOrientation NOTIFY
+                   rampOrientationChanged)
+    Q_PROPERTY(int rampLength READ rampLength WRITE setRampLength NOTIFY rampLengthChanged)
+    Q_PROPERTY(
+        int rampThickness READ rampThickness WRITE setRampThickness NOTIFY rampThicknessChanged)
+    Q_PROPERTY(
+        int rampTickCount READ rampTickCount WRITE setRampTickCount NOTIFY rampTickCountChanged)
+    Q_PROPERTY(
+        bool rampHighAtTop READ rampHighAtTop WRITE setRampHighAtTop NOTIFY rampHighAtTopChanged)
+    Q_PROPERTY(NumberFormat rampNumberFormat READ rampNumberFormat WRITE setRampNumberFormat NOTIFY
+                   rampNumberFormatChanged)
+    Q_PROPERTY(int rampDecimals READ rampDecimals WRITE setRampDecimals NOTIFY rampDecimalsChanged)
+    Q_PROPERTY(bool rampShowOutline READ rampShowOutline WRITE setRampShowOutline NOTIFY
+                   rampShowOutlineChanged)
+    Q_PROPERTY(QColor rampOutlineColor READ rampOutlineColor WRITE setRampOutlineColor NOTIFY
+                   rampOutlineColorChanged)
+    Q_PROPERTY(bool rampShowTickMarks READ rampShowTickMarks WRITE setRampShowTickMarks NOTIFY
+                   rampShowTickMarksChanged)
+    Q_PROPERTY(bool rampShowEndCaps READ rampShowEndCaps WRITE setRampShowEndCaps NOTIFY
+                   rampShowEndCapsChanged)
+    Q_PROPERTY(int rampLabelSpacing READ rampLabelSpacing WRITE setRampLabelSpacing NOTIFY
+                   rampLabelSpacingChanged)
 
     /*!
      * \struct ItemOverride
@@ -369,6 +404,39 @@ public:
      *  Off, the legend tree's order, groups and text are used. Initially true. */
     [[nodiscard]] bool autoUpdate() const noexcept { return m_autoUpdate; }
 
+    // ── Color ramps ─────────────────────────────────────────────────────
+    /** @brief Continuous ramps as one bar or as sampled swatches. Initially Bar. */
+    [[nodiscard]] RampDisplay rampDisplay() const noexcept { return m_rampDisplay; }
+    /** @brief Bar direction. Initially Vertical. */
+    [[nodiscard]] RampOrientation rampOrientation() const noexcept { return m_rampOrientation; }
+    /** @brief Bar length along the values, logical pixels. Initially 120, 40..600. */
+    [[nodiscard]] int rampLength() const noexcept { return m_rampLength; }
+    /** @brief Bar thickness, logical pixels. Initially 14, 4..80. */
+    [[nodiscard]] int rampThickness() const noexcept { return m_rampThickness; }
+    /** @brief Values written along the bar, ends included. Initially 5, 2..15. */
+    [[nodiscard]] int rampTickCount() const noexcept { return m_rampTickCount; }
+    /** @brief Vertical bars: high values at the top. Initially true. Horizontal bars run low to
+     *  high left to right. */
+    [[nodiscard]] bool rampHighAtTop() const noexcept { return m_rampHighAtTop; }
+    /** @brief How values are written. Initially Auto (up to 4 significant digits). */
+    [[nodiscard]] NumberFormat rampNumberFormat() const noexcept { return m_rampNumberFormat; }
+    /** @brief Decimals for the Fixed and Scientific formats. Initially 2, 0..10. */
+    [[nodiscard]] int rampDecimals() const noexcept { return m_rampDecimals; }
+    /** @brief Whether the bar is outlined. Initially true. */
+    [[nodiscard]] bool rampShowOutline() const noexcept { return m_rampShowOutline; }
+    /** @brief Bar outline and tick mark color. Initially RGBA (80,80,80,180). */
+    [[nodiscard]] QColor rampOutlineColor() const noexcept { return m_rampOutlineColor; }
+    /** @brief Whether tick marks are drawn at the values. Initially true. */
+    [[nodiscard]] bool rampShowTickMarks() const noexcept { return m_rampShowTickMarks; }
+    /** @brief Whether triangles at the bar's ends show the below/above colors, when the ramp has
+     *  them. Initially true. */
+    [[nodiscard]] bool rampShowEndCaps() const noexcept { return m_rampShowEndCaps; }
+    /** @brief Space between the bar (or its tick marks) and the values. Initially 4, 0..50. */
+    [[nodiscard]] int rampLabelSpacing() const noexcept { return m_rampLabelSpacing; }
+    /** @brief A value written the way the color bar writes it.
+     * @param value Value. @return Text, without units. */
+    [[nodiscard]] QString formatRampValue(double value) const;
+
 public slots:
     /** @brief Show or hide the title. @param on New value. */
     void setShowTitle(bool on);
@@ -472,6 +540,32 @@ public slots:
     /** @brief Follow the map or not. Turning it on keeps the per-layer and per-row settings but
      *  drops the tree's order, groups and text lines. @param on New value. */
     void setAutoUpdate(bool on);
+    /** @brief Show ramps as a bar or as swatches. @param d New value. */
+    void setRampDisplay(OpenSWMM::Render::LegendOverlayStyle::RampDisplay d);
+    /** @brief Set the bar direction. @param o New value. */
+    void setRampOrientation(OpenSWMM::Render::LegendOverlayStyle::RampOrientation o);
+    /** @brief Set the bar length. @param v Logical pixels, 40..600. */
+    void setRampLength(int v);
+    /** @brief Set the bar thickness. @param v Logical pixels, 4..80. */
+    void setRampThickness(int v);
+    /** @brief Set how many values are written. @param v 2..15. */
+    void setRampTickCount(int v);
+    /** @brief Put high values at the top of vertical bars or not. @param on New value. */
+    void setRampHighAtTop(bool on);
+    /** @brief Set how values are written. @param f New value. */
+    void setRampNumberFormat(OpenSWMM::Render::LegendOverlayStyle::NumberFormat f);
+    /** @brief Set the decimals of the Fixed and Scientific formats. @param v 0..10. */
+    void setRampDecimals(int v);
+    /** @brief Outline the bar or not. @param on New value. */
+    void setRampShowOutline(bool on);
+    /** @brief Set the bar outline color. @param c New color. */
+    void setRampOutlineColor(const QColor &c);
+    /** @brief Draw tick marks or not. @param on New value. */
+    void setRampShowTickMarks(bool on);
+    /** @brief Draw end caps or not. @param on New value. */
+    void setRampShowEndCaps(bool on);
+    /** @brief Set the space between the bar and its values. @param v Logical pixels, 0..50. */
+    void setRampLabelSpacing(int v);
 
 signals:
     /*! \brief One row's override changed (emitted before changed()); not emitted by
@@ -530,6 +624,19 @@ signals:
     void autoUpdateChanged(bool value);                 ///< @param value New value.
     /** @brief The legend tree changed (emitted before changed()). */
     void itemTreeChanged();
+    void rampDisplayChanged(OpenSWMM::Render::LegendOverlayStyle::RampDisplay value);
+    void rampOrientationChanged(OpenSWMM::Render::LegendOverlayStyle::RampOrientation value);
+    void rampLengthChanged(int value);     ///< @param value New value.
+    void rampThicknessChanged(int value);  ///< @param value New value.
+    void rampTickCountChanged(int value);  ///< @param value New value.
+    void rampHighAtTopChanged(bool value); ///< @param value New value.
+    void rampNumberFormatChanged(OpenSWMM::Render::LegendOverlayStyle::NumberFormat value);
+    void rampDecimalsChanged(int value);               ///< @param value New value.
+    void rampShowOutlineChanged(bool value);           ///< @param value New value.
+    void rampOutlineColorChanged(const QColor &value); ///< @param value New value.
+    void rampShowTickMarksChanged(bool value);         ///< @param value New value.
+    void rampShowEndCapsChanged(bool value);           ///< @param value New value.
+    void rampLabelSpacingChanged(int value);           ///< @param value New value.
 
 private:
     bool m_showTitle = false;
@@ -587,6 +694,20 @@ private:
     int m_itemIndent = 0;
 
     bool m_autoUpdate = true;
+
+    RampDisplay m_rampDisplay = RampDisplay::Bar;
+    RampOrientation m_rampOrientation = RampOrientation::Vertical;
+    int m_rampLength = 120;
+    int m_rampThickness = 14;
+    int m_rampTickCount = 5;
+    bool m_rampHighAtTop = true;
+    NumberFormat m_rampNumberFormat = NumberFormat::Auto;
+    int m_rampDecimals = 2;
+    bool m_rampShowOutline = true;
+    QColor m_rampOutlineColor = QColor(80, 80, 80, 180);
+    bool m_rampShowTickMarks = true;
+    bool m_rampShowEndCaps = true;
+    int m_rampLabelSpacing = 4;
     LegendItemTree m_tree;
     // Row settings from an older file, keyed "<objectName>|<classKey>"; read-only.
     QHash<QString, ItemOverride> m_legacyOverrides;

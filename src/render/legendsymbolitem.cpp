@@ -9,6 +9,9 @@
 
 #include "render/legendsymbolitem.h"
 
+#include <algorithm>
+#include <atomic>
+
 #include <QJsonObject>
 #include <QJsonValue>
 
@@ -65,6 +68,19 @@ void LegendSymbolItem::fromJson(const QJsonObject &j)
     sortIndex = j.value(QStringLiteral("sortIndex")).toInt(0);
     classKey = j.value(QStringLiteral("classKey")).toString();
     sublayerId = j.value(QStringLiteral("sublayerId")).toString();
+}
+
+void tagLegendRamp(QList<LegendSymbolItem> &rows, int first, int count, LegendRampSpec spec)
+{
+    if (!spec.isValid() || first < 0 || count <= 0 || first >= rows.size())
+        return;
+    static std::atomic<int> nextId{1};
+    const int id = nextId.fetch_add(1);
+    auto shared = std::make_shared<const LegendRampSpec>(std::move(spec));
+    const int end = std::min(int(rows.size()), first + count);
+    for (int i = first; i < end; ++i)
+        rows[i].rampId = id;
+    rows[first].ramp = shared;
 }
 
 } // namespace OpenSWMM::Render

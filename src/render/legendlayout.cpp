@@ -151,6 +151,108 @@ QString fitLine(const QFontMetrics &fm, const QString &text, int width)
     return fm.horizontalAdvance(text) <= width ? text : fm.elidedText(text, Qt::ElideRight, width);
 }
 
+/** Size and parts of a color bar line, before placement. */
+struct RampGeom {
+    int titleH = 0;      ///< text above the bar plus a 2 px gap; 0 without text
+    int width = 0;       ///< whole line, text included
+    int height = 0;      ///< whole line, text included
+    int padStart = 0;    ///< space before the bar's start (top or left)
+    QStringList labels;  ///< value texts, low to high
+    QVector<int> labelW; ///< their widths
+    int tickLen = 0;
+    int capLow = 0;
+    int capHigh = 0;
+};
+
+RampGeom rampGeometry(const LegendRampSpec &spec, const Style &style, const QFontMetrics &fm,
+                      int titleLines, int titleW, int lineSpacing)
+{
+    RampGeom g;
+    const int n = std::max(2, style.rampTickCount());
+    for (int i = 0; i < n; ++i) {
+        const double v = spec.lo + (spec.hi - spec.lo) * i / (n - 1);
+        g.labels.append(style.formatRampValue(v) + spec.unitsSuffix);
+        g.labelW.append(fm.horizontalAdvance(g.labels.last()));
+    }
+    const int widest = *std::max_element(g.labelW.cbegin(), g.labelW.cend());
+    g.tickLen = style.rampShowTickMarks() ? 4 : 0;
+    const int cap = qRound(style.rampThickness() * 0.8);
+    g.capLow = style.rampShowEndCaps() && spec.belowColor.isValid() ? cap : 0;
+    g.capHigh = style.rampShowEndCaps() && spec.aboveColor.isValid() ? cap : 0;
+    g.titleH = titleLines > 0 ? textHeight(fm, titleLines, lineSpacing) + 2 : 0;
+    const int len = style.rampLength();
+    const int thick = style.rampThickness();
+    if (style.rampOrientation() == Style::RampOrientation::Vertical) {
+        const bool highTop = style.rampHighAtTop();
+        const int capTop = highTop ? g.capHigh : g.capLow;
+        const int capBottom = highTop ? g.capLow : g.capHigh;
+        g.padStart = std::max(capTop, fm.height() / 2);
+        const int padEnd = std::max(capBottom, fm.height() - fm.height() / 2);
+        g.width = std::max(titleW, thick + g.tickLen + style.rampLabelSpacing() + widest);
+        g.height = g.titleH + g.padStart + len + padEnd;
+    } else {
+        g.padStart = std::max(g.capLow, g.labelW.first() / 2);
+        const int padEnd = std::max(g.capHigh, g.labelW.last() - g.labelW.last() / 2);
+        g.width = std::max(titleW, g.padStart + len + padEnd);
+        g.height = g.titleH + thick + g.tickLen + style.rampLabelSpacing() + fm.height();
+    }
+    return g;
+}
+
+/** Fill in @p box's bar, ticks, values and caps for a bar whose area starts at @p origin. */
+void placeRamp(LegendLayoutResult::Box &box, const RampGeom &g, const Style &style,
+               const QFontMetrics &fm, QPointF origin)
+{
+    const qreal len = style.rampLength();
+    const qreal thick = style.rampThickness();
+    const qreal fh = fm.height();
+    const int n = int(g.labels.size());
+    box.barVertical = style.rampOrientation() == Style::RampOrientation::Vertical;
+    box.barHighAtTop = style.rampHighAtTop();
+    if (box.barVertical) {
+        const qreal x = origin.x();
+        const qreal y0 = origin.y() + g.padStart;
+        box.barRect = QRectF(x, y0, thick, len);
+        for (int i = 0; i < n; ++i) {
+            const qreal t = qreal(i) / (n - 1);
+            const qreal y = box.barHighAtTop ? y0 + len * (1 - t) : y0 + len * t;
+            if (g.tickLen > 0)
+                box.tickMarks.append(QLineF(x + thick, y, x + thick + g.tickLen, y));
+            box.tickLabels.append({QRectF(x + thick + g.tickLen + style.rampLabelSpacing(),
+                                          y - fh / 2, g.labelW[i] + 1, fh),
+                                   g.labels[i]});
+        }
+        const auto cap = [&](qreal edgeY, qreal dir, int size) {
+            return size > 0 ? QPolygonF({QPointF(x, edgeY), QPointF(x + thick, edgeY),
+                                         QPointF(x + thick / 2, edgeY + dir * size)})
+                            : QPolygonF();
+        };
+        const qreal top = y0;
+        const qreal bottom = y0 + len;
+        box.capAbove = box.barHighAtTop ? cap(top, -1, g.capHigh) : cap(bottom, 1, g.capHigh);
+        box.capBelow = box.barHighAtTop ? cap(bottom, 1, g.capLow) : cap(top, -1, g.capLow);
+    } else {
+        const qreal x0 = origin.x() + g.padStart;
+        const qreal y = origin.y();
+        box.barRect = QRectF(x0, y, len, thick);
+        for (int i = 0; i < n; ++i) {
+            const qreal x = x0 + len * qreal(i) / (n - 1);
+            if (g.tickLen > 0)
+                box.tickMarks.append(QLineF(x, y + thick, x, y + thick + g.tickLen));
+            box.tickLabels.append(
+                {QRectF(x - g.labelW[i] / 2.0, y + thick + g.tickLen + style.rampLabelSpacing(),
+                        g.labelW[i] + 1, fh),
+                 g.labels[i]});
+        }
+        if (g.capLow > 0)
+            box.capBelow = QPolygonF(
+                {QPointF(x0, y), QPointF(x0, y + thick), QPointF(x0 - g.capLow, y + thick / 2)});
+        if (g.capHigh > 0)
+            box.capAbove = QPolygonF({QPointF(x0 + len, y), QPointF(x0 + len, y + thick),
+                                      QPointF(x0 + len + g.capHigh, y + thick / 2)});
+    }
+}
+
 bool isHeading(const LegendEntry &e)
 {
     return e.kind == Kind::GroupHeading || e.kind == Kind::Subheading;
@@ -254,6 +356,21 @@ LegendLayoutResult run(const QList<LegendEntry> &entries, const Style &style, in
             mi.naturalTextW = std::min(fm.horizontalAdvance(label), maxLabel);
         }
         mi.height = std::max(mi.minHeight, textHeight(fm, int(mi.lines.size()), lineSpacing));
+    }
+    // Color bars: their size comes from the bar, its values and the text above it (if any).
+    QHash<int, RampGeom> ramps;
+    for (int i = 0; i < entries.size(); ++i) {
+        const LegendEntry &e = entries[i];
+        if (e.kind != Kind::RampBar || !e.ramp)
+            continue;
+        Measure &mi = m[i];
+        if (e.label.isEmpty())
+            mi.lines.clear();
+        const RampGeom g = rampGeometry(*e.ramp, style, QFontMetrics(mi.font), int(mi.lines.size()),
+                                        mi.naturalTextW, lineSpacing);
+        mi.height = g.height;
+        mi.naturalTextW = g.width;
+        ramps.insert(i, g);
     }
 
     // Title.
@@ -474,6 +591,14 @@ LegendLayoutResult run(const QList<LegendEntry> &entries, const Style &style, in
                 box.lines =
                     wrap ? mi.lines
                          : QStringList{fitLine(QFontMetrics(mi.font), entries[i].label, textW)};
+                if (const auto it = ramps.constFind(i); it != ramps.constEnd()) {
+                    // The text goes above the bar; the bar fills the rest of the line.
+                    box.textRect = QRectF(textX, y, textW, std::max(0, it->titleH - 2));
+                    if (it->titleH == 0)
+                        box.lines.clear();
+                    placeRamp(box, *it, style, QFontMetrics(mi.font),
+                              QPointF(x0 + mi.indent, y + it->titleH));
+                }
                 out.boxes.append(box);
             }
             y += h + after;

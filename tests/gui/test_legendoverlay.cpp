@@ -22,7 +22,13 @@
 #include "map/mapcanvas.h"
 #include "render/legendoverlaystyle.h"
 #include "render/legendsymbolitem.h"
+#include "render/classificationscheme.h"
+#include "render/featureref.h"
+#include "render/ifeaturerenderer.h"
 #include "render/renderers/categorizedrenderer.h"
+#include "render/renderers/graduatedrasterrenderer.h"
+#include "render/renderers/singlebandpseudocolorrenderer.h"
+#include "render/sublayers/scalarfillsublayer.h"
 #include "render/renderers/graduatedrenderer.h"
 #include "render/renderers/singlesymbolrenderer.h"
 #include "render/symbollayer.h"
@@ -264,6 +270,59 @@ QString describe(const QColor &c)
         .arg(c.blue())
         .arg(c.alpha());
 }
+
+/** A renderer whose legend is a continuous blue-to-yellow ramp over 0..2 m: "< 0" and "> 2"
+ *  rows around six samples, tagged as one ramp. */
+class RampRenderer : public OpenSWMM::Render::IFeatureRenderer
+{
+public:
+    static QColor at(double f) // the ramp, exactly
+    {
+        return QColor(int(std::lround(20 + f * (240 - 20))), int(std::lround(40 + f * (220 - 40))),
+                      int(std::lround(200 + f * (30 - 200))));
+    }
+    QString rendererId() const override { return QStringLiteral("testRamp"); }
+    SymbolStyle symbolFor(const OpenSWMM::Render::FeatureRef &, const QVariantMap &) const override
+    {
+        return fill(Qt::gray);
+    }
+    QList<LegendSymbolItem> legendSymbolItems() const override
+    {
+        QList<LegendSymbolItem> rows;
+        LegendSymbolItem below;
+        below.label = QStringLiteral("< 0 m");
+        below.symbol = fill(QColor(0, 0, 0));
+        rows.append(below);
+        for (int i = 0; i < 6; ++i) {
+            LegendSymbolItem row;
+            row.label = QStringLiteral("%1 m").arg(i * 0.4);
+            row.symbol = fill(at(i / 5.0));
+            row.classKey = QString::number(i);
+            rows.append(row);
+        }
+        LegendSymbolItem above;
+        above.label = QStringLiteral("> 2 m");
+        above.symbol = fill(QColor(255, 0, 0));
+        rows.append(above);
+        OpenSWMM::Render::LegendRampSpec spec;
+        spec.lo = 0;
+        spec.hi = 2;
+        spec.unitsSuffix = QStringLiteral(" m");
+        spec.title = QStringLiteral("Water depth");
+        for (int k = 0; k <= 10; ++k)
+            spec.stops.append({k / 10.0, at(k / 10.0)});
+        spec.belowColor = QColor(0, 0, 0);
+        spec.aboveColor = QColor(255, 0, 0);
+        OpenSWMM::Render::tagLegendRamp(rows, 0, int(rows.size()), spec);
+        return rows;
+    }
+    QJsonObject toJson() const override { return {}; }
+    void fromJson(const QJsonObject &) override {}
+    std::unique_ptr<IFeatureRenderer> clone() const override
+    {
+        return std::make_unique<RampRenderer>();
+    }
+};
 
 /** Labels of the legend's lines in drawing order, headings marked "#". */
 QStringList lineLabels(const QList<LegendEntry> &entries)
@@ -736,6 +795,121 @@ private slots:
         labels =
             lineLabels(openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style));
         QVERIFY(labels.contains(QStringLiteral("Kind B (large marker)")));
+    }
+
+    /** @brief A continuous ramp is drawn as one color bar whose colors follow the ramp; a layer
+     *  or the whole legend can show the sampled swatches instead. */
+    void continuousRampsDrawAsAColorBar()
+    {
+        LegendScene scene(QSize(800, 1000));
+        GISVectorLayer depth(dataFile(QStringLiteral("legend_points.geojson")));
+        depth.setName(QStringLiteral("Depth"));
+        depth.setRenderer(std::make_unique<RampRenderer>());
+        scene.canvas->addLayer(&depth, false);
+        const auto release = qScopeGuard(
+            [&] { scene.canvas->takeLayer(scene.canvas->layers().indexOf(&depth), false); });
+        LegendOverlay legend(scene.canvas.get());
+        LegendOverlayStyle *style = legend.style();
+
+        auto entries = openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style);
+        QCOMPARE(entries[0].label, QStringLiteral("Depth"));
+        QCOMPARE(entries[1].kind, LegendEntry::Kind::RampBar);
+        QCOMPARE(entries[1].label, QStringLiteral("Water depth"));
+        QCOMPARE(entries[2].kind, LegendEntry::Kind::GroupHeading); // no swatch rows
+
+        // The bar's colors, sampled up its middle, follow the ramp (high at the top).
+        const auto layout = OpenSWMM::Render::LegendLayout::compute(entries, *style);
+        const QRectF bar = layout.boxes[1].barRect;
+        const QImage image = drawn(&legend);
+        m_images.append({QStringLiteral("ramp_vertical"), image});
+        for (double f : {0.1, 0.3, 0.5, 0.7, 0.9}) {
+            const QPoint at(int(bar.center().x()), int(bar.bottom() - f * bar.height()));
+            const QColor got = image.pixelColor(at);
+            QVERIFY2(near(got, RampRenderer::at(f), 8),
+                     qPrintable(QStringLiteral("%1: %2 vs %3")
+                                    .arg(f)
+                                    .arg(describe(got), describe(RampRenderer::at(f)))));
+        }
+        // The end caps show the below- and above-range colors.
+        const QColor top = image.pixelColor(int(bar.center().x()), int(bar.top()) - 4);
+        const QColor bottom = image.pixelColor(int(bar.center().x()), int(bar.bottom()) + 4);
+        QVERIFY2(near(top, QColor(255, 0, 0), 10), qPrintable(describe(top)));
+        QVERIFY2(near(bottom, QColor(0, 0, 0), 10), qPrintable(describe(bottom)));
+
+        style->setRampOrientation(LegendOverlayStyle::RampOrientation::Horizontal);
+        style->setRampLength(220);
+        m_images.append({QStringLiteral("ramp_horizontal"), drawn(&legend)});
+
+        // Swatches for the whole legend, or for this layer.
+        const QString key = LegendOverlayStyle::itemKey(&depth, {});
+        style->setRampDisplay(LegendOverlayStyle::RampDisplay::Swatches);
+        entries = openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style);
+        QCOMPARE(entries[1].label, QStringLiteral("< 0 m"));
+        QCOMPARE(entries[8].label, QStringLiteral("> 2 m"));
+        LegendItemTree tree = style->itemTree();
+        tree.ensureLayerNode(key).ramp = LegendNode::RampChoice::Bar;
+        style->setItemTree(tree);
+        entries = openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style);
+        QCOMPARE(entries[1].kind, LegendEntry::Kind::RampBar);
+        style->setRampDisplay(LegendOverlayStyle::RampDisplay::Bar);
+        tree.ensureLayerNode(key).ramp = LegendNode::RampChoice::Swatches;
+        style->setItemTree(tree);
+        entries = openswmmvis::map::LegendContent::buildEntries(scene.canvas.get(), style);
+        QCOMPARE(entries[1].kind, LegendEntry::Kind::Symbol);
+    }
+
+    /** @brief Raster and 2D depth fill renderers keep their legend rows and tag their continuous
+     *  ramps;
+     *  classified rows are not tagged. */
+    void continuousRenderersTagTheirRamps()
+    {
+        using OpenSWMM::Render::ClassificationScheme;
+        const auto sameRamp = [](const QList<LegendSymbolItem> &rows) {
+            if (rows.isEmpty() || rows.first().rampId == 0 || !rows.first().ramp)
+                return false;
+            for (const auto &row : rows)
+                if (row.rampId != rows.first().rampId)
+                    return false;
+            return rows.first().ramp->isValid();
+        };
+
+        OpenSWMM::Render::GraduatedRasterRenderer raster;
+        raster.setDataRange(0.0, 100.0);
+        auto rows = raster.legendSymbolItems();
+        QCOMPARE(rows.size(), OpenSWMM::Render::GraduatedRasterRenderer::kContinuousLegendRows);
+        QCOMPARE(rows.first().label, raster.scheme().formatValue(0.0));
+        QVERIFY(sameRamp(rows));
+        QCOMPARE(rows.first().ramp->lo, 0.0);
+        QCOMPARE(rows.first().ramp->hi, 100.0);
+        QCOMPARE(rows.first().ramp->stops.first().second, QColor(Qt::black));
+        QCOMPARE(rows.first().ramp->stops.last().second, QColor(Qt::white));
+        ClassificationScheme classes = raster.scheme();
+        classes.setMode(ClassificationScheme::ClassMode::Classified);
+        raster.setScheme(classes);
+        for (const auto &row : raster.legendSymbolItems())
+            QCOMPARE(row.rampId, 0);
+
+        OpenSWMM::Render::SingleBandPseudoColorRenderer pseudo;
+        pseudo.setRange(0.0, 10.0);
+        pseudo.setStops({{0.0, QColor(255, 0, 0)}, {1.0, QColor(0, 0, 255)}});
+        rows = pseudo.legendSymbolItems();
+        QCOMPARE(rows.size(), 2);
+        QCOMPARE(rows.first().label, QStringLiteral("0"));
+        QCOMPARE(rows.last().label, QStringLiteral("10"));
+        QVERIFY(sameRamp(rows));
+
+        OpenSWMM::Render::CellDepthFillSublayer fillLayer(QStringLiteral("cellFill"));
+        auto *fillStyle = static_cast<OpenSWMM::Render::ScalarFillStyle *>(fillLayer.style());
+        fillStyle->setClassified(false);
+        fillStyle->setUseCustomRange(true);
+        fillStyle->setRangeMin(0.0);
+        fillStyle->setRangeMax(2.0);
+        rows = fillLayer.legendSymbolItems();
+        QVERIFY(rows.size() >= 6);
+        QVERIFY(sameRamp(rows));
+        fillStyle->setClassified(true);
+        for (const auto &row : fillLayer.legendSymbolItems())
+            QCOMPARE(row.rampId, 0);
     }
 
     /** @brief Hidden layers and hidden rows leave no space. */

@@ -40,6 +40,7 @@
 #include "render/attributesource.h"
 #include "render/colorramp.h"
 #include "render/intervalbinner.h"
+#include "render/legendrampspec.h"
 #include "render/legendsymbolitem.h"
 
 #include <QColor>
@@ -185,6 +186,14 @@ public:
      * @param lo,hi Bounds of the drawn range (under logScale() the lower one is logFloor(lo, hi));
      *  a nonfinite bound reads "Below range" or "Above range". */
     void addOutsideRangeLegendItems(QList<LegendSymbolItem> &rows, double lo, double hi) const;
+
+    /**
+     * @brief The scheme's continuous ramp over [lo, hi] for the legend's color bar: colors
+     *        sampled at even values (so a log scale is followed), and the below/above colors.
+     * @param lo Value at the bar's start. @param hi Value at its end.
+     * @return Ramp spec; not valid when the range is not finite or empty.
+     */
+    [[nodiscard]] LegendRampSpec rampSpec(double lo, double hi) const;
 
     /*! User-authored (custom) ramp payload. `builtin(name)` only knows the
      *  built-in catalog and silently degrades unknown names to grayscale,

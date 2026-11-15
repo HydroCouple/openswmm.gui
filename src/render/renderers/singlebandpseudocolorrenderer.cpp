@@ -245,6 +245,19 @@ QList<LegendSymbolItem> SingleBandPseudoColorRenderer::legendSymbolItems() const
         items.append(item);
         ++i;
     }
+    // The stops are one continuous ramp: the legend can draw them as a color bar. Colors are
+    // sampled through colorForValue() so the renderer's interpolation is followed.
+    if (span > 0 && m_stops.size() >= 2) {
+        LegendRampSpec spec;
+        spec.lo = m_minValue;
+        spec.hi = m_maxValue;
+        constexpr int kStops = 33;
+        for (int k = 0; k < kStops; ++k) {
+            const double f = double(k) / (kStops - 1);
+            spec.stops.append({f, colorForValue(m_minValue + f * span)});
+        }
+        tagLegendRamp(items, 0, int(items.size()), spec);
+    }
     return items;
 }
 

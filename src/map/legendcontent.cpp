@@ -25,6 +25,7 @@
 #include "render/symbolstyle.h"
 
 #include <QHash>
+#include <QSet>
 
 namespace openswmmvis::map::LegendContent
 {
@@ -167,7 +168,8 @@ QList<LegendTreeItem> resolveNodes(const QList<LegendNode> &nodes,
 }
 
 /** Add the lines of @p items at @p depth. */
-void emitEntries(const QList<LegendTreeItem> &items, int depth, int &block, QList<LegendEntry> &out)
+void emitEntries(const QList<LegendTreeItem> &items, int depth, int &block, QList<LegendEntry> &out,
+                 const LegendOverlayStyle *style)
 {
     for (const LegendTreeItem &item : items) {
         const LegendNode &n = item.node;
@@ -201,7 +203,7 @@ void emitEntries(const QList<LegendTreeItem> &items, int depth, int &block, QLis
                 out.append(e);
             }
             const int before = out.size();
-            emitEntries(item.children, depth + 1, block, out);
+            emitEntries(item.children, depth + 1, block, out, style);
             if (pendingBreak && out.size() > before)
                 out[before].columnBreakBefore = true;
             continue;
@@ -227,7 +229,48 @@ void emitEntries(const QList<LegendTreeItem> &items, int depth, int &block, QLis
             pendingBreak = false;
             out.append(heading);
         }
+        // Continuous ramps as one color bar, unless the layer or the legend shows swatches.
+        const bool rampBars =
+            n.ramp == LegendNode::RampChoice::Inherit
+                ? !style || style->rampDisplay() == LegendOverlayStyle::RampDisplay::Bar
+                : n.ramp == LegendNode::RampChoice::Bar;
+        QSet<int> rampsDone;
         for (const LegendTreeItem &child : item.children) {
+            const int rampId = child.row.rampId;
+            if (rampBars && rampId != 0) {
+                if (rampsDone.contains(rampId))
+                    continue;
+                rampsDone.insert(rampId);
+                // The ramp's rows: the bar shows when any is shown; the first row carries the
+                // spec, and its legend name (if renamed) titles the bar.
+                std::shared_ptr<const OpenSWMM::Render::LegendRampSpec> spec;
+                bool anyShown = false;
+                const LegendTreeItem *first = nullptr;
+                for (const LegendTreeItem &c : item.children)
+                    if (c.row.rampId == rampId) {
+                        if (!first)
+                            first = &c;
+                        if (c.row.ramp)
+                            spec = c.row.ramp;
+                        anyShown = anyShown || (c.node.visible && c.row.visible);
+                    }
+                if (!spec || !anyShown)
+                    continue;
+                LegendEntry bar;
+                bar.kind = LegendEntry::Kind::RampBar;
+                bar.ramp = spec;
+                bar.label = first->node.userLabel.isEmpty() ? spec->title : first->node.userLabel;
+                bar.layer = layer;
+                bar.layerKey = layerKey;
+                bar.sublayerId = first->row.sublayerId;
+                bar.nodeId = first->node.id;
+                bar.blockId = block;
+                bar.depth = depth;
+                bar.columnBreakBefore = pendingBreak || first->node.columnBreakBefore;
+                pendingBreak = false;
+                out.append(bar);
+                continue;
+            }
             if (!child.node.visible || !child.row.visible)
                 continue;
             LegendEntry entry;
@@ -306,7 +349,7 @@ QList<LegendEntry> buildEntries(const MapCanvas *canvas, const LegendOverlayStyl
 {
     QList<LegendEntry> entries;
     int block = 0;
-    emitEntries(resolveTree(canvas, style), 0, block, entries);
+    emitEntries(resolveTree(canvas, style), 0, block, entries, style);
     return entries;
 }
 

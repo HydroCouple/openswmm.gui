@@ -33,12 +33,16 @@
 #ifndef OPENSWMM_RENDER_LEGENDSYMBOLITEM_H
 #define OPENSWMM_RENDER_LEGENDSYMBOLITEM_H
 
+#include "render/legendrampspec.h"
 #include "render/symbolstyle.h"
 
 #include <QJsonObject>
+#include <QList>
 #include <QPair>
 #include <QString>
 #include <QtNumeric>
+
+#include <memory>
 
 namespace OpenSWMM::Render
 {
@@ -65,6 +69,10 @@ struct LegendSymbolItem {
                                                back to its style dialog. Empty when the row comes from a
                                                whole-layer renderer rather than a specific sublayer. */
 
+    int rampId = 0; /*!< Rows sampled from one continuous color ramp (and its "< low" / "> high"
+                         rows) share a nonzero id; 0 = not part of a ramp. */
+    std::shared_ptr<const LegendRampSpec> ramp; /*!< The ramp, on the first row with the id. */
+
     /** @brief Serialize row identity, symbol, labels, visibility and ordering.
      * @return Owned object; range is included only when both bounds are finite.
      * Optional/default row fields are omitted and the symbol uses SymbolStyle::toJson(). */
@@ -83,6 +91,17 @@ struct LegendSymbolItem {
      */
     [[nodiscard]] QString effectiveLabel() const { return userLabel.isEmpty() ? label : userLabel; }
 };
+
+/*!
+ * \brief Mark @p count rows from @p first as samples of one continuous color ramp: they get a
+ *        new ramp id and the first of them gets @p spec. The rows themselves do not change.
+ * @param rows Legend rows.
+ * @param first First ramp row (include the "< low" row when there is one).
+ * @param count Rows in the ramp (include the "> high" row when there is one); out-of-range
+ *   indexes are ignored.
+ * @param spec The ramp; nothing is tagged when it is not valid.
+ */
+void tagLegendRamp(QList<LegendSymbolItem> &rows, int first, int count, LegendRampSpec spec);
 
 } // namespace OpenSWMM::Render
 
