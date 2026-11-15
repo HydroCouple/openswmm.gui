@@ -138,6 +138,8 @@ void collectLayers(const QList<LegendNode> &nodes, QList<LegendNode> &out)
 
 } // namespace
 
+bool LegendNode::operator==(const LegendNode &other) const = default;
+
 bool LegendNode::hasDefaultSettings() const
 {
     const LegendNode defaults;
