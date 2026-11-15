@@ -21,49 +21,29 @@ set_target_properties(swmmvis_tableclipboard PROPERTIES AUTOMOC ON)
 target_include_directories(swmmvis_tableclipboard PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(swmmvis_tableclipboard PUBLIC Qt6::Core Qt6::Gui Qt6::Widgets)
 
-# Helper: register a QtTest binary that links against the same sources as the
-# main app so it can drive real classes (no .cpp duplication needed because the
-# test sources include the .cpp files they exercise directly when small enough,
-# or link against compiled .o files via the SWMMVis_obj target if extracted later).
-function(add_swmmvis_gui_test TEST_NAME)
-    # Extracted meshing sources are linked from the standalone project once.
-    # Retain source entries at call sites to document each test's dependency.
-    set(test_sources ${ARGN})
-    set(uses_meshkit FALSE)
-    foreach(source IN LISTS ARGN)
-        string(FIND "${source}" "${meshkit_SOURCE_DIR}/src/" _meshkit_src)
-        string(FIND "${source}" "${meshkit_SOURCE_DIR}/include/" _meshkit_include)
-        if(_meshkit_src EQUAL 0 OR _meshkit_include EQUAL 0)
-            list(REMOVE_ITEM test_sources "${source}")
-            set(uses_meshkit TRUE)
-        endif()
-    endforeach()
-    add_executable(${TEST_NAME} ${test_sources})
-    if(uses_meshkit)
-        target_link_libraries(${TEST_NAME} PRIVATE meshkit::core_qt meshkit::io_qt)
-    endif()
-    # Native observation layers participate in every canvas, while samples stay
-    # in a bounded disk-backed store independent of the optional Data plugin.
+# App sources and libraries that some listed sources need but do not list themselves.
+# ARGN is the target's source list.
+function(_swmmvis_gui_test_app_extras TARGET)
     if("${CMAKE_SOURCE_DIR}/src/map/mapcanvas.cpp" IN_LIST ARGN)
-        target_sources(${TEST_NAME} PRIVATE
+        target_sources(${TARGET} PRIVATE
             ${CMAKE_SOURCE_DIR}/include/layers/timeserieslayer.h
             ${CMAKE_SOURCE_DIR}/include/ui/panels/timeserieslayerbrowser.h
             ${CMAKE_SOURCE_DIR}/src/layers/timeserieslayer.cpp
             ${CMAKE_SOURCE_DIR}/src/ui/panels/timeserieslayerbrowser.cpp
             ${CMAKE_SOURCE_DIR}/src/timeseries/timeseriesstore.cpp)
-        target_link_libraries(${TEST_NAME} PRIVATE GDAL::GDAL Qt6::Concurrent)
+        target_link_libraries(${TARGET} PRIVATE GDAL::GDAL Qt6::Concurrent)
     endif()
     # G-08: the runner saves the report's summary tables beside the output.
     if("${CMAKE_SOURCE_DIR}/src/simulation/simulationrunner.cpp" IN_LIST ARGN)
-        target_sources(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/src/results/summarytables.cpp)
+        target_sources(${TARGET} PRIVATE ${CMAKE_SOURCE_DIR}/src/results/summarytables.cpp)
     endif()
     # A-21: ThemeManager reads the system's contrast and motion settings.
     if("${CMAKE_SOURCE_DIR}/src/ui/theme/thememanager.cpp" IN_LIST ARGN)
         if(APPLE)
-            target_sources(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/src/platform/systemaccessibility.mm)
-            target_link_libraries(${TEST_NAME} PRIVATE "-framework AppKit")
+            target_sources(${TARGET} PRIVATE ${CMAKE_SOURCE_DIR}/src/platform/systemaccessibility.mm)
+            target_link_libraries(${TARGET} PRIVATE "-framework AppKit")
         else()
-            target_sources(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/src/platform/systemaccessibility.cpp)
+            target_sources(${TARGET} PRIVATE ${CMAKE_SOURCE_DIR}/src/platform/systemaccessibility.cpp)
         endif()
     endif()
     # G-01: the project window and the project file show the model's labels and backdrop; the
@@ -81,11 +61,11 @@ function(add_swmmvis_gui_test TEST_NAME)
     list(REMOVE_DUPLICATES g01_sources)
     foreach(g01_source IN LISTS g01_sources)
         if(NOT "${CMAKE_SOURCE_DIR}/${g01_source}" IN_LIST ARGN)
-            target_sources(${TEST_NAME} PRIVATE ${CMAKE_SOURCE_DIR}/${g01_source})
+            target_sources(${TARGET} PRIVATE ${CMAKE_SOURCE_DIR}/${g01_source})
         endif()
     endforeach()
     if("${CMAKE_SOURCE_DIR}/src/swmmvisprojectwindow.cpp" IN_LIST ARGN)
-        target_sources(${TEST_NAME} PRIVATE
+        target_sources(${TARGET} PRIVATE
             ${CMAKE_SOURCE_DIR}/include/plugins/extensionviewaccess.h
             ${CMAKE_SOURCE_DIR}/src/plugins/extensionviewaccess.cpp
             ${CMAKE_SOURCE_DIR}/src/plugins/extensionmodelevents.cpp
@@ -93,7 +73,7 @@ function(add_swmmvis_gui_test TEST_NAME)
             ${CMAKE_SOURCE_DIR}/src/plugins/extensionresultsevents.cpp)
     endif()
     if("${CMAKE_SOURCE_DIR}/src/swmmvis.cpp" IN_LIST ARGN)
-        target_sources(${TEST_NAME} PRIVATE
+        target_sources(${TARGET} PRIVATE
             ${CMAKE_SOURCE_DIR}/src/swmmvisextensions.cpp
             ${CMAKE_SOURCE_DIR}/include/plugins/extensionsharedribbon.h
             ${CMAKE_SOURCE_DIR}/src/plugins/extensionsharedribbon.cpp
@@ -107,8 +87,60 @@ function(add_swmmvis_gui_test TEST_NAME)
             ${CMAKE_SOURCE_DIR}/src/ui/dialogs/hotstartinspectordialog.cpp
             ${CMAKE_SOURCE_DIR}/include/ui/dialogs/hotstartinspectordialog.h
             ${CMAKE_SOURCE_DIR}/src/plugins/extensiontimeseriesaccess.cpp)
-        target_link_libraries(${TEST_NAME} PRIVATE openswmmvis_extensions)
+        target_link_libraries(${TARGET} PRIVATE openswmmvis_extensions)
     endif()
+    if("${CMAKE_SOURCE_DIR}/src/ui/dialogs/aboutdialog.cpp" IN_LIST ARGN)
+        target_link_libraries(${TARGET} PRIVATE swmmvis_build_info)
+    endif()
+endfunction()
+
+# Helper: register a QtTest binary that links against the same sources as the
+# main app so it can drive real classes (no .cpp duplication needed because the
+# test sources include the .cpp files they exercise directly when small enough,
+# or link against compiled .o files via the SWMMVis_obj target if extracted later).
+function(add_swmmvis_gui_test TEST_NAME)
+    # Extracted meshing sources are linked from the standalone project once.
+    # Retain source entries at call sites to document each test's dependency.
+    set(test_sources ${ARGN})
+    set(uses_meshkit FALSE)
+    # A test that lists every app source links the copy compiled once in
+    # swmmvis_app_testlib instead of compiling all of them again.
+    set(app_args ${ARGN})
+    set(uses_app_lib FALSE)
+    if(TARGET swmmvis_app_testlib AND "${CMAKE_SOURCE_DIR}/src/swmmvis.cpp" IN_LIST ARGN)
+        set(uses_app_lib TRUE)
+        foreach(source IN LISTS SWMMVIS_APP_TESTLIB_SOURCES)
+            if(NOT "${source}" IN_LIST ARGN)
+                set(uses_app_lib FALSE)
+                break()
+            endif()
+        endforeach()
+    endif()
+    if(uses_app_lib)
+        list(REMOVE_ITEM test_sources ${SWMMVIS_APP_TESTLIB_SOURCES})
+        list(REMOVE_ITEM app_args ${SWMMVIS_APP_TESTLIB_SOURCES})
+    endif()
+    foreach(source IN LISTS ARGN)
+        string(FIND "${source}" "${meshkit_SOURCE_DIR}/src/" _meshkit_src)
+        string(FIND "${source}" "${meshkit_SOURCE_DIR}/include/" _meshkit_include)
+        if(_meshkit_src EQUAL 0 OR _meshkit_include EQUAL 0)
+            list(REMOVE_ITEM test_sources "${source}")
+            set(uses_meshkit TRUE)
+        endif()
+    endforeach()
+    add_executable(${TEST_NAME} ${test_sources})
+    if(uses_meshkit)
+        target_link_libraries(${TEST_NAME} PRIVATE meshkit::core_qt meshkit::io_qt)
+    endif()
+    if(uses_app_lib)
+        target_link_libraries(${TEST_NAME} PRIVATE swmmvis_app_testlib)
+        # Headers that AUTOUIC generated for the app's forms.
+        target_include_directories(${TEST_NAME} PRIVATE
+            ${CMAKE_CURRENT_BINARY_DIR}/swmmvis_app_testlib_autogen/include)
+    endif()
+    # Native observation layers participate in every canvas, while samples stay
+    # in a bounded disk-backed store independent of the optional Data plugin.
+    _swmmvis_gui_test_app_extras(${TEST_NAME} ${app_args})
     set_target_properties(${TEST_NAME} PROPERTIES
         AUTOMOC ON
         AUTORCC ON)
@@ -122,9 +154,6 @@ function(add_swmmvis_gui_test TEST_NAME)
         swmmvis_tableclipboard
         Qt6::Core Qt6::Gui Qt6::Widgets Qt6::Test
     )
-    if("${CMAKE_SOURCE_DIR}/src/ui/dialogs/aboutdialog.cpp" IN_LIST ARGN)
-        target_link_libraries(${TEST_NAME} PRIVATE swmmvis_build_info)
-    endif()
     # Engine is brought in via add_subdirectory at the root; link target is
     # `openswmm_engine`. HAVE_OPENSWMMENGINE is set globally there too.
     if(TARGET openswmm_engine)
@@ -3109,6 +3138,20 @@ function(swmmvis_link_full_app_deps TEST_NAME)
         target_link_libraries(${TEST_NAME} PRIVATE "-framework AppKit")
     endif()
 endfunction()
+
+# The app's sources, compiled once for every whole-app test. Resource files stay
+# with each test, so a test has exactly the resources it lists.
+set(SWMMVIS_APP_TESTLIB_SOURCES ${SWMMVIS_TEST_SOURCES} ${SWMMVIS_TEST_EXTRA_SOURCES})
+list(FILTER SWMMVIS_APP_TESTLIB_SOURCES EXCLUDE REGEX "\\.qrc$")
+set(_swmmvis_app_testlib_compiled ${SWMMVIS_APP_TESTLIB_SOURCES})
+list(FILTER _swmmvis_app_testlib_compiled EXCLUDE REGEX "^${meshkit_SOURCE_DIR}/(src|include)/")
+add_library(swmmvis_app_testlib OBJECT ${_swmmvis_app_testlib_compiled})
+set_target_properties(swmmvis_app_testlib PROPERTIES AUTOMOC ON)
+target_link_libraries(swmmvis_app_testlib PRIVATE
+    meshkit::runtime openswmmvis_extensions swmmvis_tableclipboard
+    Qt6::Core Qt6::Gui Qt6::Widgets)
+_swmmvis_gui_test_app_extras(swmmvis_app_testlib ${SWMMVIS_APP_TESTLIB_SOURCES})
+swmmvis_link_full_app_deps(swmmvis_app_testlib)
 
 add_swmmvis_gui_test(test_user_feedback
     test_user_feedback.cpp
