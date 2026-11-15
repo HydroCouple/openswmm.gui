@@ -273,10 +273,9 @@ private slots:
         const int step = 60;
 
         // .rpt constants vs exact ones: 28.317/0.02832 L per m3 (SI), and
-        // 2.203e-6 lb/mg for the US outfall table (DefaultReportPlugin).
+        // 2.203e-6 lb/mg for the US tables (DefaultReportPlugin).
         const double relSi = std::fabs(28.317 / 0.02832 / 1000.0 - 1.0);
         const double relUsOutfall = std::fabs(2.203e-6 * 453592.37 - 1.0) + 1e-5;
-        const double lbPerKg = 1.0e6 / 453592.37;
 
         struct Check {
             bool node;
@@ -303,31 +302,24 @@ private slots:
                 QVERIFY(u.valid);
                 const double gui =
                     load::cumulative(q.t, q.v, c.v, start, step, u).back();
-                // Outfall table: kg (SI) / lb (US) as printed; columns after
-                // freq, avg, max and volume. Link table: always lb in this engine.
+                // Both tables print kg (SI) / lb (US). Outfall columns come after
+                // freq, avg, max and volume.
                 const double printed = row.at(chk.node ? 4 + p : p).toDouble();
-                double expected = gui;
-                double rel = si ? relSi : 0.0;
-                if (!chk.node && si) {
-                    expected = gui * lbPerKg;
-                } else if (chk.node && !si) {
-                    rel = relUsOutfall;
-                }
+                const double expected = gui;
+                const double rel = si ? relSi : relUsOutfall;
                 const double tol = 0.0005 + std::fabs(expected) * (rel + 1e-6);
                 log << QStringLiteral("%1 %2 species %3: gui %4 %5, report %6, tol %7")
                            .arg(QString::fromLatin1(units), chk.id)
                            .arg(p)
                            .arg(expected, 0, 'f', 6)
-                           .arg(!chk.node && si ? QStringLiteral("lb") : u.massUnits)
+                           .arg(u.massUnits)
                            .arg(printed, 0, 'f', 3)
                            .arg(tol, 0, 'g', 3);
                 QVERIFY2(printed > 0.1, qPrintable(log.last())); // a meaningful load
                 QVERIFY2(std::fabs(expected - printed) <= tol, qPrintable(log.last()));
                 // The gate discriminates: a trapezoid over the samples misses.
                 if (p == 0) {
-                    double trap = trapezoid(q, c, u.massPerFlowConcSecond);
-                    if (!chk.node && si)
-                        trap *= lbPerKg;
+                    const double trap = trapezoid(q, c, u.massPerFlowConcSecond);
                     QVERIFY2(std::fabs(trap - printed) > tol,
                              qPrintable(QStringLiteral("trapezoid %1").arg(trap)));
                 }
