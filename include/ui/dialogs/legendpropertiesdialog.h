@@ -24,11 +24,13 @@
 #include <functional>
 
 class MapCanvas;
+class OpenSWMMVisLayer;
 class QCheckBox;
 class QComboBox;
 class QDoubleSpinBox;
 class QGridLayout;
 class QGroupBox;
+class QLabel;
 class QLineEdit;
 class QSpinBox;
 class QTabWidget;
@@ -37,6 +39,12 @@ class QTreeView;
 namespace OpenSWMM::Render
 {
 class LegendOverlayStyle;
+struct LegendNode;
+} // namespace OpenSWMM::Render
+
+namespace openswmmvis::map::LegendContent
+{
+struct LegendTreeItem;
 }
 
 namespace openswmmvis::ui
@@ -101,6 +109,18 @@ private:
     void refresh();
     void selectKey(const QString &key);
     void updateItemControls();
+    /** The selected item's map layer (a layer or one of its rows), or null. */
+    OpenSWMMVisLayer *selectedLayer() const;
+    QWidget *buildNodeNumbersPage();
+    QWidget *buildNodeColorBarPage();
+    QWidget *buildNodeTextPage();
+    QWidget *buildNodeCountsPage();
+    /** One row of the Text page: the heading's or the rows' own font and color. */
+    void nodeTextRow(QGridLayout *grid, int row, const QString &label, bool heading);
+    /** Change the selected item's legend settings (one undo step). */
+    void editSelected(const std::function<void(OpenSWMM::Render::LegendNode &)> &edit);
+    /** Write the Numbers controls to the selected layer, as one undo step. */
+    void applyNumberFormat();
 
     QPointer<OpenSWMM::Render::LegendOverlayStyle> m_style;
     QPointer<MapCanvas> m_canvas;
@@ -120,6 +140,22 @@ private:
     QComboBox *m_nodeRamp = nullptr;
     QSpinBox *m_nodeSymbolWidth = nullptr;
     QSpinBox *m_nodeSymbolHeight = nullptr;
+    QTabWidget *m_nodeTabs = nullptr;
+    // Numbers (the layer's own class label format).
+    QLabel *m_numbersNote = nullptr;
+    QComboBox *m_numberMode = nullptr;
+    QSpinBox *m_numberDigits = nullptr;
+    QCheckBox *m_numberTrim = nullptr;
+    QCheckBox *m_numberThousands = nullptr;
+    QLineEdit *m_numberPrefix = nullptr;
+    QLineEdit *m_numberSuffix = nullptr;
+    QLineEdit *m_numberSeparator = nullptr;
+    QList<QWidget *> m_numberControls;
+    // Color bar, Text and Counts pages; their controls follow the selected item.
+    QWidget *m_rampPage = nullptr;
+    QWidget *m_countsPage = nullptr;
+    QList<std::function<void(const openswmmvis::map::LegendContent::LegendTreeItem *)>>
+        m_nodeRefreshers;
     QList<QWidget *> m_structureButtons; ///< enabled only when the order is the user's
 };
 

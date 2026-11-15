@@ -136,8 +136,8 @@ namespace
 {
 
 /** @brief Draw a color bar line's bar, end caps, tick marks and values. */
-void paintRampBar(QPainter &p, const LegendLayoutResult::Box &box, const LegendRampSpec &spec,
-                  const LegendOverlayStyle &style)
+void paintRampBar(QPainter &p, const LegendLayoutResult::Box &box, const LegendEntry &entry,
+                  const LegendRampSpec &spec, const LegendOverlayStyle &style)
 {
     p.save();
     const QRectF bar = box.barRect;
@@ -172,8 +172,8 @@ void paintRampBar(QPainter &p, const LegendLayoutResult::Box &box, const LegendR
         p.setPen(QPen(style.rampOutlineColor(), 1.0));
         p.drawLines(box.tickMarks);
     }
-    p.setFont(style.itemFont());
-    p.setPen(style.itemColor());
+    p.setFont(entry.font.value_or(style.itemFont()));
+    p.setPen(entry.color.isValid() ? entry.color : style.itemColor());
     for (const auto &[rect, text] : box.tickLabels)
         p.drawText(rect, (box.barVertical ? Qt::AlignLeft : Qt::AlignHCenter) | Qt::AlignVCenter,
                    text);
@@ -197,7 +197,7 @@ void paint(QPainter &p, const LegendLayoutResult &layout, const QList<LegendEntr
                                        ? &entries.at(box.entryIndex)
                                        : nullptr;
         if (entry && entry->ramp && !box.barRect.isEmpty())
-            paintRampBar(p, box, *entry->ramp, style);
+            paintRampBar(p, box, *entry, *entry->ramp, style);
         if (entry && !box.symbolRect.isEmpty())
             paintSymbol(p, entry->symbol, box.symbolRect, style, entry->symbolWidth,
                         entry->symbolHeight);
@@ -215,6 +215,11 @@ void paint(QPainter &p, const LegendLayoutResult &layout, const QList<LegendEntr
             p.setFont(style.itemFont());
             p.setPen(style.itemColor());
         }
+        // The line's layer's own font and color.
+        if (entry && entry->font)
+            p.setFont(*entry->font);
+        if (entry && entry->color.isValid())
+            p.setPen(entry->color);
         if (box.lines.isEmpty())
             continue;
         const Qt::Alignment align = box.alignment | Qt::AlignVCenter;

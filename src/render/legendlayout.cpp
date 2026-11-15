@@ -151,8 +151,33 @@ QString fitLine(const QFontMetrics &fm, const QString &text, int width)
     return fm.horizontalAdvance(text) <= width ? text : fm.elidedText(text, Qt::ElideRight, width);
 }
 
+/** A color bar's settings: its layer's own values, else the legend's. */
+struct RampParams {
+    bool vertical = true;
+    int length = 0;
+    int thickness = 0;
+    int tickCount = 2;
+    bool highAtTop = true;
+    bool endCaps = true;
+};
+
+RampParams rampParams(const LegendEntry &e, const Style &style)
+{
+    const LegendRampOverrides &o = e.rampSettings;
+    RampParams r;
+    r.vertical = o.orientation < 0 ? style.rampOrientation() == Style::RampOrientation::Vertical
+                                   : o.orientation == 0;
+    r.length = o.length > 0 ? o.length : style.rampLength();
+    r.thickness = o.thickness > 0 ? o.thickness : style.rampThickness();
+    r.tickCount = std::max(2, o.tickCount > 0 ? o.tickCount : style.rampTickCount());
+    r.highAtTop = o.highAtTop < 0 ? style.rampHighAtTop() : o.highAtTop == 1;
+    r.endCaps = o.endCaps < 0 ? style.rampShowEndCaps() : o.endCaps == 1;
+    return r;
+}
+
 /** Size and parts of a color bar line, before placement. */
 struct RampGeom {
+    RampParams params;   ///< the bar's settings
     int titleH = 0;      ///< text above the bar plus a 2 px gap; 0 without text
     int width = 0;       ///< whole line, text included
     int height = 0;      ///< whole line, text included
@@ -164,26 +189,33 @@ struct RampGeom {
     int capHigh = 0;
 };
 
-RampGeom rampGeometry(const LegendRampSpec &spec, const Style &style, const QFontMetrics &fm,
-                      int titleLines, int titleW, int lineSpacing)
+RampGeom rampGeometry(const LegendRampSpec &spec, const RampParams &rp, const Style &style,
+                      const QFontMetrics &fm, int titleLines, int titleW, int lineSpacing)
 {
     RampGeom g;
-    const int n = std::max(2, style.rampTickCount());
+    g.params = rp;
+    const int n = rp.tickCount;
     for (int i = 0; i < n; ++i) {
         const double v = spec.lo + (spec.hi - spec.lo) * i / (n - 1);
-        g.labels.append(style.formatRampValue(v) + spec.unitsSuffix);
+        // Auto: the layer's own number format when it has one (its suffix replaces the
+        // producer's units when set).
+        if (spec.numbers && style.rampNumberFormat() == Style::NumberFormat::Auto)
+            g.labels.append(spec.numbers->formatLabel(v) +
+                            (spec.numbers->suffix.isEmpty() ? spec.unitsSuffix : QString()));
+        else
+            g.labels.append(style.formatRampValue(v) + spec.unitsSuffix);
         g.labelW.append(fm.horizontalAdvance(g.labels.last()));
     }
     const int widest = *std::max_element(g.labelW.cbegin(), g.labelW.cend());
     g.tickLen = style.rampShowTickMarks() ? 4 : 0;
-    const int cap = qRound(style.rampThickness() * 0.8);
-    g.capLow = style.rampShowEndCaps() && spec.belowColor.isValid() ? cap : 0;
-    g.capHigh = style.rampShowEndCaps() && spec.aboveColor.isValid() ? cap : 0;
+    const int cap = qRound(rp.thickness * 0.8);
+    g.capLow = rp.endCaps && spec.belowColor.isValid() ? cap : 0;
+    g.capHigh = rp.endCaps && spec.aboveColor.isValid() ? cap : 0;
     g.titleH = titleLines > 0 ? textHeight(fm, titleLines, lineSpacing) + 2 : 0;
-    const int len = style.rampLength();
-    const int thick = style.rampThickness();
-    if (style.rampOrientation() == Style::RampOrientation::Vertical) {
-        const bool highTop = style.rampHighAtTop();
+    const int len = rp.length;
+    const int thick = rp.thickness;
+    if (rp.vertical) {
+        const bool highTop = rp.highAtTop;
         const int capTop = highTop ? g.capHigh : g.capLow;
         const int capBottom = highTop ? g.capLow : g.capHigh;
         g.padStart = std::max(capTop, fm.height() / 2);
@@ -203,12 +235,12 @@ RampGeom rampGeometry(const LegendRampSpec &spec, const Style &style, const QFon
 void placeRamp(LegendLayoutResult::Box &box, const RampGeom &g, const Style &style,
                const QFontMetrics &fm, QPointF origin)
 {
-    const qreal len = style.rampLength();
-    const qreal thick = style.rampThickness();
+    const qreal len = g.params.length;
+    const qreal thick = g.params.thickness;
     const qreal fh = fm.height();
     const int n = int(g.labels.size());
-    box.barVertical = style.rampOrientation() == Style::RampOrientation::Vertical;
-    box.barHighAtTop = style.rampHighAtTop();
+    box.barVertical = g.params.vertical;
+    box.barHighAtTop = g.params.highAtTop;
     if (box.barVertical) {
         const qreal x = origin.x();
         const qreal y0 = origin.y() + g.padStart;
@@ -330,6 +362,8 @@ LegendLayoutResult run(const QList<LegendEntry> &entries, const Style &style, in
             break;
         }
         mi.indent += e.depth * style.groupIndent();
+        if (e.font) // the layer's own font
+            mi.font = *e.font;
     }
     const auto textSpace = [&](const Measure &mi, int columnWidth) {
         return columnWidth - mi.indent - (mi.hasSymbol ? mi.slotW + gap : 0);
@@ -366,8 +400,8 @@ LegendLayoutResult run(const QList<LegendEntry> &entries, const Style &style, in
         Measure &mi = m[i];
         if (e.label.isEmpty())
             mi.lines.clear();
-        const RampGeom g = rampGeometry(*e.ramp, style, QFontMetrics(mi.font), int(mi.lines.size()),
-                                        mi.naturalTextW, lineSpacing);
+        const RampGeom g = rampGeometry(*e.ramp, rampParams(e, style), style, QFontMetrics(mi.font),
+                                        int(mi.lines.size()), mi.naturalTextW, lineSpacing);
         mi.height = g.height;
         mi.naturalTextW = g.width;
         ramps.insert(i, g);

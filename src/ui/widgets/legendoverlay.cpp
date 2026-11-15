@@ -182,8 +182,11 @@ void LegendOverlay::setCanvas(MapCanvas *canvas)
             connectLayer(l);
         // Counting only the map view's features follows the view.
         connect(m_canvas, &MapCanvas::extentChanged, this, [this]() {
-            if (m_style && m_style->filterByMapExtent())
-                scheduleCountRefresh();
+            for (const auto &wish : countWishes())
+                if (wish.first) {
+                    scheduleCountRefresh();
+                    break;
+                }
         });
         connect(m_canvas, &MapCanvas::layerAdded, this, &LegendOverlay::scheduleCountRefresh);
         connect(m_canvas, &MapCanvas::layerRemoved, this, &LegendOverlay::scheduleCountRefresh);
@@ -223,8 +226,7 @@ void LegendOverlay::ensureUndoRecorder()
 
 void LegendOverlay::onStyleChanged()
 {
-    if (m_style && QPair<bool, bool>(m_style->filterByMapExtent(), m_style->showFeatureCounts()) !=
-                       m_countFlags)
+    if (m_style && countWishes() != m_countWishes)
         scheduleCountRefresh();
     recomputeLayout();
     update();
@@ -234,28 +236,50 @@ void LegendOverlay::scheduleCountRefresh()
 {
     if (!m_countTimer)
         return;
-    const bool wanted = m_style && (m_style->filterByMapExtent() || m_style->showFeatureCounts());
-    if (wanted || m_countFlags != QPair<bool, bool>(false, false))
+    if (!countWishes().isEmpty() || !m_countWishes.isEmpty())
         m_countTimer->start(); // restarts: a pan or a burst of changes counts once
+}
+
+QHash<QString, QPair<bool, bool>> LegendOverlay::countWishes() const
+{
+    QHash<QString, QPair<bool, bool>> out;
+    if (!m_canvas || !m_style)
+        return out;
+    const auto tree = m_style->itemTree();
+    for (OpenSWMMVisLayer *layer : m_canvas->layers()) {
+        if (!layer || !layer->isVisible())
+            continue;
+        const QString key = Style::itemKey(layer, {});
+        const OpenSWMM::Render::LegendNode *n = tree.layerNode(key);
+        const bool inView =
+            n && n->mapExtentFilter >= 0 ? n->mapExtentFilter == 1 : m_style->filterByMapExtent();
+        const bool counts =
+            n && n->featureCounts >= 0 ? n->featureCounts == 1 : m_style->showFeatureCounts();
+        if (inView || counts)
+            out.insert(key, {inView, counts});
+    }
+    return out;
 }
 
 void LegendOverlay::refreshCounts()
 {
     ++m_countRefreshes;
     m_counts = {};
-    m_countFlags = {false, false};
-    if (m_canvas && m_style && (m_style->filterByMapExtent() || m_style->showFeatureCounts())) {
-        m_countFlags = {m_style->filterByMapExtent(), m_style->showFeatureCounts()};
+    m_countWishes = countWishes();
+    if (m_canvas && !m_countWishes.isEmpty()) {
         const MapExtent view = m_canvas->extent();
         for (OpenSWMMVisLayer *layer : m_canvas->layers()) {
-            if (!layer || !layer->isVisible())
+            if (!layer)
                 continue;
             const QString key = Style::itemKey(layer, {});
+            const auto wish = m_countWishes.constFind(key);
+            if (wish == m_countWishes.constEnd())
+                continue;
             QHash<QString, qint64> counts;
-            if (m_style->showFeatureCounts() && layer->legendClassCounts(nullptr, &counts))
+            if (wish->second && layer->legendClassCounts(nullptr, &counts))
                 m_counts.total.insert(key, counts);
             counts.clear();
-            if (m_style->filterByMapExtent() && layer->legendClassCounts(&view, &counts))
+            if (wish->first && layer->legendClassCounts(&view, &counts))
                 m_counts.inExtent.insert(key, counts);
         }
     }

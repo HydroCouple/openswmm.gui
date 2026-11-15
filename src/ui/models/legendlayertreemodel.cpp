@@ -26,8 +26,12 @@
 // Slice S4 — sublayer-aware legend (RENDERING_OUTPUT_SUBLAYERS_PLAN.md).
 #include "render/isublayer.h"
 #include "render/isublayerhost.h"
+#include "render/legenditemtree.h"
 #include "render/legendoverlaystyle.h"
 #include "render/legendsymbolitem.h"
+
+#include <QBrush>
+#include <QPalette>
 
 namespace openswmmvis::ui
 {
@@ -50,9 +54,18 @@ QColor firstSymbolColor(const OpenSWMM::Render::SymbolStyle &style)
 }
 
 // Encodes parent/child position in QModelIndex::internalId. Top-level
-// (layer-header) rows carry id == -1; child rows carry the parent layer
-// index. The QAbstractItemView reads this through index().internalId().
+// (layer-header) rows carry id == -1. Rows below a layer carry the layer's
+// index in the high bits and, in the low 16 bits, 0 for an entry directly
+// under the layer or (entry + 1) for a row under that entry.
 constexpr quintptr kTopLevelId = static_cast<quintptr>(-1);
+constexpr int kEntryBits = 16;
+constexpr quintptr kEntryMask = (quintptr(1) << kEntryBits) - 1;
+
+/** The internal id of the rows under @p parentEntry of layer @p layerRow (-1: under the layer). */
+quintptr entryId(int layerRow, int parentEntry)
+{
+    return (quintptr(layerRow) << kEntryBits) | quintptr(parentEntry + 1);
+}
 
 } // namespace
 
@@ -108,12 +121,41 @@ void LegendLayerTreeModel::onCanvasLayersChanged()
 
 void LegendLayerTreeModel::onLayerRepaintRequested()
 {
-    // Any layer-level shift (renderer mutation, visibility, name change)
-    // may have changed legend rows. Reset is cheap given the small list
-    // and matches the MVC "single source of truth" rule — we read fresh.
-    beginResetModel();
-    rebuildLayerCache();
-    endResetModel();
+    // Any layer-level shift (renderer mutation, visibility, name change) may have changed legend
+    // rows; read them fresh. A layer that only repainted (an animated one does all the time)
+    // changes nothing: the model is left alone, so a click or an edit in progress is not lost to
+    // a reset. Changed rows are updated in place; only a different set of rows resets.
+    QVector<LayerNode> fresh = collectLayers();
+    if (fresh == m_layers)
+        return;
+    bool sameRows = fresh.size() == m_layers.size();
+    for (qsizetype i = 0; sameRows && i < fresh.size(); ++i)
+        sameRows = fresh[i].layer == m_layers[i].layer &&
+                   fresh[i].items.size() == m_layers[i].items.size() &&
+                   fresh[i].entries == m_layers[i].entries;
+    if (!sameRows) {
+        beginResetModel();
+        rebuildLayerCache();
+        endResetModel();
+        return;
+    }
+    m_layers = std::move(fresh);
+    if (m_layers.isEmpty())
+        return;
+    emit dataChanged(index(0, 0), index(int(m_layers.size()) - 1, ColCount - 1));
+    for (int r = 0; r < m_layers.size(); ++r) {
+        const auto &entries = m_layers[r].entries;
+        if (entries.isEmpty())
+            continue;
+        const QModelIndex layer = index(r, 0);
+        emit dataChanged(index(0, 0, layer), index(int(entries.size()) - 1, ColCount - 1, layer));
+        for (int e = 0; e < entries.size(); ++e)
+            if (!entries[e].children.isEmpty()) {
+                const QModelIndex entry = index(e, 0, layer);
+                emit dataChanged(index(0, 0, entry),
+                                 index(int(entries[e].children.size()) - 1, ColCount - 1, entry));
+            }
+    }
 }
 
 void LegendLayerTreeModel::disconnectAllLayers()
@@ -178,9 +220,20 @@ void LegendLayerTreeModel::connectLayer(OpenSWMMVisLayer *layer)
 void LegendLayerTreeModel::rebuildLayerCache()
 {
     disconnectAllLayers();
-    m_layers.clear();
+    m_layers = collectLayers();
     if (!m_canvas)
         return;
+    // Every map layer is watched, also those the legend does not list.
+    for (OpenSWMMVisLayer *layer : m_canvas->layers())
+        if (layer)
+            connectLayer(layer);
+}
+
+QVector<LegendLayerTreeModel::LayerNode> LegendLayerTreeModel::collectLayers() const
+{
+    QVector<LayerNode> layers;
+    if (!m_canvas)
+        return layers;
 
     // The legend's own order (map order while it follows the map), groups flattened, every
     // row kept — hidden ones too, so they can be checked again.
@@ -202,6 +255,8 @@ void LegendLayerTreeModel::rebuildLayerCache()
         LayerNode node;
         node.layer = layer;
         node.name = layer->name();
+        node.key = layerItem.node.id;
+        node.shown = layerItem.node.visible;
         // Gap B1 — single dispatch through LegendContent (covers the
         // single-renderer layers AND the multi-kind facades: SWMMModelLayer,
         // SWMMResultsLayer).
@@ -213,10 +268,15 @@ void LegendLayerTreeModel::rebuildLayerCache()
         auto *renderer = openswmmvis::map::LegendContent::featureRendererFor(layer);
         auto *modelLayer = qobject_cast<SWMMModelLayer *>(layer);     // X4
         auto *resultsLayer = qobject_cast<SWMMResultsLayer *>(layer); // Gap B1
-        for (const LegendTreeItem &child : layerItem.children) {
+        const QList<bool> hiddenWith =
+            openswmmvis::map::LegendContent::rowsHiddenWithOthers(layerItem, m_style);
+        for (qsizetype i = 0; i < layerItem.children.size(); ++i) {
+            const LegendTreeItem &child = layerItem.children[i];
             const auto &row = child.row;
             ItemRow ir;
             ir.classKey = row.classKey;
+            ir.rowKey = openswmmvis::map::LegendContent::rowKey(row);
+            ir.hiddenWithOthers = hiddenWith[i];
             // The legend's label and visibility, as the on-canvas legend shows them.
             ir.label = child.label();
             // Rows with no symbol are sub-headers (kind / section titles) —
@@ -240,12 +300,18 @@ void LegendLayerTreeModel::rebuildLayerCache()
             }
             node.items.append(ir);
         }
-        m_layers.append(node);
+        // The tree under the layer: sub-headings over their sections, sublayers over their rows.
+        for (const auto &g : openswmmvis::map::LegendContent::rowGroups(layerItem)) {
+            Entry e;
+            e.row = g.row;
+            e.children = QVector<int>(g.children.cbegin(), g.children.cend());
+            e.label = g.label;
+            e.key = g.key;
+            node.entries.append(e);
+        }
+        layers.append(node);
     }
-    // Every map layer is watched, also those the legend does not list.
-    for (OpenSWMMVisLayer *layer : m_canvas->layers())
-        if (layer)
-            connectLayer(layer);
+    return layers;
 }
 
 int LegendLayerTreeModel::columnCount(const QModelIndex & /*parent*/) const
@@ -257,11 +323,19 @@ int LegendLayerTreeModel::rowCount(const QModelIndex &parent) const
 {
     if (!parent.isValid())
         return m_layers.size();
-    if (parent.internalId() != kTopLevelId)
-        return 0; // grandchildren disallowed
-    if (parent.row() < 0 || parent.row() >= m_layers.size())
+    if (parent.column() != 0)
         return 0;
-    return m_layers.at(parent.row()).items.size();
+    if (parent.internalId() == kTopLevelId) {
+        if (parent.row() < 0 || parent.row() >= m_layers.size())
+            return 0;
+        return int(m_layers.at(parent.row()).entries.size());
+    }
+    if ((parent.internalId() & kEntryMask) != 0)
+        return 0; // rows under an entry have none
+    const Target t = targetOf(parent);
+    if (t.layer < 0)
+        return 0;
+    return int(m_layers.at(t.layer).entries.at(t.entry).children.size());
 }
 
 QModelIndex LegendLayerTreeModel::index(int row, int column, const QModelIndex &parent) const
@@ -273,25 +347,58 @@ QModelIndex LegendLayerTreeModel::index(int row, int column, const QModelIndex &
             return {};
         return createIndex(row, column, kTopLevelId);
     }
-    if (parent.internalId() != kTopLevelId)
+    if (parent.internalId() == kTopLevelId) {
+        if (parent.row() < 0 || parent.row() >= m_layers.size() ||
+            row >= m_layers.at(parent.row()).entries.size())
+            return {};
+        return createIndex(row, column, entryId(parent.row(), -1));
+    }
+    if ((parent.internalId() & kEntryMask) != 0)
         return {};
-    if (parent.row() < 0 || parent.row() >= m_layers.size())
+    const Target t = targetOf(parent);
+    if (t.layer < 0 || row >= m_layers.at(t.layer).entries.at(t.entry).children.size())
         return {};
-    if (row >= m_layers.at(parent.row()).items.size())
-        return {};
-    return createIndex(row, column, static_cast<quintptr>(parent.row()));
+    return createIndex(row, column, entryId(t.layer, t.entry));
 }
 
 QModelIndex LegendLayerTreeModel::parent(const QModelIndex &child) const
 {
-    if (!child.isValid())
+    if (!child.isValid() || child.internalId() == kTopLevelId)
         return {};
-    if (child.internalId() == kTopLevelId)
-        return {};
-    const int layerRow = static_cast<int>(child.internalId());
+    const int layerRow = int(child.internalId() >> kEntryBits);
     if (layerRow < 0 || layerRow >= m_layers.size())
         return {};
-    return createIndex(layerRow, 0, kTopLevelId);
+    const int parentEntry = int(child.internalId() & kEntryMask) - 1;
+    if (parentEntry < 0)
+        return createIndex(layerRow, 0, kTopLevelId);
+    return createIndex(parentEntry, 0, entryId(layerRow, -1));
+}
+
+LegendLayerTreeModel::Target LegendLayerTreeModel::targetOf(const QModelIndex &idx) const
+{
+    Target t;
+    if (!idx.isValid() || idx.internalId() == kTopLevelId)
+        return t;
+    const int layerRow = int(idx.internalId() >> kEntryBits);
+    const int parentEntry = int(idx.internalId() & kEntryMask) - 1;
+    if (layerRow < 0 || layerRow >= m_layers.size())
+        return t;
+    const auto &entries = m_layers.at(layerRow).entries;
+    if (parentEntry < 0) {
+        if (idx.row() < 0 || idx.row() >= entries.size())
+            return t;
+        t.entry = idx.row();
+        t.itemRow = entries.at(idx.row()).row;
+        t.sublayer = t.itemRow < 0;
+    } else {
+        if (parentEntry >= entries.size() || idx.row() < 0 ||
+            idx.row() >= entries.at(parentEntry).children.size())
+            return t;
+        t.entry = parentEntry;
+        t.itemRow = entries.at(parentEntry).children.at(idx.row());
+    }
+    t.layer = layerRow;
+    return t;
 }
 
 QVariant LegendLayerTreeModel::data(const QModelIndex &idx, int role) const
@@ -312,19 +419,60 @@ QVariant LegendLayerTreeModel::data(const QModelIndex &idx, int role) const
             return QVariant::fromValue(n.layer.data());
         case EditableRole:
             return false; // header rows never editable
+        case Qt::CheckStateRole:
+            // The whole layer in the legend (the map still draws it).
+            if (m_style && idx.column() == ColItem)
+                return n.shown ? Qt::Checked : Qt::Unchecked;
+            return {};
+        case Qt::ToolTipRole:
+            if (m_style && idx.column() == ColItem)
+                return tr("Show this layer in the legend (the map still draws it)");
+            return {};
+        default:
+            return {};
+        }
+    }
+
+    const Target t = targetOf(idx);
+    if (t.layer < 0)
+        return {};
+    const LayerNode &n = m_layers.at(t.layer);
+    // A sublayer without a heading row: its name, and a check box for all its rows.
+    if (t.sublayer) {
+        const Entry &e = n.entries.at(t.entry);
+        switch (role) {
+        case Qt::DisplayRole:
+        case Qt::EditRole:
+            return idx.column() == ColItem ? e.label : QVariant{};
+        case Qt::CheckStateRole: {
+            if (!m_style || idx.column() != ColItem)
+                return {};
+            int shown = 0;
+            for (const int r : e.children)
+                shown += n.items.at(r).visible ? 1 : 0;
+            return shown == 0                       ? Qt::Unchecked
+                   : shown == int(e.children.size()) ? Qt::Checked
+                                                     : Qt::PartiallyChecked;
+        }
+        case Qt::ToolTipRole:
+            return idx.column() == ColItem
+                       ? tr("Sublayer: its check box shows or hides all its rows")
+                       : QVariant{};
+        case LayerPtrRole:
+            return QVariant::fromValue(n.layer.data());
+        case SublayerIdRole:
+            return e.key;
+        case EditableRole:
+            return false;
         default:
             return {};
         }
     }
 
     // Item row.
-    const int layerRow = static_cast<int>(idx.internalId());
-    if (layerRow < 0 || layerRow >= m_layers.size())
+    if (t.itemRow < 0 || t.itemRow >= n.items.size())
         return {};
-    const LayerNode &n = m_layers.at(layerRow);
-    if (idx.row() < 0 || idx.row() >= n.items.size())
-        return {};
-    const ItemRow &it = n.items.at(idx.row());
+    const ItemRow &it = n.items.at(t.itemRow);
 
     switch (role) {
     case Qt::DisplayRole:
@@ -346,9 +494,14 @@ QVariant LegendLayerTreeModel::data(const QModelIndex &idx, int role) const
         return {};
     case Qt::CheckStateRole:
         // Slice BB Phase 8.6.10 / 8.6.16 — per-item visibility checkbox
-        // lives on the Item column of every item row (when style is set).
-        if (m_style && idx.column() == ColItem && !it.classKey.isEmpty())
+        // lives on the Item column of every item row (when style is set), sub-headings included.
+        if (m_style && idx.column() == ColItem && !it.rowKey.isEmpty())
             return it.visible ? Qt::Checked : Qt::Unchecked;
+        return {};
+    case Qt::ForegroundRole:
+        // Rows left out with their heading or color bar.
+        if (idx.column() == ColItem && it.hiddenWithOthers)
+            return QBrush(QPalette().color(QPalette::Disabled, QPalette::Text));
         return {};
     case Qt::DecorationRole:
         return idx.column() == ColColor ? it.color : QVariant{};
@@ -374,25 +527,45 @@ bool LegendLayerTreeModel::setData(const QModelIndex &idx, const QVariant &value
 {
     if (!idx.isValid())
         return false;
-    if (idx.internalId() == kTopLevelId)
-        return false;
+    if (idx.internalId() == kTopLevelId) {
+        // The whole layer in or out of the legend; the map is unchanged.
+        if (role != Qt::CheckStateRole || idx.column() != ColItem || !m_style || idx.row() < 0 ||
+            idx.row() >= m_layers.size() || m_layers.at(idx.row()).key.isEmpty())
+            return false;
+        OpenSWMM::Render::LegendItemTree tree = m_style->itemTree();
+        tree.ensureLayerNode(m_layers.at(idx.row()).key).visible = value.toInt() == Qt::Checked;
+        m_style->setItemTree(tree);
+        return true;
+    }
 
-    const int layerRow = static_cast<int>(idx.internalId());
-    if (layerRow < 0 || layerRow >= m_layers.size())
+    const Target t = targetOf(idx);
+    if (t.layer < 0)
         return false;
-    LayerNode &n = m_layers[layerRow];
+    LayerNode &n = m_layers[t.layer];
     if (!n.layer)
         return false;
-    if (idx.row() < 0 || idx.row() >= n.items.size())
+    // A sublayer without a heading row: all its rows in or out of the legend, as one edit.
+    if (t.sublayer) {
+        if (role != Qt::CheckStateRole || idx.column() != ColItem || !m_style)
+            return false;
+        const QString layerKey = OpenSWMM::Render::LegendOverlayStyle::itemKey(n.layer, {});
+        const bool on = value.toInt() == Qt::Checked;
+        OpenSWMM::Render::LegendItemTree tree = m_style->itemTree();
+        for (const int r : n.entries.at(t.entry).children)
+            if (!n.items.at(r).rowKey.isEmpty())
+                tree.ensureItemNode(layerKey, n.items.at(r).rowKey).visible = on;
+        m_style->setItemTree(tree);
+        return true;
+    }
+    if (t.itemRow < 0 || t.itemRow >= n.items.size())
         return false;
-    const ItemRow &it = n.items.at(idx.row());
+    const ItemRow &it = n.items.at(t.itemRow);
 
     // ── Visibility checkbox (CheckStateRole on ColItem) ───────────────
-    if (role == Qt::CheckStateRole && idx.column() == ColItem && m_style &&
-        !it.classKey.isEmpty()) {
+    if (role == Qt::CheckStateRole && idx.column() == ColItem && m_style && !it.rowKey.isEmpty()) {
         const QString layerKey = OpenSWMM::Render::LegendOverlayStyle::itemKey(n.layer, {});
         const bool checked = value.toInt() == Qt::Checked;
-        m_style->setItemVisible(layerKey, it.classKey, checked);
+        m_style->setItemVisible(layerKey, it.rowKey, checked);
         // itemOverrideChanged → onLayerRepaintRequested triggers a reset
         // so cached rows reflect the new visibility on next read.
         return true;
@@ -446,16 +619,24 @@ Qt::ItemFlags LegendLayerTreeModel::flags(const QModelIndex &idx) const
     if (!idx.isValid())
         return Qt::NoItemFlags;
     Qt::ItemFlags f = Qt::ItemIsEnabled | Qt::ItemIsSelectable;
-    if (idx.internalId() == kTopLevelId)
-        return f; // headers not editable
-    const int layerRow = static_cast<int>(idx.internalId());
-    if (layerRow < 0 || layerRow >= m_layers.size())
+    if (idx.internalId() == kTopLevelId) {
+        // Headers are not editable; their check box shows or hides the whole layer.
+        if (m_style && idx.column() == ColItem)
+            f |= Qt::ItemIsUserCheckable;
         return f;
-    const auto &n = m_layers.at(layerRow);
-
-    if (idx.row() < 0 || idx.row() >= n.items.size())
+    }
+    const Target t = targetOf(idx);
+    if (t.layer < 0)
         return f;
-    const auto &it = n.items.at(idx.row());
+    const auto &n = m_layers.at(t.layer);
+    if (t.sublayer) { // a check box for all its rows
+        if (m_style && idx.column() == ColItem)
+            f |= Qt::ItemIsUserCheckable;
+        return f;
+    }
+    if (t.itemRow < 0 || t.itemRow >= n.items.size())
+        return f;
+    const auto &it = n.items.at(t.itemRow);
 
     if (idx.column() == ColColor && n.editableColor && !it.classKey.isEmpty()) {
         f |= Qt::ItemIsEditable;
@@ -463,9 +644,11 @@ Qt::ItemFlags LegendLayerTreeModel::flags(const QModelIndex &idx) const
     if (idx.column() == ColSize && n.editableSize && !it.classKey.isEmpty() && it.size > 0.0) {
         f |= Qt::ItemIsEditable;
     }
+    if (idx.column() == ColItem && m_style && !it.rowKey.isEmpty())
+        f |= Qt::ItemIsUserCheckable; // sub-headings too
     if (idx.column() == ColItem && m_style && !it.classKey.isEmpty()) {
         // Visibility checkbox + editable label both live on the Item col.
-        f |= Qt::ItemIsUserCheckable | Qt::ItemIsEditable;
+        f |= Qt::ItemIsEditable;
     }
     return f;
 }

@@ -110,6 +110,40 @@ struct LegendTreeItem {
 currentTree(const MapCanvas *canvas, const OpenSWMM::Render::LegendOverlayStyle *style);
 
 /*!
+ * \struct LegendRowGroup
+ * \brief One entry under a layer in the legend's tree views: a plain row, a sub-heading with
+ *        the rows of its section, or a sublayer (or SWMM element type) with its rows.
+ */
+struct LegendRowGroup {
+    int row = -1; ///< The row at the layer's level (a plain row or a sub-heading); -1 for a
+                  ///< sublayer without a heading row.
+    QList<int> children; ///< Rows under it: the heading's section, or the sublayer's rows.
+    QString key;         ///< Sublayer without a heading: its sublayer ID or element type.
+    QString label;       ///< Sublayer without a heading: its name.
+};
+
+/*! A layer's rows arranged as its tree views show them: a row without a symbol heads the rows
+ *  after it, up to the next such row and while they belong to its sublayer (the section that
+ *  turning the heading off leaves out); two or more rows in a row of one sublayer (or one SWMM
+ *  element type) that no heading covers go under that sublayer; other rows stand alone.
+ * @param[in] layer Layer item from resolveTree().
+ * @return Entries in row order; every row appears once. */
+[[nodiscard]] QList<LegendRowGroup> rowGroups(const LegendTreeItem &layer);
+
+/*! For each row of a layer, whether the legend leaves it out because another row is turned off
+ *  in the legend (the row's own setting is not counted):
+ *  - a row without a symbol heads the rows after it, up to the next such row and while they
+ *    belong to its sublayer (a row with another sublayer ID ends the section), so turning a
+ *    heading off turns its section off;
+ *  - when the layer shows color bars, the rows of one ramp are one bar, so turning any of them
+ *    off turns the bar off.
+ * @param[in] layer Layer item from resolveTree().
+ * @param[in] style Legend settings (color bars or swatches); null means color bars.
+ * @return One flag per child of @p layer. */
+[[nodiscard]] QList<bool> rowsHiddenWithOthers(const LegendTreeItem &layer,
+                                               const OpenSWMM::Render::LegendOverlayStyle *style);
+
+/*!
  * \struct LegendCounts
  * \brief Feature counts per legend row for the layers that can count, keyed by layer key and
  *        class key (see OpenSWMMVisLayer::legendClassCounts()).

@@ -176,14 +176,46 @@ private:
         QString sublayerId; /*!< Slice S4 P5 — populated from
                                       LegendSymbolItem::sublayerId; non-empty
                                       for sublayer-contributed rows. */
+        QString rowKey;     /*!< The row's legend key (class key, or "#" and the label of a
+                                 sub-heading); its check box shows or hides it. */
+        bool hiddenWithOthers = false; /*!< Left out with its heading or color bar. */
+        bool operator==(const ItemRow &other) const = default;
+    };
+    /** One entry under a layer: a row (plain or a sub-heading) with the rows under it, or a
+     *  sublayer without a heading row over its rows (see LegendContent::rowGroups()). */
+    struct Entry {
+        int row = -1;          /*!< Index into LayerNode::items; -1 for a sublayer. */
+        QVector<int> children; /*!< Indexes into LayerNode::items. */
+        QString label;         /*!< Sublayer: its name. */
+        QString key;           /*!< Sublayer: its sublayer ID (or SWMM element type). */
+        bool operator==(const Entry &other) const = default;
     };
     struct LayerNode {
         QPointer<OpenSWMMVisLayer> layer;
         QString name;
         QVector<ItemRow> items;
+        QVector<Entry> entries; /*!< The tree under the layer, over @c items. */
         bool editableColor = false; /*!< renderer supports Color. */
         bool editableSize = false;  /*!< renderer supports Size. */
+        QString key;                /*!< The layer's legend key. */
+        bool shown = true;          /*!< The whole layer is shown in the legend. */
+        bool operator==(const LayerNode &other) const = default;
     };
+
+    /** @brief What an index below a layer points at. */
+    struct Target {
+        int layer = -1;        /*!< Index into m_layers; -1 when none. */
+        int entry = -1;        /*!< The entry (or the entry the row is under). */
+        int itemRow = -1;      /*!< Index into LayerNode::items; -1 for a sublayer. */
+        bool sublayer = false; /*!< A sublayer entry (no row of its own). */
+    };
+    /** @brief Resolve an entry or row index. @param idx Index. @return Target (layer -1 when
+     *  @p idx is invalid or a layer). */
+    [[nodiscard]] Target targetOf(const QModelIndex &idx) const;
+
+    /** @brief The legend's layers and rows as they stand, without touching the model.
+     * @return Layers in legend order, each with every row (hidden ones too). */
+    [[nodiscard]] QVector<LayerNode> collectLayers() const;
 
     /**
      * @brief Rebuild borrowed layer/symbol snapshots in reverse canvas paint order and reconnect invalidation sources.

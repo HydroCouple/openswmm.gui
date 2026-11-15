@@ -498,3 +498,56 @@ TEST_F(QtAppFixture, LayersAreKeyedByTheirLayerId)
     EXPECT_EQ(LegendOverlayStyle::itemKey(&layer, {}), QStringLiteral("{id}"));
     EXPECT_EQ(LegendOverlayStyle::itemKey(nullptr, {}), QString());
 }
+
+// A layer's own color bar, text and count settings are saved with its node, and a node without
+// them saves none of their keys.
+TEST_F(QtAppFixture, LayerOwnSettingsRoundTrip)
+{
+    LegendNode plain;
+    plain.type = LegendNode::Type::Layer;
+    plain.id = QStringLiteral("{layer}");
+    EXPECT_TRUE(plain.hasDefaultSettings());
+    const QJsonObject plainJson = plain.toJson();
+    for (const char *key : {"rampBar", "headingFont", "headingColor", "itemFont", "itemColor",
+                            "counts", "extentFilter"})
+        EXPECT_FALSE(plainJson.contains(QString::fromLatin1(key))) << key;
+
+    LegendNode n = plain;
+    n.rampSettings.orientation = 1;
+    n.rampSettings.length = 200;
+    n.rampSettings.thickness = 9;
+    n.rampSettings.tickCount = 3;
+    n.rampSettings.highAtTop = 0;
+    n.rampSettings.endCaps = 1;
+    QFont heading(QStringLiteral("Helvetica"));
+    heading.setPointSizeF(13.5);
+    heading.setBold(true);
+    n.headingFont = heading;
+    n.headingColor = QColor(0, 0, 255);
+    QFont item(QStringLiteral("Courier"));
+    item.setPointSizeF(8);
+    item.setItalic(true);
+    n.itemFont = item;
+    n.itemColor = QColor(10, 20, 30, 200);
+    n.featureCounts = 0;
+    n.mapExtentFilter = 1;
+    EXPECT_FALSE(n.hasDefaultSettings());
+    const LegendNode back = LegendNode::fromJson(n.toJson());
+    EXPECT_EQ(back.rampSettings, n.rampSettings);
+    ASSERT_TRUE(back.headingFont.has_value());
+    EXPECT_EQ(back.headingFont->family(), heading.family());
+    EXPECT_DOUBLE_EQ(back.headingFont->pointSizeF(), 13.5);
+    EXPECT_TRUE(back.headingFont->bold());
+    ASSERT_TRUE(back.itemFont.has_value());
+    EXPECT_TRUE(back.itemFont->italic());
+    EXPECT_EQ(back.headingColor, n.headingColor);
+    EXPECT_EQ(back.itemColor, n.itemColor);
+    EXPECT_EQ(back.featureCounts, 0);
+    EXPECT_EQ(back.mapExtentFilter, 1);
+
+    // A tree keeps a layer node that has only these settings.
+    LegendItemTree tree;
+    tree.ensureLayerNode(QStringLiteral("{a}")).featureCounts = 1;
+    tree.prune();
+    ASSERT_NE(tree.layerNode(QStringLiteral("{a}")), nullptr);
+}

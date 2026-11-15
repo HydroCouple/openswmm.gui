@@ -11,7 +11,9 @@
 #include "ui/dialogs/legendpropertiesdialog.h"
 
 #include "layers/openswmmvislayer.h"
+#include "map/legendclasseditcommands.h"
 #include "map/legendcontent.h"
+#include "map/legendstyleundorecorder.h"
 #include "map/mapcanvas.h"
 #include "render/legenditemtree.h"
 #include "render/legendoverlaystyle.h"
@@ -44,6 +46,7 @@
 #include <QTimer>
 #include <QToolButton>
 #include <QTreeView>
+#include <QUndoStack>
 #include <QVBoxLayout>
 
 namespace openswmmvis::ui
@@ -464,9 +467,14 @@ QWidget *LegendPropertiesDialog::buildItemsTab()
     buttons->addStretch(1);
     layout->addLayout(buttons);
 
-    // Settings of the selected item.
+    // Settings of the selected item, in tabs.
     m_nodeBox = new QGroupBox(tr("Selected item"), page);
-    auto *form = new QFormLayout(m_nodeBox);
+    auto *boxLayout = new QVBoxLayout(m_nodeBox);
+    m_nodeTabs = new QTabWidget(m_nodeBox);
+    m_nodeTabs->setObjectName(QStringLiteral("nodeTabs"));
+    boxLayout->addWidget(m_nodeTabs);
+    auto *general = new QWidget;
+    auto *form = new QFormLayout(general);
     const auto editNode = [this](const std::function<void(LegendNode &)> &edit) {
         m_items->editSettings(m_items->indexOfKey(m_selectedKey), edit);
     };
@@ -525,8 +533,327 @@ QWidget *LegendPropertiesDialog::buildItemsTab()
     connect(m_nodeSymbolHeight, &QSpinBox::valueChanged, this,
             [editNode](int v) { editNode([v](LegendNode &n) { n.symbolHeight = v; }); });
     form->addRow(tr("Symbol height:"), m_nodeSymbolHeight);
+    m_nodeTabs->addTab(general, tr("General"));
+    m_nodeTabs->addTab(buildNodeNumbersPage(), tr("Numbers"));
+    m_nodeTabs->addTab(buildNodeColorBarPage(), tr("Color bar"));
+    m_nodeTabs->addTab(buildNodeTextPage(), tr("Text"));
+    m_nodeTabs->addTab(buildNodeCountsPage(), tr("Counts"));
     layout->addWidget(m_nodeBox);
     return page;
+}
+
+QWidget *LegendPropertiesDialog::buildNodeNumbersPage()
+{
+    using OpenSWMM::Render::NumberLabelFormat;
+    auto *page = new QWidget;
+    auto *form = new QFormLayout(page);
+    m_numbersNote = new QLabel(page);
+    m_numbersNote->setWordWrap(true);
+    form->addRow(m_numbersNote);
+    m_numberMode = new QComboBox(page);
+    m_numberMode->setObjectName(QStringLiteral("numberMode"));
+    m_numberMode->addItem(tr("Decimal places"), int(NumberLabelFormat::Mode::Decimals));
+    m_numberMode->addItem(tr("Significant figures"),
+                          int(NumberLabelFormat::Mode::SignificantFigures));
+    form->addRow(tr("Numbers:"), m_numberMode);
+    m_numberDigits = new QSpinBox(page);
+    m_numberDigits->setObjectName(QStringLiteral("numberDigits"));
+    m_numberDigits->setRange(0, 12);
+    form->addRow(tr("Digits:"), m_numberDigits);
+    m_numberTrim = new QCheckBox(tr("Drop trailing zeros"), page);
+    m_numberTrim->setObjectName(QStringLiteral("numberTrim"));
+    form->addRow(QString(), m_numberTrim);
+    m_numberThousands = new QCheckBox(tr("Thousands separator (1,234)"), page);
+    m_numberThousands->setObjectName(QStringLiteral("numberThousands"));
+    form->addRow(QString(), m_numberThousands);
+    m_numberPrefix = new QLineEdit(page);
+    m_numberPrefix->setObjectName(QStringLiteral("numberPrefix"));
+    m_numberPrefix->setPlaceholderText(tr("None"));
+    form->addRow(tr("Text before:"), m_numberPrefix);
+    m_numberSuffix = new QLineEdit(page);
+    m_numberSuffix->setObjectName(QStringLiteral("numberSuffix"));
+    m_numberSuffix->setPlaceholderText(tr("None (for example \" m\")"));
+    m_numberSuffix->setToolTip(tr("Units or other text after each value; on a color bar it "
+                                  "replaces the layer's own units"));
+    form->addRow(tr("Units after:"), m_numberSuffix);
+    m_numberSeparator = new QLineEdit(page);
+    m_numberSeparator->setObjectName(QStringLiteral("numberSeparator"));
+    m_numberSeparator->setPlaceholderText(NumberLabelFormat().rangeSeparator);
+    m_numberSeparator->setToolTip(tr("Text between the two ends of a range; empty uses \"%1\"")
+                                      .arg(NumberLabelFormat().rangeSeparator));
+    form->addRow(tr("Range separator:"), m_numberSeparator);
+    m_numberControls = {m_numberMode,   m_numberDigits, m_numberTrim,     m_numberThousands,
+                        m_numberPrefix, m_numberSuffix, m_numberSeparator};
+
+    const auto apply = [this] { applyNumberFormat(); };
+    connect(m_numberMode, &QComboBox::currentIndexChanged, this, apply);
+    connect(m_numberDigits, &QSpinBox::valueChanged, this, apply);
+    connect(m_numberTrim, &QCheckBox::toggled, this, apply);
+    connect(m_numberThousands, &QCheckBox::toggled, this, apply);
+    connect(m_numberPrefix, &QLineEdit::editingFinished, this, apply);
+    connect(m_numberSuffix, &QLineEdit::editingFinished, this, apply);
+    connect(m_numberSeparator, &QLineEdit::editingFinished, this, apply);
+    return page;
+}
+
+namespace
+{
+
+/** "As the legend", then two choices stored as 1 and 0. */
+QComboBox *followOrChoose(const char *name, const QString &one, const QString &zero)
+{
+    auto *box = new QComboBox;
+    box->setObjectName(QString::fromLatin1(name));
+    box->addItem(QObject::tr("As the legend"), -1);
+    box->addItem(one, 1);
+    box->addItem(zero, 0);
+    return box;
+}
+
+} // namespace
+
+void LegendPropertiesDialog::editSelected(const std::function<void(LegendNode &)> &edit)
+{
+    if (m_items)
+        m_items->editSettings(m_items->indexOfKey(m_selectedKey), edit);
+}
+
+QWidget *LegendPropertiesDialog::buildNodeColorBarPage()
+{
+    using OpenSWMM::Render::LegendRampOverrides;
+    using openswmmvis::map::LegendContent::LegendTreeItem;
+    m_rampPage = new QWidget;
+    auto *form = new QFormLayout(m_rampPage);
+    auto *note = new QLabel(tr("This layer's color bars; \"As the legend\" follows the Symbols "
+                               "tab."));
+    note->setWordWrap(true);
+    form->addRow(note);
+    // A choice stored in one field of the layer's color bar settings.
+    const auto choice = [&](QComboBox *box, const QString &label, int LegendRampOverrides::*field) {
+        connect(box, &QComboBox::currentIndexChanged, this, [this, box, field](int) {
+            const int v = box->currentData().toInt();
+            editSelected([v, field](LegendNode &n) { n.rampSettings.*field = v; });
+        });
+        m_nodeRefreshers.append([box, field](const LegendTreeItem *item) {
+            const QSignalBlocker b(box);
+            box->setCurrentIndex(box->findData(item->node.rampSettings.*field));
+        });
+        form->addRow(label, box);
+    };
+    const auto number = [&](const char *name, const QString &label, int max,
+                            int LegendRampOverrides::*field, const QString &suffix) {
+        auto *s = new QSpinBox;
+        s->setObjectName(QString::fromLatin1(name));
+        s->setRange(0, max);
+        s->setSpecialValueText(tr("As the legend"));
+        s->setSuffix(suffix);
+        connect(s, &QSpinBox::valueChanged, this, [this, field](int v) {
+            editSelected([v, field](LegendNode &n) { n.rampSettings.*field = v; });
+        });
+        m_nodeRefreshers.append([s, field](const LegendTreeItem *item) {
+            const QSignalBlocker b(s);
+            s->setValue(item->node.rampSettings.*field);
+        });
+        form->addRow(label, s);
+    };
+    choice(followOrChoose("nodeRampOrientation", tr("Horizontal"), tr("Vertical")),
+           tr("Direction:"), &LegendRampOverrides::orientation);
+    number("nodeRampLength", tr("Length:"), 600, &LegendRampOverrides::length, tr(" px"));
+    number("nodeRampThickness", tr("Thickness:"), 80, &LegendRampOverrides::thickness, tr(" px"));
+    number("nodeRampTicks", tr("Values shown:"), 15, &LegendRampOverrides::tickCount, QString());
+    choice(followOrChoose("nodeRampHighAtTop", tr("High value at the top"),
+                          tr("Low value at the top")),
+           tr("Vertical bars:"), &LegendRampOverrides::highAtTop);
+    choice(followOrChoose("nodeRampEndCaps", tr("Show"), tr("Hide")), tr("Out-of-range caps:"),
+           &LegendRampOverrides::endCaps);
+    return m_rampPage;
+}
+
+void LegendPropertiesDialog::nodeTextRow(QGridLayout *grid, int row, const QString &label,
+                                         bool heading)
+{
+    using openswmmvis::map::LegendContent::LegendTreeItem;
+    const QString base = heading ? QStringLiteral("nodeHeading") : QStringLiteral("nodeItem");
+    auto *own = new QCheckBox(tr("Own"));
+    own->setObjectName(base + QStringLiteral(".own"));
+    own->setToolTip(tr("Use this font and color instead of the legend's"));
+    auto *family = new QFontComboBox;
+    family->setObjectName(base + QStringLiteral(".family"));
+    family->setEditable(false);
+    family->setSizeAdjustPolicy(QComboBox::AdjustToMinimumContentsLengthWithIcon);
+    family->setMinimumContentsLength(10);
+    family->setPlaceholderText(tr("System font"));
+    auto *size = new QDoubleSpinBox;
+    size->setObjectName(base + QStringLiteral(".size"));
+    size->setRange(4, 96);
+    size->setDecimals(1);
+    size->setSuffix(tr(" pt"));
+    auto *bold = new QCheckBox(tr("Bold"));
+    bold->setObjectName(base + QStringLiteral(".bold"));
+    auto *italic = new QCheckBox(tr("Italic"));
+    italic->setObjectName(base + QStringLiteral(".italic"));
+    auto *swatch = new ColorButton;
+    swatch->setObjectName(base + QStringLiteral(".color"));
+    swatch->setAutoDefault(false);
+    swatch->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
+
+    // The node's font and color, and the legend's ones they start from.
+    const auto fontOf = [heading](LegendNode &n) -> std::optional<QFont> & {
+        return heading ? n.headingFont : n.itemFont;
+    };
+    const auto colorOf = [heading](LegendNode &n) -> QColor & {
+        return heading ? n.headingColor : n.itemColor;
+    };
+    const auto legendFont = [this, heading] {
+        return heading ? m_style->layerHeaderFont() : m_style->itemFont();
+    };
+    const auto legendColor = [this, heading] {
+        return heading ? m_style->layerHeaderColor() : m_style->itemColor();
+    };
+    connect(own, &QCheckBox::toggled, this,
+            [this, fontOf, colorOf, legendFont, legendColor](bool on) {
+                const QFont f = legendFont();
+                const QColor c = legendColor();
+                editSelected([on, f, c, fontOf, colorOf](LegendNode &n) {
+                    fontOf(n) = on ? std::optional<QFont>(f) : std::nullopt;
+                    colorOf(n) = on ? c : QColor();
+                });
+            });
+    const auto editFont = [this, fontOf, legendFont](const std::function<void(QFont &)> &change) {
+        const QFont start = legendFont();
+        editSelected([change, start, fontOf](LegendNode &n) {
+            QFont f = fontOf(n).value_or(start);
+            change(f);
+            fontOf(n) = f;
+        });
+    };
+    connect(family, &QFontComboBox::currentFontChanged, this, [editFont](const QFont &picked) {
+        editFont([&picked](QFont &f) { f.setFamily(picked.family()); });
+    });
+    connect(size, &QDoubleSpinBox::valueChanged, this,
+            [editFont](double pt) { editFont([pt](QFont &f) { f.setPointSizeF(pt); }); });
+    connect(bold, &QCheckBox::toggled, this,
+            [editFont](bool on) { editFont([on](QFont &f) { f.setBold(on); }); });
+    connect(italic, &QCheckBox::toggled, this,
+            [editFont](bool on) { editFont([on](QFont &f) { f.setItalic(on); }); });
+    connect(swatch, &ColorButton::colorChanged, this, [this, colorOf](const QColor &c) {
+        editSelected([c, colorOf](LegendNode &n) { colorOf(n) = c; });
+    });
+    m_nodeRefreshers.append([=](const LegendTreeItem *item) {
+        using Type = LegendNode::Type;
+        LegendNode n = item->node;
+        const bool applies =
+            heading ? (n.type == Type::Layer || n.type == Type::Group) : n.type == Type::Layer;
+        const bool isOwn = fontOf(n).has_value() || colorOf(n).isValid();
+        const QSignalBlocker b0(own), b1(family), b2(size), b3(bold), b4(italic), b5(swatch);
+        own->setEnabled(applies);
+        own->setChecked(applies && isOwn);
+        for (QWidget *w : {static_cast<QWidget *>(family), static_cast<QWidget *>(size),
+                           static_cast<QWidget *>(bold), static_cast<QWidget *>(italic),
+                           static_cast<QWidget *>(swatch)})
+            w->setEnabled(applies && isOwn);
+        const QFont f = fontOf(n).value_or(legendFont());
+        const int at = family->findText(QFontInfo(f).family(), Qt::MatchFixedString);
+        family->setCurrentIndex(at >= 0 && !f.family().isEmpty() ? at : -1);
+        size->setValue(f.pointSizeF() > 0 ? f.pointSizeF() : QFont().pointSizeF());
+        bold->setChecked(f.bold());
+        italic->setChecked(f.italic());
+        swatch->setColor(colorOf(n).isValid() ? colorOf(n) : legendColor());
+    });
+    grid->addWidget(new QLabel(label), row, 0);
+    grid->addWidget(own, row, 1);
+    grid->addWidget(family, row, 2);
+    grid->addWidget(size, row, 3);
+    grid->addWidget(bold, row, 4);
+    grid->addWidget(italic, row, 5);
+    grid->addWidget(swatch, row, 6);
+}
+
+QWidget *LegendPropertiesDialog::buildNodeTextPage()
+{
+    auto *page = new QWidget;
+    auto *layout = new QVBoxLayout(page);
+    auto *note = new QLabel(tr("A layer's (or group's) own heading and row text; rows cover the "
+                               "layer's symbols and color bar values. Sub-headings keep the "
+                               "legend's."));
+    note->setWordWrap(true);
+    layout->addWidget(note);
+    auto *grid = new QGridLayout;
+    nodeTextRow(grid, 0, tr("Heading"), true);
+    nodeTextRow(grid, 1, tr("Rows"), false);
+    grid->setColumnStretch(2, 1);
+    layout->addLayout(grid);
+    layout->addStretch(1);
+    return page;
+}
+
+QWidget *LegendPropertiesDialog::buildNodeCountsPage()
+{
+    using openswmmvis::map::LegendContent::LegendTreeItem;
+    m_countsPage = new QWidget;
+    auto *form = new QFormLayout(m_countsPage);
+    auto *note = new QLabel(tr("Vector layers can count their features; other layers always list "
+                               "all their rows."));
+    note->setWordWrap(true);
+    form->addRow(note);
+    auto *counts = followOrChoose("nodeCounts", tr("Show"), tr("Hide"));
+    connect(counts, &QComboBox::currentIndexChanged, this, [this, counts](int) {
+        const int v = counts->currentData().toInt();
+        editSelected([v](LegendNode &n) { n.featureCounts = v; });
+    });
+    form->addRow(tr("Feature counts:"), counts);
+    auto *filter =
+        followOrChoose("nodeExtentFilter", tr("Only rows in the map view"), tr("All rows"));
+    connect(filter, &QComboBox::currentIndexChanged, this, [this, filter](int) {
+        const int v = filter->currentData().toInt();
+        editSelected([v](LegendNode &n) { n.mapExtentFilter = v; });
+    });
+    form->addRow(tr("Rows listed:"), filter);
+    m_nodeRefreshers.append([counts, filter](const LegendTreeItem *item) {
+        const QSignalBlocker b1(counts), b2(filter);
+        counts->setCurrentIndex(counts->findData(item->node.featureCounts));
+        filter->setCurrentIndex(filter->findData(item->node.mapExtentFilter));
+    });
+    return m_countsPage;
+}
+
+OpenSWMMVisLayer *LegendPropertiesDialog::selectedLayer() const
+{
+    if (!m_items)
+        return nullptr;
+    const auto *item = m_items->itemAt(m_items->indexOfKey(m_selectedKey));
+    if (!item ||
+        (item->node.type != LegendNode::Type::Layer && item->node.type != LegendNode::Type::Item))
+        return nullptr;
+    return item->layer.data();
+}
+
+void LegendPropertiesDialog::applyNumberFormat()
+{
+    using OpenSWMM::Render::NumberLabelFormat;
+    OpenSWMMVisLayer *layer = selectedLayer();
+    NumberLabelFormat current;
+    if (!layer || !layer->legendNumberFormat(&current))
+        return;
+    NumberLabelFormat f = current;
+    f.mode = NumberLabelFormat::Mode(m_numberMode->currentData().toInt());
+    f.precision = m_numberDigits->value();
+    f.trimTrailingZeros = m_numberTrim->isChecked();
+    f.thousandsSeparator = m_numberThousands->isChecked();
+    f.prefix = m_numberPrefix->text();
+    f.suffix = m_numberSuffix->text();
+    f.rangeSeparator = m_numberSeparator->text().isEmpty() ? NumberLabelFormat().rangeSeparator
+                                                           : m_numberSeparator->text();
+    if (f == current)
+        return;
+    // One undo step on the map's stack (the legend's), so Ctrl+Z on the map undoes it.
+    const auto *recorder = openswmmvis::map::LegendStyleUndoRecorder::forStyle(m_style);
+    if (recorder && recorder->stack())
+        recorder->stack()->push(new openswmmvis::map::SetLayerNumberFormatCommand(layer, f));
+    else
+        layer->setLegendNumberFormat(f);
+    // The items now know this format, so undoing it (from any view) refreshes these controls.
+    m_items->rebuild();
 }
 
 void LegendPropertiesDialog::selectKey(const QString &key)
@@ -551,7 +878,8 @@ void LegendPropertiesDialog::updateItemControls()
     const bool manual = m_items->isManual();
     for (QWidget *b : std::as_const(m_structureButtons))
         b->setEnabled(manual);
-    m_nodeBox->setEnabled(item != nullptr);
+    // A sublayer without a heading row only gathers its rows; it has no settings of its own.
+    m_nodeBox->setEnabled(item != nullptr && !m_items->isSublayer(index));
     if (!item)
         return;
     using Type = LegendNode::Type;
@@ -573,6 +901,38 @@ void LegendPropertiesDialog::updateItemControls()
     m_nodeSymbolWidth->setValue(item->node.symbolWidth);
     m_nodeSymbolHeight->setEnabled(type == Type::Layer || type == Type::Item);
     m_nodeSymbolHeight->setValue(item->node.symbolHeight);
+    // Color bar, Text and Counts: layer settings (the Text page also covers groups).
+    m_rampPage->setEnabled(type == Type::Layer);
+    m_countsPage->setEnabled(type == Type::Layer);
+    for (const auto &r : std::as_const(m_nodeRefreshers))
+        r(item);
+    // Numbers: the layer's own format (a row edits its layer's).
+    {
+        OpenSWMM::Render::NumberLabelFormat numbers;
+        OpenSWMMVisLayer *layer = selectedLayer();
+        const bool hasNumbers = layer && layer->legendNumberFormat(&numbers);
+        for (QWidget *w : std::as_const(m_numberControls))
+            w->setEnabled(hasNumbers);
+        m_numbersNote->setText(
+            hasNumbers ? tr("The layer's own number format, for all its labels: the Layer Style "
+                            "dialog and the Legend dock show the same.")
+                       : tr("This item has no number labels to format."));
+        if (hasNumbers) {
+            const QSignalBlocker n1(m_numberMode), n2(m_numberDigits), n3(m_numberTrim),
+                n4(m_numberThousands);
+            m_numberMode->setCurrentIndex(m_numberMode->findData(int(numbers.mode)));
+            m_numberDigits->setValue(numbers.precision);
+            m_numberTrim->setChecked(numbers.trimTrailingZeros);
+            m_numberThousands->setChecked(numbers.thousandsSeparator);
+            for (const auto &[edit, value] : {std::pair{m_numberPrefix, numbers.prefix},
+                                              std::pair{m_numberSuffix, numbers.suffix},
+                                              std::pair{m_numberSeparator, numbers.rangeSeparator}})
+                if (!edit->hasFocus()) {
+                    const QSignalBlocker b(edit);
+                    edit->setText(value);
+                }
+        }
+    }
     const int row = index.row();
     const int siblings = m_items->rowCount(index.parent());
     const auto setEnabled = [this](const char *name, bool on) {

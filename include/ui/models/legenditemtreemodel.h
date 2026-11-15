@@ -61,6 +61,9 @@ public:
     itemAt(const QModelIndex &index) const;
     /** @brief The layer key of a layer or layer row item; empty for groups and text. */
     [[nodiscard]] QString layerKeyOf(const QModelIndex &index) const;
+    /** @brief Whether @p index is a sublayer that has no heading row: a parent the model adds
+     *  over that sublayer's rows (its check box shows or hides them all; it has no settings). */
+    [[nodiscard]] bool isSublayer(const QModelIndex &index) const;
 
     /** @brief Change the settings of the item at @p index (stored node created when missing).
      * @param index Item. @param edit Change applied to its node.
@@ -110,12 +113,20 @@ private:
     struct Node;
     Node *nodeAt(const QModelIndex &index) const;
     QModelIndex indexOfNode(const Node *node) const;
+    /** Rebuild soon after a legend setting changed; the dialog's controls always follow. */
     void scheduleRebuild();
+    /** Rebuild soon after a layer changed (or only repainted); nothing happens when nothing the
+     *  model shows changed. */
+    void scheduleLayerRefresh();
+    /** Take @p fresh's contents into @p current, a tree of the same rows, announcing each changed
+     *  row. @return Whether any row changed. */
+    bool adopt(Node *current, const Node *fresh);
 
     QPointer<MapCanvas> m_canvas;
     QPointer<OpenSWMM::Render::LegendOverlayStyle> m_style;
     std::unique_ptr<Node> m_root;
     bool m_rebuildPending = false;
+    bool m_forceRefresh = false; ///< a legend setting changed: announce the rebuild
 };
 
 } // namespace openswmmvis::ui
