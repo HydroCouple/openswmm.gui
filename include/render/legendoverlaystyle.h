@@ -263,13 +263,26 @@ public:
      * @return Label, or @p propertyName when unknown. */
     QString displayLabelFor(const QString &propertyName) const override;
 
-    /*! \brief Properties panel group of a property, e.g. "Columns".
-     * @param propertyName Property name.
-     * @return Group name, or empty text when unknown. */
-    QString propertyGroupFor(const QString &propertyName) const override;
-
     /** @brief Restore every default except the row overrides (each setter emits). */
     void resetToDefaults();
+
+    /// "type" of a saved legend style file.
+    static constexpr const char *kPresetFileType = "openswmm-legend-style";
+
+    /** @brief The legend's reusable look: every setting except the title text, the items and
+     *  their settings, following the map, the position and the fixed size.
+     * @return JSON object in the toJson() format, without those keys. */
+    [[nodiscard]] QJsonObject presetJson() const;
+    /** @brief Apply a look saved by presetJson(); the title text, items, position and size stay.
+     *  A Free anchor in the preset is not applied. Missing keys keep their values.
+     * @param preset Saved look. */
+    void applyPreset(const QJsonObject &preset);
+    /** @brief The look new legends start with, from the application settings
+     *  ("legend/defaultStyle"); empty when none is set. */
+    [[nodiscard]] static QJsonObject defaultPreset();
+    /** @brief Set the look new legends start with; an empty object restores the built-in look.
+     * @param preset Saved look (see presetJson()). */
+    static void setDefaultPreset(const QJsonObject &preset);
 
     /** @brief Save every field and the non-default row overrides.
      * @return JSON object; colors #AARRGGBB (an automatic color as ""), enums by name, fonts as

@@ -3,21 +3,13 @@
  * @author    Caleb Buahin <caleb.buahin@gmail.com>
  * @date      2026
  * @license   GPL-3.0-or-later
- * @brief     Slice BB Phase 8.6.16 — modeless QPropertyModel-backed editor
- *         for a shared LegendOverlayStyle.
+ * @brief     Modeless Legend Properties dialog: the map legend's items, layout, fonts, symbols,
+ *            color ramps, spacing and box, on tabs.
  *
- *         Opened from LegendOverlay's right-click context menu. The dialog
- *         does not own the style — it edits the shared model that the
- *         legend overlay (and, eventually, the LegendDock and any other
- *         legend surface) all subscribe to via Qt signals. Edits are live;
- *         Reset reverts to defaults; Cancel reverts to the snapshot
- *         captured at construction time.
- *
- *         Properties are grouped visually via the model's displayLabelFor()
- *         hook (prefixed labels "General — …", "Frame — …", "Background —
- *         …"). Per-class theming for individual legend items lives on each
- *         layer's IFeatureRenderer and is edited from the context menu
- *         directly — not in this dialog.
+ *         The dialog does not own the legend style; it edits the style that the legend on the
+ *         map, the Properties panel and the Legend dock all follow. Edits apply at once and are
+ *         undo steps on the map's undo stack (Ctrl+Z), so Close keeps them. Each control's
+ *         object name is the style property it edits.
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
@@ -25,9 +17,21 @@
 #define OPENSWMMVIS_UI_DIALOGS_LEGENDPROPERTIESDIALOG_H
 
 #include <QDialog>
-#include <QJsonObject>
+#include <QList>
+#include <QPair>
 #include <QPointer>
 
+#include <functional>
+
+class MapCanvas;
+class QCheckBox;
+class QComboBox;
+class QDoubleSpinBox;
+class QGridLayout;
+class QGroupBox;
+class QLineEdit;
+class QSpinBox;
+class QTabWidget;
 class QTreeView;
 
 namespace OpenSWMM::Render
@@ -38,52 +42,85 @@ class LegendOverlayStyle;
 namespace openswmmvis::ui
 {
 
+class ColorButton;
+class LegendItemTreeModel;
+
+/*!
+ * \class LegendPropertiesDialog
+ * \brief Tabs: Items, Layout, Fonts, Symbols, Spacing, Box; Presets, Reset and Close.
+ */
 class LegendPropertiesDialog : public QDialog
 {
     Q_OBJECT
 public:
-    /*! \brief Construct against a shared style. \p style is NOT owned by
-     *  the dialog; closing leaves it intact (any edits already applied
-     *  via live preview remain in effect unless the user clicks Cancel). */
     /**
-     * @brief Construct a modeless live property editor with a construction-time style snapshot.
-     * @param[in,out] style Nullable borrowed QObject style, never reparented or deleted; property
-     * edits/reset write directly to it on the GUI thread. Destruction closes the dialog through a
-     * guarded pointer.
-     * @param[in] parent Optional Qt widget parent owning the dialog.
-     * Sets WA_DeleteOnClose, so a shown dialog must have deletion-compatible ownership. The Close
-     * button accepts current changes; reject/Escape restores the snapshot if the style still
-     * exists.
+     * @brief Build the dialog for a shared legend style.
+     * @param[in,out] style Borrowed legend style; edits write to it at once. The dialog closes
+     *   when the style is destroyed.
+     * @param[in] parent Optional parent widget.
+     * @param[in] canvas Map the legend belongs to; the Items tab needs it (without it the tab
+     *   says so).
      */
     explicit LegendPropertiesDialog(OpenSWMM::Render::LegendOverlayStyle *style,
-                                    QWidget *parent = nullptr);
-    /**
-     * @brief Destroy child widgets/property model without taking ownership of the shared style or
-     * independently rolling back accepted edits.
-     */
-    ~LegendPropertiesDialog() override = default;
+                                    QWidget *parent = nullptr, MapCanvas *canvas = nullptr);
+    /** @brief Destroy the dialog; the style is left as edited. */
+    ~LegendPropertiesDialog() override;
 
-protected:
-    // Cancel reverts edits to the snapshot taken at construction time.
-    /**
-     * @brief Restore the construction-time JSON snapshot on a surviving style, then reject/close
-     * the dialog.
-     * Reset does not replace this original rollback snapshot; normal style setters may notify
-     * subscribed views during restoration.
-     */
-    void reject() override;
+    /** @brief The Items tab's model, or null without a map. */
+    [[nodiscard]] LegendItemTreeModel *itemsModel() const { return m_items; }
 
-private slots:
-    /**
-     * @brief Reset the surviving shared style to defaults and refresh cached property cells.
-     * A destroyed/null style makes this a no-op; reset remains a live edit that reject can undo.
-     */
-    void onResetClicked();
+    /** @brief Save the legend's look (see LegendOverlayStyle::presetJson()) to a style file.
+     * @param path File path (.oswlegend). @param[out] error Reason on failure; may be null.
+     * @return Whether the file was written. */
+    bool savePreset(const QString &path, QString *error = nullptr) const;
+    /** @brief Apply a look from a style file saved by savePreset().
+     * @param path File path. @param[out] error Reason on failure; may be null.
+     * @return Whether the file was a legend style and was applied. */
+    bool loadPreset(const QString &path, QString *error = nullptr);
 
 private:
+    QWidget *buildItemsTab();
+    QWidget *buildLayoutTab();
+    QWidget *buildFontsTab();
+    QWidget *buildSymbolsTab();
+    QWidget *buildSpacingTab();
+    QWidget *buildBoxTab();
+
+    // Controls bound to a style property (object name = property name).
+    QCheckBox *check(const char *property, const QString &text);
+    QSpinBox *spin(const char *property, int min, int max, const QString &special = {});
+    QDoubleSpinBox *doubleSpin(const char *property, double min, double max, double step,
+                               int decimals, const QString &special = {});
+    QComboBox *combo(const char *property, const QList<QPair<QString, int>> &choices);
+    ColorButton *color(const char *property);
+    QLineEdit *text(const char *property);
+    void fontRow(QGridLayout *grid, int row, const QString &label, const char *fontProperty,
+                 const char *colorProperty, const char *alignmentProperty);
+
+    void scheduleRefresh();
+    void refresh();
+    void selectKey(const QString &key);
+    void updateItemControls();
+
     QPointer<OpenSWMM::Render::LegendOverlayStyle> m_style;
-    QJsonObject m_snapshot; // captured at construction for Cancel.
-    QTreeView *m_tree = nullptr;
+    QPointer<MapCanvas> m_canvas;
+    QTabWidget *m_tabs = nullptr;
+    QList<std::function<void()>> m_refreshers; ///< style → controls
+    bool m_refreshPending = false;
+
+    // Items tab.
+    LegendItemTreeModel *m_items = nullptr;
+    QTreeView *m_itemsView = nullptr;
+    QString m_selectedKey;
+    QGroupBox *m_nodeBox = nullptr;
+    QLineEdit *m_nodeLabel = nullptr;
+    QComboBox *m_nodeHeading = nullptr;
+    QCheckBox *m_nodeColumnBreak = nullptr;
+    QSpinBox *m_nodeItemColumns = nullptr;
+    QComboBox *m_nodeRamp = nullptr;
+    QSpinBox *m_nodeSymbolWidth = nullptr;
+    QSpinBox *m_nodeSymbolHeight = nullptr;
+    QList<QWidget *> m_structureButtons; ///< enabled only when the order is the user's
 };
 
 } // namespace openswmmvis::ui

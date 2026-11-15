@@ -39,6 +39,7 @@
 #include <QEvent>
 #include <QFontMetrics>
 #include <QImage>
+#include <QJsonObject>
 #include <QInputDialog>
 #include <QLineEdit>
 #include <QMenu>
@@ -85,6 +86,9 @@ LegendOverlay::LegendOverlay(MapCanvas *canvas) : QWidget(canvas)
     // project-scoped instance lands with Phase 8.6.12 persistence.
     m_style = new Style(this);
     m_ownsStyle = true;
+    // A new legend starts with the look the user saved as the default, if any.
+    if (const QJsonObject preset = Style::defaultPreset(); !preset.isEmpty())
+        m_style->applyPreset(preset);
     connect(m_style, &Style::changed, this, &LegendOverlay::onStyleChanged);
 
     setCanvas(canvas);
@@ -709,7 +713,7 @@ Q_COREAPP_STARTUP_FUNCTION(registerLegendOverlayAccessible)
 
 void LegendOverlay::openPropertiesDialog()
 {
-    auto *dlg = new LegendPropertiesDialog(m_style, this);
+    auto *dlg = new LegendPropertiesDialog(m_style, this, m_canvas);
     dlg->show();
     dlg->raise();
     dlg->activateWindow();

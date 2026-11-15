@@ -10,6 +10,7 @@
 
 #include <QApplication>
 #include <QCheckBox>
+#include <QDoubleSpinBox>
 #include <QDir>
 #include <QFile>
 #include <QFontDatabase>
@@ -487,45 +488,25 @@ private slots:
         QTRY_VERIFY(check->isChecked());
     }
 
-    /** @brief The legend and date/time Properties dialogs: a font row shows its parts when
-     *  selected (others stay closed), names are not cut off, and edits made elsewhere show. */
+    /** @brief The legend and date/time Properties dialogs follow edits made elsewhere; the
+     *  date/time dialog's font row shows its parts when selected (others stay closed). */
     void dialogsShowFontPartsWhenSelectedAndFollowEdits()
     {
+        // The legend's dialog has its own controls for each font part, following edits made
+        // elsewhere.
         OpenSWMM::Render::LegendOverlayStyle legendStyle;
         openswmmvis::ui::LegendPropertiesDialog legendDialog(&legendStyle);
         legendDialog.show();
         QVERIFY(QTest::qWaitForWindowExposed(&legendDialog));
-        auto *tree = legendDialog.findChild<QTreeView *>();
-        QVERIFY(tree && tree->itemsExpandable());
-        const QAbstractItemModel *model = tree->model();
-        const QStringList fonts = {QStringLiteral("General — Title font"),
-                                   QStringLiteral("General — Item font"),
-                                   QStringLiteral("General — Layer header font")};
-        for (const QString &name : fonts) {
-            const QModelIndex font = rowNamed(model, name);
-            QVERIFY2(font.isValid(), qPrintable(name));
-            QCOMPARE(partNames(font), kFontParts);
-            QVERIFY2(!tree->isExpanded(font), qPrintable(name));
-        }
-        const QModelIndex itemFont = rowNamed(model, fonts[1]);
-        tree->setCurrentIndex(itemFont);
-        QVERIFY(tree->isExpanded(itemFont));
-        QVERIFY(!tree->isExpanded(rowNamed(model, fonts[0])));
-        QVERIFY(tree->columnWidth(0) >= tree->fontMetrics().horizontalAdvance(fonts[2]));
-        legendDialog.grab().save(outDir() + QStringLiteral("/legend_dialog_font_selected.png"));
-
+        legendDialog.grab().save(outDir() + QStringLiteral("/legend_dialog.png"));
         QFont bold = legendStyle.itemFont();
         bold.setBold(true);
         bold.setPointSize(15);
         legendStyle.setItemFont(bold); // e.g. from the Properties panel
-        QTRY_COMPARE(partValue(itemFont, QStringLiteral("Bold")).toBool(), true);
-        QCOMPARE(partValue(itemFont, QStringLiteral("Point Size")).toInt(), 15);
-        legendStyle.setAnchor(OpenSWMM::Render::LegendOverlayStyle::Anchor::Free); // a drag
-        QTRY_COMPARE(rowNamed(model, QStringLiteral("General — Anchor"))
-                         .siblingAtColumn(1)
-                         .data()
-                         .toString(),
-                     QStringLiteral("Free"));
+        QTRY_VERIFY(
+            legendDialog.findChild<QCheckBox *>(QStringLiteral("itemFont.bold"))->isChecked());
+        QCOMPARE(legendDialog.findChild<QDoubleSpinBox *>(QStringLiteral("itemFont.size"))->value(),
+                 15.0);
 
         MapCanvas canvas;
         canvas.resize(600, 400);
@@ -638,7 +619,7 @@ private slots:
         QVERIFY(legend && legend->isVisibleTo(project->canvas()));
         click(legend);
         QCOMPARE(panel->windowTitle(), QStringLiteral("Legend"));
-        QVERIFY(rowNamed(tree->model(), QStringLiteral("General — Item font")).isValid());
+        QVERIFY(rowNamed(tree->model(), QStringLiteral("Text — Item font")).isValid());
     }
 
     /** @brief Export Map (no GPU map here, so the canvas is grabbed) holds the box exactly once:

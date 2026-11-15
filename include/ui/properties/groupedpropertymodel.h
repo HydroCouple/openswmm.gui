@@ -14,6 +14,7 @@
 #include <QAbstractProxyModel>
 #include <QFont>
 #include <QPersistentModelIndex>
+#include <qobjectclasspropertyitem.h>
 #include <qpropertyitem.h>
 #include <qvariantpropertyItem.h>
 #include <algorithm>
@@ -108,6 +109,31 @@ class GroupedPropertyModel : public QAbstractProxyModel
             append(sourceModel()->index(i, 0, source), result);
     }
     /**
+     * @brief Group path of a property: the object's own Q_INVOKABLE propertyGroupFor(QString)
+     *        when it has one and names a group (map box styles), else the attribute table's.
+     * @param[in] property Property item of the source model.
+     * @return Slash-separated group path; empty for the default group.
+     */
+    static QString groupFor(QVariantPropertyItem *property)
+    {
+        const QString name = QString::fromLatin1(property->metaProperty().name());
+        for (QPropertyItem *p = property->parent(); p; p = p->parent()) {
+            auto *owner = dynamic_cast<QObjectClassPropertyItem *>(p);
+            if (!owner)
+                continue;
+            QObject *object = owner->qObject();
+            if (object && object->metaObject()->indexOfMethod("propertyGroupFor(QString)") >= 0) {
+                QString group;
+                QMetaObject::invokeMethod(object, "propertyGroupFor", Qt::DirectConnection,
+                                          Q_RETURN_ARG(QString, group), Q_ARG(QString, name));
+                if (!group.isEmpty())
+                    return group;
+            }
+            break;
+        }
+        return openswmmvis::attributeGroup(name);
+    }
+    /**
      * @brief Flatten source class headings into attribute groups while retaining compound property children.
      * @param[in] parent Source-model parent to traverse; invalid starts at root.
      * @details Mutates this proxy's row map/tree and requires a valid property source model.
@@ -127,8 +153,7 @@ class GroupedPropertyModel : public QAbstractProxyModel
                     append(source, group(&m_root, tr("Properties")));
                 continue;
             }
-            QString path =
-                openswmmvis::attributeGroup(QString::fromLatin1(property->metaProperty().name()));
+            QString path = groupFor(property);
             if (path.isEmpty())
                 path = tr("Properties");
             Row *destination = &m_root;
@@ -148,9 +173,7 @@ class GroupedPropertyModel : public QAbstractProxyModel
             auto source = sourceModel()->index(i, 0, parent);
             auto *property = dynamic_cast<QVariantPropertyItem *>(
                 static_cast<QPropertyItem *>(source.internalPointer()));
-            if (property &&
-                !openswmmvis::attributeGroup(QString::fromLatin1(property->metaProperty().name()))
-                     .isEmpty())
+            if (property && !groupFor(property).isEmpty())
                 return true;
             if (!property && hasGroups(source))
                 return true;
