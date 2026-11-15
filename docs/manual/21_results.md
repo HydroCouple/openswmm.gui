@@ -162,6 +162,7 @@ the clock.
 |---------|--------------|
 | **Show Legend** | Toggles the canvas legend overlay |
 | **Set Style** | Opens layer properties for the selected layer |
+| **Show date/time** | Shows the animation date and time in a box on the active map (see below) |
 | **Live rendering** | Follows incoming 1D and 2D results selected in Analysis; turn off or scrub to review history, and turn on to return to the newest live time |
 
 Playback applies to the outputs selected in Analysis. It is *causal*: the
@@ -170,6 +171,23 @@ run still animates, including before the first 1D report arrives. Scrubbing or
 pausing disables live following so incoming frames do not override the chosen
 time. Stop is a momentary action: it clears Play, Pause and live following,
 then rewinds the selected results and slider.
+
+**Date and time on the map.** **Show date/time** draws the cursor's date and time
+in a box on the map, so it is in screenshots and exported map images. Each map
+has its own box; the checkbox follows the active map, and the project saves the
+box's look and whether it is shown. The time is the run's clock as stored (UTC
+wall clock, no time zone or daylight-saving shift), the same as the toolbar's
+date/time display. Drag the box to place it. Right-click it for:
+
+| Item | What it does |
+|------|--------------|
+| **Properties…** | Opens **Date and Time Properties**: the date/time format, font, text color, padding, anchor and opacity, and the same frame and background settings as the legend (none, solid or gradient). Edits show at once; **Reset** restores the defaults; **Esc** undoes the edits made since the dialog opened |
+| **Hide date and time** | Same as clearing **Show date/time** |
+
+The format uses Qt date/time codes; the default `MM/dd/yyyy hh:mm:ss` reads
+*03/14/2026 06:30:00*. Text in single quotes is shown as written, so
+`'Time: 'yyyy-MM-dd HH:mm` reads *Time: 2026-03-14 06:30*. Before any results are
+loaded the box reads *No animation time*.
 
 \fig{21_results_ribbon_tab.png, The Animation ribbon tab — Playback; Timeline and Display groups}
 

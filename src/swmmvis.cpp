@@ -157,6 +157,7 @@
 #include "render/renderers/categorizedrenderer.h"
 #include "render/renderers/graduatedrenderer.h"
 #include "render/renderers/singlesymbolrenderer.h"
+#include "render/timeoverlaystyle.h"
 #include "swmmvisprojectwindow.h"
 #include "core/crsreproject.h"
 #include "ui/dialogs/crsselectiondialog.h"
@@ -217,6 +218,7 @@
 #include "plot/comparisonplotmodel.h"
 #include "ui/dialogs/addbasemapdialog.h"
 #include "ui/widgets/legendoverlay.h"
+#include "ui/widgets/timeoverlay.h"
 #include "ui/panels/layertreepanel.h"
 #include "ui/panels/legenddock.h"
 #include "ui/editors/comprehensiveeditorregistry.h"
@@ -2000,6 +2002,30 @@ void SWMMVis::initializeAnalysisLayerCombos()
     refreshActiveResultsCombos();
 }
 
+void SWMMVis::bindTimeOverlay(MapCanvas *canvas)
+{
+    if (!mCheckBoxAnimationTime)
+        return;
+    if (mActiveTimeOverlay)
+        disconnect(mActiveTimeOverlay->style(), nullptr, mCheckBoxAnimationTime, nullptr);
+    mActiveTimeOverlay = openswmmvis::ui::TimeOverlay::forCanvas(canvas);
+    QSignalBlocker block(mCheckBoxAnimationTime);
+    if (!mActiveTimeOverlay) {
+        mCheckBoxAnimationTime->setChecked(false);
+        return;
+    }
+    auto *style = mActiveTimeOverlay->style();
+    mCheckBoxAnimationTime->setChecked(style->isShown());
+    // The box's Hide and a project restore change the same flag.
+    connect(style, &OpenSWMM::Render::TimeOverlayStyle::shownChanged, mCheckBoxAnimationTime,
+            [this](bool on) {
+                QSignalBlocker b(mCheckBoxAnimationTime);
+                mCheckBoxAnimationTime->setChecked(on);
+            });
+    if (mAnimationController)
+        mActiveTimeOverlay->setDateTime(mAnimationController->currentDateTime());
+}
+
 void SWMMVis::refreshActiveResultsCombos()
 {
     if (!mComboActiveResults1D || !mComboActiveResults2D)
@@ -2157,6 +2183,23 @@ void SWMMVis::initializeAnimationToolBar()
     auto *groupDisplay = new openswmmvis::ui::RibbonGroup(tr("Display"), this);
     groupDisplay->addAction(ui->actionShowLegend);
     groupDisplay->addAction(ui->actionSetStyle);
+    // The map's date/time box: one per map, styled from its right-click Properties.
+    mCheckBoxAnimationTime = new QCheckBox(tr("Show date/time"), this);
+    mCheckBoxAnimationTime->setObjectName("showAnimationTime");
+    mCheckBoxAnimationTime->setContentsMargins(8, 0, 4, 0);
+    mCheckBoxAnimationTime->setToolTip(
+        tr("Show the animation date and time in a box on the map. Drag it to move it; "
+           "right-click it to change its look."));
+    connect(mCheckBoxAnimationTime, &QCheckBox::toggled, this, [this](bool checked) {
+        if (!mActiveTimeOverlay) {
+            // No map: keep the checkbox truthful.
+            QSignalBlocker block(mCheckBoxAnimationTime);
+            mCheckBoxAnimationTime->setChecked(false);
+            return;
+        }
+        mActiveTimeOverlay->style()->setShown(checked);
+    });
+    groupDisplay->addWidget(mCheckBoxAnimationTime);
     mCheckBoxLiveRendering = new QCheckBox(tr("Live rendering"), this);
     mCheckBoxLiveRendering->setObjectName("liveRendering");
     mCheckBoxLiveRendering->setContentsMargins(8, 0, 4, 0);
@@ -2252,6 +2295,8 @@ void SWMMVis::initializeAnimationToolBar()
             [this](const QDateTime &dt) {
                 QSignalBlocker b(mDateTimeEditAnimationTime);
                 mDateTimeEditAnimationTime->setDateTime(dt);
+                if (mActiveTimeOverlay)
+                    mActiveTimeOverlay->setDateTime(dt);
             });
 
     // ── Sync window: range slider ↔ span box ↔ controller cursor/window ──
@@ -7893,6 +7938,7 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
             mMeshEditingToolbar->rebindSelectionManager(nullptr);
             mMeshEditingToolbar->rebindCanvas(nullptr);
         }
+        bindTimeOverlay(nullptr);
         ui->actionEditExisting->setChecked(false);
         ui->actionEditExisting->setEnabled(false);
         applyEditSessionToActions(false);
@@ -7947,6 +7993,8 @@ void SWMMVis::onActiveSubWindowChanged(QMdiSubWindow *window)
             mLayerTreePanel->setActive2DResultsLayer(pw->active2DResultsLayer());
         }
     }
+    // After the controller follows this tab, so the box starts at this tab's time.
+    bindTimeOverlay(pw->canvas());
 
     // Keep the transport, the Analysis-toolbar combos, and the layer-tree
     // check-state in sync when this tab's active results layer changes. Lambdas

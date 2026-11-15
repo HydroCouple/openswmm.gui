@@ -684,6 +684,18 @@ private:
     QHash<QString, ItemOverride> m_itemOverrides;
 };
 
+/** @brief Save a font the way the map overlay styles do (family, point size, weight, italic,
+ * underline, strikeOut); shared by the legend and the date/time box.
+ * @param f Font to save.
+ * @return JSON object; a pixel-sized font is saved by its pointSizeF(). */
+[[nodiscard]] QJsonObject overlayFontToJson(const QFont &f);
+/** @brief Read a font saved by overlayFontToJson().
+ * @param j Saved object; missing fields, and a point size that is not positive, keep
+ *   @p fallback's value.
+ * @param fallback Font the saved fields are applied over.
+ * @return The resulting font. */
+[[nodiscard]] QFont overlayFontFromJson(const QJsonObject &j, const QFont &fallback);
+
 } // namespace OpenSWMM::Render
 
 #endif // OPENSWMM_RENDER_LEGENDOVERLAYSTYLE_H

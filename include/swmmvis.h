@@ -70,6 +70,7 @@ class RainfallVisualizationDialog;
 namespace openswmmvis::ui
 {
 class RibbonGroup;
+class TimeOverlay;
 }
 namespace openswmmvis::project::examples
 {
@@ -266,6 +267,12 @@ private:
      * controls/controllers remain Qt-owned; data layers stay project-owned.
      */
     void initializeAnimationToolBar();
+    /**
+     * @brief Point the "Show date/time" checkbox and the animation time at @p canvas's
+     *   date/time box (created hidden when missing); null unchecks it.
+     * @param canvas Active project window's map, or null when no project is active.
+     */
+    void bindTimeOverlay(MapCanvas *canvas);
     /**
      * @brief Create and dock the Qt-owned terrain toolbar and its checkable profile-trace action.
      * Action callbacks resolve the active project at toggle time, returning to Select when
@@ -1917,6 +1924,10 @@ private:
     QLabel *mLabelActiveResults2D = nullptr;
     QComboBox *mComboActiveResults2D = nullptr;
     QCheckBox *mCheckBoxLiveRendering = nullptr;
+    /// Animation toolbar "Show date/time": shows the active map's date/time box (its style's
+    /// shown flag). bindTimeOverlay() points it, and the animation time, at the active map.
+    QCheckBox *mCheckBoxAnimationTime = nullptr;
+    QPointer<openswmmvis::ui::TimeOverlay> mActiveTimeOverlay;
     class AnimationController *mAnimationController = nullptr;
     class TerrainToolbar *mTerrainToolbar = nullptr;
     class MeshEditingToolbar *mMeshEditingToolbar = nullptr; // Slice §V.VB
