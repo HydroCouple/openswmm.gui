@@ -379,34 +379,57 @@ on-canvas legend and the map. Right-clicking a sublayer row offers **Edit
 Style…**, which opens the Layer Properties dialog focused on that sublayer's tab.
 
 **The on-canvas legend** is a translucent, draggable box painted over the map.
-**View → Show Legend** toggles it. Right-clicking it opens:
+**View → Show Legend** toggles it. Drag it to move it, drag an edge or corner to
+resize it, and use the mouse wheel to scroll its rows when it is taller than the
+map. Right-clicking it opens:
 
 | Item | What it does |
 |------|--------------|
 | **Change color…** | On a legend class row — recolors that class. |
+| **Hide in legend** | Leaves the clicked row, layer heading, group or text line out of the legend (the map is unchanged). |
+| **Rename in legend…** | Changes the clicked line's text in the legend only; an empty name restores the original. |
+| **Start new column here** | Starts a new legend column at the clicked line. |
 | **Hide layer "…"** | Hides the layer the clicked row belongs to. |
 | **Move layer up** / **Move layer down** | Reorders that layer in the stack. |
 | **Properties…** | Opens Legend Properties. |
-| **Copy legend as image** | Puts the rendered legend on the clipboard. |
+| **Copy legend as image** | Puts the whole legend, also rows scrolled out of view, on the clipboard. |
 | **Auto-size legend** | Sizes the box to its contents. |
-| **Reset layout** | Returns the box to its default position and size. |
+| **Reset layout** | Returns every legend setting to its default. |
 | **Hide legend** | Same as clearing **Show Legend**. |
 
-The legend follows the map automatically — it subscribes to layer additions,
-removals, reordering, visibility and repaints — and is clamped back into view
-when the canvas is resized, so it can never escape off-screen.
+Every legend edit — from this menu, Legend Properties, the Properties panel, the
+Legend dock, or dragging and resizing — is a step on the map's undo stack, so
+`Ctrl+Z` undoes it. Quick edits of one setting (holding a spin box arrow, for
+example) are one step.
 
-**Legend Properties** is a modeless property editor over the shared legend
-style. Edits are live; **Reset** restores the built-in defaults and closing with
-**Cancel** reverts to the state when the dialog opened. Properties are grouped as
-*General*, *Frame* and *Background* and cover the title (shown/hidden, text,
-font, color), item and layer-header colors, row spacing, swatch size, padding,
-anchor corner, explicit width and height, maximum label width, frame visibility
-and color, corner radius, and background color and gradient end color. A font row
-opens when selected to show its parts (family, point size, bold, italic,
-underline, strikeout); the arrow opens and closes it. Clicking the legend on the
-map shows the same settings in the Properties panel, and edits made in either
-place, or by dragging the legend, show in both.
+#### Legend Properties
+
+**Legend Properties** is a modeless dialog over the shared legend style. Edits
+apply at once; **Close** keeps them and `Ctrl+Z` undoes them. **Reset** restores
+every built-in default. The tabs:
+
+| Tab | Settings |
+|-----|----------|
+| **Items** | **Follow the map** (layers in map order, new layers added). Clear it to choose the order, add groups and text lines, and keep new map layers out until **Add layers…** lists them. The tree shows every layer, its rows, groups and text lines; a check box shows or hides the item in the legend and double-clicking renames it. **Up**/**Down** reorder, **Into group**/**Out of group** move a layer, group or text line into the group above it or out of its group, **Add group** and **Add text** add after the selection, and **Remove** takes an item out (a group's contents stay). For the selected item: its name in the legend, its heading (group heading, sub-heading or hidden), **Start a new column here**, **Rows side by side** (a layer's rows in several sub-columns), how its color ramps are shown, and its symbol width and height. Turning **Follow the map** back on keeps each item's settings but drops the order, groups and text lines. |
+| **Layout** | The title and its text; the number of columns, equal column widths, whether a layer's rows may continue in the next column, the space between columns and lines between them; long labels shortened with "…" or wrapped onto more lines (at the widest label, and optionally at a chosen text such as `\|`); a fixed width and height or **Fit to content**; **Only items with features in the map view** and **Feature counts after the labels** (vector layers; other layers list all their rows). |
+| **Fonts** | Font, size, bold, italic, color and alignment of the title, group headings, sub-headings and items. |
+| **Symbols** | The swatch size and symbol width and height; symbols as on the map (the space grows) or fitted to the width and height; the smallest and largest symbol drawn; symbols left or right of their labels and the space between; line samples straight, zigzag or S-curve; fill samples as rectangles, rounded rectangles or ellipses, outlined in a darker shade of the fill or a chosen color. **Color ramps**: continuous fields as a color bar or as swatches, the bar's direction, length and thickness, how many values it shows, high values at the top or bottom, the number format and decimals, its outline and tick marks, end caps in the below- and above-range colors, and the space to its values. |
+| **Spacing** | Margins inside the box (left, top, right, bottom); space below the title, above groups, below group headings, above sub-headings, below rows and between wrapped lines; indents of group headings (and each group level), sub-headings and rows. |
+| **Box** | The anchor (a corner, a side's middle, or where dragged) and its gaps to the map's sides and top and bottom; opacity; the frame (shown, color, width, solid, dashed, dotted or dash-dot, corner radius); the background (none, solid or a gradient); and a drop shadow (color and offset). The date/time box has the same box settings. |
+
+**Presets** saves the legend's look to a `.oswlegend` file and loads one — the
+look only: the title text, the items, the position and a fixed size stay as they
+are. **Use as default for new legends** makes the current look the starting point
+of every new legend; **Restore built-in default for new legends** undoes that.
+
+Continuous color fields (a pseudo-color or graduated raster, the 2D depth fills)
+are drawn as a color bar with value ticks by default. The unified 2D results
+fill still shows sampled swatches.
+
+Clicking the legend on the map shows the same settings in the Properties panel,
+grouped as on the tabs, and edits made in either place, or by dragging the
+legend, show in both. A legend saved by an earlier version looks the same when it
+is opened, except that its color ramps are drawn as bars.
 
 \figtodo{08_legend_dock_and_overlay.png, The Legend dock beside the draggable on-canvas legend}
 
