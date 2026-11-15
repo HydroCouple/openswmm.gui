@@ -18,6 +18,7 @@
 #include "layers/swmmresultslayer.h"
 #include "map/legendclasseditcommands.h"
 #include "map/legendcontent.h"
+#include "map/legendstyleundorecorder.h"
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
 #include "render/ifeaturerenderer.h"
@@ -87,6 +88,7 @@ LegendOverlay::LegendOverlay(MapCanvas *canvas) : QWidget(canvas)
     connect(m_style, &Style::changed, this, &LegendOverlay::onStyleChanged);
 
     setCanvas(canvas);
+    ensureUndoRecorder();
     setAccessibleName(tr("Map legend"));
     hide(); // user toggles via actionShowLegend
 }
@@ -189,7 +191,16 @@ void LegendOverlay::setStyle(Style *style, bool takeOwnership)
             m_style->setParent(this);
         connect(m_style, &Style::changed, this, &LegendOverlay::onStyleChanged);
     }
+    ensureUndoRecorder();
     onStyleChanged();
+}
+
+void LegendOverlay::ensureUndoRecorder()
+{
+    // Every legend edit, from any view, is one undo step on the map's stack.
+    if (m_style && m_canvas && m_canvas->undoStack() &&
+        !openswmmvis::map::LegendStyleUndoRecorder::forStyle(m_style))
+        new openswmmvis::map::LegendStyleUndoRecorder(m_style, m_canvas->undoStack());
 }
 
 void LegendOverlay::onStyleChanged()
@@ -265,8 +276,8 @@ void LegendOverlay::recomputeLayout()
             anchorToCanvas();
         }
         m_positioned = true;
-    } else if (m_style->anchor() != Style::Anchor::Free) {
-        anchorToCanvas();
+    } else if (m_style->anchor() != Style::Anchor::Free && !m_dragging) {
+        anchorToCanvas(); // not while the user drags it away
     } else {
         clampInsideCanvas();
     }
@@ -463,9 +474,7 @@ void LegendOverlay::mouseMoveEvent(QMouseEvent *event)
             newPos.setY(std::clamp(newPos.y(), 0, std::max(0, m_canvas->height() - height())));
         }
         move(newPos);
-        // Dragging implies the user wants free placement.
-        if (m_style && m_style->anchor() != Style::Anchor::Free)
-            m_style->setAnchor(Style::Anchor::Free);
+        // The style takes the free placement on release, as one change.
         event->accept();
         return;
     }
@@ -500,9 +509,13 @@ void LegendOverlay::mouseReleaseEvent(QMouseEvent *event)
     if (event->button() == Qt::LeftButton && m_dragging) {
         m_dragging = false;
         setCursor(Qt::OpenHandCursor);
-        // Persist the free position so save/reopen restores it.
-        if (m_style && m_style->anchor() == Style::Anchor::Free)
-            m_style->setFreePosition(pos());
+        // Dragging means free placement; saved with the project. Both settings change in one go,
+        // so the drag is one undo step.
+        if (m_style) {
+            const QPoint dropped = pos();
+            m_style->setAnchor(Style::Anchor::Free); // first, so the box is not re-anchored
+            m_style->setFreePosition(dropped);
+        }
         event->accept();
         return;
     }

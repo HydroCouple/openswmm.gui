@@ -37,6 +37,7 @@
 #include "layers/wmslayer.h"
 #include "layers/wmtslayer.h"
 #include "layers/xyztilelayer.h"
+#include "map/legendstyleundorecorder.h"
 #include "map/mapcanvas.h"
 #include "map/mapextent.h"
 #include "map/spatialreferencesystem.h"
@@ -1388,8 +1389,12 @@ bool ProjectSerializer::applySession(const QJsonObject &sessionObj, SWMMVisProje
                 QString(), Qt::FindDirectChildrenOnly);
             if (!overlay)
                 overlay = new openswmmvis::ui::LegendOverlay(canvas);
-            if (auto *style = overlay->style())
+            if (auto *style = overlay->style()) {
                 style->fromJson(sessionObj.value(kLegendOverlay).toObject());
+                // Loading is not an undo step.
+                if (auto *recorder = openswmmvis::map::LegendStyleUndoRecorder::forStyle(style))
+                    recorder->resync();
+            }
         }
     }
     if (sessionObj.contains(kTimeOverlay)) {
