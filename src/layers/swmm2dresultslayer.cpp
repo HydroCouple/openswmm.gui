@@ -1156,21 +1156,11 @@ public:
             const auto geometry = layer_->resultVectorGeometry(
                 vector, exposed.isNull() ? layer_->m_sceneBBox : exposed, scale);
             const auto *style = vector->vectorStyle();
+            // The row's animated streaks (the surface velocity row's are the native pass).
+            layer_->paintRowFlowStreaks(
+                p, exposed, const_cast<OpenSWMM::Render::ResultVectorSublayer *>(vector));
             p->save();
             p->setRenderHint(QPainter::Antialiasing, true);
-            for (const auto &streak : geometry.streaks) {
-                // Fade from the oldest point to the newest: the streak's head.
-                const int n = int(streak.points.size());
-                for (int i = 1; i < n; ++i) {
-                    QColor color = streak.color;
-                    color.setAlphaF(color.alphaF() * (0.25 + 0.75 * double(i) / double(n - 1)));
-                    QPen pen(color, style->streakWidthPx());
-                    pen.setCosmetic(true);
-                    pen.setCapStyle(Qt::RoundCap);
-                    p->setPen(pen);
-                    p->drawLine(streak.points[size_t(i) - 1], streak.points[size_t(i)]);
-                }
-            }
             const double head = scale > 0 ? style->headSizePx() / scale : 0;
             for (const auto &arrow : geometry.arrows) {
                 const QLineF axis(arrow.tail, arrow.tip);
@@ -2472,9 +2462,28 @@ SWMM2DResultsLayer::SWMM2DResultsLayer(const QString &name, OpenSWMMVisWorkspace
     wireMeshRepaint(m_cellDepthFillSublayer);
     wireMeshRepaint(m_smoothDepthFillSublayer);
     wireMeshRepaint(m_isolineSublayer);
+    // The depth row's style is the depth passes' style. A pass style edited outside the row
+    // (legacy setters, a legend color edit) is taken back into the row, so there is one model.
+    for (OpenSWMM::Render::SublayerStyle *passStyle :
+         {static_cast<OpenSWMM::Render::SublayerStyle *>(m_cellDepthFillSublayer->fillStyle()),
+          static_cast<OpenSWMM::Render::SublayerStyle *>(m_smoothDepthFillSublayer->fillStyle()),
+          static_cast<OpenSWMM::Render::SublayerStyle *>(m_contourBandSublayer->bandStyle()),
+          static_cast<OpenSWMM::Render::SublayerStyle *>(m_isolineSublayer->isolineStyle())})
+        if (passStyle)
+            connect(passStyle, &OpenSWMM::Render::SublayerStyle::styleChanged, this, [this] {
+                if (!m_syncingDepthStyle && !m_engineMigrationPending)
+                    adoptPassStyles_(depthResultSublayer());
+            });
     wireArrowRepaint(m_velocityVectorSublayer);
     m_flowStreakSublayer = new OpenSWMM::Render::FlowStreakSublayer(this);
     m_particleController = new OpenSWMM::Render::FlowParticleLayerController(this);
+    // Streaks are styled on the velocity row; settings changed on the pass (the layer tree's
+    // Animate action, older code paths) come back into the row.
+    connect(m_flowStreakSublayer->streakStyle(), &OpenSWMM::Render::SublayerStyle::styleChanged,
+            this, [this] {
+                if (!m_syncingStreakStyle && !m_engineMigrationPending)
+                    adoptStreakPassStyle_(velocityResultSublayer());
+            });
     connect(m_flowStreakSublayer, &OpenSWMM::Render::ISublayer::invalidated, this, [this] {
         // Keep the ordinary UI/CPU repaint signal, but let the separate
         // particle presentation preserve hydraulic geometry and scene caches.
@@ -5690,8 +5699,7 @@ QList<OpenSWMM::Render::LegendSymbolItem> SWMM2DResultsLayer::sublayerLegendItem
     for (auto *sub : sublayers()) {
         if (auto *vector = qobject_cast<OpenSWMM::Render::ResultVectorSublayer *>(sub);
             vector && vector->isVisible() &&
-            (vector->vectorStyle()->arrows() ||
-             (vector->vectorStyle()->streaks() && vector != velocityResultSublayer()))) {
+            vector->vectorStyle()->arrows()) {
             double lo = 0, hi = 0;
             QString units;
             (void)resultVectorGeometry(vector, QRectF(), 1.0, &lo, &hi, &units,

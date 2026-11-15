@@ -67,8 +67,15 @@ public:
     bool cellFill() const { return m_cellFill; }
     /** @return The cell fill is the vertex-interpolated (smooth) variant; initially false. */
     bool smoothFill() const { return m_smoothFill; }
-    /** @return Filled contour bands shown, classes from the fill scheme; initially false. */
+    /** @return Filled contour bands shown, classes from bandScheme(); initially false. */
     bool filledContours() const { return m_filledContours; }
+    /** @brief Classes of the filled contours (interpolated bands), separate from the cell fill's
+     *   scheme(): fill colors each cell by its value, the bands classify the interpolated field.
+     * @return Always-classified scheme; initially the fill scheme's defaults. */
+    const ClassificationScheme &bandScheme() const { return m_bandScheme; }
+    /** @brief Replace the filled-contour classes (forced classified) and notify on change.
+     * @param s Scheme copied into storage; equal input is ignored. */
+    void setBandScheme(const ClassificationScheme &s);
     /** @return Isolines (contourStyle()) shown; initially false. */
     bool isolines() const { return m_isolines; }
     /** @return Cell value labels shown; initially false. */
@@ -89,9 +96,12 @@ public:
         return m_cellFill || m_filledContours || m_isolines || m_cellLabels;
     }
     /** @return True when a shown display classifies over the whole run (FixedOverRun without a
-     *   custom range): the fill scheme for fills/bands, the contour scheme for isolines. */
+     *   custom range): the fill scheme for the cell fill, the band scheme for filled contours,
+     *   the contour scheme for isolines. */
     bool needsWholeRunRange() const;
-    /** @return True when the shown cell fill or filled contours classify over the whole run. */
+    /** @return True when the shown cell fill (fill scheme) or filled contours (band scheme)
+     *   classify over the whole run. Both read one frame per paint, so when either asks, both
+     *   classify over the whole-run range. */
     bool fillNeedsWholeRunRange() const;
     /** @return True when shown isolines classify over the whole run (contour scheme). */
     bool isolinesNeedWholeRunRange() const;
@@ -150,6 +160,7 @@ private:
     bool m_cellFill = true, m_smoothFill = false, m_filledContours = false, m_isolines = false,
          m_cellLabels = false;
     IsolineStyle *m_contourStyle = nullptr;
+    ClassificationScheme m_bandScheme;
     QColor m_missing{145, 145, 145, 150};
     QColor m_waterless{230, 230, 230, 90};
     QColor m_notApplicable{Qt::transparent};
@@ -193,8 +204,14 @@ public:
      * A change to zero clears the presented frame; positive changes retain it. */
     void setOpacity(qreal value) override;
     /** @brief Report time-dependent result rendering.
-     * @return True without acquiring data or starting a job. */
-    bool isDynamic() const override { return true; }
+     * @return False for a static field or saved run statistic (its descriptor's temporal mode),
+     *   which every report time shows the same; true otherwise. No data access or job. */
+    bool isDynamic() const override
+    {
+        using T = openswmmvis::io::Mesh2DResultVariable::Temporal;
+        return m_descriptor.key() != variableKey() ||
+               (m_descriptor.temporal != T::Static && m_descriptor.temporal != T::Envelope);
+    }
     /** @brief Borrow the owned scalar-result style through the base interface.
      * @return Child pointer valid until destruction; do not delete/reparent. */
     SublayerStyle *style() override { return m_style; }
@@ -238,10 +255,9 @@ public:
      * This uses the fill scheme even in Contours/Labels mode and publishes nothing.
      * Read on the owning thread or with an externally synchronized immutable style snapshot. */
     QVector<QColor> cellColors(const openswmmvis::io::Mesh2DScalarFrame &frame) const;
-    /** @brief Filled contour classes of a frame: the fill scheme's level edges and one color
-     *   per band (class color when classified, the ramp at the band midpoint otherwise),
-     *   multiplied by local opacity. A set below / above color adds one band from the data
-     *   minimum / up to the data maximum.
+    /** @brief Filled contour classes of a frame: the band scheme's level edges and one class
+     *   color per band, multiplied by local opacity. A set below / above color adds one band
+     *   from the data minimum / up to the data maximum.
      * @param frame Borrowed frame matching variableKey() without error.
      * @param[out] levels Nondecreasing band edges, at least two on success.
      * @param[out] colors levels.size() - 1 colors.

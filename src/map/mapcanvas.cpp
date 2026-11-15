@@ -403,10 +403,13 @@ public:
      *   then schedule sync. No immediate node clear or model ownership change; current
      *   displayedRevision retained until later sync.
      */
-    void setLayer(SWMM2DResultsLayer *layer, SWMM2DResultsQSGRenderer *water = nullptr)
+    void setLayer(SWMM2DResultsLayer *layer, SWMM2DResultsQSGRenderer *water = nullptr,
+                  OpenSWMM::Render::ResultVectorSublayer *row = nullptr)
     {
-        if (m_layer == layer && m_water == water)
+        if (m_layer == layer && m_water == water && m_row == row)
             return;
+        // Null row: the native surface-velocity streaks. Else that vector row's streaks.
+        m_row = row;
         if (m_layer)
             disconnect(m_layer, nullptr, this, nullptr);
         m_layer = layer;
@@ -448,7 +451,7 @@ protected:
     QSGNode *updatePaintNode(QSGNode *old, UpdatePaintNodeData *) override
     {
         if (!m_layer || !m_layer->source() || !m_water || !m_extent.isValid() || width() <= 0 ||
-            !m_layer->flowStreaksEnabled() ||
+            !m_layer->flowStreaksEnabled(m_row) ||
             (m_layer->source()->isLive() && !m_layer->liveRenderEnabled())) {
             delete old;
             m_displayedRevision = ~quint64(0);
@@ -539,16 +542,16 @@ private:
             QRectF(m_extent.xMin(), -m_extent.yMax(), m_extent.width(), m_extent.height())
                 .adjusted(-margin, -margin, margin, margin);
         const auto anchor = m_layer->m_sceneBBox.center();
-        auto *sub = m_layer->flowStreakSublayer();
-        const auto *style = sub->streakStyle();
-        const auto frame = m_layer->flowParticles(view, scale, m_water->displayedFrameRevision());
+        const auto *style = m_layer->flowStreakStyle(m_row);
+        const auto frame =
+            m_layer->flowParticles(m_row, view, scale, m_water->displayedFrameRevision());
         m_displayedRevision = frame ? frame->revision : ~quint64(0);
         OpenSWMM::Render::FlowParticleAppearance appearance;
         appearance.anchor = anchor;
         const double stroke = 2 * std::max(style->widthPx(), style->headWidthPx()) / scale;
         appearance.viewport = view.adjusted(-stroke, -stroke, stroke, stroke);
         appearance.color = style->color();
-        appearance.opacity = sub->opacity() * m_layer->flowParticleOpacity();
+        appearance.opacity = m_layer->flowStreakOpacity(m_row);
         appearance.fade = true;
         appearance.taper = true;
         appearance.revision = qHash(QJsonDocument(style->toJson()).toJson(QJsonDocument::Compact));
@@ -556,11 +559,12 @@ private:
             appearance.colorForSpeed = [style](double speed) {
                 return style->colorForSpeed(speed);
             };
-        node->sync(frame, m_layer->flowParticleInterpolation(frame), scale,
+        node->sync(frame, m_layer->flowParticleInterpolation(m_row, frame), scale,
                    style->trailDurationSeconds(), style->widthPx(), style->headWidthPx(),
                    style->lifetimeFadeSeconds(), 0, appearance);
     }
     QPointer<SWMM2DResultsLayer> m_layer;
+    QPointer<OpenSWMM::Render::ResultVectorSublayer> m_row;
     QPointer<SWMM2DResultsQSGRenderer> m_water;
     MapExtent m_extent;
     quint64 m_displayedRevision = ~quint64(0);
@@ -576,6 +580,9 @@ struct MapCompositionEntry {
     MapTextureItem *scene = nullptr;
     SWMM2DResultsQSGRenderer *results = nullptr;
     MapFlowParticleItem *particles = nullptr;
+    /// One item per vector row (other than the surface velocity) whose streaks are drawn.
+    QList<MapFlowParticleItem *> rowParticles;
+    QQuickItem *particleParent = nullptr;
     SWMM2DMeshQSGRenderer *mesh = nullptr;
     SWMMLayerQSGRenderer *network = nullptr;
     /**
@@ -600,6 +607,8 @@ struct MapCompositionEntry {
     {
         if (particles)
             particles->setLayer(nullptr);
+        for (auto *item : std::as_const(rowParticles))
+            item->setLayer(nullptr);
         if (results)
             results->setLayer(nullptr);
         if (mesh)
@@ -2876,6 +2885,7 @@ bool MapCanvas::renderVisibleComposition()
                 entry->results->setProperty("canvasDevicePixelRatio", 1.0);
                 entry->particles = new MapFlowParticleItem(content);
                 entry->particles->setZ(1);
+                entry->particleParent = content;
             } else if (qobject_cast<SWMM2DMeshLayer *>(layer)) {
                 entry->mesh = new SWMM2DMeshQSGRenderer(content);
             } else {
@@ -2917,6 +2927,21 @@ bool MapCanvas::renderVisibleComposition()
             entry->results->setMapExtent(m_extent);
             entry->particles->setLayer(cache ? layer : nullptr, cache ? entry->results : nullptr);
             entry->particles->setView(m_extent, size());
+            // The other vector rows' streaks: one item each, above the layer's water.
+            const auto rows = layer->animatedStreakRows();
+            while (entry->rowParticles.size() > rows.size()) {
+                entry->rowParticles.last()->setLayer(nullptr);
+                delete entry->rowParticles.takeLast();
+            }
+            while (entry->rowParticles.size() < rows.size()) {
+                auto *item = new MapFlowParticleItem(entry->particleParent);
+                item->setZ(1);
+                entry->rowParticles.append(item);
+            }
+            for (qsizetype i = 0; i < rows.size(); ++i) {
+                entry->rowParticles[i]->setLayer(layer, entry->results, rows[i]);
+                entry->rowParticles[i]->setView(m_extent, size());
+            }
         }
         if (entry->mesh) {
             entry->mesh->setSize(size());
@@ -3560,13 +3585,10 @@ void MapCanvas::advanceFlowAnimation()
     bool active = false;
     for (auto *layer : std::as_const(m_layers)) {
         auto *flow = qobject_cast<SWMM2DResultsLayer *>(layer);
-        if (!flow || !flow->flowStreaksEnabled())
+        if (!flow || !flow->flowAnimationActive())
             continue;
         if (!flow->m_sceneBBox.intersects(
                 QRectF(m_extent.xMin(), -m_extent.yMax(), m_extent.width(), m_extent.height())))
-            continue;
-        const auto *style = flow->flowStreakSublayer()->streakStyle();
-        if (!style->animated() || style->speedMultiplier() <= 0)
             continue;
         active = true;
         flow->advanceFlowStreaks(elapsed);
@@ -3580,14 +3602,10 @@ void MapCanvas::updateFlowAnimationTimer()
     bool animateFlow = false;
     for (auto *layer : std::as_const(m_layers)) {
         auto *flow = qobject_cast<SWMM2DResultsLayer *>(layer);
-        if (flow && flow->flowStreaksEnabled() &&
+        if (flow && flow->flowAnimationActive() &&
             flow->m_sceneBBox.intersects(
-                QRectF(m_extent.xMin(), -m_extent.yMax(), m_extent.width(), m_extent.height()))) {
-            const auto *style = flow->flowStreakSublayer()->streakStyle();
-            if (style->animated() && style->speedMultiplier() > 0) {
-                animateFlow = true;
-            }
-        }
+                QRectF(m_extent.xMin(), -m_extent.yMax(), m_extent.width(), m_extent.height())))
+            animateFlow = true;
     }
     if (animateFlow && m_flowTimer->interval() != 16)
         m_flowTimer->setInterval(16);

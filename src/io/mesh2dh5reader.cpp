@@ -430,10 +430,12 @@ QVector<Mesh2DResultVariable> describeFaceDataset(hid_t file, const QString &nam
     if (name.startsWith(QStringLiteral("Mesh2_face_snow_")))
         base.temporal = V::Temporal::Held;
     if (dims.size() == 1) {
+        // A whole-run statistic names its method over time ("time: maximum", "time: minimum",
+        // "time: mean"); engines before 2026-11-14 wrote only the Mesh2_face_max_* maxima.
         QString methods;
         readStringAttr(data, "cell_methods", methods);
         base.temporal =
-            name.startsWith(QStringLiteral("Mesh2_face_max_")) || methods.contains("time: maximum")
+            name.startsWith(QStringLiteral("Mesh2_face_max_")) || methods.contains("time: ")
                 ? V::Temporal::Envelope
                 : V::Temporal::Static;
         variables.append(base);

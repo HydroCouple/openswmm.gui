@@ -3161,6 +3161,39 @@ private:
      */
     void adoptPassOpacity_();
     /**
+     * @brief Copy the depth row's style into the depth passes, so depth is styled like every
+     *   other scalar: its fill classes go to the flat and smooth depth fills, its filled-contour
+     *   classes to the depth bands, its contour-line style to the depth isolines. No-op without
+     *   a depth row, while a snapshot loads, or from inside adoptPassStyles_().
+     */
+    void pushDepthRowStyle_();
+    /**
+     * @brief Copy the depth passes' styles into a depth row (the reverse of
+     *   pushDepthRowStyle_()): for a row that starts presenting passes that already hold a
+     *   style (a new layer's defaults, an older project, a re-added depth row), and when a pass
+     *   style is edited outside the row (legacy setters, legend color edits).
+     * @param[in,out] row Depth row; null is ignored. The fill classes come from the smooth fill
+     *   when the row's smooth fill is on, else from the flat fill.
+     */
+    void adoptPassStyles_(OpenSWMM::Render::ResultScalarSublayer *row);
+    /** @brief Copy the surface velocity row's streak settings into the native flow-streak pass
+     *   (every vector is styled on its row). No-op without that row or while a snapshot loads. */
+    void pushVelocityRowStyle_();
+    /** @brief The reverse: the native pass's streak settings into a velocity row that starts
+     *   presenting it, an older project's row, or after the pass is edited outside the row. */
+    void adoptStreakPassStyle_(OpenSWMM::Render::ResultVectorSublayer *row);
+    bool m_syncingStreakStyle = false;
+    /// Controllers of the rows animated by flowStreakController(), by row id; each is a child
+    /// of its row.
+    QHash<QString, QPointer<OpenSWMM::Render::FlowParticleLayerController>> m_rowFlowControllers;
+    /// Shared by paintFlowStreaks() and paintRowFlowStreaks().
+    void paintStreakFrame_(QPainter *p, double scale,
+                           const std::shared_ptr<const OpenSWMM::Render::FlowParticleFrame> &frame,
+                           const OpenSWMM::Render::FlowStreakStyle *style, double opacity,
+                           double interpolation);
+    /// Set while the depth row and its passes exchange styles, so neither echoes the other.
+    bool m_syncingDepthStyle = false;
+    /**
      * @brief Apply the defaults of a newly offered row: depth filled contours, velocity streaks,
      *   groundwater water table isolines with labels, the unsaturated column average as a
      *   smooth fill and Darcy velocity arrows. Other rows stay hidden. Above
@@ -3302,6 +3335,64 @@ public:
     {
         return m_flowStreakSublayer;
     }
+    // ----- Flow streaks of every vector row -----------------------------------------------
+    // The surface velocity row animates on the native engine (flowStreakSublayer(), RT0 edge
+    // fluxes). Every other vector row with streaks on gets a controller of its own, fed with
+    // the row's cell vectors, and the same FlowStreakStyle settings. A null row below means
+    // the native engine.
+    /**
+     * @param[in] row Vector row; null or the surface velocity row asks about the native engine.
+     * @return True when the row's streaks are drawn: layer and row visible with opacity, the
+     *   row's streaks on, a frame shown, and (live runs) live rendering on.
+     */
+    bool flowStreaksEnabled(const OpenSWMM::Render::ResultVectorSublayer *row) const;
+    /** @return Vector rows other than the surface velocity row whose streaks are drawn, in
+     *   paint order. */
+    QList<OpenSWMM::Render::ResultVectorSublayer *> animatedStreakRows() const;
+    /**
+     * @param[in] row Vector row, or null for the native engine.
+     * @return The controller animating the row's streaks (created on first use, deleted with
+     *   the row); the native controller for null or the surface velocity row.
+     */
+    OpenSWMM::Render::FlowParticleLayerController *
+    flowStreakController(OpenSWMM::Render::ResultVectorSublayer *row);
+    /** @return The streak settings a row is drawn with: its own, or the native pass's. */
+    const OpenSWMM::Render::FlowStreakStyle *
+    flowStreakStyle(const OpenSWMM::Render::ResultVectorSublayer *row) const;
+    /** @return Opacity of a row's streaks: the row's (or native pass's) times the reveal fade. */
+    double flowStreakOpacity(OpenSWMM::Render::ResultVectorSublayer *row);
+    /** @brief flowParticles() of a row's controller; null row is the native engine. */
+    std::shared_ptr<const OpenSWMM::Render::FlowParticleFrame>
+    flowParticles(OpenSWMM::Render::ResultVectorSublayer *row, const QRectF &view,
+                  double pixelsPerSceneUnit, quint64 displayedRevision, bool presented = true);
+    /** @brief flowParticleInterpolation() of a row's controller; null row is the native engine. */
+    double
+    flowParticleInterpolation(OpenSWMM::Render::ResultVectorSublayer *row,
+                              const std::shared_ptr<const OpenSWMM::Render::FlowParticleFrame> &frame);
+    /** @return True when any shown streaks move (animated, motion above zero). */
+    bool flowAnimationActive() const;
+    /**
+     * @brief The field a row's streaks follow at the shown time.
+     * @param[in] row Vector row with a matching descriptor.
+     * @param[out] x,y Cell vector components (SI).
+     * @param[out] depth Depth the vector is measured against: the current depth, or the saved
+     *   mean or maximum depth for a saved statistic; null when there is none (groundwater).
+     * @param[out] cutoff The row's dry-depth cutoff in meters; 0 without a depth.
+     * @return False when the row is unbound or a component frame is unavailable.
+     */
+    bool flowRowField(const OpenSWMM::Render::ResultVectorSublayer *row,
+                      std::shared_ptr<const openswmmvis::io::Mesh2DScalarFrame> &x,
+                      std::shared_ptr<const openswmmvis::io::Mesh2DScalarFrame> &y,
+                      std::shared_ptr<const openswmmvis::io::Mesh2DScalarFrame> &depth,
+                      double &cutoff) const;
+    /** @return Why a row's streaks are not drawn yet, or empty; null row is the native engine. */
+    QString flowStreakAvailability(OpenSWMM::Render::ResultVectorSublayer *row);
+    /** @return Status line of a row's streaks; null row is the native engine. */
+    QString flowStreakStatus(OpenSWMM::Render::ResultVectorSublayer *row);
+    /** @brief Paint a row's streaks with QPainter (CPU map, exports); the native engine's are
+     *   painted by paintFlowStreaks(). */
+    void paintRowFlowStreaks(QPainter *p, const QRectF &view,
+                             OpenSWMM::Render::ResultVectorSublayer *row);
     /**
      * @param[in] view Finite valid scene viewport intersecting mesh bounds.
      * @param[in] pixelsPerSceneUnit Positive finite pixels per scene unit.

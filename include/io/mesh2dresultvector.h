@@ -34,11 +34,12 @@ struct Mesh2DResultVector {
 };
 
 /**
- * @brief Pair time-dependent component variables whose dataset names differ only in a trailing
- *   x/y on one underscore token: Mesh2_face_vx/vy, Mesh2_face_gw_qx/qy, Mesh2_face_grad_hx/hy,
- *   Mesh2_face_grad_hx_lim/hy_lim.
- * @param[in] variables Catalog in source order; derived, species, layered, zoned and
- *   time-independent variables never pair.
+ * @brief Pair component variables whose dataset names differ only in a trailing x/y on one
+ *   underscore token: Mesh2_face_vx/vy, Mesh2_face_gw_qx/qy, Mesh2_face_grad_hx/hy,
+ *   Mesh2_face_grad_hx_lim/hy_lim, and the saved run statistics Mesh2_face_mean_vx/vy and
+ *   Mesh2_face_peak_vx/vy.
+ * @param[in] variables Catalog in source order; derived, species, layered, zoned and static
+ *   variables never pair. Whole-run statistics (Envelope) pair with each other.
  * @return Vectors in the x components' catalog order. Components must agree on domain, temporal
  *   kind, frame count and (when known) units.
  */

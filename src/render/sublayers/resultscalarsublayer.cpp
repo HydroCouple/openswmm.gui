@@ -92,6 +92,17 @@ ResultScalarStyle::ResultScalarStyle(QObject *parent) : ScalarFillStyle(parent)
     auto initialScheme = scheme();
     initialScheme.setRangeMode(RangeMode::PerFrameAutoStretch);
     setScheme(initialScheme);
+    m_bandScheme = initialScheme;
+    m_bandScheme.setMode(ClassificationScheme::ClassMode::Classified);
+}
+void ResultScalarStyle::setBandScheme(const ClassificationScheme &s)
+{
+    auto classified = s;
+    classified.setMode(ClassificationScheme::ClassMode::Classified);
+    if (classified == m_bandScheme)
+        return;
+    m_bandScheme = classified;
+    setDirty();
 }
 ResultScalarStyle::Presentation ResultScalarStyle::presentation() const
 {
@@ -162,7 +173,7 @@ bool ResultScalarStyle::needsWholeRunRange() const
 }
 bool ResultScalarStyle::fillNeedsWholeRunRange() const
 {
-    return (m_cellFill || m_filledContours) && wholeRun(scheme());
+    return (m_cellFill && wholeRun(scheme())) || (m_filledContours && wholeRun(m_bandScheme));
 }
 bool ResultScalarStyle::isolinesNeedWholeRunRange() const
 {
@@ -199,6 +210,7 @@ QJsonObject ResultScalarStyle::toJson() const
     json.insert(QStringLiteral("isolines"), m_isolines);
     json.insert(QStringLiteral("cellLabels"), m_cellLabels);
     json.insert("contourStyle", m_contourStyle->toJson());
+    json.insert(QStringLiteral("bandClassification"), m_bandScheme.toJson());
     json.insert(QStringLiteral("missingColor"), m_missing.name(QColor::HexArgb));
     json.insert(QStringLiteral("waterlessColor"), m_waterless.name(QColor::HexArgb));
     json.insert(QStringLiteral("notApplicableColor"), m_notApplicable.name(QColor::HexArgb));
@@ -219,6 +231,12 @@ void ResultScalarStyle::fromJson(const QJsonObject &json)
             setPresentation(Presentation(json.value("presentation").toInt(0)));
         if (json.value("contourStyle").isObject())
             m_contourStyle->fromJson(json.value("contourStyle").toObject());
+        // Saved before the bands had classes of their own: they used the fill's.
+        m_bandScheme = json.value(QStringLiteral("bandClassification")).isObject()
+                           ? ClassificationScheme::fromJson(
+                                 json.value(QStringLiteral("bandClassification")).toObject())
+                           : scheme();
+        m_bandScheme.setMode(ClassificationScheme::ClassMode::Classified);
         setMissingColor(QColor(json.value(QStringLiteral("missingColor")).toString()));
         setWaterlessColor(QColor(json.value(QStringLiteral("waterlessColor")).toString()));
         setNotApplicableColor(QColor(json.value(QStringLiteral("notApplicableColor")).toString()));
@@ -341,21 +359,18 @@ bool ResultScalarSublayer::bandStyling(const Mesh2DScalarFrame &frame, std::vect
         frame.descriptor.key() != variableKey() || !frame.error.isEmpty())
         return false;
     const auto range = rangeFor(frame);
-    const auto &scheme = m_style->scheme();
+    const auto &scheme = m_style->bandScheme();
     if (!scheme.validationError(range.minimum, range.maximum).isEmpty())
         return false;
     const auto edges = scheme.levelEdges(range.minimum, range.maximum, range.samples);
     if (edges.size() < 2)
         return false;
     const int bands = int(edges.size()) - 1;
-    const ClassificationColorSampler palette(scheme, range.minimum, range.maximum,
-                                             m_style->classified() ? bands : 0);
+    const ClassificationColorSampler palette(scheme, range.minimum, range.maximum, bands);
     levels.assign(edges.cbegin(), edges.cend());
     colors.reserve(bands);
     for (int i = 0; i < bands; ++i) {
-        QColor color = m_style->classified() ? palette.classColor(i)
-                                             : palette.valueColor(0.5 * (levels[size_t(i)] +
-                                                                         levels[size_t(i) + 1]));
+        QColor color = palette.classColor(i);
         color.setAlphaF(color.alphaF() * m_opacity);
         colors.append(color);
     }
@@ -413,11 +428,8 @@ ResultScalarSublayer::legendSymbolItems(const Mesh2DScalarFrame &frame, bool lab
     if (!m_visible)
         return result;
     const auto range = rangeFor(frame);
-    const auto &scheme = m_style->scheme();
-    const auto effective = scheme.effectiveRange(range.minimum, range.maximum);
     const bool matching = !variableKey().isEmpty() && frame.descriptor.key() == variableKey() &&
                           frame.error.isEmpty();
-    const QString classificationError = scheme.validationError(range.minimum, range.maximum);
     const QString units = unitsLabel(matching ? frame.descriptor : m_descriptor);
     // One block per shown display, in paint order: fill/bands share the fill
     // scheme's swatches; isolines and cell labels add one row each.
@@ -442,50 +454,79 @@ ResultScalarSublayer::legendSymbolItems(const Mesh2DScalarFrame &frame, bool lab
         lines.append(lineRow(tr("%1 cell values [%2]").arg(frame.descriptor.label, units)));
     if (labelsOnly || (matching && !m_style->cellFill() && !m_style->filledContours()))
         return lines;
-    if (matching && classificationError.isEmpty() && std::isfinite(effective.first) &&
-        std::isfinite(effective.second)) {
-        if (m_style->classified()) {
+    /**
+     * @brief Swatches of one classification: one per class when classified, a six-step ramp
+     *   (plus outside-range rows) when continuous. Labels get `prefix` and the units.
+     */
+    const auto classBlock = [&](const ClassificationScheme &scheme, bool classified,
+                                const QString &prefix, const QString &keyPrefix) {
+        QList<LegendSymbolItem> block;
+        // Legend overrides are keyed by class: the bands' classes are not the fill's.
+        const auto keyed = [&keyPrefix](QList<LegendSymbolItem> items) {
+            if (!keyPrefix.isEmpty())
+                for (auto &item : items)
+                    if (!item.classKey.isEmpty())
+                        item.classKey.prepend(keyPrefix);
+            return items;
+        };
+        const auto effective = scheme.effectiveRange(range.minimum, range.maximum);
+        const QString error = scheme.validationError(range.minimum, range.maximum);
+        if (!matching || !error.isEmpty() || !std::isfinite(effective.first) ||
+            !std::isfinite(effective.second)) {
+            block.append(swatch(m_id, QStringLiteral("unavailable"),
+                                matching && !error.isEmpty()
+                                    ? tr("%1Invalid classification: %2 [%3]").arg(prefix, error, units)
+                                    : tr("%1Result unavailable [%2]").arg(prefix, units),
+                                m_style->missingColor(), m_opacity));
+            return keyed(block);
+        }
+        if (classified) {
             if (effective.first == effective.second) {
                 auto item = swatch(m_id, QStringLiteral("0"), scheme.formatValue(effective.first),
                                    scheme.colorForClass(0, 1), m_opacity);
                 item.range = {effective.first, effective.second};
                 item.userLabel = scheme.labelOverride(0);
-                result.append(item);
+                block.append(item);
             } else {
-                result = scheme.legendItems(range.minimum, range.maximum, range.samples);
+                block = scheme.legendItems(range.minimum, range.maximum, range.samples);
             }
-            for (auto &item : result) {
+            for (auto &item : block) {
                 item.sublayerId = m_id;
                 item.symbol.opacity = m_opacity;
-                item.label += QStringLiteral(" [%1]").arg(units);
+                item.label = prefix + item.label + QStringLiteral(" [%1]").arg(units);
             }
         } else {
             const int count = effective.first == effective.second ? 1 : 6;
             for (int i = 0; i < count; ++i) {
                 const double value = effective.first + (effective.second - effective.first) * i /
                                                            std::max(1, count - 1);
-                auto item = swatch(
-                    m_id, QString::number(i), tr("%1 [%2]").arg(scheme.formatValue(value), units),
-                    scheme.colorForValue(value, range.minimum, range.maximum), m_opacity);
+                auto item = swatch(m_id, QString::number(i),
+                                   tr("%1%2 [%3]").arg(prefix, scheme.formatValue(value), units),
+                                   scheme.colorForValue(value, range.minimum, range.maximum),
+                                   m_opacity);
                 item.range = {value, value};
-                result.append(item);
+                block.append(item);
             }
-            scheme.addOutsideRangeLegendItems(result, effective.first, effective.second);
-            for (auto &item : result)
+            scheme.addOutsideRangeLegendItems(block, effective.first, effective.second);
+            for (auto &item : block)
                 if (item.classKey.isEmpty()) { // the outside rows
                     item.sublayerId = m_id;
                     item.symbol.opacity = m_opacity;
-                    item.label += QStringLiteral(" [%1]").arg(units);
+                    item.label = prefix + item.label + QStringLiteral(" [%1]").arg(units);
                 }
         }
-    } else {
-        result.append(
-            swatch(m_id, QStringLiteral("unavailable"),
-                   matching && !classificationError.isEmpty()
-                       ? tr("Invalid classification: %1 [%2]").arg(classificationError, units)
-                       : tr("Result unavailable [%1]").arg(units),
-                   m_style->missingColor(), m_opacity));
-    }
+        return keyed(block);
+    };
+    // Cell fill and filled contours classify separately: one block each when shown, the bands
+    // labeled as such when both are.
+    const bool fill = !matching || m_style->cellFill();
+    const bool bands = matching && m_style->filledContours();
+    if (fill)
+        result.append(classBlock(m_style->scheme(), m_style->classified(), QString(), QString()));
+    if (bands)
+        result.append(classBlock(m_style->bandScheme(), true,
+                                 fill ? tr("Filled contours: ") : QString(),
+                                 QStringLiteral("bands.")));
     result.append(swatch(m_id, QStringLiteral("missing"), tr("Missing data"),
                          m_style->missingColor(), m_opacity));
     result.append(swatch(m_id, QStringLiteral("waterless"), tr("Waterless"),

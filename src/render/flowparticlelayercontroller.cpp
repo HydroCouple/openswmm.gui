@@ -28,6 +28,60 @@ FlowParticleLayerController::FlowParticleLayerController(SWMM2DResultsLayer *lay
     connect(m_worker, &FlowParticleController::ready, layer,
             &SWMM2DResultsLayer::flowStreaksChanged);
 }
+FlowParticleLayerController::FlowParticleLayerController(SWMM2DResultsLayer *layer,
+                                                         ResultVectorSublayer *row)
+    : QObject(row), m_layer(layer), m_worker(new FlowParticleController(this)), m_row(row)
+{
+    connect(m_worker, &FlowParticleController::ready, layer,
+            &SWMM2DResultsLayer::flowStreaksChanged);
+}
+const FlowStreakStyle *FlowParticleLayerController::style() const
+{
+    return m_row ? m_row->vectorStyle()->streakStyle() : m_layer->flowStreakSublayer()->streakStyle();
+}
+bool FlowParticleLayerController::enabled() const
+{
+    return m_row ? m_layer->flowStreaksEnabled(m_row) : m_layer->flowStreaksEnabled();
+}
+double FlowParticleLayerController::cutoff() const
+{
+    // A row's cell vectors stop where its own depth is below its dry cutoff (rowField()).
+    if (m_row)
+        return m_rowCutoff;
+    return m_layer->showThinFilms() ? 0 : m_layer->thinFilmDepth();
+}
+FlowParticleLayerController::RowField FlowParticleLayerController::rowField()
+{
+    RowField field;
+    field.ok = m_row && m_layer->flowRowField(m_row, field.x, field.y, field.depth, m_rowCutoff);
+    // Another field under the same water revision (a re-keyed row, a new depth statistic)
+    // replaces the cached capture and seeds.
+    const quint64 stamp = quint64(quintptr(field.x.get())) * 0x9e3779b97f4a7c15ULL ^
+                          quint64(quintptr(field.y.get())) * 0xbf58476d1ce4e5b9ULL ^
+                          quint64(quintptr(field.depth.get())) ^ quint64(qHash(m_rowCutoff));
+    if (stamp != m_rowStamp) {
+        m_rowStamp = stamp;
+        m_particleInput.reset();
+        m_overviewRevision = ~quint64(0);
+        m_particleRevision = ~quint64(0);
+    }
+    return field;
+}
+bool FlowParticleLayerController::RowField::cell(int c, double &depthOut, QPointF &velocity) const
+{
+    using S = openswmmvis::io::Mesh2DValueStatus;
+    if (c < 0 || size_t(c) >= x->values.size() || x->status[size_t(c)] != S::Valid ||
+        y->status[size_t(c)] != S::Valid)
+        return false;
+    depthOut = 1; // no depth: always carries flow (groundwater)
+    if (depth) {
+        if (depth->status[size_t(c)] != S::Valid)
+            return false;
+        depthOut = depth->values[size_t(c)];
+    }
+    velocity = {x->values[size_t(c)], y->values[size_t(c)]};
+    return std::isfinite(depthOut) && std::isfinite(velocity.x()) && std::isfinite(velocity.y());
+}
 std::array<int, 3> FlowParticleLayerController::neighbors(int i) const
 {
     std::array<int, 3> result{-1, -1, -1};
@@ -147,8 +201,11 @@ int FlowParticleLayerController::overviewCapacity(double scale, double trail, do
 bool FlowParticleLayerController::prepareOverviewSeeds(const QRectF &view, double scale,
                                                        int capacity)
 {
-    const double speed = m_layer->flowStreakSublayer()->streakStyle()->speedMultiplier();
-    const double cutoff = m_layer->showThinFilms() ? 0 : m_layer->thinFilmDepth();
+    const double speed = style()->speedMultiplier();
+    const RowField field = m_row ? rowField() : RowField{};
+    if (m_row && !field.ok)
+        return false;
+    const double cutoff = this->cutoff();
     // Rendering adds a two-pixel culling margin and can round its scale to
     // float. Capture/observation uses the exact viewport. Reusing these seed
     // patches avoids alternating native-field reloads for the same map view.
@@ -206,14 +263,17 @@ bool FlowParticleLayerController::prepareOverviewSeeds(const QRectF &view, doubl
         cells.push_back(probe.cell);
     std::sort(cells.begin(), cells.end());
     cells.erase(std::unique(cells.begin(), cells.end()), cells.end());
-    const auto raw = readHydraulicCells(cells);
-    if (!raw || raw->time != m_layer->current_time_idx_ ||
-        raw->revision != m_layer->published_key_.tickRev ||
-        raw->generation != m_layer->published_key_.generation || raw->cells != cells ||
-        raw->depths.size() != cells.size())
-        return false;
+    std::shared_ptr<const openswmmvis::io::Mesh2DHydraulicFrame> raw;
+    if (!m_row) {
+        raw = readHydraulicCells(cells);
+        if (!raw || raw->time != m_layer->current_time_idx_ ||
+            raw->revision != m_layer->published_key_.tickRev ||
+            raw->generation != m_layer->published_key_.generation || raw->cells != cells ||
+            raw->depths.size() != cells.size())
+            return false;
+    }
     std::vector<float> vx, vy;
-    if (m_layer->source_->hasStoredVelocity() || raw->flux.empty()) {
+    if (!m_row && (m_layer->source_->hasStoredVelocity() || raw->flux.empty())) {
         if (!m_layer->source_->readFaceFieldCellsAt("Mesh2_face_vx", m_layer->current_time_idx_,
                                                     cells, vx) ||
             !m_layer->source_->readFaceFieldCellsAt("Mesh2_face_vy", m_layer->current_time_idx_,
@@ -225,12 +285,37 @@ bool FlowParticleLayerController::prepareOverviewSeeds(const QRectF &view, doubl
                 return false;
         }
     }
-    if (!raw->flux.empty() && raw->flux.size() != 4 * cells.size())
+    if (raw && !raw->flux.empty() && raw->flux.size() != 4 * cells.size())
         return false;
     std::vector<OverviewSeed> wet;
     wet.reserve(probes.size());
     std::vector<double> speeds;
     for (const auto &probe : probes) {
+        if (m_row) {
+            // A row's cell vector, where its depth is above the cutoff.
+            double depth;
+            QPointF velocity;
+            if (!field.cell(probe.cell, depth, velocity) || depth <= cutoff)
+                continue;
+            const auto &tri = m_layer->tris_[size_t(probe.triangle)];
+            const QPointF a = m_layer->m_sceneVerts[tri[0]],
+                          ab = m_layer->m_sceneVerts[tri[1]] - a,
+                          ac = m_layer->m_sceneVerts[tri[2]] - a;
+            const QPointF nativeAB(m_layer->vx_[size_t(tri[1])] - m_layer->vx_[size_t(tri[0])],
+                                   m_layer->vy_[size_t(tri[1])] - m_layer->vy_[size_t(tri[0])]);
+            const QPointF nativeAC(m_layer->vx_[size_t(tri[2])] - m_layer->vx_[size_t(tri[0])],
+                                   m_layer->vy_[size_t(tri[2])] - m_layer->vy_[size_t(tri[0])]);
+            const double nativeDet = cross(nativeAB, nativeAC);
+            if (std::abs(nativeDet) > 1e-20)
+                velocity = ab * (cross(velocity, nativeAC) / nativeDet) +
+                           ac * (cross(nativeAB, velocity) / nativeDet);
+            const double magnitude = std::hypot(velocity.x(), velocity.y());
+            if (!std::isfinite(magnitude))
+                continue;
+            wet.push_back({probe.triangle, probe.area, a + (ab + ac) / 3., velocity});
+            speeds.push_back(magnitude);
+            continue;
+        }
         const size_t local =
             size_t(std::lower_bound(cells.begin(), cells.end(), probe.cell) - cells.begin());
         const double depth = raw->depths[local];
@@ -353,9 +438,9 @@ FlowParticleLayerController::seedResidency(const FlowParticleResidencyGrid &grid
 }
 void FlowParticleLayerController::advance(double seconds)
 {
-    const auto *style = m_layer->flowStreakSublayer()->streakStyle();
+    const auto *style = this->style();
     // Reduced motion (review A-21) keeps the streaks still; the layer's Animate setting stays.
-    if (!m_layer->flowStreaksEnabled() || !style->animated() || openswmmvis::ui::motionReduced() ||
+    if (!enabled() || !style->animated() || openswmmvis::ui::motionReduced() ||
         style->speedMultiplier() <= 0 || !std::isfinite(seconds) || seconds <= 0)
         return;
     // Refresh residency for the field the renderer actually requested. During
@@ -402,9 +487,12 @@ FlowParticleLayerController::capture(const QRectF &view, double scale)
         : frame && frame->geometry == epoch && frame->revision == m_layer->frame_revision_
             ? frame->clock
             : 0;
-    const double cutoff = m_layer->showThinFilms() ? 0 : m_layer->thinFilmDepth();
+    const RowField field = m_row ? rowField() : RowField{};
+    if (m_row && !field.ok)
+        return {};
+    const double cutoff = this->cutoff();
     const bool sparse = overview(visible);
-    const auto *style = m_layer->flowStreakSublayer()->streakStyle();
+    const auto *style = this->style();
     const int capacity =
         sparse ? overviewCapacity(scale, style->trailDurationSeconds(), style->speedMultiplier())
                : 0;
@@ -430,6 +518,8 @@ FlowParticleLayerController::capture(const QRectF &view, double scale)
     const bool modeChanged = m_particleOverview != sparse;
     const auto grid = residencyGrid(sparse);
     const auto coherent = [&] {
+        if (m_row) // cell vectors of the shown time, not the published hydraulics
+            return true;
         return (m_layer->published_key_.frame == m_layer->current_time_idx_ &&
                 m_layer->published_key_.tickRev ==
                     m_layer->source_->frameContentRevision(m_layer->current_time_idx_) &&
@@ -535,7 +625,7 @@ FlowParticleLayerController::capture(const QRectF &view, double scale)
                        m_particleInput->revision == m_layer->frame_revision_;
     std::vector<int> velocityCells;
     std::vector<float> velocityX, velocityY;
-    if ((m_layer->source_->hasStoredVelocity() || !m_layer->m_edgeFluxAvailable) &&
+    if (!m_row && (m_layer->source_->hasStoredVelocity() || !m_layer->m_edgeFluxAvailable) &&
         m_layer->source_->hasFaceField("Mesh2_face_vx") &&
         m_layer->source_->hasFaceField("Mesh2_face_vy")) {
         for (int id : mesh->sourceTriangles) {
@@ -558,6 +648,8 @@ FlowParticleLayerController::capture(const QRectF &view, double scale)
     }
     std::vector<int> missing;
     for (int id : mesh->sourceTriangles) {
+        if (m_row)
+            break;
         if (reuse && std::binary_search(m_particleInput->mesh->sourceTriangles.begin(),
                                         m_particleInput->mesh->sourceTriangles.end(), id))
             continue;
@@ -594,6 +686,17 @@ FlowParticleLayerController::capture(const QRectF &view, double scale)
         if (reuse && cached != m_particleInput->mesh->sourceTriangles.end() && *cached == id) {
             t = m_particleInput
                     ->triangles[size_t(cached - m_particleInput->mesh->sourceTriangles.begin())];
+        } else if (m_row) {
+            // The row's cell vector; its depth (flat over the cell) gates the dry cutoff.
+            double depth = 0;
+            QPointF velocity;
+            t.available = field.cell(cell, depth, velocity);
+            t.meanDepth = t.available ? depth : 0;
+            t.depth = {float(t.meanDepth), float(t.meanDepth), float(t.meanDepth)};
+            t.velocitySI = t.available ? velocity : QPointF();
+            t.velocityOnly = true;
+            for (int k = 0; k < 3; ++k)
+                t.metres[k] = {m_layer->vx_[size_t(vi[k])], m_layer->vy_[size_t(vi[k])]};
         } else {
             const auto &display = m_layer->m_sceneTris[id];
             t.depth = {display.dv0, display.dv1, display.dv2};
@@ -701,8 +804,10 @@ std::shared_ptr<const FlowParticleFrame>
 FlowParticleLayerController::frame(const QRectF &view, double scale, quint64 displayedRevision,
                                    bool presented)
 {
-    const auto *style = m_layer->m_flowStreakSublayer->streakStyle();
-    if (!m_layer->flowStreaksEnabled() || !view.isValid() || !std::isfinite(scale) || scale <= 0)
+    const auto *style = this->style();
+    if (!enabled() || !view.isValid() || !std::isfinite(scale) || scale <= 0)
+        return {};
+    if (m_row && !rowField().ok) // also refreshes the row's dry cutoff
         return {};
     m_particleView = view;
     m_particleScale = scale;
@@ -713,7 +818,7 @@ FlowParticleLayerController::frame(const QRectF &view, double scale, quint64 dis
     settings.maximumLifetime = style->maximumLifetimeSeconds();
     settings.trailSeconds = style->trailDurationSeconds();
     settings.fadeSeconds = style->lifetimeFadeSeconds();
-    settings.cutoff = m_layer->showThinFilms() ? 0 : m_layer->thinFilmDepth();
+    settings.cutoff = cutoff();
     settings.historyTolerance = .25 / scale;
     // Clamp before conversion: user-selected durations can exceed int range.
     // Preserve the ordinary trail quality. Extra-dense styles use the
@@ -803,7 +908,10 @@ FlowParticleLayerController::frame(const QRectF &view, double scale, quint64 dis
         // lifetime. Reserve bounded fade slots without increasing seed density.
         settings.maxParticles = std::min(settings.maxParticles, population * 16 + 16);
     }
-    FlowParticleView particleView{scale, style->spacingPx(), 48, m_layer->m_velocityFloorSI};
+    // The stagnation floor comes from the run's surface speed maxima: a row's field has its own
+    // scale (groundwater moves micrometers per second), so it gets none.
+    FlowParticleView particleView{scale, style->spacingPx(), 48,
+                                  m_row ? 0. : m_layer->m_velocityFloorSI};
     particleView.animated = style->animated() && !openswmmvis::ui::motionReduced();
     const auto input =
         displayedRevision == m_layer->frame_revision_ ? capture(view, scale) : nullptr;

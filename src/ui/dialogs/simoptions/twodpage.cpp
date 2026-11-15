@@ -955,10 +955,13 @@ void TwoDPage::buildUi()
          "written when mixing is enabled."},
         {"CONTINUITY", "Continuity error (diagnostic)",
          "Mesh2_face_continuity_err (+ its envelope) — solver diagnostics only."},
-        {"ENVELOPES", "Run maxima (once per run)",
-         "Mesh2_face_max_depth / Mesh2_face_max_velocity — maximum-depth and "
-         "maximum-velocity symbology and the flood-extent envelope; written "
-         "once at the end of the run, negligible size."},
+        {"ENVELOPES", "Run statistics (once per run)",
+         "Per-cell statistics over the whole run, for map rows and the flood-extent envelope: "
+         "maximum depth and speed (Mesh2_face_max_depth / _max_velocity), maximum and minimum "
+         "water surface elevation (_max_head / _min_head), time-weighted mean depth and "
+         "velocity (_mean_depth / _mean_vx / _mean_vy), the velocity at the maximum speed "
+         "(_peak_vx / _peak_vy) and the times of maximum depth and speed (_time_max_depth / "
+         "_time_max_velocity, hours from the start). One value per cell, negligible size."},
     };
     const int nVars = swmm_2d_output_variable_count();
     for (int i = 0; i < nVars; ++i) {

@@ -12,13 +12,19 @@
 #pragma once
 #include "render/flowparticlecontroller.h"
 #include <QDateTime>
+#include <QPointF>
+#include <QPointer>
+#include <memory>
 class SWMM2DResultsLayer;
 namespace openswmmvis::io
 {
 struct Mesh2DHydraulicFrame;
+struct Mesh2DScalarFrame;
 }
 namespace OpenSWMM::Render
 {
+class FlowStreakStyle;
+class ResultVectorSublayer;
 // Owns bounded GUI-side native captures and the serial integrator. The worker
 // supplies immutable trail/head residency; this facade adds the current view.
 class FlowParticleLayerController : public QObject
@@ -30,6 +36,14 @@ public:
      * geometry/source/style access. Owns a child serial worker; ready forwards to the
      * layer's flowStreaksChanged signal. All methods run on the layer's GUI thread. */
     explicit FlowParticleLayerController(SWMM2DResultsLayer *layer);
+    /** @brief Bind a controller to one vector row's cell vectors: the same streaks as the
+     *   surface velocity's, for any vector result (gradients, groundwater velocity, the saved
+     *   mean and peak velocity).
+     * @param layer Required owning layer, borrowed for geometry and the row's frames.
+     * @param row Required row and QObject parent: the controller dies with it. Its
+     *   vectorStyle()->streakStyle() gives the settings; SWMM2DResultsLayer::flowRowField()
+     *   gives the vector, the depth it is measured against and the dry cutoff. */
+    FlowParticleLayerController(SWMM2DResultsLayer *layer, ResultVectorSublayer *row);
     /** @brief Capture coherent bounded native hydraulics for visible water and retained trails.
      * @param view Valid finite scene rectangle intersecting the layer bounds.
      * @param scale Positive finite pixels per scene unit for support padding/overview density.
@@ -132,6 +146,26 @@ public:
 private:
     SWMM2DResultsLayer *m_layer;
     FlowParticleController *m_worker;
+    /// Row whose cell vectors this controller animates; null for the native surface velocity.
+    QPointer<ResultVectorSublayer> m_row;
+    double m_rowCutoff = 0;   ///< the row's dry cutoff (m), from the last rowField()
+    quint64 m_rowStamp = 0;   ///< identity of the row's last field frames and cutoff
+    /// A row's cell vectors with the depth they are measured against (null: always wet).
+    struct RowField {
+        std::shared_ptr<const openswmmvis::io::Mesh2DScalarFrame> x, y, depth;
+        bool ok = false;
+        /** @return False for an invalid or missing cell; else its depth (1 without a depth
+         *   frame) and SI velocity. */
+        bool cell(int c, double &depthOut, QPointF &velocity) const;
+    };
+    /** @return The row's current field; drops the cached capture when it changed. */
+    RowField rowField();
+    /** @return The streak settings: the row's, or the native flow-streak pass's. */
+    const FlowStreakStyle *style() const;
+    /** @return Whether this controller's streaks are shown. */
+    bool enabled() const;
+    /** @return Depth (m) below which no streak is drawn. */
+    double cutoff() const;
     /** @brief Resolve global opposite-corner neighbors from validated native cell topology.
      * @param triangle Unchecked in-range display triangle ID with aligned triCell/cellTri0
      * and source-cell geometry. Native topology distinguishes true boundaries/nonmanifold

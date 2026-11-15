@@ -13,6 +13,7 @@
 #include "io/mesh2dresultvector.h"
 #include "render/classificationscheme.h"
 #include "render/isublayer.h"
+#include "render/sublayers/flowstreaksublayer.h"
 #include "render/sublayerstyle.h"
 
 #include <QColor>
@@ -66,10 +67,6 @@ private:
     Q_PROPERTY(ColorMode colorMode READ colorMode WRITE setColorMode NOTIFY styleChanged)
     Q_PROPERTY(QString colorKey READ colorKey WRITE setColorKey NOTIFY styleChanged)
     Q_PROPERTY(QColor color READ color WRITE setColor NOTIFY styleChanged)
-    Q_PROPERTY(double streakLengthPx READ streakLengthPx WRITE setStreakLengthPx NOTIFY styleChanged)
-    Q_PROPERTY(double streakWidthPx READ streakWidthPx WRITE setStreakWidthPx NOTIFY styleChanged)
-    Q_PROPERTY(
-        double streakSpacingPx READ streakSpacingPx WRITE setStreakSpacingPx NOTIFY styleChanged)
     Q_CLASSINFO("group:arrows", "Display")
     Q_CLASSINFO("group:streaks", "Display")
     Q_CLASSINFO("group:spacingPx", "Arrows")
@@ -88,9 +85,6 @@ private:
     Q_CLASSINFO("group:colorMode", "Color")
     Q_CLASSINFO("group:colorKey", "Color")
     Q_CLASSINFO("group:color", "Color")
-    Q_CLASSINFO("group:streakLengthPx", "Streaks")
-    Q_CLASSINFO("group:streakWidthPx", "Streaks")
-    Q_CLASSINFO("group:streakSpacingPx", "Streaks")
 
 public:
     /** @brief Arrows on, streaks off, size and color by magnitude (continuous viridis).
@@ -118,9 +112,10 @@ public:
     ColorMode colorMode() const { return m_colorMode; }
     QString colorKey() const { return m_colorKey; }
     QColor color() const { return m_color; }
-    double streakLengthPx() const { return m_streakLengthPx; }
-    double streakWidthPx() const { return m_streakWidthPx; }
-    double streakSpacingPx() const { return m_streakSpacingPx; }
+    /** @brief The animated flow streaks' settings (density, trail, motion, width, color), the
+     *   same for every vector result. Shown when streaks() is on.
+     * @return Child style valid until this style is destroyed; do not delete or reparent. */
+    FlowStreakStyle *streakStyle() const { return m_streakStyle; }
     /** @return Color classification (ramp, classes, custom range) for Magnitude/Scalar color. */
     const ClassificationScheme &colorScheme() const { return m_colorScheme; }
 
@@ -143,9 +138,6 @@ public:
     void setColorMode(ColorMode mode);
     void setColorKey(const QString &key);
     void setColor(const QColor &color);
-    void setStreakLengthPx(double px);
-    void setStreakWidthPx(double px);
-    void setStreakSpacingPx(double px);
     void setColorScheme(const ClassificationScheme &scheme);
 
     /**
@@ -176,7 +168,7 @@ private:
     ColorMode m_colorMode = ColorMode::Magnitude;
     QString m_colorKey;
     QColor m_color{20, 20, 20, 220};
-    double m_streakLengthPx = 48, m_streakWidthPx = 1.6, m_streakSpacingPx = 28;
+    FlowStreakStyle *m_streakStyle = nullptr;
     ClassificationScheme m_colorScheme;
 };
 
@@ -185,15 +177,9 @@ struct ResultVectorArrow {
     QPointF tail, tip;
     QColor color;
 };
-/// One streak polyline in scene coordinates, oldest point first.
-struct ResultVectorStreak {
-    std::vector<QPointF> points;
-    QColor color;
-};
 /// Display geometry of one vector row for one frame and view.
 struct ResultVectorGeometry {
     std::vector<ResultVectorArrow> arrows;
-    std::vector<ResultVectorStreak> streaks;
     QString error;
 };
 
@@ -216,7 +202,9 @@ public:
     void setVisible(bool value) override;
     qreal opacity() const override { return m_opacity; }
     void setOpacity(qreal value) override;
-    bool isDynamic() const override { return true; }
+    /** @return False for a saved run-statistic vector whose arrows and streaks bind no other
+     *   field (every report time shows it the same); true otherwise. */
+    bool isDynamic() const override;
     SublayerStyle *style() override { return m_style; }
     ResultVectorStyle *vectorStyle() const { return m_style; }
     QString vectorKey() const { return m_style->vectorKey(); }

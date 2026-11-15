@@ -76,6 +76,117 @@ QString SWMM2DResultsLayer::flowStreakStatus() const
 void SWMM2DResultsLayer::advanceFlowStreaks(double seconds)
 {
     m_particleController->advance(seconds);
+    for (auto *row : animatedStreakRows())
+        flowStreakController(row)->advance(seconds);
+}
+
+bool SWMM2DResultsLayer::flowStreaksEnabled(const ResultVectorSublayer *row) const
+{
+    if (!row || row == velocityResultSublayer())
+        return flowStreaksEnabled();
+    const bool field = current_time_idx_ >= 0 && !m_sceneTris.empty();
+    return isVisible() && opacity() > 0 && field && row->isVisible() && row->opacity() > 0 &&
+           row->vectorStyle()->streaks() && row->descriptor().key() == row->vectorKey() &&
+           !row->vectorKey().isEmpty() && source_ && (!source_->isLive() || liveRenderEnabled());
+}
+
+QList<ResultVectorSublayer *> SWMM2DResultsLayer::animatedStreakRows() const
+{
+    QList<ResultVectorSublayer *> rows;
+    const auto *native = velocityResultSublayer();
+    for (auto *sub : sublayers())
+        if (auto *row = qobject_cast<ResultVectorSublayer *>(sub);
+            row && row != native && flowStreaksEnabled(row))
+            rows.append(row);
+    return rows;
+}
+
+FlowParticleLayerController *SWMM2DResultsLayer::flowStreakController(ResultVectorSublayer *row)
+{
+    if (!row || row == velocityResultSublayer())
+        return m_particleController;
+    auto &controller = m_rowFlowControllers[row->id()];
+    if (!controller || controller->parent() != row)
+        controller = new FlowParticleLayerController(this, row);
+    return controller;
+}
+
+const FlowStreakStyle *SWMM2DResultsLayer::flowStreakStyle(const ResultVectorSublayer *row) const
+{
+    return !row || row == velocityResultSublayer() ? m_flowStreakSublayer->streakStyle()
+                                                   : row->vectorStyle()->streakStyle();
+}
+
+double SWMM2DResultsLayer::flowStreakOpacity(ResultVectorSublayer *row)
+{
+    if (!row || row == velocityResultSublayer())
+        return m_flowStreakSublayer->opacity() * flowParticleOpacity();
+    return row->opacity() * flowStreakController(row)->opacity();
+}
+
+std::shared_ptr<const FlowParticleFrame>
+SWMM2DResultsLayer::flowParticles(ResultVectorSublayer *row, const QRectF &view, double scale,
+                                  quint64 revision, bool presented)
+{
+    return flowStreakController(row)->frame(view, scale, revision, presented);
+}
+
+double SWMM2DResultsLayer::flowParticleInterpolation(
+    ResultVectorSublayer *row, const std::shared_ptr<const FlowParticleFrame> &frame)
+{
+    return flowStreakController(row)->interpolation(frame);
+}
+
+bool SWMM2DResultsLayer::flowAnimationActive() const
+{
+    const auto moving = [](const FlowStreakStyle *style) {
+        return style->animated() && style->speedMultiplier() > 0;
+    };
+    if (flowStreaksEnabled() && moving(m_flowStreakSublayer->streakStyle()))
+        return true;
+    for (const auto *row : animatedStreakRows())
+        if (moving(row->vectorStyle()->streakStyle()))
+            return true;
+    return false;
+}
+
+QString SWMM2DResultsLayer::flowStreakAvailability(ResultVectorSublayer *row)
+{
+    if (!row || row == velocityResultSublayer())
+        return flowStreakAvailability();
+    if (!source_)
+        return tr("No 2D results available");
+    if (source_->isLive() && !liveRenderEnabled())
+        return tr("Enable Live 2D to update live flow streaks");
+    if (!row->isVisible() || !row->vectorStyle()->streaks())
+        return tr("Show streaks to start rendering");
+    return flowStreakController(row)->availability();
+}
+
+QString SWMM2DResultsLayer::flowStreakStatus(ResultVectorSublayer *row)
+{
+    if (!row || row == velocityResultSublayer())
+        return flowStreakStatus();
+    const auto availability = flowStreakAvailability(row);
+    return availability.isEmpty() ? flowStreakController(row)->status() : availability;
+}
+
+void SWMM2DResultsLayer::paintRowFlowStreaks(QPainter *p, const QRectF &view,
+                                             ResultVectorSublayer *row)
+{
+    if (!row || row == velocityResultSublayer() || !flowStreaksEnabled(row))
+        return;
+    const double scale = std::hypot(p->worldTransform().m11(), p->worldTransform().m12());
+    QRectF coverage = view.isValid() ? view : m_sceneBBox;
+    if (p->hasClipping())
+        coverage = coverage.intersected(p->clipBoundingRect());
+    if (!coverage.isValid())
+        return;
+    const auto frame = flowParticles(row, coverage, scale, frame_revision_);
+    if (!frame)
+        return;
+    paintStreakFrame_(p, scale, frame, row->vectorStyle()->streakStyle(), flowStreakOpacity(row),
+                      flowParticleInterpolation(row, frame));
 }
 std::shared_ptr<const FlowParticleNativeInput>
 SWMM2DResultsLayer::captureFlowParticleInput(const QRectF &view, double scale)
@@ -100,19 +211,27 @@ void SWMM2DResultsLayer::paintFlowStreaks(QPainter *p, const QRectF &view)
         coverage = coverage.intersected(p->clipBoundingRect());
     if (!coverage.isValid())
         return;
-    const auto *style = m_flowStreakSublayer->streakStyle();
     const auto frame = flowParticles(coverage, scale, frame_revision_);
     if (!frame)
         return;
+    paintStreakFrame_(p, scale, frame, m_flowStreakSublayer->streakStyle(),
+                      m_flowStreakSublayer->opacity() * flowParticleOpacity(),
+                      flowParticleInterpolation(frame));
+}
+
+void SWMM2DResultsLayer::paintStreakFrame_(QPainter *p, double scale,
+                                           const std::shared_ptr<const FlowParticleFrame> &frame,
+                                           const FlowStreakStyle *style, double streakOpacity,
+                                           double interpolation)
+{
     const auto smooth = [](double x) {
         x = std::clamp(x, 0., 1.);
         return x * x * (3 - 2 * x);
     };
-    const double interpolation = flowParticleInterpolation(frame);
     const double clock =
         frame->previousClock + (frame->clock - frame->previousClock) * interpolation;
     p->save();
-    p->setOpacity(p->opacity() * m_flowStreakSublayer->opacity() * flowParticleOpacity());
+    p->setOpacity(p->opacity() * streakOpacity);
     p->setRenderHint(QPainter::Antialiasing, true);
     p->setPen(Qt::NoPen);
     for (const auto &particle : frame->particles) {

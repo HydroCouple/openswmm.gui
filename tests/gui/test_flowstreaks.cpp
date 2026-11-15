@@ -1850,20 +1850,23 @@ private slots:
         auto *advanced = panel.findChild<QWidget *>("flowAdvanced");
         QVERIFY(advanced);
         QVERIFY(advanced->isHidden());
-        auto *dense = panel.findChild<QPushButton *>("flowDensity2");
-        QVERIFY(dense);
-        dense->click();
+        // Density is a slider from sparse (80 px between streaks) to dense (8 px).
+        auto *density = panel.findChild<QSlider *>("flowDensity");
+        QVERIFY(density);
+        density->setValue(52);
         QCOMPARE(style->spacingPx(), 28.);
-        QVERIFY(second.findChild<QPushButton *>("flowDensity2")->isChecked());
+        QCOMPARE(second.findChild<QSlider *>("flowDensity")->value(), 52);
         QCOMPARE(other.flowStreakSublayer()->streakStyle()->spacingPx(), 40.);
-        panel.findChild<QPushButton *>("flowDensity3")->click();
+        density->setValue(66);
         QCOMPARE(style->spacingPx(), 14.);
-        QVERIFY(second.findChild<QPushButton *>("flowDensity3")->isChecked());
+        QCOMPARE(second.findChild<QSlider *>("flowDensity")->value(), 66);
+        // The exact value under Advanced can go past the slider, which stays at its end.
         panel.findChild<QDoubleSpinBox *>("spacingPx")->setValue(2);
         QCOMPARE(style->spacingPx(), 2.);
+        QCOMPARE(density->value(), density->maximum());
         style->setSpacingPx(22);
-        QVERIFY(!dense->isChecked());
-        QVERIFY(!panel.findChild<QLabel *>("flowDensityCustom")->isHidden());
+        QCOMPARE(density->value(), 58);
+        QVERIFY(panel.findChild<QLabel *>("flowDensityValue")->text().contains("22"));
         auto *motion = panel.findChild<QSlider *>("flowMotion");
         QVERIFY(motion);
         motion->setValue(175);
@@ -1874,7 +1877,7 @@ private slots:
         exact->setValue(96);
         QCOMPARE(style->speedMultiplier(), 2.);
         QCOMPARE(second.findChild<QSlider *>("flowMotion")->value(), 200);
-        panel.findChild<QPushButton *>("flowTrail2")->click();
+        panel.findChild<QSlider *>("flowTrail")->setValue(12);
         QCOMPARE(style->trailDurationSeconds(), 3.);
         style->setTrailDurationSeconds(4.5);
         QCOMPARE(panel.findChild<QDoubleSpinBox *>("trailDurationSeconds")->value(), 4.5);
