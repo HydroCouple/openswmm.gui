@@ -627,6 +627,16 @@ QWidget *LegendPropertiesDialog::buildLayoutTab()
     labelsForm->addRow(tr("Also break at:"), wrapOn);
     layout->addWidget(labels);
 
+    auto *content = new QGroupBox(tr("Content"));
+    auto *contentForm = new QFormLayout(content);
+    auto *onlyInView = check("filterByMapExtent", tr("Only items with features in the map view"));
+    onlyInView->setToolTip(tr("Vector layers; other layers list all their rows"));
+    contentForm->addRow(onlyInView);
+    auto *counts = check("showFeatureCounts", tr("Feature counts after the labels"));
+    counts->setToolTip(tr("Vector layers; the count of each row's features, e.g. [12]"));
+    contentForm->addRow(counts);
+    layout->addWidget(content);
+
     auto *size = new QGroupBox(tr("Size"));
     auto *sizeForm = new QFormLayout(size);
     sizeForm->addRow(tr("Width:"), spin("explicitWidth", 0, 4000, tr("Fit the content")));

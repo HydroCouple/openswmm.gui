@@ -269,20 +269,15 @@ QColor GraduatedRenderer::colorForValue(double v) const
     return colorForBin(m_binner.binFor(v, m_lastBreaks));
 }
 
-SymbolStyle GraduatedRenderer::symbolFor(const FeatureRef &, const QVariantMap &attrs) const
+int GraduatedRenderer::binIndexFor(const QVariantMap &attrs, bool *numeric) const
 {
-    SymbolStyle styled = m_baseSymbol;
     const QVariant v = attrs.value(m_classifyAttribute);
     bool ok = false;
     const double dv = v.toDouble(&ok);
-    if (ok && (!std::isfinite(dv) || dv < m_ramp.minValue)) {
-        overrideColorInPlace(styled, QColor(Qt::transparent));
-        styled.opacity = 0.0;
-        return styled;
-    }
-
-    // Compute the bin index once; color (and the size axes when they
-    // follow the classify attribute) key off it.
+    if (numeric)
+        *numeric = ok;
+    if (ok && (!std::isfinite(dv) || dv < m_ramp.minValue))
+        return -1;
     const int n = m_binner.binCount();
     int bin = 0;
     if (ok && n > 0) {
@@ -299,6 +294,28 @@ SymbolStyle GraduatedRenderer::symbolFor(const FeatureRef &, const QVariantMap &
         if (bin >= n)
             bin = n - 1;
     }
+    return bin;
+}
+
+QString GraduatedRenderer::classKeyFor(const FeatureRef &, const QVariantMap &attrs) const
+{
+    const int bin = binIndexFor(attrs, nullptr);
+    return bin < 0 ? QString() : QString::number(bin);
+}
+
+SymbolStyle GraduatedRenderer::symbolFor(const FeatureRef &, const QVariantMap &attrs) const
+{
+    SymbolStyle styled = m_baseSymbol;
+    bool ok = false;
+    // Compute the bin index once; color (and the size axes when they
+    // follow the classify attribute) key off it.
+    const int bin = binIndexFor(attrs, &ok);
+    if (bin < 0) {
+        overrideColorInPlace(styled, QColor(Qt::transparent));
+        styled.opacity = 0.0;
+        return styled;
+    }
+    const double dv = attrs.value(m_classifyAttribute).toDouble();
 
     // Output axis 1 — color. Default-on (preserves prior behavior).
     // Skipped when the classify value is missing/non-numeric (pre-size-

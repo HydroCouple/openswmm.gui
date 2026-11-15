@@ -38,6 +38,15 @@ SymbolStyle CategorizedRenderer::symbolFor(const FeatureRef &, const QVariantMap
     return m_fallback;
 }
 
+QString CategorizedRenderer::classKeyFor(const FeatureRef &, const QVariantMap &attrs) const
+{
+    const QString value = attrs.value(m_classifyAttribute).toString();
+    for (int i = 0; i < m_categories.size(); ++i)
+        if (m_categories[i].value == value)
+            return QString::number(i);
+    return {};
+}
+
 QList<LegendSymbolItem> CategorizedRenderer::legendSymbolItems() const
 {
     QList<LegendSymbolItem> items;

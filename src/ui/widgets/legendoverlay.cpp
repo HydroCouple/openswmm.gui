@@ -47,6 +47,7 @@
 #include <QPainter>
 #include <QPainterPath>
 #include <QResizeEvent>
+#include <QTimer>
 #include <QWheelEvent>
 #include <algorithm>
 #include <cmath>
@@ -91,6 +92,11 @@ LegendOverlay::LegendOverlay(MapCanvas *canvas) : QWidget(canvas)
         m_style->applyPreset(preset);
     connect(m_style, &Style::changed, this, &LegendOverlay::onStyleChanged);
 
+    m_countTimer = new QTimer(this);
+    m_countTimer->setSingleShot(true);
+    m_countTimer->setInterval(250);
+    connect(m_countTimer, &QTimer::timeout, this, &LegendOverlay::refreshCounts);
+
     setCanvas(canvas);
     ensureUndoRecorder();
     setAccessibleName(tr("Map legend"));
@@ -106,7 +112,8 @@ QString LegendOverlay::summaryText() const
     if (m_style->showTitle() && !m_style->title().isEmpty())
         parts.append(m_style->title());
     // The lines the box draws: each heading with its rows' labels.
-    const auto entries = openswmmvis::map::LegendContent::buildEntries(m_canvas, m_style);
+    const auto entries =
+        openswmmvis::map::LegendContent::buildEntries(m_canvas, m_style, &m_counts);
     QString heading;
     QStringList labels;
     const auto flush = [&]() {
@@ -173,6 +180,13 @@ void LegendOverlay::setCanvas(MapCanvas *canvas)
         });
         for (OpenSWMMVisLayer *l : m_canvas->layers())
             connectLayer(l);
+        // Counting only the map view's features follows the view.
+        connect(m_canvas, &MapCanvas::extentChanged, this, [this]() {
+            if (m_style && m_style->filterByMapExtent())
+                scheduleCountRefresh();
+        });
+        connect(m_canvas, &MapCanvas::layerAdded, this, &LegendOverlay::scheduleCountRefresh);
+        connect(m_canvas, &MapCanvas::layerRemoved, this, &LegendOverlay::scheduleCountRefresh);
     }
 
     recomputeLayout();
@@ -209,6 +223,42 @@ void LegendOverlay::ensureUndoRecorder()
 
 void LegendOverlay::onStyleChanged()
 {
+    if (m_style && QPair<bool, bool>(m_style->filterByMapExtent(), m_style->showFeatureCounts()) !=
+                       m_countFlags)
+        scheduleCountRefresh();
+    recomputeLayout();
+    update();
+}
+
+void LegendOverlay::scheduleCountRefresh()
+{
+    if (!m_countTimer)
+        return;
+    const bool wanted = m_style && (m_style->filterByMapExtent() || m_style->showFeatureCounts());
+    if (wanted || m_countFlags != QPair<bool, bool>(false, false))
+        m_countTimer->start(); // restarts: a pan or a burst of changes counts once
+}
+
+void LegendOverlay::refreshCounts()
+{
+    ++m_countRefreshes;
+    m_counts = {};
+    m_countFlags = {false, false};
+    if (m_canvas && m_style && (m_style->filterByMapExtent() || m_style->showFeatureCounts())) {
+        m_countFlags = {m_style->filterByMapExtent(), m_style->showFeatureCounts()};
+        const MapExtent view = m_canvas->extent();
+        for (OpenSWMMVisLayer *layer : m_canvas->layers()) {
+            if (!layer || !layer->isVisible())
+                continue;
+            const QString key = Style::itemKey(layer, {});
+            QHash<QString, qint64> counts;
+            if (m_style->showFeatureCounts() && layer->legendClassCounts(nullptr, &counts))
+                m_counts.total.insert(key, counts);
+            counts.clear();
+            if (m_style->filterByMapExtent() && layer->legendClassCounts(&view, &counts))
+                m_counts.inExtent.insert(key, counts);
+        }
+    }
     recomputeLayout();
     update();
 }
@@ -221,6 +271,7 @@ void LegendOverlay::connectLayer(OpenSWMMVisLayer *layer)
     // prior connections from this layer to us so repeated calls don't stack.
     disconnect(layer, nullptr, this, nullptr);
     auto refresh = [this]() {
+        scheduleCountRefresh(); // the data or the renderer may have changed
         recomputeLayout();
         update();
     };
@@ -249,7 +300,7 @@ void LegendOverlay::recomputeLayout()
     if (m_resizing)
         return;
 
-    m_entries = openswmmvis::map::LegendContent::buildEntries(m_canvas, m_style);
+    m_entries = openswmmvis::map::LegendContent::buildEntries(m_canvas, m_style, &m_counts);
     m_layout = OpenSWMM::Render::LegendLayout::compute(m_entries, *m_style);
     if (m_layout.isEmpty()) {
         m_contentHeight = 0;

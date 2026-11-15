@@ -108,6 +108,26 @@ public:
                                                 const QVariantMap &attrs) const = 0;
 
     /*!
+     * \brief Whether classKeyFor() says which legend row a feature is drawn with (so the map
+     *        legend can count features per row and list only rows seen on the map).
+     * @return False by default.
+     */
+    [[nodiscard]] virtual bool classifiesFeatures() const { return false; }
+
+    /*!
+     * \brief The class key of the legend row a feature is drawn with.
+     * \param f Feature identity. \param attrs Its attributes.
+     * @return The row's class key, or empty text when the feature is drawn with no legend row
+     *   (or not drawn); always empty when classifiesFeatures() is false.
+     */
+    [[nodiscard]] virtual QString classKeyFor(const FeatureRef &f, const QVariantMap &attrs) const
+    {
+        Q_UNUSED(f);
+        Q_UNUSED(attrs);
+        return {};
+    }
+
+    /*!
      * \brief Returns one LegendSymbolItem per visible legend row.
      *        Drives the legend dock, the on-canvas legend overlay, and the
      *        map composer's legend frame (legend-from-renderer rule, §J.5).

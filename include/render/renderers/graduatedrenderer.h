@@ -455,6 +455,12 @@ public:
      * property slots are overwritten, and no stored template or expression is modified. */
     [[nodiscard]] SymbolStyle symbolFor(const FeatureRef &f,
                                         const QVariantMap &attrs) const override;
+    /** @brief Features are binned by the classify attribute. @return True. */
+    [[nodiscard]] bool classifiesFeatures() const override { return true; }
+    /** @brief The bin the feature is drawn with, as symbolFor() bins it.
+     * @return Bin index text, or empty text for a feature drawn transparent (below the range or
+     *   not finite). */
+    [[nodiscard]] QString classKeyFor(const FeatureRef &f, const QVariantMap &attrs) const override;
     /** @brief Build one reference row for each configured bin.
      * @return Owned rows with numeric ranges/labels, index keys and bin colors. Cached boundaries
      * are used only when their count is binCount()-1; otherwise equal intervals are shown.
@@ -517,6 +523,13 @@ public:
     }
 
 private:
+    /** @brief The bin a feature is drawn with.
+     * @param attrs Feature attributes.
+     * @param[out] numeric Whether the classify value is a number.
+     * @return Bin index; -1 when the feature is drawn transparent (a number below the range or
+     *   not finite); 0 for a value that is not a number. */
+    [[nodiscard]] int binIndexFor(const QVariantMap &attrs, bool *numeric) const;
+
     QString m_classifyAttribute;
     // Independent size/width attribute (empty = follow classifyAttribute)
     // + its sampled value range (invalid until the owning layer derives it).

@@ -85,6 +85,13 @@ public:
      * mapping is valid. Other properties and the stored template remain unchanged. */
     [[nodiscard]] SymbolStyle symbolFor(const FeatureRef &f,
                                         const QVariantMap &attrs) const override;
+    /** @brief Every feature is drawn with the one row. @return True. */
+    [[nodiscard]] bool classifiesFeatures() const override { return true; }
+    /** @brief The one row's key. @return "single". */
+    [[nodiscard]] QString classKeyFor(const FeatureRef &, const QVariantMap &) const override
+    {
+        return QStringLiteral("single");
+    }
     /** @brief Build the single static legend row.
      * @return One row with the stored label/template, key single, and NaN range.
      * Per-feature size mapping is not evaluated for the legend. */

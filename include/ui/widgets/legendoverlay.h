@@ -35,6 +35,7 @@
 #ifndef OPENSWMMVIS_UI_WIDGETS_LEGENDOVERLAY_H
 #define OPENSWMMVIS_UI_WIDGETS_LEGENDOVERLAY_H
 
+#include "map/legendcontent.h"
 #include "render/legendentry.h"
 #include "render/legenditemtree.h"
 #include "render/legendlayout.h"
@@ -51,6 +52,7 @@
 
 class MapCanvas;
 class OpenSWMMVisLayer;
+class QTimer;
 
 namespace OpenSWMM::Render
 {
@@ -102,6 +104,11 @@ public:
      *   empty without a canvas or style. The Legend panel offers the same rows as a tree.
      */
     [[nodiscard]] QString summaryText() const;
+
+    /** @brief How many times feature counts have been computed. Counting reads every feature,
+     *  so it runs only after the legend's count settings, the map view or a layer change, after
+     *  a short delay — never while painting. */
+    [[nodiscard]] int countRefreshes() const { return m_countRefreshes; }
 
 signals:
     /*! \brief Emitted when the user selects "Hide Legend" from the
@@ -219,6 +226,12 @@ private:
      * @return Borrowed entry from the current layout, valid until the next relayout. */
     [[nodiscard]] const OpenSWMM::Render::LegendEntry *entryAt(const QPoint &pos) const;
 
+    /*! \brief Count features again after a short delay (several triggers in a row count once). */
+    void scheduleCountRefresh();
+    /*! \brief Count each layer's features per legend row, as the style's "only items in the map
+     *         view" and "feature counts" need, and lay the legend out again. */
+    void refreshCounts();
+
     /*! \brief Record the style's changes on the canvas's undo stack (once per style). */
     void ensureUndoRecorder();
 
@@ -257,6 +270,10 @@ private:
     OpenSWMM::Render::LegendLayoutResult m_layout;  ///< placed lines at the box width
     int m_contentHeight = 0;         ///< natural content height from recomputeLayout()
     int m_scrollY = 0;               ///< rows scrolled above the box top, in pixels
+    openswmmvis::map::LegendContent::LegendCounts m_counts; ///< from refreshCounts()
+    QTimer *m_countTimer = nullptr;
+    int m_countRefreshes = 0;
+    QPair<bool, bool> m_countFlags{false, false}; ///< (in view, counts) the counts were made for
 
     // Slice US.B2 — interactive resize state.
     int m_resizeEdges = 0;      ///< active edge mask while resizing; 0 = not resizing
