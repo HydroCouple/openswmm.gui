@@ -92,7 +92,9 @@ struct LegendNode {
      * @return The node. */
     [[nodiscard]] static LegendNode fromJson(const QJsonObject &j);
 
-    bool operator==(const LegendNode &other) const = default;
+    // Defaulted in the .cpp: defaulted here, GCC decides it while LegendNode is still
+    // incomplete, finds no way to compare `children`, and deletes it.
+    bool operator==(const LegendNode &other) const;
 };
 
 /*!
