@@ -425,6 +425,7 @@ Mesh2DGroundwaterDialog::Mesh2DGroundwaterDialog(SWMM_Engine engine, QWidget *pa
     setObjectName(QStringLiteral("Mesh2DGroundwaterDialog"));
     setWindowTitle(tr("2D Groundwater"));
     m_clockOptionsSupported = !optionText(engine, "GW_CLOCK").isEmpty();
+    m_baseStepAutoSupported = !optionText(engine, "GW_BASE_STEP_EFFECTIVE").isEmpty();
     buildUi(initialPage);
     loadFromEngine();
     if (parent) {
@@ -667,8 +668,8 @@ QWidget *Mesh2DGroundwaterDialog::buildOptionsPage()
         double maximum, initial;
     } clockFields[] = {
         {"GW_BASE_STEP", tr("&Base interval (s):"),
-         tr("Base check interval, in seconds. Use a smaller value for rapid exchange; 0.125 s "
-            "was qualified for the node-fill case. Physical stability can require shorter steps."),
+         tr("Base check interval, in seconds. Automatic uses 0.125 s when the aquifer exchanges "
+            "with 1D nodes and 1 s otherwise. Physical stability can require shorter steps."),
          1e9, 1.},
         {"GW_MAX_STEP", tr("Ma&ximum groundwater step (s):"),
          tr("Maximum elapsed groundwater step, in seconds. It may be shorter than the base "
@@ -692,8 +693,38 @@ QWidget *Mesh2DGroundwaterDialog::buildOptionsPage()
         spin->setAccessibleName(QString(field.label).remove(QLatin1Char('&')));
         spin->setToolTip(field.help);
         spin->setAccessibleDescription(field.help);
-        clockForm->addRow(field.label, spin);
         m_clockNumbers.insert(QString::fromLatin1(field.key), spin);
+        if (qstrcmp(field.key, "GW_BASE_STEP") != 0) {
+            clockForm->addRow(field.label, spin);
+            continue;
+        }
+        // AUTO lets the engine choose 0.125 s when node beds exchange and 1 s otherwise.
+        m_baseStepAuto = new QCheckBox(tr("&Automatic"), clock);
+        m_baseStepAuto->setObjectName("gwClock_GW_BASE_STEP_auto");
+        m_baseStepAuto->setToolTip(tr("Let the engine choose the base interval: 0.125 s when "
+                                      "the aquifer exchanges with 1D nodes, 1 s otherwise."));
+        m_baseStepAuto->setAccessibleDescription(m_baseStepAuto->toolTip());
+        m_baseStepAuto->setVisible(m_baseStepAutoSupported);
+        auto *row = new QWidget(clock);
+        auto *rowLayout = new QHBoxLayout(row);
+        rowLayout->setContentsMargins(0, 0, 0, 0);
+        rowLayout->addWidget(spin, 1);
+        rowLayout->addWidget(m_baseStepAuto);
+        auto *label = new QLabel(field.label, clock);
+        label->setBuddy(spin);
+        clockForm->addRow(label, row);
+        connect(m_baseStepAuto, &QCheckBox::toggled, this, [this, spin](bool automatic) {
+            if (automatic) {
+                if (spin->value() > spin->minimum())
+                    m_baseStepManual = spin->value();
+                spin->setSpecialValueText(tr("Automatic"));
+                spin->setValue(spin->minimum());
+            } else {
+                spin->setSpecialValueText(QString());
+                spin->setValue(m_baseStepManual);
+            }
+            refreshClockGates();
+        });
     }
     m_bindsSurfaceCheck =
         new QCheckBox(tr("Also let groundwater stability limit the surface step"), clock);
@@ -721,15 +752,21 @@ void Mesh2DGroundwaterDialog::refreshClockGates()
 {
     const bool independent = m_clockCombo->currentData() == QStringLiteral("INDEPENDENT");
     m_clockCombo->setEnabled(m_editable && m_clockOptionsSupported);
-    for (auto *spin : m_clockNumbers)
-        spin->setEnabled(m_editable && m_clockOptionsSupported && independent);
+    const bool baseAutomatic = m_baseStepAuto && m_baseStepAuto->isChecked();
+    for (auto it = m_clockNumbers.cbegin(); it != m_clockNumbers.cend(); ++it)
+        it.value()->setEnabled(m_editable && m_clockOptionsSupported && independent &&
+                               !(baseAutomatic && it.key() == QLatin1String("GW_BASE_STEP")));
+    if (m_baseStepAuto)
+        m_baseStepAuto->setEnabled(m_editable && m_clockOptionsSupported &&
+                                   m_baseStepAutoSupported && independent);
     m_bindsSurfaceCheck->setEnabled(m_editable && m_clockOptionsSupported && independent);
     m_clockStatus->setText(
         !m_clockOptionsSupported
             ? tr("This engine does not provide independent groundwater stepping.")
         : independent
             ? tr("Experimental independent stepping requires first-order CPU integration. "
-                 "Choose a smaller base interval for rapid node exchange.")
+                 "The automatic base interval is 0.125 s when the aquifer exchanges with 1D "
+                 "nodes and 1 s otherwise.")
             : tr("Groundwater follows the surface clock. Shared stepping always includes "
                  "the groundwater stability limit in the surface step."));
     m_clockStatus->setAccessibleDescription(m_clockStatus->text());
@@ -1006,8 +1043,15 @@ void Mesh2DGroundwaterDialog::loadFromEngine()
     pick(m_enrolmentCombo, optionText(m_engine, "NODE_ENROLMENT"));
     if (m_clockOptionsSupported) {
         pick(m_clockCombo, optionText(m_engine, "GW_CLOCK"));
-        for (auto it = m_clockNumbers.cbegin(); it != m_clockNumbers.cend(); ++it)
-            it.value()->setValue(optionText(m_engine, it.key().toUtf8().constData()).toDouble());
+        for (auto it = m_clockNumbers.cbegin(); it != m_clockNumbers.cend(); ++it) {
+            const QString text = optionText(m_engine, it.key().toUtf8().constData());
+            if (it.key() == QLatin1String("GW_BASE_STEP") && m_baseStepAuto) {
+                m_baseStepAuto->setChecked(text == QLatin1String("AUTO"));
+                if (m_baseStepAuto->isChecked())
+                    continue;
+            }
+            it.value()->setValue(text.toDouble());
+        }
         m_bindsSurfaceCheck->setChecked(
             m_clockCombo->currentData() == QStringLiteral("INDEPENDENT") &&
             optionText(m_engine, "GW_BINDS_SURFACE_DT") == QLatin1String("YES"));
@@ -1613,6 +1657,8 @@ QMap<QString, QString> Mesh2DGroundwaterDialog::optionDraft() const
         values["GW_CLOCK"] = m_clockCombo->currentData().toString();
         for (auto it = m_clockNumbers.cbegin(); it != m_clockNumbers.cend(); ++it)
             values[it.key()] = QString::number(it.value()->value(), 'g', 17);
+        if (m_baseStepAuto && m_baseStepAuto->isChecked())
+            values["GW_BASE_STEP"] = QStringLiteral("AUTO");
         values["GW_BINDS_SURFACE_DT"] = m_clockCombo->currentData() == QStringLiteral("SHARED") ||
                                                 m_bindsSurfaceCheck->isChecked()
                                             ? "YES"

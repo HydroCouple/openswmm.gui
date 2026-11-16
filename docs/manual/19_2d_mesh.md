@@ -1013,7 +1013,7 @@ The **Options** tab includes **Groundwater time stepping**:
 | Setting | Default | Use |
 |---|---|---|
 | Time stepping | Shared with surface | Choose Independent (experimental) for separate aquifer-cell time steps. |
-| Base interval | 1 s | Check cadence for independent stepping. Use a smaller interval for rapid exchange; 0.125 s is qualified for the node-fill case. |
+| Base interval | Automatic | Check cadence for independent stepping. **Automatic** uses 0.125 s when the aquifer exchanges with 1D nodes and 1 s otherwise; clear it to type an interval. |
 | Maximum groundwater step | 3600 s | Maximum elapsed aquifer step. A maximum below the base interval is allowed. |
 | Storage budget fraction | 0.5 | Fraction of directional storage/head room used before requesting an update; greater than zero and at most one. |
 | Relative head-change budget | 0.05 | Scheduling budget, greater than zero and less than one, with a 0.01 m head floor. It is not a global accuracy guarantee. |
