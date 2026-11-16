@@ -450,6 +450,43 @@ public:
     }
 };
 
+// LargeStripSource with zero edge flux: its fast frames carry flux, so the native streak capture
+// runs on them.
+class LargeStripFlowSource : public LargeStripSource
+{
+public:
+    /**
+     * @brief Stride-four edge records of every strip triangle (counter-clockwise, so the outward
+     * normal of edge k, from corner k to k + 1, is (dy, -dx) / length); slot three is padding.
+     * @return Always true.
+     */
+    bool readEdgeGeometry(std::vector<float> &lengths, std::vector<float> &nx,
+                          std::vector<float> &ny) override
+    {
+        std::vector<double> ox, oy, oz;
+        std::vector<std::array<int, 3>> tris;
+        readMeshGeometry(ox, oy, oz, tris);
+        lengths.assign(4 * tris.size(), 0.f);
+        nx.assign(lengths.size(), 0.f);
+        ny.assign(lengths.size(), 0.f);
+        for (size_t t = 0; t < tris.size(); ++t)
+            for (size_t k = 0; k < 3; ++k) {
+                const size_t a = size_t(tris[t][k]), b = size_t(tris[t][(k + 1) % 3]);
+                const double dx = ox[b] - ox[a], dy = oy[b] - oy[a], length = std::hypot(dx, dy);
+                lengths[4 * t + k] = float(length);
+                nx[4 * t + k] = float(dy / length);
+                ny[4 * t + k] = float(-dx / length);
+            }
+        return true;
+    }
+    /** @brief Zero flux on every edge record. @return Always true. */
+    bool readEdgeFluxAt(int, std::vector<float> &flux) override
+    {
+        flux.assign(4 * size_t(triangleCount()), 0.f);
+        return true;
+    }
+};
+
 // A 360-by-360 grid of unit squares (259,200 cells, above the fast-surface threshold) on a flat
 // bed. Depth grows smoothly eastward with a north-south wave, so filled contours form wide bands
 // at screen scale; the westernmost 20 columns are dry (a waterline).
@@ -1057,13 +1094,20 @@ private slots:
     void fastVertexSurfaceIsIndependentOfThreadCount();
     /**
      * @brief Require the fast surface's compact corner depths (fastSceneCorners, read by the
-     * renderer's per-frame passes) to equal the display triangles' corners bit for bit after each
-     * publish, including frames that hand their buffers over as a 6M frame does, to vanish with
-     * the source, and to be absent from a synchronous layer's fitted surface. Also require a
-     * later frame's deepest cell, found on the worker, to grow the automatic depth range past
-     * every vertex average.
+     * renderer's per-frame passes) to equal the display triangles' corners bit for bit once
+     * those are synchronized after each publish, including frames that hand their buffers over
+     * as a 6M frame does, to vanish with the source, and to be absent from a synchronous
+     * layer's fitted surface. Also require a later frame's deepest cell, found on the worker, to
+     * grow the automatic depth range past every vertex average.
      */
     void fastSurfaceKeepsCompactCornerDepths();
+    /**
+     * @brief Require a fast publish to leave the triangle records untouched while every reader
+     * sees the published frame: native streak capture, point query, profile, the renderer's
+     * flat cell fill, the CPU painter (which synchronizes the records), and the records
+     * themselves once the compact copy is dropped.
+     */
+    void fastPublishLeavesTriangleRecordsToReaders();
     /**
      * @brief Require depth contours of the fast surface to be drawn on the GPU: filled contours,
      * isolines without labels and classified smooth fills each take one sync with no contour
@@ -1780,6 +1824,7 @@ void Test2DResultsVizFixes::fastVertexSurfaceIsIndependentOfThreadCount()
         layer.setSource(std::make_unique<LargeStripSource>());
         QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(), 120000);
         QVERIFY(layer.fastSurfacePublished());
+        layer.syncSceneTriangleDepths(); // a fast publish leaves the records behind
         for (const auto &t : layer.m_sceneTris)
             corners[run].push_back({t.dv0, t.dv1, t.dv2, t.depth});
     }
@@ -1798,7 +1843,11 @@ void Test2DResultsVizFixes::fastSurfaceKeepsCompactCornerDepths()
     layer.setSource(std::move(source));
     QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(), 120000);
     QVERIFY(layer.fastSurfacePublished());
-    auto mirrors = [](const SWMM2DResultsLayer &layer) {
+    // A fast publish leaves the triangle records behind; synchronized, they equal the copy.
+    auto mirrors = [](SWMM2DResultsLayer &layer) {
+        if (!layer.sceneTriangleDepthsDeferred())
+            return false;
+        layer.syncSceneTriangleDepths();
         const auto *corners = layer.fastSceneCorners();
         if (!corners || corners->size() != size_t(layer.m_sceneTris.size()))
             return false;
@@ -1836,6 +1885,166 @@ void Test2DResultsVizFixes::fastSurfaceKeepsCompactCornerDepths()
     direct.setSource(std::make_unique<LargeStripSource>());
     QVERIFY(direct.fastSurfacePublished());
     QVERIFY(!direct.fastSceneCorners());
+    QVERIFY(!direct.sceneTriangleDepthsDeferred());
+}
+
+void Test2DResultsVizFixes::fastPublishLeavesTriangleRecordsToReaders()
+{
+    auto source = std::make_unique<LargeStripFlowSource>();
+    auto *raw = source.get();
+    SWMM2DResultsLayer layer;
+    layer.setAsyncSurface(true);
+    layer.setSurfaceCacheBytes(0); // every frame hands its buffers over, as a 6M frame does
+    layer.setSource(std::move(source));
+    layer.setVisible(true);
+    QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(), 120000);
+    QVERIFY(layer.fastSurfacePublished());
+    layer.flowStreakSublayer()->setVisible(true); // later frames read the edge flux
+    layer.syncSceneTriangleDepths();              // the records now hold frame 0
+    using Water = std::array<float, 4>;           // dv0, dv1, dv2 and the cell depth
+    const auto &owner = layer.triCellMap();
+    auto records = [&layer] {
+        std::vector<Water> out;
+        out.reserve(size_t(layer.m_sceneTris.size()));
+        for (const auto &t : layer.m_sceneTris)
+            out.push_back({t.dv0, t.dv1, t.dv2, t.depth});
+        return out;
+    };
+    // Bit for bit, so NaN corners compare equal.
+    auto same = [](const auto &a, const auto &b) {
+        static_assert(sizeof a == sizeof b);
+        return std::memcmp(&a, &b, sizeof a) == 0;
+    };
+    // First triangle whose records differ from the frame's corners and cell depths, or -1.
+    auto firstStale = [&](const std::vector<Water> &got,
+                          const std::vector<std::array<float, 3>> &corners,
+                          const std::vector<float> &depths) {
+        for (size_t i = 0; i < got.size(); ++i) {
+            const Water want{corners[i][0], corners[i][1], corners[i][2], depths[size_t(owner[i])]};
+            if (!same(got[i], want))
+                return qsizetype(i);
+        }
+        return got.size() == corners.size() ? qsizetype(-1) : qsizetype(got.size());
+    };
+    auto publishFrame = [&](int t) {
+        auto next = raw->frames.back();
+        for (int c = 0; c < LargeStripSource::kSquares; ++c)
+            next[size_t(c)] += 0.1f; // every wet cell deeper
+        raw->frames.push_back(next);
+        layer.setCurrentTimeIndex(t);
+        return QTest::qWaitFor(
+            [&] { return !layer.surfaceBusy() && layer.currentTimeIndex() == t; }, 120000);
+    };
+    const auto frame0 = records();
+    QVERIFY(publishFrame(1));
+    QVERIFY(layer.fastSurfacePublished());
+
+    // The publish wrote no triangle record.
+    QVERIFY(layer.sceneTriangleDepthsDeferred());
+    const auto stale = records();
+    QVERIFY(stale.size() == frame0.size() &&
+            std::memcmp(stale.data(), frame0.data(), stale.size() * sizeof(Water)) == 0);
+    const auto *fast = layer.fastSceneCorners();
+    QVERIFY(fast);
+    const auto &depths = raw->frames[1];
+
+    // Native streak capture: the published frame's corner depths.
+    const QRectF box = layer.m_sceneBBox;
+    const auto capture =
+        layer.captureFlowParticleInput(QRectF(box.left(), box.top(), 40, box.height()), 20.0);
+    QVERIFY(capture && capture->mesh && !capture->triangles.empty());
+    QCOMPARE(capture->triangles.size(), capture->mesh->sourceTriangles.size());
+    for (size_t k = 0; k < capture->triangles.size(); ++k)
+        QVERIFY2(
+            same(capture->triangles[k].depth, (*fast)[size_t(capture->mesh->sourceTriangles[k])]),
+            qPrintable(QString("streak triangle %1").arg(k)));
+
+    // Point queries and a profile read the published cell depths, before and after the records
+    // are synchronized.
+    std::vector<std::pair<QPointF, float>> probes;
+    for (int i : {0, 1, 2, 3, 1000, 2001, 50000})
+        probes.emplace_back(layer.m_sceneTris[i].centroid, depths[size_t(owner[size_t(i)])]);
+    for (const auto &[at, depth] : probes)
+        QCOMPARE(layer.depthAtSceneNow(at), depth);
+    const QVector<QPointF> section{{box.left() + 0.5, box.center().y()},
+                                   {box.left() + 300.5, box.center().y()}};
+    const auto profileBefore = MeshProfileSampler::buildMeshProfile(nullptr, &layer, section, 200);
+    QVERIFY(!profileBefore.samples.isEmpty());
+
+    // The renderer's flat cell fill colors each triangle by its cell's published depth.
+    class Renderer : public SWMM2DResultsQSGRenderer
+    {
+    public:
+        /* @brief Expose the protected scene-graph synchronization hook for this test.
+         * @param[in,out] old Previous owned root or null; ownership passes in and back out.
+         * @return Updated root owned by the caller. */
+        QSGNode *sync(QSGNode *old) { return updatePaintNode(old, nullptr); }
+    };
+    const MapExtent extent(box.left(), -box.bottom(), box.right(), -box.top());
+    auto cellFill = [&] {
+        Renderer renderer;
+        renderer.setWidth(1600);
+        renderer.setHeight(200);
+        renderer.setMapExtent(extent);
+        renderer.setLayer(&layer);
+        std::unique_ptr<QSGNode> root(renderer.sync(nullptr));
+        std::vector<QSGGeometry::ColoredPoint2D> out;
+        QVector<QSGNode *> pending{root.get()};
+        for (qsizetype n = 0; n < pending.size(); ++n) {
+            for (auto *c = pending[n]->firstChild(); c; c = c->nextSibling())
+                pending.append(c);
+            if (pending[n]->type() != QSGNode::GeometryNodeType)
+                continue;
+            const auto *g = static_cast<QSGGeometryNode *>(pending[n])->geometry();
+            if (!g || g->attributeCount() != 2)
+                continue;
+            const ColoredVertexView view{g};
+            for (int k = 0; k < view.size(); ++k)
+                out.push_back(view[k]);
+        }
+        return out;
+    };
+    for (auto *s : layer.sublayers())
+        s->setVisible(false);
+    layer.cellDepthFillSublayer()->setVisible(true);
+    const auto fillBefore = cellFill();
+    QVERIFY(!fillBefore.empty());
+
+    // The CPU painter synchronizes the records before reading them.
+    QGraphicsScene scene;
+    layer.populateScene(&scene, extent, nullptr);
+    QImage image(400, 40, QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::transparent);
+    {
+        QPainter painter(&image);
+        scene.render(&painter, QRectF(image.rect()), box);
+    }
+    QVERIFY(!layer.sceneTriangleDepthsDeferred());
+    QCOMPARE(firstStale(records(), *fast, depths), qsizetype(-1));
+
+    for (const auto &[at, depth] : probes)
+        QCOMPARE(layer.depthAtSceneNow(at), depth);
+    const auto profileAfter = MeshProfileSampler::buildMeshProfile(nullptr, &layer, section, 200);
+    QCOMPARE(profileAfter.samples.size(), profileBefore.samples.size());
+    for (qsizetype i = 0; i < profileAfter.samples.size(); ++i) {
+        const auto &p = profileBefore.samples[i], &q = profileAfter.samples[i];
+        QVERIFY2(same(p.depthNow, q.depthNow) && same(p.signedDepthNow, q.signedDepthNow) &&
+                     p.triIdx == q.triIdx,
+                 qPrintable(QString("profile sample %1").arg(i)));
+    }
+    const auto fillAfter = cellFill();
+    QVERIFY(fillAfter.size() == fillBefore.size() &&
+            std::memcmp(fillAfter.data(), fillBefore.data(),
+                        fillAfter.size() * sizeof(fillAfter[0])) == 0);
+
+    // Dropping the compact copy (here: switching the worker off) writes its frame first.
+    QVERIFY(publishFrame(2));
+    QVERIFY(layer.sceneTriangleDepthsDeferred());
+    const std::vector<std::array<float, 3>> corners2 = *layer.fastSceneCorners();
+    layer.setAsyncSurface(false);
+    QVERIFY(!layer.fastSceneCorners());
+    QVERIFY(!layer.sceneTriangleDepthsDeferred());
+    QCOMPARE(firstStale(records(), corners2, raw->frames[2]), qsizetype(-1));
 }
 
 void Test2DResultsVizFixes::fastSurfaceBandsClassifyOnTheGpu()
@@ -2208,11 +2417,12 @@ void Test2DResultsVizFixes::largeMeshesShowTheFastVertexSurface()
     const auto &ids = layer.triVertexIndices();
     const auto &owner = layer.triCellMap();
     QCOMPARE(qsizetype(ids.size()), layer.m_sceneTris.size());
+    const auto *displayed = layer.fastSceneCorners(); // what the renderer draws
+    QVERIFY(displayed);
     std::vector<float> atVertex(layer.m_sceneVerts.size(), std::numeric_limits<float>::quiet_NaN());
     int wet = 0;
     for (qsizetype i = 0; i < layer.m_sceneTris.size(); ++i) {
-        const auto &t = layer.m_sceneTris[i];
-        const float corners[3] = {t.dv0, t.dv1, t.dv2};
+        const auto &corners = (*displayed)[size_t(i)];
         if (owner[size_t(i)] >= LargeStripSource::kSquares) {
             for (float d : corners)
                 QVERIFY(std::isnan(d)); // dry cells are not drawn

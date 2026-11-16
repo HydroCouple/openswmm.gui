@@ -673,6 +673,9 @@ FlowParticleLayerController::capture(const QRectF &view, double scale)
     input->revision = m_layer->frame_revision_;
     input->cutoff = cutoff;
     input->triangles.reserve(count);
+    // A fast publish leaves its corner depths out of the triangle records.
+    const auto *fastCorners = m_layer->fastSceneCorners();
+    Q_ASSERT(fastCorners || !m_layer->sceneTriangleDepthsDeferred());
     for (int id : mesh->sourceTriangles) {
         FlowParticleNativeTriangle t;
         const auto &vi = m_layer->tris_[size_t(id)];
@@ -698,8 +701,12 @@ FlowParticleLayerController::capture(const QRectF &view, double scale)
             for (int k = 0; k < 3; ++k)
                 t.metres[k] = {m_layer->vx_[size_t(vi[k])], m_layer->vy_[size_t(vi[k])]};
         } else {
-            const auto &display = m_layer->m_sceneTris[id];
-            t.depth = {display.dv0, display.dv1, display.dv2};
+            if (fastCorners) {
+                t.depth = (*fastCorners)[size_t(id)];
+            } else {
+                const auto &display = m_layer->m_sceneTris[id];
+                t.depth = {display.dv0, display.dv1, display.dv2};
+            }
             t.meanDepth = m_layer->current_depths_[size_t(cell)];
             const float *flux = m_layer->m_edgeFluxAvailable &&
                                         m_layer->current_flux_.size() == 4 * m_layer->cells_.size()

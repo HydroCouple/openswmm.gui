@@ -365,6 +365,7 @@ public:
         // passes stand down (SWMMLayerItem §QSG-1 bypass pattern).
         if (layer_->qsgOwnsRendering())
             return;
+        layer_->syncSceneTriangleDepths(); // the passes below read the triangle records
         const auto &tris = layer_->m_sceneTris;
         if (tris.isEmpty())
             return;
@@ -1397,6 +1398,7 @@ public:
             return;
         if (!layer_->hasVelocityData())
             return;
+        layer_->syncSceneTriangleDepths(); // the glyphs read the cell depths
         if (layer_->m_sceneTris.isEmpty())
             return;
         // Velocity glyphs convey both magnitude and flow direction. The
@@ -3056,9 +3058,14 @@ void SWMM2DResultsLayer::publishSurface_(SurfaceJob &job, quint64 seq)
         std::vector<CellWaterGeometry::CornerDepths>().swap(cellFlowDepths_);
         install(surfaceDepths_, job.smooth);
         if (job.sceneCorners.size() == size_t(m_sceneTris.size())) {
-            installSceneCorners_(job.sceneCorners, job.sceneCornerPeak, !job.live);
-            if (job.key.fast) // see fastSceneCorners()
+            if (job.key.fast) {
+                // The triangle records are left behind (see sceneTriangleDepthsDeferred()).
                 install(fast_scene_corners_, job.sceneCorners);
+                scene_tri_depths_deferred_ = true;
+                if (!max_depth_user_set_)
+                    max_depth_ = std::max(max_depth_, job.sceneCornerPeak);
+            } else
+                installSceneCorners_(job.sceneCorners, job.sceneCornerPeak, !job.live);
         } else
             fillSceneCorners_();
         applyCurrentFlux_(&job.velocityX, &job.velocityY);
@@ -3346,6 +3353,7 @@ void SWMM2DResultsLayer::cancelSurfaceJobs_()
     ++surface_epoch_; // a result already queued for delivery is ignored
     surface_cache_.clear();
     surface_cache_bytes_ = 0;
+    syncSceneTriangleDepths(); // before the compact copy goes
     published_key_ = SurfaceKey{};
     std::vector<std::array<float, 3>>().swap(fast_scene_corners_);
     published_seq_ = request_seq_; // nothing is in flight any more
@@ -3451,6 +3459,7 @@ void SWMM2DResultsLayer::refreshCurrentFrame()
     // The file may have rewritten this frame: cached fits no longer apply.
     surface_cache_.clear();
     surface_cache_bytes_ = 0;
+    syncSceneTriangleDepths(); // fastSceneCorners() ends with the published key
     published_key_ = SurfaceKey{};
     loadFrame_(t);
 }
@@ -4229,7 +4238,7 @@ float SWMM2DResultsLayer::depthAtSceneNow(const QPointF &scenePt) const
         source_->readDepthAt(current_time_idx_, triCell_[size_t(idx)], depth);
         return depth;
     }
-    return m_sceneTris[idx].depth; // sub-triangle carries its CELL's depth
+    return sceneTriangleDepth(idx); // sub-triangle carries its CELL's depth
 }
 
 float SWMM2DResultsLayer::depthAtSceneInterp(const QPointF &scenePt) const
@@ -5192,8 +5201,23 @@ void SWMM2DResultsLayer::sceneCornersFor_(
 void SWMM2DResultsLayer::installSceneCorners_(const std::vector<std::array<float, 3>> &corners,
                                               double peak, bool parallel)
 {
+    fast_scene_corners_.clear(); // a fast publish copies its corners again
+    writeSceneTriangleDepths_(corners, parallel);
+    if (!max_depth_user_set_)
+        max_depth_ = std::max(max_depth_, peak);
+}
+
+void SWMM2DResultsLayer::syncSceneTriangleDepths()
+{
+    if (scene_tri_depths_deferred_)
+        writeSceneTriangleDepths_(fast_scene_corners_, !(source_ && source_->isLive()));
+}
+
+void SWMM2DResultsLayer::writeSceneTriangleDepths_(const std::vector<std::array<float, 3>> &corners,
+                                                   bool parallel)
+{
     const size_t count = std::min(size_t(m_sceneTris.size()), corners.size());
-    fast_scene_corners_.clear(); // a fast publish copies its corners again after this
+    scene_tri_depths_deferred_ = false;
     SceneTri *tris = m_sceneTris.data(); // detach once, before any block writes
     forBlocks(count, parallel, [&](size_t first, size_t last) {
         for (size_t i = first; i < last; ++i) {
@@ -5205,8 +5229,6 @@ void SWMM2DResultsLayer::installSceneCorners_(const std::vector<std::array<float
             t.dv2 = d[2];
         }
     });
-    if (!max_depth_user_set_)
-        max_depth_ = std::max(max_depth_, peak);
 }
 
 void SWMM2DResultsLayer::fastSurfaceFields_(SurfaceJob &job) const

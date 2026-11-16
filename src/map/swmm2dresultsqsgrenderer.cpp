@@ -1545,9 +1545,10 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
     // ---- QSG-2D-1M: LOD decision + dirty-domain resolution ------------------
     const auto &tris = m_layer->m_sceneTris;
     const int nTri = int(tris.size());
-    // A fast surface's corner depths in 12 bytes per triangle (the same values as tris): the
-    // per-frame wet sweep and chunk scan read these, not the whole triangle records.
+    // A fast surface's corner depths in 12 bytes per triangle: a fast publish writes them only
+    // there, so every pass reads them (and cell depths from sceneTriangleDepth), not tris.
     const auto *fastCorners = m_layer->fastSceneCorners();
+    Q_ASSERT(fastCorners || !m_layer->sceneTriangleDepthsDeferred());
     const QRectF &bb = m_layer->m_sceneBBox;
     // Display triangle → owning cell (a quad owns two consecutive fan
     // triangles); identity when the layer has no map yet.
@@ -1953,14 +1954,19 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
                 // One pass over the triangles for every per-frame copy (positions
                 // only when the wet set changed, as it does while water spreads).
                 for (size_t i = 0; i < waterCells.size(); ++i) {
-                    const auto &t = tris[waterCells[i]];
+                    const int id = waterCells[i];
+                    const auto &t = tris[id];
                     if (positions)
                         (*positions)[i] = {float(t.a.x() - ox), float(t.a.y() - oy),
                                            float(t.b.x() - ox), float(t.b.y() - oy),
                                            float(t.c.x() - ox), float(t.c.y() - oy)};
-                    (*scalars)[i] = {t.dv0, t.dv1, t.dv2};
+                    if (fastCorners)
+                        (*scalars)[i] = (*fastCorners)[size_t(id)];
+                    else
+                        (*scalars)[i] = {t.dv0, t.dv1, t.dv2};
                     if (key.snapshotTriangles)
-                        frame->cellValues[i] = {t.depth, t.vx, t.vy, t.vmag};
+                        frame->cellValues[i] = {m_layer->sceneTriangleDepth(id), t.vx, t.vy,
+                                                t.vmag};
                 }
             }
             if (positions) {
@@ -2083,8 +2089,16 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         size_t nextFrameTriangle = 0;
         auto frameTri = [&](int i) {
             auto t = tris[i];
-            if (frame.immediate)
+            if (frame.immediate) {
+                if (fastCorners) { // the published frame's depths are not in its records
+                    const auto &d = (*fastCorners)[size_t(i)];
+                    t.dv0 = d[0];
+                    t.dv1 = d[1];
+                    t.dv2 = d[2];
+                    t.depth = m_layer->sceneTriangleDepth(i);
+                }
                 return t;
+            }
             Q_ASSERT(frame.scalars);
             auto at = frameTriangles.begin() + std::ptrdiff_t(nextFrameTriangle);
             if (at == frameTriangles.end() || *at != i)

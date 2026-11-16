@@ -6499,9 +6499,11 @@ private slots:
         layer.setHydraulicView(layer.m_sceneBBox, 1);
         QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(), 10000);
         QVERIFY(!layer.regionalHydraulicsPublished());
-        QCOMPARE(layer.m_sceneTris[0].depth, .4f);
+        QCOMPARE(layer.sceneTriangleDepth(0), .4f); // a fast overview leaves the records behind
+        QVERIFY(layer.sceneTriangleDepthsDeferred());
         layer.setHydraulicView(a, 8);
         QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(), 10000);
+        QVERIFY(!layer.sceneTriangleDepthsDeferred()); // the regional publish wrote every record
         const auto geometry = layer.geomRevision();
         layer.onCanvasCRSChanged(nullptr);
         QCOMPARE(layer.geomRevision(), geometry);

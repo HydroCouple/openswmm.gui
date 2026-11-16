@@ -25,6 +25,11 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   models that never set it. The engine then uses 0.125 s when the aquifer exchanges with 1D
   nodes and 1 s otherwise. Clear the box to type an interval; only a typed interval is saved.
   Needs an engine with `GW_BASE_STEP AUTO`; with an older engine the box is hidden.
+- **Large 2D result frames take less of the GUI thread.** On meshes over 250,000 cells, a new
+  frame's corner depths are no longer copied into every display triangle; the map, flow streaks
+  and point queries read the frame's compact copy instead. On a 6-million-cell mesh, publishing a
+  frame fell from about 8 ms to under a millisecond, and the GUI thread's work per frame from
+  23–28 ms to 16–20 ms.
 
 - **MeshKit is built from its own repository.** The in-tree copy, `libraries/meshkit`, is
   removed. The build fetches MeshKit `v0.2.0` from
