@@ -1940,6 +1940,7 @@ if(${QT_VERSION_MAJOR} GREATER_EQUAL 6)
     # Compile translation/*.ts and embed the .qm files under :/i18n, where main.cpp's loader
     # looks; also gives translators the SWMMVis_lupdate / update_translations targets.
     qt_add_translations(SWMMVis
+        SOURCE_TARGETS SWMMVis
         TS_FILES ${TS_FILES}
         RESOURCE_PREFIX "/i18n")
 else()
