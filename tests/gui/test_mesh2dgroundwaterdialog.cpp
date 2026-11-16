@@ -470,23 +470,32 @@ LID Stack .2
         Mesh2DGroundwaterDialog dialog(engine.handle);
         auto *clock = dialog.findChild<QComboBox *>("gwClock");
         auto *base = dialog.findChild<QDoubleSpinBox *>("gwClock_GW_BASE_STEP");
+        auto *automatic = dialog.findChild<QCheckBox *>("gwClock_GW_BASE_STEP_auto");
         auto *binds = dialog.findChild<QCheckBox *>("gwBindsSurfaceDt");
-        QVERIFY(clock && base && binds);
+        QVERIFY(clock && base && automatic && binds);
         QCOMPARE(clock->currentData().toString(), QStringLiteral("SHARED"));
-        QCOMPARE(base->value(), 1.);
+        // A new model leaves the base interval to the engine.
+        QVERIFY(automatic->isChecked());
+        QCOMPARE(base->value(), base->minimum());
+        QCOMPARE(base->specialValueText(), QStringLiteral("Automatic"));
         QVERIFY(!base->isEnabled());
+        QVERIFY(!automatic->isEnabled());
         QVERIFY(!binds->isEnabled());
         clock->setCurrentIndex(clock->findData("INDEPENDENT"));
-        QVERIFY(base->isEnabled());
+        QVERIFY(automatic->isEnabled());
+        QVERIFY(!base->isEnabled());
         QVERIFY(binds->isEnabled());
         QVERIFY(!binds->isChecked());
+        automatic->setChecked(false);
+        QVERIFY(base->isEnabled());
+        QCOMPARE(base->value(), 1.);
         base->setValue(.125);
         char value[64]{};
         QCOMPARE(swmm_gw2d_option_get(engine.handle, "GW_CLOCK", value, sizeof value), SWMM_OK);
         QCOMPARE(QByteArray(value), QByteArray("SHARED"));
         dialog.reject();
         QCOMPARE(swmm_gw2d_option_get(engine.handle, "GW_BASE_STEP", value, sizeof value), SWMM_OK);
-        QCOMPARE(QString::fromUtf8(value).toDouble(), 1.);
+        QCOMPARE(QByteArray(value), QByteArray("AUTO"));
         Mesh2DGroundwaterDialog unavailable(nullptr);
         QVERIFY(!unavailable.findChild<QComboBox *>("gwClock")->isEnabled());
     }
@@ -512,6 +521,7 @@ LID Stack .2
                                       Mesh2DGroundwaterDialog::Page::Options);
         auto *clock = dialog.findChild<QComboBox *>("gwClock");
         clock->setCurrentIndex(clock->findData("INDEPENDENT"));
+        dialog.findChild<QCheckBox *>("gwClock_GW_BASE_STEP_auto")->setChecked(false);
         // A maximum below the base is valid and must remain selectable.
         const QMap<QString, double> values{{"GW_BASE_STEP", .125},
                                            {"GW_MAX_STEP", .0625},
@@ -552,7 +562,60 @@ LID Stack .2
         QCOMPARE(restored.findChild<QComboBox *>("gwClock")->currentData().toString(),
                  QStringLiteral("INDEPENDENT"));
         QCOMPARE(restored.findChild<QDoubleSpinBox *>("gwClock_GW_BASE_STEP")->value(), .125);
+        QVERIFY(!restored.findChild<QCheckBox *>("gwClock_GW_BASE_STEP_auto")->isChecked());
         QVERIFY(restored.findChild<QCheckBox *>("gwBindsSurfaceDt")->isChecked());
+        QSignalSpy writes(&restored, &Mesh2DGroundwaterDialog::changesMayHaveBeenApplied);
+        restored.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Apply)->click();
+        QCOMPARE(writes.count(), 0);
+    }
+
+    void automaticBaseIntervalAppliesSavesAndReopens()
+    {
+        const QString output =
+            QFileInfo(QStringLiteral(__FILE__)).absolutePath() + "/data/gw_clock_options";
+        QVERIFY(QDir().mkpath(output));
+        const QString seed = QDir(output).filePath("automatic-seed.inp");
+        QFile file(seed);
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        file.write("[OPTIONS]\nFLOW_UNITS CMS\nFLOW_ROUTING DYNWAVE\n"
+                   "[JUNCTIONS]\nJ1 0 3\n[OUTFALLS]\nO1 -1 FREE\n"
+                   "[CONDUITS]\nC1 J1 O1 10 .013 0 0 0\n"
+                   "[XSECTIONS]\nC1 CIRCULAR 1 0 0 0 1\n"
+                   "[2D_AQUIFER_OPTIONS]\nGW_CLOCK INDEPENDENT\nGW_BASE_STEP 0.5\n");
+        file.close();
+        Engine engine(false);
+        QCOMPARE(
+            swmm_engine_open(engine.handle, seed.toUtf8().constData(), nullptr, nullptr, nullptr),
+            SWMM_OK);
+        Mesh2DGroundwaterDialog dialog(engine.handle, nullptr,
+                                       Mesh2DGroundwaterDialog::Page::Options);
+        auto *base = dialog.findChild<QDoubleSpinBox *>("gwClock_GW_BASE_STEP");
+        auto *automatic = dialog.findChild<QCheckBox *>("gwClock_GW_BASE_STEP_auto");
+        QVERIFY(!automatic->isChecked());
+        QCOMPARE(base->value(), .5);
+        automatic->setChecked(true);
+        QVERIFY(!base->isEnabled());
+        QSignalSpy applied(&dialog, &Mesh2DGroundwaterDialog::applied);
+        dialog.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Apply)->click();
+        QCOMPARE(applied.count(), 1);
+        char value[64]{};
+        QCOMPARE(swmm_gw2d_option_get(engine.handle, "GW_BASE_STEP", value, sizeof value), SWMM_OK);
+        QCOMPARE(QByteArray(value), QByteArray("AUTO"));
+        // Unchecking brings back the last typed interval.
+        automatic->setChecked(false);
+        QCOMPARE(base->value(), .5);
+        automatic->setChecked(true);
+        const QString saved = QDir(output).filePath("automatic.inp");
+        QCOMPARE(swmm_model_write(engine.handle, saved.toUtf8().constData()), SWMM_OK);
+        QFile written(saved);
+        QVERIFY(written.open(QIODevice::ReadOnly));
+        QVERIFY(!written.readAll().contains("GW_BASE_STEP"));
+        Engine reopened(false);
+        QCOMPARE(swmm_engine_open(reopened.handle, saved.toUtf8().constData(), nullptr, nullptr,
+                                  nullptr),
+                 SWMM_OK);
+        Mesh2DGroundwaterDialog restored(reopened.handle);
+        QVERIFY(restored.findChild<QCheckBox *>("gwClock_GW_BASE_STEP_auto")->isChecked());
         QSignalSpy writes(&restored, &Mesh2DGroundwaterDialog::changesMayHaveBeenApplied);
         restored.findChild<QDialogButtonBox *>()->button(QDialogButtonBox::Apply)->click();
         QCOMPARE(writes.count(), 0);

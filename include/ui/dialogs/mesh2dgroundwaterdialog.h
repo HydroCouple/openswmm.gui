@@ -372,9 +372,12 @@ private:
     QMap<QString, QWidget *> m_transportOptions;
     QComboBox *m_clockCombo = nullptr;
     QMap<QString, QDoubleSpinBox *> m_clockNumbers;
+    QCheckBox *m_baseStepAuto = nullptr; ///< GW_BASE_STEP AUTO; the engine picks the interval.
+    double m_baseStepManual = 1.;        ///< Last typed base interval, restored on unchecking.
     QCheckBox *m_bindsSurfaceCheck = nullptr;
     QLabel *m_clockStatus = nullptr;
     bool m_clockOptionsSupported = false;
+    bool m_baseStepAutoSupported = false; ///< Engine accepts GW_BASE_STEP AUTO.
     std::vector<QWidget *> m_thermalFields;
 
     /**

@@ -20,6 +20,12 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Changed
 
+- **The groundwater base interval is Automatic by default.** In 2D Groundwater → Options, the
+  independent clock's **Base interval** has an **Automatic** box, checked for new and existing
+  models that never set it. The engine then uses 0.125 s when the aquifer exchanges with 1D
+  nodes and 1 s otherwise. Clear the box to type an interval; only a typed interval is saved.
+  Needs an engine with `GW_BASE_STEP AUTO`; with an older engine the box is hidden.
+
 - **MeshKit is built from its own repository.** The in-tree copy, `libraries/meshkit`, is
   removed. The build fetches MeshKit `v0.2.0` from
   [HydroCouple/Meshkit](https://github.com/HydroCouple/Meshkit), or uses `MESHKIT_SOURCE_DIR`
