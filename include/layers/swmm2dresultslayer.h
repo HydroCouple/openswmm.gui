@@ -1777,15 +1777,36 @@ public:
      *  at that vertex. */
     [[nodiscard]] bool fastSurfacePublished() const noexcept { return published_key_.fast; }
     /*! Corner depths {dv0, dv1, dv2} of every display triangle of the published fast surface,
-     *  equal to m_sceneTris' values in 12 bytes per triangle instead of a whole record; the
-     *  renderer's per-frame passes read these. nullptr unless the displayed frame is a fast
-     *  surface of the current geometry. Valid until the next publish or geometry change. */
+     *  in 12 bytes per triangle instead of a whole record; the renderer's per-frame passes read
+     *  these. A fast publish writes them only here, not into m_sceneTris (see
+     *  sceneTriangleDepthsDeferred()). nullptr unless the displayed frame is a fast surface of
+     *  the current geometry. Valid until the next publish or geometry change. */
     [[nodiscard]] const std::vector<std::array<float, 3>> *fastSceneCorners() const noexcept
     {
         return published_key_.fast && published_key_.geomRev == m_geomRevision &&
                        fast_scene_corners_.size() == size_t(m_sceneTris.size())
                    ? &fast_scene_corners_
                    : nullptr;
+    }
+    /*! Whether m_sceneTris' depth and dv0..2 lag the displayed frame. A fast publish leaves
+     *  them out of the triangle records (writing every record cost about 6 ms per 6M-cell
+     *  frame): its corner depths are in fastSceneCorners() and its cell depths in
+     *  sceneTriangleDepth(). Readers of those record fields call syncSceneTriangleDepths()
+     *  first. While true, fastSceneCorners() is not null. */
+    [[nodiscard]] bool sceneTriangleDepthsDeferred() const noexcept
+    {
+        return scene_tri_depths_deferred_;
+    }
+    /*! Writes the displayed fast frame's cell and corner depths into m_sceneTris; does nothing
+     *  unless sceneTriangleDepthsDeferred(). The CPU painters call it, and so does every path
+     *  that drops the compact copy. */
+    void syncSceneTriangleDepths();
+    /*! Cell depth of display triangle @p i in the displayed frame: m_sceneTris[i].depth, or
+     *  the cell's depth while a fast publish has left the records behind. */
+    [[nodiscard]] float sceneTriangleDepth(int i) const noexcept
+    {
+        return scene_tri_depths_deferred_ ? current_depths_[size_t(triCell_[size_t(i)])]
+                                          : m_sceneTris[i].depth;
     }
 
     /*! \brief Whether the run carries per-edge flux data at all, independent of
@@ -2792,6 +2813,13 @@ private:
     void installSceneCorners_(const std::vector<std::array<float, 3>> &corners, double peak,
                               bool parallel = false);
     /**
+     * @param[in] corners Per display triangle corner depths for the current geometry.
+     * @param[in] parallel As installSceneCorners_.
+     * @note Writes m_sceneTris' depth (from current_depths_) and dv0..2, and clears
+     *   scene_tri_depths_deferred_.
+     */
+    void writeSceneTriangleDepths_(const std::vector<std::array<float, 3>> &corners, bool parallel);
+    /**
      * @param[in] frame Retained source frame index; invalid index still creates a key with source
      *   revision fallback0.
      * @return Value identity combining source,geometry,policy,region,history generation,frame and
@@ -2949,6 +2977,7 @@ private:
     std::shared_ptr<const SurfaceJob> envelope_newest_; // newest frame; never frozen
     SurfaceKey published_key_, requested_key_;
     std::vector<std::array<float, 3>> fast_scene_corners_; // see fastSceneCorners()
+    bool scene_tri_depths_deferred_ = false;               // see sceneTriangleDepthsDeferred()
     quint64 policy_revision_ = 0, request_seq_ = 0, published_seq_ = 0, surface_epoch_ = 0;
     int requested_time_idx_ = -1, surface_fit_count_ = 0, live_min_fit_interval_ms_ = 1000;
     SurfaceTiming last_surface_timing_;

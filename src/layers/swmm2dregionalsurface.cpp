@@ -230,6 +230,7 @@ void SWMM2DResultsLayer::publishRegionalSurface_(const SurfaceJob &job)
         vvy_.assign(vx_.size(), 0);
         for (int c = 0; c < int(cells_.size()); ++c)
             clearCell(c);
+        scene_tri_depths_deferred_ = false; // every triangle record was just written
     } else {
         for (int c : published_region_->cells)
             clearCell(c);
