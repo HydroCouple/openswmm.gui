@@ -668,8 +668,8 @@ QWidget *Mesh2DGroundwaterDialog::buildOptionsPage()
         double maximum, initial;
     } clockFields[] = {
         {"GW_BASE_STEP", tr("&Base interval (s):"),
-         tr("Base check interval, in seconds. Automatic uses 0.125 s when the aquifer exchanges "
-            "with 1D nodes and 1 s otherwise. Physical stability can require shorter steps."),
+         tr("Base check interval, in seconds. Automatic uses 1 s, and 0.125 s for the cells that "
+            "exchange with 1D nodes. Physical stability can require shorter steps."),
          1e9, 1.},
         {"GW_MAX_STEP", tr("Ma&ximum groundwater step (s):"),
          tr("Maximum elapsed groundwater step, in seconds. It may be shorter than the base "
@@ -698,11 +698,11 @@ QWidget *Mesh2DGroundwaterDialog::buildOptionsPage()
             clockForm->addRow(field.label, spin);
             continue;
         }
-        // AUTO lets the engine choose 0.125 s when node beds exchange and 1 s otherwise.
+        // AUTO lets the engine choose: 0.125 s for cells with exchanging node beds, else 1 s.
         m_baseStepAuto = new QCheckBox(tr("&Automatic"), clock);
         m_baseStepAuto->setObjectName("gwClock_GW_BASE_STEP_auto");
-        m_baseStepAuto->setToolTip(tr("Let the engine choose the base interval: 0.125 s when "
-                                      "the aquifer exchanges with 1D nodes, 1 s otherwise."));
+        m_baseStepAuto->setToolTip(tr("Let the engine choose the base interval: 0.125 s for "
+                                      "the cells that exchange with 1D nodes, 1 s elsewhere."));
         m_baseStepAuto->setAccessibleDescription(m_baseStepAuto->toolTip());
         m_baseStepAuto->setVisible(m_baseStepAutoSupported);
         auto *row = new QWidget(clock);
@@ -765,8 +765,8 @@ void Mesh2DGroundwaterDialog::refreshClockGates()
             ? tr("This engine does not provide independent groundwater stepping.")
         : independent
             ? tr("Experimental independent stepping requires first-order CPU integration. "
-                 "The automatic base interval is 0.125 s when the aquifer exchanges with 1D "
-                 "nodes and 1 s otherwise.")
+                 "The automatic base interval is 1 s, and 0.125 s for the cells that "
+                 "exchange with 1D nodes.")
             : tr("Groundwater follows the surface clock. Shared stepping always includes "
                  "the groundwater stability limit in the surface step."));
     m_clockStatus->setAccessibleDescription(m_clockStatus->text());
