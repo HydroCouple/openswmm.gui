@@ -22,8 +22,9 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 - **The groundwater base interval is Automatic by default.** In 2D Groundwater → Options, the
   independent clock's **Base interval** has an **Automatic** box, checked for new and existing
-  models that never set it. The engine then uses 0.125 s when the aquifer exchanges with 1D
-  nodes and 1 s otherwise. Clear the box to type an interval; only a typed interval is saved.
+  models that never set it. The engine then uses 1 s, and 0.125 s for the cells that exchange
+  with 1D nodes. Clear the box to type one interval for every cell; only a typed interval is
+  saved.
   Needs an engine with `GW_BASE_STEP AUTO`; with an older engine the box is hidden.
 - **Large 2D result frames take less of the GUI thread.** On meshes over 250,000 cells, a new
   frame's corner depths are no longer copied into every display triangle; the map, flow streaks
