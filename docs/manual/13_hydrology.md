@@ -365,6 +365,22 @@ After a run, the **Frozen Ground** row of a subcatchment in the Properties panel
 shows the ground temperature, the frozen share and the infiltration factor, or
 **Not set** when no row covers the subcatchment.
 
+**Editing one subcatchment's row in place.** The ten values of a subcatchment's
+own row also appear as **Frozen Ground: …** rows in the Properties panel and as
+columns of the subcatchment Attribute Table, in SI units. A blank value means the
+subcatchment has no row of its own and uses the `*` row, if the model has one.
+Entering a value creates the row, starting from the `*` row or the defaults
+above; clearing any value removes the subcatchment's row. Each edit is one undo
+step, a value the engine refuses is put back with the reason, and with several
+subcatchments selected the edit is applied to all of them. The `*` row itself is
+edited in the dialog.
+
+**Results.** A run of a model with `[FROZEN_GROUND]` rows saves two more
+subcatchment series, **Frozen ground fraction** and **Frozen ground temperature**
+(°C), which can be plotted like any other subcatchment result. A model with
+`[2D_FROZEN_GROUND]` rows saves the same two quantities per cell in the 2D
+results file, where they can be mapped; cells that no row covers have no value.
+
 ### Aquifer editor
 
 **Model → Data Objects → Aquifers…** opens a three-pane editor: the aquifer list

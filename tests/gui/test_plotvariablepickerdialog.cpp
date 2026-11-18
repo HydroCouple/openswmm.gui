@@ -197,7 +197,7 @@ private slots:
  *
  * @brief Pin canonical attribute counts, duplicate freedom, system classification and menu-order
  * anchors.
- * Checks node6/link5/subcatch17/system15 and selected snow units even under US metadata;
+ * Checks node6/link5/subcatch19/system15 and selected snow units even under US metadata;
  * does not compare every full list element or read any numerical output samples.
  *
  */
@@ -205,7 +205,11 @@ void TestPlotVariablePickerDialog::attributeListsPinned()
 {
     QCOMPARE(nodePlotAttributes().size(), 6);
     QCOMPARE(linkPlotAttributes().size(), 5);
-    QCOMPARE(subcatchPlotAttributes().size(), 17);
+    QCOMPARE(subcatchPlotAttributes().size(), 19);
+    QCOMPARE(labelFor(PlotAttribute::SubcatchFrozenFraction),
+             QStringLiteral("Frozen ground fraction"));
+    QCOMPARE(unitsFor(PlotAttribute::SubcatchFrozenGroundTemp, UnitSystem::US),
+             QStringLiteral("°C"));
     QCOMPARE(unitsFor(PlotAttribute::SubcatchSnowSWE, UnitSystem::US), QStringLiteral("m"));
     QCOMPARE(unitsFor(PlotAttribute::SubcatchSnowSurfaceTemp, UnitSystem::US),
              QStringLiteral("°C"));
@@ -286,7 +290,7 @@ void TestPlotVariablePickerDialog::groupsPerSelectedFeature()
     QCOMPARE(tree->topLevelItem(0)->childCount(), 15);
     QCOMPARE(tree->topLevelItem(1)->childCount(), 6);  // Node J1
     QCOMPARE(tree->topLevelItem(2)->childCount(), 5);  // Link C1
-    QCOMPARE(tree->topLevelItem(3)->childCount(), 17); // Subcatchment S1
+    QCOMPARE(tree->topLevelItem(3)->childCount(), 19); // Subcatchment S1
     QVERIFY(tree->topLevelItem(1)->text(0).contains(QStringLiteral("J1")));
 }
 

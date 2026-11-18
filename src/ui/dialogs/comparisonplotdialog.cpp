@@ -1731,6 +1731,8 @@ void ComparisonPlotDialog::onAddSeriesClicked()
     case PlotAttribute::SubcatchSnowMelt:
     case PlotAttribute::SubcatchSnowInput:
     case PlotAttribute::SubcatchSnowSublimation:
+    case PlotAttribute::SubcatchFrozenFraction:
+    case PlotAttribute::SubcatchFrozenGroundTemp:
     case PlotAttribute::SubcatchRainfall:
     case PlotAttribute::SubcatchSnowDepth:
     case PlotAttribute::SubcatchEvap:

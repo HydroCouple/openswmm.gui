@@ -7,6 +7,8 @@
 #include "ui/dialogs/inheritedpropertiesdialog.h"
 #include "ui/models/userflagsmodel.h"
 #include "ui/heatpropertyedit.h"
+#include "ui/frozengroundfields.h"
+#include <openswmm/engine/openswmm_subcatchments.h>
 #include "ui/properties/initialqualityeditbutton.h"
 #include "ui/properties/swmmnodepropertyadapter.h"
 #include "render/renderers/categorizedrenderer.h"
@@ -165,6 +167,64 @@ private slots:
         for (auto t : targets) QCOMPARE(heat(reopened.engine(), t, attr), QVariant(value));
         QVERIFY(inheritedproperties::apply(layer.get(), edits(targets, key, ""), &undo)); for (auto t : targets) QVERIFY(!heat(e, t, attr).isValid());
         undo.undo(); for (auto t : targets) QCOMPARE(heat(e, t, attr), QVariant(value));
+    }
+    // One value of a subcatchment's [FROZEN_GROUND] row at a time: the first value creates the
+    // row from the * row or the defaults, clearing one removes the row, and undo restores it whole.
+    void frozenGroundFields() {
+        using OpenSWMMVis::FrozenGroundValues; using OpenSWMMVis::frozenGroundRow;
+        auto layer = fixture(true); QVERIFY(layer); auto e = layer->engine(); QUndoStack undo;
+        const QList<Ref> both{{Ref::Subcatchment, "S1"}, {Ref::Subcatchment, "S2"}};
+        const auto defaults = OpenSWMMVis::frozenGroundDefaults();
+        FrozenGroundValues row{};
+        QVERIFY(!frozenGroundRow(e, "S1", nullptr));
+        QVERIFY(inheritedproperties::field("frost.conductivity"));
+        QVERIFY(!inheritedproperties::field("frost.unknown"));
+        QVERIFY(!inheritedproperties::editable(layer.get(), {Ref::Node, "J1"}, "frost.thickness"));
+        QVERIFY(inheritedproperties::editable(layer.get(), {Ref::Subcatchment, "S1"}, "frost.thickness"));
+        QSignalSpy dirty(layer.get(), &SWMMModelLayer::modelEdited);
+        QString error;
+        QVERIFY2(inheritedproperties::apply(layer.get(), edits(both, "frost.conductivity", 2.25), &undo, &error), qPrintable(error));
+        QCOMPARE(undo.count(), 1); QCOMPARE(dirty.count(), 1);
+        for (auto name : {"S1", "S2"}) {
+            QVERIFY(frozenGroundRow(e, name, &row));
+            auto expected = defaults; expected[1] = 2.25; QCOMPARE(row, expected);
+        }
+        QVERIFY(!frozenGroundRow(e, "SC", nullptr));
+        QVERIFY(inheritedproperties::apply(layer.get(), edits({{Ref::Subcatchment, "S1"}}, "frost.thickness", "0.3"), &undo));
+        QCOMPARE(undo.count(), 2);
+        QVERIFY(frozenGroundRow(e, "S1", &row)); QCOMPARE(row[0], 0.3); QCOMPARE(row[1], 2.25);
+        // A value the engine refuses leaves the row as it was.
+        QVERIFY(!inheritedproperties::apply(layer.get(), edits({{Ref::Subcatchment, "S1"}}, "frost.thickness", -1.0), &undo, &error));
+        QCOMPARE(undo.count(), 2);
+        QVERIFY(frozenGroundRow(e, "S1", &row)); QCOMPARE(row[0], 0.3);
+        // The attribute table shows the object's own values and blanks where it has none.
+        SWMMAttributeTableModel source; source.setSource(layer.get(), SWMMModelLayer::CatSubcatchments);
+        QVERIFY(source.columnKeys().contains("frost.snowDensity"));
+        QCOMPARE(field(source, "S1", "frost.thickness").data(), QVariant(0.3));
+        QVERIFY(!field(source, "SC", "frost.thickness").data().isValid());
+        // Save and reopen.
+        const auto path = QDir(folder()).filePath("frozen-ground.inp");
+        QCOMPARE(swmm_model_write(e, path.toUtf8().constData()), SWMM_OK);
+        {
+            SWMMModelLayer reopened(path); QList<QString> warnings, errors; QVERIFY2(reopened.loadModel(warnings, errors), qPrintable(errors.join(' ')));
+            FrozenGroundValues saved{}; QVERIFY(frozenGroundRow(reopened.engine(), "S1", &saved)); QCOMPARE(saved, row);
+        }
+        // Clearing any value removes the row; undo brings every value back.
+        const auto full = row;
+        QVERIFY(inheritedproperties::apply(layer.get(), edits({{Ref::Subcatchment, "S1"}}, "frost.exponent", ""), &undo));
+        QVERIFY(!frozenGroundRow(e, "S1", nullptr));
+        QVERIFY(!field(source, "S1", "frost.thickness").data().isValid());
+        undo.undo(); QVERIFY(frozenGroundRow(e, "S1", &row)); QCOMPARE(row, full);
+        undo.undo(); QVERIFY(frozenGroundRow(e, "S1", &row)); QCOMPARE(row[0], defaults[0]); QCOMPARE(row[1], 2.25);
+        undo.undo(); QVERIFY(!frozenGroundRow(e, "S1", nullptr)); QVERIFY(!frozenGroundRow(e, "S2", nullptr));
+        undo.redo(); undo.redo(); QVERIFY(frozenGroundRow(e, "S1", &row)); QCOMPARE(row, full);
+        // With a * row, a new row starts from it.
+        auto star = defaults; star[3] = 0.42; star[6] = -2.0;
+        QCOMPARE(swmm_frozen_ground_set(e, 0, "*", star.data()), SWMM_OK);
+        QVERIFY(inheritedproperties::apply(layer.get(), edits({{Ref::Subcatchment, "SC"}}, "frost.deepDepth", 4.0), &undo));
+        auto expected = star; expected[5] = 4.0;
+        QVERIFY(frozenGroundRow(e, "SC", &row)); QCOMPARE(row, expected);
+        QVERIFY(frozenGroundRow(e, "*", &row)); QCOMPARE(row, star);
     }
     void flagTypes_data() {
         QTest::addColumn<bool>("si"); QTest::addColumn<QString>("key"); QTest::addColumn<QVariant>("value");

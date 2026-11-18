@@ -78,6 +78,10 @@ int SwmmOutRunLayer::variableCodeFor(PlotAttribute attr, ObjectRef::Kind kind)
             return SWMM_OUT_SUBCATCH_SNOW_INPUT;
         case PlotAttribute::SubcatchSnowSublimation:
             return SWMM_OUT_SUBCATCH_SNOW_SUBLIMATION;
+        case PlotAttribute::SubcatchFrozenFraction:
+            return SWMM_OUT_SUBCATCH_FROZEN_FRACTION;
+        case PlotAttribute::SubcatchFrozenGroundTemp:
+            return SWMM_OUT_SUBCATCH_FROZEN_GROUND_TEMP;
         case PlotAttribute::SubcatchRainfall:
             return SWMM_OUT_SUBCATCH_RAINFALL;
         case PlotAttribute::SubcatchSnowDepth:

@@ -9,6 +9,8 @@
 
 #include "ui/properties/swmmsubcatchpropertyadapter.h"
 #include "ui/subcatchloadingfields.h"
+#include "ui/frozengroundfields.h"
+#include "core/displaynumber.h"
 
 #include "core/unitsystem.h"
 #include "layers/swmmmodellayer.h"            // USER_FLAGS Phase 4 — ensureUserFlagsModel()
@@ -115,6 +117,12 @@ QString SWMMSubcatchPropertyAdapter::displayLabelFor(const QString &property) co
     }
     if (property == QLatin1String("frozenGround"))
         return tr("Frozen Ground");
+    for (int f = 0; f < OpenSWMMVis::kFrozenGroundValueCount; ++f) {
+        QString name = QLatin1String(OpenSWMMVis::frozenGroundFields()[std::size_t(f)].key);
+        name[0] = name[0].toUpper();
+        if (property == QLatin1String("frost") + name)
+            return tr("Frozen Ground: %1").arg(OpenSWMMVis::frozenGroundFieldLabel(f));
+    }
 
     return {};
 }
@@ -131,6 +139,25 @@ QString SWMMSubcatchPropertyAdapter::frozenGround() const
     return tr("%1 °C, %2% frozen, infiltration factor %3")
         .arg(QString::number(temperature, 'f', 1), QString::number(100.0 * frozen, 'f', 0),
              QString::number(factor, 'g', 3));
+}
+
+QString SWMMSubcatchPropertyAdapter::frozenGroundText(int field) const
+{
+    OpenSWMMVis::FrozenGroundValues values{};
+    if (field < 0 || field >= OpenSWMMVis::kFrozenGroundValueCount ||
+        !OpenSWMMVis::frozenGroundRow(m_engine, m_name, &values))
+        return {};
+    return openswmmvis::displayNumber(values[std::size_t(field)]);
+}
+
+void SWMMSubcatchPropertyAdapter::setFrozenGroundText(int field, const QString &text)
+{
+    if (field < 0 || field >= OpenSWMMVis::kFrozenGroundValueCount || idx() < 0)
+        return;
+    if (text.trimmed() == frozenGroundText(field))
+        return;
+    if (!routeField(OpenSWMMVis::frozenGroundFieldKey(field).toLatin1().constData(), text.trimmed()))
+        emit changed(); // not written: put the editor back
 }
 
 int SWMMSubcatchPropertyAdapter::idx() const

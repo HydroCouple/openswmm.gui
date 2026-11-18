@@ -8,6 +8,7 @@
  */
 
 #include "ui/dialogs/frozengroundrowmodel.h"
+#include "ui/frozengroundfields.h"
 
 #include "ui/dialogs/mesh2dsectionrowmodel.h"
 
@@ -99,7 +100,7 @@ QString FrozenGroundRowModel::sectionName() const
 
 std::array<double, FrozenGroundRowModel::ValueCount> FrozenGroundRowModel::defaultValues()
 {
-    return {0.15, 1.5, 2.4e6, 0.30, 8.0, 3.0, 5.0, 11.0, 0.25, 250.0};
+    return OpenSWMMVis::frozenGroundDefaults();
 }
 
 int FrozenGroundRowModel::rowCount(const QModelIndex &parent) const
