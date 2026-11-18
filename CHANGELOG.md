@@ -200,6 +200,13 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Fixed
 
+- **Saving mesh edits no longer fails on meshes with shared edges.** The engine takes
+  boundary conditions on exterior edges only, and the mesh sync still sent a boundary write
+  to every edge, so Save reported that mesh edits could not be synchronized. The sync now
+  writes boundary conditions to exterior edges only, pushes the conveyance of a shared edge
+  once (from its lower-numbered cell, which the engine mirrors to the other side), and warns
+  if an interior edge carries a boundary condition, which is not saved.
+
 - **The complete 2D tutorial model's rating curve is written as water-surface stage.**
   The engine reads a rating curve's x values as stage, and `DOWN_RC` was written as depth
   above the bed, so the curve drained its boundary cell dry under every momentum

@@ -517,18 +517,35 @@ bool pushMeshEditsToEngine(SWMM_Engine engine, const MeshResult &mesh,
     }
 
     using T = MeshBCTypes::Type;
+    int interiorWithBc = 0;
     for (int t = 0; t < nt; ++t) {
         const int ne = mesh.triangles[t].vertexCount();
+        // The engine takes boundary conditions on exterior edges only and refuses a
+        // boundary write (even one that clears a name) on an edge shared by two cells.
+        int neighbors[4] = {-2, -2, -2, -2}, engineEdges = 0;
+        if (!accepted(swmm_2d_cell_get_neighbours(engine, t, neighbors, &engineEdges),
+                      "cell neighbors", t))
+            return false;
         for (int e = 0; e < ne; ++e) {
             const MeshEdgeBC &b = bcs[edgeSlot(t, e)];
 
-            // Conveyance is dimensionless; push every edge so resets back to
-            // the 1.0 default propagate too (interior edges are mirrored by
-            // the engine).
-            if (!accepted(swmm_2d_set_edge_conveyance(engine, t, e, b.conveyance),
-                          "edge conveyance", t, e))
-                return false;
-            ++perf.edgePushed;
+            const bool interior = e < engineEdges && neighbors[e] >= 0;
+            // Conveyance is dimensionless; push defaults too so a reset to 1.0 propagates.
+            // The engine mirrors an interior edge's value to the cell across it, so each
+            // shared edge is pushed once, from its lower-numbered cell: pushing the other
+            // side as well would overwrite the first value with the second.
+            if (!interior || t < neighbors[e]) {
+                if (!accepted(swmm_2d_set_edge_conveyance(engine, t, e, b.conveyance),
+                              "edge conveyance", t, e))
+                    return false;
+                ++perf.edgePushed;
+            }
+
+            if (interior) {
+                if (b.type != T::Wall)
+                    ++interiorWithBc;
+                continue;
+            }
 
             // Clear all name slots first so a stale timeseries/curve name from
             // the loaded model can't mask a freshly-edited constant value
@@ -609,6 +626,10 @@ bool pushMeshEditsToEngine(SWMM_Engine engine, const MeshResult &mesh,
         }
     }
 
+    if (interiorWithBc > 0)
+        warn(QStringLiteral("%1 interior mesh edge(s) carry a boundary condition. A boundary "
+                            "condition applies to exterior edges only, so these were not saved.")
+                 .arg(interiorWithBc));
     return true;
 }
 
