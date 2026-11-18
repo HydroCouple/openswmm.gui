@@ -843,6 +843,14 @@ public:
                 connect(endpoint, &LinkEndpointComboBox::valueChanged, self,
                         [self, w] { emit self->commitData(w); });
             }
+            // The library editor commits only when the row is left, so a pick
+            // followed by a click on the map or Save was dropped.
+            auto *self = const_cast<PropertyStepDelegate *>(this);
+            const auto commit = [self, w] { emit self->commitData(w); };
+            if (auto *picker = w->findChild<DataObjectPickerEditor *>())
+                connect(picker, &DataObjectPickerEditor::valueChanged, self, commit);
+            if (auto *interval = w->findChild<RainIntervalComboBox *>())
+                connect(interval, &RainIntervalComboBox::valueChanged, self, commit);
         }
         // The library wraps the spin box in its own editor widget.
         auto *spin = qobject_cast<QDoubleSpinBox *>(w);
