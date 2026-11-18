@@ -25,6 +25,8 @@
 #include <QUndoStack>
 #include <QVector>
 
+#include <algorithm>
+
 using openswmmvis::timeseries::TimeseriesPoint;
 using openswmmvis::timeseries::TimeseriesProvider;
 using openswmmvis::ui::TimeseriesEditChartView;
@@ -208,6 +210,41 @@ private slots:
         // Provider unchanged.
         QCOMPARE(p.pointAt(0).value, 1.0);
         QCOMPARE(p.pointAt(1).value, 2.0);
+    }
+
+    /** @brief Verify a small series stays off the OpenGL path on Windows (no QOpenGLWidget in the
+     *         view, so its window is not re-created) and a large series is accelerated everywhere. */
+    void openGlPathFollowsSeriesSize()
+    {
+        const auto hasOpenGLWidget = [](const TimeseriesEditChartView &view) {
+            const auto children = view.findChildren<QWidget *>();
+            return std::any_of(children.begin(), children.end(),
+                               [](const QWidget *w) { return w->inherits("QOpenGLWidget"); });
+        };
+        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        QVERIFY(p.setAllPoints(fixture()));
+        TimeseriesEditChartView v(&p);
+        v.resize(400, 300);
+        v.show();
+        QTest::qWait(50);
+        QLineSeries *line = nullptr;
+        for (auto *s : v.chart()->series())
+            if ((line = qobject_cast<QLineSeries *>(s)))
+                break;
+        QVERIFY(line);
+#ifdef Q_OS_WIN
+        QVERIFY(!line->useOpenGL());
+        QVERIFY(!hasOpenGLWidget(v));
+#endif
+
+        QVector<TimeseriesPoint> large;
+        const QDateTime start = t(2026, 1, 1, 0);
+        for (int i = 0; i < 50001; ++i)
+            large.append({start.addSecs(60 * i), double(i % 7)});
+        QVERIFY(p.setAllPoints(large));
+        QTest::qWait(50);
+        QVERIFY(line->useOpenGL());
+        QVERIFY(hasOpenGLWidget(v));
     }
 };
 

@@ -18,6 +18,7 @@
 #include <QChart>
 #include <QContextMenuEvent>
 #include <QDateTime>
+#include "plot/seriesacceleration.h"
 #include "plot/utctimeaxis.h"
 #include <QElapsedTimer>
 #include <QLineSeries>
@@ -84,8 +85,11 @@ TimeseriesEditChartView::TimeseriesEditChartView(TimeseriesProvider *provider, Q
     // QPointF gets per-frame software-projected). OpenGL acceleration off-
     // loads the projection + draw to the GPU; required to make NOAA-scale
     // rainfall files (~2M points) plot without freezing the UI thread.
-    m_line->setUseOpenGL(true);
-    m_scatter->setUseOpenGL(true);
+    // See seriesUsesOpenGL for why Windows only accelerates large series.
+    const bool accelerate =
+        openswmmvis::plot::seriesUsesOpenGL(m_provider ? m_provider->pointCount() : 0);
+    m_line->setUseOpenGL(accelerate);
+    m_scatter->setUseOpenGL(accelerate);
 
     m_scatter->setMarkerSize(kRegularMarker);
     m_selectedScatter->setMarkerSize(kSelectedMarker);
@@ -191,6 +195,10 @@ void TimeseriesEditChartView::refreshSeriesFromProvider_()
     qCDebug(lcTsLoadChart) << "  built QPointF list in" << tBuildMs << "ms";
     QElapsedTimer tReplace;
     tReplace.start();
+    // A file load or paste can carry the series across the threshold.
+    const bool accelerate = openswmmvis::plot::seriesUsesOpenGL(n);
+    m_line->setUseOpenGL(accelerate);
+    m_scatter->setUseOpenGL(accelerate);
     m_line->replace(pts);
     const qint64 tLineMs = tReplace.elapsed();
     tReplace.restart();

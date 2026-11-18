@@ -13,6 +13,7 @@
 
 #include "core/swmmdatetimeformat.h"
 #include "layers/swmmmodellayer.h"
+#include "plot/seriesacceleration.h"
 #include "plot/seriesstyle.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
 #include "ui/theme/themehelpers.h"
@@ -399,7 +400,7 @@ void RainfallVisualizationDialog::rebuildCharts_()
         const auto pts = RainfallSeriesModel::buildStepSeries(g, b);
         auto *s = new QLineSeries(m_overlay.chart);
         s->setName(g.id);
-        s->setUseOpenGL(true);
+        s->setUseOpenGL(openswmmvis::plot::seriesUsesOpenGL(pts.size()));
         s->replace(pts);
         openswmmvis::plot::applySeriesStyle(openswmmvis::plot::defaultStyleForCycle(gi), s);
         m_overlay.chart->addSeries(s);
@@ -456,7 +457,7 @@ void RainfallVisualizationDialog::rebuildCharts_()
         const auto pts = RainfallSeriesModel::buildStepSeries(g, b);
         auto *s = new QLineSeries(p.chart);
         s->setName(g.id);
-        s->setUseOpenGL(true);
+        s->setUseOpenGL(openswmmvis::plot::seriesUsesOpenGL(pts.size()));
         s->replace(pts);
         openswmmvis::plot::applySeriesStyle(openswmmvis::plot::defaultStyleForCycle(gi), s);
         p.chart->addSeries(s);
