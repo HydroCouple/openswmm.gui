@@ -179,6 +179,8 @@ add_swmmvis_unit_test(test_meshobjectref
     ${PROJECT_SOURCE_DIR}/include/mesh/meshobjectref.h
     ${PROJECT_SOURCE_DIR}/src/mesh/meshobjectref.cpp
 )
+# meshobjectref.cpp includes MeshKit's mesh/meshcellgeom.h.
+target_link_libraries(test_meshobjectref PRIVATE meshkit::runtime)
 
 add_swmmvis_unit_test(test_meshbctype
     test_meshbctype.cpp
