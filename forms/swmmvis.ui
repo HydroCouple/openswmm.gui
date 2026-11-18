@@ -677,6 +677,7 @@
      <addaction name="actionWind"/>
      <addaction name="actionSnow"/>
      <addaction name="actionSolarRadiation"/>
+     <addaction name="actionFrozenGround"/>
     </widget>
     <addaction name="menuAddNode"/>
     <addaction name="menuAddLink"/>
@@ -1784,6 +1785,21 @@
    </property>
    <property name="toolTip">
     <string>Travel Time Upstream</string>
+   </property>
+   <property name="menuRole">
+    <enum>QAction::TextHeuristicRole</enum>
+   </property>
+  </action>
+  <action name="actionFrozenGround">
+   <property name="icon">
+    <iconset resource="../resources/swmmvis.qrc">
+     <normaloff>:/swmmvis/Snow</normaloff>:/swmmvis/Snow</iconset>
+   </property>
+   <property name="text">
+    <string>Frozen Ground…</string>
+   </property>
+   <property name="toolTip">
+    <string>Frozen ground: a ground layer that freezes and thaws and limits infiltration, by subcatchment and by mesh tag</string>
    </property>
    <property name="menuRole">
     <enum>QAction::TextHeuristicRole</enum>

@@ -405,6 +405,7 @@ void SWMMVis::initializeCompactToolbar()
         {"actionSnow", QT_TR_NOOP("Climate")},
         {"actionEvaporation", QT_TR_NOOP("Climate")},
         {"actionSolarRadiation", QT_TR_NOOP("Climate")},
+        {"actionFrozenGround", QT_TR_NOOP("Climate")},
         {"actionOptions", QT_TR_NOOP("Simulation\nOptions")},
         {"actionImportFeatureLayer", QT_TR_NOOP("Import\nFeatures")},
         {"actionGenerateMesh", QT_TR_NOOP("Generate\nMesh")},
@@ -542,7 +543,8 @@ void SWMMVis::initializeCompactToolbar()
         // member (persisted per family id) and mirrors its checked state.
         group->addFamily(QStringLiteral("climate"),
                          resolve({"actionTemperature", "actionWind", "actionSnow",
-                                  "actionEvaporation", "actionSolarRadiation"}));
+                                  "actionEvaporation", "actionSolarRadiation",
+                                  "actionFrozenGround"}));
     }
     addStacks(addGroup(mToolBarModel, tr("Data Objects"), {}),
               {{"actionNewTimeSeries", "actionNewCurve", "actionNewPattern"},

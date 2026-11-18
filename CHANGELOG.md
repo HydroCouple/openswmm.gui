@@ -65,6 +65,14 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Added
 
+- **Frozen Ground editor.** **Model → Climate → Frozen Ground…** edits the
+  engine's `[FROZEN_GROUND]` rows by subcatchment and `[2D_FROZEN_GROUND]` rows
+  by mesh tag (a ground layer that freezes and thaws and limits infiltration).
+  Edits are a draft until Apply; both pages are validated, written together and
+  put back if a write fails. The subcatchment Properties panel shows a
+  read-only **Frozen Ground** row with ground temperature, frozen share and
+  infiltration factor. Requires the matching engine update.
+
 - **Initial water surface elevation for 2D cells.** A cell's starting water can be
   given as an **Initial HGL** instead of an initial depth: in the mesh generation
   dialog (**Initial condition**, mesh-wide and per region), the mesh attribute

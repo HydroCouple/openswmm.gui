@@ -103,6 +103,8 @@ class SWMMSubcatchPropertyAdapter : public QObject
     Q_PROPERTY(double statPrecip READ statPrecip NOTIFY changed)
     Q_PROPERTY(double statRunoffVol READ statRunoffVol NOTIFY changed)
     Q_PROPERTY(double statMaxRunoff READ statMaxRunoff NOTIFY changed)
+    // Read-only frozen-ground state ([FROZEN_GROUND]); edited in the Frozen Ground dialog.
+    Q_PROPERTY(QString frozenGround READ frozenGround NOTIFY changed)
 
 public:
     /*! Infiltration model codes (engine [INFILTRATION] order). */
@@ -307,6 +309,13 @@ public:
      * @details Duration wrappers convert ambient engine seconds to hours; external result layers already expose hours. Statistics do not alter current model inputs.
      */
     [[nodiscard]] double statMaxRunoff() const;
+    /**
+     * @brief Describe the frozen-ground state of the pervious area from the live engine.
+     * @return "Not set" when no [FROZEN_GROUND] row covers the subcatchment; otherwise the
+     * ground temperature in degrees Celsius, the frozen share in percent and the infiltration
+     * factor, as they stand after the last runoff step (the initial state before a run).
+     */
+    [[nodiscard]] QString frozenGround() const;
 
     /*! Stats-source dispatch — see SWMMNodePropertyAdapter (Slice QA.2)
      *  for the full contract.

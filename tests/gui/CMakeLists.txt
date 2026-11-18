@@ -5005,6 +5005,23 @@ target_compile_definitions(test_gwqualityroweditors PRIVATE
     SWMMVIS_QUALITY_EDITORS_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/gw_quality_editors_2026-10-30"
     SWMMVIS_BELLINGE_GW_QUALITY_INP="${CMAKE_SOURCE_DIR}/examples/bellinge_2d_gw_quality/BellingeSWMM_v021_gw_quality.inp")
 
+# Frozen ground (2026-11-17): the staged [FROZEN_GROUND] / [2D_FROZEN_GROUND] row model and
+# its dialog. Edit, commit, write and reopen; files are kept under tests/output for review.
+add_swmmvis_gui_test(test_frozengroundeditor
+    test_frozengroundeditor.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/frozengroundrowmodel.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/frozengroundrowmodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/frozengrounddialog.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/frozengrounddialog.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/mesh2dsectionrowmodel.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2dsectionrowmodel.cpp
+    ${CMAKE_SOURCE_DIR}/include/ui/dialogs/mesh2dsectionroweditor.h
+    ${CMAKE_SOURCE_DIR}/src/ui/dialogs/mesh2dsectionroweditor.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/groundwatertransportassignment.cpp
+    ${CMAKE_SOURCE_DIR}/src/assignment/groundwaterassignment.cpp)
+target_compile_definitions(test_frozengroundeditor PRIVATE
+    SWMMVIS_FROZEN_GROUND_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/frozen_ground_editor_2026-11-17")
+
 # The 2D Groundwater dialog now also hosts the source, transport-row and
 # conduit-link editors (same Phase 3a models).
 target_sources(test_mesh2dgroundwaterdialog PRIVATE

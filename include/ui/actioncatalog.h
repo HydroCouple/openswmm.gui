@@ -201,6 +201,8 @@ inline constexpr ActionCatalogEntry kActionCatalog[] = {
     {"climate.snow", "actionSnow", "Climate", "", "Snow", "model", "Model/Climate", NoTags},
     {"climate.solarRadiation", "actionSolarRadiation", "Climate", "", "Sun", "model",
      "Model/Climate", NoTags},
+    {"climate.frozenGround", "actionFrozenGround", "Climate", "", "Snow", "model",
+     "Model/Climate", NoTags},
 
     // ── Data objects (programmatic Data menu; objectNames assigned at
     //    creation in initializeMenus) ─────────────────────────────────────

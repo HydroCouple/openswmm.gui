@@ -113,8 +113,24 @@ QString SWMMSubcatchPropertyAdapter::displayLabelFor(const QString &property) co
         if (property == QLatin1String("statMaxRunoff"))
             return tr("Peak Runoff (%1)").arg(F);
     }
+    if (property == QLatin1String("frozenGround"))
+        return tr("Frozen Ground");
 
     return {};
+}
+
+QString SWMMSubcatchPropertyAdapter::frozenGround() const
+{
+    const int i = idx();
+    int active = 0;
+    double temperature = 0.0, frozen = 0.0, factor = 1.0;
+    if (i < 0 || swmm_subcatch_get_frozen_ground(m_engine, i, &active, &temperature, &frozen,
+                                                 &factor) != SWMM_OK ||
+        !active)
+        return tr("Not set");
+    return tr("%1 °C, %2% frozen, infiltration factor %3")
+        .arg(QString::number(temperature, 'f', 1), QString::number(100.0 * frozen, 'f', 0),
+             QString::number(factor, 'g', 3));
 }
 
 int SWMMSubcatchPropertyAdapter::idx() const
