@@ -3852,6 +3852,14 @@ add_swmmvis_gui_test(test_linkendpointproperties
 )
 swmmvis_link_full_app_deps(test_linkendpointproperties)
 
+# A reference picked in the single-object Properties grid reaches the engine and
+# the saved model without the user first moving to another row.
+add_swmmvis_gui_test(test_propertypickercommit
+    test_propertypickercommit.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_propertypickercommit)
+
 add_swmmvis_gui_test(test_subcatchqualitybulk
     test_subcatchqualitybulk.cpp
     ${SWMMVIS_TEST_SOURCES}
