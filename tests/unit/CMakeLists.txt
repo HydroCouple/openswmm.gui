@@ -22,8 +22,11 @@ function(add_swmmvis_unit_test TEST_NAME)
         target_link_libraries(${TEST_NAME} PRIVATE meshkit::core_qt meshkit::io_qt)
     endif()
     target_include_directories(${TEST_NAME} PRIVATE ${PROJECT_SOURCE_DIR}/include)
+    # meshkit::runtime: several app headers and sources under include/mesh and src/mesh include
+    # MeshKit headers (mesh/meshcellgeom.h, mesh/meshresult.h), as the GUI test helper assumes.
     target_link_libraries(${TEST_NAME}
         PRIVATE
+            meshkit::runtime
             GTest::gtest
             GTest::gtest_main
             Qt6::Core
@@ -179,8 +182,6 @@ add_swmmvis_unit_test(test_meshobjectref
     ${PROJECT_SOURCE_DIR}/include/mesh/meshobjectref.h
     ${PROJECT_SOURCE_DIR}/src/mesh/meshobjectref.cpp
 )
-# meshobjectref.cpp includes MeshKit's mesh/meshcellgeom.h.
-target_link_libraries(test_meshobjectref PRIVATE meshkit::runtime)
 
 add_swmmvis_unit_test(test_meshbctype
     test_meshbctype.cpp
