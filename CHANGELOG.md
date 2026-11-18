@@ -200,6 +200,13 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Fixed
 
+- **Windows: the Rainfall Visualization dialog no longer flashes, and it and the time
+  series editor no longer open dark for ordinary series.** Their chart series always took
+  Qt Charts' OpenGL path, which on Windows makes Qt re-create the window on an OpenGL
+  surface. On Windows a series now takes that path only above 50,000 points; other
+  platforms are unchanged. Read from the code and covered by a test; not yet confirmed on
+  screen.
+
 - **Saving mesh edits no longer fails on meshes with shared edges.** The engine takes
   boundary conditions on exterior edges only, and the mesh sync still sent a boundary write
   to every edge, so Save reported that mesh edits could not be synchronized. The sync now
