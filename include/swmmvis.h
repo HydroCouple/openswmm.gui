@@ -1868,6 +1868,8 @@ private:
      * @param edges Zero-based (cell, local edge) pairs; empty opens the dialog as before.
      */
     void openSurfaceQualityDialog(const QList<QPair<int, int>> &edges = {});
+    /** Open the frozen-ground editor for subcatchments and mesh tags. */
+    void openFrozenGroundDialog();
 
     Ui::SWMMVis *ui;
     QStringList mRecentFiles;

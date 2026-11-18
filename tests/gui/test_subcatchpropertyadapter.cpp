@@ -353,6 +353,30 @@ private slots:
      * and no registry still falls back to safe zero engine statistics.
      *
      */
+    /** The frozen-ground row is read-only and follows the engine's rows. */
+    void frozenGroundRowFollowsTheEngine()
+    {
+        SWMM_Engine e = buildTwoSubcatchFixture();
+        QVERIFY(e);
+        SWMMSubcatchPropertyAdapter a(e, QStringLiteral("S1"));
+        const auto *mo = a.metaObject();
+        const int idx = mo->indexOfProperty("frozenGround");
+        QVERIFY(idx >= 0);
+        QVERIFY(!mo->property(idx).isWritable());
+        QCOMPARE(a.displayLabelFor(QStringLiteral("frozenGround")), QStringLiteral("Frozen Ground"));
+        QCOMPARE(a.frozenGround(), QStringLiteral("Not set"));
+        // A row authored for S1 takes effect when the model is initialized.
+        const double row[10] = {0.15, 1.5, 2.4e6, 0.30, 8.0, 3.0, -4.0, 11.0, 0.25, 250.0};
+        QCOMPARE(swmm_frozen_ground_set(e, 0, "S1", row), SWMM_OK);
+        if (swmm_engine_initialize(e) == SWMM_OK) {
+            QCOMPARE(a.frozenGround(),
+                     QStringLiteral("-4.0 °C, 100% frozen, infiltration factor 0"));
+            SWMMSubcatchPropertyAdapter other(e, QStringLiteral("S2"));
+            QCOMPARE(other.frozenGround(), QStringLiteral("Not set"));
+        }
+        swmm_engine_destroy(e);
+    }
+
     void statRowsReadOnlyZeroPreRun()
     {
         SWMM_Engine e = buildTwoSubcatchFixture();

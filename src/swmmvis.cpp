@@ -282,6 +282,7 @@
 #include "ui/dialogs/mesh2dgroundwaterdialog.h"
 #include "ui/processlock.h"
 #include "ui/dialogs/mesh2dsurfacequalitydialog.h"
+#include "ui/dialogs/frozengrounddialog.h"
 #include "ui/dialogs/meshsnowdialog.h"
 #include "ui/dialogs/assignraingagesdialog.h"
 #include "ui/dialogs/meshattributeassigndialog.h"
@@ -1354,6 +1355,30 @@ void SWMMVis::openSurfaceQualityDialog(const QList<QPair<int, int>> &edges)
     }
     if (!edges.isEmpty())
         dlg.setTargetEdges(edges);
+    dlg.exec();
+}
+
+/**
+ * @brief Open the frozen-ground editor ([FROZEN_GROUND] and [2D_FROZEN_GROUND] rows).
+ * @details A missing project yields a read-only editor. For a live project the editor marks
+ * the project changed before it writes, marks the model edited after a successful Apply, and
+ * closes when the engine closes.
+ */
+void SWMMVis::openFrozenGroundDialog()
+{
+    auto *pw = activeProjectWindow();
+    SWMM_Engine engine = (pw && pw->modelLayer()) ? pw->modelLayer()->engine() : nullptr;
+    openswmmvis::ui::FrozenGroundDialog dlg(engine, this);
+    if (pw && pw->modelLayer()) {
+        connect(pw->modelLayer(), &SWMMModelLayer::engineAboutToClose, &dlg,
+                &openswmmvis::ui::FrozenGroundDialog::invalidateContext);
+        connect(pw->modelLayer(), &QObject::destroyed, &dlg,
+                &openswmmvis::ui::FrozenGroundDialog::invalidateContext);
+        connect(&dlg, &openswmmvis::ui::FrozenGroundDialog::changesMayHaveBeenApplied, pw,
+                [pw] { pw->setHasChanges(true); });
+        connect(&dlg, &openswmmvis::ui::FrozenGroundDialog::applied, pw->modelLayer(),
+                &SWMMModelLayer::markEdited);
+    }
     dlg.exec();
 }
 
@@ -5741,6 +5766,9 @@ void SWMMVis::initializeMenus()
     if (ui->actionSolarRadiation)
         connect(ui->actionSolarRadiation, &QAction::triggered, this,
                 [this]() { onEditHeatConfig(OpenSWMMVis::HeatConfigDialog::TabSolar); });
+    if (ui->actionFrozenGround)
+        connect(ui->actionFrozenGround, &QAction::triggered, this,
+                &SWMMVis::openFrozenGroundDialog);
 
     // Water Age Sources editor (Y3b) — the per-pathway initial-age table.
     if (ui->actionEditWaterAgeSources)

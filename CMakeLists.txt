@@ -922,6 +922,8 @@ set(
         include/ui/dialogs/mesh2dgroundwaterdialog.h
         include/ui/dialogs/mesh2dgwsourcemodel.h
         include/ui/dialogs/mesh2dsectionroweditor.h
+        include/ui/dialogs/frozengroundrowmodel.h
+        include/ui/dialogs/frozengrounddialog.h
         include/ui/dialogs/mesh2dsectionrowmodel.h
         include/ui/dialogs/mesh2dsurfacequalitydialog.h
         include/ui/dialogs/mesh2dboundaryqualitymodel.h
@@ -1727,6 +1729,8 @@ set(
         src/ui/dialogs/mesh2dgroundwaterdialog.cpp
         src/ui/dialogs/mesh2dgwsourcemodel.cpp
         src/ui/dialogs/mesh2dsectionroweditor.cpp
+        src/ui/dialogs/frozengroundrowmodel.cpp
+        src/ui/dialogs/frozengrounddialog.cpp
         src/ui/dialogs/mesh2dsectionrowmodel.cpp
         src/ui/dialogs/mesh2dsurfacequalitydialog.cpp
         src/ui/dialogs/mesh2dboundaryqualitymodel.cpp

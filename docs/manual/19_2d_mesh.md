@@ -602,6 +602,10 @@ select. Every command is also under **Model → Mesh →**.
 Commands that act on a selection are enabled only while it holds what they need:
 **Infiltration to Selection…** needs cells. A disabled command's tooltip says what to select.
 
+Infiltration on mesh cells can be limited by frozen ground. The rows, by mesh
+tag, are edited on the **2D Mesh** page of **Model → Climate → Frozen Ground…**
+(see the Frozen Ground editor in the hydrology chapter).
+
 **A switched-off process is read-only.** While **Groundwater** is set to *Off*
 (Simulation Options › 2D Surface Routing › Processes) or **Water quality** is
 unticked (Simulation Options › Models / Processes › Active processes), that

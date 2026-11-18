@@ -318,6 +318,53 @@ state.
 
 \fig{13_snowpack_editor.png, SP1 showing the classic four parameter groups in the earlier editor; snowmelt is disabled in this example}
 
+### Frozen Ground editor
+
+**Model → Climate → Frozen Ground…** (also in the **Climate** split button of
+the Model ribbon tab) opens the editor for the engine's frozen-ground model. A
+row gives the ground a layer that conducts heat, freezes and thaws; infiltration
+falls to zero as the layer freezes, under every infiltration method. The
+formulation is in the engine's hydrology reference manual, Section 4.7.
+
+The dialog has two pages:
+
+- **Subcatchments** edits `[FROZEN_GROUND]`: one row per subcatchment, or `*` for
+  every subcatchment without its own row. A subcatchment's row also limits its
+  LID units.
+- **2D Mesh** edits `[2D_FROZEN_GROUND]`: one row per mesh tag, or `*` for every
+  cell. A tag row wins over the `*` row, and a cell that no row covers is not
+  limited.
+
+Each row has ten values, all in SI units whatever the project's flow units:
+
+| Column | Meaning | Default |
+|---|---|---|
+| Thickness (m) | frost-active ground layer | 0.15 |
+| Conductivity (W/m·K) | bulk thermal conductivity of the ground | 1.5 |
+| Heat capacity (J/m³·K) | bulk volumetric heat capacity | 2.4e6 |
+| Water content | volume fraction of water that can freeze, 0 to 1 | 0.30 |
+| Deep temperature (°C) | ground temperature at the deep depth | 8 |
+| Deep depth (m) | where the deep temperature holds; more than half the thickness | 3 |
+| Initial temperature (°C) | below zero starts the layer fully frozen | 5 |
+| Exponent | m in the infiltration factor (1 − frozen fraction)^m; at least 1 | 11 |
+| Snow conductivity (W/m·K) | thermal conductivity of snow | 0.25 |
+| Snow density (kg/m³) | turns the snow water equivalent into a depth | 250 |
+
+**Add Row** adds the `*` row first, then a row for the first subcatchment or tag
+that has none. Edits are a draft until **Apply** or **OK**: both pages are
+checked, the changed ones are written, and if a write fails every page is put
+back. A name that is not a subcatchment (or a mesh tag), a name used twice, or a
+value out of range is refused with the reason and nothing is written. The dialog
+is read-only while a simulation is running.
+
+The air temperature comes from the project's temperature data (**Climate →
+Temperature**); without it the ground follows the default air temperature and
+never freezes.
+
+After a run, the **Frozen Ground** row of a subcatchment in the Properties panel
+shows the ground temperature, the frozen share and the infiltration factor, or
+**Not set** when no row covers the subcatchment.
+
 ### Aquifer editor
 
 **Model → Data Objects → Aquifers…** opens a three-pane editor: the aquifer list
