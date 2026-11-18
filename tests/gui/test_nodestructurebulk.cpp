@@ -233,6 +233,20 @@ private slots:
         SWMMAttributeTableModel table;
         table.setSource(layer.get(),
                         outfall ? SWMMModelLayer::CatOutfalls : SWMMModelLayer::CatJunctions);
+        if (setter.endsWith("TAILWATER_RELAX")) {
+            // Tailwater relaxation has no effect on a FREE outfall and is read-only there:
+            // the edit is refused and nothing is written. It is editable on other boundaries.
+            QString refused;
+            QVERIFY(!apply(table, names, setter, value, &undo, &refused));
+            QVERIFY(!refused.isEmpty());
+            QCOMPARE(undo.count(), 0);
+            for (const auto &n : names)
+                QCOMPARE(swmm_node_set_outfall_type(
+                             layer->engine(),
+                             swmm_node_index(layer->engine(), n.toUtf8().constData()), 1 /*NORMAL*/),
+                         SWMM_OK);
+            table.setSource(layer.get(), SWMMModelLayer::CatOutfalls);
+        }
         QList<nodecoupling2d::State> before;
         for (const auto &n : names)
             before << coupling(layer.get(), n);
