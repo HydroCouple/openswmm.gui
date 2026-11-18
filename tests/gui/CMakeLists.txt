@@ -3939,6 +3939,9 @@ swmmvis_link_full_app_deps(test_bulktypeconversion)
 target_sources(test_groundwaterexchangedialog PRIVATE
     ${SWMMVIS_TEST_SOURCES}
     ${SWMMVIS_TEST_EXTRA_SOURCES})
+# The app sources arrive after add_swmmvis_gui_test() looked at the source list, so the
+# sources that depend on them (ThemeManager's platform accessibility reader) are added here.
+_swmmvis_gui_test_app_extras(test_groundwaterexchangedialog ${SWMMVIS_TEST_SOURCES} ${SWMMVIS_TEST_EXTRA_SOURCES})
 swmmvis_link_full_app_deps(test_groundwaterexchangedialog)
 target_link_libraries(test_groundwaterexchangedialog PRIVATE swmmvis_build_info)
 
@@ -3946,6 +3949,9 @@ target_link_libraries(test_groundwaterexchangedialog PRIVATE swmmvis_build_info)
 target_sources(test_subcatch_coverage_loadings PRIVATE
     ${SWMMVIS_TEST_SOURCES}
     ${SWMMVIS_TEST_EXTRA_SOURCES})
+# The app sources arrive after add_swmmvis_gui_test() looked at the source list, so the
+# sources that depend on them (ThemeManager's platform accessibility reader) are added here.
+_swmmvis_gui_test_app_extras(test_subcatch_coverage_loadings ${SWMMVIS_TEST_SOURCES} ${SWMMVIS_TEST_EXTRA_SOURCES})
 swmmvis_link_full_app_deps(test_subcatch_coverage_loadings)
 target_link_libraries(test_subcatch_coverage_loadings PRIVATE swmmvis_build_info)
 
