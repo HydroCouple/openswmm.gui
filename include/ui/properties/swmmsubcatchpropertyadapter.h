@@ -103,8 +103,20 @@ class SWMMSubcatchPropertyAdapter : public QObject
     Q_PROPERTY(double statPrecip READ statPrecip NOTIFY changed)
     Q_PROPERTY(double statRunoffVol READ statRunoffVol NOTIFY changed)
     Q_PROPERTY(double statMaxRunoff READ statMaxRunoff NOTIFY changed)
-    // Read-only frozen-ground state ([FROZEN_GROUND]); edited in the Frozen Ground dialog.
+    // Read-only frozen-ground state ([FROZEN_GROUND]).
     Q_PROPERTY(QString frozenGround READ frozenGround NOTIFY changed)
+    // This subcatchment's own [FROZEN_GROUND] row, one value per property, in engine order.
+    // Text so that blank can mean "no row of its own" (the * row applies, if any).
+    Q_PROPERTY(QString frostThickness READ frostThickness WRITE setFrostThickness NOTIFY changed)
+    Q_PROPERTY(QString frostConductivity READ frostConductivity WRITE setFrostConductivity NOTIFY changed)
+    Q_PROPERTY(QString frostHeatCapacity READ frostHeatCapacity WRITE setFrostHeatCapacity NOTIFY changed)
+    Q_PROPERTY(QString frostWaterContent READ frostWaterContent WRITE setFrostWaterContent NOTIFY changed)
+    Q_PROPERTY(QString frostDeepTemperature READ frostDeepTemperature WRITE setFrostDeepTemperature NOTIFY changed)
+    Q_PROPERTY(QString frostDeepDepth READ frostDeepDepth WRITE setFrostDeepDepth NOTIFY changed)
+    Q_PROPERTY(QString frostInitialTemperature READ frostInitialTemperature WRITE setFrostInitialTemperature NOTIFY changed)
+    Q_PROPERTY(QString frostExponent READ frostExponent WRITE setFrostExponent NOTIFY changed)
+    Q_PROPERTY(QString frostSnowConductivity READ frostSnowConductivity WRITE setFrostSnowConductivity NOTIFY changed)
+    Q_PROPERTY(QString frostSnowDensity READ frostSnowDensity WRITE setFrostSnowDensity NOTIFY changed)
 
 public:
     /*! Infiltration model codes (engine [INFILTRATION] order). */
@@ -316,6 +328,21 @@ public:
      * factor, as they stand after the last runoff step (the initial state before a run).
      */
     [[nodiscard]] QString frozenGround() const;
+    /*! One value of the subcatchment's own frozen-ground row as text.
+     * @param[in] field Index into OpenSWMMVis::frozenGroundFields().
+     * @return The value, or an empty string when the subcatchment has no row of its own.
+     */
+    [[nodiscard]] QString frozenGroundText(int field) const;
+    [[nodiscard]] QString frostThickness() const { return frozenGroundText(0); }
+    [[nodiscard]] QString frostConductivity() const { return frozenGroundText(1); }
+    [[nodiscard]] QString frostHeatCapacity() const { return frozenGroundText(2); }
+    [[nodiscard]] QString frostWaterContent() const { return frozenGroundText(3); }
+    [[nodiscard]] QString frostDeepTemperature() const { return frozenGroundText(4); }
+    [[nodiscard]] QString frostDeepDepth() const { return frozenGroundText(5); }
+    [[nodiscard]] QString frostInitialTemperature() const { return frozenGroundText(6); }
+    [[nodiscard]] QString frostExponent() const { return frozenGroundText(7); }
+    [[nodiscard]] QString frostSnowConductivity() const { return frozenGroundText(8); }
+    [[nodiscard]] QString frostSnowDensity() const { return frozenGroundText(9); }
 
     /*! Stats-source dispatch — see SWMMNodePropertyAdapter (Slice QA.2)
      *  for the full contract.
@@ -425,6 +452,22 @@ public slots:
      * @details Engine validates existence/state; only successful writes emit changed.
      */
     void setSnowPackRef(const DataObjectRef &r);
+    /*! Set or clear one value of the subcatchment's own frozen-ground row.
+     * @param[in] field Index into OpenSWMMVis::frozenGroundFields().
+     * @param[in] text A number, or blank to remove the row.
+     * @note Goes through the checked, undoable field writer only; without one nothing is written.
+     */
+    void setFrozenGroundText(int field, const QString &text);
+    void setFrostThickness(const QString &text) { setFrozenGroundText(0, text); }
+    void setFrostConductivity(const QString &text) { setFrozenGroundText(1, text); }
+    void setFrostHeatCapacity(const QString &text) { setFrozenGroundText(2, text); }
+    void setFrostWaterContent(const QString &text) { setFrozenGroundText(3, text); }
+    void setFrostDeepTemperature(const QString &text) { setFrozenGroundText(4, text); }
+    void setFrostDeepDepth(const QString &text) { setFrozenGroundText(5, text); }
+    void setFrostInitialTemperature(const QString &text) { setFrozenGroundText(6, text); }
+    void setFrostExponent(const QString &text) { setFrozenGroundText(7, text); }
+    void setFrostSnowConductivity(const QString &text) { setFrozenGroundText(8, text); }
+    void setFrostSnowDensity(const QString &text) { setFrozenGroundText(9, text); }
     /**
      * @brief Assign an existing rain gage to this subcatchment.
      * @param[in] r currentName must resolve to a gage; empty is ignored because this adapter requires a gage assignment.

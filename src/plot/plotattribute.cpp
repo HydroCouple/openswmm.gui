@@ -52,6 +52,8 @@ const QVector<PlotAttribute> &subcatchPlotAttributes()
         PlotAttribute::SubcatchSnowMelt,
         PlotAttribute::SubcatchSnowInput,
         PlotAttribute::SubcatchSnowSublimation,
+        PlotAttribute::SubcatchFrozenFraction,
+        PlotAttribute::SubcatchFrozenGroundTemp,
 
     };
     return kList;
@@ -147,6 +149,10 @@ QString labelFor(PlotAttribute a)
         return QStringLiteral("Snow liquid surface input");
     case PlotAttribute::SubcatchSnowSublimation:
         return QStringLiteral("Snow sublimation / condensation");
+    case PlotAttribute::SubcatchFrozenFraction:
+        return QStringLiteral("Frozen ground fraction");
+    case PlotAttribute::SubcatchFrozenGroundTemp:
+        return QStringLiteral("Frozen ground temperature");
     case PlotAttribute::SubcatchSnowDepth:
         return QStringLiteral("Snow depth");
     case PlotAttribute::SubcatchEvap:
@@ -285,6 +291,10 @@ QString unitsFor(PlotAttribute a, UnitSystem u)
         return QStringLiteral("m/s");
     case PlotAttribute::SubcatchSnowSublimation:
         return QStringLiteral("m/s");
+    case PlotAttribute::SubcatchFrozenFraction:
+        return QStringLiteral("");
+    case PlotAttribute::SubcatchFrozenGroundTemp:
+        return QStringLiteral("°C");
     case PlotAttribute::LinkCapacity:
     case PlotAttribute::SubcatchSoilMoisture:
         return QStringLiteral(""); // dimensionless 0..1

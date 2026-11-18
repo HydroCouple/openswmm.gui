@@ -193,7 +193,10 @@ void SwmmOutRunLayer::fetchSeriesByCode_(const ObjectRef &ref, int varCode, Seri
     }
 
     std::vector<float> snowTimes;
-    if (ref.kind == ObjectRef::Kind::Subcatch && varCode >= SWMM_OUT_SUBCATCH_SNOW_SWE) {
+    // Only the snow fields carry their own accepted clock; other extension fields
+    // (frozen ground) are sampled on the report clock.
+    if (ref.kind == ObjectRef::Kind::Subcatch && varCode >= SWMM_OUT_SUBCATCH_SNOW_SWE &&
+        varCode <= SWMM_OUT_SUBCATCH_SNOW_TIME) {
         snowTimes.resize(count);
         if (swmm_output_get_subcatch_series(handle, objIdx, SWMM_OUT_SUBCATCH_SNOW_TIME, from,
                                             n_periods - 1, snowTimes.data()) != 0) {

@@ -120,6 +120,9 @@ enum class PlotAttribute {
     SubcatchSnowInput = 54,       ///< m/s; SI, accepted snow clock
     SubcatchSnowSublimation = 55, ///< m/s; SI, accepted snow clock
     SystemExtInflow = 46,         ///< m³/s / ft³/s — SYS_EXT_INFLOW  (total)
+    // ----- Frozen ground (engine SWMM_OUT_SUBCATCH_FROZEN_*) ---------------
+    SubcatchFrozenFraction = 56,   ///< fraction of the slab's water frozen
+    SubcatchFrozenGroundTemp = 57, ///< °C; frozen-ground slab temperature
 };
 
 /*! \brief Short human label, e.g. "Depth", "Flow", "Velocity |V|".

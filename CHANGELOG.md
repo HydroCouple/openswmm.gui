@@ -72,6 +72,14 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   put back if a write fails. The subcatchment Properties panel shows a
   read-only **Frozen Ground** row with ground temperature, frozen share and
   infiltration factor. Requires the matching engine update.
+- **Frozen ground in the grid, and in results.** The ten values of a
+  subcatchment's own `[FROZEN_GROUND]` row are editable as **Frozen Ground: …**
+  rows in the Properties panel and as Attribute Table columns, with undo and
+  multi-selection; a blank value means the `*` row applies, the first value
+  entered creates the row, and clearing one removes it. **Frozen ground
+  fraction** and **Frozen ground temperature** are new subcatchment result
+  series, and the matching per-cell fields of the 2D results file can be mapped.
+  Requires the matching engine update.
 
 - **Initial water surface elevation for 2D cells.** A cell's starting water can be
   given as an **Initial HGL** instead of an initial depth: in the mesh generation

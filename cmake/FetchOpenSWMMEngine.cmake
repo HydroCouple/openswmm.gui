@@ -94,6 +94,7 @@ set(_oe_api_sentinels
     "openswmm_2d.h:swmm_2d_get_velocities_bulk"
     "openswmm_subcatchments.h:swmm_frozen_ground_set"
     "openswmm_infil2d.h:swmm_infil2d_get_frozen_ground_bulk"
+    "openswmm_output.h:SWMM_OUT_SUBCATCH_FROZEN_FRACTION"
 )
 get_target_property(_oe_incdirs OpenSWMMEngine::openswmm_engine
                     INTERFACE_INCLUDE_DIRECTORIES)

@@ -13,6 +13,7 @@
 #include "core/displaynumber.h"
 #include "ui/panels/swmmattributetablemodel.h"
 #include "ui/heatpropertyedit.h"
+#include "ui/frozengroundfields.h"
 #include <memory>
 #include <variant>
 #include <QDir>
@@ -3573,6 +3574,19 @@ void SWMMAttributeTableModel::rebuildColumnSchema()
             m_columnSpecs.append(spec);
         }
     }
+    if (m_layer && m_category == SWMMModelLayer::CatSubcatchments) {
+        for (int f = 0; f < OpenSWMMVis::kFrozenGroundValueCount; ++f) {
+            ColumnSpec spec;
+            spec.key = OpenSWMMVis::frozenGroundFieldKey(f);
+            spec.label = tr("Frozen Ground: %1").arg(OpenSWMMVis::frozenGroundFieldLabel(f));
+            spec.editor = EditorKind::Text;
+            spec.setter = "frozen_ground_field";
+            spec.scalarType = QMetaType::Double;
+            spec.tooltip = tr(
+                "This subcatchment's own [FROZEN_GROUND] row, in SI units. Blank means it has no row of its own and uses the * row, if the model has one. Entering a value creates the row from the * row or the defaults; clearing a value removes the row.");
+            m_columnSpecs.append(spec);
+        }
+    }
     appendInitialQualityColumns();
     appendUserFlagColumns();
     for (const auto &field : openswmmvis::extensionAttributeFields(m_layer, m_category)) {
@@ -4562,6 +4576,15 @@ QVariant SWMMAttributeTableModel::data(const QModelIndex &index, int role) const
             return authored.isValid() ? QVariant(openswmmvis::displayNumber(authored.toDouble()))
                                       : QVariant(QString());
         return authored;
+    }
+
+    if (const int f = OpenSWMMVis::frozenGroundFieldIndex(spec.key); f >= 0 && m_layer) {
+        OpenSWMMVis::FrozenGroundValues values{};
+        const bool own = OpenSWMMVis::frozenGroundRow(m_layer->engine(), objectNameAt(row), &values);
+        if (role == Qt::EditRole)
+            return own ? QVariant(openswmmvis::displayNumber(values[std::size_t(f)]))
+                       : QVariant(QString());
+        return own ? QVariant(values[std::size_t(f)]) : QVariant();
     }
 
     // Initial-quality columns (initial-quality UI round): values live in

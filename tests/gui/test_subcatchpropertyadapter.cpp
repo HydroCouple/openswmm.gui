@@ -377,6 +377,57 @@ private slots:
         swmm_engine_destroy(e);
     }
 
+    /** The ten values of the subcatchment's own row are text rows that write through the
+     *  field writer only; without a row they read blank. */
+    void frozenGroundValuesRouteThroughTheFieldWriter()
+    {
+        SWMM_Engine e = buildTwoSubcatchFixture();
+        QVERIFY(e);
+        SWMMSubcatchPropertyAdapter a(e, QStringLiteral("S1"));
+        const auto *mo = a.metaObject();
+        for (const char *prop : {"frostThickness", "frostConductivity", "frostHeatCapacity",
+                                 "frostWaterContent", "frostDeepTemperature", "frostDeepDepth",
+                                 "frostInitialTemperature", "frostExponent",
+                                 "frostSnowConductivity", "frostSnowDensity"}) {
+            const int idx = mo->indexOfProperty(prop);
+            QVERIFY2(idx >= 0, prop);
+            QVERIFY2(mo->property(idx).isWritable(), prop);
+            QCOMPARE(mo->property(idx).read(&a).toString(), QString());
+            QVERIFY2(a.displayLabelFor(QString::fromLatin1(prop))
+                         .startsWith(QStringLiteral("Frozen Ground: ")),
+                     prop);
+        }
+        QCOMPARE(a.displayLabelFor(QStringLiteral("frostThickness")),
+                 QStringLiteral("Frozen Ground: Thickness (m)"));
+        // No writer: nothing reaches the engine.
+        a.setFrostThickness(QStringLiteral("0.4"));
+        int count = -1;
+        QCOMPARE(swmm_frozen_ground_count(e, 0, &count), SWMM_OK);
+        QCOMPARE(count, 0);
+        // With a writer the edit is handed over under the field's key.
+        QString routedName, routedKey;
+        QVariant routedValue;
+        a.setFieldWriter([&](const QString &name, const QString &key, const QVariant &value) {
+            routedName = name;
+            routedKey = key;
+            routedValue = value;
+            return openswmmvis::properties::FieldWrite::Applied;
+        });
+        a.setFrostDeepDepth(QStringLiteral(" 4.5 "));
+        QCOMPARE(routedName, QStringLiteral("S1"));
+        QCOMPARE(routedKey, QStringLiteral("frost.deepDepth"));
+        QCOMPARE(routedValue.toString(), QStringLiteral("4.5"));
+        // An existing row reads back per value.
+        const double row[10] = {0.15, 1.5, 2.4e6, 0.30, 8.0, 3.0, -4.0, 11.0, 0.25, 250.0};
+        QCOMPARE(swmm_frozen_ground_set(e, 0, "S1", row), SWMM_OK);
+        QCOMPARE(a.frostThickness().toDouble(), 0.15);
+        QCOMPARE(a.frostInitialTemperature().toDouble(), -4.0);
+        QCOMPARE(a.frostSnowDensity().toDouble(), 250.0);
+        SWMMSubcatchPropertyAdapter other(e, QStringLiteral("S2"));
+        QCOMPARE(other.frostThickness(), QString());
+        swmm_engine_destroy(e);
+    }
+
     void statRowsReadOnlyZeroPreRun()
     {
         SWMM_Engine e = buildTwoSubcatchFixture();

@@ -2,6 +2,7 @@
 #include "layers/swmmmodellayer.h"
 #include "ui/models/userflagsmodel.h"
 #include "ui/heatproperties.h"
+#include "ui/frozengroundfields.h"
 #include "ui/heatconfigurationundo.h"
 #include "ui/hydrothermalconfiguration.h"
 #include "ui/dialogs/heatconfigdialog.h"
@@ -31,6 +32,9 @@ struct Record {
     QVariant value; // Invalid means absent; explicit zero/NO/empty STRING remain valid.
     int subtype = -1, flagType = -1;
     bool file = false;
+    // Frozen ground only: the whole row a write starts from when the object has none (its
+    // own row before a removal, otherwise the `*` row or the defaults). Not compared.
+    OpenSWMMVis::FrozenGroundValues seed{};
 };
 bool fail(QString *error, const QString &why) { if (error) *error = why; return false; }
 bool canEdit(SWMM_Engine e) {
@@ -100,6 +104,10 @@ bool definition(SWMM_Engine e, Record &r) {
         }
         return false;
     }
+    if (const int f = OpenSWMMVis::frozenGroundFieldIndex(r.key); f >= 0) {
+        if (r.target.objectType != Target::Subcatchment) return false;
+        r.definition = "frost:" + QString::number(f); return true;
+    }
     const int attr = OpenSWMMVis::heatPropertyIndex(r.key);
     if (attr < 0 || (r.target.objectType != Target::Node && r.target.objectType != Target::Link) ||
         (r.target.objectType == Target::Node ? attr >= 6 : r.subtype != SWMM_LINK_CONDUIT || attr >= 14)) return false;
@@ -138,6 +146,11 @@ bool read(SWMM_Engine e, Record &r) {
             if (r.flagType == 2) { bool ok = false; r.value = value.toDouble(&ok); if (!ok) return false; }
             else r.value = value;
         }
+        return true;
+    }
+    if (const int f = OpenSWMMVis::frozenGroundFieldIndex(r.key); f >= 0) {
+        if (OpenSWMMVis::frozenGroundRow(e, r.target.name, &r.seed)) r.value = r.seed[std::size_t(f)];
+        else if (!OpenSWMMVis::frozenGroundRow(e, "*", &r.seed)) r.seed = OpenSWMMVis::frozenGroundDefaults();
         return true;
     }
     const int attr = OpenSWMMVis::heatPropertyIndex(r.key), scope = r.target.objectType == Target::Link ? SWMM_HEAT_SCOPE_LINK : SWMM_HEAT_SCOPE_NODE;
@@ -202,6 +215,17 @@ bool write(SWMM_Engine e, const Record &r) {
         const auto value = (r.flagType == 2 ? QString::number(r.value.toDouble(), 'g', 17) : r.value.toString()).toUtf8();
         return (r.value.isValid() ? swmm_userflag_value_set(e, type.constData(), name.constData(), key.constData(), value.constData()) :
             swmm_userflag_value_clear(e, type.constData(), name.constData(), key.constData())) == SWMM_OK;
+    }
+    if (const int f = OpenSWMMVis::frozenGroundFieldIndex(r.key); f >= 0) {
+        // One value of a ten-value row: change it in the row the engine holds, or start the
+        // row from the seed. An unset value removes the object's row.
+        const auto name = target.name.toUtf8();
+        OpenSWMMVis::FrozenGroundValues row{};
+        const bool present = OpenSWMMVis::frozenGroundRow(e, target.name, &row);
+        if (!r.value.isValid()) return !present || swmm_frozen_ground_remove(e, 0, name.constData()) == SWMM_OK;
+        if (!present) row = r.seed;
+        row[std::size_t(f)] = r.value.toDouble();
+        return swmm_frozen_ground_set(e, 0, name.constData(), row.data()) == SWMM_OK;
     }
     const int attr = OpenSWMMVis::heatPropertyIndex(r.key), scope = target.objectType == Target::Link ? SWMM_HEAT_SCOPE_LINK : SWMM_HEAT_SCOPE_NODE;
     if (r.value.isValid()) return swmm_heat_set_element_override(e, attr, scope, r.binding.toUtf8().constData(), r.value.toDouble()) == SWMM_OK;
@@ -318,7 +342,7 @@ private:
 };
 }
 namespace inheritedproperties {
-bool field(const QString &key) { return key.startsWith("initq:") || key.startsWith("userflag:") || OpenSWMMVis::heatPropertyIndex(key) >= 0; }
+bool field(const QString &key) { return key.startsWith("initq:") || key.startsWith("userflag:") || OpenSWMMVis::heatPropertyIndex(key) >= 0 || OpenSWMMVis::frozenGroundFieldIndex(key) >= 0; }
 bool editable(SWMMModelLayer *layer, const Target &target, const QString &key, QString *reason) {
     Record record; record.target = target; record.key = key;
     if (!layer || !canEdit(layer->engine()) || !read(layer->engine(), record)) return fail(reason, QObject::tr("The field is unavailable for this object or process."));
