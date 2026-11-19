@@ -20,6 +20,18 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Changed
 
+- **Both compute backends are chosen on System / Performance.** Simulation Options → System /
+  Performance has a **Compute backends** group with one choice for the 1D finite volume network
+  and one for the 2D surface, saved with the model as before (`FV_BACKEND` and `[2D_OPTIONS]
+  BACKEND`). The 2D page's Performance tab, which held only its backend, is gone, and the Finite
+  Volume tab's remaining group is **Finite volume stepping**. A backend this machine cannot use is
+  marked **(not installed)** with the engine's reason as its tooltip and stays selectable. With a
+  device backend chosen for the 1D solver, a note says what it changes (global time stepping,
+  structure flows held over each routing step) or why the CPU solver will run instead, and the
+  controls it overrides are shown disabled with their saved values kept. The 1D choice no longer
+  offers Auto, and **Min parallel cells** is removed: neither did anything. A model saved with
+  `AUTO` shows CPU and keeps `AUTO` until edited.
+
 - **The groundwater base interval is Automatic by default.** In 2D Groundwater → Options, the
   independent clock's **Base interval** has an **Automatic** box, checked for new and existing
   models that never set it. The engine then uses 1 s, and 0.125 s for the cells that exchange
@@ -199,6 +211,12 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
   the retired basic tutorial covered that nothing else did — building a 1D network on an empty map.
 
 ### Fixed
+
+- **A GeoPackage project keeps its finite volume settings.** Saving a project as a GeoPackage
+  kept only the pressure closure of the finite volume options, so the 1D compute backend, the
+  order, the limiter, the time stepping choices and the cell length came back as defaults on
+  reopening. The engine now saves all of them. Projects saved earlier reopen on the defaults, as
+  they did.
 
 - Linux packages pick up the engine's GPU plugin whatever its backend; they took the OpenMP
   plugin only, so a CUDA engine build was packaged without its plugin. Windows and Linux packages

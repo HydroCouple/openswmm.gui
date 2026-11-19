@@ -39,6 +39,7 @@
 #include <openswmm/engine/openswmm_transport.h>
 #include <QAbstractItemModelTester>
 #include <QDir>
+#include <QGroupBox>
 #include <QLabel>
 #include "ui/dialogs/climatologydialog.h"
 #include "ui/dialogs/mesh2dgroundwaterdialog.h"
@@ -170,6 +171,12 @@ const char *const kLoadBearingNames[] = {
     "report2DPreset_ALL",
     // Files / Output / Plugins — process components
     "processComponentsView",
+    // System / Performance › Compute backends (editors owned by the Routing
+    // and 2D pages, shown here)
+    "computeBackendsGroup",
+    "fvBackendCombo",
+    "fvBackendNote",
+    "backend2DCombo",
     // dialog chrome the gate tests navigate by
     "categories",
     "pages",
@@ -192,6 +199,13 @@ private slots:
     void tabRedirect();
     void noScrollAt1280x800();
     void structure();
+    /** @brief Both backend editors are shown in System / Performance's group and nowhere else;
+     *  the 1D editor follows the routing method, offers no Auto, marks what the engine says is
+     *  not installed, and shows what a device backend leaves unused. */
+    void computeBackendsLiveOnPerformance();
+    /** @brief A model saved with FV_BACKEND AUTO keeps AUTO through an untouched Apply, takes an
+     *  edited backend, and the 2D backend is written through its own key. */
+    void backendEditorsWriteThroughTheirOwners();
     void aquiferProcessInputsPreserveAutomaticAndConvertUnits();
     void automaticEtFollowsAquiferMode();
     void reportStartFollowsEditedSimulationWindow();
@@ -689,6 +703,127 @@ void TestSimulationOptionsGates::noScrollAt1280x800()
 /*! Test 8 — sidebar rows in order, and every inner tab set, in order. */
 /** @brief Require exact ordered sidebar labels and all specified inner tab sets, adding Implicit FV only when capability-probed.
  * Normalizes escaped ampersands to visible captions before comparing. */
+void TestSimulationOptionsGates::computeBackendsLiveOnPerformance()
+{
+    auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
+    QVERIFY2(layer, "mini_2d.inp failed to load");
+    SimulationOptionsDialog dlg(layer->engine(), layer.get(), QStringLiteral("6.0.0"), nullptr,
+                                nullptr);
+    auto *group = dlg.findChild<QGroupBox *>(QStringLiteral("computeBackendsGroup"));
+    QVERIFY2(group, "System / Performance has no computeBackendsGroup");
+    auto *fv = group->findChild<QComboBox *>(QStringLiteral("fvBackendCombo"));
+    auto *twoD = group->findChild<QComboBox *>(QStringLiteral("backend2DCombo"));
+    auto *note = group->findChild<QLabel *>(QStringLiteral("fvBackendNote"));
+    QVERIFY2(fv && twoD && note, "a backend editor or its note is not in the group");
+    QCOMPARE(dlg.findChildren<QComboBox *>(QStringLiteral("fvBackendCombo")).size(), 1);
+    QCOMPARE(dlg.findChildren<QComboBox *>(QStringLiteral("backend2DCombo")).size(), 1);
+    QCOMPARE(fv->property("optionKey").toString(), QStringLiteral("FV_BACKEND"));
+    QCOMPARE(twoD->property("optionKey").toString(), QStringLiteral("BACKEND"));
+
+    // The engine's AUTO runs the CPU solver at any size, so the 1D editor
+    // offers no Auto; the 2D editor keeps its own.
+    QCOMPARE(fv->findData(QStringLiteral("AUTO")), -1);
+    QCOMPARE(fv->itemData(0).toString(), QStringLiteral("CPU"));
+    QVERIFY(twoD->findData(QStringLiteral("AUTO")) >= 0);
+
+    // Each plugin item says what the engine says about this machine.
+    for (QComboBox *combo : {fv, twoD}) {
+        const int solver =
+            combo == fv ? int(SWMM_BACKEND_SOLVER_FV_NETWORK) : int(SWMM_BACKEND_SOLVER_2D_SURFACE);
+        for (const char *token : {"OMP", "CUDA", "HIP", "SYCL"}) {
+            SWMM_BackendInfo info{};
+            QCOMPARE(swmm_backend_info(solver, token, &info), int(SWMM_OK));
+            const int i = combo->findData(QLatin1String(token));
+            QVERIFY2(i >= 0, token);
+            QCOMPARE(combo->itemText(i).endsWith(QStringLiteral("(not installed)")),
+                     info.usable == 0);
+        }
+    }
+
+    auto editor = [&dlg](const char *key) -> QWidget * {
+        for (QWidget *w : dlg.findChildren<QWidget *>())
+            if (w->property("optionKey").toString() == QLatin1String(key))
+                return w;
+        return nullptr;
+    };
+    QWidget *lts = editor("FV_LTS");
+    QWidget *compaction = editor("FV_COMPACTION");
+    QWidget *coupling = editor("FV_STRUCTURE_COUPLING");
+    QVERIFY(lts && compaction && coupling);
+
+    // The 1D editor belongs to the finite volume solver.
+    setRouting(dlg, "DYNWAVE");
+    QVERIFY2(!fv->isEnabled(), "1D backend editable under DYNWAVE");
+    setRouting(dlg, "FV");
+    QVERIFY2(fv->isEnabled(), "1D backend not editable under FV");
+
+    // On the CPU nothing is held back and there is nothing to explain.
+    fv->setCurrentIndex(fv->findData(QStringLiteral("CPU")));
+    QVERIFY(lts->isEnabled() && compaction->isEnabled() && coupling->isEnabled());
+    QVERIFY(note->isHidden());
+
+    // A device backend steps globally and holds structure flows per routing
+    // step: the three controls it overrides are shown as not in effect, and
+    // the note says what will happen on this machine.
+    fv->setCurrentIndex(fv->findData(QStringLiteral("OMP")));
+    QVERIFY2(!lts->isEnabled(), "FV_LTS still editable with a device backend");
+    QVERIFY2(!compaction->isEnabled(), "FV_COMPACTION still editable with a device backend");
+    QVERIFY2(!coupling->isEnabled(), "FV_STRUCTURE_COUPLING still editable with a device backend");
+    QVERIFY(!note->isHidden());
+    QVERIFY(!note->text().isEmpty());
+    SWMM_BackendInfo omp{};
+    QCOMPARE(swmm_backend_info(SWMM_BACKEND_SOLVER_FV_NETWORK, "OMP", &omp), int(SWMM_OK));
+    QCOMPARE(note->text().contains(QStringLiteral("CPU solver will run")), omp.usable == 0);
+
+    fv->setCurrentIndex(fv->findData(QStringLiteral("CPU")));
+    QVERIFY(lts->isEnabled() && compaction->isEnabled() && coupling->isEnabled());
+    QVERIFY(note->isHidden());
+}
+
+void TestSimulationOptionsGates::backendEditorsWriteThroughTheirOwners()
+{
+    auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
+    QVERIFY2(layer, "mini_2d.inp failed to load");
+    SWMM_Engine e = layer->engine();
+    auto option = [e](const char *key, bool ext) {
+        char buf[64] = "";
+        if (ext)
+            swmm_options_get_ext(e, key, buf, sizeof buf);
+        else
+            swmm_options_get(e, key, buf, sizeof buf);
+        return QString::fromLatin1(buf).trimmed();
+    };
+    QCOMPARE(swmm_options_set(e, "FLOW_ROUTING", "FV"), 0);
+    QCOMPARE(swmm_options_set(e, "FV_BACKEND", "AUTO"), 0);
+    const QString twoDBefore = option("BACKEND", true);
+
+    SimulationOptionsDialog dlg(e, layer.get(), QStringLiteral("6.0.0"), nullptr, nullptr);
+    auto *fv = dlg.findChild<QComboBox *>(QStringLiteral("fvBackendCombo"));
+    auto *twoD = dlg.findChild<QComboBox *>(QStringLiteral("backend2DCombo"));
+    QVERIFY(fv && twoD);
+
+    // AUTO has no item, so the editor rests on CPU; an Apply that did not
+    // touch it must leave the model's AUTO alone.
+    QCOMPARE(fv->currentData().toString(), QStringLiteral("CPU"));
+    QVERIFY(QMetaObject::invokeMethod(&dlg, "onApply", Qt::DirectConnection));
+    QCOMPARE(option("FV_BACKEND", false), QStringLiteral("AUTO"));
+    QCOMPARE(option("BACKEND", true), twoDBefore);
+
+    // An edit is written, each through its own key.
+    fv->setCurrentIndex(fv->findData(QStringLiteral("OMP")));
+    twoD->setCurrentIndex(twoD->findData(QStringLiteral("CPU")));
+    QVERIFY(QMetaObject::invokeMethod(&dlg, "onApply", Qt::DirectConnection));
+    QCOMPARE(option("FV_BACKEND", false), QStringLiteral("OMP"));
+    QCOMPARE(option("BACKEND", true), QStringLiteral("CPU"));
+    QVERIFY(dlg.lastWriteKeys().contains(QStringLiteral("FV_BACKEND")));
+    QVERIFY(dlg.lastWriteKeys().contains(QStringLiteral("BACKEND")));
+    QVERIFY(!dlg.lastWriteKeys().contains(QStringLiteral("FV_MIN_PARALLEL_CELLS")));
+
+    // And read back after the Apply's re-read.
+    QCOMPARE(fv->currentData().toString(), QStringLiteral("OMP"));
+    QCOMPARE(twoD->currentData().toString(), QStringLiteral("CPU"));
+}
+
 void TestSimulationOptionsGates::structure()
 {
     auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
@@ -729,12 +864,12 @@ void TestSimulationOptionsGates::structure()
         {"qualityTabs",
          {QStringLiteral("General"), QStringLiteral("Eulerian ARD"),
           QStringLiteral("Lagrangian (LARD)"), QStringLiteral("Reserved Species")}},
-        // Five, not PLAN §2's four: §1.3 reserved a Processes tab after
-        // Coupling and that content (U1/U5) now exists.
+        // PLAN §1.3 reserved a Processes tab after Coupling and that content
+        // (U1/U5) now exists. The 2D backend, once a Performance tab of its
+        // own here, is shown on System / Performance (computeBackendsLiveOnPerformance).
         {"twoDTabs",
          {QStringLiteral("Hydrodynamics"), QStringLiteral("Wetting & Drying"),
-          QStringLiteral("Coupling"), QStringLiteral("Processes"),
-          QStringLiteral("Performance")}},
+          QStringLiteral("Coupling"), QStringLiteral("Processes")}},
     };
     for (const auto &set : kTabSets) {
         auto *tabs = dlg.findChild<QTabWidget *>(QLatin1String(set.tabs));

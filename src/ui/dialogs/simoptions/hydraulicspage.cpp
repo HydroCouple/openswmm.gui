@@ -322,26 +322,35 @@ void HydraulicsPage::buildUi()
 
     fvLay->addWidget(m_fvGroup);
 
-    m_fvPerfGroup = new QGroupBox(tr("Finite volume performance"), this);
+    // How the scheme steps. Where it runs (FV_BACKEND) is shown on System /
+    // Performance beside the 2D backend; this page still owns that editor.
+    m_fvPerfGroup = new QGroupBox(tr("Finite volume stepping"), this);
     auto *fvPerfForm = new QFormLayout(m_fvPerfGroup);
 
-    m_fvBackendCombo = new QComboBox(m_fvPerfGroup);
-    m_fvBackendCombo->addItem(tr("Auto"), QStringLiteral("AUTO"));
-    m_fvBackendCombo->addItem(tr("CPU (serial)"), QStringLiteral("CPU"));
-    m_fvBackendCombo->addItem(tr("OpenMP"), QStringLiteral("OMP"));
-    m_fvBackendCombo->addItem(tr("CUDA"), QStringLiteral("CUDA"));
-    m_fvBackendCombo->addItem(tr("HIP"), QStringLiteral("HIP"));
-    m_fvBackendCombo->addItem(tr("SYCL"), QStringLiteral("SYCL"));
-    m_fvBackendCombo->setToolTip(tr("Compute backend for the FV kernels (FV_BACKEND). Auto picks "
-                                    "based on mesh size and available plugins."));
-    fvPerfForm->addRow(tr("Backend:"), m_fvBackendCombo);
-
-    m_fvMinParallelSpin = new QSpinBox(m_fvPerfGroup);
-    m_fvMinParallelSpin->setRange(0, 100000000);
-    m_fvMinParallelSpin->setSingleStep(1000);
-    m_fvMinParallelSpin->setToolTip(tr("Cell count below which the solver stays serial "
-                                       "(FV_MIN_PARALLEL_CELLS)."));
-    fvPerfForm->addRow(tr("Min parallel cells:"), m_fvMinParallelSpin);
+    // No "Auto" item: the engine's AUTO runs the CPU solver at any mesh size.
+    // A model saved with AUTO shows as CPU and keeps AUTO until this is edited
+    // (the context writes the imported value back for an untouched editor).
+    m_fvBackendCombo = new QComboBox(this);
+    m_fvBackendCombo->setObjectName(QStringLiteral("fvBackendCombo"));
+    m_fvBackendCombo->addItem(tr("CPU"), QStringLiteral("CPU"));
+    m_fvBackendCombo->addItem(tr("OpenMP (Kokkos)"), QStringLiteral("OMP"));
+    m_fvBackendCombo->addItem(tr("CUDA (experimental)"), QStringLiteral("CUDA"));
+    m_fvBackendCombo->addItem(tr("HIP (experimental)"), QStringLiteral("HIP"));
+    m_fvBackendCombo->addItem(tr("SYCL (experimental)"), QStringLiteral("SYCL"));
+    m_fvBackendCombo->setToolTip(
+        tr("Where the finite volume solver's substep loop runs (FV_BACKEND). CPU is the built-in "
+           "solver. The others run the loop on a Kokkos plugin, which steps globally and holds "
+           "structure flows over each routing step; if the plugin or a device is missing, or the "
+           "model uses an option the plugin does not cover, the CPU solver runs and the run log "
+           "says so. The OPENSWMM_FV_BACKEND environment variable overrides this setting."));
+    m_fvBackendNote = new QLabel(this);
+    m_fvBackendNote->setObjectName(QStringLiteral("fvBackendNote"));
+    m_fvBackendNote->setTextFormat(Qt::RichText);
+    m_fvBackendNote->setVisible(false);
+    connect(m_fvBackendCombo, qOverload<int>(&QComboBox::currentIndexChanged), this, [this] {
+        if (!m_reading)
+            emit gateInputsChanged();
+    });
 
     m_fvCompactionBox =
         new QCheckBox(tr("Compact dry-cell storage (FV_COMPACTION)"), m_fvPerfGroup);
@@ -609,7 +618,6 @@ void HydraulicsPage::tagWidgets()
     tagOption(m_fvStructCouplingCombo, "FV_STRUCTURE_COUPLING");
     tagOption(m_fvCompactionBox, "FV_COMPACTION");
     tagOption(m_fvBackendCombo, "FV_BACKEND");
-    tagOption(m_fvMinParallelSpin, "FV_MIN_PARALLEL_CELLS");
     tagOption(m_fvLtsBox, "FV_LTS");
     tagOption(m_fvLtsTiersSpin, "FV_LTS_MAX_TIERS");
     tagOption(m_fvCflCensusSpin, "FV_CFL_CENSUS_INTERVAL");
@@ -708,8 +716,14 @@ void HydraulicsPage::read()
                       ctx_.option("FV_STRUCTURE_COUPLING", QStringLiteral("SUBSTEP")));
     m_fvCompactionBox->setChecked(SimulationOptionsDialog::parseEngineBool(ctx_.option(
                                       "FV_COMPACTION", QStringLiteral("YES"))) == Qt::Checked);
-    selectComboByData(m_fvBackendCombo, ctx_.option("FV_BACKEND", QStringLiteral("AUTO")));
-    m_fvMinParallelSpin->setValue(optInt("FV_MIN_PARALLEL_CELLS", 20000));
+    // Mark what is installed before the editors are captured: the mark is part
+    // of an item's text, and a text that changes after capture reads as an edit.
+    ctx_.backends().decorate(m_fvBackendCombo, SWMM_BACKEND_SOLVER_FV_NETWORK);
+    // AUTO has no item; the combo then rests on CPU, which is what AUTO runs.
+    if (m_fvBackendCombo->findData(ctx_.option("FV_BACKEND", QStringLiteral("AUTO"))) >= 0)
+        selectComboByData(m_fvBackendCombo, ctx_.option("FV_BACKEND", QStringLiteral("AUTO")));
+    else
+        m_fvBackendCombo->setCurrentIndex(m_fvBackendCombo->findData(QStringLiteral("CPU")));
     m_fvLtsBox->setChecked(SimulationOptionsDialog::parseEngineBool(
                                ctx_.option("FV_LTS", QStringLiteral("YES"))) == Qt::Checked);
     m_fvLtsTiersSpin->setValue(optInt("FV_LTS_MAX_TIERS", 6));
@@ -734,6 +748,7 @@ void HydraulicsPage::read()
     m_reading = false;
     refreshGates();
     ctx_.captureEditors(this);
+    captureHostedBackendEditor();
 }
 
 int HydraulicsPage::write()
@@ -796,9 +811,10 @@ int HydraulicsPage::write()
                              m_fvStructCouplingCombo->currentData().toString());
     n += writeOption(
         "FV_COMPACTION", SimulationOptionsDialog::engineBoolString(m_fvCompactionBox->isChecked()));
-    n += writeOption("FV_BACKEND", m_fvBackendCombo->currentData().toString());
-    n +=
-        writeOption("FV_MIN_PARALLEL_CELLS", QString::number(m_fvMinParallelSpin->value()));
+    // Owner is the editor itself: it is shown on another page, so it is not
+    // under this one, and an editor the context cannot find reads as edited.
+    n += ctx_.writeIfChanged("FV_BACKEND", m_fvBackendCombo->currentData().toString(),
+                             m_fvBackendCombo);
     n += writeOption("FV_LTS",
                              SimulationOptionsDialog::engineBoolString(m_fvLtsBox->isChecked()));
     n += writeOption("FV_LTS_MAX_TIERS", QString::number(m_fvLtsTiersSpin->value()));
@@ -816,6 +832,7 @@ int HydraulicsPage::write()
         }
     }
     ctx_.captureEditors(this);
+    captureHostedBackendEditor();
     return n;
 }
 
@@ -858,6 +875,72 @@ bool HydraulicsPage::validate(QString *warn)
     return true;
 }
 
+QWidget *HydraulicsPage::fvBackendEditor() const
+{
+    return m_fvBackendCombo;
+}
+
+void HydraulicsPage::captureHostedBackendEditor()
+{
+    // The backend editor sits in System / Performance's group once the dialog
+    // has hosted it there, so capturing this page misses it. Capture the
+    // editor alone: the group also holds the 2D page's editor, whose baseline
+    // must not be reset to an unwritten edit before that page writes.
+    if (m_fvBackendCombo && !isAncestorOf(m_fvBackendCombo))
+        ctx_.captureEditors(m_fvBackendCombo);
+}
+
+void HydraulicsPage::refreshBackendGates(bool implicit)
+{
+    const bool fv = flowRouting() == QStringLiteral("FV");
+    const QString token = m_fvBackendCombo->currentData().toString();
+    const bool device = fv && !implicit && ComputeBackendModel::isDevice(token);
+    m_fvBackendCombo->setEnabled(fv && !implicit);
+
+    // A device backend steps globally with every cell active and holds
+    // structure flows over the routing step, whatever these three say. They
+    // keep their saved values; they are only shown as not in effect.
+    const QString inert =
+        device ? tr("Not used with the %1 backend, which steps globally with every cell active.")
+                     .arg(m_fvBackendCombo->currentText())
+               : QString();
+    m_fvLtsBox->setEnabled(!implicit && !device);
+    m_fvCompactionBox->setEnabled(!implicit && !device);
+    m_fvLtsBox->setToolTip(device ? inert
+                                  : tr("Advance slow cells with larger substeps grouped in tiers "
+                                       "(FV_LTS)."));
+    m_fvCompactionBox->setToolTip(
+        device ? inert : tr("Skip fully dry reaches in the substep loop (FV_COMPACTION)."));
+    m_fvStructCouplingCombo->setEnabled(!device);
+    m_fvStructCouplingCombo->setToolTip(
+        device ? tr("Held over each routing step on the %1 backend, whatever is chosen here.")
+                     .arg(m_fvBackendCombo->currentText())
+               : tr("How often weir/orifice/pump flows are re-evaluated "
+                    "(FV_STRUCTURE_COUPLING)."));
+
+    // The note under the editor says what the choice means on this machine and
+    // for this model. Both answers are the engine's (ComputeBackendModel).
+    QString note;
+    if (device) {
+        const auto &backends = ctx_.backends();
+        const auto entry = backends.entry(SWMM_BACKEND_SOLVER_FV_NETWORK, token);
+        const QString warn = QStringLiteral("<span style=\"color:#D06F00\">&#9888; %1</span>");
+        if (!entry.usable)
+            note = warn.arg(tr("%1 cannot be used on this machine (%2). The CPU solver will run.")
+                                .arg(token, entry.reason.toHtmlEscaped()));
+        else if (!backends.fvDeviceSupported())
+            note = warn.arg(tr("The applied options are outside this backend's scope (%1). The "
+                               "CPU solver will run.")
+                                .arg(backends.fvDeviceReason().toHtmlEscaped()));
+        else
+            note = tr("Runs on %1 with global time stepping and structure flows held over each "
+                      "routing step. Local time stepping and dry-cell compaction are not used.")
+                       .arg(entry.device.toHtmlEscaped());
+    }
+    m_fvBackendNote->setText(note);
+    m_fvBackendNote->setVisible(!note.isEmpty());
+}
+
 void HydraulicsPage::refreshGates()
 {
     // Intra-page widget gates. The dialog owns rows and tabs; a page owns the
@@ -871,11 +954,10 @@ void HydraulicsPage::refreshGates()
     if (nativeTab >= 0)
         m_tabs->setTabEnabled(nativeTab, implicit);
     m_fvPerfGroup->setEnabled(!implicit);
+    refreshBackendGates(implicit);
     m_fvCflSpin->setEnabled(!implicit);
     m_fvOrderCombo->setEnabled(!implicit);
     m_fvPressureClosureCombo->setEnabled(!implicit && ctx_.caps().fvPressure);
-    m_fvBackendCombo->setEnabled(!implicit);
-    m_fvLtsBox->setEnabled(!implicit);
     m_fvPressImplicitBox->setEnabled(!implicit);
     m_skipSteadyBox->setEnabled(!implicit);
     m_ufMethodCombo->setEnabled(!implicit || ctx_.caps().implicitFvSchema.value("native_unsteady_friction").toBool());
@@ -896,7 +978,7 @@ void HydraulicsPage::refreshGates()
         m_fvLimiterCombo->setEnabled(!implicit && m_fvOrderCombo->currentData().toString() ==
                                                       QLatin1String("2"));
     if (m_fvLtsTiersSpin && m_fvLtsBox)
-        m_fvLtsTiersSpin->setEnabled(!implicit && m_fvLtsBox->isChecked());
+        m_fvLtsTiersSpin->setEnabled(m_fvLtsBox->isEnabled() && m_fvLtsBox->isChecked());
     if (m_ufK3Spin && m_ufMethodCombo)
         m_ufK3Spin->setEnabled(m_ufMethodCombo->currentData().toString() != QLatin1String("NONE"));
 

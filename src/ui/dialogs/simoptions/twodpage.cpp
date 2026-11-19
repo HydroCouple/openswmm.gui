@@ -124,8 +124,6 @@ void TwoDPage::buildUi()
     auto *t2CplLay = new QVBoxLayout(t2Cpl);
     auto *t2Prc = new QWidget(m_tabs);
     auto *t2PrcLay = new QVBoxLayout(t2Prc);
-    auto *t2Perf = new QWidget(m_tabs);
-    auto *t2PerfLay = new QVBoxLayout(t2Perf);
     m_outputPage = new QWidget(this);
     m_outputPage->setObjectName(QStringLiteral("twoDOutputPage"));
     auto *outputLay = new QVBoxLayout(m_outputPage);
@@ -336,13 +334,11 @@ void TwoDPage::buildUi()
     connect(m_turbulenceCombo, &QComboBox::currentIndexChanged, this, [this] { refreshGates(); });
     connect(m_ltsTiersSpin, &QSpinBox::valueChanged, this, [this] { refreshGates(); });
 
-
-    // Same shape as the FV tab's "Finite volume performance" group: the
-    // model's own backend request, persisted as [2D_OPTIONS] BACKEND.
-    auto *perfGroup = new QGroupBox(tr("Performance"), t2Perf);
-    auto *perfForm = new QFormLayout(perfGroup);
-
-    m_backend2DCombo = new QComboBox(perfGroup);
+    // The model's own backend request, persisted as [2D_OPTIONS] BACKEND. This
+    // page owns the editor; the dialog shows it on System / Performance beside
+    // the 1D backend, because where a solver runs is a machine question.
+    m_backend2DCombo = new QComboBox(this);
+    m_backend2DCombo->setObjectName(QStringLiteral("backend2DCombo"));
     m_backend2DCombo->addItem(tr("Auto (CPU in GUI)"), QStringLiteral("AUTO"));
     m_backend2DCombo->addItem(tr("CPU (built-in marcher)"), QStringLiteral("CPU"));
     m_backend2DCombo->addItem(tr("OpenMP (Kokkos)"), QStringLiteral("OMP"));
@@ -357,9 +353,6 @@ void TwoDPage::buildUi()
         "device the run falls back to CPU with a notice. Pin CPU when a "
         "model measures slower on the accelerator. The OPENSWMM_2D_BACKEND "
         "environment variable overrides this setting when set."));
-    perfForm->addRow(tr("Backend:"), m_backend2DCombo);
-
-    t2PerfLay->addWidget(perfGroup);
 
     // Not "Mesh": every knob here is a depth below which the solver stops
     // treating a cell as wet. Nothing in it describes the mesh.
@@ -1094,13 +1087,11 @@ void TwoDPage::buildUi()
     t2MshLay->addStretch();
     t2CplLay->addStretch();
     t2PrcLay->addStretch();
-    t2PerfLay->addStretch();
 
     m_tabs->addTab(t2Hyd, tr("Hydrodynamics"));
     m_tabs->addTab(t2Msh, tr("Wetting && Drying"));
     m_tabs->addTab(t2Cpl, tr("Coupling"));
     m_tabs->addTab(t2Prc, tr("Processes"));
-    m_tabs->addTab(t2Perf, tr("Performance"));
 }
 
 void TwoDPage::tagWidgets()
@@ -1563,6 +1554,9 @@ void TwoDPage::read()
     m_advection2DBox->setChecked(
         SOD::parseEngineBool(getExt("ADVECTION", t.advection ? "YES" : "NO")) == Qt::Checked);
     // No preferences default: the engine's AUTO is the only sensible seed.
+    // Mark what is installed before the editors are captured (the mark is part
+    // of the item text, and a text that changes after capture reads as an edit).
+    ctx_.backends().decorate(m_backend2DCombo, SWMM_BACKEND_SOLVER_2D_SURFACE);
     selectComboByData(m_backend2DCombo, getExt("BACKEND", QStringLiteral("AUTO")));
     m_couplingAreaAutoBox->setChecked(
         getExt("COUPLING_AREA", t.couplingAreaAuto ? "AUTO" : "DEFAULT")
@@ -1696,6 +1690,15 @@ void TwoDPage::read()
     ctx_.captureEditors(this);
     // The output controls are hosted outside this widget subtree by FilesPage.
     ctx_.captureEditors(m_outputPage);
+    // The backend editor is shown in System / Performance's group; capture it
+    // alone, so the 1D editor beside it keeps the baseline its page set.
+    if (!isAncestorOf(m_backend2DCombo))
+        ctx_.captureEditors(m_backend2DCombo);
+}
+
+QWidget *TwoDPage::backendEditor() const
+{
+    return m_backend2DCombo;
 }
 
 int TwoDPage::write()
@@ -1774,7 +1777,9 @@ int TwoDPage::write()
     }
 
     writeIfChanged("ADVECTION", SOD::engineBoolString(m_advection2DBox->isChecked()));
-    writeIfChanged("BACKEND", m_backend2DCombo->currentData().toString());
+    // Owner is the editor itself: it is shown on System / Performance, so it
+    // is not under this page.
+    writeIfChanged("BACKEND", m_backend2DCombo->currentData().toString(), m_backend2DCombo);
     writeIfChanged("COUPLING_AREA", m_couplingAreaAutoBox->isChecked() ? QStringLiteral("AUTO")
                                                                        : QStringLiteral("DEFAULT"));
     writeIfChanged("COUPLING_IN_FLOODING", SOD::engineBoolString(m_couplingInFloodingBox->isChecked()));
@@ -1895,6 +1900,10 @@ int TwoDPage::write()
     }
     ctx_.captureEditors(this);
     ctx_.captureEditors(m_outputPage);
+    // The backend editor is shown in System / Performance's group; capture it
+    // alone, so the 1D editor beside it keeps the baseline its page set.
+    if (!isAncestorOf(m_backend2DCombo))
+        ctx_.captureEditors(m_backend2DCombo);
     return n;
 }
 

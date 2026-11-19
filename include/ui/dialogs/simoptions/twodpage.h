@@ -114,6 +114,11 @@ public:
      */
     void refreshGates() override;
 
+    /// The [2D_OPTIONS] BACKEND editor. This page owns it (it tags, reads and
+    /// writes it); the dialog shows it on System / Performance beside the 1D
+    /// backend.
+    [[nodiscard]] QWidget *backendEditor() const;
+
     /*! \brief Tab order, so the dialog can name tabs without magic numbers. */
     enum Tab { TabHydrodynamics = 0, TabWetDry, TabCoupling, TabProcesses, TabPerformance };
 

@@ -75,7 +75,10 @@ void SimOptionsContext::captureEditors(QWidget *root)
             return !entry.first || root == entry.first || root->isAncestorOf(entry.first);
         }), entries.end());
     }
-    for (auto *widget : root->findChildren<QWidget *>()) {
+    // The root counts too, so a single editor can be captured on its own.
+    QList<QWidget *> widgets = root->findChildren<QWidget *>();
+    widgets.prepend(root);
+    for (auto *widget : widgets) {
         const auto property = widget->metaObject()->userProperty();
         if (!property.isValid()) continue;
         const auto keys = widget->property("optionKey").toString().split(',', Qt::SkipEmptyParts);

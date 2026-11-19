@@ -32,6 +32,7 @@ class QLineEdit;
 class QComboBox;
 class QDoubleSpinBox;
 class QGroupBox;
+class QLabel;
 class QSpinBox;
 class QTabWidget;
 
@@ -135,7 +136,18 @@ public:
      */
     void setMinimumStep(double seconds);
 
+    /// The FV_BACKEND editor and the note that explains the current choice.
+    /// This page owns both (it tags, reads, writes and gates them); the dialog
+    /// shows them on System / Performance beside the 2D backend.
+    [[nodiscard]] QWidget *fvBackendEditor() const;
+    [[nodiscard]] QLabel *fvBackendNote() const { return m_fvBackendNote; }
+
 private:
+    /// Record the hosted backend editor's baseline after a read or a write.
+    void captureHostedBackendEditor();
+    /// Enable the backend editor for FV, show what a device backend leaves
+    /// unused, and fill the note. `implicit` is the native implicit solver gate.
+    void refreshBackendGates(bool implicit);
     /**
      * @brief Create owned hydraulic controls, schema validators and gate connections once.
      * Builds native methods/preconditioners/fields from the cached schema, using integer
@@ -169,6 +181,7 @@ private:
     QDoubleSpinBox *m_dpsDecaySpin = nullptr;
     QComboBox *m_forceMainCombo = nullptr;
     QComboBox *m_fvBackendCombo = nullptr;
+    QLabel *m_fvBackendNote = nullptr;
     QDoubleSpinBox *m_fvCellLengthSpin = nullptr; // project length units; 0 = minimum cell count
     QSpinBox *m_fvCflCensusSpin = nullptr;
     QDoubleSpinBox *m_fvCflSpin = nullptr;
@@ -178,7 +191,6 @@ private:
     QCheckBox *m_fvLtsBox = nullptr;
     QSpinBox *m_fvLtsTiersSpin = nullptr; // needs LTS on
     QSpinBox *m_fvMinCellsSpin = nullptr;
-    QSpinBox *m_fvMinParallelSpin = nullptr;
     QComboBox *m_fvOrderCombo = nullptr;
     class QGroupBox *m_fvPerfGroup = nullptr;
     QCheckBox *m_fvPressImplicitBox = nullptr;     // FV_PRESSURIZED_IMPLICIT (experimental)

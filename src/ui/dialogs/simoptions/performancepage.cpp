@@ -44,6 +44,7 @@ void PerformancePage::buildUi()
     auto *vlay = new QVBoxLayout(this);
 
     auto *threadsGroup = new QGroupBox(tr("Parallelization"), this);
+    m_threadsGroup = threadsGroup;
     auto *threadsForm = new QFormLayout(threadsGroup);
 
     // Machine / OpenMP limits, queried once. The range stays 0–256 so the
@@ -108,14 +109,43 @@ void PerformancePage::buildUi()
     threadsForm->addRow(QString(), fastBtn);
 
     auto *note =
-        new QLabel(tr("<i>The IGNORE_* skip-process flags live on the Models / Processes tab. "
-                      "Future slices add more performance knobs here.</i>"),
+        new QLabel(tr("<i>The IGNORE_* skip-process flags live on the Models / Processes tab.</i>"),
                    threadsGroup);
     note->setWordWrap(true);
     threadsForm->addRow(note);
 
     vlay->addWidget(threadsGroup);
+
+    // Where each solver runs. The rows are added by the dialog from the pages
+    // that own the options (hostBackendRow); the group stays hidden until one
+    // is, so a build without those solvers shows nothing empty.
+    m_backendsGroup = new QGroupBox(tr("Compute backends"), this);
+    m_backendsGroup->setObjectName(QStringLiteral("computeBackendsGroup"));
+    m_backendsForm = new QFormLayout(m_backendsGroup);
+    auto *backendsNote = new QLabel(
+        tr("<i>Saved with the model. A model that asks for a backend this machine does not have "
+           "still runs: the engine uses the CPU solver and says so in the run log.</i>"),
+        m_backendsGroup);
+    backendsNote->setWordWrap(true);
+    m_backendsForm->addRow(backendsNote);
+    m_backendsGroup->setVisible(false);
+    vlay->addWidget(m_backendsGroup);
+
     vlay->addStretch();
+}
+
+void PerformancePage::hostBackendRow(const QString &label, QWidget *editor, QLabel *note)
+{
+    if (!editor || !m_backendsForm)
+        return;
+    // Above the group's closing note, in the order the dialog adds them.
+    int row = m_backendsForm->rowCount() - 1;
+    m_backendsForm->insertRow(row++, label, editor);
+    if (note) {
+        note->setWordWrap(true);
+        m_backendsForm->insertRow(row, note);
+    }
+    m_backendsGroup->setVisible(true);
 }
 
 void PerformancePage::refreshThreadsEffectiveLabel()
@@ -173,7 +203,11 @@ void PerformancePage::read()
     const QString raw = ctx_.option("THREADS");
     const int v = raw.toInt(&ok);
     m_threadsSpin->setValue(ok ? v : sim.threads);
-    ctx_.captureEditors(this);
+    // This page's own editors only. The backend editors in the group below
+    // belong to other pages, which capture them after their own read or write;
+    // capturing them here would record an edit as the baseline before its
+    // owner had written it.
+    ctx_.captureEditors(m_threadsGroup);
 }
 
 int PerformancePage::write()
@@ -181,7 +215,11 @@ int PerformancePage::write()
     if (!m_threadsSpin)
         return 0;
     const int written = writeOption("THREADS", QString::number(m_threadsSpin->value()));
-    ctx_.captureEditors(this);
+    // This page's own editors only. The backend editors in the group below
+    // belong to other pages, which capture them after their own read or write;
+    // capturing them here would record an edit as the baseline before its
+    // owner had written it.
+    ctx_.captureEditors(m_threadsGroup);
     return written;
 }
 

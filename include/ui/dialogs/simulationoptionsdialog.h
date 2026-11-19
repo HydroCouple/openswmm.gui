@@ -481,6 +481,7 @@ private:
     openswmmvis::ui::DatesPage *m_datesPage = nullptr;
     openswmmvis::ui::FilesPage *m_filesPage = nullptr;
     openswmmvis::ui::HydraulicsPage *m_hydraulicsPage = nullptr;
+    openswmmvis::ui::PerformancePage *m_performancePage = nullptr;
     openswmmvis::ui::ModelsPage *m_modelsPage = nullptr;
     openswmmvis::ui::QualityPage *m_qualityPage = nullptr;
     openswmmvis::ui::SpatialPage *m_spatialPage = nullptr;
