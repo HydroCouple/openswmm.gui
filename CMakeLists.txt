@@ -2648,7 +2648,11 @@ elseif(WIN32)
         "${OPENSWMMENGINE_INSTALL_DIR}/bin/libomp*.dll"
         "${OPENSWMMENGINE_INSTALL_DIR}/lib/libomp*.dll"
         "${OPENSWMMENGINE_INSTALL_DIR}/bin/sundials_*.dll"
-        "${OPENSWMMENGINE_INSTALL_DIR}/lib/sundials_*.dll")
+        "${OPENSWMMENGINE_INSTALL_DIR}/lib/sundials_*.dll"
+        # CUDA runtime, present only when the engine's CUDA plugin links it as
+        # a DLL (the engine install copies it beside the plugin then).
+        "${OPENSWMMENGINE_INSTALL_DIR}/bin/cudart64_*.dll"
+        "${OPENSWMMENGINE_INSTALL_DIR}/lib/cudart64_*.dll")
     if(_swmmvis_gpu_plugin)
         add_custom_command(TARGET SWMMVis POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
@@ -2799,9 +2803,13 @@ else()
     # OpenMP runtime. The engine package installs the plugin to lib/ on Linux;
     # glob lib/+bin/ to stay layout-agnostic. Absent the plugin, large meshes
     # (>20k cells) fall back to the serial CVODE solver — still hypre/BoomerAMG.
+    # Any backend (omp / cuda / hip / sycl), as on Windows, plus the CUDA
+    # runtime the engine install copies beside its CUDA plugin.
     file(GLOB _swmmvis_gpu_plugin
-        "${OPENSWMMENGINE_INSTALL_DIR}/lib/*openswmm_gpu_omp*"
-        "${OPENSWMMENGINE_INSTALL_DIR}/bin/*openswmm_gpu_omp*")
+        "${OPENSWMMENGINE_INSTALL_DIR}/lib/*openswmm_gpu_*.so*"
+        "${OPENSWMMENGINE_INSTALL_DIR}/bin/*openswmm_gpu_*.so*"
+        "${OPENSWMMENGINE_INSTALL_DIR}/lib/libcudart.so*"
+        "${OPENSWMMENGINE_INSTALL_DIR}/bin/libcudart.so*")
     if(_swmmvis_gpu_plugin)
         add_custom_command(TARGET SWMMVis POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
