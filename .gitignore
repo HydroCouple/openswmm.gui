@@ -229,3 +229,14 @@ examples/channel_burn_boundary/*
 /build-burn/
 /build-mesh-policies/
 
+# Local planning documents and generated documentation.
+plans/
+workpans/
+work-plans/
+work_plans/
+work plans/
+*workplan*.md
+/docs/development/*-plan.md
+/docs/articles/
+/docs/latex/
+/patches/
