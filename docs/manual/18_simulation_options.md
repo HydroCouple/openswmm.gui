@@ -490,9 +490,10 @@ saved with `AUTO` shows **CPU** and keeps `AUTO` until the control is edited.
 The run report's *FV Solver Statistics* block names the backend that ran. The
 `OPENSWMM_FV_BACKEND` environment variable overrides the setting.
 
-*2D surface*: **Auto** uses the built-in CPU marcher for runs started from the
-application (other engine clients may pick an installed accelerator above a
-mesh-size floor). A named backend loads that plugin outright; if it is missing
+*2D surface* is enabled only while the 2D module is on (*Models / Processes ›
+Modules*), like the *2D Surface Routing* page. **Auto** uses the built-in CPU
+marcher for runs started from the application (other engine clients may pick an
+installed accelerator above a mesh-size floor). A named backend loads that plugin outright; if it is missing
 or has no usable device the run falls back to CPU with a notice. The
 `OPENSWMM_2D_BACKEND` environment variable overrides the setting.
 

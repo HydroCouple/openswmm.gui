@@ -778,6 +778,20 @@ void TestSimulationOptionsGates::computeBackendsLiveOnPerformance()
     fv->setCurrentIndex(fv->findData(QStringLiteral("CPU")));
     QVERIFY(lts->isEnabled() && compaction->isEnabled() && coupling->isEnabled());
     QVERIFY(note->isHidden());
+
+    // The 2D editor follows the 2D module, like the 2D page it belongs to.
+    auto *module2D = dlg.findChild<QCheckBox *>(QStringLiteral("module2DBox"));
+    QVERIFY(module2D);
+    module2D->setChecked(true);
+    QVERIFY2(twoD->isEnabled(), "2D backend not editable with the 2D module on");
+    const QString ownTip = twoD->toolTip();
+    QVERIFY(!ownTip.isEmpty());
+    module2D->setChecked(false);
+    QVERIFY2(!twoD->isEnabled(), "2D backend editable with the 2D module off");
+    QVERIFY2(twoD->toolTip() != ownTip, "a gated editor must say why it is off");
+    module2D->setChecked(true);
+    QVERIFY(twoD->isEnabled());
+    QCOMPARE(twoD->toolTip(), ownTip);
 }
 
 void TestSimulationOptionsGates::backendEditorsWriteThroughTheirOwners()

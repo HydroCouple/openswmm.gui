@@ -600,7 +600,7 @@ void SimulationOptionsDialog::refreshGates()
         case PageGate::Target::Widget:
             if (g.widget) {
                 g.widget->setEnabled(on);
-                g.widget->setToolTip(on ? QString() : g.reasonWhenOff);
+                g.widget->setToolTip(on ? g.ownToolTip : g.reasonWhenOff);
             }
             break;
         }
@@ -642,6 +642,14 @@ void SimulationOptionsDialog::buildGateTable()
         m_filesPage->outputTabs()->indexOf(m_twoDPage->outputPage()),
         [this] { return m_modelsPage && m_modelsPage->module2DEnabled(); },
         tr("Enable the 2D module on Models / Processes \u203A Modules"));
+    // The 2D backend editor is shown on System / Performance, outside the 2D
+    // page, so the row gate above does not reach it.
+    PageGate backend2D;
+    backend2D.widget = m_twoDPage->backendEditor();
+    backend2D.enabled = [this] { return m_modelsPage && m_modelsPage->module2DEnabled(); };
+    backend2D.reasonWhenOff = tr("Enable the 2D module on Models / Processes \u203A Modules");
+    backend2D.ownToolTip = backend2D.widget->toolTip();
+    m_gates << backend2D;
 #endif
     // Activation lives on this page: it must remain reachable even when
     // the project has no pollutants or reserved species yet.

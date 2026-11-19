@@ -361,7 +361,8 @@ private:
      *
      * Replaces six ad-hoc gating paths. Disabled rows and tabs stay VISIBLE
      * but grayed with reasonWhenOff as the tooltip, so a gated option is
-     * discoverable rather than missing (PLAN §4.3).
+     * discoverable rather than missing (PLAN §4.3). A gated widget gets
+     * ownToolTip back when its gate opens.
      */
     struct PageGate {
         enum class Target { SidebarRow, Tab, Widget };
@@ -372,6 +373,7 @@ private:
         QWidget *widget = nullptr;
         std::function<bool()> enabled;
         QString reasonWhenOff;
+        QString ownToolTip;
     };
 
     /**

@@ -23,7 +23,8 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 - **Both compute backends are chosen on System / Performance.** Simulation Options → System /
   Performance has a **Compute backends** group with one choice for the 1D finite volume network
   and one for the 2D surface, saved with the model as before (`FV_BACKEND` and `[2D_OPTIONS]
-  BACKEND`). The 2D page's Performance tab, which held only its backend, is gone, and the Finite
+  BACKEND`); the 2D choice is enabled only while the 2D module is on, like the 2D page. The 2D
+  page's Performance tab, which held only its backend, is gone, and the Finite
   Volume tab's remaining group is **Finite volume stepping**. A backend this machine cannot use is
   marked **(not installed)** with the engine's reason as its tooltip and stays selectable. With a
   device backend chosen for the 1D solver, a note says what it changes (global time stepping,
