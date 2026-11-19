@@ -200,6 +200,10 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Fixed
 
+- Linux packages pick up the engine's GPU plugin whatever its backend; they took the OpenMP
+  plugin only, so a CUDA engine build was packaged without its plugin. Windows and Linux packages
+  also carry the CUDA runtime library when the engine install provides one.
+
 - **Windows: the Rainfall Visualization dialog no longer flashes, and it and the time
   series editor no longer open dark for ordinary series.** Their chart series always took
   Qt Charts' OpenGL path, which on Windows makes Qt re-create the window on an OpenGL
