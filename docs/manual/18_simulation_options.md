@@ -715,6 +715,40 @@ A new row starts as Native when the model has state only the native file keeps
 (water age, reaction species, an aquifer or storage-node LIDs) or a 2D mesh,
 and as Auto otherwise. The **Hot-start file (USE)** row reads either format.
 
+A scheduled save that cannot be written, for example because its folder does
+not exist, stops the run with an error naming the file. A save never overwrites
+an existing file that is not a hot-start file, such as a GeoPackage or an HDF5
+file; keep restart states in those files with the group below.
+
+*Restart from a saved state (.inp [RESTART])* — start the run from a state an
+earlier run recorded in a GeoPackage or HDF5 file, and record this run's states
+into such a file:
+
+| Control | What it does |
+| --- | --- |
+| **Start from file** | GeoPackage or HDF5 file holding the saved state. Blank starts from the model's own initial conditions |
+| **Run** | Run that saved the state, listed from the file. Blank uses the file's only run |
+| **Saved state** | Record to start from, listed with the model date of the time step it holds, or **Latest complete**. Incomplete records are listed but cannot be chosen |
+| **Mode** | *Use as initial conditions* starts this model at its own start date from the saved node, link and subcatchment state, with new mass balances. *Continue the original run* resumes it at the saved time with its clocks and balances |
+| **Record into file** | GeoPackage or HDF5 file this run records its states into. Blank records none |
+| **Record format** | GeoPackage or HDF5. It is never inferred from the file name; an existing file of another kind is left unchanged |
+| **Record** | **At the end of the run**, **Every** an interval, and **At dates**, each taken at the end of the first time step that reaches it |
+| **Keep the engine checkpoint so a later run can continue** | Needed for *Continue the original run* |
+
+The status line under **Mode** says how many runs and complete saved states the
+file holds, or why it cannot be read. The file is read in the background, so a
+large file does not hold up the dialog, and reading it never changes it. When
+the file is not available, the run and saved state you chose are kept.
+
+When a run records with the engine checkpoint, each saved state also carries the
+binary results written so far, so a run that continues from it writes the same
+`.out` file as the uninterrupted run. Such a run starts a new `.out`: the
+results of the previous run are kept beside it as `.out.previous-native-N`. A
+continued run must write binary results exactly when its saved state carries
+them. A run cannot start from both the hot-start file and a saved state. Every
+run is given its own ID, and a run that started from a saved state records
+which one in the file it records into and in a GeoPackage results file.
+
 \fig{18_output_subtab.png, The Output sub-tab with writer combos and the report contents group}
 
 **Output sub-tab.** Its secondary tabs are **General** and **2D Results**.

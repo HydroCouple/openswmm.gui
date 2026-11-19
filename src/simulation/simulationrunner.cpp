@@ -16,6 +16,7 @@
 #include "simulation/snowledger.h"
 #include "simulation/lidstaterecorder.h"
 
+#include <openswmm/engine/openswmm_restart.h>
 #include <openswmm/engine/openswmm_engine.h>
 #include <openswmm/engine/openswmm_massbalance.h>
 #include <openswmm/engine/openswmm_model.h>
@@ -454,7 +455,14 @@ RunFileReferences knownRunReferences(const QString &inp)
         const auto tokens = optionTokens(line);
         if (tokens.isEmpty())
             continue;
-        if (section == "FILES" && tokens.size() >= 3) {
+        if (section == "RESTART" && tokens.size() >= 2) {
+            // The restart source is read; the record file is written.
+            const auto key = tokens[0].toUpper();
+            if (key == "SOURCE_FILE")
+                addInput(tokens[1]);
+            else if (key == "RECORD_FILE" && !tokens[1].isEmpty())
+                references.outputs.append(path(tokens[1]));
+        } else if (section == "FILES" && tokens.size() >= 3) {
             const auto mode = tokens[0].toUpper();
             if (mode == "USE")
                 addInput(tokens[2]);
@@ -1071,13 +1079,16 @@ void SimulationRunner::start()
             // Start
             *phase = QStringLiteral("start");
             runLog->line(QStringLiteral("start"));
-            // The native transactional writer requires a fresh destination.
-            // The GUI already holds the output lease and has obtained its
-            // usual overwrite consent. Preserve the preceding binary results
-            // in a new sibling file, after successful native preflight.
+            // The native transactional writer requires a fresh destination,
+            // and so does a [RESTART] run whose engine checkpoint carries its
+            // binary results. The GUI already holds the output lease and has
+            // obtained its usual overwrite consent. Preserve the preceding
+            // binary results in a new sibling file, after successful preflight.
+            int restartCheckpoint = 0;
+            swmm_restart_uses_checkpoint(eng, &restartCheckpoint);
             QString previousNativeOutput;
             const QString nativeOutput = QString::fromUtf8(out);
-            if (nativeImplicit && QFileInfo::exists(nativeOutput)) {
+            if ((nativeImplicit || restartCheckpoint != 0) && QFileInfo::exists(nativeOutput)) {
                 int suffix = 1;
                 do {
                     previousNativeOutput =

@@ -40,6 +40,7 @@
 #include <openswmm/plugin_sdk/PluginDiscovery.hpp>
 #include <openswmm/engine/openswmm_2d.h>
 #include <openswmm/engine/openswmm_hotstart.h>
+#include <openswmm/engine/openswmm_restart.h>
 #include <qcustomeditors.h>
 #include <QCheckBox>
 #include <QComboBox>
@@ -53,6 +54,18 @@
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QFormLayout>
+#include <QJsonArray>
+#include <QJsonDocument>
+#include <QJsonObject>
+#include <QLabel>
+#include <QListWidget>
+#include <QSignalBlocker>
+#include <QSpinBox>
+#include <QTimeZone>
+#include <QFutureWatcher>
+#include <QtConcurrent/QtConcurrentRun>
+#include <algorithm>
+#include <cmath>
 #include <QGridLayout>
 #include <QGroupBox>
 #include <QStandardItemModel>
@@ -107,6 +120,7 @@ void FilesPage::read()
     readPluginsFromEngine();
     readProcessComponentsFromEngine(); // U1
     readFilesSectionFromEngine();
+    readRestartFromEngine();
     readWriterCombosFromEngine();
     readReportContentsFromEngine();
     readOutputPathsFromSettings();
@@ -121,6 +135,7 @@ int FilesPage::write()
     n += writePluginsToEngine();
     n += writeProcessComponentsToEngine(); // U1
     n += writeFilesSectionToEngine();
+    n += writeRestartToEngine();
     n += writeWriterCombosToEngine();
     n += writeReportContentsToEngine();
     n += writeOutputPathsToSettings();
@@ -242,6 +257,30 @@ bool FilesPage::validateFilesTab(QString *warn)
                     warn->append(tr("Hot-start save row %1: path is required.\n").arg(r + 1));
             }
         }
+    }
+
+    // ── [RESTART]: a source needs a record; a record file needs a format ─
+    if (m_restartSourceEdit && !m_restartSourceEdit->absolutePath().trimmed().isEmpty()) {
+        const QString record = m_restartRecordCombo->currentData().toString().isEmpty()
+                                   ? m_restartRecordCombo->currentText().trimmed()
+                                   : m_restartRecordCombo->currentData().toString();
+        if (record.isEmpty()) {
+            anyInvalid = true;
+            if (warn)
+                warn->append(tr("Restart: choose the saved state to start from, or Latest.\n"));
+        }
+        if (m_hotstartUseEdit && !m_hotstartUseEdit->absolutePath().trimmed().isEmpty()) {
+            anyInvalid = true;
+            if (warn)
+                warn->append(tr("Restart: a run starts from either the hot-start file or a "
+                                "saved state, not both.\n"));
+        }
+    }
+    if (m_restartRecordEdit && !m_restartRecordEdit->absolutePath().trimmed().isEmpty() &&
+        m_restartFormatCombo->currentData().toString().isEmpty()) {
+        anyInvalid = true;
+        if (warn)
+            warn->append(tr("Restart: choose the record format, GeoPackage or HDF5.\n"));
     }
 
     // ── Non-blocking warnings ──────────────────────────────────────────
@@ -761,6 +800,8 @@ void FilesPage::buildUi()
     connect(m_hotstartSavesUpBtn, &QPushButton::clicked, this, &FilesPage::onHotstartSaveMoveRowUp);
     connect(m_hotstartSavesDownBtn, &QPushButton::clicked, this,
             &FilesPage::onHotstartSaveMoveRowDown);
+
+    buildRestartGroup(vlay, filesPage, projectAnchor);
 
     vlay->addStretch(1);
     subTabs->addTab(filesPage, tr("Files"));
@@ -1739,6 +1780,438 @@ int FilesPage::writePluginsToEngine()
             if (swmm_plugin_remove(ctx_.engine(), k.constData()) == 0)
                 ++written;
         }
+    }
+    return written;
+}
+
+// ---------------------------------------------------------------------------
+// [RESTART] — start from a saved state in a GeoPackage or HDF5 file, and
+// record this run's states into one. The engine owns the settings; this
+// group shows and edits them (swmm_restart_get/set).
+// ---------------------------------------------------------------------------
+
+void FilesPage::buildRestartGroup(QVBoxLayout *parentLayout, QWidget *page,
+                                  const QString &projectAnchor)
+{
+    auto *group = new QGroupBox(tr("Restart from a saved state (.inp [RESTART])"), page);
+    group->setObjectName(QStringLiteral("restartGroup"));
+    auto *form = new QFormLayout(group);
+    const QString filter =
+        tr("Restart files (*.gpkg *.h5 *.hdf5);;GeoPackage (*.gpkg);;HDF5 (*.h5 *.hdf5);;"
+           "All Files (*)");
+
+    auto picker = [&](bool save, const QString &caption) {
+        auto *p = new openswmmvis::ui::RelativePathPicker(group);
+        p->setProjectAnchor(projectAnchor);
+        p->setFileFilter(filter);
+        p->setDialogCaption(caption);
+        p->setAcceptMode(save ? QFileDialog::AcceptSave : QFileDialog::AcceptOpen);
+        return p;
+    };
+
+    // ── Start from ──────────────────────────────────────────────────────
+    m_restartSourceEdit = picker(false, tr("Choose a Restart File"));
+    m_restartSourceEdit->setObjectName(QStringLiteral("restartSourceEdit"));
+    m_restartSourceEdit->setToolTip(
+        tr("GeoPackage or HDF5 file holding the saved state to start from.\n"
+           "Leave empty to start from the model's own initial conditions."));
+    form->addRow(tr("Start from file:"), m_restartSourceEdit);
+
+    m_restartRunCombo = new QComboBox(group);
+    m_restartRunCombo->setObjectName(QStringLiteral("restartRunCombo"));
+    m_restartRunCombo->setEditable(true);
+    m_restartRunCombo->setToolTip(tr("Run that saved the state. Empty uses the file's only run."));
+    form->addRow(tr("Run:"), m_restartRunCombo);
+
+    m_restartRecordCombo = new QComboBox(group);
+    m_restartRecordCombo->setObjectName(QStringLiteral("restartRecordCombo"));
+    m_restartRecordCombo->setEditable(true);
+    m_restartRecordCombo->setToolTip(
+        tr("Saved state to start from. Latest is resolved once, when the run starts,\n"
+           "and the run records which one it used."));
+    form->addRow(tr("Saved state:"), m_restartRecordCombo);
+
+    m_restartModeCombo = new QComboBox(group);
+    m_restartModeCombo->setObjectName(QStringLiteral("restartModeCombo"));
+    m_restartModeCombo->addItem(tr("Use as initial conditions"),
+                                QStringLiteral("INITIAL_CONDITIONS"));
+    m_restartModeCombo->addItem(tr("Continue the original run"), QStringLiteral("CONTINUE"));
+    m_restartModeCombo->setToolTip(
+        tr("Initial conditions: the saved node, link and subcatchment state starts this model\n"
+           "at its own start date, with new mass balances.\n"
+           "Continue: the original run resumes at the saved time with its clocks and balances.\n"
+           "It needs a state saved with the engine checkpoint and a run without binary results."));
+    form->addRow(tr("Mode:"), m_restartModeCombo);
+
+    m_restartSourceStatus = new QLabel(group);
+    m_restartSourceStatus->setObjectName(QStringLiteral("restartSourceStatus"));
+    m_restartSourceStatus->setWordWrap(true);
+    form->addRow(QString(), m_restartSourceStatus);
+
+    // ── Record into ─────────────────────────────────────────────────────
+    m_restartRecordEdit = picker(true, tr("Choose a File to Record Restart States"));
+    m_restartRecordEdit->setObjectName(QStringLiteral("restartRecordEdit"));
+    m_restartRecordEdit->setToolTip(
+        tr("GeoPackage or HDF5 file this run records its restart states into.\n"
+           "Leave empty to record none."));
+    form->addRow(tr("Record into file:"), m_restartRecordEdit);
+
+    m_restartFormatCombo = new QComboBox(group);
+    m_restartFormatCombo->setObjectName(QStringLiteral("restartFormatCombo"));
+    m_restartFormatCombo->addItem(tr("(none)"), QString());
+    m_restartFormatCombo->addItem(tr("GeoPackage"), QStringLiteral("GEOPACKAGE"));
+    m_restartFormatCombo->addItem(tr("HDF5"), QStringLiteral("HDF5"));
+    m_restartFormatCombo->setToolTip(
+        tr("Container to record into. It is never inferred from the file name, and an\n"
+           "existing file of another kind is left unchanged."));
+    form->addRow(tr("Record format:"), m_restartFormatCombo);
+    connect(
+        m_restartRecordEdit, &openswmmvis::ui::RelativePathPicker::pathChanged, this,
+        [this](const QString &path) {
+            // Suggest the container from the name only while none is chosen.
+            if (!m_restartFormatCombo || !m_restartFormatCombo->currentData().toString().isEmpty())
+                return;
+            const QString ext = QFileInfo(path).suffix().toLower();
+            const QString format = ext == QLatin1String("gpkg") ? QStringLiteral("GEOPACKAGE")
+                                   : (ext == QLatin1String("h5") || ext == QLatin1String("hdf5"))
+                                       ? QStringLiteral("HDF5")
+                                       : QString();
+            const int i = m_restartFormatCombo->findData(format);
+            if (!format.isEmpty() && i >= 0)
+                m_restartFormatCombo->setCurrentIndex(i);
+        });
+
+    m_restartAtEndBox = new QCheckBox(tr("At the end of the run"), group);
+    m_restartAtEndBox->setObjectName(QStringLiteral("restartAtEndBox"));
+    form->addRow(tr("Record:"), m_restartAtEndBox);
+
+    m_restartEveryMinutes = new QSpinBox(group);
+    m_restartEveryMinutes->setObjectName(QStringLiteral("restartEveryMinutes"));
+    m_restartEveryMinutes->setRange(0, 10 * 365 * 24 * 60);
+    m_restartEveryMinutes->setSpecialValueText(tr("(no interval)"));
+    m_restartEveryMinutes->setSuffix(tr(" min"));
+    m_restartEveryMinutes->setToolTip(tr("Interval between records, counted from the start."));
+    form->addRow(tr("Every:"), m_restartEveryMinutes);
+
+    auto *datedRow = new QWidget(group);
+    auto *datedLay = new QHBoxLayout(datedRow);
+    datedLay->setContentsMargins(0, 0, 0, 0);
+    m_restartDatedList = new QListWidget(datedRow);
+    m_restartDatedList->setObjectName(QStringLiteral("restartDatedList"));
+    m_restartDatedList->setMaximumHeight(90);
+    m_restartDatedList->setToolTip(
+        tr("Each date records the state at the end of the first time step that reaches it."));
+    m_restartDatedEdit = new QDateTimeEdit(datedRow);
+    m_restartDatedEdit->setObjectName(QStringLiteral("restartDatedEdit"));
+    m_restartDatedEdit->setTimeZone(QTimeZone::UTC);
+    m_restartDatedEdit->setDisplayFormat(QStringLiteral("MM/dd/yyyy HH:mm:ss"));
+    auto *addDated = new QPushButton(tr("Add"), datedRow);
+    addDated->setAutoDefault(false);
+    auto *removeDated = new QPushButton(tr("Remove"), datedRow);
+    removeDated->setAutoDefault(false);
+    auto *datedButtons = new QVBoxLayout();
+    datedButtons->addWidget(m_restartDatedEdit);
+    datedButtons->addWidget(addDated);
+    datedButtons->addWidget(removeDated);
+    datedButtons->addStretch(1);
+    datedLay->addWidget(m_restartDatedList, 1);
+    datedLay->addLayout(datedButtons);
+    form->addRow(tr("At dates:"), datedRow);
+    connect(addDated, &QPushButton::clicked, this, [this] {
+        const double oa =
+            SimulationOptionsDialog::oaDateFromQDateTime(m_restartDatedEdit->dateTime());
+        auto *item = new QListWidgetItem(
+            m_restartDatedEdit->dateTime().toString(QStringLiteral("MM/dd/yyyy HH:mm:ss")));
+        item->setData(Qt::UserRole, oa);
+        m_restartDatedList->addItem(item);
+    });
+    connect(removeDated, &QPushButton::clicked, this,
+            [this] { delete m_restartDatedList->currentItem(); });
+
+    m_restartContinuationBox =
+        new QCheckBox(tr("Keep the engine checkpoint so a later run can continue"), group);
+    m_restartContinuationBox->setObjectName(QStringLiteral("restartContinuationBox"));
+    m_restartContinuationBox->setToolTip(
+        tr("Needed to continue the original run from a record. The engine checkpoint cannot\n"
+           "yet continue a binary results file, so such a run saves no .out file."));
+    form->addRow(QString(), m_restartContinuationBox);
+
+    connect(m_restartSourceEdit, &openswmmvis::ui::RelativePathPicker::pathChanged, this,
+            [this] { inspectRestartSource(); });
+    connect(m_restartRunCombo, &QComboBox::currentTextChanged, this,
+            [this] { fillRestartRecords(); });
+
+    parentLayout->addWidget(group);
+}
+
+namespace
+{
+/** Result of reading a restart file's catalog on a worker thread. */
+struct RestartCatalog {
+    bool ok = false;
+    QByteArray json;
+    QString error;
+};
+
+/** Read @p path's runs and records; safe off the GUI thread (no Qt widgets, own handles). */
+RestartCatalog readRestartCatalog(const QString &path)
+{
+    RestartCatalog out;
+    const QByteArray utf = path.toUtf8();
+    size_t need = 0;
+    int rc = swmm_restart_inspect_json(utf.constData(), nullptr, 0, &need);
+    if (rc == SWMM_OK) {
+        out.json.resize(static_cast<qsizetype>(need));
+        rc = swmm_restart_inspect_json(utf.constData(), out.json.data(), need, &need);
+        out.json.resize(static_cast<qsizetype>(need) - 1);
+    }
+    out.ok = rc == SWMM_OK;
+    if (!out.ok)
+        out.error = QString::fromUtf8(swmm_restart_last_error());
+    return out;
+}
+} // namespace
+
+void FilesPage::inspectRestartSource()
+{
+    // Each request supersedes the ones before it; a late result is dropped.
+    const int generation = ++m_restartInspectGeneration;
+    m_restartCatalogJson.clear();
+    const QString path = m_restartSourceEdit ? m_restartSourceEdit->absolutePath() : QString();
+    // Show the authored run and record at once; the file's lists follow.
+    const QString run = m_restartRunCombo ? m_restartRunCombo->currentText() : QString();
+    if (m_restartRunCombo) {
+        const QSignalBlocker block(m_restartRunCombo);
+        m_restartRunCombo->clear();
+        m_restartRunCombo->addItem(QString());
+        if (!run.isEmpty())
+            m_restartRunCombo->addItem(run);
+        m_restartRunCombo->setCurrentText(run);
+    }
+    fillRestartRecords();
+    if (path.isEmpty()) {
+        if (m_restartSourceStatus)
+            m_restartSourceStatus->setText(
+                tr("The run starts from the model's initial conditions."));
+        return;
+    }
+    if (m_restartSourceStatus)
+        m_restartSourceStatus->setText(tr("Reading the restart records…"));
+    // The file may be large or on a slow disk: read it off the dialog's thread.
+    auto *watcher = new QFutureWatcher<RestartCatalog>(this);
+    connect(watcher, &QFutureWatcherBase::finished, this, [this, watcher, generation] {
+        watcher->deleteLater();
+        if (generation != m_restartInspectGeneration)
+            return;
+        const RestartCatalog result = watcher->result();
+        applyRestartCatalog(result.ok, result.json, result.error);
+    });
+    watcher->setFuture(QtConcurrent::run([path] { return readRestartCatalog(path); }));
+}
+
+void FilesPage::applyRestartCatalog(bool ok, const QByteArray &json, const QString &error)
+{
+    if (!m_restartRunCombo || !m_restartSourceStatus)
+        return;
+    if (!ok) {
+        m_restartSourceStatus->setText(tr("Cannot read the restart records: %1").arg(error));
+        return;
+    }
+    m_restartCatalogJson = QString::fromUtf8(json);
+    // Keep the run shown now, which the user may have typed while the file was read.
+    const QString run = m_restartRunCombo->currentText();
+    const auto runs =
+        QJsonDocument::fromJson(json).object().value(QStringLiteral("runs")).toArray();
+    int complete = 0;
+    {
+        const QSignalBlocker block(m_restartRunCombo);
+        m_restartRunCombo->clear();
+        m_restartRunCombo->addItem(QString());
+        for (const auto &r : runs) {
+            const auto o = r.toObject();
+            m_restartRunCombo->addItem(o.value(QStringLiteral("run_id")).toString());
+            for (const auto &rec : o.value(QStringLiteral("records")).toArray())
+                complete += rec.toObject().value(QStringLiteral("status")).toString() ==
+                            QLatin1String("complete");
+        }
+        // Keep the authored run even when the file does not list it.
+        if (m_restartRunCombo->findText(run) < 0)
+            m_restartRunCombo->addItem(run);
+        m_restartRunCombo->setCurrentText(run);
+    }
+    m_restartSourceStatus->setText(runs.isEmpty()
+                                       ? tr("This file holds no restart records.")
+                                       : tr("%n run(s), ", nullptr, int(runs.size())) +
+                                             tr("%n complete saved state(s).", nullptr, complete));
+    fillRestartRecords();
+}
+
+void FilesPage::fillRestartRecords()
+{
+    if (!m_restartRecordCombo)
+        return;
+    const QString keep = m_restartRecordCombo->currentData().toString().isEmpty()
+                             ? m_restartRecordCombo->currentText()
+                             : m_restartRecordCombo->currentData().toString();
+    const QSignalBlocker block(m_restartRecordCombo);
+    m_restartRecordCombo->clear();
+    m_restartRecordCombo->addItem(QString(), QString());
+    m_restartRecordCombo->addItem(tr("Latest complete"), QStringLiteral("LATEST"));
+    const QString run = m_restartRunCombo ? m_restartRunCombo->currentText() : QString();
+    const auto runs = QJsonDocument::fromJson(m_restartCatalogJson.toUtf8())
+                          .object()
+                          .value(QStringLiteral("runs"))
+                          .toArray();
+    for (const auto &r : runs) {
+        const auto o = r.toObject();
+        if (!run.isEmpty() ? o.value(QStringLiteral("run_id")).toString() != run : runs.size() != 1)
+            continue;
+        for (const auto &v : o.value(QStringLiteral("records")).toArray()) {
+            const auto rec = v.toObject();
+            const QString id = rec.value(QStringLiteral("record_id")).toString();
+            // Model dates are UTC wall clock; the label names the accepted step.
+            const QString when = SimulationOptionsDialog::qDateTimeFromOaDate(
+                                     rec.value(QStringLiteral("model_datetime")).toDouble())
+                                     .toString(QStringLiteral("MM/dd/yyyy HH:mm:ss"));
+            QString label = QStringLiteral("%1  %2").arg(id, when);
+            if (rec.value(QStringLiteral("continuation")).toBool())
+                label += tr("  (can continue)");
+            const bool complete =
+                rec.value(QStringLiteral("status")).toString() == QLatin1String("complete");
+            if (!complete)
+                label += tr("  (incomplete)");
+            m_restartRecordCombo->addItem(label, id);
+            // An incomplete record is listed with its reason but cannot be chosen.
+            if (!complete) {
+                if (auto *m = qobject_cast<QStandardItemModel *>(m_restartRecordCombo->model()))
+                    if (auto *item = m->item(m_restartRecordCombo->count() - 1))
+                        item->setEnabled(false);
+            }
+        }
+    }
+    int index = m_restartRecordCombo->findData(keep);
+    if (index < 0 && !keep.isEmpty()) {
+        m_restartRecordCombo->addItem(keep, keep); // authored, not listed by the file
+        index = m_restartRecordCombo->count() - 1;
+    }
+    m_restartRecordCombo->setCurrentIndex(std::max(index, 0));
+}
+
+void FilesPage::readRestartFromEngine()
+{
+    if (!ctx_.engine() || !m_restartSourceEdit)
+        return;
+    auto get = [&](const char *key) {
+        return openswmmvis::readEngineString(
+            [&](char *b, int n) { return swmm_restart_get(ctx_.engine(), key, b, n); });
+    };
+    const QString inpPath = ctx_.modelLayer() ? ctx_.modelLayer()->modelFilePath() : QString();
+    auto shown = [&](const QString &path) -> QString {
+        if (path.isEmpty() || inpPath.isEmpty() || !QDir::isAbsolutePath(path))
+            return path;
+        return ProjectSerializer::toRelativePath(path, inpPath);
+    };
+    {
+        const QSignalBlocker blockRun(m_restartRunCombo);
+        m_restartRunCombo->setCurrentText(get("SOURCE_RUN"));
+        const QSignalBlocker blockRecord(m_restartRecordCombo);
+        m_restartRecordCombo->clear();
+        const QString record = get("SOURCE_RECORD");
+        m_restartRecordCombo->addItem(record, record);
+    }
+    {
+        // Inspect once, after the run and record are in place.
+        const QSignalBlocker block(m_restartSourceEdit);
+        m_restartSourceEdit->setPath(shown(get("SOURCE_FILE")));
+    }
+    inspectRestartSource();
+    const int mode = m_restartModeCombo->findData(get("MODE"));
+    m_restartModeCombo->setCurrentIndex(std::max(mode, 0));
+
+    m_restartRecordEdit->setPath(shown(get("RECORD_FILE")));
+    const int format = m_restartFormatCombo->findData(get("RECORD_FORMAT"));
+    m_restartFormatCombo->setCurrentIndex(std::max(format, 0));
+    m_restartEveryMinutes->setValue(int(std::lround(get("RECORD_EVERY").toDouble() / 60.0)));
+    m_restartContinuationBox->setChecked(get("RECORD_CONTINUATION") == QLatin1String("YES"));
+
+    m_restartAtEndBox->setChecked(false);
+    m_restartDatedList->clear();
+    int count = 0;
+    swmm_restart_record_at_count(ctx_.engine(), &count);
+    for (int i = 0; i < count; ++i) {
+        double oa = 0.0;
+        swmm_restart_record_at_get(ctx_.engine(), i, &oa);
+        if (oa <= 0.0) {
+            m_restartAtEndBox->setChecked(true);
+            continue;
+        }
+        auto *item = new QListWidgetItem(SimulationOptionsDialog::qDateTimeFromOaDate(oa).toString(
+            QStringLiteral("MM/dd/yyyy HH:mm:ss")));
+        item->setData(Qt::UserRole, oa);
+        m_restartDatedList->addItem(item);
+    }
+}
+
+int FilesPage::writeRestartToEngine()
+{
+    if (!ctx_.engine() || !m_restartSourceEdit)
+        return 0;
+    int written = 0;
+    auto get = [&](const char *key) {
+        return openswmmvis::readEngineString(
+            [&](char *b, int n) { return swmm_restart_get(ctx_.engine(), key, b, n); });
+    };
+    // Paths go to the engine absolute, as on the [FILES] rows, so a Save As to
+    // another folder rebases them.
+    const QString inpPath = ctx_.modelLayer() ? ctx_.modelLayer()->modelFilePath() : QString();
+    const QDir inpDir = QFileInfo(inpPath).absoluteDir();
+    auto toAbsolute = [&](const QString &raw) -> QString {
+        if (raw.isEmpty() || inpPath.isEmpty() || QDir::isAbsolutePath(raw))
+            return raw;
+        return QDir::cleanPath(inpDir.filePath(raw));
+    };
+    auto set = [&](const char *key, const QString &value, bool path = false) {
+        const QString current = get(key);
+        if (path ? toAbsolute(current) == toAbsolute(value) : current == value)
+            return;
+        const QByteArray utf = (path ? toAbsolute(value) : value).toUtf8();
+        if (swmm_restart_set(ctx_.engine(), key, utf.constData()) == SWMM_OK)
+            ++written;
+    };
+    set("SOURCE_FILE", m_restartSourceEdit->absolutePath().trimmed(), true);
+    set("SOURCE_RUN", m_restartRunCombo->currentText().trimmed());
+    const QString record = m_restartRecordCombo->currentData().toString().isEmpty()
+                               ? m_restartRecordCombo->currentText().trimmed()
+                               : m_restartRecordCombo->currentData().toString();
+    set("SOURCE_RECORD", record);
+    set("MODE", m_restartModeCombo->currentData().toString());
+    set("RECORD_FILE", m_restartRecordEdit->absolutePath().trimmed(), true);
+    set("RECORD_FORMAT", m_restartFormatCombo->currentData().toString());
+    // The box shows whole minutes; an interval it shows unchanged is kept to the second.
+    if (std::lround(get("RECORD_EVERY").toDouble() / 60.0) != m_restartEveryMinutes->value())
+        set("RECORD_EVERY", QString::number(m_restartEveryMinutes->value() * 60.0, 'g', 17));
+    set("RECORD_CONTINUATION",
+        m_restartContinuationBox->isChecked() ? QStringLiteral("YES") : QStringLiteral("NO"));
+
+    // Record times: END first when chosen, then the dates in list order.
+    QList<double> desired;
+    if (m_restartAtEndBox->isChecked())
+        desired.append(0.0);
+    for (int i = 0; i < m_restartDatedList->count(); ++i)
+        desired.append(m_restartDatedList->item(i)->data(Qt::UserRole).toDouble());
+    QList<double> current;
+    int count = 0;
+    swmm_restart_record_at_count(ctx_.engine(), &count);
+    for (int i = 0; i < count; ++i) {
+        double oa = 0.0;
+        swmm_restart_record_at_get(ctx_.engine(), i, &oa);
+        current.append(oa);
+    }
+    if (desired != current) {
+        swmm_restart_record_at_clear(ctx_.engine());
+        for (const double oa : desired)
+            swmm_restart_record_at_add(ctx_.engine(), oa);
+        ++written;
     }
     return written;
 }

@@ -265,6 +265,8 @@ private slots:
             "[RAINGAGES]\nR INTENSITY 0:05 1 FILE \"source data.dat\" STATION MM\n");
         QTest::newRow("hotstart-input")
             << QByteArray("[FILES]\nUSE HOTSTART \"source data.dat\"\n");
+        QTest::newRow("restart-source")
+            << QByteArray("[RESTART]\nSOURCE_FILE \"source data.dat\"\n");
         QTest::newRow("climate") << QByteArray("[TEMPERATURE]\nFILE \"source data.dat\"\n");
         QTest::newRow("mesh") << QByteArray("[2D_MESH_FILE]\nFILE \"source data.dat\"\n");
         QTest::newRow("mesh-spaced-csv")

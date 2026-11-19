@@ -18,6 +18,16 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ## [Unreleased]
 
+### Added
+
+- **Restart from a saved state.** Simulation Options → Files gains a *Restart from a saved state*
+  group for the engine's `[RESTART]` section: choose a GeoPackage or HDF5 file, a run and a saved
+  state from the file's list, and whether it gives initial conditions or continues the original
+  run; and record this run's states into a GeoPackage or HDF5 file at the end, at dates or at an
+  interval. A restart source is protected from being overwritten by a run. The file is read in
+  the background. A run that continues a saved state with binary results keeps the previous
+  `.out` beside the new one, as native implicit runs do.
+
 ### Fixed
 
 - **HDF5 models open and run, and GeoPackage projects run.** The model layer and the simulation

@@ -30,6 +30,8 @@
 #include "ui/dialogs/hotstartsavesmodel.h"
 #include "ui/widgets/relativepathpicker.h"
 #include <openswmm/engine/openswmm_hotstart.h>
+#include <openswmm/engine/openswmm_restart.h>
+#include <QSpinBox>
 #include "ui/dialogs/simoptions/modelspage.h"
 #include "ui/dialogs/simoptions/qualitypage.h"
 #include "ui/dialogs/simoptions/ardtransportmodels.h"
@@ -221,6 +223,10 @@ private slots:
     void hotstartSaveFormatsSurviveFilesPage();
     /** @brief Hot start rows survive a GeoPackage and an HDF5 project saved and reopened. */
     void hotstartRowsSurviveGeoPackageAndHdf5Projects();
+    /** @brief The [RESTART] group edits the engine's settings, which survive every project format. */
+    void restartSettingsSurviveFilesPageAndProjects();
+    /** @brief The restart group lists the runs and saved states a real record file holds. */
+    void restartGroupListsTheRunsAndStatesOfAFile();
     void durationAcrossDaylightSavingIsWallClock();
     void routingStepTypedUnderDecimalCommaLocaleIsWritten();
     void reviewG05G06OptionsHaveEditorsAndApply();
@@ -1663,6 +1669,177 @@ void TestSimulationOptionsGates::hotstartRowsSurviveGeoPackageAndHdf5Projects()
         else
             QCOMPARE(QFileInfo(model->pathAt(1)).fileName(), QStringLiteral("dated_native.hsf"));
     }
+}
+
+// Simulation Options > Files > Restart edits [RESTART] through the engine: paths go in
+// absolute and come back relative, and the settings survive the input file, a GeoPackage
+// project and an HDF5 model. Written: tests/gui/data/restart_settings_out/.
+void TestSimulationOptionsGates::restartSettingsSurviveFilesPageAndProjects()
+{
+    auto layer = openLayer(fixture(QStringLiteral("hotstart_save_formats.inp")));
+    QVERIFY(layer);
+    SWMM_Engine e = layer->engine();
+    const QString out = fixture(QStringLiteral("restart_settings_out"));
+    QVERIFY(QDir().mkpath(out + QStringLiteral("/sub")));
+
+    openswmmvis::ui::SimOptionsContext ctx(e, layer.get(), nullptr, {});
+    openswmmvis::ui::FilesPage page(ctx);
+    page.read();
+    auto *source =
+        page.findChild<openswmmvis::ui::RelativePathPicker *>(QStringLiteral("restartSourceEdit"));
+    auto *run = page.findChild<QComboBox *>(QStringLiteral("restartRunCombo"));
+    auto *record = page.findChild<QComboBox *>(QStringLiteral("restartRecordCombo"));
+    auto *mode = page.findChild<QComboBox *>(QStringLiteral("restartModeCombo"));
+    auto *recordFile =
+        page.findChild<openswmmvis::ui::RelativePathPicker *>(QStringLiteral("restartRecordEdit"));
+    auto *format = page.findChild<QComboBox *>(QStringLiteral("restartFormatCombo"));
+    auto *atEnd = page.findChild<QCheckBox *>(QStringLiteral("restartAtEndBox"));
+    auto *every = page.findChild<QSpinBox *>(QStringLiteral("restartEveryMinutes"));
+    auto *continuation = page.findChild<QCheckBox *>(QStringLiteral("restartContinuationBox"));
+    QVERIFY(source && run && record && mode && recordFile && format && atEnd && every &&
+            continuation);
+
+    // A record file needs its format before Apply.
+    recordFile->setPath(QStringLiteral("states.dat"));
+    format->setCurrentIndex(0);
+    QString warn;
+    QVERIFY(!page.validate(&warn));
+    QVERIFY2(warn.contains(QLatin1String("record format")), qPrintable(warn));
+
+    source->setPath(QStringLiteral("prior.gpkg")); // offline: the authored IDs are kept
+    run->setCurrentText(QStringLiteral("run_20200101T000000Z_00000001"));
+    record->setCurrentText(QStringLiteral("rec_000002"));
+    mode->setCurrentIndex(mode->findData(QStringLiteral("CONTINUE")));
+    recordFile->setPath(QStringLiteral("states.h5"));
+    format->setCurrentIndex(format->findData(QStringLiteral("HDF5")));
+    atEnd->setChecked(true);
+    every->setValue(15);
+    continuation->setChecked(true);
+    QVERIFY2(page.validate(&warn), qPrintable(warn));
+    QVERIFY(page.write() > 0);
+
+    auto get = [&](SWMM_Engine eng, const char *key) {
+        char buf[2048] = {};
+        swmm_restart_get(eng, key, buf, sizeof buf);
+        return QString::fromUtf8(buf);
+    };
+    const QString dataDirPath = QFileInfo(fixture(QStringLiteral("x"))).absolutePath();
+    QCOMPARE(QDir::cleanPath(get(e, "SOURCE_FILE")),
+             QDir::cleanPath(dataDirPath + QStringLiteral("/prior.gpkg")));
+    QCOMPARE(get(e, "SOURCE_RUN"), QStringLiteral("run_20200101T000000Z_00000001"));
+    QCOMPARE(get(e, "SOURCE_RECORD"), QStringLiteral("rec_000002"));
+    QCOMPARE(get(e, "MODE"), QStringLiteral("CONTINUE"));
+    QCOMPARE(get(e, "RECORD_FORMAT"), QStringLiteral("HDF5"));
+    QCOMPARE(get(e, "RECORD_EVERY").toDouble(), 900.0);
+    QCOMPARE(get(e, "RECORD_CONTINUATION"), QStringLiteral("YES"));
+    int n = 0;
+    QCOMPARE(swmm_restart_record_at_count(e, &n), SWMM_OK);
+    QCOMPARE(n, 1);
+
+    // An unedited Apply leaves the settings as they are; the record time is not doubled.
+    page.write();
+    QCOMPARE(swmm_restart_record_at_count(e, &n), SWMM_OK);
+    QCOMPARE(n, 1);
+    QCOMPARE(get(e, "SOURCE_RECORD"), QStringLiteral("rec_000002"));
+
+    // Written from a subfolder, the paths point back up.
+    QVERIFY(swmm_model_write(e, (out + QStringLiteral("/sub/model.inp")).toUtf8().constData()) ==
+            SWMM_OK);
+    QFile written(out + QStringLiteral("/sub/model.inp"));
+    QVERIFY(written.open(QIODevice::ReadOnly | QIODevice::Text));
+    const QString text = QString::fromUtf8(written.readAll());
+    QVERIFY2(text.contains(QStringLiteral("\"../../prior.gpkg\"")),
+             qPrintable(text.section(QStringLiteral("[RESTART]"), 1, 1).left(600)));
+    QVERIFY(text.contains(QStringLiteral("\"../../states.h5\"")));
+
+    const QList<QPair<QString, const char *>> projects = {
+        {out + QStringLiteral("/model.gpkg"), "org.hydrocouple.openswmm.plugins.geopackage"},
+        {out + QStringLiteral("/model.h5"), "org.hydrocouple.openswmm.plugins.hdf5"}};
+    for (const auto &[path, plugin] : projects) {
+        auto reopened = saveAndReopen(e, path, plugin);
+        QVERIFY2(reopened, qPrintable(path));
+        openswmmvis::ui::SimOptionsContext ctx2(reopened->engine(), reopened.get(), nullptr, {});
+        openswmmvis::ui::FilesPage page2(ctx2);
+        page2.read();
+        auto *source2 = page2.findChild<openswmmvis::ui::RelativePathPicker *>(
+            QStringLiteral("restartSourceEdit"));
+        auto *record2 = page2.findChild<QComboBox *>(QStringLiteral("restartRecordCombo"));
+        auto *mode2 = page2.findChild<QComboBox *>(QStringLiteral("restartModeCombo"));
+        auto *every2 = page2.findChild<QSpinBox *>(QStringLiteral("restartEveryMinutes"));
+        QVERIFY(source2 && record2 && mode2 && every2);
+        QCOMPARE(QFileInfo(source2->absolutePath()).fileName(), QStringLiteral("prior.gpkg"));
+        QCOMPARE(record2->currentData().toString(), QStringLiteral("rec_000002"));
+        QCOMPARE(mode2->currentData().toString(), QStringLiteral("CONTINUE"));
+        QCOMPARE(every2->value(), 15);
+        QCOMPARE(get(reopened->engine(), "RECORD_CONTINUATION"), QStringLiteral("YES"));
+    }
+}
+
+// A run records two states into a GeoPackage; the restart group lists that run and both
+// states, with Latest. Written: tests/gui/data/restart_catalog_out/.
+void TestSimulationOptionsGates::restartGroupListsTheRunsAndStatesOfAFile()
+{
+    const QString out = fixture(QStringLiteral("restart_catalog_out"));
+    QDir(out).removeRecursively();
+    QVERIFY(QDir().mkpath(out));
+    const QString states = out + QStringLiteral("/states.gpkg");
+    const QString inp = out + QStringLiteral("/recording.inp");
+    {
+        QFile f(inp);
+        QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
+        f.write("[OPTIONS]\nFLOW_UNITS CFS\nFLOW_ROUTING DYNWAVE\nSTART_DATE 01/01/2020\n"
+                "START_TIME 00:00:00\nEND_DATE 01/01/2020\nEND_TIME 01:00:00\n"
+                "REPORT_STEP 00:15:00\nROUTING_STEP 15\n\n[RESTART]\nRECORD_FILE \"states.gpkg\"\n"
+                "RECORD_FORMAT GEOPACKAGE\nRECORD_AT 01/01/2020 00:30:00\nRECORD_AT END\n\n"
+                "[JUNCTIONS]\nJ1 10 6 0 0 0\n\n[OUTFALLS]\nO1 5 FREE\n\n"
+                "[CONDUITS]\nC1 J1 O1 400 0.013 0 0 0 0\n\n[XSECTIONS]\nC1 CIRCULAR 1.5 0 0 0 1\n\n"
+                "[INFLOWS]\nJ1 FLOW \"\" FLOW 1.0 1.0 2.0\n");
+    }
+    {
+        SWMM_Engine run = swmm_engine_create();
+        const QByteArray in = inp.toUtf8(), rpt = (out + QStringLiteral("/recording.rpt")).toUtf8();
+        QCOMPARE(swmm_engine_open(run, in.constData(), rpt.constData(), "", nullptr), SWMM_OK);
+        QCOMPARE(swmm_engine_initialize(run), SWMM_OK);
+        QCOMPARE(swmm_engine_start(run, 0), SWMM_OK);
+        double elapsed = 0.0;
+        while (swmm_engine_step(run, &elapsed) == SWMM_OK && elapsed > 0.0) {
+        }
+        QCOMPARE(swmm_engine_end(run), SWMM_OK);
+        swmm_engine_close(run);
+        swmm_engine_destroy(run);
+    }
+    QVERIFY(QFileInfo::exists(states));
+
+    auto layer = openLayer(fixture(QStringLiteral("hotstart_save_formats.inp")));
+    QVERIFY(layer);
+    openswmmvis::ui::SimOptionsContext ctx(layer->engine(), layer.get(), nullptr, {});
+    openswmmvis::ui::FilesPage page(ctx);
+    page.read();
+    auto *source =
+        page.findChild<openswmmvis::ui::RelativePathPicker *>(QStringLiteral("restartSourceEdit"));
+    auto *run = page.findChild<QComboBox *>(QStringLiteral("restartRunCombo"));
+    auto *record = page.findChild<QComboBox *>(QStringLiteral("restartRecordCombo"));
+    auto *status = page.findChild<QLabel *>(QStringLiteral("restartSourceStatus"));
+    QVERIFY(source && run && record && status);
+    const QByteArray before = [&] {
+        QFile f(states);
+        return f.open(QIODevice::ReadOnly) ? f.readAll() : QByteArray();
+    }();
+    source->setPath(states);
+    // The file is read off the dialog's thread; the lists fill when it is done.
+    QTRY_VERIFY2_WITH_TIMEOUT(status->text().contains(QLatin1String("1 run")),
+                              qPrintable(status->text()), 10000);
+    QCOMPARE(run->count(), 2); // blank (the file's only run) and the run
+    QVERIFY(run->itemText(1).startsWith(QLatin1String("run_")));
+    QVERIFY(record->findData(QStringLiteral("LATEST")) >= 0);
+    QVERIFY(record->findData(QStringLiteral("rec_000001")) >= 0);
+    QVERIFY(record->findData(QStringLiteral("rec_000002")) >= 0);
+    QVERIFY(record->itemText(record->findData(QStringLiteral("rec_000001")))
+                .contains(QLatin1String("01/01/2020 00:30")));
+    // Listing the file left it unchanged.
+    QFile after(states);
+    QVERIFY(after.open(QIODevice::ReadOnly));
+    QCOMPARE(after.readAll(), before);
 }
 
 /*! Review E-14 (workplans/GUI_COMPREHENSIVE_REVIEW_2026-11-12.md): the page's

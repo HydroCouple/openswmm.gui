@@ -22,6 +22,10 @@
 
 class QCheckBox;
 class QComboBox;
+class QDateTimeEdit;
+class QLabel;
+class QListWidget;
+class QSpinBox;
 class QGroupBox;
 class QLineEdit;
 class QPushButton;
@@ -309,6 +313,40 @@ private:
      */
     int writeFilesSectionToEngine();
     /**
+     * @brief Build the [RESTART] group: the saved state a run starts from and where it records.
+     * @param parentLayout Files tab layout the group is appended to.
+     * @param page Files tab widget that parents the group.
+     * @param projectAnchor Folder relative paths are shown against; empty for an unsaved model.
+     */
+    void buildRestartGroup(QVBoxLayout *parentLayout, QWidget *page, const QString &projectAnchor);
+    /**
+     * @brief Show the engine's [RESTART] settings; paths relative to the model file.
+     */
+    void readRestartFromEngine();
+    /**
+     * @brief Apply changed [RESTART] settings to the engine; paths absolute, as for [FILES].
+     * @return Number of settings changed, counting a rebuilt record-time list once.
+     */
+    int writeRestartToEngine();
+    /**
+     * @brief List the runs and records of the chosen source file in the run and record lists.
+     *
+     * Shows the authored run and record at once, then reads the file read-only through
+     * swmm_restart_inspect_json() on a worker thread; only the newest request's result is shown
+     * (applyRestartCatalog()). The authored run and record stay selected even when the file is
+     * missing or holds neither, so an offline source is kept.
+     */
+    void inspectRestartSource();
+    /** @brief Fill the record list for the selected run from the last inspection. */
+    void fillRestartRecords();
+    /**
+     * @brief Show a finished inspection: the file's runs, the record list and the status line.
+     * @param ok Whether the file could be read.
+     * @param json Catalog JSON from swmm_restart_inspect_json() when @p ok.
+     * @param error Reason when not @p ok.
+     */
+    void applyRestartCatalog(bool ok, const QByteArray &json, const QString &error);
+    /**
      * @brief Accumulate file/plugin/hot-start draft errors and advisory report/path warnings.
      * @param warn Optional borrowed append-only output; existing text is retained. Null
      * suppresses messages without changing the blocking decision.
@@ -337,6 +375,22 @@ private:
     QPushButton *m_hotstartSavesUpBtn = nullptr;
     QTableView *m_hotstartSavesView = nullptr;
     openswmmvis::ui::RelativePathPicker *m_hotstartUseEdit = nullptr;
+    // [RESTART] group
+    openswmmvis::ui::RelativePathPicker *m_restartSourceEdit = nullptr;
+    QComboBox *m_restartRunCombo = nullptr;
+    QComboBox *m_restartRecordCombo = nullptr;
+    QComboBox *m_restartModeCombo = nullptr;
+    QLabel *m_restartSourceStatus = nullptr;
+    openswmmvis::ui::RelativePathPicker *m_restartRecordEdit = nullptr;
+    QComboBox *m_restartFormatCombo = nullptr;
+    QCheckBox *m_restartAtEndBox = nullptr;
+    QListWidget *m_restartDatedList = nullptr;
+    QDateTimeEdit *m_restartDatedEdit = nullptr;
+    QSpinBox *m_restartEveryMinutes = nullptr;
+    QCheckBox *m_restartContinuationBox = nullptr;
+    QString
+        m_restartCatalogJson; ///< Last inspection of the source file, as returned by the engine.
+    int m_restartInspectGeneration = 0; ///< Newest inspection request; older results are dropped.
     openswmmvis::ui::RelativePathPicker *m_inflowsPathEdit = nullptr;
     QComboBox *m_inputWriterCombo = nullptr;
     openswmmvis::ui::RelativePathPicker *m_outflowsPathEdit = nullptr;
