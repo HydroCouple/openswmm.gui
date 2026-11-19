@@ -18,6 +18,14 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ## [Unreleased]
 
+### Fixed
+
+- **HDF5 models open and run, and GeoPackage projects run.** The model layer and the simulation
+  runner now name the engine plugin for `.h5`, `.hdf5` and `.gpkg` files; the runner opened every
+  project with the text reader.
+- **A GeoPackage project with scheduled hot-start saves saves again** (engine fix: the save failed
+  with a foreign-key error at commit).
+
 ### Changed
 
 - **Both compute backends are chosen on System / Performance.** Simulation Options → System /

@@ -219,6 +219,8 @@ private slots:
     void heatConfigurationSharesOuterUndoAndCancelSegment();
     void runtimeOverviewNavigatesToTwoDSettings();
     void hotstartSaveFormatsSurviveFilesPage();
+    /** @brief Hot start rows survive a GeoPackage and an HDF5 project saved and reopened. */
+    void hotstartRowsSurviveGeoPackageAndHdf5Projects();
     void durationAcrossDaylightSavingIsWallClock();
     void routingStepTypedUnderDecimalCommaLocaleIsWritten();
     void reviewG05G06OptionsHaveEditorsAndApply();
@@ -1614,6 +1616,53 @@ void TestSimulationOptionsGates::hotstartSaveFormatsSurviveFilesPage()
     QVERIFY2(text.contains(QStringLiteral("\"../../warm.hsf\"")),
              qPrintable(text.section(QStringLiteral("[FILES]"), 1, 1).left(400)));
     QVERIFY(text.contains(QStringLiteral("\"../../end_auto.hsf\" NATIVE")));
+}
+
+namespace
+{
+
+/** @brief Save @p e through the engine plugin the GUI's Save As picks, and reopen it. */
+std::unique_ptr<SWMMModelLayer> saveAndReopen(SWMM_Engine e, const QString &path,
+                                              const char *plugin)
+{
+    QFile::remove(path);
+    if (swmm_model_write_with_plugin(e, path.toUtf8().constData(), plugin) != SWMM_OK)
+        return nullptr;
+    return openLayer(path);
+}
+
+} // namespace
+
+// A GeoPackage or HDF5 project keeps its scheduled hot start rows and their formats.
+// Saving a GeoPackage with any row failed at commit (foreign key), and the GUI opened
+// an HDF5 model with the text reader. Written: tests/gui/data/project_formats_out/.
+void TestSimulationOptionsGates::hotstartRowsSurviveGeoPackageAndHdf5Projects()
+{
+    auto layer = openLayer(fixture(QStringLiteral("hotstart_save_formats.inp")));
+    QVERIFY(layer);
+    const QString out = fixture(QStringLiteral("project_formats_out"));
+    QVERIFY(QDir().mkpath(out));
+    const QList<QPair<QString, const char *>> projects = {
+        {out + QStringLiteral("/model.gpkg"), "org.hydrocouple.openswmm.plugins.geopackage"},
+        {out + QStringLiteral("/model.h5"), "org.hydrocouple.openswmm.plugins.hdf5"}};
+    for (const auto &[path, plugin] : projects) {
+        auto reopened = saveAndReopen(layer->engine(), path, plugin);
+        QVERIFY2(reopened, qPrintable(path));
+        openswmmvis::ui::SimOptionsContext ctx(reopened->engine(), reopened.get(), nullptr, {});
+        openswmmvis::ui::FilesPage page(ctx);
+        page.read();
+        auto *model = page.findChild<HotstartSavesModel *>();
+        QVERIFY(model);
+        QCOMPARE(model->rowCount(), 3);
+        QCOMPARE(model->formatAt(0), int(SWMM_HOTSTART_FORMAT_AUTO));
+        QCOMPARE(model->formatAt(1), int(SWMM_HOTSTART_FORMAT_NATIVE));
+        QCOMPARE(model->formatAt(2), int(SWMM_HOTSTART_FORMAT_LEGACY));
+        // A GeoPackage project keeps each row as an embedded slot; an HDF5 model keeps the path.
+        if (path.endsWith(QLatin1String(".gpkg")))
+            QCOMPARE(model->pathAt(1), QStringLiteral("<gpkg:hotstart_slots:save_1>"));
+        else
+            QCOMPARE(QFileInfo(model->pathAt(1)).fileName(), QStringLiteral("dated_native.hsf"));
+    }
 }
 
 /*! Review E-14 (workplans/GUI_COMPREHENSIVE_REVIEW_2026-11-12.md): the page's

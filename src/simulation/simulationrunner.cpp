@@ -9,6 +9,7 @@
  */
 
 #include "simulation/simulationrunner.h"
+#include "io/engineinputplugin.h"
 #include "results/summarytables.h"
 #include "simulation/runpathlease.h"
 #include "simulation/twodbackendpolicy.h"
@@ -934,8 +935,9 @@ void SimulationRunner::start()
             // Open
             *phase = QStringLiteral("open");
             runLog->line(QStringLiteral("open"));
-            int rc =
-                swmm_engine_open(eng, inp.constData(), rpt.constData(), out.constData(), nullptr);
+            // A GeoPackage or HDF5 project is read by its own engine plugin.
+            int rc = swmm_engine_open(eng, inp.constData(), rpt.constData(), out.constData(),
+                                      openswmmvis::engineInputPluginFor(QString::fromUtf8(inp)));
             if (rc != SWMM_OK) {
                 const QString msg = engineFailureText(eng, rc);
                 return {false, rc, msg, 0.0, 0.0}; // engineGuard closes + destroys

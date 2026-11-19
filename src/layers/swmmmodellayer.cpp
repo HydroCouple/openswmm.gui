@@ -8,6 +8,7 @@
  */
 
 #include "layers/swmmmodellayer.h"
+#include "io/engineinputplugin.h"
 #include "ui/properties/linkendpointref.h"
 #include "plugins/extensionattributes.h"
 #include "layers/swmmelementsymboladapter.h"
@@ -1092,12 +1093,9 @@ SWMM_Engine SWMMModelLayer::openEngineForPath(const QString &path, QString *erro
     // Running a model uses a fresh, strict open (SimulationRunner), so this does
     // not weaken run-time validation.
     swmm_engine_set_lenient_open(eng, 1);
-    // The engine defaults to its INP reader; GeoPackage models must explicitly
-    // select the built-in GeoPackage plugin, including on the async open path.
-    const char *inputPlugin =
-        QFileInfo(path).suffix().compare(QStringLiteral("gpkg"), Qt::CaseInsensitive) == 0
-            ? "org.hydrocouple.openswmm.plugins.geopackage"
-            : nullptr;
+    // The engine defaults to its INP reader; GeoPackage and HDF5 models must
+    // explicitly select their built-in plugin, including on the async open path.
+    const char *inputPlugin = openswmmvis::engineInputPluginFor(path);
     const int openRc = swmm_engine_open(eng, inpPath.constData(), "", "", inputPlugin);
     if (openRc != 0) {
         // Surface the engine's real diagnostic (e.g. the offending section
