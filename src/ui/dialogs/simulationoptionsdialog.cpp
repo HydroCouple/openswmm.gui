@@ -342,6 +342,11 @@ void SimulationOptionsDialog::buildUi()
             if (m_hydraulicsPage)
                 m_hydraulicsPage->setMinimumStep(v);
         });
+        // Where each solver runs is shown in one place. The editors stay with
+        // the pages that own the options; this page gives them a row.
+        perf->hostBackendRow(tr("1D finite volume network:"), m_hydraulicsPage->fvBackendEditor(),
+                             m_hydraulicsPage->fvBackendNote());
+        m_performancePage = perf;
         addPage(perf);
     }
     m_spatialPage = new openswmmvis::ui::SpatialPage(*m_ctx, this);
@@ -368,6 +373,8 @@ void SimulationOptionsDialog::buildUi()
 
 #ifdef OPENSWMM_HAS_2D
     m_twoDPage = new openswmmvis::ui::TwoDPage(*m_ctx, this);
+    if (m_performancePage)
+        m_performancePage->hostBackendRow(tr("2D surface:"), m_twoDPage->backendEditor());
     connect(m_twoDPage, &openswmmvis::ui::TwoDPage::showSnowAssignmentsRequested, this, [this] {
         if (!m_projectWindow || !m_layer || !m_engine)
             return;
@@ -736,6 +743,10 @@ QString SimulationOptionsDialog::threadLimitsSummary(const SWMM_ThreadInfo &ti)
 
 void SimulationOptionsDialog::readFromEngine()
 {
+    // Before the pages read: both backend editors mark what is installed from
+    // this one set of engine answers.
+    if (m_ctx)
+        m_ctx->backends().refresh(m_engine);
     // Every page reads its own slice; the dialog owns only the order.
     for (openswmmvis::ui::SimOptionsPage *p : m_pageOrder)
         p->read();

@@ -21,6 +21,8 @@
 
 #include "ui/dialogs/simoptions/simoptionspage.h"
 
+class QFormLayout;
+class QGroupBox;
 class QLabel;
 class QSpinBox;
 
@@ -70,6 +72,19 @@ public:
      */
     void setMinimumStepSetter(std::function<void(double)> setter);
 
+    /**
+     * @brief Show another page's backend editor in this page's "Compute backends" group.
+     *
+     * Where a solver runs is a machine question, so the 1D and 2D backend choices are shown
+     * together here. Each editor still belongs to the page that owns its option: that page
+     * built it, tagged it, and reads and writes it. This page only gives it a row.
+     *
+     * @param label Row label, e.g. "1D finite volume network:".
+     * @param editor The owning page's editor; reparented into the group. Null is ignored.
+     * @param note Optional full-width note shown under the row; reparented too.
+     */
+    void hostBackendRow(const QString &label, QWidget *editor, QLabel *note = nullptr);
+
 private slots:
     /**
      * @brief Refresh thread-limit suffix and engine-derived effective-team feedback from the
@@ -94,6 +109,9 @@ private:
 
     QSpinBox *m_threadsSpin = nullptr;
     QLabel *m_threadsEffective = nullptr;
+    QGroupBox *m_threadsGroup = nullptr;
+    QGroupBox *m_backendsGroup = nullptr;
+    QFormLayout *m_backendsForm = nullptr;
     SWMM_ThreadInfo m_threadInfo{}; ///< Machine / OpenMP limits, filled once.
     std::function<void(double)> m_setMinimumStep;
 };

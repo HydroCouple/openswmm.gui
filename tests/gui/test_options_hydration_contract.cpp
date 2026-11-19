@@ -118,6 +118,10 @@ private slots:
     void flowRouting_fvRoundTripsValue();
     void fvOptions_engineRoundTripsValues();
     void fvOptions_rejectBadEnumTokens();
+    /** @brief A project saved as a GeoPackage keeps its finite volume options, the 1D compute
+     *  backend among them. The engine used to save the pressure closure alone, so a reopened
+     *  project came back on the solver defaults. */
+    void fvOptions_surviveGeoPackageSaveReopen();
     // FV_NODE_COUPLING / FV_NODE_DT / FV_NODE_PICARD retired (2026-08-29):
     // widgets gone; the engine must still accept and freeze them so older
     // projects and scripts keep working.
@@ -633,6 +637,66 @@ void TestOptionsHydrationContract::fvOptions_engineRoundTripsValues()
 }
 
 /** @brief Require unknown FV enum tokens to fail and retain a previously set HLL solver value. */
+void TestOptionsHydrationContract::fvOptions_surviveGeoPackageSaveReopen()
+{
+    // Kept under the test data folder so the written files can be inspected.
+    const QString root = qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA");
+    QVERIFY2(!root.isEmpty(), "SWMMVIS_GUI_TEST_DATA is not set");
+    QDir dir(QDir(root).filePath(QStringLiteral("fv_options_geopackage")));
+    QVERIFY(QDir().mkpath(dir.path()));
+    const QString inp = dir.filePath(QStringLiteral("model.inp"));
+    const QString gpkg = dir.filePath(QStringLiteral("model.gpkg"));
+    QFile::remove(gpkg);
+    {
+        QFile f(inp);
+        QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text | QIODevice::Truncate));
+        f.write("[OPTIONS]\nFLOW_UNITS CFS\nFLOW_ROUTING FV\nSTART_DATE 01/01/2026\n"
+                "START_TIME 00:00:00\nEND_DATE 01/01/2026\nEND_TIME 00:10:00\nROUTING_STEP 1\n\n"
+                "[JUNCTIONS]\nJ1 10 5\n\n[OUTFALLS]\nO1 9 FREE NO\n\n"
+                "[CONDUITS]\nC1 J1 O1 100 0.013 0 0\n\n[XSECTIONS]\nC1 CIRCULAR 1 0 0 0 1\n");
+    }
+    const struct {
+        const char *key;
+        const char *value;
+    } rows[] = {
+        {"FV_BACKEND", "CUDA"},
+        {"FV_LTS", "NO"},
+        {"FV_ORDER", "2"},
+        {"FV_LIMITER", "VANLEER"},
+        {"FV_MIN_CELLS", "8"},
+        {"FV_STRUCTURE_COUPLING", "ROUTING_STEP"},
+        {"FV_COMPACTION", "NO"},
+        {"FV_LTS_MAX_TIERS", "3"},
+        {"FV_TIME_INTEGRATION", "RK2"},
+        {"FV_RIEMANN", "HLL"},
+    };
+
+    SWMM_Engine e = swmm_engine_create();
+    QVERIFY(e != nullptr);
+    QCOMPARE(swmm_engine_open(e, inp.toUtf8().constData(),
+                              dir.filePath(QStringLiteral("model.rpt")).toUtf8().constData(),
+                              dir.filePath(QStringLiteral("model.out")).toUtf8().constData(),
+                              nullptr),
+             0);
+    for (const auto &r : rows)
+        QVERIFY2(swmm_options_set(e, r.key, r.value) == 0, r.key);
+    QCOMPARE(swmm_model_write(e, gpkg.toUtf8().constData()), 0);
+    swmm_engine_close(e);
+    swmm_engine_destroy(e);
+
+    SWMM_Engine e2 = swmm_engine_create();
+    QVERIFY(e2 != nullptr);
+    QCOMPARE(swmm_engine_open(e2, gpkg.toUtf8().constData(),
+                              dir.filePath(QStringLiteral("reopen.rpt")).toUtf8().constData(),
+                              dir.filePath(QStringLiteral("reopen.out")).toUtf8().constData(),
+                              nullptr),
+             0);
+    for (const auto &r : rows)
+        QCOMPARE(getOptionString(e2, r.key), QString::fromLatin1(r.value));
+    swmm_engine_close(e2);
+    swmm_engine_destroy(e2);
+}
+
 void TestOptionsHydrationContract::fvOptions_rejectBadEnumTokens()
 {
     SWMM_Engine e = swmm_engine_new();

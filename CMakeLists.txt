@@ -952,6 +952,7 @@ set(
         include/ui/dialogs/simoptions/hydraulicspage.h
         include/ui/dialogs/simoptions/meshpage.h
         include/ui/dialogs/simoptions/modelspage.h
+        include/ui/dialogs/simoptions/computebackendmodel.h
         include/ui/dialogs/simoptions/performancepage.h
         include/ui/dialogs/simoptions/qualitypage.h
         include/ui/dialogs/simoptions/ardtransportmodels.h
@@ -1760,6 +1761,7 @@ set(
         src/ui/dialogs/simoptions/hydraulicspage.cpp
         src/ui/dialogs/simoptions/meshpage.cpp
         src/ui/dialogs/simoptions/modelspage.cpp
+        src/ui/dialogs/simoptions/computebackendmodel.cpp
         src/ui/dialogs/simoptions/performancepage.cpp
         src/ui/dialogs/simoptions/qualitypage.cpp
         src/ui/dialogs/simoptions/ardtransportmodels.cpp

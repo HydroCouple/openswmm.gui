@@ -237,12 +237,24 @@ An unknown `FV_BACKEND` token is ignored silently; an unknown `[2D_OPTIONS]
 BACKEND` is rejected with *Unknown BACKEND: \<v\> (expected
 AUTO|CPU|OMP|CUDA|HIP|SYCL)*.
 
-`AUTO` tries the available plugins in the order **cuda → hip → sycl → omp**,
-then falls back to the built-in CPU solver. Naming a backend explicitly loads
-that plugin outright and bypasses the model-size gate that `AUTO` respects. A
-missing plugin or an absent device falls back to CPU with a notice on stderr —
-never a hard failure. `FV_PRESSURIZED_IMPLICIT` forces CPU regardless of the
-request.
+For the 2D marcher, `AUTO` tries the available plugins in the order **cuda →
+hip → sycl → omp** above a mesh-size floor, then falls back to the built-in CPU
+marcher; runs started from the application keep `AUTO` on the CPU. For the 1D
+finite-volume solver `AUTO` runs the CPU solver at any size. Naming a backend
+explicitly loads that plugin outright. A missing plugin, a plugin built for a
+different engine or an absent device falls back to CPU with a notice on stderr —
+never a hard failure.
+
+The 1D plugin runs the solver's substep loop. It steps globally with every cell
+active and holds structure and boundary flows over each routing step, so
+`FV_LTS`, `FV_COMPACTION` and `FV_STRUCTURE_COUPLING SUBSTEP` do not apply with
+it. It covers first order, forward Euler and the slot closure without quality
+routing; a model using `FV_ORDER 2`, RK2, the TPA closure, unsteady friction or
+`FV_PRESSURIZED_IMPLICIT` runs on the CPU solver with a warning naming the
+option.
+
+Both choices are edited in **Model → Simulation Options → System / Performance
+→ Compute backends**, which marks the backends this machine cannot use.
 
 Environment variables take precedence over the deck: **`OPENSWMM_FV_BACKEND`**
 overrides `FV_BACKEND`, and **`OPENSWMM_2D_BACKEND`** overrides `[2D_OPTIONS]

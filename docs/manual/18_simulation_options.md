@@ -27,7 +27,7 @@ what they apply to, so no page is a single long scrolling column:
 | **Dates & Times** | Simulation Window / Time Steps / Events |
 | **Routing & Hydraulics** | Routing / Dynamic Wave / Finite Volume / Unsteady Friction |
 | **Quality & Transport** | General / Eulerian ARD / Lagrangian (LARD) / Reserved Species |
-| **2D Surface Routing** | Hydrodynamics / Wetting & Drying / Coupling / Processes / Performance |
+| **2D Surface Routing** | Hydrodynamics / Wetting & Drying / Coupling / Processes |
 
 Tabs and sidebar rows are **activated contextually**: a tab that does not apply
 to the current selection grays out rather than disappearing, and its tooltip
@@ -297,16 +297,21 @@ warns once and uses the built-in behavior.
 
 \fig{18_fv_groups.png, The finite-volume solver and performance groups enabled under FV routing}
 
-**Finite volume performance** — also FV-only:
+**Finite volume stepping** — also FV-only. These choose how the scheme steps,
+so they can change results; where the solver runs is chosen on
+*System / Performance* (**Compute backends**):
 
 | Control | Options / meaning | Writes |
 | --- | --- | --- |
-| **Backend** | Auto / CPU (serial) / OpenMP / CUDA / HIP / SYCL | `FV_BACKEND` |
-| **Min parallel cells** | Cell count below which the solver stays serial | `FV_MIN_PARALLEL_CELLS` |
 | **Compact dry-cell storage (FV_COMPACTION)** | Skip fully dry reaches in the substep loop | `FV_COMPACTION` |
 | **Local time stepping (FV_LTS)** | Advance slow cells with larger substeps grouped in tiers | `FV_LTS` |
 | **LTS max tiers** | Cap on the tier spread; enabled only while LTS is on | `FV_LTS_MAX_TIERS` |
 | **CFL census interval** | Substeps between full Courant re-surveys; 1 = every substep | `FV_CFL_CENSUS_INTERVAL` |
+
+With a device backend selected for the 1D solver, **Compact dry-cell storage**,
+**Local time stepping** and **Structure coupling** are shown disabled: that
+backend steps globally with every cell active and holds structure flows over
+each routing step. Their saved values are kept and take effect again on the CPU.
 
 **Native Backward Euler preview**
 
@@ -456,6 +461,41 @@ you still press Apply or OK to commit.
 The `IGNORE_*` flags are on *Models / Processes*, not here — they are about
 *which* models run, not how fast.
 
+**Compute backends** — where each solver runs. Both choices are saved with the
+model (in the input file and in a GeoPackage project).
+
+| Control | Options | Writes |
+| --- | --- | --- |
+| **1D finite volume network** | CPU / OpenMP (Kokkos) / CUDA / HIP / SYCL | `FV_BACKEND` |
+| **2D surface** | Auto (CPU in GUI) / CPU (built-in marcher) / OpenMP (Kokkos) / CUDA / HIP / SYCL | `[2D_OPTIONS] BACKEND` |
+
+The two are independent: a model can run its pipe network on a GPU and its mesh
+on the CPU, or the reverse. An item marked **(not installed)** names a backend
+this machine cannot use; its tooltip gives the engine's reason (no plugin, a
+plugin built for a different engine, or no device). It stays selectable, because
+a model made on another machine may ask for it, and such a model still runs: the
+engine uses the CPU solver and says so in the run log.
+
+*1D finite volume network* is enabled only under FV routing. **CPU** is the
+built-in solver. The others run the solver's substep loop on a Kokkos plugin,
+which differs from the CPU solver in two ways that the note under the control
+repeats: it steps globally with every cell active (no local time stepping, no
+dry-cell compaction), and it holds pump, weir, orifice and outlet flows and
+outfall stages over each routing step. A model whose structures need the
+substep cadence should stay on the CPU. The plugin covers first order, forward
+Euler and the slot closure without quality routing; for any other model the note
+names the option that is outside its scope and the CPU solver runs. There is no
+*Auto* item: the engine's `AUTO` runs the CPU solver at any mesh size, so a model
+saved with `AUTO` shows **CPU** and keeps `AUTO` until the control is edited.
+The run report's *FV Solver Statistics* block names the backend that ran. The
+`OPENSWMM_FV_BACKEND` environment variable overrides the setting.
+
+*2D surface*: **Auto** uses the built-in CPU marcher for runs started from the
+application (other engine clients may pick an installed accelerator above a
+mesh-size floor). A named backend loads that plugin outright; if it is missing
+or has no usable device the run falls back to CPU with a notice. The
+`OPENSWMM_2D_BACKEND` environment variable overrides the setting.
+
 ### Spatial & CRS
 
 \fig{18_spatial_crs.png, The Spatial & CRS page showing the layer CRS and the model extent}
@@ -499,9 +539,10 @@ project has no value for a key, the page shows the corresponding default from
 *Preferences* › *Simulation Defaults* › the **2D** tabs
 (\ref manual_preferences) — the same value **File → New** would synthesize.
 
-Five tabs: **Hydrodynamics**, **Wetting & Drying**, **Coupling**, **Processes**
-and **Performance**. Output controls are under **Files / Output / Plugins →
-Output → 2D Results**.
+Four tabs: **Hydrodynamics**, **Wetting & Drying**, **Coupling** and
+**Processes**. Output controls are under **Files / Output / Plugins → Output →
+2D Results**; the 2D compute backend is under **System / Performance →
+Compute backends**.
 
 \fig{18_2d_options.png, The 2D Surface Routing page — the Hydrodynamics tab with the explicit marcher}
 
@@ -620,20 +661,6 @@ it does not gate mesh evaporation or groundwater ET.
 With **Subsurface** on, **Destination** above locks to the 2D aquifer:
 infiltrated water enters the column under the cell, which is the mutual
 exclusion the engine validates.
-
-#### Performance
-
-**Performance**
-
-| Control | Options | Writes |
-| --- | --- | --- |
-| **Backend** | Auto / CPU (built-in marcher) / OpenMP (Kokkos) / CUDA / HIP / SYCL | `BACKEND` |
-
-Auto prefers an installed GPU plugin above the device mesh-size floor, then the
-OpenMP plugin above its own floor, else the built-in CPU marcher. A named
-backend loads that plugin outright; if it is missing or has no usable device the
-run falls back to CPU with a notice. The `OPENSWMM_2D_BACKEND` environment
-variable overrides this setting.
 
 **Retired keys.** `MIN_TIMESTEP`, `REL_TOLERANCE`, `ABS_TOLERANCE`,
 `MAX_CVODE_STEPS`, `MAX_KRYLOV_DIM`, `LINEAR_SOLVER`, `PRECONDITIONER`,

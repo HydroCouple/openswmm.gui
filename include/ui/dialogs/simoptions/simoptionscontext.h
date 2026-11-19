@@ -26,6 +26,7 @@
 
 #include <openswmm/engine/openswmm_engine.h>
 
+#include "ui/dialogs/simoptions/computebackendmodel.h"
 #include "ui/dialogs/simoptions/enginecapabilities.h"
 
 class SWMMModelLayer;
@@ -73,6 +74,10 @@ public:
      */
     [[nodiscard]] const EngineCapabilities &caps() const { return caps_; }
 
+    /// Which compute backends this machine can run, shared by every page that
+    /// shows a backend choice. The dialog refreshes it before the pages read.
+    [[nodiscard]] ComputeBackendModel &backends() { return backends_; }
+
     /**
      * @brief Read a trimmed common OPTIONS value through the borrowed engine.
      * @param key Borrowed non-null null-terminated engine key when an engine is bound.
@@ -118,8 +123,9 @@ public:
     }
 
     /**
-     * @brief Clear the option-key consideration log for the next Apply pass.
-     * Does not change engine state, capabilities or borrowed identities.
+     * @brief Record the current value of every tagged editor at or under a widget as unedited.
+     * Replaces earlier baselines of those editors only, and the engine values their keys hold.
+     * Passing a single editor captures that editor alone.
      */
     void captureEditors(QWidget *root);
     [[nodiscard]] QString valueForWrite(const char *key, const QString &value,
@@ -139,6 +145,7 @@ private:
     SWMMModelLayer *layer_ = nullptr;
     SWMMVisProjectWindow *pw_ = nullptr;
     EngineCapabilities caps_;
+    ComputeBackendModel backends_;
     QStringList written_;
     QHash<QString, QList<QPair<QPointer<QWidget>, QVariant>>> baselines_;
     QHash<QString, QString> original_, originalExtended_;
