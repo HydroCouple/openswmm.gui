@@ -1,7 +1,10 @@
-/*!
- * \file   maptool.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date 2026
+/**
+ * @file      maptool.cpp
+ * @brief     Abstract base class for interactive map tools used in the MapCanvas.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/tools/maptool.h"
@@ -14,43 +17,54 @@
 #include <QWheelEvent>
 #include <QKeyEvent>
 
-OpenSWMMVisMapTool::OpenSWMMVisMapTool(const QString &toolName,
-                               MapCanvas *canvas,
-                               QObject *parent)
-    : QObject(parent),
-      m_toolName(toolName),
-      m_canvas(canvas)
+OpenSWMMVisMapTool::OpenSWMMVisMapTool(const QString &toolName, MapCanvas *canvas, QObject *parent)
+    : QObject(parent), m_toolName(toolName), m_canvas(canvas)
 {
 }
 
-QString OpenSWMMVisMapTool::toolName() const { return m_toolName; }
-QCursor OpenSWMMVisMapTool::cursor()   const { return Qt::ArrowCursor; }
-bool    OpenSWMMVisMapTool::isActive() const { return m_active; }
-MapCanvas *OpenSWMMVisMapTool::canvas() const { return m_canvas; }
+QString OpenSWMMVisMapTool::toolName() const
+{
+    return m_toolName;
+}
+QCursor OpenSWMMVisMapTool::cursor() const
+{
+    return Qt::ArrowCursor;
+}
+bool OpenSWMMVisMapTool::isActive() const
+{
+    return m_active;
+}
+MapCanvas *OpenSWMMVisMapTool::canvas() const
+{
+    return m_canvas;
+}
 
-void OpenSWMMVisMapTool::activate()   { setActive(true); }
-void OpenSWMMVisMapTool::deactivate() { setActive(false); }
+void OpenSWMMVisMapTool::activate()
+{
+    setActive(true);
+}
+void OpenSWMMVisMapTool::deactivate()
+{
+    setActive(false);
+}
 
 void OpenSWMMVisMapTool::setActive(bool active)
 {
-    if (m_active != active)
-    {
+    if (m_active != active) {
         m_active = active;
         emit activeChanged(active);
     }
 }
 
-void OpenSWMMVisMapTool::mousePressEvent(QMouseEvent *)        {}
-void OpenSWMMVisMapTool::mouseMoveEvent(QMouseEvent *)         {}
-void OpenSWMMVisMapTool::mouseReleaseEvent(QMouseEvent *)      {}
-void OpenSWMMVisMapTool::mouseDoubleClickEvent(QMouseEvent *)  {}
-void OpenSWMMVisMapTool::wheelEvent(QWheelEvent *)             {}
-void OpenSWMMVisMapTool::keyPressEvent(QKeyEvent *)            {}
-void OpenSWMMVisMapTool::keyReleaseEvent(QKeyEvent *)          {}
+void OpenSWMMVisMapTool::mousePressEvent(QMouseEvent *) {}
+void OpenSWMMVisMapTool::mouseMoveEvent(QMouseEvent *) {}
+void OpenSWMMVisMapTool::mouseReleaseEvent(QMouseEvent *) {}
+void OpenSWMMVisMapTool::mouseDoubleClickEvent(QMouseEvent *) {}
+void OpenSWMMVisMapTool::wheelEvent(QWheelEvent *) {}
+void OpenSWMMVisMapTool::keyPressEvent(QKeyEvent *) {}
+void OpenSWMMVisMapTool::keyReleaseEvent(QKeyEvent *) {}
 
-void OpenSWMMVisMapTool::paint(QPainter *,
-                            const MapExtent &,
-                            const SpatialReferenceSystem *)
+void OpenSWMMVisMapTool::paint(QPainter *, const MapExtent &, const SpatialReferenceSystem *)
 {
     // base implementation: no overlay
 }

@@ -1,0 +1,44 @@
+{
+  "type": "FeatureCollection",
+  "crs": {
+    "type": "name",
+    "properties": {
+      "name": "EPSG:3857"
+    }
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "name": "bowl domain"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              -100,
+              -100
+            ],
+            [
+              100,
+              -100
+            ],
+            [
+              100,
+              100
+            ],
+            [
+              -100,
+              100
+            ],
+            [
+              -100,
+              -100
+            ]
+          ]
+        ]
+      }
+    }
+  ]
+}

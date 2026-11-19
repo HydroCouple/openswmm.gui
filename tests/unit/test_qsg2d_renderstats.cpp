@@ -1,12 +1,16 @@
-/*!
- * \file   test_qsg2d_renderstats.cpp
- * \brief  Unit tests for Qsg2DRenderStats (QSG-2D-1M Phase 1).
+/**
+ * @file      test_qsg2d_renderstats.cpp
+ * @brief     Unit tests for Qsg2DRenderStats (QSG-2D-1M Phase 1).
  *
  * Contract under test:
  *   - dirty-reason formatting is stable (fixed bit order, '|' separator,
  *     "none" for an empty bitset) — log lines are a grep contract.
  *   - per-pass byte / vertex counters sum correctly.
  *   - the disabled-logging path never formats (no sink invocation).
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <gtest/gtest.h>
@@ -17,11 +21,24 @@
 
 using OpenSWMM::Render::Qsg2DRenderStats;
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief GoogleTest fixture that restores automatic process-wide logging after each case.
+ *
+ */
 class RenderStatsTest : public ::testing::Test
 {
 protected:
+    /**
+     *
+     * @brief Restore automatic render-stat logging after each fixture case.
+     * Resets the process-wide test override to -1; does not restore the previous forced
+     * value or mutate Qt logging-category configuration. Tests must serialize overrides.
+     *
+     */
     void TearDown() override
     {
         // Never leak a forced logging state into other tests.
@@ -33,32 +50,46 @@ protected:
 
 // ── Dirty-reason formatting ────────────────────────────────────────────
 
+/**
+ *
+ * @brief Require no dirty bits to render the stable log spelling none.
+ *
+ */
 TEST_F(RenderStatsTest, EmptyBitsetFormatsAsNone)
 {
     EXPECT_EQ(Qsg2DRenderStats::dirtyReasonsToString(0), QStringLiteral("none"));
 }
 
+/**
+ *
+ * @brief Check exact stable spellings of each
+ * pan/zoom/time/style/selection/geometry/layer/visibility/LOD bit.
+ *
+ */
 TEST_F(RenderStatsTest, SingleReasonsFormatStably)
 {
     using S = Qsg2DRenderStats;
-    EXPECT_EQ(S::dirtyReasonsToString(S::DirtyPan),        QStringLiteral("pan"));
-    EXPECT_EQ(S::dirtyReasonsToString(S::DirtyZoom),       QStringLiteral("zoom"));
-    EXPECT_EQ(S::dirtyReasonsToString(S::DirtyTime),       QStringLiteral("time"));
-    EXPECT_EQ(S::dirtyReasonsToString(S::DirtyStyle),      QStringLiteral("style"));
-    EXPECT_EQ(S::dirtyReasonsToString(S::DirtySelection),  QStringLiteral("selection"));
-    EXPECT_EQ(S::dirtyReasonsToString(S::DirtyGeometry),   QStringLiteral("geometry"));
-    EXPECT_EQ(S::dirtyReasonsToString(S::DirtyLayer),      QStringLiteral("layer"));
+    EXPECT_EQ(S::dirtyReasonsToString(S::DirtyPan), QStringLiteral("pan"));
+    EXPECT_EQ(S::dirtyReasonsToString(S::DirtyZoom), QStringLiteral("zoom"));
+    EXPECT_EQ(S::dirtyReasonsToString(S::DirtyTime), QStringLiteral("time"));
+    EXPECT_EQ(S::dirtyReasonsToString(S::DirtyStyle), QStringLiteral("style"));
+    EXPECT_EQ(S::dirtyReasonsToString(S::DirtySelection), QStringLiteral("selection"));
+    EXPECT_EQ(S::dirtyReasonsToString(S::DirtyGeometry), QStringLiteral("geometry"));
+    EXPECT_EQ(S::dirtyReasonsToString(S::DirtyLayer), QStringLiteral("layer"));
     EXPECT_EQ(S::dirtyReasonsToString(S::DirtyVisibility), QStringLiteral("visibility"));
-    EXPECT_EQ(S::dirtyReasonsToString(S::DirtyLod),        QStringLiteral("lod"));
+    EXPECT_EQ(S::dirtyReasonsToString(S::DirtyLod), QStringLiteral("lod"));
 }
 
+/**
+ *
+ * @brief Require combined dirty reasons to retain fixed bit order and vertical-bar separators.
+ *
+ */
 TEST_F(RenderStatsTest, CombinedReasonsKeepBitOrder)
 {
     using S = Qsg2DRenderStats;
-    EXPECT_EQ(S::dirtyReasonsToString(S::DirtyZoom | S::DirtyPan),
-              QStringLiteral("pan|zoom"));
-    EXPECT_EQ(S::dirtyReasonsToString(S::DirtyGeometry | S::DirtyTime
-                                      | S::DirtySelection),
+    EXPECT_EQ(S::dirtyReasonsToString(S::DirtyZoom | S::DirtyPan), QStringLiteral("pan|zoom"));
+    EXPECT_EQ(S::dirtyReasonsToString(S::DirtyGeometry | S::DirtyTime | S::DirtySelection),
               QStringLiteral("time|selection|geometry"));
     EXPECT_EQ(S::dirtyReasonsToString(0xFFu),
               QStringLiteral("pan|zoom|time|style|selection|geometry|layer|visibility"));
@@ -66,13 +97,18 @@ TEST_F(RenderStatsTest, CombinedReasonsKeepBitOrder)
 
 // ── Counter aggregation ────────────────────────────────────────────────
 
+/**
+ *
+ * @brief Verify three pass records retain order and sum built vertices/uploaded bytes exactly.
+ *
+ */
 TEST_F(RenderStatsTest, ByteAndVertexCountersSum)
 {
     Qsg2DRenderStats s;
     s.rendererName = QStringLiteral("results2d");
-    s.addPass(QStringLiteral("fill"),   3'000'000, 84'000'000);
-    s.addPass(QStringLiteral("edges"),          0,          0);
-    s.addPass(QStringLiteral("select"),        18,        144);
+    s.addPass(QStringLiteral("fill"), 3'000'000, 84'000'000);
+    s.addPass(QStringLiteral("edges"), 0, 0);
+    s.addPass(QStringLiteral("select"), 18, 144);
 
     EXPECT_EQ(s.totalBuiltVertices(), 3'000'018);
     EXPECT_EQ(s.totalUploadedBytes(), 84'000'144);
@@ -81,6 +117,11 @@ TEST_F(RenderStatsTest, ByteAndVertexCountersSum)
     EXPECT_EQ(s.passes[2].uploadedBytes, 144);
 }
 
+/**
+ *
+ * @brief Require empty render pass statistics to report zero vertices and bytes.
+ *
+ */
 TEST_F(RenderStatsTest, EmptyStatsSumToZero)
 {
     Qsg2DRenderStats s;
@@ -88,6 +129,12 @@ TEST_F(RenderStatsTest, EmptyStatsSumToZero)
     EXPECT_EQ(s.totalUploadedBytes(), 0);
 }
 
+/**
+ *
+ * @brief Require reset to clear renderer/reasons/passes and restore unmeasured visible-cell
+ * sentinel.
+ *
+ */
 TEST_F(RenderStatsTest, ResetClearsEverything)
 {
     Qsg2DRenderStats s;
@@ -104,6 +151,12 @@ TEST_F(RenderStatsTest, ResetClearsEverything)
 
 // ── Log line + enable gating ───────────────────────────────────────────
 
+/**
+ *
+ * @brief Verify formatted log fields for renderer, reasons, cells, pass and totals, omitting
+ * unmeasured fields.
+ *
+ */
 TEST_F(RenderStatsTest, LogLineCarriesRendererDirtyAndPassData)
 {
     Qsg2DRenderStats s;
@@ -124,6 +177,11 @@ TEST_F(RenderStatsTest, LogLineCarriesRendererDirtyAndPassData)
     EXPECT_FALSE(line.contains(QStringLiteral("repaintMs=")));
 }
 
+/**
+ *
+ * @brief Force logging off and require zero sink callbacks for populated render statistics.
+ *
+ */
 TEST_F(RenderStatsTest, DisabledLoggingNeverInvokesTheSink)
 {
     Qsg2DRenderStats::overrideLoggingForTest(0);
@@ -136,6 +194,12 @@ TEST_F(RenderStatsTest, DisabledLoggingNeverInvokesTheSink)
     EXPECT_EQ(calls, 0);
 }
 
+/**
+ *
+ * @brief Force logging on and require one sink callback exactly matching toLogLine and time dirty
+ * reason.
+ *
+ */
 TEST_F(RenderStatsTest, EnabledLoggingEmitsOneFormattedLine)
 {
     Qsg2DRenderStats::overrideLoggingForTest(1);

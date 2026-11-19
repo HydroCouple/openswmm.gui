@@ -1,0 +1,43 @@
+{
+  "before_binary_sha256": "dabc78a26287aff798c94bbaba0ca2d5171176ff2c4a0fa8c901ccf50291f146",
+  "after_binary_sha256": "74201fdb599b8953e4ef843fb4726dea2f6216c5fd9ce45830f03fa6dbb6ae80",
+  "sample_seconds": 30,
+  "jump_units": "feet per 30 seconds",
+  "cases": [
+    {
+      "case": "01_passive_free",
+      "before": {
+        "max_positive_head_increment": 0.9929136907890385,
+        "hour": 6.608333333333334,
+        "total_volume_before": 516.9949158723341,
+        "total_volume_after": 514.2192836584726
+      },
+      "after": {
+        "max_positive_head_increment": 0.003084050296247698,
+        "hour": 2.0583333333333336,
+        "total_volume_before": 286.35215431077023,
+        "total_volume_after": 287.5857744292693
+      }
+    },
+    {
+      "case": "02_passive_backwater",
+      "before": {
+        "max_positive_head_increment": 0.6312429126348659,
+        "hour": 2.6750000000000003,
+        "total_volume_before": 514.8346278433188,
+        "total_volume_after": 516.6572382957597
+      },
+      "after": {
+        "max_positive_head_increment": 0.003084050296247698,
+        "hour": 2.0583333333333336,
+        "total_volume_before": 286.35215431077023,
+        "total_volume_after": 287.5857744292693
+      }
+    }
+  ],
+  "engine_head": "7a2bf9dd1e13e08abac8d3bbee6c0692cc40b8a3",
+  "dirty_checkout": true,
+  "legacy_code_before_sha256": "f4fa0cecb942d302380001982d1bb3203573c0e4185065add10dcea1a5357609",
+  "legacy_code_after_sha256": "be39f712e3c9cac90757725b7ee5a9693d9db9ba47ed5b186404cfccef6a7b25",
+  "regression_source_sha256": "96c2ef20bf2be2f3e0ac9c782a53f771a58ac305bbe031a4fd8522f0fc47b8ce"
+}

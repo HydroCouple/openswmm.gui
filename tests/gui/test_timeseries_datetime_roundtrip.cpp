@@ -1,9 +1,9 @@
-/*!
- * \file   test_timeseries_datetime_roundtrip.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  SWMM DateTime Consolidation Phase 1 (workplans/
+/**
+ * @file      test_timeseries_datetime_roundtrip.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     SWMM DateTime Consolidation Phase 1 (workplans/
  *         SWMM_DATETIME_CONSOLIDATION_PLAN_2026-07-10.md) — golden
  *         round-trip for the time-series minute-truncation bug (GH #1).
  *
@@ -17,7 +17,9 @@
  *         01:44:59). Then round-trips through saveToEngine and a second
  *         loadFromEngine to confirm the stored doubles and the displayed
  *         grid are unchanged.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "timeseries/timeseriesprovider.h"
 #include "timeseries/timeseriesregistry.h"
 
@@ -32,8 +34,16 @@
 using openswmmvis::timeseries::TimeseriesProvider;
 using openswmmvis::timeseries::TimeseriesRegistry;
 
-namespace {
+namespace
+{
 
+/**
+ *
+ * @brief Resolve the shared time-series regression fixture directory.
+ * @return SWMMVIS_GUI_TEST_DATA or cwd fallback text unchanged. No creation,
+ * canonicalization, existence check or global state mutation.
+ *
+ */
 QString dataDir()
 {
     return qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA", QStringLiteral("."));
@@ -42,10 +52,20 @@ QString dataDir()
 // Same open pairing as SWMMModelLayer::openEngineForPath() — swmm_engine_new()
 // (BUILDING-state, no file) is a different lifecycle path that does not
 // reliably pair with swmm_engine_open() on this engine build.
+/**
+ *
+ * @brief Create/open a native model without initializing a simulation run.
+ * @param path Borrowed input filename, UTF-8 encoded for the engine.
+ * @return Owned OPENED engine requiring swmm_engine_destroy, or null on create/open
+ * failure after releasing a failed-open handle. Requests empty report/output paths;
+ * does not return diagnostics or modify the input file.
+ *
+ */
 SWMM_Engine openModel(const QString &path)
 {
     SWMM_Engine eng = swmm_engine_create();
-    if (!eng) return nullptr;
+    if (!eng)
+        return nullptr;
     if (swmm_engine_open(eng, path.toUtf8().constData(), "", "", nullptr) != SWMM_OK) {
         swmm_engine_destroy(eng);
         return nullptr;
@@ -54,20 +74,30 @@ SWMM_Engine openModel(const QString &path)
 }
 
 // The golden grid from single_rain_series.inp's [TIMESERIES] TSERIES1.
-struct HM { int h, m; };
+struct HM {
+    int h, m;
+};
 constexpr HM kExpectedGrid[10] = {
-    {0, 0}, {0, 15}, {0, 30}, {0, 45}, {1, 0},
-    {1, 15}, {1, 30}, {1, 45}, {2, 0}, {2, 15},
+    {0, 0}, {0, 15}, {0, 30}, {0, 45}, {1, 0}, {1, 15}, {1, 30}, {1, 45}, {2, 0}, {2, 15},
 };
 
+/**
+ *
+ * @brief Check the ten quarter-hour clock fields loaded from the reference series.
+ * @param ts Borrowed provider with expected points from TSERIES1, not mutated.
+ * Requires exactly ten points, then checks each hour/minute and zero seconds against
+ * the fixed 00:00..02:15 grid. Qt assertions stop this helper on failure; no returned
+ * status, date/value/timezone assertion or raw engine-double comparison.
+ *
+ */
 void verifyGoldenGrid(const TimeseriesProvider &ts)
 {
     QCOMPARE(ts.pointCount(), 10);
     for (int i = 0; i < 10; ++i) {
         const QTime t = ts.pointAt(i).time.time();
-        QVERIFY2(t.second() == 0,
-                 qPrintable(QStringLiteral("point %1 has a non-zero second: %2")
-                                .arg(i).arg(t.toString(QStringLiteral("HH:mm:ss")))));
+        QVERIFY2(t.second() == 0, qPrintable(QStringLiteral("point %1 has a non-zero second: %2")
+                                                 .arg(i)
+                                                 .arg(t.toString(QStringLiteral("HH:mm:ss")))));
         QCOMPARE(t.hour(), kExpectedGrid[i].h);
         QCOMPARE(t.minute(), kExpectedGrid[i].m);
     }
@@ -81,10 +111,15 @@ class TestTimeseriesDatetimeRoundtrip : public QObject
 
 private slots:
 
+    /**
+     *
+     * @brief Require single_rain_series.inp in the configured data directory before registry
+     * cases; no fixture writes.
+     *
+     */
     void initTestCase()
     {
-        const QString fixture =
-            QDir(dataDir()).filePath(QStringLiteral("single_rain_series.inp"));
+        const QString fixture = QDir(dataDir()).filePath(QStringLiteral("single_rain_series.inp"));
         QVERIFY2(QFile::exists(fixture),
                  "single_rain_series.inp missing from the gui-test data dir");
     }
@@ -92,10 +127,17 @@ private slots:
     // GH #1: no 15-min stamp renders a minute low. Pins the three previously
     // wrong entries (00:15 -> was 00:14:59, 01:00 -> was 00:59:59, 01:45 ->
     // was 01:44:59) explicitly, plus the full ten-point grid.
+    /**
+     *
+     * @brief Load the reference engine series through TimeseriesRegistry and require all
+     * quarter-hour clock fields, including three historical minute-low entries.
+     * Destroys engine on the ordinary path; early Qt assertions can skip that explicit
+     * cleanup. No disk save or numerical runoff simulation.
+     *
+     */
     void fixtureNoTruncation()
     {
-        const QString fixture =
-            QDir(dataDir()).filePath(QStringLiteral("single_rain_series.inp"));
+        const QString fixture = QDir(dataDir()).filePath(QStringLiteral("single_rain_series.inp"));
         SWMM_Engine eng = openModel(fixture);
         QVERIFY(eng != nullptr);
 
@@ -117,10 +159,18 @@ private slots:
     // DateTime doubles the engine originally parsed (no drift through the
     // QDateTime round-trip), and a second loadFromEngine() must still show
     // the same golden H:M:S grid.
+    /**
+     *
+     * @brief Load/save the series through the registry, compare original engine x/y doubles with
+     * Qt QCOMPARE and verify the reloaded clock grid.
+     * This uses Qt numeric double comparisons rather than a bytewise identity assertion.
+     * Edits only the disposable engine table; no input file is written, and ordinary-path
+     * engine destruction can be bypassed by an early assertion.
+     *
+     */
     void saveReloadRoundTripIsBitIdentical()
     {
-        const QString fixture =
-            QDir(dataDir()).filePath(QStringLiteral("single_rain_series.inp"));
+        const QString fixture = QDir(dataDir()).filePath(QStringLiteral("single_rain_series.inp"));
         SWMM_Engine eng = openModel(fixture);
         QVERIFY(eng != nullptr);
 
@@ -145,7 +195,7 @@ private slots:
         for (int i = 0; i < nAfter; ++i) {
             double x = 0.0, y = 0.0;
             QCOMPARE(swmm_table_get_point(eng, idx, i, &x, &y), SWMM_OK);
-            QCOMPARE(x, xBefore[i]);   // bit-identical SWMM DateTime double
+            QCOMPARE(x, xBefore[i]); // bit-identical SWMM DateTime double
             QCOMPARE(y, yBefore[i]);
         }
 

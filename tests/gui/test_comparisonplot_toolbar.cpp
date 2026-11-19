@@ -1,8 +1,9 @@
-/*!
- * \file   test_comparisonplot_toolbar.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_comparisonplot_toolbar.cpp
+ * @brief     Tests for comparisonplot toolbar.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice AT.2 — pins the public API of `InteractiveChartView`: mode
  * round-trip, modeChanged emission, resetZoom restoring axis ranges
@@ -13,13 +14,21 @@
  * the AT.2 verification plan — synthetic-event drag is brittle on
  * offscreen QPA and Qt Charts' coordinate-mapping (mapFromScene /
  * mapToScene) returns null rects without a real top-level window.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/interactivechartview.h"
+
+#include "accessible_checks.h"
+
+#include <QAccessible>
+#include <QLocale>
+#include <QScatterSeries>
 
 #include <QChart>
 #include <QChartView>
 #include <QContextMenuEvent>
-#include <QDateTimeAxis>
+#include "plot/utctimeaxis.h"
 #include <QLineSeries>
 #include <QObject>
 #include <QSignalSpy>
@@ -41,17 +50,26 @@ private slots:
     void cursorReflectsMode();
     void axisEndpointHitTestAndSetValueAxisEdges();
     void dateTimeAxisEdgesAcceptDateTimes();
+    /** @brief A-01: a chart is named and described from its live series and axes. */
+    void screenReaderDescribesTheChart();
+    /** @brief A-01: time axes are read as UTC dates; plain QChartViews get the interface too. */
+    void timeAxesAndPlainChartViews();
+    /** @brief A-01: plus/minus zoom, arrows pan, 0 resets; each tells screen readers. */
+    void keysZoomPanAndReset();
 
 private:
     QChart *makeChart();
     QChart *makeDateChart(QDateTime &start, QDateTime &end);
 };
 
+/** @brief Register the interactive-chart mode metatype so signal payloads can be inspected. */
 void TestComparisonPlotToolbar::initTestCase()
 {
     qRegisterMetaType<Mode>("openswmmvis::ui::InteractiveChartView::Mode");
 }
 
+/** @brief Allocate a three-point numeric chart with X 0..2 and Y 0..30.
+ * @return New chart owning its axes/series; passed into a view that takes ownership. */
 QChart *TestComparisonPlotToolbar::makeChart()
 {
     auto *chart = new QChart;
@@ -60,8 +78,10 @@ QChart *TestComparisonPlotToolbar::makeChart()
     series->append(1.0, 20.0);
     series->append(2.0, 30.0);
     chart->addSeries(series);
-    auto *xAxis = new QValueAxis;  xAxis->setRange(0.0, 2.0);
-    auto *yAxis = new QValueAxis;  yAxis->setRange(0.0, 30.0);
+    auto *xAxis = new QValueAxis;
+    xAxis->setRange(0.0, 2.0);
+    auto *yAxis = new QValueAxis;
+    yAxis->setRange(0.0, 30.0);
     chart->addAxis(xAxis, Qt::AlignBottom);
     chart->addAxis(yAxis, Qt::AlignLeft);
     series->attachAxis(xAxis);
@@ -69,6 +89,10 @@ QChart *TestComparisonPlotToolbar::makeChart()
     return chart;
 }
 
+/** @brief Allocate a six-hour UTC-axis chart with timestamp-valued X samples.
+ * @param[out] start Assigned the fixed epoch-millisecond start with QDateTime default time specification.
+ * @param[out] end Assigned six hours after start.
+ * @return New chart owning its UTC time axis, numeric Y axis and series; the caller/view takes ownership. */
 QChart *TestComparisonPlotToolbar::makeDateChart(QDateTime &start, QDateTime &end)
 {
     start = QDateTime::fromMSecsSinceEpoch(1'767'225'600'000LL);
@@ -79,8 +103,12 @@ QChart *TestComparisonPlotToolbar::makeDateChart(QDateTime &start, QDateTime &en
     series->append(start.toMSecsSinceEpoch(), 10.0);
     series->append(end.toMSecsSinceEpoch(), 20.0);
     chart->addSeries(series);
-    auto *xAxis = new QDateTimeAxis; xAxis->setRange(start, end);
-    auto *yAxis = new QValueAxis;    yAxis->setRange(0.0, 30.0);
+    // The production time axis (issue #11) — a QValueAxis by inheritance, so
+    // this also pins that the edge editor treats it as a date axis.
+    auto *xAxis = new openswmmvis::plot::UtcTimeAxis;
+    xAxis->setRange(start, end);
+    auto *yAxis = new QValueAxis;
+    yAxis->setRange(0.0, 30.0);
     chart->addAxis(xAxis, Qt::AlignBottom);
     chart->addAxis(yAxis, Qt::AlignLeft);
     series->attachAxis(xAxis);
@@ -88,6 +116,7 @@ QChart *TestComparisonPlotToolbar::makeDateChart(QDateTime &start, QDateTime &en
     return chart;
 }
 
+/** @brief Verify Select/Pan/ZoomIn/ZoomOut mode transitions and emitted typed mode payloads. */
 void TestComparisonPlotToolbar::modeRoundTripsAndSignalsOnChange()
 {
     InteractiveChartView view(makeChart());
@@ -110,16 +139,18 @@ void TestComparisonPlotToolbar::modeRoundTripsAndSignalsOnChange()
     QCOMPARE(view.mode(), Mode::Select);
 }
 
+/** @brief Verify repeatedly selecting Pan produces only its first change notification. */
 void TestComparisonPlotToolbar::modeChangeIsIdempotent()
 {
     InteractiveChartView view(makeChart());
     QSignalSpy spy(&view, &InteractiveChartView::modeChanged);
     view.setMode(Mode::Pan);
-    view.setMode(Mode::Pan);   // re-set to same mode — no signal
+    view.setMode(Mode::Pan); // re-set to same mode — no signal
     view.setMode(Mode::Pan);
     QCOMPARE(spy.count(), 1);
 }
 
+/** @brief Verify a synthetic right press on the viewport emits one non-null global context-menu position. */
 void TestComparisonPlotToolbar::rightClickEmitsContextMenuRequest()
 {
     InteractiveChartView view(makeChart());
@@ -129,8 +160,7 @@ void TestComparisonPlotToolbar::rightClickEmitsContextMenuRequest()
 
     // Synthetic right-button press at viewport center.
     const QPoint pt = view.viewport()->rect().center();
-    QMouseEvent press(QEvent::MouseButtonPress,
-                      QPointF(pt), view.viewport()->mapToGlobal(pt),
+    QMouseEvent press(QEvent::MouseButtonPress, QPointF(pt), view.viewport()->mapToGlobal(pt),
                       Qt::RightButton, Qt::RightButton, Qt::NoModifier);
     QCoreApplication::sendEvent(view.viewport(), &press);
 
@@ -139,6 +169,7 @@ void TestComparisonPlotToolbar::rightClickEmitsContextMenuRequest()
     QVERIFY(!emittedGlobal.isNull());
 }
 
+/** @brief Verify zoom reset restores the manually narrowed range that preceded zoomIn, rather than the original construction range. */
 void TestComparisonPlotToolbar::resetZoomRestoresInitialRanges()
 {
     QChart *chart = makeChart();
@@ -170,6 +201,7 @@ void TestComparisonPlotToolbar::resetZoomRestoresInitialRanges()
     QCOMPARE(xAxis->max(), 1.5);
 }
 
+/** @brief Verify a shown chart uses hand, crosshair and arrow cursors for Pan, zoom and Select modes. */
 void TestComparisonPlotToolbar::cursorReflectsMode()
 {
     InteractiveChartView view(makeChart());
@@ -189,6 +221,7 @@ void TestComparisonPlotToolbar::cursorReflectsMode()
     QCOMPARE(view.viewport()->cursor().shape(), Qt::ArrowCursor);
 }
 
+/** @brief Verify all four numeric axis-edge hit zones and valid endpoint edits, refusing range inversion/equality. */
 void TestComparisonPlotToolbar::axisEndpointHitTestAndSetValueAxisEdges()
 {
     auto *chart = makeChart();
@@ -199,21 +232,20 @@ void TestComparisonPlotToolbar::axisEndpointHitTestAndSetValueAxisEdges()
 
     const QRectF plot = chart->plotArea();
     QVERIFY(!plot.isEmpty());
+    /** @brief Map a chart-local point to the captured chart viewport.
+     * Argument `chartPoint`: position in chart-local scene units.
+     * Returns: integer viewport pixel point through chart mapToScene and view mapFromScene; both captured objects must remain live. */
     auto toViewport = [&view, chart](const QPointF &chartPoint) {
         return view.mapFromScene(chart->mapToScene(chartPoint));
     };
 
-    QCOMPARE(view.axisEdgeAt(
-                 toViewport(QPointF(plot.left(), plot.bottom())) + QPoint(0, 12)),
+    QCOMPARE(view.axisEdgeAt(toViewport(QPointF(plot.left(), plot.bottom())) + QPoint(0, 12)),
              InteractiveChartView::AxisEdge::XMinimum);
-    QCOMPARE(view.axisEdgeAt(
-                 toViewport(QPointF(plot.right(), plot.bottom())) + QPoint(0, 12)),
+    QCOMPARE(view.axisEdgeAt(toViewport(QPointF(plot.right(), plot.bottom())) + QPoint(0, 12)),
              InteractiveChartView::AxisEdge::XMaximum);
-    QCOMPARE(view.axisEdgeAt(
-                 toViewport(QPointF(plot.left(), plot.bottom())) + QPoint(-12, -10)),
+    QCOMPARE(view.axisEdgeAt(toViewport(QPointF(plot.left(), plot.bottom())) + QPoint(-12, -10)),
              InteractiveChartView::AxisEdge::YMinimum);
-    QCOMPARE(view.axisEdgeAt(
-                 toViewport(QPointF(plot.left(), plot.top())) + QPoint(-12, 10)),
+    QCOMPARE(view.axisEdgeAt(toViewport(QPointF(plot.left(), plot.top())) + QPoint(-12, 10)),
              InteractiveChartView::AxisEdge::YMaximum);
 
     auto *xAxis = qobject_cast<QValueAxis *>(chart->axes(Qt::Horizontal).first());
@@ -234,6 +266,7 @@ void TestComparisonPlotToolbar::axisEndpointHitTestAndSetValueAxisEdges()
     QVERIFY(!view.setAxisEdgeValue(InteractiveChartView::AxisEdge::YMaximum, -2.0));
 }
 
+/** @brief Verify UTC-axis endpoints accept QDateTime values and refuse an inverted maximum. */
 void TestComparisonPlotToolbar::dateTimeAxisEdgesAcceptDateTimes()
 {
     QDateTime start;
@@ -241,7 +274,8 @@ void TestComparisonPlotToolbar::dateTimeAxisEdgesAcceptDateTimes()
     auto *chart = makeDateChart(start, end);
     InteractiveChartView view(chart);
 
-    auto *xAxis = qobject_cast<QDateTimeAxis *>(chart->axes(Qt::Horizontal).first());
+    auto *xAxis =
+        qobject_cast<openswmmvis::plot::UtcTimeAxis *>(chart->axes(Qt::Horizontal).first());
     QVERIFY(xAxis);
 
     const QDateTime nextStart = start.addSecs(3600);
@@ -253,6 +287,91 @@ void TestComparisonPlotToolbar::dateTimeAxisEdgesAcceptDateTimes()
     QCOMPARE(xAxis->max(), nextEnd);
 
     QVERIFY(!view.setAxisEdgeValue(InteractiveChartView::AxisEdge::XMaximum, start));
+}
+
+void TestComparisonPlotToolbar::screenReaderDescribesTheChart()
+{
+    QLocale::setDefault(QLocale::c());
+    QChart *chart = makeChart();
+    chart->series().first()->setName(QStringLiteral("Flow"));
+    chart->axes(Qt::Horizontal).first()->setTitleText(QStringLiteral("Time (h)"));
+    chart->axes(Qt::Vertical).first()->setTitleText(QStringLiteral("Flow (cfs)"));
+    auto *hidden = new QLineSeries;
+    hidden->setName(QStringLiteral("Hidden"));
+    hidden->append(0.0, 5.0);
+    chart->addSeries(hidden);
+    hidden->setVisible(false);
+    auto *overlay = new QScatterSeries; // empty selection overlay: nothing to read
+    overlay->setName(QStringLiteral("Selection"));
+    chart->addSeries(overlay);
+    InteractiveChartView view(chart);
+
+    QAccessibleInterface *iface = a11ytest::accessibleFor(&view);
+    QVERIFY(iface);
+    QCOMPARE(iface->role(), QAccessible::Chart);
+    QCOMPARE(iface->text(QAccessible::Name), QStringLiteral("Chart"));
+    chart->setTitle(QStringLiteral("Inflow"));
+    QCOMPARE(iface->text(QAccessible::Name), QStringLiteral("Inflow"));
+    view.setAccessibleName(QStringLiteral("Hydrograph"));
+    QCOMPARE(iface->text(QAccessible::Name), QStringLiteral("Hydrograph"));
+
+    QCOMPARE(iface->text(QAccessible::Description),
+             QStringLiteral("Flow: 3 points, values 10 to 30; Time (h) from 0 to 2; "
+                            "Flow (cfs) from 0 to 30; Plus and minus zoom, the arrow keys pan, "
+                            "0 resets the zoom."));
+    chart->series().first()->setVisible(false);
+    QVERIFY(iface->text(QAccessible::Description).startsWith(QStringLiteral("No data; ")));
+}
+
+void TestComparisonPlotToolbar::timeAxesAndPlainChartViews()
+{
+    QDateTime start;
+    QDateTime end;
+    QChartView plain(makeDateChart(start, end));
+    QAccessibleInterface *iface = a11ytest::accessibleFor(&plain);
+    QVERIFY(iface);
+    QCOMPARE(iface->role(), QAccessible::Chart);
+    QCOMPARE(iface->text(QAccessible::Description),
+             QStringLiteral("Series 1: 2 points, values 10 to 20; "
+                            "Horizontal axis from 2026-01-01 00:00 to 2026-01-01 06:00; "
+                            "Vertical axis from 0 to 30"));
+}
+
+void TestComparisonPlotToolbar::keysZoomPanAndReset()
+{
+    QChart *chart = makeChart();
+    InteractiveChartView view(chart);
+    view.resize(400, 300);
+    view.show();
+    QVERIFY(QTest::qWaitForWindowExposed(&view));
+    auto *x = qobject_cast<QValueAxis *>(chart->axes(Qt::Horizontal).first());
+    auto *y = qobject_cast<QValueAxis *>(chart->axes(Qt::Vertical).first());
+    a11ytest::AccessibleEventRecorder events;
+
+    QTest::keyClick(&view, Qt::Key_Plus);
+    QVERIFY(x->max() - x->min() < 2.0 - 1e-6);
+    const double zoomedWidth = x->max() - x->min();
+    QTest::keyClick(&view, Qt::Key_Minus);
+    QVERIFY(x->max() - x->min() > zoomedWidth + 1e-6);
+
+    QTest::keyClick(&view, Qt::Key_Plus);
+    const double minBefore = x->min();
+    QTest::keyClick(&view, Qt::Key_Right);
+    QVERIFY(x->min() > minBefore + 1e-6);
+    QTest::keyClick(&view, Qt::Key_Left);
+    QVERIFY(qAbs(x->min() - minBefore) < 1e-6);
+    const double yBefore = y->min();
+    QTest::keyClick(&view, Qt::Key_Up);
+    QVERIFY(y->min() > yBefore + 1e-6);
+    QTest::keyClick(&view, Qt::Key_Down);
+
+    QTest::keyClick(&view, Qt::Key_0);
+    QCOMPARE(x->min(), 0.0);
+    QCOMPARE(x->max(), 2.0);
+    QCOMPARE(events.count(QAccessible::DescriptionChanged, &view), 8);
+
+    QTest::keyClick(&view, Qt::Key_Plus, Qt::ControlModifier); // not ours
+    QCOMPARE(x->max(), 2.0);
 }
 
 QTEST_MAIN(TestComparisonPlotToolbar)

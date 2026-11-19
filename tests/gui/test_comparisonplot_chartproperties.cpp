@@ -1,8 +1,9 @@
-/*!
- * \file   test_comparisonplot_chartproperties.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      test_comparisonplot_chartproperties.cpp
+ * @brief     Tests for comparisonplot chartproperties.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
  * Slice AT.3 — pins ChartProperties' wrapper semantics:
  *   - Y-range setters apply to the chart's first vertical axis
@@ -12,8 +13,11 @@
  *   - The wrapper survives chart deletion (setters become no-ops)
  *
  * Self-contained: links chartproperties.cpp + Qt6 Charts.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "plot/chartproperties.h"
+#include "plot/utctimeaxis.h"
 #include "ui/dialogs/chartpropertiesdialog.h"
 
 #include <qpropertyitemdelegate.h>
@@ -22,6 +26,7 @@
 #include <QChart>
 #include <QFont>
 #include <QLineSeries>
+#include <QLegend>
 #include <QObject>
 #include <QSignalSpy>
 #include <QTest>
@@ -43,8 +48,12 @@ private slots:
     void setterAreNoOpsAfterChartDeleted();
     void dialogUsesQPropertyModelDelegate();
     void statisticsNumberFormatRoundTripsThroughPropertySurface();
+    void xLabelFormatSkipsUtcTimeAxis();
+    void legendPositionAppliesThroughProperties();
 
 private:
+    /** @brief Allocate a two-point chart with numeric X/Y ranges 0..1 and 0..10.
+     * @return New chart owning its series and axes; the caller must delete it or transfer it to a chart view. */
     QChart *makeChart()
     {
         auto *chart = new QChart;
@@ -52,8 +61,10 @@ private:
         series->append(0.0, 0.0);
         series->append(1.0, 10.0);
         chart->addSeries(series);
-        auto *xAxis = new QValueAxis;  xAxis->setRange(0.0, 1.0);
-        auto *yAxis = new QValueAxis;  yAxis->setRange(0.0, 10.0);
+        auto *xAxis = new QValueAxis;
+        xAxis->setRange(0.0, 1.0);
+        auto *yAxis = new QValueAxis;
+        yAxis->setRange(0.0, 10.0);
         chart->addAxis(xAxis, Qt::AlignBottom);
         chart->addAxis(yAxis, Qt::AlignLeft);
         series->attachAxis(xAxis);
@@ -62,6 +73,33 @@ private:
     }
 };
 
+/** @brief Verify reflected legend-position changes update alignment, emit only on change and remain callable after chart deletion. */
+void TestComparisonPlotChartProperties::legendPositionAppliesThroughProperties()
+{
+    auto *chart = makeChart();
+    chart->legend()->setAlignment(Qt::AlignTop);
+    ChartProperties props(chart);
+    QCOMPARE(props.legendPosition(), ChartProperties::Top);
+    QVERIFY(props.metaObject()->indexOfProperty("legendPosition") >= 0);
+    QCOMPARE(props.displayLabelFor("legendPosition"), QString("Legend — Position"));
+    QSignalSpy changed(&props, &ChartProperties::legendPositionChanged);
+    const Qt::Alignment alignments[] = {Qt::AlignTop, Qt::AlignBottom, Qt::AlignLeft,
+                                        Qt::AlignRight};
+    for (int position : {1, 2, 3, 0}) {
+        const auto value = static_cast<ChartProperties::LegendPosition>(position);
+        QVERIFY(props.setProperty("legendPosition", QVariant::fromValue(value)));
+        QCOMPARE(props.legendPosition(), value);
+        QCOMPARE(chart->legend()->alignment(), alignments[position]);
+    }
+    QCOMPARE(changed.count(), 4);
+    props.setLegendPosition(ChartProperties::Top);
+    QCOMPARE(changed.count(), 4);
+    delete chart;
+    props.setLegendPosition(ChartProperties::Bottom);
+    QCOMPARE(props.legendPosition(), ChartProperties::Bottom);
+}
+
+/** @brief Verify Y-range properties update the first numeric vertical axis and emit one signal per changed endpoint. */
 void TestComparisonPlotChartProperties::yRangeSettersApplyToAxis()
 {
     auto *chart = makeChart();
@@ -75,7 +113,7 @@ void TestComparisonPlotChartProperties::yRangeSettersApplyToAxis()
     QCOMPARE(props.yMin(), 2.5);
     QCOMPARE(props.yMax(), 7.5);
 
-    auto *yAxis = qobject_cast<QValueAxis*>(chart->axes(Qt::Vertical).first());
+    auto *yAxis = qobject_cast<QValueAxis *>(chart->axes(Qt::Vertical).first());
     QVERIFY(yAxis);
     QCOMPARE(yAxis->min(), 2.5);
     QCOMPARE(yAxis->max(), 7.5);
@@ -85,6 +123,7 @@ void TestComparisonPlotChartProperties::yRangeSettersApplyToAxis()
     delete chart;
 }
 
+/** @brief Verify both horizontal and vertical grid visibility follow wrapper toggles. */
 void TestComparisonPlotChartProperties::gridlineTogglesPropagate()
 {
     auto *chart = makeChart();
@@ -102,6 +141,7 @@ void TestComparisonPlotChartProperties::gridlineTogglesPropagate()
     delete chart;
 }
 
+/** @brief Verify chart title property writes through and repeating the same title emits no additional signal. */
 void TestComparisonPlotChartProperties::titleTextRoundTrips()
 {
     auto *chart = makeChart();
@@ -119,6 +159,7 @@ void TestComparisonPlotChartProperties::titleTextRoundTrips()
     delete chart;
 }
 
+/** @brief Verify selecting Dark updates both stored wrapper theme and QChart theme. */
 void TestComparisonPlotChartProperties::chartThemeEnumRoundTrips()
 {
     auto *chart = makeChart();
@@ -131,6 +172,7 @@ void TestComparisonPlotChartProperties::chartThemeEnumRoundTrips()
     delete chart;
 }
 
+/** @brief Verify setting range/title after chart deletion does not dereference the deleted chart and the guarded chart pointer is null. */
 void TestComparisonPlotChartProperties::setterAreNoOpsAfterChartDeleted()
 {
     auto *chart = makeChart();
@@ -144,6 +186,7 @@ void TestComparisonPlotChartProperties::setterAreNoOpsAfterChartDeleted()
     QCOMPARE(props.chart(), nullptr);
 }
 
+/** @brief Verify the chart-properties dialog installs QPropertyModel and QPropertyItemDelegate. */
 void TestComparisonPlotChartProperties::dialogUsesQPropertyModelDelegate()
 {
     auto *chart = makeChart();
@@ -157,6 +200,7 @@ void TestComparisonPlotChartProperties::dialogUsesQPropertyModelDelegate()
     delete chart;
 }
 
+/** @brief Verify the combined number-format preset exposes the intended property surface and synchronizes mode, precision and custom format representations. */
 void TestComparisonPlotChartProperties::statisticsNumberFormatRoundTripsThroughPropertySurface()
 {
     auto *chart = makeChart();
@@ -186,19 +230,57 @@ void TestComparisonPlotChartProperties::statisticsNumberFormatRoundTripsThroughP
     props.setStatisticsFormat(QStringLiteral("%.3g ft"));
 
     auto format = props.statisticsNumberFormat();
-    QCOMPARE(static_cast<int>(format.mode),
-             static_cast<int>(NumberFormatMode::SignificantFigures));
+    QCOMPARE(static_cast<int>(format.mode), static_cast<int>(NumberFormatMode::SignificantFigures));
     QCOMPARE(format.count, 4);
     QCOMPARE(format.custom, QStringLiteral("%.3g ft"));
 
     props.setStatisticsNumberFormat(
         NumberFormat{NumberFormatMode::Decimals, 2, QStringLiteral("%.2f")});
     format = props.statisticsNumberFormat();
-    QCOMPARE(static_cast<int>(format.mode),
-             static_cast<int>(NumberFormatMode::Decimals));
+    QCOMPARE(static_cast<int>(format.mode), static_cast<int>(NumberFormatMode::Decimals));
     QCOMPARE(format.count, 2);
     QCOMPARE(format.custom, QStringLiteral("%.2f"));
 
+    delete chart;
+}
+
+/** @brief Verify numeric X formatting leaves UTC calendar labels untouched while numeric Y labels receive the requested format. */
+void TestComparisonPlotChartProperties::xLabelFormatSkipsUtcTimeAxis()
+{
+    // Issue #11: UtcTimeAxis derives from QCategoryAxis → QValueAxis, so the
+    // "is a QValueAxis" test that routes printf label specs would stamp the
+    // X spec over its date labels unless ChartProperties skips it explicitly
+    // (QDateTimeAxis was skipped only by accident of its hierarchy).
+    auto *chart = new QChart;
+    auto *series = new QLineSeries;
+    const QDateTime t0(QDate(2026, 1, 1), QTime(0, 0), Qt::UTC);
+    const QDateTime t1 = t0.addDays(1);
+    series->append(static_cast<qreal>(t0.toMSecsSinceEpoch()), 0.0);
+    series->append(static_cast<qreal>(t1.toMSecsSinceEpoch()), 10.0);
+    chart->addSeries(series);
+    auto *xAxis = new openswmmvis::plot::UtcTimeAxis;
+    xAxis->setFormat(QStringLiteral("yyyy-MM-dd HH:mm"));
+    xAxis->setTickCount(3);
+    auto *yAxis = new QValueAxis;
+    yAxis->setRange(0.0, 10.0);
+    chart->addAxis(xAxis, Qt::AlignBottom);
+    chart->addAxis(yAxis, Qt::AlignLeft);
+    series->attachAxis(xAxis);
+    series->attachAxis(yAxis);
+    xAxis->setRange(t0, t1);
+    const QStringList dates{QStringLiteral("2026-01-01 00:00"), QStringLiteral("2026-01-01 12:00"),
+                            QStringLiteral("2026-01-02 00:00")};
+    QCOMPARE(xAxis->categoriesLabels(), dates);
+
+    ChartProperties props(chart);
+    props.setXAxisNumberFormat(ChartProperties::Decimals3);
+    props.setYAxisNumberFormat(ChartProperties::Decimals3);
+
+    QCOMPARE(xAxis->categoriesLabels(), dates);
+    QVERIFY2(
+        xAxis->labelFormat().isEmpty(),
+        qPrintable(QStringLiteral("time axis got a numeric spec: %1").arg(xAxis->labelFormat())));
+    QCOMPARE(yAxis->labelFormat(), QStringLiteral("%.3f"));
     delete chart;
 }
 

@@ -1,12 +1,16 @@
-/*!
- * \file   meshedgepropertyadapter.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      meshedgepropertyadapter.cpp
+ * @brief     Slice §V.VF — Q_PROPERTY-backed view of one 2D mesh edge.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/properties/meshedgepropertyadapter.h"
 
 #include "layers/swmm2dmeshlayer.h"
+#include "mesh/meshcellgeom.h"
 #include "mesh/meshobjectref.h"
 
 #include <QCoreApplication>
@@ -14,48 +18,56 @@
 #include <cmath>
 #include <limits>
 
-namespace {
+namespace
+{
+/**
+ * @brief Read a complete edge boundary slot with a safe default.
+ * @param[in] layer Borrowed mesh layer, possibly nullptr.
+ * @param[in] tri Owning cell index used by edgeSlot().
+ * @param[in] e Local edge ordinal.
+ * @return Copied stored BC or a default Wall/ψ=1 record when layer/flat index is unavailable.
+ */
 mesh::MeshEdgeBC currentBC(SWMM2DMeshLayer *layer, int tri, int e)
 {
-    if (!layer) return {};
-    const int flat = tri * 3 + e;
+    if (!layer)
+        return {};
+    const int flat = mesh::edgeSlot(tri, e);
     const auto &bcs = layer->edgeBCs();
-    if (flat < 0 || flat >= bcs.size()) return {};
+    if (flat < 0 || flat >= bcs.size())
+        return {};
     return bcs[flat];
 }
 } // namespace
 
-MeshEdgePropertyAdapter::MeshEdgePropertyAdapter(SWMM2DMeshLayer *layer,
-                                                 int triIdx, int edgeLocal,
+MeshEdgePropertyAdapter::MeshEdgePropertyAdapter(SWMM2DMeshLayer *layer, int triIdx, int edgeLocal,
                                                  QObject *parent)
     : QObject(parent), m_layer(layer), m_tri(triIdx), m_e(edgeLocal)
 {
     if (m_layer) {
         m_refName = mesh::MeshObjectRef::edge(m_layer->sourcePath(), m_tri, m_e).name;
-        connect(m_layer, &SWMM2DMeshLayer::attributeChanged,
-                this, &MeshEdgePropertyAdapter::onLayerAttributeChanged);
+        connect(m_layer, &SWMM2DMeshLayer::attributeChanged, this,
+                &MeshEdgePropertyAdapter::onLayerAttributeChanged);
     }
 }
 
 bool MeshEdgePropertyAdapter::isBoundary() const
 {
-    if (!m_layer) return false;
+    if (!m_layer)
+        return false;
     return m_layer->isBoundaryEdge(m_tri, m_e);
 }
 
 double MeshEdgePropertyAdapter::length() const
 {
-    if (!m_layer) return std::numeric_limits<double>::quiet_NaN();
+    if (!m_layer)
+        return std::numeric_limits<double>::quiet_NaN();
     if (m_tri < 0 || m_tri >= m_layer->mesh().triangles.size())
         return std::numeric_limits<double>::quiet_NaN();
     const auto &tri = m_layer->mesh().triangles[m_tri];
     int va = -1, vb = -1;
-    switch (m_e) {
-    case 0: va = tri.v1; vb = tri.v2; break;
-    case 1: va = tri.v2; vb = tri.v0; break;
-    case 2: va = tri.v0; vb = tri.v1; break;
-    default: return std::numeric_limits<double>::quiet_NaN();
-    }
+    if (m_e < 0 || m_e >= tri.vertexCount())
+        return std::numeric_limits<double>::quiet_NaN();
+    mesh::edgeEndpoints(tri, m_e, va, vb);
     const auto &verts = m_layer->mesh().vertices;
     if (va < 0 || vb < 0 || va >= verts.size() || vb >= verts.size())
         return std::numeric_limits<double>::quiet_NaN();
@@ -64,19 +76,52 @@ double MeshEdgePropertyAdapter::length() const
     return std::sqrt(dx * dx + dy * dy);
 }
 
-int     MeshEdgePropertyAdapter::bcType()    const { return static_cast<int>(currentBC(m_layer, m_tri, m_e).type); }
-double  MeshEdgePropertyAdapter::bcHead()    const { return currentBC(m_layer, m_tri, m_e).head; }
-double  MeshEdgePropertyAdapter::bcSlope()   const { return currentBC(m_layer, m_tri, m_e).slope; }
-double  MeshEdgePropertyAdapter::bcFlow()    const { return currentBC(m_layer, m_tri, m_e).flow; }
-QString MeshEdgePropertyAdapter::bcTseries() const { return currentBC(m_layer, m_tri, m_e).tseries; }
-QString MeshEdgePropertyAdapter::bcCurve()   const { return currentBC(m_layer, m_tri, m_e).curve; }
-QString MeshEdgePropertyAdapter::bcGroup()   const { return currentBC(m_layer, m_tri, m_e).group; }
-double  MeshEdgePropertyAdapter::bcConveyance() const { return currentBC(m_layer, m_tri, m_e).conveyance; }
-
-template <typename F>
-void MeshEdgePropertyAdapter::mutate(F &&fn)
+int MeshEdgePropertyAdapter::bcType() const
 {
-    if (!m_layer) return;
+    return static_cast<int>(currentBC(m_layer, m_tri, m_e).type);
+}
+double MeshEdgePropertyAdapter::bcHead() const
+{
+    return currentBC(m_layer, m_tri, m_e).head;
+}
+double MeshEdgePropertyAdapter::wallDrag() const
+{
+    return currentBC(m_layer, m_tri, m_e).wallDrag;
+}
+void MeshEdgePropertyAdapter::setWallDrag(double v)
+{
+    if (isBoundary() && std::isfinite(v) && v >= 0 && bcType() == 0)
+        mutate([v](mesh::MeshEdgeBC &bc) { bc.wallDrag = v; });
+}
+double MeshEdgePropertyAdapter::bcSlope() const
+{
+    return currentBC(m_layer, m_tri, m_e).slope;
+}
+double MeshEdgePropertyAdapter::bcFlow() const
+{
+    return currentBC(m_layer, m_tri, m_e).flow;
+}
+QString MeshEdgePropertyAdapter::bcTseries() const
+{
+    return currentBC(m_layer, m_tri, m_e).tseries;
+}
+QString MeshEdgePropertyAdapter::bcCurve() const
+{
+    return currentBC(m_layer, m_tri, m_e).curve;
+}
+QString MeshEdgePropertyAdapter::bcGroup() const
+{
+    return currentBC(m_layer, m_tri, m_e).group;
+}
+double MeshEdgePropertyAdapter::bcConveyance() const
+{
+    return currentBC(m_layer, m_tri, m_e).conveyance;
+}
+
+template <typename F> void MeshEdgePropertyAdapter::mutate(F &&fn)
+{
+    if (!m_layer)
+        return;
     mesh::MeshEdgeBC bc = currentBC(m_layer, m_tri, m_e);
     fn(bc);
     m_layer->applyMeshEdgeBC(m_tri, m_e, bc);
@@ -86,6 +131,7 @@ void MeshEdgePropertyAdapter::setBCType(int newType)
 {
     mutate([newType](mesh::MeshEdgeBC &bc) {
         bc.type = static_cast<mesh::MeshBCTypes::Type>(newType);
+        if (bc.type != mesh::MeshBCTypes::Type::Wall) bc.wallDrag = 0;
     });
 }
 
@@ -124,28 +170,44 @@ void MeshEdgePropertyAdapter::setBCConveyance(double v)
     // ψ goes through the dedicated layer helper rather than the BC mutate
     // template — the helper enforces the [0, 1] range and mirrors interior
     // edges (the BC template uses applyMeshEdgeBC which would skip both).
-    if (!m_layer) return;
+    if (!m_layer)
+        return;
     m_layer->applyMeshEdgeConveyance(m_tri, m_e, v);
 }
 
 void MeshEdgePropertyAdapter::onLayerAttributeChanged(const QString &refName)
 {
-    if (refName == m_refName) emit changed();
+    if (refName == m_refName)
+        emit changed();
 }
 
 QString MeshEdgePropertyAdapter::displayLabelFor(const QString &property) const
 {
-    if (property == QStringLiteral("triIdx"))     return QCoreApplication::translate("MeshEdge", "Triangle");
-    if (property == QStringLiteral("edgeLocal"))  return QCoreApplication::translate("MeshEdge", "Edge (0..2)");
-    if (property == QStringLiteral("isBoundary")) return QCoreApplication::translate("MeshEdge", "Boundary?");
-    if (property == QStringLiteral("length"))     return QCoreApplication::translate("MeshEdge", "Length");
-    if (property == QStringLiteral("bcType"))     return QCoreApplication::translate("MeshEdge", "BC type");
-    if (property == QStringLiteral("bcHead"))     return QCoreApplication::translate("MeshEdge", "BC stage");
-    if (property == QStringLiteral("bcSlope"))    return QCoreApplication::translate("MeshEdge", "BC bed slope");
-    if (property == QStringLiteral("bcFlow"))     return QCoreApplication::translate("MeshEdge", "BC flow / m");
-    if (property == QStringLiteral("bcTseries"))  return QCoreApplication::translate("MeshEdge", "BC timeseries");
-    if (property == QStringLiteral("bcCurve"))    return QCoreApplication::translate("MeshEdge", "BC rating curve");
-    if (property == QStringLiteral("bcGroup"))    return QCoreApplication::translate("MeshEdge", "BC group");
-    if (property == QStringLiteral("bcConveyance")) return QCoreApplication::translate("MeshEdge", "Conveyance (ψ)");
+    if (property == QStringLiteral("triIdx"))
+        return QCoreApplication::translate("MeshEdge", "Cell");
+    if (property == QStringLiteral("edgeLocal"))
+        return QCoreApplication::translate("MeshEdge", "Edge (0..2, 0..3 on a quad)");
+    if (property == QStringLiteral("isBoundary"))
+        return QCoreApplication::translate("MeshEdge", "Boundary?");
+    if (property == QStringLiteral("length"))
+        return QCoreApplication::translate("MeshEdge", "Length");
+    if (property == QStringLiteral("bcType"))
+        return QCoreApplication::translate("MeshEdge", "BC type");
+    if (property == QStringLiteral("bcHead"))
+        return QCoreApplication::translate("MeshEdge", "BC stage");
+    if (property == QStringLiteral("wallDrag"))
+        return QCoreApplication::translate("MeshEdge", "Wall drag Cw (zero = free slip)");
+    if (property == QStringLiteral("bcSlope"))
+        return QCoreApplication::translate("MeshEdge", "BC friction slope");
+    if (property == QStringLiteral("bcFlow"))
+        return QCoreApplication::translate("MeshEdge", "BC flow / m");
+    if (property == QStringLiteral("bcTseries"))
+        return QCoreApplication::translate("MeshEdge", "BC timeseries");
+    if (property == QStringLiteral("bcCurve"))
+        return QCoreApplication::translate("MeshEdge", "BC rating curve");
+    if (property == QStringLiteral("bcGroup"))
+        return QCoreApplication::translate("MeshEdge", "BC group");
+    if (property == QStringLiteral("bcConveyance"))
+        return QCoreApplication::translate("MeshEdge", "Conveyance (ψ)");
     return property;
 }

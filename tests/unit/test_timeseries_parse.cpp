@@ -1,27 +1,45 @@
-/*!
- * \file   test_timeseries_parse.cpp
- * \brief  Slice BQ Phase 6.7.3 — tests for the shared row parser.
+/**
+ * @file      test_timeseries_parse.cpp
+ * @brief     Slice BQ Phase 6.7.3 — tests for the shared row parser.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
 #include <gtest/gtest.h>
 
 #include "core/swmmdatetime.h"
 #include "io/timeseriesparse.h"
 
 #include <QDateTime>
+#include <QTimeZone>
+
+#include <ctime>
 
 #include <cmath>
 #include <vector>
 
 namespace ts = openswmmvis::io;
 
+/**
+ *
+ * @brief Check tab/comma/semicolon recognition and comma fallback for an unseparated header.
+ *
+ */
 TEST(TimeseriesParse, GuessDelimiter_TabWinsOverComma)
 {
     EXPECT_EQ(ts::guessDelimiter(QStringLiteral("a\tb\tc")), QLatin1Char('\t'));
-    EXPECT_EQ(ts::guessDelimiter(QStringLiteral("a,b,c")),  QLatin1Char(','));
-    EXPECT_EQ(ts::guessDelimiter(QStringLiteral("a;b;c")),  QLatin1Char(';'));
-    EXPECT_EQ(ts::guessDelimiter(QStringLiteral("abc")),    QLatin1Char(','));  // default
+    EXPECT_EQ(ts::guessDelimiter(QStringLiteral("a,b,c")), QLatin1Char(','));
+    EXPECT_EQ(ts::guessDelimiter(QStringLiteral("a;b;c")), QLatin1Char(';'));
+    EXPECT_EQ(ts::guessDelimiter(QStringLiteral("abc")), QLatin1Char(',')); // default
 }
 
+/**
+ *
+ * @brief Require ISO date/T-clock text to parse to a finite serial day without relative fallback.
+ *
+ */
 TEST(TimeseriesParse, TryParseTimestamp_ISO8601_T)
 {
     double j = std::nan("");
@@ -29,6 +47,11 @@ TEST(TimeseriesParse, TryParseTimestamp_ISO8601_T)
     EXPECT_TRUE(std::isfinite(j));
 }
 
+/**
+ *
+ * @brief Require slash-format SWMM date and clock to parse to finite serial days.
+ *
+ */
 TEST(TimeseriesParse, TryParseTimestamp_SwmmSlashFormat)
 {
     double j = std::nan("");
@@ -36,6 +59,11 @@ TEST(TimeseriesParse, TryParseTimestamp_SwmmSlashFormat)
     EXPECT_TRUE(std::isfinite(j));
 }
 
+/**
+ *
+ * @brief Require numeric 6.5 hours to add exactly 6.5/24 serial days to a supplied UTC anchor.
+ *
+ */
 TEST(TimeseriesParse, TryParseTimestamp_HoursSinceStartFallback)
 {
     const QDateTime base = QDateTime(QDate(2026, 1, 1), QTime(0, 0), Qt::UTC);
@@ -46,28 +74,154 @@ TEST(TimeseriesParse, TryParseTimestamp_HoursSinceStartFallback)
     EXPECT_DOUBLE_EQ(j, baseJ + 6.5 / 24.0);
 }
 
+/**
+ *
+ * @brief Require invalid date text to fail when no finite relative anchor is available.
+ *
+ */
 TEST(TimeseriesParse, TryParseTimestamp_RejectsGarbageWithoutFallback)
 {
     double j = 1.0;
     EXPECT_FALSE(ts::tryParseTimestamp(QStringLiteral("not a date"), j, std::nan("")));
 }
 
+// Multi-column series files (spec §3.1) — 12-hour US datetimes with a
+// trailing AM/PM token (the PCSWMM .tsf form) and their single-digit
+// 24-hour siblings, all of which the engine's parser accepts.
+
+/**
+ *
+ * @brief Verify US single-digit date/clock AM and PM strings resolve to exact intended UTC serial
+ * times.
+ *
+ */
+TEST(TimeseriesParse, TryParseTimestamp_AmPm_MorningAndAfternoon)
+{
+    const double am8 = openswmmvis::core::qDateTimeToSwmmDateTime(
+        QDateTime(QDate(2007, 1, 1), QTime(8, 15, 0), Qt::UTC));
+    const double pm8 = openswmmvis::core::qDateTimeToSwmmDateTime(
+        QDateTime(QDate(2007, 1, 1), QTime(20, 15, 0), Qt::UTC));
+
+    double j = std::nan("");
+    ASSERT_TRUE(ts::tryParseTimestamp(QStringLiteral("1/1/2007 8:15:00 AM"), j, std::nan("")));
+    EXPECT_DOUBLE_EQ(j, am8);
+    ASSERT_TRUE(ts::tryParseTimestamp(QStringLiteral("1/1/2007 8:15:00 PM"), j, std::nan("")));
+    EXPECT_DOUBLE_EQ(j, pm8);
+}
+
+/**
+ *
+ * @brief Require 12:30 AM/PM to resolve to midnight-half-hour and noon-half-hour respectively.
+ *
+ */
+TEST(TimeseriesParse, TryParseTimestamp_AmPm_TwelveOClockEdges)
+{
+    const double midnight = openswmmvis::core::qDateTimeToSwmmDateTime(
+        QDateTime(QDate(2007, 6, 30), QTime(0, 30, 0), Qt::UTC));
+    const double noon = openswmmvis::core::qDateTimeToSwmmDateTime(
+        QDateTime(QDate(2007, 6, 30), QTime(12, 30, 0), Qt::UTC));
+
+    double j = std::nan("");
+    ASSERT_TRUE(ts::tryParseTimestamp(QStringLiteral("6/30/2007 12:30:00 AM"), j, std::nan("")));
+    EXPECT_DOUBLE_EQ(j, midnight); // 12:xx AM → 00:xx
+    ASSERT_TRUE(ts::tryParseTimestamp(QStringLiteral("6/30/2007 12:30:00 PM"), j, std::nan("")));
+    EXPECT_DOUBLE_EQ(j, noon); // 12:xx PM → 12:xx
+}
+
+/**
+ *
+ * @brief Verify unpadded US month/day/hour text parses to exact expected UTC serial time.
+ *
+ */
+TEST(TimeseriesParse, TryParseTimestamp_SingleDigitUs24Hour)
+{
+    const double expect = openswmmvis::core::qDateTimeToSwmmDateTime(
+        QDateTime(QDate(2020, 1, 5), QTime(3, 4, 0), Qt::UTC));
+    double j = std::nan("");
+    ASSERT_TRUE(ts::tryParseTimestamp(QStringLiteral("1/5/2020 3:04"), j, std::nan("")));
+    EXPECT_DOUBLE_EQ(j, expect);
+}
+
+/**
+ *
+ * @brief Require timestamp plus three tab-separated values to retain the middle blank as NaN.
+ *
+ */
 TEST(TimeseriesParse, ParseRow_TabDelimitedWithBlankCell)
 {
     double t = std::nan("");
     std::vector<double> vals;
-    ASSERT_TRUE(ts::parseRow(QStringLiteral("2026-01-01T00:00:00\t1.5\t\t3.0"),
-                              QLatin1Char('\t'), t, vals, std::nan("")));
+    ASSERT_TRUE(ts::parseRow(QStringLiteral("2026-01-01T00:00:00\t1.5\t\t3.0"), QLatin1Char('\t'),
+                             t, vals, std::nan("")));
     ASSERT_EQ(vals.size(), 3u);
     EXPECT_DOUBLE_EQ(vals[0], 1.5);
     EXPECT_TRUE(std::isnan(vals[1]));
     EXPECT_DOUBLE_EQ(vals[2], 3.0);
 }
 
+/**
+ *
+ * @brief Require a single-cell row with no value columns to fail parsing.
+ *
+ */
 TEST(TimeseriesParse, ParseRow_RejectsRowWithoutValueCells)
 {
     double t = std::nan("");
     std::vector<double> vals;
-    EXPECT_FALSE(ts::parseRow(QStringLiteral("just-one-cell"),
-                               QLatin1Char(','), t, vals, std::nan("")));
+    EXPECT_FALSE(
+        ts::parseRow(QStringLiteral("just-one-cell"), QLatin1Char(','), t, vals, std::nan("")));
+}
+
+// Boston design storms use 00 AM and 13..23 PM alongside ordinary AM/PM.
+/**
+ *
+ * @brief Verify Boston/TSF redundant AM/PM suffixes preserve explicit 00 and 13..23 hour clocks.
+ *
+ */
+TEST(TimeseriesParse, TsfRedundantMeridiemKeeps24HourClock)
+{
+    for (int hour : {0, 1, 11, 12, 13, 20, 23}) {
+        const QString stamp = QStringLiteral("01/01/2019 %1:15:00 %2")
+                                  .arg(hour, 2, 10, QLatin1Char('0'))
+                                  .arg(hour < 12 ? QStringLiteral("AM") : QStringLiteral("PM"));
+        double actual = 0.0;
+        ASSERT_TRUE(ts::tryParseTimestamp(stamp, actual, std::nan(""))) << stamp.toStdString();
+        const double expected = openswmmvis::core::qDateTimeToSwmmDateTime(
+            QDateTime(QDate(2019, 1, 1), QTime(hour, 15), Qt::UTC));
+        EXPECT_DOUBLE_EQ(actual, expected) << stamp.toStdString();
+    }
+}
+
+/**
+ *
+ * @brief Review E-15: a timestamp in a daylight-saving gap keeps its wall clock.
+ * The fallback formats used to be parsed as local time, so in a DST zone a row
+ * stamped inside the spring-forward hour was dropped or moved by an hour,
+ * unlike the UTC fast path. SWMM times are zone-less wall clock.
+ *
+ */
+TEST(TimeseriesParse, TryParseTimestamp_DaylightSavingGapKeepsWallClock)
+{
+    const QByteArray oldTz = qgetenv("TZ");
+    qputenv("TZ", "America/New_York");
+    tzset();
+    double gap = std::nan("");
+    double before = std::nan("");
+    const bool parsedGap = ts::tryParseTimestamp(QStringLiteral("03/10/2024 02:30"), gap, std::nan(""));
+    const bool parsedBefore =
+        ts::tryParseTimestamp(QStringLiteral("03/10/2024 01:30"), before, std::nan(""));
+    const bool parsedAmPm =
+        ts::tryParseTimestamp(QStringLiteral("3/10/2024 2:30:00 AM"), gap, std::nan(""));
+    if (oldTz.isNull())
+        qunsetenv("TZ");
+    else
+        qputenv("TZ", oldTz);
+    tzset();
+
+    ASSERT_TRUE(parsedGap);
+    ASSERT_TRUE(parsedBefore);
+    ASSERT_TRUE(parsedAmPm);
+    const QDateTime expected(QDate(2024, 3, 10), QTime(2, 30), QTimeZone::UTC);
+    EXPECT_NEAR(gap, openswmmvis::core::qDateTimeToSwmmDateTime(expected), 1e-9);
+    EXPECT_NEAR(gap - before, 1.0 / 24.0, 1e-9); // one wall-clock hour later
 }

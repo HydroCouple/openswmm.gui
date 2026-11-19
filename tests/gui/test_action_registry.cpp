@@ -2,6 +2,16 @@
 // shortcut application from catalog defaults, user-override persistence
 // through QSettings, tag-driven enable/disable, conflict lookup, and a
 // real QTest::keyClick firing an adopted action's shortcut (offscreen).
+
+/**
+ * @file      test_action_registry.cpp
+ * @brief     Tests for action registry.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
 #include <QtTest/QtTest>
 
 #include <QAction>
@@ -27,6 +37,7 @@ private slots:
     void userOverridePersistsAndApplies();
     void clearedShortcutPersistsAsEmpty();
     void enableByTag();
+    void disabledReasonFollowsEnableState();
     void conflictLookup();
     void shortcutFiresViaKeyClick();
 
@@ -39,6 +50,13 @@ private:
     QAction *mRun = nullptr;         // adopted as sim.run (Ctrl+R)
 };
 
+/**
+ *
+ * @brief Remove the complete SWMMVis::Shortcuts group from the current test application QSettings
+ * namespace.
+ * Does not reset the in-memory registry or check settings sync status.
+ *
+ */
 void TestActionRegistry::wipeShortcutSettings()
 {
     QSettings settings;
@@ -47,6 +65,14 @@ void TestActionRegistry::wipeShortcutSettings()
     settings.endGroup();
 }
 
+/**
+ *
+ * @brief Select the isolated openswmm-test/actionregistry-test settings namespace, clear shortcut
+ * overrides and adopt three window-owned actions.
+ * Requires exactly three catalog registrations; retains pointers for later cases
+ * and changes process-global application identity.
+ *
+ */
 void TestActionRegistry::initTestCase()
 {
     // Isolate persistence from the real app (and from other tests).
@@ -66,6 +92,12 @@ void TestActionRegistry::initTestCase()
     QCOMPARE(adopted, 3);
 }
 
+/**
+ *
+ * @brief Clear test shortcut settings, destroy the window-owned actions and null the window
+ * pointer.
+ *
+ */
 void TestActionRegistry::cleanupTestCase()
 {
     wipeShortcutSettings();
@@ -73,6 +105,12 @@ void TestActionRegistry::cleanupTestCase()
     mWindow = nullptr;
 }
 
+/**
+ *
+ * @brief Require catalog registration to retain action pointers, apply New/Run defaults and
+ * return null for an unknown ID.
+ *
+ */
 void TestActionRegistry::adoptInPlaceKeepsIdentity()
 {
     auto *registry = ActionRegistry::instance();
@@ -87,6 +125,13 @@ void TestActionRegistry::adoptInPlaceKeepsIdentity()
     QVERIFY(!registry->action(QStringLiteral("no.such.id")));
 }
 
+/**
+ *
+ * @brief Require a Ctrl+9 override to emit once, update the live action and persist portable
+ * text, then reset to Ctrl+R.
+ * Inspects current QSettings rather than launching a fresh process.
+ *
+ */
 void TestActionRegistry::userOverridePersistsAndApplies()
 {
     auto *registry = ActionRegistry::instance();
@@ -111,31 +156,87 @@ void TestActionRegistry::userOverridePersistsAndApplies()
     QCOMPARE(mRun->shortcut(), QKeySequence(QStringLiteral("Ctrl+R")));
 }
 
+/**
+ *
+ * @brief Require an explicit empty user binding to remain an override with no effective
+ * shortcuts, then reset to the default.
+ *
+ */
 void TestActionRegistry::clearedShortcutPersistsAsEmpty()
 {
     auto *registry = ActionRegistry::instance();
     const QString id = QStringLiteral("sim.run");
 
     registry->setUserShortcut(id, QKeySequence());
-    QVERIFY(registry->hasUserShortcut(id));          // stored as ""
-    QVERIFY(mRun->shortcuts().isEmpty());            // deliberately unbound
+    QVERIFY(registry->hasUserShortcut(id)); // stored as ""
+    QVERIFY(mRun->shortcuts().isEmpty());   // deliberately unbound
     QVERIFY(registry->effectiveShortcuts(id).isEmpty());
 
     registry->resetShortcut(id);
     QCOMPARE(mRun->shortcut(), QKeySequence(QStringLiteral("Ctrl+R")));
 }
 
+/**
+ *
+ * @brief Require project-tag disabling/enabling to affect Add Junction while leaving the untagged
+ * New action enabled.
+ *
+ */
 void TestActionRegistry::enableByTag()
 {
     auto *registry = ActionRegistry::instance();
     QVERIFY(mAddJunction->isEnabled());
     registry->setEnabledByTag(RequiresProject, false);
     QVERIFY(!mAddJunction->isEnabled());
-    QVERIFY(mNew->isEnabled());   // untagged actions untouched
+    QVERIFY(mNew->isEnabled()); // untagged actions untouched
     registry->setEnabledByTag(RequiresProject, true);
     QVERIFY(mAddJunction->isEnabled());
 }
 
+/**
+ * @brief A disabled command's tooltip carries its reason; enabling restores the action's own
+ * tooltip, a tooltip set by other code becomes the new base, and the registry never changes the
+ * enable state itself.
+ */
+void TestActionRegistry::disabledReasonFollowsEnableState()
+{
+    auto *registry = ActionRegistry::instance();
+    const QString id = QStringLiteral("model.addJunction");
+    mAddJunction->setToolTip(QStringLiteral("Place a junction"));
+    mAddJunction->setEnabled(true);
+
+    registry->setDisabledReason(id, QStringLiteral("Open or create a project first."));
+    QCOMPARE(registry->disabledReason(id), QStringLiteral("Open or create a project first."));
+    QVERIFY(mAddJunction->isEnabled()); // explanation only, no enable writes
+    QCOMPARE(mAddJunction->toolTip(), QStringLiteral("Place a junction"));
+
+    mAddJunction->setEnabled(false);
+    QCOMPARE(mAddJunction->toolTip(),
+             QStringLiteral("Place a junction\nOpen or create a project first."));
+    mAddJunction->setEnabled(true);
+    QCOMPARE(mAddJunction->toolTip(), QStringLiteral("Place a junction"));
+
+    // Another owner retitles the action while the reason is showing.
+    mAddJunction->setEnabled(false);
+    mAddJunction->setToolTip(QStringLiteral("Place a junction node"));
+    QCOMPARE(mAddJunction->toolTip(),
+             QStringLiteral("Place a junction node\nOpen or create a project first."));
+    mAddJunction->setEnabled(true);
+    QCOMPARE(mAddJunction->toolTip(), QStringLiteral("Place a junction node"));
+
+    registry->setDisabledReason(id, QString());
+    mAddJunction->setEnabled(false);
+    QCOMPARE(mAddJunction->toolTip(), QStringLiteral("Place a junction node"));
+    mAddJunction->setEnabled(true);
+}
+
+/**
+ *
+ * @brief Require conflict lookup to identify Run at Ctrl+R, ignore an excluded holder and return
+ * empty for an unused chord.
+ * Assumes prior cases have restored the default Run binding.
+ *
+ */
 void TestActionRegistry::conflictLookup()
 {
     auto *registry = ActionRegistry::instance();
@@ -145,10 +246,15 @@ void TestActionRegistry::conflictLookup()
              QStringLiteral("sim.run"));
     // Excluding the holder itself reports no conflict.
     QVERIFY(registry->conflictingActionId(runSeq, QStringLiteral("sim.run")).isEmpty());
-    QVERIFY(registry->conflictingActionId(QKeySequence(QStringLiteral("Ctrl+Alt+0")))
-                .isEmpty());
+    QVERIFY(registry->conflictingActionId(QKeySequence(QStringLiteral("Ctrl+Alt+0"))).isEmpty());
 }
 
+/**
+ *
+ * @brief Require the adopted Run action to trigger once through a platform-correct Ctrl+R key
+ * sequence on its active shown window.
+ *
+ */
 void TestActionRegistry::shortcutFiresViaKeyClick()
 {
     // The adopted action participates in normal shortcut dispatch once it

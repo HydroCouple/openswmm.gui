@@ -1,0 +1,835 @@
+********* Start testing of TestSimulationOptionsRoundTrip *********
+Config: Using QtTest library 6.9.3, Qt 6.9.3 (arm64-little_endian-lp64 shared (dynamic) release build; by Apple LLVM 16.0.0 (clang-1600.0.26.3)), macos 27.0.1
+PASS   : TestSimulationOptionsRoundTrip::initTestCase()
+QINFO  : TestSimulationOptionsRoundTrip::fileIoImportedPrecisionAndTinyEdit() openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=0 g=0
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoImportedPrecisionAndTinyEdit() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::fileIoImportedPrecisionAndTinyEdit() openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::fileIoImportedPrecisionAndTinyEdit() openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::fileIoImportedPrecisionAndTinyEdit() openswmm.load.model: [SWMMModelLayer] mini_2d.inp: nodes=2 links=1 subcatchments=0 gages=0 extent valid=no
+QINFO  : TestSimulationOptionsRoundTrip::fileIoImportedPrecisionAndTinyEdit() openswmm.load.model: [SWMMModelLayer] mini_2d.inp load timing (ms): engine_open=2 soa_copy=0 crs_init=8 geometry_cache=0 total=10
+QWARN  : TestSimulationOptionsRoundTrip::fileIoImportedPrecisionAndTinyEdit() qt.qpa.fonts: Populating font family aliases took 37 ms. Replace uses of missing font family "Sans Serif" with one that exists to avoid this cost.
+PASS   : TestSimulationOptionsRoundTrip::fileIoImportedPrecisionAndTinyEdit()
+QINFO  : TestSimulationOptionsRoundTrip::fileIoLongStringsAndBuiltinWriterSelection() openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=0 g=0
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoLongStringsAndBuiltinWriterSelection() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::fileIoLongStringsAndBuiltinWriterSelection() openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::fileIoLongStringsAndBuiltinWriterSelection() openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::fileIoLongStringsAndBuiltinWriterSelection() openswmm.load.model: [SWMMModelLayer] mini_2d.inp: nodes=2 links=1 subcatchments=0 gages=0 extent valid=no
+QINFO  : TestSimulationOptionsRoundTrip::fileIoLongStringsAndBuiltinWriterSelection() openswmm.load.model: [SWMMModelLayer] mini_2d.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+PASS   : TestSimulationOptionsRoundTrip::fileIoLongStringsAndBuiltinWriterSelection()
+PASS   : TestSimulationOptionsRoundTrip::fileIoQuotedExportAndFailure()
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() qrc:/openswmm/qml/swmmlayer.qml: No such file or directory
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() [MapCanvas] QML status: QQuickWidget::Error
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() [MapCanvas]  QML error: "qrc:/openswmm/qml/swmmlayer.qml: No such file or directory"
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() [MapCanvas] failed to obtain SWMMLayerQSGRenderer from the QML scene — got QQuickItem(nullptr)
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() [MapCanvas] failed to obtain SWMM2DResultsQSGRenderer from the QML scene
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() [MapCanvas] failed to obtain SWMM2DMeshQSGRenderer from the QML scene
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 0  cols= 0  rows= 0  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [populateScene] visible=yes nodes=0 links=0 catch=0 gages=0 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=0 g=0
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: crs_inp_scan 0 ms
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [populateScene] visible=yes nodes=2 links=1 catch=0 gages=0 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [SWMMModelLayer] mini_2d.inp: nodes=2 links=1 subcatchments=0 gages=0 extent valid=no
+QINFO  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [SWMMModelLayer] mini_2d.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.window: [loadModel] mini_2d.inp | extent valid=no [0,0 -> 0,0] | canvas 100x30 | SRS=EPSG:3857
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() QMetaObject::invokeMethod: No such method SWMMVisProjectWindow::onLogMessage(QString,OpenSWMMVisLogMessage::LogMessageType)
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [populateScene] visible=yes nodes=2 links=1 catch=0 gages=0 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.vector: points.geojson [points]: open (ms): gdal_open=1 extent+crs=0 total=1
+QINFO  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.vector: [populate] "points": 1 items in 0 ms
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [populateScene] visible=yes nodes=2 links=1 catch=0 gages=0 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() qrc:/openswmm/qml/swmmlayer.qml: No such file or directory
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() [MapCanvas] QML status: QQuickWidget::Error
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() [MapCanvas]  QML error: "qrc:/openswmm/qml/swmmlayer.qml: No such file or directory"
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() [MapCanvas] failed to obtain SWMMLayerQSGRenderer from the QML scene — got QQuickItem(nullptr)
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() [MapCanvas] failed to obtain SWMM2DResultsQSGRenderer from the QML scene
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() [MapCanvas] failed to obtain SWMM2DMeshQSGRenderer from the QML scene
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 0  cols= 0  rows= 0  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [populateScene] visible=yes nodes=0 links=0 catch=0 gages=0 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=0 g=0
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: crs_inp_scan 0 ms
+ERROR 6: Cannot find coordinate operations from `EPSG:3857' to `{
+  "$schema": "https://proj.org/schemas/v0.7/projjson.schema.json",
+  "type": "EngineeringCRS",
+  "name": "Local (m)",
+  "datum": {
+    "name": "Unknown engineering datum"
+  },
+  "coordinate_system": {
+    "subtype": "Cartesian",
+    "axis": [
+      {
+        "name": "Easting",
+        "abbreviation": "E",
+        "direction": "east",
+        "unit": {
+          "type": "LinearUnit",
+          "name": "Meter",
+          "conversion_factor": 1
+        }
+      },
+      {
+        "name": "Northing",
+        "abbreviation": "N",
+        "direction": "north",
+        "unit": {
+          "type": "LinearUnit",
+          "name": "Meter",
+          "conversion_factor": 1
+        }
+      }
+    ]
+  }
+}'
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [populateScene] visible=yes nodes=2 links=1 catch=0 gages=0 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [SWMMModelLayer] portable.inp: nodes=2 links=1 subcatchments=0 gages=0 extent valid=no
+QINFO  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [SWMMModelLayer] portable.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.window: [loadModel] portable.inp | extent valid=no [0,0 -> 0,0] | canvas 100x30 | SRS=Local
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() QMetaObject::invokeMethod: No such method SWMMVisProjectWindow::onLogMessage(QString,OpenSWMMVisLogMessage::LogMessageType)
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [populateScene] visible=yes nodes=2 links=1 catch=0 gages=0 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+[openswmm 2D] using CPU marcher (no GPU device selected; n_cells=2, device floor=10000 cells). Set [2D_OPTIONS] BACKEND CUDA (or OPENSWMM_2D_BACKEND=cuda) to force the GPU, or lower OPENSWMM_2D_MIN_PARALLEL_CELLS_DEVICE.
+QINFO  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.results: results.out: 12 periods — open (ms): output_open=0 header=0 id_maps=0 prefetch_step0=0 total=0
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() qrc:/openswmm/qml/swmmlayer.qml: No such file or directory
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() [MapCanvas] QML status: QQuickWidget::Error
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() [MapCanvas]  QML error: "qrc:/openswmm/qml/swmmlayer.qml: No such file or directory"
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() [MapCanvas] failed to obtain SWMMLayerQSGRenderer from the QML scene — got QQuickItem(nullptr)
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() [MapCanvas] failed to obtain SWMM2DResultsQSGRenderer from the QML scene
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() [MapCanvas] failed to obtain SWMM2DMeshQSGRenderer from the QML scene
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 0  cols= 0  rows= 0  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [populateScene] visible=yes nodes=0 links=0 catch=0 gages=0 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=0 g=0
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: crs_inp_scan 0 ms
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [populateScene] visible=yes nodes=2 links=1 catch=0 gages=0 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [SWMMModelLayer] mini_2d.inp: nodes=2 links=1 subcatchments=0 gages=0 extent valid=no
+QINFO  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [SWMMModelLayer] mini_2d.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.window: [loadModel] mini_2d.inp | extent valid=no [0,0 -> 0,0] | canvas 100x30 | SRS=EPSG:3857
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() QMetaObject::invokeMethod: No such method SWMMVisProjectWindow::onLogMessage(QString,OpenSWMMVisLogMessage::LogMessageType)
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [populateScene] visible=yes nodes=2 links=1 catch=0 gages=0 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.results: results.out: 12 periods — open (ms): output_open=0 header=0 id_maps=0 prefetch_step0=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.vector: points.geojson [points]: open (ms): gdal_open=0 extent+crs=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.vector: [populate] "points": 1 items in 0 ms
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [populateScene] visible=yes nodes=2 links=1 catch=0 gages=0 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [populateScene] visible=yes nodes=2 links=1 catch=0 gages=0 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.window: [postZoom] canvas 100x30 | extent [-3.32032e+07,-1.48335e+07 -> 3.11685e+07,4.47798e+06] | scene items=2
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() QMetaObject::invokeMethod: No such method SWMMVisProjectWindow::onLogMessage(QString,OpenSWMMVisLogMessage::LogMessageType)
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.window: [postZoom] canvas 100x30 | extent [-2.00375e+07,-2.00375e+07 -> 2.00375e+07,2.00375e+07] | scene items=1
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() QMetaObject::invokeMethod: No such method SWMMVisProjectWindow::onLogMessage(QString,OpenSWMMVisLogMessage::LogMessageType)
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.model: [populateScene] visible=yes nodes=2 links=1 catch=0 gages=0 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QDEBUG : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() openswmm.load.window: [postZoom] canvas 100x30 | extent [-3.32032e+07,-1.48335e+07 -> 3.11685e+07,4.47798e+06] | scene items=2
+QWARN  : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths() QMetaObject::invokeMethod: No such method SWMMVisProjectWindow::onLogMessage(QString,OpenSWMMVisLogMessage::LogMessageType)
+PASS   : TestSimulationOptionsRoundTrip::fileIoProjectDisplayCalibrationAndPaths()
+PASS   : TestSimulationOptionsRoundTrip::nativeImplicitAbsentSchemaDoesNotAdvertiseSupport()
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(node-close-engine) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(node-close-engine) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(node-close-engine) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(node-close-engine) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(node-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(node-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=1 soa_copy=0 crs_init=0 geometry_cache=0 total=1
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(node-close-engine) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(node-close-engine)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(node-delete-layer) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(node-delete-layer) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(node-delete-layer) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(node-delete-layer) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(node-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(node-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(node-delete-layer) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(node-delete-layer)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(link-close-engine) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(link-close-engine) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(link-close-engine) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(link-close-engine) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(link-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(link-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(link-close-engine) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(link-close-engine)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(link-delete-layer) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(link-delete-layer) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(link-delete-layer) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(link-delete-layer) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(link-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(link-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(link-delete-layer) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(link-delete-layer)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(subcatchment-close-engine) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(subcatchment-close-engine) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(subcatchment-close-engine) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(subcatchment-close-engine) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(subcatchment-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(subcatchment-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(subcatchment-close-engine) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(subcatchment-close-engine)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(subcatchment-delete-layer) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(subcatchment-delete-layer) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(subcatchment-delete-layer) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(subcatchment-delete-layer) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(subcatchment-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(subcatchment-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(subcatchment-delete-layer) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(subcatchment-delete-layer)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(groundwater-close-engine) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(groundwater-close-engine) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(groundwater-close-engine) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(groundwater-close-engine) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(groundwater-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(groundwater-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(groundwater-close-engine) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(groundwater-close-engine)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(groundwater-delete-layer) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(groundwater-delete-layer) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(groundwater-delete-layer) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(groundwater-delete-layer) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(groundwater-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(groundwater-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(groundwater-delete-layer) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(groundwater-delete-layer)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(simulation-close-engine) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(simulation-close-engine) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(simulation-close-engine) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(simulation-close-engine) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(simulation-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(simulation-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(simulation-close-engine) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(simulation-close-engine)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(simulation-delete-layer) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(simulation-delete-layer) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(simulation-delete-layer) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(simulation-delete-layer) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(simulation-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(simulation-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(simulation-delete-layer) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(simulation-delete-layer)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(street-close-engine) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(street-close-engine) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(street-close-engine) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(street-close-engine) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(street-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(street-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(street-close-engine) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(street-close-engine)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(street-delete-layer) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(street-delete-layer) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(street-delete-layer) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(street-delete-layer) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(street-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(street-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=1 soa_copy=0 crs_init=0 geometry_cache=0 total=1
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(street-delete-layer) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(street-delete-layer)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(inlet-close-engine) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(inlet-close-engine) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(inlet-close-engine) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(inlet-close-engine) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(inlet-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(inlet-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(inlet-close-engine) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(inlet-close-engine)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(inlet-delete-layer) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(inlet-delete-layer) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(inlet-delete-layer) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(inlet-delete-layer) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(inlet-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(inlet-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(inlet-delete-layer) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(inlet-delete-layer)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(hydrograph-close-engine) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(hydrograph-close-engine) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(hydrograph-close-engine) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(hydrograph-close-engine) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(hydrograph-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(hydrograph-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(hydrograph-close-engine) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(hydrograph-close-engine)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(hydrograph-delete-layer) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(hydrograph-delete-layer) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(hydrograph-delete-layer) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(hydrograph-delete-layer) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(hydrograph-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(hydrograph-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(hydrograph-delete-layer) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(hydrograph-delete-layer)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(curve-close-engine) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(curve-close-engine) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(curve-close-engine) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(curve-close-engine) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(curve-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(curve-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(curve-close-engine) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(curve-close-engine)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(curve-delete-layer) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(curve-delete-layer) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(curve-delete-layer) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(curve-delete-layer) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(curve-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(curve-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(curve-delete-layer) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(curve-delete-layer)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(pattern-close-engine) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(pattern-close-engine) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(pattern-close-engine) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(pattern-close-engine) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(pattern-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(pattern-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(pattern-close-engine) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(pattern-close-engine)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(pattern-delete-layer) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(pattern-delete-layer) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(pattern-delete-layer) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(pattern-delete-layer) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(pattern-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(pattern-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(pattern-delete-layer) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(pattern-delete-layer)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-close-engine) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-close-engine) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-close-engine) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-close-engine) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-close-engine) openswmm.ts-load.provider: setAllPoints ENTER name= "TS1" newCount= 4 prevCount= 0
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-close-engine) openswmm.ts-load.provider:   isStrictMonotone_ = true took 0 ms
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-close-engine) openswmm.ts-load.provider:   emit pointsInserted(0, 4 )
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-close-engine) openswmm.ts-load.provider: setAllPoints EXIT  took 0 ms
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-close-engine) QOpenGLWidget is not supported on this platform.
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-close-engine) This plugin does not support propagateSizeHints()
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-close-engine) This plugin does not support createPlatformOpenGLContext!
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-close-engine) QOpenGLWidget: Failed to create context
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-close-engine)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-delete-layer) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-delete-layer) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-delete-layer) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-delete-layer) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-delete-layer) openswmm.ts-load.provider: setAllPoints ENTER name= "TS1" newCount= 4 prevCount= 0
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-delete-layer) openswmm.ts-load.provider:   isStrictMonotone_ = true took 0 ms
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-delete-layer) openswmm.ts-load.provider:   emit pointsInserted(0, 4 )
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-delete-layer) openswmm.ts-load.provider: setAllPoints EXIT  took 0 ms
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-delete-layer) QOpenGLWidget is not supported on this platform.
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-delete-layer) This plugin does not support propagateSizeHints()
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-delete-layer) This plugin does not support createPlatformOpenGLContext!
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-delete-layer) QOpenGLWidget: Failed to create context
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(timeseries-delete-layer)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(transect-close-engine) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(transect-close-engine) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(transect-close-engine) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(transect-close-engine) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(transect-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(transect-close-engine) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=1 soa_copy=0 crs_init=0 geometry_cache=0 total=1
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(transect-close-engine) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(transect-close-engine)
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(transect-delete-layer) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(transect-delete-layer) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(transect-delete-layer) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(transect-delete-layer) openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(transect-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp: nodes=2 links=1 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(transect-delete-layer) openswmm.load.model: [SWMMModelLayer] gw_exchange_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QWARN  : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(transect-delete-layer) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::modelEditorOwnerLifetime(transect-delete-layer)
+QWARN  : TestSimulationOptionsRoundTrip::nestedRegistryAndUndoLifetime(street-registry) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::nestedRegistryAndUndoLifetime(street-registry)
+QWARN  : TestSimulationOptionsRoundTrip::nestedRegistryAndUndoLifetime(inlet-registry) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::nestedRegistryAndUndoLifetime(inlet-registry)
+QWARN  : TestSimulationOptionsRoundTrip::nestedRegistryAndUndoLifetime(inlet-undo-stack) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::nestedRegistryAndUndoLifetime(inlet-undo-stack)
+QINFO  : TestSimulationOptionsRoundTrip::dynwave1D() openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=3 l=2 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::dynwave1D() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 2  cols= 2  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::dynwave1D() openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::dynwave1D() openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::dynwave1D() openswmm.load.model: [SWMMModelLayer] typed_selection_fixture.inp: nodes=3 links=2 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::dynwave1D() openswmm.load.model: [SWMMModelLayer] typed_selection_fixture.inp load timing (ms): engine_open=1 soa_copy=0 crs_init=0 geometry_cache=0 total=1
+PASS   : TestSimulationOptionsRoundTrip::dynwave1D()
+QINFO  : TestSimulationOptionsRoundTrip::twoD() openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=0 g=0
+QDEBUG : TestSimulationOptionsRoundTrip::twoD() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::twoD() openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::twoD() openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::twoD() openswmm.load.model: [SWMMModelLayer] mini_2d.inp: nodes=2 links=1 subcatchments=0 gages=0 extent valid=no
+QINFO  : TestSimulationOptionsRoundTrip::twoD() openswmm.load.model: [SWMMModelLayer] mini_2d.inp load timing (ms): engine_open=1 soa_copy=0 crs_init=0 geometry_cache=0 total=1
+PASS   : TestSimulationOptionsRoundTrip::twoD()
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=0 g=0
+QDEBUG : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: [SWMMModelLayer] mini_2d.inp: nodes=2 links=1 subcatchments=0 gages=0 extent valid=no
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: [SWMMModelLayer] mini_2d.inp load timing (ms): engine_open=4 soa_copy=0 crs_init=0 geometry_cache=0 total=4
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=0 g=0
+QDEBUG : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: [SWMMModelLayer] momentum_smoothing_saved.inp: nodes=2 links=1 subcatchments=0 gages=0 extent valid=no
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: [SWMMModelLayer] momentum_smoothing_saved.inp load timing (ms): engine_open=1 soa_copy=0 crs_init=0 geometry_cache=0 total=1
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=0 g=0
+QDEBUG : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: [SWMMModelLayer] momentum_smoothing_saved.inp: nodes=2 links=1 subcatchments=0 gages=0 extent valid=no
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: [SWMMModelLayer] momentum_smoothing_saved.inp load timing (ms): engine_open=1 soa_copy=0 crs_init=0 geometry_cache=0 total=1
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=0 g=0
+QDEBUG : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: [SWMMModelLayer] momentum_smoothing_saved.inp: nodes=2 links=1 subcatchments=0 gages=0 extent valid=no
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: [SWMMModelLayer] momentum_smoothing_saved.inp load timing (ms): engine_open=7 soa_copy=0 crs_init=0 geometry_cache=1 total=8
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=0 g=0
+QDEBUG : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: [SWMMModelLayer] momentum_smoothing_saved.inp: nodes=2 links=1 subcatchments=0 gages=0 extent valid=no
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: [SWMMModelLayer] momentum_smoothing_saved.inp load timing (ms): engine_open=1 soa_copy=0 crs_init=0 geometry_cache=0 total=1
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=2 l=1 s=0 g=0
+QDEBUG : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 1  cols= 1  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: [SWMMModelLayer] momentum_smoothing_saved.inp: nodes=2 links=1 subcatchments=0 gages=0 extent valid=no
+QINFO  : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists() openswmm.load.model: [SWMMModelLayer] momentum_smoothing_saved.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+PASS   : TestSimulationOptionsRoundTrip::momentumSmoothingReferencePersists()
+QINFO  : TestSimulationOptionsRoundTrip::finiteVolume() openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=3 l=2 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::finiteVolume() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 2  cols= 2  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::finiteVolume() openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::finiteVolume() openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::finiteVolume() openswmm.load.model: [SWMMModelLayer] simopts_roundtrip_fv_variant.inp: nodes=3 links=2 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::finiteVolume() openswmm.load.model: [SWMMModelLayer] simopts_roundtrip_fv_variant.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+PASS   : TestSimulationOptionsRoundTrip::finiteVolume()
+QINFO  : TestSimulationOptionsRoundTrip::editIsDetected() openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=3 l=2 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::editIsDetected() openswmm.load.model: [LinkSpatialGrid::rebuild] links= 2  cols= 2  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::editIsDetected() openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::editIsDetected() openswmm.load.model: crs_inp_scan 0 ms
+QINFO  : TestSimulationOptionsRoundTrip::editIsDetected() openswmm.load.model: [SWMMModelLayer] typed_selection_fixture.inp: nodes=3 links=2 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::editIsDetected() openswmm.load.model: [SWMMModelLayer] typed_selection_fixture.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+PASS   : TestSimulationOptionsRoundTrip::editIsDetected()
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) qrc:/openswmm/qml/swmmlayer.qml: No such file or directory
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) [MapCanvas] QML status: QQuickWidget::Error
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) [MapCanvas]  QML error: "qrc:/openswmm/qml/swmmlayer.qml: No such file or directory"
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) [MapCanvas] failed to obtain SWMMLayerQSGRenderer from the QML scene — got QQuickItem(nullptr)
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) [MapCanvas] failed to obtain SWMM2DResultsQSGRenderer from the QML scene
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) [MapCanvas] failed to obtain SWMM2DMeshQSGRenderer from the QML scene
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 0  cols= 0  rows= 0  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: [populateScene] visible=yes nodes=0 links=0 catch=0 gages=0 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=3 l=2 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 2  cols= 2  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: crs_inp_scan 0 ms
+ERROR 6: Cannot find coordinate operations from `EPSG:3857' to `{
+  "$schema": "https://proj.org/schemas/v0.7/projjson.schema.json",
+  "type": "EngineeringCRS",
+  "name": "Local (ft)",
+  "datum": {
+    "name": "Unknown engineering datum"
+  },
+  "coordinate_system": {
+    "subtype": "Cartesian",
+    "axis": [
+      {
+        "name": "Easting",
+        "abbreviation": "E",
+        "direction": "east",
+        "unit": {
+          "type": "LinearUnit",
+          "name": "Foot_US",
+          "conversion_factor": 0.304800609601219
+        }
+      },
+      {
+        "name": "Northing",
+        "abbreviation": "N",
+        "direction": "north",
+        "unit": {
+          "type": "LinearUnit",
+          "name": "Foot_US",
+          "conversion_factor": 0.304800609601219
+        }
+      }
+    ]
+  }
+}'
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 2  cols= 2  rows= 1  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: [populateScene] visible=yes nodes=3 links=2 catch=1 gages=1 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: [SWMMModelLayer] owner.inp: nodes=3 links=2 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: [SWMMModelLayer] owner.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.window: [loadModel] owner.inp | extent valid=yes [-2100,-2000 -> 2000,2100] | canvas 100x30 | SRS=Local
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) QMetaObject::invokeMethod: No such method SWMMVisProjectWindow::onLogMessage(QString,OpenSWMMVisLogMessage::LogMessageType)
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: [populateScene] visible=yes nodes=3 links=2 catch=1 gages=1 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) qrc:/openswmm/qml/swmmlayer.qml: No such file or directory
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) [MapCanvas] QML status: QQuickWidget::Error
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) [MapCanvas]  QML error: "qrc:/openswmm/qml/swmmlayer.qml: No such file or directory"
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) [MapCanvas] failed to obtain SWMMLayerQSGRenderer from the QML scene — got QQuickItem(nullptr)
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) [MapCanvas] failed to obtain SWMM2DResultsQSGRenderer from the QML scene
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) [MapCanvas] failed to obtain SWMM2DMeshQSGRenderer from the QML scene
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 0  cols= 0  rows= 0  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: [populateScene] visible=yes nodes=0 links=0 catch=0 gages=0 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=3 l=2 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 2  cols= 2  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: crs_inp_scan 0 ms
+ERROR 6: Cannot find coordinate operations from `EPSG:3857' to `{
+  "$schema": "https://proj.org/schemas/v0.7/projjson.schema.json",
+  "type": "EngineeringCRS",
+  "name": "Local (ft)",
+  "datum": {
+    "name": "Unknown engineering datum"
+  },
+  "coordinate_system": {
+    "subtype": "Cartesian",
+    "axis": [
+      {
+        "name": "Easting",
+        "abbreviation": "E",
+        "direction": "east",
+        "unit": {
+          "type": "LinearUnit",
+          "name": "Foot_US",
+          "conversion_factor": 0.304800609601219
+        }
+      },
+      {
+        "name": "Northing",
+        "abbreviation": "N",
+        "direction": "north",
+        "unit": {
+          "type": "LinearUnit",
+          "name": "Foot_US",
+          "conversion_factor": 0.304800609601219
+        }
+      }
+    ]
+  }
+}'
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 2  cols= 2  rows= 1  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: [populateScene] visible=yes nodes=3 links=2 catch=1 gages=1 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: [SWMMModelLayer] other.inp: nodes=3 links=2 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: [SWMMModelLayer] other.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.window: [loadModel] other.inp | extent valid=yes [-2100,-2000 -> 2000,2100] | canvas 100x30 | SRS=Local
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) QMetaObject::invokeMethod: No such method SWMMVisProjectWindow::onLogMessage(QString,OpenSWMMVisLogMessage::LogMessageType)
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) openswmm.load.model: [populateScene] visible=yes nodes=3 links=2 catch=1 gages=1 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-edit)
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) qrc:/openswmm/qml/swmmlayer.qml: No such file or directory
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) [MapCanvas] QML status: QQuickWidget::Error
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) [MapCanvas]  QML error: "qrc:/openswmm/qml/swmmlayer.qml: No such file or directory"
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) [MapCanvas] failed to obtain SWMMLayerQSGRenderer from the QML scene — got QQuickItem(nullptr)
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) [MapCanvas] failed to obtain SWMM2DResultsQSGRenderer from the QML scene
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) [MapCanvas] failed to obtain SWMM2DMeshQSGRenderer from the QML scene
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 0  cols= 0  rows= 0  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: [populateScene] visible=yes nodes=0 links=0 catch=0 gages=0 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=3 l=2 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 2  cols= 2  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: crs_inp_scan 0 ms
+ERROR 6: Cannot find coordinate operations from `EPSG:3857' to `{
+  "$schema": "https://proj.org/schemas/v0.7/projjson.schema.json",
+  "type": "EngineeringCRS",
+  "name": "Local (ft)",
+  "datum": {
+    "name": "Unknown engineering datum"
+  },
+  "coordinate_system": {
+    "subtype": "Cartesian",
+    "axis": [
+      {
+        "name": "Easting",
+        "abbreviation": "E",
+        "direction": "east",
+        "unit": {
+          "type": "LinearUnit",
+          "name": "Foot_US",
+          "conversion_factor": 0.304800609601219
+        }
+      },
+      {
+        "name": "Northing",
+        "abbreviation": "N",
+        "direction": "north",
+        "unit": {
+          "type": "LinearUnit",
+          "name": "Foot_US",
+          "conversion_factor": 0.304800609601219
+        }
+      }
+    ]
+  }
+}'
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 2  cols= 2  rows= 1  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: [populateScene] visible=yes nodes=3 links=2 catch=1 gages=1 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: [SWMMModelLayer] owner.inp: nodes=3 links=2 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: [SWMMModelLayer] owner.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=1 geometry_cache=0 total=1
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.window: [loadModel] owner.inp | extent valid=yes [-2100,-2000 -> 2000,2100] | canvas 100x30 | SRS=Local
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) QMetaObject::invokeMethod: No such method SWMMVisProjectWindow::onLogMessage(QString,OpenSWMMVisLogMessage::LogMessageType)
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: [populateScene] visible=yes nodes=3 links=2 catch=1 gages=1 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) qrc:/openswmm/qml/swmmlayer.qml: No such file or directory
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) [MapCanvas] QML status: QQuickWidget::Error
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) [MapCanvas]  QML error: "qrc:/openswmm/qml/swmmlayer.qml: No such file or directory"
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) [MapCanvas] failed to obtain SWMMLayerQSGRenderer from the QML scene — got QQuickItem(nullptr)
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) [MapCanvas] failed to obtain SWMM2DResultsQSGRenderer from the QML scene
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) [MapCanvas] failed to obtain SWMM2DMeshQSGRenderer from the QML scene
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 0  cols= 0  rows= 0  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: [populateScene] visible=yes nodes=0 links=0 catch=0 gages=0 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=3 l=2 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 2  cols= 2  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: crs_inp_scan 0 ms
+ERROR 6: Cannot find coordinate operations from `EPSG:3857' to `{
+  "$schema": "https://proj.org/schemas/v0.7/projjson.schema.json",
+  "type": "EngineeringCRS",
+  "name": "Local (ft)",
+  "datum": {
+    "name": "Unknown engineering datum"
+  },
+  "coordinate_system": {
+    "subtype": "Cartesian",
+    "axis": [
+      {
+        "name": "Easting",
+        "abbreviation": "E",
+        "direction": "east",
+        "unit": {
+          "type": "LinearUnit",
+          "name": "Foot_US",
+          "conversion_factor": 0.304800609601219
+        }
+      },
+      {
+        "name": "Northing",
+        "abbreviation": "N",
+        "direction": "north",
+        "unit": {
+          "type": "LinearUnit",
+          "name": "Foot_US",
+          "conversion_factor": 0.304800609601219
+        }
+      }
+    ]
+  }
+}'
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 2  cols= 2  rows= 1  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: [populateScene] visible=yes nodes=3 links=2 catch=1 gages=1 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: [SWMMModelLayer] other.inp: nodes=3 links=2 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: [SWMMModelLayer] other.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.window: [loadModel] other.inp | extent valid=yes [-2100,-2000 -> 2000,2100] | canvas 100x30 | SRS=Local
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) QMetaObject::invokeMethod: No such method SWMMVisProjectWindow::onLogMessage(QString,OpenSWMMVisLogMessage::LogMessageType)
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) openswmm.load.model: [populateScene] visible=yes nodes=3 links=2 catch=1 gages=1 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(accept-no-op)
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) qrc:/openswmm/qml/swmmlayer.qml: No such file or directory
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) [MapCanvas] QML status: QQuickWidget::Error
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) [MapCanvas]  QML error: "qrc:/openswmm/qml/swmmlayer.qml: No such file or directory"
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) [MapCanvas] failed to obtain SWMMLayerQSGRenderer from the QML scene — got QQuickItem(nullptr)
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) [MapCanvas] failed to obtain SWMM2DResultsQSGRenderer from the QML scene
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) [MapCanvas] failed to obtain SWMM2DMeshQSGRenderer from the QML scene
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 0  cols= 0  rows= 0  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: [populateScene] visible=yes nodes=0 links=0 catch=0 gages=0 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=3 l=2 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 2  cols= 2  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: crs_inp_scan 0 ms
+ERROR 6: Cannot find coordinate operations from `EPSG:3857' to `{
+  "$schema": "https://proj.org/schemas/v0.7/projjson.schema.json",
+  "type": "EngineeringCRS",
+  "name": "Local (ft)",
+  "datum": {
+    "name": "Unknown engineering datum"
+  },
+  "coordinate_system": {
+    "subtype": "Cartesian",
+    "axis": [
+      {
+        "name": "Easting",
+        "abbreviation": "E",
+        "direction": "east",
+        "unit": {
+          "type": "LinearUnit",
+          "name": "Foot_US",
+          "conversion_factor": 0.304800609601219
+        }
+      },
+      {
+        "name": "Northing",
+        "abbreviation": "N",
+        "direction": "north",
+        "unit": {
+          "type": "LinearUnit",
+          "name": "Foot_US",
+          "conversion_factor": 0.304800609601219
+        }
+      }
+    ]
+  }
+}'
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 2  cols= 2  rows= 1  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: [populateScene] visible=yes nodes=3 links=2 catch=1 gages=1 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: [SWMMModelLayer] owner.inp: nodes=3 links=2 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: [SWMMModelLayer] owner.inp load timing (ms): engine_open=2 soa_copy=0 crs_init=0 geometry_cache=0 total=2
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.window: [loadModel] owner.inp | extent valid=yes [-2100,-2000 -> 2000,2100] | canvas 100x30 | SRS=Local
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) QMetaObject::invokeMethod: No such method SWMMVisProjectWindow::onLogMessage(QString,OpenSWMMVisLogMessage::LogMessageType)
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: [populateScene] visible=yes nodes=3 links=2 catch=1 gages=1 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) qrc:/openswmm/qml/swmmlayer.qml: No such file or directory
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) [MapCanvas] QML status: QQuickWidget::Error
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) [MapCanvas]  QML error: "qrc:/openswmm/qml/swmmlayer.qml: No such file or directory"
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) [MapCanvas] failed to obtain SWMMLayerQSGRenderer from the QML scene — got QQuickItem(nullptr)
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) [MapCanvas] failed to obtain SWMM2DResultsQSGRenderer from the QML scene
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) [MapCanvas] failed to obtain SWMM2DMeshQSGRenderer from the QML scene
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 0  cols= 0  rows= 0  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: [populateScene] visible=yes nodes=0 links=0 catch=0 gages=0 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=3 l=2 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 2  cols= 2  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: crs_inp_scan 0 ms
+ERROR 6: Cannot find coordinate operations from `EPSG:3857' to `{
+  "$schema": "https://proj.org/schemas/v0.7/projjson.schema.json",
+  "type": "EngineeringCRS",
+  "name": "Local (ft)",
+  "datum": {
+    "name": "Unknown engineering datum"
+  },
+  "coordinate_system": {
+    "subtype": "Cartesian",
+    "axis": [
+      {
+        "name": "Easting",
+        "abbreviation": "E",
+        "direction": "east",
+        "unit": {
+          "type": "LinearUnit",
+          "name": "Foot_US",
+          "conversion_factor": 0.304800609601219
+        }
+      },
+      {
+        "name": "Northing",
+        "abbreviation": "N",
+        "direction": "north",
+        "unit": {
+          "type": "LinearUnit",
+          "name": "Foot_US",
+          "conversion_factor": 0.304800609601219
+        }
+      }
+    ]
+  }
+}'
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 2  cols= 2  rows= 1  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: [populateScene] visible=yes nodes=3 links=2 catch=1 gages=1 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: [SWMMModelLayer] other.inp: nodes=3 links=2 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: [SWMMModelLayer] other.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.window: [loadModel] other.inp | extent valid=yes [-2100,-2000 -> 2000,2100] | canvas 100x30 | SRS=Local
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) QMetaObject::invokeMethod: No such method SWMMVisProjectWindow::onLogMessage(QString,OpenSWMMVisLogMessage::LogMessageType)
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) openswmm.load.model: [populateScene] visible=yes nodes=3 links=2 catch=1 gages=1 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(cancel-edit)
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) qrc:/openswmm/qml/swmmlayer.qml: No such file or directory
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) [MapCanvas] QML status: QQuickWidget::Error
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) [MapCanvas]  QML error: "qrc:/openswmm/qml/swmmlayer.qml: No such file or directory"
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) [MapCanvas] failed to obtain SWMMLayerQSGRenderer from the QML scene — got QQuickItem(nullptr)
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) [MapCanvas] failed to obtain SWMM2DResultsQSGRenderer from the QML scene
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) [MapCanvas] failed to obtain SWMM2DMeshQSGRenderer from the QML scene
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 0  cols= 0  rows= 0  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: [populateScene] visible=yes nodes=0 links=0 catch=0 gages=0 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=3 l=2 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 2  cols= 2  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: crs_inp_scan 0 ms
+ERROR 6: Cannot find coordinate operations from `EPSG:3857' to `{
+  "$schema": "https://proj.org/schemas/v0.7/projjson.schema.json",
+  "type": "EngineeringCRS",
+  "name": "Local (ft)",
+  "datum": {
+    "name": "Unknown engineering datum"
+  },
+  "coordinate_system": {
+    "subtype": "Cartesian",
+    "axis": [
+      {
+        "name": "Easting",
+        "abbreviation": "E",
+        "direction": "east",
+        "unit": {
+          "type": "LinearUnit",
+          "name": "Foot_US",
+          "conversion_factor": 0.304800609601219
+        }
+      },
+      {
+        "name": "Northing",
+        "abbreviation": "N",
+        "direction": "north",
+        "unit": {
+          "type": "LinearUnit",
+          "name": "Foot_US",
+          "conversion_factor": 0.304800609601219
+        }
+      }
+    ]
+  }
+}'
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 2  cols= 2  rows= 1  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: [populateScene] visible=yes nodes=3 links=2 catch=1 gages=1 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: [SWMMModelLayer] owner.inp: nodes=3 links=2 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: [SWMMModelLayer] owner.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.window: [loadModel] owner.inp | extent valid=yes [-2100,-2000 -> 2000,2100] | canvas 100x30 | SRS=Local
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) QMetaObject::invokeMethod: No such method SWMMVisProjectWindow::onLogMessage(QString,OpenSWMMVisLogMessage::LogMessageType)
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: [populateScene] visible=yes nodes=3 links=2 catch=1 gages=1 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) qrc:/openswmm/qml/swmmlayer.qml: No such file or directory
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) [MapCanvas] QML status: QQuickWidget::Error
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) [MapCanvas]  QML error: "qrc:/openswmm/qml/swmmlayer.qml: No such file or directory"
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) [MapCanvas] failed to obtain SWMMLayerQSGRenderer from the QML scene — got QQuickItem(nullptr)
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) [MapCanvas] failed to obtain SWMM2DResultsQSGRenderer from the QML scene
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) [MapCanvas] failed to obtain SWMM2DMeshQSGRenderer from the QML scene
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 0  cols= 0  rows= 0  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: [populateScene] visible=yes nodes=0 links=0 catch=0 gages=0 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: SoA copy (ms): nodes=0 links=0 subcatch=0 gages=0 | counts n=3 l=2 s=1 g=1
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 2  cols= 2  rows= 1  elapsed_ms= 0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: geometry_cache (ms): category_index=0 bboxes+extent=0 kdtrees=0 scene_coords=0 flag_arrays=0 total=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: crs_inp_scan 0 ms
+ERROR 6: Cannot find coordinate operations from `EPSG:3857' to `{
+  "$schema": "https://proj.org/schemas/v0.7/projjson.schema.json",
+  "type": "EngineeringCRS",
+  "name": "Local (ft)",
+  "datum": {
+    "name": "Unknown engineering datum"
+  },
+  "coordinate_system": {
+    "subtype": "Cartesian",
+    "axis": [
+      {
+        "name": "Easting",
+        "abbreviation": "E",
+        "direction": "east",
+        "unit": {
+          "type": "LinearUnit",
+          "name": "Foot_US",
+          "conversion_factor": 0.304800609601219
+        }
+      },
+      {
+        "name": "Northing",
+        "abbreviation": "N",
+        "direction": "north",
+        "unit": {
+          "type": "LinearUnit",
+          "name": "Foot_US",
+          "conversion_factor": 0.304800609601219
+        }
+      }
+    ]
+  }
+}'
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: [LinkSpatialGrid::rebuild] links= 2  cols= 2  rows= 1  elapsed_ms= 0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: [populateScene] visible=yes nodes=3 links=2 catch=1 gages=1 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: [SWMMModelLayer] other.inp: nodes=3 links=2 subcatchments=1 gages=1 extent valid=yes
+QINFO  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: [SWMMModelLayer] other.inp load timing (ms): engine_open=0 soa_copy=0 crs_init=0 geometry_cache=0 total=0
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.window: [loadModel] other.inp | extent valid=yes [-2100,-2000 -> 2000,2100] | canvas 100x30 | SRS=Local
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) QMetaObject::invokeMethod: No such method SWMMVisProjectWindow::onLogMessage(QString,OpenSWMMVisLogMessage::LogMessageType)
+QDEBUG : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) openswmm.load.model: [populateScene] visible=yes nodes=3 links=2 catch=1 gages=1 needsRebuild=yes show(N/L/S/G)=1/1/1/1 hidden=0
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) This plugin does not support propagateSizeHints()
+QWARN  : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel) This plugin does not support propagateSizeHints()
+PASS   : TestSimulationOptionsRoundTrip::nestedWaterAgeEditorTracksOwningProject(refuse-duplicate-then-cancel)
+PASS   : TestSimulationOptionsRoundTrip::cleanupTestCase()
+Totals: 43 passed, 0 failed, 0 skipped, 0 blacklisted, 12128ms
+********* Finished testing of TestSimulationOptionsRoundTrip *********

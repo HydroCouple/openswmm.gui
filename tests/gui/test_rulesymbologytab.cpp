@@ -1,9 +1,9 @@
-/*!
- * \file   test_rulesymbologytab.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Tests for Slice Z.3 — RuleSymbologyTab widget.
+/**
+ * @file      test_rulesymbologytab.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Tests for Slice Z.3 — RuleSymbologyTab widget.
  *
  *         Success criterion (RENDERING_RULE_MODEL_PLAN.md §16, Z.3):
  *           - Active Rule combo + Rule List populate from a RuleList.
@@ -16,6 +16,7 @@
  *         Tests run under QT_QPA_PLATFORM=offscreen (set by
  *         add_swmmvis_gui_test). No editor-binding tests here — that
  *         lands in the follow-up Z.3a slice.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include <QApplication>
@@ -39,38 +40,168 @@ class TestRuleSymbologyTab : public QObject
 {
     Q_OBJECT
 private slots:
+    /**
+     * @brief Retain the no-op suite setup because QTEST_MAIN already owns QApplication.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void initTestCase();
 
+    /**
+     * @brief Verify an empty rule list exposes existing combo/list widgets with zero entries.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void empty_listShowsPlaceholderBody();
+    /**
+     * @brief Verify three named rules populate active combo in model order.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void populated_comboHasOneEntryPerRule();
+    /**
+     * @brief Verify list rows correspond one-for-one to A/B rule names.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void populated_listHasOneRowPerRule();
+    /**
+     * @brief Verify rule list rows expose user-checkable visibility flags.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void populated_listRowsHaveCheckboxes();
+    /**
+     * @brief Verify visible/hidden model rules initialize checked/unchecked rows.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void populated_listRowsReflectVisibility();
 
+    /**
+     * @brief Verify selecting combo index1 writes RuleList active index1.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void comboChange_updatesModelActiveIndex();
+    /**
+     * @brief Verify selecting list row1 writes RuleList active index1.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void listRowChange_updatesModelActiveIndex();
+    /**
+     * @brief Verify model active index1 synchronizes combo and list selections.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void modelActiveIndexChange_updatesUi();
 
+    /**
+     * @brief Verify unchecked/checked row state writes false/true Rule visibility.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void checkboxToggle_writesThroughToRule();
+    /**
+     * @brief Verify external Rule visibility toggles synchronize row checkbox state.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void ruleVisibilityChange_updatesCheckbox();
+    /**
+     * @brief Verify external rename updates both active combo and visible row labels.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void ruleNameChange_updatesComboAndList();
 
+    /**
+     * @brief Verify clicking Add rule on an empty model appends one rule.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void addButton_appendsNewRule();
+    /**
+     * @brief Verify Duplicate appends a second rule with a copy-marked name.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void duplicateButton_clonesActiveRule();
+    /**
+     * @brief Verify Delete removes active A while B survives as first rule.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void deleteButton_removesActiveRule();
+    /**
+     * @brief Verify moving active B up places it before A.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void moveUpButton_movesActiveRule();
+    /**
+     * @brief Verify moving active A down places it after B.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void moveDownButton_movesActiveRule();
 
+    /**
+     * @brief Verify duplicate/delete/up/down actions are disabled with no rules.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void buttons_disabledForEmptyList();
+    /**
+     * @brief Verify Up is disabled when first rule is active.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void upButton_disabledForFirstRow();
+    /**
+     * @brief Verify Down is disabled when last rule is active.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void downButton_disabledForLastRow();
 
     // Z.3a — Renderer-class picker.
+    /**
+     * @brief Verify renderer picker has single/graduated/categorized/rule IDs in fixed order.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void rendererCombo_populatedWithFourChoices();
+    /**
+     * @brief Verify renderer picker refuses interaction without active rules.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void rendererCombo_disabledForEmptyList();
+    /**
+     * @brief Verify active graduated Rule initializes the renderer picker to graduated.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void rendererCombo_reflectsActiveRuleRenderer();
+    /**
+     * @brief Verify choosing graduated replaces active single-symbol renderer in the Rule.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void rendererCombo_picksGraduatedSwapsRulesRenderer();
+    /**
+     * @brief Verify an external categorized renderer replacement updates the picker.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void rendererCombo_syncsWhenRulesRendererReplacedExternally();
+    /**
+     * @brief Verify switching active rule changes picker from single to graduated.
+     * @note GUI-thread local RuleList/widget fixture under QApplication; widgets borrow
+     * model/rule pointers only during their scopes, assertions mutate no project files.
+     */
     void rendererCombo_updatesOnActiveRuleChange();
 
 private:
@@ -91,7 +222,7 @@ void TestRuleSymbologyTab::empty_listShowsPlaceholderBody()
     RuleList rl;
     RuleSymbologyTab tab(&rl);
     auto *combo = tab.findChild<QComboBox *>();
-    auto *list  = tab.findChild<QListWidget *>();
+    auto *list = tab.findChild<QListWidget *>();
     QVERIFY(combo);
     QVERIFY(list);
     QCOMPARE(combo->count(), 0);
@@ -102,8 +233,8 @@ void TestRuleSymbologyTab::populated_comboHasOneEntryPerRule()
 {
     RuleList rl;
     rl.append(std::make_unique<Rule>(QStringLiteral("Junctions"), nullptr));
-    rl.append(std::make_unique<Rule>(QStringLiteral("Conduits"),  nullptr));
-    rl.append(std::make_unique<Rule>(QStringLiteral("Subcatch"),  nullptr));
+    rl.append(std::make_unique<Rule>(QStringLiteral("Conduits"), nullptr));
+    rl.append(std::make_unique<Rule>(QStringLiteral("Subcatch"), nullptr));
 
     RuleSymbologyTab tab(&rl);
     auto *combo = tab.findChild<QComboBox *>();
@@ -184,7 +315,7 @@ void TestRuleSymbologyTab::modelActiveIndexChange_updatesUi()
 
     RuleSymbologyTab tab(&rl);
     auto *combo = tab.findChild<QComboBox *>();
-    auto *list  = tab.findChild<QListWidget *>();
+    auto *list = tab.findChild<QListWidget *>();
 
     rl.setActiveIndex(1);
     QCOMPARE(combo->currentIndex(), 1);
@@ -229,7 +360,7 @@ void TestRuleSymbologyTab::ruleNameChange_updatesComboAndList()
 
     RuleSymbologyTab tab(&rl);
     auto *combo = tab.findChild<QComboBox *>();
-    auto *list  = tab.findChild<QListWidget *>();
+    auto *list = tab.findChild<QListWidget *>();
 
     r->setName(QStringLiteral("Renamed"));
     QCOMPARE(combo->itemText(0), QStringLiteral("Renamed"));
@@ -245,7 +376,10 @@ void TestRuleSymbologyTab::addButton_appendsNewRule()
     auto buttons = tab.findChildren<QPushButton *>();
     QPushButton *add = nullptr;
     for (auto *b : buttons)
-        if (b->toolTip() == QStringLiteral("Add rule")) { add = b; break; }
+        if (b->toolTip() == QStringLiteral("Add rule")) {
+            add = b;
+            break;
+        }
     QVERIFY(add);
 
     add->click();
@@ -261,7 +395,10 @@ void TestRuleSymbologyTab::duplicateButton_clonesActiveRule()
     auto buttons = tab.findChildren<QPushButton *>();
     QPushButton *dup = nullptr;
     for (auto *b : buttons)
-        if (b->text() == QStringLiteral("Duplicate")) { dup = b; break; }
+        if (b->text() == QStringLiteral("Duplicate")) {
+            dup = b;
+            break;
+        }
     QVERIFY(dup);
 
     dup->click();
@@ -279,10 +416,13 @@ void TestRuleSymbologyTab::deleteButton_removesActiveRule()
     auto buttons = tab.findChildren<QPushButton *>();
     QPushButton *del = nullptr;
     for (auto *b : buttons)
-        if (b->text() == QStringLiteral("Delete")) { del = b; break; }
+        if (b->text() == QStringLiteral("Delete")) {
+            del = b;
+            break;
+        }
     QVERIFY(del);
 
-    del->click();  // deletes active (index 0)
+    del->click(); // deletes active (index 0)
     QCOMPARE(rl.count(), 1);
     QCOMPARE(rl.at(0)->name(), QStringLiteral("B"));
 }
@@ -298,7 +438,10 @@ void TestRuleSymbologyTab::moveUpButton_movesActiveRule()
     auto buttons = tab.findChildren<QPushButton *>();
     QPushButton *up = nullptr;
     for (auto *b : buttons)
-        if (b->toolTip() == QStringLiteral("Move rule up")) { up = b; break; }
+        if (b->toolTip() == QStringLiteral("Move rule up")) {
+            up = b;
+            break;
+        }
     QVERIFY(up);
 
     up->click();
@@ -316,7 +459,10 @@ void TestRuleSymbologyTab::moveDownButton_movesActiveRule()
     auto buttons = tab.findChildren<QPushButton *>();
     QPushButton *down = nullptr;
     for (auto *b : buttons)
-        if (b->toolTip() == QStringLiteral("Move rule down")) { down = b; break; }
+        if (b->toolTip() == QStringLiteral("Move rule down")) {
+            down = b;
+            break;
+        }
     QVERIFY(down);
 
     down->click();
@@ -329,14 +475,11 @@ void TestRuleSymbologyTab::buttons_disabledForEmptyList()
     RuleSymbologyTab tab(&rl);
     auto buttons = tab.findChildren<QPushButton *>();
     for (auto *b : buttons) {
-        if (b->text() == QStringLiteral("Duplicate") ||
-            b->text() == QStringLiteral("Delete") ||
-            b->text() == QStringLiteral("↑") ||
-            b->text() == QStringLiteral("↓"))
-        {
-            QVERIFY2(!b->isEnabled(),
-                     qPrintable(QStringLiteral("%1 should be disabled on empty list")
-                                    .arg(b->text())));
+        if (b->text() == QStringLiteral("Duplicate") || b->text() == QStringLiteral("Delete") ||
+            b->text() == QStringLiteral("↑") || b->text() == QStringLiteral("↓")) {
+            QVERIFY2(
+                !b->isEnabled(),
+                qPrintable(QStringLiteral("%1 should be disabled on empty list").arg(b->text())));
         }
     }
 }
@@ -371,9 +514,19 @@ void TestRuleSymbologyTab::downButton_disabledForLastRow()
 
 // ── Z.3a — Renderer-class picker ─────────────────────────────────────
 
-namespace {
+namespace
+{
 // Locate the renderer-class combo inside the body region (the second
 // QComboBox in the widget tree — the first is the Active Rule combo).
+/**
+ * @brief Borrow the second descendant combo, used as the renderer-class picker in this widget
+ * fixture.
+ * @param[in] tab Borrowed live GUI-thread widget, unchanged apart from ordinary child lookup.
+ * @return Nonowning combo pointer, nullptr for fewer than two descendants; identity depends on
+ * child
+ * construction order, lifetime bounded by tab/child. Never delete returned pointer; no ownership
+ * transfer.
+ */
 QComboBox *findRendererCombo(QWidget &tab)
 {
     const auto combos = tab.findChildren<QComboBox *>();
@@ -406,8 +559,7 @@ void TestRuleSymbologyTab::rendererCombo_disabledForEmptyList()
 void TestRuleSymbologyTab::rendererCombo_reflectsActiveRuleRenderer()
 {
     RuleList rl;
-    rl.append(std::make_unique<Rule>(QStringLiteral("g"),
-                                     std::make_unique<GraduatedRenderer>()));
+    rl.append(std::make_unique<Rule>(QStringLiteral("g"), std::make_unique<GraduatedRenderer>()));
     RuleSymbologyTab tab(&rl);
     auto *combo = findRendererCombo(tab);
     QVERIFY(combo);
@@ -444,10 +596,9 @@ void TestRuleSymbologyTab::rendererCombo_syncsWhenRulesRendererReplacedExternall
 void TestRuleSymbologyTab::rendererCombo_updatesOnActiveRuleChange()
 {
     RuleList rl;
-    rl.append(std::make_unique<Rule>(QStringLiteral("a"),
-                                     std::make_unique<SingleSymbolRenderer>()));
-    rl.append(std::make_unique<Rule>(QStringLiteral("b"),
-                                     std::make_unique<GraduatedRenderer>()));
+    rl.append(
+        std::make_unique<Rule>(QStringLiteral("a"), std::make_unique<SingleSymbolRenderer>()));
+    rl.append(std::make_unique<Rule>(QStringLiteral("b"), std::make_unique<GraduatedRenderer>()));
 
     RuleSymbologyTab tab(&rl);
     auto *combo = findRendererCombo(tab);

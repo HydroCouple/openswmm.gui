@@ -23,8 +23,22 @@
 <!--BEGIN !PROJECT_NAME--><title>$title</title><!--END !PROJECT_NAME-->
 <link href="$relpath^tabs.css" rel="stylesheet" type="text/css"/>
 <link rel="icon" type="image/png" href="$relpath^swmmvis.png"/>
-<script type="text/javascript" src="$relpath^jquery.js"></script>
+<script type="text/javascript">
+    // Doxygen 1.16 removed its bundled jQuery; older navigation still needs it.
+    const doxygenVersion = '$doxygenversion'.split('.').map(Number)
+    if (doxygenVersion[0] === 1 && doxygenVersion[1] < 16) {
+        document.write('<script src="$relpath^jquery.js"><\/script>')
+    }
+</script>
+<!--BEGIN HTML_DYNAMIC_SECTIONS-->
 <script type="text/javascript" src="$relpath^dynsections.js"></script>
+<!--END HTML_DYNAMIC_SECTIONS-->
+<!--BEGIN HTML_CODE_FOLDING-->
+<script type="text/javascript" src="$relpath^codefolding.js"></script>
+<!--END HTML_CODE_FOLDING-->
+<!--BEGIN COPY_CLIPBOARD-->
+<script type="text/javascript" src="$relpath^clipboard.js"></script>
+<!--END COPY_CLIPBOARD-->
 <script type="text/javascript" src="$relpath^doxygen-awesome-darkmode-toggle.js"></script>
 <script type="text/javascript" src="$relpath^doxygen-awesome-fragment-copy-button.js"></script>
 <script type="text/javascript" src="$relpath^doxygen-awesome-paragraph-link.js"></script>
@@ -36,6 +50,18 @@
     DoxygenAwesomeParagraphLink.init()
     DoxygenAwesomeInteractiveToc.init()
     DoxygenAwesomeTabs.init()
+    document.addEventListener('DOMContentLoaded', function () {
+        document.querySelectorAll('figure.manual-figure img').forEach(function (image) {
+            if (image.closest('a')) return
+            const link = document.createElement('a')
+            link.href = image.src
+            link.className = 'manual-figure-fullsize'
+            link.title = 'Open full-size figure'
+            link.setAttribute('aria-label', 'Open full-size figure')
+            image.replaceWith(link)
+            link.appendChild(image)
+        })
+    })
 </script>
 $treeview
 $search

@@ -1,15 +1,17 @@
-/*!
- * \file   test_timeseries_edit_chart_view.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice BQ Phase 6.7.3.5 — smoke tests for the interactive chart view.
+/**
+ * @file      test_timeseries_edit_chart_view.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice BQ Phase 6.7.3.5 — smoke tests for the interactive chart view.
  *
  * Focus: MVC contract (provider edits propagate to the chart series), selection
  * state management, edit-mode toggle, and external-mode read-only guard.
  * Mouse-event simulation (drag math) is deferred to a follow-up that ships
  * with the dialog integration.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "timeseries/timeseriesprovider.h"
 #include "ui/widgets/timeserieseditchartview.h"
 
@@ -23,30 +25,46 @@
 #include <QUndoStack>
 #include <QVector>
 
+#include <algorithm>
+
 using openswmmvis::timeseries::TimeseriesPoint;
 using openswmmvis::timeseries::TimeseriesProvider;
 using openswmmvis::ui::TimeseriesEditChartView;
 
-namespace {
+namespace
+{
+/** @brief Build a UTC chart-fixture timestamp.
+ * @param[in] year Calendar year passed to QDate.
+ * @param[in] month Calendar month, normally 1 through 12.
+ * @param[in] day Calendar day valid for the selected month.
+ * @param[in] hour Hour, normally 0 through 23.
+ * @param[in] minute Minute, normally 0 through 59; defaults to zero.
+ * @return UTC QDateTime, possibly invalid for invalid calendar/time inputs; no validation is added. */
 QDateTime t(int year, int month, int day, int hour, int minute = 0)
 {
     return QDateTime(QDate(year, month, day), QTime(hour, minute), Qt::UTC);
 }
+/** @brief Build three synthetic points six hours apart on January 1, 2026.
+ * @return Independent UTC points with numeric values 1, 2 and 3; no physical unit is assigned. */
 QVector<TimeseriesPoint> fixture()
 {
     return {
-        {t(2026, 1, 1, 0),  1.0},
-        {t(2026, 1, 1, 6),  2.0},
+        {t(2026, 1, 1, 0), 1.0},
+        {t(2026, 1, 1, 6), 2.0},
         {t(2026, 1, 1, 12), 3.0},
     };
 }
 
+/** @brief Copy points from the first attached line series.
+ * @param[in] v Borrowed chart view expected to have a non-null chart.
+ * @return Independent line-point list, or empty if the chart has no QLineSeries. */
 QList<QPointF> linePoints(const TimeseriesEditChartView &v)
 {
     // The first attached QLineSeries is our data line.
     const auto list = v.chart()->series();
     for (auto *s : list) {
-        if (auto *line = qobject_cast<QLineSeries *>(s)) return line->points();
+        if (auto *line = qobject_cast<QLineSeries *>(s))
+            return line->points();
     }
     return {};
 }
@@ -58,6 +76,7 @@ class TestTimeseriesEditChartView : public QObject
 
 private slots:
 
+    /** @brief Verify chart construction mirrors all three provider points and endpoint values. */
     void initialPointsMirrorProvider()
     {
         TimeseriesProvider p(QStringLiteral("RAIN_A"));
@@ -67,9 +86,10 @@ private slots:
         const auto pts = linePoints(v);
         QCOMPARE(pts.size(), 3);
         QCOMPARE(pts.first().y(), 1.0);
-        QCOMPARE(pts.last().y(),  3.0);
+        QCOMPARE(pts.last().y(), 3.0);
     }
 
+    /** @brief Verify editing a provider sample updates the corresponding chart point. */
     void providerValueChange_RefreshesChart()
     {
         TimeseriesProvider p(QStringLiteral("RAIN_A"));
@@ -82,6 +102,7 @@ private slots:
         QCOMPARE(pts.at(1).y(), 42.0);
     }
 
+    /** @brief Verify inserting an intermediate provider timestamp adds a fourth chart point. */
     void providerInsert_RefreshesChart()
     {
         TimeseriesProvider p(QStringLiteral("RAIN_A"));
@@ -92,6 +113,7 @@ private slots:
         QCOMPARE(linePoints(v).size(), 4);
     }
 
+    /** @brief Verify removing the selected last point refreshes the chart, drops that index and retains the selected first point. */
     void providerRemove_DropsStaleSelectionAndRefreshes()
     {
         TimeseriesProvider p(QStringLiteral("RAIN_A"));
@@ -107,6 +129,7 @@ private slots:
         QCOMPARE(v.selectedIndices(), QVector<int>{0});
     }
 
+    /** @brief Verify selection sorts/deduplicates indices, emits once, and clearing emits again. */
     void selectionRoundTrip()
     {
         TimeseriesProvider p(QStringLiteral("RAIN_A"));
@@ -114,7 +137,7 @@ private slots:
         TimeseriesEditChartView v(&p);
 
         QSignalSpy spy(&v, &TimeseriesEditChartView::selectionChanged);
-        v.setSelection({2, 0, 0});   // unsorted + dup
+        v.setSelection({2, 0, 0}); // unsorted + dup
         QCOMPARE(v.selectedIndices(), (QVector<int>{0, 2}));
         QCOMPARE(spy.count(), 1);
 
@@ -123,6 +146,7 @@ private slots:
         QCOMPARE(spy.count(), 2);
     }
 
+    /** @brief Verify changing edit mode emits once and repeating the same mode is silent. */
     void editModeChangeEmitsSignal()
     {
         TimeseriesProvider p(QStringLiteral("RAIN_A"));
@@ -130,10 +154,12 @@ private slots:
         QSignalSpy spy(&v, &TimeseriesEditChartView::editModeChanged);
         v.setEditMode(TimeseriesEditChartView::EditMode::EditPoints);
         QCOMPARE(spy.count(), 1);
-        v.setEditMode(TimeseriesEditChartView::EditMode::EditPoints);   // no-op
+        v.setEditMode(TimeseriesEditChartView::EditMode::EditPoints); // no-op
         QCOMPARE(spy.count(), 1);
     }
 
+    /** @brief Verify a direct provider insert refreshes a chart with an attached undo stack.
+     * The implemented body does not open a context menu, push commands, delete points or exercise undo despite its historical name. */
     void undoStackRoundTrip_OnContextMenuInsertDelete()
     {
         TimeseriesProvider p(QStringLiteral("RAIN_A"));
@@ -145,10 +171,11 @@ private slots:
         // We can't easily simulate the QMenu exec without a real event loop;
         // verify that the undo-stack path is reachable by pushing the same
         // commands the menu would push.
-        p.insertPoint(t(2026, 1, 1, 3), 1.5);  // direct (no stack)
+        p.insertPoint(t(2026, 1, 1, 3), 1.5); // direct (no stack)
         QCOMPARE(linePoints(v).size(), 4);
     }
 
+    /** @brief Verify a point far outside a shown chart returns the no-hit sentinel after a fifty-millisecond layout wait. */
     void hitTestReturnsNegativeForFarPixel()
     {
         TimeseriesProvider p(QStringLiteral("RAIN_A"));
@@ -162,6 +189,8 @@ private slots:
         QCOMPARE(v.hitTestPoint(QPoint(-1000, -1000)), -1);
     }
 
+    /** @brief Verify a representative press/release in edit mode leaves the external-file provider values unchanged.
+     * This probes the read-only guard without guaranteeing the click hits a plotted sample. */
     void externalSourceModeBlocksEditing()
     {
         TimeseriesProvider p(QStringLiteral("RAIN_A"));
@@ -176,13 +205,46 @@ private slots:
         // Simulate a left-button press where point 0 should be — even if the
         // press lands on a point, the chart must refuse to start a drag in
         // external mode. Press at the chart center as a representative pixel.
-        QTest::mousePress(v.viewport(), Qt::LeftButton, Qt::NoModifier,
-                          QPoint(200, 150));
-        QTest::mouseRelease(v.viewport(), Qt::LeftButton, Qt::NoModifier,
-                            QPoint(200, 150));
+        QTest::mousePress(v.viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(200, 150));
+        QTest::mouseRelease(v.viewport(), Qt::LeftButton, Qt::NoModifier, QPoint(200, 150));
         // Provider unchanged.
         QCOMPARE(p.pointAt(0).value, 1.0);
         QCOMPARE(p.pointAt(1).value, 2.0);
+    }
+
+    /** @brief Verify a small series stays off the OpenGL path on Windows (no QOpenGLWidget in the
+     *         view, so its window is not re-created) and a large series is accelerated everywhere. */
+    void openGlPathFollowsSeriesSize()
+    {
+        const auto hasOpenGLWidget = [](const TimeseriesEditChartView &view) {
+            const auto children = view.findChildren<QWidget *>();
+            return std::any_of(children.begin(), children.end(),
+                               [](const QWidget *w) { return w->inherits("QOpenGLWidget"); });
+        };
+        TimeseriesProvider p(QStringLiteral("RAIN_A"));
+        QVERIFY(p.setAllPoints(fixture()));
+        TimeseriesEditChartView v(&p);
+        v.resize(400, 300);
+        v.show();
+        QTest::qWait(50);
+        QLineSeries *line = nullptr;
+        for (auto *s : v.chart()->series())
+            if ((line = qobject_cast<QLineSeries *>(s)))
+                break;
+        QVERIFY(line);
+#ifdef Q_OS_WIN
+        QVERIFY(!line->useOpenGL());
+        QVERIFY(!hasOpenGLWidget(v));
+#endif
+
+        QVector<TimeseriesPoint> large;
+        const QDateTime start = t(2026, 1, 1, 0);
+        for (int i = 0; i < 50001; ++i)
+            large.append({start.addSecs(60 * i), double(i % 7)});
+        QVERIFY(p.setAllPoints(large));
+        QTest::qWait(50);
+        QVERIFY(line->useOpenGL());
+        QVERIFY(hasOpenGLWidget(v));
     }
 };
 

@@ -1,22 +1,37 @@
-#include "ui/toolbars/compacttoolbarcontroller.h"
+/**
+ * @file      compacttoolbarcontroller.cpp
+ * @brief     UI redesign P6 — the tabbed compact toolbar: a fixed tab-strip row (QTabBar inside a
+ *            locked QToolBar) over one visible tool row.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
 
+#include "ui/toolbars/compacttoolbarcontroller.h"
+#include <QPointer>
+#include <QThread>
+
+#include <QAction>
 #include <QLayout>
 #include <QMainWindow>
 #include <QSettings>
 #include <QTabBar>
 #include <QToolBar>
 #include <QWidget>
+#include <utility>
 
-namespace {
+namespace
+{
 const QString kSettingsGroup = QStringLiteral("SWMMVis::MainWindow");
-const QString kLastTabKey    = QStringLiteral("CompactToolbarTab");
+const QString kLastTabKey = QStringLiteral("CompactToolbarTab");
 }
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 CompactToolbarController::CompactToolbarController(QMainWindow *window)
-    : QObject(window),
-      mWindow(window)
+    : QObject(window), mWindow(window)
 {
     mStrip = new QToolBar(tr("Toolbar Tabs"), window);
     mStrip->setObjectName(QStringLiteral("toolBarTabStrip"));
@@ -52,10 +67,10 @@ CompactToolbarController::CompactToolbarController(QMainWindow *window)
 }
 
 void CompactToolbarController::addTab(const QString &id, const QString &title,
-                                      const QList<QToolBar *> &toolbars,
-                                      bool contextual)
+                                      const QList<QToolBar *> &toolbars, bool contextual)
 {
-    Q_ASSERT(!mFinalized);
+    if (id.isEmpty() || indexOf(id) >= 0)
+        return;
     Tab tab;
     tab.id = id;
     tab.title = title;
@@ -64,6 +79,117 @@ void CompactToolbarController::addTab(const QString &id, const QString &title,
     mTabs.append(tab);
     const int index = mTabBar->addTab(title);
     mTabBar->setTabData(index, id);
+    if (mFinalized && mWindow) {
+        // Insert shared plugin bars before the first dedicated terrain/mesh row.
+        for (auto *bar : toolbars) {
+            if (!bar)
+                continue;
+            if (!mOwnRowBars.isEmpty())
+                mWindow->insertToolBar(mOwnRowBars.first(), bar);
+            else
+                mWindow->addToolBar(Qt::TopToolBarArea, bar);
+            bar->setMovable(false);
+        }
+        mTabBar->setTabVisible(index, !contextual);
+        QSettings settings;
+        if (!contextual && settings.value(kSettingsGroup + '/' + kLastTabKey).toString() == id)
+            mTabBar->setCurrentIndex(index);
+        applyVisibility();
+        relayoutStrip();
+    }
+}
+
+void CompactToolbarController::removeTab(const QString &id)
+{
+    const int index = indexOf(id);
+    if (index < 0)
+        return;
+    const auto tab = mTabs.takeAt(index);
+    for (auto *bar : tab.bars) {
+        if (bar && mWindow)
+            mWindow->removeToolBar(bar);
+        mOwnRowBars.removeAll(bar);
+    }
+    mTabBar->removeTab(index);
+    if (mFinalized) {
+        applyVisibility();
+        relayoutStrip();
+    }
+}
+
+bool CompactToolbarController::addToolbarToTab(const QString &id, QToolBar *toolbar)
+{
+    if (QThread::currentThread() != thread() || !mWindow || !toolbar)
+        return false;
+    const int index = indexOf(id);
+    if (index < 0)
+        return false;
+    for (const auto &tab : std::as_const(mTabs))
+        if (tab.bars.contains(toolbar))
+            return false;
+    mTabs[index].bars.append(toolbar);
+    const QPointer<CompactToolbarController> owner(this);
+    const QPointer<QMainWindow> window(mWindow);
+    const QPointer<QToolBar> bar(toolbar);
+    connect(toolbar, &QObject::destroyed, this, [owner, window, id, toolbar] {
+        if (!owner)
+            return;
+        const int current = owner->indexOf(id);
+        if (current >= 0)
+            owner->mTabs[current].bars.removeAll(toolbar);
+        owner->mOwnRowBars.removeAll(toolbar);
+        if (window && owner->mFinalized)
+            owner->applyVisibility();
+    });
+    const auto attached = [&] {
+        if (!owner || !window || !bar)
+            return false;
+        const int current = owner->indexOf(id);
+        return current >= 0 && owner->mTabs[current].bars.contains(bar);
+    };
+    if (mFinalized) {
+        if (!mOwnRowBars.isEmpty())
+            window->insertToolBar(mOwnRowBars.first(), bar);
+        else
+            window->addToolBar(Qt::TopToolBarArea, bar);
+        if (!attached())
+            return false;
+        bar->setMovable(false);
+        if (!attached())
+            return false;
+        owner->applyVisibility();
+        if (!attached())
+            return false;
+        owner->relayoutStrip();
+    }
+    return attached();
+}
+
+bool CompactToolbarController::removeToolbarFromTab(const QString &id, QToolBar *toolbar)
+{
+    if (QThread::currentThread() != thread())
+        return false;
+    const int index = indexOf(id);
+    if (index < 0 || !toolbar || !mTabs[index].bars.removeOne(toolbar))
+        return false;
+    mOwnRowBars.removeAll(toolbar);
+    const QPointer<CompactToolbarController> owner(this);
+    const QPointer<QMainWindow> window(mWindow);
+    const QPointer<QToolBar> bar(toolbar);
+    if (window)
+        window->removeToolBar(toolbar);
+    if (!owner)
+        return true;
+    if (bar)
+        bar->hide();
+    if (!owner || !window)
+        return true;
+    if (owner->mFinalized) {
+        owner->applyVisibility();
+        if (owner)
+            owner->relayoutStrip();
+    }
+    return true;
 }
 
 void CompactToolbarController::setOwnRow(QToolBar *bar)
@@ -78,32 +204,7 @@ void CompactToolbarController::finalize()
     if (mFinalized || !mWindow)
         return;
 
-    // Row 1: the strip; row 2: every tab's shared toolbars after one
-    // break; row 3 (after a second break): the own-row bars. TWO passes,
-    // not one loop — addToolBarBreak appends positionally, so a mid-loop
-    // break would push every later tab's bars onto the wrong row. A row
-    // whose bars are all hidden costs no height, so row 3 only exists
-    // while a tab with an own-row bar is current.
-    // Re-adding an already-added toolbar (the .ui-authored and subclass
-    // bars) moves it into place; setMovable(false) locks the layout.
-    mWindow->addToolBar(Qt::TopToolBarArea, mStrip);
-    mWindow->addToolBarBreak(Qt::TopToolBarArea);
-    const auto mount = [this](QToolBar *bar) {
-        mWindow->removeToolBar(bar);
-        mWindow->addToolBar(Qt::TopToolBarArea, bar);
-        bar->setMovable(false);
-    };
-    for (const Tab &tab : mTabs)
-        for (QToolBar *bar : tab.bars)
-            if (bar && !mOwnRowBars.contains(bar))
-                mount(bar);
-    if (!mOwnRowBars.isEmpty()) {
-        mWindow->addToolBarBreak(Qt::TopToolBarArea);
-        for (const Tab &tab : mTabs)
-            for (QToolBar *bar : tab.bars)
-                if (bar && mOwnRowBars.contains(bar))
-                    mount(bar);
-    }
+    mountToolbars();
 
     for (int i = 0; i < mTabs.size(); ++i) {
         if (mTabs[i].contextual)
@@ -123,12 +224,68 @@ void CompactToolbarController::finalize()
         while (target < mTabBar->count() && !mTabBar->isTabVisible(target))
             ++target;
     }
-    if (target >= 0 && target < mTabBar->count()
-        && mTabBar->currentIndex() != target) {
-        mTabBar->setCurrentIndex(target);   // triggers applyVisibility
+    if (target >= 0 && target < mTabBar->count() && mTabBar->currentIndex() != target) {
+        mTabBar->setCurrentIndex(target); // triggers applyVisibility
     } else {
         applyVisibility();
     }
+    relayoutStrip();
+}
+
+void CompactToolbarController::mountToolbars()
+{
+    // Drop saved breaks as well as placements before rebuilding the managed rows.
+    const auto detach = [this](QToolBar *bar) {
+        if (!bar)
+            return;
+        mWindow->removeToolBarBreak(bar);
+        mWindow->removeToolBar(bar);
+    };
+    detach(mStrip);
+    detach(mPermanentBar);
+    for (const Tab &tab : mTabs)
+        for (QToolBar *bar : tab.bars)
+            detach(bar);
+
+    // Row 1: the strip; row 2: permanent tools, then the tab's shared toolbars after one
+    // break; row 3 (after a second break): the own-row bars. TWO passes,
+    // not one loop — addToolBarBreak appends positionally, so a mid-loop
+    // break would push every later tab's bars onto the wrong row. A row
+    // whose bars are all hidden costs no height, so row 3 only exists
+    // while a tab with an own-row bar is current.
+    // Re-adding an already-added toolbar (the .ui-authored and subclass
+    // bars) moves it into place; setMovable(false) locks the layout.
+    mWindow->addToolBar(Qt::TopToolBarArea, mStrip);
+    mStrip->show();
+    mWindow->addToolBarBreak(Qt::TopToolBarArea);
+    const auto mount = [this](QToolBar *bar) {
+        mWindow->addToolBar(Qt::TopToolBarArea, bar);
+        bar->setMovable(false);
+    };
+    if (mPermanentBar) {
+        mount(mPermanentBar);
+        mPermanentBar->setMinimumWidth(mPermanentBar->sizeHint().width());
+        mPermanentBar->show();
+    }
+    for (const Tab &tab : mTabs)
+        for (QToolBar *bar : tab.bars)
+            if (bar && !mOwnRowBars.contains(bar))
+                mount(bar);
+    if (!mOwnRowBars.isEmpty()) {
+        mWindow->addToolBarBreak(Qt::TopToolBarArea);
+        for (const Tab &tab : mTabs)
+            for (QToolBar *bar : tab.bars)
+                if (bar && mOwnRowBars.contains(bar))
+                    mount(bar);
+    }
+}
+
+void CompactToolbarController::restoreLayout()
+{
+    if (!mFinalized || !mWindow)
+        return;
+    mountToolbars();
+    applyVisibility();
     relayoutStrip();
 }
 
@@ -145,6 +302,18 @@ void CompactToolbarController::setTabVisible(const QString &id, bool visible)
     mTabBar->setTabVisible(index, visible);
     applyVisibility();
     relayoutStrip();
+}
+
+void CompactToolbarController::setPermanentToolbar(QToolBar *toolbar)
+{
+    if (!toolbar || mFinalized || mPermanentBar)
+        return;
+    mPermanentBar = toolbar;
+    toolbar->setMovable(false);
+    toolbar->setFloatable(false);
+    toolbar->setAllowedAreas(Qt::TopToolBarArea);
+    toolbar->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Preferred);
+    toolbar->toggleViewAction()->setEnabled(false);
 }
 
 void CompactToolbarController::relayoutStrip()
@@ -206,14 +375,21 @@ int CompactToolbarController::indexOf(const QString &id) const
 
 void CompactToolbarController::applyVisibility()
 {
+    const auto revision = ++mVisibilityRevision;
     const int current = mTabBar->currentIndex();
+    QList<QPair<QPointer<QToolBar>, bool>> changes;
     for (int i = 0; i < mTabs.size(); ++i) {
         const bool show = (i == current) && mTabBar->isTabVisible(i);
-        for (QToolBar *bar : mTabs[i].bars) {
-            if (bar)
-                bar->setVisible(show);
-        }
+        for (QToolBar *bar : mTabs[i].bars)
+            changes.append({bar, show});
+    }
+    const QPointer<CompactToolbarController> owner(this);
+    for (const auto &change : std::as_const(changes)) {
+        if (!owner || owner->mVisibilityRevision != revision)
+            return;
+        if (change.first)
+            change.first->setVisible(change.second);
     }
 }
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui

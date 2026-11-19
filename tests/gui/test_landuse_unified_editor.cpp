@@ -1,12 +1,16 @@
-/*!
- * \file   test_landuse_unified_editor.cpp
- * \brief  Iteration 4 — the unified Land Use editor: tabbed detail pane,
+/**
+ * @file      test_landuse_unified_editor.cpp
+ * @brief     Iteration 4 — the unified Land Use editor: tabbed detail pane,
  *         Buildup/Washoff table models bound to the engine, pollutant-set
  *         re-dimensioning, impact-aware delete, and engine-backed rename.
  *
  * Fixture models are written to a persistent, reviewable directory under
  * the GUI test data dir (SWMMVIS_GUI_TEST_DATA/landuse_editor/), never to
  * temp dirs.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QtTest/QtTest>
@@ -29,20 +33,28 @@ using openswmmvis::ui::BuildupTableModel;
 using openswmmvis::ui::LandUseEditorDialog;
 using openswmmvis::ui::WashoffTableModel;
 
-namespace {
+namespace
+{
 
+/** @brief Resolve the retained land-use fixture directory.
+ * @return SWMMVIS_GUI_TEST_DATA plus /landuse_editor; an unset variable produces /landuse_editor rather than a current-directory fallback. */
 QString fixtureDir()
 {
     const QString base = QString::fromUtf8(qgetenv("SWMMVIS_GUI_TEST_DATA"));
     return base + QStringLiteral("/landuse_editor");
 }
 
-QString writeFixture(const QString &tag)
+/** @brief Write a retained CFS land-use network with two pollutants and two land uses.
+ * @param[in] tag Filename stem appended in the fixture directory without sanitization.
+ * @param[in] extra Additional deck text streamed after the fixed sections.
+ * @return Fixture path after streaming, or empty on file-open failure. Directory creation and stream/flush errors are unchecked. */
+QString writeFixture(const QString &tag, const QString &extra = QString())
 {
     QDir().mkpath(fixtureDir());
     const QString path = fixtureDir() + QStringLiteral("/%1.inp").arg(tag);
     QFile f(path);
-    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate)) return {};
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+        return {};
     QTextStream out(&f);
     out << "[OPTIONS]\n"
            "FLOW_UNITS           CFS\n"
@@ -84,29 +96,36 @@ QString writeFixture(const QString &tag)
            "Res  TSS  POW  100  2  1.5  AREA\n"
            "\n[WASHOFF]\n"
            "Res  TSS  EXP  0.1  1.2  30  15\n";
+    out << extra;
     return path;
 }
 
 struct EngineFixture {
     SWMM_Engine engine = nullptr;
 
-    explicit EngineFixture(const QString &tag)
+    /** @brief Write and open the owned land-use fixture engine.
+     * @param[in] tag Stem for retained INP/report/output files.
+     * @param[in] extra Extra input sections, optionally a component registration.
+     * Leaves engine null on fixture-open failure; destroys any failed engine. Engine allocation is not independently checked before the open call. */
+    explicit EngineFixture(const QString &tag, const QString &extra = QString())
     {
-        const QString inp = writeFixture(tag);
-        if (inp.isEmpty()) return;
+        const QString inp = writeFixture(tag, extra);
+        if (inp.isEmpty())
+            return;
         engine = swmm_engine_create();
         const QString rpt = fixtureDir() + QStringLiteral("/%1.rpt").arg(tag);
         const QString out = fixtureDir() + QStringLiteral("/%1.out").arg(tag);
-        if (swmm_engine_open(engine, inp.toUtf8().constData(),
-                             rpt.toUtf8().constData(),
+        if (swmm_engine_open(engine, inp.toUtf8().constData(), rpt.toUtf8().constData(),
                              out.toUtf8().constData(), nullptr) != SWMM_OK) {
             swmm_engine_destroy(engine);
             engine = nullptr;
         }
     }
+    /** @brief Destroy the fixture engine when non-null; retained model/report/output evidence is not removed. */
     ~EngineFixture()
     {
-        if (engine) swmm_engine_destroy(engine);
+        if (engine)
+            swmm_engine_destroy(engine);
     }
 };
 
@@ -123,8 +142,10 @@ private slots:
     void pollutantAddRedimensionsRows();
     void impactAwareDeleteRemovesEngineObject();
     void renameKeepsEngineMatrices();
+    void reactionSpeciesGetBuildupAndWashoffRows();
 };
 
+/** @brief Verify the unified editor has three tabs, two registries and two pollutant rows in both quality-function grids. */
 void TestLandUseUnifiedEditor::tabsAndModelsPresent()
 {
     EngineFixture fx(QStringLiteral("tabs"));
@@ -146,6 +167,7 @@ void TestLandUseUnifiedEditor::tabsAndModelsPresent()
     QVERIFY(dlg.buildupModel()->landUseIndex() >= 0);
 }
 
+/** @brief Verify Lead buildup function/coefficient/normalizer and washoff function/sweeping efficiency edits reach the engine. */
 void TestLandUseUnifiedEditor::buildupEditsRoundTripThroughEngine()
 {
     EngineFixture fx(QStringLiteral("roundtrip"));
@@ -161,33 +183,30 @@ void TestLandUseUnifiedEditor::buildupEditsRoundTripThroughEngine()
     // Set Lead's buildup on Res through the model.
     QVERIFY(model->setData(model->index(lead, BuildupTableModel::ColFunction),
                            QStringLiteral("EXP"), Qt::EditRole));
-    QVERIFY(model->setData(model->index(lead, BuildupTableModel::ColC1),
-                           42.0, Qt::EditRole));
+    QVERIFY(model->setData(model->index(lead, BuildupTableModel::ColC1), 42.0, Qt::EditRole));
     QVERIFY(model->setData(model->index(lead, BuildupTableModel::ColNormalizer),
                            QStringLiteral("CURB"), Qt::EditRole));
 
     int ft = 0, norm = 0;
     double c1 = 0, c2 = 0, c3 = 0;
     const int res = swmm_landuse_index(fx.engine, "Res");
-    QCOMPARE(swmm_buildup_get(fx.engine, res, lead, &ft, &c1, &c2, &c3, &norm),
-             SWMM_OK);
-    QCOMPARE(ft, 2);              // EXP
+    QCOMPARE(swmm_buildup_get(fx.engine, res, lead, &ft, &c1, &c2, &c3, &norm), SWMM_OK);
+    QCOMPARE(ft, 2); // EXP
     QCOMPARE(c1, 42.0);
-    QCOMPARE(norm, 1);            // CURB
+    QCOMPARE(norm, 1); // CURB
 
     // Washoff too.
     auto *wo = dlg.washoffModel();
-    QVERIFY(wo->setData(wo->index(lead, WashoffTableModel::ColFunction),
-                        QStringLiteral("EMC"), Qt::EditRole));
-    QVERIFY(wo->setData(wo->index(lead, WashoffTableModel::ColSweepEffic),
-                        55.0, Qt::EditRole));
+    QVERIFY(wo->setData(wo->index(lead, WashoffTableModel::ColFunction), QStringLiteral("EMC"),
+                        Qt::EditRole));
+    QVERIFY(wo->setData(wo->index(lead, WashoffTableModel::ColSweepEffic), 55.0, Qt::EditRole));
     double coeff = 0, expon = 0, sweep = 0, bmp = 0;
-    QCOMPARE(swmm_washoff_get(fx.engine, res, lead, &ft, &coeff, &expon,
-                              &sweep, &bmp), SWMM_OK);
-    QCOMPARE(ft, 3);              // EMC
+    QCOMPARE(swmm_washoff_get(fx.engine, res, lead, &ft, &coeff, &expon, &sweep, &bmp), SWMM_OK);
+    QCOMPARE(ft, 3); // EMC
     QCOMPARE(sweep, 55.0);
 }
 
+/** @brief Verify EXT buildup C3 is noneditable and refuses numeric writes because it represents a table reference. */
 void TestLandUseUnifiedEditor::extBuildupC3IsReadOnly()
 {
     EngineFixture fx(QStringLiteral("extguard"));
@@ -195,8 +214,7 @@ void TestLandUseUnifiedEditor::extBuildupC3IsReadOnly()
     const int res = swmm_landuse_index(fx.engine, "Res");
     const int tss = swmm_pollutant_index(fx.engine, "TSS");
     // Make Res/TSS an EXT buildup (C3 = table index in disguise).
-    QCOMPARE(swmm_buildup_set(fx.engine, res, tss, 4, 1.0, 2.0, 0.0, 0),
-             SWMM_OK);
+    QCOMPARE(swmm_buildup_set(fx.engine, res, tss, 4, 1.0, 2.0, 0.0, 0), SWMM_OK);
 
     LandUseRegistry reg;
     reg.loadFromEngine(fx.engine);
@@ -208,6 +226,7 @@ void TestLandUseUnifiedEditor::extBuildupC3IsReadOnly()
     QVERIFY(!model->setData(c3, 99.0, Qt::EditRole));
 }
 
+/** @brief Verify refreshing after pollutant addition grows both grids and preserves existing buildup values through the engine stride change. */
 void TestLandUseUnifiedEditor::pollutantAddRedimensionsRows()
 {
     EngineFixture fx(QStringLiteral("poladd"));
@@ -227,12 +246,12 @@ void TestLandUseUnifiedEditor::pollutantAddRedimensionsRows()
     const int tss = swmm_pollutant_index(fx.engine, "TSS");
     int ft = 0, norm = 0;
     double c1 = 0, c2 = 0, c3 = 0;
-    QCOMPARE(swmm_buildup_get(fx.engine, res, tss, &ft, &c1, &c2, &c3, &norm),
-             SWMM_OK);
+    QCOMPARE(swmm_buildup_get(fx.engine, res, tss, &ft, &c1, &c2, &c3, &norm), SWMM_OK);
     QCOMPARE(ft, 1);
     QCOMPARE(c1, 100.0);
 }
 
+/** @brief Verify land-use impact text names buildup/coverage and registry deletion removes the engine object and provider. */
 void TestLandUseUnifiedEditor::impactAwareDeleteRemovesEngineObject()
 {
     EngineFixture fx(QStringLiteral("impactdel"));
@@ -254,6 +273,7 @@ void TestLandUseUnifiedEditor::impactAwareDeleteRemovesEngineObject()
     QCOMPARE(reg.providerCount(), 1);
 }
 
+/** @brief Verify renaming a land use preserves its quality matrix and object count through flush, and refuses a duplicate target name. */
 void TestLandUseUnifiedEditor::renameKeepsEngineMatrices()
 {
     EngineFixture fx(QStringLiteral("rename"));
@@ -273,8 +293,7 @@ void TestLandUseUnifiedEditor::renameKeepsEngineMatrices()
     const int tss = swmm_pollutant_index(fx.engine, "TSS");
     int ft = 0, norm = 0;
     double c1 = 0, c2 = 0, c3 = 0;
-    QCOMPARE(swmm_buildup_get(fx.engine, idx, tss, &ft, &c1, &c2, &c3, &norm),
-             SWMM_OK);
+    QCOMPARE(swmm_buildup_get(fx.engine, idx, tss, &ft, &c1, &c2, &c3, &norm), SWMM_OK);
     QCOMPARE(ft, 1);
 
     // saveToEngine no longer duplicates after a rename.
@@ -283,6 +302,46 @@ void TestLandUseUnifiedEditor::renameKeepsEngineMatrices()
 
     // Duplicate name rejected.
     QVERIFY(!reg.rename(res, QStringLiteral("Com")));
+}
+
+// Multispecies Phase 2 (S8): bulk reaction species build up and wash off by
+// the same rows as pollutants, so the land-use grids list them after the
+// pollutants and edit them through the same engine calls (constituent index
+// = pollutant count + species index). Wall species cannot build up and are
+// not listed.
+/** @brief Verify a bulk reaction species appears after pollutants in both grids while a wall species is excluded.
+ * Stages a retained reaction component file and checks the bulk-species buildup edit reaches its constituent index. */
+void TestLandUseUnifiedEditor::reactionSpeciesGetBuildupAndWashoffRows()
+{
+    QDir().mkpath(fixtureDir());
+    {
+        QFile rxn(fixtureDir() + QStringLiteral("/species.rxn"));
+        QVERIFY(rxn.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        QTextStream r(&rxn);
+        r << "[REACTION_OPTIONS]\nSOLVER RK5\n[REACTION_SPECIES]\nBULK X MG\nWALL W MG\n"
+             "[REACTION_PIPES]\nRATE X 0\nRATE W 0\n[REACTION_TANKS]\nRATE X 0\n";
+    }
+    EngineFixture fx(QStringLiteral("species"),
+                     QStringLiteral("\n[PROCESS_COMPONENTS]\n"
+                                    "org.hydrocouple.openswmm.reactions config=\"species.rxn\"\n"));
+    QVERIFY(fx.engine);
+    LandUseRegistry reg;
+    reg.loadFromEngine(fx.engine);
+    LandUseEditorDialog dlg(&reg, nullptr);
+    auto *bm = dlg.buildupModel();
+    QCOMPARE(bm->rowCount(), 3); // TSS, Lead, X (W is a wall species)
+    QCOMPARE(dlg.washoffModel()->rowCount(), 3);
+    QCOMPARE(bm->data(bm->index(2, BuildupTableModel::ColPollutant), Qt::DisplayRole).toString(),
+             QStringLiteral("X"));
+    QVERIFY(bm->setData(bm->index(2, BuildupTableModel::ColFunction), QStringLiteral("POW"),
+                        Qt::EditRole));
+    QVERIFY(bm->setData(bm->index(2, BuildupTableModel::ColC1), 42.0, Qt::EditRole));
+    int ft = -1, norm = -1;
+    double c1 = 0, c2 = 0, c3 = 0;
+    QCOMPARE(swmm_buildup_get(fx.engine, bm->landUseIndex(), 2, &ft, &c1, &c2, &c3, &norm),
+             SWMM_OK);
+    QCOMPARE(ft, 1);
+    QCOMPARE(c1, 42.0);
 }
 
 QTEST_MAIN(TestLandUseUnifiedEditor)

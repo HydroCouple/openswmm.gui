@@ -2,7 +2,7 @@
 
 `vj_rim_demo.inp` is a 200-ft reach split by two virtual junctions, one with
 the new optional `[VIRTUAL_JUNCTIONS]` MaxDepth and one without, so a single
-profile shows both behaviours next to each other.
+profile shows both behaviors next to each other.
 
 | Node | Invert | Ground drawn at | Why |
 |---|---|---|---|
@@ -20,7 +20,7 @@ profile shows both behaviours next to each other.
    - Over **VJ_A** the ground line passes through 107.75, close to the
      straight line between J1's and J2's rims.
    - Over **VJ_B** it dives to the crown at 98.50. That dip is the old
-     behaviour, kept as the fallback whenever no MaxDepth is supplied.
+     behavior, kept as the fallback whenever no MaxDepth is supplied.
 2. Select VJ_B in the map and set **Max Depth, Display** in the property
    browser (or the *Max depth* cell in the node attribute table — both write
    the same field). The dip should close as you type.
@@ -41,13 +41,29 @@ structure. In the same profile:
    gap and no vertical end cap. Where the two conduits have different
    slopes the lines kink at the break; they never separate. At a real
    junction the 3.5 px gap and the end caps are still there.
-6. A thin dashed vertical line marks each virtual junction, from the pipe
-   invert up to the ground line — 98.75 → 107.75 at VJ_A, and (with nothing
-   declared) 97.50 → 98.50 at VJ_B, i.e. exactly the pipe depth.
+6. A dashed rectangle marks each virtual junction on the footprint a
+   manhole tube would occupy — invert up to the ground line, tube width —
+   so its lower part overlaps a sliver of the conduits either side. That is
+   98.75 → 107.75 at VJ_A, and (with nothing declared) 97.50 → 98.50 at
+   VJ_B, i.e. exactly the pipe depth.
 7. Run the model and step the animation. The HGL line, its fill and the
    Max HGL band all cross both virtual junctions continuously: no flat
    7-px stub at the break, and no water column rising into the soil above
    the crown. At real junctions the manhole water column still shows.
+
+## Selection and styling
+
+8. Click a virtual junction in the profile: the rectangle turns orange and
+   the node is selected on the map, exactly as clicking a junction does.
+   Right-click offers the same menu (zoom, plot time series, properties),
+   and double-click zooms the map to it. A click just outside the
+   rectangle still picks the conduit running through.
+9. Open **Options → Display** and find **Virtual junction marker**. It is
+   a pen, so color, width, style and dash pattern all expand as editable
+   children, and it is independent of *Junction fill* / *Junction outline* —
+   restyling junctions must leave the virtual-junction rectangles alone,
+   and vice versa. Setting the style to solid is allowed; the plot repaints
+   as you commit each field.
 
 ## What must NOT change
 

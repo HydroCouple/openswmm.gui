@@ -1,8 +1,10 @@
 #ifndef THEMETOKENS_H
 #define THEMETOKENS_H
 
-/*!
- * \file themetokens.h
+/**
+ * @file      themetokens.h
+ * @brief     UI redesign P2 — the design-token layer: one semantic color vocabulary generating
+ *            both the light and dark chrome themes.
  *
  * UI redesign P2 — the design-token layer: one semantic color vocabulary
  * generating both the light and dark chrome themes. Chrome code consumes
@@ -16,27 +18,32 @@
  * Data symbology (color ramps, categorical palettes, series cycles) is
  * NOT part of this vocabulary — those encode data, not chrome, and stay
  * untouched by theming.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include <QColor>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 struct ThemeColors {
     // Surfaces (back to front) and primary content.
-    QColor surfaceWindow;    ///< window / toolbar background
-    QColor surfaceRaised;    ///< views, editors, cards (QPalette::Base)
-    QColor surfaceSunken;    ///< wells, alternate rows
-    QColor text;             ///< primary text on any surface tier
-    QColor hintText;         ///< secondary/placeholder text (AA on surfaces)
-    QColor border;           ///< separators, frames
+    QColor surfaceWindow; ///< window / toolbar background
+    QColor surfaceRaised; ///< views, editors, cards (QPalette::Base)
+    QColor surfaceSunken; ///< wells, alternate rows
+    QColor text;          ///< primary text on any surface tier
+    QColor hintText;      ///< secondary/placeholder text (AA on surfaces)
+    QColor border;        ///< separators, frames
 
     // Interaction.
-    QColor accent;           ///< brand/interactive color (links, checked)
-    QColor accentText;       ///< text painted on accent fills
-    QColor focusRing;        ///< keyboard-focus outline (≥ 3:1 on surfaces)
-    QColor selectionFill;    ///< item-view selection background
-    QColor selectionText;    ///< text on selectionFill
+    QColor accent;        ///< brand/interactive color (links, checked)
+    QColor accentText;    ///< text painted on accent fills
+    QColor focusRing;     ///< keyboard-focus outline (≥ 3:1 on surfaces)
+    QColor selectionFill; ///< item-view selection background
+    QColor selectionText; ///< text on selectionFill
 
     // Semantic status (used as text colors on surfaces).
     QColor error;
@@ -45,9 +52,9 @@ struct ThemeColors {
     QColor info;
 
     // Inline banners (message strips inside dialogs).
-    QColor bannerErrorBg,   bannerErrorFg;
+    QColor bannerErrorBg, bannerErrorFg;
     QColor bannerSuccessBg, bannerSuccessFg;
-    QColor bannerInfoBg,    bannerInfoFg;
+    QColor bannerInfoBg, bannerInfoFg;
 
     // Plot chrome (profile/mesh plot widgets — axes, not data series).
     QColor plotBackground;
@@ -61,6 +68,10 @@ struct ThemeColors {
     QColor canvasSelectionHighlight;
 };
 
+/**
+ * @brief Access the compiled light-theme semantic color vocabulary.
+ * @return Immutable process-lifetime table reference; contains chrome colors rather than data-series color ramps.
+ */
 inline const ThemeColors &lightColors()
 {
     static const ThemeColors c = {
@@ -101,6 +112,10 @@ inline const ThemeColors &lightColors()
     return c;
 }
 
+/**
+ * @brief Access the compiled dark-theme semantic color vocabulary.
+ * @return Immutable process-lifetime table reference. No palette/application mutation occurs.
+ */
 inline const ThemeColors &darkColors()
 {
     static const ThemeColors c = {
@@ -141,6 +156,96 @@ inline const ThemeColors &darkColors()
     return c;
 }
 
-}   // namespace openswmmvis::ui
+/**
+ * @brief Access the high-contrast light vocabulary (review A-21).
+ * @details Chrome only: text and essential boundaries reach at least 7:1 and 3:1 on every
+ *   surface, focus and selection are unmistakable; data colors (ramps, series) are untouched.
+ * @return Immutable process-lifetime table reference.
+ */
+inline const ThemeColors &highContrastLightColors()
+{
+    static const ThemeColors c = {
+        /* surfaceWindow */ QColor(0xFF, 0xFF, 0xFF),
+        /* surfaceRaised */ QColor(0xFF, 0xFF, 0xFF),
+        /* surfaceSunken */ QColor(0xF0, 0xF0, 0xF0),
+        /* text          */ QColor(0x00, 0x00, 0x00),
+        /* hintText      */ QColor(0x33, 0x33, 0x33),
+        /* border        */ QColor(0x1A, 0x1A, 0x1A),
+
+        /* accent        */ QColor(0x00, 0x40, 0xA0),
+        /* accentText    */ QColor(0xFF, 0xFF, 0xFF),
+        /* focusRing     */ QColor(0x00, 0x40, 0xA0),
+        /* selectionFill */ QColor(0x00, 0x40, 0xA0),
+        /* selectionText */ QColor(0xFF, 0xFF, 0xFF),
+
+        /* error         */ QColor(0xA0, 0x00, 0x00),
+        /* warning       */ QColor(0x5C, 0x43, 0x00),
+        /* success       */ QColor(0x00, 0x5A, 0x1E),
+        /* info          */ QColor(0x00, 0x40, 0xA0),
+
+        /* bannerErrorBg   */ QColor(0xFF, 0xE5, 0xE5),
+        /* bannerErrorFg   */ QColor(0x60, 0x00, 0x00),
+        /* bannerSuccessBg */ QColor(0xE5, 0xFF, 0xE9),
+        /* bannerSuccessFg */ QColor(0x00, 0x3A, 0x12),
+        /* bannerInfoBg    */ QColor(0xE5, 0xEE, 0xFF),
+        /* bannerInfoFg    */ QColor(0x00, 0x28, 0x5F),
+
+        /* plotBackground */ QColor(0xFF, 0xFF, 0xFF),
+        /* plotAxis       */ QColor(0x00, 0x00, 0x00),
+        /* plotGrid       */ QColor(0x8C, 0x8C, 0x8C),
+        /* plotConduit    */ QColor(0x00, 0x00, 0x00),
+        /* plotNodeBar    */ QColor(0x00, 0x00, 0x00),
+        /* plotNodeLabel  */ QColor(0x00, 0x00, 0x00),
+
+        /* canvasSelectionHighlight */ QColor(0xC0, 0x00, 0xC0),
+    };
+    return c;
+}
+
+/**
+ * @brief Access the high-contrast dark vocabulary (review A-21); see highContrastLightColors().
+ * @return Immutable process-lifetime table reference.
+ */
+inline const ThemeColors &highContrastDarkColors()
+{
+    static const ThemeColors c = {
+        /* surfaceWindow */ QColor(0x00, 0x00, 0x00),
+        /* surfaceRaised */ QColor(0x0A, 0x0A, 0x0A),
+        /* surfaceSunken */ QColor(0x00, 0x00, 0x00),
+        /* text          */ QColor(0xFF, 0xFF, 0xFF),
+        /* hintText      */ QColor(0xD0, 0xD0, 0xD0),
+        /* border        */ QColor(0xE0, 0xE0, 0xE0),
+
+        /* accent        */ QColor(0x66, 0xB3, 0xFF),
+        /* accentText    */ QColor(0x00, 0x00, 0x00),
+        /* focusRing     */ QColor(0xFF, 0xD5, 0x00),
+        /* selectionFill */ QColor(0x66, 0xB3, 0xFF),
+        /* selectionText */ QColor(0x00, 0x00, 0x00),
+
+        /* error         */ QColor(0xFF, 0x70, 0x70),
+        /* warning       */ QColor(0xFF, 0xD2, 0x4D),
+        /* success       */ QColor(0x6E, 0xE6, 0x8A),
+        /* info          */ QColor(0x66, 0xB3, 0xFF),
+
+        /* bannerErrorBg   */ QColor(0x33, 0x00, 0x00),
+        /* bannerErrorFg   */ QColor(0xFF, 0xC2, 0xC2),
+        /* bannerSuccessBg */ QColor(0x00, 0x2B, 0x10),
+        /* bannerSuccessFg */ QColor(0xB8, 0xF5, 0xC8),
+        /* bannerInfoBg    */ QColor(0x00, 0x1F, 0x40),
+        /* bannerInfoFg    */ QColor(0xC2, 0xDE, 0xFF),
+
+        /* plotBackground */ QColor(0x00, 0x00, 0x00),
+        /* plotAxis       */ QColor(0xFF, 0xFF, 0xFF),
+        /* plotGrid       */ QColor(0x7A, 0x7A, 0x7A),
+        /* plotConduit    */ QColor(0xFF, 0xFF, 0xFF),
+        /* plotNodeBar    */ QColor(0xFF, 0xFF, 0xFF),
+        /* plotNodeLabel  */ QColor(0xFF, 0xFF, 0xFF),
+
+        /* canvasSelectionHighlight */ QColor(0xFF, 0x66, 0xFF),
+    };
+    return c;
+}
+
+} // namespace openswmmvis::ui
 
 #endif // THEMETOKENS_H

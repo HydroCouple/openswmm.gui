@@ -1,0 +1,657 @@
+/**
+ * @file      test_phase35_projectpersistence.cpp
+ * @brief     Tests for phase35 projectpersistence.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
+ */
+
+#include "project/profilesectionstore.h"
+#include "project/groundwaterrecipestore.h"
+#include "project/projectserializer.h"
+#include "project/openswmmvisworkspace.h"
+#include "swmmvisprojectwindow.h"
+#include "core/unitsystem.h"
+#include "layers/gisvectorlayer.h"
+#include "layers/gisrasterlayer.h"
+#include "layers/unavailablelayer.h"
+#include "ui/panels/layertreepanel.h"
+#include "layers/xyztilelayer.h"
+#include "map/mapcanvas.h"
+#include "map/mapundostack.h"
+#include <ogrsf_frmts.h>
+#include <QFile>
+#include <QFileInfo>
+#include <QIcon>
+#include <QJsonDocument>
+#include <QMenu>
+#include <QSortFilterProxyModel>
+#include <QTreeView>
+#include <QtTest>
+#include <memory>
+#include <QQmlEngine>
+#include "map/swmmlayerqsgrenderer.h"
+#include "map/swmm2dmeshqsgrenderer.h"
+#include "map/swmm2dresultsqsgrenderer.h"
+class TestPhase35ProjectPersistence : public QObject
+{
+    Q_OBJECT
+    /** @brief Resolve a retained phase-35 output path and attempt directory creation.
+     * @param[in] name Path appended under PHASE35_TEST_OUTPUT without sanitization.
+     * @return Joined path; failure to create the output directory is not checked here. */
+    QString output(const QString &name)
+    {
+        const QString dir = QDir::cleanPath(QStringLiteral(PHASE35_TEST_OUTPUT));
+        QDir().mkpath(dir);
+        return QDir(dir).filePath(name);
+    }
+    /** @brief Initialize a borrowed blank Phase 35 project with a one-hour January 1, 2026 window.
+     * @param[in,out] window Project initialized through its production blank-model path.
+     * @return Initialization result; warnings/errors remain local and are discarded. */
+    bool initialize(SWMMVisProjectWindow &window)
+    {
+        SWMMModelLayer::NewProjectSpec spec;
+        spec.name = "Phase 35";
+        spec.startDateTime = QDateTime(QDate(2026, 1, 1), QTime(0, 0));
+        spec.endDateTime = spec.startDateTime.addSecs(3600);
+        QList<QString> w, e;
+        return window.initializeBlankModel(spec, w, e);
+    }
+    /** @brief Build a profile definition referencing an unavailable retained run.
+     * @return Independent section-1 definition with a ten-meter EPSG:32618 polyline and one source path; attempts output-directory creation. */
+    ProfileSection::Definition definition()
+    {
+        ProfileSection::Definition d;
+        d.id = "section-1";
+        d.title = "Groundwater and surface";
+        d.scenePolyline = {{0, 0}, {10, 0}};
+        d.sceneCRS = "EPSG:32618";
+        d.horizontalUnits = "m";
+        d.primarySourceId = "source-1";
+        d.sources = {{"source-1", output("unavailable-run.h5"), {}}};
+        return d;
+    }
+    /** @brief Build a snapshot-only groundwater Ks assignment history entry.
+     * @return Independent version-one JSON recipe referencing an unavailable raster and cells zero/two; attempts output-directory creation. */
+    QJsonObject recipe()
+    {
+        return {{"version", 1},
+                {"refreshPolicy", "snapshot-only"},
+                {"target", "Ks"},
+                {"sourcePath", output("unavailable-input.tif")},
+                {"cells", QJsonArray{0, 2}}};
+    }
+    /** @brief Read retained evidence bytes.
+     * @param[in] path File opened read-only.
+     * @return Entire file contents, or empty if opening fails; an empty file is indistinguishable from failure. */
+    QByteArray bytes(const QString &path)
+    {
+        QFile file(path);
+        if (!file.open(QIODevice::ReadOnly))
+            return {};
+        return file.readAll();
+    }
+private slots:
+    /** @brief Register all three production QML canvas renderer types before constructing project windows. */
+    void initTestCase()
+    {
+        qmlRegisterType<SWMMLayerQSGRenderer>("OpenSWMM", 1, 0, "SWMMLayerQSGRenderer");
+        qmlRegisterType<SWMM2DMeshQSGRenderer>("OpenSWMM", 1, 0, "SWMM2DMeshQSGRenderer");
+        qmlRegisterType<SWMM2DResultsQSGRenderer>("OpenSWMM", 1, 0, "SWMM2DResultsQSGRenderer");
+    }
+    /** @brief Temporary GIS content and stack keys stay out of normal and recovery saves. */
+    void temporaryLayersAreSessionOnly()
+    {
+        std::unique_ptr<OpenSWMMVisWorkspace> workspace(
+            OpenSWMMVisWorkspace::newInstance({}, nullptr));
+        SWMMVisProjectWindow window(workspace.get(), {});
+        QVERIFY(initialize(window));
+        const QDir retained(
+            QDir(QFileInfo(QStringLiteral(__FILE__)).absolutePath())
+                .absoluteFilePath("../verification/usgs_preview_2026-10-26/temporary-layers"));
+        QVERIFY(QDir().mkpath(retained.absolutePath()));
+        const auto path = retained.filePath("temporary-layer-source.geojson");
+        QFile source(path);
+        QVERIFY(source.open(QIODevice::WriteOnly));
+        const QByteArray data =
+            R"({"type":"FeatureCollection","features":[{"type":"Feature","properties":{"name":"Test gage","flow":12.5},"geometry":{"type":"Point","coordinates":[-76,40]}}]})";
+        QCOMPARE(source.write(data), qint64(data.size()));
+        source.close();
+        auto *permanent = new GISVectorLayer(path);
+        permanent->setParent(&window);
+        permanent->setName("Saved monitoring locations");
+        auto *temporary = new GISVectorLayer(path);
+        temporary->setParent(&window);
+        temporary->setTemporary(true);
+        temporary->setName("Temporary monitoring locations");
+        QVERIFY(permanent->ogrLayer());
+        QVERIFY(temporary->ogrLayer());
+        QVERIFY(!permanent->isTemporary());
+        QVERIFY(temporary->isTemporary());
+        window.canvas()->addLayer(permanent, false);
+        auto *savedBasemap = new XYZTileLayer("https://example.invalid/{z}/{x}/{y}", 256, &window);
+        savedBasemap->setName("Saved basemap");
+        savedBasemap->setVisible(false); // This persistence-only fixture never requests tiles.
+        window.canvas()->addLayer(savedBasemap, false);
+        auto *temporaryBasemap =
+            new XYZTileLayer("https://example.invalid/{z}/{x}/{y}", 256, &window);
+        temporaryBasemap->setName("Temporary basemap");
+        temporaryBasemap->setVisible(false);
+        temporaryBasemap->setTemporary(true);
+        window.canvas()->addLayer(temporaryBasemap);
+        window.setHasChanges(false);
+        const int history = window.canvas()->undoStack()->count();
+        window.canvas()->addLayer(temporary); // The temporary policy overrides normal undo routing.
+        QCOMPARE(window.canvas()->undoStack()->count(), history);
+        QVERIFY(!window.hasChanges());
+        temporary->setFilterExpression("flow >= 10");
+        // The public unforced count may be unknown after an OGR attribute filter.
+        QCOMPARE(temporary->ogrLayer()->GetFeatureCount(true), GIntBig(1));
+        QVERIFY(!window.hasChanges());
+        const auto temporaryKey = MapCanvas::layerOrderKey(temporary);
+        const auto permanentKey = MapCanvas::layerOrderKey(permanent);
+        for (const auto &name : {QStringLiteral("temporary-project.oswp"),
+                                 QStringLiteral("temporary-recovery.oswp")}) {
+            const auto savedPath = retained.filePath(name);
+            QString error;
+            QVERIFY2(ProjectSerializer::saveToFile(savedPath, &window, &error), qPrintable(error));
+            const auto saved = QJsonDocument::fromJson(bytes(savedPath)).object();
+            const auto gis = saved["gisLayers"].toArray();
+            QCOMPARE(gis.size(), 1);
+            QCOMPARE(gis.first().toObject()["id"].toString(), permanent->layerId());
+            const auto order = saved["canvas"].toObject()["layerOrder"].toArray();
+            QVERIFY(order.contains(permanentKey));
+            QVERIFY(!order.contains(temporaryKey));
+            QVERIFY(!order.contains(MapCanvas::layerOrderKey(temporaryBasemap)));
+            const auto basemaps = saved["basemaps"].toArray();
+            QCOMPARE(basemaps.size(), 1);
+            QCOMPARE(basemaps.first().toObject()["name"].toString(), savedBasemap->name());
+        }
+        auto *removed = window.canvas()->takeLayer(window.canvas()->layers().indexOf(temporary));
+        QCOMPARE(removed, temporary);
+        delete removed;
+        QCOMPARE(window.canvas()->undoStack()->count(), history);
+        QVERIFY(!window.hasChanges());
+    }
+    /** @brief Permanent move/reorder undo survives inserted, removed and deleted temporary layers. */
+    void temporaryLayersDoNotCorruptPermanentStackHistory()
+    {
+        MapCanvas canvas;
+        const auto create = [&canvas](const QString &name, bool temporary = false) {
+            auto *layer = new GISVectorLayer(QString{});
+            layer->setName(name);
+            layer->setParent(&canvas);
+            layer->setTemporary(temporary);
+            return layer;
+        };
+        auto *a = create("A"), *b = create("B"), *c = create("C");
+        canvas.addLayer(a, false);
+        canvas.addLayer(b, false);
+        canvas.addLayer(c, false);
+        canvas.moveLayer(0, 2);
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{b, c, a}));
+        QCOMPARE(canvas.undoStack()->count(), 1);
+        auto *preview = create("Preview", true);
+        canvas.insertLayer(0, preview);
+        QCOMPARE(canvas.undoStack()->count(), 1);
+        canvas.moveLayer(0, 3); // Moving only the preview is also outside undo history.
+        QCOMPARE(canvas.undoStack()->count(), 1);
+        canvas.undoStack()->undo();
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{a, b, c, preview}));
+        canvas.undoStack()->redo();
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{b, c, a, preview}));
+        canvas.reorderLayers({preview, a, c, b});
+        QCOMPARE(canvas.undoStack()->count(), 2);
+        delete canvas.takeLayer(canvas.layers().indexOf(preview));
+        QCOMPARE(canvas.undoStack()->count(), 2);
+        canvas.undoStack()->undo();
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{b, c, a}));
+        canvas.undoStack()->redo();
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{a, c, b}));
+        auto *later = create("Later preview", true);
+        canvas.insertLayer(0, later);
+        canvas.undoStack()->undo();
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{b, c, a, later}));
+        canvas.undoStack()->redo();
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{a, c, b, later}));
+        delete canvas.takeLayer(canvas.layers().indexOf(b), false);
+        canvas.undoStack()->undo();
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{c, a, later}));
+        canvas.undoStack()->redo();
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{a, c, later}));
+        QCOMPARE(canvas.undoStack()->count(), 2);
+        canvas.undoStack()->undo();
+        canvas.undoStack()->undo();
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{a, c, later}));
+        delete canvas.takeLayer(canvas.layers().indexOf(a), false);
+        canvas.undoStack()->redo(); // A deleted move target must not move a different current row.
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{c, later}));
+        canvas.undoStack()->redo();
+        QCOMPARE(canvas.layers(), (QList<OpenSWMMVisLayer *>{c, later}));
+    }
+    /** @brief Verify selecting the current engine version is silent while changing it marks the project dirty exactly once. */
+    void engineVersionOnlyRecordsActualUserChanges()
+    {
+        std::unique_ptr<OpenSWMMVisWorkspace> workspace(
+            OpenSWMMVisWorkspace::newInstance({}, nullptr));
+        SWMMVisProjectWindow window(workspace.get(), {});
+        QVERIFY(initialize(window));
+        window.setHasChanges(false);
+        QSignalSpy edits(&window, &SWMMVisProjectWindow::hasChangesChanged);
+        window.setEngineVersion(window.engineVersion());
+        QVERIFY(!window.hasChanges());
+        QCOMPARE(edits.count(), 0);
+        const QString changed =
+            window.engineVersion() == "5.2.4" ? QString("6.0.0") : QString("5.2.4");
+        window.setEngineVersion(changed);
+        QCOMPARE(window.engineVersion(), changed);
+        QVERIFY(window.hasChanges());
+        QCOMPARE(edits.count(), 1);
+    }
+    /** @brief Register same/different persisted engine versions with initially clean and dirty projects. */
+    void engineVersionHydrationPreservesDirtyState_data()
+    {
+        QTest::addColumn<bool>("dirty");
+        QTest::addColumn<bool>("differentVersion");
+        QTest::newRow("clean-same-version") << false << false;
+        QTest::newRow("clean-different-version") << false << true;
+        QTest::newRow("dirty-different-version") << true << true;
+    }
+    /** @brief Verify sidecar engine-version hydration changes selection without altering dirty state or emitting edit notifications. */
+    void engineVersionHydrationPreservesDirtyState()
+    {
+        QFETCH(bool, dirty);
+        QFETCH(bool, differentVersion);
+        std::unique_ptr<OpenSWMMVisWorkspace> workspace(
+            OpenSWMMVisWorkspace::newInstance({}, nullptr));
+        SWMMVisProjectWindow window(workspace.get(), {});
+        QVERIFY(initialize(window));
+        const QString original = window.engineVersion();
+        const QString restored = differentVersion
+                                     ? (original == "5.2.4" ? QString("6.0.0") : QString("5.2.4"))
+                                     : original;
+        QJsonObject session{{"inpPath", ""}, {"engineVersion", restored}};
+        const auto path = output(QString("engine-version-%1.oswp").arg(QTest::currentDataTag()));
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        const auto data =
+            QJsonDocument(QJsonObject{{"schemaVersion", 5}, {"sessions", QJsonArray{session}}})
+                .toJson();
+        QCOMPARE(file.write(data), qint64(data.size()));
+        file.close();
+        window.setHasChanges(dirty);
+        QSignalSpy edits(&window, &SWMMVisProjectWindow::hasChangesChanged);
+        QString error;
+        QStringList warnings;
+        QVERIFY2(ProjectSerializer::applyFromFile(path, &window, &error, &warnings),
+                 qPrintable(error));
+        QCOMPARE(window.engineVersion(), restored);
+        QCOMPARE(window.hasChanges(), dirty);
+        QCOMPARE(edits.count(), 0);
+    }
+    /** @brief Register initially clean and already edited terrain metadata hydration. */
+    void terrainHydrationPreservesDirtyState_data()
+    {
+        QTest::addColumn<bool>("dirty");
+        QTest::newRow("clean") << false;
+        QTest::newRow("existing-edit") << true;
+    }
+    /** @brief Verify terrain unit/offset hydration preserves dirty state while notifying terrain listeners.
+     * Checks meter-to-project conversion and confirms a later user unit change dirties the project once. */
+    void terrainHydrationPreservesDirtyState()
+    {
+        QFETCH(bool, dirty);
+        std::unique_ptr<OpenSWMMVisWorkspace> workspace(
+            OpenSWMMVisWorkspace::newInstance({}, nullptr));
+        SWMMVisProjectWindow window(workspace.get(), {});
+        QVERIFY(initialize(window));
+        window.setTerrainVerticalUnit("ft");
+        window.setHasChanges(dirty);
+        QSignalSpy dirtyChanges(&window, &SWMMVisProjectWindow::hasChangesChanged);
+        QSignalSpy terrainChanges(&window, &SWMMVisProjectWindow::activeTerrainChanged);
+        window.restoreTerrainState({}, 1.25, 2.5, "m");
+        QCoreApplication::processEvents();
+        QCOMPARE(window.terrainVerticalUnit(), QString("m"));
+        QCOMPARE(window.terrainVertFactor(), window.unitSystem()->isSI() ? 1.0 : 1.0 / 0.3048);
+        QCOMPARE(window.terrainNodeOffset(), 1.25);
+        QCOMPARE(window.terrainLinkOffset(), 2.5);
+        QCOMPARE(window.hasChanges(), dirty);
+        QCOMPARE(dirtyChanges.count(), 0);
+        QVERIFY(terrainChanges.count() > 0);
+        window.setHasChanges(false);
+        dirtyChanges.clear();
+        window.setTerrainVerticalUnit("ft");
+        QVERIFY(window.hasChanges());
+        QCOMPARE(dirtyChanges.count(), 1);
+    }
+    /** @brief Verify profile sections and groundwater history persist source paths and restore without edit signals.
+     * Confirms editing stores dirties the first project and applying a legacy sidecar without these fields clears the second stores without dirtying it. */
+    void savedSectionsAndAssignmentHistoryRoundTrip()
+    {
+        std::unique_ptr<OpenSWMMVisWorkspace> workspace(
+            OpenSWMMVisWorkspace::newInstance({}, nullptr));
+        SWMMVisProjectWindow first(workspace.get(), {}), second(workspace.get(), {});
+        QVERIFY(initialize(first));
+        QVERIFY(initialize(second));
+        first.setHasChanges(false);
+        QString error;
+        QVERIFY(ProfileSectionStore::forOwner(&first)->saveDefinition(definition(), &error));
+        QVERIFY(first.hasChanges());
+        QVERIFY(GroundwaterRecipeStore::forOwner(&first)->append(recipe(), &error));
+        const auto path = output("sections-and-assignment.oswp");
+        QVERIFY2(ProjectSerializer::saveToFile(path, &first, &error), qPrintable(error));
+        const auto root = QJsonDocument::fromJson(bytes(path)).object();
+        const auto session = root["sessions"].toArray()[0].toObject();
+        QCOMPARE(session["profileSections"].toArray().size(), 1);
+        QCOMPARE(session["groundwaterAssignmentHistory"].toArray().size(), 1);
+        second.setHasChanges(false);
+        QStringList warnings;
+        QSignalSpy sectionEdits(ProfileSectionStore::forOwner(&second),
+                                &ProfileSectionStore::edited);
+        QSignalSpy assignmentEdits(GroundwaterRecipeStore::forOwner(&second),
+                                   &GroundwaterRecipeStore::edited);
+        QVERIFY2(ProjectSerializer::applyFromFile(path, &second, &error, &warnings),
+                 qPrintable(error));
+        const auto restored = ProfileSectionStore::forOwner(&second)->definitions();
+        QCOMPARE(restored.size(), 1);
+        QCOMPARE(restored[0].sources[0].path, definition().sources[0].path);
+        QCOMPARE(GroundwaterRecipeStore::forOwner(&second)
+                     ->events()[0]
+                     .toObject()["sourcePath"]
+                     .toString(),
+                 recipe()["sourcePath"].toString());
+        // Metadata and store hydration are read-only, including engine selection.
+        QCoreApplication::processEvents();
+        QVERIFY(!second.hasChanges());
+        QCOMPARE(sectionEdits.count(), 0);
+        QCOMPARE(assignmentEdits.count(), 0);
+        auto legacy = root;
+        auto sessions = legacy["sessions"].toArray();
+        auto old = sessions[0].toObject();
+        old.remove("profileSections");
+        old.remove("groundwaterAssignmentHistory");
+        sessions[0] = old;
+        legacy["sessions"] = sessions;
+        const auto legacyPath = output("legacy-no-sections.oswp");
+        QFile legacyFile(legacyPath);
+        QVERIFY(legacyFile.open(QIODevice::WriteOnly));
+        legacyFile.write(QJsonDocument(legacy).toJson());
+        legacyFile.close();
+        QVERIFY(ProjectSerializer::applyFromFile(legacyPath, &second, &error, &warnings));
+        QVERIFY(ProfileSectionStore::forOwner(&second)->definitions().isEmpty());
+        QVERIFY(GroundwaterRecipeStore::forOwner(&second)->events().isEmpty());
+        QCoreApplication::processEvents();
+        QVERIFY(!second.hasChanges());
+        QCOMPARE(sectionEdits.count(), 0);
+        QCOMPARE(assignmentEdits.count(), 0);
+    }
+    /** @brief Verify malformed saved section metadata loads with warnings and prevents overwriting the original sidecar bytes. */
+    void malformedSidecarWarnsAndCannotOverwriteOriginal()
+    {
+        std::unique_ptr<OpenSWMMVisWorkspace> workspace(
+            OpenSWMMVisWorkspace::newInstance({}, nullptr));
+        SWMMVisProjectWindow window(workspace.get(), {});
+        QVERIFY(initialize(window));
+        QString error;
+        const auto path = output("malformed-retained.oswp");
+        QJsonObject session{{"inpPath", ""}, {"profileSections", QJsonObject{{"future", true}}}};
+        const QByteArray original =
+            QJsonDocument(QJsonObject{{"schemaVersion", 5}, {"sessions", QJsonArray{session}}})
+                .toJson();
+        QFile file(path);
+        QVERIFY(file.open(QIODevice::WriteOnly));
+        QCOMPARE(file.write(original), qint64(original.size()));
+        file.close();
+        QStringList warnings;
+        QVERIFY(ProjectSerializer::applyFromFile(path, &window, &error, &warnings));
+        QVERIFY(!warnings.isEmpty());
+        QVERIFY(!ProjectSerializer::saveToFile(path, &window, &error));
+        QVERIFY(!error.isEmpty());
+        QCOMPARE(bytes(path), original);
+    }
+    // Review E-06 (workplans/GUI_COMPREHENSIVE_REVIEW_2026-11-12.md), owner
+    // 2026-11-12: a saved GIS layer that does not reopen used to be dropped
+    // (a failed async open silently) and the next save lost its entry. It now
+    // stays as a placeholder with a warning icon and the reason.
+    /** @brief Verify missing and unreadable GIS layers load as placeholders, show why in the tree and save their entries back. */
+    void unreadableGisLayersKeepTheirEntry()
+    {
+        QDir().mkpath(QFileInfo(output("unavailable-layers/x")).absolutePath());
+        QFile junk(output("unavailable-layers/not-geojson.geojson"));
+        QVERIFY(junk.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        junk.write("this is not GeoJSON");
+        junk.close();
+
+        // A saved project listing one missing raster and one unreadable vector.
+        std::unique_ptr<OpenSWMMVisWorkspace> workspace(
+            OpenSWMMVisWorkspace::newInstance({}, nullptr));
+        SWMMVisProjectWindow first(workspace.get(), {});
+        QVERIFY(initialize(first));
+        QString error;
+        const QString oswp = output("unavailable-layers/project.oswp");
+        QVERIFY2(ProjectSerializer::saveToFile(oswp, &first, &error), qPrintable(error));
+        QFile file(oswp);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QJsonObject json = QJsonDocument::fromJson(file.readAll()).object();
+        file.close();
+        const QJsonObject missing{{"type", "raster"},     {"path", "missing-dem.tif"},
+                                  {"name", "DEM"},        {"visible", false},
+                                  {"opacity", 0.5},       {"id", "layer-missing"},
+                                  {"rasterStyle", QJsonObject{{"ramp", "terrain"}}}};
+        const QJsonObject unreadable{{"type", "vector"},
+                                     {"path", "not-geojson.geojson"},
+                                     {"name", "Parcels"},
+                                     {"id", "layer-unreadable"},
+                                     {"filterExpression", "AREA > 1"}};
+        json["gisLayers"] = QJsonArray{missing, unreadable};
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        file.write(QJsonDocument(json).toJson());
+        file.close();
+
+        SWMMVisProjectWindow second(workspace.get(), {});
+        QVERIFY(initialize(second));
+        QStringList warnings;
+        QVERIFY2(ProjectSerializer::applyFromFile(oswp, &second, &error, &warnings),
+                 qPrintable(error));
+        QVERIFY(warnings.join(QLatin1Char('\n')).contains(QStringLiteral("missing-dem.tif")));
+        const auto placeholder = [&second](const QString &id) -> UnavailableLayer * {
+            for (OpenSWMMVisLayer *l : second.canvas()->layers())
+                if (l->layerId() == id)
+                    return qobject_cast<UnavailableLayer *>(l);
+            return nullptr;
+        };
+        UnavailableLayer *missingLayer = placeholder(QStringLiteral("layer-missing"));
+        QVERIFY2(missingLayer, "a missing raster left no layer behind");
+        QCOMPARE(missingLayer->name(), QStringLiteral("DEM"));
+        QVERIFY(!missingLayer->isVisible());
+        QTRY_VERIFY_WITH_TIMEOUT(placeholder(QStringLiteral("layer-unreadable")), 10000);
+        UnavailableLayer *unreadableLayer = placeholder(QStringLiteral("layer-unreadable"));
+        QVERIFY(unreadableLayer->reason().contains(QStringLiteral("could not be opened")));
+
+        // The tree shows the problem: warning icon, reason as tooltip and accessible description.
+        LayerTreePanel panel;
+        panel.setCanvas(second.canvas());
+        const QModelIndex row = panel.model()->indexForLayer(missingLayer);
+        QVERIFY(row.isValid());
+        QVERIFY(!row.data(Qt::DecorationRole).value<QIcon>().isNull());
+        QVERIFY(row.data(Qt::ToolTipRole).toString().contains(QStringLiteral("file not found")));
+        QCOMPARE(row.data(Qt::AccessibleDescriptionRole), row.data(Qt::ToolTipRole));
+        panel.setCanvas(nullptr);
+
+        // Saved elsewhere, each entry comes back intact with its path re-anchored.
+        missingLayer->setVisible(true);
+        const QString moved = output("unavailable-layers/moved/project.oswp");
+        QDir().mkpath(QFileInfo(moved).absolutePath());
+        QVERIFY2(ProjectSerializer::saveToFile(moved, &second, &error), qPrintable(error));
+        QFile movedFile(moved);
+        QVERIFY(movedFile.open(QIODevice::ReadOnly));
+        const QJsonArray saved =
+            QJsonDocument::fromJson(movedFile.readAll()).object()["gisLayers"].toArray();
+        QCOMPARE(saved.size(), 2);
+        QJsonObject savedMissing, savedUnreadable;
+        for (const QJsonValue &v : saved)
+            (v.toObject()["id"].toString() == QStringLiteral("layer-missing") ? savedMissing
+                                                                              : savedUnreadable) =
+                v.toObject();
+        QCOMPARE(savedMissing.value("type").toString(), QStringLiteral("raster"));
+        QCOMPARE(savedMissing.value("path").toString(), QStringLiteral("../missing-dem.tif"));
+        QCOMPARE(savedMissing.value("visible").toBool(), true);
+        QCOMPARE(savedMissing.value("rasterStyle").toObject(),
+                 missing.value("rasterStyle").toObject());
+        QCOMPARE(savedUnreadable.value("id").toString(), QStringLiteral("layer-unreadable"));
+        QCOMPARE(savedUnreadable.value("path").toString(), QStringLiteral("../not-geojson.geojson"));
+        QCOMPARE(savedUnreadable.value("filterExpression").toString(), QStringLiteral("AREA > 1"));
+    }
+
+    /** @brief "Repair Data Source…" on a layer whose file was missing reopens it from the chosen
+     *  file in place: same id, name, visibility, opacity and saved style; a file that cannot be
+     *  opened leaves the placeholder; the next save writes the new path. */
+    void repairDataSourceReopensAMissingLayerInPlace()
+    {
+        const QString dir = output("repair-data-source");
+        QDir(dir).removeRecursively();
+        QDir().mkpath(dir);
+        const auto write = [&dir](const QString &name, const QByteArray &text) {
+            QFile f(dir + QLatin1Char('/') + name);
+            if (f.open(QIODevice::WriteOnly | QIODevice::Truncate))
+                f.write(text);
+            return f.fileName();
+        };
+        QDir().mkpath(dir + "/found");
+        const QString dem = write("found/dem.asc", "ncols 3\nnrows 3\nxllcorner 0\nyllcorner 0\ncellsize 10\n"
+                               "NODATA_value -9999\n1 2 3\n4 5 6\n7 8 9\n");
+        const QString parcels = write(
+            "found/parcels.geojson",
+            R"({"type":"FeatureCollection","features":[{"type":"Feature","properties":{"AREA":2},)"
+            R"("geometry":{"type":"Polygon","coordinates":[[[0,0],[10,0],[10,10],[0,0]]]}}]})");
+        const QString junk = write("found/junk.geojson", "this is not GeoJSON");
+
+        // A saved project whose raster and vector files are missing.
+        std::unique_ptr<OpenSWMMVisWorkspace> workspace(
+            OpenSWMMVisWorkspace::newInstance({}, nullptr));
+        SWMMVisProjectWindow first(workspace.get(), {});
+        QVERIFY(initialize(first));
+        QString error;
+        const QString oswp = dir + "/project.oswp";
+        QVERIFY2(ProjectSerializer::saveToFile(oswp, &first, &error), qPrintable(error));
+        QFile file(oswp);
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        QJsonObject json = QJsonDocument::fromJson(file.readAll()).object();
+        file.close();
+        const QJsonObject rasterStyle{{"ramp", "terrain"}};
+        json["gisLayers"] = QJsonArray{
+            QJsonObject{{"type", "raster"}, {"path", "old/dem.asc"}, {"name", "DEM"},
+                        {"visible", false}, {"opacity", 0.5}, {"id", "layer-dem"},
+                        {"rasterStyle", rasterStyle}},
+            QJsonObject{{"type", "vector"}, {"path", "old/parcels.geojson"}, {"name", "Parcels"},
+                        {"id", "layer-parcels"}, {"filterExpression", "AREA > 1"}}};
+        QVERIFY(file.open(QIODevice::WriteOnly | QIODevice::Truncate));
+        file.write(QJsonDocument(json).toJson());
+        file.close();
+
+        SWMMVisProjectWindow second(workspace.get(), {});
+        QVERIFY(initialize(second));
+        QStringList warnings;
+        QVERIFY2(ProjectSerializer::applyFromFile(oswp, &second, &error, &warnings),
+                 qPrintable(error));
+        MapCanvas *canvas = second.canvas();
+        const auto layerWithId = [canvas](const QString &id) -> OpenSWMMVisLayer * {
+            for (OpenSWMMVisLayer *l : canvas->layers())
+                if (l->layerId() == id)
+                    return l;
+            return nullptr;
+        };
+        auto *demPlaceholder = qobject_cast<UnavailableLayer *>(layerWithId("layer-dem"));
+        auto *parcelsPlaceholder = qobject_cast<UnavailableLayer *>(layerWithId("layer-parcels"));
+        QVERIFY(demPlaceholder && parcelsPlaceholder);
+        const int layerCount = canvas->layers().size();
+
+        // The tree offers the repair on the placeholder's row, and only there.
+        LayerTreePanel panel;
+        panel.setCanvas(canvas);
+        panel.resize(400, 600);
+        panel.show();
+        auto *tree = panel.findChild<QTreeView *>();
+        auto *proxy = qobject_cast<QSortFilterProxyModel *>(tree->model());
+        QVERIFY(tree && proxy);
+        QSignalSpy requested(&panel, &LayerTreePanel::repairDataSourceRequested);
+        const QModelIndex row = proxy->mapFromSource(panel.model()->indexForLayer(demPlaceholder));
+        QVERIFY(row.isValid());
+        tree->scrollTo(row);
+        bool offered = false;
+        QTimer::singleShot(0, &panel, [&offered] {
+            auto *menu = qobject_cast<QMenu *>(QApplication::activePopupWidget());
+            if (!menu)
+                return;
+            for (QAction *action : menu->actions())
+                if (action->objectName() == QStringLiteral("repairDataSourceAction")) {
+                    offered = action->text() == QStringLiteral("Repair Data Source…");
+                    QTest::mouseClick(menu, Qt::LeftButton, Qt::NoModifier,
+                                      menu->actionGeometry(action).center());
+                    return;
+                }
+            menu->close();
+        });
+        emit tree->customContextMenuRequested(tree->visualRect(row).center());
+        QVERIFY(offered);
+        QCOMPARE(requested.count(), 1);
+        QCOMPARE(requested.first().first().value<UnavailableLayer *>(), demPlaceholder);
+        panel.setCanvas(nullptr);
+
+        // A file that cannot be opened either: the placeholder stays, the reason comes back.
+        bool called = false;
+        QString failure;
+        ProjectSerializer::relinkUnavailableLayer(
+            parcelsPlaceholder, junk, canvas,
+            [&](OpenSWMMVisLayer *layer, const QString &why) {
+                called = true;
+                failure = layer ? QString() : why;
+            });
+        QTRY_VERIFY_WITH_TIMEOUT(called, 10000);
+        QVERIFY2(failure.contains(QStringLiteral("could not be opened")), qPrintable(failure));
+        QCOMPARE(layerWithId("layer-parcels"), parcelsPlaceholder);
+        QCOMPARE(canvas->layers().size(), layerCount);
+
+        // The raster and the vector reopen in place with their saved state.
+        OpenSWMMVisLayer *reopenedDem = nullptr, *reopenedParcels = nullptr;
+        ProjectSerializer::relinkUnavailableLayer(
+            demPlaceholder, dem, canvas,
+            [&](OpenSWMMVisLayer *layer, const QString &) { reopenedDem = layer; });
+        ProjectSerializer::relinkUnavailableLayer(
+            parcelsPlaceholder, parcels, canvas,
+            [&](OpenSWMMVisLayer *layer, const QString &) { reopenedParcels = layer; });
+        QTRY_VERIFY_WITH_TIMEOUT(reopenedDem && reopenedParcels, 10000);
+        auto *raster = qobject_cast<GISRasterLayer *>(layerWithId("layer-dem"));
+        auto *vector = qobject_cast<GISVectorLayer *>(layerWithId("layer-parcels"));
+        QVERIFY(raster && vector);
+        QCOMPARE(raster, reopenedDem);
+        QCOMPARE(raster->name(), QStringLiteral("DEM"));
+        QVERIFY(!raster->isVisible());
+        QCOMPARE(raster->opacity(), 0.5);
+        QCOMPARE(vector->name(), QStringLiteral("Parcels"));
+        QCOMPARE(vector->filterExpression(), QStringLiteral("AREA > 1"));
+        QCOMPARE(canvas->layers().size(), layerCount);
+        for (OpenSWMMVisLayer *l : canvas->layers())
+            QVERIFY(!qobject_cast<UnavailableLayer *>(l));
+
+        // Saved, the entries point at the new files; reopened, they load.
+        QVERIFY2(ProjectSerializer::saveToFile(oswp, &second, &error), qPrintable(error));
+        QVERIFY(file.open(QIODevice::ReadOnly));
+        const QJsonArray saved = QJsonDocument::fromJson(file.readAll()).object()["gisLayers"].toArray();
+        file.close();
+        QStringList paths;
+        for (const QJsonValue &v : saved)
+            paths << v.toObject().value("path").toString();
+        paths.sort();
+        QCOMPARE(paths, (QStringList{QStringLiteral("found/dem.asc"), QStringLiteral("found/parcels.geojson")}));
+        SWMMVisProjectWindow third(workspace.get(), {});
+        QVERIFY(initialize(third));
+        QVERIFY2(ProjectSerializer::applyFromFile(oswp, &third, &error, &warnings), qPrintable(error));
+        QTRY_VERIFY_WITH_TIMEOUT(third.canvas()->layers().size() >= layerCount, 10000);
+        for (OpenSWMMVisLayer *l : third.canvas()->layers())
+            QVERIFY2(!qobject_cast<UnavailableLayer *>(l), qPrintable(l->name()));
+    }
+};
+QTEST_MAIN(TestPhase35ProjectPersistence)
+#include "test_phase35_projectpersistence.moc"

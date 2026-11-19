@@ -1,0 +1,18 @@
+{
+  "validated_on": "2026-10-05",
+  "total_tests": 241,
+  "suite_test_counts": {
+    "outfall_backflow": 5,
+    "water_age_lid": 6,
+    "heat_lid": 10,
+    "hotstart": 39,
+    "infiltration": 33,
+    "lid": 55,
+    "quality_routing": 21,
+    "treatment": 32,
+    "lid_nodes": 40
+  },
+  "ctest_targets": "^test_engine_(lid_nodes|quality_routing|treatment|hotstart|outfall_backflow|water_age_lid|heat_lid|infiltration|lid)$",
+  "all_passed": true,
+  "library_sha256": "c3c397ec3245125727141c4852df80ca4bd9b609e45bf8c05bb25f27e6a9a1dd"
+}

@@ -1,0 +1,5 @@
+{
+    "name": "Pseudo-2D: Hydraulic Jump in a Varying-Width Channel (SWASHES 3.5.4)",
+    "description": "A 200 m channel whose width B(x) varies along its length, holding a hydraulic jump at x = 120 m. Tests width-change source terms together with shock capture. 1D only.",
+    "category": "Analytical Verification (SWASHES)"
+}

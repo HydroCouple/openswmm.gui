@@ -1,8 +1,8 @@
-/*!
- * \file   test_relativepathpicker.cpp
- * \brief  Slice IO-10 — RelativePathPicker widget unit tests.
+/**
+ * @file      test_relativepathpicker.cpp
+ * @brief     Slice IO-10 — RelativePathPicker widget unit tests.
  *
- * \details Pins the widget contract documented in
+ * @details Pins the widget contract documented in
  *          include/ui/widgets/relativepathpicker.h:
  *            - absolutePath() is canonical; setPath() accepts either form.
  *            - displayPath() shows the relative-to-anchor form when reachable.
@@ -13,6 +13,10 @@
  *
  *          No filesystem touches — the picker is a pure string-display
  *          widget; resolution semantics are tested without dialog use.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/widgets/relativepathpicker.h"
@@ -26,12 +30,55 @@ class TestRelativePathPicker : public QObject
 {
     Q_OBJECT
 private slots:
+    /**
+     *
+     * @brief Require empty canonical/display paths and relative-display flag false for a new
+     * picker.
+     *
+     */
     void emptyByDefault();
+    /**
+     *
+     * @brief Require an absolute input without project anchor to remain absolute in both
+     * stored/display forms.
+     *
+     */
     void setAbsoluteShowsAbsoluteWithoutAnchor();
+    /**
+     *
+     * @brief Require an absolute child path to retain canonical storage while displaying relative
+     * to its project anchor.
+     *
+     */
     void setAbsoluteUnderAnchorRendersRelative();
+    /**
+     *
+     * @brief Require relative input to resolve against the anchor while retaining relative
+     * display text.
+     *
+     */
     void setRelativeResolvedAgainstAnchor();
+    /**
+     *
+     * @brief Require adding an anchor to update display text without changing the canonical
+     * absolute path.
+     *
+     */
     void changingAnchorRefreshesDisplay();
+    /**
+     *
+     * @brief Require pathChanged on two distinct paths and no extra signal for repeating the same
+     * absolute input.
+     *
+     */
     void pathChangedSignalOnRealChange();
+    /**
+     *
+     * @brief Check platform-specific unrelated-root path handling without filesystem IO.
+     * Windows requires the D: drive in displayed text; POSIX only checks canonical
+     * absolute preservation and allows either absolute or parent-relative display.
+     *
+     */
     void crossVolumeFallsBackToAbsoluteDisplay();
 };
 
@@ -41,7 +88,7 @@ void TestRelativePathPicker::emptyByDefault()
 {
     RelativePathPicker w;
     QCOMPARE(w.absolutePath(), QString{});
-    QCOMPARE(w.displayPath(),  QString{});
+    QCOMPARE(w.displayPath(), QString{});
     QVERIFY(!w.isDisplayedRelatively());
 }
 
@@ -50,7 +97,7 @@ void TestRelativePathPicker::setAbsoluteShowsAbsoluteWithoutAnchor()
     RelativePathPicker w;
     w.setPath("/tmp/data/rain.dat");
     QCOMPARE(w.absolutePath(), QStringLiteral("/tmp/data/rain.dat"));
-    QCOMPARE(w.displayPath(),  QStringLiteral("/tmp/data/rain.dat"));
+    QCOMPARE(w.displayPath(), QStringLiteral("/tmp/data/rain.dat"));
     QVERIFY(!w.isDisplayedRelatively());
 }
 
@@ -60,7 +107,7 @@ void TestRelativePathPicker::setAbsoluteUnderAnchorRendersRelative()
     w.setProjectAnchor("/tmp/proj");
     w.setPath("/tmp/proj/data/rain.dat");
     QCOMPARE(w.absolutePath(), QStringLiteral("/tmp/proj/data/rain.dat"));
-    QCOMPARE(w.displayPath(),  QStringLiteral("data/rain.dat"));
+    QCOMPARE(w.displayPath(), QStringLiteral("data/rain.dat"));
     QVERIFY(w.isDisplayedRelatively());
 }
 
@@ -70,7 +117,7 @@ void TestRelativePathPicker::setRelativeResolvedAgainstAnchor()
     w.setProjectAnchor("/tmp/proj");
     w.setPath("data/rain.dat");
     QCOMPARE(w.absolutePath(), QStringLiteral("/tmp/proj/data/rain.dat"));
-    QCOMPARE(w.displayPath(),  QStringLiteral("data/rain.dat"));
+    QCOMPARE(w.displayPath(), QStringLiteral("data/rain.dat"));
 }
 
 void TestRelativePathPicker::changingAnchorRefreshesDisplay()
@@ -79,7 +126,7 @@ void TestRelativePathPicker::changingAnchorRefreshesDisplay()
     w.setPath("/tmp/proj/data/rain.dat");
     QCOMPARE(w.displayPath(), QStringLiteral("/tmp/proj/data/rain.dat"));
     w.setProjectAnchor("/tmp/proj");
-    QCOMPARE(w.displayPath(),  QStringLiteral("data/rain.dat"));
+    QCOMPARE(w.displayPath(), QStringLiteral("data/rain.dat"));
     QCOMPARE(w.absolutePath(), QStringLiteral("/tmp/proj/data/rain.dat"));
 }
 

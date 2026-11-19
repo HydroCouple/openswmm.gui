@@ -1,9 +1,13 @@
-/*!
- * \file   gisvectorsymboleditor.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      gisvectorsymboleditor.cpp
+ * @brief     Surfaces every Q_PROPERTY of the GISVectorSymbol struct (markers, lines, polygons,
+ *            labels) in a single tabbed widget.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/dialogs/editors/gisvectorsymboleditor.h"
 
 #include "layers/gisvectorsymboladapter.h"
@@ -23,7 +27,8 @@
 #include <QTabWidget>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 GisVectorSymbolEditor::GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter, QWidget *parent)
     : IStyleEditorWidget(parent), m_adapter(adapter)
@@ -41,7 +46,7 @@ GisVectorSymbolEditor::GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter, QW
         auto *form = new QFormLayout;
 
         m_shapeCombo = new MarkerShapeCombo(page);
-        m_shapeCombo->populateCanonical();   // G-1 — full canonical 19-shape set
+        m_shapeCombo->populateCanonical(); // G-1 — full canonical 19-shape set
         form->addRow(tr("&Shape:"), m_shapeCombo);
 
         m_markerSize = new QDoubleSpinBox(page);
@@ -51,7 +56,7 @@ GisVectorSymbolEditor::GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter, QW
         form->addRow(tr("S&ize:"), m_markerSize);
 
         m_markerFill = new ColorButton(page);
-        m_markerFill->setShowAlpha(true);   // allow per-colour transparency
+        m_markerFill->setShowAlpha(true); // allow per-color transparency
         form->addRow(tr("Fill:"), m_markerFill);
 
         m_markerStroke = new ColorButton(page);
@@ -82,7 +87,7 @@ GisVectorSymbolEditor::GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter, QW
         auto *form = new QFormLayout;
 
         m_lineColor = new ColorButton(page);
-        form->addRow(tr("C&olour:"), m_lineColor);
+        form->addRow(tr("C&olor:"), m_lineColor);
 
         m_lineWidth = new QDoubleSpinBox(page);
         m_lineWidth->setRange(0.25, 30.0);
@@ -112,11 +117,11 @@ GisVectorSymbolEditor::GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter, QW
         auto *form = new QFormLayout;
 
         m_polyFill = new ColorButton(page);
-        m_polyFill->setShowAlpha(true);   // polygon fill transparency
-        form->addRow(tr("Fill colo&ur:"), m_polyFill);
+        m_polyFill->setShowAlpha(true); // polygon fill transparency
+        form->addRow(tr("&Fill color:"), m_polyFill);
 
         m_polyOutline = new ColorButton(page);
-        form->addRow(tr("Outli&ne colour:"), m_polyOutline);
+        form->addRow(tr("Outli&ne color:"), m_polyOutline);
 
         m_polyOutlineW = new QDoubleSpinBox(page);
         m_polyOutlineW->setRange(0.0, 20.0);
@@ -153,67 +158,67 @@ GisVectorSymbolEditor::GisVectorSymbolEditor(GisVectorSymbolAdapter *adapter, QW
         form->addRow(tr("Font:"), m_labelFont);
 
         m_labelColor = new ColorButton(page);
-        form->addRow(tr("Colour:"), m_labelColor);
+        form->addRow(tr("Color:"), m_labelColor);
         vlay->addLayout(form);
         vlay->addStretch();
         tabs->addTab(page, tr("La&bels"));
     }
 
     // ── Bindings ───────────────────────────────────────────────────────
-    connect(m_shapeCombo, &MarkerShapeCombo::shapeValueChanged,
-            this, [this](int v) { m_adapter->setMarkerShape(static_cast<GisVectorSymbolAdapter::MarkerShape>(v)); });
-    connect(m_markerSize, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, [this](double v) { m_adapter->setMarkerSize(v); });
-    connect(m_markerFill, &ColorButton::colorChanged,
-            this, [this](const QColor &c) { m_adapter->setMarkerFill(c); });
-    connect(m_markerStroke, &ColorButton::colorChanged,
-            this, [this](const QColor &c) { m_adapter->setMarkerOutline(c); });
-    connect(m_markerStrokeW, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, [this](double v) { m_adapter->setMarkerOutlineW(v); });
+    connect(m_shapeCombo, &MarkerShapeCombo::shapeValueChanged, this, [this](int v) {
+        m_adapter->setMarkerShape(static_cast<GisVectorSymbolAdapter::MarkerShape>(v));
+    });
+    connect(m_markerSize, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double v) { m_adapter->setMarkerSize(v); });
+    connect(m_markerFill, &ColorButton::colorChanged, this,
+            [this](const QColor &c) { m_adapter->setMarkerFill(c); });
+    connect(m_markerStroke, &ColorButton::colorChanged, this,
+            [this](const QColor &c) { m_adapter->setMarkerOutline(c); });
+    connect(m_markerStrokeW, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double v) { m_adapter->setMarkerOutlineW(v); });
 
-    connect(m_lineColor, &ColorButton::colorChanged,
-            this, [this](const QColor &c) { m_adapter->setLineColor(c); });
-    connect(m_lineWidth, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, [this](double v) { m_adapter->setLineWidth(v); });
-    connect(m_lineDash, &DashStyleCombo::penStyleChanged,
-            this, [this](Qt::PenStyle s) { m_adapter->setLineDash(s); });
+    connect(m_lineColor, &ColorButton::colorChanged, this,
+            [this](const QColor &c) { m_adapter->setLineColor(c); });
+    connect(m_lineWidth, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double v) { m_adapter->setLineWidth(v); });
+    connect(m_lineDash, &DashStyleCombo::penStyleChanged, this,
+            [this](Qt::PenStyle s) { m_adapter->setLineDash(s); });
 
-    connect(m_polyFill, &ColorButton::colorChanged,
-            this, [this](const QColor &c) { m_adapter->setPolygonFill(c); });
-    connect(m_polyOutline, &ColorButton::colorChanged,
-            this, [this](const QColor &c) { m_adapter->setPolygonOutlineColor(c); });
-    connect(m_polyOutlineW, qOverload<double>(&QDoubleSpinBox::valueChanged),
-            this, [this](double v) { m_adapter->setPolygonOutlineWidth(v); });
+    connect(m_polyFill, &ColorButton::colorChanged, this,
+            [this](const QColor &c) { m_adapter->setPolygonFill(c); });
+    connect(m_polyOutline, &ColorButton::colorChanged, this,
+            [this](const QColor &c) { m_adapter->setPolygonOutlineColor(c); });
+    connect(m_polyOutlineW, qOverload<double>(&QDoubleSpinBox::valueChanged), this,
+            [this](double v) { m_adapter->setPolygonOutlineWidth(v); });
 
-    connect(m_showLabels, &QCheckBox::toggled,
-            this, [this](bool v) { m_adapter->setShowLabels(v); });
-    connect(m_labelField, &QLineEdit::editingFinished,
-            this, [this]() { m_adapter->setLabelField(m_labelField->text()); });
-    connect(m_labelFont, &QFontComboBox::currentFontChanged,
-            this, [this](const QFont &f) { m_adapter->setLabelFont(f); });
-    connect(m_labelColor, &ColorButton::colorChanged,
-            this, [this](const QColor &c) { m_adapter->setLabelColor(c); });
+    connect(m_showLabels, &QCheckBox::toggled, this,
+            [this](bool v) { m_adapter->setShowLabels(v); });
+    connect(m_labelField, &QLineEdit::editingFinished, this,
+            [this]() { m_adapter->setLabelField(m_labelField->text()); });
+    connect(m_labelFont, &QFontComboBox::currentFontChanged, this,
+            [this](const QFont &f) { m_adapter->setLabelFont(f); });
+    connect(m_labelColor, &ColorButton::colorChanged, this,
+            [this](const QColor &c) { m_adapter->setLabelColor(c); });
 
-    connect(m_adapter, &GisVectorSymbolAdapter::symbolChanged,
-            this, &GisVectorSymbolEditor::refreshFromModel,
-            Qt::UniqueConnection);
+    connect(m_adapter, &GisVectorSymbolAdapter::symbolChanged, this,
+            &GisVectorSymbolEditor::refreshFromModel, Qt::UniqueConnection);
 
     refreshFromModel();
 }
 
 void GisVectorSymbolEditor::refreshFromModel()
 {
-    if (!m_adapter) return;
+    if (!m_adapter)
+        return;
     QSignalBlocker bs[] = {
-        QSignalBlocker(m_shapeCombo), QSignalBlocker(m_markerSize),
-        QSignalBlocker(m_markerFill), QSignalBlocker(m_markerStroke),
-        QSignalBlocker(m_markerStrokeW),
-        QSignalBlocker(m_lineColor), QSignalBlocker(m_lineWidth),
-        QSignalBlocker(m_lineDash),
-        QSignalBlocker(m_polyFill), QSignalBlocker(m_polyOutline),
-        QSignalBlocker(m_polyOutlineW),
-        QSignalBlocker(m_showLabels), QSignalBlocker(m_labelField),
-        QSignalBlocker(m_labelFont), QSignalBlocker(m_labelColor),
+        QSignalBlocker(m_shapeCombo),    QSignalBlocker(m_markerSize),
+        QSignalBlocker(m_markerFill),    QSignalBlocker(m_markerStroke),
+        QSignalBlocker(m_markerStrokeW), QSignalBlocker(m_lineColor),
+        QSignalBlocker(m_lineWidth),     QSignalBlocker(m_lineDash),
+        QSignalBlocker(m_polyFill),      QSignalBlocker(m_polyOutline),
+        QSignalBlocker(m_polyOutlineW),  QSignalBlocker(m_showLabels),
+        QSignalBlocker(m_labelField),    QSignalBlocker(m_labelFont),
+        QSignalBlocker(m_labelColor),
     };
     Q_UNUSED(bs);
 
@@ -265,12 +270,11 @@ void GisVectorSymbolEditor::updatePreview()
     }
 }
 
-REGISTER_STYLE_EDITOR(
-    GisVectorSymbolAdapter,
-    [](QObject *obj, QWidget *parent) -> IStyleEditorWidget * {
-        if (auto *a = qobject_cast<GisVectorSymbolAdapter *>(obj))
-            return new GisVectorSymbolEditor(a, parent);
-        return nullptr;
-    })
+REGISTER_STYLE_EDITOR(GisVectorSymbolAdapter,
+                      [](QObject *obj, QWidget *parent) -> IStyleEditorWidget * {
+                          if (auto *a = qobject_cast<GisVectorSymbolAdapter *>(obj))
+                              return new GisVectorSymbolEditor(a, parent);
+                          return nullptr;
+                      })
 
 } // namespace openswmmvis::ui

@@ -1,9 +1,9 @@
-/*!
- * \file   sublayerstyle.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  QObject base class for per-sublayer style property bags.
+/**
+ * @file      sublayerstyle.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     QObject base class for per-sublayer style property bags.
  *
  *         Plan reference: RENDERING_OUTPUT_SUBLAYERS_PLAN.md §2 Decision 4
  *         and §4.2 (each ISublayer exposes a SublayerStyle subclass via
@@ -27,9 +27,13 @@
  *         Cross-slice: Slice S1 (sublayer foundation). Consumed by every
  *         concrete style bag in S2 (e.g. ConduitLineStyle, NodeMarkerStyle,
  *         DepthColorRampStyle, IsolineStyle, …).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef OPENSWMM_RENDER_SUBLAYERSTYLE_H
 #define OPENSWMM_RENDER_SUBLAYERSTYLE_H
+
+#include "render/numberlabelformat.h"
 
 #include <QJsonObject>
 #include <QObject>
@@ -42,7 +46,7 @@ namespace OpenSWMM::Render
  * \brief Base class for per-sublayer style property bags.
  *
  *         Subclasses declare Q_PROPERTYs for the user-editable knobs
- *         specific to that sublayer kind (line width, colour ramp, marker
+ *         specific to that sublayer kind (line width, color ramp, marker
  *         shape, …). Setters must call setDirty() so styleChanged() is
  *         emitted exactly once per logical user edit.
  *
@@ -57,7 +61,11 @@ class SublayerStyle : public QObject
     Q_OBJECT
 
 public:
+    /** @brief Construct a style base with ordinary Qt parent ownership.
+     * @param parent Optional QObject owner, which destroys the style with itself.
+     * Construction emits no styleChanged() signal. */
     explicit SublayerStyle(QObject *parent = nullptr) : QObject(parent) {}
+    /** @brief Destroy the style and its QObject-owned children. */
     ~SublayerStyle() override = default;
 
     /*!
@@ -66,6 +74,7 @@ public:
      *        Default implementation returns an empty object; subclasses
      *        override and write their Q_PROPERTYs out. The schemaVersion
      *        field is the subclass's responsibility.
+     * @return Empty owned object in the base; concrete classes define their schema.
      */
     [[nodiscard]] virtual QJsonObject toJson() const { return {}; }
 
@@ -78,8 +87,27 @@ public:
      *        Subclasses must call setDirty() once at the end so listeners
      *        re-read the entire style atomically (rather than once per
      *        individual property setter during deserialization).
+     * The unnamed QJsonObject argument is the borrowed style configuration.
+     * The base ignores it and emits no signal; concrete implementations define
+     * field validation, retained defaults, and restoration notifications.
      */
     virtual void fromJson(const QJsonObject &) {}
+
+    /** @brief The number format of this style's class labels, when it has one (a style with a
+     *  color scheme). The map legend's editor reads and sets it per layer.
+     * @param[out] out Receives the format. @return False when the style has none. */
+    [[nodiscard]] virtual bool numberFormat(NumberLabelFormat *out) const
+    {
+        Q_UNUSED(out);
+        return false;
+    }
+    /** @brief Set the number format of this style's class labels; styleChanged() on a change.
+     * @param f Format. @return False when the style has none. */
+    virtual bool setNumberFormat(const NumberLabelFormat &f)
+    {
+        Q_UNUSED(f);
+        return false;
+    }
 
 signals:
     /*!
@@ -93,7 +121,9 @@ signals:
     void styleChanged();
 
 protected:
-    /*! Subclass setters call this when a property has actually changed. */
+    /** @brief Emit styleChanged() immediately without tracking or comparing any state.
+     * Subclasses determine whether a logical change occurred before calling this.
+     * Repeated calls emit repeatedly; the base provides no batching or dirty flag. */
     void setDirty() { emit styleChanged(); }
 };
 

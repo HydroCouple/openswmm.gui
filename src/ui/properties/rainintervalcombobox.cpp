@@ -1,16 +1,18 @@
-/*!
- * \file   rainintervalcombobox.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      rainintervalcombobox.cpp
+ * @brief     DA.2 parity follow-up — inline editable combobox editor for the rain gage "Recording
+ *            Interval" Property Browser row.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/properties/rainintervalcombobox.h"
 
 #include <QLineEdit>
 
-RainIntervalComboBox::RainIntervalComboBox(QWidget *parent)
-    : QComboBox(parent)
+RainIntervalComboBox::RainIntervalComboBox(QWidget *parent) : QComboBox(parent)
 {
     // Legacy esComboEdit: editable combo seeded with the standard presets.
     setEditable(true);
@@ -18,11 +20,9 @@ RainIntervalComboBox::RainIntervalComboBox(QWidget *parent)
     addItems(rain_interval::presetsHMM());
 
     // Selecting a preset or finishing a typed edit recomputes seconds.
-    connect(this, QOverload<int>::of(&QComboBox::activated),
-            this, &RainIntervalComboBox::onEdited);
+    connect(this, QOverload<int>::of(&QComboBox::activated), this, &RainIntervalComboBox::onEdited);
     if (QLineEdit *le = lineEdit())
-        connect(le, &QLineEdit::editingFinished,
-                this, &RainIntervalComboBox::onEdited);
+        connect(le, &QLineEdit::editingFinished, this, &RainIntervalComboBox::onEdited);
 }
 
 void RainIntervalComboBox::setValue(const RainIntervalRef &ref)
@@ -35,7 +35,8 @@ void RainIntervalComboBox::setValue(const RainIntervalRef &ref)
 
 void RainIntervalComboBox::onEdited()
 {
-    if (m_suppressApply) return;
+    if (m_suppressApply)
+        return;
     apply();
 }
 
@@ -49,7 +50,8 @@ void RainIntervalComboBox::apply()
         m_suppressApply = false;
         return;
     }
-    if (secs == m_ref.seconds) return;
+    if (secs == m_ref.seconds)
+        return;
     // The engine write is performed by the owning adapter's WRITE slot
     // (setRainIntervalRef), keeping the engine the single source of truth —
     // same MVC contract as DataObjectRef. The editor only carries the value.

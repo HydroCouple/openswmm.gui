@@ -1,12 +1,20 @@
-/*!
- * \file   subcatchcompoundeditbutton.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
+/**
+ * @file      subcatchcompoundeditbutton.cpp
+ * @brief     custom cell editor widget for compound subcatchment attributes (land-use coverage /
+ *            groundwater / LID usage).
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/properties/subcatchcompoundeditbutton.h"
 
+#include "ui/dialogs/groundwaterexchangedialog.h"
 #include "ui/dialogs/subcatchcompoundeditdialog.h"
+#include "layers/swmmmodellayer.h"
+#include "map/mapcanvas.h"
+#include "map/mapundostack.h"
 
 #include <QHBoxLayout>
 #include <QPushButton>
@@ -27,6 +35,7 @@ SubcatchCompoundEditButton::SubcatchCompoundEditButton(QWidget *parent)
 void SubcatchCompoundEditButton::setValue(const SubcatchCompoundEditRef &ref)
 {
     m_ref = ref;
+    m_owner = ref.layer;
     refreshLabel();
 }
 
@@ -40,8 +49,43 @@ void SubcatchCompoundEditButton::refreshLabel()
 
 void SubcatchCompoundEditButton::onClicked()
 {
-    if (!m_ref.engine || m_ref.subName.isEmpty()) return;
+    if (!m_ref.engine || m_ref.subName.isEmpty())
+        return;
+    if (m_ref.layer && (!m_owner || m_owner->engine() != m_ref.engine))
+        return;
 
+    // Groundwater has its own modeless editor (AQUIFER_GROUNDWATER_EXCHANGE
+    // plan D2); the summary refreshes on every Apply rather than on close.
+    // Parented to the top-level window, not this cell editor, which the
+    // delegate may destroy as soon as the cell loses focus.
+    if (m_ref.kind == SubcatchCompoundEditRef::Groundwater) {
+        auto *dlg = new GroundwaterExchangeDialog(m_ref, window());
+        dlg->setAttribute(Qt::WA_DeleteOnClose);
+        if (!m_ref.layer)
+            connect(dlg, &GroundwaterExchangeDialog::applied, this, [this, dlg]() {
+                m_ref.summary = dlg->updatedSummary();
+                refreshLabel();
+                emit valueChanged();
+            });
+        dlg->show();
+        return;
+    }
+
+    if (m_ref.layer && (m_ref.kind == SubcatchCompoundEditRef::LandUse ||
+                        m_ref.kind == SubcatchCompoundEditRef::Loadings ||
+                        m_ref.kind == SubcatchCompoundEditRef::LidUsage)) {
+        auto ref = m_ref;
+        if (!ref.undoStack)
+            for (auto *canvas : window()->findChildren<MapCanvas *>())
+                if (canvas->layers().contains(ref.layer)) {
+                    ref.undoStack = canvas->undoStack();
+                    break;
+                }
+        auto *dialog = new SubcatchCompoundEditDialog(ref, window());
+        dialog->setAttribute(Qt::WA_DeleteOnClose);
+        dialog->show();
+        return;
+    }
     SubcatchCompoundEditDialog dlg(m_ref, this);
     dlg.exec();
 

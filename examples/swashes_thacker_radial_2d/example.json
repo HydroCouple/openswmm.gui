@@ -1,0 +1,5 @@
+{
+    "name": "Thacker: Radial Paraboloid Oscillation (SWASHES 4.2.2)",
+    "description": "Frictionless water sloshing in a radially symmetric paraboloid basin, a periodic analytic solution with a continuously moving shoreline. Tests 2D wetting and drying. 2D only.",
+    "category": "Analytical Verification (SWASHES)"
+}

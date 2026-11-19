@@ -1,0 +1,26 @@
+Road culvert reconstruction regression fixture
+
+road_culvert_onset.json contains the original 2,000-cell union-jack mesh and
+saved depth/edge-flux snapshots at 360, 370, 900, 1,800 and 3,600 seconds.
+Indices are zero-based; geometry, depths and volumetric fluxes are SI.
+
+Source: examples/demo_road_culvert/road_culvert.inp as frozen in
+tests/verification/2d_regression_2026-10-13/snapshots/road_input.inp.
+The FULL_SWE replay used THREADS=1, REPORT_STEP=0:00:10, and ended at 01:00:00
+on 01/01/2026. Other physical options and geometry were unchanged.
+Engine library SHA-256:
+64a7172b56474aa8e95190e47248833e034244e63fa6e8aef8ddb08c287e8510
+
+The fifteen-minute head, depth and velocity fields exactly match the original
+saved GUI run. Tests consume only fixed data: no engine or HDF5 dependency is
+needed to run the geometry regressions. Do not regenerate this fixture merely
+to accommodate a changed reconstruction or a changed engine result.
+
+The original fitter produces negative corners in all 80 otherwise-wet flat
+cells at 440 < centroid x < 480 m at fifteen, thirty and sixty minutes. At one
+hour these cells store 10.70-10.93 mm, while displayed corners span -5.05 to
+26.81 mm. The 360-to-370-second transition changes one fitted corner by 6.85 mm
+when its stored depth changes only 0.03058 mm.
+
+Tests require supported wet depths, no large invented peaks, display-policy
+independence, a bounded onset transition, and conserved fitted storage.

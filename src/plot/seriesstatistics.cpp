@@ -1,9 +1,12 @@
-/*!
- * \file   seriesstatistics.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      seriesstatistics.cpp
+ * @brief     The `StatsSummaryPanel` calls `compute(values)` to fill a row of the stats table.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "plot/seriesstatistics.h"
 
 #include <algorithm>
@@ -11,13 +14,23 @@
 #include <limits>
 #include <numeric>
 
-namespace openswmmvis::plot {
+namespace openswmmvis::plot
+{
 
-namespace {
+namespace
+{
+/**
+ * @brief Interpolate a quantile in an already sorted finite sample vector.
+ * @param[in] sorted Ascending values; empty is permitted and a singleton returns its sole value.
+ * @param[in] p Quantile fraction in [0,1]; callers must enforce this range.
+ * @return Linear interpolation at p*(size-1), or NaN for empty input.
+ */
 double percentile(const std::vector<double> &sorted, double p)
 {
-    if (sorted.empty()) return std::numeric_limits<double>::quiet_NaN();
-    if (sorted.size() == 1) return sorted.front();
+    if (sorted.empty())
+        return std::numeric_limits<double>::quiet_NaN();
+    if (sorted.size() == 1)
+        return sorted.front();
     // Linear interpolation between adjacent order statistics.
     const double idx = p * (sorted.size() - 1);
     const std::size_t lo = static_cast<std::size_t>(std::floor(idx));
@@ -33,19 +46,20 @@ SeriesStatistics computeStatistics(const std::vector<double> &values)
     std::vector<double> clean;
     clean.reserve(values.size());
     for (double v : values)
-        if (std::isfinite(v)) clean.push_back(v);
+        if (std::isfinite(v))
+            clean.push_back(v);
 
     if (clean.empty()) {
         const double n = std::numeric_limits<double>::quiet_NaN();
         s.mean = s.median = s.stddev = s.min = s.max = n;
-        s.p05  = s.p25  = s.p50    = s.p75 = s.p95 = n;
-        s.sum  = n;
+        s.p05 = s.p25 = s.p50 = s.p75 = s.p95 = n;
+        s.sum = n;
         return s;
     }
 
     s.count = static_cast<int>(clean.size());
-    s.sum   = std::accumulate(clean.begin(), clean.end(), 0.0);
-    s.mean  = s.sum / s.count;
+    s.sum = std::accumulate(clean.begin(), clean.end(), 0.0);
+    s.mean = s.sum / s.count;
 
     // Sample stddev (N-1) — falls back to 0 for single-sample inputs.
     if (clean.size() >= 2) {
@@ -60,20 +74,21 @@ SeriesStatistics computeStatistics(const std::vector<double> &values)
     }
 
     std::sort(clean.begin(), clean.end());
-    s.min    = clean.front();
-    s.max    = clean.back();
-    s.p05    = percentile(clean, 0.05);
-    s.p25    = percentile(clean, 0.25);
-    s.p50    = percentile(clean, 0.50);
-    s.p75    = percentile(clean, 0.75);
-    s.p95    = percentile(clean, 0.95);
+    s.min = clean.front();
+    s.max = clean.back();
+    s.p05 = percentile(clean, 0.05);
+    s.p25 = percentile(clean, 0.25);
+    s.p50 = percentile(clean, 0.50);
+    s.p75 = percentile(clean, 0.75);
+    s.p95 = percentile(clean, 0.95);
     s.median = s.p50;
     return s;
 }
 
 QString formatStatisticValue(double value, const NumberFormat &format)
 {
-    if (!std::isfinite(value)) return QStringLiteral("—");
+    if (!std::isfinite(value))
+        return QStringLiteral("—");
     return format.format(value);
 }
 

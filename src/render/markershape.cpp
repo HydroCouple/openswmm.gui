@@ -1,9 +1,10 @@
-/*!
- * \file   markershape.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  MarkerShape JSON + draw implementation (Slice Z.4).
+/**
+ * @file      markershape.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     MarkerShape JSON + draw implementation (Slice Z.4).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/markershape.h"
@@ -21,57 +22,73 @@
 namespace OpenSWMM::Render
 {
 
-namespace {
+namespace
+{
 
 struct Mapping {
     MarkerShape shape;
     const char *token;
 };
 constexpr std::array<Mapping, 19> kMap = {{
-    {MarkerShape::Circle,              "circle"},
-    {MarkerShape::Square,              "square"},
-    {MarkerShape::Triangle,            "triangle"},
-    {MarkerShape::Diamond,             "diamond"},
-    {MarkerShape::Star,                "star"},
-    {MarkerShape::Cross,               "cross"},
-    {MarkerShape::Plus,                "plus"},
-    {MarkerShape::XCross,              "xcross"},
-    {MarkerShape::Pentagon,            "pentagon"},
-    {MarkerShape::Hexagon,             "hexagon"},
-    {MarkerShape::Arrow,               "arrow"},
+    {MarkerShape::Circle, "circle"},
+    {MarkerShape::Square, "square"},
+    {MarkerShape::Triangle, "triangle"},
+    {MarkerShape::Diamond, "diamond"},
+    {MarkerShape::Star, "star"},
+    {MarkerShape::Cross, "cross"},
+    {MarkerShape::Plus, "plus"},
+    {MarkerShape::XCross, "xcross"},
+    {MarkerShape::Pentagon, "pentagon"},
+    {MarkerShape::Hexagon, "hexagon"},
+    {MarkerShape::Arrow, "arrow"},
     {MarkerShape::EquilateralTriangle, "eqtriangle"},
-    {MarkerShape::HalfCircle,          "halfcircle"},
-    {MarkerShape::TriangleDown,        "triangledown"},
-    {MarkerShape::Octagon,             "octagon"},
-    {MarkerShape::Hexagram,            "hexagram"},
-    {MarkerShape::ArrowUp,             "arrowup"},
-    {MarkerShape::ArrowDown,           "arrowdown"},
-    {MarkerShape::ArrowLeft,           "arrowleft"},
+    {MarkerShape::HalfCircle, "halfcircle"},
+    {MarkerShape::TriangleDown, "triangledown"},
+    {MarkerShape::Octagon, "octagon"},
+    {MarkerShape::Hexagram, "hexagram"},
+    {MarkerShape::ArrowUp, "arrowup"},
+    {MarkerShape::ArrowDown, "arrowdown"},
+    {MarkerShape::ArrowLeft, "arrowleft"},
 }};
 
-QPolygonF regularPolygon(int sides, const QPointF &center, qreal radius,
-                          qreal phaseRad)
+/**
+ * @brief Generate an unclosed regular polygon around a center point.
+ * @param[in] sides Positive vertex count; caller supplies the intended polygon order.
+ * @param[in] center Center in the painter's logical coordinate system.
+ * @param[in] radius Circumradius in the same coordinate unit.
+ * @param[in] phaseRad Angle of the first vertex in radians, measured from positive X.
+ * @return sides equally spaced vertices. The starting point is not repeated at the end;
+ *         QPainter closes the polygon when drawing it.
+ */
+QPolygonF regularPolygon(int sides, const QPointF &center, qreal radius, qreal phaseRad)
 {
     QPolygonF poly;
     poly.reserve(sides);
     for (int i = 0; i < sides; ++i) {
         const qreal a = phaseRad + (2.0 * M_PI * i) / sides;
-        poly << QPointF(center.x() + radius * std::cos(a),
-                        center.y() + radius * std::sin(a));
+        poly << QPointF(center.x() + radius * std::cos(a), center.y() + radius * std::sin(a));
     }
     return poly;
 }
 
-QPolygonF starPolygon(int points, const QPointF &center, qreal rOuter,
-                       qreal rInner, qreal phaseRad)
+/**
+ * @brief Generate a star outline by alternating outer and inner radii.
+ * @param[in] points Positive number of outer tips; the result has twice this many vertices.
+ * @param[in] center Center in painter coordinates.
+ * @param[in] rOuter Outer-tip radius in painter coordinate units.
+ * @param[in] rInner Inner-notch radius in the same unit, normally between zero and rOuter.
+ * @param[in] phaseRad Radian angle of the first outer tip, measured from positive X.
+ * @return Alternating outer/inner vertices at pi/points increments, without a repeated
+ *         closing vertex. The helper validates neither radii nor the requested point count.
+ */
+QPolygonF starPolygon(int points, const QPointF &center, qreal rOuter, qreal rInner, qreal phaseRad)
 {
     QPolygonF poly;
     poly.reserve(points * 2);
     for (int i = 0; i < points * 2; ++i) {
         const qreal r = (i % 2 == 0) ? rOuter : rInner;
         const qreal a = phaseRad + (M_PI * i) / points;
-        poly << QPointF(center.x() + r * std::cos(a),
-                        center.y() + r * std::sin(a));
+        poly << QPointF(center.x() + r * std::cos(a), center.y() + r * std::sin(a));
     }
     return poly;
 }
@@ -94,13 +111,8 @@ MarkerShape markerShapeFromString(const QString &s)
     return MarkerShape::Circle;
 }
 
-void drawMarkerShape(QPainter *painter,
-                     MarkerShape shape,
-                     const QPointF &center,
-                     qreal sizePx,
-                     const QBrush &fillBrush,
-                     const QPen &outlinePen,
-                     qreal rotationDeg)
+void drawMarkerShape(QPainter *painter, MarkerShape shape, const QPointF &center, qreal sizePx,
+                     const QBrush &fillBrush, const QPen &outlinePen, qreal rotationDeg)
 {
     if (!painter || sizePx <= 0.0)
         return;
@@ -117,37 +129,30 @@ void drawMarkerShape(QPainter *painter,
     }
 
     const qreal r = sizePx * 0.5;
-    const qreal phaseUp = -M_PI / 2.0;  // 12 o'clock
+    const qreal phaseUp = -M_PI / 2.0; // 12 o'clock
 
-    switch (shape)
-    {
+    switch (shape) {
     case MarkerShape::Circle:
         painter->drawEllipse(center, r, r);
         break;
 
     case MarkerShape::Square:
-        painter->drawRect(QRectF(center.x() - r, center.y() - r,
-                                 sizePx, sizePx));
+        painter->drawRect(QRectF(center.x() - r, center.y() - r, sizePx, sizePx));
         break;
 
-    case MarkerShape::Triangle:
-    {
+    case MarkerShape::Triangle: {
         // Right-pointing isoceles, fitting the size×size box.
         QPolygonF p;
-        p << QPointF(center.x() + r, center.y())
-          << QPointF(center.x() - r, center.y() - r)
+        p << QPointF(center.x() + r, center.y()) << QPointF(center.x() - r, center.y() - r)
           << QPointF(center.x() - r, center.y() + r);
         painter->drawPolygon(p);
         break;
     }
 
-    case MarkerShape::Diamond:
-    {
+    case MarkerShape::Diamond: {
         QPolygonF p;
-        p << QPointF(center.x(), center.y() - r)
-          << QPointF(center.x() + r, center.y())
-          << QPointF(center.x(), center.y() + r)
-          << QPointF(center.x() - r, center.y());
+        p << QPointF(center.x(), center.y() - r) << QPointF(center.x() + r, center.y())
+          << QPointF(center.x(), center.y() + r) << QPointF(center.x() - r, center.y());
         painter->drawPolygon(p);
         break;
     }
@@ -156,43 +161,34 @@ void drawMarkerShape(QPainter *painter,
         painter->drawPolygon(starPolygon(5, center, r, r * 0.4, phaseUp));
         break;
 
-    case MarkerShape::Cross:
-    {
+    case MarkerShape::Cross: {
         // Stroked '+' — vertical bar + horizontal bar.
         QPen stroke = outlinePen;
         if (stroke.widthF() <= 0)
             stroke.setWidthF(qMax(qreal(1.0), sizePx * 0.10));
         painter->setPen(stroke);
-        painter->drawLine(QPointF(center.x(), center.y() - r),
-                          QPointF(center.x(), center.y() + r));
-        painter->drawLine(QPointF(center.x() - r, center.y()),
-                          QPointF(center.x() + r, center.y()));
+        painter->drawLine(QPointF(center.x(), center.y() - r), QPointF(center.x(), center.y() + r));
+        painter->drawLine(QPointF(center.x() - r, center.y()), QPointF(center.x() + r, center.y()));
         break;
     }
 
-    case MarkerShape::Plus:
-    {
+    case MarkerShape::Plus: {
         // Filled '+' — two interlocked rectangles.
         const qreal arm = r * 0.32;
         QPolygonF p;
-        p << QPointF(center.x() - arm, center.y() - r)
-          << QPointF(center.x() + arm, center.y() - r)
+        p << QPointF(center.x() - arm, center.y() - r) << QPointF(center.x() + arm, center.y() - r)
           << QPointF(center.x() + arm, center.y() - arm)
-          << QPointF(center.x() + r,   center.y() - arm)
-          << QPointF(center.x() + r,   center.y() + arm)
+          << QPointF(center.x() + r, center.y() - arm) << QPointF(center.x() + r, center.y() + arm)
           << QPointF(center.x() + arm, center.y() + arm)
-          << QPointF(center.x() + arm, center.y() + r)
-          << QPointF(center.x() - arm, center.y() + r)
+          << QPointF(center.x() + arm, center.y() + r) << QPointF(center.x() - arm, center.y() + r)
           << QPointF(center.x() - arm, center.y() + arm)
-          << QPointF(center.x() - r,   center.y() + arm)
-          << QPointF(center.x() - r,   center.y() - arm)
+          << QPointF(center.x() - r, center.y() + arm) << QPointF(center.x() - r, center.y() - arm)
           << QPointF(center.x() - arm, center.y() - arm);
         painter->drawPolygon(p);
         break;
     }
 
-    case MarkerShape::XCross:
-    {
+    case MarkerShape::XCross: {
         QPen stroke = outlinePen;
         if (stroke.widthF() <= 0)
             stroke.setWidthF(qMax(qreal(1.0), sizePx * 0.10));
@@ -212,14 +208,12 @@ void drawMarkerShape(QPainter *painter,
         painter->drawPolygon(regularPolygon(6, center, r, phaseUp));
         break;
 
-    case MarkerShape::Arrow:
-    {
+    case MarkerShape::Arrow: {
         // Right-pointing arrow head, fitting the box.
         QPolygonF p;
-        p << QPointF(center.x() + r,        center.y())
-          << QPointF(center.x() - r * 0.6,  center.y() - r)
-          << QPointF(center.x() - r * 0.3,  center.y())
-          << QPointF(center.x() - r * 0.6,  center.y() + r);
+        p << QPointF(center.x() + r, center.y()) << QPointF(center.x() - r * 0.6, center.y() - r)
+          << QPointF(center.x() - r * 0.3, center.y())
+          << QPointF(center.x() - r * 0.6, center.y() + r);
         painter->drawPolygon(p);
         break;
     }
@@ -228,24 +222,20 @@ void drawMarkerShape(QPainter *painter,
         painter->drawPolygon(regularPolygon(3, center, r, phaseUp));
         break;
 
-    case MarkerShape::HalfCircle:
-    {
+    case MarkerShape::HalfCircle: {
         // Semi-circle with flat side at the bottom.
         QPainterPath path;
         path.moveTo(center.x() - r, center.y());
-        path.arcTo(QRectF(center.x() - r, center.y() - r, sizePx, sizePx),
-                   180.0, -180.0);
+        path.arcTo(QRectF(center.x() - r, center.y() - r, sizePx, sizePx), 180.0, -180.0);
         path.closeSubpath();
         painter->drawPath(path);
         break;
     }
 
-    case MarkerShape::TriangleDown:
-    {
+    case MarkerShape::TriangleDown: {
         // Down-pointing isoceles, fitting the size×size box.
         QPolygonF p;
-        p << QPointF(center.x(),     center.y() + r)
-          << QPointF(center.x() - r, center.y() - r)
+        p << QPointF(center.x(), center.y() + r) << QPointF(center.x() - r, center.y() - r)
           << QPointF(center.x() + r, center.y() - r);
         painter->drawPolygon(p);
         break;
@@ -261,35 +251,29 @@ void drawMarkerShape(QPainter *painter,
         painter->drawPolygon(starPolygon(6, center, r, r * 0.5774, phaseUp));
         break;
 
-    case MarkerShape::ArrowUp:
-    {
+    case MarkerShape::ArrowUp: {
         QPolygonF p;
-        p << QPointF(center.x(),            center.y() - r)
-          << QPointF(center.x() - r,        center.y() + r * 0.6)
-          << QPointF(center.x(),            center.y() + r * 0.3)
-          << QPointF(center.x() + r,        center.y() + r * 0.6);
+        p << QPointF(center.x(), center.y() - r) << QPointF(center.x() - r, center.y() + r * 0.6)
+          << QPointF(center.x(), center.y() + r * 0.3)
+          << QPointF(center.x() + r, center.y() + r * 0.6);
         painter->drawPolygon(p);
         break;
     }
 
-    case MarkerShape::ArrowDown:
-    {
+    case MarkerShape::ArrowDown: {
         QPolygonF p;
-        p << QPointF(center.x(),            center.y() + r)
-          << QPointF(center.x() - r,        center.y() - r * 0.6)
-          << QPointF(center.x(),            center.y() - r * 0.3)
-          << QPointF(center.x() + r,        center.y() - r * 0.6);
+        p << QPointF(center.x(), center.y() + r) << QPointF(center.x() - r, center.y() - r * 0.6)
+          << QPointF(center.x(), center.y() - r * 0.3)
+          << QPointF(center.x() + r, center.y() - r * 0.6);
         painter->drawPolygon(p);
         break;
     }
 
-    case MarkerShape::ArrowLeft:
-    {
+    case MarkerShape::ArrowLeft: {
         QPolygonF p;
-        p << QPointF(center.x() - r,        center.y())
-          << QPointF(center.x() + r * 0.6,  center.y() - r)
-          << QPointF(center.x() + r * 0.3,  center.y())
-          << QPointF(center.x() + r * 0.6,  center.y() + r);
+        p << QPointF(center.x() - r, center.y()) << QPointF(center.x() + r * 0.6, center.y() - r)
+          << QPointF(center.x() + r * 0.3, center.y())
+          << QPointF(center.x() + r * 0.6, center.y() + r);
         painter->drawPolygon(p);
         break;
     }

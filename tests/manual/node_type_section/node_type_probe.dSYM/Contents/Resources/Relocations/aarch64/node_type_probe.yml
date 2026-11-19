@@ -1,0 +1,5 @@
+---
+triple:          'arm64-apple-darwin'
+binary-path:     '/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/tests/manual/node_type_section/node_type_probe'
+relocations:     []
+...

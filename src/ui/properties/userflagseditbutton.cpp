@@ -1,11 +1,16 @@
-/*!
- * \file   userflagseditbutton.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      userflagseditbutton.cpp
+ * @brief     Phase 4 of docs/USER_FLAGS_UI_PLAN_2026-06-03.md — custom cell editor widget for the
+ *            per-object "User Flags" row.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "ui/properties/userflagseditbutton.h"
+#include "ui/dialogs/inheritedpropertiesdialog.h"
+#include "layers/swmmmodellayer.h"
 
 #include "ui/dialogs/userflagvaluesdialog.h"
 
@@ -28,6 +33,7 @@ UserFlagsEditButton::UserFlagsEditButton(QWidget *parent)
 void UserFlagsEditButton::setValue(const UserFlagsEditRef &ref)
 {
     m_ref = ref;
+    m_owner = ref.layer;
     refreshLabel();
     // Nothing to edit without a bound store or before flags exist.
     m_btn->setEnabled(m_ref.model != nullptr && !m_ref.objectName.isEmpty());
@@ -43,7 +49,17 @@ void UserFlagsEditButton::refreshLabel()
 
 void UserFlagsEditButton::onClicked()
 {
-    if (!m_ref.model || m_ref.objectName.isEmpty()) return;
+    if (m_ref.layer) {
+        if (!m_owner || !m_owner->engine() || m_owner->engine() != m_ref.engine) return;
+        auto targets = m_ref.targets;
+        if (targets.isEmpty()) targets.append({m_ref.objectType == "NODE" ? SWMMObjectRef::Node :
+            m_ref.objectType == "LINK" ? SWMMObjectRef::Link : m_ref.objectType == "SUBCATCHMENT" ? SWMMObjectRef::Subcatchment : SWMMObjectRef::RainGage, m_ref.objectName});
+        openInheritedPropertiesDialog(m_owner, targets, false, window(), m_ref.undoStack);
+        return;
+    }
+
+    if (!m_ref.model || m_ref.objectName.isEmpty())
+        return;
 
     UserFlagValuesDialog dlg(m_ref, this);
     dlg.exec();

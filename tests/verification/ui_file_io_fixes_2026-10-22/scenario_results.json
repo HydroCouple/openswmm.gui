@@ -1,0 +1,98 @@
+{
+  "snow": {
+    "inp": {
+      "rc": 0,
+      "size": 1896,
+      "sha256": "0d899d7f170bc71c1af4f8a06e5d0d4bf0c46af44605f4a4ad03cd08a78d1cf7",
+      "matches_inp": true
+    },
+    "gpkg": {
+      "rc": 0,
+      "size": 1896,
+      "sha256": "0d899d7f170bc71c1af4f8a06e5d0d4bf0c46af44605f4a4ad03cd08a78d1cf7",
+      "matches_inp": true
+    },
+    "h5": {
+      "rc": 0,
+      "size": 1896,
+      "sha256": "0d899d7f170bc71c1af4f8a06e5d0d4bf0c46af44605f4a4ad03cd08a78d1cf7",
+      "matches_inp": true
+    }
+  },
+  "groundwater": {
+    "inp": {
+      "rc": 0,
+      "size": 16464,
+      "sha256": "0139ebc7cd478665711ab1de0c961efc43b4a7ffeb246ed4ef97839fa7082292",
+      "matches_inp": true
+    },
+    "gpkg": {
+      "rc": 0,
+      "size": 16464,
+      "sha256": "0139ebc7cd478665711ab1de0c961efc43b4a7ffeb246ed4ef97839fa7082292",
+      "matches_inp": true
+    },
+    "h5": {
+      "rc": 0,
+      "size": 16464,
+      "sha256": "0139ebc7cd478665711ab1de0c961efc43b4a7ffeb246ed4ef97839fa7082292",
+      "matches_inp": true
+    }
+  },
+  "mesh": {
+    "inp": {
+      "rc": 0,
+      "size": 1080,
+      "sha256": "f9980b479076073f2036e2fc4211eb1585546d5a332fb84986dc382e1f588927",
+      "matches_inp": true
+    },
+    "gpkg": {
+      "rc": 0,
+      "size": 1080,
+      "sha256": "f9980b479076073f2036e2fc4211eb1585546d5a332fb84986dc382e1f588927",
+      "matches_inp": true
+    },
+    "h5": {
+      "rc": 0,
+      "size": 1080,
+      "sha256": "f9980b479076073f2036e2fc4211eb1585546d5a332fb84986dc382e1f588927",
+      "matches_inp": true
+    }
+  },
+  "components": {
+    "gpkg": {
+      "species_before": 2,
+      "species_after": 2
+    },
+    "h5": {
+      "species_before": 2,
+      "species_after": 2
+    }
+  },
+  "writer_outputs": {
+    "single_container": {
+      "runs": [
+        [
+          "run_1",
+          "completed"
+        ]
+      ],
+      "result_rows": 80,
+      "summary_rows": 12
+    },
+    "report_only": {
+      "runs": [
+        [
+          "run_1",
+          "completed"
+        ]
+      ],
+      "result_rows": 0,
+      "summary_rows": 12
+    }
+  },
+  "report_failure": {
+    "returned_error": 10,
+    "diagnostic": "Cannot write report summary: report write failure regression"
+  }
+}

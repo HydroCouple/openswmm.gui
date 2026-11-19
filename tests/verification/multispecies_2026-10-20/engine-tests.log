@@ -1,0 +1,29 @@
+Internal ctest changing into directory: /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/build/component-catalogue-20261016
+Test project /Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/build/component-catalogue-20261016
+      Start  55: test_engine_reactions_config
+ 1/10 Test  #55: test_engine_reactions_config ..........   Passed    0.15 sec
+      Start  56: test_engine_reactions_api
+ 2/10 Test  #56: test_engine_reactions_api .............   Passed    0.04 sec
+      Start  58: test_engine_reaction_integrators
+ 3/10 Test  #58: test_engine_reaction_integrators ......   Passed    0.06 sec
+      Start  59: test_engine_reaction_legacy_binding
+ 4/10 Test  #59: test_engine_reaction_legacy_binding ...   Passed    0.46 sec
+      Start  61: test_engine_reaction_ard_binding
+ 5/10 Test  #61: test_engine_reaction_ard_binding ......   Passed   10.61 sec
+      Start  62: test_engine_msx_buildup_washoff
+ 6/10 Test  #62: test_engine_msx_buildup_washoff .......   Passed    0.18 sec
+      Start  66: test_engine_lard_wiring
+ 7/10 Test  #66: test_engine_lard_wiring ...............   Passed    0.27 sec
+      Start  68: test_engine_lard_transport
+ 8/10 Test  #68: test_engine_lard_transport ............   Passed    0.31 sec
+      Start  96: test_engine_output_quality
+ 9/10 Test  #96: test_engine_output_quality ............   Passed    0.06 sec
+      Start 243: test_engine_msx_parity
+10/10 Test #243: test_engine_msx_parity ................   Passed    0.08 sec
+
+100% tests passed, 0 tests failed out of 10
+
+Label Time Summary:
+unit    =  12.22 sec*proc (10 tests)
+
+Total Test time (real) =  12.25 sec

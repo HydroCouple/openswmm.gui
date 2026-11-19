@@ -1,17 +1,14 @@
-/*!
- * \file   swmmpatternpropertyadapter.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      swmmpatternpropertyadapter.h
+ * @brief     Property-tree adapter for [PATTERNS].
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
  *
- * Slice DA.2 — Property-tree adapter for [PATTERNS].
- *
- * Scalar surface is name-only today: the engine ships `swmm_pattern_add`
- * (write-only on creation), `swmm_pattern_set_factors` (write-only), and
- * `swmm_pattern_count`/`_index`/`_id`. There is no `swmm_pattern_get_type`
- * or `swmm_pattern_get_factors` accessor yet — file engine gap
- * `DA-ENG-05`. Until then the adapter exposes only the name; the BQ
- * PatternEditor lives behind an "Edit…" button that ships in DA.3.
+ * This property adapter exposes the shared object name and translated labels
+ * for [PATTERNS]. Structured parameter editing is handled by the dedicated
+ * PatternEditor rather than additional scalar properties in this facade.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef SWMMPATTERNPROPERTYADAPTER_H
@@ -26,6 +23,11 @@ class SWMMPatternPropertyAdapter : public SWMMDataObjectPropertyAdapter
 public:
     using SWMMDataObjectPropertyAdapter::SWMMDataObjectPropertyAdapter;
 
+    /**
+     * @brief Supply the property browser label for a supported stored property key.
+     * @param[in] property Exact Q_PROPERTY key; comparisons are case-sensitive.
+     * @return Translated label, including active-project units where implemented; empty for unknown keys. This does not inspect or change the property value.
+     */
     Q_INVOKABLE QString displayLabelFor(const QString &property) const;
 };
 

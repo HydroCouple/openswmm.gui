@@ -1,9 +1,10 @@
-/*!
- * \file   rendererfactory.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  One renderer construction path, archetype-seeded (gap A1.3).
+/**
+ * @file      rendererfactory.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     One renderer construction path, archetype-seeded (gap A1.3).
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/rendererfactory.h"
@@ -25,10 +26,13 @@ namespace
 {
 
 /*! Base/fallback symbol carried over from the renderer being replaced, or
- *  an empty style when there is nothing to carry. */
+ *  an empty style when there is nothing to carry.
+ * @param previous Optional borrowed source, inspected by supported concrete type.
+ * @return Owned template copy, or empty for null/unsupported renderer types. */
 SymbolStyle carriedSymbol(const IFeatureRenderer *previous)
 {
-    if (!previous) return {};
+    if (!previous)
+        return {};
     if (auto *s = dynamic_cast<const SingleSymbolRenderer *>(previous))
         return s->symbol();
     if (auto *g = dynamic_cast<const GraduatedRenderer *>(previous))
@@ -42,10 +46,13 @@ SymbolStyle carriedSymbol(const IFeatureRenderer *previous)
     return {};
 }
 
-/*! classifyAttribute carried over from the renderer being replaced. */
+/** @brief Copy a supported renderer's classification key during a class switch.
+ * @param previous Optional borrowed Graduated, Categorized or Unclassed renderer.
+ * @return Exact stored key, or empty for null/unsupported types. */
 QString carriedAttribute(const IFeatureRenderer *previous)
 {
-    if (!previous) return {};
+    if (!previous)
+        return {};
     if (auto *g = dynamic_cast<const GraduatedRenderer *>(previous))
         return g->classifyAttribute();
     if (auto *c = dynamic_cast<const CategorizedRenderer *>(previous))
@@ -58,13 +65,19 @@ QString carriedAttribute(const IFeatureRenderer *previous)
 /*! First field matching \a wantString (string-typed for Categorized,
  *  non-string for Graduated/Unclassed); falls back to the first field of
  *  any type so the renderer never starts in the attribute-less dead state
- *  when the provider exposes anything at all. */
+ *  when the provider exposes anything at all.
+ * @param fields Optional ordered field metadata, borrowed only during this call.
+ * @param wantString True to prefer QMetaType::QString, false to prefer any other type.
+ * @return First matching field's name, otherwise the first name of any type;
+ * empty when metadata is absent/empty. Field existence/nonempty names are not validated. */
 QString seedAttribute(const QVector<AttributeField> *fields, bool wantString)
 {
-    if (!fields || fields->isEmpty()) return {};
+    if (!fields || fields->isEmpty())
+        return {};
     for (const AttributeField &f : *fields) {
         const bool isString = (f.type == QMetaType::QString);
-        if (isString == wantString) return f.name;
+        if (isString == wantString)
+            return f.name;
     }
     return fields->first().name;
 }
@@ -93,10 +106,11 @@ SymbolStyle defaultSymbolForArchetype(FeatureSublayer::Archetype archetype)
     return s;
 }
 
-FeatureSublayer::Archetype archetypeFromSymbol(
-    const SymbolStyle &style, FeatureSublayer::Archetype fallback)
+FeatureSublayer::Archetype archetypeFromSymbol(const SymbolStyle &style,
+                                               FeatureSublayer::Archetype fallback)
 {
-    if (style.layers.isEmpty()) return fallback;
+    if (style.layers.isEmpty())
+        return fallback;
     switch (style.layers.first().kind) {
     case SymbolLayerKind::SimpleMarker:
     case SymbolLayerKind::SvgMarker:
@@ -114,11 +128,10 @@ FeatureSublayer::Archetype archetypeFromSymbol(
     }
 }
 
-std::unique_ptr<IFeatureRenderer> makeRenderer(
-    const QString &rendererId,
-    FeatureSublayer::Archetype archetype,
-    const IFeatureRenderer *previous,
-    const QVector<AttributeField> *fields)
+std::unique_ptr<IFeatureRenderer> makeRenderer(const QString &rendererId,
+                                               FeatureSublayer::Archetype archetype,
+                                               const IFeatureRenderer *previous,
+                                               const QVector<AttributeField> *fields)
 {
     SymbolStyle base = carriedSymbol(previous);
     if (base.layers.isEmpty())
@@ -135,9 +148,8 @@ std::unique_ptr<IFeatureRenderer> makeRenderer(
     if (rendererId == QLatin1String("graduated")) {
         auto g = std::make_unique<GraduatedRenderer>();
         g->setBaseSymbol(std::move(base));
-        g->setClassifyAttribute(!attr.isEmpty()
-                                    ? attr
-                                    : seedAttribute(fields, /*wantString=*/false));
+        g->setClassifyAttribute(!attr.isEmpty() ? attr
+                                                : seedAttribute(fields, /*wantString=*/false));
         // Defaults match the pre-factory makeDefaultKindRenderer /
         // KindRendererPanel conventions: viridis + 5 equal intervals.
         g->setRamp(RasterColorRamp::viridis(0.0, 1.0));
@@ -151,9 +163,8 @@ std::unique_ptr<IFeatureRenderer> makeRenderer(
     if (rendererId == QLatin1String("categorized")) {
         auto c = std::make_unique<CategorizedRenderer>();
         c->setFallbackSymbol(std::move(base));
-        c->setClassifyAttribute(!attr.isEmpty()
-                                    ? attr
-                                    : seedAttribute(fields, /*wantString=*/true));
+        c->setClassifyAttribute(!attr.isEmpty() ? attr
+                                                : seedAttribute(fields, /*wantString=*/true));
         return c;
     }
 
@@ -166,9 +177,8 @@ std::unique_ptr<IFeatureRenderer> makeRenderer(
     if (rendererId == QLatin1String("unclassed")) {
         auto u = std::make_unique<UnclassedColorsRenderer>();
         u->setBaseSymbol(std::move(base));
-        u->setClassifyAttribute(!attr.isEmpty()
-                                    ? attr
-                                    : seedAttribute(fields, /*wantString=*/false));
+        u->setClassifyAttribute(!attr.isEmpty() ? attr
+                                                : seedAttribute(fields, /*wantString=*/false));
         u->setRamp(RasterColorRamp::viridis(0.0, 1.0));
         return u;
     }

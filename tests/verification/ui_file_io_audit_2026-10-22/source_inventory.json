@@ -1,0 +1,3467 @@
+{
+  "note": "Inventory of direct writable SWMM properties and literal option tags, not a complete UI registry or proof of round-trip coverage. Dynamic keys and compound editors require separate review.",
+  "revisions_at_inventory": {
+    "openswmm.gui": "f213a79ea1e8d372001af722fc9a761134eeee09",
+    "openswmm.engine": "b98b164476c75e10c77d563225b4372f35a37284"
+  },
+  "writable_properties": [
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmaquiferpropertyadapter.h",
+      "line": 27,
+      "declaration": "double porosity READ porosity WRITE setPorosity NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmaquiferpropertyadapter.h",
+      "line": 28,
+      "declaration": "double wiltingPoint READ wiltingPoint WRITE setWiltingPoint NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmaquiferpropertyadapter.h",
+      "line": 29,
+      "declaration": "double fieldCapacity READ fieldCapacity WRITE setFieldCapacity NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmaquiferpropertyadapter.h",
+      "line": 30,
+      "declaration": "double conductivity READ conductivity WRITE setConductivity NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmaquiferpropertyadapter.h",
+      "line": 31,
+      "declaration": "double conductSlope READ conductSlope WRITE setConductSlope NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmaquiferpropertyadapter.h",
+      "line": 32,
+      "declaration": "double tensionSlope READ tensionSlope WRITE setTensionSlope NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmaquiferpropertyadapter.h",
+      "line": 33,
+      "declaration": "double upperEvapFrac READ upperEvapFrac WRITE setUpperEvapFrac NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmaquiferpropertyadapter.h",
+      "line": 34,
+      "declaration": "double lowerEvapDepth READ lowerEvapDepth WRITE setLowerEvapDepth NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmaquiferpropertyadapter.h",
+      "line": 35,
+      "declaration": "double lowerLossCoeff READ lowerLossCoeff WRITE setLowerLossCoeff NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmaquiferpropertyadapter.h",
+      "line": 36,
+      "declaration": "double bottomElev READ bottomElev WRITE setBottomElev NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmaquiferpropertyadapter.h",
+      "line": 37,
+      "declaration": "double waterTableElev READ waterTableElev WRITE setWaterTableElev NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmaquiferpropertyadapter.h",
+      "line": 38,
+      "declaration": "double upperMoisture READ upperMoisture WRITE setUpperMoisture NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmaquiferpropertyadapter.h",
+      "line": 39,
+      "declaration": "DataObjectRef evapPattern READ evapPatternRef WRITE setEvapPatternRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmcontrolrulepropertyadapter.h",
+      "line": 31,
+      "declaration": "QString ruleText READ ruleText WRITE setRuleText NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmdataobjectpropertyadapter.h",
+      "line": 42,
+      "declaration": "QString name READ name WRITE setName"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmhydrographpropertyadapter.h",
+      "line": 28,
+      "declaration": "DataObjectRef gageName READ gageNameRef WRITE setGageNameRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlandusepropertyadapter.h",
+      "line": 22,
+      "declaration": "double sweepInterval READ sweepInterval WRITE setSweepInterval NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlandusepropertyadapter.h",
+      "line": 23,
+      "declaration": "double sweepRemoval READ sweepRemoval WRITE setSweepRemoval NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 91,
+      "declaration": "int lidOutletLayer READ lidOutletLayer WRITE setLidOutletLayer NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 92,
+      "declaration": "LidAnchorPosition lidOutletPosition READ lidOutletPosition WRITE setLidOutletPosition NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 116,
+      "declaration": "QString name READ name WRITE setName"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 126,
+      "declaration": "QString tag READ tag WRITE setTag NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 739,
+      "declaration": "double length READ length WRITE setLength NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 740,
+      "declaration": "double roughness READ roughness WRITE setRoughness NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 741,
+      "declaration": "double offsetUp READ offsetUp WRITE setOffsetUp NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 742,
+      "declaration": "double offsetDn READ offsetDn WRITE setOffsetDn NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 745,
+      "declaration": "double initialFlow READ initialFlow WRITE setInitialFlow NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 746,
+      "declaration": "double maxFlow READ maxFlow WRITE setMaxFlow NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 747,
+      "declaration": "double lossInlet READ lossInlet WRITE setLossInlet NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 748,
+      "declaration": "double lossOutlet READ lossOutlet WRITE setLossOutlet NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 749,
+      "declaration": "double lossAvg READ lossAvg WRITE setLossAvg NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 750,
+      "declaration": "double seepRate READ seepRate WRITE setSeepRate NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 751,
+      "declaration": "int barrels READ barrels WRITE setBarrels NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 752,
+      "declaration": "SWMMLinkPropertyAdapter::FlapGate flapGate READ flapGate WRITE setFlapGate NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 755,
+      "declaration": "LinkCompoundEditRef xsection READ xsectionRef WRITE setXsectionRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 758,
+      "declaration": "double geom1 READ xsectGeom1 WRITE setXsectGeom1 NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 759,
+      "declaration": "double geom2 READ xsectGeom2 WRITE setXsectGeom2 NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 760,
+      "declaration": "double geom3 READ xsectGeom3 WRITE setXsectGeom3 NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 761,
+      "declaration": "double geom4 READ xsectGeom4 WRITE setXsectGeom4 NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 762,
+      "declaration": "CulvertCodeRef culvertCode READ culvertCodeRef WRITE setCulvertCodeRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 764,
+      "declaration": "LinkCompoundEditRef inletUsage READ inletUsageRef WRITE setInletUsageRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 774,
+      "declaration": "InitialQualityEditRef initialQuality READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 776,
+      "declaration": "UserFlagsEditRef userFlags READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 791,
+      "declaration": "DataObjectRef pumpCurve READ pumpCurveRef WRITE setPumpCurveRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 792,
+      "declaration": "SWMMLinkPropertyAdapter::PumpInitState initState READ pumpInitState WRITE setPumpInitState NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 794,
+      "declaration": "double startupDepth READ pumpStartupDepth WRITE setPumpStartupDepth NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 795,
+      "declaration": "double shutoffDepth READ pumpShutoffDepth WRITE setPumpShutoffDepth NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 806,
+      "declaration": "InitialQualityEditRef initialQuality READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 808,
+      "declaration": "UserFlagsEditRef userFlags READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 825,
+      "declaration": "SWMMLinkPropertyAdapter::OrificeType orificeType READ orificeType WRITE setOrificeType NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 827,
+      "declaration": "double offset READ offsetUp WRITE setOffsetUp NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 828,
+      "declaration": "double dischargeCoeff READ dischargeCoeff WRITE setDischargeCoeff NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 829,
+      "declaration": "SWMMLinkPropertyAdapter::FlapGate flapGate READ flapGate WRITE setFlapGate NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 835,
+      "declaration": "double openCloseRate READ orificeOpenCloseRate WRITE setOrificeOpenCloseRate NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 837,
+      "declaration": "LinkCompoundEditRef xsection READ xsectionRef WRITE setXsectionRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 840,
+      "declaration": "double geom1 READ xsectGeom1 WRITE setXsectGeom1 NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 841,
+      "declaration": "double geom2 READ xsectGeom2 WRITE setXsectGeom2 NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 842,
+      "declaration": "double geom3 READ xsectGeom3 WRITE setXsectGeom3 NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 843,
+      "declaration": "double geom4 READ xsectGeom4 WRITE setXsectGeom4 NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 850,
+      "declaration": "InitialQualityEditRef initialQuality READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 852,
+      "declaration": "UserFlagsEditRef userFlags READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 870,
+      "declaration": "SWMMLinkPropertyAdapter::WeirType weirType READ weirType WRITE setWeirType NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 872,
+      "declaration": "double offsetUp READ offsetUp WRITE setOffsetUp NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 873,
+      "declaration": "double offsetDn READ offsetDn WRITE setOffsetDn NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 874,
+      "declaration": "double crestHeight READ crestHeight WRITE setCrestHeight NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 875,
+      "declaration": "double dischargeCoeff READ dischargeCoeff WRITE setDischargeCoeff NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 876,
+      "declaration": "double endContractions READ endContractions WRITE setEndContractions NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 877,
+      "declaration": "SWMMLinkPropertyAdapter::FlapGate flapGate READ flapGate WRITE setFlapGate NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 879,
+      "declaration": "LinkCompoundEditRef xsection READ xsectionRef WRITE setXsectionRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 882,
+      "declaration": "double geom1 READ xsectGeom1 WRITE setXsectGeom1 NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 883,
+      "declaration": "double geom2 READ xsectGeom2 WRITE setXsectGeom2 NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 884,
+      "declaration": "double geom3 READ xsectGeom3 WRITE setXsectGeom3 NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 885,
+      "declaration": "double geom4 READ xsectGeom4 WRITE setXsectGeom4 NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 892,
+      "declaration": "InitialQualityEditRef initialQuality READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 894,
+      "declaration": "UserFlagsEditRef userFlags READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 910,
+      "declaration": "SWMMLinkPropertyAdapter::OutletRatingType ratingType READ outletRatingType WRITE setOutletRatingType NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 912,
+      "declaration": "double offset READ offsetUp WRITE setOffsetUp NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 916,
+      "declaration": "double coefficient READ dischargeCoeff WRITE setDischargeCoeff NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 917,
+      "declaration": "double expon READ outletExpon WRITE setOutletExpon NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 921,
+      "declaration": "DataObjectRef outletCurve READ pumpCurveRef WRITE setPumpCurveRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 922,
+      "declaration": "SWMMLinkPropertyAdapter::FlapGate flapGate READ flapGate WRITE setFlapGate NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 930,
+      "declaration": "InitialQualityEditRef initialQuality READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmlinkpropertyadapter.h",
+      "line": 932,
+      "declaration": "UserFlagsEditRef userFlags READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 141,
+      "declaration": "QString name READ name WRITE setName"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 143,
+      "declaration": "double invertElev READ invertElev WRITE setInvertElev NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 146,
+      "declaration": "QString tag READ tag WRITE setTag NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 151,
+      "declaration": "double xCoord READ xCoord WRITE setXCoord NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 152,
+      "declaration": "double yCoord READ yCoord WRITE setYCoord NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1137,
+      "declaration": "double maxDepth READ maxDepth WRITE setMaxDepth NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1138,
+      "declaration": "double initialDepth READ initialDepth WRITE setInitialDepth NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1139,
+      "declaration": "double surchargeDepth READ surchargeDepth WRITE setSurchargeDepth NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1140,
+      "declaration": "double pondedArea READ pondedArea WRITE setPondedArea NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1142,
+      "declaration": "bool coupleable READ coupleable WRITE setCoupleable NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1143,
+      "declaration": "SWMMNodePropertyAdapter::Coupling2DType couplingType READ couplingType WRITE setCouplingType NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1145,
+      "declaration": "QString couplingDiameter READ couplingDiameter WRITE setCouplingDiameter NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1147,
+      "declaration": "QString couplingPerimeter READ couplingPerimeter WRITE setCouplingPerimeter NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1149,
+      "declaration": "QString couplingStructureArea READ couplingStructureArea WRITE setCouplingStructureArea NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1151,
+      "declaration": "QString couplingChamberArea READ couplingChamberArea WRITE setCouplingChamberArea NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1153,
+      "declaration": "QString couplingLidOpenFraction READ couplingLidOpenFraction WRITE setCouplingLidOpenFraction NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1155,
+      "declaration": "SWMMNodePropertyAdapter::Coupling2DCrest couplingCrest READ couplingCrest WRITE setCouplingCrest NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1157,
+      "declaration": "SWMMNodePropertyAdapter::Coupling2DLaw couplingLaw READ couplingLaw WRITE setCouplingLaw NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1159,
+      "declaration": "SWMMNodePropertyAdapter::Coupling2DCoeffs couplingCoeffs READ couplingCoeffs WRITE setCouplingCoeffs NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1161,
+      "declaration": "QString couplingCw READ couplingCw WRITE setCouplingCw NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1162,
+      "declaration": "QString couplingCsw READ couplingCsw WRITE setCouplingCsw NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1163,
+      "declaration": "QString couplingCoi READ couplingCoi WRITE setCouplingCoi NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1164,
+      "declaration": "QString couplingCoo READ couplingCoo WRITE setCouplingCoo NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1175,
+      "declaration": "NodeCompoundEditRef inflows READ inflowsRef WRITE setInflowsRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1176,
+      "declaration": "NodeCompoundEditRef dwf READ dwfRef WRITE setDwfRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1177,
+      "declaration": "NodeCompoundEditRef rdii READ rdiiRef WRITE setRdiiRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1178,
+      "declaration": "NodeCompoundEditRef treatment READ treatmentRef WRITE setTreatmentRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1179,
+      "declaration": "NodeCompoundEditRef groundwaterSources READ groundwaterSourcesRef WRITE setGroundwaterSourcesRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1181,
+      "declaration": "InitialQualityEditRef initialQuality READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1183,
+      "declaration": "UserFlagsEditRef userFlags READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1209,
+      "declaration": "double rimDepth READ rimDepth WRITE setRimDepth NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1213,
+      "declaration": "NodeCompoundEditRef inflows READ inflowsRef WRITE setInflowsRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1214,
+      "declaration": "NodeCompoundEditRef dwf READ dwfRef WRITE setDwfRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1215,
+      "declaration": "NodeCompoundEditRef rdii READ rdiiRef WRITE setRdiiRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1216,
+      "declaration": "NodeCompoundEditRef treatment READ treatmentRef WRITE setTreatmentRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1217,
+      "declaration": "NodeCompoundEditRef groundwaterSources READ groundwaterSourcesRef WRITE setGroundwaterSourcesRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1219,
+      "declaration": "UserFlagsEditRef userFlags READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1248,
+      "declaration": "DataObjectRef inletDesign READ inletDesignRef WRITE setInletDesignRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1249,
+      "declaration": "DataObjectRef captureNode READ captureNodeRef WRITE setCaptureNodeRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1250,
+      "declaration": "int numInlets READ numInlets WRITE setNumInlets NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1251,
+      "declaration": "double pctClogged READ pctClogged WRITE setPctClogged NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1252,
+      "declaration": "double flowRestriction READ flowRestriction WRITE setFlowRestriction NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1253,
+      "declaration": "double depressionHeight READ depressionHeight WRITE setDepressionHeight NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1255,
+      "declaration": "double depressionWidth READ depressionWidth WRITE setDepressionWidth NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1256,
+      "declaration": "SWMMNodePropertyAdapter::InletPlacement placement READ placement WRITE setPlacement NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1284,
+      "declaration": "SWMMNodePropertyAdapter::OutfallType outfallType READ outfallType WRITE setOutfallType NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1289,
+      "declaration": "double outfallStage READ outfallStage WRITE setOutfallStage NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1290,
+      "declaration": "DataObjectRef outfallTidalCurve READ outfallTidalCurveRef WRITE setOutfallTidalCurveRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1292,
+      "declaration": "DataObjectRef outfallTimeseries READ outfallTimeseriesRef WRITE setOutfallTimeseriesRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1294,
+      "declaration": "SWMMNodePropertyAdapter::FlapGate outfallFlapGate READ outfallFlapGate WRITE setOutfallFlapGate NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1298,
+      "declaration": "bool coupleable READ coupleable WRITE setCoupleable NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1299,
+      "declaration": "QString couplingSpread READ couplingSpread WRITE setCouplingSpread NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1300,
+      "declaration": "QString couplingTailwaterRelax READ couplingTailwaterRelax WRITE setCouplingTailwaterRelax NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1315,
+      "declaration": "NodeCompoundEditRef inflows READ inflowsRef WRITE setInflowsRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1316,
+      "declaration": "NodeCompoundEditRef dwf READ dwfRef WRITE setDwfRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1317,
+      "declaration": "NodeCompoundEditRef rdii READ rdiiRef WRITE setRdiiRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1318,
+      "declaration": "NodeCompoundEditRef treatment READ treatmentRef WRITE setTreatmentRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1319,
+      "declaration": "NodeCompoundEditRef groundwaterSources READ groundwaterSourcesRef WRITE setGroundwaterSourcesRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1321,
+      "declaration": "InitialQualityEditRef initialQuality READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1323,
+      "declaration": "UserFlagsEditRef userFlags READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1335,
+      "declaration": "DataObjectRef lidControl READ lidControlRef WRITE setLidControlRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1336,
+      "declaration": "double lidInitialSaturation READ lidInitialSaturation WRITE setLidInitialSaturation NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1338,
+      "declaration": "NodeCompoundEditRef lidBottomConnection READ lidBottomConnectionRef WRITE setLidBottomConnectionRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1340,
+      "declaration": "double maxDepth READ maxDepth WRITE setMaxDepth NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1341,
+      "declaration": "double initialDepth READ initialDepth WRITE setInitialDepth NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1342,
+      "declaration": "double surchargeDepth READ surchargeDepth WRITE setSurchargeDepth NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1343,
+      "declaration": "double seepRate READ seepRate WRITE setSeepRate NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1345,
+      "declaration": "bool coupleable READ coupleable WRITE setCoupleable NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1346,
+      "declaration": "SWMMNodePropertyAdapter::Coupling2DType couplingType READ couplingType WRITE setCouplingType NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1348,
+      "declaration": "QString couplingDiameter READ couplingDiameter WRITE setCouplingDiameter NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1350,
+      "declaration": "QString couplingPerimeter READ couplingPerimeter WRITE setCouplingPerimeter NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1352,
+      "declaration": "QString couplingStructureArea READ couplingStructureArea WRITE setCouplingStructureArea NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1354,
+      "declaration": "QString couplingChamberArea READ couplingChamberArea WRITE setCouplingChamberArea NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1356,
+      "declaration": "QString couplingLidOpenFraction READ couplingLidOpenFraction WRITE setCouplingLidOpenFraction NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1358,
+      "declaration": "SWMMNodePropertyAdapter::Coupling2DCrest couplingCrest READ couplingCrest WRITE setCouplingCrest NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1360,
+      "declaration": "SWMMNodePropertyAdapter::Coupling2DLaw couplingLaw READ couplingLaw WRITE setCouplingLaw NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1362,
+      "declaration": "SWMMNodePropertyAdapter::Coupling2DCoeffs couplingCoeffs READ couplingCoeffs WRITE setCouplingCoeffs NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1364,
+      "declaration": "QString couplingCw READ couplingCw WRITE setCouplingCw NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1365,
+      "declaration": "QString couplingCsw READ couplingCsw WRITE setCouplingCsw NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1366,
+      "declaration": "QString couplingCoi READ couplingCoi WRITE setCouplingCoi NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1367,
+      "declaration": "QString couplingCoo READ couplingCoo WRITE setCouplingCoo NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1378,
+      "declaration": "SWMMNodePropertyAdapter::StorageShape storageShape READ storageShape WRITE setStorageShape NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1380,
+      "declaration": "DataObjectRef storageCurve READ storageCurveRef WRITE setStorageCurveRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1382,
+      "declaration": "double storageCoeffA READ storageCoeffA WRITE setStorageCoeffA NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1383,
+      "declaration": "double storageExpB READ storageExpB WRITE setStorageExpB NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1384,
+      "declaration": "double storageConstC READ storageConstC WRITE setStorageConstC NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1385,
+      "declaration": "double storageParam1 READ storageParam1 WRITE setStorageParam1 NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1386,
+      "declaration": "double storageParam2 READ storageParam2 WRITE setStorageParam2 NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1387,
+      "declaration": "double storageParam3 READ storageParam3 WRITE setStorageParam3 NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1398,
+      "declaration": "NodeCompoundEditRef inflows READ inflowsRef WRITE setInflowsRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1399,
+      "declaration": "NodeCompoundEditRef dwf READ dwfRef WRITE setDwfRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1400,
+      "declaration": "NodeCompoundEditRef rdii READ rdiiRef WRITE setRdiiRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1401,
+      "declaration": "NodeCompoundEditRef treatment READ treatmentRef WRITE setTreatmentRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1402,
+      "declaration": "NodeCompoundEditRef groundwaterSources READ groundwaterSourcesRef WRITE setGroundwaterSourcesRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1404,
+      "declaration": "InitialQualityEditRef initialQuality READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1406,
+      "declaration": "UserFlagsEditRef userFlags READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1418,
+      "declaration": "SWMMNodePropertyAdapter::DividerType dividerType READ dividerType WRITE setDividerType NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1420,
+      "declaration": "double maxDepth READ maxDepth WRITE setMaxDepth NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1421,
+      "declaration": "double initialDepth READ initialDepth WRITE setInitialDepth NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1422,
+      "declaration": "double surchargeDepth READ surchargeDepth WRITE setSurchargeDepth NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1423,
+      "declaration": "double pondedArea READ pondedArea WRITE setPondedArea NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1425,
+      "declaration": "bool coupleable READ coupleable WRITE setCoupleable NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1426,
+      "declaration": "SWMMNodePropertyAdapter::Coupling2DType couplingType READ couplingType WRITE setCouplingType NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1428,
+      "declaration": "QString couplingDiameter READ couplingDiameter WRITE setCouplingDiameter NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1430,
+      "declaration": "QString couplingPerimeter READ couplingPerimeter WRITE setCouplingPerimeter NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1432,
+      "declaration": "QString couplingStructureArea READ couplingStructureArea WRITE setCouplingStructureArea NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1434,
+      "declaration": "QString couplingChamberArea READ couplingChamberArea WRITE setCouplingChamberArea NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1436,
+      "declaration": "QString couplingLidOpenFraction READ couplingLidOpenFraction WRITE setCouplingLidOpenFraction NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1438,
+      "declaration": "SWMMNodePropertyAdapter::Coupling2DCrest couplingCrest READ couplingCrest WRITE setCouplingCrest NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1440,
+      "declaration": "SWMMNodePropertyAdapter::Coupling2DLaw couplingLaw READ couplingLaw WRITE setCouplingLaw NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1442,
+      "declaration": "SWMMNodePropertyAdapter::Coupling2DCoeffs couplingCoeffs READ couplingCoeffs WRITE setCouplingCoeffs NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1444,
+      "declaration": "QString couplingCw READ couplingCw WRITE setCouplingCw NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1445,
+      "declaration": "QString couplingCsw READ couplingCsw WRITE setCouplingCsw NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1446,
+      "declaration": "QString couplingCoi READ couplingCoi WRITE setCouplingCoi NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1447,
+      "declaration": "QString couplingCoo READ couplingCoo WRITE setCouplingCoo NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1457,
+      "declaration": "NodeCompoundEditRef inflows READ inflowsRef WRITE setInflowsRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1458,
+      "declaration": "NodeCompoundEditRef dwf READ dwfRef WRITE setDwfRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1459,
+      "declaration": "NodeCompoundEditRef rdii READ rdiiRef WRITE setRdiiRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1460,
+      "declaration": "NodeCompoundEditRef treatment READ treatmentRef WRITE setTreatmentRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1461,
+      "declaration": "NodeCompoundEditRef groundwaterSources READ groundwaterSourcesRef WRITE setGroundwaterSourcesRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1463,
+      "declaration": "InitialQualityEditRef initialQuality READ initialQualityRef WRITE setInitialQualityRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmnodepropertyadapter.h",
+      "line": 1465,
+      "declaration": "UserFlagsEditRef userFlags READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmpollutantpropertyadapter.h",
+      "line": 37,
+      "declaration": "double rainConc READ rainConc WRITE setRainConc NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmpollutantpropertyadapter.h",
+      "line": 38,
+      "declaration": "double gwConc READ gwConc WRITE setGwConc NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmpollutantpropertyadapter.h",
+      "line": 39,
+      "declaration": "double initConc READ initConc WRITE setInitConc NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmpollutantpropertyadapter.h",
+      "line": 40,
+      "declaration": "double rdiiConc READ rdiiConc WRITE setRdiiConc NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmpollutantpropertyadapter.h",
+      "line": 41,
+      "declaration": "double kDecay READ kDecay WRITE setKDecay NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmpollutantpropertyadapter.h",
+      "line": 42,
+      "declaration": "double mwt READ mwt WRITE setMwt NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmpollutantpropertyadapter.h",
+      "line": 43,
+      "declaration": "bool snowOnly READ snowOnly WRITE setSnowOnly NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmpollutantpropertyadapter.h",
+      "line": 46,
+      "declaration": "DataObjectRef coPollutant READ coPollutantRef WRITE setCoPollutantRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmpollutantpropertyadapter.h",
+      "line": 47,
+      "declaration": "double coPollutantFrac READ coPollutantFrac WRITE setCoPollutantFrac NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmraingagepropertyadapter.h",
+      "line": 61,
+      "declaration": "double xCoord READ xCoord WRITE setXCoord NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmraingagepropertyadapter.h",
+      "line": 62,
+      "declaration": "double yCoord READ yCoord WRITE setYCoord NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmraingagepropertyadapter.h",
+      "line": 63,
+      "declaration": "SWMMRainGagePropertyAdapter::RainType rainType READ rainType WRITE setRainType NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmraingagepropertyadapter.h",
+      "line": 68,
+      "declaration": "RainIntervalRef rainInterval READ rainIntervalRef WRITE setRainIntervalRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmraingagepropertyadapter.h",
+      "line": 72,
+      "declaration": "double snowFactor READ snowFactor WRITE setSnowFactor NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmraingagepropertyadapter.h",
+      "line": 77,
+      "declaration": "double scaleFactor READ scaleFactor WRITE setScaleFactor NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmraingagepropertyadapter.h",
+      "line": 78,
+      "declaration": "SWMMRainGagePropertyAdapter::DataSource dataSource READ dataSource WRITE setDataSource NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmraingagepropertyadapter.h",
+      "line": 83,
+      "declaration": "DataObjectRef seriesName READ seriesNameRef WRITE setSeriesNameRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmraingagepropertyadapter.h",
+      "line": 90,
+      "declaration": "QString filePath READ filePath WRITE setFilePath NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmraingagepropertyadapter.h",
+      "line": 97,
+      "declaration": "QString fileColumn READ fileColumn WRITE setFileColumn NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmraingagepropertyadapter.h",
+      "line": 106,
+      "declaration": "SWMMRainGagePropertyAdapter::RainFileFormat fileFormat READ fileFormatEnum WRITE setFileFormat NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmraingagepropertyadapter.h",
+      "line": 111,
+      "declaration": "QString stationId READ stationId WRITE setStationId NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmraingagepropertyadapter.h",
+      "line": 112,
+      "declaration": "SWMMRainGagePropertyAdapter::RainUnits rainUnits READ rainUnits WRITE setRainUnits NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmraingagepropertyadapter.h",
+      "line": 116,
+      "declaration": "UserFlagsEditRef userFlags READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 35,
+      "declaration": "QString name READ name WRITE setName"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 41,
+      "declaration": "QString tag READ tag WRITE setTag NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 42,
+      "declaration": "double area READ area WRITE setArea NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 43,
+      "declaration": "double width READ width WRITE setWidth NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 44,
+      "declaration": "double slope READ slope WRITE setSlope NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 45,
+      "declaration": "double impervPct READ impervPct WRITE setImpervPct NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 46,
+      "declaration": "double pctZeroImperv READ pctZeroImperv WRITE setPctZeroImperv NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 47,
+      "declaration": "double nImperv READ nImperv WRITE setNImperv NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 48,
+      "declaration": "double nPerv READ nPerv WRITE setNPerv NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 49,
+      "declaration": "double dsImperv READ dsImperv WRITE setDsImperv NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 50,
+      "declaration": "double dsPerv READ dsPerv WRITE setDsPerv NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 55,
+      "declaration": "double rainScaleFactor READ rainScaleFactor WRITE setRainScaleFactor NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 60,
+      "declaration": "double snowScaleFactor READ snowScaleFactor WRITE setSnowScaleFactor NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 64,
+      "declaration": "DataObjectRef snowPack READ snowPackRef WRITE setSnowPackRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 65,
+      "declaration": "DataObjectRef rainGage READ rainGageRef WRITE setRainGageRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 68,
+      "declaration": "DataObjectRef outlet READ outletRef WRITE setOutletRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 70,
+      "declaration": "InfilModel infilModel READ infilModel WRITE setInfilModel NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 73,
+      "declaration": "double hortonF0 READ hortonF0 WRITE setHortonF0 NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 74,
+      "declaration": "double hortonFmin READ hortonFmin WRITE setHortonFmin NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 75,
+      "declaration": "double hortonDecay READ hortonDecay WRITE setHortonDecay NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 76,
+      "declaration": "double hortonDryTime READ hortonDryTime WRITE setHortonDryTime NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 77,
+      "declaration": "double gaSuction READ gaSuction WRITE setGaSuction NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 78,
+      "declaration": "double gaConductivity READ gaConductivity WRITE setGaConductivity NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 79,
+      "declaration": "double gaInitDeficit READ gaInitDeficit WRITE setGaInitDeficit NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 80,
+      "declaration": "double cnNumber READ cnNumber WRITE setCnNumber NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 81,
+      "declaration": "double cnDryTime READ cnDryTime WRITE setCnDryTime NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 83,
+      "declaration": "SubcatchCompoundEditRef landUse READ landUseRef WRITE setLandUseRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 87,
+      "declaration": "DataObjectRef aquifer READ aquiferRef WRITE setAquiferRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 88,
+      "declaration": "SubcatchCompoundEditRef groundwater READ groundwaterRef WRITE setGroundwaterRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 90,
+      "declaration": "SubcatchCompoundEditRef lidUsage READ lidUsageRef WRITE setLidUsageRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 92,
+      "declaration": "SubcatchCompoundEditRef loadings READ loadingsRef WRITE setLoadingsRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmsubcatchpropertyadapter.h",
+      "line": 97,
+      "declaration": "UserFlagsEditRef userFlags READ userFlagsRef WRITE setUserFlagsRef NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmtransectpropertyadapter.h",
+      "line": 36,
+      "declaration": "QString comments READ comments WRITE setComments NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmtransectpropertyadapter.h",
+      "line": 38,
+      "declaration": "double nLeftBank READ nLeftBank WRITE setNLeftBank NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmtransectpropertyadapter.h",
+      "line": 39,
+      "declaration": "double nRightBank READ nRightBank WRITE setNRightBank NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmtransectpropertyadapter.h",
+      "line": 40,
+      "declaration": "double nChannel READ nChannel WRITE setNChannel NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmtransectpropertyadapter.h",
+      "line": 42,
+      "declaration": "double xLeftBank READ xLeftBank WRITE setXLeftBank NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmtransectpropertyadapter.h",
+      "line": 43,
+      "declaration": "double xRightBank READ xRightBank WRITE setXRightBank NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmtransectpropertyadapter.h",
+      "line": 45,
+      "declaration": "double xLeftEncroachment READ xLeftEncroachment WRITE setXLeftEncroachment NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmtransectpropertyadapter.h",
+      "line": 47,
+      "declaration": "double xRightEncroachment READ xRightEncroachment WRITE setXRightEncroachment NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmtransectpropertyadapter.h",
+      "line": 50,
+      "declaration": "double stationMultiplier READ stationMultiplier WRITE setStationMultiplier NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmtransectpropertyadapter.h",
+      "line": 52,
+      "declaration": "double elevationOffset READ elevationOffset WRITE setElevationOffset NOTIFY changed"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/include/ui/properties/swmmtransectpropertyadapter.h",
+      "line": 53,
+      "declaration": "double meanderFactor READ meanderFactor WRITE setMeanderFactor NOTIFY changed"
+    }
+  ],
+  "literal_tagged_options": [
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/datespage.cpp",
+      "line": 312,
+      "key": "START_DATE"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/datespage.cpp",
+      "line": 313,
+      "key": "START_TIME"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/datespage.cpp",
+      "line": 314,
+      "key": "END_DATE"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/datespage.cpp",
+      "line": 315,
+      "key": "END_TIME"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/datespage.cpp",
+      "line": 316,
+      "key": "REPORT_START_DATE"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/datespage.cpp",
+      "line": 317,
+      "key": "REPORT_START_TIME"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/datespage.cpp",
+      "line": 318,
+      "key": "REPORT_STEP"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/datespage.cpp",
+      "line": 319,
+      "key": "DRY_STEP"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/datespage.cpp",
+      "line": 320,
+      "key": "WET_STEP"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/datespage.cpp",
+      "line": 321,
+      "key": "RULE_STEP"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/datespage.cpp",
+      "line": 322,
+      "key": "ROUTING_STEP"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/datespage.cpp",
+      "line": 323,
+      "key": "DRY_DAYS"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/datespage.cpp",
+      "line": 324,
+      "key": "SWEEP_START"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/datespage.cpp",
+      "line": 325,
+      "key": "SWEEP_END"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/filespage.cpp",
+      "line": 128,
+      "key": "RPT_DISABLED"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/filespage.cpp",
+      "line": 129,
+      "key": "RPT_INPUT"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/filespage.cpp",
+      "line": 130,
+      "key": "RPT_CONTINUITY"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/filespage.cpp",
+      "line": 131,
+      "key": "RPT_FLOWSTATS"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/filespage.cpp",
+      "line": 132,
+      "key": "RPT_CONTROLS"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/filespage.cpp",
+      "line": 133,
+      "key": "RPT_AVERAGES"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/filespage.cpp",
+      "line": 134,
+      "key": "RPT_LINK_STEPS"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/filespage.cpp",
+      "line": 135,
+      "key": "REPORT_SIGNED_HEADS"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/filespage.cpp",
+      "line": 136,
+      "key": "RPT_SUBCATCHMENTS"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/filespage.cpp",
+      "line": 137,
+      "key": "RPT_NODES"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/filespage.cpp",
+      "line": 138,
+      "key": "RPT_LINKS"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/filespage.cpp",
+      "line": 139,
+      "key": "RAINFALL_MODE"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/filespage.cpp",
+      "line": 140,
+      "key": "RUNOFF_MODE"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/filespage.cpp",
+      "line": 141,
+      "key": "RDII_MODE"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 383,
+      "key": "FV_IMPLICIT_METHOD"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 388,
+      "key": "FV_IMPLICIT_PRECONDITIONER"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 561,
+      "key": "FLOW_ROUTING"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 562,
+      "key": "SKIP_STEADY_STATE"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 563,
+      "key": "SURCHARGE_METHOD"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 564,
+      "key": "DPS_CELERITY"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 565,
+      "key": "DPS_ALPHA"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 566,
+      "key": "DPS_DECAY_TIME"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 567,
+      "key": "TPA_CELERITY"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 568,
+      "key": "UNSTEADY_FRICTION"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 569,
+      "key": "UF_K3"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 570,
+      "key": "NODE_CONTINUITY"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 571,
+      "key": "ANDERSON_ACCEL"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 572,
+      "key": "FORCE_MAIN_EQUATION"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 573,
+      "key": "NORMAL_FLOW_LIMITED"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 574,
+      "key": "INERTIAL_DAMPING"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 575,
+      "key": "LENGTHENING_STEP"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 576,
+      "key": "VARIABLE_STEP"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 577,
+      "key": "MINIMUM_STEP"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 578,
+      "key": "MAX_TRIALS"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 579,
+      "key": "HEAD_TOLERANCE"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 580,
+      "key": "LAT_FLOW_TOL"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 581,
+      "key": "SYS_FLOW_TOL"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 582,
+      "key": "MIN_SURFAREA"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 583,
+      "key": "MIN_SLOPE"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 584,
+      "key": "FV_CELL_LENGTH"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 585,
+      "key": "FV_MIN_CELLS"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 586,
+      "key": "FV_CFL"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 587,
+      "key": "FV_RIEMANN"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 588,
+      "key": "FV_ORDER"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 589,
+      "key": "FV_LIMITER"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 590,
+      "key": "FV_TIME_INTEGRATION"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 591,
+      "key": "FV_SLOT_CELERITY"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 592,
+      "key": "FV_PRESSURE_CLOSURE"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 593,
+      "key": "FV_PRESSURIZED_IMPLICIT"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 594,
+      "key": "FV_STRUCTURE_COUPLING"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 595,
+      "key": "FV_COMPACTION"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 596,
+      "key": "FV_BACKEND"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 597,
+      "key": "FV_MIN_PARALLEL_CELLS"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 598,
+      "key": "FV_LTS"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 599,
+      "key": "FV_LTS_MAX_TIERS"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp",
+      "line": 600,
+      "key": "FV_CFL_CENSUS_INTERVAL"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/modelspage.cpp",
+      "line": 323,
+      "key": "INFILTRATION"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/modelspage.cpp",
+      "line": 324,
+      "key": "ALLOW_PONDING"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/modelspage.cpp",
+      "line": 325,
+      "key": "IGNORE_RAINFALL"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/modelspage.cpp",
+      "line": 326,
+      "key": "IGNORE_SNOWMELT"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/modelspage.cpp",
+      "line": 327,
+      "key": "IGNORE_GROUNDWATER"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/modelspage.cpp",
+      "line": 328,
+      "key": "IGNORE_RDII"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/modelspage.cpp",
+      "line": 329,
+      "key": "IGNORE_QUALITY"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/modelspage.cpp",
+      "line": 330,
+      "key": "IGNORE_ROUTING"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/modelspage.cpp",
+      "line": 331,
+      "key": "IGNORE_2D"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/performancepage.cpp",
+      "line": 67,
+      "key": "THREADS"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/qualitypage.cpp",
+      "line": 294,
+      "key": "QUALITY_SOLVER"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/qualitypage.cpp",
+      "line": 295,
+      "key": "OUTFALL_BACKFLOW_QUALITY"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/qualitypage.cpp",
+      "line": 296,
+      "key": "QUALITY_STEP"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/qualitypage.cpp",
+      "line": 297,
+      "key": "MAX_SEGMENTS_PER_LINK"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/qualitypage.cpp",
+      "line": 298,
+      "key": "DISPERSION"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/qualitypage.cpp",
+      "line": 299,
+      "key": "RWPT_SEED"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/qualitypage.cpp",
+      "line": 300,
+      "key": "WATER_AGE"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/qualitypage.cpp",
+      "line": 301,
+      "key": "HEAT_TRANSPORT"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/qualitypage.cpp",
+      "line": 302,
+      "key": "FV_SCALAR_SCHEME"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 996,
+      "key": "MAX_TIMESTEP"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 997,
+      "key": "DRY_DEPTH"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 998,
+      "key": "LIMITER_EPSILON"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 999,
+      "key": "FLUX_DH_EPS"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1000,
+      "key": "CELL_CLOSURE"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1001,
+      "key": "FACE_RECONSTRUCTION"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1002,
+      "key": "VFR_MIN_WET_FRAC"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1003,
+      "key": "COUPLING_CD"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1004,
+      "key": "COUPLING_SYNC"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1005,
+      "key": "COUPLING_LAW"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1006,
+      "key": "COUPLING_COEFFS"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1007,
+      "key": "COUPLING_HEAD"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1008,
+      "key": "COUPLING_POND_MODE"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1009,
+      "key": "COUPLING_POND_RELAX"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1010,
+      "key": "COUPLING_RIM_BAND"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1011,
+      "key": "COUPLING_EQUALIZE"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1012,
+      "key": "RAINFALL_MODE"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1013,
+      "key": "REPORT_2D"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1014,
+      "key": "THETA"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1015,
+      "key": "THETA_REFERENCE_STEP"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1016,
+      "key": "CFL_NUMBER"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1017,
+      "key": "LTS_TIERS"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1018,
+      "key": "H_MOVE"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1019,
+      "key": "FROUDE_MAX"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1020,
+      "key": "MOMENTUM_EQUATION"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1021,
+      "key": "RECONSTRUCTION_ORDER"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1022,
+      "key": "ADVECTION"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1023,
+      "key": "BACKEND"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1024,
+      "key": "COUPLING_AREA"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1025,
+      "key": "OUTPUT_FILE"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1026,
+      "key": "OUTPUT_PRECISION"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1027,
+      "key": "OUTPUT_COMPRESSION"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1028,
+      "key": "REPORT_2D_STEP"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1029,
+      "key": "REPORT_2D_VARIABLES"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1030,
+      "key": "REPORT_2D_SPECIES"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1031,
+      "key": "INFIL_STEP"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1032,
+      "key": "INFILTRATION"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1033,
+      "key": "INFIL_DEFAULT_METHOD"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1034,
+      "key": "INFIL_DESTINATION"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1035,
+      "key": "EVAPORATION"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1036,
+      "key": "GROUNDWATER"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1037,
+      "key": "GW_ET"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1038,
+      "key": "LINK_SEEPAGE"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp",
+      "line": 1039,
+      "key": "WILTING_SUCTION"
+    }
+  ],
+  "limited_precision_formats": [
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 199,
+      "nearest_section": "helper",
+      "formats": [
+        "%g"
+      ],
+      "source": "std::snprintf(buf, N, \"%g\", secs);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 743,
+      "nearest_section": "helper",
+      "formats": [
+        "%-12.12g"
+      ],
+      "source": "std::fprintf(f, \" %-12.12g\", row.p[k]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 817,
+      "nearest_section": "2D_COVERAGES",
+      "formats": [
+        "%8.3f"
+      ],
+      "source": "std::fprintf(f, \" %-16s %8.3f\", u.first.c_str(), u.second);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 825,
+      "nearest_section": "2D_LOADINGS",
+      "formats": [
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-16s %10.4f\\n\", twoD::formatSqScope(r.key).c_str(),"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 832,
+      "nearest_section": "2D_CURB_LENGTH",
+      "formats": [
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %10.4f\\n\", twoD::formatSqScope(r.key).c_str(), r.length);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1136,
+      "nearest_section": "2D_OPTIONS",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-22s %.12g\\n\", \"MAX_TIMESTEP\", o.max_timestep);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1137,
+      "nearest_section": "2D_OPTIONS",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-22s %.12g\\n\", \"DRY_DEPTH\", o.dry_depth);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1138,
+      "nearest_section": "2D_OPTIONS",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-22s %.12g\\n\", \"LIMITER_EPSILON\", o.limiter_epsilon);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1139,
+      "nearest_section": "2D_OPTIONS",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-22s %.12g\\n\", \"FLUX_DH_EPS\", o.flux_dh_eps);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1140,
+      "nearest_section": "2D_OPTIONS",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-22s %.12g\\n\", \"COUPLING_CD\", o.coupling_cd);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1141,
+      "nearest_section": "2D_OPTIONS",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-22s %.12g\\n\", \"COUPLING_SYNC\", o.coupling_sync);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1152,
+      "nearest_section": "2D_OPTIONS",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-22s %.12g\\n\", \"VFR_MIN_WET_FRAC\", o.vfr_min_wet_frac);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1165,
+      "nearest_section": "2D_OPTIONS",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-22s %.12g\\n\", \"THETA\", o.theta);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1167,
+      "nearest_section": "2D_OPTIONS",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-22s %.12g\\n\", \"THETA_REFERENCE_STEP\", o.theta_reference_step);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1168,
+      "nearest_section": "2D_OPTIONS",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-22s %.12g\\n\", \"CFL_NUMBER\", o.cfl_number);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1169,
+      "nearest_section": "2D_OPTIONS",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-22s %.12g\\n\", \"H_MOVE\", o.h_move);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1171,
+      "nearest_section": "2D_OPTIONS",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-22s %.12g\\n\", \"FROUDE_MAX\", o.froude_max);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1175,
+      "nearest_section": "2D_OPTIONS",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-22s %.12g\\n\", \"DISPERSION\", o.dispersion);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1188,
+      "nearest_section": "2D_OPTIONS",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-22s %.12g\\n\", \"COUPLING_POND_RELAX\", o.coupling_pond_relax);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1190,
+      "nearest_section": "2D_OPTIONS",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-22s %.12g\\n\", \"COUPLING_RIM_BAND\", o.coupling_rim_band);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1384,
+      "nearest_section": "2D_VERTICES",
+      "formats": [
+        "%-18.10g",
+        "%-18.10g",
+        "%-14.10g"
+      ],
+      "source": "std::fprintf(f, \"%-18.10g %-18.10g %-14.10g\", mesh.vx[i], mesh.vy[i], mesh.vz[i]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1416,
+      "nearest_section": "2D_TRIANGLES",
+      "formats": [
+        "%-12.6g"
+      ],
+      "source": "std::fprintf(f, \"%-8d %-8d %-8d %-12.6g\", mesh.cell_vertex(t, 0), mesh.cell_vertex(t, 1),"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1419,
+      "nearest_section": "2D_TRIANGLES",
+      "formats": [
+        "%-12.6g"
+      ],
+      "source": "std::fprintf(f, \" %-12.6g\", mesh.tri_init_depth[t]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1439,
+      "nearest_section": "2D_QUADS",
+      "formats": [
+        "%-12.6g"
+      ],
+      "source": "std::fprintf(f, \"%-8d %-8d %-8d %-8d %-12.6g\", mesh.cell_vertex(t, 0),"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1443,
+      "nearest_section": "2D_QUADS",
+      "formats": [
+        "%-12.6g"
+      ],
+      "source": "std::fprintf(f, \" %-12.6g\", mesh.tri_init_depth[t]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1463,
+      "nearest_section": "2D_INITIAL_VELOCITY",
+      "formats": [
+        "%-12.6g",
+        "%.6g"
+      ],
+      "source": "std::fprintf(f, \"%-8d %-12.6g %.6g\\n\", t, mesh.tri_init_u[t], mesh.tri_init_v[t]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1485,
+      "nearest_section": "2D_INITIAL_VELOCITY",
+      "formats": [
+        "%-10.6g",
+        "%.12g"
+      ],
+      "source": "std::fprintf(out, \"%-8d %-16s %-10.6g %.12g\\n\", idx, node.c_str(),"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1488,
+      "nearest_section": "2D_INITIAL_VELOCITY",
+      "formats": [
+        "%.6g"
+      ],
+      "source": "std::fprintf(out, \"%-8d %-16s %.6g\\n\", idx, node.c_str(), cd);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1542,
+      "nearest_section": "2D_TRIANGLE_NODE_MAP",
+      "formats": [
+        "%-10.6g",
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-8d %-16s %-10.6g %.12g\\n\", t, cn.c_str(),"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1566,
+      "nearest_section": "2D_BOUNDARY_CONDITIONS",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::snprintf(p1, sizeof(p1), \"%.12g\", r.param1);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1586,
+      "nearest_section": "2D_EDGE_CONVEYANCE",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-12d %-12d %.12g\\n\", r.v_from, r.v_to, r.conveyance);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1599,
+      "nearest_section": "2D_INITIAL_QUALITY",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-8s %-16s %-12s %.12g\\n\", \"*\", \"\", r.species.c_str(), r.conc);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1601,
+      "nearest_section": "2D_INITIAL_QUALITY",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-8s %-16d %-12s %.12g\\n\", \"CELL\", r.tri + 1, r.species.c_str(),"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1604,
+      "nearest_section": "2D_INITIAL_QUALITY",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-8s %-16s %-12s %.12g\\n\", \"TAG\", r.tag.c_str(), r.species.c_str(),"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1613,
+      "nearest_section": "2D_INITIAL_BED_QUALITY",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-8s %-16s %-12s %.12g\\n\", \"*\", \"\", r.species.c_str(), r.conc);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1615,
+      "nearest_section": "2D_INITIAL_BED_QUALITY",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-8s %-16d %-12s %.12g\\n\", \"CELL\", r.tri + 1, r.species.c_str(),"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1618,
+      "nearest_section": "2D_INITIAL_BED_QUALITY",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-8s %-16s %-12s %.12g\\n\", \"TAG\", r.tag.c_str(), r.species.c_str(),"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1626,
+      "nearest_section": "2D_BOUNDARY_QUALITY",
+      "formats": [
+        "%.12g"
+      ],
+      "source": "std::fprintf(f, \"%-6d %-4d %-12s %.12g\\n\", r.tri, r.edge, r.species.c_str(), r.conc);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 1954,
+      "nearest_section": "OPTIONS",
+      "formats": [
+        "%g"
+      ],
+      "source": "std::fprintf(f, \"%-20s %g\\n\", \"MIN_SLOPE\", o.min_slope);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2033,
+      "nearest_section": "OPTIONS",
+      "formats": [
+        "%g"
+      ],
+      "source": "std::fprintf(f, \"%-20s %g\\n\", \"DRY_DAYS\", o.dry_days);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2062,
+      "nearest_section": "OPTIONS",
+      "formats": [
+        "%g"
+      ],
+      "source": "std::fprintf(f, \"%-20s %g\\n\", \"TPA_CELERITY\", o.tpa_celerity);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2068,
+      "nearest_section": "OPTIONS",
+      "formats": [
+        "%g"
+      ],
+      "source": "std::fprintf(f, \"%-20s %g\\n\", \"UF_K3\", o.uf_k3);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2072,
+      "nearest_section": "OPTIONS",
+      "formats": [
+        "%.2f"
+      ],
+      "source": "std::fprintf(f, \"%-20s %.2f\\n\", \"VARIABLE_STEP\", o.variable_step);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2073,
+      "nearest_section": "OPTIONS",
+      "formats": [
+        "%g"
+      ],
+      "source": "std::fprintf(f, \"%-20s %g\\n\", \"LENGTHENING_STEP\", o.lengthening_step);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2074,
+      "nearest_section": "OPTIONS",
+      "formats": [
+        "%g"
+      ],
+      "source": "std::fprintf(f, \"%-20s %g\\n\", \"MIN_SURFAREA\", o.min_surf_area);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2076,
+      "nearest_section": "OPTIONS",
+      "formats": [
+        "%g"
+      ],
+      "source": "std::fprintf(f, \"%-20s %g\\n\", \"HEAD_TOLERANCE\", o.head_tol);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2077,
+      "nearest_section": "OPTIONS",
+      "formats": [
+        "%g"
+      ],
+      "source": "std::fprintf(f, \"%-20s %g\\n\", \"SYS_FLOW_TOL\", o.sys_flow_tol * 100.0);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2078,
+      "nearest_section": "OPTIONS",
+      "formats": [
+        "%g"
+      ],
+      "source": "std::fprintf(f, \"%-20s %g\\n\", \"LAT_FLOW_TOL\", o.lat_flow_tol * 100.0);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2089,
+      "nearest_section": "OPTIONS",
+      "formats": [
+        "%.4f"
+      ],
+      "source": "std::fprintf(f, \"%-20s %.4f\\n\", \"DPS_CELERITY\", o.dps_target_celerity);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2090,
+      "nearest_section": "OPTIONS",
+      "formats": [
+        "%.4f"
+      ],
+      "source": "std::fprintf(f, \"%-20s %.4f\\n\", \"DPS_ALPHA\", o.dps_alpha);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2091,
+      "nearest_section": "OPTIONS",
+      "formats": [
+        "%.4f"
+      ],
+      "source": "std::fprintf(f, \"%-20s %.4f\\n\", \"DPS_DECAY_TIME\", o.dps_decay_time);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2113,
+      "nearest_section": "OPTIONS",
+      "formats": [
+        "%g"
+      ],
+      "source": "std::fprintf(f, \"%-20s %g\\n\", \"FV_CELL_LENGTH\", fvo.cell_length);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2115,
+      "nearest_section": "OPTIONS",
+      "formats": [
+        "%g"
+      ],
+      "source": "std::fprintf(f, \"%-20s %g\\n\", \"FV_CFL\", fvo.cfl);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2123,
+      "nearest_section": "OPTIONS",
+      "formats": [
+        "%g"
+      ],
+      "source": "std::fprintf(f, \"%-20s %g\\n\", \"FV_SLOT_CELERITY\", fvo.slot_celerity);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2131,
+      "nearest_section": "OPTIONS",
+      "formats": [
+        "%g"
+      ],
+      "source": "std::fprintf(f, \"%-20s %g\\n\", \"FV_DISPERSION\", fvo.dispersion);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2196,
+      "nearest_section": "EVAPORATION",
+      "formats": [
+        "%.4f"
+      ],
+      "source": "std::fprintf(f, \"CONSTANT     %.4f\\n\", opts.evap_values[0]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2201,
+      "nearest_section": "EVAPORATION",
+      "formats": [
+        "%.4f"
+      ],
+      "source": "std::fprintf(f, \" %.4f\", opts.evap_values[i]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2213,
+      "nearest_section": "EVAPORATION",
+      "formats": [
+        "%.4f"
+      ],
+      "source": "std::fprintf(f, \" %.4f\", opts.pan_coeff[i]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2301,
+      "nearest_section": "TEMPERATURE",
+      "formats": [
+        "%.4f"
+      ],
+      "source": "std::fprintf(f, \" %.4f\", opts.wind_speed[i]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2316,
+      "nearest_section": "TEMPERATURE",
+      "formats": [
+        "%.4f"
+      ],
+      "source": "std::fprintf(f, \" %.4f\", opts.humidity[i]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2319,
+      "nearest_section": "TEMPERATURE",
+      "formats": [
+        "%.4f"
+      ],
+      "source": "std::fprintf(f, \" %.4f\\n\", opts.humidity[0]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2326,
+      "nearest_section": "TEMPERATURE",
+      "formats": [
+        "%.2f",
+        "%.4f",
+        "%.4f",
+        "%.4f",
+        "%.4f",
+        "%.4f"
+      ],
+      "source": "std::fprintf(f, \"SNOWMELT     %.2f %.4f %.4f %.4f %.4f %.4f\", opts.snow_divt,"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2330,
+      "nearest_section": "TEMPERATURE",
+      "formats": [
+        "%.6f",
+        "%.6f"
+      ],
+      "source": "std::fprintf(f, \" %.6f %.6f\", opts.snow_min_melt, opts.snow_max_melt);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2335,
+      "nearest_section": "TEMPERATURE",
+      "formats": [
+        "%.4f"
+      ],
+      "source": "std::fprintf(f, \" %.4f\", opts.adc_imperv[i]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2339,
+      "nearest_section": "TEMPERATURE",
+      "formats": [
+        "%.4f"
+      ],
+      "source": "std::fprintf(f, \" %.4f\", opts.adc_perv[i]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2384,
+      "nearest_section": "SNOWPACKS",
+      "formats": [
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \" %10.4f\", p[static_cast<size_t>(k)]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2391,
+      "nearest_section": "SNOWPACKS",
+      "formats": [
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \" %10.4f\", p[static_cast<size_t>(k)]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2398,
+      "nearest_section": "SNOWPACKS",
+      "formats": [
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \" %10.4f\", p[static_cast<size_t>(k)]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2412,
+      "nearest_section": "SNOWPACKS",
+      "formats": [
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \" %10.4f\", r[static_cast<size_t>(k)]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2445,
+      "nearest_section": "ADJUSTMENTS",
+      "formats": [
+        "%10.4f"
+      ],
+      "source": "const char* format = \" %10.4f\") {"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2526,
+      "nearest_section": "RAINGAGES",
+      "formats": [
+        "%.10g"
+      ],
+      "source": "std::snprintf(gsb, sizeof(gsb), \"%.10g\", iv / 3600.0);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2691,
+      "nearest_section": "SUBAREAS",
+      "formats": [
+        "%10.4f",
+        "%10.4f",
+        "%10.4f",
+        "%10.4f",
+        "%10.2f",
+        "%10.2f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %10.4f %10.4f %10.4f %10.4f %10.2f %-8s %10.2f\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2744,
+      "nearest_section": "AQUIFERS",
+      "formats": [
+        "%-10.10g",
+        "%-10.10g",
+        "%-10.10g",
+        "%-10.10g",
+        "%-10.10g",
+        "%-10.10g",
+        "%-10.10g",
+        "%-10.10g",
+        "%-10.10g",
+        "%-10.10g",
+        "%-10.10g",
+        "%-10.10g"
+      ],
+      "source": "\"%-16s %-10.10g %-10.10g %-10.10g %-10.10g %-10.10g %-10.10g %-10.10g %-10.10g %-10.10g %-10.10g %-10.10g %-10.10g\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2802,
+      "nearest_section": "GROUNDWATER",
+      "formats": [
+        "%-10.10g",
+        "%-10.10g",
+        "%-10.10g",
+        "%-10.10g",
+        "%-10.10g",
+        "%-10.10g",
+        "%-10.10g"
+      ],
+      "source": "\"%-16s %-16s %-16s %-10.10g %-10.10g %-10.10g %-10.10g %-10.10g %-10.10g %-10.10g\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2827,
+      "nearest_section": "GROUNDWATER",
+      "formats": [
+        "%-10.10g"
+      ],
+      "source": "std::fprintf(f, \" %-10.10g\", opt[k]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2938,
+      "nearest_section": "LID_CONTROLS",
+      "formats": [
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \" %10.4f\", p[k]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2954,
+      "nearest_section": "LID_CONTROLS",
+      "formats": [
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \" %10.4f\", p[k]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2970,
+      "nearest_section": "LID_CONTROLS",
+      "formats": [
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \" %10.4f\", p[k]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 2986,
+      "nearest_section": "LID_CONTROLS",
+      "formats": [
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \" %10.4f\", p[k]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3002,
+      "nearest_section": "LID_CONTROLS",
+      "formats": [
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \" %10.4f\", p[k]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3018,
+      "nearest_section": "LID_CONTROLS",
+      "formats": [
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \" %10.4f\", p[k]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3122,
+      "nearest_section": "LID_USAGE",
+      "formats": [
+        "%12.2f",
+        "%10.2f",
+        "%8.2f",
+        "%8.2f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-16s %8d %12.2f %10.2f %8.2f %8.2f %8d\", sc_name, lid_name,"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3145,
+      "nearest_section": "LID_USAGE",
+      "formats": [
+        "%8.2f"
+      ],
+      "source": "std::fprintf(f, \" %8.2f\", ctx.lid_usage.from_perv[uj]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3173,
+      "nearest_section": "JUNCTIONS",
+      "formats": [
+        "%12.4f",
+        "%12.4f",
+        "%12.4f",
+        "%12.4f",
+        "%12.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %12.4f %12.4f %12.4f %12.4f %12.4f\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3184,
+      "nearest_section": "JUNCTIONS",
+      "formats": [
+        "%12.4f",
+        "%12.4f",
+        "%12.4f",
+        "%12.4f",
+        "%12.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %12.4f %12.4f %12.4f %12.4f %12.4f\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3216,
+      "nearest_section": "VIRTUAL_JUNCTIONS",
+      "formats": [
+        "%12.4f",
+        "%12.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %12.4f %12.4f\\n\", ctx.node_names.name_of(j).c_str(),"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3219,
+      "nearest_section": "VIRTUAL_JUNCTIONS",
+      "formats": [
+        "%12.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %12.4f\\n\", ctx.node_names.name_of(j).c_str(),"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3247,
+      "nearest_section": "INLET_JUNCTIONS",
+      "formats": [
+        "%12.4f",
+        "%12.4f",
+        "%8.4g",
+        "%10.4g",
+        "%10.4g",
+        "%10.4g"
+      ],
+      "source": "f, \"%-16s %12.4f %12.4f %-16s %-16s %8d %8.4g %10.4g %10.4g %10.4g %-10s\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3288,
+      "nearest_section": "OUTFALLS",
+      "formats": [
+        "%.4f"
+      ],
+      "source": "std::snprintf(stage, sizeof(stage), \"%.4f\", oparam);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3347,
+      "nearest_section": "DIVIDERS",
+      "formats": [
+        "%12.4f",
+        "%12.4f",
+        "%12.4f",
+        "%12.4f",
+        "%12.4f",
+        "%12.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %12.4f %-16s CUTOFF   %12.4f %12.4f %12.4f %12.4f %12.4f\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3353,
+      "nearest_section": "DIVIDERS",
+      "formats": [
+        "%12.4f",
+        "%12.4f",
+        "%12.4f",
+        "%12.4f",
+        "%12.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %12.4f %-16s OVERFLOW %12.4f %12.4f %12.4f %12.4f\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3368,
+      "nearest_section": "DIVIDERS",
+      "formats": [
+        "%12.4f",
+        "%12.4f",
+        "%12.4f",
+        "%12.4f",
+        "%12.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %12.4f %-16s TABULAR  %-16s %12.4f %12.4f %12.4f %12.4f\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3381,
+      "nearest_section": "DIVIDERS",
+      "formats": [
+        "%12.4f",
+        "%12.4f",
+        "%12.4f",
+        "%12.4f",
+        "%12.4f",
+        "%12.4f",
+        "%12.4f",
+        "%12.4f"
+      ],
+      "source": "\"%-16s %12.4f %-16s WEIR     %12.4f %12.4f %12.4f %12.4f %12.4f %12.4f %12.4f\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3446,
+      "nearest_section": "STORAGE",
+      "formats": [
+        "%g",
+        "%g",
+        "%g"
+      ],
+      "source": "std::fprintf(f, \" %g %g %g\", S.exfil_suction[static_cast<size_t>(srow)], ksat,"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3514,
+      "nearest_section": "PUMPS",
+      "formats": [
+        "%.10g",
+        "%.10g"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-16s %-16s %-16s %-10s %.10g %.10g\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3544,
+      "nearest_section": "ORIFICES",
+      "formats": [
+        "%10.4f",
+        "%10.4f",
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-16s %-16s %-10s %10.4f %10.4f %-8s %10.4f\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3583,
+      "nearest_section": "WEIRS",
+      "formats": [
+        "%10.4f",
+        "%10.4f",
+        "%10.4f",
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-16s %-16s %-12s %10.4f %10.4f %-8s %10.4f %10.4f %-10s\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3595,
+      "nearest_section": "WEIRS",
+      "formats": [
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \" %10.4f %-10s\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3638,
+      "nearest_section": "OUTLETS",
+      "formats": [
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-16s %-16s %10.4f %-16s %-16s %s\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3642,
+      "nearest_section": "OUTLETS",
+      "formats": [
+        "%10.4f",
+        "%10g",
+        "%10g"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-16s %-16s %10.4f %-16s %10g %10g %s\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3685,
+      "nearest_section": "XSECTIONS",
+      "formats": [
+        "%12.4f",
+        "%12.4f",
+        "%12.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-16s %-12s %12.4f %12.4f %12.4f %8d\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3707,
+      "nearest_section": "XSECTIONS",
+      "formats": [
+        "%12.4f",
+        "%12.4f",
+        "%12.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-16s %-12s %12.4f %12.4f %12.4f %8d\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3721,
+      "nearest_section": "XSECTIONS",
+      "formats": [
+        "%12.4f",
+        "%12.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-16s %.15g %-16s %12.4f %12.4f %8d\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3806,
+      "nearest_section": "LOSSES",
+      "formats": [
+        "%10.4f",
+        "%10.4f",
+        "%10.4f",
+        "%10.6f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %10.4f %10.4f %10.4f %-8s %10.6f\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3819,
+      "nearest_section": "TRANSECTS",
+      "formats": [
+        "%10.4f",
+        "%10.4f",
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \"NC %10.4f %10.4f %10.4f\\n\", ctx.transects.n_left[ut],"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3827,
+      "nearest_section": "TRANSECTS",
+      "formats": [
+        "%10.4f",
+        "%10.4f",
+        "%10.4f",
+        "%10.4f",
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \"X1 %-16s %10d %10.4f %10.4f 0 0 %10.4f %10.4f %10.4f\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3855,
+      "nearest_section": "STREETS",
+      "formats": [
+        "%10.4f",
+        "%10.4f",
+        "%10.4f",
+        "%10.6f",
+        "%10.4f",
+        "%10.4f",
+        "%10.4f",
+        "%10.4f",
+        "%10.6f"
+      ],
+      "source": "f, \"%-16s %10.4f %10.4f %10.4f %10.6f %10.4f %10.4f %8d %10.4f %10.4f %10.6f\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3869,
+      "nearest_section": "INLETS",
+      "formats": [
+        "%10.4f",
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-12s %10.4f %10.4f %s\", name.c_str(), kw, ctx.inlets.length[u],"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3872,
+      "nearest_section": "INLETS",
+      "formats": [
+        "%g"
+      ],
+      "source": "std::fprintf(f, \" %g\", ctx.inlets.open_area[u]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3874,
+      "nearest_section": "INLETS",
+      "formats": [
+        "%g"
+      ],
+      "source": "std::fprintf(f, \" %g\", ctx.inlets.splash_veloc[u]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3879,
+      "nearest_section": "INLETS",
+      "formats": [
+        "%10.4f",
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-12s %10.4f %10.4f\", name.c_str(), drop ? \"DROP_CURB\" : \"CURB\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3906,
+      "nearest_section": "INLETS",
+      "formats": [
+        "%10.4f",
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-12s %10.4f %10.4f\\n\", name.c_str(), t.c_str(),"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 3965,
+      "nearest_section": "INLET_USAGE",
+      "formats": [
+        "%8.4g",
+        "%10.4g",
+        "%10.4g",
+        "%10.4g"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-16s %-16s %8d %8.4g %10.4g %10.4g %10.4g %-10s\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4037,
+      "nearest_section": "POLLUTANTS",
+      "formats": [
+        "%10.4f",
+        "%10.4f",
+        "%10.4f",
+        "%10.4f",
+        "%10.4f",
+        "%10.4f",
+        "%10.4f"
+      ],
+      "source": "f, \"%-16s %-8s %10.4f %10.4f %10.4f %10.4f %-10s %-16s %10.4f %10.4f %10.4f\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4072,
+      "nearest_section": "INITIAL_QUALITY",
+      "formats": [
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \"%-8s %-16s %-16s %10.4f\\n\", link ? \"LINK\" : \"NODE\", en,"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4087,
+      "nearest_section": "LANDUSES",
+      "formats": [
+        "%12.2f",
+        "%12.2f",
+        "%12.2f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %12.2f %12.2f %12.2f\\n\", ctx.landuse_names.name_of(j).c_str(),"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4116,
+      "nearest_section": "COVERAGES",
+      "formats": [
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-16s %10.4f\\n\", ctx.subcatch_names.name_of(s).c_str(),"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4152,
+      "nearest_section": "BUILDUP",
+      "formats": [
+        "%10.4f",
+        "%10.4f",
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-16s %-10s %10.4f %10.4f %10.4f %-8s\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4175,
+      "nearest_section": "BUILDUP",
+      "formats": [
+        "%10.4f",
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-16s %-10s %10.4f %10.4f %-10s %-8s\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4180,
+      "nearest_section": "BUILDUP",
+      "formats": [
+        "%10.4f",
+        "%10.4f",
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-16s %-10s %10.4f %10.4f %10.4f %-8s\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4205,
+      "nearest_section": "WASHOFF",
+      "formats": [
+        "%10.4f",
+        "%10.4f",
+        "%10.2f",
+        "%10.2f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-16s %-10s %10.4f %10.4f %10.2f %10.2f\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4222,
+      "nearest_section": "WASHOFF",
+      "formats": [
+        "%10.4f",
+        "%10.4f",
+        "%10.2f",
+        "%10.2f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-16s %-10s %10.4f %10.4f %10.2f %10.2f\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4260,
+      "nearest_section": "LOADINGS",
+      "formats": [
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-16s %10.4f\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4276,
+      "nearest_section": "LOADINGS",
+      "formats": [
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-16s %10.4f\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4311,
+      "nearest_section": "INFLOWS",
+      "formats": [
+        "%10.4f",
+        "%10.4f",
+        "%10.4f"
+      ],
+      "source": "f, \"%-16s %-16s %-16s %-16s %10.4f %10.4f %10.4f %-16s\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4355,
+      "nearest_section": "RDII",
+      "formats": [
+        "%12.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-16s %12.4f\\n\", nN(ctx, ctx.rdii_assigns.node_idx[u]),"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4379,
+      "nearest_section": "HYDROGRAPHS",
+      "formats": [
+        "%8.4f",
+        "%8.4f",
+        "%8.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-9s %-8s %8.4f %8.4f %8.4f\", e.name.c_str(), mon,"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4382,
+      "nearest_section": "HYDROGRAPHS",
+      "formats": [
+        "%8.4f",
+        "%8.4f",
+        "%8.4f"
+      ],
+      "source": "std::fprintf(f, \" %8.4f %8.4f %8.4f\", e.dmax, e.drecov, e.dinit);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4402,
+      "nearest_section": "RDII_DECAY",
+      "formats": [
+        "%10.5f",
+        "%10.5f",
+        "%10.5f",
+        "%8.2f",
+        "%10.5f",
+        "%10.5f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-8s %10.5f %10.5f %10.5f %8.2f %10.5f %10.5f\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4406,
+      "nearest_section": "RDII_DECAY",
+      "formats": [
+        "%8.2f",
+        "%10.5f"
+      ],
+      "source": "std::fprintf(f, \" SNOW %8.2f %10.5f\", e.snow_T, e.snow_ddf);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4425,
+      "nearest_section": "PATTERNS",
+      "formats": [
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \" %10.4f\", facs[k]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4431,
+      "nearest_section": "PATTERNS",
+      "formats": [
+        "%10.4f"
+      ],
+      "source": "std::fprintf(f, \" %10.4f\", facs[m]);"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4498,
+      "nearest_section": "TIMESERIES",
+      "formats": [
+        "%12.6f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %lld:%02d:%02d %12.6f\\n\", tN(ctx, t), hh, mm, ss,"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4501,
+      "nearest_section": "TIMESERIES",
+      "formats": [
+        "%12.6f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %lld:%02d %12.6f\\n\", tN(ctx, t), hh, mm,"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4506,
+      "nearest_section": "TIMESERIES",
+      "formats": [
+        "%12.6f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-12s %-8s %12.6f\\n\", tN(ctx, t), dateBuf, timeBuf,"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4586,
+      "nearest_section": "MAP",
+      "formats": [
+        "%-18.4f",
+        "%-18.4f",
+        "%-18.4f",
+        "%-18.4f"
+      ],
+      "source": "std::fprintf(f, \"DIMENSIONS %-18.4f %-18.4f %-18.4f %-18.4f\\n\", ctx.spatial.map_x1,"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4616,
+      "nearest_section": "COORDINATES",
+      "formats": [
+        "%-18.4f",
+        "%-18.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-18.4f %-18.4f\\n\", ctx.node_names.name_of(j).c_str(),"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4634,
+      "nearest_section": "VERTICES",
+      "formats": [
+        "%-18.4f",
+        "%-18.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-18.4f %-18.4f\\n\", ctx.link_names.name_of(j).c_str(),"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4655,
+      "nearest_section": "VERTICES",
+      "formats": [
+        "%-18.4f",
+        "%-18.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-18.4f %-18.4f\\n\","
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4669,
+      "nearest_section": "SYMBOLS",
+      "formats": [
+        "%-18.4f",
+        "%-18.4f"
+      ],
+      "source": "std::fprintf(f, \"%-16s %-18.4f %-18.4f\\n\", ctx.gage_names.name_of(j).c_str(),"
+    },
+    {
+      "file": "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp",
+      "line": 4784,
+      "nearest_section": "USER_FLAG_VALUES",
+      "formats": [
+        "%g"
+      ],
+      "source": "std::fprintf(f, \"%g\\n\", std::get<double>(v));"
+    }
+  ],
+  "source_sha256": {
+    "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/core/InpWriter.cpp": "d37812b2a3ae4110e88f161a439cd62fc6fd4e0c837d52572710b52b4590f996",
+    "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/input/geopackage/GeoPackageWriter.cpp": "8294fab2aaa98f8688d7a8cdc8372308b102bcfd7dec07c81b5d2d25683346ef",
+    "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.engine/src/engine/input/geopackage/GeoPackageReader.cpp": "3b76bba572dadc5a33e1f2e799cd873f0cdd37465f4f3016ed2880f9956b982a",
+    "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/project/projectserializer.cpp": "e9e3e1e101c6e0bf761577df4a808bc63cf443fafda180f482fef59f3236e865",
+    "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/datespage.cpp": "27d67eb2f8028e60d70c0fa653d0afa0e7756ab5d6d87c85ddc4f44d266e056c",
+    "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/enginecapabilities.cpp": "6be033c422231df12d626eb9a66f2605183625f99956c6f0ff00891b07157788",
+    "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/filespage.cpp": "060bf741f8e2ac04a27898b2e363d3733929972faf4d82b86500b8d59d485582",
+    "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/hydraulicspage.cpp": "5f2cd115b6192ff9c6949536bee6195afdae4dc9eed09aa459709085ce3c2239",
+    "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/meshpage.cpp": "d1b924397379c1d38037c2f0ff65194227ae9c8ca83a30180a59964a1a52c2dc",
+    "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/modelspage.cpp": "619ef852bae6d1f64f8fef5761ad79b6513d1cab0419f5a4a6008c845bf324b8",
+    "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/performancepage.cpp": "3bc99a59bccf1b51a2e96680be8065b2ed495b5ddd7565633b7046f095130f72",
+    "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/qualitypage.cpp": "4bad6f6ef9c9e706f70e63e564fe9043f09ced5a88cab89ca249231ff0e3c01c",
+    "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/simoptionscontext.cpp": "c83b47824028444e45faf07a593d91602cec7ab2ef3cc682338f5887c05e25e2",
+    "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/simoptionspage.cpp": "6b0f88e2f0ccc3c85b0a417ba30fa081f87c6f9481718783aabd46426712b332",
+    "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/spatialpage.cpp": "b1829839b8a30408155c81462eee638d4ef82c481c1be658fa54e9d6106aa7b3",
+    "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/titlenotespage.cpp": "6f84be728d5974bedab8f85d43bbe92c619defa77be95eb8f97eeec63792acbd",
+    "/Users/calebbuahin/Documents/Projects/cbuahin_github/openswmm.gui/src/ui/dialogs/simoptions/twodpage.cpp": "f870722b586968aba96b204e2ac56d5a0680f64e8276b589e673dba176a6ad9c"
+  }
+}

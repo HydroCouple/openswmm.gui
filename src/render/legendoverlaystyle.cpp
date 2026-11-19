@@ -1,137 +1,182 @@
-/*!
- * \file   legendoverlaystyle.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      legendoverlaystyle.cpp
+ * @brief     The map legend's look and per-row overrides.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "render/legendoverlaystyle.h"
 
 #include <QHash>
+#include <QJsonDocument>
 #include <QJsonObject>
 #include <QJsonValue>
-#include <QMetaEnum>
-#include <QObject>
+#include <QMetaProperty>
+#include <QSettings>
 
 #include <algorithm>
 
 namespace OpenSWMM::Render
 {
 
-namespace {
-
-template <typename Enum>
-Enum enumFromString(const QString &name, Enum fallback)
+namespace
 {
-    const QMetaEnum me = QMetaEnum::fromType<Enum>();
-    bool ok = false;
-    const int v = me.keyToValue(name.toUtf8().constData(), &ok);
-    return ok ? static_cast<Enum>(v) : fallback;
-}
 
-template <typename Enum>
-QString enumToString(Enum v)
-{
-    return QString::fromLatin1(QMetaEnum::fromType<Enum>().valueToKey(static_cast<int>(v)));
-}
-
-// Structured font serialisation — QFont::toString/fromString is brittle
-// when the family is empty (the default-constructed app font on macOS
-// before QGuiApplication initialises), so write each meaningful field.
-QJsonObject fontToJson(const QFont &f)
-{
-    QJsonObject j;
-    j[QStringLiteral("family")]    = f.family();
-    j[QStringLiteral("pointSize")] = f.pointSizeF();
-    j[QStringLiteral("weight")]    = int(f.weight());
-    j[QStringLiteral("italic")]    = f.italic();
-    j[QStringLiteral("underline")] = f.underline();
-    j[QStringLiteral("strikeOut")] = f.strikeOut();
-    return j;
-}
-
-QFont fontFromJson(const QJsonObject &j, const QFont &fallback)
-{
-    QFont f = fallback;
-    if (j.contains(QStringLiteral("family")))    f.setFamily(j.value(QStringLiteral("family")).toString());
-    if (j.contains(QStringLiteral("pointSize"))) {
-        const double ps = j.value(QStringLiteral("pointSize")).toDouble(-1.0);
-        if (ps > 0.0) f.setPointSizeF(ps);
-    }
-    if (j.contains(QStringLiteral("weight")))    f.setWeight(QFont::Weight(j.value(QStringLiteral("weight")).toInt(int(f.weight()))));
-    if (j.contains(QStringLiteral("italic")))    f.setItalic(j.value(QStringLiteral("italic")).toBool());
-    if (j.contains(QStringLiteral("underline"))) f.setUnderline(j.value(QStringLiteral("underline")).toBool());
-    if (j.contains(QStringLiteral("strikeOut"))) f.setStrikeOut(j.value(QStringLiteral("strikeOut")).toBool());
-    return f;
-}
-
-} // namespace
-
-LegendOverlayStyle::LegendOverlayStyle(QObject *parent)
-    : QObject(parent)
-{
-    // The default-constructed QFont resolves to the application font, which
-    // is what users expect: the legend follows their system theme.
-}
-
-QString LegendOverlayStyle::itemKey(const QObject *layer, const QString &)
-{
-    // classKey is intentionally unused in the key — the override hash is
-    // already two-level: layerKey × classKey. This helper just builds the
-    // layer half; LegendOverlayStyle::itemOverride concatenates them.
-    //
-    // Taking const QObject* means this translation unit needs no
-    // OpenSWMMVisLayer symbols (keeps the unit-test target light) and
-    // also avoids any cross-cast UB.
-    return layer ? layer->objectName() : QString{};
-}
-
-namespace {
+/** @brief Join a layer key and a class key with '|' (not escaped).
+ * @param layerKey Layer identity. @param classKey Row key.
+ * @return "layerKey|classKey". */
 QString combinedKey(const QString &layerKey, const QString &classKey)
 {
     return layerKey + QLatin1Char('|') + classKey;
 }
-} // namespace
 
-LegendOverlayStyle::ItemOverride LegendOverlayStyle::itemOverride(
-    const QString &layerKey, const QString &classKey) const
+/** @brief JSON for one property value: enums by key name, colors as #AARRGGBB ("" when
+ *  invalid), fonts as overlayFontToJson(), other values as JSON numbers, booleans or strings.
+ * @param property Property of LegendOverlayStyle.
+ * @param value Its current value.
+ * @return JSON value. */
+QJsonValue propertyToJson(const QMetaProperty &property, const QVariant &value)
 {
-    const auto it = m_itemOverrides.constFind(combinedKey(layerKey, classKey));
-    return it != m_itemOverrides.constEnd() ? it.value() : ItemOverride{};
+    if (property.isEnumType())
+        return QString::fromLatin1(property.enumerator().valueToKey(value.toInt()));
+    switch (value.typeId()) {
+    case QMetaType::QColor: {
+        const QColor c = value.value<QColor>();
+        return c.isValid() ? c.name(QColor::HexArgb) : QString();
+    }
+    case QMetaType::QFont:
+        return overlayFontToJson(value.value<QFont>());
+    default:
+        return QJsonValue::fromVariant(value);
+    }
 }
 
-void LegendOverlayStyle::setItemOverride(const QString &layerKey,
-                                          const QString &classKey,
-                                          const ItemOverride &override)
+/** @brief Write a saved value into one property through its setter; an unknown enum name or a
+ *  value of the wrong JSON type leaves the property unchanged.
+ * @param style Style written.
+ * @param property Property of LegendOverlayStyle.
+ * @param json Saved value. */
+void propertyFromJson(LegendOverlayStyle &style, const QMetaProperty &property,
+                      const QJsonValue &json)
 {
-    const QString k = combinedKey(layerKey, classKey);
-    // Default-shaped overrides (visible=true, empty label) ⇒ drop the entry
-    // so the hash stays minimal and toJson skips the noise.
-    if (override.visible && override.userLabel.isEmpty()) {
-        if (m_itemOverrides.remove(k) == 0) return;   // no-op
-    } else {
-        const auto it = m_itemOverrides.constFind(k);
-        if (it != m_itemOverrides.constEnd()
-            && it.value().visible == override.visible
-            && it.value().userLabel == override.userLabel) {
-            return;   // no-op — same value already stored.
-        }
-        m_itemOverrides.insert(k, override);
+    const QVariant current = property.read(&style);
+    if (property.isEnumType()) {
+        bool ok = false;
+        const int v = property.enumerator().keyToValue(json.toString().toUtf8().constData(), &ok);
+        if (ok)
+            property.write(&style, v);
+        return;
     }
-    emit itemOverrideChanged(layerKey, classKey);
+    switch (current.typeId()) {
+    case QMetaType::QColor:
+        if (json.isString())
+            property.write(&style, QColor(json.toString()));
+        return;
+    case QMetaType::QFont:
+        if (json.isObject())
+            property.write(&style, overlayFontFromJson(json.toObject(), current.value<QFont>()));
+        return;
+    case QMetaType::Bool:
+        if (json.isBool())
+            property.write(&style, json.toBool());
+        return;
+    case QMetaType::Int:
+        if (json.isDouble())
+            property.write(&style, json.toInt(current.toInt()));
+        return;
+    case QMetaType::Double:
+        if (json.isDouble())
+            property.write(&style, json.toDouble(current.toDouble()));
+        return;
+    case QMetaType::QString:
+        if (json.isString())
+            property.write(&style, json.toString());
+        return;
+    default:
+        return;
+    }
+}
+
+} // namespace
+
+LegendOverlayStyle::LegendOverlayStyle(QObject *parent) : MapBoxStyle(Anchor::BottomRight, parent)
+{
+    // Default-constructed fonts resolve to the application font, so the legend follows the
+    // user's system theme.
+}
+
+QString LegendOverlayStyle::itemKey(const QObject *layer, const QString &)
+{
+    // Only the layer half. A property read keeps this file free of layer classes (the unit
+    // test links only Qt); map layers have a LayerId the project file keeps.
+    if (!layer)
+        return {};
+    const QString id = layer->property("LayerId").toString();
+    return id.isEmpty() ? layer->objectName() : id;
+}
+
+LegendOverlayStyle::ItemOverride LegendOverlayStyle::itemOverride(const QString &layerKey,
+                                                                  const QString &classKey) const
+{
+    if (const LegendNode *node = m_tree.itemNode(layerKey, classKey))
+        return ItemOverride{node->visible, node->userLabel};
+    return legacyItemOverride(layerKey, classKey);
+}
+
+LegendOverlayStyle::ItemOverride
+LegendOverlayStyle::legacyItemOverride(const QString &objectName, const QString &classKey) const
+{
+    return m_legacyOverrides.value(combinedKey(objectName, classKey), ItemOverride{});
+}
+
+void LegendOverlayStyle::setItemTree(const LegendItemTree &tree)
+{
+    LegendItemTree next = tree;
+    // A default node still shadows an older file's row setting, so keep it while any exist.
+    if (m_autoUpdate && m_legacyOverrides.isEmpty())
+        next.prune();
+    if (next == m_tree)
+        return;
+    m_tree = next;
+    emit itemTreeChanged();
     emit changed();
 }
 
-void LegendOverlayStyle::setItemVisible(const QString &layerKey,
-                                         const QString &classKey, bool visible)
+void LegendOverlayStyle::setItemOverride(const QString &layerKey, const QString &classKey,
+                                         const ItemOverride &override)
+{
+    const ItemOverride current = itemOverride(layerKey, classKey);
+    const bool hasNode = m_tree.itemNode(layerKey, classKey) != nullptr;
+    // While an older file's row settings exist (keyed by object name, which this key cannot
+    // match), an edit always records a node so it wins over them.
+    if (current.visible == override.visible && current.userLabel == override.userLabel &&
+        (hasNode ||
+         (override.visible && override.userLabel.isEmpty() && m_legacyOverrides.isEmpty())))
+        return;
+    LegendItemTree next = m_tree;
+    LegendNode &node = next.ensureItemNode(layerKey, classKey);
+    node.visible = override.visible;
+    node.userLabel = override.userLabel;
+    if (m_autoUpdate && m_legacyOverrides.isEmpty())
+        next.prune();
+    m_tree = next;
+    emit itemOverrideChanged(layerKey, classKey);
+    emit itemTreeChanged();
+    emit changed();
+}
+
+void LegendOverlayStyle::setItemVisible(const QString &layerKey, const QString &classKey,
+                                        bool visible)
 {
     ItemOverride o = itemOverride(layerKey, classKey);
     o.visible = visible;
     setItemOverride(layerKey, classKey, o);
 }
 
-void LegendOverlayStyle::setItemUserLabel(const QString &layerKey,
-                                            const QString &classKey,
-                                            const QString &label)
+void LegendOverlayStyle::setItemUserLabel(const QString &layerKey, const QString &classKey,
+                                          const QString &label)
 {
     ItemOverride o = itemOverride(layerKey, classKey);
     o.userLabel = label;
@@ -140,267 +185,381 @@ void LegendOverlayStyle::setItemUserLabel(const QString &layerKey,
 
 void LegendOverlayStyle::clearItemOverrides()
 {
-    if (m_itemOverrides.isEmpty()) return;
-    m_itemOverrides.clear();
+    LegendItemTree next = m_tree;
+    const auto clear = [](auto &self, QList<LegendNode> &nodes) -> void {
+        for (LegendNode &n : nodes) {
+            if (n.type == LegendNode::Type::Item) {
+                n.visible = true;
+                n.userLabel.clear();
+            }
+            self(self, n.children);
+        }
+    };
+    clear(clear, next.roots());
+    if (m_autoUpdate)
+        next.prune();
+    if (next == m_tree && m_legacyOverrides.isEmpty())
+        return;
+    m_tree = next;
+    m_legacyOverrides.clear();
+    emit itemTreeChanged();
     emit changed();
 }
 
 void LegendOverlayStyle::resetToDefaults()
 {
-    // Reassign defaults; setters fire the per-property signals + changed().
-    setShowTitle(false);
-    setTitle({});
-    setTitleFont(QFont{});
-    setTitleColor(QColor(20, 20, 20));
-    setItemFont(QFont{});
-    setItemColor(QColor(20, 20, 20));
-    setLayerHeaderFont(QFont{});
-    setLayerHeaderColor(QColor(20, 20, 20));
-    setRowSpacing(2);
-    setSwatchSize(14);
-    setPadding(8);
-    setAnchor(Anchor::BottomRight);
-    setOpacity(1.0);
-    setExplicitWidth(0);
-    setExplicitHeight(0);
-    setMaxLabelWidth(220);
-    setFreePosition(QPoint());
+    // A default-constructed style's values, written through the setters (each emits).
+    const LegendOverlayStyle defaults;
+    const QMetaObject &meta = staticMetaObject;
+    for (int i = meta.propertyOffset(); i < meta.propertyCount(); ++i) {
+        const QMetaProperty property = meta.property(i);
+        property.write(this, property.read(&defaults));
+    }
+    resetBoxToDefaults();
+}
 
-    setShowFrame(true);
-    setFrameColor(QColor(80, 80, 80, 180));
-    setFrameWidth(1.0);
-    setCornerRadius(6);
+namespace
+{
+/** Keys a reusable look leaves out: content, title text, position and size. */
+const QStringList &presetExcludedKeys()
+{
+    static const QStringList keys = {
+        QStringLiteral("items"),         QStringLiteral("itemOverrides"),
+        QStringLiteral("autoUpdate"),    QStringLiteral("title"),
+        QStringLiteral("freeX"),         QStringLiteral("freeY"),
+        QStringLiteral("explicitWidth"), QStringLiteral("explicitHeight")};
+    return keys;
+}
+} // namespace
 
-    setBackgroundMode(BackgroundMode::Solid);
-    setBackgroundColor(QColor(255, 255, 255, 225));
-    setGradientEndColor(QColor(240, 240, 240, 225));
-    setGradientOrientation(Qt::Vertical);
+QJsonObject LegendOverlayStyle::presetJson() const
+{
+    QJsonObject j = toJson();
+    for (const QString &key : presetExcludedKeys())
+        j.remove(key);
+    return j;
+}
+
+void LegendOverlayStyle::applyPreset(const QJsonObject &preset)
+{
+    QJsonObject merged = toJson();
+    for (auto it = preset.constBegin(); it != preset.constEnd(); ++it) {
+        if (presetExcludedKeys().contains(it.key()))
+            continue;
+        if (it.key() == QLatin1String("anchor") && it.value().toString() == QLatin1String("Free"))
+            continue; // a free position belongs to one map
+        merged[it.key()] = it.value();
+    }
+    // An older preset's "padding" must not undo its own four margins.
+    if (preset.contains(QStringLiteral("padding")) &&
+        !preset.contains(QStringLiteral("marginLeft"))) {
+        for (const char *key : {"marginLeft", "marginTop", "marginRight", "marginBottom"})
+            merged.remove(QLatin1String(key));
+    }
+    fromJson(merged);
+}
+
+QJsonObject LegendOverlayStyle::defaultPreset()
+{
+    const QByteArray text =
+        QSettings().value(QStringLiteral("legend/defaultStyle")).toString().toUtf8();
+    return text.isEmpty() ? QJsonObject() : QJsonDocument::fromJson(text).object();
+}
+
+void LegendOverlayStyle::setDefaultPreset(const QJsonObject &preset)
+{
+    QSettings settings;
+    if (preset.isEmpty())
+        settings.remove(QStringLiteral("legend/defaultStyle"));
+    else
+        settings.setValue(QStringLiteral("legend/defaultStyle"),
+                          QString::fromUtf8(QJsonDocument(preset).toJson(QJsonDocument::Compact)));
 }
 
 QString LegendOverlayStyle::displayLabelFor(const QString &propertyName) const
 {
     static const QHash<QString, QString> labels = {
-        // General
-        { QStringLiteral("showTitle"),         QStringLiteral("General — Show title") },
-        { QStringLiteral("title"),             QStringLiteral("General — Title") },
-        { QStringLiteral("titleFont"),         QStringLiteral("General — Title font") },
-        { QStringLiteral("titleColor"),        QStringLiteral("General — Title color") },
-        { QStringLiteral("itemFont"),          QStringLiteral("General — Item font") },
-        { QStringLiteral("itemColor"),         QStringLiteral("General — Item color") },
-        { QStringLiteral("layerHeaderFont"),   QStringLiteral("General — Layer header font") },
-        { QStringLiteral("layerHeaderColor"),  QStringLiteral("General — Layer header color") },
-        { QStringLiteral("rowSpacing"),        QStringLiteral("General — Row spacing") },
-        { QStringLiteral("swatchSize"),        QStringLiteral("General — Swatch size") },
-        { QStringLiteral("padding"),           QStringLiteral("General — Padding") },
-        { QStringLiteral("anchor"),            QStringLiteral("General — Anchor") },
-        { QStringLiteral("opacity"),           QStringLiteral("General — Opacity") },
-        { QStringLiteral("explicitWidth"),     QStringLiteral("Size — Width (0 = auto)") },
-        { QStringLiteral("explicitHeight"),    QStringLiteral("Size — Height (0 = auto)") },
-        { QStringLiteral("maxLabelWidth"),     QStringLiteral("Size — Max label width") },
-
-        // Frame
-        { QStringLiteral("showFrame"),         QStringLiteral("Frame — Show frame") },
-        { QStringLiteral("frameColor"),        QStringLiteral("Frame — Color") },
-        { QStringLiteral("frameWidth"),        QStringLiteral("Frame — Width") },
-        { QStringLiteral("cornerRadius"),      QStringLiteral("Frame — Corner radius") },
-
-        // Background
-        { QStringLiteral("backgroundMode"),        QStringLiteral("Background — Mode") },
-        { QStringLiteral("backgroundColor"),       QStringLiteral("Background — Color") },
-        { QStringLiteral("gradientEndColor"),      QStringLiteral("Background — Gradient end color") },
-        { QStringLiteral("gradientOrientation"),   QStringLiteral("Background — Gradient orientation") },
+        // Title
+        {QStringLiteral("showTitle"), QStringLiteral("Title — Show title")},
+        {QStringLiteral("title"), QStringLiteral("Title — Text")},
+        {QStringLiteral("titleFont"), QStringLiteral("Title — Font")},
+        {QStringLiteral("titleColor"), QStringLiteral("Title — Color")},
+        {QStringLiteral("titleAlignment"), QStringLiteral("Title — Alignment")},
+        {QStringLiteral("titleSpacing"), QStringLiteral("Title — Space below")},
+        // Columns
+        {QStringLiteral("columnCount"), QStringLiteral("Columns — Count")},
+        {QStringLiteral("equalColumnWidths"), QStringLiteral("Columns — Equal widths")},
+        {QStringLiteral("splitLayers"), QStringLiteral("Columns — Split layers")},
+        {QStringLiteral("columnSpacing"), QStringLiteral("Columns — Spacing")},
+        {QStringLiteral("showColumnSeparators"), QStringLiteral("Columns — Show separators")},
+        {QStringLiteral("columnSeparatorColor"), QStringLiteral("Columns — Separator color")},
+        {QStringLiteral("columnSeparatorWidth"), QStringLiteral("Columns — Separator width")},
+        // Size
+        {QStringLiteral("explicitWidth"), QStringLiteral("Size — Width (0 = auto)")},
+        {QStringLiteral("explicitHeight"), QStringLiteral("Size — Height (0 = auto)")},
+        {QStringLiteral("maxLabelWidth"), QStringLiteral("Text — Max label width")},
+        // Text
+        {QStringLiteral("layerHeaderFont"), QStringLiteral("Text — Group heading font")},
+        {QStringLiteral("layerHeaderColor"), QStringLiteral("Text — Group heading color")},
+        {QStringLiteral("layerHeaderAlignment"), QStringLiteral("Text — Group heading alignment")},
+        {QStringLiteral("subheadingFont"), QStringLiteral("Text — Sub-heading font")},
+        {QStringLiteral("subheadingColor"), QStringLiteral("Text — Sub-heading color")},
+        {QStringLiteral("subheadingAlignment"), QStringLiteral("Text — Sub-heading alignment")},
+        {QStringLiteral("itemFont"), QStringLiteral("Text — Item font")},
+        {QStringLiteral("itemColor"), QStringLiteral("Text — Item color")},
+        {QStringLiteral("itemAlignment"), QStringLiteral("Text — Item alignment")},
+        {QStringLiteral("labelOverflow"), QStringLiteral("Text — Long labels")},
+        {QStringLiteral("wrapString"), QStringLiteral("Text — Wrap on")},
+        {QStringLiteral("lineSpacing"), QStringLiteral("Text — Line spacing")},
+        // Symbols
+        {QStringLiteral("swatchSize"), QStringLiteral("Symbols — Swatch size")},
+        {QStringLiteral("symbolWidth"), QStringLiteral("Symbols — Width (0 = swatch)")},
+        {QStringLiteral("symbolHeight"), QStringLiteral("Symbols — Height (0 = swatch)")},
+        {QStringLiteral("symbolSizeMode"), QStringLiteral("Symbols — Size")},
+        {QStringLiteral("minSymbolSize"), QStringLiteral("Symbols — Minimum size")},
+        {QStringLiteral("maxSymbolSize"), QStringLiteral("Symbols — Maximum size")},
+        {QStringLiteral("symbolPosition"), QStringLiteral("Symbols — Position")},
+        {QStringLiteral("symbolLabelSpacing"), QStringLiteral("Symbols — Space to label")},
+        {QStringLiteral("linePatchShape"), QStringLiteral("Symbols — Line shape")},
+        {QStringLiteral("areaPatchShape"), QStringLiteral("Symbols — Fill shape")},
+        {QStringLiteral("showPatchOutline"), QStringLiteral("Symbols — Outline fills")},
+        {QStringLiteral("patchOutlineColor"), QStringLiteral("Symbols — Outline color")},
+        {QStringLiteral("patchOutlineWidth"), QStringLiteral("Symbols — Outline width")},
+        // Spacing
+        {QStringLiteral("rowSpacing"), QStringLiteral("Spacing — Below rows")},
+        {QStringLiteral("groupSpacing"), QStringLiteral("Spacing — Above groups")},
+        {QStringLiteral("headerSpacing"), QStringLiteral("Spacing — Below group headings")},
+        {QStringLiteral("subheadingSpacing"), QStringLiteral("Spacing — Above sub-headings")},
+        {QStringLiteral("groupIndent"), QStringLiteral("Spacing — Group indent")},
+        {QStringLiteral("subheadingIndent"), QStringLiteral("Spacing — Sub-heading indent")},
+        {QStringLiteral("itemIndent"), QStringLiteral("Spacing — Item indent")},
+        // Content
+        {QStringLiteral("autoUpdate"), QStringLiteral("Content — Follow the map")},
+        {QStringLiteral("filterByMapExtent"),
+         QStringLiteral("Content — Only items in the map view")},
+        {QStringLiteral("showFeatureCounts"), QStringLiteral("Content — Feature counts")},
+        // Color ramps
+        {QStringLiteral("rampDisplay"), QStringLiteral("Color ramps — Show as")},
+        {QStringLiteral("rampOrientation"), QStringLiteral("Color ramps — Direction")},
+        {QStringLiteral("rampLength"), QStringLiteral("Color ramps — Length")},
+        {QStringLiteral("rampThickness"), QStringLiteral("Color ramps — Thickness")},
+        {QStringLiteral("rampTickCount"), QStringLiteral("Color ramps — Values")},
+        {QStringLiteral("rampHighAtTop"), QStringLiteral("Color ramps — High at top")},
+        {QStringLiteral("rampNumberFormat"), QStringLiteral("Color ramps — Number format")},
+        {QStringLiteral("rampDecimals"), QStringLiteral("Color ramps — Decimals")},
+        {QStringLiteral("rampShowOutline"), QStringLiteral("Color ramps — Outline")},
+        {QStringLiteral("rampOutlineColor"), QStringLiteral("Color ramps — Outline color")},
+        {QStringLiteral("rampShowTickMarks"), QStringLiteral("Color ramps — Tick marks")},
+        {QStringLiteral("rampShowEndCaps"), QStringLiteral("Color ramps — End caps")},
+        {QStringLiteral("rampLabelSpacing"), QStringLiteral("Color ramps — Space to values")},
     };
     const auto it = labels.constFind(propertyName);
-    return it != labels.constEnd() ? it.value() : propertyName;
+    return it != labels.constEnd() ? it.value() : MapBoxStyle::displayLabelFor(propertyName);
 }
 
 QJsonObject LegendOverlayStyle::toJson() const
 {
     QJsonObject j;
-    // General
-    j[QStringLiteral("showTitle")]        = m_showTitle;
-    j[QStringLiteral("title")]            = m_title;
-    j[QStringLiteral("titleFont")]        = fontToJson(m_titleFont);
-    j[QStringLiteral("titleColor")]       = m_titleColor.name(QColor::HexArgb);
-    j[QStringLiteral("itemFont")]         = fontToJson(m_itemFont);
-    j[QStringLiteral("itemColor")]        = m_itemColor.name(QColor::HexArgb);
-    j[QStringLiteral("layerHeaderFont")]  = fontToJson(m_layerHeaderFont);
-    j[QStringLiteral("layerHeaderColor")] = m_layerHeaderColor.name(QColor::HexArgb);
-    j[QStringLiteral("rowSpacing")]       = m_rowSpacing;
-    j[QStringLiteral("swatchSize")]       = m_swatchSize;
-    j[QStringLiteral("padding")]          = m_padding;
-    j[QStringLiteral("anchor")]           = enumToString(m_anchor);
-    j[QStringLiteral("opacity")]          = m_opacity;
-    // Slice US.B1 — size / position.
-    j[QStringLiteral("explicitWidth")]    = m_explicitWidth;
-    j[QStringLiteral("explicitHeight")]   = m_explicitHeight;
-    j[QStringLiteral("maxLabelWidth")]    = m_maxLabelWidth;
-    j[QStringLiteral("freeX")]            = m_freePosition.x();
-    j[QStringLiteral("freeY")]            = m_freePosition.y();
+    writeBoxJson(j);
+    // Every legend property, saved under its property name.
+    const QMetaObject &meta = staticMetaObject;
+    for (int i = meta.propertyOffset(); i < meta.propertyCount(); ++i) {
+        const QMetaProperty property = meta.property(i);
+        j[QString::fromLatin1(property.name())] = propertyToJson(property, property.read(this));
+    }
 
-    // Frame
-    j[QStringLiteral("showFrame")]        = m_showFrame;
-    j[QStringLiteral("frameColor")]       = m_frameColor.name(QColor::HexArgb);
-    j[QStringLiteral("frameWidth")]       = m_frameWidth;
-    j[QStringLiteral("cornerRadius")]     = m_cornerRadius;
-
-    // Background
-    j[QStringLiteral("backgroundMode")]      = enumToString(m_backgroundMode);
-    j[QStringLiteral("backgroundColor")]     = m_backgroundColor.name(QColor::HexArgb);
-    j[QStringLiteral("gradientEndColor")]    = m_gradientEndColor.name(QColor::HexArgb);
-    j[QStringLiteral("gradientOrientation")] =
-        m_gradientOrientation == Qt::Horizontal ? QStringLiteral("Horizontal")
-                                                 : QStringLiteral("Vertical");
-
-    // Slice BB Phase 8.6.10 / 8.6.16 — per-item overrides. Stored as a
-    // flat { "layerKey|classKey": {visible, userLabel}, … } object;
-    // missing key ⇒ defaults.
-    if (!m_itemOverrides.isEmpty()) {
+    // The legend tree, and row settings read from an older file (kept for it).
+    if (!m_tree.roots().isEmpty())
+        j[QStringLiteral("items")] = m_tree.toJson();
+    if (!m_legacyOverrides.isEmpty()) {
         QJsonObject overrides;
-        for (auto it = m_itemOverrides.constBegin();
-             it != m_itemOverrides.constEnd(); ++it) {
+        for (auto it = m_legacyOverrides.constBegin(); it != m_legacyOverrides.constEnd(); ++it) {
             QJsonObject entry;
-            if (!it.value().visible)            entry[QStringLiteral("visible")]   = false;
-            if (!it.value().userLabel.isEmpty()) entry[QStringLiteral("userLabel")] = it.value().userLabel;
-            if (!entry.isEmpty())
-                overrides[it.key()] = entry;
+            if (!it.value().visible)
+                entry[QStringLiteral("visible")] = false;
+            if (!it.value().userLabel.isEmpty())
+                entry[QStringLiteral("userLabel")] = it.value().userLabel;
+            overrides[it.key()] = entry;
         }
-        if (!overrides.isEmpty())
-            j[QStringLiteral("itemOverrides")] = overrides;
+        j[QStringLiteral("itemOverrides")] = overrides;
     }
     return j;
 }
 
 void LegendOverlayStyle::fromJson(const QJsonObject &j)
 {
-    // General — missing keys keep current value (callers reset first if they
-    // want defaults).
-    if (j.contains(QStringLiteral("showTitle")))        setShowTitle(j.value(QStringLiteral("showTitle")).toBool());
-    if (j.contains(QStringLiteral("title")))            setTitle(j.value(QStringLiteral("title")).toString());
-    if (j.contains(QStringLiteral("titleFont")))
-        setTitleFont(fontFromJson(j.value(QStringLiteral("titleFont")).toObject(), m_titleFont));
-    if (j.contains(QStringLiteral("titleColor")))       setTitleColor(QColor(j.value(QStringLiteral("titleColor")).toString()));
-    if (j.contains(QStringLiteral("itemFont")))
-        setItemFont(fontFromJson(j.value(QStringLiteral("itemFont")).toObject(), m_itemFont));
-    if (j.contains(QStringLiteral("itemColor")))        setItemColor(QColor(j.value(QStringLiteral("itemColor")).toString()));
-    if (j.contains(QStringLiteral("layerHeaderFont")))
-        setLayerHeaderFont(fontFromJson(j.value(QStringLiteral("layerHeaderFont")).toObject(), m_layerHeaderFont));
-    if (j.contains(QStringLiteral("layerHeaderColor"))) setLayerHeaderColor(QColor(j.value(QStringLiteral("layerHeaderColor")).toString()));
-    if (j.contains(QStringLiteral("rowSpacing")))       setRowSpacing(j.value(QStringLiteral("rowSpacing")).toInt(m_rowSpacing));
-    if (j.contains(QStringLiteral("swatchSize")))       setSwatchSize(j.value(QStringLiteral("swatchSize")).toInt(m_swatchSize));
-    if (j.contains(QStringLiteral("padding")))          setPadding(j.value(QStringLiteral("padding")).toInt(m_padding));
-    if (j.contains(QStringLiteral("anchor")))           setAnchor(enumFromString<Anchor>(j.value(QStringLiteral("anchor")).toString(), m_anchor));
-    if (j.contains(QStringLiteral("opacity")))          setOpacity(j.value(QStringLiteral("opacity")).toDouble(m_opacity));
-    if (j.contains(QStringLiteral("explicitWidth")))    setExplicitWidth(j.value(QStringLiteral("explicitWidth")).toInt(m_explicitWidth));
-    if (j.contains(QStringLiteral("explicitHeight")))   setExplicitHeight(j.value(QStringLiteral("explicitHeight")).toInt(m_explicitHeight));
-    if (j.contains(QStringLiteral("maxLabelWidth")))    setMaxLabelWidth(j.value(QStringLiteral("maxLabelWidth")).toInt(m_maxLabelWidth));
-    if (j.contains(QStringLiteral("freeX")) || j.contains(QStringLiteral("freeY")))
-        setFreePosition(QPoint(j.value(QStringLiteral("freeX")).toInt(m_freePosition.x()),
-                               j.value(QStringLiteral("freeY")).toInt(m_freePosition.y())));
+    readBoxJson(j);
+    const QMetaObject &meta = staticMetaObject;
+    for (int i = meta.propertyOffset(); i < meta.propertyCount(); ++i) {
+        const QMetaProperty property = meta.property(i);
+        const QString key = QString::fromLatin1(property.name());
+        if (j.contains(key))
+            propertyFromJson(*this, property, j.value(key));
+    }
+    // A legend saved before these settings existed drew sub-headings in the item font and
+    // color, and spaced the title by the row spacing.
+    const auto has = [&j](const char *key) { return j.contains(QLatin1String(key)); };
+    if (!has("subheadingFont") && has("itemFont"))
+        setSubheadingFont(m_itemFont);
+    if (!has("subheadingColor") && has("itemColor"))
+        setSubheadingColor(m_itemColor);
+    if (!has("titleSpacing") && has("rowSpacing"))
+        setTitleSpacing(m_rowSpacing);
 
-    // Frame
-    if (j.contains(QStringLiteral("showFrame")))        setShowFrame(j.value(QStringLiteral("showFrame")).toBool());
-    if (j.contains(QStringLiteral("frameColor")))       setFrameColor(QColor(j.value(QStringLiteral("frameColor")).toString()));
-    if (j.contains(QStringLiteral("frameWidth")))       setFrameWidth(j.value(QStringLiteral("frameWidth")).toDouble(m_frameWidth));
-    if (j.contains(QStringLiteral("cornerRadius")))     setCornerRadius(j.value(QStringLiteral("cornerRadius")).toInt(m_cornerRadius));
+    // The tree and the older row settings are replaced as a whole. An older file keyed rows by
+    // the layer's object name ("name|classKey"); those apply until the row is edited here.
+    m_tree = has("items") ? LegendItemTree::fromJson(j.value(QStringLiteral("items")).toArray())
+                          : LegendItemTree{};
+    if (m_autoUpdate)
+        m_tree.prune();
+    m_legacyOverrides.clear();
+    const QJsonObject obj = j.value(QStringLiteral("itemOverrides")).toObject();
+    for (auto it = obj.constBegin(); it != obj.constEnd(); ++it) {
+        const QJsonObject entry = it.value().toObject();
+        ItemOverride o;
+        o.visible = entry.value(QStringLiteral("visible")).toBool(true);
+        o.userLabel = entry.value(QStringLiteral("userLabel")).toString();
+        if (!o.visible || !o.userLabel.isEmpty())
+            m_legacyOverrides.insert(it.key(), o);
+    }
+    // A bulk load: one notification covers it, no per-row signal.
+    emit itemTreeChanged();
+    emit changed();
+}
 
-    // Background
-    if (j.contains(QStringLiteral("backgroundMode")))    setBackgroundMode(enumFromString<BackgroundMode>(j.value(QStringLiteral("backgroundMode")).toString(), m_backgroundMode));
-    if (j.contains(QStringLiteral("backgroundColor")))   setBackgroundColor(QColor(j.value(QStringLiteral("backgroundColor")).toString()));
-    if (j.contains(QStringLiteral("gradientEndColor"))) setGradientEndColor(QColor(j.value(QStringLiteral("gradientEndColor")).toString()));
-    if (j.contains(QStringLiteral("gradientOrientation"))) {
-        const QString s = j.value(QStringLiteral("gradientOrientation")).toString();
-        setGradientOrientation(s == QLatin1String("Horizontal") ? Qt::Horizontal : Qt::Vertical);
+// Each setter: clamp, ignore an equal value, store, emit its own signal, then changed().
+#define LEGEND_SETTER(Type, name, member, signal, clampExpr)                                       \
+    void LegendOverlayStyle::set##name(Type v)                                                     \
+    {                                                                                              \
+        const auto value = clampExpr;                                                              \
+        if (member == value)                                                                       \
+            return;                                                                                \
+        member = value;                                                                            \
+        emit signal(member);                                                                       \
+        emit changed();                                                                            \
     }
 
-    // Slice BB Phase 8.6.10 / 8.6.16 — per-item overrides round-trip.
-    m_itemOverrides.clear();
-    if (j.contains(QStringLiteral("itemOverrides"))) {
-        const QJsonObject obj = j.value(QStringLiteral("itemOverrides")).toObject();
-        for (auto it = obj.constBegin(); it != obj.constEnd(); ++it) {
-            const QJsonObject entry = it.value().toObject();
-            ItemOverride o;
-            o.visible   = entry.value(QStringLiteral("visible")).toBool(true);
-            o.userLabel = entry.value(QStringLiteral("userLabel")).toString();
-            // Only retain non-default entries.
-            if (!o.visible || !o.userLabel.isEmpty())
-                m_itemOverrides.insert(it.key(), o);
+using TextAlignment = LegendOverlayStyle::TextAlignment;
+
+LEGEND_SETTER(bool, ShowTitle, m_showTitle, showTitleChanged, v)
+LEGEND_SETTER(const QString &, Title, m_title, titleChanged, v)
+LEGEND_SETTER(const QFont &, TitleFont, m_titleFont, titleFontChanged, v)
+LEGEND_SETTER(const QColor &, TitleColor, m_titleColor, titleColorChanged, v)
+LEGEND_SETTER(TextAlignment, TitleAlignment, m_titleAlignment, titleAlignmentChanged, v)
+LEGEND_SETTER(int, TitleSpacing, m_titleSpacing, titleSpacingChanged, std::clamp(v, 0, 200))
+LEGEND_SETTER(int, ColumnCount, m_columnCount, columnCountChanged, std::clamp(v, 1, 12))
+LEGEND_SETTER(bool, EqualColumnWidths, m_equalColumnWidths, equalColumnWidthsChanged, v)
+LEGEND_SETTER(bool, SplitLayers, m_splitLayers, splitLayersChanged, v)
+LEGEND_SETTER(int, ColumnSpacing, m_columnSpacing, columnSpacingChanged, std::clamp(v, 0, 200))
+LEGEND_SETTER(bool, ShowColumnSeparators, m_showColumnSeparators, showColumnSeparatorsChanged, v)
+LEGEND_SETTER(const QColor &, ColumnSeparatorColor, m_columnSeparatorColor,
+              columnSeparatorColorChanged, v)
+LEGEND_SETTER(qreal, ColumnSeparatorWidth, m_columnSeparatorWidth, columnSeparatorWidthChanged,
+              std::clamp<qreal>(v, 0.0, 10.0))
+// A fixed size keeps a usable minimum so the box cannot vanish; 0 = fit the content.
+LEGEND_SETTER(int, ExplicitWidth, m_explicitWidth, explicitWidthChanged,
+              v <= 0 ? 0 : std::max(v, 80))
+LEGEND_SETTER(int, ExplicitHeight, m_explicitHeight, explicitHeightChanged,
+              v <= 0 ? 0 : std::max(v, 48))
+LEGEND_SETTER(const QFont &, LayerHeaderFont, m_layerHeaderFont, layerHeaderFontChanged, v)
+LEGEND_SETTER(const QColor &, LayerHeaderColor, m_layerHeaderColor, layerHeaderColorChanged, v)
+LEGEND_SETTER(TextAlignment, LayerHeaderAlignment, m_layerHeaderAlignment,
+              layerHeaderAlignmentChanged, v)
+LEGEND_SETTER(const QFont &, SubheadingFont, m_subheadingFont, subheadingFontChanged, v)
+LEGEND_SETTER(const QColor &, SubheadingColor, m_subheadingColor, subheadingColorChanged, v)
+LEGEND_SETTER(TextAlignment, SubheadingAlignment, m_subheadingAlignment, subheadingAlignmentChanged,
+              v)
+LEGEND_SETTER(const QFont &, ItemFont, m_itemFont, itemFontChanged, v)
+LEGEND_SETTER(const QColor &, ItemColor, m_itemColor, itemColorChanged, v)
+LEGEND_SETTER(TextAlignment, ItemAlignment, m_itemAlignment, itemAlignmentChanged, v)
+LEGEND_SETTER(LegendOverlayStyle::LabelOverflow, LabelOverflow, m_labelOverflow,
+              labelOverflowChanged, v)
+LEGEND_SETTER(int, MaxLabelWidth, m_maxLabelWidth, maxLabelWidthChanged, std::clamp(v, 60, 1200))
+LEGEND_SETTER(const QString &, WrapString, m_wrapString, wrapStringChanged, v)
+LEGEND_SETTER(int, LineSpacing, m_lineSpacing, lineSpacingChanged, std::clamp(v, 0, 50))
+LEGEND_SETTER(int, SwatchSize, m_swatchSize, swatchSizeChanged, std::clamp(v, 1, 200))
+LEGEND_SETTER(int, SymbolWidth, m_symbolWidth, symbolWidthChanged, std::clamp(v, 0, 200))
+LEGEND_SETTER(int, SymbolHeight, m_symbolHeight, symbolHeightChanged, std::clamp(v, 0, 200))
+LEGEND_SETTER(LegendOverlayStyle::SymbolSizeMode, SymbolSizeMode, m_symbolSizeMode,
+              symbolSizeModeChanged, v)
+LEGEND_SETTER(qreal, MinSymbolSize, m_minSymbolSize, minSymbolSizeChanged,
+              std::clamp<qreal>(v, 0.0, 200.0))
+LEGEND_SETTER(qreal, MaxSymbolSize, m_maxSymbolSize, maxSymbolSizeChanged,
+              std::clamp<qreal>(v, 0.0, 200.0))
+LEGEND_SETTER(LegendOverlayStyle::SymbolPosition, SymbolPosition, m_symbolPosition,
+              symbolPositionChanged, v)
+LEGEND_SETTER(int, SymbolLabelSpacing, m_symbolLabelSpacing, symbolLabelSpacingChanged,
+              std::clamp(v, 0, 100))
+LEGEND_SETTER(LegendOverlayStyle::LinePatchShape, LinePatchShape, m_linePatchShape,
+              linePatchShapeChanged, v)
+LEGEND_SETTER(LegendOverlayStyle::AreaPatchShape, AreaPatchShape, m_areaPatchShape,
+              areaPatchShapeChanged, v)
+LEGEND_SETTER(bool, ShowPatchOutline, m_showPatchOutline, showPatchOutlineChanged, v)
+LEGEND_SETTER(const QColor &, PatchOutlineColor, m_patchOutlineColor, patchOutlineColorChanged,
+              v.isValid() ? v : QColor())
+LEGEND_SETTER(qreal, PatchOutlineWidth, m_patchOutlineWidth, patchOutlineWidthChanged,
+              std::clamp<qreal>(v, 0.0, 10.0))
+LEGEND_SETTER(int, RowSpacing, m_rowSpacing, rowSpacingChanged, std::clamp(v, 0, 200))
+LEGEND_SETTER(int, GroupSpacing, m_groupSpacing, groupSpacingChanged, std::clamp(v, 0, 200))
+LEGEND_SETTER(int, HeaderSpacing, m_headerSpacing, headerSpacingChanged, std::clamp(v, 0, 200))
+LEGEND_SETTER(int, SubheadingSpacing, m_subheadingSpacing, subheadingSpacingChanged,
+              std::clamp(v, 0, 200))
+LEGEND_SETTER(int, GroupIndent, m_groupIndent, groupIndentChanged, std::clamp(v, 0, 200))
+LEGEND_SETTER(int, SubheadingIndent, m_subheadingIndent, subheadingIndentChanged,
+              std::clamp(v, 0, 200))
+LEGEND_SETTER(int, ItemIndent, m_itemIndent, itemIndentChanged, std::clamp(v, 0, 200))
+
+LEGEND_SETTER(LegendOverlayStyle::RampDisplay, RampDisplay, m_rampDisplay, rampDisplayChanged, v)
+LEGEND_SETTER(LegendOverlayStyle::RampOrientation, RampOrientation, m_rampOrientation,
+              rampOrientationChanged, v)
+LEGEND_SETTER(int, RampLength, m_rampLength, rampLengthChanged, std::clamp(v, 40, 600))
+LEGEND_SETTER(int, RampThickness, m_rampThickness, rampThicknessChanged, std::clamp(v, 4, 80))
+LEGEND_SETTER(int, RampTickCount, m_rampTickCount, rampTickCountChanged, std::clamp(v, 2, 15))
+LEGEND_SETTER(bool, RampHighAtTop, m_rampHighAtTop, rampHighAtTopChanged, v)
+LEGEND_SETTER(LegendOverlayStyle::NumberFormat, RampNumberFormat, m_rampNumberFormat,
+              rampNumberFormatChanged, v)
+LEGEND_SETTER(int, RampDecimals, m_rampDecimals, rampDecimalsChanged, std::clamp(v, 0, 10))
+LEGEND_SETTER(bool, RampShowOutline, m_rampShowOutline, rampShowOutlineChanged, v)
+LEGEND_SETTER(const QColor &, RampOutlineColor, m_rampOutlineColor, rampOutlineColorChanged, v)
+LEGEND_SETTER(bool, RampShowTickMarks, m_rampShowTickMarks, rampShowTickMarksChanged, v)
+LEGEND_SETTER(bool, RampShowEndCaps, m_rampShowEndCaps, rampShowEndCapsChanged, v)
+LEGEND_SETTER(int, RampLabelSpacing, m_rampLabelSpacing, rampLabelSpacingChanged,
+              std::clamp(v, 0, 50))
+
+QString LegendOverlayStyle::formatRampValue(double value) const
+{
+    switch (m_rampNumberFormat) {
+    case NumberFormat::Fixed:
+        return QString::number(value, 'f', m_rampDecimals);
+    case NumberFormat::Scientific:
+        return QString::number(value, 'e', m_rampDecimals);
+    case NumberFormat::Auto:
+        break;
+    }
+    return QString::number(value, 'g', 4);
+}
+
+LEGEND_SETTER(bool, FilterByMapExtent, m_filterByMapExtent, filterByMapExtentChanged, v)
+LEGEND_SETTER(bool, ShowFeatureCounts, m_showFeatureCounts, showFeatureCountsChanged, v)
+
+void LegendOverlayStyle::setAutoUpdate(bool on)
+{
+    if (m_autoUpdate == on)
+        return;
+    m_autoUpdate = on;
+    emit autoUpdateChanged(on);
+    if (on) {
+        // Following the map again: the order, groups and text lines go; settings stay.
+        LegendItemTree next = m_tree;
+        next.flattenToLayers();
+        if (!(next == m_tree)) {
+            m_tree = next;
+            emit itemTreeChanged();
         }
-        // No fine-grained signal — fromJson is a bulk reset; one changed()
-        // covers it. Listeners that care about per-row dataChanged should
-        // beginResetModel/endResetModel around fromJson at their level.
-        emit changed();
     }
-}
-
-// ── Setters ─────────────────────────────────────────────────────────────
-// Each setter follows the same pattern: bail out on no-op, store, emit the
-// per-property signal, emit the canonical changed() aggregate.
-
-#define SETTER(Type, name, member, signal)                                 \
-    void LegendOverlayStyle::set##name(Type v) {                            \
-        if (member == v) return;                                            \
-        member = v;                                                         \
-        emit signal(v);                                                     \
-        emit changed();                                                     \
-    }
-
-SETTER(bool,            ShowTitle,        m_showTitle,        showTitleChanged)
-SETTER(const QString &, Title,            m_title,            titleChanged)
-SETTER(const QFont &,   TitleFont,        m_titleFont,        titleFontChanged)
-SETTER(const QColor &,  TitleColor,       m_titleColor,       titleColorChanged)
-SETTER(const QFont &,   ItemFont,         m_itemFont,         itemFontChanged)
-SETTER(const QColor &,  ItemColor,        m_itemColor,        itemColorChanged)
-SETTER(const QFont &,   LayerHeaderFont,  m_layerHeaderFont,  layerHeaderFontChanged)
-SETTER(const QColor &,  LayerHeaderColor, m_layerHeaderColor, layerHeaderColorChanged)
-SETTER(int,             RowSpacing,       m_rowSpacing,       rowSpacingChanged)
-SETTER(int,             SwatchSize,       m_swatchSize,       swatchSizeChanged)
-SETTER(int,             Padding,          m_padding,          paddingChanged)
-SETTER(LegendOverlayStyle::Anchor, Anchor,m_anchor,           anchorChanged)
-SETTER(qreal,           Opacity,          m_opacity,          opacityChanged)
-SETTER(const QPoint &,  FreePosition,     m_freePosition,     freePositionChanged)
-
-SETTER(bool,            ShowFrame,        m_showFrame,        showFrameChanged)
-SETTER(const QColor &,  FrameColor,       m_frameColor,       frameColorChanged)
-SETTER(qreal,           FrameWidth,       m_frameWidth,       frameWidthChanged)
-SETTER(int,             CornerRadius,     m_cornerRadius,     cornerRadiusChanged)
-
-SETTER(LegendOverlayStyle::BackgroundMode, BackgroundMode, m_backgroundMode, backgroundModeChanged)
-SETTER(const QColor &,  BackgroundColor,     m_backgroundColor,     backgroundColorChanged)
-SETTER(const QColor &,  GradientEndColor,    m_gradientEndColor,    gradientEndColorChanged)
-SETTER(Qt::Orientation, GradientOrientation, m_gradientOrientation, gradientOrientationChanged)
-
-#undef SETTER
-
-// Slice US.B1 — clamped size setters (0 = auto on that axis; explicit sizes
-// are floored at a usable minimum so the legend can't be dragged to nothing).
-void LegendOverlayStyle::setExplicitWidth(int px)
-{
-    if (px < 0) px = 0;
-    if (px > 0 && px < 80) px = 80;
-    if (m_explicitWidth == px) return;
-    m_explicitWidth = px;
-    emit explicitWidthChanged(px);
     emit changed();
 }
 
-void LegendOverlayStyle::setExplicitHeight(int px)
-{
-    if (px < 0) px = 0;
-    if (px > 0 && px < 48) px = 48;
-    if (m_explicitHeight == px) return;
-    m_explicitHeight = px;
-    emit explicitHeightChanged(px);
-    emit changed();
-}
-
-void LegendOverlayStyle::setMaxLabelWidth(int px)
-{
-    px = std::clamp(px, 60, 1200);
-    if (m_maxLabelWidth == px) return;
-    m_maxLabelWidth = px;
-    emit maxLabelWidthChanged(px);
-    emit changed();
-}
+#undef LEGEND_SETTER
 
 } // namespace OpenSWMM::Render

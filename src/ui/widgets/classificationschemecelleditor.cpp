@@ -1,10 +1,12 @@
-/*!
- * \file   classificationschemecelleditor.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Slice D1-a — ClassificationSchemeCellEditor implementation.
+/**
+ * @file      classificationschemecelleditor.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Slice D1-a — ClassificationSchemeCellEditor implementation.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/classificationschemecelleditor.h"
 
 #include "ui/dialogs/editors/classificationbindings.h"
@@ -19,32 +21,45 @@
 #include <QPushButton>
 #include <QVBoxLayout>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using OpenSWMM::Render::BinMethod;
 using OpenSWMM::Render::ClassificationScheme;
 
-namespace {
+namespace
+{
 
 // Human-readable method name for the read-only summary label.
+/**
+ * @brief Translate a supported bin method for the property-cell summary.
+ * @param[in] m Method enum; unknown values fall back to Equal interval.
+ * @return Translated method label.
+ */
 QString methodName(BinMethod m)
 {
     switch (m) {
-    case BinMethod::EqualInterval: return ClassificationSchemeCellEditor::tr("Equal interval");
-    case BinMethod::Quantile:      return ClassificationSchemeCellEditor::tr("Quantile");
-    case BinMethod::Manual:        return ClassificationSchemeCellEditor::tr("Manual");
-    case BinMethod::NaturalBreaks: return ClassificationSchemeCellEditor::tr("Natural breaks");
-    case BinMethod::StdDev:        return ClassificationSchemeCellEditor::tr("Std. deviation");
-    case BinMethod::Logarithmic:   return ClassificationSchemeCellEditor::tr("Logarithmic");
-    case BinMethod::Exponential:   return ClassificationSchemeCellEditor::tr("Exponential");
+    case BinMethod::EqualInterval:
+        return ClassificationSchemeCellEditor::tr("Equal interval");
+    case BinMethod::Quantile:
+        return ClassificationSchemeCellEditor::tr("Quantile");
+    case BinMethod::Manual:
+        return ClassificationSchemeCellEditor::tr("Manual");
+    case BinMethod::NaturalBreaks:
+        return ClassificationSchemeCellEditor::tr("Natural breaks");
+    case BinMethod::StdDev:
+        return ClassificationSchemeCellEditor::tr("Std. deviation");
+    case BinMethod::Logarithmic:
+        return ClassificationSchemeCellEditor::tr("Logarithmic");
+    case BinMethod::Exponential:
+        return ClassificationSchemeCellEditor::tr("Exponential");
     }
     return ClassificationSchemeCellEditor::tr("Equal interval");
 }
 
 } // namespace
 
-ClassificationSchemeCellEditor::ClassificationSchemeCellEditor(QWidget *parent)
-    : QWidget(parent)
+ClassificationSchemeCellEditor::ClassificationSchemeCellEditor(QWidget *parent) : QWidget(parent)
 {
     auto *row = new QHBoxLayout(this);
     row->setContentsMargins(0, 0, 0, 0);
@@ -57,8 +72,7 @@ ClassificationSchemeCellEditor::ClassificationSchemeCellEditor(QWidget *parent)
     row->addWidget(m_summary, 1);
     row->addWidget(m_editBtn, 0);
 
-    connect(m_editBtn, &QPushButton::clicked, this,
-            &ClassificationSchemeCellEditor::openDialog);
+    connect(m_editBtn, &QPushButton::clicked, this, &ClassificationSchemeCellEditor::openDialog);
 
     updateSummary();
 }
@@ -71,10 +85,9 @@ void ClassificationSchemeCellEditor::setScheme(const ClassificationScheme &s)
 
 void ClassificationSchemeCellEditor::updateSummary()
 {
-    if (!m_summary) return;
-    const QString ramp = m_scheme.rampName().isEmpty()
-                             ? tr("custom")
-                             : m_scheme.rampName();
+    if (!m_summary)
+        return;
+    const QString ramp = m_scheme.rampName().isEmpty() ? tr("custom") : m_scheme.rampName();
     m_summary->setText(tr("%1 · %2 classes · %3")
                            .arg(methodName(m_scheme.method()))
                            .arg(m_scheme.classCount())
@@ -94,8 +107,7 @@ void ClassificationSchemeCellEditor::openDialog()
     // → the editor degrades to equal spacing for the table preview; range
     // comes from the scheme's own min/max (static layers bin per draw).
     auto *binding = new SublayerSchemeBinding(
-        [this] { return m_scheme; },
-        [this](const ClassificationScheme &s) { m_scheme = s; },
+        [this] { return m_scheme; }, [this](const ClassificationScheme &s) { m_scheme = s; },
         [] { return QVector<double>{}; },
         [this] {
             const double lo = m_scheme.rangeMin();
@@ -107,8 +119,7 @@ void ClassificationSchemeCellEditor::openDialog()
 
     lay->addWidget(new ClassificationEditor(binding, /*ownBinding=*/true, dlg));
 
-    auto *bb = new QDialogButtonBox(
-        QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dlg);
+    auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel, dlg);
     connect(bb, &QDialogButtonBox::accepted, dlg, &QDialog::accept);
     connect(bb, &QDialogButtonBox::rejected, dlg, &QDialog::reject);
     lay->addWidget(bb);
@@ -117,7 +128,7 @@ void ClassificationSchemeCellEditor::openDialog()
         updateSummary();
         emit schemeChanged();
     } else {
-        m_scheme = before;   // roll back the live edits
+        m_scheme = before; // roll back the live edits
     }
     dlg->deleteLater();
 }

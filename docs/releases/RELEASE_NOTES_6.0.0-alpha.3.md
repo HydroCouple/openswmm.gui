@@ -35,7 +35,7 @@ Generation appeared to hang at ~37% on large domains. Two independent causes, bo
 
 On the domain that hung: chunks **1.5×10⁹ → 21,336**, the segment hash from never-returning to **66 ms**, the full pipeline to **1024 ms** — and the boundary filter finally doing its job.
 
-Also fixed: natural-neighbour vertex elevation passed an `N` switch to Triangle that leaves the point list *uninitialised*, so **every valid seed set segfaulted** while every degenerate one returned cleanly — meaning that interpolator had never produced a value in this pipeline. And DTM thinning only ever ran a single pass regardless of the configured iteration count, its block sampler fabricated elevations for 8500 of 12,100 points outside the DEM footprint, and it read the whole clipped domain in one `RasterIO` (fatal on a multi-GB DEM; now banded).
+Also fixed: natural-neighbor vertex elevation passed an `N` switch to Triangle that leaves the point list *uninitialized*, so **every valid seed set segfaulted** while every degenerate one returned cleanly — meaning that interpolator had never produced a value in this pipeline. And DTM thinning only ever ran a single pass regardless of the configured iteration count, its block sampler fabricated elevations for 8500 of 12,100 points outside the DEM footprint, and it read the whole clipped domain in one `RasterIO` (fatal on a multi-GB DEM; now banded).
 
 Refinement is now **cancellable** — the Stop button was dead for the entire refinement stage — with progress reporting and a graded size function, all through Triangle's documented `triunsuitable()` extension point so `vendor/triangle/` stays untouched.
 
@@ -69,7 +69,7 @@ A `MINIMUM_STEP` field and a one-click **fast-run preset** (`THREADS=8`, `MINIMU
 - **DTM thinning now performs its configured number of passes**, so the default of 3 thins harder than before; threshold and iteration defaults may want re-tuning.
 - **Mesh-generation defaults retuned** — minimum angle 33° → 26°, junctions-as-Steiner-points now **off**, boundary-filter normal-dot threshold 1.0 → 0.6. Regenerating an existing mesh will produce a different (generally smaller) result.
 - **Mesh LOD thresholds lowered** (edge 3.0, vertex 6.0 px/cell) and the style-dialog range tightened to 0–40 px/cell.
-- **Windows builds were previously compiled without `/GR` or `/EHsc`** — an ABI mismatch against Qt6 and GDAL, which both ship built with them. Fixed, but it means prior Windows builds were unsound and any Windows-specific behaviour is worth re-testing.
+- **Windows builds were previously compiled without `/GR` or `/EHsc`** — an ABI mismatch against Qt6 and GDAL, which both ship built with them. Fixed, but it means prior Windows builds were unsound and any Windows-specific behavior is worth re-testing.
 - **The copyright holder on the GPL v3 notice changed** from "Caleb Buahin" to "HydroCouple". The MIT → GPL v3 relicensing itself happened earlier, on 2026-05-08, before this release span.
 
 ---
@@ -79,11 +79,11 @@ A `MINIMUM_STEP` field and a one-click **fast-run preset** (`THREADS=8`, `MINIMU
 - GIS-layer symbology is not persisted, and z-order among GIS layers may differ after an async reopen.
 - Inline (non-external) 2D meshes still need an engine-side mesh-replace API to survive regeneration.
 - 12 Windows GUI tests plus `test_ioportabilitynormalizer` are quarantined behind an exclude regex — hidden, not fixed, each tracked to re-enable.
-- The 2D results renderer still uploads straight-alpha colours into a premultiplied material — the same defect fixed in the mesh renderer, not yet swept there.
+- The 2D results renderer still uploads straight-alpha colors into a premultiplied material — the same defect fixed in the mesh renderer, not yet swept there.
 - Polygon-with-holes draw/edit and round-trip remain plan-only pending `EditableVectorLayer`.
 
 ---
 
-## Acknowledgements
+## Acknowledgments
 
 Engine contributors and issue reporters whose work this release depends on are credited in [`openswmm.engine/AUTHORS.md`](https://github.com/HydroCouple/openswmm.engine/blob/v6.0.0-alpha.3/AUTHORS.md). See [`AUTHORS.md`](https://github.com/HydroCouple/openswmm.gui/blob/v6.0.0-alpha.3/AUTHORS.md) for this repository.

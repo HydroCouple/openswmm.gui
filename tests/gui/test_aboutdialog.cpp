@@ -1,18 +1,32 @@
-/*!
- * \file   test_aboutdialog.cpp
- * \brief  Slice K QtTest: AboutDialog manifest parser + dialog construction.
+/**
+ * @file      test_aboutdialog.cpp
+ * @brief     AboutDialog manifest parsing and embedded application license display.
  *
- * The dialog itself is hard to drive without a full QApplication + resource
- * bundle (it loads the manifest from a Qt resource). What we CAN test in a
- * leaf binary is the static parseManifest() helper, which contains all of
- * the manifest schema logic and is the most likely place a typo or schema
- * regression would land.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "ui/dialogs/aboutdialog.h"
+#include "ui/dialogs/dialoglayoutwatcher.h"
+#include "core/buildinfo.h"
 
+#include <QApplication>
+#include <QClipboard>
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
+#include <QLabel>
 #include <QObject>
+#include <QPlainTextEdit>
+#include <QPushButton>
+#include <QScrollBar>
+#include <QSettings>
+#include <QSplitter>
+#include <QSplitterHandle>
 #include <QTest>
+#include <QTreeView>
 
 class TestAboutDialog : public QObject
 {
@@ -23,8 +37,16 @@ private slots:
     void rejectsNonArrayRoot();
     void skipsRowsWithoutName();
     void copiesAllExpectedFields();
+    void buildTimestampDisplayAndCopy();
+    void applicationLicenseDisplayAndCopy();
+    void restoredPanelFillsAndScrolls();
 };
 
+/**
+ *
+ * @brief Require a valid two-row array manifest to parse without error and retain row name order.
+ *
+ */
 void TestAboutDialog::parsesValidManifest()
 {
     const QByteArray json = R"([
@@ -39,6 +61,11 @@ void TestAboutDialog::parsesValidManifest()
     QCOMPARE(rows[1].name, QStringLiteral("b"));
 }
 
+/**
+ *
+ * @brief Require an empty manifest array to return no rows and no error.
+ *
+ */
 void TestAboutDialog::emptyArrayIsEmpty()
 {
     QString err;
@@ -47,6 +74,11 @@ void TestAboutDialog::emptyArrayIsEmpty()
     QCOMPARE(rows.size(), 0);
 }
 
+/**
+ *
+ * @brief Require an object-root manifest to refuse with an error and no rows.
+ *
+ */
 void TestAboutDialog::rejectsNonArrayRoot()
 {
     QString err;
@@ -55,6 +87,11 @@ void TestAboutDialog::rejectsNonArrayRoot()
     QVERIFY(!err.isEmpty());
 }
 
+/**
+ *
+ * @brief Require unnamed manifest rows to be skipped while a valid named row remains.
+ *
+ */
 void TestAboutDialog::skipsRowsWithoutName()
 {
     const QByteArray json = R"([
@@ -66,6 +103,12 @@ void TestAboutDialog::skipsRowsWithoutName()
     QCOMPARE(rows[0].name, QStringLiteral("valid"));
 }
 
+/**
+ *
+ * @brief Require every dependency manifest field to map to its expected parsed member.
+ * Uses in-memory sample version/URL/license metadata without network or resource reads.
+ *
+ */
 void TestAboutDialog::copiesAllExpectedFields()
 {
     const QByteArray json = R"([{
@@ -82,15 +125,171 @@ void TestAboutDialog::copiesAllExpectedFields()
     auto rows = AboutDialog::parseManifest(json);
     QCOMPARE(rows.size(), 1);
     const auto &c = rows[0];
-    QCOMPARE(c.category,    QStringLiteral("Geospatial"));
-    QCOMPARE(c.name,        QStringLiteral("GDAL"));
-    QCOMPARE(c.version,     QStringLiteral("3.9.2"));
-    QCOMPARE(c.role,        QStringLiteral("vector / raster IO"));
-    QCOMPARE(c.homepage,    QStringLiteral("https://gdal.org"));
-    QCOMPARE(c.sourceUrl,   QStringLiteral("https://github.com/OSGeo/gdal"));
-    QCOMPARE(c.spdx,        QStringLiteral("MIT"));
-    QCOMPARE(c.provenance,  QStringLiteral("vcpkg"));
+    QCOMPARE(c.category, QStringLiteral("Geospatial"));
+    QCOMPARE(c.name, QStringLiteral("GDAL"));
+    QCOMPARE(c.version, QStringLiteral("3.9.2"));
+    QCOMPARE(c.role, QStringLiteral("vector / raster IO"));
+    QCOMPARE(c.homepage, QStringLiteral("https://gdal.org"));
+    QCOMPARE(c.sourceUrl, QStringLiteral("https://github.com/OSGeo/gdal"));
+    QCOMPARE(c.spdx, QStringLiteral("MIT"));
+    QCOMPARE(c.provenance, QStringLiteral("vcpkg"));
     QCOMPARE(c.licenseFile, QStringLiteral(":/licenses/gdal.txt"));
+}
+
+/**
+ *
+ * @brief Require the build timestamp to parse in the UTC-labeled display format and appear in
+ * copied environment text.
+ * Overwrites the application clipboard and compares the entire summary text with
+ * HTML line breaks converted to newlines.
+ *
+ */
+void TestAboutDialog::buildTimestampDisplayAndCopy()
+{
+    const QString timestamp = QString::fromLatin1(openswmmvis::buildTimestamp());
+    QVERIFY(timestamp.endsWith(QStringLiteral(" UTC")));
+    QVERIFY(
+        QDateTime::fromString(timestamp, QStringLiteral("yyyy-MM-dd HH:mm:ss 'UTC'")).isValid());
+    const QString buildLine = QStringLiteral("Build:    ") + timestamp;
+
+    AboutDialog dialog;
+    QLabel *summary = nullptr;
+    for (auto *label : dialog.findChildren<QLabel *>())
+        if (label->text().contains(QStringLiteral("Build:")))
+            summary = label;
+    QVERIFY(summary);
+    QVERIFY(summary->text().contains(buildLine));
+
+    QPushButton *copy = nullptr;
+    for (auto *button : dialog.findChildren<QPushButton *>())
+        if (button->text() == QStringLiteral("Copy environment"))
+            copy = button;
+    QVERIFY(copy);
+    copy->click();
+    QCOMPARE(QApplication::clipboard()->text(),
+             QString(summary->text()).replace(QStringLiteral("<br>"), QStringLiteral("\n")));
+    QVERIFY(QApplication::clipboard()->text().contains(buildLine));
+}
+
+/**
+ *
+ * @brief Require the read-only embedded GUI license and copied text to equal the repository
+ * LICENSE, including after dependency selection.
+ * Reads the source-relative license, overwrites the application clipboard and
+ * optionally saves gui_license.png beneath nonempty SWMMVIS_ABOUT_TEST_OUTPUT.
+ *
+ */
+void TestAboutDialog::applicationLicenseDisplayAndCopy()
+{
+    const QDir sourceDir = QFileInfo(QString::fromUtf8(__FILE__)).dir();
+    QFile canonicalLicense(sourceDir.filePath(QStringLiteral("../../LICENSE")));
+    QVERIFY(canonicalLicense.open(QIODevice::ReadOnly));
+    const QString expected = QString::fromUtf8(canonicalLicense.readAll());
+    QVERIFY(expected.contains(QStringLiteral("GNU GENERAL PUBLIC LICENSE")));
+    QVERIFY(expected.contains(QStringLiteral("END OF TERMS AND CONDITIONS")));
+
+    AboutDialog dialog;
+    auto *text = dialog.findChild<QPlainTextEdit *>();
+    auto *tree = dialog.findChild<QTreeView *>();
+    QVERIFY(text && tree);
+    QCOMPARE(tree->currentIndex().data().toString(), QStringLiteral("SWMMVis GUI"));
+    QCOMPARE(text->toPlainText(), expected);
+    QVERIFY(text->isReadOnly());
+    QVERIFY(!text->accessibleName().isEmpty());
+    QCOMPARE(text->lineWrapMode(), QPlainTextEdit::WidgetWidth);
+
+    QPushButton *copy = nullptr;
+    for (auto *button : dialog.findChildren<QPushButton *>())
+        if (button->text() == QStringLiteral("Copy License"))
+            copy = button;
+    QVERIFY(copy && copy->isEnabled());
+    copy->click();
+    QCOMPARE(QApplication::clipboard()->text(), expected);
+
+    // Switching to a dependency and back must restore the complete GUI license.
+    auto *model = tree->model();
+    const QModelIndex application = tree->currentIndex();
+    const QModelIndex engine = model->index(0, 0, model->index(1, 0));
+    QVERIFY(engine.isValid());
+    tree->setCurrentIndex(engine);
+    QVERIFY(text->toPlainText() != expected);
+    tree->setCurrentIndex(application);
+    QCOMPARE(text->toPlainText(), expected);
+
+    dialog.show();
+    QTest::qWait(50);
+    const QString outputDir = qEnvironmentVariable("SWMMVIS_ABOUT_TEST_OUTPUT");
+    if (!outputDir.isEmpty()) {
+        QVERIFY(QDir().mkpath(outputDir));
+        QVERIFY(dialog.grab().save(QDir(outputDir).filePath(QStringLiteral("gui_license.png"))));
+    }
+}
+
+/**
+ *
+ * @brief Require the layout watcher to restore the About panel, fill wide panes, scroll narrow
+ * panes and respond to splitter dragging.
+ * Writes wide/scrolled PNG evidence and redirects process-global INI settings to
+ * SWMMVIS_ABOUT_TEST_OUTPUT or the source-relative workplans artifact directory.
+ * Application identity/default settings format/path are not restored in this case;
+ * the stack-owned event filter removes itself when destroyed.
+ *
+ */
+void TestAboutDialog::restoredPanelFillsAndScrolls()
+{
+    const QDir sourceDir = QFileInfo(QString::fromUtf8(__FILE__)).dir();
+    const QString outputDir =
+        qEnvironmentVariable("SWMMVIS_ABOUT_TEST_OUTPUT",
+                             sourceDir.filePath(QStringLiteral(
+                                 "../../workplans/artifacts/gui_about_license_2026-10-04/panel")));
+    QVERIFY(QDir().mkpath(outputDir));
+    // Exercise the production Show filter without changing user settings.
+    QSettings::setDefaultFormat(QSettings::IniFormat);
+    QSettings::setPath(QSettings::IniFormat, QSettings::UserScope, outputDir);
+    QCoreApplication::setOrganizationName(QStringLiteral("OpenSWMMGuiTests"));
+    QCoreApplication::setApplicationName(QStringLiteral("AboutPanel"));
+    openswmmvis::ui::DialogLayoutWatcher watcher;
+    QApplication::instance()->installEventFilter(&watcher);
+
+    AboutDialog dialog;
+    dialog.resize(1100, 640);
+    dialog.show();
+    QTest::qWait(50);
+    QVERIFY(dialog.property(openswmmvis::ui::kLayoutRestoredOnceProp).toBool());
+    // Saved geometry may be clamped on a smaller test screen on repeat runs.
+    dialog.resize(1100, 640);
+    auto *tree = dialog.findChild<QTreeView *>();
+    auto *splitter = dialog.findChild<QSplitter *>();
+    QVERIFY(tree && splitter);
+
+    splitter->setSizes({480, 590});
+    QTRY_VERIFY(tree->columnWidth(0) >= tree->viewport()->width());
+    QCOMPARE(tree->horizontalScrollBar()->maximum(), 0);
+    const int wideWidth = tree->viewport()->width();
+    const QModelIndex guiEntry = tree->currentIndex();
+    const QString guiName = guiEntry.data().toString();
+    QVERIFY(tree->visualRect(guiEntry).width() >= tree->fontMetrics().horizontalAdvance(guiName));
+    QVERIFY(dialog.grab().save(QDir(outputDir).filePath(QStringLiteral("gui_panel_wide.png"))));
+
+    splitter->setSizes({160, 910});
+    QTRY_VERIFY(tree->viewport()->width() < wideWidth);
+    QTRY_VERIFY(tree->horizontalScrollBar()->maximum() > 0);
+    auto *scroll = tree->horizontalScrollBar();
+    const QModelIndex engineEntry = tree->model()->index(0, 0, tree->model()->index(1, 0));
+    const QRect before = tree->visualRect(engineEntry);
+    scroll->setValue(scroll->maximum());
+    QTRY_VERIFY(tree->visualRect(engineEntry).left() < before.left());
+    QVERIFY(dialog.grab().save(QDir(outputDir).filePath(QStringLiteral("gui_panel_scrolled.png"))));
+
+    // A mouse drag must resize the panes; the handle cannot be a dead divider.
+    auto *handle = splitter->handle(1);
+    const int oldWidth = tree->viewport()->width();
+    const QPoint start = handle->rect().center();
+    QTest::mousePress(handle, Qt::LeftButton, Qt::NoModifier, start);
+    QTest::mouseMove(handle, start + QPoint(140, 0));
+    QTest::mouseRelease(handle, Qt::LeftButton, Qt::NoModifier, start + QPoint(140, 0));
+    QTRY_VERIFY(tree->viewport()->width() > oldWidth);
+    dialog.close();
 }
 
 QTEST_MAIN(TestAboutDialog)

@@ -1,14 +1,14 @@
-/*!
- * \file   irasterrenderer.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Sister interface to IFeatureRenderer for single-band raster layers.
+/**
+ * @file      irasterrenderer.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Sister interface to IFeatureRenderer for single-band raster layers.
  *
  *         Where IFeatureRenderer maps a (feature, attrs) pair to a
  *         SymbolStyle, IRasterRenderer maps a raw pixel value to a
  *         display QColor.  The narrower domain (single scalar in / one
- *         RGBA colour out) means a much smaller surface than the feature
+ *         RGBA color out) means a much smaller surface than the feature
  *         interface: there is no per-feature attribute map, no symbol
  *         layer stack, no scale-range gate.
  *
@@ -16,7 +16,7 @@
  *         (sub-phase 8.13.6.7):
  *           - SingleBandPseudoColorRenderer — interpolated stops + clamp policy
  *           - SingleBandGrayRenderer        — min→black, max→white, optional invert
- *           - PalettedRenderer              — discrete byte-value → colour table
+ *           - PalettedRenderer              — discrete byte-value → color table
  *           - HillshadeRenderer             — light-direction-shaded relief
  *           - MultiBandColorRenderer        — RGB(A) bypass, no ramp
  *
@@ -33,12 +33,14 @@
  *         save/load and .swmm-style.json import/export (Slice BB Phase
  *         8.6.13).  clone() returns a deep copy for map preset capture
  *         (Slice CJ.2) without aliasing the live renderer.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #ifndef OPENSWMM_RENDER_IRASTERRENDERER_H
 #define OPENSWMM_RENDER_IRASTERRENDERER_H
 
 #include "render/legendsymbolitem.h"
+#include "render/numberlabelformat.h"
 
 #include <QColor>
 #include <QJsonObject>
@@ -65,19 +67,21 @@ namespace OpenSWMM::Render
 class IRasterRenderer
 {
 public:
+    /** @brief Destroy implementation-owned raster configuration polymorphically. */
     virtual ~IRasterRenderer() = default;
 
     /*!
      * \brief Stable string id ("singlebandpseudocolor", "singlebandgray",
      *        "paletted", "hillshade", "multibandcolor"). Used as the
      *        discriminator in JSON round-trip.
+     * @return Stable serialization key for the concrete renderer type.
      */
     [[nodiscard]] virtual QString rendererId() const = 0;
 
     /*!
-     * \brief Returns the display colour for one raw pixel value.
+     * \brief Returns the display color for one raw pixel value.
      * \param value    Raw pixel value (from the selected band, in raster
-     *                 units — no normalisation has been applied yet).
+     *                 units — no normalization has been applied yet).
      * \param isNoData true when the source pixel matched the layer's
      *                 no-data sentinel.  Implementations are expected to
      *                 return Qt::transparent in that case (or whatever
@@ -86,9 +90,10 @@ public:
      *        Note: NaN handling is the renderer's responsibility — callers
      *        do not pre-filter NaNs.  Implementations should return
      *        Qt::transparent for non-finite values.
+     * @return Display color according to the concrete no-data/range policy;
+     * no ownership transfer or mutation of the source raster occurs.
      */
-    [[nodiscard]] virtual QColor colorForValue(double value,
-                                               bool isNoData = false) const = 0;
+    [[nodiscard]] virtual QColor colorForValue(double value, bool isNoData = false) const = 0;
 
     /*!
      * \brief Returns one LegendSymbolItem per visible legend row.
@@ -96,14 +101,16 @@ public:
      *        map composer's legend frame (§J.5).
      *
      *        For continuous-ramp renderers, implementations typically emit
-     *        one item per stop (label = formatted value, swatch = stop colour).
+     *        one item per stop (label = formatted value, swatch = stop color).
+     * @return Owned legend rows; concrete renderers define ordering and labels.
      */
     [[nodiscard]] virtual QList<LegendSymbolItem> legendSymbolItems() const = 0;
 
     /*!
-     * \brief Serialises this renderer to a JSON object.
+     * \brief Serializes this renderer to a JSON object.
      *        The "id" field equals rendererId(); remaining keys are
      *        renderer-specific.
+     * @return Owned snapshot of the renderer's persistent configuration.
      */
     [[nodiscard]] virtual QJsonObject toJson() const = 0;
 
@@ -111,20 +118,42 @@ public:
      * \brief Restores this renderer from a JSON object previously produced
      *        by toJson().  Implementations should tolerate missing/unknown
      *        keys by falling back to default values rather than throwing.
+     * @param j Concrete renderer configuration, loaded into this instance;
+     * each implementation defines validation, retained fields, and defaults.
      */
     virtual void fromJson(const QJsonObject &j) = 0;
 
     /*!
      * \brief Deep copy.  Owning layers / map presets / undo stack call this
      *        when they need a renderer snapshot decoupled from the live one.
+     * @return Sole ownership of an independently editable renderer configuration.
      */
     [[nodiscard]] virtual std::unique_ptr<IRasterRenderer> clone() const = 0;
 
+    /** @brief The number format of this renderer's class labels, when it has one (the map
+     *  legend's editor reads and sets it per layer).
+     * @param[out] out Receives the format. @return False when the renderer has none. */
+    [[nodiscard]] virtual bool legendNumberFormat(NumberLabelFormat * /*out*/) const
+    {
+        return false;
+    }
+    /** @brief Set the number format of this renderer's class labels (labels only; classes and
+     *  colors are unchanged, no notification).
+     * @param f Format. @return False when the renderer has none. */
+    virtual bool setLegendNumberFormat(const NumberLabelFormat & /*f*/) { return false; }
+
 protected:
+    /** @brief Construct the stateless interface base for a concrete raster renderer. */
     IRasterRenderer() = default;
+    /** @brief Copy the stateless base; the concrete type copies its own configuration. */
     IRasterRenderer(const IRasterRenderer &) = default;
+    /** @brief Copy-assign the stateless base.
+     * @return This interface base, supporting chained assignment. */
     IRasterRenderer &operator=(const IRasterRenderer &) = default;
+    /** @brief Move the stateless base without transferring consumer ownership. */
     IRasterRenderer(IRasterRenderer &&) = default;
+    /** @brief Move-assign the stateless base.
+     * @return This interface base, supporting chained assignment. */
     IRasterRenderer &operator=(IRasterRenderer &&) = default;
 };
 

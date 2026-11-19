@@ -1,0 +1,123 @@
+# Generate Qt plugin metadata from the exact SDK used by an external build.
+# Usage: openswmmvis_add_extension(target ID org.example.plugin CAPTION "Example"
+#          VERSION 1.0.0 SOURCES extension.cpp [icons.qrc] [REQUIRES_ENGINE_ABI])
+function(openswmmvis_add_extension target)
+    cmake_parse_arguments(EXT "REQUIRES_ENGINE_ABI" "ID;CAPTION;VERSION;VENDOR;LICENSE" "SOURCES" ${ARGN})
+    if(NOT EXT_ID OR NOT EXT_CAPTION OR NOT EXT_VERSION OR NOT EXT_SOURCES)
+        message(FATAL_ERROR "openswmmvis_add_extension needs ID, CAPTION, VERSION and SOURCES")
+    endif()
+    file(READ "${OpenSWMMVisSdk_MANIFEST}" _manifest)
+    string(JSON _sdk_qt GET "${_manifest}" qt)
+    string(REGEX MATCH "^[0-9]+\\.[0-9]+" _sdk_qt_minor "${_sdk_qt}")
+    string(REGEX MATCH "^[0-9]+\\.[0-9]+" _build_qt_minor "${Qt6_VERSION}")
+    if(NOT _sdk_qt_minor STREQUAL _build_qt_minor)
+        message(FATAL_ERROR "SDK uses Qt ${_sdk_qt}; this plugin build uses Qt ${Qt6_VERSION}")
+    endif()
+    string(JSON _sdk_abi GET "${_manifest}" compilerAbi)
+    string(REGEX MATCH "^[0-9]+" _compiler_major "${CMAKE_CXX_COMPILER_VERSION}")
+    set(_build_abi "${CMAKE_CXX_COMPILER_ID}-${_compiler_major}-${CMAKE_SIZEOF_VOID_P}")
+    if(MSVC)
+        set(_build_abi "msvc-${MSVC_TOOLSET_VERSION}-${CMAKE_SIZEOF_VOID_P}")
+    endif()
+    if(NOT _sdk_abi STREQUAL _build_abi)
+        message(FATAL_ERROR "SDK compiler ABI '${_sdk_abi}' differs from plugin '${_build_abi}'")
+    endif()
+    string(JSON _sdk_arch GET "${_manifest}" arch)
+    if(APPLE AND CMAKE_OSX_ARCHITECTURES)
+        string(REPLACE ";" "+" _build_arch "${CMAKE_OSX_ARCHITECTURES}")
+    else()
+        set(_build_arch "${CMAKE_SYSTEM_PROCESSOR}")
+    endif()
+    if(NOT _sdk_arch STREQUAL _build_arch)
+        message(FATAL_ERROR "SDK architecture '${_sdk_arch}' differs from plugin '${_build_arch}'")
+    endif()
+    set(_metadata "{}")
+    foreach(_key ID CAPTION VERSION VENDOR LICENSE)
+        string(TOLOWER "${_key}" _field)
+        if(_key STREQUAL "LICENSE")
+            set(_field "licenseType")
+        endif()
+        # JSON string escaping, without shell interpolation or hand-edited manifests.
+        set(_value "${EXT_${_key}}")
+        string(REPLACE "\\" "\\\\" _value "${_value}")
+        string(REPLACE "\"" "\\\"" _value "${_value}")
+        string(REPLACE "\n" "\\n" _value "${_value}")
+        string(JSON _metadata SET "${_metadata}" "${_field}" "\"${_value}\"")
+    endforeach()
+    string(JSON _metadata SET "${_metadata}" builtAgainst "${_manifest}")
+    if(EXT_REQUIRES_ENGINE_ABI)
+        string(JSON _metadata SET "${_metadata}" requiresEngineAbi true)
+    endif()
+    set(_metadata_dir "${CMAKE_CURRENT_BINARY_DIR}/${target}-metadata")
+    file(MAKE_DIRECTORY "${_metadata_dir}")
+    file(WRITE "${_metadata_dir}/plugin.json" "${_metadata}\n")
+    add_library(${target} MODULE ${EXT_SOURCES})
+    # Bundle plugin-owned icons and other Qt resources supplied in SOURCES.
+    set_target_properties(${target} PROPERTIES AUTOMOC ON AUTORCC ON)
+    target_include_directories(${target} PRIVATE "${_metadata_dir}")
+    target_link_libraries(${target} PRIVATE OpenSWMMVis::Sdk)
+endfunction()
+
+# Compile the optional IViewEvents Qt adapter into a consumer, with private symbols.
+function(openswmmvis_add_view_adapter target)
+    if(NOT TARGET ${target})
+        message(FATAL_ERROR "openswmmvis_add_view_adapter needs an existing target")
+    endif()
+    get_target_property(_adapter_added ${target} OPENSWMMVIS_VIEW_ADAPTER_ADDED)
+    if(_adapter_added)
+        return()
+    endif()
+    if(NOT EXISTS "${OpenSWMMVisSdk_VIEW_ADAPTER_SOURCE}" OR
+       NOT EXISTS "${OpenSWMMVisSdk_VIEW_ADAPTER_HEADER}")
+        message(FATAL_ERROR "The installed SDK does not supply its Qt view adapter sources")
+    endif()
+    target_sources(${target} PRIVATE
+        "${OpenSWMMVisSdk_VIEW_ADAPTER_SOURCE}" "${OpenSWMMVisSdk_VIEW_ADAPTER_HEADER}")
+    target_link_libraries(${target} PRIVATE OpenSWMMVis::Sdk)
+    set_target_properties(${target} PROPERTIES
+        AUTOMOC ON CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES
+        OPENSWMMVIS_VIEW_ADAPTER_ADDED TRUE)
+endfunction()
+
+# Compile the optional IActivityEvents Qt adapter into a consumer with private symbols.
+function(openswmmvis_add_activity_adapter target)
+    if(NOT TARGET ${target})
+        message(FATAL_ERROR "openswmmvis_add_activity_adapter needs an existing target")
+    endif()
+    get_target_property(_adapter_added ${target} OPENSWMMVIS_ACTIVITY_ADAPTER_ADDED)
+    if(_adapter_added)
+        return()
+    endif()
+    if(NOT EXISTS "${OpenSWMMVisSdk_ACTIVITY_ADAPTER_SOURCE}" OR
+       NOT EXISTS "${OpenSWMMVisSdk_ACTIVITY_ADAPTER_HEADER}")
+        message(FATAL_ERROR "The installed SDK does not supply its Qt activity adapter sources")
+    endif()
+    target_sources(${target} PRIVATE
+        "${OpenSWMMVisSdk_ACTIVITY_ADAPTER_SOURCE}" "${OpenSWMMVisSdk_ACTIVITY_ADAPTER_HEADER}")
+    target_link_libraries(${target} PRIVATE OpenSWMMVis::Sdk)
+    set_target_properties(${target} PROPERTIES
+        AUTOMOC ON CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES
+        OPENSWMMVIS_ACTIVITY_ADAPTER_ADDED TRUE)
+endfunction()
+
+# Compile the optional Qt signal adapter into one consumer module. Its generated
+# metaobject symbols stay private to that module; the SDK exports no shared runtime.
+function(openswmmvis_add_event_adapter target)
+    if(NOT TARGET ${target})
+        message(FATAL_ERROR "openswmmvis_add_event_adapter needs an existing extension target")
+    endif()
+    get_target_property(_adapter_added ${target} OPENSWMMVIS_EVENT_ADAPTER_ADDED)
+    if(_adapter_added)
+        return()
+    endif()
+    if(NOT EXISTS "${OpenSWMMVisSdk_EVENT_ADAPTER_SOURCE}" OR
+       NOT EXISTS "${OpenSWMMVisSdk_EVENT_ADAPTER_HEADER}")
+        message(FATAL_ERROR "The installed SDK does not supply its Qt event adapter sources")
+    endif()
+    target_sources(${target} PRIVATE
+        "${OpenSWMMVisSdk_EVENT_ADAPTER_SOURCE}" "${OpenSWMMVisSdk_EVENT_ADAPTER_HEADER}")
+    target_link_libraries(${target} PRIVATE OpenSWMMVis::Sdk)
+    set_target_properties(${target} PROPERTIES
+        AUTOMOC ON CXX_VISIBILITY_PRESET hidden VISIBILITY_INLINES_HIDDEN YES
+        OPENSWMMVIS_EVENT_ADAPTER_ADDED TRUE)
+endfunction()

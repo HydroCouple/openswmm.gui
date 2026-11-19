@@ -1,8 +1,11 @@
 #ifndef THEMEMANAGER_H
 #define THEMEMANAGER_H
 
-/*!
- * \file thememanager.h
+/**
+ * @file      thememanager.h
+ * @brief     UI redesign P2 — applies the design tokens (themetokens.h) as the application-wide
+ *            QPalette plus a minimal QSS overlay, and tracks the OS appearance when the mode is
+ *            System (QStyleHints::colorScheme).
  *
  * UI redesign P2 — applies the design tokens (themetokens.h) as the
  * application-wide QPalette plus a minimal QSS overlay, and tracks the
@@ -12,12 +15,21 @@
  * the initial mode from PreferencesManager, and the Preferences
  * Appearance page writes the pref and calls setMode() — keeping this
  * class free of settings coupling so tests can drive it directly.
+ *
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
+
+#include "platform/systemaccessibility.h"
 
 #include <QObject>
 #include <Qt>
 
-namespace openswmmvis::ui {
+#include <functional>
+
+namespace openswmmvis::ui
+{
 
 struct ThemeColors;
 
@@ -29,43 +41,120 @@ public:
     enum class Mode { System, Light, Dark };
     Q_ENUM(Mode)
 
+    /**
+     * @brief Lazily create the application-parented theme coordinator.
+     * @return Borrowed singleton; use on the GUI thread and do not retain it after application shutdown. Creation/subsequent access are not synchronized.
+     */
     static ThemeManager *instance();
 
+    /**
+     * @brief Inspect the requested appearance policy rather than the resolved OS scheme.
+     * @return Stored System/Light/Dark mode, initially System.
+     */
     Mode mode() const { return mMode; }
     /*! Change the mode and re-apply the palette. Emits themeChanged()
-     *  when the effective scheme actually changes. */
+     *  when the effective scheme actually changes.
+     * @param[in] mode Requested policy; an identical value is a no-op.
+     * @note Calls apply() but does not persist preferences. A policy change resolving to the same color scheme emits no themeChanged().
+     */
     void setMode(Mode mode);
 
     /*! The scheme in force: the OS scheme in System mode (falling back
      *  to Light when the platform reports Unknown — e.g. the offscreen
-     *  QPA), otherwise the explicit choice. */
+     *  QPA), otherwise the explicit choice.
+     * @return Dark only for explicit Dark or System with a Dark OS report; otherwise Light, including Unknown platform reports.
+     */
     Qt::ColorScheme effectiveScheme() const;
 
-    /*! Tokens for the effective scheme. */
+    /*! Tokens for the effective scheme.
+     * @return Borrowed immutable static light/dark token table for effectiveScheme(); no dynamic palette values are read.
+     */
     const ThemeColors &colors() const;
 
     /*! Build + install the QPalette and QSS overlay for the effective
      *  scheme onto qApp. Safe to call any time after QApplication
-     *  construction. */
+     *  construction.
+     * @note No-op without a QApplication. Replaces the application palette and its complete stylesheet with the theme overlay, even if the scheme is unchanged. Emits themeChanged() only when the resolved scheme differs from the last applied one. Call on the GUI thread.
+     */
     void apply();
 
     /*! Round-trip helpers for the persisted preference string
-     *  ("System" / "Light" / "Dark"; unknown input falls back to System). */
+     *  ("System" / "Light" / "Dark"; unknown input falls back to System).
+     * @param[in] mode Requested enum; unsupported values fall back to System.
+     * @return Stable untranslated preference token Light, Dark or System.
+     */
     static QString modeToString(Mode mode);
+    /**
+     * @param[in] text Case-insensitive Light/Dark token; no trimming occurs.
+     * @return Light/Dark when matched, otherwise System.
+     */
     static Mode modeFromString(const QString &text);
 
+    /*! High contrast and reduced motion (review A-21): Automatic follows the operating system's
+     *  setting (macOS, Windows; off elsewhere), On and Off override it. */
+    enum class Preference { Automatic, On, Off };
+    Q_ENUM(Preference)
+
+    /** @return The stored high-contrast preference, initially Automatic. */
+    Preference contrastPreference() const { return mContrast; }
+    /**
+     * @brief Set the high-contrast preference; re-applies (and emits themeChanged()) when the
+     *   effective contrast changes. Does not persist preferences.
+     */
+    void setContrastPreference(Preference preference);
+    /** @return The stored reduced-motion preference, initially Automatic. */
+    Preference motionPreference() const { return mMotion; }
+    /**
+     * @brief Set the reduced-motion preference; updates motionReduced() (reducedmotion.h) and
+     *   emits motionChanged() when the effective value changes. Does not persist preferences.
+     */
+    void setMotionPreference(Preference preference);
+    /** @return Whether the high-contrast tokens are in force. */
+    bool highContrast() const;
+    /** @return Whether animations other than user-started playback stay still. */
+    bool reduceMotion() const;
+    /**
+     * @brief Re-read the system settings and apply what changed. Called whenever the application
+     *   becomes active, which covers changing them in the system's settings and coming back.
+     */
+    void refreshSystemSettings();
+    /**
+     * @brief Replace how the system settings are read (tests), then refresh. An empty function
+     *   restores the platform reader.
+     */
+    void setSystemSettingsReader(std::function<platform::SystemAccessibility()> reader);
+
+    /** @return "Automatic", "On" or "Off", the persisted token. */
+    static QString preferenceToString(Preference preference);
+    /** @return On/Off when matched case-insensitively, otherwise Automatic. */
+    static Preference preferenceFromString(const QString &text);
+
 signals:
-    /*! Emitted after the palette/overlay for a new effective scheme has
+    /*! Emitted after the palette/overlay for a new effective scheme or contrast has
      *  been applied — widgets holding token-derived pens repaint on this. */
     void themeChanged();
+    /*! Emitted when reduceMotion() changes. */
+    void motionChanged();
 
 private:
+    /**
+     * @brief Create a System-policy coordinator and subscribe to OS scheme changes.
+     * @param[in] parent Optional QObject owner, normally the application. OS changes call apply() only while System is selected; constructor itself does not install a palette.
+     */
     explicit ThemeManager(QObject *parent = nullptr);
+
+    /** @brief Push reduceMotion() to motionReduced() and announce a change. */
+    void publishMotion(bool before);
 
     Mode mMode = Mode::System;
     Qt::ColorScheme mAppliedScheme = Qt::ColorScheme::Unknown;
+    Preference mContrast = Preference::Automatic;
+    Preference mMotion = Preference::Automatic;
+    bool mAppliedContrast = false;
+    std::function<platform::SystemAccessibility()> mReader;
+    platform::SystemAccessibility mSystem;
 };
 
-}   // namespace openswmmvis::ui
+} // namespace openswmmvis::ui
 
 #endif // THEMEMANAGER_H

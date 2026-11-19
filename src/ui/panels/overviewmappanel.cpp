@@ -1,9 +1,13 @@
-/*!
- * \file   overviewmappanel.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      overviewmappanel.cpp
+ * @brief     Mini-map that shows the full project extent + a translucent viewport rectangle
+ *            representing the main canvas's current visible region.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/panels/overviewmappanel.h"
 
 #include "layers/swmmmodellayer.h"
@@ -13,14 +17,14 @@
 #include <QPainter>
 #include <QPaintEvent>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 // =============================================================================
 // OverviewMapWidget
 // =============================================================================
 
-OverviewMapWidget::OverviewMapWidget(QWidget *parent)
-    : QWidget(parent)
+OverviewMapWidget::OverviewMapWidget(QWidget *parent) : QWidget(parent)
 {
     setMinimumSize(180, 120);
     setMouseTracking(true);
@@ -49,20 +53,19 @@ void OverviewMapWidget::refresh()
         // OpenSWMMVisLayer::extent() returns a MapExtent; convert to QRectF.
         // (We avoid pulling thousands of node coordinates per repaint.)
         const auto ext = m_modelLayer->extent();
-        m_modelExtent = QRectF(QPointF(ext.xMin(), ext.yMin()),
-                                QPointF(ext.xMax(), ext.yMax()));
+        m_modelExtent = QRectF(QPointF(ext.xMin(), ext.yMin()), QPointF(ext.xMax(), ext.yMax()));
     }
     update();
 }
 
 QPointF OverviewMapWidget::widgetToMap(const QPoint &px) const
 {
-    if (m_modelExtent.isEmpty()) return {};
+    if (m_modelExtent.isEmpty())
+        return {};
     const double fx = double(px.x()) / std::max(1, width());
     const double fy = double(px.y()) / std::max(1, height());
-    return QPointF(
-        m_modelExtent.left() + fx * m_modelExtent.width(),
-        m_modelExtent.bottom() - fy * m_modelExtent.height());   // y-flip
+    return QPointF(m_modelExtent.left() + fx * m_modelExtent.width(),
+                   m_modelExtent.bottom() - fy * m_modelExtent.height()); // y-flip
 }
 
 void OverviewMapWidget::paintEvent(QPaintEvent *)
@@ -107,8 +110,9 @@ void OverviewMapWidget::paintEvent(QPaintEvent *)
 
 void OverviewMapWidget::mousePressEvent(QMouseEvent *e)
 {
-    if (e->button() != Qt::LeftButton) return;
-    m_dragging  = true;
+    if (e->button() != Qt::LeftButton)
+        return;
+    m_dragging = true;
     m_dragStart = e->pos();
     const QPointF mapPt = widgetToMap(e->pos());
     emit requestCenterAt(mapPt);
@@ -116,7 +120,8 @@ void OverviewMapWidget::mousePressEvent(QMouseEvent *e)
 
 void OverviewMapWidget::mouseMoveEvent(QMouseEvent *e)
 {
-    if (!m_dragging) return;
+    if (!m_dragging)
+        return;
     const QPointF mapPt = widgetToMap(e->pos());
     emit requestCenterAt(mapPt);
 }
@@ -130,8 +135,7 @@ void OverviewMapWidget::mouseReleaseEvent(QMouseEvent *)
 // OverviewMapPanel
 // =============================================================================
 
-OverviewMapPanel::OverviewMapPanel(QWidget *parent)
-    : QDockWidget(tr("Overview Map"), parent)
+OverviewMapPanel::OverviewMapPanel(QWidget *parent) : QDockWidget(tr("Overview Map"), parent)
 {
     setObjectName(QStringLiteral("dockWidgetOverviewMap"));
     m_widget = new OverviewMapWidget(this);

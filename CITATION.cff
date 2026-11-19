@@ -1,0 +1,13 @@
+cff-version: 1.2.0
+type: software
+title: "SWMMVis (OpenSWMM GUI)"
+message: "Please cite the version or commit used in your work."
+authors:
+  - family-names: Buahin
+    given-names: Caleb
+    orcid: "https://orcid.org/0000-0002-9859-2264"
+  - name: HydroCouple Developers
+version: "6.0.0-alpha.4"
+license: GPL-3.0-or-later
+repository-code: "https://github.com/HydroCouple/openswmm.gui"
+url: "https://github.com/HydroCouple/openswmm.gui"

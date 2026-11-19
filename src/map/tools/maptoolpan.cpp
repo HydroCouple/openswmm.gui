@@ -1,7 +1,10 @@
-/*!
- * \file   maptoolpan.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date 2026
+/**
+ * @file      maptoolpan.cpp
+ * @brief     Tool that pans the map canvas by click-dragging.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
+ * @license   GPL-3.0-or-later
  */
 
 #include "map/tools/maptoolpan.h"
@@ -35,13 +38,11 @@ void OpenSWMMVisMapToolPan::deactivate()
 
 void OpenSWMMVisMapToolPan::mousePressEvent(QMouseEvent *event)
 {
-    if (event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton)
-    {
-        m_panning          = true;
-        m_lastPixel        = event->pos();
-        m_panStartExtent   = m_canvas ? m_canvas->extent() : MapExtent{};
-        if (m_canvas)
-        {
+    if (event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton) {
+        m_panning = true;
+        m_lastPixel = event->pos();
+        m_panStartExtent = m_canvas ? m_canvas->extent() : MapExtent{};
+        if (m_canvas) {
             m_canvas->beginPan();
             m_canvas->setCursor(Qt::ClosedHandCursor);
         }
@@ -55,7 +56,7 @@ void OpenSWMMVisMapToolPan::mouseMoveEvent(QMouseEvent *event)
         return;
 
     QPoint delta = event->pos() - m_lastPixel;
-    m_lastPixel  = event->pos();
+    m_lastPixel = event->pos();
 
     // Translate the view directly — fast, no tile reloads, no fitInView call.
     // dx/dy: positive delta.x means cursor moved right → scene should move right
@@ -65,11 +66,9 @@ void OpenSWMMVisMapToolPan::mouseMoveEvent(QMouseEvent *event)
 
 void OpenSWMMVisMapToolPan::mouseReleaseEvent(QMouseEvent *event)
 {
-    if ((event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton) && m_panning)
-    {
+    if ((event->button() == Qt::LeftButton || event->button() == Qt::MiddleButton) && m_panning) {
         m_panning = false;
-        if (m_canvas)
-        {
+        if (m_canvas) {
             m_canvas->setCursor(Qt::OpenHandCursor);
             // endPan() syncs m_extent from view and triggers tile refresh
             m_canvas->endPan();

@@ -1,9 +1,12 @@
-/*!
- * \file   legendoverlay.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      legendoverlay.cpp
+ * @brief     LegendOverlay is a child QWidget of MapCanvas.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "ui/widgets/legendoverlay.h"
 
 #include "layers/gisrasterlayer.h"
@@ -15,72 +18,61 @@
 #include "layers/swmmresultslayer.h"
 #include "map/legendclasseditcommands.h"
 #include "map/legendcontent.h"
+#include "map/legendstyleundorecorder.h"
 #include "map/mapcanvas.h"
 #include "map/mapundostack.h"
 #include "render/ifeaturerenderer.h"
 #include "render/irasterrenderer.h"
+#include "render/legendlayout.h"
 #include "render/legendoverlaystyle.h"
+#include "render/legendpainter.h"
 #include "render/legendsymbolitem.h"
+#include "render/mapboxchrome.h"
+#include "ui/accessibility/customaccessible.h"
 #include "ui/dialogs/legendpropertiesdialog.h"
 
 #include <QApplication>
 #include <QClipboard>
 #include <QColorDialog>
 #include <QContextMenuEvent>
+#include <QCoreApplication>
 #include <QEvent>
 #include <QFontMetrics>
 #include <QImage>
-#include <QLinearGradient>
+#include <QJsonObject>
+#include <QInputDialog>
+#include <QLineEdit>
 #include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
 #include <QResizeEvent>
+#include <QTimer>
+#include <QWheelEvent>
+#include <algorithm>
+#include <cmath>
 
-namespace openswmmvis::ui {
+namespace openswmmvis::ui
+{
 
 using Style = OpenSWMM::Render::LegendOverlayStyle;
 
-namespace {
+namespace
+{
 
-constexpr int  kSwatchPadding = 6;
-constexpr int  kLayerSpacing  = 6;
-
-// Gap B1 — both helpers delegate to the canonical LegendContent copy so the
-// on-canvas legend, the dock tree and the per-class edit routing read the
-// SAME rows (results layers now aggregate their per-kind renderers instead
-// of showing the dormant layer-level renderer).
+/**
+ * @brief Delegate swatch seed selection to the shared legend-content authority.
+ * @param[in] style Symbol style.
+ * @return Shared LegendContent color/fallback result.
+ */
 QColor firstSymbolColor(const OpenSWMM::Render::SymbolStyle &style)
 {
     return openswmmvis::map::LegendContent::firstSymbolColor(style);
 }
 
-QList<OpenSWMM::Render::LegendSymbolItem> legendItemsFor(OpenSWMMVisLayer *layer)
-{
-    return openswmmvis::map::LegendContent::legendItemsFor(layer);
-}
-
-// Slice BB Phase 8.6.10 / 8.6.16 — apply per-item overrides on top of the
-// renderer-supplied items so the on-canvas legend + the dock tree show
-// identical state. Mutates `items` in place.
-void applyItemOverrides(QList<OpenSWMM::Render::LegendSymbolItem> &items,
-                        OpenSWMMVisLayer *layer,
-                        const OpenSWMM::Render::LegendOverlayStyle *style)
-{
-    if (!style || !layer) return;
-    const QString lk = OpenSWMM::Render::LegendOverlayStyle::itemKey(layer, {});
-    for (auto &row : items) {
-        if (row.classKey.isEmpty()) continue;
-        const auto ov = style->itemOverride(lk, row.classKey);
-        if (!ov.visible)             row.visible = false;
-        if (!ov.userLabel.isEmpty()) row.userLabel = ov.userLabel;
-    }
-}
-
 } // namespace
 
-LegendOverlay::LegendOverlay(MapCanvas *canvas)
-    : QWidget(canvas)
+LegendOverlay::LegendOverlay(MapCanvas *canvas) : QWidget(canvas)
 {
     setAttribute(Qt::WA_StyledBackground, false);
     setAutoFillBackground(false);
@@ -95,10 +87,53 @@ LegendOverlay::LegendOverlay(MapCanvas *canvas)
     // project-scoped instance lands with Phase 8.6.12 persistence.
     m_style = new Style(this);
     m_ownsStyle = true;
+    // A new legend starts with the look the user saved as the default, if any.
+    if (const QJsonObject preset = Style::defaultPreset(); !preset.isEmpty())
+        m_style->applyPreset(preset);
     connect(m_style, &Style::changed, this, &LegendOverlay::onStyleChanged);
 
+    m_countTimer = new QTimer(this);
+    m_countTimer->setSingleShot(true);
+    m_countTimer->setInterval(250);
+    connect(m_countTimer, &QTimer::timeout, this, &LegendOverlay::refreshCounts);
+
     setCanvas(canvas);
-    hide();   // user toggles via actionShowLegend
+    ensureUndoRecorder();
+    setAccessibleName(tr("Map legend"));
+    hide(); // user toggles via actionShowLegend
+}
+
+QString LegendOverlay::summaryText() const
+{
+    if (!m_canvas || !m_style)
+        return {};
+    using Kind = OpenSWMM::Render::LegendEntry::Kind;
+    QStringList parts;
+    if (m_style->showTitle() && !m_style->title().isEmpty())
+        parts.append(m_style->title());
+    // The lines the box draws: each heading with its rows' labels.
+    const auto entries =
+        openswmmvis::map::LegendContent::buildEntries(m_canvas, m_style, &m_counts);
+    QString heading;
+    QStringList labels;
+    const auto flush = [&]() {
+        if (heading.isNull())
+            return;
+        parts.append(labels.isEmpty()
+                         ? heading
+                         : tr("%1: %2").arg(heading, labels.join(QStringLiteral(", "))));
+        labels.clear();
+    };
+    for (const auto &entry : entries) {
+        if (entry.kind == Kind::GroupHeading) {
+            flush();
+            heading = entry.label;
+        } else if (!entry.label.isEmpty()) {
+            labels.append(entry.label);
+        }
+    }
+    flush();
+    return parts.join(QStringLiteral("; "));
 }
 
 LegendOverlay::~LegendOverlay()
@@ -111,7 +146,8 @@ LegendOverlay::~LegendOverlay()
 
 void LegendOverlay::setCanvas(MapCanvas *canvas)
 {
-    if (m_canvas == canvas) return;
+    if (m_canvas == canvas)
+        return;
 
     if (m_canvas) {
         m_canvas->removeEventFilter(this);
@@ -144,6 +180,16 @@ void LegendOverlay::setCanvas(MapCanvas *canvas)
         });
         for (OpenSWMMVisLayer *l : m_canvas->layers())
             connectLayer(l);
+        // Counting only the map view's features follows the view.
+        connect(m_canvas, &MapCanvas::extentChanged, this, [this]() {
+            for (const auto &wish : countWishes())
+                if (wish.first) {
+                    scheduleCountRefresh();
+                    break;
+                }
+        });
+        connect(m_canvas, &MapCanvas::layerAdded, this, &LegendOverlay::scheduleCountRefresh);
+        connect(m_canvas, &MapCanvas::layerRemoved, this, &LegendOverlay::scheduleCountRefresh);
     }
 
     recomputeLayout();
@@ -152,10 +198,12 @@ void LegendOverlay::setCanvas(MapCanvas *canvas)
 
 void LegendOverlay::setStyle(Style *style, bool takeOwnership)
 {
-    if (m_style == style) return;
+    if (m_style == style)
+        return;
     if (m_style) {
         disconnect(m_style, nullptr, this, nullptr);
-        if (m_ownsStyle) m_style->deleteLater();
+        if (m_ownsStyle)
+            m_style->deleteLater();
     }
     m_style = style;
     m_ownsStyle = takeOwnership;
@@ -164,122 +212,151 @@ void LegendOverlay::setStyle(Style *style, bool takeOwnership)
             m_style->setParent(this);
         connect(m_style, &Style::changed, this, &LegendOverlay::onStyleChanged);
     }
+    ensureUndoRecorder();
     onStyleChanged();
+}
+
+void LegendOverlay::ensureUndoRecorder()
+{
+    // Every legend edit, from any view, is one undo step on the map's stack.
+    if (m_style && m_canvas && m_canvas->undoStack() &&
+        !openswmmvis::map::LegendStyleUndoRecorder::forStyle(m_style))
+        new openswmmvis::map::LegendStyleUndoRecorder(m_style, m_canvas->undoStack());
 }
 
 void LegendOverlay::onStyleChanged()
 {
-    setWindowOpacity(m_style ? m_style->opacity() : 1.0);
+    if (m_style && countWishes() != m_countWishes)
+        scheduleCountRefresh();
+    recomputeLayout();
+    update();
+}
+
+void LegendOverlay::scheduleCountRefresh()
+{
+    if (!m_countTimer)
+        return;
+    if (!countWishes().isEmpty() || !m_countWishes.isEmpty())
+        m_countTimer->start(); // restarts: a pan or a burst of changes counts once
+}
+
+QHash<QString, QPair<bool, bool>> LegendOverlay::countWishes() const
+{
+    QHash<QString, QPair<bool, bool>> out;
+    if (!m_canvas || !m_style)
+        return out;
+    const auto tree = m_style->itemTree();
+    for (OpenSWMMVisLayer *layer : m_canvas->layers()) {
+        if (!layer || !layer->isVisible())
+            continue;
+        const QString key = Style::itemKey(layer, {});
+        const OpenSWMM::Render::LegendNode *n = tree.layerNode(key);
+        const bool inView =
+            n && n->mapExtentFilter >= 0 ? n->mapExtentFilter == 1 : m_style->filterByMapExtent();
+        const bool counts =
+            n && n->featureCounts >= 0 ? n->featureCounts == 1 : m_style->showFeatureCounts();
+        if (inView || counts)
+            out.insert(key, {inView, counts});
+    }
+    return out;
+}
+
+void LegendOverlay::refreshCounts()
+{
+    ++m_countRefreshes;
+    m_counts = {};
+    m_countWishes = countWishes();
+    if (m_canvas && !m_countWishes.isEmpty()) {
+        const MapExtent view = m_canvas->extent();
+        for (OpenSWMMVisLayer *layer : m_canvas->layers()) {
+            if (!layer)
+                continue;
+            const QString key = Style::itemKey(layer, {});
+            const auto wish = m_countWishes.constFind(key);
+            if (wish == m_countWishes.constEnd())
+                continue;
+            QHash<QString, qint64> counts;
+            if (wish->second && layer->legendClassCounts(nullptr, &counts))
+                m_counts.total.insert(key, counts);
+            counts.clear();
+            if (wish->first && layer->legendClassCounts(&view, &counts))
+                m_counts.inExtent.insert(key, counts);
+        }
+    }
     recomputeLayout();
     update();
 }
 
 void LegendOverlay::connectLayer(OpenSWMMVisLayer *layer)
 {
-    if (!layer) return;
+    if (!layer)
+        return;
     // Qt 6 asserts on Qt::UniqueConnection with non-PMF slots; clear any
     // prior connections from this layer to us so repeated calls don't stack.
     disconnect(layer, nullptr, this, nullptr);
-    auto refresh = [this]() { recomputeLayout(); update(); };
+    auto refresh = [this]() {
+        scheduleCountRefresh(); // the data or the renderer may have changed
+        recomputeLayout();
+        update();
+    };
     connect(layer, &OpenSWMMVisLayer::visibilityChanged, this, refresh);
-    connect(layer, &OpenSWMMVisLayer::nameChanged,       this, refresh);
-    connect(layer, &OpenSWMMVisLayer::repaintRequested,  this, refresh);
+    connect(layer, &OpenSWMMVisLayer::nameChanged, this, refresh);
+    connect(layer, &OpenSWMMVisLayer::repaintRequested, this, refresh);
 }
 
 void LegendOverlay::disconnectLayer(OpenSWMMVisLayer *layer)
 {
-    if (!layer) return;
+    if (!layer)
+        return;
     disconnect(layer, nullptr, this, nullptr);
 }
 
 void LegendOverlay::recomputeLayout()
 {
-    // Walk visible layers, accumulate the box height + max content width.
-    // Width is bounded so very long labels don't push the legend off-screen.
     if (!m_canvas || !m_style) {
+        m_entries.clear();
+        m_layout = {};
         resize(0, 0);
         return;
     }
 
-    // Slice US.B2 — a live resize owns the geometry; don't fight it.
-    if (m_resizing) return;
+    // A live resize owns the geometry; don't fight it.
+    if (m_resizing)
+        return;
 
-    const int padding    = m_style->padding();
-    const int rowSpacing = m_style->rowSpacing();
-    const int swatchSize = m_style->swatchSize();
-    const int maxLabelW  = m_style->maxLabelWidth();
-
-    const QFontMetrics fm(m_style->itemFont());
-    const QFontMetrics hfm(m_style->layerHeaderFont());
-    const QFontMetrics tfm(m_style->titleFont());
-    const int rowH = std::max(fm.height(), swatchSize);
-
-    int contentW  = 0;
-    int contentH  = padding;
-    bool first    = true;
-
-    if (m_style->showTitle() && !m_style->title().isEmpty()) {
-        contentW = std::max(contentW,
-            std::min(tfm.horizontalAdvance(m_style->title()), maxLabelW));
-        contentH += tfm.height();
-        contentH += rowSpacing;
-    }
-
-    for (int i = m_canvas->layers().size() - 1; i >= 0; --i)
-    {
-        OpenSWMMVisLayer *layer = m_canvas->layers().at(i);
-        if (!layer || !layer->isVisible()) continue;
-
-        auto rows = legendItemsFor(layer);
-        applyItemOverrides(rows, layer, m_style);
-        if (!first) contentH += kLayerSpacing;
-        first = false;
-
-        // Layer header
-        contentW = std::max(contentW,
-            std::min(hfm.horizontalAdvance(layer->name()), maxLabelW));
-        contentH += hfm.height();
-
-        for (const auto &row : rows) {
-            if (!row.visible) continue;
-            const int labelW = std::min(fm.horizontalAdvance(row.effectiveLabel()),
-                                        maxLabelW);
-            // Rows with no symbol are sub-headers (kind / section titles):
-            // text only, no swatch slot.
-            const bool hasSwatch = !row.symbol.layers.isEmpty();
-            contentW = std::max(contentW,
-                hasSwatch ? swatchSize + kSwatchPadding + labelW : labelW);
-            contentH += rowH + rowSpacing;
-        }
-    }
-    contentH += padding;
-
-    if (first && !(m_style->showTitle() && !m_style->title().isEmpty())) {
+    m_entries = openswmmvis::map::LegendContent::buildEntries(m_canvas, m_style, &m_counts);
+    m_layout = OpenSWMM::Render::LegendLayout::compute(m_entries, *m_style);
+    if (m_layout.isEmpty()) {
+        m_contentHeight = 0;
         resize(0, 0);
         return;
     }
+    const int contentH = int(std::ceil(m_layout.contentSize.height()));
+    m_contentHeight = contentH;
 
-    // Slice US.B2 — explicit size overrides the auto-fit on each axis (0 =
-    // auto). The auto width still bounds the minimum so an explicit width can
-    // grow but the content box itself stays at least its natural width.
-    int boxW = contentW + 2 * padding;
-    int boxH = contentH;
-    if (m_style->explicitWidth()  > 0) boxW = m_style->explicitWidth();
-    if (m_style->explicitHeight() > 0) boxH = m_style->explicitHeight();
-    resize(boxW, boxH);
+    // An explicit size overrides the fitted size on each axis (0 = fit). The widget also
+    // holds the box's shadow.
+    const QSize box(m_layout.width,
+                    m_style->explicitHeight() > 0 ? m_style->explicitHeight() : contentH);
+    QSize widget = OpenSWMM::Render::mapBoxWidgetSize(box, *m_style);
+    // Keep the box on the map so it can be dragged; taller rows scroll inside it.
+    if (m_canvas->height() > 0)
+        widget.setHeight(std::min(widget.height(),
+                                  std::max(48, m_canvas->height() - 2 * m_style->anchorMarginY())));
+    resize(widget);
+    m_scrollY = std::clamp(m_scrollY, 0, maxScroll());
 
     if (!m_positioned) {
-        // Restore a persisted free position; otherwise anchor.
-        if (m_style->anchor() == Style::Anchor::Free
-            && !m_style->freePosition().isNull()) {
+        // Restore a saved free position; otherwise anchor.
+        if (m_style->anchor() == Style::Anchor::Free && !m_style->freePosition().isNull()) {
             move(m_style->freePosition());
             clampInsideCanvas();
         } else {
             anchorToCanvas();
         }
         m_positioned = true;
-    } else if (m_style->anchor() != Style::Anchor::Free) {
-        anchorToCanvas();
+    } else if (m_style->anchor() != Style::Anchor::Free && !m_dragging) {
+        anchorToCanvas(); // not while the user drags it away
     } else {
         clampInsideCanvas();
     }
@@ -287,220 +364,145 @@ void LegendOverlay::recomputeLayout()
 
 void LegendOverlay::anchorToCanvas()
 {
-    if (!m_canvas || !m_style) return;
-    const int margin = 12;
-    const int cw = m_canvas->width();
-    const int ch = m_canvas->height();
-    const int w  = width();
-    const int h  = height();
-
-    int x = 0, y = 0;
-    switch (m_style->anchor()) {
-    case Style::Anchor::TopLeft:     x = margin;            y = margin;            break;
-    case Style::Anchor::Top:         x = (cw - w) / 2;      y = margin;            break;
-    case Style::Anchor::TopRight:    x = cw - w - margin;   y = margin;            break;
-    case Style::Anchor::Right:       x = cw - w - margin;   y = (ch - h) / 2;      break;
-    case Style::Anchor::BottomRight: x = cw - w - margin;   y = ch - h - margin;   break;
-    case Style::Anchor::Bottom:      x = (cw - w) / 2;      y = ch - h - margin;   break;
-    case Style::Anchor::BottomLeft:  x = margin;            y = ch - h - margin;   break;
-    case Style::Anchor::Left:        x = margin;            y = (ch - h) / 2;      break;
-    case Style::Anchor::Free:        // honour current pos; just clamp.
-        clampInsideCanvas();
+    if (!m_canvas || !m_style)
+        return;
+    if (m_style->anchor() == Style::Anchor::Free) {
+        clampInsideCanvas(); // honor the current position
         return;
     }
-    move(std::clamp(x, 0, std::max(0, cw - w)),
-         std::clamp(y, 0, std::max(0, ch - h)));
+    move(OpenSWMM::Render::anchoredMapBoxPosition(size(), m_canvas->size(), *m_style));
 }
 
 void LegendOverlay::clampInsideCanvas()
 {
-    if (!m_canvas) return;
-    const int maxX = std::max(0, m_canvas->width()  - width());
+    if (!m_canvas)
+        return;
+    const int maxX = std::max(0, m_canvas->width() - width());
     const int maxY = std::max(0, m_canvas->height() - height());
     move(std::clamp(x(), 0, maxX), std::clamp(y(), 0, maxY));
 }
 
 void LegendOverlay::paintEvent(QPaintEvent * /*event*/)
 {
-    if (!m_canvas || !m_style || width() == 0 || height() == 0) return;
+    if (!m_canvas || !m_style || width() == 0 || height() == 0)
+        return;
 
     QPainter p(this);
+    paintLegend(p, size(), m_scrollY);
+    // A thin thumb on the box's right edge shows the rows scroll (mouse wheel).
+    const int scrollRange = maxScroll();
+    if (scrollRange > 0) {
+        const QRectF box = boxRect();
+        const int boxH = int(box.height());
+        const int track = boxH - 8;
+        const int thumb = std::max(16, track * boxH / m_contentHeight);
+        QColor c = m_style->itemColor();
+        c.setAlpha(110);
+        p.setPen(Qt::NoPen);
+        p.setBrush(c);
+        p.drawRoundedRect(QRectF(box.right() - 6,
+                                 box.top() + 4 + (track - thumb) * m_scrollY / scrollRange, 3,
+                                 thumb),
+                          1.5, 1.5);
+    }
+}
+
+QRectF LegendOverlay::boxRect() const
+{
+    return m_style ? OpenSWMM::Render::mapBoxRect(QSizeF(size()), *m_style) : QRectF(rect());
+}
+
+int LegendOverlay::maxScroll() const
+{
+    return std::max(0, m_contentHeight - int(boxRect().height()));
+}
+
+OpenSWMM::Render::LegendLayoutResult LegendOverlay::layoutForWidth(int width) const
+{
+    if (m_layout.width == width || !m_style)
+        return m_layout;
+    // During a live resize the box is wider or narrower than the style says.
+    return OpenSWMM::Render::LegendLayout::compute(m_entries, *m_style, width);
+}
+
+void LegendOverlay::paintLegend(QPainter &p, const QSize &size, int scrollY) const
+{
+    p.save();
     p.setRenderHint(QPainter::Antialiasing, true);
+    p.setOpacity(std::clamp<qreal>(m_style->opacity(), 0.0, 1.0));
+    const QRectF box = OpenSWMM::Render::mapBoxRect(QSizeF(size), *m_style);
+    OpenSWMM::Render::paintMapBoxChrome(p, box, *m_style);
 
-    const int padding    = m_style->padding();
-    const int rowSpacing = m_style->rowSpacing();
-    const int swatchSize = m_style->swatchSize();
-
-    // ── Background + frame ────────────────────────────────────────────
-    QPainterPath box;
-    const qreal inset = m_style->showFrame() ? 0.5 : 0.0;
-    box.addRoundedRect(
-        QRectF(inset, inset, width() - 2 * inset, height() - 2 * inset),
-        m_style->cornerRadius(), m_style->cornerRadius());
-
-    switch (m_style->backgroundMode()) {
-    case Style::BackgroundMode::None:
-        break;
-    case Style::BackgroundMode::Solid:
-        p.fillPath(box, m_style->backgroundColor());
-        break;
-    case Style::BackgroundMode::Gradient: {
-        QLinearGradient g;
-        if (m_style->gradientOrientation() == Qt::Horizontal)
-            g = QLinearGradient(0, 0, width(), 0);
-        else
-            g = QLinearGradient(0, 0, 0, height());
-        g.setColorAt(0.0, m_style->backgroundColor());
-        g.setColorAt(1.0, m_style->gradientEndColor());
-        p.fillPath(box, g);
-        break;
-    }
-    }
-
-    if (m_style->showFrame()) {
-        p.setPen(QPen(m_style->frameColor(), m_style->frameWidth()));
-        p.drawPath(box);
-    }
-
-    // ── Content ───────────────────────────────────────────────────────
-    const QFontMetrics fm(m_style->itemFont());
-    const QFontMetrics hfm(m_style->layerHeaderFont());
-    const QFontMetrics tfm(m_style->titleFont());
-    const int rowH = std::max(fm.height(), swatchSize);
-
-    int y = padding;
-    m_layerBands.clear();
-
-    if (m_style->showTitle() && !m_style->title().isEmpty()) {
-        p.setFont(m_style->titleFont());
-        p.setPen(m_style->titleColor());
-        p.drawText(QRect(padding, y, width() - 2 * padding, tfm.height()),
-                   Qt::AlignLeft | Qt::AlignVCenter,
-                   tfm.elidedText(m_style->title(), Qt::ElideRight,
-                                  width() - 2 * padding));
-        y += tfm.height() + rowSpacing;
-    }
-
-    bool first = true;
-    for (int i = m_canvas->layers().size() - 1; i >= 0; --i)
-    {
-        OpenSWMMVisLayer *layer = m_canvas->layers().at(i);
-        if (!layer || !layer->isVisible()) continue;
-
-        if (!first) y += kLayerSpacing;
-        first = false;
-
-        LayerBand band;
-        band.layer = layer;
-        band.yTop  = y;
-
-        // Layer header
-        p.setFont(m_style->layerHeaderFont());
-        p.setPen(m_style->layerHeaderColor());
-        p.drawText(QRect(padding, y, width() - 2 * padding, hfm.height()),
-                   Qt::AlignLeft | Qt::AlignVCenter,
-                   hfm.elidedText(layer->name(), Qt::ElideRight,
-                                  width() - 2 * padding));
-        y += hfm.height();
-
-        p.setFont(m_style->itemFont());
-        auto paintRows = legendItemsFor(layer);
-        applyItemOverrides(paintRows, layer, m_style);
-        for (const auto &row : paintRows) {
-            if (!row.visible) continue;
-            const int itemTop = y;
-            // Rows with no symbol are sub-headers (kind / section titles).
-            // The old behaviour painted them with the gray fallback patch —
-            // exactly the "patch on the layer label" artefact. Headers are
-            // text-only; swatches appear only on rows that carry a symbol
-            // (graduated bins, categorized classes, or the single-symbol
-            // header that embeds the feature's colour).
-            const bool hasSwatch = !row.symbol.layers.isEmpty();
-            if (hasSwatch) {
-                const QColor c = firstSymbolColor(row.symbol);
-                const QRect swatchRect(padding,
-                                       y + (rowH - swatchSize) / 2,
-                                       swatchSize, swatchSize);
-                p.setBrush(c);
-                p.setPen(QPen(c.darker(140), 1.0));
-                p.drawRect(swatchRect);
-            }
-
-            const int textX = hasSwatch ? padding + swatchSize + kSwatchPadding
-                                        : padding;
-            const QRect textRect(textX, y, width() - textX - padding, rowH);
-            p.setPen(m_style->itemColor());
-            p.drawText(textRect, Qt::AlignLeft | Qt::AlignVCenter,
-                       fm.elidedText(row.effectiveLabel(), Qt::ElideRight,
-                                     textRect.width()));
-            y += rowH + rowSpacing;
-
-            // Record an item band so contextMenuEvent can map cursor-y →
-            // (layer, classKey) for the per-swatch Change color… action.
-            ItemBand ib;
-            ib.classKey = row.classKey;
-            ib.yTop     = itemTop;
-            ib.yBottom  = y;
-            band.items.append(ib);
-        }
-
-        band.yBottom = y;
-        m_layerBands.append(band);
-    }
+    // Rows scroll inside the box; the background and frame stay put.
+    p.setClipPath(OpenSWMM::Render::mapBoxPath(box, *m_style));
+    p.translate(box.left(), box.top() - scrollY);
+    OpenSWMM::Render::LegendPainter::paint(p, layoutForWidth(int(box.width())), m_entries,
+                                           *m_style);
+    p.restore();
 }
 
-OpenSWMMVisLayer *LegendOverlay::layerAtY(int y) const
+const OpenSWMM::Render::LegendEntry *LegendOverlay::entryAt(const QPoint &pos) const
 {
-    for (const auto &band : m_layerBands) {
-        if (y >= band.yTop && y < band.yBottom)
-            return band.layer.data();
-    }
-    return nullptr;
-}
-
-QPair<OpenSWMMVisLayer *, QString> LegendOverlay::itemAtY(int y) const
-{
-    for (const auto &band : m_layerBands) {
-        if (!band.layer) continue;
-        for (const auto &ib : band.items) {
-            if (y >= ib.yTop && y < ib.yBottom)
-                return { band.layer.data(), ib.classKey };
-        }
-    }
-    return { nullptr, {} };
+    const QPointF origin = boxRect().topLeft();
+    const auto *box =
+        m_layout.boxAt(QPointF(pos.x() - origin.x(), pos.y() - origin.y() + m_scrollY));
+    if (!box || box->entryIndex < 0 || box->entryIndex >= m_entries.size())
+        return nullptr;
+    return &m_entries.at(box->entryIndex);
 }
 
 int LegendOverlay::edgesAt(const QPoint &pos) const
 {
-    constexpr int kGrip = 6;   // px reach of an edge/corner grip
+    constexpr int kGrip = 6; // px reach of an edge/corner grip
     int edges = 0;
-    if (pos.x() <= kGrip)               edges |= 1; // Left
-    if (pos.x() >= width()  - kGrip)    edges |= 2; // Right
-    if (pos.y() <= kGrip)               edges |= 4; // Top
-    if (pos.y() >= height() - kGrip)    edges |= 8; // Bottom
+    if (pos.x() <= kGrip)
+        edges |= 1; // Left
+    if (pos.x() >= width() - kGrip)
+        edges |= 2; // Right
+    if (pos.y() <= kGrip)
+        edges |= 4; // Top
+    if (pos.y() >= height() - kGrip)
+        edges |= 8; // Bottom
     return edges;
 }
 
 void LegendOverlay::updateCursor(int edges)
 {
     switch (edges) {
-    case 1: case 2:           setCursor(Qt::SizeHorCursor);  break; // L / R
-    case 4: case 8:           setCursor(Qt::SizeVerCursor);  break; // T / B
-    case (1|4): case (2|8):   setCursor(Qt::SizeFDiagCursor); break; // TL / BR
-    case (2|4): case (1|8):   setCursor(Qt::SizeBDiagCursor); break; // TR / BL
-    default:                  setCursor(Qt::OpenHandCursor);  break; // interior
+    case 1:
+    case 2:
+        setCursor(Qt::SizeHorCursor);
+        break; // L / R
+    case 4:
+    case 8:
+        setCursor(Qt::SizeVerCursor);
+        break; // T / B
+    case (1 | 4):
+    case (2 | 8):
+        setCursor(Qt::SizeFDiagCursor);
+        break; // TL / BR
+    case (2 | 4):
+    case (1 | 8):
+        setCursor(Qt::SizeBDiagCursor);
+        break; // TR / BL
+    default:
+        setCursor(Qt::OpenHandCursor);
+        break; // interior
     }
 }
 
 void LegendOverlay::mousePressEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton) {
+        // Selecting the legend shows its style in the Properties panel.
+        if (m_canvas && m_style)
+            m_canvas->selectOverlayStyle(m_style, tr("Legend"));
         const int edges = edgesAt(event->pos());
         if (edges != 0) {
             // Slice US.B2 — begin an interactive resize from this edge/corner.
-            m_resizing         = true;
-            m_resizeEdges      = edges;
-            m_resizeStartGeom  = geometry();
+            m_resizing = true;
+            m_resizeEdges = edges;
+            m_resizeStartGeom = geometry();
             m_resizeStartGlobal = event->globalPosition().toPoint();
         } else {
             m_dragging = true;
@@ -520,12 +522,26 @@ void LegendOverlay::mouseMoveEvent(QMouseEvent *event)
         // floors mirror LegendOverlayStyle's explicit-size clamps.
         const QPoint d = event->globalPosition().toPoint() - m_resizeStartGlobal;
         QRect g = m_resizeStartGeom;
-        if (m_resizeEdges & 1) g.setLeft(g.left() + d.x());
-        if (m_resizeEdges & 2) g.setRight(g.right() + d.x());
-        if (m_resizeEdges & 4) g.setTop(g.top() + d.y());
-        if (m_resizeEdges & 8) g.setBottom(g.bottom() + d.y());
-        if (g.width()  < 80) { if (m_resizeEdges & 1) g.setLeft(g.right() - 80); else g.setWidth(80); }
-        if (g.height() < 48) { if (m_resizeEdges & 4) g.setTop(g.bottom() - 48); else g.setHeight(48); }
+        if (m_resizeEdges & 1)
+            g.setLeft(g.left() + d.x());
+        if (m_resizeEdges & 2)
+            g.setRight(g.right() + d.x());
+        if (m_resizeEdges & 4)
+            g.setTop(g.top() + d.y());
+        if (m_resizeEdges & 8)
+            g.setBottom(g.bottom() + d.y());
+        if (g.width() < 80) {
+            if (m_resizeEdges & 1)
+                g.setLeft(g.right() - 80);
+            else
+                g.setWidth(80);
+        }
+        if (g.height() < 48) {
+            if (m_resizeEdges & 4)
+                g.setTop(g.bottom() - 48);
+            else
+                g.setHeight(48);
+        }
         setGeometry(g);
         event->accept();
         return;
@@ -533,13 +549,11 @@ void LegendOverlay::mouseMoveEvent(QMouseEvent *event)
     if (m_dragging && (event->buttons() & Qt::LeftButton)) {
         QPoint newPos = mapToParent(event->pos()) - m_dragStartOffset;
         if (m_canvas) {
-            newPos.setX(std::clamp(newPos.x(), 0, m_canvas->width()  - width()));
-            newPos.setY(std::clamp(newPos.y(), 0, m_canvas->height() - height()));
+            newPos.setX(std::clamp(newPos.x(), 0, std::max(0, m_canvas->width() - width())));
+            newPos.setY(std::clamp(newPos.y(), 0, std::max(0, m_canvas->height() - height())));
         }
         move(newPos);
-        // Dragging implies the user wants free placement.
-        if (m_style && m_style->anchor() != Style::Anchor::Free)
-            m_style->setAnchor(Style::Anchor::Free);
+        // The style takes the free placement on release, as one change.
         event->accept();
         return;
     }
@@ -551,17 +565,22 @@ void LegendOverlay::mouseMoveEvent(QMouseEvent *event)
 void LegendOverlay::mouseReleaseEvent(QMouseEvent *event)
 {
     if (event->button() == Qt::LeftButton && m_resizing) {
-        m_resizing    = false;
-        m_resizeEdges = 0;
         // Commit the size through the style so it persists + syncs the
-        // properties dialog. Switch to Free so the box stays put.
+        // properties dialog. Keep the resize guard until ALL setters finish:
+        // each emits changed(), which otherwise restores the old geometry.
+        const QRect resized = geometry();
         if (m_style) {
+            // The style keeps the box size; the widget also holds the shadow.
+            const QSize shadow = OpenSWMM::Render::mapBoxWidgetSize(QSize(0, 0), *m_style);
             if (m_style->anchor() != Style::Anchor::Free)
                 m_style->setAnchor(Style::Anchor::Free);
-            m_style->setExplicitWidth(width());
-            m_style->setExplicitHeight(height());
-            m_style->setFreePosition(pos());
+            m_style->setExplicitWidth(resized.width() - shadow.width());
+            m_style->setExplicitHeight(resized.height() - shadow.height());
+            m_style->setFreePosition(resized.topLeft());
         }
+        m_resizing = false;
+        m_resizeEdges = 0;
+        recomputeLayout();
         updateCursor(edgesAt(event->pos()));
         event->accept();
         return;
@@ -569,13 +588,32 @@ void LegendOverlay::mouseReleaseEvent(QMouseEvent *event)
     if (event->button() == Qt::LeftButton && m_dragging) {
         m_dragging = false;
         setCursor(Qt::OpenHandCursor);
-        // Persist the free position so save/reopen restores it.
-        if (m_style && m_style->anchor() == Style::Anchor::Free)
-            m_style->setFreePosition(pos());
+        // Dragging means free placement; saved with the project. Both settings change in one go,
+        // so the drag is one undo step.
+        if (m_style) {
+            const QPoint dropped = pos();
+            m_style->setAnchor(Style::Anchor::Free); // first, so the box is not re-anchored
+            m_style->setFreePosition(dropped);
+        }
         event->accept();
         return;
     }
     QWidget::mouseReleaseEvent(event);
+}
+
+void LegendOverlay::wheelEvent(QWheelEvent *event)
+{
+    const int scrollRange = maxScroll();
+    if (scrollRange == 0) {
+        QWidget::wheelEvent(event); // nothing to scroll: the map gets the wheel
+        return;
+    }
+    // Trackpads report pixels; a mouse notch (120) scrolls 40 px.
+    const int dy = !event->pixelDelta().isNull() ? event->pixelDelta().y()
+                                                  : event->angleDelta().y() * 40 / 120;
+    m_scrollY = std::clamp(m_scrollY - dy, 0, scrollRange);
+    update();
+    event->accept();
 }
 
 void LegendOverlay::contextMenuEvent(QContextMenuEvent *event)
@@ -590,7 +628,10 @@ void LegendOverlay::contextMenuEvent(QContextMenuEvent *event)
     // ── Per-swatch hit ────────────────────────────────────────────────
     // Resolves first; takes precedence over the layer-header menu so a
     // right-click directly on a row offers the per-class actions inline.
-    const auto [itemLayer, classKey] = itemAtY(event->pos().y());
+    const OpenSWMM::Render::LegendEntry *hit = entryAt(event->pos());
+    OpenSWMMVisLayer *itemLayer =
+        hit ? qobject_cast<OpenSWMMVisLayer *>(hit->layer.data()) : nullptr;
+    const QString classKey = hit ? hit->classKey : QString();
     if (itemLayer && !classKey.isEmpty()) {
         // Gap B1 — dispatch through LegendContent so multi-kind layers
         // (SWMMModelLayer) and results layers route through their
@@ -598,8 +639,8 @@ void LegendOverlay::contextMenuEvent(QContextMenuEvent *event)
         // disabled "Change color…" for model-layer rows on the overlay
         // even though the same edit worked from the dock.
         namespace LC = openswmmvis::map::LegendContent;
-        const bool canEditColor = LC::supportsClassEdit(
-            itemLayer, OpenSWMM::Render::ClassEditKind::Color);
+        const bool canEditColor =
+            LC::supportsClassEdit(itemLayer, OpenSWMM::Render::ClassEditKind::Color);
 
         QAction *changeColor = menu.addAction(tr("Change color…"));
         changeColor->setEnabled(canEditColor);
@@ -608,11 +649,11 @@ void LegendOverlay::contextMenuEvent(QContextMenuEvent *event)
             // doesn't capture stale references after the menu closes.
             QPointer<OpenSWMMVisLayer> layerPtr = itemLayer;
             const QString classKeyCopy = classKey;
-            // Best-effort starting colour for the colour picker — current
+            // Best-effort starting color for the color picker — current
             // override if any, else first symbol color from the legend row.
             QColor seed = LC::colorForClass(itemLayer, classKey);
             if (!seed.isValid()) {
-                // Walk the canonical rows to find this class's colour.
+                // Walk the canonical rows to find this class's color.
                 for (const auto &row : LC::legendItemsFor(itemLayer)) {
                     if (row.classKey == classKey) {
                         seed = firstSymbolColor(row.symbol);
@@ -620,15 +661,14 @@ void LegendOverlay::contextMenuEvent(QContextMenuEvent *event)
                     }
                 }
             }
-            connect(changeColor, &QAction::triggered, this,
-                    [this, layerPtr, classKeyCopy, seed]() {
-                if (!layerPtr || !m_canvas) return;
+            connect(changeColor, &QAction::triggered, this, [this, layerPtr, classKeyCopy, seed]() {
+                if (!layerPtr || !m_canvas)
+                    return;
                 const QColor picked = QColorDialog::getColor(
-                    seed.isValid() ? seed : QColor(Qt::white),
-                    this,
-                    tr("Change legend color"),
+                    seed.isValid() ? seed : QColor(Qt::white), this, tr("Change legend color"),
                     QColorDialog::ShowAlphaChannel);
-                if (!picked.isValid()) return;   // user cancelled.
+                if (!picked.isValid())
+                    return; // user canceled.
                 if (auto *stack = m_canvas->undoStack()) {
                     stack->push(new openswmmvis::map::SetRendererClassColorCommand(
                         layerPtr.data(), classKeyCopy, picked));
@@ -638,10 +678,33 @@ void LegendOverlay::contextMenuEvent(QContextMenuEvent *event)
         menu.addSeparator();
     }
 
-    OpenSWMMVisLayer *hitLayer = layerAtY(event->pos().y());
+    // ── Legend-only settings of the line under the pointer ─────────────
+    if (hit) {
+        const OpenSWMM::Render::LegendEntry entry = *hit; // copy: the layout may change
+        QAction *hideLine = menu.addAction(tr("Hide in legend"));
+        connect(hideLine, &QAction::triggered, this,
+                [this, entry]() { editNode(entry, [](auto &n) { n.visible = false; }); });
+        QAction *rename = menu.addAction(tr("Rename in legend…"));
+        connect(rename, &QAction::triggered, this, [this, entry]() {
+            bool ok = false;
+            const QString text = QInputDialog::getText(this, tr("Rename in Legend"),
+                                                       tr("Text (empty restores the original):"),
+                                                       QLineEdit::Normal, entry.label, &ok);
+            if (ok)
+                editNode(entry, [text](auto &n) { n.userLabel = text; });
+        });
+        QAction *breakHere = menu.addAction(tr("Start new column here"));
+        breakHere->setCheckable(true);
+        breakHere->setChecked(entry.columnBreakBefore);
+        connect(breakHere, &QAction::toggled, this, [this, entry](bool on) {
+            editNode(entry, [on](auto &n) { n.columnBreakBefore = on; });
+        });
+        menu.addSeparator();
+    }
+
+    OpenSWMMVisLayer *hitLayer = itemLayer;
     if (hitLayer) {
-        QAction *hideLayer = menu.addAction(
-            tr("Hide layer “%1”").arg(hitLayer->name()));
+        QAction *hideLayer = menu.addAction(tr("Hide layer “%1”").arg(hitLayer->name()));
         connect(hideLayer, &QAction::triggered, this,
                 [hitLayer]() { hitLayer->setVisible(false); });
 
@@ -652,12 +715,14 @@ void LegendOverlay::contextMenuEvent(QContextMenuEvent *event)
         moveUp->setEnabled(idx >= 0 && idx < total - 1);
         QPointer<MapCanvas> canvasPtr = m_canvas;
         connect(moveUp, &QAction::triggered, this, [canvasPtr, idx]() {
-            if (canvasPtr) canvasPtr->moveLayer(idx, idx + 1);
+            if (canvasPtr)
+                canvasPtr->moveLayer(idx, idx + 1);
         });
         QAction *moveDown = menu.addAction(tr("Move layer down"));
         moveDown->setEnabled(idx > 0);
         connect(moveDown, &QAction::triggered, this, [canvasPtr, idx]() {
-            if (canvasPtr) canvasPtr->moveLayer(idx, idx - 1);
+            if (canvasPtr)
+                canvasPtr->moveLayer(idx, idx - 1);
         });
 
         menu.addSeparator();
@@ -673,8 +738,8 @@ void LegendOverlay::contextMenuEvent(QContextMenuEvent *event)
 
     // Slice US.B2 — drop any manual resize back to natural auto-fit.
     QAction *autoSizeAct = menu.addAction(tr("Auto-size legend"));
-    autoSizeAct->setEnabled(m_style
-        && (m_style->explicitWidth() > 0 || m_style->explicitHeight() > 0));
+    autoSizeAct->setEnabled(m_style &&
+                            (m_style->explicitWidth() > 0 || m_style->explicitHeight() > 0));
     connect(autoSizeAct, &QAction::triggered, this, &LegendOverlay::autoSize);
 
     QAction *resetLayoutAct = menu.addAction(tr("Reset layout"));
@@ -692,26 +757,82 @@ void LegendOverlay::contextMenuEvent(QContextMenuEvent *event)
     event->accept();
 }
 
+namespace
+{
+
+/** The painted legend to screen readers: its rows as text (plan B2). */
+class LegendOverlayAccessible : public accessibility::LiveWidgetAccessible
+{
+public:
+    explicit LegendOverlayAccessible(LegendOverlay *legend)
+        : LiveWidgetAccessible(legend, QAccessible::Graphic)
+    {
+    }
+
+protected:
+    QString descriptionText() const override
+    {
+        return static_cast<LegendOverlay *>(widget())->summaryText();
+    }
+};
+
+void registerLegendOverlayAccessible()
+{
+    QAccessible::installFactory(
+        &accessibility::createAccessible<LegendOverlay, LegendOverlayAccessible>);
+}
+
+} // namespace
+
+Q_COREAPP_STARTUP_FUNCTION(registerLegendOverlayAccessible)
+
 void LegendOverlay::openPropertiesDialog()
 {
-    auto *dlg = new LegendPropertiesDialog(m_style, this);
+    auto *dlg = new LegendPropertiesDialog(m_style, this, m_canvas);
     dlg->show();
     dlg->raise();
     dlg->activateWindow();
 }
 
+void LegendOverlay::editNode(const OpenSWMM::Render::LegendEntry &entry,
+                             const std::function<void(OpenSWMM::Render::LegendNode &)> &edit)
+{
+    if (!m_style)
+        return;
+    OpenSWMM::Render::LegendItemTree tree = m_style->itemTree();
+    OpenSWMM::Render::LegendNode *node = nullptr;
+    if (!entry.layerKey.isEmpty() && !entry.nodeId.isEmpty())
+        node = &tree.ensureItemNode(entry.layerKey, entry.nodeId); // a row
+    else if (!entry.layerKey.isEmpty())
+        node = &tree.ensureLayerNode(entry.layerKey); // a layer heading
+    else if (!entry.nodeId.isEmpty())
+        node = tree.nodeById(entry.nodeId); // a user group or text line
+    if (!node)
+        return;
+    edit(*node);
+    m_style->setItemTree(tree);
+}
+
 void LegendOverlay::copyLegendImage()
 {
-    if (width() == 0 || height() == 0) return;
-    QImage img(size(), QImage::Format_ARGB32_Premultiplied);
+    if (width() == 0 || height() == 0)
+        return;
+    // The whole legend, also the rows scrolled out of view.
+    const QSize shadow =
+        m_style ? OpenSWMM::Render::mapBoxWidgetSize(QSize(0, 0), *m_style) : QSize(0, 0);
+    const QSize full(width(), std::max(height(), m_contentHeight + shadow.height()));
+    QImage img(full, QImage::Format_ARGB32_Premultiplied);
     img.fill(Qt::transparent);
-    render(&img);
+    QPainter p(&img);
+    paintLegend(p, full, 0);
+    p.end();
     QApplication::clipboard()->setImage(img);
 }
 
 void LegendOverlay::resetLayout()
 {
-    if (!m_style) return;
+    if (!m_style)
+        return;
     m_style->resetToDefaults();
     m_positioned = false;
     recomputeLayout();
@@ -722,7 +843,8 @@ void LegendOverlay::autoSize()
 {
     // Slice US.B2 — clear explicit width/height; the next recomputeLayout
     // fits the box to its content again. Position is left untouched.
-    if (!m_style) return;
+    if (!m_style)
+        return;
     m_style->setExplicitWidth(0);
     m_style->setExplicitHeight(0);
     recomputeLayout();
@@ -732,10 +854,9 @@ void LegendOverlay::autoSize()
 bool LegendOverlay::eventFilter(QObject *watched, QEvent *event)
 {
     if (watched == m_canvas && event->type() == QEvent::Resize) {
-        if (m_style && m_style->anchor() != Style::Anchor::Free)
-            anchorToCanvas();
-        else
-            clampInsideCanvas();
+        // Re-measure: the height cap follows the map; placement re-anchors or clamps.
+        recomputeLayout();
+        update();
     }
     return QWidget::eventFilter(watched, event);
 }

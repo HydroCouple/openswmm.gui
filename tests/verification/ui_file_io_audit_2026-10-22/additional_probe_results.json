@@ -1,0 +1,130 @@
+{
+  "snow": {
+    "before": {
+      "gage_scale": 10.0,
+      "subcatch_rain_scale": 0.8,
+      "subcatch_snow_scale": 1.3,
+      "snowpack": "SP1",
+      "snow_step": 73.0
+    },
+    "formats": {
+      "inp": {
+        "gage_scale": 10.0,
+        "subcatch_rain_scale": 0.8,
+        "subcatch_snow_scale": 1.3,
+        "snowpack": "SP1",
+        "snow_step": 73.0
+      },
+      "gpkg": {
+        "gage_scale": 1.0,
+        "subcatch_rain_scale": 0.8,
+        "subcatch_snow_scale": 1.3,
+        "snowpack": "",
+        "snow_step": 3600.0
+      }
+    }
+  },
+  "groundwater": {
+    "before": {
+      "aquifer_count": 1
+    },
+    "formats": {
+      "inp": {
+        "aquifer_count": 1
+      },
+      "gpkg": {
+        "aquifer_count": 0
+      }
+    }
+  },
+  "copollutant": {
+    "before": {
+      "co_pollutants": [
+        [
+          1,
+          0.5
+        ],
+        [
+          -1,
+          0.0
+        ]
+      ]
+    },
+    "formats": {
+      "inp": {
+        "co_pollutants": [
+          [
+            1,
+            0.5
+          ],
+          [
+            -1,
+            0.0
+          ]
+        ]
+      },
+      "gpkg": {
+        "co_pollutants": [
+          [
+            -1,
+            0.5
+          ],
+          [
+            0,
+            0.0
+          ]
+        ]
+      }
+    }
+  },
+  "weir": {
+    "before": {
+      "offset_up": 0.7,
+      "offset_down": 0.8
+    },
+    "formats": {
+      "inp": {
+        "offset_up": 0.0,
+        "offset_down": 1.2
+      },
+      "gpkg": {
+        "offset_up": 0.7,
+        "offset_down": 1.2
+      }
+    }
+  },
+  "outlet": {
+    "before": {
+      "offset_up": 0.7,
+      "offset_down": 0.8
+    },
+    "formats": {
+      "inp": {
+        "offset_up": 0.0,
+        "offset_down": 1.2
+      },
+      "gpkg": {
+        "offset_up": 0.7,
+        "offset_down": 1.2
+      }
+    }
+  },
+  "no_mesh": {
+    "before": {
+      "MAX_TIMESTEP": "1.2345"
+    },
+    "formats": {
+      "inp": {
+        "MAX_TIMESTEP": "10"
+      },
+      "gpkg": {
+        "MAX_TIMESTEP": "10"
+      }
+    }
+  },
+  "gpkg_mwt_getter": {
+    "returncode": -11,
+    "stdout": "",
+    "stderr": "Fatal Python error: Segmentation fault\n\nCurrent thread 0x0000000203527f80 (most recent call first):\n  File \"<string>\", line 1 in <module>\n\nCurrent thread's C stack trace (most recent call first):\n  Binary file \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/Python\", at _Py_DumpStack+0x44 [0x10534ee5c]\n  Binary file \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/Python\", at faulthandler_dump_c_stack+0x58 [0x10536184c]\n  Binary file \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/Python\", at faulthandler_fatal_error+0x140 [0x105361710]\n  Binary file \"/usr/lib/system/libsystem_platform.dylib\", at _sigtramp+0x38 [0x19da08144]\n  Binary file \"/usr/lib/libffi.dylib\", at ffi_call_SYSV+0x50 [0x1b2e9d050]\n  Binary file \"/usr/lib/libffi.dylib\", at ffi_call_int+0x4f4 [0x1b2ea6614]\n  Binary file \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/lib-dynload/_ctypes.cpython-314-darwin.so\", at _ctypes_callproc+0x2f4 [0x1050b3458]\n  Binary file \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/lib/python3.14/lib-dynload/_ctypes.cpython-314-darwin.so\", at PyCFuncPtr_call+0x1a8 [0x1050b0938]\n  Binary file \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/Python\", at _PyObject_MakeTpCall+0x78 [0x10518b158]\n  Binary file \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/Python\", at _PyEval_EvalFrameDefault+0x2a74 [0x1052bb764]\n  Binary file \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/Python\", at PyEval_EvalCode+0xf8 [0x1052b87a4]\n  Binary file \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/Python\", at run_mod+0xac [0x1053322d8]\n  Binary file \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/Python\", at _PyRun_String+0xa0 [0x105330f9c]\n  Binary file \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/Python\", at _PyRun_SimpleString+0x58 [0x105330e24]\n  Binary file \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/Python\", at Py_RunMain+0x194 [0x10535da78]\n  Binary file \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/Python\", at pymain_main+0xec [0x10535e0ac]\n  Binary file \"/opt/homebrew/Cellar/python@3.14/3.14.7/Frameworks/Python.framework/Versions/3.14/Python\", at Py_BytesMain+0x2c [0x10535e14c]\n  Binary file \"/usr/lib/dyld\", at start+0x1a20 [0x19d627e80]\n"
+  }
+}

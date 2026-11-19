@@ -1,0 +1,14 @@
+{
+  "library_filename": "libopenswmm.engine.6.0.0.dylib",
+  "library_sha256": "c3c397ec3245125727141c4852df80ca4bd9b609e45bf8c05bb25f27e6a9a1dd",
+  "model_sha256": "6986be7389ba237d2ce62c5141621bbc8da191162ecd674a1a5b5fae48182f66",
+  "csv_sha256": "dc498a66eaea29c8239b54edb2174dd3372fe0b9384b317dcbe4c329c5d445c1",
+  "sample_seconds": 1,
+  "routing_step_seconds": 0.1,
+  "duration_seconds": 360,
+  "test": "LidNodes.RoutedReversalResaturationRecessionAndSecondEventConserve",
+  "water_balance_tolerance_ft3": 0.005,
+  "per_step_tracer_tolerance_percent": 0.1,
+  "warnings": [],
+  "export_method": "native engine test; internal retained theta and Green-Ampt history"
+}

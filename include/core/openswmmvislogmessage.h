@@ -1,16 +1,18 @@
-/*!
- * \file   openswmmvislogmessage.h
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  Immutable plain-data log message stamped with a severity level and
+/**
+ * @file      openswmmvislogmessage.h
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     Immutable plain-data log message stamped with a severity level and
  *         wall-clock time.
  *
- * \details OpenSWMMVisLogMessage objects are created by subsystems and posted
+ * @details OpenSWMMVisLogMessage objects are created by subsystems and posted
  *          through the application's log bus (typically via SWMMVis::onLogMessage).
  *          They are stored in a QStandardItemModel that backs the Message Log
  *          dock panel.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #ifndef SWMMVISLOGMESSAGE_H
 #define SWMMVISLOGMESSAGE_H
 
@@ -30,18 +32,16 @@
 class OpenSWMMVisLogMessage : public QObject
 {
     Q_OBJECT
-    Q_PROPERTY(LogMessageType Type      READ type      CONSTANT)
-    Q_PROPERTY(QString        Message   READ message   CONSTANT)
-    Q_PROPERTY(QDateTime      Timestamp READ timestamp CONSTANT)
+    Q_PROPERTY(LogMessageType Type READ type CONSTANT)
+    Q_PROPERTY(QString Message READ message CONSTANT)
+    Q_PROPERTY(QDateTime Timestamp READ timestamp CONSTANT)
 
 public:
-
     /*!
      * \enum LogMessageType
      * \brief Severity classification for a log record.
      */
-    enum LogMessageType
-    {
+    enum LogMessageType {
         Information, /*!< Routine status update — no user action required. */
         Warning,     /*!< Non-fatal condition that may affect results. */
         Error,       /*!< Operation failed; user should review before proceeding. */
@@ -64,30 +64,29 @@ public:
 
     /*!
      * \brief Returns the severity level of this message.
+     * @return Severity captured at construction.
      */
     [[nodiscard]] LogMessageType type() const;
 
     /*!
      * \brief Returns the human-readable message text.
+     * @return Copy of the stored human-readable text.
      */
     [[nodiscard]] QString message() const;
 
     /*!
      * \brief Returns the wall-clock timestamp when this message was created.
+     * @return Local wall-clock creation timestamp captured by currentDateTime(); it is not elapsed or simulation time.
      */
     [[nodiscard]] QDateTime timestamp() const;
 
 private:
     LogMessageType mType;
-    QString        mMessage;
-    QDateTime      mTimestamp;
+    QString mMessage;
+    QDateTime mTimestamp;
 };
 
 Q_DECLARE_METATYPE(OpenSWMMVisLogMessage::LogMessageType)
 Q_DECLARE_METATYPE(OpenSWMMVisLogMessage)
 
 #endif // SWMMVISLOGMESSAGE_H
-
-
-
-

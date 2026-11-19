@@ -1,12 +1,95 @@
-/*!
- * \file   inletprovider.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
+/**
+ * @file      inletprovider.cpp
+ * @brief     One InletProvider per `[INLETS]` entry.
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+
 #include "inlet/inletprovider.h"
 
-namespace openswmmvis::inlet {
+#include <algorithm>
+#include <cmath>
+
+namespace openswmmvis::inlet
+{
+
+bool operator==(const InletDesignData &a, const InletDesignData &b)
+{
+    return a.type == b.type && a.grateLength == b.grateLength && a.grateWidth == b.grateWidth &&
+           a.grateType == b.grateType && a.openArea == b.openArea &&
+           a.splashVeloc == b.splashVeloc && a.curbLength == b.curbLength &&
+           a.curbHeight == b.curbHeight && a.throat == b.throat && a.slotLength == b.slotLength &&
+           a.slotWidth == b.slotWidth && a.curveId == b.curveId && a.curveKind == b.curveKind;
+}
+
+QString inletTypeLabel(InletType t)
+{
+    switch (t) {
+    case InletType::Grate:
+        return QStringLiteral("GRATE");
+    case InletType::Curb:
+        return QStringLiteral("CURB OPENING");
+    case InletType::Combo:
+        return QStringLiteral("COMBINATION");
+    case InletType::Slotted:
+        return QStringLiteral("SLOTTED DRAIN");
+    case InletType::DropGrate:
+        return QStringLiteral("DROP GRATE");
+    case InletType::DropCurb:
+        return QStringLiteral("DROP CURB");
+    case InletType::Custom:
+        return QStringLiteral("CUSTOM");
+    }
+    return QStringLiteral("GRATE");
+}
+
+const char *inletTypeKeyword(InletType t)
+{
+    // Exactly the engine's kInletTypeWords (openswmm_infrastructure_impl.cpp),
+    // which is also the legacy [INLETS] vocabulary.
+    switch (t) {
+    case InletType::Grate:
+        return "GRATE";
+    case InletType::Curb:
+        return "CURB";
+    case InletType::Combo:
+        return "COMBO";
+    case InletType::Slotted:
+        return "SLOTTED";
+    case InletType::DropGrate:
+        return "DROP_GRATE";
+    case InletType::DropCurb:
+        return "DROP_CURB";
+    case InletType::Custom:
+        return "CUSTOM";
+    }
+    return "GRATE";
+}
+
+QString grateTypeLabel(GrateType t)
+{
+    switch (t) {
+    case GrateType::PBar50:
+        return QStringLiteral("P_BAR-50");
+    case GrateType::PBar50x100:
+        return QStringLiteral("P_BAR-50x100");
+    case GrateType::PBar30:
+        return QStringLiteral("P_BAR-30");
+    case GrateType::CurvedVane:
+        return QStringLiteral("CURVED_VANE");
+    case GrateType::TiltBar45:
+        return QStringLiteral("TILT_BAR-45");
+    case GrateType::TiltBar30:
+        return QStringLiteral("TILT_BAR-30");
+    case GrateType::Reticuline:
+        return QStringLiteral("RETICULINE");
+    case GrateType::Generic:
+        return QStringLiteral("GENERIC");
+    }
+    return QStringLiteral("GENERIC");
+}
 
 InletProvider::InletProvider(QString name, QObject *parent)
     : QObject(parent), m_name(std::move(name))
@@ -17,57 +100,150 @@ InletProvider::~InletProvider() = default;
 
 void InletProvider::setName(QString newName)
 {
-    if (newName == m_name) return;
+    if (newName == m_name)
+        return;
     const QString prev = m_name;
     m_name = std::move(newName);
     emit nameChanged(prev, m_name);
 }
 
-void InletProvider::setType(QString v)
+void InletProvider::setComments(QString text)
 {
-    if (v == m_type) return;
-    m_type = std::move(v);
-    m_dirty = true;
+    if (text == m_comments)
+        return;
+    m_comments = std::move(text);
+    emit commentsChanged();
+}
+
+bool InletProvider::Params::sameAs(const Params &o, double relTol) const
+{
+    const auto close = [relTol](double a, double b) {
+        return std::abs(a - b) <= relTol * std::max({1.0, std::abs(a), std::abs(b)});
+    };
+    const InletDesignData &a = design, &b = o.design;
+    return comments == o.comments && a.type == b.type && a.grateType == b.grateType &&
+           a.throat == b.throat && a.curveId == b.curveId && a.curveKind == b.curveKind &&
+           close(a.grateLength, b.grateLength) && close(a.grateWidth, b.grateWidth) &&
+           close(a.openArea, b.openArea) && close(a.splashVeloc, b.splashVeloc) &&
+           close(a.curbLength, b.curbLength) && close(a.curbHeight, b.curbHeight) &&
+           close(a.slotLength, b.slotLength) && close(a.slotWidth, b.slotWidth);
+}
+
+void InletProvider::setParams(const Params &p)
+{
+    setDesign(p.design);
+    setComments(p.comments);
+}
+
+void InletProvider::setDesign(const InletDesignData &d)
+{
+    if (d == m_design)
+        return;
+    m_design = d;
     emit paramsChanged();
 }
 
-void InletProvider::setLength(double v)
+void InletProvider::setType(InletType v)
 {
-    if (v == m_length) return;
-    m_length = v;
-    m_dirty = true;
+    if (v == m_design.type)
+        return;
+    m_design.type = v;
     emit paramsChanged();
 }
 
-void InletProvider::setWidth(double v)
+void InletProvider::setGrateLength(double v)
 {
-    if (v == m_width) return;
-    m_width = v;
-    m_dirty = true;
+    if (v == m_design.grateLength)
+        return;
+    m_design.grateLength = v;
     emit paramsChanged();
 }
 
-void InletProvider::setGrateType(QString v)
+void InletProvider::setGrateWidth(double v)
 {
-    if (v == m_grateType) return;
-    m_grateType = std::move(v);
-    m_dirty = true;
+    if (v == m_design.grateWidth)
+        return;
+    m_design.grateWidth = v;
+    emit paramsChanged();
+}
+
+void InletProvider::setGrateType(GrateType v)
+{
+    if (v == m_design.grateType)
+        return;
+    m_design.grateType = v;
     emit paramsChanged();
 }
 
 void InletProvider::setOpenArea(double v)
 {
-    if (v == m_openArea) return;
-    m_openArea = v;
-    m_dirty = true;
+    if (v == m_design.openArea)
+        return;
+    m_design.openArea = v;
     emit paramsChanged();
 }
 
 void InletProvider::setSplashVeloc(double v)
 {
-    if (v == m_splashVeloc) return;
-    m_splashVeloc = v;
-    m_dirty = true;
+    if (v == m_design.splashVeloc)
+        return;
+    m_design.splashVeloc = v;
+    emit paramsChanged();
+}
+
+void InletProvider::setCurbLength(double v)
+{
+    if (v == m_design.curbLength)
+        return;
+    m_design.curbLength = v;
+    emit paramsChanged();
+}
+
+void InletProvider::setCurbHeight(double v)
+{
+    if (v == m_design.curbHeight)
+        return;
+    m_design.curbHeight = v;
+    emit paramsChanged();
+}
+
+void InletProvider::setThroat(ThroatType v)
+{
+    if (v == m_design.throat)
+        return;
+    m_design.throat = v;
+    emit paramsChanged();
+}
+
+void InletProvider::setSlotLength(double v)
+{
+    if (v == m_design.slotLength)
+        return;
+    m_design.slotLength = v;
+    emit paramsChanged();
+}
+
+void InletProvider::setSlotWidth(double v)
+{
+    if (v == m_design.slotWidth)
+        return;
+    m_design.slotWidth = v;
+    emit paramsChanged();
+}
+
+void InletProvider::setCurveId(QString v)
+{
+    if (v == m_design.curveId)
+        return;
+    m_design.curveId = std::move(v);
+    emit paramsChanged();
+}
+
+void InletProvider::setCurveKind(InletCurveKind v)
+{
+    if (v == m_design.curveKind)
+        return;
+    m_design.curveKind = v;
     emit paramsChanged();
 }
 

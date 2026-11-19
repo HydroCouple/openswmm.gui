@@ -1,12 +1,16 @@
-/*!
- * \file   legendsymbolitem.cpp
- * \author Caleb Buahin <caleb.buahin@gmail.com>
- * \date   2026
- * \license GPL-3.0-or-later
- * \brief  JSON round-trip for LegendSymbolItem.
+/**
+ * @file      legendsymbolitem.cpp
+ * @author    Caleb Buahin <caleb.buahin@gmail.com>
+ * @date      2026
+ * @license   GPL-3.0-or-later
+ * @brief     JSON round-trip for LegendSymbolItem.
+ * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
 #include "render/legendsymbolitem.h"
+
+#include <algorithm>
+#include <atomic>
 
 #include <QJsonObject>
 #include <QJsonValue>
@@ -25,8 +29,7 @@ QJsonObject LegendSymbolItem::toJson() const
     // range is only meaningful when both ends are finite numbers — skip
     // emitting it otherwise so categorical / single-symbol items don't
     // litter the JSON with "NaN" sentinels that some parsers reject.
-    if (std::isfinite(range.first) && std::isfinite(range.second))
-    {
+    if (std::isfinite(range.first) && std::isfinite(range.second)) {
         QJsonObject r;
         r.insert(QStringLiteral("low"), range.first);
         r.insert(QStringLiteral("high"), range.second);
@@ -51,23 +54,33 @@ void LegendSymbolItem::fromJson(const QJsonObject &j)
     label = j.value(QStringLiteral("label")).toString();
     symbol.fromJson(j.value(QStringLiteral("symbol")).toObject());
 
-    if (j.contains(QStringLiteral("range")))
-    {
+    if (j.contains(QStringLiteral("range"))) {
         const QJsonObject r = j.value(QStringLiteral("range")).toObject();
-        range.first  = r.value(QStringLiteral("low")).toDouble(qQNaN());
+        range.first = r.value(QStringLiteral("low")).toDouble(qQNaN());
         range.second = r.value(QStringLiteral("high")).toDouble(qQNaN());
-    }
-    else
-    {
-        range.first  = qQNaN();
+    } else {
+        range.first = qQNaN();
         range.second = qQNaN();
     }
 
     userLabel = j.value(QStringLiteral("userLabel")).toString();
-    visible   = j.value(QStringLiteral("visible")).toBool(true);
+    visible = j.value(QStringLiteral("visible")).toBool(true);
     sortIndex = j.value(QStringLiteral("sortIndex")).toInt(0);
-    classKey   = j.value(QStringLiteral("classKey")).toString();
+    classKey = j.value(QStringLiteral("classKey")).toString();
     sublayerId = j.value(QStringLiteral("sublayerId")).toString();
+}
+
+void tagLegendRamp(QList<LegendSymbolItem> &rows, int first, int count, LegendRampSpec spec)
+{
+    if (!spec.isValid() || first < 0 || count <= 0 || first >= rows.size())
+        return;
+    static std::atomic<int> nextId{1};
+    const int id = nextId.fetch_add(1);
+    auto shared = std::make_shared<const LegendRampSpec>(std::move(spec));
+    const int end = std::min(int(rows.size()), first + count);
+    for (int i = first; i < end; ++i)
+        rows[i].rampId = id;
+    rows[first].ramp = shared;
 }
 
 } // namespace OpenSWMM::Render

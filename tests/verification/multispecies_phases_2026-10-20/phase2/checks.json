@@ -1,0 +1,18 @@
+{
+  "phase": 2,
+  "checks": {
+    "configuration_continuation_wall": 29,
+    "other_binding_targets": 5
+  },
+  "gate": "pass after correcting the ideal-circle assertion tolerance for the native rounded-pi geometry",
+  "wall_profile": "WALL_GEOMETRY YES, COUPLING FULL, RATE WALL; fixed full-section reference contact area, wetted fraction scales wall rates; AV in AREA_UNITS/litre; explicit storage contact area",
+  "tested": [
+    "FT2/M2/CM2",
+    "coupled exchange mass invariant",
+    "multiple barrels",
+    "full and half wetting",
+    "dry/refill",
+    "explicit node area",
+    "analytic dissolved decay"
+  ]
+}
