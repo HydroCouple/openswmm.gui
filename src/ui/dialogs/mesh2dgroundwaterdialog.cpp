@@ -566,9 +566,11 @@ QWidget *Mesh2DGroundwaterDialog::buildOptionsPage()
                                 "and compress with the water table instead of being regridded."));
     form->addRow(tr("σ &layers:"), m_layersSpin);
 
-    m_capillaryCheck = new QCheckBox(tr("Include the capillary diffusion term"), page);
-    m_capillaryCheck->setToolTip(tr("Off by default. It tightens the column's stability step "
-                                    "considerably and changes little in most storm-scale runs."));
+    m_capillaryCheck = new QCheckBox(tr("Capillary flow in the column"), page);
+    m_capillaryCheck->setToolTip(tr("On by default. The column solves capillary (Darcy) flow "
+                                    "implicitly, so a column at rest stays at rest. Off: the "
+                                    "explicit gravity-only column, the default before November "
+                                    "2026."));
     form->addRow(QString(), m_capillaryCheck);
 
     m_cgwSpin = new QDoubleSpinBox(page);
