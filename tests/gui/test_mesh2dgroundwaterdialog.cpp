@@ -293,6 +293,23 @@ private slots:
     }
 
     /**
+     * @brief Verify the capillary column box follows the engine default (on) and applies off.
+     */
+    void capillaryColumnIsOnByDefaultAndCanBeSwitchedOff()
+    {
+        Engine e;
+        Mesh2DGroundwaterDialog dialog(e.handle);
+        auto *capillary = dialog.findChild<QCheckBox *>("gwCapillaryColumn");
+        QVERIFY(capillary);
+        QVERIFY(capillary->isChecked());
+        capillary->setChecked(false);
+        QVERIFY(QMetaObject::invokeMethod(&dialog, "onApply", Qt::DirectConnection));
+        char value[80]{};
+        swmm_gw2d_option_get(e.handle, "CAPILLARY_DIFF", value, sizeof value);
+        QCOMPARE(QString::fromUtf8(value), QString("NO"));
+    }
+
+    /**
      * @brief Verify LID bottom routing/footprint edits remain staged, validate atomically and
      * share undoable node-bed state.
      * @note Uses real storage/LID layers and exact footprint 12.3456789012345; commit/restore

@@ -567,6 +567,7 @@ QWidget *Mesh2DGroundwaterDialog::buildOptionsPage()
     form->addRow(tr("σ &layers:"), m_layersSpin);
 
     m_capillaryCheck = new QCheckBox(tr("Capillary flow in the column"), page);
+    m_capillaryCheck->setObjectName("gwCapillaryColumn");
     m_capillaryCheck->setToolTip(tr("On by default. The column solves capillary (Darcy) flow "
                                     "implicitly, so a column at rest stays at rest. Off: the "
                                     "explicit gravity-only column, the default before November "
@@ -622,7 +623,8 @@ QWidget *Mesh2DGroundwaterDialog::buildOptionsPage()
     m_gwEtCombo->setToolTip(tr("CAPILLARY_RISE lets recharge run upward when the column is drier "
                                "than its equilibrium. BOUNDARY_ET takes evaporation from the top "
                                "of the column with a smooth Feddes stress rather than an on/off "
-                               "gate."));
+                               "gate. A SIGMA cell with capillary flow in the column exchanges "
+                               "water with the table both ways under every choice."));
     form->addRow(tr("Groundwater &ET:"), m_gwEtCombo);
     auto *etStatus = new QLabel(page);
     etStatus->setWordWrap(true);
