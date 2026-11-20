@@ -337,12 +337,16 @@ void HydraulicsPage::buildUi()
     m_fvBackendCombo->addItem(tr("CUDA (experimental)"), QStringLiteral("CUDA"));
     m_fvBackendCombo->addItem(tr("HIP (experimental)"), QStringLiteral("HIP"));
     m_fvBackendCombo->addItem(tr("SYCL (experimental)"), QStringLiteral("SYCL"));
+#if defined(Q_OS_MACOS) && defined(Q_PROCESSOR_ARM_64) && defined(OPENSWMM_HAS_METAL_FACE_SELECTION)
+    m_fvBackendCombo->addItem(tr("Apple GPU (Metal face flux)"), QStringLiteral("METAL"));
+#endif
     m_fvBackendCombo->setToolTip(
         tr("Where the finite volume solver's substep loop runs (FV_BACKEND). CPU is the built-in "
            "solver. The others run the loop on a Kokkos plugin, which steps globally and holds "
            "structure flows over each routing step; if the plugin or a device is missing, or the "
            "model uses an option the plugin does not cover, the CPU solver runs and the run log "
-           "says so. The OPENSWMM_FV_BACKEND environment variable overrides this setting."));
+           "says so. An explicit Metal request requires supported interior face fluxes and an "
+           "available Apple GPU. OPENSWMM_FV_BACKEND overrides this setting."));
     m_fvBackendNote = new QLabel(this);
     m_fvBackendNote->setObjectName(QStringLiteral("fvBackendNote"));
     m_fvBackendNote->setTextFormat(Qt::RichText);
@@ -925,7 +929,10 @@ void HydraulicsPage::refreshBackendGates(bool implicit)
         const auto &backends = ctx_.backends();
         const auto entry = backends.entry(SWMM_BACKEND_SOLVER_FV_NETWORK, token);
         const QString warn = QStringLiteral("<span style=\"color:#D06F00\">&#9888; %1</span>");
-        if (!entry.usable)
+        if (token == QLatin1String("METAL") && (!entry.usable || !backends.fvDeviceSupported()))
+            note = warn.arg(tr("Metal FV cannot run: %1").arg(
+                (entry.usable ? backends.fvDeviceReason() : entry.reason).toHtmlEscaped()));
+        else if (!entry.usable)
             note = warn.arg(tr("%1 cannot be used on this machine (%2). The CPU solver will run.")
                                 .arg(token, entry.reason.toHtmlEscaped()));
         else if (!backends.fvDeviceSupported())

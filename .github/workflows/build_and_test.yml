@@ -1,6 +1,13 @@
 name: Build and Package
 
 on:
+  workflow_dispatch:
+    inputs:
+      engine_ref:
+        description: Engine branch or commit for the paired macOS integration build
+        default: swmm6_rel
+        required: true
+        type: string
   push:
     # swmm6_gui is built through its pull request; a push trigger too would run all four legs twice.
     branches: ["main", "master", "dev"]
@@ -332,7 +339,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: ${{ env.OPENSWMM_ENGINE_REPO }}
-          ref: ${{ env.OPENSWMM_ENGINE_REF }}
+          ref: ${{ matrix.cmake_osx_arch == 'arm64' && (inputs.engine_ref || ((github.head_ref || github.ref_name) == 'integration/macos-metal-fv' && 'integration/macos-metal-fv')) || env.OPENSWMM_ENGINE_REF }}
           path: openswmm.engine
           fetch-depth: 0
 
@@ -543,6 +550,23 @@ jobs:
         shell: bash
         run: echo "sha=$(git -C openswmm.engine rev-parse HEAD)" >> "$GITHUB_OUTPUT"
 
+      - name: Provision the engine's Apple GPU toolchain
+        id: metal
+        if: matrix.cmake_osx_arch == 'arm64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! grep -q 'OPENSWMM_HAS_METAL_FACE_SELECTION' openswmm.engine/include/openswmm/engine/openswmm_engine.h; then
+            exit 0
+          fi
+          revision=$(cat openswmm.engine/cmake/KokkosMetalRevision.txt)
+          git init -q "$RUNNER_TEMP/metal-kokkos"
+          git -C "$RUNNER_TEMP/metal-kokkos" fetch --depth 1 https://github.com/HydroCouple/kokkos.git "$revision"
+          git -C "$RUNNER_TEMP/metal-kokkos" checkout --detach FETCH_HEAD
+          bash "$RUNNER_TEMP/metal-kokkos/.github/scripts/install-macos-acpp.sh" "$RUNNER_TEMP/metal-toolchain"
+          echo "$RUNNER_TEMP/metal-toolchain/install/bin" >> "$GITHUB_PATH"
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
       - name: Restore engine install tree
         id: engine_cache
         uses: actions/cache/restore@v4
@@ -550,7 +574,7 @@ jobs:
           path: openswmm.engine/install/${{ matrix.cmake_preset }}
           # No restore-keys: a partial/stale engine tree is worse than no tree —
           # it would be silently linked into the GUI. Exact match or rebuild.
-          key: engine-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-${{ matrix.cmake_osx_arch }}-${{ steps.engine_rev.outputs.sha }}-2d.gpu.hypre
+          key: engine-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-${{ matrix.cmake_osx_arch }}-${{ steps.engine_rev.outputs.sha }}-2d.gpu.hypre${{ steps.metal.outputs.enabled && '.metal' || '' }}
 
       # Skipped entirely on an engine-cache hit (see "Restore engine install tree").
       # NOTE what is deliberately NOT guarded by this condition:
@@ -579,7 +603,13 @@ jobs:
           #     (find_package(HYPRE REQUIRED) → configure fails if hypre is
           #     missing). The verify step below hard-fails if the plugin binary
           #     is absent post-install.
-          bash "${{ github.workspace }}/scripts/ci_configure_retry.sh" cmake --preset=${{ matrix.cmake_preset }} \
+          metal_args=()
+          if [[ "${{ steps.metal.outputs.enabled }}" == "true" ]]; then
+            metal_args+=(-DOPENSWMM_ENABLE_METAL_FACES=ON "-DOPENSWMM_ACPP_EXECUTABLE=$(command -v acpp)"
+                        "-DOPENSWMM_KOKKOS_SOURCE_DIR=$RUNNER_TEMP/metal-kokkos"
+                        "-DOPENSWMM_METAL_SDK=$(xcrun --show-sdk-path)")
+          fi
+          bash "${{ github.workspace }}/scripts/ci_configure_retry.sh" cmake --preset=${{ matrix.cmake_preset }} "${metal_args[@]}" \
             -DCMAKE_INSTALL_PREFIX="$PWD/install/${{ matrix.cmake_preset }}" \
             -DCMAKE_OSX_ARCHITECTURES=${{ matrix.cmake_osx_arch }} \
             -DCMAKE_C_COMPILER_LAUNCHER=$CMAKE_COMPILER_LAUNCHER \
@@ -606,6 +636,9 @@ jobs:
         run: |
           set -euo pipefail
           INST="install/${{ matrix.cmake_preset }}"
+          if [[ "${{ steps.metal.outputs.enabled }}" == "true" ]]; then
+            test -x "$INST/lib/openswmm_metal_faces"
+          fi
           # Plugin lands in lib/ on macOS/Linux, bin/ on Windows.
           PLUGIN=$(find "$INST/lib" "$INST/bin" \
                      \( -name 'libopenswmm_gpu_omp.*' -o -name 'openswmm_gpu_omp.*' \) \
@@ -1035,6 +1068,26 @@ jobs:
           if-no-files-found: error
           path: dist/gui-sdk/${{ matrix.vcpkg_triplet }}
 
+      - name: Verify the installed arm64 Metal worker without the build toolchain
+        if: steps.metal.outputs.enabled == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          worker=$(find "dist/${{ matrix.build_subdir }}" -path '*/Contents/MacOS/openswmm_metal_faces' -type f -print -quit)
+          test -x "$worker"
+          contents=$(dirname "$(dirname "$worker")")
+          test -f "$contents/Frameworks/OpenSWMMMetal/lib/hipSYCL/bitcode/libkernel-sscp-metal-full.bc"
+          codesign --verify --strict "$worker"
+          # AdaptiveCpp also searches its configure-time prefix when present.
+          prefix="$RUNNER_TEMP/metal-toolchain/install"
+          mv "$prefix" "$prefix.offline"
+          trap 'mv "$prefix.offline" "$prefix"' EXIT
+          status=0
+          ACPP_VISIBILITY_MASK=omp "$worker" </dev/null >"$RUNNER_TEMP/metal-hidden.log" 2>&1 || status=$?
+          cat "$RUNNER_TEMP/metal-hidden.log"
+          test "$status" = 77
+          grep -F 'no Metal GPU for OpenSWMM face flow' "$RUNNER_TEMP/metal-hidden.log"
+
       # Gate: the GUI must ship the legacy-engine worker so the legacy (EPA-SWMM)
       # run option works in the installed/packaged app. Fail if it is absent from
       # the install tree (the "Failed to start legacy worker" runtime class).
@@ -1419,7 +1472,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: openswmm.engine/install/${{ matrix.cmake_preset }}
-          key: engine-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-${{ matrix.cmake_osx_arch }}-${{ steps.engine_rev.outputs.sha }}-2d.gpu.hypre
+          key: engine-${{ runner.os }}-${{ matrix.vcpkg_triplet }}-${{ matrix.cmake_osx_arch }}-${{ steps.engine_rev.outputs.sha }}-2d.gpu.hypre${{ steps.metal.outputs.enabled && '.metal' || '' }}
 
       # Skipped while COMPILER_CACHE_BYPASS is on: with ccache inert, the dir holds
       # nothing new, and saving it would write a near-empty cache under a fresh key

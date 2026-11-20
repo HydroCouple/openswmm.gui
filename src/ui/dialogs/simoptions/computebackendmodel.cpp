@@ -17,7 +17,12 @@ namespace openswmmvis::ui
 
 namespace
 {
-const char *const kDevices[] = {"OMP", "CUDA", "HIP", "SYCL"};
+const char *const kDevices[] = {
+    "OMP", "CUDA", "HIP", "SYCL",
+#if defined(Q_OS_MACOS) && defined(Q_PROCESSOR_ARM_64) && defined(OPENSWMM_HAS_METAL_FACE_SELECTION)
+    "METAL",
+#endif
+};
 const int kBaseLabelRole = Qt::UserRole + 41;
 
 QString key(int solver, const QString &backend)

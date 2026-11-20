@@ -844,6 +844,18 @@ void TestSimulationOptionsGates::backendEditorsWriteThroughTheirOwners()
     // And read back after the Apply's re-read.
     QCOMPARE(fv->currentData().toString(), QStringLiteral("OMP"));
     QCOMPARE(twoD->currentData().toString(), QStringLiteral("CPU"));
+#if defined(Q_OS_MACOS) && defined(Q_PROCESSOR_ARM_64) && defined(OPENSWMM_HAS_METAL_FACE_SELECTION)
+    for (auto *combo : {fv, twoD}) {
+        const int metal = combo->findData(QStringLiteral("METAL"));
+        QVERIFY(metal >= 0);
+        combo->setCurrentIndex(metal);
+    }
+    QVERIFY(QMetaObject::invokeMethod(&dlg, "onApply", Qt::DirectConnection));
+    QCOMPARE(option("FV_BACKEND", false), QStringLiteral("METAL"));
+    QCOMPARE(option("BACKEND", true), QStringLiteral("METAL"));
+    QCOMPARE(fv->currentData().toString(), QStringLiteral("METAL"));
+    QCOMPARE(twoD->currentData().toString(), QStringLiteral("METAL"));
+#endif
 }
 
 void TestSimulationOptionsGates::structure()

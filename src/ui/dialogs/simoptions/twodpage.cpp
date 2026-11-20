@@ -345,12 +345,16 @@ void TwoDPage::buildUi()
     m_backend2DCombo->addItem(tr("CUDA (experimental)"), QStringLiteral("CUDA"));
     m_backend2DCombo->addItem(tr("HIP (experimental)"), QStringLiteral("HIP"));
     m_backend2DCombo->addItem(tr("SYCL (experimental)"), QStringLiteral("SYCL"));
+#if defined(Q_OS_MACOS) && defined(Q_PROCESSOR_ARM_64) && defined(OPENSWMM_HAS_METAL_FACE_SELECTION)
+    m_backend2DCombo->addItem(tr("Apple GPU (Metal face flux)"), QStringLiteral("METAL"));
+#endif
     m_backend2DCombo->setToolTip(tr(
         "Which marcher implementation runs the 2D mesh (BACKEND). Auto "
         "uses the built-in CPU marcher for GUI runs. Other engine clients "
         "may automatically select an installed accelerator. A named backend loads that plugin outright, "
         "regardless of mesh size; if it is not installed or has no usable "
-        "device the run falls back to CPU with a notice. Pin CPU when a "
+        "device the run falls back to CPU with a notice, except that explicit Metal requires "
+        "an available GPU and supported surface physics. Pin CPU when a "
         "model measures slower on the accelerator. The OPENSWMM_2D_BACKEND "
         "environment variable overrides this setting when set."));
 

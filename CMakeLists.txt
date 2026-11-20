@@ -2378,6 +2378,14 @@ if(APPLE)
                     "${OPENSWMMENGINE_INSTALL_DIR}/bin/libomp.dylib" "${_swmmvis_frameworks}/"
             VERBATIM)
     endif()
+    if(EXISTS "${OPENSWMMENGINE_INSTALL_DIR}/lib/openswmm_metal_faces")
+        find_package(Python3 REQUIRED COMPONENTS Interpreter)
+        add_custom_command(TARGET SWMMVis POST_BUILD
+            COMMAND "${Python3_EXECUTABLE}" -B "${CMAKE_CURRENT_SOURCE_DIR}/scripts/bundle_metal_worker.py"
+                "${OPENSWMMENGINE_INSTALL_DIR}/lib/openswmm_metal_faces"
+                "$<TARGET_BUNDLE_DIR:SWMMVis>"
+            VERBATIM)
+    endif()
     if(EXISTS "${OPENSWMMENGINE_INSTALL_DIR}/lib/libopenswmm_gpu_omp.dylib")
     add_custom_command(TARGET SWMMVis POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory "${_swmmvis_frameworks}"

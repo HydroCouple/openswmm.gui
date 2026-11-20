@@ -46,7 +46,13 @@ private slots:
         auto engine = swmm_engine_new();
         QVERIFY(engine);
         const auto cleanup = qScopeGuard([&] { swmm_engine_destroy(engine); });
-        for (const char *requested : {"AUTO", "CPU", "OMP", "CUDA", "HIP", "SYCL"}) {
+        const char *const backends[] = {
+            "AUTO", "CPU", "OMP", "CUDA", "HIP", "SYCL",
+#ifdef OPENSWMM_HAS_METAL_FACE_SELECTION
+            "METAL",
+#endif
+        };
+        for (const char *requested : backends) {
             QCOMPARE(swmm_options_set_ext(engine, "BACKEND", requested), SWMM_OK);
             QString notice;
             QCOMPARE(openswmmvis::simulation::applyTwoDBackendPolicy(engine, notice), SWMM_OK);

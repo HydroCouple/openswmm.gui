@@ -35,7 +35,7 @@ inline int applyTwoDBackendPolicy(SWMM_Engine engine, QString &notice)
     if (!override.isEmpty()) {
         const auto mode = override.toLower();
         if (mode != "auto" && mode != "cpu" && mode != "omp" && mode != "cuda" && mode != "hip" &&
-            mode != "sycl") {
+            mode != "sycl" && mode != "metal") {
             notice = QStringLiteral("Invalid OPENSWMM_2D_BACKEND value: %1").arg(override);
             return SWMM_ERR_BADPARAM;
         }
