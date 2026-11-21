@@ -51,6 +51,7 @@ struct SWMMKdTrees;
 class OpenSWMMVisWorkspace;
 class SpatialReferenceSystem;
 class MapCanvas; // setEditCanvas() — undo-stack host for mediated edits
+class UnitSystem; // setUnitSystem() — the owning project's flow units
 
 namespace OpenSWMM::Render
 {
@@ -371,7 +372,7 @@ public:
      * @param[out] errors Unused in this implementation; unchanged.
      * @return True after adoption/finalization; no extra validation failure path is provided.
      * @note GUI-thread only. If another engine remains attached, closeEngine() clears arrays, so
-     *   normal caller must close before buildFromEngine(). Synchronizes global UnitSystem, resolves
+     *   normal caller must close before buildFromEngine(). Synchronizes the bound UnitSystem, resolves
      *   CRS from input then local MAP/preferences then untitled, records whether assigned, requests
      *   repaint, logs supplied phase milliseconds and emits path/modelLoaded. Leaves engine
      *   OPENED/BUILDING for edits and preserves untitled display name when path empty.
@@ -2992,6 +2993,15 @@ public:
      */
     [[nodiscard]] MapCanvas *editCanvas() const;
 
+    /*!
+     * \brief Bind the owning project's flow-units object.
+     * @param[in] units Borrowed project-local UnitSystem; QPointer clears on deletion.
+     * @note adoptOpenEngine() and rebuildFromEngine() sync this object from the engine, so a model
+     *   that loads while another project is active never writes that project's units. An unbound
+     *   layer (headless tests) syncs the active-project facade instead.
+     */
+    void setUnitSystem(UnitSystem *units);
+
     /*! \brief Apply one inlet-usage row as a single undoable step. Pushes a
      *         checked named-identity command on the edit canvas's stack when one is
      *         bound; uses the same checked writer without a history otherwise.
@@ -4904,6 +4914,8 @@ private:
     /*! Canvas whose undo stack mediated (non-map-tool) edits push onto.
      *  Non-owning; see setEditCanvas(). */
     QPointer<MapCanvas> m_editCanvas;
+    /*! Owning project's flow units, synced on engine adoption. Non-owning; see setUnitSystem(). */
+    QPointer<UnitSystem> m_units;
     /*! Rebuild m_inletConnectors from the engine's usage rows.
      * @brief Clear lazy connector cache and gather valid engine usage hosts/capture-node positions
      *   from prepared scene arrays.

@@ -1454,8 +1454,9 @@ bool SWMMModelLayer::adoptOpenEngine(SWMM_Engine engine, QList<QString> &warning
     QElapsedTimer crsTimer;
     crsTimer.start();
 
-    // Sync flow units from loaded model
-    UnitSystem::instance()->syncFromEngine(m_engine);
+    // Sync this project's flow units from the loaded model. The facade would
+    // write them into whichever project is active, which may be another one.
+    (m_units ? m_units.data() : UnitSystem::instance())->syncFromEngine(m_engine);
 
     // The SoA arrays + geometry caches were populated by buildFromEngine()
     // (on the worker thread for the async open path). Here we do only the
@@ -1565,7 +1566,7 @@ void SWMMModelLayer::rebuildFromEngine()
 {
     if (!m_engine)
         return;
-    UnitSystem::instance()->syncFromEngine(m_engine);
+    (m_units ? m_units.data() : UnitSystem::instance())->syncFromEngine(m_engine);
     char crs[512]{};
     if (swmm_get_crs(m_engine, crs, sizeof(crs)) == SWMM_OK && crs[0]) {
         if (auto *updated = SpatialReferenceSystem::fromWktOrProj(QString::fromUtf8(crs), this)) {
@@ -6786,6 +6787,11 @@ void SWMMModelLayer::setEditCanvas(MapCanvas *canvas)
 MapCanvas *SWMMModelLayer::editCanvas() const
 {
     return m_editCanvas;
+}
+
+void SWMMModelLayer::setUnitSystem(UnitSystem *units)
+{
+    m_units = units;
 }
 
 bool SWMMModelLayer::pushInletUsageEdit(const SWMM_InletUsage &usage)

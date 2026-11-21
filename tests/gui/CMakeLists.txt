@@ -4861,6 +4861,15 @@ target_compile_definitions(test_resultssizechannel PRIVATE
     RESULTS_SIZE_CHANNEL_FIXTURE="${CMAKE_SOURCE_DIR}/tests/data/styles/graduated_width_axis_legacy.json")
 target_compile_options(test_resultssizechannel PRIVATE $<$<CXX_COMPILER_ID:Clang,AppleClang,GNU>:-O0>)
 
+add_swmmvis_gui_test(test_project_units_isolation
+    test_project_units_isolation.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_project_units_isolation)
+target_compile_definitions(test_project_units_isolation PRIVATE
+    PROJECT_UNITS_ISOLATION_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/project_units_isolation_2026-11-21")
+target_compile_options(test_project_units_isolation PRIVATE $<$<CXX_COMPILER_ID:Clang,AppleClang,GNU>:-O0>)
+
 add_swmmvis_gui_test(test_lid_node_layers
     test_lid_node_layers.cpp
     ${CMAKE_SOURCE_DIR}/src/ui/models/lidnodelayermodel.cpp

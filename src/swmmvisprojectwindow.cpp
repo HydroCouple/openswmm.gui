@@ -232,6 +232,7 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace, cons
     // panel's inlet-usage rows), so they land on the same stack as every
     // map edit rather than mutating the engine unrecoverably.
     mModelLayer->setEditCanvas(mCanvas);
+    mModelLayer->setUnitSystem(mUnits);
 
     // Mirror the prefs' link colors into the layer's per-link-type
     // symbol structs. The painter / GL renderers read the full QPen
