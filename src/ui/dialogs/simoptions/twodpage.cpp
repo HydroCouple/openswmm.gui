@@ -514,14 +514,14 @@ void TwoDPage::buildUi()
     coupForm->addRow(tr("Rim band:"), m_couplingRimBandSpin);
 
     m_couplingEqualizeCombo = new QComboBox(coupGroup);
-    m_couplingEqualizeCombo->addItem(tr("By exchange law"), QStringLiteral("DEFAULT"));
+    m_couplingEqualizeCombo->addItem(tr("Default (on)"), QStringLiteral("DEFAULT"));
     m_couplingEqualizeCombo->addItem(tr("On"), QStringLiteral("YES"));
     m_couplingEqualizeCombo->addItem(tr("Off"), QStringLiteral("NO"));
     m_couplingEqualizeCombo->setToolTip(
         tr("Cap each junction exchange so one coupling step cannot carry the "
            "sewer and surface levels past each other (COUPLING_EQUALIZE) — "
-           "removes drain/spill flip-flopping. By exchange law: on for weir / "
-           "orifice, off for the legacy orifice."));
+           "removes drain/spill flip-flopping. Default: on for every junction "
+           "exchange law. Off keeps the raw exchange."));
     coupForm->addRow(tr("Head equalization:"), m_couplingEqualizeCombo);
 
     m_couplingSyncSpin = new QDoubleSpinBox(coupGroup);

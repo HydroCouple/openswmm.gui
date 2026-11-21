@@ -38,6 +38,12 @@ and `6.0.0-alpha.4` covers everything from that bump onward. No
 
 ### Changed
 
+- **The Bellinge 2D example derives its exchange areas.** `examples/bellinge_2d` now sets
+  `[2D_OPTIONS] COUPLING_AREA AUTO`, so each junction's orifice area comes from its largest
+  connected conduit instead of the mesh's 1 m² and 2 m² placeholder rows, which drained and
+  spilled in turn at junctions held at the rim. Simulation Options → 2D Surface Routing →
+  Coupling's **Head equalization** default now reads **Default (on)**: the engine now caps every
+  junction exchange by default, not only the weir / orifice law.
 - **Both compute backends are chosen on System / Performance.** Simulation Options → System /
   Performance has a **Compute backends** group with one choice for the 1D finite volume network
   and one for the 2D surface, saved with the model as before (`FV_BACKEND` and `[2D_OPTIONS]

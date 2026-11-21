@@ -17721,7 +17721,7 @@ H_MOVE                 0.0001
 LTS_TIERS              4
 FROUDE_MAX             1.5
 ADVECTION              NO
-COUPLING_AREA          DEFAULT
+COUPLING_AREA          AUTO
 BACKEND                AUTO
 OUTPUT_FILE            BellingeSWMM_v021_nopervious.2d.h5
 
