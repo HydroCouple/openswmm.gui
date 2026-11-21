@@ -1047,6 +1047,13 @@ public:
      * @return Cached logical-pixel stroke width, or minus one for invalid category/row/no override. No renderer evaluation or source read occurs.
      */
     [[nodiscard]] double featureWidthOverride(SWMMModelLayer::Category c, int row) const;
+    /**
+     * @param[in] c Category selecting the cached output override vector.
+     * @param[in] row Zero-based model-category row, not an output-file global index.
+     * @return Cached per-feature color the painter uses for this frame, or an invalid QColor for
+     *   an invalid category/row or a kind without overrides. No renderer evaluation occurs.
+     */
+    [[nodiscard]] QColor featureColorOverride(SWMMModelLayer::Category c, int row) const;
 
     /*!
      * \brief Phase 8 (2026-05-25) — ramp-aware legend rows.

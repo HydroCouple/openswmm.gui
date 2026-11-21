@@ -678,6 +678,14 @@ double SWMMResultsLayer::featureSizeOverride(SWMMModelLayer::Category c, int row
     return m_kindFeatureSizes[idx].value(row, -1.0);
 }
 
+QColor SWMMResultsLayer::featureColorOverride(SWMMModelLayer::Category c, int row) const
+{
+    const int idx = static_cast<int>(c);
+    if (idx < 0 || idx >= SWMMModelLayer::NumCategories || !m_kindUsesOverrides[idx])
+        return {};
+    return m_kindFeatureColors[idx].value(row);
+}
+
 double SWMMResultsLayer::featureWidthOverride(SWMMModelLayer::Category c, int row) const
 {
     const int idx = static_cast<int>(c);
@@ -3698,24 +3706,27 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
     // value from the per-var cache keyed by the renderer's attribute.
     // Gap A2.2 — `scopeOutCode` is kept so the classification step below
     // can consult the full-run attribute-range cache for FixedOverRun.
+    // Species ("qual:<name>") resolve by name, the lookup that fetched the
+    // run's data; the hydraulic-only form misses them and paints one bin.
+    const QStringList species = speciesNames();
     const QHash<QString, int> *outIdxMap = nullptr;
     const QVector<float> *valuesPtr = nullptr;
     int scopeOutCode = -1;
     if (catIsNodeScope(c)) {
         outIdxMap = &m_nodeOutputIdx;
-        scopeOutCode = nodeOutCodeForAttribute(classifyAttr);
+        scopeOutCode = nodeOutCodeForAttribute(classifyAttr, species);
         const auto it = m_nodeResultsByVar.constFind(scopeOutCode);
         if (it != m_nodeResultsByVar.constEnd())
             valuesPtr = &it.value();
     } else if (catIsLinkScope(c)) {
         outIdxMap = &m_linkOutputIdx;
-        scopeOutCode = linkOutCodeForAttribute(classifyAttr);
+        scopeOutCode = linkOutCodeForAttribute(classifyAttr, species);
         const auto it = m_linkResultsByVar.constFind(scopeOutCode);
         if (it != m_linkResultsByVar.constEnd())
             valuesPtr = &it.value();
     } else if (catIsSubcatchScope(c)) {
         outIdxMap = &m_subcatchOutputIdx;
-        scopeOutCode = subcatchOutCodeForAttribute(classifyAttr);
+        scopeOutCode = subcatchOutCodeForAttribute(classifyAttr, species);
         const auto it = m_subcatchResultsByVar.constFind(scopeOutCode);
         if (it != m_subcatchResultsByVar.constEnd())
             valuesPtr = &it.value();
@@ -3838,19 +3849,19 @@ void SWMMResultsLayer::rebuildKindFeatureOverrides(SWMMModelLayer::Category c)
             int sizeOutCode = -1;
             const QHash<int, QPair<double, double>> *rangeCache = nullptr;
             if (catIsNodeScope(c)) {
-                sizeOutCode = nodeOutCodeForAttribute(sizeAttr);
+                sizeOutCode = nodeOutCodeForAttribute(sizeAttr, species);
                 const auto it = m_nodeResultsByVar.constFind(sizeOutCode);
                 if (it != m_nodeResultsByVar.constEnd())
                     sizeValuesPtr = &it.value();
                 rangeCache = &m_nodeAttributeRange;
             } else if (catIsLinkScope(c)) {
-                sizeOutCode = linkOutCodeForAttribute(sizeAttr);
+                sizeOutCode = linkOutCodeForAttribute(sizeAttr, species);
                 const auto it = m_linkResultsByVar.constFind(sizeOutCode);
                 if (it != m_linkResultsByVar.constEnd())
                     sizeValuesPtr = &it.value();
                 rangeCache = &m_linkAttributeRange;
             } else if (catIsSubcatchScope(c)) {
-                sizeOutCode = subcatchOutCodeForAttribute(sizeAttr);
+                sizeOutCode = subcatchOutCodeForAttribute(sizeAttr, species);
                 const auto it = m_subcatchResultsByVar.constFind(sizeOutCode);
                 if (it != m_subcatchResultsByVar.constEnd())
                     sizeValuesPtr = &it.value();

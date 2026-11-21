@@ -4861,6 +4861,15 @@ target_compile_definitions(test_resultssizechannel PRIVATE
     RESULTS_SIZE_CHANNEL_FIXTURE="${CMAKE_SOURCE_DIR}/tests/data/styles/graduated_width_axis_legacy.json")
 target_compile_options(test_resultssizechannel PRIVATE $<$<CXX_COMPILER_ID:Clang,AppleClang,GNU>:-O0>)
 
+add_swmmvis_gui_test(test_results_species_classification
+    test_results_species_classification.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES})
+swmmvis_link_full_app_deps(test_results_species_classification)
+target_compile_definitions(test_results_species_classification PRIVATE
+    RESULTS_SPECIES_CLASSIFICATION_OUTPUT="${CMAKE_SOURCE_DIR}/tests/output/results_species_classification_2026-11-21")
+target_compile_options(test_results_species_classification PRIVATE $<$<CXX_COMPILER_ID:Clang,AppleClang,GNU>:-O0>)
+
 add_swmmvis_gui_test(test_project_units_isolation
     test_project_units_isolation.cpp
     ${SWMMVIS_TEST_SOURCES}
