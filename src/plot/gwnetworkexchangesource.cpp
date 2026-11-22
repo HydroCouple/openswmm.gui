@@ -8,6 +8,7 @@
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
+#include "core/swmmunits.h"
 #include "plot/gwnetworkexchangesource.h"
 
 #include "io/mesh2dh5reader.h"
@@ -17,6 +18,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace openswmmvis::plot
 {
@@ -116,7 +119,7 @@ void GwNetworkExchangeSource::series(const QString &node, const ResultDescriptor
         // Report-interval mean ending at frame t; the first report has none.
         if (t == 0)
             continue;
-        const double seconds = (m_times[std::size_t(t)] - m_times[std::size_t(t) - 1]) * 86400.0;
+        const double seconds = (m_times[std::size_t(t)] - m_times[std::size_t(t) - 1]) * swmmunits::kSecPerDay;
         if (!(seconds > 0.0))
             continue;
         out.timesJulian.push_back(m_times[std::size_t(t)]);

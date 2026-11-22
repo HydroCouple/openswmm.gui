@@ -7,6 +7,7 @@
  * @license   GPL-3.0-or-later
  */
 
+#include "core/swmmunits.h"
 #include "assignment/rasterfluxintegration.h"
 #include "core/displaynumber.h"
 #include <gdal_priv.h>
@@ -18,6 +19,8 @@
 #include <limits>
 #include <memory>
 #include <stdexcept>
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace openswmmvis::assignment
 {
@@ -235,7 +238,7 @@ RasterFluxResult integrate(const RasterFluxRequest &j, const std::function<bool(
     else if (j.densityUnit == "mm/h")
         factor = .001 / 3600;
     else if (j.densityUnit == "m/day")
-        factor = 1. / 86400;
+        factor = 1. / swmmunits::kSecPerDay;
     else if (j.densityUnit == "in/h")
         factor = .0254 / 3600;
     if (!factor)

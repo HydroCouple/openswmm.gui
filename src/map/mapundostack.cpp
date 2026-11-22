@@ -8,6 +8,7 @@
  * @license   GPL-3.0-or-later
  */
 
+#include "core/swmmunits.h"
 #include "map/mapundostack.h"
 #include "map/mapcanvas.h"
 #include "map/objectdefaultsapplier.h"
@@ -40,6 +41,8 @@
 #include <openswmm/engine/openswmm_spatial.h>
 #include <openswmm/engine/openswmm_edit.h>
 #include <openswmm/engine/openswmm_infrastructure.h>
+
+namespace swmmunits = openswmmvis::core::units;
 
 // ===========================================================================
 // MapUndoStack
@@ -823,7 +826,7 @@ void AddSubcatchmentCommand::redo()
             //   SI  (CMS/LPS/MLD): meters → hectares  (÷ 10 000)
             //   US  (CFS/GPM/MGD): feet   → acres     (÷ 43 560)
             const bool si = UnitSystem::instance()->isSI();
-            const double area = si ? sqUnits / 10000.0 : sqUnits / 43560.0;
+            const double area = si ? sqUnits / swmmunits::kM2PerHectare : sqUnits / swmmunits::kFt2PerAcre;
             swmm_subcatch_set_area(m_layer->engine(), m_subcatchIdx, area);
         }
     }

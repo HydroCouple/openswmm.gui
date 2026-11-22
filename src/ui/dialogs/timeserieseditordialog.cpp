@@ -8,6 +8,7 @@
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
+#include "core/swmmunits.h"
 #include "ui/dialogs/timeserieseditordialog.h"
 #include "ui/util/usernotice.h"
 #include "core/swmmidentifier.h"
@@ -83,6 +84,8 @@
 #include <algorithm>
 #include <limits>
 #include <utility>
+
+namespace swmmunits = openswmmvis::core::units;
 
 // Debug instrumentation for the .dat-file load stall investigation.
 // Enable with: QT_LOGGING_RULES="openswmm.ts-load.*=true"
@@ -2575,8 +2578,7 @@ void TimeseriesEditorDialog::onApplyRotateClicked_()
         pivotT = static_cast<double>(m_rotatePivotTimeEdit->dateTime().toMSecsSinceEpoch());
         pivotV = m_rotatePivotValueEdit->value();
     }
-    constexpr double kPi = 3.14159265358979323846;
-    const double angleRad = m_rotateAngleEdit->value() * (kPi / 180.0);
+    const double angleRad = m_rotateAngleEdit->value() * (swmmunits::kPiExact / 180.0);
     const double cosT = std::cos(angleRad);
     const double sinT = std::sin(angleRad);
 

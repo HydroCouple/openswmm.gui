@@ -12,6 +12,7 @@
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
+#include "core/swmmunits.h"
 #include "ui/dialogs/climatologydialog.h"
 #include <openswmm/engine/openswmm_heat.h>
 
@@ -53,6 +54,8 @@
 
 #include <openswmm/engine/openswmm_climate.h>
 #include <openswmm/engine/openswmm_model.h>
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace
 {
@@ -118,7 +121,7 @@ double oaDate(const QDateTime &dateTime)
 {
     const QDate base(1899, 12, 30);
     return static_cast<double>(base.daysTo(dateTime.date())) +
-           static_cast<double>(dateTime.time().msecsSinceStartOfDay()) / 86400000.0;
+           static_cast<double>(dateTime.time().msecsSinceStartOfDay()) / swmmunits::kMsecPerDay;
 }
 
 /**
@@ -132,10 +135,10 @@ double oaDate(const QDateTime &dateTime)
 QDateTime dateTimeFromOa(double date)
 {
     auto day = static_cast<qint64>(std::floor(date));
-    auto milliseconds = static_cast<qint64>(std::llround((date - day) * 86400000.0));
-    if (milliseconds >= 86400000) { // rounded up to midnight
+    auto milliseconds = static_cast<qint64>(std::llround((date - day) * swmmunits::kMsecPerDay));
+    if (milliseconds >= swmmunits::kMsecPerDayInt) { // rounded up to midnight
         ++day;
-        milliseconds -= 86400000;
+        milliseconds -= swmmunits::kMsecPerDayInt;
     }
     return QDateTime(QDate(1899, 12, 30).addDays(day),
                      QTime::fromMSecsSinceStartOfDay(int(milliseconds)), QTimeZone::UTC);
@@ -814,7 +817,7 @@ void ClimatologyDialog::buildRadiationTab(QTabWidget *tabs)
         }
         const auto date = [](double oa) {
             const auto day = qint64(std::floor(oa));
-            const auto seconds = qint64(std::round((oa - day) * 86400));
+            const auto seconds = qint64(std::round((oa - day) * swmmunits::kSecPerDay));
             return QDateTime(QDate(1899, 12, 30).addDays(day), QTime(0, 0), QTimeZone::UTC)
                 .addSecs(seconds)
                 .toString(QStringLiteral("yyyy-MM-dd HH:mm"));

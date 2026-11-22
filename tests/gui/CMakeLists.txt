@@ -1005,6 +1005,10 @@ add_swmmvis_gui_test(test_unitsystemfacade
     ${CMAKE_SOURCE_DIR}/src/core/unitsystem.cpp
     ${CMAKE_SOURCE_DIR}/include/core/unitsystem.h
 )
+add_swmmvis_gui_test(test_swmmunits
+    test_swmmunits.cpp
+    ${CMAKE_SOURCE_DIR}/include/core/swmmunits.h
+)
 
 # Slice BM Phase 6.3 — PropertyEditorRegistry framework. Self-contained:
 # pulls in only the registry .cpp + the IPropertyEditor interface header.

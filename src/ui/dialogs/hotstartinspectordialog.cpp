@@ -8,6 +8,7 @@
  * @license   GPL-3.0-or-later
  */
 
+#include "core/swmmunits.h"
 #include "ui/dialogs/hotstartinspectordialog.h"
 
 #include "ui/util/tableclipboard.h"
@@ -36,6 +37,8 @@
 
 #include <openswmm/engine/openswmm_hotstart.h>
 
+namespace swmmunits = openswmmvis::core::units;
+
 namespace openswmmvis::ui
 {
 
@@ -56,13 +59,13 @@ QString swmmDate(double days)
     if (days == 0.0 || !std::isfinite(days))
         return {};
     const QDateTime epoch(QDate(1899, 12, 30), QTime(0, 0), QTimeZone::UTC);
-    return epoch.addMSecs(qRound64(days * 86400000.0)).toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
+    return epoch.addMSecs(qRound64(days * swmmunits::kMsecPerDay)).toString(QStringLiteral("yyyy-MM-dd HH:mm:ss"));
 }
 
 QString duration(double seconds)
 {
     const qint64 total = qRound64(seconds);
-    const qint64 days = total / 86400, hours = total % 86400 / 3600, minutes = total % 3600 / 60;
+    const qint64 days = total / swmmunits::kSecPerDayInt, hours = total % swmmunits::kSecPerDayInt / 3600, minutes = total % 3600 / 60;
     if (days > 0)
         return QObject::tr("%1 d %2 h %3 min").arg(days).arg(hours).arg(minutes);
     if (hours > 0)
@@ -498,7 +501,7 @@ void HotStartInspectorDialog::refresh()
     m_info.value(QStringLiteral("time"))
         ->setText(legacy ? tr("not recorded")
                          : tr("%1 (%2 after the run start)")
-                               .arg(swmmDate(info.startDate + info.elapsedSeconds / 86400.0),
+                               .arg(swmmDate(info.startDate + info.elapsedSeconds / swmmunits::kSecPerDay),
                                     duration(info.elapsedSeconds)));
     m_info.value(QStringLiteral("end"))
         ->setText(info.endDate > 0 ? swmmDate(info.endDate) : tr("not recorded"));

@@ -7,6 +7,7 @@
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
+#include "core/swmmunits.h"
 #include "plot/observedcsvrunlayer.h"
 
 #include "io/timeseriesparse.h"
@@ -20,6 +21,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace openswmmvis::plot
 {
@@ -174,7 +177,7 @@ int ObservedCsvRunLayer::reportStepSeconds() const
     if (m_timesJulian.size() < 2)
         return 0;
     const double dDays = m_timesJulian[1] - m_timesJulian[0];
-    return static_cast<int>(std::round(dDays * 86400.0));
+    return static_cast<int>(std::round(dDays * swmmunits::kSecPerDay));
 }
 
 QString ObservedCsvRunLayer::persistenceKey() const

@@ -1,3 +1,4 @@
+#include "core/swmmunits.h"
 #include "ui/panels/toolboxpanel.h"
 #include "ui/delegates/datetimedelegate.h"
 #include "core/displaynumber.h"
@@ -312,6 +313,8 @@
 #include <QSignalBlocker>
 #include <QValidator>
 #include <QRegularExpression>
+
+namespace swmmunits = openswmmvis::core::units;
 
 // Load-phase profiling (opt-in). Enable with:
 //   QT_LOGGING_RULES="openswmm.load.*=true"
@@ -7422,12 +7425,12 @@ double undeclared2DCoordinateScale(SWMMVisProjectWindow *window)
     if (window->canvas()) {
         for (OpenSWMMVisLayer *l : window->canvas()->layers()) {
             if (auto *m = qobject_cast<SWMM2DMeshLayer *>(l))
-                return m->meshUnitsSI() ? 1.0 : 0.3048;
+                return m->meshUnitsSI() ? 1.0 : swmmunits::kFtToM;
         }
     }
     // No mesh layer to consult (results loaded without one): FLOW_UNITS alone
     // is the engine's rule in the overwhelmingly common case.
-    return 0.3048;
+    return swmmunits::kFtToM;
 }
 
 } // namespace
@@ -9298,11 +9301,11 @@ void SWMMVis::showCheckpoints()
         connect(model, &CheckpointModel::runProgress, this, [this, pw, job](double seconds) {
             if (!pw || pw->isClosing())
                 return;
-            const double span = (job->end - job->start) * 86400;
+            const double span = (job->end - job->start) * swmmunits::kSecPerDay;
             const double fraction = span > 0 ? std::clamp(seconds / span, 0.0, 1.0) : 0;
             mSimStatusModel->updateProgress(
                 job->id, fraction,
-                openswmmvis::core::swmmDateTimeToMilliseconds(job->start + seconds / 86400),
+                openswmmvis::core::swmmDateTimeToMilliseconds(job->start + seconds / swmmunits::kSecPerDay),
                 qQNaN(), qQNaN());
             mRunningSimProgress[job->id] = fraction;
             updateSimulationProgressBar();

@@ -7,6 +7,7 @@
  * @license   GPL-3.0-or-later
  */
 
+#include "core/swmmunits.h"
 #include "ui/dialogs/groundwaterassigndialog.h"
 #include "core/displaynumber.h"
 #include "ui/hydrothermalstate.h"
@@ -60,6 +61,8 @@
 #include <algorithm>
 #include <cmath>
 #include <memory>
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace openswmmvis::ui
 {
@@ -2148,7 +2151,7 @@ void GroundwaterAssignDialog::preview()
                                 if (std::isfinite(request.values[i]) &&
                                     (result.rows.cells.contains(request.cells[i]) ||
                                      result.rows.unchangedCells.contains(request.cells[i])))
-                                    mass += request.values[i] * areas[i] / (us ? 43560.0 : 1e4);
+                                    mass += request.values[i] * areas[i] / (us ? swmmunits::kFt2PerAcre : swmmunits::kM2PerHectare);
                             notes << QObject::tr("Integrated initial buildup over the assigned "
                                                  "cells: %1 %2.")
                                          .arg(displayNumber(mass), us ? QObject::tr("lb")

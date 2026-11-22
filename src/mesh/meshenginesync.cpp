@@ -9,6 +9,7 @@
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
+#include "core/swmmunits.h"
 #include "mesh/meshenginesync.h"
 
 #include "mesh/meshbctype.h"
@@ -26,6 +27,8 @@
 #include <cstddef>
 #include <limits>
 #include <vector>
+
+namespace swmmunits = openswmmvis::core::units;
 
 Q_LOGGING_CATEGORY(lcSavePerf, "openswmm.save.perf")
 
@@ -96,7 +99,7 @@ double flowUnitToCms(int flowUnits)
 {
     switch (flowUnits) {
     case 0:
-        return 0.0283168466; // CFS  (ft³/s)
+        return swmmunits::kFt3ToM3Exact; // CFS (ft³/s)
     case 1:
         return 6.30901964e-05; // GPM  (US gal/min)
     case 2:

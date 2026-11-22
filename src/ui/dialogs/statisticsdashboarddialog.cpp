@@ -9,6 +9,7 @@
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
+#include "core/swmmunits.h"
 #include "ui/dialogs/statisticsdashboarddialog.h"
 #include "results/summarytables.h"
 #include "ui/theme/themehelpers.h"
@@ -60,6 +61,8 @@
 #include <numeric>
 #include <set>
 #include <vector>
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace openswmmvis::ui
 {
@@ -362,13 +365,13 @@ std::pair<QString, double> flowVolume(int flowUnitsCode)
     case 1:
         return {QStringLiteral("gal"), 1.0 / 60.0};
     case 2:
-        return {QStringLiteral("Mgal"), 1.0 / 86400.0};
+        return {QStringLiteral("Mgal"), 1.0 / swmmunits::kSecPerDay};
     case 3:
         return {QStringLiteral("m³"), 1.0};
     case 4:
         return {QStringLiteral("L"), 1.0};
     case 5:
-        return {QStringLiteral("ML"), 1.0 / 86400.0};
+        return {QStringLiteral("ML"), 1.0 / swmmunits::kSecPerDay};
     default:
         return {QString(), std::numeric_limits<double>::quiet_NaN()};
     }
@@ -704,7 +707,7 @@ void StatisticsDashboardDialog::populateSubcatchStats()
     StatColumn evap = fixedColumn(tr("Evaporation depth"), PlotAttribute::SubcatchEvap,
                                   Stat::TimeIntegral, u);
     evap.units = depth;
-    evap.scale = 1.0 / 86400.0; // in/day | mm/day x s
+    evap.scale = 1.0 / swmmunits::kSecPerDay; // in/day | mm/day x s
     evap.tip = integralTip;
     columns << runoff << infil << evap;
     columns += speciesColumns(run, ObjectRef::Kind::Subcatch);

@@ -8,6 +8,7 @@
  * @license   GPL-3.0-or-later
  */
 
+#include "core/swmmunits.h"
 #include "ui/toolbars/terraintoolbar.h"
 #include "core/unitsystem.h"
 #include "layers/gisrasterlayer.h"
@@ -19,6 +20,8 @@
 #include <QDoubleSpinBox>
 #include <QLabel>
 #include <QSizePolicy>
+
+namespace swmmunits = openswmmvis::core::units;
 
 static const int kNoneIndex = 0;
 
@@ -200,8 +203,8 @@ void TerrainToolbar::updateUnitLabels()
     // Auto-populate the factor spin from unit combo + project units.
     // The signal blocker suppresses notification; this replaces a manual override too.
     if (m_factorSpin) {
-        const double rasterToSI = (demUnit == QLatin1String("ft")) ? 0.3048 : 1.0;
-        const double modelToSI = UnitSystem::instance()->isSI() ? 1.0 : 0.3048;
+        const double rasterToSI = (demUnit == QLatin1String("ft")) ? swmmunits::kFtToM : 1.0;
+        const double modelToSI = UnitSystem::instance()->isSI() ? 1.0 : swmmunits::kFtToM;
         QSignalBlocker b(m_factorSpin);
         m_factorSpin->setValue(rasterToSI / modelToSI);
     }
@@ -237,8 +240,8 @@ double TerrainToolbar::verticalToModelFactor() const
     if (m_factorSpin)
         return m_factorSpin->value();
     // Fallback when spin is not yet constructed.
-    const double rasterToSI = (verticalUnit() == QLatin1String("ft")) ? 0.3048 : 1.0;
-    const double modelToSI = UnitSystem::instance()->isSI() ? 1.0 : 0.3048;
+    const double rasterToSI = (verticalUnit() == QLatin1String("ft")) ? swmmunits::kFtToM : 1.0;
+    const double modelToSI = UnitSystem::instance()->isSI() ? 1.0 : swmmunits::kFtToM;
     return rasterToSI / modelToSI;
 }
 

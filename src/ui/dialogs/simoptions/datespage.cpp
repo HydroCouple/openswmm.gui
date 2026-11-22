@@ -7,6 +7,7 @@
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
+#include "core/swmmunits.h"
 #include "ui/dialogs/simoptions/datespage.h"
 
 #include <QTimeZone>
@@ -35,6 +36,8 @@
 #include "ui/widgets/fractionaltimespan.h"
 #include "ui/theme/themehelpers.h"
 #include "ui/util/tableclipboard.h"
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace openswmmvis::ui
 {
@@ -376,8 +379,8 @@ void DatesPage::updateDurationLabel()
         m_durationLabel->setText(QStringLiteral("—"));
         return;
     }
-    const qint64 days = secs / 86400;
-    const qint64 hours = (secs % 86400) / 3600;
+    const qint64 days = secs / swmmunits::kSecPerDayInt;
+    const qint64 hours = (secs % swmmunits::kSecPerDayInt) / 3600;
     const qint64 mins = (secs % 3600) / 60;
     const qint64 ss = secs % 60;
     m_durationLabel->setText(QString::asprintf(

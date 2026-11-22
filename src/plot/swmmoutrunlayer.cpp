@@ -9,6 +9,7 @@
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
+#include "core/swmmunits.h"
 #include "plot/swmmoutrunlayer.h"
 
 #include "plot/pollutantload.h"
@@ -21,6 +22,8 @@
 #include <cmath>
 #include <algorithm>
 #include <vector>
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace openswmmvis::plot
 {
@@ -210,7 +213,7 @@ void SwmmOutRunLayer::fetchSeriesByCode_(const ObjectRef &ref, int varCode, Seri
         const int p = from + i;
         double time = std::nan("");
         if (!snowTimes.empty())
-            time = t0 + snowTimes[i] / 86400.;
+            time = t0 + snowTimes[i] / swmmunits::kSecPerDay;
         else if (swmm_output_get_period_time(handle, p, &time) != 0 || !std::isfinite(time)) {
             out.timesJulian.clear();
             out.values.clear();

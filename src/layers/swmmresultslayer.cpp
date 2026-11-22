@@ -1,3 +1,4 @@
+#include "core/swmmunits.h"
 #include "layers/traceanalysislayer.h"
 /**
  * @file      swmmresultslayer.cpp
@@ -89,6 +90,8 @@
 
 // GDAL
 #include <ogr_spatialref.h>
+
+namespace swmmunits = openswmmvis::core::units;
 
 // Load-phase profiling (opt-in). Enable with:
 //   QT_LOGGING_RULES="openswmm.load.*=true"
@@ -1564,15 +1567,12 @@ double SWMMResultsLayer::nodeStatTimeFlooded(const QString &nodeName) const
 namespace
 {
 
-// Qcf[flow_units] — cfs → the file's display flow units. Indices match
-// swmm_output_get_flow_units(): 0=CFS 1=GPM 2=MGD 3=CMS 4=LPS 5=MLD.
-// Mirrors openswmm.engine src/engine/core/UnitConversion.hpp.
-constexpr double kQcf[6] = {1.0, 448.831, 0.64632, 0.02832, 28.317, 2.4466};
-
-// Ucf rows used below, [US, SI]. Same source.
-constexpr double kUcfRainfall[2] = {43200.0, 1097280.0};    // in/hr, mm/hr → ft/s
-constexpr double kUcfLandArea[2] = {2.2956e-5, 0.92903e-5}; // ac, ha → ft²
-constexpr double kUcfVolume[2] = {1.0, 0.02832};            // ft³, m³ → ft³
+// Qcf / Ucf: the engine's tables, defined once in core/swmmunits.h. Indices
+// match swmm_output_get_flow_units(): 0=CFS 1=GPM 2=MGD 3=CMS 4=LPS 5=MLD.
+using swmmunits::kQcf;
+using swmmunits::kUcfLandArea;
+using swmmunits::kUcfRainfall;
+using swmmunits::kUcfVolume;
 
 // Flow-unit codes 3..5 (CMS/LPS/MLD) are the SI set.
 /**
@@ -4264,11 +4264,10 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene, const MapExtent &can
             p << QPointF(0.0, -rPx) << QPointF(rPx, 0.0) << QPointF(0.0, rPx) << QPointF(-rPx, 0.0);
             break;
         case PointFeatureSublayerStyle::Star: {
-            constexpr double kPi = 3.14159265358979323846;
             const double inner = rPx * 0.45;
             for (int k = 0; k < 10; ++k) {
                 const double r = (k & 1) ? inner : rPx;
-                const double a = -kPi / 2.0 + k * (kPi / 5.0);
+                const double a = -swmmunits::kPiExact / 2.0 + k * (swmmunits::kPiExact / 5.0);
                 p << QPointF(r * std::cos(a), r * std::sin(a));
             }
             break;
@@ -4560,11 +4559,10 @@ void SWMMResultsLayer::populateScene(QGraphicsScene *scene, const MapExtent &can
                 if (dlen <= 0.0)
                     continue;
                 dir /= dlen;
-                constexpr double kPi = 3.14159265358979323846;
                 double angleRad = std::atan2(dir.y(), dir.x());
                 if (flow < 0.0f)
-                    angleRad += kPi;
-                const double angleDeg = angleRad * 180.0 / kPi;
+                    angleRad += swmmunits::kPiExact;
+                const double angleDeg = angleRad * 180.0 / swmmunits::kPiExact;
 
                 const double magNorm = std::min(1.0, std::abs(flow) / magDenom);
                 const double arrLen = arrowLenPx * (0.25 + 0.75 * magNorm);

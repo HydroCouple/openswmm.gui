@@ -18,6 +18,8 @@
 #include <QSet>
 #include <QVector>
 
+#include "core/swmmunits.h"
+namespace swmmunits = openswmmvis::core::units;
 #include "mesh/channelburnboundary.h"
 #include "mesh/channelburnnetwork.h"
 
@@ -563,7 +565,8 @@ TEST(ChannelBurnConnector, AutomaticLengthIsCourantAtTheRoutingStepFlooredAtTwoC
     rule.cellSize = 1;
     auto plan = planBurnReplacement({creekProfile()}, n, unitSquare(), rule);
     ASSERT_EQ(plan.splits.size(), 1);
-    EXPECT_NEAR(plan.splits[0].t, std::sqrt(9.81 * 1.0) / 16.0, 1e-9); // bank height 1 m
+    EXPECT_NEAR(plan.splits[0].t, std::sqrt(swmmunits::kGravitySI * 1.0) / 16.0,
+                1e-9); // bank height 1 m
     rule.cellSize = 2;                                                 // two cells = 4 > 3.13
     plan = planBurnReplacement({creekProfile()}, n, unitSquare(), rule);
     ASSERT_EQ(plan.splits.size(), 1);
@@ -572,7 +575,7 @@ TEST(ChannelBurnConnector, AutomaticLengthIsCourantAtTheRoutingStepFlooredAtTwoC
     rule.cellSize = 0; // mesh units are half a meter
     plan = planBurnReplacement({creekProfile()}, n, unitSquare(), rule);
     ASSERT_EQ(plan.splits.size(), 1);
-    EXPECT_NEAR(plan.splits[0].t, 2 * std::sqrt(9.81) / 16.0, 1e-9);
+    EXPECT_NEAR(plan.splits[0].t, 2 * std::sqrt(swmmunits::kGravitySI) / 16.0, 1e-9);
 }
 
 TEST(ChannelBurnConnector, ADisabledRuleReproducesTheBoundaryPartition)

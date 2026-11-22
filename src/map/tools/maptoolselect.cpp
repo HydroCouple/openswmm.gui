@@ -1,3 +1,4 @@
+#include "core/swmmunits.h"
 #include "ui/dialogs/traceanalysisdialog.h"
 #include <QInputDialog>
 /**
@@ -57,6 +58,8 @@
 #include <openswmm/engine/openswmm_engine.h>
 
 #include <algorithm>
+
+namespace swmmunits = openswmmvis::core::units;
 
 // Bulk-delete timings (BULK_DELETE_AND_WINDOWS_OPEN_PERF_PLAN Phase 0) —
 // per-file definition of the shared "openswmm.bulkdelete" category (the
@@ -2167,7 +2170,7 @@ void OpenSWMMVisMapToolSelect::commitSubcatchDrag(QVector<QPointF> newVertices)
     double oldArea = 0.0, newArea = 0.0;
     if (autoLength) {
         const bool isSI = UnitSystem::instance()->isSI();
-        const double conv = isSI ? 10000.0 : 43560.0; // m²→ha or ft²→ac
+        const double conv = isSI ? swmmunits::kM2PerHectare : swmmunits::kFt2PerAcre; // m²→ha or ft²→ac
         // Old area from engine
         SWMM_Engine eng = m_editLayer->engine();
         if (eng)

@@ -7,6 +7,8 @@
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
+#include "core/swmmunits.h"
+namespace swmmunits = openswmmvis::core::units;
 #include "ui/widgets/meshresolutionwidget.h"
 
 #include "ui/dialogs/meshgenerationdialog.h"
@@ -4812,16 +4814,16 @@ void MeshGenerationDialog::updateZFactor()
     auto *raster = qobject_cast<GISRasterLayer *>(
         static_cast<QObject *>(m_dtmCombo ? m_dtmCombo->currentData().value<void *>() : nullptr));
     const QString dtmUnit = raster ? raster->detectVerticalUnit() : QStringLiteral("m");
-    const double dtmToSI = (dtmUnit == QLatin1String("ft")) ? 0.3048 : 1.0;
+    const double dtmToSI = (dtmUnit == QLatin1String("ft")) ? swmmunits::kFtToM : 1.0;
 
     // Determine desired output vertical unit.
     const QString outSel =
         m_meshVertCRSCombo ? m_meshVertCRSCombo->currentData().toString() : QStringLiteral("auto");
     double outToSI = 1.0;
     if (outSel == QLatin1String("auto")) {
-        outToSI = (m_pw && m_pw->unitSystem() && !m_pw->unitSystem()->isSI()) ? 0.3048 : 1.0;
+        outToSI = (m_pw && m_pw->unitSystem() && !m_pw->unitSystem()->isSI()) ? swmmunits::kFtToM : 1.0;
     } else if (outSel == QLatin1String("ft")) {
-        outToSI = 0.3048;
+        outToSI = swmmunits::kFtToM;
     }
 
     QSignalBlocker b(m_zFactorSpin);
@@ -4873,7 +4875,7 @@ void MeshGenerationDialog::seedDefaults()
 
     // Scale distance defaults (stored SI-canonical) to the project's
     // length unit.
-    const double toUnit = UnitSystem::instance()->isSI() ? 1.0 : 1.0 / 0.3048;
+    const double toUnit = UnitSystem::instance()->isSI() ? 1.0 : swmmunits::kMToFt;
     m_nodeFlattenSpin->setValue(t.meshNodeFlattenRadM * toUnit);
     m_nodeMinSepBox->setChecked(t.meshMinNodeSepOn);
     m_nodeMinSepSpin->setValue(t.meshMinNodeSepM * toUnit);

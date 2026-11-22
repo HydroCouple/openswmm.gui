@@ -9,6 +9,7 @@
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
+#include "core/swmmunits.h"
 #include "ui/dialogs/lidcontroleditordialog.h"
 #include "core/swmmidentifier.h"
 
@@ -66,6 +67,8 @@
 #include <QStyle>
 #include <QTabWidget>
 #include <QVBoxLayout>
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace openswmmvis::ui
 {
@@ -1004,7 +1007,7 @@ void LidControlEditorDialog::buildUi_()
     m_richardsRtol = makeSpin(m_nodeLayerPage, 1.e-12, .1, 1.e-5);
     m_richardsRtol->setDecimals(12);
     m_richardsRtol->setValue(1.e-5);
-    m_richardsMaxStep = makeSpin(m_nodeLayerPage, .001, 86400, 1);
+    m_richardsMaxStep = makeSpin(m_nodeLayerPage, .001, swmmunits::kSecPerDayInt, 1);
     m_richardsMaxStep->setValue(30);
     numericsForm->addRow(tr("Absolute water-content tolerance"), m_richardsAtol);
     numericsForm->addRow(tr("Relative tolerance"), m_richardsRtol);

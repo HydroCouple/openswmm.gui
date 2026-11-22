@@ -7,6 +7,7 @@
  * @license   GPL-3.0-or-later
  */
 
+#include "core/swmmunits.h"
 #include "ui/dialogs/channelburndialog.h"
 
 #include "core/unitsystem.h"
@@ -57,6 +58,8 @@
 #include <algorithm>
 #include <cmath>
 #include <vector>
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace
 {
@@ -464,7 +467,7 @@ bool ChannelBurnDialog::collectInputs(mesh::ChannelMeshBurnInputs *out, QString 
         return fail(tr("Assign a projected or local CRS with linear units to the model and mesh."));
     const double meshUnitToSI = meshSrs->planarLinearUnit().metresPerUnit;
     const bool si = m_project->unitSystem() && m_project->unitSystem()->isSI();
-    const double modelToSI = si ? 1.0 : 0.3048;
+    const double modelToSI = si ? 1.0 : swmmunits::kFtToM;
     const double xyScale = modelToSI / meshUnitToSI;
     const double zScale = m_mesh->meshUnitsSI() ? modelToSI : 1.0;
     out->verticalUnitToSI = m_mesh->meshUnitsSI() ? 1.0 : modelToSI;

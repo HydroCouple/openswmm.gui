@@ -7,6 +7,7 @@
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
+#include "core/swmmunits.h"
 #include "ui/widgets/sunpositionthumb.h"
 
 #include <QPaintEvent>
@@ -14,6 +15,8 @@
 
 #include <algorithm>
 #include <cmath>
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace openswmmvis::ui
 {
@@ -64,8 +67,7 @@ void SunPositionThumb::paintEvent(QPaintEvent *)
     p.setFont(prev);
 
     // Sun position: compass bearing measured clockwise from north.
-    constexpr double kPi = 3.14159265358979323846;
-    const double azRad = m_azimuth * kPi / 180.0;
+    const double azRad = m_azimuth * swmmunits::kPiExact / 180.0;
     // Altitude collapses the vector toward center at high sun angles.
     const double altT = std::clamp(m_altitude / 90.0, 0.0, 1.0);
     const double rr = r * (1.0 - altT); // sun overhead → vector length 0

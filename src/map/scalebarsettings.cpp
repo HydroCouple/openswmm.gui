@@ -7,9 +7,12 @@
  * @license   GPL-3.0-or-later
  */
 
+#include "core/swmmunits.h"
 #include "map/scalebarsettings.h"
 
 #include <cmath>
+
+namespace swmmunits = openswmmvis::core::units;
 
 ScaleBarSettings::ScaleBarSettings(QObject *parent) : QObject(parent) {}
 
@@ -108,7 +111,7 @@ QString ScaleBarSettings::formatLabel(double metres, bool rawUnits) const
         return m_compactNotation ? QStringLiteral("%1m").arg(fmt(metres))
                                  : QStringLiteral("%1 m").arg(fmt(metres));
     case Feet:
-        return QStringLiteral("%1 ft").arg(fmt(metres * 3.28083989501));
+        return QStringLiteral("%1 ft").arg(fmt(metres * swmmunits::kMToFt));
     case Kilometers:
         return m_compactNotation ? QStringLiteral("%1k").arg(fmt(metres / 1000.0))
                                  : QStringLiteral("%1 km").arg(fmt(metres / 1000.0));
@@ -144,7 +147,7 @@ double ScaleBarSettings::roundedMetres(double metres) const
     case Meters:
         return roundVal(metres);
     case Feet:
-        return roundVal(metres * 3.28083989501) / 3.28083989501;
+        return roundVal(metres * swmmunits::kMToFt) / swmmunits::kMToFt;
     case Kilometers:
         return roundVal(metres / 1000.0) * 1000.0;
     case Miles:
@@ -161,7 +164,7 @@ double ScaleBarSettings::niceMetres(double maximumMetres, bool rawUnits) const
     if (!rawUnits) {
         switch (m_units) {
         case Feet:
-            unitMetres = 0.3048;
+            unitMetres = swmmunits::kFtToM;
             break;
         case Miles:
             unitMetres = 1609.344;

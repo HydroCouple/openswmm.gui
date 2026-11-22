@@ -7,6 +7,7 @@
  * @license   GPL-3.0-or-later
  */
 
+#include "core/swmmunits.h"
 #include "layers/gisrasterlayer.h"
 #include "ui/dialogs/ilayerstylesubject.h"
 #include "map/graphicsitems.h"
@@ -43,6 +44,8 @@
 #include <cmath>
 #include <algorithm>
 #include <vector>
+
+namespace swmmunits = openswmmvis::core::units;
 
 // RasterColorRamp method bodies relocated to src/render/colorramp.cpp
 // (Slice BB-α, 2026-05-24).
@@ -333,7 +336,7 @@ QString GISRasterLayer::detectVerticalUnit() const
                 vertSRS->Release();
                 if (qAbs(u - 1.0) < 1e-6)
                     return QStringLiteral("m");
-                if (qAbs(u - 0.3048) < 1e-4)
+                if (qAbs(u - swmmunits::kFtToM) < 1e-4)
                     return QStringLiteral("ft");
                 return QStringLiteral("m");
             }
@@ -347,7 +350,7 @@ QString GISRasterLayer::detectVerticalUnit() const
     const double u = srs.GetLinearUnits(&unitName);
     if (qAbs(u - 1.0) < 1e-6)
         return QStringLiteral("m");
-    if (qAbs(u - 0.3048) < 1e-4)
+    if (qAbs(u - swmmunits::kFtToM) < 1e-4)
         return QStringLiteral("ft");
 
     return QStringLiteral("m");

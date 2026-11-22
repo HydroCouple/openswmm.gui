@@ -7,17 +7,20 @@
  * @license   GPL-3.0-or-later
  */
 
+#include "core/swmmunits.h"
 #include "core/measurementunitmanager.h"
 
 #include <QLocale>
 #include <cmath>
+
+namespace swmmunits = openswmmvis::core::units;
 
 // ---------------------------------------------------------------------------
 // Distance unit tables
 // ---------------------------------------------------------------------------
 
 static constexpr double kMetresToKm = 0.001;
-static constexpr double kMetresToFeet = 3.280839895013123;
+static constexpr double kMetresToFeet = swmmunits::kMToFt;
 static constexpr double kMetresToUSFeet = (3937.0 / 1200.0);
 static constexpr double kMetresToMiles = 1.0 / 1609.344;
 static constexpr double kMetresToNautical = 1.0 / 1852.0;
@@ -119,7 +122,7 @@ QStringList MeasurementUnitManager::distanceUnitNames()
 
 static constexpr double kSqmToSqKm = 1.0e-6;
 static constexpr double kSqmToHa = 1.0e-4;
-static constexpr double kSqmToAcres = 1.0 / 4046.8564224;
+static constexpr double kSqmToAcres = 1.0 / swmmunits::kSqMPerAcre;
 static constexpr double kSqmToSqFt = 10.763910417;
 static constexpr double kSqmToSqMi = 1.0 / 2589988.110336;
 static constexpr double kSqmToSqYd = 1.19599005;

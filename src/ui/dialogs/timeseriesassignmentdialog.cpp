@@ -6,6 +6,7 @@
  * @license GPL-3.0-or-later
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+#include "core/swmmunits.h"
 #include "ui/dialogs/timeseriesassignmentdialog.h"
 #include "swmmvisprojectwindow.h"
 #include "layers/swmmmodellayer.h"
@@ -42,6 +43,8 @@
 #include <openswmm/engine/openswmm_tables.h>
 #include <openswmm/engine/openswmm_inflows.h>
 #include <openswmm/engine/openswmm_nodes.h>
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace openswmmvis::ui
 {
@@ -150,12 +153,12 @@ TimeSeriesAssignmentDialog::TimeSeriesAssignmentDialog(SWMMVisProjectWindow *pro
     m_daily = new QCheckBox(tr("Hold each daily statistic across its calendar day (one-second transition between days)"), this);
     m_daily->setObjectName("confirmDailyHold");
     m_quality = new QCheckBox(tr("Include provisional and qualified observations"), this);
-    m_interval = new QSpinBox(this); m_interval->setRange(0, 86400*30); m_interval->setSpecialValueText(tr("Check spacing from record")); m_interval->setSuffix(tr(" seconds"));
+    m_interval = new QSpinBox(this); m_interval->setRange(0, swmmunits::kSecPerDayInt*30); m_interval->setSpecialValueText(tr("Check spacing from record")); m_interval->setSuffix(tr(" seconds"));
     m_irregular = new QCheckBox(tr("Allow linear interpolation of irregular finite samples"), this);
     m_datum = new QDoubleSpinBox(this); m_datum->setRange(-1e7,1e7); m_datum->setDecimals(5);
     m_datumConfirmed = new QCheckBox(tr("I reviewed the datum; this offset produces absolute model stage"), this);
     m_rainFormat = new QComboBox(this); m_rainFormat->addItems({tr("Intensity"),tr("Volume"),tr("Cumulative")});
-    m_rainInterval = new QSpinBox(this); m_rainInterval->setRange(1,86400*30); m_rainInterval->setValue(900); m_rainInterval->setSuffix(tr(" seconds"));
+    m_rainInterval = new QSpinBox(this); m_rainInterval->setRange(1,swmmunits::kSecPerDayInt*30); m_rainInterval->setValue(900); m_rainInterval->setSuffix(tr(" seconds"));
     form->addRow(tr("New series name"), m_name); form->addRow(tr("Use"), m_target);
     form->addRow(tr("Existing object ID"), m_object); form->addRow(tr("Target units"),m_unit);
     form->addRow(m_unitsConfirmed); form->addRow(tr("From (source time)"),m_from); form->addRow(tr("Through (source time)"),m_to);

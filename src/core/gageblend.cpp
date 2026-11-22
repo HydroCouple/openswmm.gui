@@ -8,11 +8,14 @@
  * @license   GPL-3.0-or-later
  */
 
+#include "core/swmmunits.h"
 #include "core/gageblend.h"
 
 #include <algorithm>
 #include <cmath>
 #include <utility>
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace GageBlend
 {
@@ -182,7 +185,7 @@ PreparedSources prepare(const QVector<SourceGage> &sources)
                                  "%2 s over %3 days). The limit is %4.")
                       .arg(cellCount)
                       .arg(pitch)
-                      .arg((spanHi - spanLo) / 86400)
+                      .arg((spanHi - spanLo) / swmmunits::kSecPerDay)
                       .arg(kMaxGridCells);
         return p;
     }

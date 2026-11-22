@@ -9,6 +9,7 @@
  * @license   GPL-3.0-or-later
  */
 
+#include "core/swmmunits.h"
 #include "layers/swmmmodellayer.h"
 #include "map/spatialreferencesystem.h"
 #include "output/tracedata.h"
@@ -19,6 +20,8 @@
 #include <openswmm/engine/openswmm_climate.h>
 #include <openswmm/engine/openswmm_links.h>
 #include <openswmm/engine/openswmm_nodes.h>
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace openswmmvis::trace
 {
@@ -33,7 +36,7 @@ Snapshot Snapshot::capture(SWMMModelLayer *model, QString *error)
     auto e = model->engine();
     int units = 0;
     swmm_get_flow_units(e, &units);
-    double lengthFactor = units < 3 ? 0.3048 : 1;
+    double lengthFactor = units < 3 ? swmmunits::kFtToM : 1;
     for (int i = 0; i < swmm_node_count(e); ++i) {
         const char *id = swmm_node_id(e, i);
         if (!id) {

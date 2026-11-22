@@ -6,6 +6,7 @@
  * @license GPL-3.0-or-later
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+#include "core/swmmunits.h"
 #include "plot/timeseriesrunlayer.h"
 #include "timeseries/timeseriesstore.h"
 #include "core/swmmdatetime.h"
@@ -18,6 +19,8 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace openswmmvis::plot
 {
@@ -167,7 +170,7 @@ void TimeSeriesRunLayer::startNext()
         if (from.isValid()) from = from.addSecs(-offset);
         if (to.isValid()) to = to.addSecs(-offset);
         work->data = readWindow(*dataset, work->request.id, from, to, &work->cancel);
-        if (offset) for (auto &t : work->data.timesJulian) t += offset / 86400.0;
+        if (offset) for (auto &t : work->data.timesJulian) t += offset / swmmunits::kSecPerDay;
         work->data.statisticsFrom = work->request.from;
         work->data.statisticsTo = work->request.to;
         if (offset) work->data.displayNote += tr(" UTC instants mapped to the chosen model clock.");
@@ -254,7 +257,7 @@ SeriesData TimeSeriesRunLayer::readWindow(const TimeSeriesDataset &dataset, cons
             // Retain millisecond plotting resolution; model authoring's whole-second rounding
             // is deliberately confined to the explicit assignment preparation path.
             const auto dt = displayTime(*s, v.key);
-            out.timesJulian.push_back(25569.0 + dt.toMSecsSinceEpoch() / 86400000.0);
+            out.timesJulian.push_back(25569.0 + dt.toMSecsSinceEpoch() / swmmunits::kMsecPerDay);
             out.values.push_back(v.value);
         }
     }

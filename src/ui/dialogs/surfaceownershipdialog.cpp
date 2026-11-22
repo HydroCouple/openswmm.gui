@@ -9,6 +9,7 @@
  * @license   GPL-3.0-or-later
  */
 
+#include "core/swmmunits.h"
 #include "ui/dialogs/surfaceownershipdialog.h"
 #include "layers/swmmmodellayer.h"
 #include "layers/swmm2dmeshlayer.h"
@@ -37,6 +38,8 @@
 #include <QTableWidget>
 #include <QVBoxLayout>
 #include <algorithm>
+
+namespace swmmunits = openswmmvis::core::units;
 namespace openswmmvis::ui
 {
 using namespace assignment;
@@ -184,7 +187,7 @@ SurfaceOwnershipDialog::SurfaceOwnershipDialog(SWMMModelLayer *model, SWMM2DMesh
 {
     int flow = 0;
     swmm_get_flow_units(m_engine, &flow);
-    m_areaFactor = flow < 3 ? 43560 * .3048 * .3048 : 10000.;
+    m_areaFactor = flow < 3 ? swmmunits::kFt2PerAcre * swmmunits::kFtToM * swmmunits::kFtToM : swmmunits::kM2PerHectare;
     m_areaUnit = flow < 3 ? tr("acres") : tr("ha");
     setWindowTitle(tr("Surface ownership review"));
     setWindowModality(Qt::WindowModal);

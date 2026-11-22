@@ -9,6 +9,7 @@
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
+#include "core/swmmunits.h"
 #include "io/timeseriesparse.h"
 
 #include "core/swmmdatetime.h"
@@ -20,6 +21,8 @@
 
 #include <cmath>
 #include <limits>
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace openswmmvis::io
 {
@@ -189,7 +192,7 @@ bool tryParseClockToDayFraction_(const QString &s, double &fracOut)
     }
     if (hr < 0 || min < 0 || sec < 0)
         return false;
-    fracOut = (hr * 3600 + min * 60 + sec) / 86400.0;
+    fracOut = (hr * 3600 + min * 60 + sec) / swmmunits::kSecPerDay;
     return true;
 }
 

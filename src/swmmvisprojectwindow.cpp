@@ -1,3 +1,4 @@
+#include "core/swmmunits.h"
 #include "ui/dialogs/textlayersdialog.h"
 #include "simulation/runpathresolver.h"
 #include "core/enginestring.h"
@@ -119,6 +120,8 @@
 #include <openswmm/engine/openswmm_spatial.h>
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_tables.h>
+
+namespace swmmunits = openswmmvis::core::units;
 
 SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace, const QString &filePath,
                                            QWidget *parent, const QUuid &instanceId,
@@ -531,8 +534,8 @@ SWMMVisProjectWindow::SWMMVisProjectWindow(OpenSWMMVisWorkspace *workspace, cons
     // Recompute the vertical factor and update the canvas unit label whenever
     // the project's flow units change (e.g., user switches CFS ↔ CMS).
     connect(mUnits, &UnitSystem::unitsChanged, this, [this](swmm_FlowUnitsProperty) {
-        const double rasterToSI = (mTerrainVertUnit == QLatin1String("ft")) ? 0.3048 : 1.0;
-        const double modelToSI = mUnits->isSI() ? 1.0 : 0.3048;
+        const double rasterToSI = (mTerrainVertUnit == QLatin1String("ft")) ? swmmunits::kFtToM : 1.0;
+        const double modelToSI = mUnits->isSI() ? 1.0 : swmmunits::kFtToM;
         mTerrainVertFactor = rasterToSI / modelToSI;
         mCanvas->setTerrainUnit(mUnits->depthLabel());
         // Re-propagate updated factor to map tools.
@@ -3369,8 +3372,8 @@ void SWMMVisProjectWindow::setTerrainVerticalUnit(const QString &unit, bool mark
     // FLOW_UNITS — so the first DEM selection in a US-customary project
     // would otherwise display raw meters labeled as feet until the user
     // manually toggled the unit combo.
-    const double rasterToSI = (newUnit == QLatin1String("ft")) ? 0.3048 : 1.0;
-    const double modelToSI = mUnits->isSI() ? 1.0 : 0.3048;
+    const double rasterToSI = (newUnit == QLatin1String("ft")) ? swmmunits::kFtToM : 1.0;
+    const double modelToSI = mUnits->isSI() ? 1.0 : swmmunits::kFtToM;
     const double newFactor = rasterToSI / modelToSI;
 
     if (mTerrainVertUnit == newUnit && mTerrainVertFactor == newFactor)

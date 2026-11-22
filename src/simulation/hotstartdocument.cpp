@@ -8,6 +8,7 @@
  * @license   GPL-3.0-or-later
  */
 
+#include "core/swmmunits.h"
 #include "simulation/hotstartdocument.h"
 
 #include <QFile>
@@ -22,6 +23,8 @@
 #include <openswmm/engine/openswmm_model.h>
 #include <openswmm/engine/openswmm_nodes.h>
 #include <openswmm/engine/openswmm_subcatchments.h>
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace openswmmvis::simulation
 {
@@ -63,20 +66,21 @@ HotStartUnits HotStartUnits::forEngine(SWMM_Engine engine)
     if (!engine || swmm_options_get(engine, "FLOW_UNITS", buf, int(sizeof buf)) != SWMM_OK)
         return units;
     const QString flow = QString::fromLatin1(buf).trimmed().toUpper();
-    static const QHash<QString, double> kFlow{{QStringLiteral("CFS"), 1.0},
-                                              {QStringLiteral("GPM"), 448.831},
-                                              {QStringLiteral("MGD"), 0.64631689},
-                                              {QStringLiteral("CMS"), 0.02831685},
-                                              {QStringLiteral("LPS"), 28.31685},
-                                              {QStringLiteral("MLD"), 2.4465757}};
+    // The engine's own Qcf, so a hot start converted here lands on its numbers.
+    static const QHash<QString, double> kFlow{{QStringLiteral("CFS"), swmmunits::kQcf[0]},
+                                              {QStringLiteral("GPM"), swmmunits::kQcf[1]},
+                                              {QStringLiteral("MGD"), swmmunits::kQcf[2]},
+                                              {QStringLiteral("CMS"), swmmunits::kQcf[3]},
+                                              {QStringLiteral("LPS"), swmmunits::kQcf[4]},
+                                              {QStringLiteral("MLD"), swmmunits::kQcf[5]}};
     if (!kFlow.contains(flow))
         return units;
     units.flow = kFlow.value(flow);
     units.flowLabel = flow;
     if (flow == QLatin1String("CMS") || flow == QLatin1String("LPS") ||
         flow == QLatin1String("MLD")) {
-        units.length = 0.3048;
-        units.volume = 0.02831685;
+        units.length = swmmunits::kFtToM;
+        units.volume = swmmunits::kUcfVolume[1];
         units.lengthLabel = QStringLiteral("m");
         units.volumeLabel = QStringLiteral("m³");
     }

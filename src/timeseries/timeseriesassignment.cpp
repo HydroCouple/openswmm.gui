@@ -6,12 +6,15 @@
  * @license GPL-3.0-or-later
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
+#include "core/swmmunits.h"
 #include "timeseries/timeseriesassignment.h"
 #include "timeseries/timeseriesstore.h"
 #include <QJsonArray>
 #include <QTimeZone>
 #include <algorithm>
 #include <cmath>
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace OpenSWMM::TimeSeries
 {
@@ -33,8 +36,8 @@ Unit unit(const QString &text)
     if (s == "ft3/s" || s == "cfs" || s == "ft3s") return {"flow", .028316846592};
     if (s == "l/s" || s == "lps") return {"flow", .001};
     if (s == "gpm") return {"flow", .003785411784 / 60.};
-    if (s == "mgd") return {"flow", 3785.411784 / 86400.};
-    if (s == "mld") return {"flow", 1000. / 86400.};
+    if (s == "mgd") return {"flow", 3785.411784 / swmmunits::kSecPerDay};
+    if (s == "mld") return {"flow", 1000. / swmmunits::kSecPerDay};
     if (s == "m") return {"length", 1};
     if (s == "ft" || s == "feet") return {"length", .3048};
     if (s == "mm") return {"length", .001};
@@ -43,7 +46,7 @@ Unit unit(const QString &text)
     if (s == "in/hr" || s == "in/h") return {"rainrate", .0254 / 3600.};
     if (s == "c" || s == "degc") return {"temperature", 1, 0};
     if (s == "f" || s == "degf") return {"temperature", 5. / 9., -32. * 5. / 9.};
-    if (s == "k") return {"temperature", 1, -273.15};
+    if (s == "k") return {"temperature", 1, -swmmunits::kKelvinOffset};
     return {};
 }
 /** @brief Detect source qualifiers/provisional states requiring explicit acceptance. */

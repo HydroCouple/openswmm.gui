@@ -8,6 +8,7 @@
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
+#include "core/swmmunits.h"
 #include "simulation/simulationrunner.h"
 #include "io/engineinputplugin.h"
 #include "results/summarytables.h"
@@ -212,6 +213,8 @@ void emitTwoDSolverStats(SimulationRunner *self, int jobId, SWMM_Engine eng)
 #include <QtNumeric>
 
 #include <cmath>
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace
 {
@@ -1252,7 +1255,7 @@ void SimulationRunner::start()
                 swmm_get_current_time(eng, &curTSec); // seconds since sim start
                 double frac = 0.0;
                 if (simSpanDays > 0.0) {
-                    frac = (curTSec / 86400.0) / simSpanDays;
+                    frac = (curTSec / swmmunits::kSecPerDay) / simSpanDays;
                     if (frac < 0.0)
                         frac = 0.0;
                     if (frac > 1.0)
@@ -1372,7 +1375,7 @@ void SimulationRunner::start()
                         // Match saved rainfall at this tick's timestamp. The
                         // applied solver field is a mean over the preceding
                         // routing window and can lag a gage record boundary.
-                        const double rainDate = startOA + curTSec / 86400.0;
+                        const double rainDate = startOA + curTSec / swmmunits::kSecPerDay;
                         if (swmm_2d_get_report_rainfall_bulk(eng, rainDate, rawRain.data()) ==
                                 SWMM_OK &&
                             swmm_2d_get_rain_volume_bulk(eng, rawCum.data()) == SWMM_OK) {
@@ -1494,7 +1497,7 @@ void SimulationRunner::start()
 
             if (rc != SWMM_OK) {
                 stepFailCode = rc;
-                const double simSec = elapsed * 86400.0;
+                const double simSec = elapsed * swmmunits::kSecPerDay;
                 stepFailPhase =
                     QStringLiteral("step at %1")
                         .arg(simStart.isValid()
@@ -1698,7 +1701,7 @@ void SimulationRunner::start()
                     // Running average routing step (seconds). The worker
                     // reports cumulative elapsed days plus the step count.
                     const double avgTs =
-                        stepCount > 0 ? (elapsedDays * 86400.0) / double(stepCount) : 0.0;
+                        stepCount > 0 ? (elapsedDays * swmmunits::kSecPerDay) / double(stepCount) : 0.0;
                     // Running (timestep-by-timestep) continuity errors,
                     // emitted by the worker via swmm_getRunningMassBalErr as
                     // fractions. Absent on older workers → default 0.0.
@@ -1706,7 +1709,7 @@ void SimulationRunner::start()
                     const double routingErr = obj.value("routing").toDouble();
                     const QDateTime curQDT =
                         simStart.isValid()
-                            ? simStart.addMSecs(static_cast<qint64>(elapsedDays * 86400.0 * 1000.0))
+                            ? simStart.addMSecs(static_cast<qint64>(elapsedDays * swmmunits::kSecPerDay * 1000.0))
                             : QDateTime();
                     QMetaObject::invokeMethod(
                         rawSelf,

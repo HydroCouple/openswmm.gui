@@ -9,6 +9,7 @@
  * @license   GPL-3.0-or-later
  */
 
+#include "core/swmmunits.h"
 #include "simulation/checkpointworker.h"
 #include "simulation/simulationrunner.h"
 #include "simulation/runpathlease.h"
@@ -40,6 +41,8 @@
 #include <filesystem>
 #include <limits>
 #include <stdexcept>
+
+namespace swmmunits = openswmmvis::core::units;
 
 struct CheckpointWorker::Control {
     std::atomic_bool cancelled{false};
@@ -609,7 +612,7 @@ CheckpointResult CheckpointWorker::execute(const CheckpointRequest &request, qui
                             saved.success = true;
                             saved.acceptedSeconds = result.acceptedSeconds;
                             saved.acceptedDate =
-                                result.startDate + result.acceptedSeconds / 86400.0;
+                                result.startDate + result.acceptedSeconds / swmmunits::kSecPerDay;
                         } catch (const Failure &f) {
                             saved.errorCode = f.code;
                             saved.error = f.message;

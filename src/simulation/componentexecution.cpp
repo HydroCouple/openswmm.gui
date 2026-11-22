@@ -1,4 +1,5 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
+#include "core/swmmunits.h"
 #include "simulation/componentexecution.h"
 #include "simulation/runpathlease.h"
 #include "core/swmmdatetime.h"
@@ -15,6 +16,8 @@
 #include <cmath>
 #include <filesystem>
 #include <stdexcept>
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace openswmmvis::simulation {
 namespace {
@@ -115,8 +118,8 @@ void ComposerSimulationRunner::begin(){
         double first=0,last=0;
         if(swmm_get_start_time(metadata.get(),&first)||swmm_get_end_time(metadata.get(),&last)||!std::isfinite(first)||!std::isfinite(last)||last<=first)throw std::runtime_error("Model simulation period is unavailable.");
         epoch_=first+2415018.5;
-        const double duration=std::round((last-first)*86400000.)/1000.;
-        end_=epoch_+duration/86400.;current_=epoch_;
+        const double duration=std::round((last-first)*swmmunits::kMsecPerDay)/1000.;
+        end_=epoch_+duration/swmmunits::kSecPerDay;current_=epoch_;
         startDate_=core::swmmDateTimeToMilliseconds(first);endDate_=core::swmmDateTimeToMilliseconds(last);
         if(duration<=0||!std::isfinite(end_)||!startDate_.isValid()||!endDate_.isValid())throw std::runtime_error("Model simulation period is not supported by the component clock.");
         emit simulationDatesKnown(jobId(),startDate_,endDate_);if(!self)return;
@@ -176,7 +179,7 @@ void ComposerSimulationRunner::line(const QByteArray &bytes){
             if(seen!=ids_)throw std::runtime_error("Composer progress omits a component.");current_=time;
             if(!progressTimer_.isValid()||progressTimer_.elapsed()>=100||time==end_){
                 progressTimer_.start();const double fraction=qBound(0.,(time-epoch_)/(end_-epoch_),1.);
-                emit progressChanged(jobId(),fraction,startDate_.addMSecs(std::llround((time-epoch_)*86400000.)),qQNaN(),qQNaN(),qQNaN(),qQNaN());}
+                emit progressChanged(jobId(),fraction,startDate_.addMSecs(std::llround((time-epoch_)*swmmunits::kMsecPerDay)),qQNaN(),qQNaN(),qQNaN(),qQNaN());}
         }else if(kind=="initializing"){
             if(!ids_.contains(e.value("component").toString()))throw std::runtime_error("Composer initialized an unknown component.");
         }else if(kind=="finished"){
@@ -203,7 +206,7 @@ bool ComposerSimulationRunner::verifyResults(QString *error) {
     QJsonParseError metadataError;const auto metadata=QJsonDocument::fromJson(read(metadataPath),&metadataError).object();
     if(metadataError.error!=QJsonParseError::NoError||metadata.value("schema")!="openswmm.component-metadata/1"||metadata.value("instance_id")!=request_.settings.value("network_id"))return refuse(error,tr("Component metadata identity does not match the run."));
     const double epoch=metadata.value("epoch_julian_day").toDouble(qQNaN()),duration=metadata.value("duration_s").toDouble(qQNaN());
-    if(!std::isfinite(epoch)||!std::isfinite(duration)||duration<=0||epoch!=epoch_||current_!=epoch+duration/86400.)return refuse(error,tr("Component run did not reach its declared synchronized endpoint."));
+    if(!std::isfinite(epoch)||!std::isfinite(duration)||duration<=0||epoch!=epoch_||current_!=epoch+duration/swmmunits::kSecPerDay)return refuse(error,tr("Component run did not reach its declared synchronized endpoint."));
     if(request_.settings.value("mode")=="complete"){
         const auto surface=metadata.value("result_files").toObject().value("surface");
         if(!surface.isUndefined()&&surface!="model.2d.h5")return refuse(error,tr("Unsupported component surface result declaration."));

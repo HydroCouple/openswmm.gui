@@ -9,6 +9,7 @@
  * @license   GPL-3.0-or-later
  */
 
+#include "core/swmmunits.h"
 #include "ui/dialogs/meshprofileplotdialog.h"
 #include "ui/theme/iconfactory.h"
 #include "ui/dialogs/dialoglayoutpersistence.h"
@@ -49,6 +50,8 @@
 #include <QTreeView>
 #include <QVBoxLayout>
 
+namespace swmmunits = openswmmvis::core::units;
+
 MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer *mesh, SWMM2DResultsLayer *results,
                                              AnimationController *anim,
                                              const QVector<QPointF> &scenePolyline,
@@ -75,10 +78,10 @@ MeshProfilePlotDialog::MeshProfilePlotDialog(SWMM2DMeshLayer *mesh, SWMM2DResult
     m_mapUnitsPerMetre =
         m_results
             ? m_results->depthToMeshUnits()
-            : ((m_mesh && m_mesh->meshUnitsSI()) || (units && units->isSI()) ? 1.0 : 1.0 / 0.3048);
+            : ((m_mesh && m_mesh->meshUnitsSI()) || (units && units->isSI()) ? 1.0 : swmmunits::kMToFt);
     const double toMap = m_mapUnitsPerMetre;
     m_definition.elevationUnits =
-        qAbs(toMap - 1.0 / 0.3048) < 1e-5 ? QStringLiteral("ft") : QStringLiteral("m");
+        qAbs(toMap - swmmunits::kMToFt) < 1e-5 ? QStringLiteral("ft") : QStringLiteral("m");
     m_definition.horizontalUnits =
         sceneSrs ? sceneSrs->linearUnitsName() : m_definition.elevationUnits;
     if (m_results) {
@@ -318,7 +321,7 @@ void MeshProfilePlotDialog::rebuildProfile()
     m_profile = MeshProfileSampler::buildMeshProfile(m_mesh.data(), m_results.data(),
                                                      m_scenePolyline, 0.0, false);
     const double toMap = m_results ? m_results->depthToMeshUnits() : m_mapUnitsPerMetre;
-    const double toAxis = m_definition.elevationUnits == QLatin1String("ft") ? 1.0 / 0.3048 : 1.0;
+    const double toAxis = m_definition.elevationUnits == QLatin1String("ft") ? swmmunits::kMToFt : 1.0;
     m_verticalScale = toMap > 0 ? toAxis / toMap : 1.0;
     for (auto &sample : m_profile.samples) {
         sample.ground *= m_verticalScale;

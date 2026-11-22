@@ -12,6 +12,8 @@
  * @license   GPL-3.0-or-later
  */
 
+#include "core/swmmunits.h"
+namespace swmmunits = openswmmvis::core::units;
 #include "simulation/hotstartdocument.h"
 #include "ui/dialogs/hotstartinspectordialog.h"
 
@@ -149,7 +151,7 @@ void TestHotStartInspector::unitsFollowTheModelsFlowUnits()
     QCOMPARE(units.flowLabel, QStringLiteral("LPS"));
     QCOMPARE(units.lengthLabel, QStringLiteral("m"));
     QCOMPARE(units.length, 0.3048);
-    QCOMPARE(units.flow, 28.31685);
+    QCOMPARE(units.flow, swmmunits::kQcf[4]); // the engine's LPSperCFS, 28.317
 
     // Shown in meters, edited in meters, stored in feet.
     const QString copy = copyOf(m_native, QStringLiteral("si_edit"));

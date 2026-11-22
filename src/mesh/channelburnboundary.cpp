@@ -18,6 +18,7 @@
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
+#include "core/swmmunits.h"
 #include "mesh/channelburnboundary.h"
 
 #include "mesh/meshquadregion.h"
@@ -26,6 +27,8 @@
 #include <cmath>
 #include <numeric>
 #include <QCryptographicHash>
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace mesh
 {
@@ -475,7 +478,7 @@ static double connectorLengthFor(const BurnProfile &p, double c, const BurnConne
     if (rule.routingStepS > 0 && rule.horizontalUnitToSI > 0) {
         const double depth = bankHeightAt(p, c) * rule.verticalUnitToSI;
         if (depth > 0)
-            length = rule.routingStepS * std::sqrt(9.81 * depth) / rule.horizontalUnitToSI;
+            length = rule.routingStepS * std::sqrt(swmmunits::kGravitySI * depth) / rule.horizontalUnitToSI;
     }
     return std::max(length, 2 * rule.cellSize);
 }

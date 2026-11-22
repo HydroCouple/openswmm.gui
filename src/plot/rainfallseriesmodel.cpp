@@ -11,6 +11,7 @@
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
+#include "core/swmmunits.h"
 #include "plot/rainfallseriesmodel.h"
 
 #include "core/swmmdatetime.h"
@@ -19,6 +20,8 @@
 #include <openswmm/engine/openswmm_gages.h>
 
 #include <algorithm>
+
+namespace swmmunits = openswmmvis::core::units;
 
 namespace openswmmvis::plot
 {
@@ -107,7 +110,7 @@ double RainfallSeriesModel::entryDurationSecs(const RainGageRainfall &g, int i)
         return 0.0;
     double dur = g.intervalSec;
     if (i + 1 < n) {
-        const double gapSecs = (g.timesOA[i + 1] - g.timesOA[i]) * 86400.0;
+        const double gapSecs = (g.timesOA[i + 1] - g.timesOA[i]) * swmmunits::kSecPerDay;
         dur = std::min(dur, gapSecs);
     }
     return std::max(dur, 0.0);
@@ -132,7 +135,7 @@ RainGageStats RainfallSeriesModel::computeStats(const RainGageRainfall &g)
             s.peakTime = openswmmvis::core::swmmDateTimeToQDateTime(g.timesOA[i]);
         }
         if (i + 1 < n) {
-            const double gapSecs = (g.timesOA[i + 1] - g.timesOA[i]) * 86400.0;
+            const double gapSecs = (g.timesOA[i + 1] - g.timesOA[i]) * swmmunits::kSecPerDay;
             // 1.5× tolerance absorbs float noise on regularly-spaced records
             // while still catching a skipped interval.
             if (gapSecs > 1.5 * g.intervalSec) {

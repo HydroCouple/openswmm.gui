@@ -7,6 +7,7 @@
  * @license   GPL-3.0-or-later
  */
 
+#include "core/swmmunits.h"
 #include "layers/swmmmodellayer.h"
 #include "io/engineinputplugin.h"
 #include "ui/properties/linkendpointref.h"
@@ -104,6 +105,8 @@
 #include <openswmm/engine/openswmm_inflows.h>
 
 #include <nanoflann.hpp>
+
+namespace swmmunits = openswmmvis::core::units;
 
 // Load-phase profiling (opt-in). Enable with:
 //   QT_LOGGING_RULES="openswmm.load.*=true"
@@ -5490,7 +5493,7 @@ double SWMMModelLayer::polylineLengthInModelUnits(const QVector<QPointF> &vertic
     const QString fu = getOption(QByteArrayLiteral("FLOW_UNITS"), QStringLiteral("CFS")).toUpper();
     const bool isSI =
         (fu == QLatin1String("CMS") || fu == QLatin1String("LPS") || fu == QLatin1String("MLD"));
-    return isSI ? metres : metres / 0.3048;
+    return isSI ? metres : metres / swmmunits::kFtToM;
 }
 
 // ---------------------------------------------------------------------------

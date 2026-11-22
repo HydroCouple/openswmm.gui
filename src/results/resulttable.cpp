@@ -7,6 +7,7 @@
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
+#include "core/swmmunits.h"
 #include "results/resulttable.h"
 
 #include "core/swmmdatetime.h"
@@ -21,6 +22,8 @@
 #include <map>
 #include <set>
 
+namespace swmmunits = openswmmvis::core::units;
+
 namespace openswmmvis::results
 {
 
@@ -32,7 +35,7 @@ const double kNaN = std::numeric_limits<double>::quiet_NaN();
 /// also merges the same instant computed through different paths.
 qint64 timeKey(double julian)
 {
-    return qint64(std::llround(julian * 86400000.0));
+    return qint64(std::llround(julian * swmmunits::kMsecPerDay));
 }
 
 /// Union of every series' sample times (ms key -> SWMM DateTime).

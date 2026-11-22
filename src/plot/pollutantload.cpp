@@ -7,6 +7,7 @@
  * @copyright Copyright (c) 2026 Caleb Buahin. All rights reserved.
  */
 
+#include "core/swmmunits.h"
 #include "plot/pollutantload.h"
 
 #include "layers/speciesattributes.h"
@@ -18,6 +19,8 @@
 #include <cmath>
 #include <limits>
 
+namespace swmmunits = openswmmvis::core::units;
+
 namespace openswmmvis::plot::pollutantload
 {
 
@@ -25,7 +28,7 @@ namespace
 {
 constexpr const char *kRatePrefix = "pollutant_load:";
 constexpr const char *kCumulativePrefix = "pollutant_load_cum:";
-constexpr double kLitresPerFt3 = 28.316846592;
+constexpr double kLitresPerFt3 = swmmunits::kFt3ToLExact;
 constexpr double kLitresPerGallon = 3.785411784;
 constexpr double kMgPerLb = 453592.37;
 
@@ -43,13 +46,13 @@ double litresPerSecond(int flowUnitsCode)
     case 1: // GPM
         return kLitresPerGallon / 60.0;
     case 2: // MGD
-        return 1.0e6 * kLitresPerGallon / 86400.0;
+        return 1.0e6 * kLitresPerGallon / swmmunits::kSecPerDay;
     case 3: // CMS
         return 1000.0;
     case 4: // LPS
         return 1.0;
     case 5: // MLD
-        return 1.0e6 / 86400.0;
+        return 1.0e6 / swmmunits::kSecPerDay;
     default:
         return std::numeric_limits<double>::quiet_NaN();
     }
@@ -166,7 +169,7 @@ std::vector<double> rate(const std::vector<double> &flow, const std::vector<doub
     std::vector<double> out(n, std::numeric_limits<double>::quiet_NaN());
     for (std::size_t i = 0; i < n; ++i)
         if (std::isfinite(flow[i]) && std::isfinite(conc[i]))
-            out[i] = flow[i] * conc[i] * units.massPerFlowConcSecond * 86400.0;
+            out[i] = flow[i] * conc[i] * units.massPerFlowConcSecond * swmmunits::kSecPerDay;
     return out;
 }
 
