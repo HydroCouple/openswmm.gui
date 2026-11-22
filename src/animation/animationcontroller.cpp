@@ -125,13 +125,16 @@ void AnimationController::setFallback2DLayer(SWMM2DResultsLayer *layer)
     if (m_playing)
         pause();
     disconnectFallback2D();
-    if (m_fallback2D)
+    if (m_fallback2D) {
+        // Released: its gate opens again, like any layer the controller does not drive.
+        m_fallback2D->setLiveRenderEnabled(true);
         m_fallback2D->setFollowLive(false);
+    }
     m_fallback2D = layer;
     if (m_fallback2D) {
         // The controller owns the clock for both selected outputs. A layer
         // must not independently jump ahead of the shared cursor on ingestion.
-        m_fallback2D->setLiveRenderEnabled(true);
+        m_fallback2D->setLiveRenderEnabled(m_liveRendering);
         m_fallback2D->setFollowLive(false);
     }
     connectFallback2D();
@@ -370,8 +373,12 @@ void AnimationController::setLiveRenderingEnabled(bool enabled)
     if (m_liveRendering == enabled)
         return;
     m_liveRendering = enabled;
-    if (m_fallback2D)
+    if (m_fallback2D) {
+        // Off also closes the layer's own gate: no live refits, streaks or regional surfaces.
+        // The controller still owns the clock, so the layer never follows on its own.
+        m_fallback2D->setLiveRenderEnabled(enabled);
         m_fallback2D->setFollowLive(false);
+    }
     if (enabled) {
         m_timer->stop();
         m_playing = false;

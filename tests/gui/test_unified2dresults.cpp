@@ -2849,6 +2849,32 @@ private slots:
         QVERIFY(layer.resultFrame(QStringLiteral("surface:Mesh2_face_gone"), 0)
                     ->error.contains(QStringLiteral("unavailable")));
     }
+
+    /** @brief Turning live rendering off during a run holds the frame on the map: the renderer
+     * keeps drawing what the layer shows instead of going blank. */
+    void liveRenderingOffHoldsTheShownFrame()
+    {
+        auto owned = std::make_unique<StatisticSource>();
+        owned->live = true;
+        owned->values["Mesh2_face_depth"] = {.5f, .5f};
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::move(owned));
+        layer.setQsgOwnsRendering(true);
+        layer.setCurrentTimeIndex(0);
+        Renderer renderer;
+        renderer.setWidth(100);
+        renderer.setHeight(100);
+        renderer.setMapExtent(MapExtent(0, 0, 1, 1));
+        renderer.setLayer(&layer);
+        std::unique_ptr<QSGNode> root(renderer.sync());
+        QVERIFY(root);
+        const int drawn = vertices(root.get(), 2);
+        QVERIFY(drawn > 0);
+        layer.setLiveRenderEnabled(false);
+        root.reset(renderer.sync(root.release()));
+        QVERIFY(root);
+        QCOMPARE(vertices(root.get(), 2), drawn);
+    }
 };
 
 QTEST_MAIN(TestUnified2DResults)

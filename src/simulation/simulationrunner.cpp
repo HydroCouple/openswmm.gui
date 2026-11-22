@@ -1288,6 +1288,11 @@ void SimulationRunner::start()
                     emitTwoDSolverStats(rawSelf, jobId, eng);
                 emitSnowLedger(rawSelf, jobId, eng);
 
+                // Live rendering off: pull no results at all, so the engine
+                // keeps the time the bulk copies and conversions would cost.
+                if (!rawSelf->m_liveResults.load())
+                    continue;
+
                 // ── Slice CF.MVP — per-tick 2D depth slice ─────────────────
                 // Rate-limited by the surrounding kTickIntervalMs gate. Pulls
                 // the latest per-triangle depth from the in-process engine

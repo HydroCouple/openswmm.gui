@@ -91,6 +91,16 @@ public:
     bool isPaused() const { return m_paused.load(); }
 
     /**
+     * @brief Turn the per-tick pulls of live results (the 2D frames) on or off.
+     * @param[in] on False: the step loop reads no results from the engine and sends none; progress,
+     * continuity, solver statistics and warnings still flow. Safe to call from the GUI thread
+     * while the run steps; takes effect at the next tick.
+     */
+    void setLiveResultsEnabled(bool on) { m_liveResults.store(on); }
+    /** @return Whether the step loop pulls live results each tick (initially true). */
+    bool liveResultsEnabled() const { return m_liveResults.load(); }
+
+    /**
      * @brief Read the request correlation ID.
      * @return Stable constructor-supplied job ID.
      */
@@ -435,6 +445,7 @@ private:
 
     std::atomic<bool> m_cancel{false};
     std::atomic<bool> m_paused{false};
+    std::atomic<bool> m_liveResults{true};
     // Back-pressure for the per-tick 2D payload bundle (depths, flux,
     // rainfall, vertex depths — several MB per tick on a big mesh). Counts
     // bundles posted to the GUI thread and not yet consumed; the worker

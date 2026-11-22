@@ -57,7 +57,7 @@ QString SWMM2DResultsLayer::flowStreakAvailability() const
     if (!source_)
         return tr("No 2D results available");
     if (source_->isLive() && !liveRenderEnabled())
-        return tr("Enable Live 2D to update live flow streaks");
+        return tr("Turn on Live rendering to update live flow streaks");
     if (!m_flowStreakSublayer->isVisible())
         return tr("Show Flow Streaks to start rendering");
     return m_particleController->availability();
@@ -157,7 +157,7 @@ QString SWMM2DResultsLayer::flowStreakAvailability(ResultVectorSublayer *row)
     if (!source_)
         return tr("No 2D results available");
     if (source_->isLive() && !liveRenderEnabled())
-        return tr("Enable Live 2D to update live flow streaks");
+        return tr("Turn on Live rendering to update live flow streaks");
     if (!row->isVisible() || !row->vectorStyle()->streaks())
         return tr("Show streaks to start rendering");
     return flowStreakController(row)->availability();

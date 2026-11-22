@@ -11279,6 +11279,12 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
     runner->setProperty("extensionRunAttemptId", operationId);
     mActiveRunners.insert(jobId, runner);
     transferredToRunner = true;
+    // Live rendering off: the run pulls no per-tick results, leaving the time to the engine.
+    if (mAnimationController) {
+        runner->setLiveResultsEnabled(mAnimationController->liveRenderingEnabled());
+        connect(mAnimationController, &AnimationController::liveRenderingChanged, runner,
+                &SimulationRunner::setLiveResultsEnabled);
+    }
     const auto attemptCurrent = [controller, jobId, operationId] {
         return controller && controller->runAttemptCurrent(jobId, operationId);
     };
@@ -11395,12 +11401,16 @@ void SWMMVis::runSimulationForGeneration(const QUuid &requestedSessionId,
     QString outPathCopy = outPath;
     QString rptPathCopy = rptPath;
 
-    // Keep history available even while the shared display clock is held.
-    // The animation controller alone decides whether selected results follow.
+    // Tail the .out only while live rendering is on: off, the run spends nothing on results
+    // (no polling, rescans or plot appends); the next tick on catches up from the file, and
+    // the finish handler opens it when it was never tailed.
     connect(runner, &SimulationRunner::progressChanged, this,
             [self, pwGuard, outPathCopy, rptPathCopy, attemptCurrent, operationId, componentRun](int tickJobId, double, const QDateTime &,
                                                       double, double) {
                 if (componentRun || !self || !pwGuard || pwGuard->isClosing() || !attemptCurrent())
+                    return;
+                if (self->mAnimationController &&
+                    !self->mAnimationController->liveRenderingEnabled())
                     return;
                 self->tickLive1DResults(tickJobId, pwGuard, outPathCopy, rptPathCopy, operationId);
             });

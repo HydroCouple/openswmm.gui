@@ -1198,8 +1198,10 @@ private slots:
         layer.refreshTimeRange();
         QTest::qWait(80);
         QCOMPARE(layer.currentTimeIndex(), 2);
-        QVERIFY(layer.liveRenderEnabled());
+        // Live rendering off closes the layer's own gate too (no live refits or streaks).
+        QVERIFY(!layer.liveRenderEnabled());
         live->setChecked(true);
+        QVERIFY(layer.liveRenderEnabled());
         QTRY_COMPARE(layer.currentTimeIndex(), 6);
         QVERIFY(!pause->isChecked());
         stop->trigger();

@@ -1166,17 +1166,8 @@ QSGNode *SWMM2DResultsQSGRenderer::updatePaintNode(QSGNode *oldNode, UpdatePaint
         return nullptr;
     }
 
-    // Issue 2 master gate: a LIVE (streaming) layer with live rendering switched
-    // off stops drawing entirely (deletes the node tree so no stale geometry
-    // lingers). Non-live static results are unaffected and keep drawing.
-    if (m_layer->source() && m_layer->source()->isLive() && !m_layer->liveRenderEnabled()) {
-        if (kUpnDebug)
-            qDebug("[2D-qsg]   -> null-return (live gate: "
-                   "isLive=1 liveRenderEnabled=0)");
-        clearPresentedFrames();
-        delete oldNode;
-        return nullptr;
-    }
+    // A live layer with live rendering off keeps drawing the frame it shows: the map holds it
+    // (no frames arrive while off), and seeking to a stored frame still draws.
 
     // ---- Node tree, z-order bottom→top:
     //        bandNode        (Pass 2: filled contour bands — depth fill)

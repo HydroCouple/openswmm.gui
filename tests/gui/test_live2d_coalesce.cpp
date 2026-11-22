@@ -156,6 +156,44 @@ void deliverTick(SWMM2DResultsLayer &layer, EngineMesh2DSource &src, const Grid 
     QCoreApplication::processEvents(); // the coalescing zero-timer fires here
 }
 
+/** @brief Write the coupled 1D-2D deck the real live runs use.
+ * 16×16 squares of 5 m (512 triangles) on a gentle +x slope; a junction at the center vertex
+ * takes a constant 0.2 m³/s and, with a 0.3 m pipe to the outfall, spills most of it onto the
+ * surface. Sized so the run lasts a couple of seconds at 50 ms ticks. Its 2D results go to
+ * live_run.2d.h5 beside @p inp.
+ * @return False when @p inp cannot be written. */
+bool writeCoupledLiveDeck(const QString &inp)
+{
+    constexpr int n = 16;
+    QFile f(inp);
+    if (!f.open(QIODevice::WriteOnly | QIODevice::Text))
+        return false;
+    QTextStream ts(&f);
+    ts << "[OPTIONS]\nFLOW_UNITS CMS\nINFILTRATION HORTON\nFLOW_ROUTING DYNWAVE\n"
+          "START_DATE 01/01/2026\nSTART_TIME 00:00:00\nEND_DATE 01/01/2026\n"
+          "END_TIME 12:00:00\nREPORT_STEP 0:05:00\nROUTING_STEP 5\n\n"
+          "[JUNCTIONS]\nJ1 10 1 0 0 0\n\n[OUTFALLS]\nO1 9 FREE NO\n\n"
+          "[CONDUITS]\nC1 J1 O1 100 0.013 0 0 0\n\n"
+          "[XSECTIONS]\nC1 CIRCULAR 0.3 0 0 0 1\n\n"
+          "[INFLOWS]\nJ1 FLOW TS1 FLOW 1.0 1.0\n\n"
+          "[TIMESERIES]\nTS1 0:00 0.2\nTS1 6:00 0.2\n\n"
+          "[2D_OPTIONS]\nMAX_TIMESTEP 2\nDRY_DEPTH 0.002\nCOUPLING_CD 0.7\n"
+          "REPORT_2D YES\nOUTPUT_FILE live_run.2d.h5\n\n"
+          "[2D_VERTICES]\n";
+    for (int j = 0; j <= n; ++j)
+        for (int i = 0; i <= n; ++i)
+            ts << (5.0 * i) << ' ' << (5.0 * j) << ' ' << (11.0 - 0.02 * i) << '\n';
+    ts << "\n[2D_TRIANGLES]\n";
+    auto vid = [](int i, int j) { return j * (n + 1) + i; };
+    for (int j = 0; j < n; ++j)
+        for (int i = 0; i < n; ++i) {
+            ts << vid(i, j) << ' ' << vid(i + 1, j) << ' ' << vid(i + 1, j + 1) << " 0.03\n";
+            ts << vid(i, j) << ' ' << vid(i + 1, j + 1) << ' ' << vid(i, j + 1) << " 0.03\n";
+        }
+    ts << "\n[2D_VERTEX_NODE_MAP]\n" << vid(n / 2, n / 2) << " J1 0.7 2.5\n";
+    return true;
+}
+
 } // namespace
 
 class CountingMeshSource : public EngineMesh2DSource
@@ -770,41 +808,8 @@ private slots:
         const QString h5 = QDir(dir).filePath(QStringLiteral("live_run.2d.h5"));
         QFile::remove(h5);
 
-        // 16×16 squares of 5 m (512 triangles) on a gentle +x slope; a
-        // junction at the center vertex takes a constant 0.2 m³/s and, with a
-        // 0.3 m pipe to the outfall, spills most of it onto the surface. Sized
-        // so the run lasts a couple of seconds: enough ticks to export
-        // mid-run and to overflow the 16-frame cap set below.
-        {
-            constexpr int n = 16;
-            QFile f(inp);
-            QVERIFY(f.open(QIODevice::WriteOnly | QIODevice::Text));
-            QTextStream ts(&f);
-            ts << "[OPTIONS]\nFLOW_UNITS CMS\nINFILTRATION HORTON\nFLOW_ROUTING DYNWAVE\n"
-                  "START_DATE 01/01/2026\nSTART_TIME 00:00:00\nEND_DATE 01/01/2026\n"
-                  "END_TIME 12:00:00\nREPORT_STEP 0:05:00\nROUTING_STEP 5\n\n"
-                  "[JUNCTIONS]\nJ1 10 1 0 0 0\n\n[OUTFALLS]\nO1 9 FREE NO\n\n"
-                  "[CONDUITS]\nC1 J1 O1 100 0.013 0 0 0\n\n"
-                  "[XSECTIONS]\nC1 CIRCULAR 0.3 0 0 0 1\n\n"
-                  "[INFLOWS]\nJ1 FLOW TS1 FLOW 1.0 1.0\n\n"
-                  "[TIMESERIES]\nTS1 0:00 0.2\nTS1 6:00 0.2\n\n"
-                  "[2D_OPTIONS]\nMAX_TIMESTEP 2\nDRY_DEPTH 0.002\nCOUPLING_CD 0.7\n"
-                  "REPORT_2D YES\nOUTPUT_FILE live_run.2d.h5\n\n"
-                  "[2D_VERTICES]\n";
-            for (int j = 0; j <= n; ++j)
-                for (int i = 0; i <= n; ++i)
-                    ts << (5.0 * i) << ' ' << (5.0 * j) << ' ' << (11.0 - 0.02 * i) << '\n';
-            ts << "\n[2D_TRIANGLES]\n";
-            auto vid = [](int i, int j) { return j * (n + 1) + i; };
-            for (int j = 0; j < n; ++j)
-                for (int i = 0; i < n; ++i) {
-                    ts << vid(i, j) << ' ' << vid(i + 1, j) << ' ' << vid(i + 1, j + 1)
-                       << " 0.03\n";
-                    ts << vid(i, j) << ' ' << vid(i + 1, j + 1) << ' ' << vid(i, j + 1)
-                       << " 0.03\n";
-                }
-            ts << "\n[2D_VERTEX_NODE_MAP]\n" << vid(n / 2, n / 2) << " J1 0.7 2.5\n";
-        }
+        // Enough ticks to export mid-run and to overflow the 16-frame cap set below.
+        QVERIFY(writeCoupledLiveDeck(inp));
 
         // Fast ticks (the preference floor) so a short run yields many.
         auto *prefs = PreferencesManager::instance();
@@ -983,9 +988,72 @@ private slots:
         GDALClose(ds);
     }
 
+    /** @brief With live results off, a real coupled run pulls no 2D results from the engine while
+     * its progress still flows; turned back on mid-run, the frames resume. Writes retained run
+     * files to output_live_results_off, lowers the tick preference to 50 ms with scope
+     * restoration and pins the CPU backend. */
+    void liveResultsOffPullsNoFrames()
+    {
+        const QString dir = QDir(qEnvironmentVariable("SWMMVIS_GUI_TEST_DATA"))
+                                .absoluteFilePath(QStringLiteral("output_live_results_off"));
+        QVERIFY(QDir().mkpath(dir));
+        const QString inp = QDir(dir).filePath(QStringLiteral("live_run.inp"));
+        const QString rpt = QDir(dir).filePath(QStringLiteral("live_run.rpt"));
+        const QString out = QDir(dir).filePath(QStringLiteral("live_run.out"));
+        QVERIFY(writeCoupledLiveDeck(inp));
+        auto *prefs = PreferencesManager::instance();
+        const int tickBefore = prefs->progressTickMs();
+        prefs->setProgressTickMs(50);
+        const auto restoreTick =
+            qScopeGuard([prefs, tickBefore] { prefs->setProgressTickMs(tickBefore); });
+        qputenv("OPENSWMM_2D_BACKEND", "cpu");
+
+        auto *runner = new SimulationRunner(11, QStringLiteral("live_run.inp"), inp, rpt, out,
+                                            QStringLiteral("6.0.0"), this);
+        runner->setLiveResultsEnabled(false);
+        int progress = 0, frames = 0;
+        connect(runner, &SimulationRunner::progressChanged, this, [&] { ++progress; });
+        const auto frame = [&] { ++frames; };
+        connect(runner, &SimulationRunner::twoDDepthsAvailable, this, frame);
+        connect(runner, &SimulationRunner::twoDVelocitiesAvailable, this, frame);
+        connect(runner, &SimulationRunner::twoDFluxAvailable, this, frame);
+        connect(runner, &SimulationRunner::twoDRainfallAvailable, this, frame);
+        connect(runner, &SimulationRunner::twoDVertexDepthsAvailable, this, frame);
+        connect(runner, &SimulationRunner::twoDHeadsAvailable, this, frame);
+        connect(runner, &SimulationRunner::twoDVariablesAvailable, this, frame);
+        connect(runner, &SimulationRunner::twoDEnvelopesAvailable, this, frame);
+        QSignalSpy finishedSpy(runner, &SimulationRunner::finished);
+        // The callbacks capture locals: never let them outlive this function. (A plain wait: the
+        // QTRY macros stop waiting once the test has failed.)
+        const auto detach = qScopeGuard([this, runner, &finishedSpy] {
+            if (finishedSpy.isEmpty()) {
+                runner->cancel();
+                QElapsedTimer wait;
+                wait.start();
+                while (finishedSpy.isEmpty() && wait.elapsed() < 60000)
+                    QTest::qWait(20);
+            }
+            runner->disconnect(this);
+        });
+        runner->start();
+
+        QTRY_VERIFY_WITH_TIMEOUT(progress >= 8 || !finishedSpy.isEmpty(), 60000);
+        QVERIFY2(finishedSpy.isEmpty(), "the run finished before live results were turned back "
+                                        "on — make the deck longer");
+        QCOMPARE(frames, 0);
+        runner->setLiveResultsEnabled(true);
+        QTRY_VERIFY_WITH_TIMEOUT(frames > 0 || !finishedSpy.isEmpty(), 60000);
+        QVERIFY(frames > 0);
+        QTRY_VERIFY_WITH_TIMEOUT(!finishedSpy.isEmpty(), 120000);
+        QVERIFY2(
+            finishedSpy.last().at(1).toBool(),
+            qPrintable(QStringLiteral("run failed: %1").arg(finishedSpy.last().at(3).toString())));
+    }
+
     /// End to end: a REAL run feeding a visible results layer wired as SWMMVis
     /// wires it, once with the synchronous surface fit and once with the
-    /// worker (workplans/2D_VFR_PERF_RECOVERY_PLAN_2026-10-02.md, M4). Records
+    /// worker (workplans/2D_VFR_PERF_RECOVERY_PLAN_2026-10-02.md, M4), then
+    /// once with live results off (Live rendering unchecked). Records
     /// each arm's wall time, the longest main-thread stall and the runner's
     /// skipped 2D ticks. Self-skips unless VFR_PERF_OUT names a reviewable
     /// output directory. VFR_LIVE_GRID = squares per side (default 48; 150 is
@@ -995,7 +1063,8 @@ private slots:
      * Skips unless VFR_PERF_OUT names retained evidence. Uses grid/hours/tick env
      * settings with defaults, writes live-run-stall.csv, restores tick preference
      * and leaves CPU backend selected. Waits up to 30 minutes per arm plus two
-     * minutes for surface drain, requires positive tick/frame counts and disconnects
+     * minutes for surface drain, requires positive tick/frame counts (none with live results
+     * off) and disconnects
      * runner callbacks capturing iteration locals. Does not assert a speedup, stall
      * threshold or finished-payload success; it is an observational performance case. */
     void liveRunMainThreadStall()
@@ -1028,8 +1097,17 @@ private slots:
         row << "arm,triangles,sim_hours,tick_ms,wall_s,ticks,frames_shown,"
                "max_main_thread_stall_ms,skipped_2d_ticks\n";
 
-        for (const bool async : {false, true}) {
-            const QString stem = async ? QStringLiteral("worker") : QStringLiteral("synchronous");
+        // The live_off arm turns live results off, as unchecking Live rendering does: the
+        // same deck and wiring, with nothing pulled from the engine or fitted per tick.
+        struct Arm {
+            const char *stem;
+            bool async;
+            bool live;
+        };
+        for (const Arm arm : {Arm{"synchronous", false, true}, Arm{"worker", true, true},
+                              Arm{"live_off", true, false}}) {
+            const bool async = arm.async;
+            const QString stem = QString::fromLatin1(arm.stem);
             const QString inp = QDir(dir).filePath(stem + QStringLiteral(".inp"));
             const QString rpt = QDir(dir).filePath(stem + QStringLiteral(".rpt"));
             const QString out = QDir(dir).filePath(stem + QStringLiteral(".out"));
@@ -1079,8 +1157,10 @@ private slots:
             }
 
             // Parented like the export test's runner: it outlives its worker.
-            auto &runner = *new SimulationRunner(async ? 9 : 8, stem + QStringLiteral(".inp"), inp,
-                                                 rpt, out, QStringLiteral("6.0.0"), this);
+            auto &runner = *new SimulationRunner(arm.live ? (async ? 9 : 8) : 10,
+                                                 stem + QStringLiteral(".inp"), inp, rpt, out,
+                                                 QStringLiteral("6.0.0"), this);
+            runner.setLiveResultsEnabled(arm.live);
             SWMM2DResultsLayer layer;
             layer.setAsyncSurface(async);
             layer.setLiveMinFitIntervalMs(tickMs);
@@ -1154,7 +1234,7 @@ private slots:
             const double wallSeconds = double(wall.elapsed()) / 1000.0;
             beat.stop();
             QTRY_VERIFY_WITH_TIMEOUT(!layer.surfaceBusy(), 120000);
-            QVERIFY2(ticks > 0 && shown > 0,
+            QVERIFY2(arm.live ? ticks > 0 && shown > 0 : ticks == 0,
                      qPrintable(QStringLiteral("%1: ticks %2, frames shown %3")
                                     .arg(stem)
                                     .arg(ticks)
