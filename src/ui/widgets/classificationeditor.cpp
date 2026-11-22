@@ -19,6 +19,8 @@
 #include "ui/theme/themehelpers.h"
 #include "ui/util/tableclipboard.h"
 
+#include <QAbstractItemView>
+#include <QApplication>
 #include <QCheckBox>
 #include <QColor>
 #include <QColorDialog>
@@ -37,6 +39,7 @@
 #include <QStandardItemModel>
 #include <QStyledItemDelegate>
 #include <QTableView>
+#include <QTimer>
 #include <QToolButton>
 #include <QVBoxLayout>
 
@@ -68,6 +71,17 @@ ClassificationEditor::ClassificationEditor(IClassificationBinding *binding, bool
     buildUi();
     connect(ThemeManager::instance(), &ThemeManager::themeChanged, this,
             &ClassificationEditor::updateStatus);
+    // A data refresh deferred for the user's edit runs once focus leaves the edited control
+    // (Enter or a click elsewhere commits a box first; a closing list or cell editor hands
+    // focus back). Deferred, so the commit has reached the binding.
+    connect(qApp, &QApplication::focusChanged, this, [this] {
+        if (!m_dataRefreshPending)
+            return;
+        QTimer::singleShot(0, this, [this] {
+            if (m_dataRefreshPending && hasValidDraft())
+                refreshFromData();
+        });
+    });
     refresh();
 }
 
@@ -352,10 +366,73 @@ void ClassificationEditor::setMaximumClassCount(int count)
     refresh();
 }
 
+void ClassificationEditor::refreshFromData()
+{
+    if (!m_binding)
+        return;
+    if (isUserEditing()) {
+        m_dataRefreshPending = true;
+        return;
+    }
+    ShownData now = shownData();
+    const bool drafts =
+        !m_breakError.isEmpty() || !m_rangeError.isEmpty() || !m_schemeError.isEmpty();
+    if (!drafts && m_shown && *m_shown == now) {
+        m_dataRefreshPending = false;
+        return;
+    }
+    refresh();
+    m_shown = std::move(now);
+}
+
+bool ClassificationEditor::isUserEditing() const
+{
+    for (const auto *combo : findChildren<QComboBox *>())
+        if (combo->view() && combo->view()->isVisible())
+            return true;
+    const QWidget *focus = QApplication::focusWidget();
+    if (!focus)
+        return false;
+    if (m_table->viewport()->isAncestorOf(focus)) // a class cell's editor
+        return true;
+    for (const QWidget *box : std::initializer_list<const QWidget *>{
+             m_rangeMinSpin, m_rangeMaxSpin, m_countSpin, m_labelPrecisionSpin})
+        if (focus == box || box->isAncestorOf(focus))
+            return true;
+    return false;
+}
+
+ClassificationEditor::ShownData ClassificationEditor::shownData() const
+{
+    ShownData d;
+    d.scheme = m_binding->scheme();
+    if (!d.scheme.useCustomRange()) {
+        const auto [lo, hi] = m_binding->dataRange();
+        d.lo = lo;
+        d.hi = hi;
+    }
+    const BinMethod method = d.scheme.method();
+    if (method == BinMethod::Quantile || method == BinMethod::NaturalBreaks ||
+        method == BinMethod::StdDev)
+        d.samples = m_binding->sampleValues();
+    d.edges = m_binding->computedEdges();
+    d.attribute = m_binding->attribute();
+    d.attributes = m_binding->availableAttributes();
+    return d;
+}
+
+bool ClassificationEditor::ShownData::operator==(const ShownData &o) const
+{
+    const auto same = [](double a, double b) { return a == b || (std::isnan(a) && std::isnan(b)); };
+    return scheme == o.scheme && same(lo, o.lo) && same(hi, o.hi) && samples == o.samples &&
+           edges == o.edges && attribute == o.attribute && attributes == o.attributes;
+}
+
 void ClassificationEditor::refresh()
 {
     if (!m_binding)
         return;
+    m_dataRefreshPending = false;
     m_suppress = true;
     m_breakError.clear();
     m_rangeError.clear();
@@ -516,6 +593,7 @@ void ClassificationEditor::rebuildTable()
 {
     if (!m_binding)
         return;
+    m_shown.reset(); // the controls change here: refreshFromData() must not trust its snapshot
     const bool prevSuppress = m_suppress;
     m_suppress = true;
     m_tableModel->setRowCount(0);

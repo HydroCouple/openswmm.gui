@@ -1375,7 +1375,8 @@ void Swmm2DResultsStylePanel::buildScalarTabs(OpenSWMM::Render::ResultScalarSubl
     /**
      * @brief Refresh this row's classification editors (valid drafts only) and enable each only
      * while its own previewed range is finite, so an editor without one never blocks OK/Apply.
-     * An editor being disabled drops its draft, so it shows no stale bounds.
+     * An editor being disabled drops its draft, so it shows no stale bounds. Runs on every
+     * frame: refreshFromData() leaves an editor the user is typing in alone.
      */
     QPointer<ClassificationEditor> fillGuard = fillEditor, contourGuard = contourEditor,
                                    bandGuard = bandEditor;
@@ -1389,19 +1390,19 @@ void Swmm2DResultsStylePanel::buildScalarTabs(OpenSWMM::Render::ResultScalarSubl
         if (fillGuard && guarded) {
             const bool on = ranged(guarded->scheme());
             if (!on || fillGuard->hasValidDraft())
-                fillGuard->refresh();
+                fillGuard->refreshFromData();
             fillGuard->setEnabled(on);
         }
         if (contourGuard && guardedLine) {
             const bool on = ranged(guardedLine->scheme());
             if (!on || contourGuard->hasValidDraft())
-                contourGuard->refresh();
+                contourGuard->refreshFromData();
             contourGuard->setEnabled(on);
         }
         if (bandGuard && guarded) {
             const bool on = ranged(guarded->bandScheme());
             if (!on || bandGuard->hasValidDraft())
-                bandGuard->refresh();
+                bandGuard->refreshFromData();
             bandGuard->setEnabled(on);
         }
     };
@@ -1876,7 +1877,7 @@ void Swmm2DResultsStylePanel::buildVectorTabs(OpenSWMM::Render::ResultVectorSubl
         // block OK/Apply. Disabled, it drops its draft and shows no bounds.
         const bool ranged = std::isfinite(lo) && std::isfinite(hi);
         if (!ranged || classification->hasValidDraft())
-            classification->refresh();
+            classification->refreshFromData();
         classification->setEnabled(ranged);
     };
     m_refreshResultData();

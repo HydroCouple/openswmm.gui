@@ -1415,6 +1415,50 @@ private slots:
         QVERIFY(layer.staticWaterCacheable());
     }
 
+    /** @brief A vector row's color range boxes show the displayed frame's range, but text being
+     * typed in one survives result refreshes (highlights, visibility) until it is committed. */
+    void vectorColorRangeKeepsTypedText()
+    {
+        auto owned = std::make_unique<FieldSource>();
+        owned->values["Mesh2_face_depth"] = {.5f, .5f};
+        owned->values["Mesh2_face_vx"] = {1.f, 3.f};
+        owned->values["Mesh2_face_vy"] = {0.f, 4.f}; // |v| = 1 and 5
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::move(owned));
+        openswmmvis::ui::Swmm2DResultsStylePanel panel(&layer);
+        auto *velocity = layer.velocityResultSublayer();
+        QVERIFY(panel.focusResult(velocity->id()));
+        auto *tabs = panel.findChild<QTabWidget *>("resultDisplayTabs");
+        QVERIFY(tabs);
+        for (int i = 0; i < tabs->count(); ++i)
+            if (tabs->widget(i)->objectName() == QLatin1String("resultColourTab"))
+                tabs->setCurrentIndex(i);
+        panel.show();
+        QVERIFY(QTest::qWaitForWindowActive(&panel));
+        auto *editor = panel.findChild<openswmmvis::ui::ClassificationEditor *>(
+            "additionalResultVectorClassification");
+        QVERIFY(editor && editor->isEnabled());
+        QDoubleSpinBox *minSpin = nullptr;
+        for (auto *spin : editor->findChildren<QDoubleSpinBox *>())
+            if (spin->accessibleName() == QLatin1String("Minimum classification value"))
+                minSpin = spin;
+        QVERIFY(minSpin && minSpin->isVisible());
+        QCOMPARE(minSpin->text(), QStringLiteral("1.0000"));
+        minSpin->setFocus();
+        QTRY_VERIFY(minSpin->hasFocus());
+        minSpin->selectAll();
+        QTest::keyClicks(minSpin, QStringLiteral("2"));
+        // Result refreshes (a highlight, a visibility change) re-read the displayed data.
+        layer.highlightCells({0});
+        velocity->setVisible(false);
+        velocity->setVisible(true);
+        QCoreApplication::processEvents();
+        QCOMPARE(minSpin->cleanText(), QStringLiteral("2"));
+        QTest::keyClick(minSpin, Qt::Key_Return);
+        QVERIFY(velocity->vectorStyle()->colorScheme().useCustomRange());
+        QCOMPARE(velocity->vectorStyle()->colorScheme().rangeMin(), 2.0);
+    }
+
     /** @brief A vector row's color editor shows the |v| range of the displayed frame whether or
      * not the row draws arrows (streaks only, hidden). Without a range (constant color, no wet
      * cell) it is disabled, so it never blocks OK/Apply, and shows blank bounds with a note

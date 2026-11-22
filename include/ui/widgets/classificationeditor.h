@@ -37,9 +37,12 @@
 
 #include "render/classificationscheme.h"
 
+#include <QPair>
+#include <QVector>
 #include <QWidget>
 
 #include <memory>
+#include <optional>
 
 class ColorRampComboBox;
 
@@ -89,6 +92,14 @@ public:
      * @note Null binding is a no-op. Otherwise clears local errors, replaces displayed attribute/ramp/range/label controls with signals suppressed, applies capability visibility and rebuilds the class table without writing the binding.
      */
     void refresh();
+
+    /*! Re-read the controls after the displayed data changed (a new frame, a highlight, a style
+     *  change elsewhere), without fighting the user: nothing happens while they are typing in a
+     *  range or count box, editing a class cell or have a list open, and nothing is rebuilt when
+     *  what the editor shows would not change. A refresh skipped for the user's edit runs once
+     *  focus leaves the editor, unless the edit left an invalid draft.
+     */
+    void refreshFromData();
 
     /*! Invalid visible drafts never reach the live binding. Hosts must refuse
      * Apply/OK until the user corrects them or cancels the containing session.
@@ -202,6 +213,26 @@ private:
      * @note Theme error styling is applied only for validation errors; diagnostics do not mutate the scheme.
      */
     void updateStatus();
+    /**
+     * @brief Whether the user is mid-edit: typing in a numeric box, editing a class cell or
+     * choosing from an open list.
+     */
+    [[nodiscard]] bool isUserEditing() const;
+    /*! Everything refresh() reads from the binding that can change between frames. In a custom
+     *  range the data range is left out: bounds, validation and class edges ignore it. */
+    struct ShownData {
+        OpenSWMM::Render::ClassificationScheme scheme;
+        double lo = 0.0, hi = 0.0;
+        QVector<double> samples; // only for sample-based methods
+        QVector<double> edges;
+        QString attribute;
+        QVector<QPair<QString, QString>> attributes;
+        [[nodiscard]] bool operator==(const ShownData &o) const;
+    };
+    /** @return The binding's current ShownData. */
+    [[nodiscard]] ShownData shownData() const;
+    std::optional<ShownData> m_shown; // what the controls show; reset whenever they are rebuilt
+    bool m_dataRefreshPending = false;
     QString m_breakError;
     QString m_rangeError;
     QString m_schemeError;

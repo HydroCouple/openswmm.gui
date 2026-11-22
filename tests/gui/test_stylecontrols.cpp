@@ -210,6 +210,29 @@ public:
         return true;
     }
 };
+/** @brief Three frames of the panel fixture whose one valid cell reads time + 1, so each frame
+ *  has its own range: stands in for the frames a live run appends. */
+class PanelTimedVariableSource : public PanelVariableSource
+{
+public:
+    int timeCount() const override { return 3; }
+    QVector<openswmmvis::io::Mesh2DResultVariable>
+    faceVariables(QStringList *warnings = nullptr) const override
+    {
+        auto vars = PanelVariableSource::faceVariables(warnings);
+        for (auto &v : vars)
+            v.frameCount = 3;
+        return vars;
+    }
+    bool readFaceVariableAt(const openswmmvis::io::Mesh2DResultVariable &, int time,
+                            std::vector<float> &out,
+                            std::vector<openswmmvis::io::Mesh2DValueStatus> &status) override
+    {
+        out = {float(time + 1)};
+        status = {openswmmvis::io::Mesh2DValueStatus::Valid};
+        return true;
+    }
+};
 class TestClassificationBinding : public IClassificationBinding
 {
 public:
@@ -269,6 +292,26 @@ QString outputDir()
 {
     return qEnvironmentVariable("SWMMVIS_STYLE_TEST_OUTPUT",
                                 QStringLiteral("test_stylecontrols_output"));
+}
+
+/** @brief Show the result display tab whose page has object name @p name. */
+void showDisplayTab(QWidget &panel, const char *name)
+{
+    auto *tabs = panel.findChild<QTabWidget *>("resultDisplayTabs");
+    QVERIFY(tabs);
+    for (int i = 0; i < tabs->count(); ++i)
+        if (tabs->widget(i)->objectName() == QLatin1String(name))
+            tabs->setCurrentIndex(i);
+    QCOMPARE(tabs->currentWidget()->objectName(), QString::fromLatin1(name));
+}
+
+/** @return The range box of @p editor with accessible name @p name, or null. */
+QDoubleSpinBox *rangeSpin(QWidget *editor, const char *name)
+{
+    for (auto *spin : editor->findChildren<QDoubleSpinBox *>())
+        if (spin->accessibleName() == QLatin1String(name))
+            return spin;
+    return nullptr;
 }
 
 class ObservedSunThumb : public SunPositionThumb
@@ -458,6 +501,105 @@ private slots:
         QCOMPARE(panel.findChild<ClassificationEditor *>("additionalResultClassification"), editor);
         QCOMPARE(table->model()->index(0, 1).data().toString(), QStringLiteral("oops"));
         QVERIFY(!editor->hasValidDraft());
+    }
+    /** @brief Frames arriving while the user types a fixed (user) range on the Filled contours tab
+     *  leave the typed text alone; it commits on Enter and the editor catches up once focus
+     *  leaves it. */
+    void liveFramesKeepTheCustomRangeBeingTyped()
+    {
+        using OpenSWMM::Render::ClassificationScheme;
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<PanelTimedVariableSource>());
+        auto *sub = layer.addResultSublayer(layer.resultVariables()[0].key());
+        auto *style = sub->fillStyle();
+        auto scheme = style->bandScheme();
+        scheme.setMode(ClassificationScheme::ClassMode::Classified);
+        scheme.setRangeMode(OpenSWMM::Render::RangeMode::FixedUser);
+        scheme.setUseCustomRange(true);
+        scheme.setRangeMin(0);
+        scheme.setRangeMax(10);
+        style->setBandScheme(scheme);
+        style->setFilledContours(true);
+        Swmm2DResultsStylePanel panel(&layer);
+        QVERIFY(panel.focusResult(sub->id()));
+        showDisplayTab(panel, "resultFilledContoursTab");
+        panel.show();
+        QVERIFY(QTest::qWaitForWindowActive(&panel));
+        auto *editor =
+            panel.findChild<ClassificationEditor *>("additionalResultBandClassification");
+        QVERIFY(editor && editor->isEnabled());
+        auto *minSpin = rangeSpin(editor, "Minimum classification value");
+        QVERIFY(minSpin && minSpin->isVisible());
+        minSpin->setFocus();
+        QTRY_VERIFY(minSpin->hasFocus());
+        minSpin->selectAll();
+        QTest::keyClicks(minSpin, QStringLiteral("2.5"));
+        QCOMPARE(minSpin->cleanText(), QStringLiteral("2.5"));
+        for (int t : {1, 2, 0}) {
+            layer.setCurrentTimeIndex(t);
+            QCoreApplication::processEvents();
+            QCOMPARE(minSpin->cleanText(), QStringLiteral("2.5"));
+        }
+        QCOMPARE(style->bandScheme().rangeMin(), 0.0); // typed, not yet committed
+        QTest::keyClick(minSpin, Qt::Key_Return);
+        QCOMPARE(style->bandScheme().rangeMin(), 2.5);
+        panel.findChild<QTreeView *>("additionalResultList")->setFocus();
+        QTRY_VERIFY(!minSpin->hasFocus());
+        layer.setCurrentTimeIndex(1);
+        QTRY_COMPARE(minSpin->value(), 2.5);
+        QVERIFY(editor->hasValidDraft());
+    }
+    /** @brief A fixed (user) range editor shows nothing new when only the frame changes: its
+     *  class table is not rebuilt, so a selected class stays selected. */
+    void liveFramesLeaveAFixedRangeEditorStill()
+    {
+        using OpenSWMM::Render::ClassificationScheme;
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<PanelTimedVariableSource>());
+        auto *sub = layer.addResultSublayer(layer.resultVariables()[0].key());
+        auto scheme = sub->fillStyle()->scheme();
+        scheme.setMode(ClassificationScheme::ClassMode::Classified);
+        scheme.setRangeMode(OpenSWMM::Render::RangeMode::FixedUser);
+        scheme.setUseCustomRange(true);
+        scheme.setRangeMin(0);
+        scheme.setRangeMax(10);
+        sub->fillStyle()->setScheme(scheme);
+        Swmm2DResultsStylePanel panel(&layer);
+        QVERIFY(panel.focusResult(sub->id()));
+        auto *editor = panel.findChild<ClassificationEditor *>("additionalResultClassification");
+        QVERIFY(editor);
+        auto *table = editor->findChild<QTableView *>();
+        QVERIFY(table && table->model()->rowCount() > 2);
+        table->selectRow(1);
+        QCOMPARE(table->selectionModel()->selectedRows().size(), 1);
+        for (int t : {1, 2}) {
+            layer.setCurrentTimeIndex(t);
+            QCoreApplication::processEvents();
+        }
+        QCOMPARE(table->selectionModel()->selectedRows().size(), 1);
+        QCOMPARE(table->selectionModel()->selectedRows().first().row(), 1);
+    }
+    /** @brief A per-frame range still follows each frame while nobody edits the editor. */
+    void perFrameRangeFollowsEachFrame()
+    {
+        SWMM2DResultsLayer layer;
+        layer.setSource(std::make_unique<PanelTimedVariableSource>());
+        auto *sub = layer.addResultSublayer(layer.resultVariables()[0].key());
+        auto scheme = sub->fillStyle()->scheme();
+        scheme.setRangeMode(OpenSWMM::Render::RangeMode::PerFrameAutoStretch);
+        scheme.setUseCustomRange(false);
+        sub->fillStyle()->setScheme(scheme);
+        Swmm2DResultsStylePanel panel(&layer);
+        QVERIFY(panel.focusResult(sub->id()));
+        auto *editor = panel.findChild<ClassificationEditor *>("additionalResultClassification");
+        QVERIFY(editor);
+        auto *minSpin = rangeSpin(editor, "Minimum classification value");
+        QVERIFY(minSpin);
+        for (int t : {1, 2, 0}) {
+            layer.setCurrentTimeIndex(t);
+            QCoreApplication::processEvents();
+            QCOMPARE(minSpin->value(), double(t + 1));
+        }
     }
     /** @brief A result row's fill editor shows log scale and the out-of-range colors, and
      *  they write the row's scheme. */
