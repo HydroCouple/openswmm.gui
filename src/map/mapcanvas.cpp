@@ -849,6 +849,10 @@ static MapExtent transformExtentCorners(const MapExtent &e, const SpatialReferen
 {
     if (!e.isValid() || !from || !to || !from->ogrSpatialReference() || !to->ogrSpatialReference())
         return {};
+    // A local engineering CRS has no tie to the Earth: no transform to or
+    // from it exists, and asking GDAL for one only logs an error.
+    if (from->isLocal() || to->isLocal())
+        return {};
     auto *xform =
         OGRCreateCoordinateTransformation(from->ogrSpatialReference(), to->ogrSpatialReference());
     if (!xform)

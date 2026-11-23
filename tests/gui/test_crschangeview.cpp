@@ -19,6 +19,7 @@
 #include "map/spatialreferencesystem.h"
 
 #include <QDir>
+#include <cpl_error.h>
 #include <QTest>
 
 namespace
@@ -59,6 +60,7 @@ class TestCrsChangeView : public QObject
 private slots:
     void renderOnlyChangeFramesDataInNewCrs();
     void basemapOnlyKeepsLookingAtTheSamePlace();
+    void changeToLocalCrsAsksGdalForNoTransform();
 };
 
 /** @brief Verify changing only canvas CRS refits projected data within the same undo transaction and restores framing through undo/redo. */
@@ -119,6 +121,32 @@ void TestCrsChangeView::basemapOnlyKeepsLookingAtTheSamePlace()
                             .arg(c0.x())
                             .arg(c0.y())));
     QVERIFY(v.width() < 1.0e5);
+}
+
+namespace
+{
+int gdalErrors = 0;
+void CPL_STDCALL countGdalError(CPLErr, CPLErrorNum, const char *)
+{
+    ++gdalErrors;
+}
+} // namespace
+
+/** @brief Verify that moving a Web Mercator canvas to a model's local engineering CRS, as opening
+ *  a model without a CRS does, raises no GDAL error for the view that cannot be carried over. */
+void TestCrsChangeView::changeToLocalCrsAsksGdalForNoTransform()
+{
+    MapCanvas canvas;
+    canvas.resize(800, 600);
+    QVERIFY(canvas.setCanvasSRSByCode(QStringLiteral("EPSG"), 3857));
+    canvas.setExtent(MapExtent(-8.59e6, 4.68e6, -8.57e6, 4.70e6), false);
+
+    gdalErrors = 0;
+    CPLPushErrorHandler(countGdalError);
+    canvas.setCanvasSRS(SpatialReferenceSystem::localFromMapUnits(QStringLiteral("FEET")), true);
+    CPLPopErrorHandler();
+    QVERIFY(canvas.canvasSRS() && canvas.canvasSRS()->isLocal());
+    QCOMPARE(gdalErrors, 0);
 }
 
 QTEST_MAIN(TestCrsChangeView)
