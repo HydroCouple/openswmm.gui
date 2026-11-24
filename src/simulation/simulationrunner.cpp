@@ -1261,9 +1261,11 @@ void SimulationRunner::start()
                     if (frac > 1.0)
                         frac = 1.0;
                 }
+                // Routing: the value the report prints, so the status row and
+                // the .rpt agree; the exact ledger's residual stays in the API.
                 double runoffErr = 0.0, routingErr = 0.0;
                 swmm_get_runoff_continuity_error(eng, &runoffErr);
-                swmm_get_routing_continuity_error(eng, &routingErr);
+                swmm_get_routing_report_continuity_error(eng, &routingErr);
                 double twoDErr = qQNaN();
                 if (twoD_active)
                     swmm_2d_get_continuity_error(eng, &twoDErr);
@@ -1545,7 +1547,7 @@ void SimulationRunner::start()
             double runoffErr = 0.0;
             double routingErr = 0.0;
             swmm_get_runoff_continuity_error(eng, &runoffErr);
-            swmm_get_routing_continuity_error(eng, &routingErr);
+            swmm_get_routing_report_continuity_error(eng, &routingErr);
             double twoDErr = qQNaN();
             if (twoD_active)
                 swmm_2d_get_continuity_error(eng, &twoDErr);

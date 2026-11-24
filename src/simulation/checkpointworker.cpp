@@ -671,7 +671,7 @@ CheckpointResult CheckpointWorker::execute(const CheckpointRequest &request, qui
                 engine.checked(
                     swmm_get_runoff_continuity_error(engine.handle, &result.runoffError));
                 engine.checked(
-                    swmm_get_routing_continuity_error(engine.handle, &result.routingError));
+                    swmm_get_routing_report_continuity_error(engine.handle, &result.routingError));
                 result.success = !control->cancelled;
             } else
                 result.success = true;

@@ -152,7 +152,7 @@ run. Engine warnings appear as child rows under the job.
 | **Current Date** | The engine's current simulation clock, pushed every tick |
 | **End Date** | Engine-side simulation end |
 | **Runoff Err** | Cumulative runoff continuity error, in percent |
-| **Routing Err** | Cumulative routing continuity error, in percent |
+| **Routing Err** | Cumulative routing continuity error, in percent — the value the status report prints under Flow Routing Continuity |
 | **2D Err** | Cumulative 2D surface continuity error; `—` when the run has no 2D model |
 | **Duration** | Wall-clock seconds once the run finishes |
 | **Avg Timestep** | Running average of the engine's step size, in seconds |

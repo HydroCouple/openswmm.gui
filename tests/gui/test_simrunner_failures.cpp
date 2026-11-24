@@ -24,6 +24,7 @@
 #include <QFile>
 #include <QProcess>
 #include <QProcessEnvironment>
+#include <QRegularExpression>
 #include <filesystem>
 #ifdef Q_OS_UNIX
 #include <sys/file.h>
@@ -340,6 +341,35 @@ private slots:
             inp, rpt, out, {}, {directory.filePath("additional_outputs.runlog.txt")}, &error));
         SimulationRunner unstarted(105, "paths_before_start", inp, rpt, out);
         QCOMPARE(unstarted.outputPaths(), SimulationRunner::runOutputPaths(inp, rpt, out));
+    }
+
+    /** @brief Require the finished routing continuity to be the value the report prints.
+     * A filling pipe makes the report's half-step value differ from the exact ledger's
+     * residual; the status row shows 100 times this fraction with three decimals. */
+    void routingContinuityIsTheReportsValue()
+    {
+        QByteArray deck(kMinimal1D);
+        deck += "\n[INFLOWS]\nJ1 FLOW \"\" FLOW 1.0 1.0 0.2\n";
+        const QString inp = writeDeck("report_continuity", deck.constData());
+        QVERIFY(!inp.isEmpty());
+        const QString rpt = QDir(outputDir()).filePath("report_continuity.rpt");
+        SimulationRunner runner(106, "report_continuity", inp, rpt,
+                                QDir(outputDir()).filePath("report_continuity.out"));
+        QSignalSpy finished(&runner, &SimulationRunner::finished);
+        runner.start();
+        QTRY_COMPARE_WITH_TIMEOUT(finished.count(), 1, 60000);
+        QVERIFY2(finished.first().at(1).toBool(), qPrintable(finished.first().at(3).toString()));
+        const double fraction = finished.first().at(5).toDouble();
+
+        const QString report = readAll(rpt);
+        const int block = report.indexOf("Flow Routing Continuity");
+        QVERIFY(block >= 0);
+        const QRegularExpression line("Continuity Error \\(%\\) \\.+\\s+(-?[0-9.]+)");
+        const auto match = line.match(report, block);
+        QVERIFY2(match.hasMatch(), qPrintable(report.mid(block, 1500)));
+        QVERIFY2(qAbs(match.captured(1).toDouble()) > 0.0,
+                 "fixture: the report prints a zero error");
+        QCOMPARE(QString::number(100.0 * fraction, 'f', 3), match.captured(1));
     }
 
     /** @brief Require two start calls on one runner to produce exactly one started/finished pair.
