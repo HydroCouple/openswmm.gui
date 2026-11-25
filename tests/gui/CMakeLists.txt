@@ -4254,6 +4254,23 @@ swmmvis_link_full_app_deps(test_nodecoupling2d_edits)
 target_compile_definitions(test_nodecoupling2d_edits PRIVATE
     SWMMVIS_NODECOUPLING_OUTPUT_DIR="${CMAKE_SOURCE_DIR}/tests/output/nodecoupling2d_edits")
 
+# Remap 1D↔2D dialog: per-phase launch/refresh timings (timings.csv) and a
+# frozen dry-run baseline that speedups must reproduce. Default model is
+# examples/bellinge_2d; SWMMVIS_REMAP_TIMING_INP points it at any other.
+add_swmmvis_gui_test(test_remap1d2d_dialog
+    test_remap1d2d_dialog.cpp
+    ${SWMMVIS_TEST_SOURCES}
+    ${SWMMVIS_TEST_EXTRA_SOURCES}
+)
+swmmvis_link_full_app_deps(test_remap1d2d_dialog)
+target_compile_definitions(test_remap1d2d_dialog PRIVATE
+    SWMMVIS_REMAP_REPO_DIR="${CMAKE_SOURCE_DIR}"
+    SWMMVIS_REMAP_OUTPUT_DIR="${CMAKE_SOURCE_DIR}/tests/gui/data/output_remap1d2d_timing"
+    SWMMVIS_REMAP_BUILD_TYPE="$<CONFIG>")
+set_tests_properties(test_remap1d2d_dialog PROPERTIES
+    ENVIRONMENT "QT_QPA_PLATFORM=offscreen;QTEST_FUNCTION_TIMEOUT=600000"
+    TIMEOUT 900)
+
 # A plain click on a link selects only that link (not its end nodes or a
 # same-named node). Click log: tests/output/link_click_selection/.
 add_swmmvis_gui_test(test_link_click_selection

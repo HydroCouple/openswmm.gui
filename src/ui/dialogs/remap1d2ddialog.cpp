@@ -150,6 +150,8 @@ void Remap1D2DDialog::refreshPlan()
             bed.insert(c.nodeId, z / t.vertexCount());
         }
     const SWMM_Engine e = m_layer ? m_layer->engine() : nullptr;
+    QVector<QStringList> extra;
+    extra.reserve(m_model->rowCount());
     for (int r = 0; r < m_model->rowCount(); ++r) {
         const QString node = m_model->rowAt(r).edited.node;
         QString gap;
@@ -160,11 +162,11 @@ void Remap1D2DDialog::refreshPlan()
                 swmm_node_get_max_depth(e, idx, &depth) == 0)
                 gap = QString::number(std::fabs(inv + depth - bed.value(node)), 'f', 2);
         }
-        m_model->setExtraValues(
-            node,
-            {m_plan.current.value(node, QStringLiteral("—")),
-             m_plan.proposed.value(node, m_plan.current.value(node, QStringLiteral("—"))), gap});
+        extra.append({m_plan.current.value(node, QStringLiteral("—")),
+                      m_plan.proposed.value(node, m_plan.current.value(node, QStringLiteral("—"))),
+                      gap});
     }
+    m_model->setExtraValues(extra);
 
     QString s = tr("Proposed: %1 vertex coupling(s), %2 cell coupling(s); %3 vertex(es) change.")
                     .arg(m_plan.mapped.vertexMatches.size())

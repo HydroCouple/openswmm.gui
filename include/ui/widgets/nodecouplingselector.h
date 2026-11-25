@@ -69,11 +69,10 @@ public:
      */
     void setExtraColumns(const QStringList &headers);
     /**
-     * @brief Replace read-only extra values for an exact node identity.
-     * @param[in] node Case-sensitive stored identity; absent nodes are ignored.
-     * @param[in] values Entries copied to header count; missing values become empty and surplus values are ignored. Emits dataChanged() for extra columns.
+     * @brief Replace every row's read-only extra values in one update.
+     * @param[in] values One entry per row in model row order, each copied to header count; missing rows/values become empty and surplus entries are ignored. Emits a single dataChanged() spanning all rows' extra columns, so an attached view relayouts once rather than once per row.
      */
-    void setExtraValues(const QString &node, const QStringList &values);
+    void setExtraValues(const QVector<QStringList> &values);
 
     /**
      * @brief Count staged node rows at root.

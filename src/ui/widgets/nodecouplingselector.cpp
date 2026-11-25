@@ -91,14 +91,16 @@ void NodeCouplingTableModel::setExtraColumns(const QStringList &headers)
     endResetModel();
 }
 
-void NodeCouplingTableModel::setExtraValues(const QString &node, const QStringList &values)
+void NodeCouplingTableModel::setExtraValues(const QVector<QStringList> &values)
 {
-    const int r = rowOf(node);
-    if (r < 0)
+    if (m_rows.isEmpty() || m_extraHeaders.isEmpty())
         return;
-    for (int i = 0; i < m_extraHeaders.size(); ++i)
-        m_rows[r].extra[i] = values.value(i);
-    emit dataChanged(index(r, ColFirstExtra), index(r, columnCount() - 1));
+    for (int r = 0; r < m_rows.size(); ++r)
+        for (int i = 0; i < m_extraHeaders.size(); ++i)
+            m_rows[r].extra[i] = values.value(r).value(i);
+    // One signal for the block: a dataChanged per row made a ResizeToContents
+    // view re-measure its columns once per node.
+    emit dataChanged(index(0, ColFirstExtra), index(m_rows.size() - 1, columnCount() - 1));
 }
 
 int NodeCouplingTableModel::rowCount(const QModelIndex &parent) const
