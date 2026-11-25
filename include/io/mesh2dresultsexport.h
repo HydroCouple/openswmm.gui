@@ -185,7 +185,7 @@ Mesh2DGridHint mesh2DGridHint(IMesh2DSource *source, double unitFactor);
  */
 QString mesh2DVariableKey(Mesh2DVariable variable);
 
-/*! \brief Human label for \p variable, e.g. "Water surface elevation".
+/*! \brief Human label for \p variable, for example "Water surface elevation".
  * @param[in] variable One supported Mesh2DVariable value.
  * @return Readable variable label, or an empty string for an unsupported value.
  */

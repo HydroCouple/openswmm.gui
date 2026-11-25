@@ -61,10 +61,10 @@ struct FigureSpec {
     bool floatDock = false;   //!< detach the target's dock so size is not constrained by neighbors
     QString page;             //!< tab / list-row text to select in the target
     QString tab;              //!< sub-tab to select after \a page (sidebar + tab)
-    QString tabIn;      //!< scope tab selection to this objectName (e.g. compactToolbarTabBar)
+    QString tabIn;      //!< scope tab selection to this objectName (for example compactToolbarTabBar)
     QString dialogPage; //!< page in the child dialog opened by the last click
     QStringList
-        prepareActions; //!< non-dialog actions applied before rendering (e.g. zoom to extent)
+        prepareActions; //!< non-dialog actions applied before rendering (for example zoom to extent)
     QStringList hostSelectMore; //!< additional selected rows (same panel as hostSelect)
     QStringList hide;           //!< hide named widgets for this capture layout
     QStringList show;           //!< show and raise named widgets for this capture layout

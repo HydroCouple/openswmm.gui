@@ -24,11 +24,11 @@ class SpatialReferenceSystem;
  * \brief Lightweight record describing one entry in the GDAL CRS database.
  */
 struct CRSInfo {
-    QString authName; /*!< Authority, e.g. "EPSG". */
+    QString authName; /*!< Authority, for example "EPSG". */
     int code = -1;    /*!< Numeric authority code. */
     QString name;     /*!< Human-readable name. */
     QString type;     /*!< CRS type string ("geographic 2D", "projected", etc.). */
-    QString areaName; /*!< Area of use, e.g. "World", "USA - Florida". */
+    QString areaName; /*!< Area of use, for example "World", "USA - Florida". */
     bool deprecated = false;
 };
 

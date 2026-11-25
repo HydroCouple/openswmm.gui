@@ -200,7 +200,7 @@ public:
      */
     void setDefaultCrsMode(const QString &mode);
 
-    /*! Default CRS authority (e.g. "EPSG") + code (e.g. 4326) used
+    /*! Default CRS authority (for example "EPSG") + code (for example 4326) used
      *  when the loaded .inp has no CRS and mode is "EPSG".
      * @brief Authority string for the default fallback CRS.
      * @return Saved preference or its compiled fallback; read access does not apply the setting to existing objects.

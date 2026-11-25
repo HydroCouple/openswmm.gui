@@ -82,7 +82,7 @@ public:
     // ----- Identity --------------------------------------------------------
 
     /*!
-     * \brief Returns the authority name (e.g. "EPSG", "ESRI").
+     * \brief Returns the authority name (for example "EPSG", "ESRI").
      * @return Stored uppercase authority name after successful parsing, possibly empty for
      *   local/unidentified CRS.
      */
@@ -132,7 +132,7 @@ public:
     [[nodiscard]] QString toProj4() const;
 
     /*!
-     * \brief Returns the "AUTHORITY:CODE" string, e.g. "EPSG:4326".
+     * \brief Returns the "AUTHORITY:CODE" string, for example "EPSG:4326".
      * @return Stored AUTH:code when authority exists/code>=0, Local for GDAL local CRS, otherwise
      *   empty.
      */
@@ -164,7 +164,7 @@ public:
     // ----- Units -----------------------------------------------------------
 
     /*!
-     * \brief Returns the name of the linear unit (e.g. "metre", "US survey foot").
+     * \brief Returns the name of the linear unit (for example "metre", "US survey foot").
      *        Geographic defaults follow GDAL GetLinearUnits.
      * @return GDAL GetLinearUnits name or empty for invalid/absent name; no geographic-type guard,
      *   so geographic behavior follows GDAL defaults.
@@ -181,7 +181,7 @@ public:
     [[nodiscard]] double linearUnitsToMetres() const;
 
     /*!
-     * \brief Returns the name of the angular unit (e.g. "degree").
+     * \brief Returns the name of the angular unit (for example "degree").
      *        Projected defaults follow GDAL GetAngularUnits.
      * @return GDAL GetAngularUnits name or empty invalid/absent name; projected CRS is not
      *   explicitly suppressed.
@@ -277,7 +277,7 @@ public:
 
     /*!
      * \brief Creates a local CRS with linear units derived from the SWMM `[MAP]` section
-     *        `Units` field (e.g. "FEET" or "METERS"). Distances and the scale bar will
+     *        `Units` field (for example "FEET" or "METERS"). Distances and the scale bar will
      *        show correct values without requiring a geographic CRS.
      * \param mapUnits  Value of the `[MAP] Units` line (case-insensitive: "FEET"/"METERS"/…).
      * \param parent    Qt parent for the new object.

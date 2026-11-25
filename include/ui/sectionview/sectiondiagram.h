@@ -93,7 +93,7 @@ struct DiagramPoly {
     QString insetLabel;
 };
 
-/*! A polyline (no fill), e.g. a centerline or a water surface. */
+/*! A polyline (no fill), for example a centerline or a water surface. */
 struct DiagramPolyline {
     QPolygonF pts;
     DiagramRole role = DiagramRole::Muted;
@@ -124,7 +124,7 @@ struct DiagramDim {
     QPointF to;
     QString text;
     double pixelOffset = 28.0;
-    bool accent = false; //!< Highlight (e.g. the geom being edited).
+    bool accent = false; //!< Highlight (for example the geom being edited).
 };
 
 /*! A leader line from a feature point out to a text label placed
@@ -264,8 +264,8 @@ struct DiagramViewport {
  * \brief Everything one preview pane draws, in model units.
  */
 struct SectionDiagramModel {
-    QString title;    //!< Bold header, e.g. "C-12 — Cross-Section".
-    QString subtitle; //!< Secondary header, e.g. "CIRCULAR".
+    QString title;    //!< Bold header, for example "C-12 — Cross-Section".
+    QString subtitle; //!< Secondary header, for example "CIRCULAR".
     QString footer;   //!< Single-line readout under the drawing.
     /*! Shown centered instead of the drawing when there is nothing to render
      *  (no selection, DUMMY section, geometry not resolvable). */

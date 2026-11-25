@@ -63,7 +63,7 @@ public:
     ~PreferencesDialog() override = default;
 
     /*! Select the category page whose list label matches \a label
-     *  (e.g. "Appearance"). No-op when no category matches. */
+     *  (for example "Appearance"). No-op when no category matches. */
     /**
      * @brief Restore persisted dialog layout once, then select an exact sidebar caption.
      * @param[in] label Translated visible category label; unknown labels leave selection unchanged.

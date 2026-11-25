@@ -31,7 +31,7 @@ class SWMMRainGagePropertyAdapter : public SWMMDataObjectPropertyAdapter
 
 public:
     /*! Type-safe enums declared with Q_ENUM so QPropertyModel renders the
-     *  key name (e.g. "INTENSITY", "FILE", "MM") instead of a raw integer.
+     *  key name (for example "INTENSITY", "FILE", "MM") instead of a raw integer.
      *  Values mirror the engine codes and the Attribute Table value lists. */
     // Mixed-case enumerators deliberately avoid the all-caps Windows SDK
     // macros (IN/OUT) and the <cstdio> FILE typedef.

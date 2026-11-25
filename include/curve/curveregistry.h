@@ -104,7 +104,7 @@ public:
     int loadFromEngine(void *engineHandle, const QString &onlyName);
 
     /*! Engine table index of the curve \p name, or -1 (a time series of the
-     *  same name never matches); e.g. for swmm_table_analyze_impact. */
+     *  same name never matches); used, for example, with swmm_table_analyze_impact. */
     static int engineTableIndex(void *engineHandle, const QString &name);
 
     /*! The engine this registry mirrors to (set by loadFromEngine / saveToEngine). */

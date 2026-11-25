@@ -40,7 +40,7 @@ struct CulvertCodeInfo {
  */
 [[nodiscard]] const std::vector<CulvertCodeInfo> &culvertCodes();
 
-/*! Short display label for a code, e.g.
+/*! Short display label for a code, for example
  *  "3) Circular Concrete: Groove end projecting". Returns "(none)"
  *  for code <= 0 and "Code N" for an unknown positive code.
  * @param[in] code HDS-5 selector: 1..57 is known, nonpositive means no culvert.

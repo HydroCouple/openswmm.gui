@@ -1,6 +1,6 @@
 /**
  * @file      numberformat.cpp
- * @brief     A `NumberFormat` pairs a mode (decimal places vs. significant figures) with a count
+ * @brief     A `NumberFormat` pairs a mode (decimal places versus significant figures) with a count
  *            and turns it into either a printf format string (for `QValueAxis::setLabelFormat`) or
  *            a formatted `QString` (for axis ticks drawn by hand, point labels, tooltips, cursor
  *            readouts, and stats panels).

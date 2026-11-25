@@ -135,7 +135,7 @@ RowAssignmentResult applyRowAssignment(SWMM_Engine engine, const RowAssignmentPr
 /** Restore the before rows and tags when the engine still equals the preview's after. */
 RowAssignmentResult undoRowAssignment(SWMM_Engine engine, const RowAssignmentPreview &preview);
 
-/** Display text of a coverage percent set, e.g. "Urban 60 %, Grass 40 %". */
+/** Display text of a coverage percent set, for example "Urban 60 %, Grass 40 %". */
 QString coverageText(const QMap<QString, double> &percents);
 
 /**

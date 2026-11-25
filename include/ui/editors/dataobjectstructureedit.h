@@ -45,7 +45,7 @@ Provider *stepTarget(Registry *registry, const QPointer<Provider> &seen, const Q
 }
 
 /*! Create \p name with \p make(registry, name) (the registry's create() when
- *  it needs more than the name, e.g. a curve's type). Forward creates it and
+ *  it needs more than the name, for example a curve's type). Forward creates it and
  *  runs \p setup(provider) (initial settings; returns false when the model
  *  refused them); backward deletes it. \p Registry needs engineHandle(),
  *  findByName() and remove(). */

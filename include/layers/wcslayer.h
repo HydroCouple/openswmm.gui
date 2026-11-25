@@ -46,7 +46,7 @@ class OGRCoordinateTransformation;
  * \brief One field (band / variable) advertised by a WCS DescribeCoverage response.
  */
 struct WCSFieldInfo {
-    QString identifier; /*!< e.g. "singleBand", "Red", "temperature" */
+    QString identifier; /*!< For example "singleBand", "Red", "temperature" */
     QString description;
 };
 
@@ -59,8 +59,8 @@ struct WCSCoverageInfo {
     QString title;
     QString abstractText;
     MapExtent wgs84BoundingBox;   /*!< Always EPSG:4326. */
-    QStringList supportedCrs;     /*!< e.g. {"EPSG:4326", "EPSG:3857"}. */
-    QStringList supportedFormats; /*!< e.g. {"image/tiff", "image/png"}. */
+    QStringList supportedCrs;     /*!< For example {"EPSG:4326", "EPSG:3857"}. */
+    QStringList supportedFormats; /*!< For example {"image/tiff", "image/png"}. */
     QList<WCSFieldInfo> fields;   /*!< From DescribeCoverage; may be empty. */
     QStringList interpolations;   /*!< From DescribeCoverage; may be empty. */
 };
@@ -72,7 +72,7 @@ struct WCSCoverageInfo {
 struct WCSServiceInfo {
     QString title;
     QString abstractText;
-    QString version; /*!< Negotiated version, e.g. "2.0.1". */
+    QString version; /*!< Negotiated version, for example "2.0.1". */
     QList<WCSCoverageInfo> coverages;
 };
 

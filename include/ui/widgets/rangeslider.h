@@ -76,7 +76,7 @@ public:
     Part focusedPart() const noexcept { return m_part; }
 
     /**
-     * @brief Set how a fraction of the track is spoken and shown, e.g. as a date.
+     * @brief Set how a fraction of the track is spoken and shown, for example as a date.
      * @param[in] formatter Maps a fraction in [0,1] to text; empty restores the percentage.
      */
     void setValueFormatter(std::function<QString(qreal)> formatter);

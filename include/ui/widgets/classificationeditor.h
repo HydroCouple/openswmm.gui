@@ -79,7 +79,7 @@ public:
      */
     ~ClassificationEditor() override;
 
-    /*! Swap the bound model (e.g. when the host re-targets the editor).
+    /*! Swap the bound model (for example when the host re-targets the editor).
      *  Takes ownership when \p ownBinding is true.
      * @param[in] binding New adapter, possibly null; borrowed adapters must outlive use by this editor.
      * @param[in] ownBinding Whether this editor assumes deletion responsibility. Replacing a distinct previously owned adapter deletes it.

@@ -88,7 +88,7 @@ public:
      */
     static StyleEditorRegistry &instance();
 
-    /*! Register an editor factory for the given className (e.g.
+    /*! Register an editor factory for the given className (for example
      *  "OpenSWMM::Render::PointFeatureSublayerStyle").
      * @param[in] className Copied exact case-sensitive fully-qualified or unqualified Qt class
      *   name.

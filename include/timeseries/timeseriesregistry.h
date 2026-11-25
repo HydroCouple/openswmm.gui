@@ -106,7 +106,7 @@ public:
     bool rename(TimeseriesProvider *p, const QString &newName);
 
     /*! \brief Engine table index of the series \p name (curves of the same
-     *  name never match), or -1; e.g. for swmm_table_analyze_impact.
+     *  name never match), or -1; used, for example, with swmm_table_analyze_impact.
      * @param[in] engineHandle Borrowed engine; null returns -1. */
     static int engineTableIndex(void *engineHandle, const QString &name);
 

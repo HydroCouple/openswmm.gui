@@ -435,7 +435,7 @@ public:
      */
     [[nodiscard]] InletPlacement placement() const;
     /*! Read-only: the name of the upstream STREET conduit's street section,
-     *  i.e. the gutter the inlet sits in. Empty when not resolvable.
+     *  that is, the gutter the inlet sits in. Empty when not resolvable.
      * @return STREET cross-section name from the first readable incoming street conduit; empty if none resolves. Scans links without changing geometry.
      */
     [[nodiscard]] QString approachStreet() const;
@@ -504,8 +504,8 @@ public:
      */
     [[nodiscard]] double storageParam3() const;
 
-    /*! Maps a Q_PROPERTY identifier (e.g. \c "maxDepth") to a
-     *  human-readable column-0 label (e.g. \c "Max Depth (ft)") with
+    /*! Maps a Q_PROPERTY identifier (for example \c "maxDepth") to a
+     *  human-readable column-0 label (for example \c "Max Depth (ft)") with
      *  unit suffixes pulled live from \c UnitSystem::instance().
      *  Q_INVOKABLE so QPropertyModel can pick it up generically without
      *  taking a SWMM-specific dependency.  Returns an empty string for
@@ -1096,7 +1096,7 @@ signals:
      */
     void coordChangeRequested(double newX, double newY);
     /*! Emitted whenever the active unit system changes, so the
-     *  Property Browser can refresh column-0 labels (e.g. swap
+     *  Property Browser can refresh column-0 labels (for example swap
      *  "(ft)" → "(m)") without rebuilding the property tree.
      * @brief Request property labels to be rebuilt after active-project units change, without changing stored input values.
      */

@@ -237,7 +237,7 @@ public:
     void redo() override;
 
 private:
-    QString m_oldAuthCode; /*!< e.g. "EPSG:4326" */
+    QString m_oldAuthCode; /*!< For example "EPSG:4326" */
     QString m_newAuthCode;
     bool m_firstRedo = true; /*!< Skip first redo — CRS already applied by setCanvasSRS. */
 };
@@ -1471,7 +1471,7 @@ private:
 
 /*!
  * \class ReorderLayersCommand
- * \brief Records a full layer-stack reorder (e.g. moving an entire category
+ * \brief Records a full layer-stack reorder (for example moving an entire category
  *        group) as a single undoable step.
  */
 class ReorderLayersCommand : public MapCommand
@@ -1844,7 +1844,7 @@ public:
      */
     int id() const override { return 49; }
 
-    /*! Engine warnings / the conversion error from the last redo() (e.g. a
+    /*! Engine warnings / the conversion error from the last redo() (for example a
      *  divider inserted mid-conduit has only two links until a third is drawn).
      * @return Copy of latest eligible redo warnings/conversion error. Null/already-present redo
      *   does not clear; undo does not clear. Split failure may return empty warnings; not a

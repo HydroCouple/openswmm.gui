@@ -52,7 +52,7 @@ public:
     explicit FrozenGroundRowModel(Target target, QObject *parent = nullptr);
 
     [[nodiscard]] Target target() const { return m_target; }
-    /** The section's bracketed name, e.g. "[FROZEN_GROUND]". */
+    /** The section's bracketed name, for example "[FROZEN_GROUND]". */
     [[nodiscard]] QString sectionName() const;
     /** The engine's default values for a new row. */
     [[nodiscard]] static std::array<double, ValueCount> defaultValues();

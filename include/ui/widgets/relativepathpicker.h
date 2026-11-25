@@ -82,7 +82,7 @@ public:
      */
     void setAcceptMode(QFileDialog::AcceptMode m) { m_mode = m; }
 
-    /*! Browse-dialog file filter, e.g. "Time-series files (*.dat *.csv)". */
+    /*! Browse-dialog file filter, for example "Time-series files (*.dat *.csv)". */
     [[nodiscard]] QString fileFilter() const { return m_filter; }
     /**
      * @brief Store the browser's filename filter.

@@ -167,7 +167,7 @@ public:
      */
     virtual void refreshFromModel() = 0;
 
-    /*! User-facing label for the dropdown entry (e.g. "Single Symbol").
+    /*! User-facing label for the dropdown entry (for example "Single Symbol").
      * @return Concrete panel display label by value. No registry lookup, translation/uniqueness
      *   requirement enforced here or source mutation.
      */
@@ -185,7 +185,7 @@ public:
         std::function<IRendererPanel *(const RendererPanelContext &ctx, QWidget *parent)>;
 
     /*! Gap A4.2 — declarative applicability: returns true when the
-     *  renderer class makes sense for the resolved context (e.g.
+     *  renderer class makes sense for the resolved context (for example
      *  Graduated needs at least one numeric attribute). Null predicate =
      *  always applicable. */
     using Applicable = std::function<bool(const RendererPanelContext &ctx)>;

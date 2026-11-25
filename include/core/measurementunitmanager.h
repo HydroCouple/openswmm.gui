@@ -70,14 +70,14 @@ public:
     [[nodiscard]] static double convert(double value, DistanceUnit from, DistanceUnit to);
 
     /*!
-     * \brief Returns the abbreviated unit symbol (e.g. "m", "km", "ft").
+     * \brief Returns the abbreviated unit symbol (for example "m", "km", "ft").
      * @param[in] unit Unit whose untranslated display abbreviation is requested.
      * @return Symbol, distinguishing international feet (ft) from US survey feet (US ft); empty for an unknown enum.
      */
     [[nodiscard]] static QString distanceUnitSymbol(DistanceUnit unit);
 
     /*!
-     * \brief Returns the full unit name (e.g. "Meters", "US survey feet").
+     * \brief Returns the full unit name (for example "Meters", "US survey feet").
      * @param[in] unit Unit whose translated name is requested.
      * @return Translated name, or an empty string for an unknown enum.
      */
@@ -130,14 +130,14 @@ public:
     [[nodiscard]] static double convertArea(double value, AreaUnit from, AreaUnit to);
 
     /*!
-     * \brief Returns the abbreviated unit symbol (e.g. "m²", "ha", "ac").
+     * \brief Returns the abbreviated unit symbol (for example "m²", "ha", "ac").
      * @param[in] unit Unit whose untranslated display abbreviation is requested.
      * @return Unit symbol, or an empty string for an unknown enum.
      */
     [[nodiscard]] static QString areaUnitSymbol(AreaUnit unit);
 
     /*!
-     * \brief Returns the full unit name (e.g. "Square meters", "Hectares").
+     * \brief Returns the full unit name (for example "Square meters", "Hectares").
      * @param[in] unit Unit whose translated name is requested.
      * @return Translated name, or an empty string for an unknown enum.
      */

@@ -108,7 +108,7 @@ struct FeatureRoleSpec {
     /*! Old field name → current name. Readers accept both; "Update fields to
      *  role…" renames. */
     QHash<QString, QString> legacyAliases;
-    /*! Shown under the role summary (e.g. "assign from Mesh Editing for now"). */
+    /*! Shown under the role summary (for example "assign from Mesh Editing for now"). */
     QString note;
 
     /**

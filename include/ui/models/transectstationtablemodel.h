@@ -52,7 +52,7 @@ public:
      */
     openswmmvis::transect::TransectProvider *provider() const noexcept;
 
-    /*! \brief Override the header units (e.g. "(ft)" / "(m)").
+    /*! \brief Override the header units (for example "(ft)" / "(m)").
      * @param[in] suffix Display-only unit text, including empty; no data conversion occurs.
      * @note A changed value emits headerDataChanged() for both horizontal columns.
      */

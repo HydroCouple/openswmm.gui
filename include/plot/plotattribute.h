@@ -125,13 +125,13 @@ enum class PlotAttribute {
     SubcatchFrozenGroundTemp = 57, ///< °C; frozen-ground slab temperature
 };
 
-/*! \brief Short human label, e.g. "Depth", "Flow", "Velocity |V|".
+/*! \brief Short human label, for example "Depth", "Flow", "Velocity |V|".
  * @param[in] a Fixed result identifier.
  * @return Untranslated display label, or Unknown for Unknown/unsupported identifiers.
  */
 QString labelFor(PlotAttribute a);
 
-/*! \brief Unit string for the given attribute + unit system, e.g. "m", "ft³/s".
+/*! \brief Unit string for the given attribute + unit system, for example "m", "ft³/s".
  * @param[in] a Fixed result identifier.
  * @param[in] u Requested display family; only US selects US labels, all other enum values follow SI.
  * @return Unit label, empty for dimensionless/unknown attributes. Accepted-clock snow attributes always use their documented SI units, independent of u. This labels values without converting them.

@@ -45,7 +45,7 @@ struct NumberFormat {
     NumberFormatMode mode = NumberFormatMode::Decimals;
     int count = 2; ///< Decimals (>=0) or sig figs (>=1).
 
-    /*! \brief Optional user-supplied printf spec (e.g. "%.2f", "%.1f m").
+    /*! \brief Optional user-supplied printf spec (for example "%.2f", "%.1f m").
      *  When it holds a single valid floating-point conversion (see
      *  `hasValidCustom()`) it overrides `mode`/`count`; otherwise it is
      *  ignored and `mode`/`count` apply. Empty by default. */
@@ -70,7 +70,7 @@ struct NumberFormat {
     bool hasValidCustom() const;
 
     /*! \brief printf spec for `QValueAxis::setLabelFormat` — `custom` when
-     *  valid, else e.g. "%.2f" / "%.3g".
+     *  valid, else for example "%.2f" / "%.3g".
      * @return A copy of the validated custom string or the mode conversion with effectiveCount() precision. No locale or unit conversion occurs.
      */
     QString printfSpec() const;

@@ -208,7 +208,7 @@ struct WCSConnection {
     QString outputCrs = QStringLiteral("EPSG:4326");
     QString outputFormat = QStringLiteral("image/tiff"); /*!< GDAL-readable MIME type. */
     /*!
-     * \brief Optional WCS range subset string, e.g. "band[1]".
+     * \brief Optional WCS range subset string, for example "band[1]".
      * Empty string = all fields (default).
      */
     QString rangeSubset;
@@ -306,7 +306,7 @@ struct LocalRasterConnection {
     QString name;
     QString filePath;
     QString worldFilePath; /*!< Empty = rely on embedded/sidecar georef. */
-    QString crsAuthCode;   /*!< e.g. "EPSG:26985". Empty = use embedded CRS. */
+    QString crsAuthCode;   /*!< For example "EPSG:26985". Empty = use embedded CRS. */
 };
 
 #endif // BASEMAPCONNECTION_H

@@ -60,7 +60,7 @@ struct ResultDescriptor {
     QString variableLabel;
     QString variableUnits;
     /*! Display-only description shown as a tooltip where the descriptor is
-     *  offered (e.g. how an R4 pollutant load is computed and how it differs
+     *  offered (for example how an R4 pollutant load is computed and how it differs
      *  from the engine's .rpt totals). Never part of the identity. */
     QString variableNote;
 

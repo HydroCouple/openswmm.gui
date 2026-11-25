@@ -109,7 +109,7 @@ public:
     /*!
      * \brief  Sever every external signal/slot connection while children
      *         are still alive so that any cross-window teardown order
-     *         (e.g. SWMMVis-level closeEvent → project close → dialog
+     *         (for example SWMMVis-level closeEvent → project close → dialog
      *         close all in one event-loop iteration) cannot deliver a
      *         signal into a half-destroyed dialog.
      */

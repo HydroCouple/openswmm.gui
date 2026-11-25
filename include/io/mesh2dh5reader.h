@@ -310,7 +310,7 @@ public:
 
     /*!
      * \brief Read one time slice of any per-face \c [nTime, nFace] dataset
-     *        (e.g. \c Mesh2_face_rainfall, \c Mesh2_face_rain_cum).
+     *        (for example \c Mesh2_face_rainfall, \c Mesh2_face_rain_cum).
      * \param dataset Dataset name at the file root.
      * \param timeIdx 0-based time index (must be < timeCount()).
      * \param values  Output, resized to triangleCount(); engine SI units.

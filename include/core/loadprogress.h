@@ -149,7 +149,7 @@ public:
      */
     static int stageWeight(OpenStage stage);
 
-    /*! Canonical user-facing label for \p stage, e.g. "Parsing 2D mesh…".
+    /*! Canonical user-facing label for \p stage, for example "Parsing 2D mesh…".
      *  Lets a worker report a stage without also shipping its own text.     * @param[in] stage Stage requiring a display label.
      * @return Translated stage description, or empty for Count_ or an invalid enum.
      */

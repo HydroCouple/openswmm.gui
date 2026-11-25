@@ -59,7 +59,7 @@ public:
      * @return Empty on success, otherwise why the rows could not be read.
      */
     QString load(SWMM_Engine engine);
-    /** @brief Header unit shown after "Coefficient", e.g. "ft²/s". */
+    /** @brief Header unit shown after "Coefficient", for example "ft²/s". */
     void setUnits(const QString &units);
 
     [[nodiscard]] const QList<Row> &rows() const { return m_rows; }

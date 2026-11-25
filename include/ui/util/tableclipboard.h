@@ -74,7 +74,7 @@ struct TableClipboardOptions {
     bool copyOnly = false;
     /**
      * @brief Writes a whole pasted block at once, for tables whose rows must
-     *        change together (e.g. stations that must stay increasing).
+     *        change together (for example stations that must stay increasing).
      *
      * Receives the first target row, the first target column (logical) and
      * the pasted rows with any header removed.

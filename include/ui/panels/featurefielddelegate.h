@@ -78,7 +78,7 @@ public:
      *   ownership/reentry protection.
      */
     void setModelNamesProvider(ModelNamesProvider provider) { m_modelNames = std::move(provider); }
-    /*! Suffix for a FieldUnit::Length spin box, e.g. "m" or "ft".
+    /*! Suffix for a FieldUnit::Length spin box, for example "m" or "ft".
      * @param[in] unit Copied raw display suffix, e.g. m or ft, empty omits; applied to future REAL
      *   length editors only.
      * @note No conversion of model values, refresh of existing editor or repaint signal. Integer

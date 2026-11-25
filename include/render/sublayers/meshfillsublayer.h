@@ -181,7 +181,7 @@ public:
         return m_colorByAttribute == CellAttribute::Elevation;
     }
 
-    /*! True when the selected attribute is CATEGORICAL — i.e. its
+    /*! True when the selected attribute is CATEGORICAL — that is, its
      *  mesh::CellParamSpec is Kind::Enum. The renderer then colors each cell
      *  by categoryColorForValue() instead of running the value through the
      *  ClassificationScheme, and the legend emits one row per present value. */

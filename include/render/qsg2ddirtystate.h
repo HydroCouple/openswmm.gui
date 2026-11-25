@@ -95,7 +95,7 @@ public:
     /*! Layer pointer swapped / renderer force-rebuild: everything is stale. */
     void noteLayerChanged() { m_pending |= AllContent; }
 
-    /*! Ambiguous invalidation (e.g. the layer's catch-all repaintRequested
+    /*! Ambiguous invalidation (for example the layer's catch-all repaintRequested
      *  signal). Classified by resolve() using the snapshot diffs. */
     void noteExternalChanged() { m_external = true; }
 

@@ -115,7 +115,7 @@ public:
     QString name() const noexcept { return m_name; }
 
     /*! \brief Units label inferred from column suffix or set explicitly
-     *  (e.g. "m", "ft³/s"). UI hint only — no unit conversion happens here.
+     *  (for example "m", "ft³/s"). UI hint only — no unit conversion happens here.
      * @return Copied metadata label without value conversion or validation.
      */
     QString unitsLabel() const noexcept { return m_unitsLabel; }

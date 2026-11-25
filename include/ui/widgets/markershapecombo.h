@@ -57,7 +57,7 @@ public:
     void addShape(int value, const QString &label);
 
     /*! Legacy 5/6-shape mix for consumers backed by a small per-class shape
-     *  enum (e.g. PointFeatureSublayerStyle::MarkerShape, values 0–4). Do NOT
+     *  enum (for example PointFeatureSublayerStyle::MarkerShape, values 0–4). Do NOT
      *  use for canonical OpenSWMM::Render::MarkerShape editors — use
      *  populateCanonical() so the extra shapes' values stay valid.
      * @param[in] includeCross Add legacy value 5 after values 0–4 when true.

@@ -149,7 +149,7 @@ inline QString xsectShapeName(int engineId)
     return {};
 }
 
-//! Shape-specific label for geom `ordinal` (1..4), e.g. "Diameter".
+//! Shape-specific label for geom `ordinal` (1..4), for example "Diameter".
 //! Empty string when the geom is unused for the shape or ordinal is out
 //! of range.
 /**

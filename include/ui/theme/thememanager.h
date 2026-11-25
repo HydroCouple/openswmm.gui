@@ -60,7 +60,7 @@ public:
     void setMode(Mode mode);
 
     /*! The scheme in force: the OS scheme in System mode (falling back
-     *  to Light when the platform reports Unknown — e.g. the offscreen
+     *  to Light when the platform reports Unknown — for example the offscreen
      *  QPA), otherwise the explicit choice.
      * @return Dark only for explicit Dark or System with a Dark OS report; otherwise Light, including Unknown platform reports.
      */

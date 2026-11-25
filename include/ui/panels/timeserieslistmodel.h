@@ -79,7 +79,7 @@ public:
      */
     openswmmvis::timeseries::TimeseriesRegistry *registry() const noexcept;
 
-    /*! \brief Route in-place renames through the owner (e.g. as an undoable
+    /*! \brief Route in-place renames through the owner (for example as an undoable
      *  step). Without one, setData renames through the registry directly.
      * @param[in] handler Returns false when the rename was refused. */
     void setRenameHandler(

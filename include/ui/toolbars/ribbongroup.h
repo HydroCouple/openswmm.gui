@@ -137,7 +137,7 @@ public:
     void addWidget(QWidget *widget, int stretch = 0);
 
     /*! The button hosting \a action (plain button or split-button face/
-     *  member) — for attaching menus, e.g. the Plot-Profile dropdown.
+     *  member) — for attaching menus, for example the Plot-Profile dropdown.
      * @param[in] action Borrowed identity to locate; null not specially rejected.
      * @return First matching default-action or split-family button, else null. Borrowed pointer; no
      *   ownership or trigger. Null can match unbound split face, so caller normally supplies
@@ -180,7 +180,7 @@ public:
     RibbonGroupWidths groupWidths() const;
 
     /*! Drop the cached widths and announce the new hint — call after a
-     *  hosted widget's contents change size contextually (e.g. the mesh
+     *  hosted widget's contents change size contextually (for example the mesh
      *  editing clusters showing/hiding with the selection).
      * @note Clear width cache and call updateGeometry so host can resolve contextual size changes.
      *   No immediate solve, mode change or action trigger; hidden Qt widget geometry notification

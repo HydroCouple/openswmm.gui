@@ -622,7 +622,7 @@ public:
     [[nodiscard]] double sampleZAt(double sx, double sy) const;
 
     /*! \brief True when this edge slot is a boundary edge in the loaded
-     *  mesh (i.e. the corresponding triangle has no neighbor across it).
+     *  mesh (that is, the corresponding triangle has no neighbor across it).
      *  Boundary classification is derived from the mesh's MeshEdge list
      *  populated by InpMeshReader; non-boundary edges return false.
      * @param[in] triIdx Original zero-based cell index.

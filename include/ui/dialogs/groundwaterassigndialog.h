@@ -99,7 +99,7 @@ public:
      */
     GroundwaterAssignmentEvents *assignmentEvents() const { return m_events; }
     /**
-     * @brief Choose the assignment target by key (e.g. "SQ_COVERAGE", "FLOW", "KS").
+     * @brief Choose the assignment target by key (for example "SQ_COVERAGE", "FLOW", "KS").
      * @details Unknown keys leave the current target. Used by the Assign Surface Quality action.
      */
     void selectTarget(const QString &key);

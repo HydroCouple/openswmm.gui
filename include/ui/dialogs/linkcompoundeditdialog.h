@@ -128,7 +128,7 @@ private:
     [[nodiscard]] int linkIdx() const;
 
     /*! Build the human-readable summary string for the current xsection
-     *  state (e.g. "CIRCULAR (3.0 ft)"). Used both for the dialog title
+     *  state (for example "CIRCULAR (3.0 ft)"). Used both for the dialog title
      *  hint and for `m_ref.summary` after every apply.
      * @return Readback label from engine shape/geom, no link/unknown diagnostic on lookup failure.
      *   IRREGULAR uses current PICKER name (may differ from saved engine), STREET resolves rounded

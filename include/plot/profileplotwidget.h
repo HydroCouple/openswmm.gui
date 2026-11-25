@@ -422,7 +422,7 @@ public:
      */
     [[nodiscard]] QString accessibleSummary() const;
     /**
-     * @brief Add text to cursorSummary(), e.g. the attribute-track values at the node.
+     * @brief Add text to cursorSummary(), for example the attribute-track values at the node.
      * @param[in] provider Called with the cursor's path index; empty removes it.
      */
     void setNodeDetailsProvider(std::function<QString(int pathNodeIdx)> provider);

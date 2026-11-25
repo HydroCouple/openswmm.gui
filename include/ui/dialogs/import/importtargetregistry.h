@@ -80,7 +80,7 @@ public:
      */
     [[nodiscard]] static QVector<TargetKind> allKinds();
 
-    /*! Translated display label, e.g. "Rain Gage".
+    /*! Translated display label, for example "Rain Gage".
      * @param[in] k Target enum, unknown returns empty.
      * @return Translated user label, no engine/provider/name validation.
      */

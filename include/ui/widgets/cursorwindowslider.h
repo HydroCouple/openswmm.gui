@@ -59,7 +59,7 @@ public:
     qreal windowNorm() const noexcept { return m_windowNorm; }
 
     /**
-     * @brief Set how the cursor is spoken, e.g. as the animation date and time.
+     * @brief Set how the cursor is spoken, for example as the animation date and time.
      * @param[in] formatter Maps a fraction in [0,1] to text; empty restores the percentage.
      */
     void setValueFormatter(std::function<QString(qreal)> formatter);

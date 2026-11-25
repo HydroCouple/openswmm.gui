@@ -98,7 +98,7 @@ public:
     void focusSearch();
 
     /*!
-     * \brief Select + scroll to the category header for \p c (e.g. the
+     * \brief Select + scroll to the category header for \p c (for example the
      *        "Storage" row when the user clicks the matching kind sub-row in
      *        the Layers panel). No-op when the category is empty/hidden.
      *        Runs under the applying-from-bus guard: a category header

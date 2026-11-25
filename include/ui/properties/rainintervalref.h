@@ -41,7 +41,7 @@ struct RainIntervalRef {
     int seconds = 0;              ///< Recording interval in seconds
     /*! Owning model layer (borrow) — writes route through the layer when
      *  present so other views refresh; falls back to the bare engine
-     *  setter (e.g. in tests). */
+     *  setter (for example in tests). */
     SWMMModelLayer *layer = nullptr;
 
     /**

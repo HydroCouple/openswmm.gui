@@ -34,7 +34,7 @@ class RasterTileItem;
  * \brief Describes one zoom level within an OGC WMTS TileMatrixSet.
  */
 struct WMTSTileMatrix {
-    QString identifier;      /*!< e.g. "0", "1", … */
+    QString identifier;      /*!< For example "0", "1", … */
     double scaleDenominator; /*!< OGC scale denominator. */
     double topLeftX;         /*!< Top-left corner X of the tile grid. */
     double topLeftY;         /*!< Top-left corner Y of the tile grid. */
@@ -49,8 +49,8 @@ struct WMTSTileMatrix {
  * \brief A complete tile matrix set (one CRS + ordered zoom levels).
  */
 struct WMTSTileMatrixSet {
-    QString identifier;             /*!< e.g. "GoogleMapsCompatible". */
-    QString crsIdentifier;          /*!< e.g. "EPSG:3857". */
+    QString identifier;             /*!< For example "GoogleMapsCompatible". */
+    QString crsIdentifier;          /*!< For example "EPSG:3857". */
     QList<WMTSTileMatrix> matrices; /*!< Ordered by decreasing scale (coarse → fine). */
 };
 
@@ -151,7 +151,7 @@ public:
     void fetchCapabilities();
 
     /*!
-     * \brief Injects an already-fetched service info (e.g. from a connection
+     * \brief Injects an already-fetched service info (for example from a connection
      *        dialog) so the layer can render immediately without a second
      *        GetCapabilities round-trip.
      * \details Sets m_capsReady = true and emits capabilitiesFetched().

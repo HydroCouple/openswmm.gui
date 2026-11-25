@@ -119,7 +119,7 @@ signals:
     void renameRequested(const QString &oldName, const QString &newName);
 
     /*! Emitted when the active unit system changes — the bound
-     *  Property Browser re-reads display labels (e.g. "Area (ft²)"
+     *  Property Browser re-reads display labels (for example "Area (ft²)"
      *  vs "Area (m²)"). */
     void displayLabelsChanged();
 

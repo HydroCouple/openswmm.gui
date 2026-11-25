@@ -80,7 +80,7 @@ struct OutputIdentity {
     QUuid stableId;
 
     /*! Human-readable short label, derived from the .out filename without
-     *  extension (e.g. "run-A"). Collision-resolved by appending "(N)"
+     *  extension (for example "run-A"). Collision-resolved by appending "(N)"
      *  when two .out files share a basename across loaded layers. */
     QString shortLabel;
 

@@ -50,7 +50,7 @@ public:
         QRectF bbox;          ///< union of member bboxes (superset)
         QVector<int> cellIds; ///< member cell indices (input order)
         QVector<int> edgeIds; ///< member edge indices (input order)
-        /*! Optional per-chunk aggregate for far-LOD rendering (e.g. mean
+        /*! Optional per-chunk aggregate for far-LOD rendering (for example mean
          *  depth). Written by the caller via chunksMutable(); build() resets
          *  it to 0. */
         double aggregate = 0.0;

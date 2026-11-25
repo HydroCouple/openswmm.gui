@@ -66,7 +66,7 @@ struct JoinSpec {
     QStringList joinFields;
 
     /*! \brief Prefix applied to joined field names on the host layer
-     *         (e.g. "obs_" → joined "depth" becomes "obs_depth").
+     *         (for example "obs_" → joined "depth" becomes "obs_depth").
      *         Empty = no prefix. */
     QString fieldPrefix;
 

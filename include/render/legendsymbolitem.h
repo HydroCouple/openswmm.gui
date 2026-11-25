@@ -52,7 +52,7 @@ namespace OpenSWMM::Render
  * \brief One row in a layer's legend.
  */
 struct LegendSymbolItem {
-    QString label;      /*!< Renderer-supplied label (e.g. "0 – 0.5 ft³/s"). */
+    QString label;      /*!< Renderer-supplied label (for example "0 – 0.5 ft³/s"). */
     SymbolStyle symbol; /*!< Painted as the legend swatch. */
     QPair<double, double> range = {qQNaN(),
                                    qQNaN()}; /*!< (low, high) for graduated; NaNs otherwise. */

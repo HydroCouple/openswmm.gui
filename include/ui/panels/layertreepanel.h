@@ -669,7 +669,7 @@ signals:
     void layerSelected(OpenSWMMVisLayer *layer);
 
     /*!
-     * \brief Emitted when the user selects a SWMM kind sub-row (e.g.
+     * \brief Emitted when the user selects a SWMM kind sub-row (for example
      *        "Storage"). \p kindOrdinal matches the SWMMModelLayer::Category
      *        enum value. Fires in addition to layerSelected (which collapses
      *        kind rows to their parent layer). SWMMVis listens and focuses

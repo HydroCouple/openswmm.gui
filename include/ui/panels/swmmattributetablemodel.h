@@ -378,7 +378,7 @@ public:
                         int role = Qt::DisplayRole) const override;
 
 public slots:
-    /*! Force a full reload (e.g. after the underlying SoA changed).
+    /*! Force a full reload (for example after the underlying SoA changed).
      * @note Reset row-cache sizes from current source count and invalidate compound/quality caches.
      *   DOES NOT rebuild columns, reference metadata or UnitSystem connection. No source
      *   reload/engine write or automatic undo invalidation; old indexes invalid.

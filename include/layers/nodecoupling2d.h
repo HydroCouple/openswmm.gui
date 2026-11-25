@@ -30,7 +30,7 @@ enum Type { None = 0, Manhole = 1, Grate = 2, Curb = 3, Open = 4, Outfall = 5 };
 
 /*! One node's coupling as authored: whether it has a [2D_NODE_COUPLING]
  *  row, its type (effective — the class default when not authored) and the
- *  parameter tokens it authors (key → section token, e.g. "D" → "1.2"). */
+ *  parameter tokens it authors (key → section token, for example "D" → "1.2"). */
 struct State {
     QString node;
     bool authored = false;

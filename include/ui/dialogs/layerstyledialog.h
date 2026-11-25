@@ -200,7 +200,7 @@ private slots:
     void onExportStyle();
 
     /*! Slice X.26 — refresh the Basemap-adjustments group from the
-     *  layer's current `basemapRenderParams()` (e.g. after style
+     *  layer's current `basemapRenderParams()` (for example after style
      *  import or another view mutated it). */
     /**
      * @brief Read supported basemap parameters into controls under signal blockers.

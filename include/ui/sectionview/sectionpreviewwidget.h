@@ -155,7 +155,7 @@ public:
 
 signals:
     /*! Emitted whenever zoom or pan changes, so a host can mirror the state
-     *  (e.g. a zoom-percentage readout).
+     *  (for example a zoom-percentage readout).
      * @param[in] viewport Borrowed stored viewport after normalized setter transition; copy before
      *   retaining beyond call.
      * @note Emitted before repaint scheduling, only zoom/pan setter changes; setModel/paint/export

@@ -109,7 +109,7 @@ public:
     Q_INVOKABLE virtual QString displayLabelFor(const QString &propertyName) const;
 
     /** @brief Properties panel group of a property: the part of its display label before
-     *  " — ", e.g. "Frame" for "Frame — Color".
+     *  " — ", for example "Frame" for "Frame — Color".
      * @param propertyName Property name.
      * @return Group name, or empty text when the label has no group. */
     Q_INVOKABLE virtual QString propertyGroupFor(const QString &propertyName) const;

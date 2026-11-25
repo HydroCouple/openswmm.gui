@@ -51,7 +51,7 @@ struct LayerTreeRow {
     /*! ObjectType rows, and the object-type sublayer rows of a 1D results
      *  layer: the SWMMModelLayer::Category the row stands for; else -1. */
     int category = -1;
-    /*! Sublayer rows: ISublayer::id(), e.g. "mesh.edges". */
+    /*! Sublayer rows: ISublayer::id(), for example "mesh.edges". */
     QString sublayerId;
 };
 

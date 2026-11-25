@@ -357,7 +357,7 @@ private:
      */
     [[nodiscard]] int slotForRow(int row) const;
 
-    /*! True when a SWMM model with a live engine is bound, i.e. when the
+    /*! True when a SWMM model with a live engine is bound, that is, when the
      *  reference columns can offer a real candidate list.
      * @return True iff guarded model pointer and current engine handle nonnull; does not prove
      *   engine running/editable, candidate lists nonempty or cached schema editor kind

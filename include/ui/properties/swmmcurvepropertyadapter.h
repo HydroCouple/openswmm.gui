@@ -38,7 +38,7 @@ public:
      */
     [[nodiscard]] int pointCount() const;
     /*! Short human-readable description of the X/Y grid for the
-     *  Property Browser cell (e.g. "5 rows, X: 0–120, Y: 0–25").
+     *  Property Browser cell (for example "5 rows, X: 0–120, Y: 0–25").
      * @return Empty for an unresolved curve, an empty marker for zero rows, or row count plus min/max X/Y from readable points. Units depend on curve type; no model writes occur.
      */
     [[nodiscard]] QString pointSummary() const;

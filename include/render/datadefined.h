@@ -55,7 +55,7 @@ enum class DDCurve : int {
 /*! \struct DataDefinedScalar
  *  \brief Maps one numeric attribute to a scalar output range. */
 struct DataDefinedScalar {
-    QString attribute;     /*!< SWMM attribute key (e.g. "maxDepth"). */
+    QString attribute;     /*!< SWMM attribute key (for example "maxDepth"). */
     double valueMin = 0.0; /*!< Lower end of attribute-value range. */
     double valueMax = 1.0; /*!< Upper end of attribute-value range. */
     double outMin = 2.0;   /*!< Lower end of output range (pixels). */

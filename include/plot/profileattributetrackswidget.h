@@ -126,7 +126,7 @@ public:
      */
     void setOptions(ProfileAttributeTrackOptions *options);
 
-    /*! Shared x-label (e.g. "Distance (ft)") drawn under the last track.
+    /*! Shared x-label (for example "Distance (ft)") drawn under the last track.
      * @param[in] label Display text including units if desired, copied verbatim.
      * @note Repaints the shared bottom strip without changing geometry/data units.
      */

@@ -388,7 +388,7 @@ public:
 
     /*!
      * \brief Whether the source carries a named per-face \c [nTime, nFace]
-     *        field beyond depth (e.g. \c "Mesh2_face_rainfall",
+     *        field beyond depth (for example \c "Mesh2_face_rainfall",
      *        \c "Mesh2_face_rain_cum"). Default: none — the live in-process
      *        source streams depth/flux only.
       *
@@ -1764,7 +1764,7 @@ public:
     void setMaxVelocity(double v);
 
     /*! \brief Whether the active source produced both edge geometry and a
-     *  flux slice — i.e. whether the velocity overlay has data to render.
+     *  flux slice — that is, whether the velocity overlay has data to render.
      *  NOTE: this reflects the CURRENTLY shown frame's reconstructed velocity
      *  magnitude; it is false on dry frames. Use \ref hasEdgeFluxData for a
      *  frame-independent "does this run carry edge flux" capability check.

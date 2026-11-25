@@ -48,7 +48,7 @@ struct WMSServiceInfo {
     QString title;
     QString abstractText;
     QString version;          /*!< "1.1.1" or "1.3.0". */
-    QStringList imageFormats; /*!< e.g. {"image/png", "image/jpeg"}. */
+    QStringList imageFormats; /*!< For example {"image/png", "image/jpeg"}. */
     QList<WMSLayerInfo> layers;
 };
 
@@ -125,7 +125,7 @@ public:
     void fetchCapabilities();
 
     /*!
-     * \brief Injects an already-fetched service info (e.g. from a connection
+     * \brief Injects an already-fetched service info (for example from a connection
      *        dialog) so the layer can render immediately without a second
      *        GetCapabilities round-trip.
      * \details Also sets m_wmsVersion from info.version when non-empty.
@@ -166,7 +166,7 @@ public:
      * @param[in] fmt Raw MIME format token, copied without service/decoder validation.
      * @note Equality is a no-op; change invalidates cache and emits imageFormatChanged() only, without repaint request or pending-request cancellation.
      */
-    void setImageFormat(const QString &fmt); /*!< e.g. "image/png". */
+    void setImageFormat(const QString &fmt); /*!< For example "image/png". */
 
     /**
      * @return Stored request CRS authority string, initially EPSG:3857; independent of canvas/native extent metadata.
@@ -177,7 +177,7 @@ public:
      * @param[in] crs Raw authority string, commonly EPSG:3857; parsed final integer authority/code can replace inherited SRS if recognized.
      * @note Equality is a no-op. Always stores changed text and invalidates cache even when CRS creation fails; extent is not reprojected and there is no dedicated CRS/repaint signal here. Pending network requests continue.
      */
-    void setCrs(const QString &crs); /*!< e.g. "EPSG:3857". */
+    void setCrs(const QString &crs); /*!< For example "EPSG:3857". */
 
     /**
      * @return Stored DPI mode value, initially seven; currently not consumed by GetMap URL generation.

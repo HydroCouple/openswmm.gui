@@ -35,7 +35,7 @@ namespace OpenSWMM::Render
 struct FeatureRef {
     QString layerId;       /*!< Owning layer's stable id. */
     int featureIndex = -1; /*!< Index within the layer's feature list (-1 = unknown). */
-    QString categoryHint;  /*!< Optional category disambiguator (e.g. "junction", "conduit"). */
+    QString categoryHint;  /*!< Optional category disambiguator (for example "junction", "conduit"). */
 };
 
 } // namespace OpenSWMM::Render

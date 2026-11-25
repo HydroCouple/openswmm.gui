@@ -146,7 +146,7 @@ public:
 
     /*!
      * \brief Returns the meters value that \c formatLabel() will actually display,
-     *        i.e. the input rounded in the active unit. Use this to sync bar length
+     *        that is, the input rounded in the active unit. Use this to sync bar length
      *        to the label.
      * @param[in] metres Distance meters, finite practical range expected.
      * @return Distance rounded in selected display units then converted back to meters; unknown

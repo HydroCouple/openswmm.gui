@@ -50,7 +50,7 @@
 namespace mesh
 {
 
-/*! \brief Where `s = 0` sits on the authored section — i.e. what the digitized
+/*! \brief Where `s = 0` sits on the authored section — that is, what the digitized
  *         link polyline is taken to follow (plan D-D). */
 enum class SectionAnchor {
     Thalweg,      ///< The deepest point. Default: a digitized polyline follows the visible channel.

@@ -84,7 +84,7 @@ public:
     explicit Mesh2DSectionRowModel(Section section, QObject *parent = nullptr);
 
     [[nodiscard]] Section section() const { return m_section; }
-    /** The section's bracketed name, e.g. "[2D_LOADINGS]". */
+    /** The section's bracketed name, for example "[2D_LOADINGS]". */
     [[nodiscard]] QString sectionName() const;
 
     int rowCount(const QModelIndex &parent = QModelIndex()) const override;

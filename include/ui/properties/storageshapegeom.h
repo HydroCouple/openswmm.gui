@@ -77,7 +77,7 @@ inline const StorageShapeRow *findStorageShapeRow(int engineId)
     return &kStorageShapes[kStorageFunctionalId];
 }
 
-//! True iff `shapeId` is one of the four geometric shapes — i.e. the ones driven
+//! True iff `shapeId` is one of the four geometric shapes — that is, the ones driven
 //! by raw dimensions rather than by a curve or by the A/B/C power law.
 /**
  * @param[in] shapeId Engine shape enumeration value; supported values are listed in the static metadata table.
@@ -89,7 +89,7 @@ inline bool storageShapeIsGeometric(int shapeId)
            shapeId == kStorageParaboloidId || shapeId == kStoragePyramidalId;
 }
 
-//! Shape-specific label for param `ordinal` (1..3), e.g. "Base Length".
+//! Shape-specific label for param `ordinal` (1..3), for example "Base Length".
 //! Empty when the dimension is unused for the shape or the ordinal is out of range.
 /**
  * @param[in] shapeId Engine shape enumeration value; supported values are listed in the static metadata table.

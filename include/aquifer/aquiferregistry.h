@@ -100,7 +100,7 @@ public:
     void followPatternReference(const QString &from, const QString &to);
 
     /*! Human-readable summary of what deleting \p p would affect, from
-     *  swmm_aquifer_analyze_impact (e.g. "3 subcatchment(s) reference this
+     *  swmm_aquifer_analyze_impact (for example "3 subcatchment(s) reference this
      *  aquifer and will lose it."). Empty when nothing references it or
      *  there is no engine.
      * @param[in] p Borrowed provider identified by its current name; null returns empty.

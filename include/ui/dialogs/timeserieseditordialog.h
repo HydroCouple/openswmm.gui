@@ -152,7 +152,7 @@ public:
                                              QUndoStack *undoStack, QWidget *parent = nullptr);
 
     /*! \brief Modal pick / create / edit entry point for callers that
-     *  round-trip a time series selection inline (e.g. the
+     *  round-trip a time series selection inline (for example the
      *  NodeCompoundEditDialog inflow picker). Empty \p initialName →
      *  CreateNew mode; otherwise → Edit mode bound to that series.
      *  Closing with unapplied edits asks Apply / Discard first. Returns the name of the series currently bound
@@ -200,7 +200,7 @@ public:
     TimeseriesEditChartView *chartView() const noexcept { return m_chartView; }
 
     /*! The editor's own undo history (nullptr when constructed without a
-     *  stack, e.g. the modal pickers). Separate from the project's map stack
+     *  stack, for example the modal pickers). Separate from the project's map stack
      *  so the toolbar Undo can never undo an unrelated map edit.
      * @return Borrowed dialog-owned history when caller supplied enable token, otherwise null;
      *   invalidation clears exposed pointer but child history survives until Qt teardown. Provider

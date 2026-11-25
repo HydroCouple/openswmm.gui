@@ -265,7 +265,7 @@ struct PathStatic {
  *        envelope computation operates on each source's own length.
  */
 struct SourceSeries {
-    /*! Opaque stable identifier (e.g. SWMMResultsLayer pointer or path).
+    /*! Opaque stable identifier (for example SWMMResultsLayer pointer or path).
      *  Used only for diagnostics; carries no semantic meaning. */
     QString sourceId;
     QDateTime startTime;

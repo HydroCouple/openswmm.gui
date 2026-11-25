@@ -45,7 +45,7 @@ struct SaveAsPathResult {
     QString inpPath;
 
     /*! True iff the dialog's *original* (post-collapse) extension is
-     *  `.oswp` — i.e. the user intended a project-file save. The caller
+     *  `.oswp` — that is, the user intended a project-file save. The caller
      *  uses this to drive sidecar-only logic (e.g. picking the .oswp
      *  filename to round-trip). */
     bool isProject = false;

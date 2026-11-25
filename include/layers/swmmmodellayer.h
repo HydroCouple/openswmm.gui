@@ -562,7 +562,7 @@ public:
      */
     void setQsgRenderKinds(QsgKinds kinds);
 
-    /*! Convenience: does the QSG overlay own this kind (i.e. is the
+    /*! Convenience: does the QSG overlay own this kind (that is, is the
      *  flag set)? Hot-path helpers in SWMMLayerItem use this to skip
      *  CPU painting, and SWMMLayerQSGRenderer uses the negation to
      *  short-circuit vertex uploads.
@@ -4183,7 +4183,7 @@ signals:
      */
     void geometryChanged();
 
-    /*! Emitted after a single object's attribute is mutated (e.g. conduit
+    /*! Emitted after a single object's attribute is mutated (for example conduit
      *  length or subcatchment area recalculated from geometry). The attribute
      *  table and property browser connect to this signal so they can refresh
      *  just the affected row/adapter without a full model rebuild.
@@ -5126,7 +5126,7 @@ private:
     void ensureTablePartition() const;
 
 public:
-    /*! Invalidate the cached engine-table partition (curves vs. time
+    /*! Invalidate the cached engine-table partition (curves versus time
      *  series). External mutators (e.g. CurveRegistry / TimeseriesRegistry
      *  during INP import) call this so the next Object Browser refresh
      *  picks up the new entries.

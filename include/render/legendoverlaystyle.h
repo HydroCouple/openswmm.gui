@@ -262,7 +262,7 @@ public:
      *  changed() when anything was set. */
     void clearItemOverrides();
 
-    /*! \brief Group-prefixed row labels for the Properties tree, e.g. "Title — Font".
+    /*! \brief Group-prefixed row labels for the Properties tree, for example "Title — Font".
      * @param propertyName Property name.
      * @return Label, or @p propertyName when unknown. */
     QString displayLabelFor(const QString &propertyName) const override;
@@ -364,7 +364,7 @@ public:
     [[nodiscard]] LabelOverflow labelOverflow() const noexcept { return m_labelOverflow; }
     /** @brief Widest label when the box width is automatic. Initially 220, 60..1200. */
     [[nodiscard]] int maxLabelWidth() const noexcept { return m_maxLabelWidth; }
-    /** @brief Text at which labels also break when wrapping (e.g. "|"); empty for none. */
+    /** @brief Text at which labels also break when wrapping (for example "|"); empty for none. */
     [[nodiscard]] QString wrapString() const { return m_wrapString; }
     /** @brief Extra space between wrapped lines, logical pixels. Initially 0, 0..50. */
     [[nodiscard]] int lineSpacing() const noexcept { return m_lineSpacing; }
