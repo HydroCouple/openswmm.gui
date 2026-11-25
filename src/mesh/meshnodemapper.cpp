@@ -62,31 +62,32 @@ bool pointInTriangle(const QPointF &p, const QPointF &a, const QPointF &b, const
     return !(hasNeg && hasPos);
 }
 
+/**
+ * @brief Check that every vertex index of a cell is inside the vertex array.
+ * @param[in] t Borrowed cell, unchanged.
+ * @param[in] nv Vertex count of the mesh the cell belongs to.
+ * @return True when all of the cell's vertex indices are in [0, nv); a cell failing this never
+ * matches a node.
+ */
+bool cellValid(const MeshTriangle &t, int nv)
+{
+    for (int k = 0; k < t.vertexCount(); ++k)
+        if (t.vertex(k) < 0 || t.vertex(k) >= nv)
+            return false;
+    return true;
+}
+
 } // namespace
 
-NodeMapResult mapNodesToMesh(const MeshResult &mesh, const QVector<QPair<QString, QPointF>> &nodes,
-                             double tol, bool preserveExisting, bool authorCdArea)
+NodeMapIndex buildNodeMapIndex(const MeshResult &mesh, double tol)
 {
-    NodeMapResult r;
-    r.authorCdArea = authorCdArea;
-    if (mesh.vertices.isEmpty() || mesh.triangles.isEmpty() || nodes.isEmpty()) {
-        for (const auto &n : nodes)
-            r.unmatched.append(n.first);
-        return r;
-    }
-
-    if (tol <= 0.0)
-        tol = defaultCoincidenceTol(mesh);
-
-    // Nodes already coupled somewhere on this mesh (vertex or cell rows).
-    QSet<QString> existing;
-    if (preserveExisting) {
-        for (const MeshVertex &v : mesh.vertices)
-            if (!v.coupledNode.isEmpty())
-                existing.insert(v.coupledNode);
-        for (const CellCoupling &cc : mesh.cellCouplings)
-            existing.insert(cc.nodeId);
-    }
+    NodeMapIndex ix;
+    ix.tol = tol;
+    if (ix.tol <= 0.0)
+        ix.tol = defaultCoincidenceTol(mesh);
+    tol = ix.tol;
+    ix.vertexCount = mesh.vertices.size();
+    ix.cellCount = mesh.triangles.size();
 
     // ── Vertex grid for the coincidence pass ─────────────────────────────
     // Boxes are inflated by tol: MeshSpatialGrid drops zero-area bboxes
@@ -97,22 +98,14 @@ NodeMapResult mapNodesToMesh(const MeshResult &mesh, const QVector<QPair<QString
     vboxes.reserve(mesh.vertices.size());
     for (const MeshVertex &v : mesh.vertices)
         vboxes.append(QRectF(v.xy.x() - tol, v.xy.y() - tol, 2.0 * tol, 2.0 * tol));
-    MeshSpatialGrid vGrid;
-    vGrid.rebuild(vboxes);
+    ix.vertexGrid.rebuild(vboxes);
 
     // ── Triangle grid for the containment pass ───────────────────────────
     QVector<QRectF> tboxes;
     tboxes.reserve(mesh.triangles.size());
     const int nv = mesh.vertices.size();
-    // A cell's vertices are all in range, or it never matches.
-    auto cellValid = [nv](const MeshTriangle &t) {
-        for (int k = 0; k < t.vertexCount(); ++k)
-            if (t.vertex(k) < 0 || t.vertex(k) >= nv)
-                return false;
-        return true;
-    };
     for (const MeshTriangle &t : mesh.triangles) {
-        if (!cellValid(t)) {
+        if (!cellValid(t, nv)) {
             tboxes.append(QRectF()); // keep indices aligned; never matches
             continue;
         }
@@ -127,8 +120,44 @@ NodeMapResult mapNodesToMesh(const MeshResult &mesh, const QVector<QPair<QString
         }
         tboxes.append(QRectF(QPointF(xmin, ymin), QPointF(xmax, ymax)));
     }
-    MeshSpatialGrid tGrid;
-    tGrid.rebuild(tboxes);
+    ix.cellGrid.rebuild(tboxes);
+    return ix;
+}
+
+NodeMapResult mapNodesToMesh(const MeshResult &mesh, const QVector<QPair<QString, QPointF>> &nodes,
+                             double tol, bool preserveExisting, bool authorCdArea,
+                             const NodeMapIndex *index)
+{
+    NodeMapResult r;
+    r.authorCdArea = authorCdArea;
+    if (mesh.vertices.isEmpty() || mesh.triangles.isEmpty() || nodes.isEmpty()) {
+        for (const auto &n : nodes)
+            r.unmatched.append(n.first);
+        return r;
+    }
+
+    // Nodes already coupled somewhere on this mesh (vertex or cell rows).
+    QSet<QString> existing;
+    if (preserveExisting) {
+        for (const MeshVertex &v : mesh.vertices)
+            if (!v.coupledNode.isEmpty())
+                existing.insert(v.coupledNode);
+        for (const CellCoupling &cc : mesh.cellCouplings)
+            existing.insert(cc.nodeId);
+    }
+
+    // The caller's lookups when they index this mesh's geometry, else ours.
+    // A count mismatch means another mesh: its indices could be out of range.
+    NodeMapIndex local;
+    if (!index || index->vertexCount != mesh.vertices.size() ||
+        index->cellCount != mesh.triangles.size()) {
+        local = buildNodeMapIndex(mesh, tol);
+        index = &local;
+    }
+    tol = index->tol;
+    const MeshSpatialGrid &vGrid = index->vertexGrid;
+    const MeshSpatialGrid &tGrid = index->cellGrid;
+    const int nv = mesh.vertices.size();
 
     // Vertices claimed during THIS mapping run (first node wins).
     QSet<int> claimed;
@@ -191,7 +220,7 @@ NodeMapResult mapNodesToMesh(const MeshResult &mesh, const QVector<QPair<QString
         std::sort(cand.begin(), cand.end());
         for (const int ti : cand) {
             const MeshTriangle &t = mesh.triangles[ti];
-            if (!cellValid(t))
+            if (!cellValid(t, nv))
                 continue;
             // A quad is tested as its sub-triangle fan (the engine's
             // storage split, mesh::cellGeom); a triangle is its own fan.
@@ -231,7 +260,7 @@ NodeMapResult mapNodesToMesh(const MeshResult &mesh, const QVector<QPair<QString
 
 RemapPlan planRemap(const MeshResult &mesh, const QVector<QPair<QString, QPointF>> &nodes,
                     const std::function<bool(const QString &)> &coupleable, bool clearRebuild,
-                    bool authorCdArea)
+                    bool authorCdArea, const NodeMapIndex *index)
 {
     RemapPlan p;
     auto note = [](QHash<QString, QString> &h, const QString &node, const QString &what) {
@@ -261,8 +290,9 @@ RemapPlan planRemap(const MeshResult &mesh, const QVector<QPair<QString, QPointF
     for (const auto &n : nodes)
         if (coupleable(n.first))
             toMap.append(n);
-    p.mapped =
-        mapNodesToMesh(working, toMap, -1.0, /*preserveExisting=*/!clearRebuild, authorCdArea);
+    // working differs from mesh only in couplings, so mesh's index serves it.
+    p.mapped = mapNodesToMesh(working, toMap, -1.0, /*preserveExisting=*/!clearRebuild,
+                              authorCdArea, index);
 
     for (int vi = 0; vi < mesh.vertices.size(); ++vi) {
         const MeshVertex &old = mesh.vertices[vi];

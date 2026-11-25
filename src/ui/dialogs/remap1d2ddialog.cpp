@@ -44,6 +44,10 @@ Remap1D2DDialog::Remap1D2DDialog(SWMMModelLayer *model, SWMM2DMeshLayer *mesh, M
     setWindowTitle(tr("Remap 1D ↔ 2D"));
     resize(820, 620);
     m_authorCdArea = mesh::couplingAuthorsCdArea(model ? model->engine() : nullptr);
+    // The mapper's lookups depend only on the mesh geometry, which cannot
+    // change under this modal dialog: build them once, not on every refresh.
+    if (mesh)
+        m_mapIndex = mesh::buildNodeMapIndex(mesh->mesh());
     m_model->setExtraColumns({tr("Current"), tr("Proposed"), tr("|rim − bed|")});
     m_model->load(model);
 
@@ -132,7 +136,8 @@ void Remap1D2DDialog::refreshPlan()
         return !only || m_model->rowOf(n) < 0 || m_model->isCoupleable(n);
     };
     const mesh::MeshResult &mr = m_mesh->mesh();
-    m_plan = mesh::planRemap(mr, m_nodes, coupleable, m_rebuild->isChecked(), m_authorCdArea);
+    m_plan = mesh::planRemap(mr, m_nodes, coupleable, m_rebuild->isChecked(), m_authorCdArea,
+                             &m_mapIndex);
 
     // |rim − bed| at the proposed coupling: the node's rim (invert + depth)
     // against the vertex or cell-centroid bed — a large gap is a datum

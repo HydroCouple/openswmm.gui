@@ -19,6 +19,7 @@
 #ifndef OPENSWMMVIS_MESH_MESHNODEMAPPER_H
 #define OPENSWMMVIS_MESH_MESHNODEMAPPER_H
 
+#include "layers/meshspatialgrid.h"
 #include "mesh/meshresult.h"
 
 #include <QHash>
@@ -51,6 +52,28 @@ struct NodeMapResult {
     bool authorCdArea = true;
 };
 
+/*! \brief The geometry lookups \ref mapNodesToMesh searches: a vertex grid for the coincidence
+ *         pass and a cell grid for the containment pass. They depend only on vertex positions
+ *         and cell connectivity, not on couplings, so a caller that maps repeatedly against an
+ *         unchanged mesh (the remap dialog's refreshes) builds them once. */
+struct NodeMapIndex {
+    double tol = 0.0;           ///< Coincidence distance the vertex grid was built for.
+    int vertexCount = 0;        ///< Vertex count of the indexed mesh.
+    int cellCount = 0;          ///< Cell count of the indexed mesh.
+    MeshSpatialGrid vertexGrid; ///< Vertex boxes inflated by tol.
+    MeshSpatialGrid cellGrid;   ///< Cell bounding boxes; out-of-range cells never match.
+};
+
+/**
+ * @brief Build the lookups mapNodesToMesh() searches for a mesh.
+ * @param[in] mesh Borrowed geometry, unchanged; only vertex positions and cell connectivity are
+ * read.
+ * @param[in] tol Coincidence distance in mesh units; <=0 uses defaultCoincidenceTol().
+ * @return Owned index, valid while the mesh's vertex positions and cells are unchanged. Coupling
+ * edits do not invalidate it.
+ */
+[[nodiscard]] NodeMapIndex buildNodeMapIndex(const MeshResult &mesh, double tol = -1.0);
+
 /**
  * @brief Propose vertex or containing-cell couplings for nodes against an unchanged mesh.
  * @param[in] mesh Borrowed stable finite nonfolded geometry, existing vertex/cell couplings and
@@ -67,6 +90,9 @@ struct NodeMapResult {
  * @param[in] authorCdArea Whether new cell rows author default Cd=0.65 and area=2 mesh length
  * units squared; false leaves those flags unauthored for structure-based engine policy. Also
  * copied to result guidance.
+ * @param[in] index Optional borrowed buildNodeMapIndex() result for this mesh's geometry; its
+ * tol replaces \a tol. Null, or an index built for a different vertex or cell count, builds the
+ * lookups for this call.
  * @return Owned proposals: nearest available unclaimed vertex within tolerance first, otherwise
  * lowest index containing cell under the elevation-selected fan and scale-aware edge-inclusive
  * test, else unmatched. Cells may receive several nodes and sharedCells counts cells with
@@ -78,7 +104,8 @@ struct NodeMapResult {
 [[nodiscard]] NodeMapResult mapNodesToMesh(const MeshResult &mesh,
                                            const QVector<QPair<QString, QPointF>> &nodes,
                                            double tol = -1.0, bool preserveExisting = true,
-                                           bool authorCdArea = true);
+                                           bool authorCdArea = true,
+                                           const NodeMapIndex *index = nullptr);
 
 /*! \brief What a Remap 1D↔2D would change (the remap dialog's dry run and
  *         its Apply are the same plan). */
@@ -107,6 +134,8 @@ struct RemapPlan {
  * @param[in] authorCdArea Desired authoring flags for newly mapped couplings; defaults numeric
  * Cd/area follow vertex/cell conventions. Re-matching the same vertex node or same node/cell
  * preserves old attributes.
+ * @param[in] index Optional borrowed buildNodeMapIndex() result for \a mesh, passed to
+ * mapNodesToMesh(); null builds the lookups for this call.
  * @return Owned plan with parallel changed-vertex indices/old/new records, complete proposed
  * cell rows, mapper diagnostics and translated current/proposed descriptions. Rejected nodes'
  * couplings are removed from the plan. New vertex assignments reset Cd=0.65/area=1; clearing
@@ -124,7 +153,8 @@ struct RemapPlan {
 [[nodiscard]] RemapPlan planRemap(const MeshResult &mesh,
                                   const QVector<QPair<QString, QPointF>> &nodes,
                                   const std::function<bool(const QString &)> &coupleable,
-                                  bool clearRebuild, bool authorCdArea);
+                                  bool clearRebuild, bool authorCdArea,
+                                  const NodeMapIndex *index = nullptr);
 
 } // namespace mesh
 

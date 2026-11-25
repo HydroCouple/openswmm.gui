@@ -55,8 +55,9 @@ public:
      * @param[in] parent Optional QWidget owner, caller manages parentless dialog.
      * @brief Stage node coupling edits and preview remapping from copied node positions, with
      *   Clear/rebuild and only-coupleable defaults true.
-     * @note Capture coupling-law Cd/area authoring policy once at construction; coordinate pairs
-     *   and policy do not automatically refresh after source geometry/options changes. Refresh
+     * @note Capture coupling-law Cd/area authoring policy and the mapper's mesh-geometry lookups
+     *   once at construction; coordinate pairs, lookups and policy do not automatically refresh
+     *   after source geometry/options changes. Refresh
      *   triggered by staged model counts/options, not live mesh/model signal subscriptions.
      *   ownershipReview callback copied into button connection; button rejects before invoking it
      *   and callback resources/lifetime belong to host. Extra info only displayed; no source
@@ -135,6 +136,9 @@ private:
     QCheckBox *m_onlyCoupleable = nullptr;
     QLabel *m_summary = nullptr;
     bool m_authorCdArea = true;
+    /// Mapper lookups for the mesh geometry at construction; planRemap rebuilds its own if the
+    /// mesh's vertex or cell count no longer matches.
+    mesh::NodeMapIndex m_mapIndex;
     mesh::RemapPlan m_plan;
 };
 

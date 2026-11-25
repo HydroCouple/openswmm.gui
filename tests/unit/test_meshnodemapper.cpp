@@ -308,6 +308,35 @@ TEST(MeshRemapPlan, PreserveMapsOnlyUncoupledNodes)
     EXPECT_EQ(p.proposed.value(QStringLiteral("C")), p.current.value(QStringLiteral("C")));
 }
 
+// A prebuilt index (the remap dialog builds one per dialog) gives the same
+// plan as building the lookups per call; an index built for a mesh of another
+// size is not used.
+TEST(MeshRemapPlan, PrebuiltIndexGivesTheSamePlan)
+{
+    const auto m = coupledSquare();
+    auto bigger = m;
+    bigger.vertices.append(mesh::MeshVertex{});
+    bigger.vertices.last().xy = QPointF(9.0, 9.0);
+    const mesh::NodeMapIndex ix = mesh::buildNodeMapIndex(m);
+    const mesh::NodeMapIndex other = mesh::buildNodeMapIndex(bigger);
+    for (bool rebuild : {true, false}) {
+        const auto want = mesh::planRemap(m, kNodes, everyNode, rebuild, true);
+        for (const mesh::NodeMapIndex *index : {&ix, &other}) {
+            const auto got = mesh::planRemap(m, kNodes, everyNode, rebuild, true, index);
+            EXPECT_EQ(got.mapped.vertexMatches, want.mapped.vertexMatches) << rebuild;
+            EXPECT_EQ(got.mapped.unmatched, want.mapped.unmatched) << rebuild;
+            EXPECT_EQ(got.mapped.skippedExisting, want.mapped.skippedExisting) << rebuild;
+            EXPECT_EQ(got.vertices, want.vertices) << rebuild;
+            EXPECT_EQ(got.proposed, want.proposed) << rebuild;
+            ASSERT_EQ(got.newCells.size(), want.newCells.size()) << rebuild;
+            for (int i = 0; i < want.newCells.size(); ++i) {
+                EXPECT_EQ(got.newCells[i].tri, want.newCells[i].tri);
+                EXPECT_EQ(got.newCells[i].nodeId, want.newCells[i].nodeId);
+            }
+        }
+    }
+}
+
 // The plan's mapper verdict is exactly mapNodesToMesh on the cleared mesh:
 // the dialog's preview and its Apply cannot disagree with the mapper.
 TEST(MeshRemapPlan, RebuildPreviewEqualsMapperOutput)
