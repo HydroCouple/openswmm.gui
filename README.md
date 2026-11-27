@@ -3,14 +3,14 @@
 SWMMVis is HydroCouple’s Qt desktop interface for stormwater modeling. [OpenSWMM Engine](https://github.com/HydroCouple/openswmm.engine) is developed by Caleb Buahin and HydroCouple Developers. It builds on EPA SWMM 5.
 
 <p align="center">
-  <img src="resources/images/swmmvis-demo.gif" alt="SWMMVis animating 2D flood results over an aerial basemap" width="900">
+  <img src="https://raw.githubusercontent.com/HydroCouple/openswmm.gui/swmm6_gui/resources/images/swmmvis-demo.gif" alt="SWMMVis animating 2D flood results over an aerial basemap" width="900">
 </p>
 
 *Animated 2D flood results in SWMMVis.*
 
-[![Build and Package](../../actions/workflows/build_and_test.yml/badge.svg?branch=swmm6_gui)](../../actions/workflows/build_and_test.yml)
-[![Documentation](../../actions/workflows/documentation.yml/badge.svg?branch=swmm6_gui)](../../actions/workflows/documentation.yml)
-[![CodeQL](../../actions/workflows/codeql.yml/badge.svg?branch=swmm6_gui)](../../actions/workflows/codeql.yml)
+[![Build and Package](https://github.com/HydroCouple/openswmm.gui/actions/workflows/build_and_test.yml/badge.svg?branch=swmm6_gui)](https://github.com/HydroCouple/openswmm.gui/actions/workflows/build_and_test.yml)
+[![Documentation](https://github.com/HydroCouple/openswmm.gui/actions/workflows/documentation.yml/badge.svg?branch=swmm6_gui)](https://github.com/HydroCouple/openswmm.gui/actions/workflows/documentation.yml)
+[![CodeQL](https://github.com/HydroCouple/openswmm.gui/actions/workflows/codeql.yml/badge.svg?branch=swmm6_gui)](https://github.com/HydroCouple/openswmm.gui/actions/workflows/codeql.yml)
 [![OpenSSF Scorecard](https://api.securityscorecards.dev/projects/github.com/HydroCouple/openswmm.gui/badge)](https://securityscorecards.dev/viewer/?uri=github.com/HydroCouple/openswmm.gui)
 [![Issues](https://img.shields.io/github/issues/HydroCouple/openswmm.gui)](https://github.com/HydroCouple/openswmm.gui/issues)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](LICENSE)
