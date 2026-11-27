@@ -34,8 +34,23 @@ jobs:
           # like a stale pin rather than a truncated clone.
           fetch-depth: 0
 
-      - name: Install Doxygen and Graphviz
-        run: sudo apt-get update && sudo apt-get install -y doxygen graphviz
+      - name: Install Graphviz
+        run: sudo apt-get update && sudo apt-get install -y graphviz
+
+      - name: Install Doxygen 1.17.0
+        # Pinned to the same release as the other HydroCouple manuals (the
+        # shared docs theme is written for it), not the runner's apt package.
+        run: |
+          DOXYGEN_VERSION=1.17.0
+          DOXYGEN_SHA256=75419ef4f446fc1c24ef12514b574e66e898ee6f527c6ae2ad84f91a905823c2
+          # Doxygen release TAGS use underscores (Release_1_17_0) while the
+          # asset filename uses dots (doxygen-1.17.0.linux.bin.tar.gz).
+          DOXYGEN_TAG="Release_${DOXYGEN_VERSION//./_}"
+          wget -q "https://github.com/doxygen/doxygen/releases/download/${DOXYGEN_TAG}/doxygen-${DOXYGEN_VERSION}.linux.bin.tar.gz"
+          echo "${DOXYGEN_SHA256}  doxygen-${DOXYGEN_VERSION}.linux.bin.tar.gz" | sha256sum --check
+          tar -xzf doxygen-${DOXYGEN_VERSION}.linux.bin.tar.gz
+          sudo mv doxygen-${DOXYGEN_VERSION}/bin/doxygen /usr/local/bin/doxygen
+          doxygen --version
 
       - name: Audit the manual
         # All three read only in-repo sources, so this job never needs the
