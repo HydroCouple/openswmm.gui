@@ -32,7 +32,8 @@ const QStringList &paramKeys()
                                      QStringLiteral("COO"),
                                      QStringLiteral("LAW"),
                                      QStringLiteral("SPREAD"),
-                                     QStringLiteral("TAILWATER_RELAX")};
+                                     QStringLiteral("TAILWATER_RELAX"),
+                                     QStringLiteral("H_EPS")};
     return keys;
 }
 

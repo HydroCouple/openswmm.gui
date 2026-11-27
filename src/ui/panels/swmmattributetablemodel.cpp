@@ -870,6 +870,9 @@ QList<ColumnSpec> nodeCouplingColumns(SWMMModelLayer::Category cat)
         {"CSW", "Positive submerged-weir coefficient; overrides the preset."},
         {"COI", "Positive surface-to-sewer coefficient. Authored mesh-map Cd takes precedence."},
         {"COO", "Positive sewer-to-surface coefficient. Authored mesh-map Cd takes precedence."},
+        {"H_EPS", "Positive head below which the WEIR_ORIFICE law's square root bends to a finite "
+                  "slope; default 0.02 m, a field scale. Scale it with the structure on a "
+                  "laboratory rig."},
         {"SPREAD", "Nonnegative outfall discharge radius; default 0. Does not expand reverse-flow donors."},
         {"TAILWATER_RELAX", "Nonnegative tailwater smoothing time in seconds; default 0 (immediate). "
                             "Inactive for FREE outfalls: they discharge to the surface without "
@@ -909,6 +912,7 @@ QList<ColumnSpec> nodeCouplingColumns(SWMMModelLayer::Category cat)
         param("CSW", "2D Submerged-weir coefficient", UnitKind::None);
         param("COI", "2D Drainage orifice coefficient", UnitKind::None);
         param("COO", "2D Surcharge orifice coefficient", UnitKind::None);
+        param("H_EPS", "2D Law regularization head", UnitKind::Length);
     }
     return cols;
 }
