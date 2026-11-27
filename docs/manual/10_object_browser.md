@@ -283,7 +283,7 @@ Groundwater Exchange dialog instead of a page here — see \ref manual_hydrology
 
 \figtodo{10_subcatch_lid_usage.png, The subcatchment compound editor on the LID Usage page}
 
-### Type conversion
+### Type conversion {#manual_type_conversion}
 
 Nodes and links can be converted to another SWMM type in place, from either of
 two surfaces:

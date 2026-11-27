@@ -657,7 +657,7 @@ exterior-edge scope if the selection also contains interior edges. See
 
 The right-click menu on a SWMM row also carries:
 
-- **Change Type…** — right-click a selected row to convert eligible rows in the current category. The confirmation includes selected rows hidden by the filter. Right-clicking an unselected row targets that row alone. Expand the final report to see skipped IDs and their reasons. See [Type conversion](10_object_browser.md#type-conversion).
+- **Change Type…** — right-click a selected row to convert eligible rows in the current category. The confirmation includes selected rows hidden by the filter. Right-clicking an unselected row targets that row alone. Expand the final report to see skipped IDs and their reasons. See @ref manual_type_conversion "Type conversion".
 - **Delete (Del)** / **Delete N selected (Del)** — delete the selected objects
   with confirmation, through the same undoable batch path the map and the
   Object Browser use. Disabled for non-deletable categories.
