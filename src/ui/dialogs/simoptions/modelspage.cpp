@@ -143,6 +143,18 @@ void ModelsPage::buildUi()
         tr("Infiltration model used on every subcatchment (option INFILTRATION)."));
     procForm->addRow(tr("Infiltr&ation model:"), m_infiltrationCombo);
 
+    m_runoffOdeSolverCombo = new QComboBox(procGroup);
+    m_runoffOdeSolverCombo->setObjectName(QStringLiteral("runoffOdeSolverCombo"));
+    m_runoffOdeSolverCombo->addItem(tr("Legacy adaptive step; default"), QStringLiteral("LEGACY"));
+    m_runoffOdeSolverCombo->addItem(tr("Exact ponded-depth step"), QStringLiteral("EXACT"));
+    m_runoffOdeSolverCombo->setToolTip(
+        tr("How each subarea's ponded-depth equation is integrated (option RUNOFF_ODE_SOLVER). "
+           "Legacy is the SWMM 5 adaptive Runge-Kutta step and reproduces it to the bit. Exact "
+           "integrates the step in closed form from tabulated solutions, about twice as fast on "
+           "models dominated by impervious area; its results differ from Legacy within the "
+           "legacy solver's own tolerance. Disabled when the engine does not know the key."));
+    procForm->addRow(tr("Runoff ODE solver:"), m_runoffOdeSolverCombo);
+
     // FLOW_ROUTING moved to the Routing & Hydraulics page header, where it
     // gates that page's tabs (PLAN §2.1). A read-only mirror keeps it visible
     // in its old home, with a link across.
@@ -323,6 +335,7 @@ void ModelsPage::buildUi()
 void ModelsPage::tagWidgets()
 {
     tagOption(m_infiltrationCombo, "INFILTRATION");
+    tagOption(m_runoffOdeSolverCombo, "RUNOFF_ODE_SOLVER");
     tagOption(m_allowPondingBox, "ALLOW_PONDING");
     tagOption(m_ignoreRainfallBox, "IGNORE_RAINFALL");
     tagOption(m_ignoreSnowmeltBox, "IGNORE_SNOWMELT");
@@ -420,6 +433,14 @@ void ModelsPage::read()
     const auto ynStr = [](bool v) { return v ? QStringLiteral("YES") : QStringLiteral("NO"); };
 
     selectComboByData(m_infiltrationCombo, ctx_.option("INFILTRATION", sim.infiltrationModel));
+    // An engine that predates the key answers nothing: keep the editor disabled and skip its
+    // write, as the 2D page does for THETA_REFERENCE_STEP.
+    const QString odeSolver = ctx_.option("RUNOFF_ODE_SOLVER", QString());
+    const bool hasOdeSolver = !odeSolver.isEmpty();
+    m_runoffOdeSolverCombo->setProperty("engineSupported", hasOdeSolver);
+    m_runoffOdeSolverCombo->setEnabled(hasOdeSolver);
+    selectComboByData(m_runoffOdeSolverCombo,
+                      hasOdeSolver ? odeSolver.toUpper() : QStringLiteral("LEGACY"));
 
     m_allowPondingBox->setChecked(
         SOD::parseEngineBool(ctx_.option("ALLOW_PONDING", ynStr(sim.allowPonding))) == Qt::Checked);
@@ -519,6 +540,8 @@ int ModelsPage::write()
     int n = 0;
 
     n += writeOption("INFILTRATION", m_infiltrationCombo->currentData().toString());
+    if (m_runoffOdeSolverCombo->property("engineSupported").toBool())
+        n += writeOption("RUNOFF_ODE_SOLVER", m_runoffOdeSolverCombo->currentData().toString());
     n +=
         writeOption("ALLOW_PONDING", SOD::engineBoolString(m_allowPondingBox->isChecked()));
     // Inverted UI: checked = active = IGNORE_X NO. Unchecked = ignore.

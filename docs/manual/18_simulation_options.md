@@ -84,7 +84,16 @@ Three tabs: **Domains & Processes**, **Modules** and **Flags**.
 | Control | Options | Writes |
 | --- | --- | --- |
 | **Infiltration model** | Horton / Modified Horton / Green-Ampt / Modified Green-Ampt / Curve Number | `INFILTRATION` |
+| **Runoff ODE solver** | Legacy adaptive step / Exact ponded-depth step | `RUNOFF_ODE_SOLVER` |
 | **Flow routing** | Read-only mirror of the selector on *Routing & Hydraulics* | — |
+
+**Runoff ODE solver** picks how each subarea's ponded-depth equation is
+integrated. *Legacy* is the SWMM 5 adaptive Runge-Kutta step and reproduces it
+to the bit. *Exact* integrates the step in closed form from tabulated
+solutions, about twice as fast on models dominated by impervious area; its
+results differ from Legacy within the legacy solver's own tolerance, so a
+comparison against SWMM 5 should stay on Legacy. The control is disabled when
+the engine does not know the key.
 
 **Flow routing** used to be edited here. It now lives in the *Routing &
 Hydraulics* page header, because it gates three of that page's four tabs and
@@ -564,6 +573,7 @@ this engine, so there is no solver selector and these settings are always live.
 | **Smoothing reference interval** | **Per-step smoothing** (zero) keeps the existing weight on every face step. A positive number of seconds makes θ the retention over that fixed interval, so shortening the routing step does not apply more smoothing per second. θ = 1 disables blending. This control is available when the selected engine supports it. | `THETA_REFERENCE_STEP` |
 | **CFL number** | Courant safety factor α on each cell's stable step | `CFL_NUMBER` |
 | **LTS tiers** | Local-timestepping tiers; cells march at power-of-two multiples of the finest step. 1 = a global timestep | `LTS_TIERS` |
+| **Held-source landing** | Every step / At rebuilds and refreshes: when the rain, evaporation and infiltration held for inactive cells land as depth | `LAZY_SOURCE_LANDING` |
 | **Movement threshold** | Cells shallower than this exchange no flow with their neighbors; rain, infiltration and evaporation still act on them, so thin films cost nothing until water must move. A cell starts moving water a little above the threshold and stops a little below it | `H_MOVE` |
 | **Max Froude number** | Froude cap on face discharge — the supercritical guard | `FROUDE_MAX` |
 | **Convective momentum flux (ADVECTION)** | Local inertial only: optionally include convective momentum flux at interior faces (Stelling–Duinmeijer staggered upwind). Full shallow-water includes it automatically; diffusive wave omits it. The checkbox is replaced by an explanatory message for those equations. | `ADVECTION` |
@@ -629,6 +639,7 @@ The 2D process switches — what the surface does with water besides move it.
 | **Infiltration step** | *Same as wet-weather step*, or an explicit cadence | `INFIL_STEP` |
 | **Default method** | None / Horton / Modified Horton / Green-Ampt / Modified Green-Ampt / Curve Number / Constant rate | `INFIL_DEFAULT_METHOD` |
 | **Destination** | Lost / Subcatchment aquifer / 2D aquifer | `INFIL_DESTINATION` |
+| **Infiltration memory** | What infiltrated / The held offer: what advances a cell's kernel history between rate refreshes | `INFIL_MEMORY` |
 | **Evaporation** | Forced only / Project climate rate / Off | `EVAPORATION` |
 | **Transport on the mesh** | Four check boxes: Pollutants, MSX species, Water age, Temperature | `TRANSPORT_POLLUTANTS`, `TRANSPORT_MSX`, `TRANSPORT_AGE`, `TRANSPORT_TEMPERATURE` |
 

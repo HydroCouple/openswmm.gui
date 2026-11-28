@@ -228,6 +228,41 @@ private slots:
         QCOMPARE(get(spatial.e, "EDDY_VISCOSITY_BACKGROUND").toDouble(), .00123456789);
         QCOMPARE(get(spatial.e, "RECONSTRUCTION_ORDER"), "2");
     }
+    /** @brief LAZY_SOURCE_LANDING and INFIL_MEMORY read the engine defaults, write an edit
+     *  and survive a save and reopen; both editors stay disabled on an engine without the keys. */
+    void lazyLandingAndInfilMemorySaveAndReopen()
+    {
+        Engine engine;
+        QCOMPARE(engine.open(), 0);
+        SimOptionsContext context(engine.e, nullptr, nullptr, {});
+        TwoDPage page(context);
+        page.read();
+        auto *landing = option<QComboBox>(page, "LAZY_SOURCE_LANDING");
+        auto *memory = option<QComboBox>(page, "INFIL_MEMORY");
+        QVERIFY(landing && memory);
+        QCOMPARE(landing->isEnabled(), landing->property("engineSupported").toBool());
+        QCOMPARE(memory->isEnabled(), memory->property("engineSupported").toBool());
+        if (!landing->property("engineSupported").toBool())
+            QSKIP("The linked engine predates LAZY_SOURCE_LANDING and INFIL_MEMORY.");
+        QCOMPARE(landing->currentData().toString(), "STEP");
+        QCOMPARE(memory->currentData().toString(), "APPLIED");
+        landing->setCurrentIndex(landing->findData("REBUILD"));
+        memory->setCurrentIndex(memory->findData("OFFER"));
+        page.write();
+        QCOMPARE(get(engine.e, "LAZY_SOURCE_LANDING"), "REBUILD");
+        QCOMPARE(get(engine.e, "INFIL_MEMORY"), "OFFER");
+        const auto path = QDir(outputDir()).filePath("lazy-landing-infil-memory.inp");
+        QCOMPARE(swmm_model_write(engine.e, path.toUtf8().constData()), 0);
+        QFile written(path);
+        QVERIFY(written.open(QIODevice::ReadOnly));
+        const auto text = written.readAll();
+        QVERIFY(text.contains("LAZY_SOURCE_LANDING"));
+        QVERIFY(text.contains("INFIL_MEMORY"));
+        Engine reopened;
+        QCOMPARE(reopened.open(path), 0);
+        QCOMPARE(get(reopened.e, "LAZY_SOURCE_LANDING"), "REBUILD");
+        QCOMPARE(get(reopened.e, "INFIL_MEMORY"), "OFFER");
+    }
     void mixingLengthSaveAndReopen()
     {
         Engine engine;

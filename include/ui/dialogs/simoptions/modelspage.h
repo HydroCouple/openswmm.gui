@@ -186,6 +186,7 @@ private:
     QTabWidget *m_tabs = nullptr;
 
     QComboBox *m_infiltrationCombo = nullptr;
+    QComboBox *m_runoffOdeSolverCombo = nullptr; ///< RUNOFF_ODE_SOLVER: LEGACY | EXACT
     QLabel *m_routingMirror = nullptr;
     QLabel *m_snowSummary = nullptr;
     QCheckBox *m_allowPondingBox = nullptr;

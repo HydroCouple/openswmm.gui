@@ -319,6 +319,7 @@ private:
     QCheckBox *m_couplingAreaAutoBox = nullptr;
     QCheckBox *m_couplingInFloodingBox = nullptr;  ///< COUPLING_IN_FLOODING
     QComboBox *m_frontRebuildCombo = nullptr;      ///< FRONT_REBUILD: AUTO | YES | NO
+    QComboBox *m_lazySourceLandingCombo = nullptr; ///< LAZY_SOURCE_LANDING: STEP | REBUILD
     QComboBox *m_heatSurfaceCombo = nullptr;       ///< HEAT_SURFACE_EXCHANGE: AUTO | YES | NO
     QComboBox *m_heatRadiativeCombo = nullptr;     ///< HEAT_RADIATIVE_EXCHANGE: AUTO | YES | NO
     QDoubleSpinBox *m_dryDepthSpin = nullptr;
@@ -361,6 +362,7 @@ private:
     QCustomTimespanEdit *m_infil2DStepEdit = nullptr;
     QComboBox *m_infil2DMethodCombo = nullptr;
     QComboBox *m_infil2DDestCombo = nullptr;
+    QComboBox *m_infilMemoryCombo = nullptr; ///< INFIL_MEMORY: APPLIED | OFFER
     QPushButton *m_editInfilCellsBtn = nullptr;
     QComboBox *m_evap2DCombo = nullptr; ///< NO | YES | CLIMATE
     QCheckBox *m_transport2DBox[4] = {nullptr, nullptr, nullptr, nullptr};

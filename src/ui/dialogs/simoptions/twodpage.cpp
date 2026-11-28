@@ -231,6 +231,18 @@ void TwoDPage::buildUi()
            "solver decide from the mesh size; Yes or No forces it."));
     marchForm->addRow(tr("Wet-front rebuild:"), m_frontRebuildCombo);
 
+    m_lazySourceLandingCombo = new QComboBox(m_marcherGroup);
+    m_lazySourceLandingCombo->setObjectName(QStringLiteral("lazySourceLandingCombo"));
+    m_lazySourceLandingCombo->addItem(tr("Every step; default"), QStringLiteral("STEP"));
+    m_lazySourceLandingCombo->addItem(tr("At rebuilds and refreshes"), QStringLiteral("REBUILD"));
+    m_lazySourceLandingCombo->setToolTip(
+        tr("When the rain, evaporation and infiltration held for inactive cells land as depth "
+           "(LAZY_SOURCE_LANDING). Every step keeps every cell current. At rebuilds defers the "
+           "landing to the next wet-front rebuild, state publication or rate refresh, which "
+           "removes most of the settlement cost of rain-on-grid runs; water totals are "
+           "unchanged and inactive cells' depths may differ by rounding."));
+    marchForm->addRow(tr("Held-source landing:"), m_lazySourceLandingCombo);
+
     m_heatSurfaceCombo = new QComboBox(m_marcherGroup);
     autoYesNo(m_heatSurfaceCombo);
     m_heatSurfaceCombo->setToolTip(
@@ -647,7 +659,26 @@ void TwoDPage::buildUi()
            "subcatchment containing each cell. Aquifer-covered cells compute "
            "their own capacity and skip surface defaults. Use Assign Groundwater "
            "to migrate the obsolete AQUIFER_2D destination."));
-    rainfallForm->addRow(tr("Destination:"), m_infil2DDestCombo);
+    // The memory selector shares the destination row: the Processes tab must not scroll at
+    // 1280x800 (gate noScrollAt1280x800).
+    m_infilMemoryCombo = new QComboBox(rainfallGroup);
+    m_infilMemoryCombo->setObjectName(QStringLiteral("infilMemoryCombo"));
+    m_infilMemoryCombo->addItem(tr("What infiltrated; default"), QStringLiteral("APPLIED"));
+    m_infilMemoryCombo->addItem(tr("The held offer"), QStringLiteral("OFFER"));
+    m_infilMemoryCombo->setToolTip(
+        tr("[2D_OPTIONS] INFIL_MEMORY — what advances a cell's infiltration history between "
+           "rate refreshes. What infiltrated: the kernel remembers the depth the surface took, "
+           "so a cell that dries during a hold keeps its capacity. The held offer: the kernel "
+           "remembers the full held rate times the span, the earlier scheme."));
+    auto *destRow = new QWidget(rainfallGroup);
+    auto *destLay = new QHBoxLayout(destRow);
+    destLay->setContentsMargins(0, 0, 0, 0);
+    destLay->addWidget(m_infil2DDestCombo, 1);
+    auto *memoryLabel = new QLabel(tr("Memory:"), destRow);
+    memoryLabel->setBuddy(m_infilMemoryCombo);
+    destLay->addWidget(memoryLabel);
+    destLay->addWidget(m_infilMemoryCombo, 1);
+    rainfallForm->addRow(tr("Destination:"), destRow);
 
     m_editInfilCellsBtn = new QPushButton(tr("Edit per-cell infiltration…"), rainfallGroup);
     m_editInfilCellsBtn->setObjectName(QStringLiteral("editInfilCellsBtn"));
@@ -1140,6 +1171,7 @@ void TwoDPage::tagWidgets()
     tagOption(m_couplingAreaAutoBox, "COUPLING_AREA");
     tagOption(m_couplingInFloodingBox, "COUPLING_IN_FLOODING");
     tagOption(m_frontRebuildCombo, "FRONT_REBUILD");
+    tagOption(m_lazySourceLandingCombo, "LAZY_SOURCE_LANDING");
     tagOption(m_heatSurfaceCombo, "HEAT_SURFACE_EXCHANGE");
     tagOption(m_heatRadiativeCombo, "HEAT_RADIATIVE_EXCHANGE");
     tagOption(m_output2DFileEdit, "OUTPUT_FILE");
@@ -1156,6 +1188,7 @@ void TwoDPage::tagWidgets()
     tagOption(m_infil2DModeCombo, "INFILTRATION");
     tagOption(m_infil2DMethodCombo, "INFIL_DEFAULT_METHOD");
     tagOption(m_infil2DDestCombo, "INFIL_DESTINATION");
+    tagOption(m_infilMemoryCombo, "INFIL_MEMORY");
     tagOption(m_evap2DCombo, "EVAPORATION");
     tagOption(m_gw2DEnableCombo, "GROUNDWATER");
     tagOption(m_gw2DEtCombo, "GW_ET");
@@ -1568,6 +1601,12 @@ void TwoDPage::read()
     m_couplingInFloodingBox->setChecked(
         SOD::parseEngineBool(getExt("COUPLING_IN_FLOODING", QStringLiteral("NO"))) == Qt::Checked);
     selectComboByData(m_frontRebuildCombo, getExt("FRONT_REBUILD", QStringLiteral("AUTO")).toUpper());
+    // Keys an older engine does not know: the editor stays disabled and is not written.
+    const QString lazyLanding = getExt("LAZY_SOURCE_LANDING", QString());
+    m_lazySourceLandingCombo->setProperty("engineSupported", !lazyLanding.isEmpty());
+    m_lazySourceLandingCombo->setEnabled(!lazyLanding.isEmpty());
+    selectComboByData(m_lazySourceLandingCombo,
+                      lazyLanding.isEmpty() ? QStringLiteral("STEP") : lazyLanding.toUpper());
     selectComboByData(m_heatSurfaceCombo,
                       getExt("HEAT_SURFACE_EXCHANGE", QStringLiteral("AUTO")).toUpper());
     selectComboByData(m_heatRadiativeCombo,
@@ -1667,6 +1706,11 @@ void TwoDPage::read()
     }
     selectComboByData(m_infil2DMethodCombo, getExt("INFIL_DEFAULT_METHOD", QStringLiteral("NONE")));
     selectComboByData(m_infil2DDestCombo, getExt("INFIL_DESTINATION", QStringLiteral("LOST")));
+    const QString infilMemory = getExt("INFIL_MEMORY", QString());
+    m_infilMemoryCombo->setProperty("engineSupported", !infilMemory.isEmpty());
+    m_infilMemoryCombo->setEnabled(!infilMemory.isEmpty());
+    selectComboByData(m_infilMemoryCombo,
+                      infilMemory.isEmpty() ? QStringLiteral("APPLIED") : infilMemory.toUpper());
     selectComboByData(m_evap2DCombo, getExt("EVAPORATION", QStringLiteral("YES")));
     for (int c = 0; c < 4; ++c) {
         QSignalBlocker b(m_transport2DBox[c]);
@@ -1788,6 +1832,8 @@ int TwoDPage::write()
                                                                        : QStringLiteral("DEFAULT"));
     writeIfChanged("COUPLING_IN_FLOODING", SOD::engineBoolString(m_couplingInFloodingBox->isChecked()));
     writeIfChanged("FRONT_REBUILD", m_frontRebuildCombo->currentData().toString());
+    if (m_lazySourceLandingCombo->property("engineSupported").toBool())
+        writeIfChanged("LAZY_SOURCE_LANDING", m_lazySourceLandingCombo->currentData().toString());
     writeIfChanged("HEAT_SURFACE_EXCHANGE", m_heatSurfaceCombo->currentData().toString());
     writeIfChanged("HEAT_RADIATIVE_EXCHANGE", m_heatRadiativeCombo->currentData().toString());
     writeIfChanged("COUPLING_LAW", m_couplingLawCombo->currentData().toString());
@@ -1871,6 +1917,8 @@ int TwoDPage::write()
     }
     writeIfChanged("INFIL_DEFAULT_METHOD", m_infil2DMethodCombo->currentData().toString());
     writeIfChanged("INFIL_DESTINATION", m_infil2DDestCombo->currentData().toString());
+    if (m_infilMemoryCombo->property("engineSupported").toBool())
+        writeIfChanged("INFIL_MEMORY", m_infilMemoryCombo->currentData().toString());
     writeIfChanged("EVAPORATION", m_evap2DCombo->currentData().toString());
     for (int c = 0; c < 4; ++c)
         writeIfChanged(transport2DKey(c), SOD::engineBoolString(m_transport2DBox[c]->isChecked()));

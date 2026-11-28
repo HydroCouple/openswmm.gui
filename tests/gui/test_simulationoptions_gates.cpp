@@ -230,6 +230,10 @@ private slots:
     void durationAcrossDaylightSavingIsWallClock();
     void routingStepTypedUnderDecimalCommaLocaleIsWritten();
     void reviewG05G06OptionsHaveEditorsAndApply();
+    /** @brief RUNOFF_ODE_SOLVER, LAZY_SOURCE_LANDING and INFIL_MEMORY have editors that are
+     *  enabled only when the attached engine knows the keys, read the engine defaults and
+     *  apply an edit back through the engine API. */
+    void runoffOdeSolverAndTwoDMemoryKeysApplyWhenTheEngineKnowsThem();
     /** @brief Review G-02: the ARD transport table models offer the model's nodes, conduits
      *  and reaction species, refuse each bad row by name, and write the rows they validate. */
     void ardTransportRowsAreCheckedBeforeApply();
@@ -1956,7 +1960,8 @@ void TestSimulationOptionsGates::reviewG05G06OptionsHaveEditorsAndApply()
                             "HEAT_RADIATIVE_EXCHANGE", "WATER_DENSITY",
                             "WATER_SPECIFIC_HEAT_CAPACITY", "WIND_FUNC_COEFF_A",
                             "WIND_FUNC_COEFF_B", "PRESSURE_RATIO", "FV_NODE_FEEDBACK_DT",
-                            "WRITE_ABSOLUTE_PATHS"})
+                            "WRITE_ABSOLUTE_PATHS", "RUNOFF_ODE_SOLVER", "LAZY_SOURCE_LANDING",
+                            "INFIL_MEMORY"})
         QVERIFY2(editorFor(key), key);
 
     auto *flooding = qobject_cast<QCheckBox *>(editorFor("COUPLING_IN_FLOODING"));
@@ -1989,6 +1994,47 @@ void TestSimulationOptionsGates::reviewG05G06OptionsHaveEditorsAndApply()
     QCOMPARE(SimulationOptionsDialog::parseEngineBool(QString::fromLatin1(buf)), Qt::Checked);
     QCOMPARE(swmm_options_get(e, "WRITE_ABSOLUTE_PATHS", buf, sizeof buf), 0);
     QCOMPARE(SimulationOptionsDialog::parseEngineBool(QString::fromLatin1(buf)), Qt::Checked);
+}
+
+void TestSimulationOptionsGates::runoffOdeSolverAndTwoDMemoryKeysApplyWhenTheEngineKnowsThem()
+{
+    auto layer = openLayer(fixture(QStringLiteral("mini_2d.inp")));
+    QVERIFY2(layer, "mini_2d.inp failed to load");
+    SWMM_Engine e = layer->engine();
+    SimulationOptionsDialog dlg(e, layer.get(), QStringLiteral("6.0.0"), nullptr, nullptr);
+    auto comboFor = [&](const char *key) -> QComboBox * {
+        for (auto *w : dlg.findChildren<QComboBox *>())
+            if (w->property("optionKey").toString().split(QLatin1Char(',')).contains(QLatin1String(key)))
+                return w;
+        return nullptr;
+    };
+    auto *ode = comboFor("RUNOFF_ODE_SOLVER");
+    auto *landing = comboFor("LAZY_SOURCE_LANDING");
+    auto *memory = comboFor("INFIL_MEMORY");
+    QVERIFY(ode && landing && memory);
+    // The three keys arrived in the engine together: one probe says whether it knows them,
+    // and each editor is enabled exactly then.
+    char buf[64] = {};
+    const bool known = swmm_options_get(e, "RUNOFF_ODE_SOLVER", buf, sizeof buf) == 0;
+    QCOMPARE(ode->isEnabled(), known);
+    QCOMPARE(landing->isEnabled(), known);
+    QCOMPARE(memory->isEnabled(), known);
+    if (!known)
+        QSKIP("The attached engine predates RUNOFF_ODE_SOLVER, LAZY_SOURCE_LANDING and "
+              "INFIL_MEMORY: the editors stay disabled and are not written.");
+    QCOMPARE(ode->currentData().toString(), QStringLiteral("LEGACY"));
+    QCOMPARE(landing->currentData().toString(), QStringLiteral("STEP"));
+    QCOMPARE(memory->currentData().toString(), QStringLiteral("APPLIED"));
+    ode->setCurrentIndex(ode->findData(QStringLiteral("EXACT")));
+    landing->setCurrentIndex(landing->findData(QStringLiteral("REBUILD")));
+    memory->setCurrentIndex(memory->findData(QStringLiteral("OFFER")));
+    QVERIFY(QMetaObject::invokeMethod(&dlg, "onApply", Qt::DirectConnection));
+    QCOMPARE(swmm_options_get(e, "RUNOFF_ODE_SOLVER", buf, sizeof buf), 0);
+    QCOMPARE(QString::fromLatin1(buf), QStringLiteral("EXACT"));
+    QCOMPARE(swmm_options_get_ext(e, "LAZY_SOURCE_LANDING", buf, sizeof buf), 0);
+    QCOMPARE(QString::fromLatin1(buf), QStringLiteral("REBUILD"));
+    QCOMPARE(swmm_options_get_ext(e, "INFIL_MEMORY", buf, sizeof buf), 0);
+    QCOMPARE(QString::fromLatin1(buf), QStringLiteral("OFFER"));
 }
 
 namespace
